@@ -341,6 +341,9 @@ private:
     friend class future;
 };
 
+template<>
+class promise<void> : public promise<> {};
+
 template <typename... T> struct is_future : std::false_type {};
 template <typename... T> struct is_future<future<T...>> : std::true_type {};
 
@@ -349,6 +352,52 @@ struct ready_future_from_tuple_marker {};
 struct exception_future_marker {};
 
 extern __thread size_t future_avail_count;
+
+// Converts a type to a future type, if it isn't already.
+//
+// Result in member type 'type'.
+template <typename T>
+struct futurize;
+
+template <typename T>
+struct futurize {
+    using type = future<T>;
+    using promise_type = promise<T>;
+
+    template<typename Func, typename... FuncArgs>
+    static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args);
+
+    template<typename Func, typename... FuncArgs>
+    static inline type apply(Func&& func, FuncArgs&&... args);
+};
+
+template <>
+struct futurize<void> {
+    using type = future<>;
+    using promise_type = promise<>;
+
+    template<typename Func, typename... FuncArgs>
+    static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args);
+
+    template<typename Func, typename... FuncArgs>
+    static inline type apply(Func&& func, FuncArgs&&... args);
+};
+
+template <typename... Args>
+struct futurize<future<Args...>> {
+    using type = future<Args...>;
+    using promise_type = promise<Args...>;
+
+    template<typename Func, typename... FuncArgs>
+    static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args);
+
+    template<typename Func, typename... FuncArgs>
+    static inline type apply(Func&& func, FuncArgs&&... args);
+};
+
+// Converts a type to a future type, if it isn't already.
+template <typename T>
+using futurize_t = typename futurize<T>::type;
 
 template <typename... T>
 class future {
@@ -433,27 +482,23 @@ public:
         return state()->failed();
     }
 
-    template <typename Func, typename Enable>
-    void then(Func, Enable) noexcept;
-
     template <typename Func>
-    future<> then(Func&& func,
-            std::enable_if_t<std::is_same<std::result_of_t<Func(T&&...)>, void>::value, void*> = nullptr) noexcept {
+    futurize_t<std::result_of_t<Func(T&&...)>> then(Func&& func) noexcept {
+        using futurator = futurize<std::result_of_t<Func(T&&...)>>;
         if (state()->available() && (++future_avail_count % 256)) {
             try {
-                apply(std::move(func), std::move(state()->get()));
-                return make_ready_future<>();
+                return futurator::apply(std::forward<Func>(func), std::move(state()->get()));
             } catch (...) {
-                return make_exception_future(std::current_exception());
+                typename futurator::promise_type p;
+                p.set_exception(std::current_exception());
+                return p.get_future();
             }
         }
-        promise<> pr;
+        typename futurator::promise_type pr;
         auto fut = pr.get_future();
-
         schedule([pr = std::move(pr), func = std::forward<Func>(func)] (auto& state) mutable {
             try {
-                apply(std::move(func), state.get());
-                pr.set_value();
+                futurator::apply(std::forward<Func>(func), state.get()).forward_to(std::move(pr));
             } catch (...) {
                 pr.set_exception(std::current_exception());
             }
@@ -472,40 +517,13 @@ public:
     }
 
     template <typename Func>
-    std::result_of_t<Func(T&&...)>
-    then(Func&& func,
-            std::enable_if_t<is_future<std::result_of_t<Func(T&&...)>>::value, void*> = nullptr) noexcept {
-        using P = typename std::result_of_t<Func(T&&...)>::promise_type;
-        if (state()->available() && (++future_avail_count % 256)) {
-            try {
-                return apply(std::move(func), std::move(state()->get()));
-            } catch (...) {
-                P pr;
-                pr.set_exception(std::current_exception());
-                return pr.get_future();
-            }
-        }
-        P pr;
-        auto next_fut = pr.get_future();
-        schedule([func = std::forward<Func>(func), pr = std::move(pr)] (auto& state) mutable {
-            try {
-                auto result = state.get();
-                auto next_fut = apply(std::move(func), std::move(result));
-                next_fut.forward_to(std::move(pr));
-            } catch (...) {
-                pr.set_exception(std::current_exception());
-            }
-        });
-        return next_fut;
-    }
-
-    template <typename Func>
-    std::result_of_t<Func(future<T...>)>
-    then_wrapped(Func&& func) && noexcept {
-        using P = typename std::result_of_t<Func(future<T...>)>::promise_type;
+    futurize_t<std::result_of_t<Func(future<T...>)>>
+    then_wrapped(Func&& func) noexcept {
+        using futurator = futurize<std::result_of_t<Func(future<T...>)>>;
+        using P = typename futurator::promise_type;
         if (state()->available()) {
             try {
-                return func(std::move(*this));
+                return futurator::apply(std::forward<Func>(func), std::move(*this));
             } catch (...) {
                 P pr;
                 pr.set_exception(std::current_exception());
@@ -516,8 +534,8 @@ public:
         auto next_fut = pr.get_future();
         _promise->schedule([func = std::forward<Func>(func), pr = std::move(pr)] (auto& state) mutable {
             try {
-                auto next_fut = func(future(std::move(state)));
-                next_fut.forward_to(std::move(pr));
+                futurator::apply(std::forward<Func>(func), future(std::move(state)))
+                    .forward_to(std::move(pr));
             } catch (...) {
                 pr.set_exception(std::current_exception());
             }
@@ -527,33 +545,28 @@ public:
         return next_fut;
     }
 
+    /**
+     * Finally continuation for statements that require waiting for the result. I.e. you need to "finally" call
+     * a function that returns a possibly unavailable future.
+     * The returned future will be "waited for", any exception generated will be propagated, but the return value
+     * is ignored. I.e. the original return value (the future upon which you are making this call) will be preserved.
+     */
     template <typename Func>
-    future<> rescue(Func&& func) && noexcept {
-        if (state()->available()) {
-            try {
-                func([&state = *state()] { return state.get(); });
-                return make_ready_future();
-            } catch (...) {
-                return make_exception_future(std::current_exception());
-            }
-        }
-        promise<> pr;
-        auto f = pr.get_future();
-        _promise->schedule([pr = std::move(pr), func = std::forward<Func>(func)] (auto& state) mutable {
-            try {
-                func([&state]() mutable { return state.get(); });
-                pr.set_value();
-            } catch (...) {
-                pr.set_exception(std::current_exception());
-            }
+    future<T...> finally(Func&& func, std::enable_if_t<is_future<std::result_of_t<Func()>>::value, void*> = nullptr) noexcept {
+        return std::move(*this).then_wrapped([func = std::forward<Func>(func)](future<T...> result) {
+            return func().then_wrapped([result = std::move(result)](auto f_res) mutable {
+                try {
+                    f_res.get(); // force excepion if one
+                    return std::move(result);
+                } catch (...) {
+                    return make_exception_future<T...>(std::current_exception());
+                }
+            });
         });
-        _promise->_future = nullptr;
-        _promise = nullptr;
-        return f;
     }
 
     template <typename Func>
-    future<T...> finally(Func&& func) noexcept {
+    future<T...> finally(Func&& func, std::enable_if_t<!is_future<std::result_of_t<Func()>>::value, void*> = nullptr) noexcept {
         promise<T...> pr;
         auto f = pr.get_future();
         if (state()->available()) {
@@ -581,9 +594,9 @@ public:
     }
 
     future<> or_terminate() && noexcept {
-        return std::move(*this).rescue([] (auto get) {
+        return std::move(*this).then_wrapped([] (auto&& f) {
             try {
-                get();
+                f.get();
             } catch (...) {
                 engine_exit(std::current_exception());
             }
@@ -665,6 +678,42 @@ template <typename... T, typename Exception>
 inline
 future<T...> make_exception_future(Exception&& ex) noexcept {
     return make_exception_future<T...>(std::make_exception_ptr(std::forward<Exception>(ex)));
+}
+
+template<typename T>
+template<typename Func, typename... FuncArgs>
+typename futurize<T>::type futurize<T>::apply(Func&& func, std::tuple<FuncArgs...>&& args) {
+    return make_ready_future<T>(::apply(std::forward<Func>(func), std::move(args)));
+}
+
+template<typename T>
+template<typename Func, typename... FuncArgs>
+typename futurize<T>::type futurize<T>::apply(Func&& func, FuncArgs&&... args) {
+    return make_ready_future<T>(func(std::forward<FuncArgs>(args)...));
+}
+
+template<typename Func, typename... FuncArgs>
+typename futurize<void>::type futurize<void>::apply(Func&& func, std::tuple<FuncArgs...>&& args) {
+    ::apply(std::forward<Func>(func), std::move(args));
+    return make_ready_future<>();
+}
+
+template<typename Func, typename... FuncArgs>
+typename futurize<void>::type futurize<void>::apply(Func&& func, FuncArgs&&... args) {
+    func(std::forward<FuncArgs>(args)...);
+    return make_ready_future<>();
+}
+
+template<typename... Args>
+template<typename Func, typename... FuncArgs>
+typename futurize<future<Args...>>::type futurize<future<Args...>>::apply(Func&& func, std::tuple<FuncArgs...>&& args) {
+    return ::apply(std::forward<Func>(func), std::move(args));
+}
+
+template<typename... Args>
+template<typename Func, typename... FuncArgs>
+typename futurize<future<Args...>>::type futurize<future<Args...>>::apply(Func&& func, FuncArgs&&... args) {
+    return func(std::forward<FuncArgs>(args)...);
 }
 
 #endif /* FUTURE_HH_ */
