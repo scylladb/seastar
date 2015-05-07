@@ -72,6 +72,10 @@ struct ipv4_address {
     friend bool operator!=(ipv4_address x, ipv4_address y) {
         return x.ip != y.ip;
     }
+    sstring to_string() const {
+        boost::asio::ip::address_v4 addr(ip);
+        return addr.to_string();
+    }
 } __attribute__((packed));
 
 static inline bool is_unspecified(ipv4_address addr) { return addr.ip == 0; }
