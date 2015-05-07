@@ -205,6 +205,7 @@ libnet = [
     'net/udp.cc',
     'net/tcp.cc',
     'net/dhcp.cc',
+    'net/nat-adapter.cc',
     ]
 
 core = [
