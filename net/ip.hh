@@ -40,6 +40,7 @@
 #include "core/shared_ptr.hh"
 #include "toeplitz.hh"
 #include "net/udp.hh"
+#include "net/nat-adapter.hh"
 
 namespace net {
 
@@ -202,10 +203,12 @@ public:
         });
     }
     void received(packet p, ipaddr from, ipaddr to);
+    void register_nat_adapter(lw_shared_ptr<nat_adapter> h);
 private:
     inet_type& _inet;
     circular_buffer<ipv4_traits::l4packet> _packetq;
     semaphore _queue_space = {212992};
+    lw_shared_ptr<nat_adapter> _nat_adapter;
 };
 
 class ipv4_icmp final : public ip_protocol {
@@ -216,6 +219,7 @@ public:
     virtual void received(packet p, ipv4_address from, ipv4_address to) {
         _icmp.received(std::move(p), from, to);
     }
+    void register_nat_adapter(lw_shared_ptr<nat_adapter> h);
     friend class ipv4;
 };
 
@@ -233,6 +237,7 @@ private:
     const uint16_t _local_port_end;
     uint16_t _next_anonymous_port;
     circular_buffer<std::tuple<ipv4_traits::l4packet, lw_shared_ptr<udp_channel_state>, size_t>> _packetq;
+    lw_shared_ptr<nat_adapter> _nat_adapter;
 private:
     uint16_t next_port(uint16_t port);
 public:
@@ -258,6 +263,7 @@ public:
     void send(uint16_t src_port, ipv4_addr dst, packet &&p, lw_shared_ptr<udp_channel_state> channel);
     bool forward(forward_hash& out_hash_data, packet& p, size_t off) override;
     void set_queue_size(int size) { _queue_size = size; }
+    void register_nat_adapter(lw_shared_ptr<nat_adapter> h);
 };
 
 struct ip_hdr;
@@ -337,6 +343,7 @@ private:
     timer<lowres_clock> _frag_timer;
     circular_buffer<l3_protocol::l3packet> _packetq;
     unsigned _pkt_provider_idx = 0;
+    lw_shared_ptr<nat_adapter> _nat_adapter;
 private:
     future<> handle_received_packet(packet p, ethernet_address from);
     bool forward(forward_hash& out_hash_data, packet& p, size_t off);
@@ -382,6 +389,7 @@ public:
         _pkt_providers.push_back(std::move(func));
     }
     future<ethernet_address> get_l2_dst_address(ipv4_address to);
+    void register_nat_adapter(lw_shared_ptr<nat_adapter> h);
 };
 
 template <ip_protocol_num ProtoNum>

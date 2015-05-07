@@ -111,6 +111,7 @@ class interface {
         l3_rx_stream(std::function<bool (forward_hash&, packet&, size_t)>&& fw) : ready(packet_stream.started()), forward(fw) {}
     };
     std::unordered_map<uint16_t, l3_rx_stream> _proto_map;
+    std::function<future<> (packet p, ethernet_address from)> _proto_unhandled_fn;
     std::shared_ptr<device> _dev;
     subscription<packet> _rx;
     ethernet_address _hw_address;
@@ -125,6 +126,7 @@ public:
     subscription<packet, ethernet_address> register_l3(eth_protocol_num proto_num,
             std::function<future<> (packet p, ethernet_address from)> next,
             std::function<bool (forward_hash&, packet&, size_t)> forward);
+    void register_l3_unhandled(std::function<future<> (packet p, ethernet_address from)> handle);
     void forward(unsigned cpuid, packet p);
     unsigned hash2cpu(uint32_t hash);
     void register_packet_provider(l3_protocol::packet_provider_type func) {

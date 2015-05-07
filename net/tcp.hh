@@ -31,6 +31,7 @@
 #include "ip.hh"
 #include "const.hh"
 #include "packet-util.hh"
+#include "nat-adapter.hh"
 #include <unordered_map>
 #include <map>
 #include <functional>
@@ -49,6 +50,7 @@ using namespace std::chrono_literals;
 namespace net {
 
 class tcp_hdr;
+class nat_adapter;
 
 inline auto tcp_error(int err) {
     return std::system_error(err, std::system_category());
@@ -531,11 +533,16 @@ private:
     // queue for packets that do not belong to any tcb
     circular_buffer<ipv4_traits::l4packet> _packetq;
     semaphore _queue_space = {212992};
+    lw_shared_ptr<nat_adapter> _nat_adapter;
 public:
     class connection {
         lw_shared_ptr<tcb> _tcb;
+        lw_shared_ptr<nat_adapter> _nat_adapter;
     public:
         explicit connection(lw_shared_ptr<tcb> tcbp) : _tcb(std::move(tcbp)) { _tcb->_conn = this; }
+        explicit connection(lw_shared_ptr<tcb> tcbp, lw_shared_ptr<nat_adapter> h) : _tcb(std::move(tcbp)), _nat_adapter(h) {
+            _tcb->_conn = this;
+        }
         connection(const connection&) = delete;
         connection(connection&& x) noexcept : _tcb(std::move(x._tcb)) {
             _tcb->_conn = this;
@@ -599,6 +606,7 @@ public:
     future<connection> connect(socket_address sa);
     const net::hw_features& hw_features() const { return _inet._inet.hw_features(); }
     future<> poll_tcb(ipaddr to, lw_shared_ptr<tcb> tcb);
+    void register_nat_adapter(lw_shared_ptr<nat_adapter> h) { _nat_adapter = h; }
 private:
     void send_packet_without_tcb(ipaddr from, ipaddr to, packet p);
     void respond_with_reset(tcp_hdr* rth, ipaddr local_ip, ipaddr foreign_ip);
@@ -662,8 +670,8 @@ future<typename tcp<InetTraits>::connection> tcp<InetTraits>::connect(socket_add
     _tcbs.insert({id, tcbp});
     tcbp->connect();
 
-    return tcbp->connect_done().then([tcbp] {
-        return make_ready_future<connection>(connection(tcbp));
+    return tcbp->connect_done().then([this, tcbp] {
+        return make_ready_future<connection>(connection(tcbp, _nat_adapter));
     });
 }
 
@@ -702,7 +710,13 @@ void tcp<InetTraits>::received(packet p, ipaddr from, ipaddr to) {
     lw_shared_ptr<tcb> tcbp;
     if (tcbi == _tcbs.end()) {
         auto listener = _listening.find(id.local_port);
-        if (listener == _listening.end() || listener->second->_q.full()) {
+        if (listener == _listening.end()) {
+            // Redirect packet to NAT adapter if it's not SeaStar's flow
+            if (_nat_adapter) {
+                p.untrim_front();
+                _nat_adapter->send(std::move(p));
+                return;
+            }
             // 1) In CLOSE state
             // 1.1 all data in the incoming segment is discarded.  An incoming
             // segment containing a RST is discarded. An incoming segment not
@@ -710,6 +724,8 @@ void tcp<InetTraits>::received(packet p, ipaddr from, ipaddr to) {
             // FIXME:
             //      if ACK off: <SEQ=0><ACK=SEG.SEQ+SEG.LEN><CTL=RST,ACK>
             //      if ACK on:  <SEQ=SEG.ACK><CTL=RST>
+            return respond_with_reset(&h, id.local_ip, id.foreign_ip);
+        } else if (listener->second->_q.full()) {
             return respond_with_reset(&h, id.local_ip, id.foreign_ip);
         } else {
             // 2) In LISTEN state

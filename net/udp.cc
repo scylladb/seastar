@@ -20,6 +20,7 @@
  */
 
 #include "ip.hh"
+#include "nat-adapter.hh"
 
 using namespace net;
 
@@ -154,6 +155,12 @@ void ipv4_udp::received(packet p, ipv4_address from, ipv4_address to)
     if (chan_it != _channels.end()) {
         auto chan = chan_it->second;
         chan->_queue.push(std::move(dgram));
+    } else {
+        if (_nat_adapter) {
+            auto p1 = dgram.get_data().share();
+            p1.untrim_front();
+            _nat_adapter->send(std::move(p1));
+        }
     }
 }
 
@@ -220,6 +227,10 @@ ipv4_udp::make_channel(ipv4_addr addr) {
     auto chan_state = make_lw_shared<udp_channel_state>(_queue_size);
     _channels[bind_port] = chan_state;
     return udp_channel(std::make_unique<native_channel>(*this, registration(*this, bind_port), chan_state));
+}
+
+void ipv4_udp::register_nat_adapter(lw_shared_ptr<nat_adapter> h) {
+    _nat_adapter = h;
 }
 
 } /* namespace net */

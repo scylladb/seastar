@@ -29,6 +29,7 @@
 #include "ethernet.hh"
 #include "core/print.hh"
 #include <unordered_map>
+#include "net/nat-adapter.hh"
 
 namespace net {
 
@@ -54,6 +55,7 @@ class arp {
     subscription<packet, ethernet_address> _rx_packets;
     std::unordered_map<uint16_t, arp_for_protocol*> _arp_for_protocol;
     circular_buffer<l3_protocol::l3packet> _packetq;
+    lw_shared_ptr<nat_adapter> _nat_adapter;
 private:
     struct arp_hdr {
         packed<uint16_t> htype;
@@ -66,6 +68,7 @@ public:
     explicit arp(interface* netif);
     void add(uint16_t proto_num, arp_for_protocol* afp);
     void del(uint16_t proto_num);
+    void register_nat_adapter(lw_shared_ptr<nat_adapter> h) { _nat_adapter = h; }
 private:
     ethernet_address l2self() { return _netif->hw_address(); }
     future<> process_packet(packet p, ethernet_address from);
