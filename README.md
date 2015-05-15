@@ -172,7 +172,7 @@ operation:
 
 ```C++
 future<int> get();   // promises an int will be produced eventually
-future<> put(int)    // promises to store an int
+future<> put(int);   // promises to store an int
 
 void f() {
     get().then([] (int value) {
@@ -197,7 +197,7 @@ could be rewritten as:
 
 ```C++
 future<int> get();   // promises an int will be produced eventually
-future<> put(int)    // promises to store an int
+future<> put(int);   // promises to store an int
 
 void f() {
     get().then([] (int value) {
@@ -215,7 +215,7 @@ Loops are achieved with a tail call; for example:
 
 ```C++
 future<int> get();   // promises an int will be produced eventually
-future<> put(int)    // promises to store an int
+future<> put(int);   // promises to store an int
 
 future<> loop_to(int end) {
     if (value == end) {
