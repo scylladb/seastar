@@ -73,17 +73,28 @@ static xen_info is_xen()
 #endif
 
 void create_native_net_device(boost::program_options::variables_map opts) {
+    create_device(opts).then([opts] (std::shared_ptr<device> sdev) {
+        for (unsigned i = 0; i < smp::count; i++) {
+            smp::submit_to(i, [opts, sdev] {
+                create_native_stack(opts, sdev);
+            });
+        }
+    });
+
+}
+
+future<std::shared_ptr<device>> create_device(boost::program_options::variables_map opts, bool try_xen_dpdk) {
     std::unique_ptr<device> dev;
 
 #ifdef HAVE_XEN
     auto xen = is_xen();
-    if (xen != xen_info::nonxen) {
+    if (try_xen_dpdk && xen != xen_info::nonxen) {
         dev = xen::create_xenfront_net_device(opts, xen == xen_info::userspace);
     } else
 #endif
 
 #ifdef HAVE_DPDK
-    if (opts.count("dpdk-pmd")) {
+    if (try_xen_dpdk && opts.count("dpdk-pmd")) {
         // Hardcoded port index 0.
         // TODO: Inherit it from the opts
         dev = create_dpdk_net_device(0, smp::count,
@@ -115,13 +126,9 @@ void create_native_net_device(boost::program_options::variables_map opts) {
             sem->signal();
         });
     }
-    sem->wait(smp::count).then([opts, sdev] {
-        sdev->link_ready().then([opts, sdev] {
-            for (unsigned i = 0; i < smp::count; i++) {
-                smp::submit_to(i, [opts, sdev] {
-                    create_native_stack(opts, sdev);
-                });
-            }
+    return sem->wait(smp::count).then([sdev = std::move(sdev)] {
+        return sdev->link_ready().then([sdev = std::move(sdev)] {
+            return make_ready_future<std::shared_ptr<device>>(std::move(sdev));
         });
     });
 }

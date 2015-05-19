@@ -28,6 +28,7 @@
 namespace net {
 
 void create_native_stack(boost::program_options::variables_map opts, std::shared_ptr<device> dev);
+future<std::shared_ptr<device>> create_device(boost::program_options::variables_map opts, bool try_xen_dpdk = true);
 
 }
 
