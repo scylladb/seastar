@@ -117,8 +117,8 @@ using namespace net::ipv4_udp_impl;
 
 const int ipv4_udp::default_queue_size = 1024;
 
-ipv4_udp::ipv4_udp(ipv4& inet)
-    : _inet(inet)
+ipv4_udp::ipv4_udp(ipv4& inet, const uint16_t local_port_start, const uint16_t local_port_end)
+    : _inet(inet), _local_port_start(local_port_start), _local_port_end(local_port_end), _next_anonymous_port(local_port_start)
 {
     _inet.register_packet_provider([this] {
         std::experimental::optional<ipv4_traits::l4packet> l4p;
@@ -188,7 +188,7 @@ void ipv4_udp::send(uint16_t src_port, ipv4_addr dst, packet &&p, lw_shared_ptr<
 }
 
 uint16_t ipv4_udp::next_port(uint16_t port) {
-    return (port + 1) == 0 ? min_anonymous_port : port + 1;
+    return port == _local_port_end ? _local_port_start : port + 1;
 }
 
 udp_channel

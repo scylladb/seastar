@@ -163,7 +163,7 @@ class ipv4_tcp final : public ip_protocol {
     ipv4_l4<ip_protocol_num::tcp> _inet_l4;
     std::unique_ptr<tcp<ipv4_traits>> _tcp;
 public:
-    ipv4_tcp(ipv4& inet);
+    ipv4_tcp(ipv4& inet, const uint16_t local_port_start, const uint16_t local_port_end);
     ~ipv4_tcp();
     virtual void received(packet p, ipv4_address from, ipv4_address to);
     virtual bool forward(forward_hash& out_hash_data, packet& p, size_t off) override;
@@ -226,11 +226,12 @@ class ipv4_udp : public ip_protocol {
 public:
     static const int default_queue_size;
 private:
-    static const uint16_t min_anonymous_port = 32768;
     ipv4 &_inet;
     std::unordered_map<uint16_t, lw_shared_ptr<udp_channel_state>> _channels;
     int _queue_size = default_queue_size;
-    uint16_t _next_anonymous_port = min_anonymous_port;
+    const uint16_t _local_port_start;
+    const uint16_t _local_port_end;
+    uint16_t _next_anonymous_port;
     circular_buffer<std::tuple<ipv4_traits::l4packet, lw_shared_ptr<udp_channel_state>, size_t>> _packetq;
 private:
     uint16_t next_port(uint16_t port);
@@ -251,7 +252,7 @@ public:
         }
     };
 
-    ipv4_udp(ipv4& inet);
+    ipv4_udp(ipv4& inet, const uint16_t local_port_start = 49153, const uint16_t local_port_end = 65535);
     udp_channel make_channel(ipv4_addr addr);
     virtual void received(packet p, ipv4_address from, ipv4_address to) override;
     void send(uint16_t src_port, ipv4_addr dst, packet &&p, lw_shared_ptr<udp_channel_state> channel);
@@ -353,7 +354,7 @@ private:
         frag_arm(now);
     }
 public:
-    explicit ipv4(interface* netif);
+    explicit ipv4(interface* netif, const uint16_t local_port_start = 49153, const uint16_t local_port_end = 65535);
     void set_host_address(ipv4_address ip);
     ipv4_address host_address();
     void set_gw_address(ipv4_address ip);

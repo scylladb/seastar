@@ -526,7 +526,7 @@ private:
     std::unordered_map<uint16_t, listener*> _listening;
     std::random_device _rd;
     std::default_random_engine _e;
-    std::uniform_int_distribution<uint16_t> _port_dist{41952, 65535};
+    std::uniform_int_distribution<uint16_t> _port_dist;
     circular_buffer<std::pair<lw_shared_ptr<tcb>, ethernet_address>> _poll_tcbs;
     // queue for packets that do not belong to any tcb
     circular_buffer<ipv4_traits::l4packet> _packetq;
@@ -592,7 +592,7 @@ public:
         friend class tcp;
     };
 public:
-    explicit tcp(inet_type& inet);
+    explicit tcp(inet_type& inet, const uint16_t local_port_start = 49153, const uint16_t local_port_end = 65535);
     void received(packet p, ipaddr from, ipaddr to);
     bool forward(forward_hash& out_hash_data, packet& p, size_t off);
     listener listen(uint16_t port, size_t queue_length = 100);
@@ -606,7 +606,7 @@ private:
 };
 
 template <typename InetTraits>
-tcp<InetTraits>::tcp(inet_type& inet) : _inet(inet), _e(_rd()) {
+tcp<InetTraits>::tcp(inet_type& inet, const uint16_t local_port_start, const uint16_t local_port_end) : _inet(inet), _e(_rd()), _port_dist(local_port_start, local_port_end) {
     _inet.register_packet_provider([this, tcb_polled = 0u] () mutable {
         std::experimental::optional<typename InetTraits::l4packet> l4p;
         auto c = _poll_tcbs.size();

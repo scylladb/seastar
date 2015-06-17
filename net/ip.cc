@@ -41,7 +41,7 @@ constexpr std::chrono::seconds ipv4::_frag_timeout;
 constexpr uint32_t ipv4::_frag_low_thresh;
 constexpr uint32_t ipv4::_frag_high_thresh;
 
-ipv4::ipv4(interface* netif)
+ipv4::ipv4(interface* netif, uint16_t local_port_start, uint16_t local_port_end)
     : _netif(netif)
     , _global_arp(netif)
     , _arp(_global_arp)
@@ -53,9 +53,9 @@ ipv4::ipv4(interface* netif)
         return handle_received_packet(std::move(p), ea); },
       [this] (forward_hash& out_hash_data, packet& p, size_t off) {
         return forward(out_hash_data, p, off);}))
-    , _tcp(*this)
+    , _tcp(*this, local_port_start, local_port_end)
     , _icmp(*this)
-    , _udp(*this)
+    , _udp(*this, local_port_start, local_port_end)
     , _l4({ { uint8_t(ip_protocol_num::tcp), &_tcp }, { uint8_t(ip_protocol_num::icmp), &_icmp }, { uint8_t(ip_protocol_num::udp), &_udp }}) {
     _frag_timer.set_callback([this] { frag_timeout(); });
 }

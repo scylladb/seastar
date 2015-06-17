@@ -24,6 +24,7 @@
 #include "net.hh"
 #include "ip.hh"
 #include "tcp-stack.hh"
+#include "tcp.hh"
 #include "udp.hh"
 #include "virtio.hh"
 #include "dpdk.hh"
@@ -186,7 +187,7 @@ add_native_net_options_description(boost::program_options::options_description &
 
 native_network_stack::native_network_stack(boost::program_options::variables_map opts, std::shared_ptr<device> dev)
     : _netif(std::move(dev))
-    , _inet(&_netif) {
+    , _inet(&_netif, opts["local-port-start"].as<uint16_t>(), opts["local-port-end"].as<uint16_t>()) {
     _inet.get_udp().set_queue_size(opts["udpv4-queue-size"].as<int>());
     _dhcp = opts["host-ipv4-addr"].defaulted()
             && opts["gw-ipv4-addr"].defaulted()
@@ -331,6 +332,12 @@ boost::program_options::options_description nns_options() {
         ("lro",
                 boost::program_options::value<std::string>()->default_value("on"),
                 "Enable LRO")
+        ("local-port-start",
+                boost::program_options::value<uint16_t>()->default_value(49153),
+                "Local port range(start)")
+        ("local-port-end",
+                boost::program_options::value<uint16_t>()->default_value(65535),
+                "Local port range(end)")
         ;
 
     add_native_net_options_description(opts);
