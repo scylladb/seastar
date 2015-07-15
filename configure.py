@@ -154,6 +154,7 @@ tests = [
     'tests/distributed_test',
     'tests/rpc',
     'tests/semaphore_test',
+    'tests/packet_test'
     ]
 
 apps = [
@@ -316,6 +317,7 @@ deps = {
     'tests/fstream_test': ['tests/fstream_test.cc'] + core + boost_test_lib,
     'tests/distributed_test': ['tests/distributed_test.cc'] + core,
     'tests/rpc': ['tests/rpc.cc'] + core + libnet,
+    'tests/packet_test': ['tests/packet_test.cc'] + core + libnet,
 }
 
 warnings = [
