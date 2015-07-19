@@ -279,7 +279,7 @@ memcache_base = [
 ] + libnet + core
 
 deps = {
-    'libseastar.a' : core + libnet,
+    'libseastar.a' : core + libnet + http,
     'seastar.pc': [],
     'apps/seastar/seastar': ['apps/seastar/main.cc'] + core,
     'apps/httpd/httpd': ['apps/httpd/demo.json', 'apps/httpd/main.cc'] + http + libnet + core,
