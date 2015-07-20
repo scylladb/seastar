@@ -136,6 +136,24 @@ private:
     explicit file(int fd) : _file_impl(make_file_impl(fd)) {}
 
 public:
+    /// Default constructor constructs an uninitialized file object.
+    ///
+    /// A default constructor is useful for the common practice of declaring
+    /// a variable, and only assigning to it later. The uninitialized file
+    /// must not be used, or undefined behavior will result (currently, a null
+    /// pointer dereference).
+    ///
+    /// One can check whether a file object is in uninitialized state with
+    /// \ref operator bool(); One can reset a file back to uninitialized state
+    /// by assigning file() to it.
+    file() : _file_impl(nullptr) {}
+
+    /// Checks whether the file object was initialized.
+    ///
+    /// \return false if the file object is uninitialized (default
+    /// constructed), true if the file object refers to an actual file.
+    explicit operator bool() const noexcept { return bool(_file_impl); }
+
     /// Copies a file object.  The new and old objects refer to the
     /// same underlying file.
     ///
