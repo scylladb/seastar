@@ -597,6 +597,18 @@ reactor::file_type(sstring name) {
     });
 }
 
+future<uint64_t>
+reactor::file_size(sstring pathname) {
+    return _thread_pool.submit<syscall_result_extra<struct stat>>([pathname] {
+        struct stat st;
+        auto ret = stat(pathname.c_str(), &st);
+        return wrap_syscall(ret, st);
+    }).then([] (syscall_result_extra<struct stat> sr) {
+        sr.throw_if_error();
+        return make_ready_future<uint64_t>(sr.extra.st_size);
+    });
+}
+
 future<file>
 reactor::open_directory(sstring name) {
     return _thread_pool.submit<syscall_result<int>>([name] {
@@ -2060,6 +2072,10 @@ future<> remove_file(sstring pathname) {
 
 future<> rename_file(sstring old_pathname, sstring new_pathname) {
     return engine().rename_file(std::move(old_pathname), std::move(new_pathname));
+}
+
+future<uint64_t> file_size(sstring name) {
+    return engine().file_size(name);
 }
 
 server_socket listen(socket_address sa) {

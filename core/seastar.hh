@@ -199,4 +199,9 @@ future<> remove_file(sstring name);
 /// both containing directories are sync'ed.
 future<> rename_file(sstring old_name, sstring new_name);
 
+/// Return the size of a file.
+///
+/// \param name name of the file to return the size
+future<uint64_t> file_size(sstring name);
+
 /// @}
