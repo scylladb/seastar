@@ -467,6 +467,10 @@ with open(buildfile, 'w') as f:
               command = $cxx  $cxxflags_{mode} $ldflags -o $out $in $libs $libs_{mode}
               description = LINK $out
               pool = link_pool
+            rule link_stripped.{mode}
+              command = $cxx  $cxxflags_{mode} -s $ldflags -o $out $in $libs $libs_{mode}
+              description = LINK (stripped) $out
+              pool = link_pool
             rule ar.{mode}
               command = rm -f $out; ar cr $out $in; ranlib $out
               description = AR $out
@@ -496,7 +500,17 @@ with open(buildfile, 'w') as f:
             elif binary.endswith('.a'):
                 f.write('build $builddir/{}/{}: ar.{} {}\n'.format(mode, binary, mode, str.join(' ', objs)))
             else:
-                f.write('build $builddir/{}/{}: link.{} {} | {}\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps))
+                if binary.startswith('tests/'):
+                    # Our code's debugging information is huge, and multiplied
+                    # by many tests yields ridiculous amounts of disk space.
+                    # So we strip the tests by default; The user can very
+                    # quickly re-link the test unstripped by adding a "_g"
+                    # to the test name, e.g., "ninja build/release/testname_g"
+                    f.write('build $builddir/{}/{}: link_stripped.{} {} | {}\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps))
+                    f.write('build $builddir/{}/{}_g: link.{} {} | {}\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps))
+                else:
+                    f.write('build $builddir/{}/{}: link.{} {} | {}\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps))
+
             for src in srcs:
                 if src.endswith('.cc'):
                     obj = '$builddir/' + mode + '/' + src.replace('.cc', '.o')
