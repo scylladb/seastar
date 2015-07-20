@@ -31,14 +31,12 @@
 
 struct writer {
     output_stream<char> out;
-    writer(file f) : out(make_file_output_stream(
-            make_lw_shared<file>(std::move(f)))) {}
+    writer(file f) : out(make_file_output_stream(std::move(f))) {}
 };
 
 struct reader {
     input_stream<char> in;
-    reader(file f) : in(make_file_input_stream(
-            make_lw_shared<file>(std::move(f)))) {}
+    reader(file f) : in(make_file_input_stream(std::move(f))) {}
 };
 
 SEASTAR_TEST_CASE(test_fstream) {
@@ -138,7 +136,6 @@ SEASTAR_TEST_CASE(test_fstream_unaligned) {
 future<> test_consume_until_end(uint64_t size) {
     return open_file_dma("testfile.tmp",
             open_flags::rw | open_flags::create | open_flags::truncate).then([size] (file f) {
-        return do_with(make_lw_shared(std::move(f)), [size] (lw_shared_ptr<file> f) {
             return do_with(make_file_output_stream(f), [size] (output_stream<char>& out) {
                 std::vector<char> buf(size);
                 std::iota(buf.begin(), buf.end(), 0);
@@ -146,7 +143,7 @@ future<> test_consume_until_end(uint64_t size) {
                    return out.flush();
                 });
             }).then([f] {
-                return f->size();
+                return f.size();
             }).then([size, f] (size_t real_size) {
                 BOOST_REQUIRE_EQUAL(size, real_size);
             }).then([size, f] {
@@ -165,7 +162,6 @@ future<> test_consume_until_end(uint64_t size) {
                     return in.consume(consumer);
                 });
             });
-        });
     });
 }
 

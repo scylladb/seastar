@@ -36,7 +36,7 @@
 // given file. Multiple fibers of execution (continuations) may safely open
 // multiple input streams concurrently for the same file.
 input_stream<char> make_file_input_stream(
-        lw_shared_ptr<file> file, uint64_t offset = 0,
+        file file, uint64_t offset = 0,
         uint64_t buffer_size = 8192);
 
 struct file_output_stream_options {
@@ -48,13 +48,13 @@ struct file_output_stream_options {
 // newly created file.
 // NOTE: flush() should be the last thing to be called on a file output stream.
 output_stream<char> make_file_output_stream(
-        lw_shared_ptr<file> file,
+        file file,
         uint64_t buffer_size = 8192);
 
 /// Create an output_stream for writing starting at the position zero of a
 /// newly created file.
 /// NOTE: flush() should be the last thing to be called on a file output stream.
 output_stream<char> make_file_output_stream(
-        lw_shared_ptr<file> file,
+        file file,
         file_output_stream_options options);
 

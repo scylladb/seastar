@@ -29,8 +29,7 @@
 #include <algorithm>
 
 struct reader {
-    reader(file f) : is(make_file_input_stream(
-            make_lw_shared<file>(std::move(f)), 0, 4096)) {}
+    reader(file f) : is(make_file_input_stream(std::move(f), 0, 4096)) {}
     input_stream<char> is;
     size_t count = 0;
 

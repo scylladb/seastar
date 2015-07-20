@@ -25,15 +25,15 @@
 #include <string.h>
 
 class file_data_source_impl : public data_source_impl {
-    lw_shared_ptr<file> _file;
+    file _file;
     uint64_t _pos;
     size_t _buffer_size;
 public:
-    file_data_source_impl(lw_shared_ptr<file> f, uint64_t pos, size_t buffer_size)
+    file_data_source_impl(file f, uint64_t pos, size_t buffer_size)
             : _file(std::move(f)), _pos(pos), _buffer_size(buffer_size) {}
     virtual future<temporary_buffer<char>> get() override {
         using buf_type = temporary_buffer<char>;
-        return _file->dma_read_bulk<char>(_pos, _buffer_size).then(
+        return _file.dma_read_bulk<char>(_pos, _buffer_size).then(
                 [this] (buf_type buf) {
             _pos += buf.size();
             return std::move(buf);
@@ -43,23 +43,23 @@ public:
 
 class file_data_source : public data_source {
 public:
-    file_data_source(lw_shared_ptr<file> f, uint64_t offset, size_t buffer_size)
+    file_data_source(file f, uint64_t offset, size_t buffer_size)
         : data_source(std::make_unique<file_data_source_impl>(
                 std::move(f), offset, buffer_size)) {}
 };
 
 input_stream<char> make_file_input_stream(
-        lw_shared_ptr<file> f, uint64_t offset, size_t buffer_size) {
+        file f, uint64_t offset, size_t buffer_size) {
     return input_stream<char>(file_data_source(std::move(f), offset, buffer_size));
 }
 
 class file_data_sink_impl : public data_sink_impl {
-    lw_shared_ptr<file> _file;
+    file _file;
     file_output_stream_options _options;
     uint64_t _pos = 0;
     uint64_t _last_preallocation = 0;
 public:
-    file_data_sink_impl(lw_shared_ptr<file> f, file_output_stream_options options)
+    file_data_sink_impl(file f, file_output_stream_options options)
             : _file(std::move(f)), _options(options) {}
     future<> put(net::packet data) { abort(); }
     virtual temporary_buffer<char> allocate_buffer(size_t size) override {
@@ -90,39 +90,39 @@ public:
         if (pos + buf_size > _last_preallocation) {
             auto old = _last_preallocation;
             _last_preallocation = align_down<uint64_t>(old + _options.preallocation_size, _options.preallocation_size);
-            prealloc = _file->allocate(old, _last_preallocation - old);
+            prealloc = _file.allocate(old, _last_preallocation - old);
         }
         return prealloc.then([this, pos, p, buf_size, truncate, buf = std::move(buf)] () mutable {
-            return _file->dma_write(pos, p, buf_size).then(
+            return _file.dma_write(pos, p, buf_size).then(
                     [this, buf = std::move(buf), truncate] (size_t size) {
                 if (truncate) {
-                    return _file->truncate(_pos);
+                    return _file.truncate(_pos);
                 }
                 return make_ready_future<>();
             });
         });
     }
     future<> close() {
-        return _file->flush().then([this] {
-            return _file->close();
+        return _file.flush().then([this] {
+            return _file.close();
         });
     }
 };
 
 class file_data_sink : public data_sink {
 public:
-    file_data_sink(lw_shared_ptr<file> f, file_output_stream_options options)
+    file_data_sink(file f, file_output_stream_options options)
         : data_sink(std::make_unique<file_data_sink_impl>(
                 std::move(f), options)) {}
 };
 
-output_stream<char> make_file_output_stream(lw_shared_ptr<file> f, size_t buffer_size) {
+output_stream<char> make_file_output_stream(file f, size_t buffer_size) {
     file_output_stream_options options;
     options.buffer_size = buffer_size;
     return make_file_output_stream(std::move(f), options);
 }
 
-output_stream<char> make_file_output_stream(lw_shared_ptr<file> f, file_output_stream_options options) {
+output_stream<char> make_file_output_stream(file f, file_output_stream_options options) {
     return output_stream<char>(file_data_sink(std::move(f), options), options.buffer_size, true);
 }
 

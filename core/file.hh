@@ -317,7 +317,7 @@ public:
     }
 
     /// Gets the file size.
-    future<uint64_t> size() {
+    future<uint64_t> size() const {
         return _file_impl->size();
     }
 

@@ -73,7 +73,7 @@ sstring file_interaction_handler::get_extension(const sstring& file) {
 struct reader {
     reader(file f, std::unique_ptr<reply> rep)
             : is(
-                    make_file_input_stream(make_lw_shared<file>(std::move(f)),
+                    make_file_input_stream(std::move(f),
                             0, 4096)), _rep(std::move(rep)) {
     }
     input_stream<char> is;
