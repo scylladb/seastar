@@ -336,7 +336,7 @@ if args.dpdk:
                           shell = True)
     # adjust configutation to taste
     dotconfig = 'build/dpdk/.config'
-    lines = open(dotconfig).readlines()
+    lines = open(dotconfig, encoding='UTF-8').readlines()
     def update(lines, vars):
         ret = []
         for line in lines:
@@ -353,7 +353,7 @@ if args.dpdk:
                            'CONFIG_RTE_MBUF_REFCNT_ATOMIC': 'n',
                            'CONFIG_RTE_MAX_MEMSEG': '8192',
                            })
-    open(dotconfig, 'w').writelines(lines)
+    open(dotconfig, 'w', encoding='UTF-8').writelines(lines)
     args.dpdk_target = 'build/dpdk'
     
 if args.dpdk_target:
