@@ -60,7 +60,7 @@ def dpdk_cflags (dpdk_target):
         dpdk_arch = dpdk_target_name.split('-')[0]
         if args.dpdk:
             dpdk_sdk_path = 'dpdk'
-            dpdk_target = 'build/dpdk'
+            dpdk_target = os.getcwd() + '/build/dpdk'
             dpdk_target_name = 'x86_64-native-linuxapp-gcc'
             dpdk_arch = 'x86_64'
 
@@ -354,7 +354,7 @@ if args.dpdk:
                            'CONFIG_RTE_MAX_MEMSEG': '8192',
                            })
     open(dotconfig, 'w', encoding='UTF-8').writelines(lines)
-    args.dpdk_target = 'build/dpdk'
+    args.dpdk_target = os.getcwd() + '/build/dpdk'
     
 if args.dpdk_target:
     args.user_cflags = (args.user_cflags +
@@ -423,7 +423,7 @@ with open(buildfile, 'w') as f:
     dpdk_deps = ''
     if args.dpdk:
         # fake dependencies on dpdk, so that it is built before anything else
-        dpdk_deps = ' build/dpdk/include/rte_eal.h build/dpdk/lib/librte_eal.a'
+        dpdk_deps = ' {dpdk_target}/include/rte_eal.h {dpdk_target}/lib/librte_eal.a'.format(dpdk_target=args.dpdk_target)
     f.write(textwrap.dedent('''\
         configure_args = {configure_args}
         builddir = {outdir}
