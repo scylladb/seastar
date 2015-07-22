@@ -944,37 +944,61 @@ future<T...> make_exception_future(Exception&& ex) noexcept {
 template<typename T>
 template<typename Func, typename... FuncArgs>
 typename futurize<T>::type futurize<T>::apply(Func&& func, std::tuple<FuncArgs...>&& args) {
-    return make_ready_future<T>(::apply(std::forward<Func>(func), std::move(args)));
+    try {
+        return make_ready_future<T>(::apply(std::forward<Func>(func), std::move(args)));
+    } catch (...) {
+        return make_exception_future(std::current_exception());
+    }
 }
 
 template<typename T>
 template<typename Func, typename... FuncArgs>
 typename futurize<T>::type futurize<T>::apply(Func&& func, FuncArgs&&... args) {
-    return make_ready_future<T>(func(std::forward<FuncArgs>(args)...));
+    try {
+        return make_ready_future<T>(func(std::forward<FuncArgs>(args)...));
+    } catch (...) {
+        return make_exception_future(std::current_exception());
+    }
 }
 
 template<typename Func, typename... FuncArgs>
 typename futurize<void>::type futurize<void>::apply(Func&& func, std::tuple<FuncArgs...>&& args) {
-    ::apply(std::forward<Func>(func), std::move(args));
-    return make_ready_future<>();
+    try {
+        ::apply(std::forward<Func>(func), std::move(args));
+        return make_ready_future<>();
+    } catch (...) {
+        return make_exception_future(std::current_exception());
+    }
 }
 
 template<typename Func, typename... FuncArgs>
 typename futurize<void>::type futurize<void>::apply(Func&& func, FuncArgs&&... args) {
-    func(std::forward<FuncArgs>(args)...);
-    return make_ready_future<>();
+    try {
+        func(std::forward<FuncArgs>(args)...);
+        return make_ready_future<>();
+    } catch (...) {
+        return make_exception_future(std::current_exception());
+    }
 }
 
 template<typename... Args>
 template<typename Func, typename... FuncArgs>
 typename futurize<future<Args...>>::type futurize<future<Args...>>::apply(Func&& func, std::tuple<FuncArgs...>&& args) {
-    return ::apply(std::forward<Func>(func), std::move(args));
+    try {
+        return ::apply(std::forward<Func>(func), std::move(args));
+    } catch (...) {
+        return make_exception_future(std::current_exception());
+    }
 }
 
 template<typename... Args>
 template<typename Func, typename... FuncArgs>
 typename futurize<future<Args...>>::type futurize<future<Args...>>::apply(Func&& func, FuncArgs&&... args) {
-    return func(std::forward<FuncArgs>(args)...);
+    try {
+        return func(std::forward<FuncArgs>(args)...);
+    } catch (...) {
+        return make_exception_future(std::current_exception());
+    }
 }
 
 template <typename T>
