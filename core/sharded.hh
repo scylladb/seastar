@@ -240,6 +240,14 @@ sharded<Service>::start(Args&&... args) {
                     return new Service(std::forward<Args>(args)...);
                 }, std::move(args));
             });
+    }).then_wrapped([this] (future<> f) {
+        try {
+            f.get();
+        } catch (std::exception& e) {
+            _instances.resize(0);
+            throw;
+        }
+        return make_ready_future<>();
     });
 }
 
