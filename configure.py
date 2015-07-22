@@ -332,6 +332,8 @@ if args.with_osv:
         args.with_osv + '/arch/x64')
 
 if args.dpdk:
+    if not os.path.exists('dpdk') or not os.listdir('dpdk'):
+        raise Exception('--enable-dpdk: dpdk/ is empty. Run "git submodule update --init".')
     subprocess.check_call('make -C dpdk RTE_OUTPUT=$PWD/build/dpdk/ config T=x86_64-native-linuxapp-gcc',
                           shell = True)
     # adjust configutation to taste
