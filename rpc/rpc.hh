@@ -111,7 +111,8 @@ public:
     };
 
     class client : public protocol::connection {
-        promise<> _connected;
+        promise<> _connected_promise;
+        bool _connected = false;
         id_type _message_id = 1;
         struct reply_handler_base {
             virtual void operator()(client&, id_type, temporary_buffer<char> data) = 0;

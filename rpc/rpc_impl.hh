@@ -593,13 +593,14 @@ read_response_frame(input_stream<char>& in) {
 
 template<typename Serializer, typename MsgType>
 protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& proto, ipv4_addr addr, ipv4_addr local) : protocol<Serializer, MsgType>::connection(proto) {
-    this->_output_ready = _connected.get_future();
+    this->_output_ready = _connected_promise.get_future();
     engine().net().connect(make_ipv4_address(addr), make_ipv4_address(local)).then([this] (connected_socket fd) {
         this->_fd = std::move(fd);
         this->_read_buf = this->_fd.input();
         this->_write_buf = this->_fd.output();
-        this->_connected.set_value();
-        do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
+        this->_connected_promise.set_value();
+        this->_connected = true;
+        return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
             return read_response_frame(this->_read_buf).then([this] (int64_t msg_id, temporary_buffer<char> data) {
                 //auto unmarshall(this->serializer(), this->_read_buf, std::tie(_rcv_msg_id)).then([this] {
                 auto it = _outstanding.find(::abs(msg_id));
@@ -611,12 +612,16 @@ protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& pro
                     this->_error = true;
                 }
             });
-        }).finally([this] () {
-            this->_error = true;
+        });
+    }).finally([this] {
+        this->_error = true;
+        this->_stopped.set_value();
+        if (_connected) {
             this->_write_buf.close();
             _outstanding.clear();
-            this->_stopped.set_value();
-        });
+        } else {
+            this->_connected_promise.set_exception(closed_error());
+        }
     });
 }
 
