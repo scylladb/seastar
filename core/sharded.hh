@@ -47,7 +47,7 @@ namespace seastar {
 /// a copy of the service on each logical core, providing mechanisms to communicate
 /// with each shard's copy, and a way to stop the service.
 ///
-/// \tparam Service a class to be instantiated on each core.  Should expose
+/// \tparam Service a class to be instantiated on each core.  Must expose
 ///         a \c stop() method that returns a \c future<>, to be called when
 ///         the service is stopped.
 template <typename Service>
