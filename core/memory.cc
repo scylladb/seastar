@@ -701,6 +701,9 @@ small_pool::allocate() {
     if (!_free) {
         add_more_objects();
     }
+    if (!_free) {
+        throw std::bad_alloc();
+    }
     auto* obj = _free;
     _free = _free->next;
     --_free_count;
