@@ -272,11 +272,12 @@ sharded<Service>::start(Args&&... args) {
     }).then_wrapped([this] (future<> f) {
         try {
             f.get();
-        } catch (std::exception& e) {
-            _instances.resize(0);
-            throw;
+            return make_ready_future<>();
+        } catch (...) {
+            return this->stop().then([e = std::current_exception()] () mutable {
+                std::rethrow_exception(e);
+            });
         }
-        return make_ready_future<>();
     });
 }
 
@@ -290,6 +291,15 @@ sharded<Service>::start_single(Args&&... args) {
         _instances[0] = apply([] (Args&&... args) {
             return new Service(std::forward<Args>(args)...);
         }, std::move(args));
+    }).then_wrapped([this] (future<> f) {
+        try {
+            f.get();
+            return make_ready_future<>();
+        } catch (...) {
+            return this->stop().then([e = std::current_exception()] () mutable {
+                std::rethrow_exception(e);
+            });
+        }
     });
 }
 
