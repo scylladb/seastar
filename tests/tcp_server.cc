@@ -47,6 +47,12 @@ public:
         do_accepts(_listeners.size() - 1);
         return make_ready_future<>();
     }
+
+    // FIXME: We should properly tear down the service here.
+    future<> stop() {
+        return make_ready_future<>();
+    }
+
     void do_accepts(int which) {
         _listeners[which].accept().then([this, which] (connected_socket fd, socket_address addr) mutable {
             auto conn = new connection(*this, std::move(fd), addr);
@@ -158,6 +164,9 @@ int main(int ac, char** av) {
         uint16_t port = config["port"].as<uint16_t>();
         auto server = new distributed<tcp_server>;
         server->start().then([server = std::move(server), port] () mutable {
+            engine().at_exit([server] {
+                return server->stop();
+            });
             server->invoke_on_all(&tcp_server::listen, ipv4_addr{port});
         }).then([port] {
             std::cout << "Seastar TCP server listening on port " << port << " ...\n";

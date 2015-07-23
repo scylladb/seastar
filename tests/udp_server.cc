@@ -50,6 +50,10 @@ public:
             });
         });
     }
+    // FIXME: we should properly tear down the service here.
+    future<> stop() {
+        return make_ready_future<>();
+    }
 };
 
 namespace bpo = boost::program_options;
@@ -63,6 +67,9 @@ int main(int ac, char ** av) {
         uint16_t port = config["port"].as<uint16_t>();
         auto server = new distributed<udp_server>;
         server->start().then([server = std::move(server), port] () mutable {
+            engine().at_exit([server] {
+                return server->stop();
+            });
             server->invoke_on_all(&udp_server::start, port);
         }).then([port] {
             std::cout << "Seastar UDP server listening on port " << port << " ...\n";
