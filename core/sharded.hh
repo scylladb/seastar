@@ -24,6 +24,7 @@
 #include "reactor.hh"
 #include "future-util.hh"
 #include "util/is_smart_ptr.hh"
+#include "do_with.hh"
 
 namespace seastar {
 
@@ -182,6 +183,34 @@ public:
                             std::move(wrapped_map),
                             std::move(initial),
                             std::move(reduce));
+    }
+
+    /// Applies a map function to all shards, and return a vector of the result.
+    ///
+    /// \param mapper callable with the signature `Value (Service&)` or
+    ///               `future<Value> (Service&)` (for some `Value` type).
+    ///
+    /// Each \c map invocation runs on the shard associated with the service.
+    ///
+    /// \tparam  Mapper unary function taking `Service&` and producing some result.
+    /// \return  Result vector of applying `map` to each instance in parallel
+    template <typename Mapper, typename return_type = std::result_of_t<Mapper(const Service&)>>
+    inline future<std::vector<return_type>> map(Mapper mapper) {
+        return do_with(std::vector<return_type>(),
+                [&mapper, this] (std::vector<return_type>& vec) mutable {
+            vec.resize(smp::count);
+            size_t c = 0;
+            return parallel_for_each(_instances.begin(), _instances.end(), [&vec, &c, &mapper] (Service* inst) {
+                auto cpu = c++;
+                return smp::submit_to(cpu, [inst, &mapper] {
+                    return mapper(*inst);
+                }).then([&vec, cpu] (auto res) {
+                    vec[cpu] = res;
+                });
+            }).then([&vec] {
+                return make_ready_future<std::vector<return_type>>(vec);
+            });
+        });
     }
 
     /// Invoke a method on a specific instance of `Service`.
