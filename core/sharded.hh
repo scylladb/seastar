@@ -200,15 +200,15 @@ public:
                 [&mapper, this] (std::vector<return_type>& vec) mutable {
             vec.resize(smp::count);
             size_t c = 0;
-            return parallel_for_each(_instances.begin(), _instances.end(), [&vec, &c, &mapper] (Service* inst) {
+            return parallel_for_each(_instances.begin(), _instances.end(), [&vec, &c, mapper] (Service* inst) {
                 auto cpu = c++;
-                return smp::submit_to(cpu, [inst, &mapper] {
+                return smp::submit_to(cpu, [inst, mapper] {
                     return mapper(*inst);
                 }).then([&vec, cpu] (auto res) {
                     vec[cpu] = res;
                 });
             }).then([&vec] {
-                return make_ready_future<std::vector<return_type>>(vec);
+                return make_ready_future<std::vector<return_type>>(std::move(vec));
             });
         });
     }
