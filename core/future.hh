@@ -440,7 +440,7 @@ public:
     }
 private:
     template <typename Func>
-    void schedule(Func&& func) noexcept {
+    void schedule(Func&& func) {
         auto tws = std::make_unique<continuation<Func, T...>>(std::move(func));
         _state = &tws->_state;
         _task = std::move(tws);
@@ -597,7 +597,7 @@ private:
         return _promise ? _promise->_state : &_local_state;
     }
     template <typename Func>
-    void schedule(Func&& func) noexcept {
+    void schedule(Func&& func) {
         if (state()->available()) {
             ::schedule(std::make_unique<continuation<Func, T...>>(std::move(func), std::move(*state())));
         } else {
