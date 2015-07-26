@@ -631,13 +631,18 @@ private:
         }
         P pr;
         auto fut = pr.get_future();
-        schedule([pr = std::move(pr), func = std::forward<Func>(func), param = std::forward<Param>(param)] (auto&& state) mutable {
-            try {
-                futurator::apply(std::forward<Func>(func), param(std::move(state))).forward_to(std::move(pr));
-            } catch (...) {
-                pr.set_exception(std::current_exception());
-            }
-        });
+        try {
+            schedule([pr = std::move(pr), func = std::forward<Func>(func), param = std::forward<Param>(param)] (auto&& state) mutable {
+                try {
+                    futurator::apply(std::forward<Func>(func), param(std::move(state))).forward_to(std::move(pr));
+                } catch (...) {
+                    pr.set_exception(std::current_exception());
+                }
+            });
+        } catch (...) {
+            // catch possible std::bad_alloc in schedule() above
+            return futurize<Ret>::make_exception_future(std::current_exception);
+        }
         return fut;
     }
 
