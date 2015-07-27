@@ -21,6 +21,7 @@
  */
 
 #include "ip.hh"
+#include "tcp.hh"
 #include "core/print.hh"
 #include "core/future-util.hh"
 #include "core/shared_ptr.hh"
@@ -41,7 +42,7 @@ constexpr std::chrono::seconds ipv4::_frag_timeout;
 constexpr uint32_t ipv4::_frag_low_thresh;
 constexpr uint32_t ipv4::_frag_high_thresh;
 
-ipv4::ipv4(interface* netif)
+ipv4::ipv4(interface* netif, uint16_t local_port_start, uint16_t local_port_end)
     : _netif(netif)
     , _global_arp(netif)
     , _arp(_global_arp)
@@ -53,9 +54,9 @@ ipv4::ipv4(interface* netif)
         return handle_received_packet(std::move(p), ea); },
       [this] (forward_hash& out_hash_data, packet& p, size_t off) {
         return forward(out_hash_data, p, off);}))
-    , _tcp(*this)
+    , _tcp(*this, local_port_start, local_port_end)
     , _icmp(*this)
-    , _udp(*this)
+    , _udp(*this, local_port_start, local_port_end)
     , _l4({ { uint8_t(ip_protocol_num::tcp), &_tcp }, { uint8_t(ip_protocol_num::icmp), &_icmp }, { uint8_t(ip_protocol_num::udp), &_udp }}) {
     _frag_timer.set_callback([this] { frag_timeout(); });
 }
@@ -143,6 +144,10 @@ ipv4::handle_received_packet(packet p, ethernet_address from) {
     }
 
     if (h.dst_ip != _host_address) {
+        if (_nat_adapter) {
+            p.untrim_front();
+            _nat_adapter->send(std::move(p));
+        }
         // FIXME: forward
         return make_ready_future<>();
     }
@@ -220,6 +225,15 @@ future<ethernet_address> ipv4::get_l2_dst_address(ipv4_address to) {
     }
 
     return _arp.lookup(dst);
+}
+
+void ipv4::register_nat_adapter(lw_shared_ptr<nat_adapter> h)
+{
+    _nat_adapter = h;
+    get_tcp().register_nat_adapter(h);
+    _udp.register_nat_adapter(h);
+    _icmp.register_nat_adapter(h);
+    _global_arp.register_nat_adapter(h);
 }
 
 void ipv4::send(ipv4_address to, ip_protocol_num proto_num, packet p, ethernet_address e_dst) {
@@ -442,9 +456,21 @@ packet ipv4::frag::get_assembled_packet(ethernet_address from, ethernet_address 
     return pkt;
 }
 
+void ipv4_icmp::register_nat_adapter(lw_shared_ptr<nat_adapter> h) {
+    _icmp.register_nat_adapter(h);
+}
+
+void icmp::register_nat_adapter(lw_shared_ptr<nat_adapter> h) {
+    _nat_adapter = h;
+}
+
 void icmp::received(packet p, ipaddr from, ipaddr to) {
     auto hdr = p.get_header<icmp_hdr>(0);
     if (!hdr || hdr->type != icmp_hdr::msg_type::echo_request) {
+        if (_nat_adapter) {
+            p.untrim_front();
+            _nat_adapter->send(std::move(p));
+        }
         return;
     }
     hdr->type = icmp_hdr::msg_type::echo_reply;

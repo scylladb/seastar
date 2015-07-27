@@ -129,8 +129,8 @@ uint8_t tcp_option::get_size(bool syn_on, bool ack_on) {
     return size;
 }
 
-ipv4_tcp::ipv4_tcp(ipv4& inet)
-	: _inet_l4(inet), _tcp(std::make_unique<tcp<ipv4_traits>>(_inet_l4)) {
+ipv4_tcp::ipv4_tcp(ipv4& inet, const uint16_t local_port_start, const uint16_t local_port_end)
+	: _inet_l4(inet), _tcp(std::make_unique<tcp<ipv4_traits>>(_inet_l4, local_port_start, local_port_end)) {
 }
 
 ipv4_tcp::~ipv4_tcp() {

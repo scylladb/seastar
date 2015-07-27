@@ -31,6 +31,7 @@
 #include "ip.hh"
 #include "const.hh"
 #include "packet-util.hh"
+#include "nat-adapter.hh"
 #include <unordered_map>
 #include <map>
 #include <functional>
@@ -49,6 +50,7 @@ using namespace std::chrono_literals;
 namespace net {
 
 class tcp_hdr;
+class nat_adapter;
 
 inline auto tcp_error(int err) {
     return std::system_error(err, std::system_category());
@@ -526,16 +528,21 @@ private:
     std::unordered_map<uint16_t, listener*> _listening;
     std::random_device _rd;
     std::default_random_engine _e;
-    std::uniform_int_distribution<uint16_t> _port_dist{41952, 65535};
+    std::uniform_int_distribution<uint16_t> _port_dist;
     circular_buffer<std::pair<lw_shared_ptr<tcb>, ethernet_address>> _poll_tcbs;
     // queue for packets that do not belong to any tcb
     circular_buffer<ipv4_traits::l4packet> _packetq;
     semaphore _queue_space = {212992};
+    lw_shared_ptr<nat_adapter> _nat_adapter;
 public:
     class connection {
         lw_shared_ptr<tcb> _tcb;
+        lw_shared_ptr<nat_adapter> _nat_adapter;
     public:
         explicit connection(lw_shared_ptr<tcb> tcbp) : _tcb(std::move(tcbp)) { _tcb->_conn = this; }
+        explicit connection(lw_shared_ptr<tcb> tcbp, lw_shared_ptr<nat_adapter> h) : _tcb(std::move(tcbp)), _nat_adapter(h) {
+            _tcb->_conn = this;
+        }
         connection(const connection&) = delete;
         connection(connection&& x) noexcept : _tcb(std::move(x._tcb)) {
             _tcb->_conn = this;
@@ -592,13 +599,14 @@ public:
         friend class tcp;
     };
 public:
-    explicit tcp(inet_type& inet);
+    explicit tcp(inet_type& inet, const uint16_t local_port_start = 49153, const uint16_t local_port_end = 65535);
     void received(packet p, ipaddr from, ipaddr to);
     bool forward(forward_hash& out_hash_data, packet& p, size_t off);
     listener listen(uint16_t port, size_t queue_length = 100);
     future<connection> connect(socket_address sa);
     const net::hw_features& hw_features() const { return _inet._inet.hw_features(); }
     future<> poll_tcb(ipaddr to, lw_shared_ptr<tcb> tcb);
+    void register_nat_adapter(lw_shared_ptr<nat_adapter> h) { _nat_adapter = h; }
 private:
     void send_packet_without_tcb(ipaddr from, ipaddr to, packet p);
     void respond_with_reset(tcp_hdr* rth, ipaddr local_ip, ipaddr foreign_ip);
@@ -606,7 +614,7 @@ private:
 };
 
 template <typename InetTraits>
-tcp<InetTraits>::tcp(inet_type& inet) : _inet(inet), _e(_rd()) {
+tcp<InetTraits>::tcp(inet_type& inet, const uint16_t local_port_start, const uint16_t local_port_end) : _inet(inet), _e(_rd()), _port_dist(local_port_start, local_port_end) {
     _inet.register_packet_provider([this, tcb_polled = 0u] () mutable {
         std::experimental::optional<typename InetTraits::l4packet> l4p;
         auto c = _poll_tcbs.size();
@@ -662,8 +670,8 @@ future<typename tcp<InetTraits>::connection> tcp<InetTraits>::connect(socket_add
     _tcbs.insert({id, tcbp});
     tcbp->connect();
 
-    return tcbp->connect_done().then([tcbp] {
-        return make_ready_future<connection>(connection(tcbp));
+    return tcbp->connect_done().then([this, tcbp] {
+        return make_ready_future<connection>(connection(tcbp, _nat_adapter));
     });
 }
 
@@ -702,7 +710,13 @@ void tcp<InetTraits>::received(packet p, ipaddr from, ipaddr to) {
     lw_shared_ptr<tcb> tcbp;
     if (tcbi == _tcbs.end()) {
         auto listener = _listening.find(id.local_port);
-        if (listener == _listening.end() || listener->second->_q.full()) {
+        if (listener == _listening.end()) {
+            // Redirect packet to NAT adapter if it's not SeaStar's flow
+            if (_nat_adapter) {
+                p.untrim_front();
+                _nat_adapter->send(std::move(p));
+                return;
+            }
             // 1) In CLOSE state
             // 1.1 all data in the incoming segment is discarded.  An incoming
             // segment containing a RST is discarded. An incoming segment not
@@ -710,6 +724,8 @@ void tcp<InetTraits>::received(packet p, ipaddr from, ipaddr to) {
             // FIXME:
             //      if ACK off: <SEQ=0><ACK=SEG.SEQ+SEG.LEN><CTL=RST,ACK>
             //      if ACK on:  <SEQ=SEG.ACK><CTL=RST>
+            return respond_with_reset(&h, id.local_ip, id.foreign_ip);
+        } else if (listener->second->_q.full()) {
             return respond_with_reset(&h, id.local_ip, id.foreign_ip);
         } else {
             // 2) In LISTEN state

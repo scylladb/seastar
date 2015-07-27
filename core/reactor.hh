@@ -65,6 +65,7 @@
 #include "core/enum.hh"
 #include <boost/range/irange.hpp>
 #include "timer.hh"
+#include <sys/uio.h>
 
 #ifdef HAVE_OSV
 #include <osv/sched.hh>
@@ -1149,15 +1150,11 @@ future<> pollable_fd::write_all(const uint8_t* buffer, size_t size) {
 inline
 future<size_t> pollable_fd::write_some(net::packet& p) {
     return engine().writeable(*_s).then([this, &p] () mutable {
-        static_assert(offsetof(iovec, iov_base) == offsetof(net::fragment, base) &&
-            sizeof(iovec::iov_base) == sizeof(net::fragment::base) &&
-            offsetof(iovec, iov_len) == offsetof(net::fragment, size) &&
-            sizeof(iovec::iov_len) == sizeof(net::fragment::size) &&
-            alignof(iovec) == alignof(net::fragment) &&
-            sizeof(iovec) == sizeof(net::fragment)
-            , "net::fragment and iovec should be equivalent");
-
-        iovec* iov = reinterpret_cast<iovec*>(p.fragment_array());
+        auto frags = p.fragment_array();
+        iovec iov[p.nr_frags()];
+        for (auto i = 0u; i < p.nr_frags(); i++) {
+            iov[i] = { frags[i].base, frags[i].size };
+        }
         auto r = get_file_desc().writev(iov, p.nr_frags());
         if (!r) {
             return write_some(p);

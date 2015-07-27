@@ -296,6 +296,10 @@ interface::register_l3(eth_protocol_num proto_num,
     return l3_rx.packet_stream.listen(std::move(next));
 }
 
+void interface::register_l3_unhandled(std::function<future<> (packet p, ethernet_address from)> handle) {
+    _proto_unhandled_fn = handle;
+}
+
 unsigned interface::hash2cpu(uint32_t hash) {
     return _dev->hash2cpu(hash);
 }
@@ -344,6 +348,10 @@ future<> interface::dispatch_packet(packet p) {
                     l3.ready = l3.packet_stream.produce(std::move(p), from);
                 }
             }
+        } else if (_proto_unhandled_fn) {
+            auto h = ntoh(*eh);
+            auto from = h.src_mac;
+            _proto_unhandled_fn(std::move(p), from);
         }
     }
     return make_ready_future<>();
