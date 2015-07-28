@@ -194,6 +194,7 @@ class small_pool {
     size_t _free_count = 0;
     unsigned _min_free;
     unsigned _max_free;
+    unsigned _spans_in_use = 0;
     page_list _span_list;
     static constexpr unsigned idx_frac_bits = 2;
 private:
@@ -738,6 +739,7 @@ small_pool::add_more_objects() {
     }
     while (_free_count < goal) {
         auto data = reinterpret_cast<char*>(cpu_mem.allocate_large(_span_size));
+        ++_spans_in_use;
         auto span = cpu_mem.to_page(data);
         for (unsigned i = 0; i < _span_size; ++i) {
             span[i].offset_in_span = i;
@@ -773,6 +775,7 @@ small_pool::trim_free_list() {
         if (--span->nr_small_alloc == 0) {
             _span_list.erase(cpu_mem.pages, *span);
             cpu_mem.free_span(span - cpu_mem.pages, span->span_size);
+            --_spans_in_use;
         }
     }
 }
