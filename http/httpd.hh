@@ -417,8 +417,8 @@ public:
         });
     }
 
-    future<> listen(uint16_t port) {
-        return _server_dist->invoke_on_all(&http_server::listen, ipv4_addr {port});
+    future<> listen(ipv4_addr addr) {
+        return _server_dist->invoke_on_all(&http_server::listen, addr);
     }
 
     distributed<http_server>& server() {
