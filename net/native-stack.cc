@@ -21,11 +21,9 @@
 
 #include "native-stack.hh"
 #include "native-stack-impl.hh"
-#include "nat-adapter.hh"
 #include "net.hh"
 #include "ip.hh"
 #include "tcp-stack.hh"
-#include "tcp.hh"
 #include "udp.hh"
 #include "virtio.hh"
 #include "dpdk.hh"
@@ -74,28 +72,17 @@ static xen_info is_xen()
 #endif
 
 void create_native_net_device(boost::program_options::variables_map opts) {
-    create_device(opts).then([opts] (std::shared_ptr<device> sdev) {
-        for (unsigned i = 0; i < smp::count; i++) {
-            smp::submit_to(i, [opts, sdev] {
-                create_native_stack(opts, sdev);
-            });
-        }
-    });
-
-}
-
-future<std::shared_ptr<device>> create_device(boost::program_options::variables_map opts, bool try_xen_dpdk) {
     std::unique_ptr<device> dev;
 
 #ifdef HAVE_XEN
     auto xen = is_xen();
-    if (try_xen_dpdk && xen != xen_info::nonxen) {
+    if (xen != xen_info::nonxen) {
         dev = xen::create_xenfront_net_device(opts, xen == xen_info::userspace);
     } else
 #endif
 
 #ifdef HAVE_DPDK
-    if (try_xen_dpdk && opts.count("dpdk-pmd")) {
+    if (opts.count("dpdk-pmd")) {
         // Hardcoded port index 0.
         // TODO: Inherit it from the opts
         dev = create_dpdk_net_device(0, smp::count,
@@ -127,9 +114,13 @@ future<std::shared_ptr<device>> create_device(boost::program_options::variables_
             sem->signal();
         });
     }
-    return sem->wait(smp::count).then([sdev = std::move(sdev)] {
-        return sdev->link_ready().then([sdev = std::move(sdev)] {
-            return make_ready_future<std::shared_ptr<device>>(std::move(sdev));
+    sem->wait(smp::count).then([opts, sdev] {
+        sdev->link_ready().then([opts, sdev] {
+            for (unsigned i = 0; i < smp::count; i++) {
+                smp::submit_to(i, [opts, sdev] {
+                    create_native_stack(opts, sdev);
+                });
+            }
         });
     });
 }
@@ -144,7 +135,6 @@ private:
     bool _dhcp = false;
     promise<> _config;
     timer<> _timer;
-    lw_shared_ptr<nat_adapter> _nat_adapter;
 
     future<> run_dhcp(bool is_renew = false, const dhcp::lease & res = dhcp::lease());
     void on_dhcp(bool, const dhcp::lease &, bool);
@@ -195,8 +185,8 @@ add_native_net_options_description(boost::program_options::options_description &
 }
 
 native_network_stack::native_network_stack(boost::program_options::variables_map opts, std::shared_ptr<device> dev)
-    : _netif(dev)
-    , _inet(&_netif, opts["local-port-start"].as<uint16_t>(), opts["local-port-end"].as<uint16_t>()) {
+    : _netif(std::move(dev))
+    , _inet(&_netif) {
     _inet.get_udp().set_queue_size(opts["udpv4-queue-size"].as<int>());
     _dhcp = opts["host-ipv4-addr"].defaulted()
             && opts["gw-ipv4-addr"].defaulted()
@@ -205,19 +195,6 @@ native_network_stack::native_network_stack(boost::program_options::variables_map
         _inet.set_host_address(ipv4_address(_dhcp ? 0 : opts["host-ipv4-addr"].as<std::string>()));
         _inet.set_gw_address(ipv4_address(opts["gw-ipv4-addr"].as<std::string>()));
         _inet.set_netmask_address(ipv4_address(opts["netmask-ipv4-addr"].as<std::string>()));
-    }
-    if (opts.count("nat-adapter")) {
-        assert(opts.count("dpdk-pmd"));
-        auto nat_adapter_ready = nat_adapter::create(opts, dev);
-        nat_adapter_ready.then([this] (lw_shared_ptr<nat_adapter> h) {
-            _nat_adapter = std::move(h);
-            _nat_adapter->set_hw_address(_netif.hw_address());
-            _inet.register_nat_adapter(_nat_adapter);
-            _netif.register_l3_unhandled([this] (packet p, ethernet_address from) mutable {
-                _nat_adapter->send(std::move(p));
-                return make_ready_future();
-            });
-        });
     }
 }
 
@@ -354,13 +331,6 @@ boost::program_options::options_description nns_options() {
         ("lro",
                 boost::program_options::value<std::string>()->default_value("on"),
                 "Enable LRO")
-        ("local-port-start",
-                boost::program_options::value<uint16_t>()->default_value(49153),
-                "Local port range(start)")
-        ("local-port-end",
-                boost::program_options::value<uint16_t>()->default_value(65535),
-                "Local port range(end)")
-        ("nat-adapter", "Use NAT adapter")
         ;
 
     add_native_net_options_description(opts);

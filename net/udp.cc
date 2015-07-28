@@ -20,7 +20,6 @@
  */
 
 #include "ip.hh"
-#include "nat-adapter.hh"
 
 using namespace net;
 
@@ -118,8 +117,8 @@ using namespace net::ipv4_udp_impl;
 
 const int ipv4_udp::default_queue_size = 1024;
 
-ipv4_udp::ipv4_udp(ipv4& inet, const uint16_t local_port_start, const uint16_t local_port_end)
-    : _inet(inet), _local_port_start(local_port_start), _local_port_end(local_port_end), _next_anonymous_port(local_port_start)
+ipv4_udp::ipv4_udp(ipv4& inet)
+    : _inet(inet)
 {
     _inet.register_packet_provider([this] {
         std::experimental::optional<ipv4_traits::l4packet> l4p;
@@ -155,12 +154,6 @@ void ipv4_udp::received(packet p, ipv4_address from, ipv4_address to)
     if (chan_it != _channels.end()) {
         auto chan = chan_it->second;
         chan->_queue.push(std::move(dgram));
-    } else {
-        if (_nat_adapter) {
-            auto p1 = dgram.get_data().share();
-            p1.untrim_front();
-            _nat_adapter->send(std::move(p1));
-        }
     }
 }
 
@@ -195,7 +188,7 @@ void ipv4_udp::send(uint16_t src_port, ipv4_addr dst, packet &&p, lw_shared_ptr<
 }
 
 uint16_t ipv4_udp::next_port(uint16_t port) {
-    return port == _local_port_end ? _local_port_start : port + 1;
+    return (port + 1) == 0 ? min_anonymous_port : port + 1;
 }
 
 udp_channel
@@ -227,10 +220,6 @@ ipv4_udp::make_channel(ipv4_addr addr) {
     auto chan_state = make_lw_shared<udp_channel_state>(_queue_size);
     _channels[bind_port] = chan_state;
     return udp_channel(std::make_unique<native_channel>(*this, registration(*this, bind_port), chan_state));
-}
-
-void ipv4_udp::register_nat_adapter(lw_shared_ptr<nat_adapter> h) {
-    _nat_adapter = h;
 }
 
 } /* namespace net */

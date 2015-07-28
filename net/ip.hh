@@ -40,7 +40,6 @@
 #include "core/shared_ptr.hh"
 #include "toeplitz.hh"
 #include "net/udp.hh"
-#include "net/nat-adapter.hh"
 
 namespace net {
 
@@ -72,10 +71,6 @@ struct ipv4_address {
     }
     friend bool operator!=(ipv4_address x, ipv4_address y) {
         return x.ip != y.ip;
-    }
-    sstring to_string() const {
-        boost::asio::ip::address_v4 addr(ip);
-        return addr.to_string();
     }
 } __attribute__((packed));
 
@@ -164,7 +159,7 @@ class ipv4_tcp final : public ip_protocol {
     ipv4_l4<ip_protocol_num::tcp> _inet_l4;
     std::unique_ptr<tcp<ipv4_traits>> _tcp;
 public:
-    ipv4_tcp(ipv4& inet, const uint16_t local_port_start, const uint16_t local_port_end);
+    ipv4_tcp(ipv4& inet);
     ~ipv4_tcp();
     virtual void received(packet p, ipv4_address from, ipv4_address to);
     virtual bool forward(forward_hash& out_hash_data, packet& p, size_t off) override;
@@ -203,12 +198,10 @@ public:
         });
     }
     void received(packet p, ipaddr from, ipaddr to);
-    void register_nat_adapter(lw_shared_ptr<nat_adapter> h);
 private:
     inet_type& _inet;
     circular_buffer<ipv4_traits::l4packet> _packetq;
     semaphore _queue_space = {212992};
-    lw_shared_ptr<nat_adapter> _nat_adapter;
 };
 
 class ipv4_icmp final : public ip_protocol {
@@ -219,7 +212,6 @@ public:
     virtual void received(packet p, ipv4_address from, ipv4_address to) {
         _icmp.received(std::move(p), from, to);
     }
-    void register_nat_adapter(lw_shared_ptr<nat_adapter> h);
     friend class ipv4;
 };
 
@@ -230,14 +222,12 @@ class ipv4_udp : public ip_protocol {
 public:
     static const int default_queue_size;
 private:
+    static const uint16_t min_anonymous_port = 32768;
     ipv4 &_inet;
     std::unordered_map<uint16_t, lw_shared_ptr<udp_channel_state>> _channels;
     int _queue_size = default_queue_size;
-    const uint16_t _local_port_start;
-    const uint16_t _local_port_end;
-    uint16_t _next_anonymous_port;
+    uint16_t _next_anonymous_port = min_anonymous_port;
     circular_buffer<std::tuple<ipv4_traits::l4packet, lw_shared_ptr<udp_channel_state>, size_t>> _packetq;
-    lw_shared_ptr<nat_adapter> _nat_adapter;
 private:
     uint16_t next_port(uint16_t port);
 public:
@@ -257,13 +247,12 @@ public:
         }
     };
 
-    ipv4_udp(ipv4& inet, const uint16_t local_port_start = 49153, const uint16_t local_port_end = 65535);
+    ipv4_udp(ipv4& inet);
     udp_channel make_channel(ipv4_addr addr);
     virtual void received(packet p, ipv4_address from, ipv4_address to) override;
     void send(uint16_t src_port, ipv4_addr dst, packet &&p, lw_shared_ptr<udp_channel_state> channel);
     bool forward(forward_hash& out_hash_data, packet& p, size_t off) override;
     void set_queue_size(int size) { _queue_size = size; }
-    void register_nat_adapter(lw_shared_ptr<nat_adapter> h);
 };
 
 struct ip_hdr;
@@ -343,7 +332,6 @@ private:
     timer<lowres_clock> _frag_timer;
     circular_buffer<l3_protocol::l3packet> _packetq;
     unsigned _pkt_provider_idx = 0;
-    lw_shared_ptr<nat_adapter> _nat_adapter;
 private:
     future<> handle_received_packet(packet p, ethernet_address from);
     bool forward(forward_hash& out_hash_data, packet& p, size_t off);
@@ -361,7 +349,7 @@ private:
         frag_arm(now);
     }
 public:
-    explicit ipv4(interface* netif, const uint16_t local_port_start = 49153, const uint16_t local_port_end = 65535);
+    explicit ipv4(interface* netif);
     void set_host_address(ipv4_address ip);
     ipv4_address host_address();
     void set_gw_address(ipv4_address ip);
@@ -389,7 +377,6 @@ public:
         _pkt_providers.push_back(std::move(func));
     }
     future<ethernet_address> get_l2_dst_address(ipv4_address to);
-    void register_nat_adapter(lw_shared_ptr<nat_adapter> h);
 };
 
 template <ip_protocol_num ProtoNum>
