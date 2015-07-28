@@ -155,25 +155,6 @@ uint32_t qp_mempool_obj_size(bool hugetlbfs_membackend)
     return mp_size;
 }
 
-#ifdef RTE_VERSION_1_7
-/*
- * RX and TX Prefetch, Host, and Write-back threshold values should be
- * carefully set for optimal performance. Consult the network
- * controller's datasheet and supporting DPDK documentation for guidance
- * on how these parameters should be set.
- */
-/* Default configuration for rx and tx thresholds etc. */
-/*
- * These default values are optimized for use with the Intel(R) 82599 10 GbE
- * Controller and the DPDK ixgbe PMD. Consider using other values for other
- * network controllers and/or network drivers.
- */
-static constexpr uint8_t default_pthresh         = 36;
-static constexpr uint8_t default_rx_hthresh      = 8;
-static constexpr uint8_t default_tx_hthresh      = 0;
-static constexpr uint8_t default_wthresh         = 0;
-#endif
-
 static constexpr const char* pktmbuf_pool_name   = "dpdk_net_pktmbuf_pool";
 
 /*
@@ -224,10 +205,6 @@ class dpdk_device : public device {
     bool _use_lro;
     bool _enable_fc;
     std::vector<uint8_t> _redir_table;
-#ifdef RTE_VERSION_1_7
-    struct rte_eth_rxconf _rx_conf_default = {};
-    struct rte_eth_txconf _tx_conf_default = {};
-#endif
     port_stats _stats;
     timer<> _stats_collector;
     const std::string _stats_plugin_name;
@@ -409,19 +386,11 @@ public:
     net::hw_features& hw_features_ref() { return _hw_features; }
 
     const rte_eth_rxconf* def_rx_conf() const {
-#ifdef RTE_VERSION_1_7
-        return &_rx_conf_default;
-#else
         return &_dev_info.default_rxconf;
-#endif
     }
 
     const rte_eth_txconf* def_tx_conf() const {
-#ifdef RTE_VERSION_1_7
-        return &_tx_conf_default;
-#else
         return &_dev_info.default_txconf;
-#endif
     }
 
     /**
@@ -541,42 +510,40 @@ class dpdk_qp : public net::qp {
                 total_nsegs += nsegs;
 
                 // Attach a new buffers' chain to the packet chain
-                rte_mbuf_next(last_seg) = h;
+                last_seg->next = h;
                 last_seg = new_last_seg;
             }
 
             // Update the HEAD buffer with the packet info
-            rte_mbuf_pkt_len(head) = p.len();
-            rte_mbuf_nb_segs(head) = total_nsegs;
+            head->pkt_len = p.len();
+            head->nb_segs = total_nsegs;
 
             // Handle TCP checksum offload
             auto oi = p.offload_info();
             if (oi.needs_ip_csum) {
                 head->ol_flags |= PKT_TX_IP_CKSUM;
                 // TODO: Take a VLAN header into an account here
-                rte_mbuf_l2_len(head) = sizeof(struct ether_hdr);
-                rte_mbuf_l3_len(head) = oi.ip_hdr_len;
+                head->l2_len = sizeof(struct ether_hdr);
+                head->l3_len = oi.ip_hdr_len;
             }
             if (qp.port().hw_features().tx_csum_l4_offload) {
                 if (oi.protocol == ip_protocol_num::tcp) {
                     head->ol_flags |= PKT_TX_TCP_CKSUM;
                     // TODO: Take a VLAN header into an account here
-                    rte_mbuf_l2_len(head) = sizeof(struct ether_hdr);
-                    rte_mbuf_l3_len(head) = oi.ip_hdr_len;
+                    head->l2_len = sizeof(struct ether_hdr);
+                    head->l3_len = oi.ip_hdr_len;
 
-#ifndef RTE_VERSION_1_7 // TSO is supported starting from 1.8
                     if (oi.tso_seg_size) {
                         assert(oi.needs_ip_csum);
                         head->ol_flags |= PKT_TX_TCP_SEG;
                         head->l4_len = oi.tcp_hdr_len;
                         head->tso_segsz = oi.tso_seg_size;
                     }
-#endif
                 } else if (oi.protocol == ip_protocol_num::udp) {
                     head->ol_flags |= PKT_TX_UDP_CKSUM;
                     // TODO: Take a VLAN header into an account here
-                    rte_mbuf_l2_len(head) = sizeof(struct ether_hdr);
-                    rte_mbuf_l3_len(head) = oi.ip_hdr_len;
+                    head->l2_len = sizeof(struct ether_hdr);
+                    head->l3_len = oi.ip_hdr_len;
                 }
             }
 
@@ -641,7 +608,7 @@ class dpdk_qp : public net::qp {
                 base += len;
                 nsegs++;
 
-                rte_mbuf_next(prev_seg) = m;
+                prev_seg->next = m;
                 prev_seg = m;
             }
 
@@ -757,8 +724,8 @@ class dpdk_qp : public net::qp {
             m = buf->rte_mbuf_p();
 
             // mbuf_put()
-            rte_mbuf_data_len(m) = len;
-            rte_mbuf_pkt_len(m)  = len;
+            m->data_len = len;
+            m->pkt_len  = len;
 
             qp._stats.tx.good.update_copy_stats(1, len);
 
@@ -802,30 +769,22 @@ class dpdk_qp : public net::qp {
     public:
         tx_buf(tx_buf_factory& fc) : _fc(fc) {
 
-            _buf_physaddr = rte_mbuf_buf_physaddr(&_mbuf);
-            _buf_len      = rte_mbuf_buf_len(&_mbuf);
-#ifdef RTE_VERSION_1_7
-            _data         = _mbuf.pkt.data;
-#else
+            _buf_physaddr = _mbuf.buf_physaddr;
+            _buf_len      = _mbuf.buf_len;
             _data_off     = _mbuf.data_off;
-#endif
         }
 
         rte_mbuf* rte_mbuf_p() { return &_mbuf; }
 
         void set_zc_info(void* va, phys_addr_t pa, size_t len) {
             // mbuf_put()
-            rte_mbuf_data_len(&_mbuf)           = len;
-            rte_mbuf_pkt_len(&_mbuf)            = len;
+            _mbuf.data_len           = len;
+            _mbuf.pkt_len            = len;
 
             // Set the mbuf to point to our data
-            rte_mbuf_buf_addr(&_mbuf)           = va;
-            rte_mbuf_buf_physaddr(&_mbuf)       = pa;
-#ifdef RTE_VERSION_1_7
-            _mbuf.pkt.data                      = va;
-#else
+            _mbuf.buf_addr           = va;
+            _mbuf.buf_physaddr       = pa;
             _mbuf.data_off                      = 0;
-#endif
             _is_zc                              = true;
         }
 
@@ -849,14 +808,10 @@ class dpdk_qp : public net::qp {
             }
 
             // Restore the rte_mbuf fields we trashed in set_zc_info()
-            rte_mbuf_buf_physaddr(&_mbuf) = _buf_physaddr;
-            rte_mbuf_buf_addr(&_mbuf)     = rte_mbuf_to_baddr(&_mbuf);
-            rte_mbuf_buf_len(&_mbuf)      = _buf_len;
-#ifdef RTE_VERSION_1_7
-            _mbuf.pkt.data                = _data;
-#else
-            _mbuf.data_off                = _data_off;
-#endif
+            _mbuf.buf_physaddr = _buf_physaddr;
+            _mbuf.buf_addr     = rte_mbuf_to_baddr(&_mbuf);
+            _mbuf.buf_len      = _buf_len;
+            _mbuf.data_off     = _data_off;
 
             _is_zc             = false;
         }
@@ -865,7 +820,7 @@ class dpdk_qp : public net::qp {
             struct rte_mbuf *m = &_mbuf, *m_next;
 
             while (m != nullptr) {
-                m_next = rte_mbuf_next(m);
+                m_next = m->next;
                 //
                 // Zero only "next" field since we want to save the dirtying of
                 // the extra cache line.
@@ -874,7 +829,7 @@ class dpdk_qp : public net::qp {
                 // cluster are going to be cleared when the buffer is pooled
                 // from the mempool and not in this flow.
                 //
-                rte_mbuf_next(m) = nullptr;
+                m->next = nullptr;
                 _fc.put(me(m));
                 m = m_next;
             }
@@ -890,11 +845,7 @@ class dpdk_qp : public net::qp {
         std::experimental::optional<packet> _p;
         phys_addr_t _buf_physaddr;
         uint32_t _buf_len;
-#ifdef RTE_VERSION_1_7
-        void*    _data;
-#else
         uint16_t _data_off;
-#endif
         // TRUE if underlying mbuf has been used in the zero-copy flow
         bool _is_zc = false;
         // buffers' factory the buffer came from
@@ -1107,8 +1058,8 @@ private:
 
         for (int i = 0; i < sent; i++) {
             rte_mbuf* m = _tx_burst[_tx_burst_idx + i];
-            bytes    += rte_mbuf_pkt_len(m);
-            nr_frags += rte_mbuf_nb_segs(m);
+            bytes    += m->pkt_len;
+            nr_frags += m->nb_segs;
             pb.pop_front();
         }
 
@@ -1153,11 +1104,8 @@ private:
         // points to the private data of RTE_PKTMBUF_HEADROOM before the
         // actual data buffer.
         //
-        rte_mbuf_buf_addr(m)      = data - RTE_PKTMBUF_HEADROOM;
-        rte_mbuf_buf_physaddr(m)  = tr.addr - RTE_PKTMBUF_HEADROOM;
-#ifdef RTE_VERSION_1_7
-        m->pkt.data               = data - RTE_PKTMBUF_HEADROOM;
-#endif
+        m->buf_addr      = data - RTE_PKTMBUF_HEADROOM;
+        m->buf_physaddr  = tr.addr - RTE_PKTMBUF_HEADROOM;
         return true;
     }
 
@@ -1167,10 +1115,8 @@ private:
             return false;
         }
         // The below fields stay constant during the execution.
-        rte_mbuf_buf_len(m)       = size + RTE_PKTMBUF_HEADROOM;
-#ifndef RTE_VERSION_1_7
-        m->data_off               = RTE_PKTMBUF_HEADROOM;
-#endif
+        m->buf_len       = size + RTE_PKTMBUF_HEADROOM;
+        m->data_off      = RTE_PKTMBUF_HEADROOM;
         return true;
     }
 
@@ -1258,19 +1204,6 @@ int dpdk_device::init_port_start()
 
     rte_eth_dev_info_get(_port_idx, &_dev_info);
 
-#ifdef RTE_VERSION_1_7
-    _rx_conf_default.rx_thresh.pthresh = default_pthresh;
-    _rx_conf_default.rx_thresh.hthresh = default_rx_hthresh;
-    _rx_conf_default.rx_thresh.wthresh = default_wthresh;
-
-
-    _tx_conf_default.tx_thresh.pthresh = default_pthresh;
-    _tx_conf_default.tx_thresh.hthresh = default_tx_hthresh;
-    _tx_conf_default.tx_thresh.wthresh = default_wthresh;
-
-    _tx_conf_default.tx_free_thresh = 0; /* Use PMD default values */
-    _tx_conf_default.tx_rs_thresh   = 0; /* Use PMD default values */
-#else
     // Clear txq_flags - we want to support all available offload features
     // except for multi-mempool and refcnt'ing which we don't need
     _dev_info.default_txconf.txq_flags =
@@ -1303,7 +1236,6 @@ int dpdk_device::init_port_start()
         !(_dev_info.tx_offload_capa & DEV_TX_OFFLOAD_UDP_TSO)) {
         _dev_info.default_txconf.txq_flags |= ETH_TXQ_FLAGS_NOMULTSEGS;
     }
-#endif
 
     /* for port configuration all features are off by default */
     rte_eth_conf port_conf = { 0 };
@@ -1328,11 +1260,6 @@ int dpdk_device::init_port_start()
     }
 
     if (_num_queues > 1) {
-#ifdef RTE_VERSION_1_7
-        _redir_table.resize(ETH_RSS_RETA_NUM_ENTRIES);
-        // This comes from the ETH_RSS_RETA_NUM_ENTRIES being 128
-        _rss_table_bits = 7;
-#else
         if (_dev_info.reta_size) {
             // RETA size should be a power of 2
             assert((_dev_info.reta_size & (_dev_info.reta_size - 1)) == 0);
@@ -1345,7 +1272,6 @@ int dpdk_device::init_port_start()
         } else {
             _rss_table_bits = std::lround(std::log2(_dev_info.max_rx_queues));
         }
-#endif
     } else {
         _redir_table.push_back(0);
     }
@@ -1394,7 +1320,6 @@ int dpdk_device::init_port_start()
     }
 
     // TSO is supported starting from DPDK v1.8
-#ifndef RTE_VERSION_1_7
     if (_dev_info.tx_offload_capa & DEV_TX_OFFLOAD_TCP_TSO) {
         printf("TSO is supported\n");
         _hw_features.tx_tso = 1;
@@ -1406,7 +1331,6 @@ int dpdk_device::init_port_start()
         printf("UFO is supported\n");
         _hw_features.tx_ufo = 1;
     }
-#endif
 #endif
 
     // Check that Tx TCP and UDP CSUM features are either all set all together
@@ -1812,7 +1736,7 @@ template<>
 inline std::experimental::optional<packet> dpdk_qp<true>::from_mbuf(rte_mbuf* m)
 {
     _rx_free_pkts.push_back(m);
-    _num_rx_free_segs += rte_mbuf_nb_segs(m);
+    _num_rx_free_segs += m->nb_segs;
 
     if (!_dev->hw_features_ref().rx_lro || rte_pktmbuf_is_contiguous(m)) {
         char* data = rte_pktmbuf_mtod(m, char*);
@@ -1899,14 +1823,14 @@ void dpdk_qp<HugetlbfsMemBackend>::process_packets(
             continue;
         }
 
-        nr_frags += rte_mbuf_nb_segs(m);
-        bytes    += rte_mbuf_pkt_len(m);
+        nr_frags += m->nb_segs;
+        bytes    += m->pkt_len;
 
         // Set stipped VLAN value if available
         if ((_dev->_dev_info.rx_offload_capa & DEV_RX_OFFLOAD_VLAN_STRIP) &&
             (m->ol_flags & PKT_RX_VLAN_PKT)) {
 
-            oi.vlan_tci = rte_mbuf_vlan_tci(m);
+            oi.vlan_tci = m->vlan_tci;
         }
 
         if (_dev->hw_features().rx_csum_offload) {
@@ -1922,7 +1846,7 @@ void dpdk_qp<HugetlbfsMemBackend>::process_packets(
 
         (*p).set_offload_info(oi);
         if (m->ol_flags & PKT_RX_RSS_HASH) {
-            (*p).set_rss_hash(rte_mbuf_rss_hash(m));
+            (*p).set_rss_hash(m->hash.rss);
         }
 
         _dev->l2receive(std::move(*p));
@@ -1954,20 +1878,6 @@ bool dpdk_qp<HugetlbfsMemBackend>::poll_rx_once()
     return rx_count;
 }
 
-#ifdef RTE_VERSION_1_7
-void dpdk_device::get_rss_table()
-{
-    rte_eth_rss_reta reta_conf { ~0ULL, ~0ULL };
-    if (rte_eth_dev_rss_reta_query(_port_idx, &reta_conf)) {
-        rte_exit(EXIT_FAILURE, "Cannot get redirection table for pot %d\n",
-                               _port_idx);
-    }
-    assert(sizeof(reta_conf.reta) == _redir_table.size());
-    std::copy(reta_conf.reta,
-              reta_conf.reta + _redir_table.size(),
-              _redir_table.begin());
-}
-#else
 void dpdk_device::get_rss_table()
 {
     if (_dev_info.reta_size == 0)
@@ -1993,7 +1903,6 @@ void dpdk_device::get_rss_table()
                   _redir_table.begin() + i * RTE_RETA_GROUP_SIZE);
     }
 }
-#endif
 
 std::unique_ptr<qp> dpdk_device::init_local_queue(boost::program_options::variables_map opts, uint16_t qid) {
 
