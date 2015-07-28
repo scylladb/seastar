@@ -2031,8 +2031,10 @@ future<> do_flush_directory(sstring name) {
     }
 
     return open_directory(name).then([] (file f) {
-        return f.flush().then([f] () mutable {
-            return f.close();
+        return do_with(std::move(f), [] (file& f) {
+            return f.flush().then([&f] () mutable {
+                return f.close();
+            });
         });
     });
 }
