@@ -528,10 +528,6 @@ class dpdk_qp : public net::qp {
                     }
                 }
 
-                if (frags_in_seg > max_win_size) {
-                    return true;
-                }
-
                 if (cur_seg_size > mss) {
                     prev_frag_data = cur_seg_size - mss;
                 }
