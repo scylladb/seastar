@@ -121,6 +121,14 @@ static constexpr size_t   mbuf_data_size         = 2048;
 // (INLINE_MBUF_DATA_SIZE(2K)*32 = 64K = Max TSO/LRO size) + 1 mbuf for headers
 static constexpr uint8_t  max_frags              = 32 + 1;
 
+//
+// Intel's 40G NIC HW limit for a number of fragments in a non-TSO packet
+//
+// See Chapter 8.4.1 "Transmit Packet in System Memory" of the xl710 devices
+// spec. for more details.
+//
+static constexpr uint8_t  max_non_tso_i40e_frags = 8;
+
 static constexpr uint16_t inline_mbuf_size       =
                                 inline_mbuf_data_size + mbuf_overhead;
 
@@ -210,6 +218,7 @@ class dpdk_device : public device {
     const std::string _stats_plugin_name;
     const std::string _stats_plugin_inst;
     std::vector<scollectd::registration> _collectd_regs;
+    bool _is_i40e_device = false;
 
 public:
     rte_eth_dev_info _dev_info = {};
@@ -408,6 +417,9 @@ public:
         return _redir_table[hash & (_redir_table.size() - 1)];
     }
     uint8_t port_idx() { return _port_idx; }
+    bool is_i40e_device() const {
+        return _is_i40e_device;
+    }
 };
 
 template <bool HugetlbfsMemBackend>
@@ -459,6 +471,76 @@ class dpdk_qp : public net::qp {
         }
     private:
         /**
+         * Checks if the current packet should be linearized due to HW
+         * limitations.
+         *
+         * @param p packet to check
+         *
+         * @return TRUE if a packet should be linearized.
+         */
+        static bool i40e_should_linearize(packet& p) {
+            auto oi = p.offload_info();
+
+            // For a non-TSO case: number of fragments should not exceed 8
+            if (!oi.tso_seg_size){
+                return p.nr_frags() > max_non_tso_i40e_frags;
+            }
+
+            //
+            // For a TSO case each MSS window should not include more than 8
+            // fragments including a header, which means data may span on up to
+            // 7 fragments.
+            //
+            size_t max_win_size = max_non_tso_i40e_frags - 1;
+
+            if (p.nr_frags() <= max_win_size) {
+                return false;
+            }
+
+            auto mss = oi.tso_seg_size;
+            //
+            // First fragment contains headers - account only data.
+            //
+            // We support neither VLAN nor tunneling thus headers size
+            // accounting is super simple.
+            //
+            size_t prev_frag_data = p.frag(0).size -
+                oi.ip_hdr_len - oi.tcp_hdr_len - sizeof(struct ether_hdr);
+            unsigned cur_frag_idx = 1;
+
+            while (cur_frag_idx < p.nr_frags()) {
+                unsigned frags_in_seg = 0;
+                size_t cur_seg_size = 0;
+
+                if (prev_frag_data) {
+                    cur_seg_size = prev_frag_data;
+                    frags_in_seg++;
+                    prev_frag_data = 0;
+                }
+
+                while (cur_seg_size < mss && cur_frag_idx < p.nr_frags()) {
+                    fragment& frag = p.frag(cur_frag_idx++);
+                    cur_seg_size += frag.size;
+                    frags_in_seg++;
+
+                    if (frags_in_seg > max_win_size) {
+                        return true;
+                    }
+                }
+
+                if (frags_in_seg > max_win_size) {
+                    return true;
+                }
+
+                if (cur_seg_size > mss) {
+                    prev_frag_data = cur_seg_size - mss;
+                }
+            }
+
+            return false;
+        }
+
+        /**
          * Creates a tx_buf cluster representing a given packet using provided
          * functors.
          *
@@ -479,7 +561,8 @@ class dpdk_qp : public net::qp {
             packet&& p, dpdk_qp& qp) {
 
             // Too fragmented - linearize
-            if (p.nr_frags() > max_frags) {
+            if (p.nr_frags() > max_frags ||
+                (qp.port().is_i40e_device() && i40e_should_linearize(p))) {
                 p.linearize();
             }
 
@@ -1203,6 +1286,17 @@ int dpdk_device::init_port_start()
     assert(_port_idx < rte_eth_dev_count());
 
     rte_eth_dev_info_get(_port_idx, &_dev_info);
+
+    //
+    // This is a workaround for a missing handling of a HW limitation in the
+    // DPDK i40e driver. This and all related to _is_i40e_device code should be
+    // removed once this handling is added.
+    //
+    if (sstring("rte_i40evf_pmd") == _dev_info.driver_name ||
+        sstring("rte_i40e_pmd") == _dev_info.driver_name) {
+        printf("Device is an Intel's 40G NIC. Enabling 8 fragments hack!\n");
+        _is_i40e_device = true;
+    }
 
     // Clear txq_flags - we want to support all available offload features
     // except for multi-mempool and refcnt'ing which we don't need
