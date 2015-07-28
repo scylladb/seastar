@@ -192,7 +192,6 @@ reactor::reactor()
         [&] { timer_thread_func(); }, sched::thread::attr().stack(4096).name("timer_thread").pin(sched::cpu::current()))
     , _engine_thread(sched::thread::current())
 #endif
-    , _exit_future(_exit_promise.get_future())
     , _cpu_started(0)
     , _io_context(0)
     , _io_context_available(max_aio)
@@ -893,9 +892,14 @@ void reactor::del_timer(timer<lowres_clock>* tmr) {
     }
 }
 
+void reactor::at_exit(std::function<future<> ()> func) {
+    _exit_funcs.push_back(std::move(func));
+}
+
 future<> reactor::run_exit_tasks() {
-    _exit_promise.set_value();
-    return std::move(_exit_future);
+    return do_for_each(_exit_funcs.rbegin(), _exit_funcs.rend(), [] (auto& func) {
+        return func();
+    });
 }
 
 void reactor::stop() {
@@ -905,7 +909,7 @@ void reactor::stop() {
         for (unsigned i = 1; i < smp::count; i++) {
             smp::submit_to<>(i, []() {
                 return engine().run_exit_tasks().then([] {
-                        engine()._stopped = true;
+                    engine()._stopped = true;
                 });
             }).then([sem, i]() {
                 sem->signal();
@@ -921,7 +925,6 @@ void reactor::stop() {
 void reactor::exit(int ret) {
     smp::submit_to(0, [this, ret] { _return = ret; stop(); });
 }
-
 
 struct reactor::collectd_registrations {
     scollectd::registrations regs;

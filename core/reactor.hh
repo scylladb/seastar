@@ -696,8 +696,7 @@ private:
 #endif
     std::vector<pollfn*> _pollers;
     static constexpr size_t max_aio = 128;
-    promise<> _exit_promise;
-    future<> _exit_future;
+    std::vector<std::function<future<> ()>> _exit_funcs;
     unsigned _id = 0;
     bool _stopped = false;
     bool _handle_sigint = true;
@@ -816,10 +815,7 @@ public:
     void exit(int ret);
     future<> when_started() { return _start_promise.get_future(); }
 
-    template <typename Func>
-    void at_exit(Func&& func) {
-        _exit_future = _exit_future.then(std::forward<Func>(func));
-    }
+    void at_exit(std::function<future<> ()> func);
 
     template <typename Func>
     void at_destroy(Func&& func) {
