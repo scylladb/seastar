@@ -354,6 +354,8 @@ if args.dpdk:
                            'CONFIG_RTE_TEST_PMD': 'n',
                            'CONFIG_RTE_MBUF_REFCNT_ATOMIC': 'n',
                            'CONFIG_RTE_MAX_MEMSEG': '8192',
+                           'CONFIG_RTE_EAL_IGB_UIO': 'n',
+                           'CONFIG_RTE_LIBRTE_KNI': 'n',
                            })
     open(dotconfig, 'w', encoding='UTF-8').writelines(lines)
     args.dpdk_target = os.getcwd() + '/build/dpdk'
