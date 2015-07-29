@@ -618,6 +618,7 @@ protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& pro
         this->_stopped.set_value();
         if (_connected) {
             this->_write_buf.close();
+            _connected = false; // prevent running shutdown() on this
             _outstanding.clear();
         } else {
             this->_connected_promise.set_exception(closed_error());

@@ -148,6 +148,17 @@ public:
         void wait_for_reply(id_type id, std::unique_ptr<reply_handler_base>&& h) {
             _outstanding.emplace(id, std::move(h));
         }
+
+        future<> stop() {
+            this->_error = true;
+            if (_connected) {
+                return connection::stop();
+            } else {
+                // connection::stop will fail on shutdown(); since we can't shutdown a
+                // connect(), just wait for it to timeout
+                return this->_stopped.get_future();
+            }
+        }
     };
     friend server;
 private:
