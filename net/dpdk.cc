@@ -122,12 +122,12 @@ static constexpr size_t   mbuf_data_size         = 2048;
 static constexpr uint8_t  max_frags              = 32 + 1;
 
 //
-// Intel's 40G NIC HW limit for a number of fragments in a non-TSO packet
+// Intel's 40G NIC HW limit for a number of fragments in an xmit segment.
 //
 // See Chapter 8.4.1 "Transmit Packet in System Memory" of the xl710 devices
 // spec. for more details.
 //
-static constexpr uint8_t  max_non_tso_i40e_frags = 8;
+static constexpr uint8_t  i40e_max_xmit_segment_frags = 8;
 
 static constexpr uint16_t inline_mbuf_size       =
                                 inline_mbuf_data_size + mbuf_overhead;
@@ -483,7 +483,7 @@ class dpdk_qp : public net::qp {
 
             // For a non-TSO case: number of fragments should not exceed 8
             if (!oi.tso_seg_size){
-                return p.nr_frags() > max_non_tso_i40e_frags;
+                return p.nr_frags() > i40e_max_xmit_segment_frags;
             }
 
             //
@@ -491,7 +491,7 @@ class dpdk_qp : public net::qp {
             // fragments including a header, which means data may span on up to
             // 7 fragments.
             //
-            size_t max_win_size = max_non_tso_i40e_frags - 1;
+            size_t max_win_size = i40e_max_xmit_segment_frags - 1;
 
             if (p.nr_frags() <= max_win_size) {
                 return false;
