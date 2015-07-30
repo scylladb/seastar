@@ -488,25 +488,44 @@ class dpdk_qp : public net::qp {
 
             //
             // For a TSO case each MSS window should not include more than 8
-            // fragments including a header, which means data may span on up to
-            // 7 fragments.
+            // fragments including headers.
             //
-            size_t max_win_size = i40e_max_xmit_segment_frags - 1;
+            
+            // Calculate the number of frags containing headers.
+            //
+            // Note: we support neither VLAN nor tunneling thus headers size
+            // accounting is super simple.
+            //
+            size_t headers_size = oi.ip_hdr_len + oi.tcp_hdr_len + sizeof(struct ether_hdr);
+            unsigned cur_frag_idx;
+            size_t cur_payload_len = 0;
+
+            for (cur_frag_idx = 0;
+                 cur_frag_idx < p.nr_frags() && cur_payload_len < headers_size;
+                 cur_frag_idx++) {
+                cur_payload_len += p.frag(cur_frag_idx).size;
+            }
+
+            //
+            // Header fragments will be used for each TSO segment, thus the
+            // maximum number of data segments will be 8 minus the number of
+            // header fragments.
+            //
+            // It's unclear from the spec how the first TSO segment is treated
+            // if the last fragment with headers contains some data bytes:
+            // whether this fragment will be accounted as a single fragment or
+            // as two separate fragments. We prefer to play it safe and assume
+            // that this fragment will be accounted as two separate fragments.
+            //
+            size_t max_win_size = i40e_max_xmit_segment_frags - cur_frag_idx;
 
             if (p.nr_frags() <= max_win_size) {
                 return false;
             }
 
+            // Get the data (without headers) part of the first data fragment
+            size_t prev_frag_data = cur_payload_len - headers_size;
             auto mss = oi.tso_seg_size;
-            //
-            // First fragment contains headers - account only data.
-            //
-            // We support neither VLAN nor tunneling thus headers size
-            // accounting is super simple.
-            //
-            size_t prev_frag_data = p.frag(0).size -
-                oi.ip_hdr_len - oi.tcp_hdr_len - sizeof(struct ether_hdr);
-            unsigned cur_frag_idx = 1;
 
             while (cur_frag_idx < p.nr_frags()) {
                 unsigned frags_in_seg = 0;
