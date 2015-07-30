@@ -28,9 +28,11 @@
 #include "task.hh"
 #include "future.hh"
 #include "shared_ptr.hh"
+#include "do_with.hh"
 #include <tuple>
 #include <iterator>
 #include <vector>
+#include <experimental/optional>
 
 /// \cond internal
 extern __thread size_t task_quota;
@@ -39,6 +41,26 @@ extern __thread size_t task_quota;
 
 /// \addtogroup future-util
 /// @{
+
+/// \cond internal
+
+struct parallel_for_each_state {
+    // use optional<> to avoid out-of-line constructor
+    std::experimental::optional<std::exception_ptr> ex;
+    size_t waiting = 0;
+    promise<> pr;
+    void complete() {
+        if (--waiting == 0) {
+            if (ex) {
+                pr.set_exception(std::move(*ex));
+            } else {
+                pr.set_value();
+            }
+        }
+    }
+};
+
+/// \endcond
 
 /// Run tasks in parallel (iterator version).
 ///
@@ -58,14 +80,27 @@ template <typename Iterator, typename Func>
 inline
 future<>
 parallel_for_each(Iterator begin, Iterator end, Func&& func) {
-    auto ret = make_ready_future<>();
-    while (begin != end) {
-        auto f = func(*begin++).then([ret = std::move(ret)] () mutable {
-            return std::move(ret);
-        });
-        ret = std::move(f);
-    }
-    return ret;
+    return do_with(parallel_for_each_state(), [&] (parallel_for_each_state& state) -> future<> {
+        // increase ref count to ensure all functions run
+        ++state.waiting;
+        while (begin != end) {
+            ++state.waiting;
+            func(*begin++).then_wrapped([&] (future<> f) {
+                try {
+                    f.get();
+                } catch (...) {
+                    // We can only store one exception.  For more, use when_all().
+                    if (!state.ex) {
+                        state.ex = std::move(std::current_exception());
+                    }
+                }
+                state.complete();
+            });
+        }
+        // match increment on top
+        state.complete();
+        return state.pr.get_future();
+    });
 }
 
 /// Run tasks in parallel (range version).
