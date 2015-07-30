@@ -471,19 +471,19 @@ class dpdk_qp : public net::qp {
         }
     private:
         /**
-         * Checks if the current packet should be linearized due to HW
-         * limitations.
+         * Checks if the original packet of a given cluster should be linearized
+         * due to HW limitations.
          *
-         * @param p packet to check
+         * @param head head of a cluster to check
          *
          * @return TRUE if a packet should be linearized.
          */
-        static bool i40e_should_linearize(packet& p) {
-            auto oi = p.offload_info();
+        static bool i40e_should_linearize(rte_mbuf *head) {
+            bool is_tso = head->ol_flags & PKT_TX_TCP_SEG;
 
             // For a non-TSO case: number of fragments should not exceed 8
-            if (!oi.tso_seg_size){
-                return p.nr_frags() > i40e_max_xmit_segment_frags;
+            if (!is_tso){
+                return head->nb_segs > i40e_max_xmit_segment_frags;
             }
 
             //
@@ -496,14 +496,15 @@ class dpdk_qp : public net::qp {
             // Note: we support neither VLAN nor tunneling thus headers size
             // accounting is super simple.
             //
-            size_t headers_size = oi.ip_hdr_len + oi.tcp_hdr_len + sizeof(struct ether_hdr);
-            unsigned cur_frag_idx;
+            size_t headers_size = head->l2_len + head->l3_len + head->l4_len;
+            unsigned hdr_frags = 0;
             size_t cur_payload_len = 0;
+            rte_mbuf *cur_seg = head;
 
-            for (cur_frag_idx = 0;
-                 cur_frag_idx < p.nr_frags() && cur_payload_len < headers_size;
-                 cur_frag_idx++) {
-                cur_payload_len += p.frag(cur_frag_idx).size;
+            while (cur_seg && cur_payload_len < headers_size) {
+                cur_payload_len += cur_seg->data_len;
+                cur_seg = cur_seg->next;
+                hdr_frags++;
             }
 
             //
@@ -517,17 +518,17 @@ class dpdk_qp : public net::qp {
             // as two separate fragments. We prefer to play it safe and assume
             // that this fragment will be accounted as two separate fragments.
             //
-            size_t max_win_size = i40e_max_xmit_segment_frags - cur_frag_idx;
+            size_t max_win_size = i40e_max_xmit_segment_frags - hdr_frags;
 
-            if (p.nr_frags() <= max_win_size) {
+            if (head->nb_segs <= max_win_size) {
                 return false;
             }
 
             // Get the data (without headers) part of the first data fragment
             size_t prev_frag_data = cur_payload_len - headers_size;
-            auto mss = oi.tso_seg_size;
+            auto mss = head->tso_segsz;
 
-            while (cur_frag_idx < p.nr_frags()) {
+            while (cur_seg) {
                 unsigned frags_in_seg = 0;
                 size_t cur_seg_size = 0;
 
@@ -537,9 +538,9 @@ class dpdk_qp : public net::qp {
                     prev_frag_data = 0;
                 }
 
-                while (cur_seg_size < mss && cur_frag_idx < p.nr_frags()) {
-                    fragment& frag = p.frag(cur_frag_idx++);
-                    cur_seg_size += frag.size;
+                while (cur_seg_size < mss && cur_seg) {
+                    cur_seg_size += cur_seg->data_len;
+                    cur_seg = cur_seg->next;
                     frags_in_seg++;
 
                     if (frags_in_seg > max_win_size) {
@@ -576,11 +577,11 @@ class dpdk_qp : public net::qp {
             packet&& p, dpdk_qp& qp) {
 
             // Too fragmented - linearize
-            if (p.nr_frags() > max_frags ||
-                (qp.port().is_i40e_device() && i40e_should_linearize(p))) {
+            if (p.nr_frags() > max_frags) {
                 p.linearize();
             }
 
+build_mbuf_cluster:
             rte_mbuf *head = nullptr, *last_seg = nullptr;
             unsigned nsegs = 0;
 
@@ -643,6 +644,21 @@ class dpdk_qp : public net::qp {
                     head->l2_len = sizeof(struct ether_hdr);
                     head->l3_len = oi.ip_hdr_len;
                 }
+            }
+
+            //
+            // If a packet hasn't been linearized already and the resulting
+            // cluster requires the linearisation due to HW limitation:
+            //
+            //    - Recycle the cluster.
+            //    - Linearize the packet.
+            //    - Build the cluster once again
+            //
+            if (p.nr_frags() > 1 && qp.port().is_i40e_device() && i40e_should_linearize(head)) {
+                me(head)->recycle();
+                p.linearize();
+
+                goto build_mbuf_cluster;
             }
 
             fin(std::move(p), *me(last_seg));
