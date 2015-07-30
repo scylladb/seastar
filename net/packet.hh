@@ -590,15 +590,19 @@ char* packet::prepend_uninitialized_header(size_t size) {
     if (!allocate_headroom(size)) {
         // didn't work out, allocate and copy
         _impl->unuse_internal_data();
-        _impl->_len += size;
-        _impl = impl::allocate_if_needed(std::move(_impl), 1);
-        std::unique_ptr<char[]> buf(new char[size]);
-        std::copy_backward(_impl->_frags, _impl->_frags + _impl->_nr_frags,
-                _impl->_frags + _impl->_nr_frags + 1);
-        ++_impl->_nr_frags;
-        _impl->_frags[0] = {buf.get(), size};
-        _impl->_deleter = make_deleter(std::move(_impl->_deleter),
-                [buf = std::move(buf)] {});
+        // try again, after unuse_internal_data we may have space after all
+        if (!allocate_headroom(size)) {
+            // failed
+            _impl->_len += size;
+            _impl = impl::allocate_if_needed(std::move(_impl), 1);
+            std::unique_ptr<char[]> buf(new char[size]);
+            std::copy_backward(_impl->_frags, _impl->_frags + _impl->_nr_frags,
+                    _impl->_frags + _impl->_nr_frags + 1);
+            ++_impl->_nr_frags;
+            _impl->_frags[0] = {buf.get(), size};
+            _impl->_deleter = make_deleter(std::move(_impl->_deleter),
+                    [buf = std::move(buf)] {});
+        }
     }
     return _impl->_frags[0].base;
 }
