@@ -376,3 +376,30 @@ SEASTAR_TEST_CASE(test_do_while_failing_in_the_second_step) {
         });
     });
 }
+
+SEASTAR_TEST_CASE(test_parallel_for_each_early_failure) {
+    return do_with(0, [] (int& counter) {
+        return parallel_for_each(boost::irange(0, 11000), [&counter] (int i) {
+            using namespace std::chrono_literals;
+            // force scheduling
+            return sleep((i % 31 + 1) * 1ms).then([&counter, i] {
+                ++counter;
+                if (i % 1777 == 1337) {
+                    return make_exception_future<>(i);
+                }
+                return make_ready_future<>();
+            });
+        }).then_wrapped([&counter] (future<> f) {
+            BOOST_REQUIRE_EQUAL(counter, 11000);
+            BOOST_REQUIRE(f.failed());
+            try {
+                f.get();
+                BOOST_FAIL("wanted an exception");
+            } catch (int i) {
+                BOOST_REQUIRE(i % 1777 == 1337);
+            } catch (...) {
+                BOOST_FAIL("bad exception type");
+            }
+        });
+    });
+}
