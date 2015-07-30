@@ -165,6 +165,7 @@ class packet final {
                     buf.get());
             _frags[0].base = buf.get();
             _deleter = make_deleter(std::move(_deleter), [buf = std::move(buf)] {});
+            _headroom = internal_data_size;
         }
         void copy_internal_fragment_to(impl* to) {
             if (!using_internal_data()) {
