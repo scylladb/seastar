@@ -61,7 +61,7 @@ def dpdk_cflags (dpdk_target):
         if args.dpdk:
             dpdk_sdk_path = 'dpdk'
             dpdk_target = os.getcwd() + '/build/dpdk'
-            dpdk_target_name = 'x86_64-native-linuxapp-gcc'
+            dpdk_target_name = 'x86_64-{}-linuxapp-gcc'.format(dpdk_machine)
             dpdk_arch = 'x86_64'
 
         sfile.file.write(bytes('include ' + dpdk_sdk_path + '/mk/rte.vars.mk' + "\n", 'utf-8'))
@@ -333,10 +333,25 @@ if args.with_osv:
         args.with_osv + ' -I' + args.with_osv + '/include -I' +
         args.with_osv + '/arch/x64')
 
+dpdk_arch_xlat = {
+    'native': 'native',
+    'nehalem': 'nhm',
+    'westmere': 'wsm',
+    'sandybridge': 'snb',
+    'ivybridge': 'ivb',
+    }
+
+dpdk_machine = 'native'
+
 if args.dpdk:
     if not os.path.exists('dpdk') or not os.listdir('dpdk'):
         raise Exception('--enable-dpdk: dpdk/ is empty. Run "git submodule update --init".')
-    subprocess.check_call('make -C dpdk RTE_OUTPUT=$PWD/build/dpdk/ config T=x86_64-native-linuxapp-gcc',
+    cflags = args.user_cflags.split()
+    dpdk_machine = ([dpdk_arch_xlat[cflag[7:]]
+                     for cflag in cflags
+                     if cflag.startswith('-march')] or ['native'])[0]
+    subprocess.check_call('make -C dpdk RTE_OUTPUT=$PWD/build/dpdk/ config T=x86_64-native-linuxapp-gcc'.format(
+                                                dpdk_machine=dpdk_machine),
                           shell = True)
     # adjust configutation to taste
     dotconfig = 'build/dpdk/.config'
@@ -359,6 +374,7 @@ if args.dpdk:
                            'CONFIG_RTE_EAL_IGB_UIO': 'n',
                            'CONFIG_RTE_LIBRTE_KNI': 'n',
                            })
+    lines += 'CONFIG_RTE_MACHINE={}'.format(dpdk_machine)
     open(dotconfig, 'w', encoding='UTF-8').writelines(lines)
     args.dpdk_target = os.getcwd() + '/build/dpdk'
     
