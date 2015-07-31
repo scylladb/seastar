@@ -403,3 +403,26 @@ SEASTAR_TEST_CASE(test_parallel_for_each_early_failure) {
         });
     });
 }
+
+SEASTAR_TEST_CASE(test_parallel_for_each_waits_for_all_fibers_even_if_one_of_them_failed) {
+    auto can_exit = make_lw_shared<bool>(false);
+    return parallel_for_each(boost::irange(0, 2), [can_exit] (int i) {
+        return later().then([i, can_exit] {
+            if (i == 1) {
+                throw expected_exception();
+            } else {
+                using namespace std::chrono_literals;
+                return sleep(300ms).then([can_exit] {
+                    *can_exit = true;
+                });
+            }
+        });
+    }).then_wrapped([can_exit] (auto&& f) {
+        try {
+            f.get();
+        } catch (...) {
+            // expected
+        }
+        BOOST_REQUIRE(*can_exit);
+    });
+}
