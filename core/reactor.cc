@@ -2065,7 +2065,7 @@ future<> recursive_touch_directory(sstring name) {
     // If the name is empty,  it will be of the type a/b/c, which should be interpreted as
     // a relative path. This means we have to flush our current directory
     sstring base = "";
-    if (name[0] == '/' || name[0] == '.') {
+    if (name[0] != '/' || name[0] == '.') {
         base = "./";
     }
     return do_recursive_touch_directory(base, name);
