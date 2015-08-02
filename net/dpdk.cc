@@ -172,10 +172,7 @@ static constexpr uint8_t packet_read_size        = 32;
 /******************************************************************************/
 
 struct port_stats {
-    port_stats() {
-        std::memset(&rx, 0, sizeof(rx));
-        std::memset(&tx, 0, sizeof(tx));
-    }
+    port_stats() : rx{}, tx{} {}
 
     struct {
         struct {
