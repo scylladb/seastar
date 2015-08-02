@@ -202,6 +202,7 @@ struct qp_stats {
 
     struct {
         struct qp_stats_good good;
+        uint64_t linearized;       // number of packets that were linearized
     } tx;
 };
 

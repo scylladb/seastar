@@ -576,6 +576,7 @@ class dpdk_qp : public net::qp {
             // Too fragmented - linearize
             if (p.nr_frags() > max_frags) {
                 p.linearize();
+                ++qp._stats.tx.linearized;
             }
 
 build_mbuf_cluster:
@@ -654,6 +655,7 @@ build_mbuf_cluster:
             if (p.nr_frags() > 1 && qp.port().is_i40e_device() && i40e_should_linearize(head)) {
                 me(head)->recycle();
                 p.linearize();
+                ++qp._stats.tx.linearized;
 
                 goto build_mbuf_cluster;
             }
