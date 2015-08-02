@@ -198,6 +198,9 @@ struct tcp_hdr {
     void adjust_endianness(Adjuster a) { a(src_port, dst_port, seq, ack, window, checksum, urgent); }
 } __attribute__((packed));
 
+struct tcp_tag {};
+using tcp_packet_merger = packet_merger<tcp_seq, tcp_tag>;
+
 template <typename InetTraits>
 class tcp {
 public:
@@ -284,7 +287,7 @@ private:
             tcp_seq urgent;
             tcp_seq initial;
             std::deque<packet> data;
-            packet_merger<tcp_seq> out_of_order;
+            tcp_packet_merger out_of_order;
             std::experimental::optional<promise<>> _data_received_promise;
         } _rcv;
         tcp_option _option;
@@ -531,6 +534,7 @@ private:
     // queue for packets that do not belong to any tcb
     circular_buffer<ipv4_traits::l4packet> _packetq;
     semaphore _queue_space = {212992};
+    scollectd::registrations _collectd_regs;
 public:
     class connection {
         lw_shared_ptr<tcb> _tcb;
@@ -606,7 +610,21 @@ private:
 };
 
 template <typename InetTraits>
-tcp<InetTraits>::tcp(inet_type& inet) : _inet(inet), _e(_rd()) {
+tcp<InetTraits>::tcp(inet_type& inet)
+    : _inet(inet)
+    , _e(_rd())
+    , _collectd_regs({
+        //
+        // Linearized events: DERIVE:0:u
+        //
+        scollectd::add_polled_metric(scollectd::type_instance_id(
+              "tcp"
+            , scollectd::per_cpu_plugin_instance
+            , "total_operations", "linearizations")
+            , scollectd::make_typed(scollectd::data_type::DERIVE
+            , [] { return tcp_packet_merger::linearizations(); })
+        ),
+    }) {
     _inet.register_packet_provider([this, tcb_polled = 0u] () mutable {
         std::experimental::optional<typename InetTraits::l4packet> l4p;
         auto c = _poll_tcbs.size();

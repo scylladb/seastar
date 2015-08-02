@@ -156,6 +156,7 @@ xenfront_qp::send(packet _p) {
 
     // FIXME: negotiate and use scatter/gather
     _p.linearize();
+    ++_stats.tx.linearized;
 
     return _tx_ring.entries.has_room().then([this, p = std::move(_p), frag] () mutable {
 

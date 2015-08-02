@@ -118,6 +118,17 @@ qp::qp(bool register_copy_stats,
             ),
 
             //
+            // Linearization counter: DERIVE:0:U
+            //
+            scollectd::add_polled_metric(scollectd::type_instance_id(
+                    _stats_plugin_name
+                    , scollectd::per_cpu_plugin_instance
+                    , "total_operations", "xmit-linearized")
+                    , scollectd::make_typed(scollectd::data_type::DERIVE
+                    , _stats.tx.linearized)
+            ),
+
+            //
             // Number of packets in last bunch: GAUGE:0:U
             //
             // Tx

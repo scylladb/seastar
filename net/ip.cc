@@ -56,7 +56,19 @@ ipv4::ipv4(interface* netif)
     , _tcp(*this)
     , _icmp(*this)
     , _udp(*this)
-    , _l4({ { uint8_t(ip_protocol_num::tcp), &_tcp }, { uint8_t(ip_protocol_num::icmp), &_icmp }, { uint8_t(ip_protocol_num::udp), &_udp }}) {
+    , _l4({ { uint8_t(ip_protocol_num::tcp), &_tcp }, { uint8_t(ip_protocol_num::icmp), &_icmp }, { uint8_t(ip_protocol_num::udp), &_udp }})
+    , _collectd_regs({
+        //
+        // Linearized events: DERIVE:0:u
+        //
+        scollectd::add_polled_metric(scollectd::type_instance_id(
+              "ipv4"
+            , scollectd::per_cpu_plugin_instance
+            , "total_operations", "linearizations")
+            , scollectd::make_typed(scollectd::data_type::DERIVE
+            , [] { return ipv4_packet_merger::linearizations(); })
+        ),
+    }) {
     _frag_timer.set_callback([this] { frag_timeout(); });
 }
 

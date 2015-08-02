@@ -178,10 +178,7 @@ struct qp_stats_good {
 };
 
 struct qp_stats {
-    qp_stats() {
-        std::memset(&rx, 0, sizeof(rx));
-        std::memset(&tx, 0, sizeof(tx));
-    }
+    qp_stats() : rx{}, tx{} {}
 
     struct {
         struct qp_stats_good good;
@@ -205,6 +202,7 @@ struct qp_stats {
 
     struct {
         struct qp_stats_good good;
+        uint64_t linearized;       // number of packets that were linearized
     } tx;
 };
 
