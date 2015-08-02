@@ -28,10 +28,20 @@
 
 namespace net {
 
-template <typename Offset>
+template <typename Offset, typename Tag>
 class packet_merger {
+private:
+    static uint64_t& linearizations_ref() {
+        static thread_local uint64_t linearization_count;
+        return linearization_count;
+    }
 public:
     std::map<Offset, packet> map;
+
+    static uint64_t linearizations() {
+        return linearizations_ref();
+    }
+
     void merge(Offset offset, packet p) {
         bool insert;
         auto beg = offset;
@@ -71,6 +81,7 @@ public:
                 // Append new data to the old segment, keep the old segment
                 seg_pkt.append(std::move(p));
                 seg_pkt.linearize();
+                ++linearizations_ref();
                 insert = false;
                 break;
             } else {
@@ -85,6 +96,7 @@ public:
 
         if (insert) {
             p.linearize();
+            ++linearizations_ref();
             map.emplace(beg, std::move(p));
         }
 

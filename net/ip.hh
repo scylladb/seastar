@@ -289,6 +289,9 @@ struct ipv4_frag_id::hash : private std::hash<ipv4_address>,
     }
 };
 
+struct ipv4_tag {};
+using ipv4_packet_merger = packet_merger<uint32_t, ipv4_tag>;
+
 class ipv4 {
 public:
     using clock_type = lowres_clock;
@@ -313,7 +316,7 @@ private:
     ip_packet_filter * _packet_filter = nullptr;
     struct frag {
         packet header;
-        packet_merger<uint32_t> data;
+        ipv4_packet_merger data;
         clock_type::time_point rx_time;
         uint32_t mem_size = 0;
         // fragment with MF == 0 inidates it is the last fragment
@@ -332,6 +335,7 @@ private:
     timer<lowres_clock> _frag_timer;
     circular_buffer<l3_protocol::l3packet> _packetq;
     unsigned _pkt_provider_idx = 0;
+    scollectd::registrations _collectd_regs;
 private:
     future<> handle_received_packet(packet p, ethernet_address from);
     bool forward(forward_hash& out_hash_data, packet& p, size_t off);
