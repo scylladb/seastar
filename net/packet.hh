@@ -160,11 +160,14 @@ class packet final {
             if (!using_internal_data()) {
                 return;
             }
-            std::unique_ptr<char[]> buf{new char[_frags[0].size]};
-            std::copy(_frags[0].base, _frags[0].base + _frags[0].size,
-                    buf.get());
-            _frags[0].base = buf.get();
-            _deleter = make_deleter(std::move(_deleter), [buf = std::move(buf)] {});
+            auto buf = static_cast<char*>(::malloc(_frags[0].size));
+            if (!buf) {
+                throw std::bad_alloc();
+            }
+            deleter d = make_free_deleter(buf);
+            std::copy(_frags[0].base, _frags[0].base + _frags[0].size, buf);
+            _frags[0].base = buf;
+            _deleter.append(std::move(d));
             _headroom = internal_data_size;
         }
         void copy_internal_fragment_to(impl* to) {
@@ -315,10 +318,13 @@ packet::impl::impl(fragment frag, size_t nr_frags)
         _headroom -= frag.size;
         _frags[0] = { _data + _headroom, frag.size };
     } else {
-        std::unique_ptr<char[]> buf{new char[frag.size]};
-        _frags[0] = { buf.get(), frag.size };
-        _deleter = make_deleter(std::move(_deleter),
-                [buf = std::move(buf)] {});
+        auto buf = static_cast<char*>(::malloc(frag.size));
+        if (!buf) {
+            throw std::bad_alloc();
+        }
+        deleter d = make_free_deleter(buf);
+        _frags[0] = { buf, frag.size };
+        _deleter.append(std::move(d));
     }
     std::copy(frag.base, frag.base + frag.size, _frags[0].base);
     ++_nr_frags;
