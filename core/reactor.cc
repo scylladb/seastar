@@ -1024,6 +1024,20 @@ reactor::register_collectd_metrics() {
             scollectd::add_polled_metric(
                 scollectd::type_instance_id("memory",
                     scollectd::per_cpu_plugin_instance,
+                    "memory", "total_memory"),
+                scollectd::make_typed(scollectd::data_type::GAUGE,
+                        [] { return memory::stats().total_memory(); })
+            ),
+            scollectd::add_polled_metric(
+                scollectd::type_instance_id("memory",
+                    scollectd::per_cpu_plugin_instance,
+                    "memory", "allocated_memory"),
+                scollectd::make_typed(scollectd::data_type::GAUGE,
+                        [] { return memory::stats().allocated_memory(); })
+            ),
+            scollectd::add_polled_metric(
+                scollectd::type_instance_id("memory",
+                    scollectd::per_cpu_plugin_instance,
                     "total_operations", "reclaims"),
                 scollectd::make_typed(scollectd::data_type::DERIVE,
                         [] { return memory::stats().reclaims(); })

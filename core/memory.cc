@@ -893,7 +893,7 @@ void configure(std::vector<resource::memory> m,
 
 statistics stats() {
     return statistics{g_allocs, g_frees, g_cross_cpu_frees,
-        cpu_mem.nr_free_pages * page_size, g_reclaims};
+        cpu_mem.nr_pages * page_size, cpu_mem.nr_free_pages * page_size, g_reclaims};
 }
 
 bool drain_cross_cpu_freelist() {
