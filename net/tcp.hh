@@ -1445,6 +1445,7 @@ void tcp<InetTraits>::tcb::output_one(bool data_retransmit) {
     }
 
     packet p = data_retransmit ? _snd.data.front().p.share() : get_transmit_packet();
+    packet clone = p.share();  // early clone to prevent share() from calling packet::unuse_internal_data() on header.
     uint16_t len = p.len();
     bool syn_on = syn_needs_on();
     bool ack_on = ack_needs_on();
@@ -1530,7 +1531,7 @@ void tcp<InetTraits>::tcb::output_one(bool data_retransmit) {
         auto now = clock_type::now();
         if (len) {
             unsigned nr_transmits = 0;
-            _snd.data.emplace_back(unacked_segment{p.share(sizeof(tcp_hdr) + options_size, len),
+            _snd.data.emplace_back(unacked_segment{std::move(clone),
                                    len, nr_transmits, now});
         }
         if (!_retransmit.armed()) {
