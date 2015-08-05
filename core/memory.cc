@@ -311,6 +311,7 @@ struct cpu_pages {
         return &pages[(reinterpret_cast<char*>(p) - mem()) / page_size];
     }
 
+    bool is_initialized() const;
     bool initialize();
     void reclaim();
     void set_reclaim_hook(std::function<void (std::function<void ()>)> hook);
@@ -318,6 +319,7 @@ struct cpu_pages {
     void do_resize(size_t new_size, allocate_system_memory_fn alloc_sys_mem);
     void replace_memory_backing(allocate_system_memory_fn alloc_sys_mem);
     void init_virt_to_phys_map();
+    memory::memory_layout memory_layout();
     translation translate(const void* addr, size_t size);
     ~cpu_pages();
 };
@@ -523,8 +525,12 @@ cpu_pages::~cpu_pages() {
     live_cpus[cpu_id].store(false, std::memory_order_relaxed);
 }
 
+bool cpu_pages::is_initialized() const {
+    return bool(nr_pages);
+}
+
 bool cpu_pages::initialize() {
-    if (nr_pages) {
+    if (is_initialized()) {
         return false;
     }
     cpu_id = cpu_id_gen.fetch_add(1, std::memory_order_relaxed);
@@ -674,6 +680,14 @@ void cpu_pages::reclaim() {
         }
         current_min_free_pages = min_free_pages;
     });
+}
+
+memory::memory_layout cpu_pages::memory_layout() {
+    assert(is_initialized());
+    return {
+        reinterpret_cast<uintptr_t>(memory),
+        reinterpret_cast<uintptr_t>(memory) + nr_pages * page_size
+    };
 }
 
 void cpu_pages::set_reclaim_hook(std::function<void (std::function<void ()>)> hook) {
@@ -911,6 +925,10 @@ translate(const void* addr, size_t size) {
         return {};
     }
     return cp->translate(addr, size);
+}
+
+memory_layout get_memory_layout() {
+    return cpu_mem.memory_layout();
 }
 
 }
@@ -1194,6 +1212,10 @@ bool drain_cross_cpu_freelist() {
 translation
 translate(const void* addr, size_t size) {
     return {};
+}
+
+memory_layout get_memory_layout() {
+    throw std::runtime_error("get_memory_layout() not supported");
 }
 
 }

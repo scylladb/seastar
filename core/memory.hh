@@ -143,6 +143,14 @@ public:
     friend statistics stats();
 };
 
+struct memory_layout {
+    uintptr_t start;
+    uintptr_t end;
+};
+
+// Discover virtual address range used by the allocator on current shard.
+// Supported only when seastar allocator is enabled.
+memory::memory_layout get_memory_layout();
 
 }
 
