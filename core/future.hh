@@ -814,6 +814,12 @@ public:
                     f_res.get(); // force excepion if one
                     return std::move(result);
                 } catch (...) {
+                    // consume the "result" future
+                    try{
+                        result.get();
+                    } catch(...){
+                        // if it was exceptional - ignore it
+                    }
                     return make_exception_future<T...>(std::current_exception());
                 }
             });
