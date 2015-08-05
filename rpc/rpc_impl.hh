@@ -380,7 +380,7 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
         apply(func, client->info(), WantClientInfo(), signature(), std::move(args)).then_wrapped(
                 [client, msg_id] (futurize_t<typename signature::ret_type> ret) {
             client->out_ready() = client->out_ready().then([client, msg_id, ret = std::move(ret)] () mutable {
-                auto f = reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, *client);
+                return reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, *client);
             });
         });
     };
