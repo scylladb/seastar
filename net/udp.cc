@@ -97,7 +97,8 @@ public:
     virtual future<> send(ipv4_addr dst, packet p) override {
         auto len = p.len();
         return _state->wait_for_send_buffer(len).then([this, dst, p = std::move(p), len] () mutable {
-            _proto.send(_reg.port(), dst, std::move(p), _state);
+            p = packet(std::move(p), make_deleter([s = _state, len] { s->complete_send(len); }));
+            _proto.send(_reg.port(), dst, std::move(p));
         });
     }
 
@@ -123,13 +124,8 @@ ipv4_udp::ipv4_udp(ipv4& inet)
     _inet.register_packet_provider([this] {
         std::experimental::optional<ipv4_traits::l4packet> l4p;
         if (!_packetq.empty()) {
-            ipv4_traits::l4packet p;
-            lw_shared_ptr<udp_channel_state> channel;
-            size_t len;
-            std::tie(p, channel, len) = std::move(_packetq.front());
+            l4p = std::move(_packetq.front());
             _packetq.pop_front();
-            l4p = std::move(p);
-            channel->complete_send(len);
         }
         return l4p;
     });
@@ -157,9 +153,8 @@ void ipv4_udp::received(packet p, ipv4_address from, ipv4_address to)
     }
 }
 
-void ipv4_udp::send(uint16_t src_port, ipv4_addr dst, packet &&p, lw_shared_ptr<udp_channel_state> channel)
+void ipv4_udp::send(uint16_t src_port, ipv4_addr dst, packet &&p)
 {
-    size_t len = p.len();
     auto src = _inet.host_address();
     auto hdr = p.prepend_header<udp_hdr>();
     hdr->src_port = src_port;
@@ -182,8 +177,8 @@ void ipv4_udp::send(uint16_t src_port, ipv4_addr dst, packet &&p, lw_shared_ptr<
     oi.protocol = ip_protocol_num::udp;
     p.set_offload_info(oi);
 
-    _inet.get_l2_dst_address(dst).then([this, dst, p = std::move(p), channel = std::move(channel), len] (ethernet_address e_dst) mutable {
-        _packetq.emplace_back(std::make_tuple(ipv4_traits::l4packet{dst, std::move(p), e_dst, ip_protocol_num::udp}, std::move(channel), len));
+    _inet.get_l2_dst_address(dst).then([this, dst, p = std::move(p)] (ethernet_address e_dst) mutable {
+        _packetq.emplace_back(ipv4_traits::l4packet{dst, std::move(p), e_dst, ip_protocol_num::udp});
     });
 }
 

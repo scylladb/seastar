@@ -227,7 +227,7 @@ private:
     std::unordered_map<uint16_t, lw_shared_ptr<udp_channel_state>> _channels;
     int _queue_size = default_queue_size;
     uint16_t _next_anonymous_port = min_anonymous_port;
-    circular_buffer<std::tuple<ipv4_traits::l4packet, lw_shared_ptr<udp_channel_state>, size_t>> _packetq;
+    circular_buffer<ipv4_traits::l4packet> _packetq;
 private:
     uint16_t next_port(uint16_t port);
 public:
@@ -250,7 +250,7 @@ public:
     ipv4_udp(ipv4& inet);
     udp_channel make_channel(ipv4_addr addr);
     virtual void received(packet p, ipv4_address from, ipv4_address to) override;
-    void send(uint16_t src_port, ipv4_addr dst, packet &&p, lw_shared_ptr<udp_channel_state> channel);
+    void send(uint16_t src_port, ipv4_addr dst, packet &&p);
     bool forward(forward_hash& out_hash_data, packet& p, size_t off) override;
     void set_queue_size(int size) { _queue_size = size; }
 };
