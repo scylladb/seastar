@@ -183,7 +183,7 @@ class packet final {
     std::unique_ptr<impl> _impl;
 public:
     static packet from_static_data(const char* data, size_t len) {
-        return {fragment{const_cast<char*>(data), len}, [] {}};
+        return {fragment{const_cast<char*>(data), len}, deleter()};
     }
 
     // build empty packet
@@ -197,18 +197,9 @@ public:
     // copy data into packet
     packet(fragment frag);
     // zero-copy single fragment
-    template <typename Deleter>
-    packet(fragment frag, Deleter deleter);
-    // zero-copy single fragment
     packet(fragment frag, deleter del);
     // zero-copy multiple fragments
     packet(std::vector<fragment> frag, deleter del);
-    // zero-copy multiple fragments
-    template <typename Deleter>
-    packet(std::vector<fragment> frag, Deleter deleter);
-    // build packet with iterator
-    template <typename Iterator, typename Deleter>
-    packet(Iterator begin, Iterator end, Deleter del);
     // build packet with iterator
     template <typename Iterator>
     packet(Iterator begin, Iterator end, deleter del);
@@ -217,18 +208,13 @@ public:
     // prepend fragment (copying new fragment, with header optimization)
     packet(fragment frag, packet&& x);
     // prepend fragment (zero-copy)
-    template <typename Deleter>
-    packet(fragment frag, Deleter deleter, packet&& x);
-    // append fragment (zero-copy)
-    template <typename Deleter>
-    packet(packet&& x, fragment frag, Deleter deleter);
+    packet(fragment frag, deleter del, packet&& x);
     // append fragment (zero-copy)
     packet(packet&& x, fragment frag, deleter d);
     // append temporary_buffer (zero-copy)
     packet(packet&& x, temporary_buffer<char> buf);
     // append deleter
-    template <typename Deleter>
-    packet(packet&& x, Deleter d);
+    packet(packet&& x, deleter d);
 
     packet& operator=(packet&& x) {
         if (this != &x) {
@@ -348,10 +334,6 @@ inline
 packet::packet(const char* data, size_t size) : packet(fragment{const_cast<char*>(data), size}) {
 }
 
-template <typename Deleter>
-inline
-packet::packet(fragment frag, Deleter d) : packet(frag, make_deleter(deleter(), std::move(d))) {}
-
 inline
 packet::packet(fragment frag, deleter d)
     : _impl(impl::allocate(1)) {
@@ -370,25 +352,6 @@ packet::packet(std::vector<fragment> frag, deleter d)
     for (auto&& f : _impl->fragments()) {
         _impl->_len += f.size;
     }
-}
-
-template <typename Deleter>
-inline
-packet::packet(std::vector<fragment> frag, Deleter d)
-    : packet(std::move(frag), make_deleter(deleter(), std::move(d))) {
-}
-
-template <typename Iterator, typename Deleter>
-inline
-packet::packet(Iterator begin, Iterator end, Deleter del) {
-    unsigned nr_frags = 0, len = 0;
-    nr_frags = std::distance(begin, end);
-    std::for_each(begin, end, [&] (fragment& frag) { len += frag.size; });
-    _impl = impl::allocate(nr_frags);
-    _impl->_deleter = make_deleter(deleter(), std::move(del));
-    _impl->_len = len;
-    _impl->_nr_frags = nr_frags;
-    std::copy(begin, end, _impl->_frags);
 }
 
 template <typename Iterator>
@@ -461,28 +424,6 @@ packet::packet(fragment frag, packet&& x)
     }
 }
 
-template <typename Deleter>
-inline
-packet::packet(fragment frag, Deleter d, packet&& x)
-    : _impl(impl::allocate_if_needed(std::move(x._impl), 1)) {
-    _impl->unuse_internal_data();
-    _impl->_len += frag.size;
-    std::copy_backward(_impl->_frags, _impl->_frags + _impl->_nr_frags,
-            _impl->_frags + _impl->_nr_frags + 1);
-    ++_impl->_nr_frags;
-    _impl->_frags[0] = frag;
-    _impl->_deleter = make_deleter(std::move(_impl->_deleter), std::move(d));
-}
-
-template <typename Deleter>
-inline
-packet::packet(packet&& x, fragment frag, Deleter d)
-    : _impl(impl::allocate_if_needed(std::move(x._impl), 1)) {
-    _impl->_len += frag.size;
-    _impl->_frags[_impl->_nr_frags++] = frag;
-    _impl->_deleter = make_deleter(std::move(_impl->_deleter), std::move(d));
-}
-
 inline
 packet::packet(packet&& x, fragment frag, deleter d)
     : _impl(impl::allocate_if_needed(std::move(x._impl), 1)) {
@@ -492,11 +433,10 @@ packet::packet(packet&& x, fragment frag, deleter d)
     _impl->_deleter = std::move(d);
 }
 
-template <typename Deleter>
 inline
-packet::packet(packet&& x, Deleter d)
+packet::packet(packet&& x, deleter d)
     : _impl(std::move(x._impl)) {
-    _impl->_deleter = make_deleter(std::move(_impl->_deleter), std::move(d));
+    _impl->_deleter.append(std::move(d));
 }
 
 inline

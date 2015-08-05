@@ -90,7 +90,7 @@ public:
 
     template <typename Callback>
     void on_delete(Callback callback) {
-        _p = packet(std::move(_p), std::move(callback));
+        _p = packet(std::move(_p), make_deleter(std::move(callback)));
     }
 
     operator bool() const {

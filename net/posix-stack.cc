@@ -319,7 +319,7 @@ posix_udp_channel::receive() {
     return _fd->recvmsg(&_recv._hdr).then([this] (size_t size) {
         auto dst = ipv4_addr(_recv._cmsg.pktinfo.ipi_addr.s_addr, _address.port);
         return make_ready_future<udp_datagram>(udp_datagram(std::make_unique<posix_datagram>(
-            _recv._src_addr, dst, packet(fragment{_recv._buffer, size}, [buf = _recv._buffer] { delete[] buf; }))));
+            _recv._src_addr, dst, packet(fragment{_recv._buffer, size}, make_deleter([buf = _recv._buffer] { delete[] buf; })))));
     });
 }
 
