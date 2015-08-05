@@ -934,15 +934,7 @@ build_mbuf_cluster:
 
             while (m != nullptr) {
                 m_next = m->next;
-                //
-                // Zero only "next" field since we want to save the dirtying of
-                // the extra cache line.
-                // There is no need to reset the pkt_len or data_len fields and
-                // the rest of the fields that are set in the HEAD mbuf of the
-                // cluster are going to be cleared when the buffer is pooled
-                // from the mempool and not in this flow.
-                //
-                m->next = nullptr;
+                rte_pktmbuf_reset(m);
                 _fc.put(me(m));
                 m = m_next;
             }
