@@ -354,6 +354,7 @@ public:
             _result.set_value(false, lease());
         });
 
+        log() << "sending discover" << std::endl;
         send_discover(l.ip); // FIXME: ignoring return
         if (timeout.count()) {
             _timer.arm(timeout);
@@ -390,8 +391,6 @@ public:
         discover d;
 
         d.requested_ip = ip_option(opt_type::REQUESTED_ADDRESS, ip);
-
-        log() << "sending discover" << std::endl;
 
         std::random_device rd;
         std::default_random_engine e1(rd());
