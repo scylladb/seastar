@@ -35,6 +35,7 @@
 // transfer_pass2() does nothing.
 
 #include <type_traits>
+#include <utility>
 
 template <typename T, typename Alloc>
 inline
