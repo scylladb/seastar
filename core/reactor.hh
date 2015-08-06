@@ -553,7 +553,10 @@ public:
     thread_pool();
     ~thread_pool();
     template <typename T, typename Func>
-    future<T> submit(Func func) {return inter_thread_wq.submit<T>(std::move(func));}
+    future<T> submit(Func func) {
+        ++_aio_threaded_fallbacks;
+        return inter_thread_wq.submit<T>(std::move(func));
+    }
     uint64_t operation_count() const { return _aio_threaded_fallbacks; }
 #else
 public:
