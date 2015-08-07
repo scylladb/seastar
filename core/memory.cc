@@ -674,6 +674,9 @@ void cpu_pages::resize(size_t new_size, allocate_system_memory_fn alloc_memory) 
 void cpu_pages::reclaim() {
     current_min_free_pages = 0;
     reclaim_hook([this] {
+        if (nr_free_pages >= min_free_pages) {
+            return;
+        }
         ++g_reclaims;
         for (auto&& r : reclaimers) {
             r->do_reclaim();
