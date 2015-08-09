@@ -784,16 +784,15 @@ build_mbuf_cluster:
          */
         static size_t set_one_data_buf(
             dpdk_qp& qp, rte_mbuf*& m, char* va, size_t buf_len) {
+            static constexpr size_t max_frag_len = 15 * 1024; // 15K
 
             using namespace memory;
             translation tr = translate(va, buf_len);
 
             //
-            // Currently we break a buffer on a 4K boundary for simplicity.
-            //
-            // TODO: Optimize it to better utilize the physically continuity of the
-            // buffer. Note to take into an account a HW limitation for a maximum data
-            // size per single descriptor (e.g. 15.5K for 82599 devices).
+            // Currently we break a buffer on a 15K boundary because 82599
+            // devices have a 15.5K limitation on a maximum single fragment
+            // size.
             //
             phys_addr_t pa = tr.addr;
 
@@ -806,8 +805,7 @@ build_mbuf_cluster:
                 return 0;
             }
 
-            size_t page_offset = pa & ~page_mask;
-            size_t len = std::min(page_size - page_offset, buf_len);
+            size_t len = std::min(tr.size, max_frag_len);
 
             buf->set_zc_info(va, pa, len);
             m = buf->rte_mbuf_p();
@@ -861,19 +859,20 @@ build_mbuf_cluster:
         static bool check_frag0(packet& p)
         {
             using namespace memory;
+
             //
             // First frag is special - it has headers that should not be split.
             // If the addressing is such that the first fragment has to be
             // split, then send this packet in a (non-zero) copy flow. We'll
             // check if the first 128 bytes of the first fragment reside in the
-            // same page. If that's the case - we are good to go.
+            // physically contiguous area. If that's the case - we are good to
+            // go.
             //
+            size_t frag0_size = p.frag(0).size;
+            void* base = p.frag(0).base;
+            translation tr = translate(base, frag0_size);
 
-            uint64_t base = (uint64_t)p.frag(0).base;
-            uint64_t frag0_page0_len = page_size - (base & ~page_mask);
-
-            if (frag0_page0_len < 128 &&
-                frag0_page0_len < p.frag(0).size) {
+            if (tr.size < frag0_size && tr.size < 128) {
                 return false;
             }
 
