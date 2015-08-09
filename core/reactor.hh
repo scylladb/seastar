@@ -1162,7 +1162,10 @@ future<size_t> pollable_fd::write_some(net::packet& p) {
             , "net::fragment and iovec should be equivalent");
 
         iovec* iov = reinterpret_cast<iovec*>(p.fragment_array());
-        auto r = get_file_desc().writev(iov, p.nr_frags());
+        msghdr mh = {};
+        mh.msg_iov = iov;
+        mh.msg_iovlen = p.nr_frags();
+        auto r = get_file_desc().sendmsg(&mh, MSG_NOSIGNAL);
         if (!r) {
             return write_some(p);
         }
