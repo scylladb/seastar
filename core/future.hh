@@ -799,11 +799,22 @@ public:
         }
     }
 
+
+
     /**
-     * Finally continuation for statements that require waiting for the result. I.e. you need to "finally" call
-     * a function that returns a possibly unavailable future.
-     * The returned future will be "waited for", any exception generated will be propagated, but the return value
-     * is ignored. I.e. the original return value (the future upon which you are making this call) will be preserved.
+     * Finally continuation for statements that require waiting for the result.
+     * I.e. you need to "finally" call a function that returns a possibly
+     * unavailable future. The returned future will be "waited for", any
+     * exception generated will be propagated, but the return value is ignored.
+     * I.e. the original return value (the future upon which you are making this
+     * call) will be preserved.
+     *
+     * If the original return value or the callback return value is an
+     * exceptional future it will be propagated.
+     *
+     * If both of them are exceptional - the std::nested_exception exception
+     * with the callback exception on top and the original future exception
+     * nested will be propagated.
      */
     template <typename Func>
     future<T...> finally(Func&& func) noexcept {
@@ -814,13 +825,24 @@ public:
                     f_res.get(); // force excepion if one
                     return std::move(result);
                 } catch (...) {
-                    // consume the "result" future
+                    //
+                    // Encapsulate the current exception into the
+                    // std::nested_exception because the current libstdc++
+                    // implementation has a bug requiring the value of a
+                    // std::throw_with_nested() parameter to be of a polymorphic
+                    // type.
+                    //
+                    std::nested_exception f_ex;
+                    //
+                    // Consume the "result" future and throw a nested exception
+                    // if both futures are exceptional.
+                    //
                     try{
                         result.get();
+                        return make_exception_future<T...>(std::current_exception());
                     } catch(...){
-                        // if it was exceptional - ignore it
+                        std::throw_with_nested(f_ex);
                     }
-                    return make_exception_future<T...>(std::current_exception());
                 }
             });
         });
