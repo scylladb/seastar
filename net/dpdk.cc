@@ -883,7 +883,6 @@ build_mbuf_cluster:
         tx_buf(tx_buf_factory& fc) : _fc(fc) {
 
             _buf_physaddr = _mbuf.buf_physaddr;
-            _buf_len      = _mbuf.buf_len;
             _data_off     = _mbuf.data_off;
         }
 
@@ -897,8 +896,8 @@ build_mbuf_cluster:
             // Set the mbuf to point to our data
             _mbuf.buf_addr           = va;
             _mbuf.buf_physaddr       = pa;
-            _mbuf.data_off                      = 0;
-            _is_zc                              = true;
+            _mbuf.data_off           = 0;
+            _is_zc                   = true;
         }
 
         void reset_zc() {
@@ -923,7 +922,6 @@ build_mbuf_cluster:
             // Restore the rte_mbuf fields we trashed in set_zc_info()
             _mbuf.buf_physaddr = _buf_physaddr;
             _mbuf.buf_addr     = rte_mbuf_to_baddr(&_mbuf);
-            _mbuf.buf_len      = _buf_len;
             _mbuf.data_off     = _data_off;
 
             _is_zc             = false;
@@ -949,7 +947,6 @@ build_mbuf_cluster:
         MARKER private_start;
         std::experimental::optional<packet> _p;
         phys_addr_t _buf_physaddr;
-        uint32_t _buf_len;
         uint16_t _data_off;
         // TRUE if underlying mbuf has been used in the zero-copy flow
         bool _is_zc = false;
