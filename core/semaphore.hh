@@ -23,7 +23,7 @@
 #define CORE_SEMAPHORE_HH_
 
 #include "future.hh"
-#include <list>
+#include "circular_buffer.hh"
 #include <stdexcept>
 #include <exception>
 #include "timer.hh"
@@ -73,9 +73,22 @@ private:
         promise<> pr;
         size_t nr;
         timer<> tr;
+        // points at pointer back to this, to track the entry object as it moves
+        std::unique_ptr<entry*> tracker;
         entry(promise<>&& pr_, size_t nr_) : pr(std::move(pr_)), nr(nr_) {}
+        entry(entry&& x) noexcept
+                : pr(std::move(x.pr)), nr(x.nr), tr(std::move(x.tr)), tracker(std::move(x.tracker)) {
+            if (tracker) {
+                *tracker = this;
+            }
+        }
+        entry** track() {
+            tracker = std::make_unique<entry*>(this);
+            return tracker.get();
+        }
+        entry& operator=(entry&&) noexcept = delete;
     };
-    std::list<entry> _wait_list;
+    circular_buffer<entry> _wait_list;
 public:
     /// Constructs a semaphore object with a specific number of units
     /// in its internal counter.  The default is 1, suitable for use as
@@ -119,13 +132,16 @@ public:
     future<> wait(typename timer<>::duration timeout, size_t nr = 1) {
         auto fut = wait(nr);
         if (!fut.available()) {
-            auto& e = _wait_list.back();
-            e.tr.set_callback([&e, this] {
-                e.pr.set_exception(semaphore_timed_out());
-                e.nr = 0;
+            // Since circular_buffer<> can cause objects to move around,
+            // track them via entry::tracker
+            entry** e = _wait_list.back().track();
+            (*e)->tr.set_callback([e, this] {
+                (*e)->pr.set_exception(semaphore_timed_out());
+                (*e)->nr = 0;
+                (*e)->tracker = nullptr;
                 signal(0);
             });
-            e.tr.arm(timeout);
+            (*e)->tr.arm(timeout);
         }
         return std::move(fut);
     }
