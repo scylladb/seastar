@@ -510,6 +510,10 @@ struct futurize {
     template<typename Func, typename... FuncArgs>
     static inline type apply(Func&& func, FuncArgs&&... args);
 
+    /// Convert a value or a future to a future
+    static inline type convert(T&& value) { return make_ready_future<T>(std::move(value)); }
+    static inline type convert(type&& value) { return std::move(value); }
+
     /// Makes an exceptional future of type \ref type.
     template <typename Arg>
     static type make_exception_future(Arg&& arg);
@@ -978,7 +982,7 @@ template<typename T>
 template<typename Func, typename... FuncArgs>
 typename futurize<T>::type futurize<T>::apply(Func&& func, std::tuple<FuncArgs...>&& args) {
     try {
-        return make_ready_future<T>(::apply(std::forward<Func>(func), std::move(args)));
+        return convert(::apply(std::forward<Func>(func), std::move(args)));
     } catch (...) {
         return make_exception_future(std::current_exception());
     }
@@ -988,7 +992,7 @@ template<typename T>
 template<typename Func, typename... FuncArgs>
 typename futurize<T>::type futurize<T>::apply(Func&& func, FuncArgs&&... args) {
     try {
-        return make_ready_future<T>(func(std::forward<FuncArgs>(args)...));
+        return convert(func(std::forward<FuncArgs>(args)...));
     } catch (...) {
         return make_exception_future(std::current_exception());
     }
