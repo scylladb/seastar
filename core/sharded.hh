@@ -62,7 +62,7 @@ public:
     sharded(sharded&& other) = default;
     sharded& operator=(const sharded& other) = delete;
     /// Moves a \c sharded object.
-    sharded& operator=(sharded& other) = default;
+    sharded& operator=(sharded&& other) = default;
     /// Destroyes a \c sharded object.  Must not be in a started state.
     ~sharded();
 
