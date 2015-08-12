@@ -389,7 +389,9 @@ template <typename Trimmer>
 void*
 cpu_pages::allocate_large_and_trim(unsigned n_pages, Trimmer trimmer) {
     auto idx = index_of_conservative(n_pages);
-    assert(n_pages < (2u << idx));
+    if (n_pages >= (2u << idx)) {
+        throw std::bad_alloc();
+    }
     while (idx < nr_span_lists && fsu.free_spans[idx].empty()) {
         ++idx;
     }
