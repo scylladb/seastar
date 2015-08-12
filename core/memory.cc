@@ -803,7 +803,16 @@ float small_pool::waste() {
     return (span_bytes() % _object_size) / (1.0 * span_bytes());
 }
 
+void
+abort_on_underflow(size_t size) {
+    if (std::make_signed_t<size_t>(size) < 0) {
+        // probably a logic error, stop hard
+        abort();
+    }
+}
+
 void* allocate_large(size_t size) {
+    abort_on_underflow(size);
     unsigned size_in_pages = (size + page_size - 1) >> page_bits;
     assert((size_t(size_in_pages) << page_bits) >= size);
     return cpu_mem.allocate_large(size_in_pages);
@@ -811,6 +820,7 @@ void* allocate_large(size_t size) {
 }
 
 void* allocate_large_aligned(size_t align, size_t size) {
+    abort_on_underflow(size);
     unsigned size_in_pages = (size + page_size - 1) >> page_bits;
     unsigned align_in_pages = std::max(align, page_size) >> page_bits;
     return cpu_mem.allocate_large_aligned(align_in_pages, size_in_pages);
