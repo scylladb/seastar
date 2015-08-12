@@ -47,6 +47,24 @@ routes::~routes() {
 
 }
 
+static std::unique_ptr<reply> exception_reply(std::exception_ptr eptr) {
+    auto rep = std::make_unique<reply>();
+    try {
+        std::rethrow_exception(eptr);
+    } catch (const base_exception& e) {
+        rep->set_status(e.status(), json_exception(e).to_json());
+    } catch (exception& e) {
+        rep->set_status(reply::status_type::internal_server_error,
+                json_exception(e).to_json());
+    } catch (...) {
+        rep->set_status(reply::status_type::internal_server_error,
+                json_exception(std::runtime_error(
+                        "Unknown unhandled exception")).to_json());
+    }
+    rep->done("json");
+    return rep;
+}
+
 future<std::unique_ptr<reply> > routes::handle(const sstring& path, std::unique_ptr<request> req, std::unique_ptr<reply> rep) {
     handler_base* handler = get_handler(str2type(req->_method),
             normalize_url(path), req->param);
@@ -56,23 +74,13 @@ future<std::unique_ptr<reply> > routes::handle(const sstring& path, std::unique_
                 verify_param(*req.get(), i);
             }
             auto r =  handler->handle(path, std::move(req), std::move(rep));
-            return r;
+            return r.handle_exception(exception_reply);
         } catch (const redirect_exception& _e) {
             rep.reset(new reply());
             rep->add_header("Location", _e.url).set_status(_e.status()).done(
                     "json");
-
-        } catch (const base_exception& _e) {
-            rep.reset(new reply());
-            json_exception e(_e);
-            rep->set_status(_e.status(), e.to_json()).done("json");
-        } catch (exception& _e) {
-            rep.reset(new reply());
-            json_exception e(_e);
-            cerr << "exception was caught for " << path << ": " << _e.what()
-                    << endl;
-            rep->set_status(reply::status_type::internal_server_error,
-                    e.to_json()).done("json");
+        } catch (...) {
+            rep = exception_reply(std::current_exception());
         }
     } else {
         rep.reset(new reply());
