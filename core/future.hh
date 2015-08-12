@@ -876,18 +876,27 @@ public:
 
     /// \brief Handle the exception carried by this future.
     ///
-    /// When the future resolves, if it resolves with an exception, run the
-    /// given function with the exception passed as an std::exception_ptr.
-    /// After handling the exception, it is discarded. Accordingly, we must
-    /// also discard the value of the future, because we cannot propagate a
-    /// value which would not exist in the case of an exception.
+    /// When the future resolves, if it resolves with an exception,
+    /// handle_exception(func) replaces the exception with the value
+    /// returned by func. The exception is passed (as a std::exception_ptr)
+    /// as a parameter to func; func may return the replacement value
+    /// immediately (T or std::tuple<T...>) or in the future (future<T...>)
+    /// and is even allowed to return (or throw) its own exception.
+    ///
+    /// The idiom fut.discard_result().handle_exception(...) can be used
+    /// to handle an exception (if there is one) without caring about the
+    /// successful value; Because handle_exception() is used here on a
+    /// future<>, the handler function does not need to return anything.
     template <typename Func>
-    future<> handle_exception(Func&& func) noexcept {
-        return then_wrapped([func = std::forward<Func>(func)] (auto&& fut) {
+    future<T...> handle_exception(Func&& func) noexcept {
+        using func_ret = std::result_of_t<Func(std::exception_ptr)>;
+        return then_wrapped([func = std::forward<Func>(func)]
+                             (auto&& fut) -> future<T...> {
             try {
-                fut.get();
+                return make_ready_future<T...>(fut.get());
             } catch (...) {
-                func(std::current_exception());
+                return futurize<func_ret>::apply(
+                        func, std::current_exception());
             }
         });
     }
