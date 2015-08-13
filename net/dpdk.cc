@@ -652,7 +652,7 @@ build_mbuf_cluster:
             //    - Linearize the packet.
             //    - Build the cluster once again
             //
-            if (p.nr_frags() > max_frags ||
+            if (head->nb_segs > max_frags ||
                 (p.nr_frags() > 1 && qp.port().is_i40e_device() && i40e_should_linearize(head))) {
                 me(head)->recycle();
                 p.linearize();
