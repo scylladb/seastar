@@ -164,7 +164,7 @@ stream<T...>::produce(T... data) {
         } catch (...) {
             _done.set_exception(std::current_exception());
             // FIXME: tell the producer to stop producing
-            abort();
+            throw;
         }
     });
 }
