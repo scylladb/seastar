@@ -158,13 +158,15 @@ template <typename... T>
 inline
 future<>
 stream<T...>::produce(T... data) {
-    try {
-        return _sub->_next(std::move(data)...);
-    } catch (...) {
-        _done.set_exception(std::current_exception());
-        // FIXME: tell the producer to stop producing
-        abort();
-    }
+    return _sub->_next(std::move(data)...).then_wrapped([this] (future<> f) {
+        try {
+            f.get();
+        } catch (...) {
+            _done.set_exception(std::current_exception());
+            // FIXME: tell the producer to stop producing
+            abort();
+        }
+    });
 }
 
 template <typename... T>
