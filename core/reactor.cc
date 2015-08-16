@@ -250,7 +250,13 @@ void reactor::complete_timers(T& timers, E& expired_timers, EnableFunc&& enable_
             if (t->_period) {
                 t->readd_periodic();
             }
-            t->_callback();
+            try {
+                t->_callback();
+            } catch (std::exception& e) {
+                std::cerr << "Timer callback failed: " << e.what() << std::endl;
+            } catch (...) {
+                std::cerr << "Timer callback failed for unknown reason" << std::endl;
+            }
         }
     }
     enable_fn();
