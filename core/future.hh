@@ -232,7 +232,7 @@ struct future_state {
     void forward_to(promise<T...>& pr) noexcept {
         assert(_state != state::future);
         if (_state == state::exception) {
-            pr.set_exception(_u.ex);
+            pr.set_exception(std::move(_u.ex));
         } else {
             pr.set_value(std::move(get()));
         }
