@@ -430,42 +430,6 @@ class dpdk_qp : public net::qp {
             return reinterpret_cast<tx_buf*>(mbuf);
         }
 
-        /**
-         * Creates a tx_buf cluster representing a given packet in a "zero-copy"
-         * way.
-         *
-         * @param p packet to translate
-         * @param qp dpdk_qp handle
-         *
-         * @return the HEAD tx_buf of the cluster or nullptr in case of a
-         *         failure
-         */
-        static tx_buf* from_packet_zc(
-            packet&& p, dpdk_qp& qp) {
-
-            return from_packet(check_frag0, translate_one_frag, copy_one_frag,
-                [](packet&& _p, tx_buf& _last_seg) {
-                    _last_seg.set_packet(std::move(_p));
-                }, std::move(p), qp);
-        }
-
-        /**
-         * Creates a tx_buf cluster representing a given packet in a "copy" way.
-         *
-         * @param p packet to translate
-         * @param qp dpdk_qp handle
-         *
-         * @return the HEAD tx_buf of the cluster or nullptr in case of a
-         *         failure
-         */
-        static tx_buf* from_packet_copy(
-            packet&& p, dpdk_qp& qp) {
-
-            return from_packet([](packet& _p) { return true; },
-                               copy_one_frag, copy_one_frag,
-                               [](packet&& _p, tx_buf& _last_seg) {},
-                               std::move(p), qp);
-        }
     private:
         /**
          * Checks if the original packet of a given cluster should be linearized
@@ -554,67 +518,13 @@ class dpdk_qp : public net::qp {
         }
 
         /**
-         * Creates a tx_buf cluster representing a given packet using provided
-         * functors.
+         * Sets the offload info in the head buffer of an rte_mbufs cluster.
          *
-         * @param sanity Functor that performs a packet's sanity checks
-         * @param do_one_frag Functor that handles a single frag translation
-         * @param fin Functor that performs a cluster finalization
-         * @param p packet to translate
-         * @param qp dpdk_qp handle
-         *
-         * @return the HEAD tx_buf of the cluster or nullptr in case of a
-         *         failure
+         * @param p an original packet the cluster is built for
+         * @param qp QP handle
+         * @param head a head of an rte_mbufs cluster
          */
-        template <class FirstFragCheck, class TrOneFunc,
-                  class CopyOneFunc, class FinalizeFunc>
-        static tx_buf* from_packet(
-            FirstFragCheck frag0_check, TrOneFunc do_one_frag,
-            CopyOneFunc copy_one_frag, FinalizeFunc fin,
-            packet&& p, dpdk_qp& qp) {
-
-            // Too fragmented - linearize
-            if (p.nr_frags() > max_frags) {
-                p.linearize();
-                ++qp._stats.tx.linearized;
-            }
-
-build_mbuf_cluster:
-            rte_mbuf *head = nullptr, *last_seg = nullptr;
-            unsigned nsegs = 0;
-
-            //
-            // Create a HEAD of the fragmented packet: check if frag0 has to be
-            // copied and if yes - send it in a copy way
-            //
-            if (!frag0_check(p)) {
-                if (!copy_one_frag(qp, p.frag(0), head, last_seg, nsegs)) {
-                    return nullptr;
-                }
-            } else if (!do_one_frag(qp, p.frag(0), head, last_seg, nsegs)) {
-                return nullptr;
-            }
-
-            unsigned total_nsegs = nsegs;
-
-            for (unsigned i = 1; i < p.nr_frags(); i++) {
-                rte_mbuf *h = nullptr, *new_last_seg = nullptr;
-                if (!do_one_frag(qp, p.frag(i), h, new_last_seg, nsegs)) {
-                    me(head)->recycle();
-                    return nullptr;
-                }
-
-                total_nsegs += nsegs;
-
-                // Attach a new buffers' chain to the packet chain
-                last_seg->next = h;
-                last_seg = new_last_seg;
-            }
-
-            // Update the HEAD buffer with the packet info
-            head->pkt_len = p.len();
-            head->nb_segs = total_nsegs;
-
+        static void set_cluster_offload_info(const packet& p, const dpdk_qp& qp, rte_mbuf* head) {
             // Handle TCP checksum offload
             auto oi = p.offload_info();
             if (oi.needs_ip_csum) {
@@ -643,6 +553,63 @@ build_mbuf_cluster:
                     head->l3_len = oi.ip_hdr_len;
                 }
             }
+        }
+
+        /**
+         * Creates a tx_buf cluster representing a given packet in a "zero-copy"
+         * way.
+         *
+         * @param p packet to translate
+         * @param qp dpdk_qp handle
+         *
+         * @return the HEAD tx_buf of the cluster or nullptr in case of a
+         *         failure
+         */
+        static tx_buf* from_packet_zc(packet&& p, dpdk_qp& qp) {
+
+            // Too fragmented - linearize
+            if (p.nr_frags() > max_frags) {
+                p.linearize();
+                ++qp._stats.tx.linearized;
+            }
+
+build_mbuf_cluster:
+            rte_mbuf *head = nullptr, *last_seg = nullptr;
+            unsigned nsegs = 0;
+
+            //
+            // Create a HEAD of the fragmented packet: check if frag0 has to be
+            // copied and if yes - send it in a copy way
+            //
+            if (!check_frag0(p)) {
+                if (!copy_one_frag(qp, p.frag(0), head, last_seg, nsegs)) {
+                    return nullptr;
+                }
+            } else if (!translate_one_frag(qp, p.frag(0), head, last_seg, nsegs)) {
+                return nullptr;
+            }
+
+            unsigned total_nsegs = nsegs;
+
+            for (unsigned i = 1; i < p.nr_frags(); i++) {
+                rte_mbuf *h = nullptr, *new_last_seg = nullptr;
+                if (!translate_one_frag(qp, p.frag(i), h, new_last_seg, nsegs)) {
+                    me(head)->recycle();
+                    return nullptr;
+                }
+
+                total_nsegs += nsegs;
+
+                // Attach a new buffers' chain to the packet chain
+                last_seg->next = h;
+                last_seg = new_last_seg;
+            }
+
+            // Update the HEAD buffer with the packet info
+            head->pkt_len = p.len();
+            head->nb_segs = total_nsegs;
+
+            set_cluster_offload_info(p, qp, head);
 
             //
             // If a packet hasn't been linearized already and the resulting
@@ -661,7 +628,116 @@ build_mbuf_cluster:
                 goto build_mbuf_cluster;
             }
 
-            fin(std::move(p), *me(last_seg));
+            me(last_seg)->set_packet(std::move(p));
+
+            return me(head);
+        }
+
+        /**
+         * Copy the contents of the "packet" into the given cluster of
+         * rte_mbuf's.
+         *
+         * @note Size of the cluster has to be big enough to accommodate all the
+         *       contents of the given packet.
+         *
+         * @param p packet to copy
+         * @param head head of the rte_mbuf's cluster
+         */
+        static void copy_packet_to_cluster(const packet& p, rte_mbuf* head) {
+            rte_mbuf* cur_seg = head;
+            size_t cur_seg_offset = 0;
+            unsigned cur_frag_idx = 0;
+            size_t cur_frag_offset = 0;
+
+            while (true) {
+                size_t to_copy = std::min(p.frag(cur_frag_idx).size - cur_frag_offset,
+                                          inline_mbuf_data_size - cur_seg_offset);
+
+                memcpy(rte_pktmbuf_mtod_offset(cur_seg, void*, cur_seg_offset),
+                       p.frag(cur_frag_idx).base + cur_frag_offset, to_copy);
+
+                cur_frag_offset += to_copy;
+                cur_seg_offset += to_copy;
+
+                if (cur_frag_offset >= p.frag(cur_frag_idx).size) {
+                    ++cur_frag_idx;
+                    if (cur_frag_idx >= p.nr_frags()) {
+                        //
+                        // We are done - set the data size of the last segment
+                        // of the cluster.
+                        //
+                        cur_seg->data_len = cur_seg_offset;
+                        break;
+                    }
+
+                    cur_frag_offset = 0;
+                }
+
+                if (cur_seg_offset >= inline_mbuf_data_size) {
+                    cur_seg->data_len = inline_mbuf_data_size;
+                    cur_seg = cur_seg->next;
+                    cur_seg_offset = 0;
+
+                    // FIXME: assert in a fast-path - remove!!!
+                    assert(cur_seg);
+                }
+            }
+        }
+
+        /**
+         * Creates a tx_buf cluster representing a given packet in a "copy" way.
+         *
+         * @param p packet to translate
+         * @param qp dpdk_qp handle
+         *
+         * @return the HEAD tx_buf of the cluster or nullptr in case of a
+         *         failure
+         */
+        static tx_buf* from_packet_copy(packet&& p, dpdk_qp& qp) {
+            // sanity
+            if (!p.len()) {
+                return nullptr;
+            }
+
+            /*
+             * Here we are going to use the fact that the inline data size is a
+             * power of two.
+             *
+             * We will first try to allocate the cluster and only if we are
+             * successful - we will go and copy the data.
+             */
+            auto aligned_len = align_up((size_t)p.len(), inline_mbuf_data_size);
+            unsigned nsegs = aligned_len / inline_mbuf_data_size;
+            rte_mbuf *head = nullptr, *last_seg = nullptr;
+
+            tx_buf* buf = qp.get_tx_buf();
+            if (!buf) {
+                return nullptr;
+            }
+
+            head = buf->rte_mbuf_p();
+            last_seg = head;
+            for (unsigned i = 1; i < nsegs; i++) {
+                buf = qp.get_tx_buf();
+                if (!buf) {
+                    me(head)->recycle();
+                    return nullptr;
+                }
+
+                last_seg->next = buf->rte_mbuf_p();
+                last_seg = last_seg->next;
+            }
+
+            //
+            // If we've got here means that we have succeeded already!
+            // We only need to copy the data and set the head buffer with the
+            // relevant info.
+            //
+            head->pkt_len = p.len();
+            head->nb_segs = nsegs;
+
+            copy_packet_to_cluster(p, head);
+            set_cluster_offload_info(p, qp, head);
 
             return me(head);
         }
@@ -683,11 +759,6 @@ build_mbuf_cluster:
         static bool do_one_frag(DoOneBufFunc do_one_buf, dpdk_qp& qp,
                                 fragment& frag, rte_mbuf*& head,
                                 rte_mbuf*& last_seg, unsigned& nsegs) {
-            //
-            // TODO: Optimize the small fragments case: merge them into a
-            // single mbuf.
-            //
-
             size_t len, left_to_set = frag.size;
             char* base = frag.base;
 
@@ -841,7 +912,7 @@ build_mbuf_cluster:
 
             qp._stats.tx.good.update_copy_stats(1, len);
 
-            rte_memcpy(rte_pktmbuf_mtod(m, void*), data, len);
+            memcpy(rte_pktmbuf_mtod(m, void*), data, len);
 
             return len;
         }
@@ -1712,6 +1783,8 @@ dpdk_qp<HugetlbfsMemBackend>::dpdk_qp(dpdk_device* dev, uint8_t qid,
     static_assert(offsetof(class tx_buf, _mbuf) == 0,
                   "There is a pad at the beginning of the tx_buf before _mbuf "
                   "field!");
+    static_assert((inline_mbuf_data_size & (inline_mbuf_data_size - 1)) == 0,
+                  "inline_mbuf_data_size has to be a power of two!");
 
     if (rte_eth_rx_queue_setup(_dev->port_idx(), _qid, default_ring_size,
             rte_eth_dev_socket_id(_dev->port_idx()),
