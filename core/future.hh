@@ -620,36 +620,6 @@ private:
         return std::move(*st);
     }
 
-    template <typename Ret, typename Func, typename Param>
-    futurize_t<Ret> then(Func&& func, Param&& param) noexcept {
-        using futurator = futurize<Ret>;
-        using P = typename futurator::promise_type;
-        if (state()->available() && (++future_avail_count % max_inlined_continuations)) {
-            try {
-                return futurator::apply(std::forward<Func>(func), param(get_available_state()));
-            } catch (...) {
-                P p;
-                p.set_exception(std::current_exception());
-                return p.get_future();
-            }
-        }
-        P pr;
-        auto fut = pr.get_future();
-        try {
-            schedule([pr = std::move(pr), func = std::forward<Func>(func), param = std::forward<Param>(param)] (auto&& state) mutable {
-                try {
-                    futurator::apply(std::forward<Func>(func), param(std::move(state))).forward_to(std::move(pr));
-                } catch (...) {
-                    pr.set_exception(std::current_exception());
-                }
-            });
-        } catch (...) {
-            // catch possible std::bad_alloc in schedule() above
-            return futurize<Ret>::make_exception_future(std::current_exception());
-        }
-        return fut;
-    }
-
 public:
     /// \brief The data type carried by the future.
     using value_type = std::tuple<T...>;
@@ -757,10 +727,36 @@ public:
     ///               unless it has failed.
     /// \return a \c future representing the return value of \c func, applied
     ///         to the eventual value of this future.
-    template <typename Func, typename Result = futurize_t<std::result_of_t<Func(T&&...)>>>
-    Result then(Func&& func) noexcept {
-        return then<std::result_of_t<Func(T&&...)>>(std::forward<Func>(func), [] (future_state<T...>&& state) { return state.get(); });
+    template <typename Func, typename Ret = std::result_of_t<Func(T&&...)>, typename Result = futurize_t<Ret>>
+    Result
+    then(Func&& func) noexcept {
+        using futurator = futurize<Ret>;
+        if (available() && (++future_avail_count % max_inlined_continuations)) {
+            if (failed()) {
+                return futurator::make_exception_future(get_available_state().get_exception());
+            } else {
+                // FIXME: use a new get_value() instead of the general get().
+                return futurator::apply(std::forward<Func>(func), get_available_state().get());
+            }
+        }
+        typename futurator::promise_type pr;
+        auto fut = pr.get_future();
+        try {
+            schedule([pr = std::move(pr), func = std::forward<Func>(func)] (auto&& state) mutable {
+                if (state.failed()) {
+                    pr.set_exception(state.get_exception());
+                } else {
+                    // FIXME: use a new get_value() instead of the general get().
+                    futurator::apply(std::forward<Func>(func), state.get()).forward_to(std::move(pr));
+                }
+            });
+        } catch (...) {
+            // catch possible std::bad_alloc in schedule() above
+            return futurator::make_exception_future(std::current_exception());
+        }
+        return fut;
     }
+
 
     /// \brief Schedule a block of code to run when the future is ready, allowing
     ///        for exception handling.
@@ -777,10 +773,24 @@ public:
     /// \param func - function to be called when the future becomes available,
     /// \return a \c future representing the return value of \c func, applied
     ///         to the eventual value of this future.
-    template <typename Func, typename Result = futurize_t<std::result_of_t<Func(future<T...>)>>>
+    template <typename Func, typename Ret = std::result_of_t<Func(future<T...>)>, typename Result = futurize_t<Ret>>
     Result
     then_wrapped(Func&& func) noexcept {
-        return then<std::result_of_t<Func(future<T...>)>>(std::forward<Func>(func), [] (future_state<T...>&& state) { return future(std::move(state)); });
+        using futurator = futurize<Ret>;
+        if (available() && (++future_avail_count % max_inlined_continuations)) {
+            return futurator::apply(std::forward<Func>(func), future(get_available_state()));
+        }
+        typename futurator::promise_type pr;
+        auto fut = pr.get_future();
+        try {
+            schedule([pr = std::move(pr), func = std::forward<Func>(func)] (auto&& state) mutable {
+                futurator::apply(std::forward<Func>(func), future(std::move(state))).forward_to(std::move(pr));
+            });
+        } catch (...) {
+            // catch possible std::bad_alloc in schedule() above
+            return futurator::make_exception_future(std::current_exception());
+        }
+        return fut;
     }
 
     /// \brief Satisfy some \ref promise object with this future as a result.
