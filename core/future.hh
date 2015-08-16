@@ -645,7 +645,7 @@ private:
             });
         } catch (...) {
             // catch possible std::bad_alloc in schedule() above
-            return futurize<Ret>::make_exception_future(std::current_exception);
+            return futurize<Ret>::make_exception_future(std::current_exception());
         }
         return fut;
     }
