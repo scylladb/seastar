@@ -1104,27 +1104,6 @@ reactor::write_all(pollable_fd_state& fd, const void* buffer, size_t len) {
     return write_all_part(fd, buffer, len, 0);
 }
 
-template <typename T, typename E, typename EnableFunc>
-void reactor::complete_timers(T& timers, E& expired_timers, EnableFunc&& enable_fn) {
-    expired_timers = timers.expire(timers.now());
-    for (auto& t : expired_timers) {
-        t._expired = true;
-    }
-    while (!expired_timers.empty()) {
-        auto t = &*expired_timers.begin();
-        expired_timers.pop_front();
-        t->_queued = false;
-        if (t->_armed) {
-            t->_armed = false;
-            if (t->_period) {
-                t->readd_periodic();
-            }
-            t->_callback();
-        }
-    }
-    enable_fn();
-}
-
 inline
 future<size_t> pollable_fd::read_some(char* buffer, size_t size) {
     return engine().read_some(*_s, buffer, size);

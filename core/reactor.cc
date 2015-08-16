@@ -235,6 +235,27 @@ reactor::~reactor() {
     eraser(_expired_lowres_timers);
 }
 
+template <typename T, typename E, typename EnableFunc>
+void reactor::complete_timers(T& timers, E& expired_timers, EnableFunc&& enable_fn) {
+    expired_timers = timers.expire(timers.now());
+    for (auto& t : expired_timers) {
+        t._expired = true;
+    }
+    while (!expired_timers.empty()) {
+        auto t = &*expired_timers.begin();
+        expired_timers.pop_front();
+        t->_queued = false;
+        if (t->_armed) {
+            t->_armed = false;
+            if (t->_period) {
+                t->readd_periodic();
+            }
+            t->_callback();
+        }
+    }
+    enable_fn();
+}
+
 #ifdef HAVE_OSV
 void reactor::timer_thread_func() {
     sched::timer tmr(*sched::thread::current());
