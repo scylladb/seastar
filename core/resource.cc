@@ -105,7 +105,7 @@ std::vector<cpu> allocate(configuration c) {
     auto mem_per_proc = align_down<size_t>(mem / procs, 2 << 20);
     std::vector<hwloc_cpuset_t> cpu_sets{procs};
     auto root = hwloc_get_root_obj(topology);
-    hwloc_distribute(topology, root, cpu_sets.data(), cpu_sets.size(), INT_MAX);
+    hwloc_distrib(topology, &root, 1, cpu_sets.data(), cpu_sets.size(), INT_MAX, 0);
     std::vector<cpu> ret;
     std::unordered_map<hwloc_obj_t, size_t> topo_used_mem;
     std::vector<std::pair<cpu, size_t>> remains;
