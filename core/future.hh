@@ -503,12 +503,12 @@ struct futurize {
     /// Apply a function to an argument list (expressed as a tuple)
     /// and return the result, as a future (if it wasn't already).
     template<typename Func, typename... FuncArgs>
-    static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args);
+    static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept;
 
     /// Apply a function to an argument list
     /// and return the result, as a future (if it wasn't already).
     template<typename Func, typename... FuncArgs>
-    static inline type apply(Func&& func, FuncArgs&&... args);
+    static inline type apply(Func&& func, FuncArgs&&... args) noexcept;
 
     /// Convert a value or a future to a future
     static inline type convert(T&& value) { return make_ready_future<T>(std::move(value)); }
@@ -526,10 +526,10 @@ struct futurize<void> {
     using promise_type = promise<>;
 
     template<typename Func, typename... FuncArgs>
-    static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args);
+    static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept;
 
     template<typename Func, typename... FuncArgs>
-    static inline type apply(Func&& func, FuncArgs&&... args);
+    static inline type apply(Func&& func, FuncArgs&&... args) noexcept;
 
     template <typename Arg>
     static type make_exception_future(Arg&& arg);
@@ -541,10 +541,10 @@ struct futurize<future<Args...>> {
     using promise_type = promise<Args...>;
 
     template<typename Func, typename... FuncArgs>
-    static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args);
+    static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept;
 
     template<typename Func, typename... FuncArgs>
-    static inline type apply(Func&& func, FuncArgs&&... args);
+    static inline type apply(Func&& func, FuncArgs&&... args) noexcept;
 
     template <typename Arg>
     static type make_exception_future(Arg&& arg);
@@ -989,7 +989,7 @@ future<T...> make_exception_future(Exception&& ex) noexcept {
 
 template<typename T>
 template<typename Func, typename... FuncArgs>
-typename futurize<T>::type futurize<T>::apply(Func&& func, std::tuple<FuncArgs...>&& args) {
+typename futurize<T>::type futurize<T>::apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
     try {
         return convert(::apply(std::forward<Func>(func), std::move(args)));
     } catch (...) {
@@ -999,7 +999,7 @@ typename futurize<T>::type futurize<T>::apply(Func&& func, std::tuple<FuncArgs..
 
 template<typename T>
 template<typename Func, typename... FuncArgs>
-typename futurize<T>::type futurize<T>::apply(Func&& func, FuncArgs&&... args) {
+typename futurize<T>::type futurize<T>::apply(Func&& func, FuncArgs&&... args) noexcept {
     try {
         return convert(func(std::forward<FuncArgs>(args)...));
     } catch (...) {
@@ -1008,7 +1008,7 @@ typename futurize<T>::type futurize<T>::apply(Func&& func, FuncArgs&&... args) {
 }
 
 template<typename Func, typename... FuncArgs>
-typename futurize<void>::type futurize<void>::apply(Func&& func, std::tuple<FuncArgs...>&& args) {
+typename futurize<void>::type futurize<void>::apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
     try {
         ::apply(std::forward<Func>(func), std::move(args));
         return make_ready_future<>();
@@ -1018,7 +1018,7 @@ typename futurize<void>::type futurize<void>::apply(Func&& func, std::tuple<Func
 }
 
 template<typename Func, typename... FuncArgs>
-typename futurize<void>::type futurize<void>::apply(Func&& func, FuncArgs&&... args) {
+typename futurize<void>::type futurize<void>::apply(Func&& func, FuncArgs&&... args) noexcept {
     try {
         func(std::forward<FuncArgs>(args)...);
         return make_ready_future<>();
@@ -1029,7 +1029,7 @@ typename futurize<void>::type futurize<void>::apply(Func&& func, FuncArgs&&... a
 
 template<typename... Args>
 template<typename Func, typename... FuncArgs>
-typename futurize<future<Args...>>::type futurize<future<Args...>>::apply(Func&& func, std::tuple<FuncArgs...>&& args) {
+typename futurize<future<Args...>>::type futurize<future<Args...>>::apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
     try {
         return ::apply(std::forward<Func>(func), std::move(args));
     } catch (...) {
@@ -1039,7 +1039,7 @@ typename futurize<future<Args...>>::type futurize<future<Args...>>::apply(Func&&
 
 template<typename... Args>
 template<typename Func, typename... FuncArgs>
-typename futurize<future<Args...>>::type futurize<future<Args...>>::apply(Func&& func, FuncArgs&&... args) {
+typename futurize<future<Args...>>::type futurize<future<Args...>>::apply(Func&& func, FuncArgs&&... args) noexcept {
     try {
         return func(std::forward<FuncArgs>(args)...);
     } catch (...) {
