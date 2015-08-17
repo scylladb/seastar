@@ -216,6 +216,10 @@ struct future_state {
         _state = state::invalid;
         return std::move(_u.ex);
     }
+    std::tuple<T...> get_value() noexcept {
+        assert(_state == state::result);
+        return std::move(_u.value);
+    }
     std::tuple<T...> get() {
         assert(_state != state::future);
         if (_state == state::exception) {
@@ -321,6 +325,10 @@ struct future_state<> {
         // Move ex out so future::~future() knows we've handled it
         // Moving it will reset us to invalid state
         return std::move(_u.ex);
+    }
+    std::tuple<> get_value() noexcept {
+        assert(_u.st == state::result);
+        return {};
     }
     void forward_to(promise<>& pr) noexcept;
 };
@@ -735,8 +743,7 @@ public:
             if (failed()) {
                 return futurator::make_exception_future(get_available_state().get_exception());
             } else {
-                // FIXME: use a new get_value() instead of the general get().
-                return futurator::apply(std::forward<Func>(func), get_available_state().get());
+                return futurator::apply(std::forward<Func>(func), get_available_state().get_value());
             }
         }
         typename futurator::promise_type pr;
@@ -746,8 +753,7 @@ public:
                 if (state.failed()) {
                     pr.set_exception(state.get_exception());
                 } else {
-                    // FIXME: use a new get_value() instead of the general get().
-                    futurator::apply(std::forward<Func>(func), state.get()).forward_to(std::move(pr));
+                    futurator::apply(std::forward<Func>(func), state.get_value()).forward_to(std::move(pr));
                 }
             });
         } catch (...) {
