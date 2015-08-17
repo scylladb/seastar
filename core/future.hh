@@ -238,7 +238,7 @@ struct future_state {
         if (_state == state::exception) {
             pr.set_exception(std::move(_u.ex));
         } else {
-            pr.set_value(std::move(get()));
+            pr.set_value(std::move(_u.value));
         }
         _state = state::invalid;
     }
