@@ -179,6 +179,7 @@ public:
     lw_shared_ptr(lw_shared_ptr&& x) noexcept  : _p(x._p) {
         x._p = nullptr;
     }
+    [[gnu::always_inline]]
     ~lw_shared_ptr() {
         if (_p && !--_p->_count) {
             delete _p->to_internal_object();
