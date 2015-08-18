@@ -735,10 +735,10 @@ public:
     ///               unless it has failed.
     /// \return a \c future representing the return value of \c func, applied
     ///         to the eventual value of this future.
-    template <typename Func, typename Ret = std::result_of_t<Func(T&&...)>, typename Result = futurize_t<Ret>>
+    template <typename Func, typename Result = futurize_t<std::result_of_t<Func(T&&...)>>>
     Result
     then(Func&& func) noexcept {
-        using futurator = futurize<Ret>;
+        using futurator = futurize<std::result_of_t<Func(T&&...)>>;
         if (available() && (++future_avail_count % max_inlined_continuations)) {
             if (failed()) {
                 return futurator::make_exception_future(get_available_state().get_exception());
@@ -779,10 +779,10 @@ public:
     /// \param func - function to be called when the future becomes available,
     /// \return a \c future representing the return value of \c func, applied
     ///         to the eventual value of this future.
-    template <typename Func, typename Ret = std::result_of_t<Func(future<T...>)>, typename Result = futurize_t<Ret>>
+    template <typename Func, typename Result = futurize_t<std::result_of_t<Func(future)>>>
     Result
     then_wrapped(Func&& func) noexcept {
-        using futurator = futurize<Ret>;
+        using futurator = futurize<std::result_of_t<Func(future)>>;
         if (available() && (++future_avail_count % max_inlined_continuations)) {
             return futurator::apply(std::forward<Func>(func), future(get_available_state()));
         }
