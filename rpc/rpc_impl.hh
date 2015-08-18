@@ -508,6 +508,7 @@ template<typename Serializer, typename MsgType>
 void protocol<Serializer, MsgType>::server::accept() {
     keep_doing([this] () mutable {
         return _ss.accept().then([this] (connected_socket fd, socket_address addr) mutable {
+            fd.set_nodelay(true);
             auto conn = make_lw_shared<connection>(*this, std::move(fd), std::move(addr), _proto);
             _conns.insert(conn.get());
             conn->process();
@@ -595,6 +596,7 @@ template<typename Serializer, typename MsgType>
 protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& proto, ipv4_addr addr, ipv4_addr local) : protocol<Serializer, MsgType>::connection(proto) {
     this->_output_ready = _connected_promise.get_future();
     engine().net().connect(make_ipv4_address(addr), make_ipv4_address(local)).then([this] (connected_socket fd) {
+        fd.set_nodelay(true);
         this->_fd = std::move(fd);
         this->_read_buf = this->_fd.input();
         this->_write_buf = this->_fd.output();
