@@ -161,12 +161,13 @@ public:
         throw_system_error_on(r == -1);
         return r;
     }
-    template <class X>
-    int getsockopt(int level, int optname, X&& data) {
+    template <typename Data>
+    Data getsockopt(int level, int optname) {
+        Data data;
         socklen_t len = sizeof(data);
         int r = ::getsockopt(_fd, level, optname, &data, &len);
         throw_system_error_on(r == -1);
-        return r;
+        return data;
     }
     int getsockopt(int level, int optname, char* data, socklen_t len) {
         int r = ::getsockopt(_fd, level, optname, data, &len);

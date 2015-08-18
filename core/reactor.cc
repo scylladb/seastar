@@ -412,8 +412,7 @@ reactor::posix_connect(socket_address sa, socket_address local) {
     auto pfd = pollable_fd(std::move(fd));
     auto f = pfd.writeable();
     return f.then([pfd = std::move(pfd)] () mutable {
-        int err;
-        pfd.get_file_desc().getsockopt(SOL_SOCKET, SO_ERROR, err);
+        auto err = pfd.get_file_desc().getsockopt<int>(SOL_SOCKET, SO_ERROR);
         throw_system_error_on(err != 0);
         return make_ready_future<pollable_fd>(std::move(pfd));
     });
