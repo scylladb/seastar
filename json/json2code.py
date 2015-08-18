@@ -5,6 +5,7 @@ import re
 import glob
 import argparse
 import os
+from string import Template
 
 parser = argparse.ArgumentParser(description="""Generate C++ class for json
 handling from swagger definition""")
@@ -221,6 +222,71 @@ def resolve_model_order(data):
             models.add(model_name)
     return res
 
+def create_enum_wrapper(model_name, name, values):
+    enum_name = model_name + "_" + name
+    res =  "  enum class " + enum_name + " {"
+    for enum_entry in values:
+        res = res +  "  " + enum_entry + ", "
+    res = res +   "NUM_ITEMS};\n"
+    wrapper = name + "_wrapper"
+    res = res + Template("""  struct $wrapper : public json::jsonable  {
+        $wrapper() = default;
+        virtual std::string to_json() const {
+            switch(v) {
+        """).substitute({'wrapper' : wrapper})
+    for enum_entry in values:
+        res = res + "      case " + enum_name + "::" + enum_entry + ": return \"\\\"" + enum_entry + "\\\"\";\n"
+    res = res + Template("""      default: return \"\\\"Unknown\\\"\";
+        }
+     }
+    template<class T>
+    $wrapper (const T& _v) {
+    switch(_v) {
+    """).substitute({'wrapper' : wrapper})
+    for enum_entry in values:
+        res = res +  "      case T::" + enum_entry + ": v = " + enum_name + "::" + enum_entry + "; break;\n"
+    res = res + Template("""      default: v = $enum_name::NUM_ITEMS;
+        }
+    }
+    template<class T>
+    operator T() const {
+        switch(v) {
+    """).substitute({'enum_name': enum_name})
+    for enum_entry in values:
+        res = res + "      case " + enum_name + "::" + enum_entry + ": return T::" + enum_entry + ";\n"
+    return res + Template("""      default: return T::$value;
+          }
+        }
+        typedef typename std::underlying_type<$enum_name>::type pos_type;
+        $wrapper& operator++() {
+        v = static_cast<$enum_name>(static_cast<pos_type>(v) + 1);
+            return *this;
+        }
+        $wrapper & operator++(int) {
+            return ++(*this);
+        }
+        bool operator==(const  $wrapper& c) const {
+            return v == c.v;
+        }
+        bool operator!=(const $wrapper& c) const {
+            return v != c.v;
+        }
+        bool operator<=(const $wrapper& c) const {
+            return static_cast<pos_type>(v) <= static_cast<pos_type>(c.v);
+        }
+        static $wrapper begin() {
+            return $wrapper ($enum_name::$value);
+        }
+        static $wrapper end() {
+            return $wrapper ($enum_name::NUM_ITEMS);
+        }
+        static boost::integer_range<$wrapper> all_items() {
+            return boost::irange(begin(), end());
+        }
+        $enum_name v;
+    };
+    """).substitute({'enum_name': enum_name, 'wrapper' : wrapper, 'value':values[0]})
+
 def create_h_file(data, hfile_name, api_name, init_method, base_api):
     if config.o != '':
         hfile = open(config.o, "w")
@@ -250,64 +316,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                     print_comment(hfile, member["description"])
                 if "enum" in member:
                     enum_name = model_name + "_" + member_name
-                    fprintln(hfile, "  enum class ", enum_name, " {")
-                    for enum_entry in member["enum"]:
-                        fprintln(hfile, "  ", enum_entry, ", ")
-                    fprintln(hfile, "NUM_ITEMS};")
-                    wrapper = member_name + "_wrapper"
-                    fprintln(hfile, "  struct ", wrapper, " : public jsonable  {")
-                    fprintln(hfile, "    ", wrapper, "() = default;")
-                    fprintln(hfile, "    virtual std::string to_json() const {")
-                    fprintln(hfile, "      switch(v) {")
-                    for enum_entry in member["enum"]:
-                        fprintln(hfile, "      case ", enum_name, "::", enum_entry, ": return \"\\\"", enum_entry, "\\\"\";")
-                    fprintln(hfile, "      default: return \"Unknown\";")
-                    fprintln(hfile, "      }")
-                    fprintln(hfile, "    }")
-                    fprintln(hfile, "    template<class T>")
-                    fprintln(hfile, "    ", wrapper, "(const T& _v) {")
-                    fprintln(hfile, "      switch(_v) {")
-                    for enum_entry in member["enum"]:
-                        fprintln(hfile, "      case T::", enum_entry, ": v = ", enum_name, "::", enum_entry, "; break;")
-                    fprintln(hfile, "      default: v = ", enum_name, "::NUM_ITEMS;")
-                    fprintln(hfile, "      }")
-                    fprintln(hfile, "    }")
-                    fprintln(hfile, "    template<class T>")
-                    fprintln(hfile, "    operator T() const {")
-                    fprintln(hfile, "      switch(v) {")
-                    for enum_entry in member["enum"]:
-                        fprintln(hfile, "      case ", enum_name, "::", enum_entry, ": return T::", enum_entry, ";")
-                    fprintln(hfile, "      default: return T::", member["enum"][0], ";")
-                    fprintln(hfile, "      }")
-                    fprintln(hfile, "    }")
-                    fprintln(hfile, "    typedef typename std::underlying_type<", enum_name, ">::type pos_type;")
-                    fprintln(hfile, "    ", wrapper,"& operator++() {")
-                    fprintln(hfile, "      v = static_cast<", enum_name,">(static_cast<pos_type>(v) + 1);")
-                    fprintln(hfile, "      return *this;")
-                    fprintln(hfile, "    }")
-                    fprintln(hfile, "    ", wrapper, "& operator++(int) {")
-                    fprintln(hfile, "      return ++(*this);")
-                    fprintln(hfile, "    }")
-                    fprintln(hfile, "    bool operator==(const ", wrapper, "& c) const {")
-                    fprintln(hfile, "      return v == c.v;")
-                    fprintln(hfile, "    }")
-                    fprintln(hfile, "    bool operator!=(const ", wrapper, "& c) const {")
-                    fprintln(hfile, "      return v != c.v;")
-                    fprintln(hfile, "    }")
-                    fprintln(hfile, "    bool operator<=(const ", wrapper, "& c) const {")
-                    fprintln(hfile, "      return static_cast<pos_type>(v) <= static_cast<pos_type>(c.v);")
-                    fprintln(hfile, "    }")
-                    fprintln(hfile, "    static ", wrapper, " begin() {")
-                    fprintln(hfile, "      return ", wrapper, "(", enum_name, "::", member["enum"][0], ");")
-                    fprintln(hfile, "    }")
-                    fprintln(hfile, "    static ", wrapper, " end() {")
-                    fprintln(hfile, "      return ", wrapper, "(", enum_name, "::NUM_ITEMS);")
-                    fprintln(hfile, "    }")
-                    fprintln(hfile, "    static boost::integer_range<", wrapper, "> all_items() {")
-                    fprintln(hfile, "      return boost::irange(begin(), end());")
-                    fprintln(hfile, "    }")
-                    fprintln(hfile, "    ", enum_name, " v;")
-                    fprintln(hfile, "  };")
+                    fprintln(hfile, create_enum_wrapper(model_name, member_name, member["enum"]))
                     fprintln(hfile, "  ", config.jsonns, "::json_element<",
                            member_name, "_wrapper> ",
                            member_name, ";\n")
@@ -377,8 +386,12 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                 fprint(hfile, '}')
                 fprint(hfile, ',{')
                 first = True
+                enum_definitions = ""
+                if "enum" in oper:
+                    enum_definitions = ("namespace ns_" + oper["nickname"] + " {\n" +
+                                       create_enum_wrapper(oper["nickname"], "return_type", oper["enum"]) +
+                                       "}\n")
                 if "parameters" in oper:
-                    enum_definitions = ""
                     for param in oper["parameters"]:
                         if "required" in param and param["required"] and  param["paramType"] == "query":
                             if first == True:
