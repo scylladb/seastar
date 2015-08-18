@@ -225,11 +225,11 @@ public:
     /// Gets an object that sends data to the remote endpoint.
     output_stream<char> output();
     /// Sets the TCP_NODELAY option (disabling Nagle's algorithm)
-    void set_nodelay(bool nodelay) const;
+    void set_nodelay(bool nodelay);
     /// Gets the TCP_NODELAY option (Nagle's algorithm)
     ///
     /// \return whether the nodelay option is enabled or not
-    bool set_nodelay(bool nodelay);
+    bool get_nodelay() const;
     /// Disables output to the socket.
     ///
     /// Current or future writes that have not been successfully flushed
@@ -1359,6 +1359,18 @@ inline
 void
 connected_socket::shutdown_output() {
     return _csi->shutdown_output();
+}
+
+inline
+void
+connected_socket::set_nodelay(bool nodelay) {
+    return _csi->set_nodelay(nodelay);
+}
+
+inline
+bool
+connected_socket::get_nodelay() const {
+    return _csi->get_nodelay();
 }
 
 #endif /* REACTOR_HH_ */
