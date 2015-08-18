@@ -78,6 +78,8 @@ public:
     virtual output_stream<char> output() override;
     virtual void shutdown_input() override;
     virtual void shutdown_output() override;
+    virtual void set_nodelay(bool nodelay) override;
+    virtual bool get_nodelay() const override;
 };
 
 template <typename Protocol>
@@ -151,6 +153,18 @@ native_connected_socket_impl<Protocol>::shutdown_output() {
     _conn.close_write();
 }
 
+template <typename Protocol>
+void
+native_connected_socket_impl<Protocol>::set_nodelay(bool nodelay) {
+    // FIXME: implement
+}
+
+template <typename Protocol>
+bool
+native_connected_socket_impl<Protocol>::get_nodelay() const {
+    // FIXME: implement
+    return true;
+}
 
 }
 

@@ -192,6 +192,8 @@ public:
     virtual output_stream<char> output() = 0;
     virtual void shutdown_input() = 0;
     virtual void shutdown_output() = 0;
+    virtual void set_nodelay(bool nodelay) = 0;
+    virtual bool get_nodelay() const = 0;
 };
 
 /// \addtogroup networking-module
@@ -222,6 +224,12 @@ public:
     ///
     /// Gets an object that sends data to the remote endpoint.
     output_stream<char> output();
+    /// Sets the TCP_NODELAY option (disabling Nagle's algorithm)
+    void set_nodelay(bool nodelay) const;
+    /// Gets the TCP_NODELAY option (Nagle's algorithm)
+    ///
+    /// \return whether the nodelay option is enabled or not
+    bool set_nodelay(bool nodelay);
     /// Disables output to the socket.
     ///
     /// Current or future writes that have not been successfully flushed

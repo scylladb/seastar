@@ -23,6 +23,7 @@
 #include "net.hh"
 #include "packet.hh"
 #include "api.hh"
+#include <netinet/tcp.h>
 
 namespace net {
 
@@ -38,6 +39,12 @@ public:
     }
     virtual void shutdown_output() override {
         _fd.shutdown(SHUT_WR);
+    }
+    virtual void set_nodelay(bool nodelay) override {
+        _fd.get_file_desc().setsockopt(IPPROTO_TCP, TCP_NODELAY, int(nodelay));
+    }
+    virtual bool get_nodelay() const override {
+        return _fd.get_file_desc().getsockopt<int>(IPPROTO_TCP, TCP_NODELAY);
     }
     friend class posix_server_socket_impl;
     friend class posix_ap_server_socket_impl;
