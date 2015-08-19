@@ -220,6 +220,8 @@ reactor::reactor()
         _pending_tasks.push_front(make_task([fn = std::move(reclaim_fn)] {
             fn();
         }));
+        // stop any repeat() loops
+        task_quota = 0;
     });
 }
 
