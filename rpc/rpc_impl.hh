@@ -315,9 +315,9 @@ protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, sstri
     auto p = data.begin();
     *unaligned_cast<int64_t*>(p) = net::hton(msg_id);
     *unaligned_cast<uint64_t*>(p + 8) = net::hton(data.size() - 16);
-    return do_with(std::move(data), [this, msg_id] (const sstring& data) {
-        return this->out().write(data.begin(), data.size()).then([this] {
-            return this->out().flush();
+    return do_with(std::move(data), this->shared_from_this(), [msg_id] (const sstring& data, lw_shared_ptr<protocol<Serializer, MsgType>::server::connection> conn) {
+        return conn->out().write(data.begin(), data.size()).then([conn] {
+            return conn->out().flush();
         });
     });
 }
@@ -564,7 +564,7 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
     }).finally([this, conn_ptr = this->shared_from_this()] () {
         // hold onto connection pointer until do_until() exists
         if (!this->_server._stopping) {
-            // if server us stopping to not remove connection
+            // if server is stopping do not remove connection
             // since it may invalidate _conns iterators
             this->_server._conns.erase(this);
         }
