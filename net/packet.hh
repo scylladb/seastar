@@ -279,7 +279,7 @@ private:
     void linearize(size_t at_frag, size_t desired_size);
     bool allocate_headroom(size_t size);
 public:
-    class offload_info offload_info() { return _impl->_offload_info; }
+    class offload_info offload_info() const { return _impl->_offload_info; }
     class offload_info& offload_info_ref() { return _impl->_offload_info; }
     void set_offload_info(class offload_info oi) { _impl->_offload_info = oi; }
 };
