@@ -242,7 +242,6 @@ struct rcv_reply<Serializer, MsgType, future<>> : rcv_reply<Serializer, MsgType,
 template <typename Serializer, typename MsgType, typename Ret, typename... InArgs>
 inline auto wait_for_reply(wait_type, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id, future<> sent,
         signature<Ret (InArgs...)> sig) {
-    sent.finally([]{}); // discard result or exception, this path does not need to wait for message to be send
     using reply_type = rcv_reply<Serializer, MsgType, Ret>;
     auto lambda = [] (reply_type& r, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id, temporary_buffer<char> data) mutable {
         if (msg_id >= 0) {
@@ -259,7 +258,9 @@ inline auto wait_for_reply(wait_type, typename protocol<Serializer, MsgType>::cl
     auto r = std::make_unique<handler_type>(std::move(lambda));
     auto fut = r->reply.p.get_future();
     dst.wait_for_reply(msg_id, std::move(r));
-    return fut;
+    return when_all(std::move(sent), std::move(fut)).then([] (std::tuple<future<>, futurize_t<Ret>>&& r) {
+        return std::move(std::get<1>(r));
+    });
 }
 
 template<typename Serializer, typename MsgType, typename... InArgs>
