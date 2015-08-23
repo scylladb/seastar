@@ -304,6 +304,7 @@ struct cpu_pages {
     void* allocate_small(unsigned size);
     void free(void* ptr);
     void free(void* ptr, size_t size);
+    void shrink(void* ptr, size_t new_size);
     void free_cross_cpu(unsigned cpu_id, void* ptr);
     bool drain_cross_cpu_freelist();
     size_t object_size(void* ptr);
@@ -521,6 +522,26 @@ void cpu_pages::free(void* ptr, size_t size) {
     } else {
         free_large(ptr);
     }
+}
+
+void cpu_pages::shrink(void* ptr, size_t new_size) {
+    auto obj_cpu = object_cpu_id(ptr);
+    assert(obj_cpu == cpu_id);
+    page* span = to_page(ptr);
+    if (span->pool) {
+        return;
+    }
+    size_t new_size_pages = align_up(new_size, page_size) / page_size;
+    auto old_size_pages = span->span_size;
+    assert(old_size_pages >= new_size_pages);
+    if (new_size_pages == old_size_pages) {
+        return;
+    }
+    span->span_size = new_size_pages;
+    span[new_size_pages - 1].free = false;
+    span[new_size_pages - 1].span_size = new_size_pages;
+    pageidx idx = span - pages;
+    free_span(idx + new_size_pages, old_size_pages - new_size_pages);
 }
 
 cpu_pages::~cpu_pages() {
@@ -871,6 +892,12 @@ void free(void* obj, size_t size) {
     cpu_mem.free(obj, size);
 }
 
+void shrink(void* obj, size_t new_size) {
+    ++g_frees;
+    ++g_allocs; // keep them balanced
+    cpu_mem.shrink(obj, new_size);
+}
+
 void set_reclaim_hook(std::function<void (std::function<void ()>)> hook) {
     cpu_mem.set_reclaim_hook(hook);
 }
@@ -1004,6 +1031,17 @@ extern "C"
 [[gnu::visibility("default")]]
 void* realloc(void* ptr, size_t size) {
     auto old_size = ptr ? object_size(ptr) : 0;
+    if (size == old_size) {
+        return ptr;
+    }
+    if (size == 0) {
+        ::free(ptr);
+        return nullptr;
+    }
+    if (size < old_size) {
+        memory::shrink(ptr, old_size);
+        return ptr;
+    }
     auto nptr = malloc(size);
     if (!nptr) {
         return nptr;
