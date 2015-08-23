@@ -185,6 +185,16 @@ public:
         }
         _front = ary[_front].link._next;
     }
+    page* find(uint32_t n_pages, page* ary) {
+        auto n = _front;
+        while (n && ary[n].span_size < n_pages) {
+            n = ary[n].link._next;
+        }
+        if (!n) {
+            return nullptr;
+        }
+        return &ary[n];
+    }
 };
 
 class small_pool {
@@ -390,6 +400,7 @@ template <typename Trimmer>
 void*
 cpu_pages::allocate_large_and_trim(unsigned n_pages, Trimmer trimmer) {
     auto idx = index_of_conservative(n_pages);
+    auto orig_idx = idx;
     if (n_pages >= (2u << idx)) {
         throw std::bad_alloc();
     }
@@ -400,11 +411,19 @@ cpu_pages::allocate_large_and_trim(unsigned n_pages, Trimmer trimmer) {
         if (initialize()) {
             return allocate_large_and_trim(n_pages, trimmer);
         }
+        // Can smaller list possibly hold object?
+        idx = index_of(n_pages);
+        if (idx == orig_idx) {   // was exact power of two
+            // FIXME: request application to free memory
+            throw std::bad_alloc();
+        }
+    }
+    auto& list = fsu.free_spans[idx];
+    page* span = list.find(n_pages, pages);
+    if (!span) {
         // FIXME: request application to free memory
         throw std::bad_alloc();
     }
-    auto& list = fsu.free_spans[idx];
-    page* span = &list.front(pages);
     auto span_size = span->span_size;
     auto span_idx = span - pages;
     unlink(list, span);
