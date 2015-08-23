@@ -229,6 +229,11 @@ struct future_state {
         }
         return std::move(_u.value);
     }
+    void ignore() noexcept {
+        assert(_state != state::future);
+        this->~future_state();
+        _state = state::invalid;
+    }
     using get0_return_type = std::tuple_element_t<0, std::tuple<T...>>;
     static get0_return_type get0(std::tuple<T...>&& x) {
         return std::get<0>(std::move(x));
@@ -315,6 +320,11 @@ struct future_state<> {
             std::rethrow_exception(std::move(_u.ex));
         }
         return {};
+    }
+    void ignore() noexcept {
+        assert(_u.st != state::future);
+        this->~future_state();
+        _u.st = state::invalid;
     }
     using get0_return_type = void;
     static get0_return_type get0(std::tuple<>&&) {
@@ -915,6 +925,15 @@ public:
                         func, std::current_exception());
             }
         });
+    }
+
+    /// \brief Ignore any result hold by this future
+    ///
+    /// Ignore any result (value or exception) hold by this future.
+    /// Use with caution since usually ignoring exception is not what
+    /// you want
+    void ignore_result_and_exception() noexcept {
+        state()->ignore();
     }
 
     /// \cond internal
