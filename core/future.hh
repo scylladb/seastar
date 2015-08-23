@@ -932,7 +932,7 @@ public:
     /// Ignore any result (value or exception) hold by this future.
     /// Use with caution since usually ignoring exception is not what
     /// you want
-    void ignore_result_and_exception() noexcept {
+    void ignore_ready_future() noexcept {
         state()->ignore();
     }
 
