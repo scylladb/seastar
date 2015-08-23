@@ -24,6 +24,7 @@ import signal
 import re
 
 boost_tests = [
+    'alloc_test',
     'futures_test',
     'thread_test',
     'memcached/test_ascii_parser',
