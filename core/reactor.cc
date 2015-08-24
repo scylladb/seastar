@@ -506,11 +506,7 @@ bool reactor::process_io()
 
 posix_file_impl::~posix_file_impl() {
     if (_fd != -1) {
-        if (std::uncaught_exception()) {
-            std::cerr << "WARNING: closing file in reactor thread during exception recovery\n";
-        } else {
-            std::cerr << "WARNING: closing file in reactor thread\n";
-        }
+        // Note: close() can be a blocking operation on NFS
         ::close(_fd);
     }
 }
