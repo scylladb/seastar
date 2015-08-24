@@ -22,6 +22,7 @@
 #include "core/reactor.hh"
 #include "core/app-template.hh"
 #include "rpc/rpc.hh"
+#include "core/sleep.hh"
 
 struct serializer {
 };
@@ -78,6 +79,7 @@ inline sstring read(serializer, Input& in) {
 }
 
 namespace bpo = boost::program_options;
+using namespace std::chrono_literals;
 
 int main(int ac, char** av) {
     app_template app;
@@ -99,13 +101,22 @@ int main(int ac, char** av) {
         auto test4 = myrpc.register_handler(4, [](){ print("test4 throw!\n"); throw std::runtime_error("exception!"); });
         auto test5 = myrpc.register_handler(5, [](){ print("test5 no wait\n"); return rpc::no_wait; });
         auto test6 = myrpc.register_handler(6, [](const rpc::client_info& info, int x){ print("test6 client %s, %d\n", inet_ntoa(info.addr.as_posix_sockaddr_in().sin_addr), x); });
+        auto test8 = myrpc.register_handler(8, [](){ print("test8 sleep for 5 sec\n"); return sleep(5s); });
+
         if (config.count("server")) {
             std::cout << "client" << std::endl;
             auto test7 = myrpc.make_client<long (long a, long b)>(7);
 
             client = std::make_unique<rpc::protocol<serializer>::client>(myrpc, ipv4_addr{config["server"].as<std::string>()});
 
-            auto f = make_ready_future<>();
+            auto f = test8(*client, 1500ms).then_wrapped([](future<> f) {
+                try {
+                    f.get();
+                    printf("test8 should not get here!\n");
+                } catch (rpc::timeout_error) {
+                    printf("test8 timeout!\n");
+                }
+            });
             for (auto i = 0; i < 100; i++) {
                 print("iteration=%d\n", i);
                 test1(*client, 5).then([] (){ print("test1 ended\n");});
@@ -121,10 +132,12 @@ int main(int ac, char** av) {
                 });
                 test5(*client).then([] { print("test5 no wait ended\n"); });
                 test6(*client, 1).then([] { print("test6 ended\n"); });
-                f = test7(*client, 5, 6).then([] (long r) { print("test7 got %ld\n", r); });
+                test7(*client, 5, 6).then([] (long r) { print("test7 got %ld\n", r); });
             }
             f.finally([] {
+                client->stop().then([] {
                     engine().exit(0);
+                });
             });
         } else {
             std::cout << "server on port " << port << std::endl;
@@ -137,7 +150,6 @@ int main(int ac, char** av) {
                     return a - b;
                 });
                 t->set_callback([p = std::move(p)] () mutable { p->set_value(); });
-                using namespace std::chrono_literals;
                 t->arm(1s);
                 return f;
             });
