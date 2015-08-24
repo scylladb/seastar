@@ -240,7 +240,7 @@ template<typename Serializer, typename MsgType>
 struct rcv_reply<Serializer, MsgType, future<>> : rcv_reply<Serializer, MsgType, void> {};
 
 template <typename Serializer, typename MsgType, typename Ret, typename... InArgs>
-inline auto wait_for_reply(wait_type, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id, future<> sent,
+inline auto wait_for_reply(wait_type, std::experimental::optional<clock_type::time_point> timeout, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id, future<> sent,
         signature<Ret (InArgs...)> sig) {
     using reply_type = rcv_reply<Serializer, MsgType, Ret>;
     auto lambda = [] (reply_type& r, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id, temporary_buffer<char> data) mutable {
@@ -257,14 +257,14 @@ inline auto wait_for_reply(wait_type, typename protocol<Serializer, MsgType>::cl
     using handler_type = typename protocol<Serializer, MsgType>::client::template reply_handler<reply_type, decltype(lambda)>;
     auto r = std::make_unique<handler_type>(std::move(lambda));
     auto fut = r->reply.p.get_future();
-    dst.wait_for_reply(msg_id, std::move(r));
+    dst.wait_for_reply(msg_id, std::move(r), timeout);
     return when_all(std::move(sent), std::move(fut)).then([] (std::tuple<future<>, futurize_t<Ret>>&& r) {
         return std::move(std::get<1>(r));
     });
 }
 
 template<typename Serializer, typename MsgType, typename... InArgs>
-inline auto wait_for_reply(no_wait_type, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id, future<>&& sent,
+inline auto wait_for_reply(no_wait_type, std::experimental::optional<clock_type::time_point>, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id, future<>&& sent,
         signature<no_wait_type (InArgs...)> sig) {  // no_wait overload
     return std::move(sent);
 }
@@ -274,39 +274,53 @@ inline auto wait_for_reply(no_wait_type, typename protocol<Serializer, MsgType>:
 // to a server and waits for a reply. After receiving reply it unmarshalls it and signal completion
 // to a caller.
 template<typename Serializer, typename MsgType, typename Ret, typename... InArgs>
-auto send_helper(MsgType t, signature<Ret (InArgs...)> sig) {
-    return [t, sig] (typename protocol<Serializer, MsgType>::client& dst, const InArgs&... args) {
-        if (dst.error()) {
-            using cleaned_ret_type = typename wait_signature<Ret>::cleaned_type;
-            return futurize<cleaned_ret_type>::make_exception_future(closed_error());
-        }
+auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
+    struct shelper {
+        MsgType t;
+        signature<Ret (InArgs...)> sig;
+        auto send(typename protocol<Serializer, MsgType>::client& dst, std::experimental::optional<clock_type::time_point> timeout, const InArgs&... args) {
+            if (dst.error()) {
+                using cleaned_ret_type = typename wait_signature<Ret>::cleaned_type;
+                return futurize<cleaned_ret_type>::make_exception_future(closed_error());
+            }
 
-        // send message
-        auto msg_id = dst.next_message_id();
-        promise<> sent; // will be fulfilled when data is sent
-        auto fsent = sent.get_future();
-        dst.get_stats_internal().pending++;
-        sstring data = marshall(dst.serializer(), 24, args...);
-        auto p = data.begin();
-        *unaligned_cast<uint64_t*>(p) = net::hton(uint64_t(t));
-        *unaligned_cast<int64_t*>(p + 8) = net::hton(msg_id);
-        *unaligned_cast<uint64_t*>(p + 16) = net::hton(data.size() - 24);
-        dst.out_ready() = do_with(std::move(data), [&dst] (sstring& data) {
-            return dst.out_ready().then([&dst, &data] () mutable {
-                return dst.out().write(data).then([&dst] {
-                    return dst.out().flush();
+            // send message
+            auto msg_id = dst.next_message_id();
+            promise<> sent; // will be fulfilled when data is sent
+            auto fsent = sent.get_future();
+            dst.get_stats_internal().pending++;
+            sstring data = marshall(dst.serializer(), 24, args...);
+            auto p = data.begin();
+            *unaligned_cast<uint64_t*>(p) = net::hton(uint64_t(t));
+            *unaligned_cast<int64_t*>(p + 8) = net::hton(msg_id);
+            *unaligned_cast<uint64_t*>(p + 16) = net::hton(data.size() - 24);
+            dst.out_ready() = do_with(std::move(data), [&dst] (sstring& data) {
+                return dst.out_ready().then([&dst, &data] () mutable {
+                    return dst.out().write(data).then([&dst] {
+                        return dst.out().flush();
+                    });
                 });
+            }).finally([&dst, sent = std::move(sent)] () mutable {
+                dst.get_stats_internal().pending--;
+                dst.get_stats_internal().sent_messages++;
+                sent.set_value();
             });
-        }).finally([&dst, sent = std::move(sent)] () mutable {
-            dst.get_stats_internal().pending--;
-            dst.get_stats_internal().sent_messages++;
-            sent.set_value();
-        });
 
-        // prepare reply handler, if return type is now_wait_type this does nothing, since no reply will be sent
-        using wait = wait_signature_t<Ret>;
-        return wait_for_reply<Serializer, MsgType>(wait(), dst, msg_id, std::move(fsent), sig);
+            // prepare reply handler, if return type is now_wait_type this does nothing, since no reply will be sent
+            using wait = wait_signature_t<Ret>;
+            return wait_for_reply<Serializer, MsgType>(wait(), timeout, dst, msg_id, std::move(fsent), sig);
+        }
+        auto operator()(typename protocol<Serializer, MsgType>::client& dst, const InArgs&... args) {
+            return send(dst, {}, args...);
+        }
+        auto operator()(typename protocol<Serializer, MsgType>::client& dst, clock_type::time_point timeout, const InArgs&... args) {
+            return send(dst, timeout, args...);
+        }
+        auto operator()(typename protocol<Serializer, MsgType>::client& dst, clock_type::duration timeout, const InArgs&... args) {
+            return send(dst, clock_type::now() + timeout, args...);
+        }
     };
+    return shelper{xt, xsig};
 }
 
 template <typename Serializer, typename MsgType>

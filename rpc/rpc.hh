@@ -116,7 +116,9 @@ public:
         bool _connected = false;
         id_type _message_id = 1;
         struct reply_handler_base {
+            timer<> t;
             virtual void operator()(client&, id_type, temporary_buffer<char> data) = 0;
+            virtual void timeout() {}
             virtual ~reply_handler_base() {};
         };
     public:
@@ -127,6 +129,10 @@ public:
             reply_handler(Func&& f) : func(std::move(f)) {}
             virtual void operator()(client& client, id_type msg_id, temporary_buffer<char> data) override {
                 return func(reply, client, msg_id, std::move(data));
+            }
+            virtual void timeout() override {
+                reply.done = true;
+                reply.p.set_exception(timeout_error());
             }
             virtual ~reply_handler() {}
         };
@@ -146,8 +152,19 @@ public:
             return _stats;
         }
         auto next_message_id() { return _message_id++; }
-        void wait_for_reply(id_type id, std::unique_ptr<reply_handler_base>&& h) {
+        void wait_for_reply(id_type id, std::unique_ptr<reply_handler_base>&& h, std::experimental::optional<clock_type::time_point> timeout) {
+            if (timeout) {
+                h->t.set_callback(std::bind(std::mem_fn(&client::wait_timed_out), this, id));
+                h->t.arm(timeout.value());
+            }
             _outstanding.emplace(id, std::move(h));
+        }
+        void wait_timed_out(id_type id) {
+            struct timeout_handler : reply_handler_base {
+                virtual void operator()(client& client, id_type msg_id, temporary_buffer<char> data) {}
+            };
+            _outstanding[id]->timeout();
+            _outstanding.emplace(id, std::make_unique<timeout_handler>());
         }
 
         future<> stop() {

@@ -56,6 +56,11 @@ public:
     closed_error() : error("connection is closed") {}
 };
 
+class timeout_error : public error {
+public:
+    timeout_error() : error("rpc call timed out") {}
+};
+
 struct no_wait_type {};
 
 // return this from a callback if client does not want to waiting for a reply
