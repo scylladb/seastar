@@ -27,6 +27,7 @@
 #include "core/queue.hh"
 #include "core/stream.hh"
 #include "core/scollectd.hh"
+#include "net/toeplitz.hh"
 #include "ethernet.hh"
 #include "packet.hh"
 #include "const.hh"
@@ -130,6 +131,7 @@ public:
     void register_packet_provider(l3_protocol::packet_provider_type func) {
         _pkt_providers.push_back(std::move(func));
     }
+    const rss_key_type& rss_key() const;
     friend class l3_protocol;
 };
 
@@ -265,6 +267,7 @@ public:
     subscription<packet> receive(std::function<future<> (packet)> next_packet);
     virtual ethernet_address hw_address() = 0;
     virtual net::hw_features hw_features() = 0;
+    virtual const rss_key_type& rss_key() const { return default_rsskey; }
     virtual uint16_t hw_queues_count() { return 1; }
     virtual future<> link_ready() { return make_ready_future<>(); }
     virtual std::unique_ptr<qp> init_local_queue(boost::program_options::variables_map opts, uint16_t qid) = 0;

@@ -311,6 +311,10 @@ unsigned interface::hash2cpu(uint32_t hash) {
     return _dev->hash2cpu(hash);
 }
 
+const rss_key_type& interface::rss_key() const {
+    return _dev->rss_key();
+}
+
 void interface::forward(unsigned cpuid, packet p) {
     static __thread unsigned queue_depth;
 
@@ -331,14 +335,14 @@ future<> interface::dispatch_packet(packet p) {
         auto i = _proto_map.find(ntoh(eh->eth_proto));
         if (i != _proto_map.end()) {
             l3_rx_stream& l3 = i->second;
-            auto fw = _dev->forward_dst(engine().cpu_id(), [&p, &l3] () {
+            auto fw = _dev->forward_dst(engine().cpu_id(), [&p, &l3, this] () {
                 auto hwrss = p.rss_hash();
                 if (hwrss) {
                     return hwrss.value();
                 } else {
                     forward_hash data;
                     if (l3.forward(data, p, sizeof(eth_hdr))) {
-                        return toeplitz_hash(rsskey, data);
+                        return toeplitz_hash(rss_key(), data);
                     }
                     return 0u;
                 }

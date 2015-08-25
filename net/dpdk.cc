@@ -1438,7 +1438,8 @@ int dpdk_device::init_port_start()
     if (smp::count > 1) {
         port_conf.rxmode.mq_mode = ETH_MQ_RX_RSS;
         port_conf.rx_adv_conf.rss_conf.rss_hf = ETH_RSS_PROTO_MASK;
-        port_conf.rx_adv_conf.rss_conf.rss_key = const_cast<uint8_t*>(rsskey.data());
+        // FIXME:
+        port_conf.rx_adv_conf.rss_conf.rss_key = const_cast<uint8_t*>(default_rsskey.data());
     } else {
         port_conf.rxmode.mq_mode = ETH_MQ_RX_NONE;
     }
