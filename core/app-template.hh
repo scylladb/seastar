@@ -24,6 +24,7 @@
 #include <boost/program_options.hpp>
 #include <boost/optional.hpp>
 #include <functional>
+#include <core/future.hh>
 
 class app_template {
 private:
@@ -43,6 +44,16 @@ public:
     void add_positional_options(std::initializer_list<positional_option> options);
     boost::program_options::variables_map& configuration();
     int run_deprecated(int ac, char ** av, std::function<void ()>&& func);
+
+    // Runs given function and terminates the application when the future it
+    // returns resolves. The value with which the future resolves will be
+    // returned by this function.
+    int run(int ac, char ** av, std::function<future<int> ()>&& func);
+
+    // Like run_sync() which takes std::function<future<int>()>, but returns
+    // with exit code 0 when the future returned by func resolves
+    // successfully.
+    int run(int ac, char ** av, std::function<future<> ()>&& func);
 };
 
 #endif
