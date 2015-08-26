@@ -145,6 +145,11 @@ public:
     /// Waits for thread execution to terminate, and marks the thread object as not
     /// representing a running thread of execution.
     future<> join();
+    /// \brief Voluntarily defer execution of current thread.
+    ///
+    /// Gives other threads/fibers a chance to run on current CPU.
+    /// The current thread will resume execution promptly.
+    static void yield();
 };
 
 template <typename Func>

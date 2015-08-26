@@ -117,6 +117,9 @@ void init() {
 
 }
 
+void thread::yield() {
+    later().get();
+}
 
 }
 
