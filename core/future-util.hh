@@ -571,6 +571,17 @@ future<> now() {
     return make_ready_future<>();
 }
 
+// Returns a future which is not ready but is scheduled to resolve soon.
+inline
+future<> later() {
+    promise<> p;
+    auto f = p.get_future();
+    schedule(make_task([p = std::move(p)] () mutable {
+        p.set_value();
+    }));
+    return f;
+}
+
 /// @}
 
 #endif /* CORE_FUTURE_UTIL_HH_ */

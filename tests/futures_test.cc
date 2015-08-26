@@ -32,17 +32,6 @@ public:
     expected_exception() : runtime_error("expected") {}
 };
 
-// Returns a future which is not ready but is scheduled to resolve soon.
-static
-future<> later() {
-    promise<> p;
-    auto f = p.get_future();
-    schedule(make_task([p = std::move(p)] () mutable {
-        p.set_value();
-    }));
-    return f;
-}
-
 SEASTAR_TEST_CASE(test_finally_is_called_on_success_and_failure) {
     auto finally1 = make_shared<bool>();
     auto finally2 = make_shared<bool>();
