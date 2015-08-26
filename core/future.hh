@@ -151,9 +151,11 @@ struct future_state {
             break;
         case state::result:
             new (&_u.value) std::tuple<T...>(std::move(x._u.value));
+            x._u.value.~tuple();
             break;
         case state::exception:
             new (&_u.ex) std::exception_ptr(std::move(x._u.ex));
+            x._u.ex.~exception_ptr();
             break;
         case state::invalid:
             break;
@@ -214,7 +216,9 @@ struct future_state {
         assert(_state == state::exception);
         // Move ex out so future::~future() knows we've handled it
         _state = state::invalid;
-        return std::move(_u.ex);
+        auto ex = std::move(_u.ex);
+        _u.ex.~exception_ptr();
+        return ex;
     }
     std::tuple<T...> get_value() noexcept {
         assert(_state == state::result);
@@ -224,8 +228,10 @@ struct future_state {
         assert(_state != state::future);
         if (_state == state::exception) {
             _state = state::invalid;
+            auto ex = std::move(_u.ex);
+            _u.ex.~exception_ptr();
             // Move ex out so future::~future() knows we've handled it
-            std::rethrow_exception(std::move(_u.ex));
+            std::rethrow_exception(std::move(ex));
         }
         return std::move(_u.value);
     }
@@ -242,8 +248,10 @@ struct future_state {
         assert(_state != state::future);
         if (_state == state::exception) {
             pr.set_exception(std::move(_u.ex));
+            _u.ex.~exception_ptr();
         } else {
             pr.set_value(std::move(_u.value));
+            _u.value.~tuple();
         }
         _state = state::invalid;
     }
