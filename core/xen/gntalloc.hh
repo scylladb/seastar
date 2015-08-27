@@ -39,6 +39,7 @@ class grant_head {
 protected:
     unsigned _id = 0;
 public:
+    virtual ~grant_head() {}
     virtual gntref new_ref() = 0;
     virtual gntref new_ref(void *addr, size_t size) = 0;
     virtual void free_ref(gntref& ref) = 0;
@@ -49,6 +50,7 @@ protected:
     static gntalloc *_instance;
     unsigned _otherend;
 public:
+    virtual ~gntalloc() {}
     static gntalloc *instance(bool userspace, unsigned otherend);
     static gntalloc *instance();
     gntalloc(unsigned otherend) : _otherend(otherend) {}
