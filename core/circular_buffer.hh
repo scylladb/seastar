@@ -245,7 +245,8 @@ circular_buffer<T, Alloc>::expand() {
     auto p = new_storage;
     try {
         for_each([this, &p] (T& obj) {
-            transfer_pass1(_impl, &obj, p++);
+            transfer_pass1(_impl, &obj, p);
+            p++;
         });
     } catch (...) {
         while (p != new_storage) {
