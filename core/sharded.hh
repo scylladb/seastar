@@ -25,8 +25,17 @@
 #include "future-util.hh"
 #include "util/is_smart_ptr.hh"
 #include "do_with.hh"
+#include <boost/iterator/counting_iterator.hpp>
 
 namespace seastar {
+
+/// Exception thrown when a \ref sharded object does not exist
+class no_sharded_instance_exception : public std::exception {
+public:
+    virtual const char* what() const noexcept override {
+        return "sharded instance does not exists";
+    }
+};
 
 /// \defgroup smp-module Multicore
 ///
@@ -126,12 +135,17 @@ public:
     map_reduce(Reducer&& r, Ret (Service::*func)(FuncArgs...), Args&&... args)
         -> typename reducer_traits<Reducer>::future_type
     {
-        unsigned c = 0;
-        return ::map_reduce(_instances.begin(), _instances.end(),
-            [&c, func, args = std::make_tuple(std::forward<Args>(args)...)] (Service* inst) mutable {
-                return smp::submit_to(c++, [inst, func, args] () mutable {
-                    return apply([inst, func] (Args&&... args) mutable {
-                        return (inst->*func)(std::forward<Args>(args)...);
+        return ::map_reduce(boost::make_counting_iterator<unsigned>(0),
+                            boost::make_counting_iterator<unsigned>(_instances.size()),
+            [this, func, args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) mutable {
+                return smp::submit_to(c, [this, func, args] () mutable {
+                    return apply([this, func] (Args&&... args) mutable {
+                        auto inst = _instances[engine().cpu_id()];
+                        if (inst) {
+                            return (inst->*func)(std::forward<Args>(args)...);
+                        } else {
+                            throw no_sharded_instance_exception();
+                        }
                     }, std::move(args));
                 });
             }, std::forward<Reducer>(r));
@@ -145,11 +159,16 @@ public:
     inline
     auto map_reduce(Reducer&& r, Func&& func) -> typename reducer_traits<Reducer>::future_type
     {
-        unsigned c = 0;
-        return ::map_reduce(_instances.begin(), _instances.end(),
-            [&c, &func] (Service* inst) mutable {
-                return smp::submit_to(c++, [inst, func] () mutable {
-                    return func(*inst);
+        return ::map_reduce(boost::make_counting_iterator<unsigned>(0),
+                            boost::make_counting_iterator<unsigned>(_instances.size()),
+            [this, &func] (unsigned c) mutable {
+                return smp::submit_to(c, [this, func] () mutable {
+                    auto inst = _instances[engine().cpu_id()];
+                    if (inst) {
+                        return func(*inst);
+                    } else {
+                        throw no_sharded_instance_exception();
+                    }
                 });
             }, std::forward<Reducer>(r));
     }
@@ -175,8 +194,13 @@ public:
     future<Initial>
     map_reduce0(Mapper map, Initial initial, Reduce reduce) {
         auto wrapped_map = [this, map] (unsigned c) {
-            return smp::submit_to(c, [map, inst = _instances[c]] {
-                return map(*inst);
+            return smp::submit_to(c, [this, map] {
+                auto inst = _instances[engine().cpu_id()];
+                if (inst) {
+                    return map(*inst);
+                } else {
+                    throw no_sharded_instance_exception();
+                }
             });
         };
         return ::map_reduce(smp::all_cpus().begin(), smp::all_cpus().end(),
@@ -223,9 +247,13 @@ public:
     FutureRet
     invoke_on(unsigned id, Ret (Service::*func)(FuncArgs...), Args&&... args) {
         using futurator = futurize<Ret>;
-        auto inst = _instances[id];
-        return smp::submit_to(id, [func, args = std::make_tuple(inst, std::forward<Args>(args)...)] () mutable {
-            return futurator::apply(std::mem_fn(func), std::move(args));
+        return smp::submit_to(id, [this, func, args = std::make_tuple(std::forward<Args>(args)...)] () mutable {
+            auto inst = _instances[engine().cpu_id()];
+            if (inst) {
+                return futurator::apply(std::mem_fn(func), std::tuple_cat(std::make_tuple<>(inst), std::move(args)));
+            } else {
+                throw no_sharded_instance_exception();
+            }
         });
     }
 
@@ -238,9 +266,13 @@ public:
     template <typename Func, typename Ret = futurize_t<std::result_of_t<Func(Service&)>>>
     Ret
     invoke_on(unsigned id, Func&& func) {
-        auto inst = _instances[id];
-        return smp::submit_to(id, [inst, func = std::forward<Func>(func)] () mutable {
-            return func(*inst);
+        return smp::submit_to(id, [this, func = std::forward<Func>(func)] () mutable {
+            auto inst = _instances[engine().cpu_id()];
+            if (inst) {
+                return func(*inst);
+            } else {
+                throw no_sharded_instance_exception();
+            }
         });
     }
 
