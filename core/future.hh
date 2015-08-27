@@ -193,24 +193,24 @@ struct future_state {
     void wait();
     void set(const std::tuple<T...>& value) noexcept(copy_noexcept) {
         assert(_state == state::future);
-        _state = state::result;
         new (&_u.value) std::tuple<T...>(value);
+        _state = state::result;
     }
     void set(std::tuple<T...>&& value) noexcept(move_noexcept) {
         assert(_state == state::future);
-        _state = state::result;
         new (&_u.value) std::tuple<T...>(std::move(value));
+        _state = state::result;
     }
     template <typename... A>
     void set(A&&... a) {
         assert(_state == state::future);
-        _state = state::result;
         new (&_u.value) std::tuple<T...>(std::forward<A>(a)...);
+        _state = state::result;
     }
     void set_exception(std::exception_ptr ex) noexcept {
         assert(_state == state::future);
-        _state = state::exception;
         new (&_u.ex) std::exception_ptr(ex);
+        _state = state::exception;
     }
     std::exception_ptr get_exception() noexcept {
         assert(_state == state::exception);
