@@ -415,3 +415,31 @@ SEASTAR_TEST_CASE(test_parallel_for_each_waits_for_all_fibers_even_if_one_of_the
         BOOST_REQUIRE(*can_exit);
     });
 }
+
+SEASTAR_TEST_CASE(test_high_priority_task_runs_before_ready_continuations) {
+    return now().then([] {
+        auto flag = make_lw_shared<bool>(false);
+        engine().add_high_priority_task(make_task([flag] {
+            *flag = true;
+        }));
+        make_ready_future().then([flag] {
+            BOOST_REQUIRE(*flag);
+        });
+    });
+}
+
+SEASTAR_TEST_CASE(test_high_priority_task_runs_in_the_middle_of_loops) {
+    auto counter = make_lw_shared<int>(0);
+    auto flag = make_lw_shared<bool>(false);
+    return repeat([counter, flag] {
+        if (*counter == 1) {
+            BOOST_REQUIRE(*flag);
+            return stop_iteration::yes;
+        }
+        engine().add_high_priority_task(make_task([flag] {
+            *flag = true;
+        }));
+        ++(*counter);
+        return stop_iteration::no;
+    });
+}
