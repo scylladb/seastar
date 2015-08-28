@@ -39,7 +39,7 @@ int main(int ac, char** av) {
         ("dev", bpo::value<std::string>(), "e.g. --dev /dev/sdb")
         ;
 
-    return app.run(ac, av, [&app] {
+    return app.run_deprecated(ac, av, [&app] {
         static constexpr auto max = 10000;
         auto&& config = app.configuration();
         auto filepath = config["dev"].as<std::string>();

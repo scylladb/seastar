@@ -62,7 +62,7 @@ int main(int ac, char ** av) {
     app_template app;
     app.add_options()
         ("port", bpo::value<uint16_t>()->default_value(10000), "UDP server port") ;
-    return app.run(ac, av, [&] {
+    return app.run_deprecated(ac, av, [&] {
         auto&& config = app.configuration();
         uint16_t port = config["port"].as<uint16_t>();
         auto server = new distributed<udp_server>;

@@ -92,7 +92,7 @@ int main(int ac, char** av) {
     static std::unique_ptr<rpc::protocol<serializer>::client> client;
     static double x = 30.0;
 
-    return app.run(ac, av, [&] {
+    return app.run_deprecated(ac, av, [&] {
         auto&& config = app.configuration();
         uint16_t port = config["port"].as<uint16_t>();
         auto test1 = myrpc.register_handler(1, [x = 0](int i) mutable { print("test1 count %d got %d\n", ++x, i); });

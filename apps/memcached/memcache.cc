@@ -1366,7 +1366,7 @@ int main(int ac, char** av) {
              "Specify UDP and TCP ports for memcached server to listen on")
         ;
 
-    return app.run(ac, av, [&] {
+    return app.run_deprecated(ac, av, [&] {
         engine().at_exit([&] { return tcp_server.stop(); });
         engine().at_exit([&] { return udp_server.stop(); });
         engine().at_exit([&] { return cache_peers.stop(); });

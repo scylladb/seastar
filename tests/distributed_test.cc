@@ -103,14 +103,12 @@ future<> test_map_reduce() {
 int main(int argc, char** argv) {
     app_template app;
     return app.run(argc, argv, [] {
-        test_that_each_core_gets_the_arguments().then([] {
+        return test_that_each_core_gets_the_arguments().then([] {
             return test_functor_version();
         }).then([] {
             return test_constructor_argument_is_passed_to_each_core();
         }).then([] {
             return test_map_reduce();
-        }).then([] {
-            return engine().exit(0);
-        }).or_terminate();
+        });
     });
 }

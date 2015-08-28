@@ -60,7 +60,25 @@ app_template::configuration() {
 }
 
 int
-app_template::run(int ac, char ** av, std::function<void ()>&& func) {
+app_template::run(int ac, char ** av, std::function<future<int> ()>&& func) {
+    return run_deprecated(ac, av, [func = std::move(func)] {
+        func().then([] (int exit_code) {
+            return engine().exit(exit_code);
+        }).or_terminate();
+    });
+}
+
+int
+app_template::run(int ac, char ** av, std::function<future<> ()>&& func) {
+    return run(ac, av, [func = std::move(func)] {
+        return func().then([] () {
+            return 0;
+        });
+    });
+}
+
+int
+app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) {
 #ifdef DEBUG
     print("WARNING: debug mode. Not for benchmarking or production\n");
 #endif

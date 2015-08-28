@@ -174,7 +174,7 @@ int main(int ac, char** av) {
         ("reqs,r", bpo::value<unsigned>()->default_value(0), "reqs per connection")
         ("duration,d", bpo::value<unsigned>()->default_value(10), "duration of the test in seconds)");
 
-    return app.run(ac, av, [&app] {
+    return app.run(ac, av, [&app] () -> future<int> {
         auto& config = app.configuration();
         auto server = config["server"].as<std::string>();
         auto reqs_per_conn = config["reqs"].as<unsigned>();
@@ -183,7 +183,7 @@ int main(int ac, char** av) {
 
         if (total_conn % smp::count != 0) {
             print("Error: conn needs to be n * cpu_nr\n");
-            return engine().exit(0);
+            return make_ready_future<int>(-1);
         }
 
         auto http_clients = new distributed<http_client>;
@@ -194,7 +194,7 @@ int main(int ac, char** av) {
         print("Server: %s\n", server);
         print("Connections: %u\n", total_conn);
         print("Requests/connection: %s\n", reqs_per_conn == 0 ? "dynamic (timer based)" : std::to_string(reqs_per_conn));
-        http_clients->start(std::ref(duration), std::ref(total_conn), std::ref(reqs_per_conn)).then([http_clients, started, server] {
+        return http_clients->start(std::move(duration), std::move(total_conn), std::move(reqs_per_conn)).then([http_clients, started, server] {
             return http_clients->invoke_on_all(&http_client::connect, ipv4_addr{server});
         }).then([http_clients] {
             return http_clients->invoke_on_all(&http_client::run);
@@ -210,13 +210,13 @@ int main(int ac, char** av) {
            print("Total time: %f\n", secs);
            print("Requests/sec: %f\n", static_cast<double>(total_reqs) / secs);
            print("==========     done     ============\n");
-           http_clients->stop().then([http_clients] {
+           return http_clients->stop().then([http_clients] {
                // FIXME: If we call engine().exit(0) here to exit when
                // requests are done. The tcp connection will not be closed
                // properly, becasue we exit too earily and the FIN packets are
                // not exchanged.
                 delete http_clients;
-                engine().exit(0);
+                return make_ready_future<int>(0);
            });
         });
     });
