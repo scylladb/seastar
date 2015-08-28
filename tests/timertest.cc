@@ -90,7 +90,7 @@ int main(int ac, char** av) {
     app_template app;
     timer_test<std::chrono::high_resolution_clock> t1;
     timer_test<lowres_clock> t2;
-    return app.run(ac, av, [&t1, &t2] {
+    return app.run_deprecated(ac, av, [&t1, &t2] {
         print("=== Start High res clock test\n");
         t1.run().then([&t2] {
             print("=== Start Low  res clock test\n");

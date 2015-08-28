@@ -78,7 +78,7 @@ int main(int ac, char ** av) {
     app.add_options()
         ("server", bpo::value<std::string>(), "Server address")
         ;
-    return app.run(ac, av, [&_client, &app] {
+    return app.run_deprecated(ac, av, [&_client, &app] {
         auto&& config = app.configuration();
         _client.start(config["server"].as<std::string>());
     });

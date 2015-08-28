@@ -174,7 +174,7 @@ int main(int ac, char** av) {
         ("reqs,r", bpo::value<unsigned>()->default_value(0), "reqs per connection")
         ("duration,d", bpo::value<unsigned>()->default_value(10), "duration of the test in seconds)");
 
-    return app.run(ac, av, [&app] {
+    return app.run_deprecated(ac, av, [&app] {
         auto& config = app.configuration();
         auto server = config["server"].as<std::string>();
         auto reqs_per_conn = config["reqs"].as<unsigned>();

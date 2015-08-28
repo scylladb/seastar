@@ -42,7 +42,7 @@ public:
     boost::program_options::options_description_easy_init add_options();
     void add_positional_options(std::initializer_list<positional_option> options);
     boost::program_options::variables_map& configuration();
-    int run(int ac, char ** av, std::function<void ()>&& func);
+    int run_deprecated(int ac, char ** av, std::function<void ()>&& func);
 };
 
 #endif

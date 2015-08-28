@@ -236,7 +236,7 @@ int main(int ac, char ** av) {
         ("conn", bpo::value<unsigned>()->default_value(16), "nr connections per cpu")
         ;
 
-    return app.run(ac, av, [&app] {
+    return app.run_deprecated(ac, av, [&app] {
         auto&& config = app.configuration();
         auto server = config["server"].as<std::string>();
         auto test = config["test"].as<std::string>();

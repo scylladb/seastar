@@ -137,7 +137,7 @@ int main(int ac, char ** av) {
              "Memory pool size in MiB")
         ("copy", "Copy data rather than send via zero-copy")
         ;
-    return app.run(ac, av, [&app, &s] {
+    return app.run_deprecated(ac, av, [&app, &s] {
         auto&& config = app.configuration();
         auto chunk_size = config["chunk-size"].as<int>();
         auto mem_size = (size_t)config["mem-size"].as<int>() * MB;

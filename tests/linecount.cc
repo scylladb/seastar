@@ -52,7 +52,7 @@ int main(int ac, char** av) {
     app.add_positional_options({
         { "file", bpo::value<std::string>(), "File to process", 1 },
     });
-    app.run(ac, av, [&app] {
+    app.run_deprecated(ac, av, [&app] {
         auto fname = app.configuration()["file"].as<std::string>();
         engine().open_file_dma(fname, open_flags::ro).then([] (file f) {
             auto r = make_shared<reader>(std::move(f));

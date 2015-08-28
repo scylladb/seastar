@@ -67,7 +67,7 @@ report(sstring msg, future<bool>&& result) {
 }
 
 int main(int ac, char** av) {
-    return app_template().run(ac, av, [] {
+    return app_template().run_deprecated(ac, av, [] {
        return report("smp call", test_smp_call()).then([] {
            return report("smp exception", test_smp_exception());
        }).then([] {

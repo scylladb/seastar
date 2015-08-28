@@ -46,7 +46,7 @@ test_runner::start(int ac, char** av) {
 
     _thread = std::make_unique<posix_thread>([this, ac, av]() mutable {
         app_template app;
-        auto exit_code = app.run(ac, av, [this] {
+        auto exit_code = app.run_deprecated(ac, av, [this] {
             do_until([this] { return _done; }, [this] {
                 // this will block the reactor briefly, but we don't care
                 try {

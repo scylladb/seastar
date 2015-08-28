@@ -74,7 +74,7 @@ public:
 
 int main(int ac, char** av) {
     static const auto test_time = 5s;
-    return app_template().run(ac, av, [] {
+    return app_template().run_deprecated(ac, av, [] {
         return do_with(distributed<context_switch_tester>(), [] (distributed<context_switch_tester>& dcst) {
             return dcst.start().then([&dcst] {
                 return dcst.invoke_on_all(&context_switch_tester::begin_measurement);

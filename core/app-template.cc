@@ -60,7 +60,7 @@ app_template::configuration() {
 }
 
 int
-app_template::run(int ac, char ** av, std::function<void ()>&& func) {
+app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) {
 #ifdef DEBUG
     print("WARNING: debug mode. Not for benchmarking or production\n");
 #endif
