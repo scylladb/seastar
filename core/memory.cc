@@ -415,14 +415,14 @@ cpu_pages::allocate_large_and_trim(unsigned n_pages, Trimmer trimmer) {
         idx = index_of(n_pages);
         if (idx == orig_idx) {   // was exact power of two
             // FIXME: request application to free memory
-            throw std::bad_alloc();
+            return nullptr;
         }
     }
     auto& list = fsu.free_spans[idx];
     page* span = list.find(n_pages, pages);
     if (!span) {
         // FIXME: request application to free memory
-        throw std::bad_alloc();
+        return nullptr;
     }
     auto span_size = span->span_size;
     auto span_idx = span - pages;
@@ -685,6 +685,9 @@ void cpu_pages::do_resize(size_t new_size, allocate_system_memory_fn alloc_sys_m
     auto new_page_array_pages = align_up(sizeof(page[new_pages + 1]), page_size) / page_size;
     auto new_page_array
         = reinterpret_cast<page*>(allocate_large(new_page_array_pages));
+    if (!new_page_array) {
+        throw std::bad_alloc();
+    }
     std::copy(pages, pages + nr_pages, new_page_array);
     // mark new one-past-last page as taken to avoid boundary conditions
     new_page_array[new_pages].free = false;
@@ -755,13 +758,16 @@ small_pool::~small_pool() {
     trim_free_list();
 }
 
+// Should not throw in case of running out of memory to avoid infinite recursion,
+// becaue throwing std::bad_alloc requires allocation. __cxa_allocate_exception
+// falls back to the emergency pool in case malloc() returns nullptr.
 void*
 small_pool::allocate() {
     if (!_free) {
         add_more_objects();
     }
     if (!_free) {
-        throw std::bad_alloc();
+        return nullptr;
     }
     auto* obj = _free;
     _free = _free->next;
@@ -797,6 +803,9 @@ small_pool::add_more_objects() {
     }
     while (_free_count < goal) {
         auto data = reinterpret_cast<char*>(cpu_mem.allocate_large(_span_size));
+        if (!data) {
+            return;
+        }
         ++_spans_in_use;
         auto span = cpu_mem.to_page(data);
         for (unsigned i = 0; i < _span_size; ++i) {
@@ -1142,12 +1151,20 @@ int malloc_trim(size_t pad) {
     return 0;
 }
 
+static inline
+void* throw_if_null(void* ptr) {
+    if (!ptr) {
+        throw std::bad_alloc();
+    }
+    return ptr;
+}
+
 [[gnu::visibility("default")]]
 void* operator new(size_t size) {
     if (size == 0) {
         size = 1;
     }
-    return allocate(size);
+    return throw_if_null(allocate(size));
 }
 
 [[gnu::visibility("default")]]
@@ -1155,7 +1172,7 @@ void* operator new[](size_t size) {
     if (size == 0) {
         size = 1;
     }
-    return allocate(size);
+    return throw_if_null(allocate(size));
 }
 
 [[gnu::visibility("default")]]
