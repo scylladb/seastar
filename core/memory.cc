@@ -308,6 +308,8 @@ struct cpu_pages {
     void* allocate_large_and_trim(unsigned nr_pages, Trimmer trimmer);
     void* allocate_large(unsigned nr_pages);
     void* allocate_large_aligned(unsigned align_pages, unsigned nr_pages);
+    page* find_and_unlink_span(unsigned nr_pages);
+    page* find_and_unlink_span_reclaiming(unsigned n_pages);
     void free_large(void* ptr);
     void free_span(pageidx start, uint32_t nr_pages);
     void free_span_no_merge(pageidx start, uint32_t nr_pages);
@@ -324,7 +326,8 @@ struct cpu_pages {
 
     bool is_initialized() const;
     bool initialize();
-    void reclaim();
+    void run_reclaimers(reclaimer_scope);
+    void schedule_reclaim();
     void set_reclaim_hook(std::function<void (std::function<void ()>)> hook);
     void resize(size_t new_size, allocate_system_memory_fn alloc_sys_mem);
     void do_resize(size_t new_size, allocate_system_memory_fn alloc_sys_mem);
@@ -396,9 +399,8 @@ void cpu_pages::free_span(uint32_t span_start, uint32_t nr_pages) {
     free_span_no_merge(span_start, nr_pages);
 }
 
-template <typename Trimmer>
-void*
-cpu_pages::allocate_large_and_trim(unsigned n_pages, Trimmer trimmer) {
+page*
+cpu_pages::find_and_unlink_span(unsigned n_pages) {
     auto idx = index_of_conservative(n_pages);
     auto orig_idx = idx;
     if (n_pages >= (2u << idx)) {
@@ -409,24 +411,48 @@ cpu_pages::allocate_large_and_trim(unsigned n_pages, Trimmer trimmer) {
     }
     if (idx == nr_span_lists) {
         if (initialize()) {
-            return allocate_large_and_trim(n_pages, trimmer);
+            return find_and_unlink_span(n_pages);
         }
         // Can smaller list possibly hold object?
         idx = index_of(n_pages);
         if (idx == orig_idx) {   // was exact power of two
-            // FIXME: request application to free memory
             return nullptr;
         }
     }
     auto& list = fsu.free_spans[idx];
     page* span = list.find(n_pages, pages);
     if (!span) {
-        // FIXME: request application to free memory
+        return nullptr;
+    }
+    unlink(list, span);
+    return span;
+}
+
+page*
+cpu_pages::find_and_unlink_span_reclaiming(unsigned n_pages) {
+    while (true) {
+        auto span = find_and_unlink_span(n_pages);
+        if (span) {
+            return span;
+        }
+        auto free_pages_before = nr_free_pages;
+        run_reclaimers(reclaimer_scope::synchronous_with_alloc);
+        if (nr_free_pages <= free_pages_before) {
+            // Reclaimers made no forward progress
+            return nullptr;
+        }
+    }
+}
+
+template <typename Trimmer>
+void*
+cpu_pages::allocate_large_and_trim(unsigned n_pages, Trimmer trimmer) {
+    page* span = find_and_unlink_span_reclaiming(n_pages);
+    if (!span) {
         return nullptr;
     }
     auto span_size = span->span_size;
     auto span_idx = span - pages;
-    unlink(list, span);
     nr_free_pages -= span->span_size;
     trim t = trimmer(span_idx, nr_pages);
     if (t.offset) {
@@ -446,7 +472,10 @@ cpu_pages::allocate_large_and_trim(unsigned n_pages, Trimmer trimmer) {
     span->pool = nullptr;
     if (nr_free_pages < current_min_free_pages) {
         drain_cross_cpu_freelist();
-        reclaim();
+        run_reclaimers(reclaimer_scope::synchronous_with_alloc);
+        if (nr_free_pages < current_min_free_pages) {
+            schedule_reclaim();
+        }
     }
     return mem() + span_idx * page_size;
 }
@@ -716,14 +745,28 @@ void cpu_pages::resize(size_t new_size, allocate_system_memory_fn alloc_memory) 
     }
 }
 
-void cpu_pages::reclaim() {
-    current_min_free_pages = 0;
-    reclaim_hook([this] {
-        while (nr_free_pages < min_free_pages) {
-            ++g_reclaims;
-            for (auto&& r : reclaimers) {
+void cpu_pages::run_reclaimers(reclaimer_scope scope) {
+    auto target = std::max(nr_free_pages + 1, min_free_pages);
+    while (nr_free_pages < target) {
+        auto before = nr_free_pages;
+        ++g_reclaims;
+        for (auto&& r : reclaimers) {
+            if (r->scope() >= scope) {
                 r->do_reclaim();
             }
+        }
+        if (nr_free_pages <= before) {
+            // reclaimers made no forward progress
+            break;
+        }
+    }
+}
+
+void cpu_pages::schedule_reclaim() {
+    current_min_free_pages = 0;
+    reclaim_hook([this] {
+        if (nr_free_pages < min_free_pages) {
+            run_reclaimers(reclaimer_scope::separate_fiber);
         }
         current_min_free_pages = min_free_pages;
     });
@@ -930,8 +973,9 @@ void set_reclaim_hook(std::function<void (std::function<void ()>)> hook) {
     cpu_mem.set_reclaim_hook(hook);
 }
 
-reclaimer::reclaimer(std::function<void ()> reclaim)
-    : _reclaim(std::move(reclaim)) {
+reclaimer::reclaimer(std::function<void ()> reclaim, reclaimer_scope scope)
+    : _reclaim(std::move(reclaim))
+    , _scope(scope) {
     cpu_mem.reclaimers.push_back(this);
 }
 
@@ -1277,7 +1321,7 @@ void operator delete[](void* ptr, with_alignment wa) {
 
 namespace memory {
 
-reclaimer::reclaimer(std::function<void ()> reclaim) {
+reclaimer::reclaimer(std::function<void ()> reclaim, reclaimer_scope) {
 }
 
 reclaimer::~reclaimer() {

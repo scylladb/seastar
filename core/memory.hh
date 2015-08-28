@@ -62,12 +62,35 @@ void configure(std::vector<resource::memory> m,
 
 void* allocate_reclaimable(size_t size);
 
+// Determines when reclaimer can be invoked
+enum class reclaimer_scope {
+    //
+    // Reclaimer is only invoked in its own fiber. That fiber will be
+    // given higher priority than regular application fibers.
+    //
+    separate_fiber,
+
+    //
+    // Reclaimer may be invoked synchronously with allocation.
+    // It may also be invoked in separate_fiber scope.
+    //
+    // Reclaimer may invoke allocation, though it is discouraged because
+    // the system may be low on memory and such allocations may fail.
+    // Reclaimers which allocate should be prepared for re-entry.
+    //
+    synchronous_with_alloc
+};
+
 class reclaimer {
     std::function<void ()> _reclaim;
+    reclaimer_scope _scope;
 public:
-    reclaimer(std::function<void ()> reclaim);
+    // Installs new reclaimer which will be invoked when system is falling
+    // low on memory. 'scope' determines when reclaimer can be executed.
+    reclaimer(std::function<void ()> reclaim, reclaimer_scope scope = reclaimer_scope::separate_fiber);
     ~reclaimer();
     void do_reclaim() { _reclaim(); }
+    reclaimer_scope scope() const { return _scope; }
 };
 
 // Call periodically to recycle objects that were freed
