@@ -42,6 +42,7 @@ input_stream<char> make_file_input_stream(
 struct file_output_stream_options {
     unsigned buffer_size = 8192;
     unsigned preallocation_size = 1024*1024; // 1MB
+    unsigned write_behind = 3; ///< Number of buffers to write in parallel
 };
 
 // Create an output_stream for writing starting at the position zero of a
