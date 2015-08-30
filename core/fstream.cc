@@ -93,7 +93,9 @@ public:
         return _write_behind_sem.wait().then([this, pos, buf = std::move(buf)] () mutable {
             if (_failed) {
                 _write_behind_sem.signal();
-                return std::move(_background_writes_done);
+                auto ret = std::move(_background_writes_done);
+                _background_writes_done = make_ready_future<>();
+                return ret;
             }
             auto this_write_done = do_put(pos, std::move(buf)).finally([this] {
                 _write_behind_sem.signal();
