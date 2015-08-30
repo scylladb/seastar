@@ -57,7 +57,7 @@ public:
     deleter() = default;
     deleter(const deleter&) = delete;
     /// Moves a deleter.
-    deleter(deleter&& x) : _impl(x._impl) { x._impl = nullptr; }
+    deleter(deleter&& x) noexcept : _impl(x._impl) { x._impl = nullptr; }
     /// \cond internal
     explicit deleter(impl* i) : _impl(i) {}
     deleter(raw_object_tag tag, void* object)
