@@ -92,7 +92,7 @@ extern thread_local jmp_buf_link g_unthreaded_context;
 // to this state to be captured.
 class thread_context {
     static constexpr size_t _stack_size = 128*1024;
-    std::unique_ptr<char[]> _stack{new char[_stack_size]};
+    std::unique_ptr<char[]> _stack{make_stack()};
     std::function<void ()> _func;
     jmp_buf_link _context;
     promise<> _done;
@@ -101,6 +101,7 @@ private:
     static void s_main(unsigned int lo, unsigned int hi);
     void setup();
     void main();
+    static std::unique_ptr<char[]> make_stack();
 public:
     thread_context(std::function<void ()> func);
     void switch_in();

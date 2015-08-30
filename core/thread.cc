@@ -23,6 +23,7 @@
 #include "thread.hh"
 #include "posix.hh"
 #include <ucontext.h>
+#include <algorithm>
 
 /// \cond internal
 
@@ -34,6 +35,16 @@ thread_local jmp_buf_link* g_current_context;
 thread_context::thread_context(std::function<void ()> func)
         : _func(std::move(func)) {
     setup();
+}
+
+std::unique_ptr<char[]>
+thread_context::make_stack() {
+    auto stack = std::make_unique<char[]>(_stack_size);
+#ifdef DEBUG
+    // Avoid ASAN false positive due to garbage on stack
+    std::fill_n(stack.get(), _stack_size, 0);
+#endif
+    return stack;
 }
 
 void
