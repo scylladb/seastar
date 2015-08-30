@@ -32,12 +32,26 @@
 #include "iostream.hh"
 #include "shared_ptr.hh"
 
+
+/// Data structure describing options for opening a file input stream
+struct file_input_stream_options {
+    uint64_t offset = 0;          ///< File offset at which to start reading
+    size_t buffer_size = 8192;    ///< I/O buffer size
+};
+
+// Create an input_stream for a given file, with the specified options.
+// Multiple fibers of execution (continuations) may safely open
+// multiple input streams concurrently for the same file.
+input_stream<char> make_file_input_stream(
+        file file,
+        file_input_stream_options options = {});
+
 // Create an input_stream for reading starting at a given position of the
 // given file. Multiple fibers of execution (continuations) may safely open
 // multiple input streams concurrently for the same file.
 input_stream<char> make_file_input_stream(
-        file file, uint64_t offset = 0,
-        uint64_t buffer_size = 8192);
+        file file, uint64_t offset,
+        uint64_t buffer_size = file_input_stream_options().buffer_size);
 
 struct file_output_stream_options {
     unsigned buffer_size = 8192;

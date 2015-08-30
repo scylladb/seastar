@@ -29,14 +29,14 @@
 
 class file_data_source_impl : public data_source_impl {
     file _file;
+    file_input_stream_options _options;
     uint64_t _pos;
-    size_t _buffer_size;
 public:
-    file_data_source_impl(file f, uint64_t pos, size_t buffer_size)
-            : _file(std::move(f)), _pos(pos), _buffer_size(buffer_size) {}
+    file_data_source_impl(file f, file_input_stream_options options)
+            : _file(std::move(f)), _options(options), _pos(_options.offset) {}
     virtual future<temporary_buffer<char>> get() override {
         using buf_type = temporary_buffer<char>;
-        return _file.dma_read_bulk<char>(_pos, _buffer_size).then(
+        return _file.dma_read_bulk<char>(_pos, _options.buffer_size).then(
                 [this] (buf_type buf) {
             _pos += buf.size();
             return std::move(buf);
@@ -46,14 +46,22 @@ public:
 
 class file_data_source : public data_source {
 public:
-    file_data_source(file f, uint64_t offset, size_t buffer_size)
+    file_data_source(file f, file_input_stream_options options)
         : data_source(std::make_unique<file_data_source_impl>(
-                std::move(f), offset, buffer_size)) {}
+                std::move(f), options)) {}
 };
 
 input_stream<char> make_file_input_stream(
+        file f, file_input_stream_options options) {
+    return input_stream<char>(file_data_source(std::move(f), options));
+}
+
+input_stream<char> make_file_input_stream(
         file f, uint64_t offset, size_t buffer_size) {
-    return input_stream<char>(file_data_source(std::move(f), offset, buffer_size));
+    file_input_stream_options options;
+    options.offset = offset;
+    options.buffer_size = buffer_size;
+    return make_file_input_stream(std::move(f), options);
 }
 
 class file_data_sink_impl : public data_sink_impl {
