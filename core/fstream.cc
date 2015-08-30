@@ -31,16 +31,50 @@ class file_data_source_impl : public data_source_impl {
     file _file;
     file_input_stream_options _options;
     uint64_t _pos;
+    circular_buffer<future<temporary_buffer<char>>> _read_buffers;
+    unsigned _reads_in_progress = 0;
+    std::experimental::optional<promise<>> _done;
 public:
     file_data_source_impl(file f, file_input_stream_options options)
             : _file(std::move(f)), _options(options), _pos(_options.offset) {}
     virtual future<temporary_buffer<char>> get() override {
-        using buf_type = temporary_buffer<char>;
-        return _file.dma_read_bulk<char>(_pos, _options.buffer_size).then(
-                [this] (buf_type buf) {
-            _pos += buf.size();
-            return std::move(buf);
+        if (_read_buffers.empty()) {
+            issue_read_aheads(1);
+        }
+        auto ret = std::move(_read_buffers.front());
+        _read_buffers.pop_front();
+        return ret;
+    }
+    virtual future<> close() {
+        _done.emplace();
+        if (!_reads_in_progress) {
+            _done->set_value();
+        }
+        return _done->get_future().then([this] {
+            for (auto&& c : _read_buffers) {
+                c.ignore_ready_future();
+            }
         });
+    }
+private:
+    void issue_read_aheads(unsigned min_ra = 0) {
+        if (_done) {
+            return;
+        }
+        auto ra = std::max(min_ra, _options.read_ahead);
+        while (_read_buffers.size() < ra) {
+            ++_reads_in_progress;
+            _read_buffers.push_back(_file.dma_read_bulk<char>(_pos, _options.buffer_size).then_wrapped(
+                    [this] (future<temporary_buffer<char>> ret) {
+                issue_read_aheads();
+                --_reads_in_progress;
+                if (_done && !_reads_in_progress) {
+                    _done->set_value();
+                }
+                return ret;
+            }));
+            _pos += _options.buffer_size;
+        };
     }
 };
 
