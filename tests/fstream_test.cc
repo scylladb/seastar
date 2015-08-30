@@ -83,7 +83,9 @@ SEASTAR_TEST_CASE(test_fstream) {
                     BOOST_REQUIRE(p[0] == '[' && p[1] == 'A' && p[4095] == ']');
                     BOOST_REQUIRE(p[4096] == '[' && p[4096 + 1] == 'B' && p[4096 + 8191] == ']');
                     return make_ready_future<>();
-                });
+                }).then([r] {
+                    return r->in.close();
+                }).finally([r] {});
             }).finally([sem] () {
                 sem->signal();
             });
@@ -124,7 +126,9 @@ SEASTAR_TEST_CASE(test_fstream_unaligned) {
                 auto p = buf.get();
                 BOOST_REQUIRE(p[0] == '[' && p[1] == 'A' && p[39] == ']');
                 return make_ready_future<>();
-            });
+            }).then([r] {
+                return r->in.close();
+            }).finally([r] {});
         }).finally([sem] () {
             sem->signal();
         });
@@ -159,7 +163,9 @@ future<> test_consume_until_end(uint64_t size) {
                     return make_ready_future<input_stream<char>::unconsumed_remainder>(std::experimental::nullopt);
                 };
                 return do_with(make_file_input_stream(f), std::move(consumer), [size] (input_stream<char>& in, auto& consumer) {
-                    return in.consume(consumer);
+                    return in.consume(consumer).then([&in] {
+                        return in.close();
+                    });
                 });
             });
     });

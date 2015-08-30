@@ -57,15 +57,8 @@ public:
     explicit data_source(std::unique_ptr<data_source_impl> dsi) : _dsi(std::move(dsi)) {}
     data_source(data_source&& x) = default;
     data_source& operator=(data_source&& x) = default;
-    ~data_source() {
-        if (!_dsi) {
-            return;
-        }
-        // await any background operations
-        auto closed = _dsi->close();
-        closed.finally([dsi = std::move(_dsi)] {});
-    }
     future<temporary_buffer<char>> get() { return _dsi->get(); }
+    future<> close() { return _dsi->close(); }
 };
 
 class data_sink_impl {
@@ -150,6 +143,18 @@ public:
     template <typename Consumer>
     future<> consume(Consumer& c);
     bool eof() { return _eof; }
+    /// Detaches the \c input_stream from the underlying data source.
+    ///
+    /// Waits for any background operations (for example, read-ahead) to
+    /// complete, so that the any resources the stream is using can be
+    /// safely destroyed.  An example is a \ref file resource used by
+    /// the stream returned by make_file_input_stream().
+    ///
+    /// \return a future that becomes ready when this stream no longer
+    ///         needs the data source.
+    future<> close() {
+        return _fd.close();
+    }
 private:
     future<temporary_buffer<CharType>> read_exactly_part(size_t n, tmp_buf buf, size_t completed);
 };
