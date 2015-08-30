@@ -151,6 +151,7 @@ private:
     }
     future<> preallocate(uint64_t pos, uint64_t size) {
         auto ret = make_ready_future<>();
+    restart:
         if (pos + size <= _preallocating_at) {
             return ret;
         }
@@ -161,6 +162,8 @@ private:
         while (size) {
             if (idx == _preallocation_done.size()) {
                 start_new_preallocation();
+                // May have caused _preallocating_at to change, so redo the loop
+                goto restart;
             }
             _preallocation_done[idx].emplace_back();
             auto this_prealloc_done = _preallocation_done[idx].back().get_future();
