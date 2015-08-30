@@ -77,6 +77,9 @@ public:
     virtual future<> put(temporary_buffer<char> buf) {
         return put(net::packet(net::fragment{buf.get_write(), buf.size()}, buf.release()));
     }
+    virtual future<> flush() {
+        return make_ready_future<>();
+    }
     virtual future<> close() = 0;
 };
 
@@ -98,6 +101,9 @@ public:
     }
     future<> put(net::packet p) {
         return _dsi->put(std::move(p));
+    }
+    future<> flush() {
+        return _dsi->flush();
     }
     future<> close() { return _dsi->close(); }
 };

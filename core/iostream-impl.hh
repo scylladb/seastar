@@ -241,11 +241,14 @@ output_stream<CharType>::write(const char_type* buf, size_t n) {
 template <typename CharType>
 future<>
 output_stream<CharType>::flush() {
-    if (!_end) {
-        return make_ready_future<>();
+    auto last = make_ready_future<>();
+    if (_end) {
+        _buf.trim(_end);
+        _end = 0;
+        last = _fd.put(std::move(_buf));
     }
-    _buf.trim(_end);
-    _end = 0;
-    return _fd.put(std::move(_buf));
+    return last.then([this] {
+        return _fd.flush();
+    });
 }
 
