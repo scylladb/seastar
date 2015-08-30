@@ -104,7 +104,7 @@ public:
                     .then([this] (std::tuple<future<>, future<>> possible_errors) {
                 // merge the two errors, preferring the first
                 auto& e1 = std::get<0>(possible_errors);
-                auto& e2 = std::get<0>(possible_errors);
+                auto& e2 = std::get<1>(possible_errors);
                 if (e1.failed()) {
                     e2.ignore_ready_future();
                     return std::move(e1);
