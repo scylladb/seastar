@@ -724,7 +724,9 @@ private:
     std::vector<struct ::iocb> _pending_aio;
     semaphore _io_context_available;
     uint64_t _aio_reads = 0;
+    uint64_t _aio_read_bytes = 0;
     uint64_t _aio_writes = 0;
+    uint64_t _aio_write_bytes = 0;
     uint64_t _fsyncs = 0;
     circular_buffer<std::unique_ptr<task>> _pending_tasks;
     circular_buffer<std::unique_ptr<task>> _at_destroy_tasks;
@@ -817,9 +819,9 @@ public:
     template <typename Func>
     future<io_event> submit_io(Func prepare_io);
     template <typename Func>
-    future<io_event> submit_io_read(Func prepare_io);
+    future<io_event> submit_io_read(size_t len, Func prepare_io);
     template <typename Func>
-    future<io_event> submit_io_write(Func prepare_io);
+    future<io_event> submit_io_write(size_t len, Func prepare_io);
 
     int run();
     void exit(int ret);

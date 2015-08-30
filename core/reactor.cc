@@ -39,6 +39,8 @@
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/iterator/counting_iterator.hpp>
+#include <boost/range/numeric.hpp>
+#include <boost/range/adaptor/transformed.hpp>
 #include <atomic>
 #include <dirent.h>
 #ifdef HAVE_DPDK
@@ -479,15 +481,17 @@ reactor::flush_pending_aio() {
 
 template <typename Func>
 future<io_event>
-reactor::submit_io_read(Func prepare_io) {
+reactor::submit_io_read(size_t len, Func prepare_io) {
     ++_aio_reads;
+    _aio_read_bytes += len;
     return submit_io(std::move(prepare_io));
 }
 
 template <typename Func>
 future<io_event>
-reactor::submit_io_write(Func prepare_io) {
+reactor::submit_io_write(size_t len, Func prepare_io) {
     ++_aio_writes;
+    _aio_write_bytes += len;
     return submit_io(std::move(prepare_io));
 }
 
@@ -515,7 +519,7 @@ posix_file_impl::~posix_file_impl() {
 
 future<size_t>
 posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len) {
-    return engine().submit_io_write([this, pos, buffer, len] (iocb& io) {
+    return engine().submit_io_write(len, [this, pos, buffer, len] (iocb& io) {
         io_prep_pwrite(&io, _fd, const_cast<void*>(buffer), len, pos);
     }).then([] (io_event ev) {
         throw_kernel_error(long(ev.res));
@@ -525,7 +529,8 @@ posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len) {
 
 future<size_t>
 posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov) {
-    return engine().submit_io_write([this, pos, iov = std::move(iov)] (iocb& io) {
+    auto len = boost::accumulate(iov | boost::adaptors::transformed(std::mem_fn(&iovec::iov_len)), size_t(0));
+    return engine().submit_io_write(len, [this, pos, iov = std::move(iov)] (iocb& io) {
         io_prep_pwritev(&io, _fd, iov.data(), iov.size(), pos);
     }).then([] (io_event ev) {
         throw_kernel_error(long(ev.res));
@@ -535,7 +540,7 @@ posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov) {
 
 future<size_t>
 posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len) {
-    return engine().submit_io_read([this, pos, buffer, len] (iocb& io) {
+    return engine().submit_io_read(len, [this, pos, buffer, len] (iocb& io) {
         io_prep_pread(&io, _fd, buffer, len, pos);
     }).then([] (io_event ev) {
         throw_kernel_error(long(ev.res));
@@ -545,7 +550,8 @@ posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len) {
 
 future<size_t>
 posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov) {
-    return engine().submit_io_read([this, pos, iov = std::move(iov)] (iocb& io) {
+    auto len = boost::accumulate(iov | boost::adaptors::transformed(std::mem_fn(&iovec::iov_len)), size_t(0));
+    return engine().submit_io_read(len, [this, pos, iov = std::move(iov)] (iocb& io) {
         io_prep_preadv(&io, _fd, iov.data(), iov.size(), pos);
     }).then([] (io_event ev) {
         throw_kernel_error(long(ev.res));
@@ -993,11 +999,21 @@ reactor::register_collectd_metrics() {
                     , "total_operations", "aio-reads")
                     , scollectd::make_typed(scollectd::data_type::DERIVE, _aio_reads)
             ),
+            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+                    , scollectd::per_cpu_plugin_instance
+                    , "derive", "aio-read-bytes")
+                    , scollectd::make_typed(scollectd::data_type::DERIVE, _aio_read_bytes)
+            ),
             // total_operations value:DERIVE:0:U
             scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
                     , scollectd::per_cpu_plugin_instance
                     , "total_operations", "aio-writes")
                     , scollectd::make_typed(scollectd::data_type::DERIVE, _aio_writes)
+            ),
+            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+                    , scollectd::per_cpu_plugin_instance
+                    , "derive", "aio-write-bytes")
+                    , scollectd::make_typed(scollectd::data_type::DERIVE, _aio_write_bytes)
             ),
             // total_operations value:DERIVE:0:U
             scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
