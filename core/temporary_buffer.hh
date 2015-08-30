@@ -79,7 +79,7 @@ public:
         , _size(0) {}
     temporary_buffer(const temporary_buffer&) = delete;
     /// Moves a \c temporary_buffer.
-    temporary_buffer(temporary_buffer&& x) : _buffer(x._buffer), _size(x._size), _deleter(std::move(x._deleter)) {
+    temporary_buffer(temporary_buffer&& x) noexcept : _buffer(x._buffer), _size(x._size), _deleter(std::move(x._deleter)) {
         x._buffer = nullptr;
         x._size = 0;
     }

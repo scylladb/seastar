@@ -45,6 +45,7 @@ class data_source_impl {
 public:
     virtual ~data_source_impl() {}
     virtual future<temporary_buffer<char>> get() = 0;
+    virtual future<> close() { return make_ready_future<>(); }
 };
 
 class data_source {
@@ -56,6 +57,14 @@ public:
     explicit data_source(std::unique_ptr<data_source_impl> dsi) : _dsi(std::move(dsi)) {}
     data_source(data_source&& x) = default;
     data_source& operator=(data_source&& x) = default;
+    ~data_source() {
+        if (!_dsi) {
+            return;
+        }
+        // await any background operations
+        auto closed = _dsi->close();
+        closed.finally([dsi = std::move(_dsi)] {});
+    }
     future<temporary_buffer<char>> get() { return _dsi->get(); }
 };
 
