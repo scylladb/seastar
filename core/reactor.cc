@@ -2152,4 +2152,6 @@ void reactor::add_high_priority_task(std::unique_ptr<task>&& t) {
     _pending_tasks.push_front(std::move(t));
     // stop any repeat() loops
     task_quota = 0;
+    // break .then() chains
+    future_avail_count = max_inlined_continuations - 1;
 }
