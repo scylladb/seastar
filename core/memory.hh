@@ -73,17 +73,17 @@ enum class reclaimer_scope {
     // Reclaimer is only invoked in its own fiber. That fiber will be
     // given higher priority than regular application fibers.
     //
-    separate_fiber,
+    async,
 
     //
     // Reclaimer may be invoked synchronously with allocation.
-    // It may also be invoked in separate_fiber scope.
+    // It may also be invoked in async scope.
     //
     // Reclaimer may invoke allocation, though it is discouraged because
     // the system may be low on memory and such allocations may fail.
     // Reclaimers which allocate should be prepared for re-entry.
     //
-    synchronous_with_alloc
+    sync
 };
 
 class reclaimer {

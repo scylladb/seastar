@@ -469,7 +469,7 @@ cpu_pages::allocate_large_and_trim(unsigned n_pages, Trimmer trimmer) {
     span->pool = nullptr;
     if (nr_free_pages < current_min_free_pages) {
         drain_cross_cpu_freelist();
-        run_reclaimers(reclaimer_scope::synchronous_with_alloc);
+        run_reclaimers(reclaimer_scope::sync);
         if (nr_free_pages < current_min_free_pages) {
             schedule_reclaim();
         }
@@ -765,7 +765,7 @@ void cpu_pages::schedule_reclaim() {
     current_min_free_pages = 0;
     reclaim_hook([this] {
         if (nr_free_pages < min_free_pages) {
-            run_reclaimers(reclaimer_scope::separate_fiber);
+            run_reclaimers(reclaimer_scope::async);
         }
         current_min_free_pages = min_free_pages;
     });
