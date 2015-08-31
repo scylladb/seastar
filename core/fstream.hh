@@ -37,7 +37,7 @@
 struct file_input_stream_options {
     uint64_t offset = 0;          ///< File offset at which to start reading
     size_t buffer_size = 8192;    ///< I/O buffer size
-    unsigned read_ahead = 3;      ///< Number of extra read-ahead operations
+    unsigned read_ahead = 0;      ///< Number of extra read-ahead operations
 };
 
 // Create an input_stream for a given file, with the specified options.
