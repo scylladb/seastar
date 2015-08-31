@@ -64,7 +64,9 @@ private:
         auto ra = std::max(min_ra, _options.read_ahead);
         while (_read_buffers.size() < ra) {
             ++_reads_in_progress;
-            _read_buffers.push_back(_file.dma_read_bulk<char>(_pos, _options.buffer_size).then_wrapped(
+            // if _pos is not dma-aligned, we'll get a short read.  Account for that.
+            auto now = _options.buffer_size - _pos % _options.buffer_size;
+            _read_buffers.push_back(_file.dma_read_bulk<char>(_pos, now).then_wrapped(
                     [this] (future<temporary_buffer<char>> ret) {
                 issue_read_aheads();
                 --_reads_in_progress;
@@ -73,7 +75,7 @@ private:
                 }
                 return ret;
             }));
-            _pos += _options.buffer_size;
+            _pos += now;
         };
     }
 };
