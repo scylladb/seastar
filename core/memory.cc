@@ -326,7 +326,7 @@ struct cpu_pages {
 
     bool is_initialized() const;
     bool initialize();
-    void run_reclaimers(reclaimer_scope);
+    reclaiming_result run_reclaimers(reclaimer_scope);
     void schedule_reclaim();
     void set_reclaim_hook(std::function<void (std::function<void ()>)> hook);
     void resize(size_t new_size, allocate_system_memory_fn alloc_sys_mem);
@@ -435,10 +435,7 @@ cpu_pages::find_and_unlink_span_reclaiming(unsigned n_pages) {
         if (span) {
             return span;
         }
-        auto free_pages_before = nr_free_pages;
-        run_reclaimers(reclaimer_scope::synchronous_with_alloc);
-        if (nr_free_pages <= free_pages_before) {
-            // Reclaimers made no forward progress
+        if (run_reclaimers(reclaimer_scope::sync) == reclaiming_result::reclaimed_nothing) {
             return nullptr;
         }
     }
@@ -472,7 +469,7 @@ cpu_pages::allocate_large_and_trim(unsigned n_pages, Trimmer trimmer) {
     span->pool = nullptr;
     if (nr_free_pages < current_min_free_pages) {
         drain_cross_cpu_freelist();
-        run_reclaimers(reclaimer_scope::synchronous_with_alloc);
+        run_reclaimers(reclaimer_scope::sync);
         if (nr_free_pages < current_min_free_pages) {
             schedule_reclaim();
         }
@@ -745,28 +742,35 @@ void cpu_pages::resize(size_t new_size, allocate_system_memory_fn alloc_memory) 
     }
 }
 
-void cpu_pages::run_reclaimers(reclaimer_scope scope) {
+reclaiming_result cpu_pages::run_reclaimers(reclaimer_scope scope) {
     auto target = std::max(nr_free_pages + 1, min_free_pages);
+    reclaiming_result result = reclaiming_result::reclaimed_nothing;
     while (nr_free_pages < target) {
-        auto before = nr_free_pages;
+        bool made_progress = false;
         ++g_reclaims;
         for (auto&& r : reclaimers) {
             if (r->scope() >= scope) {
-                r->do_reclaim();
+                made_progress |= r->do_reclaim() == reclaiming_result::reclaimed_something;
             }
         }
-        if (nr_free_pages <= before) {
-            // reclaimers made no forward progress
-            break;
+        if (!made_progress) {
+            return result;
         }
+        result = reclaiming_result::reclaimed_something;
     }
+    return result;
 }
 
 void cpu_pages::schedule_reclaim() {
     current_min_free_pages = 0;
     reclaim_hook([this] {
         if (nr_free_pages < min_free_pages) {
-            run_reclaimers(reclaimer_scope::separate_fiber);
+            try {
+                run_reclaimers(reclaimer_scope::async);
+            } catch (...) {
+                current_min_free_pages = min_free_pages;
+                throw;
+            }
         }
         current_min_free_pages = min_free_pages;
     });
@@ -973,7 +977,7 @@ void set_reclaim_hook(std::function<void (std::function<void ()>)> hook) {
     cpu_mem.set_reclaim_hook(hook);
 }
 
-reclaimer::reclaimer(std::function<void ()> reclaim, reclaimer_scope scope)
+reclaimer::reclaimer(reclaim_fn reclaim, reclaimer_scope scope)
     : _reclaim(std::move(reclaim))
     , _scope(scope) {
     cpu_mem.reclaimers.push_back(this);
@@ -1321,7 +1325,7 @@ void operator delete[](void* ptr, with_alignment wa) {
 
 namespace memory {
 
-reclaimer::reclaimer(std::function<void ()> reclaim, reclaimer_scope) {
+reclaimer::reclaimer(reclaim_fn reclaim, reclaimer_scope) {
 }
 
 reclaimer::~reclaimer() {

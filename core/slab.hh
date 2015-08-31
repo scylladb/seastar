@@ -295,12 +295,12 @@ private:
     memory::reclaimer *_reclaimer = nullptr;
     bool _reclaimed = false;
 private:
-    void evict_lru_slab_page() {
+    memory::reclaiming_result evict_lru_slab_page() {
         if (_slab_page_desc_lru.empty()) {
             // NOTE: Nothing to evict. If this happens, it implies that all
             // slab pages in the slab are being used at the same time.
             // That being said, this event is very unlikely to happen.
-            return;
+            return memory::reclaiming_result::reclaimed_nothing;
         }
         // get descriptor of the least-recently-used slab page and related info.
         auto& desc = _slab_page_desc_lru.back();
@@ -345,17 +345,18 @@ private:
 #endif
         ::free(slab_page); // free slab page object
         delete &desc; // free its descriptor
+        return memory::reclaiming_result::reclaimed_something;
     }
 
     /*
      * Reclaim the least recently used slab page that is unused.
      */
-    void reclaim() {
+    memory::reclaiming_result reclaim() {
         // once reclaimer was called, slab pages should no longer be allocated, as the
         // memory used by slab is supposed to be calibrated.
         _reclaimed = true;
         // FIXME: Should reclaim() only evict a single slab page at a time?
-        evict_lru_slab_page();
+        return evict_lru_slab_page();
     }
 
     void initialize_slab_allocator(double growth_factor, uint64_t limit) {
@@ -377,7 +378,7 @@ private:
 
         // If slab limit is zero, enable reclaimer.
         if (!limit) {
-            _reclaimer = new memory::reclaimer([this] { reclaim(); });
+            _reclaimer = new memory::reclaimer([this] { return reclaim(); });
         } else {
             _slab_pages_vector.reserve(_available_slab_pages);
         }
