@@ -765,7 +765,12 @@ void cpu_pages::schedule_reclaim() {
     current_min_free_pages = 0;
     reclaim_hook([this] {
         if (nr_free_pages < min_free_pages) {
-            run_reclaimers(reclaimer_scope::async);
+            try {
+                run_reclaimers(reclaimer_scope::async);
+            } catch (...) {
+                current_min_free_pages = min_free_pages;
+                throw;
+            }
         }
         current_min_free_pages = min_free_pages;
     });
