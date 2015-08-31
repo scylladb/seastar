@@ -218,12 +218,9 @@ reactor::reactor()
     assert(r == 0);
 #endif
     memory::set_reclaim_hook([this] (std::function<void ()> reclaim_fn) {
-        // push it in the front of the queue so we reclaim memory quickly
-        _pending_tasks.push_front(make_task([fn = std::move(reclaim_fn)] {
+        add_high_priority_task(make_task([fn = std::move(reclaim_fn)] {
             fn();
         }));
-        // stop any repeat() loops
-        task_quota = 0;
     });
 }
 
@@ -2149,4 +2146,10 @@ server_socket listen(socket_address sa, listen_options opts) {
 
 future<connected_socket> connect(socket_address sa) {
     return engine().connect(sa);
+}
+
+void reactor::add_high_priority_task(std::unique_ptr<task>&& t) {
+    _pending_tasks.push_front(std::move(t));
+    // stop any repeat() loops
+    task_quota = 0;
 }

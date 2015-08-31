@@ -836,6 +836,8 @@ public:
 
     void add_task(std::unique_ptr<task>&& t) { _pending_tasks.push_back(std::move(t)); }
 
+    void add_high_priority_task(std::unique_ptr<task>&&);
+
     network_stack& net() { return *_network_stack; }
     unsigned cpu_id() const { return _id; }
 
