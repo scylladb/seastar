@@ -62,6 +62,11 @@ void configure(std::vector<resource::memory> m,
 
 void* allocate_reclaimable(size_t size);
 
+enum class reclaiming_result {
+    reclaimed_nothing,
+    reclaimed_something
+};
+
 // Determines when reclaimer can be invoked
 enum class reclaimer_scope {
     //
@@ -82,14 +87,17 @@ enum class reclaimer_scope {
 };
 
 class reclaimer {
-    std::function<void ()> _reclaim;
+public:
+    using reclaim_fn = std::function<reclaiming_result ()>;
+private:
+    reclaim_fn _reclaim;
     reclaimer_scope _scope;
 public:
     // Installs new reclaimer which will be invoked when system is falling
     // low on memory. 'scope' determines when reclaimer can be executed.
-    reclaimer(std::function<void ()> reclaim, reclaimer_scope scope = reclaimer_scope::separate_fiber);
+    reclaimer(reclaim_fn reclaim, reclaimer_scope scope = reclaimer_scope::async);
     ~reclaimer();
-    void do_reclaim() { _reclaim(); }
+    reclaiming_result do_reclaim() { return _reclaim(); }
     reclaimer_scope scope() const { return _scope; }
 };
 
