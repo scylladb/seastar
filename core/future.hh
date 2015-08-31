@@ -424,6 +424,7 @@ public:
     /// Copies the tuple argument and makes it available to the associated
     /// future.  May be called either before or after \c get_future().
     void set_value(const std::tuple<T...>& result) noexcept(copy_noexcept) {
+        assert(_state);
         _state->set(result);
         make_ready();
     }
@@ -433,6 +434,7 @@ public:
     /// Moves the tuple argument and makes it available to the associated
     /// future.  May be called either before or after \c get_future().
     void set_value(std::tuple<T...>&& result) noexcept(move_noexcept) {
+        assert(_state);
         _state->set(std::move(result));
         make_ready();
     }
@@ -443,6 +445,7 @@ public:
     /// future.  May be called either before or after \c get_future().
     template <typename... A>
     void set_value(A&&... a) noexcept {
+        assert(_state);
         _state->set(std::forward<A>(a)...);
         make_ready();
     }
@@ -452,6 +455,7 @@ public:
     /// Forwards the exception argument to the future and makes it
     /// available.  May be called either before or after \c get_future().
     void set_exception(std::exception_ptr ex) noexcept {
+        assert(_state);
         _state->set_exception(std::move(ex));
         make_ready();
     }
@@ -979,6 +983,7 @@ template <typename... T>
 inline
 void promise<T...>::make_ready() noexcept {
     if (_task) {
+        _state = nullptr;
         ::schedule(std::move(_task));
     }
 }
