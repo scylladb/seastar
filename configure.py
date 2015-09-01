@@ -497,7 +497,7 @@ with open(buildfile, 'w') as f:
             cxxflags_{mode} = {sanitize} {opt} -I $builddir/{mode}/gen
             libs_{mode} = {libs} {sanitize_libs}
             rule cxx.{mode}
-              command = $cxx -MMD -MT $out -MF $out.d $cxxflags $cxxflags_{mode} -c -o $out $in
+              command = $cxx -MMD -MT $out -MF $out.d $cxxflags_{mode} $cxxflags -c -o $out $in
               description = CXX $out
               depfile = $out.d
             rule link.{mode}
