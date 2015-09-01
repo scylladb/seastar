@@ -401,11 +401,9 @@ public:
     }
 
     /**
-    *  Read the RSS table from the device and store it in the internal vector.
-    *  We will need it when we forward the reassembled IP frames
-     * (after IP fragmentation) to the correct HW queue.
+     *  Set the RSS table in the device and store it in the internal vector.
      */
-    void get_rss_table();
+    void set_rss_table();
 
     virtual uint16_t hw_queues_count() override { return _num_queues; }
     virtual future<> link_ready() { return _link_ready_promise.get_future(); }
@@ -1616,7 +1614,22 @@ void dpdk_device::init_port_fini()
     }
 
     if (_num_queues > 1) {
-        get_rss_table();
+        if (!rte_eth_dev_filter_supported(_port_idx, RTE_ETH_FILTER_HASH)) {
+            printf("Port %d: HASH FILTER configuration is supported\n", _port_idx);
+
+            // Setup HW touse the TOEPLITZ hash function as an RSS hash function
+            struct rte_eth_hash_filter_info info = {};
+
+            info.info_type = RTE_ETH_HASH_FILTER_GLOBAL_CONFIG;
+            info.info.global_conf.hash_func = RTE_ETH_HASH_FUNCTION_TOEPLITZ;
+
+            if (rte_eth_dev_filter_ctrl(_port_idx, RTE_ETH_FILTER_HASH,
+                                        RTE_ETH_FILTER_SET, &info) < 0) {
+                rte_exit(EXIT_FAILURE, "Cannot set hash function on a port %d\n", _port_idx);
+            }
+        }
+
+        set_rss_table();
     }
 
     // Wait for a link
@@ -2081,29 +2094,32 @@ bool dpdk_qp<HugetlbfsMemBackend>::poll_rx_once()
     return rx_count;
 }
 
-void dpdk_device::get_rss_table()
+void dpdk_device::set_rss_table()
 {
     if (_dev_info.reta_size == 0)
         return;
 
-    int i, reta_conf_size =
+    int reta_conf_size =
         std::max(1, _dev_info.reta_size / RTE_RETA_GROUP_SIZE);
     rte_eth_rss_reta_entry64 reta_conf[reta_conf_size];
 
-    for (i = 0; i < reta_conf_size; i++) {
-        reta_conf[i].mask = ~0ULL;
+    // Configure the HW indirection table
+    unsigned i = 0;
+    for (auto& x : reta_conf) {
+        x.mask = ~0ULL;
+        for (auto& r: x.reta) {
+            r = i++ % _num_queues;
+        }
     }
 
-    if (rte_eth_dev_rss_reta_query(_port_idx, reta_conf,
-                                   _dev_info.reta_size)) {
-        rte_exit(EXIT_FAILURE, "Cannot get redirection table for "
-                               "port %d\n", _port_idx);
+    if (rte_eth_dev_rss_reta_update(_port_idx, reta_conf, _dev_info.reta_size)) {
+        rte_exit(EXIT_FAILURE, "Port %d: Failed to update an RSS indirection table", _port_idx);
     }
 
-    for (int i = 0; i < reta_conf_size; i++) {
-        std::copy(reta_conf[i].reta,
-                  reta_conf[i].reta + RTE_RETA_GROUP_SIZE,
-                  _redir_table.begin() + i * RTE_RETA_GROUP_SIZE);
+    // Fill our local indirection table. Make it in a separate loop to keep things simple.
+    i = 0;
+    for (auto& r : _redir_table) {
+        r = i++ % _num_queues;
     }
 }
 
