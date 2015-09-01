@@ -49,7 +49,6 @@ class userspace_gntalloc : public gntalloc {
 
 public:
     explicit userspace_gntalloc(unsigned otherend);
-    ~userspace_gntalloc();
     virtual gntref alloc_ref() override;
     virtual grant_head *alloc_ref(unsigned refs) override;
 };
