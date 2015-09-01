@@ -145,13 +145,13 @@ struct l4connid {
                 && foreign_port == x.foreign_port;
     }
 
-    uint32_t hash() {
+    uint32_t hash(const rss_key_type& rss_key) {
         forward_hash hash_data;
         hash_data.push_back(hton(foreign_ip.ip));
         hash_data.push_back(hton(local_ip.ip));
         hash_data.push_back(hton(foreign_port));
         hash_data.push_back(hton(local_port));
-        return toeplitz_hash(rsskey, hash_data);
+        return toeplitz_hash(rss_key, hash_data);
     }
 };
 
