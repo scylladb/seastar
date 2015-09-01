@@ -375,6 +375,7 @@ if args.dpdk:
                            'CONFIG_RTE_MAX_MEMSEG': '8192',
                            'CONFIG_RTE_EAL_IGB_UIO': 'n',
                            'CONFIG_RTE_LIBRTE_KNI': 'n',
+                           'CONFIG_RTE_KNI_KMOD': 'n',
                            })
     lines += 'CONFIG_RTE_MACHINE={}'.format(dpdk_machine)
     open(dotconfig, 'w', encoding='UTF-8').writelines(lines)
