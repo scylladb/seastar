@@ -210,6 +210,7 @@ class dpdk_device : public device {
     bool _use_lro;
     bool _enable_fc;
     std::vector<uint8_t> _redir_table;
+    rss_key_type _rss_key;
     port_stats _stats;
     timer<> _stats_collector;
     const std::string _stats_plugin_name;
@@ -417,6 +418,8 @@ public:
     bool is_i40e_device() const {
         return _is_i40e_device;
     }
+
+    virtual const rss_key_type& rss_key() const override { return _rss_key; }
 };
 
 template <bool HugetlbfsMemBackend>
@@ -1436,10 +1439,23 @@ int dpdk_device::init_port_start()
     // Even if port has a single queue we still want the RSS feature to be
     // available in order to make HW calculate RSS hash for us.
     if (smp::count > 1) {
+        if (_dev_info.hash_key_size == 40) {
+            _rss_key = default_rsskey_40bytes;
+        } else if (_dev_info.hash_key_size == 52) {
+            _rss_key = default_rsskey_52bytes;
+        } else if (_dev_info.hash_key_size != 0) {
+            // WTF?!!
+            rte_exit(EXIT_FAILURE,
+                "Port %d: We support only 40 or 52 bytes RSS hash keys, %d bytes key requested",
+                _port_idx, _dev_info.hash_key_size);
+        }
+
         port_conf.rxmode.mq_mode = ETH_MQ_RX_RSS;
         port_conf.rx_adv_conf.rss_conf.rss_hf = ETH_RSS_PROTO_MASK;
-        // FIXME:
-        port_conf.rx_adv_conf.rss_conf.rss_key = const_cast<uint8_t*>(default_rsskey.data());
+        if (_dev_info.hash_key_size) {
+            port_conf.rx_adv_conf.rss_conf.rss_key = const_cast<uint8_t *>(_rss_key.data());
+            port_conf.rx_adv_conf.rss_conf.rss_key_len = _dev_info.hash_key_size;
+        }
     } else {
         port_conf.rxmode.mq_mode = ETH_MQ_RX_NONE;
     }
