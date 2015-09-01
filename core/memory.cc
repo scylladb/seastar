@@ -1256,7 +1256,11 @@ void* operator new(size_t size, std::nothrow_t) throw () {
     if (size == 0) {
         size = 1;
     }
-    return allocate(size);
+    try {
+        return allocate(size);
+    } catch (...) {
+        return nullptr;
+    }
 }
 
 [[gnu::visibility("default")]]
@@ -1264,7 +1268,11 @@ void* operator new[](size_t size, std::nothrow_t) throw () {
     if (size == 0) {
         size = 1;
     }
-    return allocate(size);
+    try {
+        return allocate(size);
+    } catch (...) {
+        return nullptr;
+    }
 }
 
 [[gnu::visibility("default")]]
