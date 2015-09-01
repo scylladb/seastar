@@ -376,6 +376,18 @@ if args.dpdk:
                            'CONFIG_RTE_EAL_IGB_UIO': 'n',
                            'CONFIG_RTE_LIBRTE_KNI': 'n',
                            'CONFIG_RTE_KNI_KMOD': 'n',
+                           'CONFIG_RTE_LIBRTE_JOBSTATS': 'n',
+                           'CONFIG_RTE_LIBRTE_LPM': 'n',
+                           'CONFIG_RTE_LIBRTE_ACL': 'n',
+                           'CONFIG_RTE_LIBRTE_POWER': 'n',
+                           'CONFIG_RTE_LIBRTE_IP_FRAG': 'n',
+                           'CONFIG_RTE_LIBRTE_METER': 'n',
+                           'CONFIG_RTE_LIBRTE_SCHED': 'n',
+                           'CONFIG_RTE_LIBRTE_DISTRIBUTOR': 'n',
+                           'CONFIG_RTE_LIBRTE_REORDER': 'n',
+                           'CONFIG_RTE_LIBRTE_PORT': 'n',
+                           'CONFIG_RTE_LIBRTE_TABLE': 'n',
+                           'CONFIG_RTE_LIBRTE_PIPELINE': 'n',
                            })
     lines += 'CONFIG_RTE_MACHINE={}'.format(dpdk_machine)
     open(dotconfig, 'w', encoding='UTF-8').writelines(lines)
@@ -390,7 +402,7 @@ if args.dpdk_target:
     if args.with_osv:
         libs += '-lintel_dpdk -lrt -lm -ldl'
     else:
-        libs += '-Wl,--whole-archive -lrte_pmd_vmxnet3_uio -lrte_pmd_i40e -lrte_pmd_ixgbe -lrte_pmd_e1000 -lrte_pmd_ring -Wl,--no-whole-archive -lrte_distributor -lrte_pipeline -lrte_table -lrte_port -lrte_timer -lrte_hash -lrte_lpm -lrte_power -lrte_acl -lrte_meter -lrte_sched -lrte_kvargs -lrte_mbuf -lethdev -lrte_eal -lrte_malloc -lrte_mempool -lrte_ring -lrte_cmdline -lrte_cfgfile -lrt -lm -ldl'
+        libs += '-Wl,--whole-archive -lrte_pmd_vmxnet3_uio -lrte_pmd_i40e -lrte_pmd_ixgbe -lrte_pmd_e1000 -lrte_pmd_ring -Wl,--no-whole-archive -lrte_hash -lrte_kvargs -lrte_mbuf -lethdev -lrte_eal -lrte_malloc -lrte_mempool -lrte_ring -lrte_cmdline -lrte_cfgfile -lrt -lm -ldl'
 
 warnings = [w
             for w in warnings
