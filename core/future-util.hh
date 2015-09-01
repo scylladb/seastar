@@ -85,17 +85,24 @@ parallel_for_each(Iterator begin, Iterator end, Func&& func) {
         ++state.waiting;
         while (begin != end) {
             ++state.waiting;
-            func(*begin++).then_wrapped([&] (future<> f) {
-                try {
-                    f.get();
-                } catch (...) {
-                    // We can only store one exception.  For more, use when_all().
-                    if (!state.ex) {
-                        state.ex = std::move(std::current_exception());
+            try {
+                func(*begin++).then_wrapped([&] (future<> f) {
+                    try {
+                        f.get();
+                    } catch (...) {
+                        // We can only store one exception.  For more, use when_all().
+                        if (!state.ex) {
+                            state.ex = std::move(std::current_exception());
+                        }
                     }
+                    state.complete();
+                });
+            } catch (...) {
+                if (!state.ex) {
+                    state.ex = std::move(std::current_exception());
                 }
                 state.complete();
-            });
+            }
         }
         // match increment on top
         state.complete();
