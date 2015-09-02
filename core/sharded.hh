@@ -29,6 +29,21 @@
 
 namespace seastar {
 
+/// if sharded service inherits from this class sharded::stop() will wait
+/// untill all references to a service on each shard will dissapper before
+/// returning. It is still service's own responcibility to track its references
+/// in asyncronous code by calling shared_from_this() and keeping returned smart
+/// pointer as long as object is in use.
+template<typename T>
+class async_sharded_service : public enable_shared_from_this<T> {
+protected:
+    std::function<void()> _delete_cb;
+    ~async_sharded_service() {
+        _delete_cb();
+    }
+    template <typename Service> friend class sharded;
+};
+
 /// Exception thrown when a \ref sharded object does not exist
 class no_sharded_instance_exception : public std::exception {
 public:
@@ -61,7 +76,18 @@ public:
 ///         the service is stopped.
 template <typename Service>
 class sharded {
-    std::vector<Service*> _instances;
+    struct entry {
+        ::shared_ptr<Service> service;
+        promise<> freed;
+    };
+    std::vector<entry> _instances;
+private:
+    void service_deleted() {
+        _instances[engine().cpu_id()].freed.set_value();
+    }
+    template <typename U, bool async>
+    friend struct shared_ptr_make_helper;
+
 public:
     /// Constructs an empty \c sharded object.  No instances of the service are
     /// created.
@@ -140,9 +166,9 @@ public:
             [this, func, args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) mutable {
                 return smp::submit_to(c, [this, func, args] () mutable {
                     return apply([this, func] (Args&&... args) mutable {
-                        auto inst = _instances[engine().cpu_id()];
+                        auto inst = _instances[engine().cpu_id()].service;
                         if (inst) {
-                            return (inst->*func)(std::forward<Args>(args)...);
+                            return ((*inst).*func)(std::forward<Args>(args)...);
                         } else {
                             throw no_sharded_instance_exception();
                         }
@@ -163,7 +189,7 @@ public:
                             boost::make_counting_iterator<unsigned>(_instances.size()),
             [this, &func] (unsigned c) mutable {
                 return smp::submit_to(c, [this, func] () mutable {
-                    auto inst = _instances[engine().cpu_id()];
+                    auto inst = _instances[engine().cpu_id()].service;
                     if (inst) {
                         return func(*inst);
                     } else {
@@ -195,7 +221,7 @@ public:
     map_reduce0(Mapper map, Initial initial, Reduce reduce) {
         auto wrapped_map = [this, map] (unsigned c) {
             return smp::submit_to(c, [this, map] {
-                auto inst = _instances[engine().cpu_id()];
+                auto inst = _instances[engine().cpu_id()].service;
                 if (inst) {
                     return map(*inst);
                 } else {
@@ -225,7 +251,7 @@ public:
             vec.resize(smp::count);
             return parallel_for_each(boost::irange<unsigned>(0, _instances.size()), [this, &vec, mapper] (unsigned c) {
                 return smp::submit_to(c, [this, mapper] {
-                    auto inst = _instances[engine().cpu_id()];
+                    auto inst = _instances[engine().cpu_id()].service;
                     if (inst) {
                         return mapper(*inst);
                     } else {
@@ -251,7 +277,7 @@ public:
     invoke_on(unsigned id, Ret (Service::*func)(FuncArgs...), Args&&... args) {
         using futurator = futurize<Ret>;
         return smp::submit_to(id, [this, func, args = std::make_tuple(std::forward<Args>(args)...)] () mutable {
-            auto inst = _instances[engine().cpu_id()];
+            auto inst = _instances[engine().cpu_id()].service;
             if (inst) {
                 return futurator::apply(std::mem_fn(func), std::tuple_cat(std::make_tuple<>(inst), std::move(args)));
             } else {
@@ -270,7 +296,7 @@ public:
     Ret
     invoke_on(unsigned id, Func&& func) {
         return smp::submit_to(id, [this, func = std::forward<Func>(func)] () mutable {
-            auto inst = _instances[engine().cpu_id()];
+            auto inst = _instances[engine().cpu_id()].service;
             if (inst) {
                 return func(*inst);
             } else {
@@ -284,6 +310,23 @@ public:
 
     /// Checks whether the local instance has been initialized.
     bool local_is_initialized();
+
+private:
+    void track_deletion(::shared_ptr<Service>& s, std::false_type) {
+        // do not wait for instance to be deleted since it is not going to notify us
+        service_deleted();
+    }
+
+    void track_deletion(::shared_ptr<Service>& s, std::true_type) {
+        s->_delete_cb = std::bind(std::mem_fn(&sharded<Service>::service_deleted), this);
+    }
+
+    template <typename... Args>
+    shared_ptr<Service> create_local_service(Args&&... args) {
+        auto s = ::make_shared<Service>(std::forward<Args>(args)...);
+        track_deletion(s, std::is_base_of<async_sharded_service<Service>, Service>());
+        return s;
+    }
 };
 
 template <typename Service>
@@ -296,12 +339,11 @@ template <typename... Args>
 future<>
 sharded<Service>::start(Args&&... args) {
     _instances.resize(smp::count);
-    unsigned c = 0;
-    return parallel_for_each(_instances.begin(), _instances.end(),
-        [this, &c, args = std::make_tuple(std::forward<Args>(args)...)] (Service*& inst) mutable {
-            return smp::submit_to(c++, [&inst, args] () mutable {
-                inst = apply([] (Args&&... args) {
-                    return new Service(std::forward<Args>(args)...);
+    return parallel_for_each(boost::irange<unsigned>(0, _instances.size()),
+        [this, args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) mutable {
+            return smp::submit_to(c, [this, args] () mutable {
+                _instances[engine().cpu_id()].service = apply([this] (Args&&... args) {
+                    return create_local_service(std::forward<Args>(args)...);
                 }, std::move(args));
             });
     }).then_wrapped([this] (future<> f) {
@@ -323,8 +365,8 @@ sharded<Service>::start_single(Args&&... args) {
     assert(_instances.empty());
     _instances.resize(1);
     return smp::submit_to(0, [this, args = std::make_tuple(std::forward<Args>(args)...)] () mutable {
-        _instances[0] = apply([] (Args&&... args) {
-            return new Service(std::forward<Args>(args)...);
+        _instances[0].service = apply([this] (Args&&... args) {
+            return create_local_service(std::forward<Args>(args)...);
         }, std::move(args));
     }).then_wrapped([this] (future<> f) {
         try {
@@ -341,19 +383,20 @@ sharded<Service>::start_single(Args&&... args) {
 template <typename Service>
 future<>
 sharded<Service>::stop() {
-    unsigned c = 0;
-    return parallel_for_each(_instances.begin(), _instances.end(), [&c] (Service*& inst) mutable {
-        return smp::submit_to(c++, [inst] () mutable {
+    return parallel_for_each(boost::irange<unsigned>(0, _instances.size()), [this] (unsigned c) mutable {
+        return smp::submit_to(c, [this] () mutable {
+            auto inst = _instances[engine().cpu_id()].service;
             if (!inst) {
                 return make_ready_future<>();
             }
-            return inst->stop().then([inst] () mutable {
-                delete inst;
+            _instances[engine().cpu_id()].service = nullptr;
+            return inst->stop().then([this, inst] {
+                return _instances[engine().cpu_id()].freed.get_future();
             });
         });
     }).then([this] {
         _instances.clear();
-        _instances = std::vector<Service*>();
+        _instances = std::vector<sharded<Service>::entry>();
     });
 }
 
@@ -364,9 +407,9 @@ future<>
 sharded<Service>::invoke_on_all(future<> (Service::*func)(Args...), Args... args) {
     return parallel_for_each(boost::irange<unsigned>(0, _instances.size()), [this, func, args...] (unsigned c) {
         return smp::submit_to(c, [this, func, args...] {
-            auto inst = _instances[engine().cpu_id()];
+            auto inst = _instances[engine().cpu_id()].service;
             if (inst) {
-                return (inst->*func)(args...);
+                return ((*inst).*func)(args...);
             } else {
                 throw no_sharded_instance_exception();
             }
@@ -381,9 +424,9 @@ future<>
 sharded<Service>::invoke_on_all(void (Service::*func)(Args...), Args... args) {
     return parallel_for_each(boost::irange<unsigned>(0, _instances.size()), [this, func, args...] (unsigned c) {
         return smp::submit_to(c, [this, func, args...] {
-            auto inst = _instances[engine().cpu_id()];
+            auto inst = _instances[engine().cpu_id()].service;
             if (inst) {
-                (inst->*func)(args...);
+                ((*inst).*func)(args...);
             } else {
                 throw no_sharded_instance_exception();
             }
@@ -400,7 +443,7 @@ sharded<Service>::invoke_on_all(Func&& func) {
                   "invoke_on_all()'s func must return void or future<>");
     return parallel_for_each(boost::irange<unsigned>(0, _instances.size()), [this, &func] (unsigned c) {
         return smp::submit_to(c, [this, func] {
-            auto inst = _instances[engine().cpu_id()];
+            auto inst = _instances[engine().cpu_id()].service;
             if (inst) {
                 return func(*inst);
             } else {
@@ -413,13 +456,13 @@ sharded<Service>::invoke_on_all(Func&& func) {
 template <typename Service>
 Service& sharded<Service>::local() {
     assert(local_is_initialized());
-    return *_instances[engine().cpu_id()];
+    return *_instances[engine().cpu_id()].service;
 }
 
 template <typename Service>
 inline bool sharded<Service>::local_is_initialized() {
     return _instances.size() > engine().cpu_id() &&
-           _instances[engine().cpu_id()];
+           _instances[engine().cpu_id()].service;
 }
 
 }
