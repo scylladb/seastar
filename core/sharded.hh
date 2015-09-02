@@ -189,12 +189,8 @@ public:
                             boost::make_counting_iterator<unsigned>(_instances.size()),
             [this, &func] (unsigned c) mutable {
                 return smp::submit_to(c, [this, func] () mutable {
-                    auto inst = _instances[engine().cpu_id()].service;
-                    if (inst) {
-                        return func(*inst);
-                    } else {
-                        throw no_sharded_instance_exception();
-                    }
+                    auto inst = get_local_service();
+                    return func(*inst);
                 });
             }, std::forward<Reducer>(r));
     }
@@ -221,12 +217,8 @@ public:
     map_reduce0(Mapper map, Initial initial, Reduce reduce) {
         auto wrapped_map = [this, map] (unsigned c) {
             return smp::submit_to(c, [this, map] {
-                auto inst = _instances[engine().cpu_id()].service;
-                if (inst) {
-                    return map(*inst);
-                } else {
-                    throw no_sharded_instance_exception();
-                }
+                auto inst = get_local_service();
+                return map(*inst);
             });
         };
         return ::map_reduce(smp::all_cpus().begin(), smp::all_cpus().end(),
@@ -251,12 +243,8 @@ public:
             vec.resize(smp::count);
             return parallel_for_each(boost::irange<unsigned>(0, _instances.size()), [this, &vec, mapper] (unsigned c) {
                 return smp::submit_to(c, [this, mapper] {
-                    auto inst = _instances[engine().cpu_id()].service;
-                    if (inst) {
-                        return mapper(*inst);
-                    } else {
-                        throw no_sharded_instance_exception();
-                    }
+                    auto inst = get_local_service();
+                    return mapper(*inst);
                 }).then([&vec, c] (auto res) {
                     vec[c] = res;
                 });
@@ -277,12 +265,8 @@ public:
     invoke_on(unsigned id, Ret (Service::*func)(FuncArgs...), Args&&... args) {
         using futurator = futurize<Ret>;
         return smp::submit_to(id, [this, func, args = std::make_tuple(std::forward<Args>(args)...)] () mutable {
-            auto inst = _instances[engine().cpu_id()].service;
-            if (inst) {
-                return futurator::apply(std::mem_fn(func), std::tuple_cat(std::make_tuple<>(inst), std::move(args)));
-            } else {
-                throw no_sharded_instance_exception();
-            }
+            auto inst = get_local_service();
+            return futurator::apply(std::mem_fn(func), std::tuple_cat(std::make_tuple<>(inst), std::move(args)));
         });
     }
 
@@ -296,12 +280,8 @@ public:
     Ret
     invoke_on(unsigned id, Func&& func) {
         return smp::submit_to(id, [this, func = std::forward<Func>(func)] () mutable {
-            auto inst = _instances[engine().cpu_id()].service;
-            if (inst) {
-                return func(*inst);
-            } else {
-                throw no_sharded_instance_exception();
-            }
+            auto inst = get_local_service();
+            return func(*inst);
         });
     }
 
@@ -326,6 +306,14 @@ private:
         auto s = ::make_shared<Service>(std::forward<Args>(args)...);
         track_deletion(s, std::is_base_of<async_sharded_service<Service>, Service>());
         return s;
+    }
+
+    shared_ptr<Service> get_local_service() {
+        auto inst = _instances[engine().cpu_id()].service;
+        if (!inst) {
+            throw no_sharded_instance_exception();
+        }
+        return inst;
     }
 };
 
@@ -407,12 +395,8 @@ future<>
 sharded<Service>::invoke_on_all(future<> (Service::*func)(Args...), Args... args) {
     return parallel_for_each(boost::irange<unsigned>(0, _instances.size()), [this, func, args...] (unsigned c) {
         return smp::submit_to(c, [this, func, args...] {
-            auto inst = _instances[engine().cpu_id()].service;
-            if (inst) {
-                return ((*inst).*func)(args...);
-            } else {
-                throw no_sharded_instance_exception();
-            }
+            auto inst = get_local_service();
+            return ((*inst).*func)(args...);
         });
     });
 }
@@ -424,12 +408,8 @@ future<>
 sharded<Service>::invoke_on_all(void (Service::*func)(Args...), Args... args) {
     return parallel_for_each(boost::irange<unsigned>(0, _instances.size()), [this, func, args...] (unsigned c) {
         return smp::submit_to(c, [this, func, args...] {
-            auto inst = _instances[engine().cpu_id()].service;
-            if (inst) {
-                ((*inst).*func)(args...);
-            } else {
-                throw no_sharded_instance_exception();
-            }
+            auto inst = get_local_service();
+            ((*inst).*func)(args...);
         });
     });
 }
@@ -443,12 +423,8 @@ sharded<Service>::invoke_on_all(Func&& func) {
                   "invoke_on_all()'s func must return void or future<>");
     return parallel_for_each(boost::irange<unsigned>(0, _instances.size()), [this, &func] (unsigned c) {
         return smp::submit_to(c, [this, func] {
-            auto inst = _instances[engine().cpu_id()].service;
-            if (inst) {
-                return func(*inst);
-            } else {
-                throw no_sharded_instance_exception();
-            }
+            auto inst = get_local_service();
+            return func(*inst);
         });
     });
 }
