@@ -23,6 +23,26 @@
 #include "core/app-template.hh"
 #include "core/distributed.hh"
 #include "core/future-util.hh"
+#include "core/sleep.hh"
+
+struct async : public seastar::async_sharded_service<async> {
+    thread_local static bool deleted;
+    ~async() {
+        deleted = true;
+    }
+    void run() {
+        auto ref = shared_from_this();
+        sleep(std::chrono::milliseconds(100 + 100 * engine().cpu_id())).then([this, ref] {
+           check();
+        });
+    }
+    virtual void check() {
+        assert(!deleted);
+    }
+    future<> stop() { return make_ready_future<>(); }
+};
+
+thread_local bool async::deleted = false;
 
 struct X {
     sstring echo(sstring arg) {
@@ -100,6 +120,16 @@ future<> test_map_reduce() {
     });
 }
 
+future<> test_async() {
+    return do_with_distributed<async>([] (distributed<async>& x) {
+        return x.start().then([&x] {
+            return x.invoke_on_all(&async::run);
+        });
+    }).then([] {
+        return sleep(std::chrono::milliseconds(100 * (smp::count + 1)));
+    });
+}
+
 int main(int argc, char** argv) {
     app_template app;
     return app.run(argc, argv, [] {
@@ -109,6 +139,8 @@ int main(int argc, char** argv) {
             return test_constructor_argument_is_passed_to_each_core();
         }).then([] {
             return test_map_reduce();
+        }).then([] {
+            return test_async();
         });
     });
 }
