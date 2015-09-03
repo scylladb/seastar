@@ -1140,6 +1140,9 @@ extern "C"
 int posix_memalign(void** ptr, size_t align, size_t size) {
     try {
         *ptr = allocate_aligned(align, size);
+        if (!*ptr) {
+            return ENOMEM;
+        }
         return 0;
     } catch (std::bad_alloc&) {
         return ENOMEM;
