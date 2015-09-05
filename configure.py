@@ -90,6 +90,20 @@ def try_compile(compiler, source = '', flags = []):
                                stdout = subprocess.DEVNULL,
                                stderr = subprocess.DEVNULL) == 0
 
+def try_compile_and_run(compiler, flags, source, env = {}):
+    mktemp = tempfile.NamedTemporaryFile
+    with mktemp() as sfile, mktemp(mode='rb') as xfile:
+        sfile.file.write(bytes(source, 'utf-8'))
+        sfile.file.flush()
+        xfile.file.close()
+        if subprocess.call([compiler, '-x', 'c++', '-o', xfile.name, sfile.name] + flags,
+                            stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL) != 0:
+            return False
+        e = os.environ.copy()
+        e.update(env)
+        env = e
+        return subprocess.call([xfile.name], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL, env=env) == 0
+
 def warning_supported(warning, compiler):
     # gcc ignores -Wno-x even if it is not supported
     adjusted = re.sub('^-Wno-', '-W', warning)
@@ -107,6 +121,29 @@ def debug_flag(compiler):
     else:
         print('Note: debug information disabled; upgrade your compiler')
         return ''
+
+def sanitize_vptr_flag(compiler):
+    # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=67258
+    if (not try_compile(compiler, flags=['-fsanitize=vptr'])
+        or try_compile_and_run(compiler, flags=['-fsanitize=undefined', '-fno-sanitize-recover'],
+                               env={'UBSAN_OPTIONS': 'exitcode=1'}, source=textwrap.dedent('''
+            struct A
+            {
+                virtual ~A() {}
+            };
+            struct B : virtual A {};
+            struct C : virtual A {};
+            struct D : B, virtual C {};
+            
+            int main()
+            {
+                D d;
+            }
+            '''))):
+        return ''
+    else:
+        print('-fsanitize=vptr is broken, disabling')
+        return '-fsanitize=no-vptr'
 
 modes = {
     'debug': {
@@ -411,6 +448,9 @@ warnings = [w
 warnings = ' '.join(warnings)
 
 dbgflag = debug_flag(args.cxx) if args.debuginfo else ''
+sanitize_flags = sanitize_vptr_flag(args.cxx)
+
+modes['debug']['sanitize'] += ' ' + sanitize_flags
 
 def have_hwloc():
     return try_compile(compiler = args.cxx, source = '#include <hwloc.h>\n#include <numa.h>')
