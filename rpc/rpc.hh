@@ -196,6 +196,10 @@ public:
     template<typename Func>
     auto register_handler(MsgType t, Func&& func);
 
+    void unregister_handler(MsgType t) {
+        _handlers.erase(t);
+    }
+
     void set_logger(std::function<void(const sstring&)> logger) {
         _logger = logger;
     }
