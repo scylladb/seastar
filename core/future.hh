@@ -635,6 +635,7 @@ private:
         if (state()->available()) {
             ::schedule(std::make_unique<continuation<Func, T...>>(std::move(func), std::move(*state())));
         } else {
+            assert(_promise);
             _promise->schedule(std::move(func));
             _promise->_future = nullptr;
             _promise = nullptr;
@@ -1001,7 +1002,7 @@ inline
 void promise<T...>::abandoned() noexcept(move_noexcept) {
     if (_future) {
         assert(_state);
-        assert(_state->available());
+        assert(_state->available() || !_task);
         _future->_local_state = std::move(*_state);
         _future->_promise = nullptr;
     }
