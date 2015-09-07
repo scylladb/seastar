@@ -101,7 +101,7 @@ int main(int ac, char** av) {
         auto test4 = myrpc.register_handler(4, [](){ print("test4 throw!\n"); throw std::runtime_error("exception!"); });
         auto test5 = myrpc.register_handler(5, [](){ print("test5 no wait\n"); return rpc::no_wait; });
         auto test6 = myrpc.register_handler(6, [](const rpc::client_info& info, int x){ print("test6 client %s, %d\n", inet_ntoa(info.addr.as_posix_sockaddr_in().sin_addr), x); });
-        auto test8 = myrpc.register_handler(8, [](){ print("test8 sleep for 5 sec\n"); return sleep(5s); });
+        auto test8 = myrpc.register_handler(8, [](){ print("test8 sleep for 5 sec\n"); return sleep(2s); });
 
         if (config.count("server")) {
             std::cout << "client" << std::endl;
@@ -135,8 +135,10 @@ int main(int ac, char** av) {
                 test7(*client, 5, 6).then([] (long r) { print("test7 got %ld\n", r); });
             }
             f.finally([] {
-                client->stop().then([] {
-                    engine().exit(0);
+                sleep(1s).then([] {
+                    client->stop().then([] {
+                        engine().exit(0);
+                    });
                 });
             });
         } else {
