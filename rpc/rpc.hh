@@ -164,7 +164,7 @@ public:
                 virtual void operator()(client& client, id_type msg_id, temporary_buffer<char> data) {}
             };
             _outstanding[id]->timeout();
-            _outstanding.emplace(id, std::make_unique<timeout_handler>());
+            _outstanding[id] = std::make_unique<timeout_handler>();
         }
 
         future<> stop() {
