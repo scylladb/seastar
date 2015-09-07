@@ -288,6 +288,9 @@ public:
     /// Gets a reference to the local instance.
     Service& local();
 
+    /// Gets a shared pointer to the local instance.
+    shared_ptr<Service> local_shared();
+
     /// Checks whether the local instance has been initialized.
     bool local_is_initialized();
 
@@ -433,6 +436,12 @@ template <typename Service>
 Service& sharded<Service>::local() {
     assert(local_is_initialized());
     return *_instances[engine().cpu_id()].service;
+}
+
+template <typename Service>
+shared_ptr<Service> sharded<Service>::local_shared() {
+    assert(local_is_initialized());
+    return _instances[engine().cpu_id()].service;
 }
 
 template <typename Service>
