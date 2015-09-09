@@ -32,6 +32,9 @@ void verify_param(const request& req, const sstring& param) {
         throw missing_param_exception(param);
     }
 }
+routes::routes() : _general_handler([this](std::exception_ptr eptr) mutable {
+    return exception_reply(eptr);
+}) {}
 
 routes::~routes() {
     for (int i = 0; i < NUM_OPERATION; i++) {
@@ -47,9 +50,21 @@ routes::~routes() {
 
 }
 
-static std::unique_ptr<reply> exception_reply(std::exception_ptr eptr) {
+std::unique_ptr<reply> routes::exception_reply(std::exception_ptr eptr) {
     auto rep = std::make_unique<reply>();
     try {
+        // go over the register exception handler
+        // if one of them handle the exception, return.
+        for (auto e: _exceptions) {
+            try {
+                return e.second(eptr);
+            } catch (...) {
+                // this is needed if there are more then one register exception handler
+                // so if the exception handler throw a new exception, they would
+                // get the new exception and not the original one.
+                eptr = std::current_exception();
+            }
+        }
         std::rethrow_exception(eptr);
     } catch (const base_exception& e) {
         rep->set_status(e.status(), json_exception(e).to_json());
@@ -74,7 +89,7 @@ future<std::unique_ptr<reply> > routes::handle(const sstring& path, std::unique_
                 verify_param(*req.get(), i);
             }
             auto r =  handler->handle(path, std::move(req), std::move(rep));
-            return r.handle_exception(exception_reply);
+            return r.handle_exception(_general_handler);
         } catch (const redirect_exception& _e) {
             rep.reset(new reply());
             rep->add_header("Location", _e.url).set_status(_e.status()).done(

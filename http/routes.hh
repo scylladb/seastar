@@ -163,6 +163,35 @@ private:
 
     std::unordered_map<sstring, handler_base*> _map[NUM_OPERATION];
     std::vector<match_rule*> _rules[NUM_OPERATION];
+public:
+    using exception_handler_fun = std::function<std::unique_ptr<reply>(std::exception_ptr eptr)>;
+    using exception_handler_id = size_t;
+private:
+    std::map<exception_handler_id, exception_handler_fun> _exceptions;
+    exception_handler_id _exception_id = 0;
+    // for optimization reason, the lambda function
+    // that calls the exception_reply of the current object
+    // is stored
+    exception_handler_fun _general_handler;
+public:
+    /**
+     * The exception_handler_fun expect to call
+     * std::rethrow_exception(eptr);
+     * and catch only the exception it handles
+     */
+    exception_handler_id register_exeption_handler(exception_handler_fun fun) {
+        auto current = _exception_id++;
+        _exceptions[current] = fun;
+        return current;
+    }
+
+    void remove_exception_handler(exception_handler_id id) {
+        _exceptions.erase(id);
+    }
+
+    std::unique_ptr<reply> exception_reply(std::exception_ptr eptr);
+
+    routes();
 };
 
 /**
