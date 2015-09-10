@@ -158,7 +158,7 @@ template <typename... T>
 inline
 future<>
 stream<T...>::produce(T... data) {
-    return _sub->_next(std::move(data)...).then_wrapped([this] (future<> f) {
+    return futurize<void>::apply(_sub->_next, std::move(data)...).then_wrapped([this] (auto&& f) {
         try {
             f.get();
         } catch (...) {
