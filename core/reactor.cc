@@ -2155,3 +2155,14 @@ void reactor::add_high_priority_task(std::unique_ptr<task>&& t) {
     // break .then() chains
     future_avail_count = max_inlined_continuations - 1;
 }
+
+future<> later() {
+    promise<> p;
+    auto f = p.get_future();
+    schedule(make_task([p = std::move(p)] () mutable {
+        p.set_value();
+    }));
+    return f;
+}
+
+
