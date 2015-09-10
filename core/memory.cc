@@ -557,6 +557,10 @@ void cpu_pages::free(void* ptr) {
 }
 
 void cpu_pages::free(void* ptr, size_t size) {
+    // match action on allocate() so hit the right pool
+    if (size <= sizeof(free_object)) {
+        size = sizeof(free_object);
+    }
     auto obj_cpu = object_cpu_id(ptr);
     if (obj_cpu != cpu_id) {
         return free_cross_cpu(obj_cpu, ptr);
