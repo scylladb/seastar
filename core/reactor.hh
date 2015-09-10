@@ -731,6 +731,7 @@ private:
     circular_buffer<std::unique_ptr<task>> _pending_tasks;
     circular_buffer<std::unique_ptr<task>> _at_destroy_tasks;
     size_t _task_quota;
+    size_t _current_task_quota;
     std::unique_ptr<network_stack> _network_stack;
     // _lowres_clock will only be created on cpu 0
     std::unique_ptr<lowres_clock> _lowres_clock;
@@ -835,6 +836,7 @@ public:
     }
 
     void add_task(std::unique_ptr<task>&& t) { _pending_tasks.push_back(std::move(t)); }
+    void force_poll();
 
     void add_high_priority_task(std::unique_ptr<task>&&);
 

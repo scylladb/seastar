@@ -1085,15 +1085,19 @@ reactor::register_collectd_metrics() {
 }
 
 void reactor::run_tasks(circular_buffer<std::unique_ptr<task>>& tasks, size_t quota) {
-    task_quota = quota;
-    while (!tasks.empty() && task_quota) {
-        --task_quota;
+    _current_task_quota = quota;
+    while (!tasks.empty() && _current_task_quota) {
+        --_current_task_quota;
         auto tsk = std::move(tasks.front());
         tasks.pop_front();
         tsk->run();
         tsk.reset();
         ++_tasks_processed;
     }
+}
+
+void reactor::force_poll() {
+    _current_task_quota = 0;
 }
 
 int reactor::run() {
