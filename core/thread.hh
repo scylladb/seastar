@@ -66,9 +66,14 @@ namespace seastar {
 /// @{
 
 class thread;
+class thread_attributes;
 
 /// \cond internal
 class thread_context;
+
+class thread_attributes {
+public:
+};
 
 namespace thread_impl {
 
@@ -91,6 +96,7 @@ extern thread_local jmp_buf_link g_unthreaded_context;
 // \c thread itself because \c thread is movable, and we want pointers
 // to this state to be captured.
 class thread_context {
+    thread_attributes _attr;
     static constexpr size_t _stack_size = 128*1024;
     std::unique_ptr<char[]> _stack{make_stack()};
     std::function<void ()> _func;
@@ -103,7 +109,7 @@ private:
     void main();
     static std::unique_ptr<char[]> make_stack();
 public:
-    thread_context(std::function<void ()> func);
+    thread_context(thread_attributes attr, std::function<void ()> func);
     void switch_in();
     void switch_out();
     friend class thread;
@@ -133,6 +139,13 @@ public:
     ///             called immediately.
     template <typename Func>
     thread(Func func);
+    /// \brief Constructs a \c thread object that represents a thread of execution
+    ///
+    /// \param attr Attributes describing the new thread.
+    /// \param func Callable object to execute in thread.  The callable is
+    ///             called immediately.
+    template <typename Func>
+    thread(thread_attributes attr, Func func);
     /// \brief Moves a thread object.
     thread(thread&& x) noexcept = default;
     /// \brief Move-assigns a thread object.
@@ -155,8 +168,14 @@ public:
 
 template <typename Func>
 inline
+thread::thread(thread_attributes attr, Func func)
+        : _context(std::make_unique<thread_context>(std::move(attr), func)) {
+}
+
+template <typename Func>
+inline
 thread::thread(Func func)
-        : _context(std::make_unique<thread_context>(func)) {
+        : thread(thread_attributes(), std::move(func)) {
 }
 
 inline

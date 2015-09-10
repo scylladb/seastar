@@ -32,8 +32,9 @@ namespace seastar {
 thread_local jmp_buf_link g_unthreaded_context;
 thread_local jmp_buf_link* g_current_context;
 
-thread_context::thread_context(std::function<void ()> func)
-        : _func(std::move(func)) {
+thread_context::thread_context(thread_attributes attr, std::function<void ()> func)
+        : _attr(std::move(attr))
+        , _func(std::move(func)) {
     setup();
 }
 
