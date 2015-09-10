@@ -25,9 +25,13 @@
 #include "future.hh"
 #include "do_with.hh"
 #include "future-util.hh"
+#include "timer.hh"
+#include "reactor.hh"
 #include <memory>
 #include <setjmp.h>
 #include <type_traits>
+#include <chrono>
+#include <experimental/optional>
 
 /// \defgroup thread-module Seastar threads
 ///
@@ -62,17 +66,24 @@
 /// Seastar API namespace
 namespace seastar {
 
+namespace stdx = std::experimental;
+
 /// \addtogroup thread-module
 /// @{
 
 class thread;
 class thread_attributes;
+class thread_scheduling_group;
+
+/// Clock used for scheduling threads
+using thread_clock = std::chrono::high_resolution_clock; // FIXME: tsc-based clock?
 
 /// \cond internal
 class thread_context;
 
 class thread_attributes {
 public:
+    thread_scheduling_group* scheduling_group = nullptr;
 };
 
 namespace thread_impl {
@@ -103,6 +114,8 @@ class thread_context {
     jmp_buf_link _context;
     promise<> _done;
     bool _joined = false;
+    timer<> _sched_timer{[this] { reschedule(); }};
+    stdx::optional<promise<>> _sched_promise;
 private:
     static void s_main(unsigned int lo, unsigned int hi);
     void setup();
@@ -112,6 +125,9 @@ public:
     thread_context(thread_attributes attr, std::function<void ()> func);
     void switch_in();
     void switch_out();
+    bool should_yield() const;
+    void reschedule();
+    void yield();
     friend class thread;
     friend void thread_impl::switch_in(thread_context*);
     friend void thread_impl::switch_out(thread_context*);
@@ -164,6 +180,26 @@ public:
     /// Gives other threads/fibers a chance to run on current CPU.
     /// The current thread will resume execution promptly.
     static void yield();
+    /// \brief Checks whether this thread ought to call yield() now.
+    ///
+    /// Useful where we cannot call yield() immediately because we
+    /// Need to take some cleanup action first.
+    static bool should_yield();
+};
+
+class thread_scheduling_group {
+    std::chrono::nanoseconds _period;
+    std::chrono::nanoseconds _quota;
+    std::chrono::time_point<thread_clock> _this_period_ends = {};
+    std::chrono::time_point<thread_clock> _this_run_start = {};
+    std::chrono::nanoseconds _this_period_remain = {};
+public:
+    thread_scheduling_group(std::chrono::nanoseconds period, float usage);
+private:
+    void account_start();
+    void account_stop();
+    stdx::optional<thread_clock::time_point> next_scheduling_point() const;
+    friend class thread_context;
 };
 
 template <typename Func>

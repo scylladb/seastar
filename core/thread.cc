@@ -76,6 +76,9 @@ thread_context::switch_in() {
     auto prev = g_current_context;
     g_current_context = &_context;
     _context.link = prev;
+    if (_attr.scheduling_group) {
+        _attr.scheduling_group->account_start();
+    }
     if (setjmp(prev->jmpbuf) == 0) {
         longjmp(_context.jmpbuf, 1);
     }
@@ -83,10 +86,42 @@ thread_context::switch_in() {
 
 void
 thread_context::switch_out() {
+    if (_attr.scheduling_group) {
+        _attr.scheduling_group->account_stop();
+    }
     g_current_context = _context.link;
     if (setjmp(_context.jmpbuf) == 0) {
         longjmp(g_current_context->jmpbuf, 1);
     }
+}
+
+bool
+thread_context::should_yield() const {
+    if (!_attr.scheduling_group) {
+        return true;
+    }
+    return bool(_attr.scheduling_group->next_scheduling_point());
+}
+
+void
+thread_context::yield() {
+    if (!_attr.scheduling_group) {
+        later().get();
+    } else {
+        auto when = _attr.scheduling_group->next_scheduling_point();
+        if (when) {
+            _sched_promise.emplace();
+            auto fut = _sched_promise->get_future();
+            _sched_timer.arm(*when);
+            fut.get();
+            _sched_promise = stdx::nullopt;
+        }
+    }
+}
+
+void
+thread_context::reschedule() {
+    _sched_promise->set_value();
 }
 
 void
@@ -97,11 +132,17 @@ thread_context::s_main(unsigned int lo, unsigned int hi) {
 
 void
 thread_context::main() {
+    if (_attr.scheduling_group) {
+        _attr.scheduling_group->account_start();
+    }
     try {
         _func();
         _done.set_value();
     } catch (...) {
         _done.set_exception(std::current_exception());
+    }
+    if (_attr.scheduling_group) {
+        _attr.scheduling_group->account_stop();
     }
     g_current_context = _context.link;
     longjmp(g_current_context->jmpbuf, 1);
@@ -130,7 +171,41 @@ void init() {
 }
 
 void thread::yield() {
-    later().get();
+    thread_impl::get()->yield();
+}
+
+bool thread::should_yield() {
+    return thread_impl::get()->should_yield();
+}
+
+thread_scheduling_group::thread_scheduling_group(std::chrono::nanoseconds period, float usage)
+        : _period(period), _quota(std::chrono::duration_cast<std::chrono::nanoseconds>(usage * period)) {
+}
+
+void
+thread_scheduling_group::account_start() {
+    auto now = thread_clock::now();
+    if (now >= _this_period_ends) {
+        _this_period_ends = now + _period;
+        _this_period_remain = _quota;
+    }
+    _this_run_start = now;
+}
+
+void
+thread_scheduling_group::account_stop() {
+    _this_period_remain -= thread_clock::now() - _this_run_start;
+}
+
+stdx::optional<thread_clock::time_point>
+thread_scheduling_group::next_scheduling_point() const {
+    auto now = thread_clock::now();
+    auto current_remain = _this_period_remain - (now - _this_run_start);
+    if (current_remain > std::chrono::nanoseconds(0)) {
+        return stdx::nullopt;
+    }
+    return _this_period_ends - current_remain;
+
 }
 
 }
