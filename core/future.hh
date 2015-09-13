@@ -1057,7 +1057,32 @@ typename futurize<T>::type futurize<T>::apply(Func&& func, FuncArgs&&... args) n
 }
 
 template<typename Func, typename... FuncArgs>
-typename futurize<void>::type futurize<void>::apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
+inline
+std::enable_if_t<!is_future<std::result_of_t<Func(FuncArgs&&...)>>::value, future<>>
+do_void_futurize_apply(Func&& func, FuncArgs&&... args) noexcept {
+    try {
+        func(std::forward<FuncArgs>(args)...);
+        return make_ready_future<>();
+    } catch (...) {
+        return make_exception_future(std::current_exception());
+    }
+}
+
+template<typename Func, typename... FuncArgs>
+inline
+std::enable_if_t<is_future<std::result_of_t<Func(FuncArgs&&...)>>::value, future<>>
+do_void_futurize_apply(Func&& func, FuncArgs&&... args) noexcept {
+    try {
+        return func(std::forward<FuncArgs>(args)...);
+    } catch (...) {
+        return make_exception_future(std::current_exception());
+    }
+}
+
+template<typename Func, typename... FuncArgs>
+inline
+std::enable_if_t<!is_future<std::result_of_t<Func(FuncArgs&&...)>>::value, future<>>
+do_void_futurize_apply_tuple(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
     try {
         ::apply(std::forward<Func>(func), std::move(args));
         return make_ready_future<>();
@@ -1067,13 +1092,24 @@ typename futurize<void>::type futurize<void>::apply(Func&& func, std::tuple<Func
 }
 
 template<typename Func, typename... FuncArgs>
-typename futurize<void>::type futurize<void>::apply(Func&& func, FuncArgs&&... args) noexcept {
+inline
+std::enable_if_t<is_future<std::result_of_t<Func(FuncArgs&&...)>>::value, future<>>
+do_void_futurize_apply_tuple(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
     try {
-        func(std::forward<FuncArgs>(args)...);
-        return make_ready_future<>();
+        return ::apply(std::forward<Func>(func), std::move(args));
     } catch (...) {
         return make_exception_future(std::current_exception());
     }
+}
+
+template<typename Func, typename... FuncArgs>
+typename futurize<void>::type futurize<void>::apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
+    return do_void_futurize_apply_tuple(std::forward<Func>(func), std::move(args));
+}
+
+template<typename Func, typename... FuncArgs>
+typename futurize<void>::type futurize<void>::apply(Func&& func, FuncArgs&&... args) noexcept {
+    return do_void_futurize_apply(std::forward<Func>(func), std::forward<FuncArgs>(args)...);
 }
 
 template<typename... Args>
