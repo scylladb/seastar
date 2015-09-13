@@ -69,6 +69,9 @@ SEASTAR_TEST_CASE(test_finally_is_called_on_success_and_failure__not_ready_to_ar
     }).then_wrapped([=] (auto &&f) {
         BOOST_REQUIRE(*finally1);
         BOOST_REQUIRE(*finally2);
+        try {
+            f.get();
+        } catch (...) {} // silence exceptional future ignored messages
     });
 
     p.set_value();
@@ -81,7 +84,11 @@ SEASTAR_TEST_CASE(test_exception_from_finally_fails_the_target) {
         throw std::runtime_error("");
     }).then([] {
         BOOST_REQUIRE(false);
-    }).then_wrapped([] (auto&& f) {});
+    }).then_wrapped([] (auto&& f) {
+        try {
+            f.get();
+        } catch (...) {} // silence exceptional future ignored messages
+    });
 
     pr.set_value();
     return f;
@@ -92,7 +99,11 @@ SEASTAR_TEST_CASE(test_exception_from_finally_fails_the_target_on_already_resolv
         throw std::runtime_error("");
     }).then([] {
         BOOST_REQUIRE(false);
-    }).then_wrapped([] (auto&& f) {});
+    }).then_wrapped([] (auto&& f) {
+        try {
+            f.get();
+        } catch (...) {} // silence exceptional future ignored messages
+    });
 }
 
 SEASTAR_TEST_CASE(test_exception_thrown_from_then_wrapped_causes_future_to_fail) {
