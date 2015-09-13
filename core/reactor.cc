@@ -1861,7 +1861,6 @@ void smp::configure(boost::program_options::variables_map configuration)
 }
 
 __thread size_t future_avail_count = 0;
-__thread size_t task_quota = 0;
 
 __thread reactor* local_engine;
 
@@ -2154,8 +2153,6 @@ future<connected_socket> connect(socket_address sa) {
 
 void reactor::add_high_priority_task(std::unique_ptr<task>&& t) {
     _pending_tasks.push_front(std::move(t));
-    // stop any repeat() loops
-    task_quota = 0;
     // break .then() chains
     future_avail_count = max_inlined_continuations - 1;
 }

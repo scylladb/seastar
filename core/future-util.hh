@@ -187,7 +187,7 @@ future<> repeat(AsyncAction&& action) {
     using futurator = futurize<std::result_of_t<AsyncAction()>>;
     static_assert(std::is_same<future<stop_iteration>, typename futurator::type>::value, "bad AsyncAction signature");
 
-    while (task_quota--) {
+    while (++future_avail_count % max_inlined_continuations) {
         try {
             auto f = futurator::apply(action);
 
