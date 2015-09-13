@@ -143,7 +143,7 @@ def sanitize_vptr_flag(compiler):
         return ''
     else:
         print('-fsanitize=vptr is broken, disabling')
-        return '-fsanitize=no-vptr'
+        return '-fno-sanitize=vptr'
 
 modes = {
     'debug': {
