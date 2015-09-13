@@ -61,6 +61,8 @@
 #include <osv/newpoll.hh>
 #endif
 
+using namespace std::chrono_literals;
+
 using namespace net;
 
 std::atomic<lowres_clock::rep> lowres_clock::_now;
@@ -187,6 +189,10 @@ inline int alarm_signal() {
     return SIGRTMIN;
 }
 
+inline int task_quota_signal() {
+    return SIGRTMIN + 1;
+}
+
 reactor::reactor()
     : _backend()
 #ifdef HAVE_OSV
@@ -211,10 +217,17 @@ reactor::reactor()
     sev.sigev_signo = alarm_signal();
     r = timer_create(CLOCK_REALTIME, &sev, &_timer);
     assert(r >= 0);
+    sev.sigev_signo = task_quota_signal();
+    r = timer_create(CLOCK_REALTIME, &sev, &_task_quota_timer);
+    assert(r >= 0);
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask, alarm_signal());
     r = ::sigprocmask(SIG_BLOCK, &mask, NULL);
+    assert(r == 0);
+    sigemptyset(&mask);
+    sigaddset(&mask, task_quota_signal());
+    r = ::sigprocmask(SIG_UNBLOCK, &mask, NULL);
     assert(r == 0);
 #endif
     memory::set_reclaim_hook([this] (std::function<void ()> reclaim_fn) {
@@ -225,6 +238,7 @@ reactor::reactor()
 }
 
 reactor::~reactor() {
+    timer_delete(_task_quota_timer);
     timer_delete(_timer);
     auto eraser = [](auto& list) {
         while (!list.empty()) {
@@ -234,6 +248,12 @@ reactor::~reactor() {
     };
     eraser(_expired_timers);
     eraser(_expired_lowres_timers);
+}
+
+void
+reactor::clear_task_quota(int) {
+    future_avail_count = max_inlined_continuations - 1;
+    local_engine->_task_quota_finished = true;
 }
 
 template <typename T, typename E, typename EnableFunc>
@@ -307,7 +327,7 @@ void reactor::configure(boost::program_options::variables_map vm) {
     });
 
     _handle_sigint = !vm.count("no-handle-interrupt");
-    _task_quota = vm["task-quota"].as<int>();
+    _task_quota = vm["task-quota-ms"].as<double>() * 1ms;
 }
 
 future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd,
@@ -1084,20 +1104,20 @@ reactor::register_collectd_metrics() {
     } };
 }
 
-void reactor::run_tasks(circular_buffer<std::unique_ptr<task>>& tasks, size_t quota) {
-    _current_task_quota = quota;
-    while (!tasks.empty() && _current_task_quota) {
-        --_current_task_quota;
+void reactor::run_tasks(circular_buffer<std::unique_ptr<task>>& tasks) {
+    _task_quota_finished = false;
+    while (!tasks.empty() && !_task_quota_finished) {
         auto tsk = std::move(tasks.front());
         tasks.pop_front();
         tsk->run();
         tsk.reset();
         ++_tasks_processed;
+        std::atomic_signal_fence(std::memory_order_relaxed); // for _task_quota_finished flag
     }
 }
 
 void reactor::force_poll() {
-    _current_task_quota = 0;
+    _task_quota_finished = true;
 }
 
 int reactor::run() {
@@ -1188,13 +1208,30 @@ int reactor::run() {
     });
     load_timer.arm_periodic(1s);
 
+    itimerspec its = {};
+    auto nsec = std::chrono::duration_cast<std::chrono::nanoseconds>(_task_quota).count();
+    auto tv_nsec = nsec % 1'000'000'000;
+    auto tv_sec = nsec / 1'000'000'000;
+    its.it_value.tv_nsec = tv_nsec;
+    its.it_value.tv_sec = tv_sec;
+    its.it_interval = its.it_value;
+    auto r = timer_settime(_task_quota_timer, 0, &its, nullptr);
+    assert(r == 0);
+
+    struct sigaction sa_task_quota = {};
+    sa_task_quota.sa_handler = &reactor::clear_task_quota;
+    r = sigaction(task_quota_signal(), &sa_task_quota, nullptr);
+    assert(r == 0);
+
     bool idle = false;
 
     while (true) {
-        run_tasks(_pending_tasks, _task_quota);
+        run_tasks(_pending_tasks);
         if (_stopped) {
             load_timer.cancel();
-            run_tasks(_at_destroy_tasks, _at_destroy_tasks.size());
+            while (!_at_destroy_tasks.empty()) {
+                run_tasks(_at_destroy_tasks);
+            }
             if (_id == 0) {
                 smp::join_all();
             }
@@ -1622,7 +1659,7 @@ reactor::get_options_description() {
                 sprint("select network stack (valid values: %s)",
                         format_separated(net_stack_names.begin(), net_stack_names.end(), ", ")).c_str())
         ("no-handle-interrupt", "ignore SIGINT (for gdb)")
-        ("task-quota", bpo::value<int>()->default_value(200), "Max number of tasks executed between polls and in loops")
+        ("task-quota-ms", bpo::value<double>()->default_value(2.0), "Max time (ms) between polls")
         ;
     opts.add(network_stack_registry::options_description());
     return opts;

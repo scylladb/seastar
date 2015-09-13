@@ -713,6 +713,7 @@ private:
     promise<std::unique_ptr<network_stack>> _network_stack_ready_promise;
     int _return = 0;
     timer_t _timer = {};
+    timer_t _task_quota_timer = {};
     promise<> _start_promise;
     semaphore _cpu_started;
     uint64_t _tasks_processed = 0;
@@ -730,8 +731,8 @@ private:
     uint64_t _fsyncs = 0;
     circular_buffer<std::unique_ptr<task>> _pending_tasks;
     circular_buffer<std::unique_ptr<task>> _at_destroy_tasks;
-    size_t _task_quota;
-    size_t _current_task_quota;
+    std::chrono::duration<double> _task_quota;
+    sig_atomic_t _task_quota_finished;
     std::unique_ptr<network_stack> _network_stack;
     // _lowres_clock will only be created on cpu 0
     std::unique_ptr<lowres_clock> _lowres_clock;
@@ -741,6 +742,7 @@ private:
     circular_buffer<double> _loads;
     double _load = 0;
 private:
+    static void clear_task_quota(int);
     bool flush_pending_aio();
     void abort_on_error(int ret);
     template <typename T, typename E, typename EnableFunc>
@@ -779,7 +781,7 @@ private:
     thread_pool _thread_pool;
     friend thread_pool;
 
-    void run_tasks(circular_buffer<std::unique_ptr<task>>& tasks, size_t task_quota);
+    void run_tasks(circular_buffer<std::unique_ptr<task>>& tasks);
     bool posix_reuseport_detect();
 public:
     static boost::program_options::options_description get_options_description();
