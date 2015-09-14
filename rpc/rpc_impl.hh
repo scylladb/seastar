@@ -240,7 +240,7 @@ template<typename Serializer, typename MsgType>
 struct rcv_reply<Serializer, MsgType, future<>> : rcv_reply<Serializer, MsgType, void> {};
 
 template <typename Serializer, typename MsgType, typename Ret, typename... InArgs>
-inline auto wait_for_reply(wait_type, std::experimental::optional<clock_type::time_point> timeout, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id, future<> sent,
+inline auto wait_for_reply(wait_type, std::experimental::optional<clock_type::time_point> timeout, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id,
         signature<Ret (InArgs...)> sig) {
     using reply_type = rcv_reply<Serializer, MsgType, Ret>;
     auto lambda = [] (reply_type& r, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id, temporary_buffer<char> data) mutable {
@@ -258,15 +258,13 @@ inline auto wait_for_reply(wait_type, std::experimental::optional<clock_type::ti
     auto r = std::make_unique<handler_type>(std::move(lambda));
     auto fut = r->reply.p.get_future();
     dst.wait_for_reply(msg_id, std::move(r), timeout);
-    return when_all(std::move(sent), std::move(fut)).then([] (std::tuple<future<>, futurize_t<Ret>>&& r) {
-        return std::move(std::get<1>(r));
-    });
+    return fut;
 }
 
 template<typename Serializer, typename MsgType, typename... InArgs>
-inline auto wait_for_reply(no_wait_type, std::experimental::optional<clock_type::time_point>, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id, future<>&& sent,
+inline auto wait_for_reply(no_wait_type, std::experimental::optional<clock_type::time_point>, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id,
         signature<no_wait_type (InArgs...)> sig) {  // no_wait overload
-    return std::move(sent);
+    return make_ready_future<>();
 }
 
 // Returns lambda that can be used to send rpc messages.
@@ -308,7 +306,7 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
 
             // prepare reply handler, if return type is now_wait_type this does nothing, since no reply will be sent
             using wait = wait_signature_t<Ret>;
-            return wait_for_reply<Serializer, MsgType>(wait(), timeout, dst, msg_id, std::move(fsent), sig);
+            return wait_for_reply<Serializer, MsgType>(wait(), timeout, dst, msg_id, sig);
         }
         auto operator()(typename protocol<Serializer, MsgType>::client& dst, const InArgs&... args) {
             return send(dst, {}, args...);
@@ -632,7 +630,10 @@ protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& pro
         });
     }).finally([this] {
         this->_error = true;
-        this->_stopped.set_value();
+        this->_output_ready.then_wrapped([this] (future<> f) {
+            this->_stopped.set_value();
+            f.ignore_ready_future();
+        });
         _outstanding.clear();
         if (_connected) {
             this->_write_buf.close();

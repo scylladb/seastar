@@ -61,7 +61,6 @@ class protocol {
     public:
         connection(connected_socket&& fd, protocol& proto) : _fd(std::move(fd)), _read_buf(_fd.input()), _write_buf(_fd.output()), _proto(proto) {}
         connection(protocol& proto) : _proto(proto) {}
-        ~connection() { _output_ready.ignore_ready_future(); }
         // functions below are public because they are used by external heavily templated functions
         // and I am not smart enough to know how to define them as friends
         auto& in() { return _read_buf; }
@@ -86,6 +85,7 @@ public:
             client_info _info;
         public:
             connection(server& s, connected_socket&& fd, socket_address&& addr, protocol& proto);
+            ~connection() { this->_output_ready.ignore_ready_future(); }
             future<> process();
             future<> respond(int64_t msg_id, sstring&& data);
             auto& info() { return _info; }
