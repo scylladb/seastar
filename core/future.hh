@@ -781,7 +781,9 @@ public:
             });
         } catch (...) {
             // catch possible std::bad_alloc in schedule() above
-            return futurator::make_exception_future(std::current_exception());
+            // nothing can be done about it, we cannot break future chain by returning
+            // ready future while 'this' future is not ready
+            abort();
         }
         return fut;
     }
@@ -817,7 +819,9 @@ public:
             });
         } catch (...) {
             // catch possible std::bad_alloc in schedule() above
-            return futurator::make_exception_future(std::current_exception());
+            // nothing can be done about it, we cannot break future chain by returning
+            // ready future while 'this' future is not ready
+            abort();
         }
         return fut;
     }
