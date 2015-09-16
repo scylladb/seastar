@@ -144,6 +144,7 @@ struct future_state {
         std::exception_ptr ex;
     } _u;
     future_state() noexcept {}
+    [[gnu::always_inline]]
     future_state(future_state&& x) noexcept(move_noexcept)
             : _state(x._state) {
         switch (_state) {
@@ -279,6 +280,7 @@ struct future_state<> {
         std::exception_ptr ex;
     } _u;
     future_state() noexcept {}
+    [[gnu::always_inline]]
     future_state(future_state&& x) noexcept {
         if (x._u.st < state::exception_min) {
             _u.st = x._u.st;
@@ -289,6 +291,7 @@ struct future_state<> {
         }
         x._u.st = state::invalid;
     }
+    [[gnu::always_inline]]
     ~future_state() noexcept {
         if (_u.st >= state::exception_min) {
             _u.ex.~exception_ptr();
@@ -624,9 +627,11 @@ private:
     future(exception_future_marker, std::exception_ptr ex) noexcept : _promise(nullptr) {
         _local_state.set_exception(std::move(ex));
     }
+    [[gnu::always_inline]]
     explicit future(future_state<T...>&& state) noexcept
             : _promise(nullptr), _local_state(std::move(state)) {
     }
+    [[gnu::always_inline]]
     future_state<T...>* state() noexcept {
         return _promise ? _promise->_state : &_local_state;
     }
@@ -642,6 +647,7 @@ private:
         }
     }
 
+    [[gnu::always_inline]]
     future_state<T...> get_available_state() {
         auto st = state();
         if (_promise) {
@@ -657,6 +663,7 @@ public:
     /// \brief The data type carried by the future.
     using promise_type = promise<T...>;
     /// \brief Moves the future into a new object.
+    [[gnu::always_inline]]
     future(future&& x) noexcept(move_noexcept) : _promise(x._promise) {
         if (!_promise) {
             _local_state = std::move(x._local_state);
@@ -693,6 +700,7 @@ public:
     /// If get() is called in a \ref seastar::thread context,
     /// then it need not be available; instead, the thread will
     /// be paused until the future becomes available.
+    [[gnu::always_inline]]
     std::tuple<T...> get() {
         if (!state()->available()) {
             wait();
@@ -732,6 +740,7 @@ public:
     /// \brief Checks whether the future is available.
     ///
     /// \return \c true if the future has a value, or has failed.
+    [[gnu::always_inline]]
     bool available() noexcept {
         return state()->available();
     }
@@ -739,6 +748,7 @@ public:
     /// \brief Checks whether the future has failed.
     ///
     /// \return \c true if the future is availble and has failed.
+    [[gnu::always_inline]]
     bool failed() noexcept {
         return state()->failed();
     }
