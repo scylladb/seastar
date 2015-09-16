@@ -1229,6 +1229,10 @@ int reactor::run() {
         run_tasks(_pending_tasks);
         if (_stopped) {
             load_timer.cancel();
+            // Final tasks may include sending the last response to cpu 0, so run them
+            while (!_pending_tasks.empty()) {
+                run_tasks(_pending_tasks);
+            }
             while (!_at_destroy_tasks.empty()) {
                 run_tasks(_at_destroy_tasks);
             }
