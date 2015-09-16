@@ -1106,6 +1106,7 @@ reactor::register_collectd_metrics() {
 
 void reactor::run_tasks(circular_buffer<std::unique_ptr<task>>& tasks) {
     _task_quota_finished = false;
+    future_avail_count = 0;
     while (!tasks.empty() && !_task_quota_finished) {
         auto tsk = std::move(tasks.front());
         tasks.pop_front();
