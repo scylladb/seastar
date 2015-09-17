@@ -1389,6 +1389,23 @@ int dpdk_device::init_port_start()
         _is_i40e_device = true;
     }
 
+    //
+    // Another workaround: this time for a lack of number of RSS bits.
+    // ixgbe PF NICs support up to 16 RSS queues.
+    // ixgbe VF NICs support up to 4 RSS queues.
+    // i40e PF NICs support up to 64 RSS queues.
+    // i40e VF NICs support up to 16 RSS queues.
+    //
+    if (sstring("rte_ixgbe_pmd") == _dev_info.driver_name) {
+        _dev_info.max_rx_queues = std::min(_dev_info.max_rx_queues, (uint16_t)16);
+    } else if (sstring("rte_ixgbevf_pmd") == _dev_info.driver_name) {
+        _dev_info.max_rx_queues = std::min(_dev_info.max_rx_queues, (uint16_t)4);
+    } else if (sstring("rte_i40e_pmd") == _dev_info.driver_name) {
+        _dev_info.max_rx_queues = std::min(_dev_info.max_rx_queues, (uint16_t)64);
+    } else if (sstring("rte_i40evf_pmd") == _dev_info.driver_name) {
+        _dev_info.max_rx_queues = std::min(_dev_info.max_rx_queues, (uint16_t)16);
+    }
+
     // Clear txq_flags - we want to support all available offload features
     // except for multi-mempool and refcnt'ing which we don't need
     _dev_info.default_txconf.txq_flags =
