@@ -284,8 +284,6 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
 
             // send message
             auto msg_id = dst.next_message_id();
-            promise<> sent; // will be fulfilled when data is sent
-            auto fsent = sent.get_future();
             dst.get_stats_internal().pending++;
             sstring data = marshall(dst.serializer(), 24, args...);
             auto p = data.begin();
@@ -298,10 +296,9 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
                         return dst.out().flush();
                     });
                 });
-            }).finally([&dst, sent = std::move(sent)] () mutable {
+            }).finally([&dst] () {
                 dst.get_stats_internal().pending--;
                 dst.get_stats_internal().sent_messages++;
-                sent.set_value();
             });
 
             // prepare reply handler, if return type is now_wait_type this does nothing, since no reply will be sent
