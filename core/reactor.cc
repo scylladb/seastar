@@ -1006,9 +1006,9 @@ reactor::register_collectd_metrics() {
             ),
             scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
                     , scollectd::per_cpu_plugin_instance
-                    , "queue_length", "idle")
+                    , "gauge", "load")
                     , scollectd::make_typed(scollectd::data_type::GAUGE,
-                            [this] () -> uint32_t { return _load * 100; })
+                            [this] () -> uint32_t { return (1 - _load) * 100; })
             ),
             // total_operations value:DERIVE:0:U
             scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
