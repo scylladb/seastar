@@ -416,6 +416,8 @@ reactor::posix_listen(socket_address sa, listen_options opts) {
 
 bool
 reactor::posix_reuseport_detect() {
+    return false; // FIXME: reuseport currently leads to heavy load imbalance. Until we fix that, just
+                  // disable it unconditionally.
     try {
         file_desc fd = file_desc::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
         fd.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
