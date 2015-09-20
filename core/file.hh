@@ -178,11 +178,14 @@ public:
     // overlapping ranges. Those would be very challenging to cache.
 
     /// Alignment requirement for file offsets
-    static constexpr uint64_t dma_alignment = 4096;
+    uint64_t disk_dma_alignment() const {
+        return 4096;
+    }
 
-    // Make sure alignment is a power of 2
-    static_assert(dma_alignment > 0 && !(dma_alignment & (dma_alignment - 1)),
-                  "dma_alignment must be a power of 2");
+    /// Alignment requirement for data buffers
+    uint64_t memory_dma_alignment() const {
+        return 4096;
+    }
 
 
     /**
@@ -408,9 +411,10 @@ template <typename CharType>
 struct file::read_state {
     typedef temporary_buffer<CharType> tmp_buf_type;
 
-    read_state(uint64_t offset, uint64_t front, size_t to_read)
-    : buf(tmp_buf_type::aligned(file::dma_alignment,
-                                align_up(to_read, file::dma_alignment)))
+    read_state(uint64_t offset, uint64_t front, size_t to_read,
+            size_t memory_alignment, size_t disk_alignment)
+    : buf(tmp_buf_type::aligned(memory_alignment,
+                                align_up(to_read, disk_alignment)))
     , _offset(offset)
     , _to_read(to_read)
     , _front(front) {}
@@ -474,12 +478,14 @@ future<temporary_buffer<CharType>>
 file::dma_read_bulk(uint64_t offset, size_t range_size) {
     using tmp_buf_type = typename read_state<CharType>::tmp_buf_type;
 
-    auto front = offset & (dma_alignment - 1);
+    auto front = offset & (disk_dma_alignment() - 1);
     offset -= front;
     range_size += front;
 
     auto rstate = make_lw_shared<read_state<CharType>>(offset, front,
-                                                       range_size);
+                                                       range_size,
+                                                       memory_dma_alignment(),
+                                                       disk_dma_alignment());
 
     //
     // First, try to read directly into the buffer. Most of the reads will
@@ -535,7 +541,7 @@ file::read_maybe_eof(uint64_t pos, size_t len) {
     // an EINVAL error due to unaligned destination buffer.
     //
     temporary_buffer<CharType> buf = temporary_buffer<CharType>::aligned(
-               dma_alignment, align_up(len, dma_alignment));
+               memory_dma_alignment(), align_up(len, disk_dma_alignment()));
 
     // try to read a single bulk from the given position
     return dma_read(pos, buf.get_write(), buf.size()).then_wrapped(
