@@ -19,6 +19,8 @@
  * Copyright 2014 Cloudius Systems
  */
 
+#define __user /* empty */  // for xfs includes, below
+
 #include <sys/syscall.h>
 #include "task.hh"
 #include "reactor.hh"
@@ -43,6 +45,11 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include <atomic>
 #include <dirent.h>
+#include <linux/types.h> // for xfs, below
+#include <sys/ioctl.h>
+#include <xfs/linux.h>
+#include <xfs/xfs_types.h>
+#include <xfs/xfs_fs.h>
 #ifdef HAVE_DPDK
 #include <core/dpdk_rte.hh>
 #include <rte_lcore.h>
@@ -535,6 +542,16 @@ posix_file_impl::~posix_file_impl() {
     if (_fd != -1) {
         // Note: close() can be a blocking operation on NFS
         ::close(_fd);
+    }
+}
+
+void
+posix_file_impl::query_dma_alignment() {
+    dioattr da;
+    auto r = ioctl(_fd, XFS_IOC_DIOINFO, &da);
+    if (r == 0) {
+        _memory_dma_alignment = da.d_mem;
+        _disk_dma_alignment = da.d_miniosz;
     }
 }
 

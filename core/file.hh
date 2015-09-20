@@ -62,6 +62,9 @@ struct directory_entry {
 /// \cond internal
 class file_impl {
 public:
+    unsigned _memory_dma_alignment = 4096;
+    unsigned _disk_dma_alignment = 4096;
+public:
     virtual ~file_impl() {}
 
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len) = 0;
@@ -83,7 +86,9 @@ public:
 class posix_file_impl : public file_impl {
 public:
     int _fd;
-    posix_file_impl(int fd) : _fd(fd) {}
+    posix_file_impl(int fd) : _fd(fd) {
+        query_dma_alignment();
+    }
     virtual ~posix_file_impl() override;
     future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len);
     future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov);
@@ -97,6 +102,8 @@ public:
     future<size_t> size(void);
     virtual future<> close() override;
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) override;
+private:
+    void query_dma_alignment();
 };
 
 class blockdev_file_impl : public posix_file_impl {
@@ -179,12 +186,12 @@ public:
 
     /// Alignment requirement for file offsets
     uint64_t disk_dma_alignment() const {
-        return 4096;
+        return _file_impl->_disk_dma_alignment;
     }
 
     /// Alignment requirement for data buffers
     uint64_t memory_dma_alignment() const {
-        return 4096;
+        return _file_impl->_memory_dma_alignment;
     }
 
 
