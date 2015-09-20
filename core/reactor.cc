@@ -57,6 +57,8 @@
 #include <cxxabi.h>
 #endif
 
+#include <linux/falloc.h>
+
 #ifdef HAVE_OSV
 #include <osv/newpoll.hh>
 #endif
