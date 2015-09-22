@@ -27,7 +27,7 @@ en_rps()
     for (( i = 0; i < rps_queues_count; i++ ))
     do
         rps_cpus="/sys/class/net/eth0/queues/rx-$i/rps_cpus"
-        mask_hex=`printf %x $mask`
+        mask_hex=`printf %x $(( mask & ~1 ))`
         echo "Setting mask $mask_hex in $rps_cpus"
         echo $mask_hex > $rps_cpus
         mask=$((mask << cpus_per_q))
