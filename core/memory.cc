@@ -1017,7 +1017,13 @@ void configure(std::vector<resource::memory> m,
                         MPOL_BIND,
                         &nodemask, std::numeric_limits<unsigned long>::digits,
                         MPOL_MF_MOVE);
-        assert(r == 0);
+
+        if (r == -1) {
+            char err[1000] = {};
+            strerror_r(errno, err, sizeof(err));
+            std::cerr << "WARNING: unable to mbind shard memory; performance may suffer: "
+                    << err << std::endl;
+        }
 #endif
         pos += x.bytes;
     }
