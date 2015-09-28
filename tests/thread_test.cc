@@ -38,8 +38,9 @@ SEASTAR_TEST_CASE(test_thread_1) {
         auto t1 = new thread([&x] {
             x = "abc";
         });
-        return t1->join().then([&x] {
+        return t1->join().then([&x, t1] {
             BOOST_REQUIRE_EQUAL(x, "abc");
+            delete t1;
         });
     });
 }
