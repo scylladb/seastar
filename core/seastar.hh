@@ -204,4 +204,11 @@ future<> rename_file(sstring old_name, sstring new_name);
 /// \param name name of the file to return the size
 future<uint64_t> file_size(sstring name);
 
+/// Creates a hard link for a file
+///
+/// \param oldpath existing file name
+/// \param newpath name of link
+///
+future<> link_file(sstring oldpath, sstring newpath);
+
 /// @}

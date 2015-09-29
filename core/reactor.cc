@@ -627,6 +627,16 @@ reactor::rename_file(sstring old_pathname, sstring new_pathname) {
     });
 }
 
+future<>
+reactor::link_file(sstring oldpath, sstring newpath) {
+    return engine()._thread_pool.submit<syscall_result<int>>([this, oldpath = std::move(oldpath), newpath = std::move(newpath)] {
+        return wrap_syscall<int>(::link(oldpath.c_str(), newpath.c_str()));
+    }).then([] (syscall_result<int> sr) {
+        sr.throw_if_error();
+        return make_ready_future<>();
+    });
+}
+
 directory_entry_type stat_to_entry_type(__mode_t type) {
     if (S_ISDIR(type)) {
         return directory_entry_type::directory;
@@ -2201,6 +2211,10 @@ future<> rename_file(sstring old_pathname, sstring new_pathname) {
 
 future<uint64_t> file_size(sstring name) {
     return engine().file_size(name);
+}
+
+future<> link_file(sstring oldpath, sstring newpath) {
+    return engine().link_file(std::move(oldpath), std::move(newpath));
 }
 
 server_socket listen(socket_address sa) {

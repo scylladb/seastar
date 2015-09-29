@@ -818,6 +818,7 @@ public:
     future<uint64_t> file_size(sstring pathname);
     future<> remove_file(sstring pathname);
     future<> rename_file(sstring old_pathname, sstring new_pathname);
+    future<> link_file(sstring oldpath, sstring newpath);
 
     template <typename Func>
     future<io_event> submit_io(Func prepare_io);
