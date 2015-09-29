@@ -16,6 +16,22 @@ ec2_rps()
     done
 }
 
+make_hex_mask()
+{
+    local val=$1
+    local mask32=$(( (1 << 32) - 1))
+    local res=`printf %x $(( val & mask32 ))`
+    val=$(( val >> 32 ))
+
+    while [[ $val -gt 0 ]]
+    do
+        res=`printf %x $(( val & mask32 ))`",$res"
+        val=$(( val >> 32 ))
+    done
+
+    echo -n $res
+}
+
 en_rps()
 {
     local cpu_num=`cat /proc/cpuinfo | grep processor | wc -l`
@@ -27,7 +43,7 @@ en_rps()
     for (( i = 0; i < rps_queues_count; i++ ))
     do
         rps_cpus="/sys/class/net/eth0/queues/rx-$i/rps_cpus"
-        mask_hex=`printf %x $(( mask & ~1 ))`
+        mask_hex=`make_hex_mask $(( mask & ~1 ))`
         echo "Setting mask $mask_hex in $rps_cpus"
         echo $mask_hex > $rps_cpus
         mask=$((mask << cpus_per_q))
