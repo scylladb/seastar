@@ -2158,6 +2158,20 @@ void report_failed_future(std::exception_ptr eptr) {
     report_exception("WARNING: exceptional future ignored", eptr);
 }
 
+future<> check_direct_io_support(sstring path) {
+    auto fpath = path + "/.o_direct_test";
+    return engine().open_file_dma(fpath, open_flags::wo | open_flags::create | open_flags::truncate).then_wrapped([path, fpath] (future<file> f) {
+        try {
+            f.get0();
+            return remove_file(fpath);
+        } catch (std::system_error& e) {
+            if (e.code() == std::error_code(EINVAL, std::system_category())) {
+                report_exception(sprint("Could not open file at %s. Does your filesystem support O_DIRECT?", path), std::current_exception());
+            }
+            throw;
+        }
+    });
+}
 
 future<file> open_file_dma(sstring name, open_flags flags) {
     return engine().open_file_dma(std::move(name), flags);

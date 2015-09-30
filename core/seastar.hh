@@ -138,6 +138,22 @@ future<connected_socket> connect(socket_address sa);
 /// \relates file
 future<file> open_file_dma(sstring name, open_flags flags);
 
+/// Checks if a given directory supports direct io
+///
+/// Seastar bypasses the Operating System caches and issues direct io to the
+/// underlying block devices. Projects using seastar should check if the directory
+/// lies in a filesystem that support such operations. This function can be used
+/// to do that.
+///
+/// It will return if direct io can be used, or throw an std::system_error
+/// exception, with the EINVAL error code.
+///
+/// A std::system_error with the respective error code is also thrown if \ref path is
+/// not a directory.
+///
+/// \param path the directory we need to verify.
+future<> check_direct_io_support(sstring path);
+
 /// Opens a directory.
 ///
 /// \param name name of the directory to open
