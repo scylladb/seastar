@@ -176,10 +176,12 @@ class output_stream final {
     size_t _begin = 0;
     size_t _end = 0;
     bool _trim_to_size = false;
+    future<> _in_batch_flush = make_ready_future<>();
 private:
     size_t available() const { return _end - _begin; }
     size_t possibly_available() const { return _size - _begin; }
     future<> split_and_put(temporary_buffer<CharType> buf);
+    future<> push_out();
 public:
     using char_type = CharType;
     output_stream() = default;
@@ -197,9 +199,9 @@ public:
     future<> write(net::packet p);
     future<> write(scattered_message<char_type> msg);
     future<> flush();
-    future<> close() { return flush().then([this] { return _fd.close(); }); }
+    void batch_flush();
+    future<> close() { return _in_batch_flush.then([this] { return flush().then([this] { return _fd.close(); }); }); }
 private:
 };
-
 
 #include "iostream-impl.hh"

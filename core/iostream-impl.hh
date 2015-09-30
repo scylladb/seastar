@@ -202,7 +202,7 @@ output_stream<CharType>::write(const char_type* buf, size_t n) {
             _end = _size;
             temporary_buffer<char> tmp = _fd.allocate_buffer(n - now);
             std::copy(buf + now, buf + n, tmp.get_write());
-            return flush().then([this, tmp = std::move(tmp)]() mutable {
+            return push_out().then([this, tmp = std::move(tmp)]() mutable {
                 if (_trim_to_size) {
                     return split_and_put(std::move(tmp));
                 } else {
@@ -240,15 +240,30 @@ output_stream<CharType>::write(const char_type* buf, size_t n) {
 
 template <typename CharType>
 future<>
-output_stream<CharType>::flush() {
-    auto last = make_ready_future<>();
+output_stream<CharType>::push_out() {
     if (_end) {
         _buf.trim(_end);
         _end = 0;
-        last = _fd.put(std::move(_buf));
+        return _fd.put(std::move(_buf));
+    } else {
+        return make_ready_future<>();
     }
-    return last.then([this] {
+}
+
+template <typename CharType>
+future<>
+output_stream<CharType>::flush() {
+    return push_out().then([this] {
         return _fd.flush();
     });
 }
 
+future<> add_to_flush_poller(output_stream<char>& x);
+
+template <typename CharType>
+void
+output_stream<CharType>::batch_flush() {
+    if (_in_batch_flush.available()) {
+        _in_batch_flush = add_to_flush_poller(*this);
+    }
+}

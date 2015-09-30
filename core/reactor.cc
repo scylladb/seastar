@@ -1190,6 +1190,21 @@ int reactor::run() {
 
     poller sig_poller([&] { return _signals.poll_signal(); } );
     poller aio_poller(std::bind(&reactor::flush_pending_aio, this));
+    poller batch_flush_poller([this] {
+        bool work = _flush_batching.size();
+        while (!_flush_batching.empty()) {
+            auto e = std::move(_flush_batching.front());
+            _flush_batching.pop_front();
+            e.os.flush().then_wrapped([p = std::move(e.done)] (future<> f) mutable {
+                try {
+                    p.set_value(f.get());
+                } catch(...) {
+                    p.set_exception(std::current_exception());
+                }
+            });
+        }
+        return work;
+    });
 
     if (_id == 0) {
        if (_handle_sigint) {
@@ -2292,4 +2307,10 @@ future<> later() {
     return f;
 }
 
+future<> add_to_flush_poller(output_stream<char>& os) {
+    promise<> p;
+    auto f = p.get_future();
+    engine()._flush_batching.emplace_back(reactor::flush_batch_entry{std::move(p), os});
+    return f;
+}
 
