@@ -55,6 +55,7 @@ class listen_options;
 // file.hh
 class file;
 enum class open_flags;
+enum class fs_type;
 
 // Networking API
 
@@ -210,5 +211,10 @@ future<uint64_t> file_size(sstring name);
 /// \param newpath name of link
 ///
 future<> link_file(sstring oldpath, sstring newpath);
+
+/// Return information about the filesystem where a file is located.
+///
+/// \param name name of the file to inspect
+future<fs_type> file_system_at(sstring name);
 
 /// @}

@@ -51,6 +51,18 @@ enum class directory_entry_type {
     socket,
 };
 
+/// Enumeration describing the type of a particular filesystem
+enum class fs_type {
+    other,
+    xfs,
+    ext2,
+    ext3,
+    ext4,
+    btrfs,
+    hfs,
+    tmpfs,
+};
+
 /// A directory entry being listed.
 struct directory_entry {
     /// Name of the file in a directory entry.  Will never be "." or "..".  Only the last component is included.

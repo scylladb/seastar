@@ -22,6 +22,7 @@
 #define __user /* empty */  // for xfs includes, below
 
 #include <sys/syscall.h>
+#include <sys/vfs.h>
 #include "task.hh"
 #include "reactor.hh"
 #include "memory.hh"
@@ -65,6 +66,7 @@
 #endif
 
 #include <linux/falloc.h>
+#include <linux/magic.h>
 
 #ifdef HAVE_OSV
 #include <osv/newpoll.hh>
@@ -687,6 +689,33 @@ reactor::file_size(sstring pathname) {
         return make_ready_future<uint64_t>(sr.extra.st_size);
     });
 }
+
+future<fs_type>
+reactor::file_system_at(sstring pathname) {
+    return _thread_pool.submit<syscall_result_extra<struct statfs>>([pathname] {
+        struct statfs st;
+        auto ret = statfs(pathname.c_str(), &st);
+        return wrap_syscall(ret, st);
+    }).then([] (syscall_result_extra<struct statfs> sr) {
+        static std::unordered_map<long int, fs_type> type_mapper = {
+            { 0x58465342, fs_type::xfs },
+            { EXT2_SUPER_MAGIC, fs_type::ext2 },
+            { EXT3_SUPER_MAGIC, fs_type::ext3 },
+            { EXT4_SUPER_MAGIC, fs_type::ext4 },
+            { BTRFS_SUPER_MAGIC, fs_type::btrfs },
+            { 0x4244, fs_type::hfs },
+            { TMPFS_MAGIC, fs_type::tmpfs },
+        };
+        sr.throw_if_error();
+
+        fs_type ret = fs_type::other;
+        if (type_mapper.count(sr.extra.f_type) != 0) {
+            ret = type_mapper.at(sr.extra.f_type);
+        }
+        return make_ready_future<fs_type>(ret);
+    });
+}
+
 
 future<file>
 reactor::open_directory(sstring name) {
@@ -2207,6 +2236,10 @@ future<> remove_file(sstring pathname) {
 
 future<> rename_file(sstring old_pathname, sstring new_pathname) {
     return engine().rename_file(std::move(old_pathname), std::move(new_pathname));
+}
+
+future<fs_type> file_system_at(sstring name) {
+    return engine().file_system_at(name);
 }
 
 future<uint64_t> file_size(sstring name) {
