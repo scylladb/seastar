@@ -104,6 +104,11 @@ std::vector<cpu> allocate(configuration c) {
     }
     auto mem_per_proc = align_down<size_t>(mem / procs, 2 << 20);
     std::vector<hwloc_cpuset_t> cpu_sets{procs};
+    auto free_cpu_sets = defer([&] {
+        for (auto&& cs : cpu_sets) {
+            hwloc_bitmap_free(cs);
+        }
+    });
     auto root = hwloc_get_root_obj(topology);
 #if HWLOC_API_VERSION >= 0x00010900
     hwloc_distrib(topology, &root, 1, cpu_sets.data(), cpu_sets.size(), INT_MAX, 0);
