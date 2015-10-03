@@ -32,6 +32,8 @@ Then finally:
 ninja-build
 ```
 
+In case there are compilation issues, especially like ```g++: internal compiler error: Killed (program cc1plus)``` try giving more memory to gcc, either by limiting the amount of threads ( -j1 ) and/or allowing at least 4g ram to your machine
+
 ### Building seastar on Fedora 20
 
 Installing GCC 4.9 for gnu++1y:
