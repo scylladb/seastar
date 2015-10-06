@@ -515,7 +515,7 @@ with open(buildfile, 'w') as f:
             command = ragel -G2 -o $out $in
             description = RAGEL $out
         rule gen
-            command = echo -e $text > $out
+            command = /bin/echo -e $text > $out
             description = GEN $out
         rule swagger
             command = json/json2code.py -f $in -o $out
