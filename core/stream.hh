@@ -190,7 +190,7 @@ template <typename E>
 inline
 void
 stream<T...>::set_exception(E ex) {
-    _sub->_done.set_exception(ex);
+    _done.set_exception(ex);
 }
 
 template <typename... T>
