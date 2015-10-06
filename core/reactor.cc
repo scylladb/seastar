@@ -737,6 +737,17 @@ reactor::make_directory(sstring name) {
 }
 
 future<>
+reactor::touch_directory(sstring name) {
+    return engine()._thread_pool.submit<syscall_result<int>>([name = std::move(name)] {
+        return wrap_syscall<int>(::mkdir(name.c_str(), S_IRWXU));
+    }).then([] (syscall_result<int> sr) {
+        if (sr.error != EEXIST) {
+            sr.throw_if_error();
+        }
+    });
+}
+
+future<>
 posix_file_impl::flush(void) {
     ++engine()._fsyncs;
     return engine()._thread_pool.submit<syscall_result<int>>([this] {
@@ -2201,15 +2212,7 @@ future<> make_directory(sstring name) {
 }
 
 future<> touch_directory(sstring name) {
-    return make_directory(name).then_wrapped([] (future<> f) {
-        try {
-            f.get();
-        } catch (std::system_error& e) {
-            if (e.code() != std::error_code(EEXIST, std::system_category())) {
-                throw;
-            }
-        }
-    });
+    return engine().touch_directory(std::move(name));
 }
 
 /// \cond internal
