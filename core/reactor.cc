@@ -2215,13 +2215,8 @@ future<> touch_directory(sstring name) {
     return engine().touch_directory(std::move(name));
 }
 
-/// \cond internal
-future<> do_flush_directory(sstring name) {
-    if (name.empty()) {
-        return make_ready_future<>();
-    }
-
-    return open_directory(name).then([] (file f) {
+future<> sync_directory(sstring name) {
+    return open_directory(std::move(name)).then([] (file f) {
         return do_with(std::move(f), [] (file& f) {
             return f.flush().then([&f] () mutable {
                 return f.close();
@@ -2247,7 +2242,11 @@ future<> do_recursive_touch_directory(sstring base, sstring name) {
         // created. Technically speaking, we only need to touch when we did
         // create. But flushing the unchanged ones should be cheap enough - and
         // it simplifies the code considerably.
-        return do_flush_directory(base);
+        if (base.empty()) {
+            return make_ready_future<>();
+        }
+
+        return sync_directory(base);
     });
 }
 /// \endcond

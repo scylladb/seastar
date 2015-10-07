@@ -197,6 +197,16 @@ future<> touch_directory(sstring name);
 /// This function fsyncs each component created, and is therefore guaranteed to be stable on disk.
 future<> recursive_touch_directory(sstring name);
 
+/// Synchronizes a directory to disk
+///
+/// Makes sure the modifications in a directory are synchronized in disk.
+/// This is useful, for instance, after creating or removing a file inside the
+/// directory.
+///
+/// \param name name of the directory to potentially create
+future<> sync_directory(sstring name);
+
+
 /// Removes (unlinks) a file.
 ///
 /// \param name name of the file to remove
