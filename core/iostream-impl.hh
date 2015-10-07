@@ -264,6 +264,11 @@ template <typename CharType>
 void
 output_stream<CharType>::batch_flush() {
     if (_in_batch_flush.available()) {
-        _in_batch_flush = add_to_flush_poller(*this);
+        if (!_in_batch_flush.failed()) {
+            // do not destroy exceptional future
+            // the stream is in error state and cannot be used
+            // any more, so just skip adding it to the poller
+            _in_batch_flush = add_to_flush_poller(*this);
+        }
     }
 }

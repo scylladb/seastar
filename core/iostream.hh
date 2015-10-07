@@ -200,7 +200,7 @@ public:
     future<> write(scattered_message<char_type> msg);
     future<> flush();
     void batch_flush();
-    future<> close() { return _in_batch_flush.then([this] { return flush().then([this] { return _fd.close(); }); }); }
+    future<> close() { return _in_batch_flush.then([this] { return flush(); }).finally([this] { return _fd.close(); }); }
 private:
 };
 
