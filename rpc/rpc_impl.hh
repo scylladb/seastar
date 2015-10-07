@@ -627,19 +627,18 @@ protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& pro
         });
     }).finally([this] {
         this->_error = true;
-        future<> f = make_ready_future<>();
-        if (_connected) {
-            _connected = false; // prevent running shutdown() on this
-            f = this->_write_buf.close();
-        } else {
+        auto need_close = _connected;
+        if (!_connected) {
             this->_connected_promise.set_exception(closed_error());
         }
-        f.then_wrapped([this] (future<> f){
-            this->_output_ready.then_wrapped([this] (future<> f) {
-                this->_stopped.set_value();
-                f.ignore_ready_future();
-                this->_outstanding.clear();
-            });
+        _connected = false; // prevent running shutdown() on this
+        this->_output_ready.then_wrapped([this, need_close] (future<> f) {
+            f.ignore_ready_future();
+            return need_close ? this->_write_buf.close() : make_ready_future<>();
+        }).then_wrapped([this] (future<> f) {
+            f.ignore_ready_future();
+            this->_stopped.set_value();
+            this->_outstanding.clear();
         });
     });
 }
