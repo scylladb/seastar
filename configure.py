@@ -343,7 +343,7 @@ deps = {
     'tests/udp_client': ['tests/udp_client.cc'] + core + libnet,
     'tests/tcp_server': ['tests/tcp_server.cc'] + core + libnet,
     'tests/tcp_client': ['tests/tcp_client.cc'] + core + libnet,
-    'apps/seawreck/seawreck': ['apps/seawreck/seawreck.cc', 'apps/seawreck/http_response_parser.rl'] + core + libnet,
+    'apps/seawreck/seawreck': ['apps/seawreck/seawreck.cc', 'http/http_response_parser.rl'] + core + libnet,
     'tests/blkdiscard_test': ['tests/blkdiscard_test.cc'] + core,
     'tests/sstring_test': ['tests/sstring_test.cc'] + core,
     'tests/httpd': ['tests/httpd.cc'] + http + core + boost_test_lib,

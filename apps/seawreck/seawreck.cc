@@ -19,7 +19,7 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#include "apps/seawreck/http_response_parser.hh"
+#include "http/http_response_parser.hh"
 #include "core/print.hh"
 #include "core/reactor.hh"
 #include "core/app-template.hh"
