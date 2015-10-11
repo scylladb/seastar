@@ -389,9 +389,11 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
         // note: apply is executed asynchronously with regards to networking so we cannot chain futures here by doing "return apply()"
         apply(func, client->info(), WantClientInfo(), signature(), std::move(args)).then_wrapped(
                 [client, msg_id] (futurize_t<typename signature::ret_type> ret) {
-            client->out_ready() = client->out_ready().then([client, msg_id, ret = std::move(ret)] () mutable {
-                return reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, *client);
-            });
+            if (!client->error()) {
+                client->out_ready() = client->out_ready().then([client, msg_id, ret = std::move(ret)] () mutable {
+                    return reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, *client);
+                });
+            }
         });
     };
 }
@@ -571,14 +573,22 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
                 this->_error = true;
             }
         });
-    }).finally([this, conn_ptr = this->shared_from_this()] () {
+    }).finally([this] {
+        this->_error = true;
+        return this->out_ready().then_wrapped([this] (future<> f) {
+            f.ignore_ready_future();
+            return this->_write_buf.close();
+        }).then_wrapped([this] (future<> f) {
+            f.ignore_ready_future();
+            if (!this->_server._stopping) {
+                // if server is stopping do not remove connection
+                // since it may invalidate _conns iterators
+                this->_server._conns.erase(this);
+            }
+            this->_stopped.set_value();
+        });
+    }).finally([conn_ptr = this->shared_from_this()] {
         // hold onto connection pointer until do_until() exists
-        if (!this->_server._stopping) {
-            // if server is stopping do not remove connection
-            // since it may invalidate _conns iterators
-            this->_server._conns.erase(this);
-        }
-        this->_stopped.set_value();
     });
 }
 

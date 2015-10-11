@@ -85,7 +85,6 @@ public:
             client_info _info;
         public:
             connection(server& s, connected_socket&& fd, socket_address&& addr, protocol& proto);
-            ~connection() { this->_output_ready.ignore_ready_future(); }
             future<> process();
             future<> respond(int64_t msg_id, sstring&& data);
             auto& info() { return _info; }
