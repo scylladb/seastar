@@ -176,7 +176,8 @@ namespace resource {
 
 std::vector<cpu> allocate(configuration c) {
     auto available_memory = ::sysconf(_SC_PAGESIZE) * size_t(::sysconf(_SC_PHYS_PAGES));
-    available_memory -= c.reserve_memory.value_or(256 << 20);
+    auto default_reserve_memory = std::max<size_t>(1 << 30, 0.05 * available_memory);
+    available_memory -= c.reserve_memory.value_or(default_reserve_memory);
     size_t mem = c.total_memory.value_or(available_memory);
     if (mem > available_memory) {
         throw std::runtime_error("insufficient physical memory");
