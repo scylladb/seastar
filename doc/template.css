@@ -1,0 +1,109 @@
+/* CSS style for Seastar's tutorial.
+ * TODO: We also get some style for syntax highlighting inserted by our
+ * use of "highlight-style tango" in configure.py. Perhaps we can insert
+ * this style here too, for finer control.
+ */
+
+/* Some defaults */
+body {
+	color: #000000;
+	background: #FFFFFF;
+	font-size: 13pt;
+	line-height: 1.10;
+	font-family: arial, sans-serif; 
+	margin-left: 15pt;
+	margin-right: 15pt;
+	text-align: justify;
+}
+
+/* Pandoc puts the title, author and date, if any, in its own div id="header".
+*/
+div#header {
+	border-top: 1px solid #aaa;
+	border-bottom: 1px solid #aaa;
+	background: #F0F0C0;	
+	margin: 10pt;
+	margin-left: 10%;
+	margin-right: 10%;
+}
+
+/* The title is in an h1.title, in the above div#header */
+.title {
+	color: #000000;
+	margin: 5pt;
+	text-align: center;
+	font-family: serif;
+	font-weight: bold;
+	font-size: 32pt;
+}
+/* The author/date are h2.author and h3.date */
+.author, .date {
+	color: #000000;
+	margin: 0pt;
+	text-align: center;
+	font-family: serif;
+	font-weight: normal;
+	font-size: 16pt;
+}
+
+/* table of contents is in div id="TOC" */
+div#TOC {
+	border-top: 1px solid #aaa;
+	border-bottom: 1px solid #aaa;
+	background: #F9F9F9;
+	margin: 10pt;
+	margin-left: 20%;
+	margin-right: 20%;
+}
+
+
+h1, h2, h3, h4, h5, h6 {
+	color: #EE3300;
+}
+
+a {
+	text-decoration: none;
+}
+a:link, a:visited {
+	color: #0000CC;	
+}
+a:hover {
+	color: #CC0000;
+	text-decoration: underline;
+}
+
+
+/* code snippets. The "code" elements hold individual lines, the "pre" holds everything */
+code, pre {
+    background-color: #fdf7ee;
+    background-color: #f8f8f8;
+
+    /* BEGIN word wrap */
+    /* Need all the following to word wrap instead of scroll box */
+    /* This will override the overflow:auto if present */
+    white-space: pre-wrap; /* css-3 */
+    white-space: -moz-pre-wrap !important; /* Mozilla, since 1999 */
+    white-space: -pre-wrap; /* Opera 4-6 */
+    white-space: -o-pre-wrap; /* Opera 7 */
+    word-wrap: break-word; /* Internet Explorer 5.5+ */
+    /* END word wrap */
+    }
+
+pre {
+    padding: 0.5em;
+    border: 1px dotted #777;
+    margin-left:  15pt;
+    margin-right: 15pt;
+}
+
+/* Fix stuff for printing, in case somebody tries to print the HTML instead
+ * of getting a PDF and printing that. For example, too big fonts and big
+ * margins may be a waste of paper.
+ * buttondown.css has a nice trick for replacing links with the actual text
+ * of the URL - might be nice to copy it one day.
+ */
+@media print {
+	body { font-size: 11pt; }
+	a  { color: black; background: transparent; }
+    	pre { border: 1px solid #aaa; }
+}

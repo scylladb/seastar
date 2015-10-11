@@ -619,5 +619,13 @@ with open(buildfile, 'w') as f:
             command = find -name '*.[chS]' -o -name "*.cc" -o -name "*.hh" | cscope -bq -i-
             description = CSCOPE
         build cscope: cscope
+        rule md2html
+            command = pandoc --self-contained --toc -c doc/template.css -V documentclass=report --chapters --number-sections -f markdown_github+pandoc_title_block --highlight-style tango $in -o $out
+            description = PANDOC $out
+        rule md2pdf
+            command = pandoc -f markdown_github+pandoc_title_block --highlight-style tango --template=doc/template.tex $in -o $out
+            description = PANDOC $out
+        build doc/tutorial.html: md2html doc/tutorial.md
+        build doc/tutorial.pdf: md2pdf doc/tutorial.md
         default {modes_list}
         ''').format(modes_list = ' '.join(build_modes), **globals()))

@@ -1,0 +1,71 @@
+% The pandoc command line (see configure.py) can communicate variables to this
+% LaTeX skelaton, by using the "-V varname=value" command line parameter, and
+% there are also some builtin variables defined by other options. With such a
+% variable, we can use "$varname$" for the value, and $if(varname)$...$endif$
+% for conditional code when this varname is defined.
+%
+% For an example of a more complete LaTeX template covering more of pandoc's
+% features, check out the example templates/default.latex in pandoc's
+% installation, or pandoc.org/demo/mytemplate.tex on their site.
+
+\documentclass[11]{article}
+\usepackage[a4paper, margin=1in]{geometry}
+\usepackage{lmodern}
+\usepackage{microtype}
+
+% Nice header with document's name and section name, and footer
+% with page number.
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\lhead{\itshape Seastar}
+\chead{}
+\rhead{\itshape{\nouppercase{\leftmark}}}
+\lfoot{}
+\cfoot{}
+\rfoot{\thepage}
+
+$if(highlighting-macros)$
+$highlighting-macros$
+$endif$
+
+% Support links in PDF files
+\usepackage[]{hyperref}
+\hypersetup{breaklinks=true,
+            bookmarks=true, % show bookmark bar (i.e, TOC sidebar) in PDF viewer
+	    pdfstartview=FitH, % cause Adobe Acrobat to do "fit to width"
+            pdfauthor={ScyllaDB},
+            pdftitle={Asynchronous Programming with Seastar},
+            colorlinks=true,  % if false, uses boxed links
+            urlcolor=blue,    % color of external links
+            linkcolor=magenta % color of internal links (to other sections)
+}
+
+% Indentation went out of style with Disco music... It is especially
+% inconvenient in text which includes a lot of code snippets, etc, which
+% causes a lot of indents not preceeded by a text paragraph. So replace
+% the indentation with increased spacing between paragraphs. Note that this
+% also makes the TOC more spacious, I'm not sure it's a great idea.
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt plus 2pt minus 1pt}
+
+% Fancy-formatted title, but take the author list and date (if set) from the
+% preable in the markdown file.
+\title{\textbf{\fontsize{0.75cm}{1.5em}\selectfont Asynchronous Programming} \\ \textbf{\fontsize{0.75cm}{1.5em}\selectfont with} \\ \textbf{\fontsize{3cm}{1.5em}\selectfont Seastar}}
+\author{$for(author)$$author$$sep$ \and $endfor$}
+\date{$date$}
+
+\begin{document}
+\maketitle
+
+% Table of contents, before the body of the document. Make the TOC clickable,
+% with links to the respective sections, but override the internal link color
+% set above (magenta) by normal black color, because the entire TOC being in
+% a different color looks rather conspicuous.
+{
+\hypersetup{linkcolor=black}
+\tableofcontents
+}
+
+$body$
+
+\end{document}
