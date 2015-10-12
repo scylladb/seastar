@@ -540,6 +540,11 @@ bool reactor::process_io()
     return n;
 }
 
+posix_file_impl::posix_file_impl(int fd)
+        : _fd(fd) {
+    query_dma_alignment();
+}
+
 posix_file_impl::~posix_file_impl() {
     if (_fd != -1) {
         // Note: close() can be a blocking operation on NFS
@@ -597,6 +602,21 @@ posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov) {
         throw_kernel_error(long(ev.res));
         return make_ready_future<size_t>(size_t(ev.res));
     });
+}
+
+inline
+shared_ptr<file_impl>
+make_file_impl(int fd) {
+    auto r = ::ioctl(fd, BLKGETSIZE);
+    if (r != -1) {
+        return make_shared<blockdev_file_impl>(fd);
+    } else {
+        return make_shared<posix_file_impl>(fd);
+    }
+}
+
+file::file(int fd)
+        : _file_impl(make_file_impl(fd)) {
 }
 
 future<file>
@@ -778,6 +798,10 @@ posix_file_impl::truncate(uint64_t length) {
         sr.throw_if_error();
         return make_ready_future<>();
     });
+}
+
+blockdev_file_impl::blockdev_file_impl(int fd)
+        : posix_file_impl(fd) {
 }
 
 future<>
