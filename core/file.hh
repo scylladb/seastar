@@ -77,6 +77,7 @@ struct directory_entry {
 ///
 /// \ref file
 struct file_open_options {
+    uint64_t extent_allocation_size_hint = 1 << 20; ///< Allocate this much disk space when extending the file
 };
 
 /// \cond internal

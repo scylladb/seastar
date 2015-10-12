@@ -621,8 +621,18 @@ file::file(int fd, file_open_options options)
 
 future<file>
 reactor::open_file_dma(sstring name, open_flags flags, file_open_options options) {
-    return _thread_pool.submit<syscall_result<int>>([name, flags] {
-        return wrap_syscall<int>(::open(name.c_str(), O_DIRECT | O_CLOEXEC | static_cast<int>(flags), S_IRWXU));
+    return _thread_pool.submit<syscall_result<int>>([name, flags, options] {
+        int fd = ::open(name.c_str(), O_DIRECT | O_CLOEXEC | static_cast<int>(flags), S_IRWXU);
+        if (fd != -1) {
+            fsxattr attr = {};
+            if (options.extent_allocation_size_hint) {
+                attr.fsx_xflags |= XFS_XFLAG_EXTSIZE;
+                attr.fsx_extsize = options.extent_allocation_size_hint;
+            }
+            // Ignore error; may be !xfs, and just a hint anyway
+            ::ioctl(fd, XFS_IOC_FSSETXATTR, &attr);
+        }
+        return wrap_syscall<int>(fd);
     }).then([options] (syscall_result<int> sr) {
         sr.throw_if_error();
         return make_ready_future<file>(file(sr.result, options));
