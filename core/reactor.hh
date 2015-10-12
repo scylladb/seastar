@@ -812,7 +812,7 @@ public:
 
     future<> write_all(pollable_fd_state& fd, const void* buffer, size_t size);
 
-    future<file> open_file_dma(sstring name, open_flags flags);
+    future<file> open_file_dma(sstring name, open_flags flags, file_open_options options = {});
     future<file> open_directory(sstring name);
     future<> make_directory(sstring name);
     future<> touch_directory(sstring name);

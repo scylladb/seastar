@@ -540,7 +540,7 @@ bool reactor::process_io()
     return n;
 }
 
-posix_file_impl::posix_file_impl(int fd)
+posix_file_impl::posix_file_impl(int fd, file_open_options options)
         : _fd(fd) {
     query_dma_alignment();
 }
@@ -606,26 +606,26 @@ posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov) {
 
 inline
 shared_ptr<file_impl>
-make_file_impl(int fd) {
+make_file_impl(int fd, file_open_options options) {
     auto r = ::ioctl(fd, BLKGETSIZE);
     if (r != -1) {
-        return make_shared<blockdev_file_impl>(fd);
+        return make_shared<blockdev_file_impl>(fd, options);
     } else {
-        return make_shared<posix_file_impl>(fd);
+        return make_shared<posix_file_impl>(fd, options);
     }
 }
 
-file::file(int fd)
-        : _file_impl(make_file_impl(fd)) {
+file::file(int fd, file_open_options options)
+        : _file_impl(make_file_impl(fd, options)) {
 }
 
 future<file>
-reactor::open_file_dma(sstring name, open_flags flags) {
+reactor::open_file_dma(sstring name, open_flags flags, file_open_options options) {
     return _thread_pool.submit<syscall_result<int>>([name, flags] {
         return wrap_syscall<int>(::open(name.c_str(), O_DIRECT | O_CLOEXEC | static_cast<int>(flags), S_IRWXU));
-    }).then([] (syscall_result<int> sr) {
+    }).then([options] (syscall_result<int> sr) {
         sr.throw_if_error();
-        return make_ready_future<file>(file(sr.result));
+        return make_ready_future<file>(file(sr.result, options));
     });
 }
 
@@ -743,7 +743,7 @@ reactor::open_directory(sstring name) {
         return wrap_syscall<int>(::open(name.c_str(), O_DIRECTORY | O_CLOEXEC | O_RDONLY));
     }).then([] (syscall_result<int> sr) {
         sr.throw_if_error();
-        return make_ready_future<file>(file(sr.result));
+        return make_ready_future<file>(file(sr.result, file_open_options()));
     });
 }
 
@@ -800,8 +800,8 @@ posix_file_impl::truncate(uint64_t length) {
     });
 }
 
-blockdev_file_impl::blockdev_file_impl(int fd)
-        : posix_file_impl(fd) {
+blockdev_file_impl::blockdev_file_impl(int fd, file_open_options options)
+        : posix_file_impl(fd, options) {
 }
 
 future<>
@@ -2218,7 +2218,11 @@ future<> check_direct_io_support(sstring path) {
 }
 
 future<file> open_file_dma(sstring name, open_flags flags) {
-    return engine().open_file_dma(std::move(name), flags);
+    return engine().open_file_dma(std::move(name), flags, file_open_options());
+}
+
+future<file> open_file_dma(sstring name, open_flags flags, file_open_options options) {
+    return engine().open_file_dma(std::move(name), flags, options);
 }
 
 future<file> open_directory(sstring name) {
