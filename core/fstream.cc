@@ -104,15 +104,6 @@ class file_data_sink_impl : public data_sink_impl {
     file _file;
     file_output_stream_options _options;
     uint64_t _pos = 0;
-    // At offsets < _preallocating_at, preallocation was completed.
-    // At offsets >= _preallocating_at, we may be preallocating
-    // disk space, so all writes must wait until _preallocation_done[i]
-    // becomes ready (in _options.preallocation_size units)
-    // At offsets >= _preallocating_at + _options.preallocation_size *
-    //               _preallocation_done.size(), we have not yet started.
-    uint64_t _preallocating_at = 0;
-    // Each promise vector lists writes that are waiting for a single preallocation
-    circular_buffer<std::vector<promise<>>> _preallocation_done;
     semaphore _write_behind_sem = { _options.write_behind };
     future<> _background_writes_done = make_ready_future<>();
     bool _failed = false;
@@ -182,8 +173,8 @@ private:
             buf_size = buf.size();
             truncate = true;
         }
-        auto prealloc = preallocate(pos, buf.size());
-        return prealloc.then([this, pos, p, buf_size, truncate, buf = std::move(buf)] () mutable {
+
+        {
             return _file.dma_write(pos, p, buf_size).then(
                     [this, buf = std::move(buf), truncate] (size_t size) {
                 if (truncate) {
@@ -191,53 +182,6 @@ private:
                 }
                 return make_ready_future<>();
             });
-        });
-    }
-    future<> preallocate(uint64_t pos, uint64_t size) {
-        auto ret = make_ready_future<>();
-    restart:
-        if (pos + size <= _preallocating_at) {
-            return ret;
-        }
-        auto skip = std::max(_preallocating_at, pos) - pos;
-        pos += skip;
-        size -= skip;
-        size_t idx = (pos - _preallocating_at) / _options.preallocation_size;
-        while (size) {
-            if (idx == _preallocation_done.size()) {
-                start_new_preallocation();
-                // May have caused _preallocating_at to change, so redo the loop
-                goto restart;
-            }
-            _preallocation_done[idx].emplace_back();
-            auto this_prealloc_done = _preallocation_done[idx].back().get_future();
-            ret = when_all(std::move(ret), std::move(this_prealloc_done)).discard_result();
-            skip = std::min<uint64_t>(size, _options.preallocation_size);
-            pos += skip;
-            size -= skip;
-            ++idx;
-        }
-        return ret;
-    }
-    void start_new_preallocation() {
-        auto pos = _preallocating_at + _preallocation_done.size() * _options.preallocation_size;
-        _preallocation_done.emplace_back();
-        _file.allocate(pos, _options.preallocation_size).then_wrapped([this, pos] (future<> ret) {
-            complete_preallocation(pos, std::move(ret));
-        });
-    }
-    void complete_preallocation(uint64_t pos, future<> result) {
-        // Preallocation may have failed.  But it's just preallocation,
-        // so we can ignore the result.
-        result.ignore_ready_future();
-        size_t idx = (pos - _preallocating_at) / _options.preallocation_size;
-        for (auto&& pr : _preallocation_done[idx]) {
-            pr.set_value();
-        }
-        _preallocation_done[idx].clear();
-        while (!_preallocation_done.empty() && _preallocation_done.front().empty()) {
-            _preallocation_done.pop_front();
-            _preallocating_at += _options.preallocation_size;
         }
     }
     future<> wait() {
