@@ -75,7 +75,8 @@ struct directory_entry {
 class file_impl {
 public:
     unsigned _memory_dma_alignment = 4096;
-    unsigned _disk_dma_alignment = 4096;
+    unsigned _disk_read_dma_alignment = 4096;
+    unsigned _disk_write_dma_alignment = 4096;
 public:
     virtual ~file_impl() {}
 
@@ -196,9 +197,14 @@ public:
     // we will end up with various pages around, some of them with
     // overlapping ranges. Those would be very challenging to cache.
 
-    /// Alignment requirement for file offsets
-    uint64_t disk_dma_alignment() const {
-        return _file_impl->_disk_dma_alignment;
+    /// Alignment requirement for file offsets (for reads)
+    uint64_t disk_read_dma_alignment() const {
+        return _file_impl->_disk_read_dma_alignment;
+    }
+
+    /// Alignment requirement for file offsets (for writes)
+    uint64_t disk_write_dma_alignment() const {
+        return _file_impl->_disk_write_dma_alignment;
     }
 
     /// Alignment requirement for data buffers
@@ -497,14 +503,14 @@ future<temporary_buffer<CharType>>
 file::dma_read_bulk(uint64_t offset, size_t range_size) {
     using tmp_buf_type = typename read_state<CharType>::tmp_buf_type;
 
-    auto front = offset & (disk_dma_alignment() - 1);
+    auto front = offset & (disk_read_dma_alignment() - 1);
     offset -= front;
     range_size += front;
 
     auto rstate = make_lw_shared<read_state<CharType>>(offset, front,
                                                        range_size,
                                                        memory_dma_alignment(),
-                                                       disk_dma_alignment());
+                                                       disk_read_dma_alignment());
 
     //
     // First, try to read directly into the buffer. Most of the reads will
@@ -560,7 +566,7 @@ file::read_maybe_eof(uint64_t pos, size_t len) {
     // an EINVAL error due to unaligned destination buffer.
     //
     temporary_buffer<CharType> buf = temporary_buffer<CharType>::aligned(
-               memory_dma_alignment(), align_up(len, disk_dma_alignment()));
+               memory_dma_alignment(), align_up(len, disk_read_dma_alignment()));
 
     // try to read a single bulk from the given position
     return dma_read(pos, buf.get_write(), buf.size()).then_wrapped(

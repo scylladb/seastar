@@ -65,7 +65,7 @@ private:
         while (_read_buffers.size() < ra) {
             ++_reads_in_progress;
             // if _pos is not dma-aligned, we'll get a short read.  Account for that.
-            auto now = _options.buffer_size - _pos % _file.disk_dma_alignment();
+            auto now = _options.buffer_size - _pos % _file.disk_read_dma_alignment();
             _read_buffers.push_back(_file.dma_read_bulk<char>(_pos, now).then_wrapped(
                     [this] (future<temporary_buffer<char>> ret) {
                 issue_read_aheads();
@@ -167,15 +167,15 @@ private:
         // put() must usually be of chunks multiple of file::dma_alignment.
         // Only the last part can have an unaligned length. If put() was
         // called again with an unaligned pos, we have a bug in the caller.
-        assert(!(pos & (_file.disk_dma_alignment() - 1)));
+        assert(!(pos & (_file.disk_write_dma_alignment() - 1)));
         bool truncate = false;
         auto p = static_cast<const char*>(buf.get());
         size_t buf_size = buf.size();
 
-        if ((buf.size() & (_file.disk_dma_alignment() - 1)) != 0) {
+        if ((buf.size() & (_file.disk_write_dma_alignment() - 1)) != 0) {
             // If buf size isn't aligned, copy its content into a new aligned buf.
             // This should only happen when the user calls output_stream::flush().
-            auto tmp = allocate_buffer(align_up(buf.size(), _file.disk_dma_alignment()));
+            auto tmp = allocate_buffer(align_up(buf.size(), _file.disk_write_dma_alignment()));
             ::memcpy(tmp.get_write(), buf.get(), buf.size());
             buf = std::move(tmp);
             p = buf.get();
