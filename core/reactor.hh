@@ -741,11 +741,7 @@ private:
     const bool _reuseport;
     circular_buffer<double> _loads;
     double _load = 0;
-    struct flush_batch_entry {
-        promise<> done;
-        output_stream<char>& os;
-    };
-    circular_buffer<flush_batch_entry> _flush_batching;
+    circular_buffer<output_stream<char>* > _flush_batching;
 private:
     static void clear_task_quota(int);
     bool flush_pending_aio();
@@ -902,7 +898,7 @@ private:
     friend class smp;
     friend class smp_message_queue;
     friend class poller;
-    friend future<> add_to_flush_poller(output_stream<char>& os);
+    friend void add_to_flush_poller(output_stream<char>* os);
 public:
     bool wait_and_process() {
         return _backend.wait_and_process();

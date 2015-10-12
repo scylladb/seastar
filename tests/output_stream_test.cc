@@ -72,7 +72,7 @@ future<> assert_split(StreamConstructor stream_maker, std::initializer_list<T> w
     return do_for_each(sh_write_calls->begin(), sh_write_calls->end(), [out, sh_write_calls] (auto&& chunk) {
         return out->write(chunk);
     }).then([out, v, sh_expected_splits] {
-        return out->flush().then([out, v, sh_expected_splits] {
+        return out->close().then([out, v, sh_expected_splits] {
             BOOST_REQUIRE_EQUAL(v->size(), sh_expected_splits->size());
             int i = 0;
             for (auto&& chunk : *sh_expected_splits) {
@@ -125,5 +125,6 @@ SEASTAR_TEST_CASE(test_flush_on_empty_buffer_does_not_push_empty_packet_down_str
 
     return out->flush().then([v, out] {
         BOOST_REQUIRE(v->empty());
-    });
+        return out->close();
+    }).finally([out]{});
 }

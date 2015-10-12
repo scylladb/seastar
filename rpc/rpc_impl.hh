@@ -293,7 +293,7 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
             dst.out_ready() = do_with(std::move(data), [&dst] (sstring& data) {
                 return dst.out_ready().then([&dst, &data] () mutable {
                     return dst.out().write(data).then([&dst] {
-                        dst.out().batch_flush();
+                        return dst.out().flush();
                     });
                 });
             }).finally([&dst] () {
@@ -327,7 +327,7 @@ protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, sstri
     *unaligned_cast<uint64_t*>(p + 8) = net::hton(data.size() - 16);
     return do_with(std::move(data), this->shared_from_this(), [msg_id] (const sstring& data, lw_shared_ptr<protocol<Serializer, MsgType>::server::connection> conn) {
         return conn->out().write(data.begin(), data.size()).then([conn] {
-            conn->out().batch_flush();
+            return conn->out().flush();
         });
     });
 }

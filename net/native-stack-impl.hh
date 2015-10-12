@@ -138,7 +138,7 @@ template <typename Protocol>
 output_stream<char>
 native_connected_socket_impl<Protocol>::output() {
     data_sink ds(std::make_unique<native_data_sink_impl>(_conn));
-    return output_stream<char>(std::move(ds), 8192);
+    return output_stream<char>(std::move(ds), 8192, false, true);
 }
 
 template <typename Protocol>

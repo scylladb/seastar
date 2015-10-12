@@ -186,7 +186,7 @@ output_stream<CharType>::split_and_put(temporary_buffer<CharType> buf) {
 
     auto chunk = buf.share(0, _size);
     buf.trim_front(_size);
-    return _fd.put(std::move(chunk)).then([this, buf = std::move(buf)] () mutable {
+    return put(std::move(chunk)).then([this, buf = std::move(buf)] () mutable {
         return split_and_put(std::move(buf));
     });
 }
@@ -202,11 +202,13 @@ output_stream<CharType>::write(const char_type* buf, size_t n) {
             _end = _size;
             temporary_buffer<char> tmp = _fd.allocate_buffer(n - now);
             std::copy(buf + now, buf + n, tmp.get_write());
-            return push_out().then([this, tmp = std::move(tmp)]() mutable {
+            _buf.trim(_end);
+            _end = 0;
+            return put(std::move(_buf)).then([this, tmp = std::move(tmp)]() mutable {
                 if (_trim_to_size) {
                     return split_and_put(std::move(tmp));
                 } else {
-                    return _fd.put(std::move(tmp));
+                    return put(std::move(tmp));
                 }
             });
         } else {
@@ -215,7 +217,7 @@ output_stream<CharType>::write(const char_type* buf, size_t n) {
             if (_trim_to_size) {
                 return split_and_put(std::move(tmp));
             } else {
-                return _fd.put(std::move(tmp));
+                return put(std::move(tmp));
             }
         }
     }
@@ -234,41 +236,103 @@ output_stream<CharType>::write(const char_type* buf, size_t n) {
         std::copy(buf + now, buf + n, next.get_write());
         _end = n - now;
         std::swap(next, _buf);
-        return _fd.put(std::move(next));
-    }
-}
-
-template <typename CharType>
-future<>
-output_stream<CharType>::push_out() {
-    if (_end) {
-        _buf.trim(_end);
-        _end = 0;
-        return _fd.put(std::move(_buf));
-    } else {
-        return make_ready_future<>();
+        return put(std::move(next));
     }
 }
 
 template <typename CharType>
 future<>
 output_stream<CharType>::flush() {
-    return push_out().then([this] {
-        return _fd.flush();
-    });
+    if (!_batch_flushes) {
+        if (_end) {
+            _buf.trim(_end);
+            _end = 0;
+            return put(std::move(_buf)).then([this] {
+                return _fd.flush();
+            });
+        }
+    } else {
+        if (_ex) {
+            // flush is a good time to deliver outstanding errors
+            return make_exception_future<>(std::move(_ex));
+        } else {
+            _flush = true;
+            if (!_in_batch) {
+                add_to_flush_poller(this);
+                _in_batch = promise<>();
+            }
+        }
+    }
+    return make_ready_future<>();
 }
 
-future<> add_to_flush_poller(output_stream<char>& x);
+void add_to_flush_poller(output_stream<char>* x);
+
+template <typename CharType>
+future<>
+output_stream<CharType>::put(temporary_buffer<CharType> buf) {
+    // if flush is scheduled, disable it, so it will not try to write in parallel
+    _flush = false;
+    if (_flushing) {
+        // flush in progress, wait for it to end before continuing
+        return _in_batch.value().get_future().then([this, buf = std::move(buf)] () mutable {
+            return _fd.put(std::move(buf));
+        });
+    } else {
+        return _fd.put(std::move(buf));
+    }
+}
 
 template <typename CharType>
 void
-output_stream<CharType>::batch_flush() {
-    if (_in_batch_flush.available()) {
-        if (!_in_batch_flush.failed()) {
-            // do not destroy exceptional future
-            // the stream is in error state and cannot be used
-            // any more, so just skip adding it to the poller
-            _in_batch_flush = add_to_flush_poller(*this);
-        }
+output_stream<CharType>::poll_flush() {
+    if (!_flush) {
+        // flush was canceled, do nothing
+        _flushing = false;
+        _in_batch.value().set_value();
+        _in_batch = std::experimental::nullopt;
+        return;
     }
+
+    auto f = make_ready_future();
+    _flush = false;
+    _flushing = true; // make whoever wants to write into the fd to wait for flush to complete
+
+    if (_end) {
+        // send whatever is in the buffer right now
+        _buf.trim(_end);
+        _end = 0;
+        f = _fd.put(std::move(_buf));
+    }
+
+    f.then([this] {
+        return _fd.flush();
+    }).then_wrapped([this] (future<> f) {
+        try {
+            f.get();
+        } catch (...) {
+            _ex = std::current_exception();
+        }
+        // if flush() was called while flushing flush once more
+        poll_flush();
+    });
+}
+
+template <typename CharType>
+future<>
+output_stream<CharType>::close() {
+    return flush().then([this] {
+        if (_in_batch) {
+            return _in_batch.value().get_future();
+        } else {
+            return make_ready_future();
+        }
+    }).then([this] {
+        // report final exception as close error
+        if (_ex) {
+            std::rethrow_exception(_ex);
+        }
+    }).finally([this] {
+        return _fd.close();
+    });
 }

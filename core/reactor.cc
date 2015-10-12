@@ -1204,15 +1204,9 @@ int reactor::run() {
     poller batch_flush_poller([this] {
         bool work = _flush_batching.size();
         while (!_flush_batching.empty()) {
-            auto e = std::move(_flush_batching.front());
+            auto os = std::move(_flush_batching.front());
             _flush_batching.pop_front();
-            e.os.flush().then_wrapped([p = std::move(e.done)] (future<> f) mutable {
-                try {
-                    p.set_value(f.get());
-                } catch(...) {
-                    p.set_exception(std::current_exception());
-                }
-            });
+            os->poll_flush();
         }
         return work;
     });
@@ -2309,10 +2303,7 @@ future<> later() {
     return f;
 }
 
-future<> add_to_flush_poller(output_stream<char>& os) {
-    promise<> p;
-    auto f = p.get_future();
-    engine()._flush_batching.emplace_back(reactor::flush_batch_entry{std::move(p), os});
-    return f;
+void add_to_flush_poller(output_stream<char>* os) {
+    engine()._flush_batching.emplace_back(os);
 }
 
