@@ -49,8 +49,9 @@
 #include <linux/types.h> // for xfs, below
 #include <sys/ioctl.h>
 #include <xfs/linux.h>
-#include <xfs/xfs_types.h>
-#include <xfs/xfs_fs.h>
+#define min min    /* prevent xfs.h from defining min() as a macro */
+#include <xfs/xfs.h>
+#undef min
 #ifdef HAVE_DPDK
 #include <core/dpdk_rte.hh>
 #include <rte_lcore.h>
