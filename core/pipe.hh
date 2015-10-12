@@ -70,6 +70,13 @@ public:
     }
 };
 
+class unread_overflow_exception : public std::exception {
+public:
+    virtual const char* what() const noexcept {
+        return "pipe_reader::unread() overflow";
+    }
+};
+
 /// \cond internal
 namespace internal {
 template <typename T>
@@ -127,6 +134,7 @@ template <typename T>
 class pipe_reader {
 private:
     internal::pipe_buffer<T> *_bufp;
+    std::experimental::optional<T> _unread;
     pipe_reader(internal::pipe_buffer<T> *bufp) : _bufp(bufp) { }
     friend class pipe<T>;
 public:
@@ -137,11 +145,31 @@ public:
     /// is an optional<T>, which is disengaged to mark and end of file
     /// (i.e., the write side was closed, and we've read everything it sent).
     future<std::experimental::optional<T>> read() {
+        if (_unread) {
+            auto&& ret = std::move(*_unread);
+            _unread = {};
+            return make_ready_future<std::experimental::optional<T>>(ret);
+        }
         if (_bufp->readable()) {
             return _bufp->read();
         } else {
             return make_ready_future<std::experimental::optional<T>>();
         }
+    }
+    /// \brief Return an item to the front of the pipe
+    ///
+    /// Pushes the given item to the front of the pipe, so it will be
+    /// returned by the next read() call. The typical use case is to
+    /// unread() the last item returned by read().
+    /// More generally, it is legal to unread() any item, not just one
+    /// previously returned by read(), but note that the unread() is limited
+    /// to just one item - two calls to unread() without an intervening call
+    /// to read() will cause an exception.
+    void unread(T&& item) {
+        if (_unread) {
+            throw unread_overflow_exception();
+        }
+        _unread = std::move(item);
     }
     ~pipe_reader() {
         if (_bufp && _bufp->close_read()) {
