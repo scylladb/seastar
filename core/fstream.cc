@@ -174,15 +174,13 @@ private:
             truncate = true;
         }
 
-        {
-            return _file.dma_write(pos, p, buf_size).then(
-                    [this, buf = std::move(buf), truncate] (size_t size) {
-                if (truncate) {
-                    return _file.truncate(_pos);
-                }
-                return make_ready_future<>();
-            });
-        }
+        return _file.dma_write(pos, p, buf_size).then(
+                [this, buf = std::move(buf), truncate] (size_t size) {
+            if (truncate) {
+                return _file.truncate(_pos);
+            }
+            return make_ready_future<>();
+        });
     }
     future<> wait() {
         return _write_behind_sem.wait(_options.write_behind).then([this] {
