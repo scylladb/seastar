@@ -71,6 +71,15 @@ struct directory_entry {
     std::experimental::optional<directory_entry_type> type;
 };
 
+/// File open options
+///
+/// Options used to configure an open file.
+///
+/// \ref file
+struct file_open_options {
+    uint64_t extent_allocation_size_hint = 1 << 20; ///< Allocate this much disk space when extending the file
+};
+
 /// \cond internal
 class file_impl {
 public:
@@ -99,9 +108,7 @@ public:
 class posix_file_impl : public file_impl {
 public:
     int _fd;
-    posix_file_impl(int fd) : _fd(fd) {
-        query_dma_alignment();
-    }
+    posix_file_impl(int fd, file_open_options options);
     virtual ~posix_file_impl() override;
     future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len);
     future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov);
@@ -121,23 +128,12 @@ private:
 
 class blockdev_file_impl : public posix_file_impl {
 public:
-    blockdev_file_impl(int fd) : posix_file_impl(fd) {}
+    blockdev_file_impl(int fd, file_open_options options);
     future<> truncate(uint64_t length) override;
     future<> discard(uint64_t offset, uint64_t length) override;
     future<size_t> size(void) override;
     virtual future<> allocate(uint64_t position, uint64_t length) override;
 };
-
-inline
-shared_ptr<file_impl>
-make_file_impl(int fd) {
-    auto r = ::ioctl(fd, BLKGETSIZE);
-    if (r != -1) {
-        return make_shared<blockdev_file_impl>(fd);
-    } else {
-        return make_shared<posix_file_impl>(fd);
-    }
-}
 
 /// \endcond
 
@@ -153,8 +149,7 @@ make_file_impl(int fd) {
 class file {
     shared_ptr<file_impl> _file_impl;
 private:
-    explicit file(int fd) : _file_impl(make_file_impl(fd)) {}
-
+    explicit file(int fd, file_open_options options);
 public:
     /// Default constructor constructs an uninitialized file object.
     ///
