@@ -554,7 +554,10 @@ posix_file_impl::query_dma_alignment() {
     auto r = ioctl(_fd, XFS_IOC_DIOINFO, &da);
     if (r == 0) {
         _memory_dma_alignment = da.d_mem;
-        _disk_dma_alignment = da.d_miniosz;
+        _disk_read_dma_alignment = da.d_miniosz;
+        // xfs wants at least the block size for writes
+        // FIXME: really read the block size
+        _disk_write_dma_alignment = std::max<unsigned>(da.d_miniosz, 4096);
     }
 }
 
