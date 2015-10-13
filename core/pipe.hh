@@ -146,9 +146,9 @@ public:
     /// (i.e., the write side was closed, and we've read everything it sent).
     future<std::experimental::optional<T>> read() {
         if (_unread) {
-            auto&& ret = std::move(*_unread);
+            auto ret = std::move(*_unread);
             _unread = {};
-            return make_ready_future<std::experimental::optional<T>>(ret);
+            return make_ready_future<std::experimental::optional<T>>(std::move(ret));
         }
         if (_bufp->readable()) {
             return _bufp->read();
