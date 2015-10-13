@@ -321,7 +321,7 @@ output_stream<CharType>::poll_flush() {
 template <typename CharType>
 future<>
 output_stream<CharType>::close() {
-    return flush().then([this] {
+    return flush().finally([this] {
         if (_in_batch) {
             return _in_batch.value().get_future();
         } else {
