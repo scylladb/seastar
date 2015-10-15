@@ -24,6 +24,23 @@
 
 #include "semaphore.hh"
 
+/// \cond internal
+// lock / unlock semantics for rwlock, so it can be used with with_lock()
+class rwlock;
+struct rwlock_for_read {
+    future<> lock();
+    void unlock();
+    friend class rwlock;
+};
+
+struct rwlock_for_write {
+    future<> lock();
+    void unlock();
+    friend class rwlock;
+};
+/// \endcond
+
+
 /// \addtogroup fiber-module
 /// @{
 
@@ -33,13 +50,27 @@
 /// fibers running in the same CPU that may use the same resource.
 /// Acquiring the write lock will effectively cause all readers not to be executed
 /// until the write part is done.
-class rwlock {
+class rwlock : private rwlock_for_read, rwlock_for_write {
     static const size_t max_ops = std::numeric_limits<size_t>::max();
 
     semaphore _sem;
 public:
     rwlock()
             : _sem(max_ops) {
+    }
+
+    /// Cast this rwlock into read lock object with lock semantics appropriate to be used
+    /// by "with_lock". The resulting object will have lock / unlock calls that, when called,
+    /// will acquire / release the lock in read mode.
+    rwlock_for_read& for_read() {
+        return *this;
+    }
+
+    /// Cast this rwlock into write lock object with lock semantics appropriate to be used
+    /// by "with_lock". The resulting object will have lock / unlock calls that, when called,
+    /// will acquire / release the lock in write mode.
+    rwlock_for_write& for_write() {
+        return *this;
     }
 
     /// Acquires this lock in read mode. Many readers are allowed, but when
@@ -80,7 +111,28 @@ public:
     bool try_write_lock() {
         return _sem.try_wait(max_ops);
     }
+    friend class rwlock_for_read;
+    friend class rwlock_for_write;
 };
+
+/// \cond internal
+inline future<> rwlock_for_read::lock() {
+    return static_cast<rwlock*>(this)->read_lock();
+}
+
+inline void rwlock_for_read::unlock() {
+    static_cast<rwlock*>(this)->read_unlock();
+}
+
+inline future<> rwlock_for_write::lock() {
+    return static_cast<rwlock*>(this)->write_lock();
+}
+
+inline void rwlock_for_write::unlock() {
+    static_cast<rwlock*>(this)->write_unlock();
+}
+/// \endcond
+
 /// @}
 }
 #endif /* CORE_RWLOCK_HH_ */
