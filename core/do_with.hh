@@ -65,6 +65,21 @@ cherry_pick_tuple(std::index_sequence<Idx...>, Tuple&& tuple) {
 }
 /// \endcond
 
+/// Executes the function \c func making sure the lock \c lock is taken,
+/// and later on properly released.
+///
+/// \param lock the lock, which is any object having providing a lock() / unlock() semantics.
+///        Caller must make sure that it outlives \ref func.
+/// \param func function to be executed
+/// \returns whatever \c func returns
+template<typename Lock, typename Func>
+inline
+auto with_lock(Lock& lock, Func&& func) {
+    return lock.lock().then([func = std::forward<Func>(func)] {
+        return func();
+    }).finally([&lock] { lock.unlock(); });
+}
+
 /// Multiple argument variant of \ref do_with(T&& rvalue, F&& f).
 ///
 /// This is the same as \ref do_with(T&& tvalue, F&& f), but accepts
