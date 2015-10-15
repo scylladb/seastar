@@ -24,6 +24,15 @@
 
 #include "semaphore.hh"
 
+/// \addtogroup fiber-module
+/// @{
+
+/// Implements a read-write lock mechanism. Beware: this is not a cross-CPU
+/// lock, due to seastar's sharded architecture.
+/// Instead, it can be used to achieve rwlock semantics between two (or more)
+/// fibers running in the same CPU that may use the same resource.
+/// Acquiring the write lock will effectively cause all readers not to be executed
+/// until the write part is done.
 class rwlock {
     static const size_t max_ops = std::numeric_limits<size_t>::max();
 
@@ -33,24 +42,45 @@ public:
             : _sem(max_ops) {
     }
 
+    /// Acquires this lock in read mode. Many readers are allowed, but when
+    /// this future returns, and until \ref read_unlock is called, all fibers
+    /// waiting on \ref write_lock are guaranteed not to execute.
     future<> read_lock() {
         return _sem.wait();
     }
+
+    /// Releases the lock, which must have been taken in read mode. After this
+    /// is called, one of the fibers waiting on \ref write_lock will be allowed
+    /// to proceed.
     void read_unlock() {
         _sem.signal();
     }
+
+    /// Acquires this lock in write mode. Only one writer is allowed. When
+    /// this future returns, and until \ref write_unlock is called, all other
+    /// fibers waiting on either \ref read_lock or \ref write_lock are guaranteed
+    /// not to execute.
     future<> write_lock() {
         return _sem.wait(max_ops);
     }
+
+    /// Releases the lock, which must have been taken in write mode. After this
+    /// is called, one of the other fibers waiting on \ref write_lock or the fibers
+    /// waiting on \ref read_lock will be allowed to proceed.
     void write_unlock() {
         _sem.signal(max_ops);
     }
+
+    /// Tries to acquire the lock in read mode iff this can be done without waiting.
     bool try_read_lock() {
         return _sem.try_wait();
     }
+
+    /// Tries to acquire the lock in write mode iff this can be done without waiting.
     bool try_write_lock() {
         return _sem.try_wait(max_ops);
     }
 };
-
+/// @}
+}
 #endif /* CORE_RWLOCK_HH_ */
