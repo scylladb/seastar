@@ -134,5 +134,5 @@ inline void rwlock_for_write::unlock() {
 /// \endcond
 
 /// @}
-}
+
 #endif /* CORE_RWLOCK_HH_ */
