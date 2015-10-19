@@ -38,7 +38,7 @@ void eal::init(cpuset cpus, boost::program_options::variables_map opts)
 
     // TODO: Inherit these from the app parameters - "opts"
     std::vector<std::vector<char>> args {
-        string2vector("dpdk_args"),
+        string2vector(opts["argv0"].as<std::string>()),
         string2vector("-c"), string2vector(mask.str()),
         string2vector("-n"), string2vector("1")
     };

@@ -105,6 +105,7 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
         std::cout << _opts << "\n";
         return 1;
     }
+    configuration.emplace("argv0", boost::program_options::variable_value(std::string(av[0]), false));
     smp::configure(configuration);
     _configuration = {std::move(configuration)};
     engine().when_started().then([this] {
