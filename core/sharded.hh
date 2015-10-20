@@ -39,7 +39,9 @@ class async_sharded_service : public enable_shared_from_this<T> {
 protected:
     std::function<void()> _delete_cb;
     ~async_sharded_service() {
-        _delete_cb();
+        if (_delete_cb) {
+            _delete_cb();
+        }
     }
     template <typename Service> friend class sharded;
 };
