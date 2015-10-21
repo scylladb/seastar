@@ -1305,6 +1305,8 @@ public:
                     return conn->_proto.handle(conn->_in, conn->_out).then([conn] {
                         return conn->_out.flush();
                     });
+                }).finally([conn] {
+                    return conn->_out.close().finally([conn]{});
                 });
             });
         }).or_terminate();
