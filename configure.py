@@ -98,6 +98,9 @@ def try_compile_and_run(compiler, flags, source, env = {}):
         xfile.file.close()
         if subprocess.call([compiler, '-x', 'c++', '-o', xfile.name, sfile.name] + flags,
                             stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL) != 0:
+            # The compiler may delete the target on failure, and lead to
+            # NamedTemporaryFile's destructor throwing an exception.
+            open(xfile.name, 'a').close()
             return False
         e = os.environ.copy()
         e.update(env)
