@@ -785,7 +785,7 @@ future<>
 posix_file_impl::flush(void) {
     ++engine()._fsyncs;
     return engine()._thread_pool.submit<syscall_result<int>>([this] {
-        return wrap_syscall<int>(::fsync(_fd));
+        return wrap_syscall<int>(::fdatasync(_fd));
     }).then([] (syscall_result<int> sr) {
         sr.throw_if_error();
         return make_ready_future<>();
