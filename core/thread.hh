@@ -252,7 +252,7 @@ async(Func&& func, Args&&... args) {
         promise<return_type> pr;
         thread th;
     };
-    return do_with(work{std::forward<Func>(func), std::forward_as_tuple(std::forward<Args>(args)...)}, [] (work& w) {
+    return do_with(work{std::forward<Func>(func), std::forward_as_tuple(std::forward<Args>(args)...)}, [] (work& w) mutable {
         auto ret = w.pr.get_future();
         w.th = thread([&w] {
             futurize<return_type>::apply(std::move(w.func), std::move(w.args)).forward_to(std::move(w.pr));
