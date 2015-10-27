@@ -351,9 +351,11 @@ public:
                 should_close = true;
             }
             sstring url = set_query_param(*req.get());
+            sstring version = req->_version;
             return _server._routes.handle(url, std::move(req), std::move(resp)).
             // Caller guarantees enough room
-            then([this, should_close](std::unique_ptr<reply> rep) {
+            then([this, should_close, version = std::move(version)](std::unique_ptr<reply> rep) {
+                rep->set_version(version).done();
                 this->_replies.push(std::move(rep));
                 return make_ready_future<bool>(should_close);
             });
