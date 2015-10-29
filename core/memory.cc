@@ -338,6 +338,7 @@ struct cpu_pages {
     ~cpu_pages();
 };
 
+constexpr unsigned cpu_pages::min_free_pages;
 static thread_local cpu_pages cpu_mem;
 std::atomic<unsigned> cpu_pages::cpu_id_gen;
 cpu_pages* cpu_pages::all_cpus[max_cpus];
