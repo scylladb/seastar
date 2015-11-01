@@ -35,7 +35,6 @@
 #include "core/memory.hh"
 
 static constexpr uint16_t SLAB_MAGIC_NUMBER = 0x51AB; // meant to be 'SLAB' :-)
-typedef uint64_t uintptr_t;
 
 namespace bi = boost::intrusive;
 
