@@ -83,11 +83,20 @@ public:
         class connection : public protocol::connection, public enable_lw_shared_from_this<connection> {
             server& _server;
             client_info _info;
+            stats _stats;
         public:
             connection(server& s, connected_socket&& fd, socket_address&& addr, protocol& proto);
             future<> process();
             future<> respond(int64_t msg_id, sstring&& data);
-            auto& info() { return _info; }
+            client_info& info() { return _info; }
+            const client_info& info() const { return _info; }
+            stats get_stats() const {
+                return _stats;
+            }
+
+            stats& get_stats_internal() {
+                return _stats;
+            }
         };
     private:
         protocol& _proto;
@@ -106,7 +115,13 @@ public:
                     return conn->stop();
                 })
             ).discard_result();
-    }
+        }
+        template<typename Func>
+        void foreach_connection(Func&& f) {
+            for (auto c : _conns) {
+                f(*c);
+            }
+        }
         friend connection;
     };
 

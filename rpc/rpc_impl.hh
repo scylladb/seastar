@@ -334,6 +334,7 @@ protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, sstri
 
 template<typename Serializer, typename MsgType, typename... RetTypes>
 inline future<> reply(wait_type, future<RetTypes...>&& r, int64_t msgid, typename protocol<Serializer, MsgType>::server::connection& client) {
+    client.get_stats_internal().sent_messages++;
     try {
         auto&& data = r.get();
         auto str = ::apply(marshall<Serializer, const RetTypes&...>,
@@ -391,7 +392,10 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
                 [client, msg_id] (futurize_t<typename signature::ret_type> ret) {
             if (!client->error()) {
                 client->out_ready() = client->out_ready().then([client, msg_id, ret = std::move(ret)] () mutable {
-                    return reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, *client);
+                    client->get_stats_internal().pending++;
+                    return reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, *client).finally([client]() {
+                        client->get_stats_internal().pending--;
+                    });
                 });
             }
         });
