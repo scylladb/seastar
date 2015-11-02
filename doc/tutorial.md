@@ -416,9 +416,113 @@ Talk about polling that we currently do, and how today even sleep() or waiting f
 
 # Introducing Seastar's network stack
 
-Mention that our main mode of operation is to take a L2 (Ethernet) interface (vhost or dpdk) and on top of it we built (in Seastar itself) an L3 interface (TCP/IP). Start to give examples of connect, read, write, temporary-buffer, etc.
+TODO: Mention the two modes of operation: Posix and native (i.e., take a L2 (Ethernet) interface (vhost or dpdk) and on top of it we built (in Seastar itself) an L3 interface (TCP/IP)).
 
-# Distributed
+We begin with a simple example of a TCP network server written in Seastar. This server repeatedly accepts connections on TCP port 1234, and returns an empty response:
+
+```cpp
+#include "core/seastar.hh"
+#include "core/reactor.hh"
+#include "core/future-util.hh"
+#include <iostream>
+
+future<> f() {
+    return do_with(listen(make_ipv4_address({1234})), [] (auto& listener) {
+        return keep_doing([&listener] () {
+            return listener.accept().then(
+                [] (connected_socket s, socket_address a) {
+                    std::cout << "Accepted connection from " << a << "\n";
+                });
+        });
+    });
+}
+```
+
+This code works as follows:
+1. The ```listen()``` call creates a ```server_socket``` object, ```listener```, which listens on TCP port 1234 (on any network interface).
+2. To handle one connection, we call ```listener```'s  ```accept()``` method. This method returns a ```future<connected_socket, socket_address>```, i.e., is eventually resolved with an incoming TCP connection from a client (```connected_socket```) and the client's IP address and port (```socket_address```).
+3. To repeateadly accept new connections, we use the ```keep_doing()``` loop idiom. ```keep_doing()``` runs its lambda parameter over and over, starting the next iteration as soon as the future returned by the previous iteration completes. The iterations only stop if an exception is encountered. The future returned by ```keep_doing()``` itself completes only when the iteration stops (i.e., only on exception).
+4. We use ```do_with()``` to ensure that the listener socket lives throughout the loop.
+
+Output from this server looks like the following example:
+
+```
+$ ./a.out -c1
+Accepted connection from 127.0.0.1:47578
+Accepted connection from 127.0.0.1:47582
+...
+```
+
+Note how we ran this Seastar application on a single thread, using the ```-c1``` option. Unintuitively, this options is actually necessary for running this program, as it will *not* work correctly if started on multiple threads. To understand why, we need to understand how Seastar's network stacks works on multiple threads:
+
+For optimum performance, Seastar's network stack is sharded just like Seastar applications are: each shard (thread) takes responsibility for a different subset of the connections. In other words, each incoming connection is directed to one of the threads, and after a connection is established, it continues to be handled on the same thread. But in our example, our server code only runs on the first thread, and the result is that only some of the connections (those which are randomly directed to thread 0) will get serviced properly, and other connections attempts will be ignored.
+
+If you run the above example server immediately after killing the previous server, it often fails to start again, complaining that that:
+
+```
+$ ./a.out -c1
+program failed with uncaught exception: bind: Address already in use
+```
+
+This happens because by default, Seastar refuses to reuse the local port if there are any vestiges of old connections using that port. In our silly server, because the server is the side which first closes the connection, each connection lingers for a while in the "```TIME_WAIT```" state after being closed, and these prevent ```listen()``` on the same port for succeeding. Luckily, we can give listen an option to work despite these remaining ```TIME_WAIT```. This option is analogous to ```socket(7)```'s ```SO_REUSEADDR``` option:
+
+```cpp
+    listen_options lo;
+    lo.reuse_address = true;
+    return do_with(listen(make_ipv4_address({1234}), lo), [] (auto& listener) {
+```
+
+Most servers will always turn on this ```reuse_address``` listen option. Stevens' book "Unix Network Programming" even says that "All TCP servers should specify this socket option to allow the server to be restarted". Therefore in the future Seastar should probably default to this option being on --- even if for historic reasons this is not the default in Linux's socket API.
+
+Let's advance our example server by outputting some canned response to each connection, instead of closing each connection immediately with an empty reply.
+
+```cpp
+#include "core/seastar.hh"
+#include "core/reactor.hh"
+#include "core/future-util.hh"
+#include <iostream>
+
+const char* canned_response = "Seastar is the future!\n";
+
+future<> f() {
+    listen_options lo;
+    lo.reuse_address = true;
+    return do_with(listen(make_ipv4_address({1234}), lo), [] (auto& listener) {
+        return keep_doing([&listener] () {
+            return listener.accept().then(
+                [] (connected_socket s, socket_address a) {
+                    auto out = s.output();
+                    return do_with(std::move(s), std::move(out),
+                        [] (auto& s, auto& out) {
+                            return out.write(canned_response).then([&out] {
+                                return out.close();
+			    });
+		    });
+	        });
+        });
+    });
+}
+```
+
+The new part of this code begins by taking the ```connected_socket```'s ```output()```, which returns an ```output_stream<char>``` object. On this output stream ```out``` we can write our response using the ```write()``` method. The simple-looking ```write()``` operation is in fact a complex asyncrhonous operation behind the scenes,  possibly causing multiple packets to be sent, retransmitted, etc., as needed. ```write()``` returns a future saying when it is ok to ```write()``` again to this output stream; This does not necessarily guarantee that the remote peer received all the data we sent it, but it guarantees that the output stream has enough buffer space to allow another write to begin.
+
+
+After ```write()```ing the response to ```out```, the example code calls ```out.close()``` and waits for the future it returns. This is necessary, because ```write()``` attempts to batch writes so might not have yet written anything to the TCP stack at this point, and only when close() concludes can we be sure that all the data we wrote to the output stream has actually reached the TCP stack --- and only at this point we may finally dispose of the ```out``` and ```s``` objects.
+
+Indeed, this server returns the expected response:
+
+```
+$ telnet localhost 1234
+...
+Seastar is the future!
+Connection closed by foreign host.
+```
+
+
+TODO: because separate do_with of s and out is ugly, it might make sense to keep one connection object holding both (as well as input we'll use below). This is what most of our test code does.  Also, the example code above is ugly pyramid style. Think how it can be converted to longer but less indented code, perhaps by adding more functions or using shared_ptr or something. Could we change the API so we don't need to save both s and out? Couldn't s save out?
+
+TODO: next step: also show read and temporary-buffer. Show tcp echo server.
+TODO: talk about parallelism - the above does not accept a new connection until the previous connection was closed. Show how simple it is to change this to start the write in parallel and not wait for it.
 
 # User-defined command-line options
 # Debugging a Seastar program
