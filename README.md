@@ -90,15 +90,6 @@ sudo apt-get install gcc-4.9-multilib g++-4.9-multilib
 To compile Seastar explicitly using gcc 4.9, use:
 ```
 ./configure.py --compiler=g++-4.9
-```
-
-To compile OSv explicitly using gcc 4.9, use:
-```
-make CC=gcc-4.9 CXX=g++-4.9 -j 24
-```
-
-Then finally:
-```
 ninja
 ```
 
