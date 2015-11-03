@@ -22,6 +22,20 @@
 #include "resource.hh"
 #include "core/align.hh"
 
+namespace resource {
+
+size_t calculate_memory(configuration c, size_t available_memory) {
+    auto default_reserve_memory = std::max<size_t>(1 << 30, 0.05 * available_memory);
+    available_memory -= c.reserve_memory.value_or(default_reserve_memory);
+    size_t mem = c.total_memory.value_or(available_memory);
+    if (mem > available_memory) {
+        throw std::runtime_error("insufficient physical memory");
+    }
+    return mem;
+}
+
+}
+
 #ifdef HAVE_HWLOC
 
 #include "util/defer.hh"
@@ -92,11 +106,7 @@ std::vector<cpu> allocate(configuration c) {
     assert(hwloc_get_nbobjs_by_depth(topology, machine_depth) == 1);
     auto machine = hwloc_get_obj_by_depth(topology, machine_depth, 0);
     auto available_memory = machine->memory.total_memory;
-    available_memory -= c.reserve_memory.value_or(256 << 20);
-    size_t mem = c.total_memory.value_or(available_memory);
-    if (mem > available_memory) {
-        throw std::runtime_error("insufficient physical memory");
-    }
+    size_t mem = calculate_memory(c, available_memory);
     unsigned available_procs = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
     unsigned procs = c.cpus.value_or(available_procs);
     if (procs > available_procs) {
@@ -176,12 +186,7 @@ namespace resource {
 
 std::vector<cpu> allocate(configuration c) {
     auto available_memory = ::sysconf(_SC_PAGESIZE) * size_t(::sysconf(_SC_PHYS_PAGES));
-    auto default_reserve_memory = std::max<size_t>(1 << 30, 0.05 * available_memory);
-    available_memory -= c.reserve_memory.value_or(default_reserve_memory);
-    size_t mem = c.total_memory.value_or(available_memory);
-    if (mem > available_memory) {
-        throw std::runtime_error("insufficient physical memory");
-    }
+    auto mem = calculate_memory(c, available_memory);
     auto cpuset_procs = c.cpu_set ? c.cpu_set->size() : nr_processing_units();
     auto procs = c.cpus.value_or(cpuset_procs);
     std::vector<cpu> ret;
