@@ -169,6 +169,23 @@ input_stream<CharType>::consume(Consumer& consumer) {
     }
 }
 
+template <typename CharType>
+future<temporary_buffer<CharType>>
+input_stream<CharType>::read() {
+    using tmp_buf = temporary_buffer<CharType>;
+    if (_eof) {
+        return make_ready_future<tmp_buf>();
+    }
+    if (_buf.empty()) {
+        return _fd.get().then([this] (tmp_buf buf) {
+            _eof = buf.empty();
+            return make_ready_future<tmp_buf>(std::move(buf));
+        });
+    } else {
+        return make_ready_future<tmp_buf>(std::move(_buf));
+    }
+}
+
 // Writes @buf in chunks of _size length. The last chunk is buffered if smaller.
 template <typename CharType>
 future<>

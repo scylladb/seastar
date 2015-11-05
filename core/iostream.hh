@@ -143,6 +143,9 @@ public:
     template <typename Consumer>
     future<> consume(Consumer& c);
     bool eof() { return _eof; }
+    /// Returns some data from the stream, or an empty buffer on end of
+    /// stream.
+    future<tmp_buf> read();
     /// Detaches the \c input_stream from the underlying data source.
     ///
     /// Waits for any background operations (for example, read-ahead) to
