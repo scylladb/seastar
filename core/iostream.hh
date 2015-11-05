@@ -207,6 +207,7 @@ public:
 
     future<> write(net::packet p);
     future<> write(scattered_message<char_type> msg);
+    future<> write(temporary_buffer<char_type>);
     future<> flush();
     future<> close();
 private:

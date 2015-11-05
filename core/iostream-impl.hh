@@ -72,6 +72,23 @@ future<> output_stream<CharType>::write(net::packet p) {
     });
 }
 
+template<typename CharType>
+future<> output_stream<CharType>::write(temporary_buffer<CharType> p) {
+    if (p.empty()) {
+        return make_ready_future<>();
+    }
+    assert(!_end && "Mixing buffered writes and zero-copy writes not supported yet");
+    if (!_trim_to_size || p.size() <= _size) {
+        // TODO: aggregate buffers for later coalescing.
+        return _fd.put(std::move(p));
+    }
+    auto head = p.share(0, _size);
+    p.trim_front(_size);
+    return _fd.put(std::move(head)).then([this, p = std::move(p)] () mutable {
+        return write(std::move(p));
+    });
+}
+
 template <typename CharType>
 future<temporary_buffer<CharType>>
 input_stream<CharType>::read_exactly_part(size_t n, tmp_buf out, size_t completed) {
