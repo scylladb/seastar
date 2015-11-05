@@ -151,14 +151,14 @@ reactor::signals::~signals() {
 
 reactor::signals::signal_handler::signal_handler(int signo, std::function<void ()>&& handler)
         : _handler(std::move(handler)) {
-    auto mask = make_sigset_mask(signo);
-    auto r = ::sigprocmask(SIG_UNBLOCK, &mask, NULL);
-    throw_system_error_on(r == -1);
     struct sigaction sa;
     sa.sa_sigaction = action;
     sa.sa_mask = make_empty_sigset_mask();
     sa.sa_flags = SA_SIGINFO | SA_RESTART;
-    r = ::sigaction(signo, &sa, nullptr);
+    auto r = ::sigaction(signo, &sa, nullptr);
+    throw_system_error_on(r == -1);
+    auto mask = make_sigset_mask(signo);
+    r = ::sigprocmask(SIG_UNBLOCK, &mask, NULL);
     throw_system_error_on(r == -1);
 }
 
@@ -223,6 +223,11 @@ reactor::reactor()
 #ifdef HAVE_OSV
     _timer_thread.start();
 #else
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, alarm_signal());
+    r = ::sigprocmask(SIG_BLOCK, &mask, NULL);
+    assert(r == 0);
     struct sigevent sev;
     sev.sigev_notify = SIGEV_THREAD_ID;
     sev._sigev_un._tid = syscall(SYS_gettid);
@@ -232,11 +237,6 @@ reactor::reactor()
     sev.sigev_signo = task_quota_signal();
     r = timer_create(CLOCK_REALTIME, &sev, &_task_quota_timer);
     assert(r >= 0);
-    sigset_t mask;
-    sigemptyset(&mask);
-    sigaddset(&mask, alarm_signal());
-    r = ::sigprocmask(SIG_BLOCK, &mask, NULL);
-    assert(r == 0);
     sigemptyset(&mask);
     sigaddset(&mask, task_quota_signal());
     r = ::sigprocmask(SIG_UNBLOCK, &mask, NULL);
