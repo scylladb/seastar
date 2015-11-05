@@ -1019,6 +1019,8 @@ void promise<T...>::abandoned() noexcept(move_noexcept) {
         assert(_state->available() || !_task);
         _future->_local_state = std::move(*_state);
         _future->_promise = nullptr;
+    } else if (_state && _state->failed()) {
+        report_failed_future(_state->get_exception());
     }
 }
 
