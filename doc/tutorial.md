@@ -518,8 +518,65 @@ Seastar is the future!
 Connection closed by foreign host.
 ```
 
+In the above example we only saw writing to the socket. Real servers will also want to read from the socket. The ```connected_socket```'s ```input()``` method returns an ```input_stream<char>``` object which can be used to read from the socket. The simplest way to read from this stream is using the ```read()``` method which returns a future ```temporary_buffer<char>```, containing some more bytes read from the socket --- or an empty buffer when the remote end shut down the connection.
 
-TODO: because separate do_with of s and out is ugly, it might make sense to keep one connection object holding both (as well as input we'll use below). This is what most of our test code does.  Also, the example code above is ugly pyramid style. Think how it can be converted to longer but less indented code, perhaps by adding more functions or using shared_ptr or something. Could we change the API so we don't need to save both s and out? Couldn't s save out?
+```temporary_buffer<char>``` is a convenient and safe way to pass around byte buffers that are only needed temporarily (e.g., while processing a request). As soon as this object goes out of scope (by normal return, or exception), the memory it holds gets automatically freed. Ownership of buffer can also be transferred by ```std::move()```ing it. We'll discuss ```temporary_buffer``` in more details in a later section.
+
+Let's look at a simple example server involving both reads an writes. This is a simple echo server, as described in RFC 862: The server listens for connections from the client, and once a connection is established, any data received is simply sent back - until the client closes the connection.
+
+```cpp
+#include "core/seastar.hh"
+#include "core/reactor.hh"
+#include "core/future-util.hh"
+
+future<> handle_connection(connected_socket s, socket_address a) {
+    auto out = s.output();
+    auto in = s.input();
+    return do_with(std::move(s), std::move(out), std::move(in),
+        [] (auto& s, auto& out, auto& in) {
+            return repeat([&out, &in] {
+                return in.read().then([&out] (auto buf) {
+                    if (buf) {
+                        return out.write(std::move(buf)).then([] {
+                            return stop_iteration::no;
+                        });
+                    } else {
+                        return make_ready_future<stop_iteration>(stop_iteration::yes);
+                    }
+                });
+            }).then([&out] {
+                return out.close();
+            });
+        });
+}
+
+future<> f() {
+    listen_options lo;
+    lo.reuse_address = true;
+    return do_with(listen(make_ipv4_address({1234}), lo), [] (auto& listener) {
+        return keep_doing([&listener] () {
+            return listener.accept().then(
+                [] (connected_socket s, socket_address a) {
+                    // Note we ignore, not return, the future returned by
+                    // handle_connection(), so we do not wait for one
+                    // connection to be handled before accepting the next one.
+                    handle_connection(std::move(s), std::move(a));
+                });
+        });
+    });
+}
+
+```
+
+The main function ```f()``` loops accepting new connections, and for each connection calls ```handle_connection()``` to handle this connection. Our ```handle_connection()``` returns a future saying when handling this connection completed, but importantly, we do ***not*** wait for this future: Remember that ```keep_doing``` will only start the next iteration when the future returned by the previous iteration is resolved. Because we want to allow parallel ongoing connections, we don't want the next ```accept()``` to wait until the previously accepted connection was closed. So we call ```handle_connection()``` to start the handling of the connection, but return nothing from the continuation, which resolves that future immediately, so ```keep_doing``` will continue to the next ```accept()```.
+
+This demonstrates how easy it is to run parallel _fibers_ (chains of continuations) in Seastar - When a continuation runs an asynchronous function but ignores the future it returns, the asynchronous operation continues in parallel, but never waited for.
+
+It is often a mistake to silently ignore an exception, so if the future we're ignoring might resolve with an except, it is recommended to handle this case, e.g. using a ```handle_exception()``` continuation. In our case, a failed connection is fine (e.g., the client might close its connection will we're sending it output), so we did not bother to handle the exception.
+
+The ```handle_connection()``` function itself is straightforward --- it repeatedly calls ```read()``` read on the input stream, to receive a ```temporary_buffer``` with some data, and then moves this temporary buffer into a ```write()``` call on the output stream. The buffer will eventually be freed, automatically, when the ```write()``` is done with it. When ```read()``` eventually returns an empty buffer signifying the end of input, we stop ```repeat```'s iteration by returning a ```stop_iteration::yes```.
+
+# Sharded servers
 
 TODO: next step: also show read and temporary-buffer. Show tcp echo server.
 TODO: talk about parallelism - the above does not accept a new connection until the previous connection was closed. Show how simple it is to change this to start the write in parallel and not wait for it.
