@@ -39,6 +39,7 @@ struct stats {
     counter_type exception_received = 0;
     counter_type sent_messages = 0;
     counter_type wait_reply = 0;
+    counter_type timeout = 0;
 };
 
 

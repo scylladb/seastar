@@ -177,6 +177,7 @@ public:
             struct timeout_handler : reply_handler_base {
                 virtual void operator()(client& client, id_type msg_id, temporary_buffer<char> data) {}
             };
+            _stats.timeout++;
             _outstanding[id]->timeout();
             _outstanding[id] = std::make_unique<timeout_handler>();
         }
