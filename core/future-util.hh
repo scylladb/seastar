@@ -87,12 +87,10 @@ parallel_for_each(Iterator begin, Iterator end, Func&& func) {
             ++state.waiting;
             try {
                 func(*begin++).then_wrapped([&] (future<> f) {
-                    try {
-                        f.get();
-                    } catch (...) {
+                    if (f.failed()) {
                         // We can only store one exception.  For more, use when_all().
                         if (!state.ex) {
-                            state.ex = std::move(std::current_exception());
+                            state.ex = f.get_exception();
                         }
                     }
                     state.complete();
@@ -146,11 +144,10 @@ void do_until_continued(StopCondition&& stop_cond, AsyncAction&& action, promise
             if (!f.available()) {
                 f.then_wrapped([action = std::forward<AsyncAction>(action),
                     stop_cond = std::forward<StopCondition>(stop_cond), p = std::move(p)](std::result_of_t<AsyncAction()> fut) mutable {
-                    try {
-                        fut.get();
+                    if (!fut.failed()) {
                         do_until_continued(stop_cond, std::forward<AsyncAction>(action), std::move(p));
-                    } catch(...) {
-                        p.set_exception(std::current_exception());
+                    } else {
+                        p.set_exception(fut.get_exception());
                     }
                 });
                 return;

@@ -713,6 +713,11 @@ public:
         return state()->get();
     }
 
+    [[gnu::always_inline]]
+     std::exception_ptr get_exception() {
+        return get_available_state().get_exception();
+    }
+
     /// Gets the value returned by the computation.
     ///
     /// Similar to \ref get(), but instead of returning a
@@ -878,27 +883,33 @@ public:
         return then_wrapped([func = std::forward<Func>(func)](future<T...> result) mutable {
             using futurator = futurize<std::result_of_t<Func()>>;
             return futurator::apply(std::forward<Func>(func)).then_wrapped([result = std::move(result)](auto f_res) mutable {
-                try {
-                    f_res.get(); // force excepion if one
+                if (!f_res.failed()) {
                     return std::move(result);
-                } catch (...) {
-                    //
-                    // Encapsulate the current exception into the
-                    // std::nested_exception because the current libstdc++
-                    // implementation has a bug requiring the value of a
-                    // std::throw_with_nested() parameter to be of a polymorphic
-                    // type.
-                    //
-                    std::nested_exception f_ex;
-                    //
-                    // Consume the "result" future and throw a nested exception
-                    // if both futures are exceptional.
-                    //
-                    try{
-                        result.get();
-                        return make_exception_future<T...>(std::current_exception());
-                    } catch(...){
-                        std::throw_with_nested(f_ex);
+                } else {
+                    if (!result.failed()) {
+                        return make_exception_future<T...>(f_res.get_exception());
+                    } else {
+                        // both exception are failed we need to construct nested exception
+                        // so we will have to re-throw
+                        try {
+                            f_res.get();
+                        } catch(...) {
+                            //
+                            // Encapsulate the current exception into the
+                            // std::nested_exception because the current libstdc++
+                            // implementation has a bug requiring the value of a
+                            // std::throw_with_nested() parameter to be of a polymorphic
+                            // type.
+                            //
+                            std::nested_exception f_ex;
+
+                            try {
+                                result.get();
+                            } catch (...) {
+                                std::throw_with_nested(f_ex);
+                            }
+                        }
+                        assert(0 && "we should not be here");
                     }
                 }
             });
@@ -945,11 +956,10 @@ public:
         using func_ret = std::result_of_t<Func(std::exception_ptr)>;
         return then_wrapped([func = std::forward<Func>(func)]
                              (auto&& fut) -> future<T...> {
-            try {
+            if (!fut.failed()) {
                 return make_ready_future<T...>(fut.get());
-            } catch (...) {
-                return futurize<func_ret>::apply(
-                        func, std::current_exception());
+            } else {
+                return futurize<func_ret>::apply(func, fut.get_exception());
             }
         });
     }
