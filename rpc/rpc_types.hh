@@ -24,6 +24,7 @@
 #include "net/api.hh"
 #include <stdexcept>
 #include <string>
+#include <boost/any.hpp>
 
 namespace rpc {
 
@@ -45,6 +46,21 @@ struct stats {
 
 struct client_info {
     socket_address addr;
+    std::unordered_map<sstring, boost::any> user_data;
+    template <typename T>
+    void attach_auxiliary(const sstring& key, T&& object) {
+        user_data.emplace(key, boost::any(std::forward<T>(object)));
+    }
+    template <typename T>
+    T& retrieve_auxiliary(const sstring& key) {
+        auto it = user_data.find(key);
+        assert(it != user_data.end());
+        return boost::any_cast<T&>(it->second);
+    }
+    template <typename T>
+    typename std::add_const<T>::type& retrieve_auxiliary(const sstring& key) const {
+        return const_cast<client_info*>(this)->retrieve_auxiliary<typename std::add_const<T>::type>(key);
+    }
 };
 
 class error : public std::runtime_error {
