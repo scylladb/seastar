@@ -58,6 +58,15 @@ struct signature<Ret (const client_info&, In...)> {
     using want_client_info = do_want_client_info;
 };
 
+template <typename Ret, typename... In>
+struct signature<Ret (client_info&, In...)> {
+    using ret_type = Ret;
+    using arg_types = std::tuple<In...>;
+    using clean = signature<Ret (In...)>;
+    using want_client_info = do_want_client_info;
+};
+
+
 template <typename T>
 struct wait_signature {
     using type = wait_type;
@@ -88,15 +97,15 @@ using wait_signature_t = typename wait_signature<T>::type;
 template <typename... In>
 inline
 std::tuple<In...>
-maybe_add_client_info(dont_want_client_info, const client_info& ci, std::tuple<In...>&& args) {
+maybe_add_client_info(dont_want_client_info, client_info& ci, std::tuple<In...>&& args) {
     return std::move(args);
 }
 
 template <typename... In>
 inline
-std::tuple<std::reference_wrapper<const client_info>, In...>
-maybe_add_client_info(do_want_client_info, const client_info& ci, std::tuple<In...>&& args) {
-    return std::tuple_cat(std::make_tuple(std::cref(ci)), std::move(args));
+std::tuple<std::reference_wrapper<client_info>, In...>
+maybe_add_client_info(do_want_client_info, client_info& ci, std::tuple<In...>&& args) {
+    return std::tuple_cat(std::make_tuple(std::ref(ci)), std::move(args));
 }
 
 template <bool IsSmartPtr>
@@ -424,11 +433,16 @@ template<typename Ret, typename First, typename... Args>
 struct handler_type_helper<Ret, First, Args...> {
     using type = Ret(First, Args...);
     static constexpr bool info = false;
-    static_assert(!std::is_same<client_info&, First>::value, "reference to client_info has to be const");
 };
 
 template<typename Ret, typename... Args>
 struct handler_type_helper<Ret, const client_info&, Args...> {
+    using type = Ret(Args...);
+    static constexpr bool info = true;
+};
+
+template<typename Ret, typename... Args>
+struct handler_type_helper<Ret, client_info&, Args...> {
     using type = Ret(Args...);
     static constexpr bool info = true;
 };
