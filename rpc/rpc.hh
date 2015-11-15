@@ -84,6 +84,9 @@ public:
             server& _server;
             client_info _info;
             stats _stats;
+        private:
+            future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
+            read_request_frame(input_stream<char>& in);
         public:
             connection(server& s, connected_socket&& fd, socket_address&& addr, protocol& proto);
             future<> process();
@@ -153,6 +156,10 @@ public:
     private:
         std::unordered_map<id_type, std::unique_ptr<reply_handler_base>> _outstanding;
         stats _stats;
+        ipv4_addr _server_addr;
+    private:
+        future<int64_t, std::experimental::optional<temporary_buffer<char>>>
+        read_response_frame(input_stream<char>& in);
     public:
         client(protocol& proto, ipv4_addr addr, ipv4_addr local = ipv4_addr());
 
@@ -229,6 +236,13 @@ public:
     void log(const client_info& info, id_type msg_id, const sstring& str) {
         log(to_sstring("client ") + inet_ntoa(info.addr.as_posix_sockaddr_in().sin_addr) + " msg_id " + to_sstring(msg_id) + ": " + str);
     }
+    void log(const client_info& info, const sstring& str) {
+        log(to_sstring("client ") + inet_ntoa(info.addr.as_posix_sockaddr_in().sin_addr) + ": " + str);
+    }
+    void log(ipv4_addr addr, const sstring& str) {
+        log(to_sstring("client ") + inet_ntoa(in_addr{addr.ip}) + ": " + str);
+    }
+
 private:
     void register_receiver(MsgType t, rpc_handler&& handler) {
         _handlers.emplace(t, std::move(handler));
