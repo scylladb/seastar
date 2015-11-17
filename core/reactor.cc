@@ -1824,7 +1824,6 @@ void validate(boost::any& v,
                 throw validation_error(validation_error::invalid_option_value);
             }
             for (auto i = b; i <= e; ++i) {
-                std::cout << "adding " << i << "\n";
                 ret.value.insert(i);
             }
         }
