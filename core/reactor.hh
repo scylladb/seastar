@@ -704,6 +704,7 @@ private:
 #else
     reactor_backend_epoll _backend;
 #endif
+    std::vector<poller> _registered_pollers; // pollers from polling_mode_init()
     std::vector<pollfn*> _pollers;
     static constexpr size_t max_aio = 128;
     std::vector<std::function<future<> ()>> _exit_funcs;
@@ -741,7 +742,14 @@ private:
     const bool _reuseport;
     circular_buffer<double> _loads;
     double _load = 0;
+    bool _idle = false;
+    std::chrono::high_resolution_clock::rep _idle_count = 0;
+    std::chrono::high_resolution_clock::time_point _idle_start;
+    std::chrono::high_resolution_clock::time_point _idle_end;
+    timer<lowres_clock> _load_timer;
     circular_buffer<output_stream<char>* > _flush_batching;
+    struct collectd_registrations;
+    std::unique_ptr<collectd_registrations> _collectd_metrics;
 private:
     static void clear_task_quota(int);
     bool flush_pending_aio();
@@ -830,6 +838,13 @@ public:
     template <typename Func>
     future<io_event> submit_io_write(size_t len, Func prepare_io);
 
+    // perform intialization for polling mode. run() must not be called after
+    int polling_mode_init();
+    // run the next event loop of tasks and pollers
+    bool poll();
+    // clean up state from polling_mode_init()
+    void polling_mode_cleanup();
+
     int run();
     void exit(int ret);
     future<> when_started() { return _start_promise.get_future(); }
@@ -873,7 +888,6 @@ private:
     void register_poller(pollfn* p);
     void unregister_poller(pollfn* p);
     void replace_poller(pollfn* old, pollfn* neww);
-    struct collectd_registrations;
     collectd_registrations register_collectd_metrics();
     future<> write_all_part(pollable_fd_state& fd, const void* buffer, size_t size, size_t completed);
 

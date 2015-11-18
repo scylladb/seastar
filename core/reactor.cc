@@ -1230,16 +1230,21 @@ void reactor::force_poll() {
     _task_quota_finished = true;
 }
 
-int reactor::run() {
-    auto collectd_metrics = register_collectd_metrics();
+int reactor::polling_mode_init() {
+    _collectd_metrics = std::make_unique<collectd_registrations>(
+            register_collectd_metrics());
 
 #ifndef HAVE_OSV
-    poller io_poller([&] { return process_io(); });
+    // io poller
+    _registered_pollers.emplace_back([&] { return process_io(); });
 #endif
 
-    poller sig_poller([&] { return _signals.poll_signal(); } );
-    poller aio_poller(std::bind(&reactor::flush_pending_aio, this));
-    poller batch_flush_poller([this] {
+    // sig poller
+    _registered_pollers.emplace_back([&] { return _signals.poll_signal(); } );
+    // aio poller
+    _registered_pollers.emplace_back(std::bind(&reactor::flush_pending_aio, this));
+    // batch flush poller
+    _registered_pollers.emplace_back([this] {
         bool work = _flush_batching.size();
         while (!_flush_batching.empty()) {
             auto os = std::move(_flush_batching.front());
@@ -1271,9 +1276,8 @@ int reactor::run() {
     });
 
     // Register smp queues poller
-    std::experimental::optional<poller> smp_poller;
     if (smp::count > 1) {
-        smp_poller = poller(smp::poll_queues);
+        _registered_pollers.emplace_back(smp::poll_queues);
     }
 
 #ifndef HAVE_OSV
@@ -1286,11 +1290,12 @@ int reactor::run() {
     });
 #endif
 
-    poller drain_cross_cpu_freelist([] {
+    _registered_pollers.emplace_back([] {
         return memory::drain_cross_cpu_freelist();
     });
 
-    poller expire_lowres_timers([this] {
+    // expire lowres timers
+    _registered_pollers.emplace_back([this] {
         if (_lowres_next_timeout == lowres_clock::time_point()) {
             return false;
         }
@@ -1309,14 +1314,12 @@ int reactor::run() {
     });
 
     using namespace std::chrono_literals;
-    timer<lowres_clock> load_timer;
-    std::chrono::high_resolution_clock::rep idle_count = 0;
-    auto idle_start = std::chrono::high_resolution_clock::now(), idle_end = idle_start;
-    load_timer.set_callback([this, &idle_count, &idle_start, &idle_end] () mutable {
-        auto load = double(idle_count + (idle_end - idle_start).count()) / double(std::chrono::duration_cast<std::chrono::high_resolution_clock::duration>(1s).count());
+    _idle_start = _idle_end = std::chrono::high_resolution_clock::now();
+    _load_timer.set_callback([this] () mutable {
+        auto load = double(_idle_count + (_idle_end - _idle_start).count()) / double(std::chrono::duration_cast<std::chrono::high_resolution_clock::duration>(1s).count());
         load = std::min(load, 1.0);
-        idle_count = 0;
-        idle_start = idle_end;
+        _idle_count = 0;
+        _idle_start = _idle_end;
         _loads.push_front(load);
         if (_loads.size() > 5) {
             auto drop = _loads.back();
@@ -1325,7 +1328,7 @@ int reactor::run() {
         }
         _load += (load/5);
     });
-    load_timer.arm_periodic(1s);
+    _load_timer.arm_periodic(1s);
 
     itimerspec its = {};
     auto nsec = std::chrono::duration_cast<std::chrono::nanoseconds>(_task_quota).count();
@@ -1342,40 +1345,56 @@ int reactor::run() {
     r = sigaction(task_quota_signal(), &sa_task_quota, nullptr);
     assert(r == 0);
 
-    bool idle = false;
+    return 0;
+}
 
-    while (true) {
-        run_tasks(_pending_tasks);
-        if (_stopped) {
-            load_timer.cancel();
-            // Final tasks may include sending the last response to cpu 0, so run them
-            while (!_pending_tasks.empty()) {
-                run_tasks(_pending_tasks);
-            }
-            while (!_at_destroy_tasks.empty()) {
-                run_tasks(_at_destroy_tasks);
-            }
-            if (_id == 0) {
-                smp::join_all();
-            }
-            break;
+bool reactor::poll() {
+    run_tasks(_pending_tasks);
+    if (_stopped) {
+        return false;
+    }
+
+    if (!poll_once() && _pending_tasks.empty()) {
+        _idle_end = std::chrono::high_resolution_clock::now();
+        if (!_idle) {
+            _idle_start = _idle_end;
+            _idle = true;
         }
-
-        if (!poll_once() && _pending_tasks.empty()) {
-            idle_end = std::chrono::high_resolution_clock::now();
-            if (!idle) {
-                idle_start = idle_end;
-                idle = true;
-            }
-            _mm_pause();
-        } else {
-            if (idle) {
-                idle_count += (idle_end - idle_start).count();
-                idle_start = idle_end;
-                idle = false;
-            }
+        _mm_pause();
+    } else {
+        if (_idle) {
+            _idle_count += (_idle_end - _idle_start).count();
+            _idle_start = _idle_end;
+            _idle = false;
         }
     }
+    return true;
+}
+
+void reactor::polling_mode_cleanup() {
+    _load_timer.cancel();
+    // Final tasks may include sending the last response to cpu 0, so run them
+    while (!_pending_tasks.empty()) {
+        run_tasks(_pending_tasks);
+    }
+    while (!_at_destroy_tasks.empty()) {
+        run_tasks(_at_destroy_tasks);
+    }
+    if (_id == 0) {
+        smp::join_all();
+    }
+    _registered_pollers.clear();
+    _collectd_metrics.reset();
+}
+
+int reactor::run() {
+    auto r = polling_mode_init();
+    if (r != 0)
+      return r;
+
+    do {} while(poll());
+
+    polling_mode_cleanup();
     return _return;
 }
 
