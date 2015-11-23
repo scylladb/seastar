@@ -80,9 +80,9 @@ struct timer_test {
         t1.arm(100ms);
         t1.cancel();
 
-        t1.set_callback([this, t1 = &t1] { OK(); pr2.set_value(); delete t1; });
+        t1.set_callback([this] { OK(); pr2.set_value(); });
         t1.arm(100ms);
-        return pr2.get_future();
+        return pr2.get_future().then([&t1] { delete &t1; });
     }
 };
 
