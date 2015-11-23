@@ -190,8 +190,8 @@ public:
         }
 
         future<> stop() {
-            this->_error = true;
-            if (_connected) {
+            if (_connected && !this->_error) {
+                this->_error = true;
                 return connection::stop();
             } else {
                 // connection::stop will fail on shutdown(); since we can't shutdown a
