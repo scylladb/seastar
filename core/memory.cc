@@ -1126,7 +1126,7 @@ void* realloc(void* ptr, size_t size) {
         return nullptr;
     }
     if (size < old_size) {
-        memory::shrink(ptr, old_size);
+        memory::shrink(ptr, size);
         return ptr;
     }
     auto nptr = malloc(size);
