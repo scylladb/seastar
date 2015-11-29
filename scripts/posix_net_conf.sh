@@ -110,6 +110,60 @@ setup_rps()
     done
 }
 
+restart_irqbalance()
+{
+    local config_file="/etc/default/irqbalance"
+    local options_key="OPTIONS"
+    local systemd=""
+
+    # return early if irqbalance is not running
+    ! ps -elf | grep irqbalance | grep -v grep &>/dev/null && return
+
+    if ! test -f $config_file; then
+        if test -f /etc/sysconfig/irqbalance; then
+            config_file="/etc/sysconfig/irqbalance"
+            options_key="IRQBALANCE_ARGS"
+            systemd="yes"
+        else
+            echo "Unknown system configuration - not restarting irqbalance!"
+            echo "You have to prevent it from moving $IFACE IRQs manually!"
+            return
+        fi
+    fi
+
+    local orig_file="$config_file.scylla.orig"
+
+    # Save the original file
+    ! test -f $orig_file && cp $config_file $orig_file
+
+    # Remove options parameter if exists
+    local tmp_file=`mktemp`
+    egrep -v -w ^"\s*$options_key" $config_file > $tmp_file
+    mv $tmp_file $config_file
+
+    echo -n "Restarting irqbalance: going to ban the following IRQ numbers: "
+
+    local new_options="$options_key=\""
+    local irq
+    for irq in `cat  /proc/interrupts | grep $IFACE | cut -d":" -f1`
+    do
+        new_options="$new_options --banirq=$irq"
+        echo -n "$irq "
+    done
+
+    echo "..."
+    echo "Original irqbalance configuration is in $orig_file"
+
+    new_options="$new_options\""
+    echo $new_options >> $config_file
+
+    if [[ -z "$systemd" ]]; then
+        /etc/init.d/irqbalance restart
+    else
+        systemctl try-restart irqbalance
+    fi
+}
+
 if [[ $# -eq 0 ]]; then 
     IFACE="eth0"
 else
@@ -118,6 +172,8 @@ fi
 
 CPU_NUM=`cat /proc/cpuinfo | grep processor | wc -l`
 CPUS_MASK=$(( (1 << CPU_NUM) - 1 ))
+# Ban irqbalance from moving NICs IRQs
+restart_irqbalance
 
 # bind all NIC IRQs to CPU0
 for irq in `cat  /proc/interrupts | grep $IFACE | cut -d":" -f1`
