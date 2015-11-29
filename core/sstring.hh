@@ -599,67 +599,67 @@ to_sstring_sprintf(T value, const char* fmt) {
 
 template <typename string_type = sstring>
 inline
-string_type to_sstring(int value, void* = nullptr) {
+string_type to_sstring(int value) {
     return to_sstring_sprintf<string_type>(value, "%d");
 }
 
 template <typename string_type = sstring>
 inline
-string_type to_sstring(unsigned value, void* = nullptr) {
+string_type to_sstring(unsigned value) {
     return to_sstring_sprintf<string_type>(value, "%u");
 }
 
 template <typename string_type = sstring>
 inline
-string_type to_sstring(long value, void* = nullptr) {
+string_type to_sstring(long value) {
     return to_sstring_sprintf<string_type>(value, "%ld");
 }
 
 template <typename string_type = sstring>
 inline
-string_type to_sstring(unsigned long value, void* = nullptr) {
+string_type to_sstring(unsigned long value) {
     return to_sstring_sprintf<string_type>(value, "%lu");
 }
 
 template <typename string_type = sstring>
 inline
-string_type to_sstring(long long value, void* = nullptr) {
+string_type to_sstring(long long value) {
     return to_sstring_sprintf<string_type>(value, "%lld");
 }
 
 template <typename string_type = sstring>
 inline
-string_type to_sstring(unsigned long long value, void* = nullptr) {
+string_type to_sstring(unsigned long long value) {
     return to_sstring_sprintf<string_type>(value, "%llu");
 }
 
 template <typename string_type = sstring>
 inline
-string_type to_sstring(float value, void* = nullptr) {
+string_type to_sstring(float value) {
     return to_sstring_sprintf<string_type>(value, "%f");
 }
 
 template <typename string_type = sstring>
 inline
-string_type to_sstring(double value, void* = nullptr) {
+string_type to_sstring(double value) {
     return to_sstring_sprintf<string_type>(value, "%f");
 }
 
 template <typename string_type = sstring>
 inline
-string_type to_sstring(long double value, void* = nullptr) {
+string_type to_sstring(long double value) {
     return to_sstring_sprintf<string_type>(value, "%Lf");
 }
 
 template <typename string_type = sstring>
 inline
-string_type to_sstring(const char* value, void* = nullptr) {
+string_type to_sstring(const char* value) {
     return string_type(value);
 }
 
 template <typename string_type = sstring>
 inline
-string_type to_sstring(sstring value, void* = nullptr) {
+string_type to_sstring(sstring value) {
     return value;
 }
 
