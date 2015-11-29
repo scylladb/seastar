@@ -584,7 +584,7 @@ static String make_sstring(Args&&... args)
 template <typename string_type, typename T>
 inline
 string_type to_sstring_sprintf(T value, const char* fmt) {
-    char tmp[sizeof(value) * 3 + 3];
+    char tmp[sizeof(value) * 3 + 2];
     auto len = std::sprintf(tmp, fmt, value);
     using char_type = typename string_type::value_type;
     return string_type(reinterpret_cast<char_type*>(tmp), len);
@@ -636,19 +636,19 @@ string_type to_sstring(unsigned long long value) {
 template <typename string_type = sstring>
 inline
 string_type to_sstring(float value) {
-    return to_sstring_sprintf<string_type>(value, "%f");
+    return to_sstring_sprintf<string_type>(value, "%g");
 }
 
 template <typename string_type = sstring>
 inline
 string_type to_sstring(double value) {
-    return to_sstring_sprintf<string_type>(value, "%f");
+    return to_sstring_sprintf<string_type>(value, "%g");
 }
 
 template <typename string_type = sstring>
 inline
 string_type to_sstring(long double value) {
-    return to_sstring_sprintf<string_type>(value, "%Lf");
+    return to_sstring_sprintf<string_type>(value, "%Lg");
 }
 
 template <typename string_type = sstring>
