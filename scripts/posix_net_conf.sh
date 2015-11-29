@@ -37,76 +37,24 @@ set_one_mask()
 }
 
 #
-# Bind RPS queues to CPUs other than CPU0
+# Bind RPS queues to CPUs other than CPU0 and its hyper-threading siblings
 #
-# If there is a single CPU in the system - don't enable RPS
-#
-# If there is more CPUs than (RPS queues plus 1) then every queue will get 
-# (NCPUS - 1)/NQUEUES CPUs and (NCPUS - 1) % NQUEUES lower queues will get one 
-# additional CPU.
-# For instance, if NCPUs=15 and NQUEUES=3, then configuration will be as follows:
-# Q0: {1,2,3,4,5}, Q1: {6,7,8,9,10} Q2: {11,12,13,14}
-#
-# If there is less CPUs than (RPS queues plus 1) when each queue will get a single CPU and 
-# CPUs will be used in a round robin way.
-# For instance, if NCPUs=3 and NQUEUES=5, then configuration will be as follows:
-# Q0: {1}, Q1: {2} Q2: {1}, Q3: {2}, Q4: {1}
-#
-# If CPUs number equals to number of RPS queues plus 1 then each queue will get 
-# a separate CPU.
+# Use hwloc-distrib for generating the appropriate CPU masks.
 #
 setup_rps()
 {
-    # If we are in a single CPU environment - there is no point in configuring RPS
-    [[ $CPU_NUM -eq 1 ]] && return
-
-    # CPU0 will not be used since we are going to bind HW IRQs to it
-    local cpu_num=$(( CPU_NUM - 1 ))
+    # If we are in a single core environment - there is no point in configuring RPS
+    [[ `hwloc-calc core:0.pu:all` -eq `hwloc-calc all` ]] && return
 
     local rps_queues_count=`ls -1 /sys/class/net/$IFACE/queues/*/rps_cpus | wc -l`
-    local cpus_per_q=$((cpu_num / rps_queues_count))
-
-    # 
-    # If for some strange reason HW driver enabled more HW queues than a number 
-    # of CPUs bind each HW queue to a single CPU. 
-    # We will have more than a single queue per CPU in this case.
-    #
-    [[ $cpus_per_q -eq 0 ]] && cpus_per_q=1
-
-    declare -a local cpus_per_q_ar
-    local i
-
-    # Fill the array with "cpus_per_q" values first
-    for (( i = 0; i < rps_queues_count; i++ ))
-    do
-        cpus_per_q_ar[i]=$cpus_per_q
-    done
-
-    # Spread the "cpu_num - cpus_per_q * rps_queues_count" among queues 0, 1, 2,...
-    local left_cpus=$(( cpu_num - cpus_per_q * rps_queues_count ))
-
-    if [[ $left_cpus -gt 0 ]]; then
-        for (( i = 0; i < rps_queues_count; i++ ))
-        do
-            cpus_per_q_ar[i]=$(( cpus_per_q_ar[i] + 1))
-            left_cpus=$(( left_cpus - 1 ))
-            [[ $left_cpus -eq 0 ]] && break
-        done
-    fi
-
     local mask
-    local cur_mask_shift=0
-    for (( i = 0; i < rps_queues_count; i++ ))
+    local i=0
+
+    # Distribute all cores except for CPU0 siblings
+    for mask in `hwloc-distrib --restrict $(hwloc-calc all ~core:0) $rps_queues_count`
     do
-        # Build a mask for a current queue, skip CPU0
-        mask=$(( ((1 << cpus_per_q_ar[i]) - 1) << (1 + cur_mask_shift) ))
-
-        cur_mask_shift=$(( cur_mask_shift + cpus_per_q_ar[i] ))
-        if [[ $cur_mask_shift -ge $cpu_num ]]; then
-            cur_mask_shift=$(( cur_mask_shift - cpu_num ))
-        fi
-
         set_one_mask $i $mask
+        i=$(( i + 1 ))
     done
 }
 
@@ -170,8 +118,6 @@ else
     IFACE=$1
 fi
 
-CPU_NUM=`cat /proc/cpuinfo | grep processor | wc -l`
-CPUS_MASK=$(( (1 << CPU_NUM) - 1 ))
 # Ban irqbalance from moving NICs IRQs
 restart_irqbalance
 
