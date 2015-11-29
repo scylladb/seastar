@@ -692,6 +692,8 @@ private:
         return std::move(*st);
     }
 
+    template<typename... U>
+    friend class shared_future;
 public:
     /// \brief The data type carried by the future.
     using value_type = std::tuple<T...>;
