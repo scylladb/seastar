@@ -23,6 +23,7 @@
 #define NET_NATIVE_STACK_IMPL_HH_
 
 #include "core/reactor.hh"
+#include "stack.hh"
 
 namespace net {
 
@@ -74,10 +75,10 @@ class native_connected_socket_impl : public connected_socket_impl {
 public:
     explicit native_connected_socket_impl(typename Protocol::connection conn)
         : _conn(std::move(conn)) {}
-    virtual input_stream<char> input() override;
-    virtual output_stream<char> output() override;
-    virtual void shutdown_input() override;
-    virtual void shutdown_output() override;
+    virtual data_source source() override;
+    virtual data_sink sink() override;
+    virtual future<> shutdown_input() override;
+    virtual future<> shutdown_output() override;
     virtual void set_nodelay(bool nodelay) override;
     virtual bool get_nodelay() const override;
 };
@@ -128,29 +129,27 @@ public:
 };
 
 template <typename Protocol>
-input_stream<char>
-native_connected_socket_impl<Protocol>::input() {
-    data_source ds(std::make_unique<native_data_source_impl>(_conn));
-    return input_stream<char>(std::move(ds));
+data_source native_connected_socket_impl<Protocol>::source() {
+    return data_source(std::make_unique<native_data_source_impl>(_conn));
 }
 
 template <typename Protocol>
-output_stream<char>
-native_connected_socket_impl<Protocol>::output() {
-    data_sink ds(std::make_unique<native_data_sink_impl>(_conn));
-    return output_stream<char>(std::move(ds), 8192, false, true);
+data_sink native_connected_socket_impl<Protocol>::sink() {
+    return data_sink(std::make_unique<native_data_sink_impl>(_conn));
 }
 
 template <typename Protocol>
-void
+future<>
 native_connected_socket_impl<Protocol>::shutdown_input() {
     _conn.close_read();
+    return make_ready_future<>();
 }
 
 template <typename Protocol>
-void
+future<>
 native_connected_socket_impl<Protocol>::shutdown_output() {
     _conn.close_write();
+    return make_ready_future<>();
 }
 
 template <typename Protocol>

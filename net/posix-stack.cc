@@ -32,13 +32,15 @@ class posix_connected_socket_impl final : public connected_socket_impl {
 private:
     explicit posix_connected_socket_impl(pollable_fd fd) : _fd(std::move(fd)) {}
 public:
-    virtual input_stream<char> input() override { return input_stream<char>(posix_data_source(_fd)); }
-    virtual output_stream<char> output() override { return output_stream<char>(posix_data_sink(_fd), 8192, false, true); }
-    virtual void shutdown_input() override {
+    virtual data_source source() override { return posix_data_source(_fd); }
+    virtual data_sink sink() override { return posix_data_sink(_fd); }
+    virtual future<> shutdown_input() override {
         _fd.shutdown(SHUT_RD);
+        return make_ready_future<>();
     }
-    virtual void shutdown_output() override {
+    virtual future<> shutdown_output() override {
         _fd.shutdown(SHUT_WR);
+        return make_ready_future<>();
     }
     virtual void set_nodelay(bool nodelay) override {
         _fd.get_file_desc().setsockopt(IPPROTO_TCP, TCP_NODELAY, int(nodelay));

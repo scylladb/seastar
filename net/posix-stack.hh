@@ -23,6 +23,7 @@
 #define POSIX_STACK_HH_
 
 #include "core/reactor.hh"
+#include "stack.hh"
 #include <boost/program_options.hpp>
 
 namespace net {

@@ -28,6 +28,7 @@
 #include "memory.hh"
 #include "core/posix.hh"
 #include "net/packet.hh"
+#include "net/stack.hh"
 #include "resource.hh"
 #include "print.hh"
 #include "scollectd.hh"
@@ -330,6 +331,35 @@ void reactor::set_timer(sched::timer &tmr, s64 t) {
 }
 #endif
 
+class network_stack_registry {
+public:
+    using options = boost::program_options::variables_map;
+private:
+    static std::unordered_map<sstring,
+            std::function<future<std::unique_ptr<network_stack>> (options opts)>>& _map() {
+        static std::unordered_map<sstring,
+                std::function<future<std::unique_ptr<network_stack>> (options opts)>> map;
+        return map;
+    }
+    static sstring& _default() {
+        static sstring def;
+        return def;
+    }
+public:
+    static boost::program_options::options_description& options_description() {
+        static boost::program_options::options_description opts;
+        return opts;
+    }
+    static void register_stack(sstring name,
+            boost::program_options::options_description opts,
+            std::function<future<std::unique_ptr<network_stack>> (options opts)> create,
+            bool make_default = false);
+    static sstring default_stack();
+    static std::vector<sstring> list();
+    static future<std::unique_ptr<network_stack>> create(options opts);
+    static future<std::unique_ptr<network_stack>> create(sstring name, options opts);
+};
+
 void reactor::configure(boost::program_options::variables_map vm) {
     auto network_stack_ready = vm.count("network-stack")
         ? network_stack_registry::create(sstring(vm["network-stack"].as<std::string>()), vm)
@@ -457,12 +487,17 @@ reactor::posix_connect(socket_address sa, socket_address local) {
 
 server_socket
 reactor::listen(socket_address sa, listen_options opt) {
-    return _network_stack->listen(sa, opt);
+    return server_socket(_network_stack->listen(sa, opt));
 }
 
 future<connected_socket>
 reactor::connect(socket_address sa) {
     return _network_stack->connect(sa);
+}
+
+future<connected_socket>
+reactor::connect(socket_address sa, socket_address local) {
+    return _network_stack->connect(sa, local);
 }
 
 void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd, promise<> pollable_fd_state::*pr,
@@ -1771,6 +1806,13 @@ network_stack_registry::create(options opts) {
 future<std::unique_ptr<network_stack>>
 network_stack_registry::create(sstring name, options opts) {
     return _map()[name](opts);
+}
+
+network_stack_registrator::network_stack_registrator(sstring name,
+        boost::program_options::options_description opts,
+        std::function<future<std::unique_ptr<network_stack>>(options opts)> factory,
+        bool make_default) {
+    network_stack_registry::register_stack(name, opts, factory, make_default);
 }
 
 boost::program_options::options_description

@@ -263,6 +263,7 @@ core = [
     'net/packet.cc',
     'net/posix-stack.cc',
     'net/net.cc',
+    'net/stack.cc',
     'rpc/rpc.cc',
     ]
 
