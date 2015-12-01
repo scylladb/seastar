@@ -683,7 +683,7 @@ private:
     }
 
     [[gnu::always_inline]]
-    future_state<T...> get_available_state() {
+    future_state<T...> get_available_state() noexcept {
         auto st = state();
         if (_promise) {
             _promise->_future = nullptr;
