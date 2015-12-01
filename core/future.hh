@@ -220,7 +220,7 @@ struct future_state {
         new (&_u.ex) std::exception_ptr(ex);
         _state = state::exception;
     }
-    std::exception_ptr get_exception() noexcept {
+    std::exception_ptr get_exception() && noexcept {
         assert(_state == state::exception);
         // Move ex out so future::~future() knows we've handled it
         _state = state::invalid;
@@ -228,11 +228,20 @@ struct future_state {
         _u.ex.~exception_ptr();
         return ex;
     }
-    std::tuple<T...> get_value() noexcept {
+    std::exception_ptr get_exception() const& noexcept {
+        assert(_state == state::exception);
+        return _u.ex;
+    }
+    std::tuple<T...> get_value() && noexcept {
         assert(_state == state::result);
         return std::move(_u.value);
     }
-    std::tuple<T...> get() {
+    template<typename U = std::tuple<T...>>
+    std::enable_if_t<std::is_copy_constructible<U>::value, U> get_value() const& noexcept(copy_noexcept) {
+        assert(_state == state::result);
+        return _u.value;
+    }
+    std::tuple<T...> get() && {
         assert(_state != state::future);
         if (_state == state::exception) {
             _state = state::invalid;
@@ -242,6 +251,13 @@ struct future_state {
             std::rethrow_exception(std::move(ex));
         }
         return std::move(_u.value);
+    }
+    std::tuple<T...> get() const& {
+        assert(_state != state::future);
+        if (_state == state::exception) {
+            std::rethrow_exception(_u.ex);
+        }
+        return _u.value;
     }
     void ignore() noexcept {
         assert(_state != state::future);
@@ -333,12 +349,19 @@ struct future_state<> {
         new (&_u.ex) std::exception_ptr(ex);
         assert(_u.st >= state::exception_min);
     }
-    std::tuple<> get() {
+    std::tuple<> get() && {
         assert(_u.st != state::future);
         if (_u.st >= state::exception_min) {
             // Move ex out so future::~future() knows we've handled it
             // Moving it will reset us to invalid state
             std::rethrow_exception(std::move(_u.ex));
+        }
+        return {};
+    }
+    std::tuple<> get() const& {
+        assert(_u.st != state::future);
+        if (_u.st >= state::exception_min) {
+            std::rethrow_exception(_u.ex);
         }
         return {};
     }
@@ -351,13 +374,17 @@ struct future_state<> {
     static get0_return_type get0(std::tuple<>&&) {
         return;
     }
-    std::exception_ptr get_exception() noexcept {
+    std::exception_ptr get_exception() && noexcept {
         assert(_u.st >= state::exception_min);
         // Move ex out so future::~future() knows we've handled it
         // Moving it will reset us to invalid state
         return std::move(_u.ex);
     }
-    std::tuple<> get_value() noexcept {
+    std::exception_ptr get_exception() const& noexcept {
+        assert(_u.st >= state::exception_min);
+        return _u.ex;
+    }
+    std::tuple<> get_value() const noexcept {
         assert(_u.st == state::result);
         return {};
     }
@@ -718,7 +745,7 @@ public:
             _promise->_future = nullptr;
             _promise = nullptr;
         }
-        return state()->get();
+        return std::move(*state()).get();
     }
 
     [[gnu::always_inline]]
@@ -797,9 +824,9 @@ public:
         try {
             schedule([pr = std::move(pr), func = std::forward<Func>(func)] (auto&& state) mutable {
                 if (state.failed()) {
-                    pr.set_exception(state.get_exception());
+                    pr.set_exception(std::move(state).get_exception());
                 } else {
-                    futurator::apply(std::forward<Func>(func), state.get_value()).forward_to(std::move(pr));
+                    futurator::apply(std::forward<Func>(func), std::move(state).get_value()).forward_to(std::move(pr));
                 }
             });
         } catch (...) {
