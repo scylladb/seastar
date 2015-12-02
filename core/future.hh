@@ -129,8 +129,15 @@ void report_failed_future(std::exception_ptr ex);
 /// \cond internal
 template <typename... T>
 struct future_state {
-    static constexpr bool move_noexcept = std::is_nothrow_move_constructible<std::tuple<T...>>::value;
     static constexpr bool copy_noexcept = std::is_nothrow_copy_constructible<std::tuple<T...>>::value;
+    static_assert(std::is_nothrow_move_constructible<std::tuple<T...>>::value,
+                  "Types must be no-throw move constructible");
+    static_assert(std::is_nothrow_destructible<std::tuple<T...>>::value,
+                  "Types must be no-throw destructible");
+    static_assert(std::is_nothrow_copy_constructible<std::exception_ptr>::value,
+                  "std::exception_ptr's copy constructor must not throw");
+    static_assert(std::is_nothrow_move_constructible<std::exception_ptr>::value,
+                  "std::exception_ptr's move constructor must not throw");
     enum class state {
          invalid,
          future,
@@ -145,7 +152,7 @@ struct future_state {
     } _u;
     future_state() noexcept {}
     [[gnu::always_inline]]
-    future_state(future_state&& x) noexcept(move_noexcept)
+    future_state(future_state&& x) noexcept
             : _state(x._state) {
         switch (_state) {
         case state::future:
@@ -182,7 +189,7 @@ struct future_state {
             abort();
         }
     }
-    future_state& operator=(future_state&& x) noexcept(move_noexcept) {
+    future_state& operator=(future_state&& x) noexcept {
         if (this != &x) {
             this->~future_state();
             new (this) future_state(std::move(x));
@@ -192,12 +199,12 @@ struct future_state {
     bool available() const noexcept { return _state == state::result || _state == state::exception; }
     bool failed() const noexcept { return _state == state::exception; }
     void wait();
-    void set(const std::tuple<T...>& value) noexcept(copy_noexcept) {
+    void set(const std::tuple<T...>& value) noexcept {
         assert(_state == state::future);
         new (&_u.value) std::tuple<T...>(value);
         _state = state::result;
     }
-    void set(std::tuple<T...>&& value) noexcept(move_noexcept) {
+    void set(std::tuple<T...>&& value) noexcept {
         assert(_state == state::future);
         new (&_u.value) std::tuple<T...>(std::move(value));
         _state = state::result;
@@ -213,7 +220,7 @@ struct future_state {
         new (&_u.ex) std::exception_ptr(ex);
         _state = state::exception;
     }
-    std::exception_ptr get_exception() noexcept {
+    std::exception_ptr get_exception() && noexcept {
         assert(_state == state::exception);
         // Move ex out so future::~future() knows we've handled it
         _state = state::invalid;
@@ -221,11 +228,20 @@ struct future_state {
         _u.ex.~exception_ptr();
         return ex;
     }
-    std::tuple<T...> get_value() noexcept {
+    std::exception_ptr get_exception() const& noexcept {
+        assert(_state == state::exception);
+        return _u.ex;
+    }
+    std::tuple<T...> get_value() && noexcept {
         assert(_state == state::result);
         return std::move(_u.value);
     }
-    std::tuple<T...> get() {
+    template<typename U = std::tuple<T...>>
+    std::enable_if_t<std::is_copy_constructible<U>::value, U> get_value() const& noexcept(copy_noexcept) {
+        assert(_state == state::result);
+        return _u.value;
+    }
+    std::tuple<T...> get() && {
         assert(_state != state::future);
         if (_state == state::exception) {
             _state = state::invalid;
@@ -235,6 +251,13 @@ struct future_state {
             std::rethrow_exception(std::move(ex));
         }
         return std::move(_u.value);
+    }
+    std::tuple<T...> get() const& {
+        assert(_state != state::future);
+        if (_state == state::exception) {
+            std::rethrow_exception(_u.ex);
+        }
+        return _u.value;
     }
     void ignore() noexcept {
         assert(_state != state::future);
@@ -265,7 +288,10 @@ struct future_state {
 template <>
 struct future_state<> {
     static_assert(sizeof(std::exception_ptr) == sizeof(void*), "exception_ptr not a pointer");
-    static constexpr bool move_noexcept = true;
+    static_assert(std::is_nothrow_copy_constructible<std::exception_ptr>::value,
+                  "std::exception_ptr's copy constructor must not throw");
+    static_assert(std::is_nothrow_move_constructible<std::exception_ptr>::value,
+                  "std::exception_ptr's move constructor must not throw");
     static constexpr bool copy_noexcept = true;
     enum class state : uintptr_t {
          invalid = 0,
@@ -323,12 +349,19 @@ struct future_state<> {
         new (&_u.ex) std::exception_ptr(ex);
         assert(_u.st >= state::exception_min);
     }
-    std::tuple<> get() {
+    std::tuple<> get() && {
         assert(_u.st != state::future);
         if (_u.st >= state::exception_min) {
             // Move ex out so future::~future() knows we've handled it
             // Moving it will reset us to invalid state
             std::rethrow_exception(std::move(_u.ex));
+        }
+        return {};
+    }
+    std::tuple<> get() const& {
+        assert(_u.st != state::future);
+        if (_u.st >= state::exception_min) {
+            std::rethrow_exception(_u.ex);
         }
         return {};
     }
@@ -341,13 +374,17 @@ struct future_state<> {
     static get0_return_type get0(std::tuple<>&&) {
         return;
     }
-    std::exception_ptr get_exception() noexcept {
+    std::exception_ptr get_exception() && noexcept {
         assert(_u.st >= state::exception_min);
         // Move ex out so future::~future() knows we've handled it
         // Moving it will reset us to invalid state
         return std::move(_u.ex);
     }
-    std::tuple<> get_value() noexcept {
+    std::exception_ptr get_exception() const& noexcept {
+        assert(_u.st >= state::exception_min);
+        return _u.ex;
+    }
+    std::tuple<> get_value() const noexcept {
         assert(_u.st == state::result);
         return {};
     }
@@ -382,7 +419,6 @@ class promise {
     future_state<T...> _local_state;
     future_state<T...>* _state;
     std::unique_ptr<task> _task;
-    static constexpr bool move_noexcept = future_state<T...>::move_noexcept;
     static constexpr bool copy_noexcept = future_state<T...>::copy_noexcept;
 public:
     /// \brief Constructs an empty \c promise.
@@ -391,7 +427,7 @@ public:
     promise() noexcept : _state(&_local_state) {}
 
     /// \brief Moves a \c promise object.
-    promise(promise&& x) noexcept(move_noexcept) : _future(x._future), _state(x._state), _task(std::move(x._task)) {
+    promise(promise&& x) noexcept : _future(x._future), _state(x._state), _task(std::move(x._task)) {
         if (_state == &x._local_state) {
             _state = &_local_state;
             _local_state = std::move(x._local_state);
@@ -405,7 +441,7 @@ public:
     ~promise() noexcept {
         abandoned();
     }
-    promise& operator=(promise&& x) noexcept(move_noexcept) {
+    promise& operator=(promise&& x) noexcept {
         if (this != &x) {
             this->~promise();
             new (this) promise(std::move(x));
@@ -436,7 +472,7 @@ public:
     ///
     /// Moves the tuple argument and makes it available to the associated
     /// future.  May be called either before or after \c get_future().
-    void set_value(std::tuple<T...>&& result) noexcept(move_noexcept) {
+    void set_value(std::tuple<T...>&& result) noexcept {
         assert(_state);
         _state->set(std::move(result));
         make_ready();
@@ -481,7 +517,7 @@ private:
     __attribute__((always_inline))
     void make_ready() noexcept;
     void migrated() noexcept;
-    void abandoned() noexcept(move_noexcept);
+    void abandoned() noexcept;
 
     template <typename... U>
     friend class future;
@@ -610,7 +646,6 @@ template <typename... T>
 class future {
     promise<T...>* _promise;
     future_state<T...> _local_state;  // valid if !_promise
-    static constexpr bool move_noexcept = future_state<T...>::move_noexcept;
     static constexpr bool copy_noexcept = future_state<T...>::copy_noexcept;
 private:
     future(promise<T...>* pr) noexcept : _promise(pr) {
@@ -648,7 +683,7 @@ private:
     }
 
     [[gnu::always_inline]]
-    future_state<T...> get_available_state() {
+    future_state<T...> get_available_state() noexcept {
         auto st = state();
         if (_promise) {
             _promise->_future = nullptr;
@@ -657,6 +692,8 @@ private:
         return std::move(*st);
     }
 
+    template<typename... U>
+    friend class shared_future;
 public:
     /// \brief The data type carried by the future.
     using value_type = std::tuple<T...>;
@@ -664,7 +701,7 @@ public:
     using promise_type = promise<T...>;
     /// \brief Moves the future into a new object.
     [[gnu::always_inline]]
-    future(future&& x) noexcept(move_noexcept) : _promise(x._promise) {
+    future(future&& x) noexcept : _promise(x._promise) {
         if (!_promise) {
             _local_state = std::move(x._local_state);
         }
@@ -710,7 +747,7 @@ public:
             _promise->_future = nullptr;
             _promise = nullptr;
         }
-        return state()->get();
+        return std::move(*state()).get();
     }
 
     [[gnu::always_inline]]
@@ -789,9 +826,9 @@ public:
         try {
             schedule([pr = std::move(pr), func = std::forward<Func>(func)] (auto&& state) mutable {
                 if (state.failed()) {
-                    pr.set_exception(state.get_exception());
+                    pr.set_exception(std::move(state).get_exception());
                 } else {
-                    futurator::apply(std::forward<Func>(func), state.get_value()).forward_to(std::move(pr));
+                    futurator::apply(std::forward<Func>(func), std::move(state).get_value()).forward_to(std::move(pr));
                 }
             });
         } catch (...) {
@@ -1023,7 +1060,7 @@ void promise<T...>::migrated() noexcept {
 
 template <typename... T>
 inline
-void promise<T...>::abandoned() noexcept(move_noexcept) {
+void promise<T...>::abandoned() noexcept {
     if (_future) {
         assert(_state);
         assert(_state->available() || !_task);

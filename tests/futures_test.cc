@@ -25,6 +25,8 @@
 #include "core/future-util.hh"
 #include "core/sleep.hh"
 #include "core/do_with.hh"
+#include "core/shared_future.hh"
+#include "core/thread.hh"
 #include <boost/iterator/counting_iterator.hpp>
 
 class expected_exception : std::runtime_error {
@@ -548,5 +550,91 @@ SEASTAR_TEST_CASE(futurize_apply_void_future_ok) {
         } catch (expected_exception& e) {
             BOOST_FAIL("should not have thrown");
         }
+    });
+}
+
+SEASTAR_TEST_CASE(test_shared_future_propagates_value_to_all) {
+    return seastar::async([] {
+        promise<shared_ptr<int>> p; // shared_ptr<> to check it deals with emptyable types
+        shared_future<shared_ptr<int>> f(p.get_future());
+
+        auto f1 = f.get_future();
+        auto f2 = f.get_future();
+
+        p.set_value(make_shared<int>(1));
+        BOOST_REQUIRE(*f1.get0() == 1);
+        BOOST_REQUIRE(*f2.get0() == 1);
+    });
+}
+
+template<typename... T>
+void check_fails_with_expected(future<T...> f) {
+    try {
+        f.get();
+        BOOST_FAIL("Should have failed");
+    } catch (expected_exception&) {
+        // expected
+    }
+}
+
+SEASTAR_TEST_CASE(test_shared_future_propagates_value_to_copies) {
+    return seastar::async([] {
+        promise<int> p;
+        auto sf1 = shared_future<int>(p.get_future());
+        auto sf2 = sf1;
+
+        auto f1 = sf1.get_future();
+        auto f2 = sf2.get_future();
+
+        p.set_value(1);
+
+        BOOST_REQUIRE(f1.get0() == 1);
+        BOOST_REQUIRE(f2.get0() == 1);
+    });
+}
+
+SEASTAR_TEST_CASE(test_obtaining_future_from_shared_future_after_it_is_resolved) {
+    promise<int> p1;
+    promise<int> p2;
+    auto sf1 = shared_future<int>(p1.get_future());
+    auto sf2 = shared_future<int>(p2.get_future());
+    p1.set_value(1);
+    p2.set_exception(expected_exception());
+    return sf2.get_future().then_wrapped([](auto&& f) {
+        check_fails_with_expected(std::move(f));
+    }).then([f = sf1.get_future()] () mutable {
+        BOOST_REQUIRE(f.get0() == 1);
+    });
+}
+
+SEASTAR_TEST_CASE(test_valueless_shared_future) {
+    return seastar::async([] {
+        promise<> p;
+        shared_future<> f(p.get_future());
+
+        auto f1 = f.get_future();
+        auto f2 = f.get_future();
+
+        p.set_value();
+
+        f1.get();
+        f2.get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_shared_future_propagates_errors_to_all) {
+    promise<int> p;
+    shared_future<int> f(p.get_future());
+
+    auto f1 = f.get_future();
+    auto f2 = f.get_future();
+
+    p.set_exception(expected_exception());
+
+    return f1.then_wrapped([f2 = std::move(f2)] (auto&& f) mutable {
+        check_fails_with_expected(std::move(f));
+        return std::move(f2);
+    }).then_wrapped([] (auto&& f) mutable {
+        check_fails_with_expected(std::move(f));
     });
 }
