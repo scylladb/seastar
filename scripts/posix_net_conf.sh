@@ -1,10 +1,18 @@
 #!/bin/bash
 # !
-# !  Usage: posix_net_conf.sh [iface name, eth0 by default]
+# !  Usage: posix_net_conf.sh [iface name, eth0 by default] [-mq] [-h|--help]
 # !
-# !  Sets all IRQs of a given NIC to CPU0 and configures RPS to spreads NAPIs'
-# !  handling between other CPUs in the way that NAPIs are distributed between 
-# !  CPUs as equally as possible.
+# !  Ban NIC IRQs from being moved by irqbalance.
+# !
+# !  If -mq is not given - set all IRQs of a given NIC to CPU0 and configure RPS
+# !  to spreads NAPIs' handling between other CPUs.
+# !
+# !  If "-mq" is given - distribute NIC's IRQs among all CPUs instead of binding
+# !  them all to CPU0 and do not enable RPS.
+# !
+# !  Enable XPS, increase the default values of somaxconn and tcp_max_syn_backlog.
+# !
+# !  -h|--help - print this help information
 # !
 
 make_hex_mask()
@@ -74,6 +82,19 @@ setup_xps()
     done
 }
 
+distribute_irqs()
+{
+    local irqs=( `cat  /proc/interrupts | grep $IFACE | cut -d":" -f1` )
+    local mask
+    local i=0
+
+    for mask in `hwloc-distrib ${#irqs[*]}`
+    do
+        set_one_mask "/proc/irq/${irqs[$i]}/smp_affinity" $mask
+        i=$(( i + 1 ))
+    done
+}
+
 restart_irqbalance()
 {
     local config_file="/etc/default/irqbalance"
@@ -128,24 +149,56 @@ restart_irqbalance()
     fi
 }
 
-if [[ $# -eq 0 ]]; then 
-    IFACE="eth0"
-else
-    IFACE=$1
-fi
+usage()
+{
+    cat $0 | grep ^"# !" | cut -d"!" -f2-
+}
+
+parse_args()
+{
+    if [[ $# -gt 2 ]]; then
+        usage
+        exit 1
+    fi
+
+    for arg in $@
+    do
+        case "$arg" in
+            "-mq")
+                MQ_MODE="yes"
+                ;;
+            "-h"|"--help")
+                usage
+                exit 0
+                ;;
+            *)
+                IFACE=$arg
+                ;;
+            esac
+    done
+}
+
+IFACE="eth0"
+MQ_MODE=""
+
+parse_args $@
 
 # Ban irqbalance from moving NICs IRQs
 restart_irqbalance
 
 # bind all NIC IRQs to CPU0
-for irq in `cat  /proc/interrupts | grep $IFACE | cut -d":" -f1`
-do
-    echo "Binding IRQ $irq to CPU0"
-    echo 1 > /proc/irq/$irq/smp_affinity
-done
+if [[ -z "$MQ_MODE" ]]; then
+    for irq in `cat  /proc/interrupts | grep $IFACE | cut -d":" -f1`
+    do
+        echo "Binding IRQ $irq to CPU0"
+        echo 1 > /proc/irq/$irq/smp_affinity
+    done
 
-# Setup RPS
-setup_rps
+    # Setup RPS
+    setup_rps
+else
+    distribute_irqs
+fi
 
 # Setup XPS
 setup_xps
