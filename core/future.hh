@@ -131,6 +131,14 @@ template <typename... T>
 struct future_state {
     static constexpr bool move_noexcept = std::is_nothrow_move_constructible<std::tuple<T...>>::value;
     static constexpr bool copy_noexcept = std::is_nothrow_copy_constructible<std::tuple<T...>>::value;
+    static_assert(std::is_nothrow_move_constructible<std::tuple<T...>>::value,
+                  "Types must be no-throw move constructible");
+    static_assert(std::is_nothrow_destructible<std::tuple<T...>>::value,
+                  "Types must be no-throw destructible");
+    static_assert(std::is_nothrow_copy_constructible<std::exception_ptr>::value,
+                  "std::exception_ptr's copy constructor must not throw");
+    static_assert(std::is_nothrow_move_constructible<std::exception_ptr>::value,
+                  "std::exception_ptr's move constructor must not throw");
     enum class state {
          invalid,
          future,
@@ -266,6 +274,10 @@ template <>
 struct future_state<> {
     static_assert(sizeof(std::exception_ptr) == sizeof(void*), "exception_ptr not a pointer");
     static constexpr bool move_noexcept = true;
+    static_assert(std::is_nothrow_copy_constructible<std::exception_ptr>::value,
+                  "std::exception_ptr's copy constructor must not throw");
+    static_assert(std::is_nothrow_move_constructible<std::exception_ptr>::value,
+                  "std::exception_ptr's move constructor must not throw");
     static constexpr bool copy_noexcept = true;
     enum class state : uintptr_t {
          invalid = 0,
