@@ -24,16 +24,15 @@ make_hex_mask()
 }
 
 #
-#  set_one_mask <queue index> <CPU mask>
+#  set_one_mask <config file> <CPU mask>
 #
 set_one_mask()
 {
-    local i=$1
+    local cpuset_conf_file=$1
     local mask=$2
-    local rps_cpus="/sys/class/net/$IFACE/queues/rx-$i/rps_cpus"
     local mask_hex=`make_hex_mask $mask`
-    echo "Setting mask $mask_hex in $rps_cpus"
-    echo $mask_hex > $rps_cpus
+    echo "Setting mask $mask_hex in $cpuset_conf_file"
+    echo $mask_hex > $cpuset_conf_file
 }
 
 #
@@ -53,7 +52,24 @@ setup_rps()
     # Distribute all cores except for CPU0 siblings
     for mask in `hwloc-distrib --restrict $(hwloc-calc all ~core:0) $rps_queues_count`
     do
-        set_one_mask $i $mask
+        set_one_mask "/sys/class/net/$IFACE/queues/rx-$i/rps_cpus" $mask
+        i=$(( i + 1 ))
+    done
+}
+
+#
+# Spread all XPS queues to over the full cpuset. Don't bother to exclude CPU0
+# (and friends) - scylla will just not send from it if its cpuset is properly set.
+#
+setup_xps()
+{
+    local xps_queues_count=`ls -1 /sys/class/net/$IFACE/queues/*/xps_cpus | wc -l`
+    local mask
+    local i=0
+
+    for mask in `hwloc-distrib $xps_queues_count`
+    do
+        set_one_mask "/sys/class/net/$IFACE/queues/tx-$i/xps_cpus" $mask
         i=$(( i + 1 ))
     done
 }
@@ -130,4 +146,7 @@ done
 
 # Setup RPS
 setup_rps
+
+# Setup XPS
+setup_xps
 
