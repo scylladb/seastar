@@ -203,3 +203,9 @@ fi
 # Setup XPS
 setup_xps
 
+# Increase the socket listen() backlog
+echo 4096 > /proc/sys/net/core/somaxconn
+
+# Increase the maximum number of remembered connection requests, which are still
+# did not receive an acknowledgment from connecting client.
+echo 4096 > /proc/sys/net/ipv4/tcp_max_syn_backlog
