@@ -80,6 +80,9 @@ template <typename Iterator, typename Func>
 inline
 future<>
 parallel_for_each(Iterator begin, Iterator end, Func&& func) {
+    if (begin == end) {
+        return make_ready_future<>();
+    }
     return do_with(parallel_for_each_state(), [&] (parallel_for_each_state& state) -> future<> {
         // increase ref count to ensure all functions run
         ++state.waiting;
