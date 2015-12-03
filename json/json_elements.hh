@@ -252,6 +252,8 @@ struct json_return_type {
     json_return_type(const T& res) {
         _res = formatter::to_json(res);
     }
+    json_return_type(json_return_type&&) = default;
+    json_return_type& operator=(json_return_type&&) = default;
 };
 
 }
