@@ -724,6 +724,21 @@ reactor::file_size(sstring pathname) {
     });
 }
 
+future<bool>
+reactor::file_exists(sstring pathname) {
+    return _thread_pool.submit<syscall_result_extra<struct stat>>([pathname] {
+        struct stat st;
+        auto ret = stat(pathname.c_str(), &st);
+        return wrap_syscall(ret, st);
+    }).then([] (syscall_result_extra<struct stat> sr) {
+        if (sr.result < 0 && sr.error == ENOENT) {
+            return make_ready_future<bool>(false);
+        }
+        sr.throw_if_error();
+        return make_ready_future<bool>(true);
+    });
+}
+
 future<fs_type>
 reactor::file_system_at(sstring pathname) {
     return _thread_pool.submit<syscall_result_extra<struct statfs>>([pathname] {
