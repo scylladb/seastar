@@ -24,8 +24,8 @@
 
 namespace resource {
 
-size_t calculate_memory(configuration c, size_t available_memory) {
-    auto default_reserve_memory = std::max<size_t>(1 << 30, 0.05 * available_memory);
+size_t calculate_memory(configuration c, size_t available_memory, float panic_factor = 1) {
+    size_t default_reserve_memory = std::max<size_t>(1 << 30, 0.05 * available_memory) * panic_factor;
     available_memory -= c.reserve_memory.value_or(default_reserve_memory);
     size_t mem = c.total_memory.value_or(available_memory);
     if (mem > available_memory) {
@@ -106,7 +106,8 @@ std::vector<cpu> allocate(configuration c) {
     assert(hwloc_get_nbobjs_by_depth(topology, machine_depth) == 1);
     auto machine = hwloc_get_obj_by_depth(topology, machine_depth, 0);
     auto available_memory = machine->memory.total_memory;
-    size_t mem = calculate_memory(c, available_memory);
+    // hwloc doesn't account for kernel reserved memory, so set panic_factor = 2
+    size_t mem = calculate_memory(c, available_memory, 2);
     unsigned available_procs = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
     unsigned procs = c.cpus.value_or(available_procs);
     if (procs > available_procs) {
