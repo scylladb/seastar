@@ -232,14 +232,18 @@ small_pool::idx_to_size(unsigned idx) {
                   >> idx_frac_bits;
 }
 
-static constexpr unsigned log2(unsigned n) {
-    return std::numeric_limits<unsigned>::digits - count_leading_zeros(n - 1);
+static constexpr unsigned log2ceil(unsigned n) {
+    return std::numeric_limits<unsigned>::digits - count_leading_zeros(n-1);
+}
+
+static constexpr unsigned log2floor(unsigned n) {
+    return std::numeric_limits<unsigned>::digits - count_leading_zeros(n) - 1;
 }
 
 constexpr unsigned
 small_pool::size_to_idx(unsigned size) {
-    return ((log2(size) << idx_frac_bits) - ((1 << idx_frac_bits) - 1))
-            + ((size - 1) >> (log2(size) - idx_frac_bits));
+    return ((log2floor(size) << idx_frac_bits) - ((1 << idx_frac_bits) - 1))
+            + ((size - 1) >> (log2floor(size) - idx_frac_bits));
 }
 
 class small_pool_array {
@@ -955,7 +959,7 @@ void* allocate_aligned(size_t align, size_t size) {
     if (size <= max_small_allocation && align <= page_size) {
         // Our small allocator only guarantees alignment for power-of-two
         // allocations which are not larger than a page.
-        size = 1 << log2(size);
+        size = 1 << log2ceil(size);
         return cpu_mem.allocate_small(size);
     } else {
         return allocate_large_aligned(align, size);
