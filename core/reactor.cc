@@ -2327,6 +2327,10 @@ future<uint64_t> file_size(sstring name) {
     return engine().file_size(name);
 }
 
+future<bool> file_exists(sstring name) {
+    return engine().file_exists(name);
+}
+
 future<> link_file(sstring oldpath, sstring newpath) {
     return engine().link_file(std::move(oldpath), std::move(newpath));
 }
