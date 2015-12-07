@@ -672,6 +672,15 @@ private:
         virtual ~pollfn() {}
         // Returns true if work was done (false = idle)
         virtual bool poll() = 0;
+        // Tries to enter interrupt mode.
+        //
+        // If it returns true, then events from this poller will wake
+        // a sleeping idle loop, and exit_interrupt_mode() must be called
+        // to return to normal polling.
+        //
+        // If it returns false, the sleeping idle loop may not be entered.
+        virtual bool try_enter_interrupt_mode() { return false; }
+        virtual void exit_interrupt_mode() {}
     };
 
 public:
@@ -681,9 +690,13 @@ public:
         class deregistration_task;
         registration_task* _registration_task;
     public:
+        // SFINAE used to disambiguate between the two constructors, remove ASAP
         template <typename Func> // signature: bool ()
-        explicit poller(Func&& poll)
-                : _pollfn(make_pollfn(std::forward<Func>(poll))) {
+        explicit poller(Func&& poll, std::result_of_t<Func ()>* = nullptr)
+                : poller(make_pollfn(std::forward<Func>(poll))) {
+        }
+        poller(std::unique_ptr<pollfn> fn)
+                : _pollfn(std::move(fn)) {
             do_register();
         }
         ~poller();
