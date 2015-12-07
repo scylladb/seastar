@@ -1257,6 +1257,25 @@ reactor::flush_tcp_batches() {
     return work;
 }
 
+bool
+reactor::do_expire_lowres_timers() {
+    if (_lowres_next_timeout == lowres_clock::time_point()) {
+        return false;
+    }
+    auto now = lowres_clock::now();
+    if (now > _lowres_next_timeout) {
+        complete_timers(_lowres_timers, _expired_lowres_timers, [this] {
+            if (!_lowres_timers.empty()) {
+                _lowres_next_timeout = _lowres_timers.get_next_timeout();
+            } else {
+                _lowres_next_timeout = lowres_clock::time_point();
+            }
+        });
+        return true;
+    }
+    return false;
+}
+
 int reactor::run() {
     auto collectd_metrics = register_collectd_metrics();
 
@@ -1309,23 +1328,7 @@ int reactor::run() {
         return memory::drain_cross_cpu_freelist();
     });
 
-    poller expire_lowres_timers([this] {
-        if (_lowres_next_timeout == lowres_clock::time_point()) {
-            return false;
-        }
-        auto now = lowres_clock::now();
-        if (now > _lowres_next_timeout) {
-            complete_timers(_lowres_timers, _expired_lowres_timers, [this] {
-                if (!_lowres_timers.empty()) {
-                    _lowres_next_timeout = _lowres_timers.get_next_timeout();
-                } else {
-                    _lowres_next_timeout = lowres_clock::time_point();
-                }
-            });
-            return true;
-        }
-        return false;
-    });
+    poller expire_lowres_timers([this] { return do_expire_lowres_timers(); });
 
     using namespace std::chrono_literals;
     timer<lowres_clock> load_timer;
