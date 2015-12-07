@@ -456,8 +456,16 @@ class smp_message_queue {
     static constexpr size_t batch_size = 16;
     static constexpr size_t prefetch_cnt = 2;
     struct work_item;
-    using lf_queue = boost::lockfree::spsc_queue<work_item*,
+    struct lf_queue_remote {
+        reactor* remote;
+    };
+    using lf_queue_base = boost::lockfree::spsc_queue<work_item*,
                             boost::lockfree::capacity<queue_length>>;
+    // use inheritence to control placement order
+    struct lf_queue : lf_queue_remote, lf_queue_base {
+        lf_queue(reactor* remote) : lf_queue_remote{remote} {}
+        void maybe_wakeup();
+    };
     lf_queue _pending;
     lf_queue _completed;
     struct alignas(64) {
@@ -525,7 +533,7 @@ class smp_message_queue {
     } _tx;
     std::vector<work_item*> _completed_fifo;
 public:
-    smp_message_queue();
+    smp_message_queue(reactor* from, reactor* to);
     template <typename Func>
     futurize_t<std::result_of_t<Func()>> submit(Func&& func) {
         auto wi = new async_work_item<Func>(std::forward<Func>(func));
@@ -687,12 +695,14 @@ private:
     class signal_pollfn;
     class aio_batch_submit_pollfn;
     class batch_flush_pollfn;
+    class smp_pollfn;
     class drain_cross_cpu_freelist_pollfn;
     class lowres_timer_pollfn;
     friend io_pollfn;
     friend signal_pollfn;
     friend aio_batch_submit_pollfn;
     friend batch_flush_pollfn;
+    friend smp_pollfn;
     friend drain_cross_cpu_freelist_pollfn;
     friend lowres_timer_pollfn;
 public:
@@ -769,8 +779,11 @@ private:
     circular_buffer<double> _loads;
     double _load = 0;
     circular_buffer<output_stream<char>* > _flush_batching;
+    std::atomic<bool> _sleeping alignas(64);
+    pthread_t _thread_id alignas(64) = pthread_self();
 private:
     static void clear_task_quota(int);
+    void wakeup();
     bool flush_pending_aio();
     bool flush_tcp_batches();
     bool do_expire_lowres_timers();
@@ -980,6 +993,7 @@ class smp {
     using thread_adaptor = posix_thread;
 #endif
     static std::vector<thread_adaptor> _threads;
+    static std::vector<reactor*> _reactors;
     static smp_message_queue** _qs;
     static std::thread::id _tmain;
 

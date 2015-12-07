@@ -34,6 +34,7 @@
 #include "util/conversions.hh"
 #include "core/future-util.hh"
 #include "thread.hh"
+#include "systemwide_memory_barrier.hh"
 #include <cassert>
 #include <unistd.h>
 #include <fcntl.h>
@@ -1407,6 +1408,33 @@ public:
     }
 };
 
+class reactor::smp_pollfn final : public reactor::pollfn {
+    reactor& _r;
+public:
+    smp_pollfn(reactor& r) : _r(r) {}
+    virtual bool poll() final override {
+        return smp::poll_queues();
+    }
+    virtual bool try_enter_interrupt_mode() override {
+        _r._sleeping.store(true, std::memory_order_relaxed);
+        systemwide_memory_barrier();
+        if (poll()) {
+            // raced
+            _r._sleeping.store(false, std::memory_order_relaxed);
+            return false;
+        }
+        return true;
+    }
+    virtual void exit_interrupt_mode() override final {
+        _r._sleeping.store(false, std::memory_order_relaxed);
+    }
+};
+
+void
+reactor::wakeup() {
+    pthread_kill(_thread_id, alarm_signal());
+}
+
 int reactor::run() {
     auto collectd_metrics = register_collectd_metrics();
 
@@ -1442,7 +1470,7 @@ int reactor::run() {
     // Register smp queues poller
     std::experimental::optional<poller> smp_poller;
     if (smp::count > 1) {
-        smp_poller = poller(smp::poll_queues);
+        smp_poller = poller(std::make_unique<smp_pollfn>(*this));
     }
 
 #ifndef HAVE_OSV
@@ -1687,9 +1715,9 @@ void syscall_work_queue::complete() {
     _queue_has_room.signal(nr);
 }
 
-smp_message_queue::smp_message_queue()
-    : _pending()
-    , _completed()
+smp_message_queue::smp_message_queue(reactor* from, reactor* to)
+    : _pending(to)
+    , _completed(from)
 {
 }
 
@@ -1702,6 +1730,7 @@ void smp_message_queue::move_pending() {
     auto begin = _tx.a.pending_fifo.begin();
     auto end = begin + nr;
     _pending.push(begin, end);
+    _pending.maybe_wakeup();
     _tx.a.pending_fifo.erase(begin, end);
     _current_queue_length += nr;
     _last_snt_batch = nr;
@@ -1725,7 +1754,25 @@ void smp_message_queue::respond(work_item* item) {
 void smp_message_queue::flush_response_batch() {
     if (!_completed_fifo.empty()) {
         _completed.push(_completed_fifo.begin(), _completed_fifo.end());
+        _completed.maybe_wakeup();
         _completed_fifo.clear();
+    }
+}
+
+void
+smp_message_queue::lf_queue::maybe_wakeup() {
+    // Called after lf_queue_base::push().
+    //
+    // This is read-after-write, which wants memory_order_seq_cst,
+    // but we insert that barrier using systemwide_memory_barrier()
+    // because seq_cst is so expensive.
+    //
+    // However, we do need a compiler barrier:
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+    if (remote->_sleeping.load(std::memory_order_relaxed)) {
+        // We are free to clear it, because we're sending a signal now
+        remote->_sleeping.store(false, std::memory_order_relaxed);
+        remote->wakeup();
     }
 }
 
@@ -2009,6 +2056,7 @@ smp::get_options_description()
 }
 
 std::vector<smp::thread_adaptor> smp::_threads;
+std::vector<reactor*> smp::_reactors;
 smp_message_queue** smp::_qs;
 std::thread::id smp::_tmain;
 unsigned smp::count = 1;
@@ -2093,6 +2141,7 @@ void smp::configure(boost::program_options::variables_map configuration)
         nr_cpus = cpu_set.size();
     }
     smp::count = nr_cpus;
+    _reactors.resize(nr_cpus);
     resource::configuration rc;
     if (configuration.count("memory")) {
         rc.total_memory = parse_memory_size(configuration["memory"].as<std::string>());
@@ -2129,10 +2178,6 @@ void smp::configure(boost::program_options::variables_map configuration)
     std::vector<resource::cpu> allocations = resource::allocate(rc);
     smp::pin(allocations[0].cpu_id);
     memory::configure(allocations[0].mem, hugepages_path);
-    smp::_qs = new smp_message_queue* [smp::count];
-    for(unsigned i = 0; i < smp::count; i++) {
-        smp::_qs[i] = new smp_message_queue[smp::count];
-    }
 
 #ifdef HAVE_DPDK
     dpdk::eal::cpuset cpus;
@@ -2144,6 +2189,8 @@ void smp::configure(boost::program_options::variables_map configuration)
 
     // Better to put it into the smp class, but at smp construction time
     // correct smp::count is not known.
+    static boost::barrier reactors_registered(smp::count);
+    static boost::barrier smp_queues_constructed(smp::count);
     static boost::barrier inited(smp::count);
 
     unsigned i;
@@ -2158,6 +2205,9 @@ void smp::configure(boost::program_options::variables_map configuration)
             throw_system_error_on(r == -1);
             allocate_reactor();
             engine()._id = i;
+            _reactors[i] = &engine();
+            reactors_registered.wait();
+            smp_queues_constructed.wait();
             start_all_queues();
             inited.wait();
             engine().configure(configuration);
@@ -2166,6 +2216,7 @@ void smp::configure(boost::program_options::variables_map configuration)
     }
 
     allocate_reactor();
+    _reactors[0] = &engine();
 
 #ifdef HAVE_DPDK
     auto it = _threads.begin();
@@ -2174,6 +2225,15 @@ void smp::configure(boost::program_options::variables_map configuration)
     }
 #endif
 
+    reactors_registered.wait();
+    smp::_qs = new smp_message_queue* [smp::count];
+    for(unsigned i = 0; i < smp::count; i++) {
+        smp::_qs[i] = reinterpret_cast<smp_message_queue*>(operator new[] (sizeof(smp_message_queue) * smp::count));
+        for (unsigned j = 0; j < smp::count; ++j) {
+            new (&smp::_qs[i][j]) smp_message_queue(_reactors[j], _reactors[i]);
+        }
+    }
+    smp_queues_constructed.wait();
     start_all_queues();
     inited.wait();
     engine().configure(configuration);
