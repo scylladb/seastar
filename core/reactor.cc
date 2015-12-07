@@ -493,6 +493,7 @@ reactor::submit_io(Func prepare_io) {
 
 bool
 reactor::flush_pending_aio() {
+    bool did_work = !_pending_aio.empty();
     while (!_pending_aio.empty()) {
         auto nr = _pending_aio.size();
         struct iocb* iocbs[max_aio];
@@ -507,7 +508,7 @@ reactor::flush_pending_aio() {
             _pending_aio.erase(_pending_aio.begin(), _pending_aio.begin() + r);
         }
     }
-    return false; // We always submit all pending aios
+    return did_work;
 }
 
 template <typename Func>
