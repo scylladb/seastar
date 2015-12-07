@@ -698,6 +698,7 @@ private:
     class smp_pollfn;
     class drain_cross_cpu_freelist_pollfn;
     class lowres_timer_pollfn;
+    class epoll_pollfn;
     friend io_pollfn;
     friend signal_pollfn;
     friend aio_batch_submit_pollfn;
@@ -705,6 +706,7 @@ private:
     friend smp_pollfn;
     friend drain_cross_cpu_freelist_pollfn;
     friend lowres_timer_pollfn;
+    friend class epoll_pollfn;
 public:
     class poller {
         std::unique_ptr<pollfn> _pollfn;

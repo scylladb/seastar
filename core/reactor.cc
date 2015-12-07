@@ -1430,6 +1430,22 @@ public:
     }
 };
 
+class reactor::epoll_pollfn final : public reactor::pollfn {
+    reactor& _r;
+public:
+    epoll_pollfn(reactor& r) : _r(r) {}
+    virtual bool poll() final override {
+        return _r.wait_and_process();
+    }
+    virtual bool try_enter_interrupt_mode() override {
+        // Since we'll be sleeping in epoll, no need to do anything
+        // for interrupt mode.
+        return true;
+    }
+    virtual void exit_interrupt_mode() override final {
+    }
+};
+
 void
 reactor::wakeup() {
     pthread_kill(_thread_id, alarm_signal());
@@ -1561,9 +1577,7 @@ int reactor::run() {
 void
 reactor::start_epoll() {
     if (!_epoll_poller) {
-        _epoll_poller = poller([this] {
-            return wait_and_process();
-        });
+        _epoll_poller = poller(std::make_unique<epoll_pollfn>(*this));
     }
 }
 
