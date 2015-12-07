@@ -1371,6 +1371,42 @@ public:
     }
 };
 
+class reactor::lowres_timer_pollfn final : public reactor::pollfn {
+    reactor& _r;
+    // A highres timer is implemented as a waking  signal; so
+    // we arm one when we have a lowres timer during sleep, so
+    // it can wake us up.
+    timer<> _nearest_wakeup { [this] { _armed = false; } };
+    bool _armed = false;
+public:
+    lowres_timer_pollfn(reactor& r) : _r(r) {}
+    virtual bool poll() final override {
+        return _r.do_expire_lowres_timers();
+    }
+    virtual bool try_enter_interrupt_mode() override {
+        // arm our highres timer so a signal will wake us up
+        auto next = _r._lowres_next_timeout;
+        if (next == lowres_clock::time_point()) {
+            // no pending timers
+            return true;
+        }
+        auto now = lowres_clock::now();
+        if (next <= now) {
+            // whoops, go back
+            return false;
+        }
+        _nearest_wakeup.arm(next - now);
+        _armed = true;
+        return true;
+    }
+    virtual void exit_interrupt_mode() override final {
+        if (_armed) {
+            _nearest_wakeup.cancel();
+            _armed = false;
+        }
+    }
+};
+
 int reactor::run() {
     auto collectd_metrics = register_collectd_metrics();
 
@@ -1421,7 +1457,7 @@ int reactor::run() {
 
     poller drain_cross_cpu_freelist(std::make_unique<drain_cross_cpu_freelist_pollfn>());
 
-    poller expire_lowres_timers([this] { return do_expire_lowres_timers(); });
+    poller expire_lowres_timers(std::make_unique<lowres_timer_pollfn>(*this));
 
     using namespace std::chrono_literals;
     timer<lowres_clock> load_timer;
