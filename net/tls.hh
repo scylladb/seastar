@@ -69,8 +69,8 @@ namespace tls {
         dh_params(const blob&, x509_crt_format);
         ~dh_params();
 
-        dh_params(dh_params&&);
-        dh_params& operator=(dh_params&&);
+        dh_params(dh_params&&) noexcept;
+        dh_params& operator=(dh_params&&) noexcept;
 
         dh_params(const dh_params&) = delete;
         dh_params& operator=(const dh_params&) = delete;
@@ -98,8 +98,8 @@ namespace tls {
         certificate_credentials();
         ~certificate_credentials();
 
-        certificate_credentials(certificate_credentials&&);
-        certificate_credentials& operator=(certificate_credentials&&);
+        certificate_credentials(certificate_credentials&&) noexcept;
+        certificate_credentials& operator=(certificate_credentials&&) noexcept;
 
         certificate_credentials(const certificate_credentials&) = delete;
         certificate_credentials& operator=(const certificate_credentials&) = delete;
@@ -133,8 +133,8 @@ namespace tls {
     public:
         server_credentials(::shared_ptr<dh_params>);
 
-        server_credentials(server_credentials&&);
-        server_credentials& operator=(server_credentials&&);
+        server_credentials(server_credentials&&) noexcept;
+        server_credentials& operator=(server_credentials&&) noexcept;
 
         server_credentials(const server_credentials&) = delete;
         server_credentials& operator=(const server_credentials&) = delete;

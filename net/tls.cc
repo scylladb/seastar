@@ -141,8 +141,8 @@ seastar::tls::dh_params::dh_params(const blob& b, x509_crt_format fmt)
 seastar::tls::dh_params::~dh_params() {
 }
 
-seastar::tls::dh_params::dh_params(dh_params&&) = default;
-seastar::tls::dh_params& seastar::tls::dh_params::operator=(dh_params&&) = default;
+seastar::tls::dh_params::dh_params(dh_params&&) noexcept = default;
+seastar::tls::dh_params& seastar::tls::dh_params::operator=(dh_params&&) noexcept = default;
 
 future<seastar::tls::dh_params> seastar::tls::dh_params::from_file(
         const sstring& filename, x509_crt_format fmt) {
@@ -216,9 +216,9 @@ seastar::tls::certificate_credentials::~certificate_credentials() {
 }
 
 seastar::tls::certificate_credentials::certificate_credentials(
-        certificate_credentials&&) = default;
+        certificate_credentials&&) noexcept = default;
 seastar::tls::certificate_credentials& seastar::tls::certificate_credentials::operator=(
-        certificate_credentials&&) = default;
+        certificate_credentials&&) noexcept = default;
 
 void seastar::tls::certificate_credentials::set_x509_trust(const blob& b,
         x509_crt_format fmt) {
@@ -275,9 +275,9 @@ seastar::tls::server_credentials::server_credentials(::shared_ptr<dh_params> dh)
     _impl->dh_params(std::move(dh));
 }
 
-seastar::tls::server_credentials::server_credentials(server_credentials&&) = default;
+seastar::tls::server_credentials::server_credentials(server_credentials&&) noexcept = default;
 seastar::tls::server_credentials& seastar::tls::server_credentials::operator=(
-        server_credentials&&) = default;
+        server_credentials&&) noexcept = default;
 
 namespace seastar {
 namespace tls {

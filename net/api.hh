@@ -173,9 +173,9 @@ public:
     explicit connected_socket(std::unique_ptr<net::connected_socket_impl> csi);
     /// \endcond
     /// Moves a \c connected_socket object.
-    connected_socket(connected_socket&& cs);
+    connected_socket(connected_socket&& cs) noexcept;
     /// Move-assigns a \c connected_socket object.
-    connected_socket& operator=(connected_socket&& cs);
+    connected_socket& operator=(connected_socket&& cs) noexcept;
     /// Gets the input stream.
     ///
     /// Gets an object returning data sent from the remote endpoint.
@@ -222,10 +222,10 @@ public:
     explicit server_socket(std::unique_ptr<net::server_socket_impl> ssi);
     /// \endcond
     /// Moves a \c server_socket object.
-    server_socket(server_socket&& ss);
+    server_socket(server_socket&& ss) noexcept;
     ~server_socket();
     /// Move-assigns a \c server_socket object.
-    server_socket& operator=(server_socket&& cs);
+    server_socket& operator=(server_socket&& cs) noexcept;
 
     /// Accepts the next connection to successfully connect to this socket.
     ///

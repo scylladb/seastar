@@ -62,8 +62,8 @@ connected_socket::connected_socket(
         : _csi(std::move(csi)) {
 }
 
-connected_socket::connected_socket(connected_socket&& cs) = default;
-connected_socket& connected_socket::operator=(connected_socket&& cs) = default;
+connected_socket::connected_socket(connected_socket&& cs) noexcept = default;
+connected_socket& connected_socket::operator=(connected_socket&& cs) noexcept = default;
 
 connected_socket::~connected_socket()
 {}
@@ -99,8 +99,8 @@ server_socket::server_socket() {
 server_socket::server_socket(std::unique_ptr<net::server_socket_impl> ssi)
         : _ssi(std::move(ssi)) {
 }
-server_socket::server_socket(server_socket&& ss) = default;
-server_socket& server_socket::operator=(server_socket&& cs) = default;
+server_socket::server_socket(server_socket&& ss) noexcept = default;
+server_socket& server_socket::operator=(server_socket&& cs) noexcept = default;
 
 server_socket::~server_socket() {
 }
