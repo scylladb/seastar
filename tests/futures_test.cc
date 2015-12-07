@@ -638,3 +638,11 @@ SEASTAR_TEST_CASE(test_shared_future_propagates_errors_to_all) {
         check_fails_with_expected(std::move(f));
     });
 }
+
+SEASTAR_TEST_CASE(test_futurize_from_tuple) {
+    std::tuple<int> v1 = std::make_tuple(3);
+    std::tuple<> v2 = {};
+    BOOST_REQUIRE(futurize<int>::from_tuple(v1).get() == v1);
+    BOOST_REQUIRE(futurize<void>::from_tuple(v2).get() == v2);
+    return make_ready_future<>();
+}

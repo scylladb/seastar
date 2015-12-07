@@ -568,6 +568,8 @@ struct futurize {
     using type = future<T>;
     /// The promise type associated with \c type.
     using promise_type = promise<T>;
+    /// The value tuple type associated with \c type
+    using value_type = std::tuple<T>;
 
     /// Apply a function to an argument list (expressed as a tuple)
     /// and return the result, as a future (if it wasn't already).
@@ -583,6 +585,11 @@ struct futurize {
     static inline type convert(T&& value) { return make_ready_future<T>(std::move(value)); }
     static inline type convert(type&& value) { return std::move(value); }
 
+    /// Convert the tuple representation into a future
+    static type from_tuple(value_type&& value);
+    /// Convert the tuple representation into a future
+    static type from_tuple(const value_type& value);
+
     /// Makes an exceptional future of type \ref type.
     template <typename Arg>
     static type make_exception_future(Arg&& arg);
@@ -593,12 +600,16 @@ template <>
 struct futurize<void> {
     using type = future<>;
     using promise_type = promise<>;
+    using value_type = std::tuple<>;
 
     template<typename Func, typename... FuncArgs>
     static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept;
 
     template<typename Func, typename... FuncArgs>
     static inline type apply(Func&& func, FuncArgs&&... args) noexcept;
+
+    static inline type from_tuple(value_type&& value);
+    static inline type from_tuple(const value_type& value);
 
     template <typename Arg>
     static type make_exception_future(Arg&& arg);
@@ -1216,6 +1227,32 @@ inline
 future<>
 futurize<void>::make_exception_future(Arg&& arg) {
     return ::make_exception_future<>(std::forward<Arg>(arg));
+}
+
+template <typename T>
+inline
+future<T>
+futurize<T>::from_tuple(std::tuple<T>&& value) {
+    return make_ready_future<T>(std::move(value));
+}
+
+template <typename T>
+inline
+future<T>
+futurize<T>::from_tuple(const std::tuple<T>& value) {
+    return make_ready_future<T>(value);
+}
+
+inline
+future<>
+futurize<void>::from_tuple(std::tuple<>&& value) {
+    return make_ready_future<>();
+}
+
+inline
+future<>
+futurize<void>::from_tuple(const std::tuple<>& value) {
+    return make_ready_future<>();
 }
 
 /// \endcond
