@@ -685,8 +685,10 @@ private:
 
     class io_pollfn;
     class signal_pollfn;
+    class batch_flush_pollfn;
     friend io_pollfn;
     friend signal_pollfn;
+    friend batch_flush_pollfn;
 public:
     class poller {
         std::unique_ptr<pollfn> _pollfn;
