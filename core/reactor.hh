@@ -746,6 +746,7 @@ private:
 private:
     static void clear_task_quota(int);
     bool flush_pending_aio();
+    bool flush_tcp_batches();
     void abort_on_error(int ret);
     template <typename T, typename E, typename EnableFunc>
     void complete_timers(T&, E&, EnableFunc&& enable_fn);

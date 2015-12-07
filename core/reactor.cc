@@ -1246,6 +1246,17 @@ void reactor::force_poll() {
     _task_quota_finished = true;
 }
 
+bool
+reactor::flush_tcp_batches() {
+    bool work = _flush_batching.size();
+    while (!_flush_batching.empty()) {
+        auto os = std::move(_flush_batching.front());
+        _flush_batching.pop_front();
+        os->poll_flush();
+    }
+    return work;
+}
+
 int reactor::run() {
     auto collectd_metrics = register_collectd_metrics();
 
@@ -1255,15 +1266,7 @@ int reactor::run() {
 
     poller sig_poller([&] { return _signals.poll_signal(); } );
     poller aio_poller(std::bind(&reactor::flush_pending_aio, this));
-    poller batch_flush_poller([this] {
-        bool work = _flush_batching.size();
-        while (!_flush_batching.empty()) {
-            auto os = std::move(_flush_batching.front());
-            _flush_batching.pop_front();
-            os->poll_flush();
-        }
-        return work;
-    });
+    poller batch_flush_poller([this] { return flush_tcp_batches(); });
 
     if (_id == 0) {
        if (_handle_sigint) {
