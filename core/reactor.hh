@@ -685,9 +685,11 @@ private:
 
     class io_pollfn;
     class signal_pollfn;
+    class aio_batch_submit_pollfn;
     class batch_flush_pollfn;
     friend io_pollfn;
     friend signal_pollfn;
+    friend aio_batch_submit_pollfn;
     friend batch_flush_pollfn;
 public:
     class poller {

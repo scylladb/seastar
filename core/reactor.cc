@@ -1338,6 +1338,22 @@ public:
     }
 };
 
+class reactor::aio_batch_submit_pollfn final : public reactor::pollfn {
+    reactor& _r;
+public:
+    aio_batch_submit_pollfn(reactor& r) : _r(r) {}
+    virtual bool poll() final override {
+        return _r.flush_pending_aio();
+    }
+    virtual bool try_enter_interrupt_mode() override {
+        // This is a passive poller, so if a previous poll
+        // returned false (idle), there's no more work to do.
+        return true;
+    }
+    virtual void exit_interrupt_mode() override final {
+    }
+};
+
 int reactor::run() {
     auto collectd_metrics = register_collectd_metrics();
 
@@ -1346,7 +1362,7 @@ int reactor::run() {
 #endif
 
     poller sig_poller(std::make_unique<signal_pollfn>(*this));
-    poller aio_poller(std::bind(&reactor::flush_pending_aio, this));
+    poller aio_poller(std::make_unique<aio_batch_submit_pollfn>(*this));
     poller batch_flush_poller(std::make_unique<batch_flush_pollfn>(*this));
 
     if (_id == 0) {
