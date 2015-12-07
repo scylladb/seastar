@@ -684,7 +684,9 @@ private:
     };
 
     class io_pollfn;
+    class signal_pollfn;
     friend io_pollfn;
+    friend signal_pollfn;
 public:
     class poller {
         std::unique_ptr<pollfn> _pollfn;
@@ -720,6 +722,7 @@ private:
 #else
     reactor_backend_epoll _backend;
 #endif
+    sigset_t _active_sigmask; // holds sigmask while sleeping with sig disabled
     std::vector<pollfn*> _pollers;
     static constexpr size_t max_aio = 128;
     std::vector<std::function<future<> ()>> _exit_funcs;

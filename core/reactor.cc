@@ -1296,6 +1296,32 @@ public:
 
 #endif
 
+class reactor::signal_pollfn final : public reactor::pollfn {
+    reactor& _r;
+public:
+    signal_pollfn(reactor& r) : _r(r) {}
+    virtual bool poll() final override {
+        return _r._signals.poll_signal();
+    }
+    virtual bool try_enter_interrupt_mode() override {
+        // Signals will interrupt our epoll_pwait() call, but
+        // disable them now to avoid a signal between this point
+        // and epoll_pwait()
+        sigset_t block_all;
+        sigfillset(&block_all);
+        ::sigprocmask(SIG_SETMASK, &block_all, &_r._active_sigmask);
+        if (poll()) {
+            // raced already, and lost
+            exit_interrupt_mode();
+            return false;
+        }
+        return true;
+    }
+    virtual void exit_interrupt_mode() override final {
+        ::sigprocmask(SIG_SETMASK, &_r._active_sigmask, nullptr);
+    }
+};
+
 int reactor::run() {
     auto collectd_metrics = register_collectd_metrics();
 
@@ -1303,7 +1329,7 @@ int reactor::run() {
     poller io_poller(std::make_unique<io_pollfn>(*this));
 #endif
 
-    poller sig_poller([&] { return _signals.poll_signal(); } );
+    poller sig_poller(std::make_unique<signal_pollfn>(*this));
     poller aio_poller(std::bind(&reactor::flush_pending_aio, this));
     poller batch_flush_poller([this] { return flush_tcp_batches(); });
 
