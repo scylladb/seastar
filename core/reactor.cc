@@ -1354,6 +1354,23 @@ public:
     }
 };
 
+class reactor::drain_cross_cpu_freelist_pollfn final : public reactor::pollfn {
+public:
+    virtual bool poll() final override {
+        return memory::drain_cross_cpu_freelist();
+    }
+    virtual bool try_enter_interrupt_mode() override {
+        // Other cpus can queue items for us to free; and they won't notify
+        // us about them.  But it's okay to ignore those items, freeing them
+        // doesn't have any side effects.
+        //
+        // We'll take care of those items when we wake up for another reason.
+        return true;
+    }
+    virtual void exit_interrupt_mode() override final {
+    }
+};
+
 int reactor::run() {
     auto collectd_metrics = register_collectd_metrics();
 
@@ -1402,9 +1419,7 @@ int reactor::run() {
     });
 #endif
 
-    poller drain_cross_cpu_freelist([] {
-        return memory::drain_cross_cpu_freelist();
-    });
+    poller drain_cross_cpu_freelist(std::make_unique<drain_cross_cpu_freelist_pollfn>());
 
     poller expire_lowres_timers([this] { return do_expire_lowres_timers(); });
 

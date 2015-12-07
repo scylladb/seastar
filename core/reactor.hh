@@ -687,10 +687,12 @@ private:
     class signal_pollfn;
     class aio_batch_submit_pollfn;
     class batch_flush_pollfn;
+    class drain_cross_cpu_freelist_pollfn;
     friend io_pollfn;
     friend signal_pollfn;
     friend aio_batch_submit_pollfn;
     friend batch_flush_pollfn;
+    friend drain_cross_cpu_freelist_pollfn;
 public:
     class poller {
         std::unique_ptr<pollfn> _pollfn;
