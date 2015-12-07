@@ -20,6 +20,7 @@
  */
 
 #include "ip.hh"
+#include "stack.hh"
 
 using namespace net;
 

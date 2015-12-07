@@ -196,6 +196,7 @@ tests = [
     'tests/rpc',
     'tests/semaphore_test',
     'tests/packet_test',
+    'tests/tls_test',
     ]
 
 apps = [
@@ -247,6 +248,7 @@ libnet = [
     'net/udp.cc',
     'net/tcp.cc',
     'net/dhcp.cc',
+    'net/tls.cc',
     ]
 
 core = [
@@ -263,6 +265,7 @@ core = [
     'net/packet.cc',
     'net/posix-stack.cc',
     'net/net.cc',
+    'net/stack.cc',
     'rpc/rpc.cc',
     ]
 
@@ -287,7 +290,7 @@ boost_test_lib = [
 ]
 
 defines = []
-libs = '-laio -lboost_program_options -lboost_system -lstdc++ -lm -lboost_unit_test_framework -lboost_thread -lcryptopp -lrt'
+libs = '-laio -lboost_program_options -lboost_system -lstdc++ -lm -lboost_unit_test_framework -lboost_thread -lcryptopp -lrt -lgnutls -lgnutlsxx'
 hwloc_libs = '-lhwloc -lnuma -lpciaccess -lxml2 -lz'
 xen_used = False
 def have_xen():
@@ -346,6 +349,7 @@ deps = {
     'tests/udp_client': ['tests/udp_client.cc'] + core + libnet,
     'tests/tcp_server': ['tests/tcp_server.cc'] + core + libnet,
     'tests/tcp_client': ['tests/tcp_client.cc'] + core + libnet,
+    'tests/tls_test': ['tests/tls_test.cc'] + core + libnet + boost_test_lib,
     'apps/seawreck/seawreck': ['apps/seawreck/seawreck.cc', 'http/http_response_parser.rl'] + core + libnet,
     'tests/blkdiscard_test': ['tests/blkdiscard_test.cc'] + core,
     'tests/sstring_test': ['tests/sstring_test.cc'] + core,

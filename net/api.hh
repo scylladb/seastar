@@ -30,6 +30,7 @@
 #include "net/packet.hh"
 #include "core/print.hh"
 #include "core/temporary_buffer.hh"
+#include "core/iostream.hh"
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/ip.h>
@@ -104,6 +105,13 @@ socket_address make_ipv4_address(ipv4_addr addr) {
 
 namespace net {
 
+/// \cond internal
+class connected_socket_impl;
+class server_socket_impl;
+class udp_channel_impl;
+class get_impl;
+/// \endcond
+
 class udp_datagram_impl {
 public:
     virtual ~udp_datagram_impl() {};
@@ -124,29 +132,129 @@ public:
     packet& get_data() { return _impl->get_data(); }
 };
 
-class udp_channel_impl {
-public:
-    virtual ~udp_channel_impl() {};
-    virtual future<udp_datagram> receive() = 0;
-    virtual future<> send(ipv4_addr dst, const char* msg) = 0;
-    virtual future<> send(ipv4_addr dst, packet p) = 0;
-    virtual bool is_closed() const = 0;
-    virtual void close() = 0;
-};
-
 class udp_channel {
 private:
     std::unique_ptr<udp_channel_impl> _impl;
 public:
-    udp_channel() {}
-    udp_channel(std::unique_ptr<udp_channel_impl> impl) : _impl(std::move(impl)) {}
-    future<udp_datagram> receive() { return _impl->receive(); }
-    future<> send(ipv4_addr dst, const char* msg) { return _impl->send(std::move(dst), msg); }
-    future<> send(ipv4_addr dst, packet p) { return _impl->send(std::move(dst), std::move(p)); }
-    bool is_closed() const { return _impl->is_closed(); }
-    void close() { return _impl->close(); }
+    udp_channel();
+    udp_channel(std::unique_ptr<udp_channel_impl>);
+    ~udp_channel();
+
+    udp_channel(udp_channel&&);
+    udp_channel& operator=(udp_channel&&);
+
+    future<udp_datagram> receive();
+    future<> send(ipv4_addr dst, const char* msg);
+    future<> send(ipv4_addr dst, packet p);
+    bool is_closed() const;
+    void close();
 };
 
 } /* namespace net */
+
+// TODO: remove from global NS
+
+/// \addtogroup networking-module
+/// @{
+
+/// A TCP (or other stream-based protocol) connection.
+///
+/// A \c connected_socket represents a full-duplex stream between
+/// two endpoints, a local endpoint and a remote endpoint.
+class connected_socket {
+    friend class net::get_impl;
+    std::unique_ptr<net::connected_socket_impl> _csi;
+public:
+    /// Constructs a \c connected_socket not corresponding to a connection
+    connected_socket();
+    ~connected_socket();
+
+    /// \cond internal
+    explicit connected_socket(std::unique_ptr<net::connected_socket_impl> csi);
+    /// \endcond
+    /// Moves a \c connected_socket object.
+    connected_socket(connected_socket&& cs);
+    /// Move-assigns a \c connected_socket object.
+    connected_socket& operator=(connected_socket&& cs);
+    /// Gets the input stream.
+    ///
+    /// Gets an object returning data sent from the remote endpoint.
+    input_stream<char> input();
+    /// Gets the output stream.
+    ///
+    /// Gets an object that sends data to the remote endpoint.
+    output_stream<char> output();
+    /// Sets the TCP_NODELAY option (disabling Nagle's algorithm)
+    void set_nodelay(bool nodelay);
+    /// Gets the TCP_NODELAY option (Nagle's algorithm)
+    ///
+    /// \return whether the nodelay option is enabled or not
+    bool get_nodelay() const;
+    /// Disables output to the socket.
+    ///
+    /// Current or future writes that have not been successfully flushed
+    /// will immediately fail with an error.  This is useful to abort
+    /// operations on a socket that is not making progress due to a
+    /// peer failure.
+    future<> shutdown_output();
+    /// Disables input from the socket.
+    ///
+    /// Current or future reads will immediately fail with an error.
+    /// This is useful to abort operations on a socket that is not making
+    /// progress due to a peer failure.
+    future<> shutdown_input();
+    /// Disables socket input and output.
+    ///
+    /// Equivalent to \ref shutdown_input() and \ref shutdown_output().
+};
+/// @}
+
+/// \addtogroup networking-module
+/// @{
+
+/// A listening socket, waiting to accept incoming network connections.
+class server_socket {
+    std::unique_ptr<net::server_socket_impl> _ssi;
+public:
+    /// Constructs a \c server_socket not corresponding to a connection
+    server_socket();
+    /// \cond internal
+    explicit server_socket(std::unique_ptr<net::server_socket_impl> ssi);
+    /// \endcond
+    /// Moves a \c server_socket object.
+    server_socket(server_socket&& ss);
+    ~server_socket();
+    /// Move-assigns a \c server_socket object.
+    server_socket& operator=(server_socket&& cs);
+
+    /// Accepts the next connection to successfully connect to this socket.
+    ///
+    /// \return a \ref connected_socket representing the connection, and
+    ///         a \ref socket_address describing the remote endpoint.
+    ///
+    /// \see listen(socket_address sa)
+    /// \see listen(socket_address sa, listen_options opts)
+    future<connected_socket, socket_address> accept();
+
+    /// Stops any \ref accept() in progress.
+    ///
+    /// Current and future \ref accept() calls will terminate immediately
+    /// with an error.
+    void abort_accept();
+};
+/// @}
+
+class network_stack {
+public:
+    virtual ~network_stack() {}
+    virtual server_socket listen(socket_address sa, listen_options opts) = 0;
+    // FIXME: local parameter assumes ipv4 for now, fix when adding other AF
+    virtual future<connected_socket> connect(socket_address sa, socket_address local = socket_address(::sockaddr_in{AF_INET, INADDR_ANY, 0})) = 0;
+    virtual net::udp_channel make_udp_channel(ipv4_addr addr = {}) = 0;
+    virtual future<> initialize() {
+        return make_ready_future();
+    }
+    virtual bool has_per_core_namespace() = 0;
+};
 
 #endif

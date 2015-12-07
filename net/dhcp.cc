@@ -27,6 +27,7 @@
 #include "dhcp.hh"
 #include "ip.hh"
 #include "udp.hh"
+#include "stack.hh"
 
 using namespace std::literals::chrono_literals;
 
