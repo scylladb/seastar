@@ -1276,11 +1276,31 @@ reactor::do_expire_lowres_timers() {
     return false;
 }
 
+#ifndef HAVE_OSV
+
+class reactor::io_pollfn final : public reactor::pollfn {
+    reactor& _r;
+public:
+    io_pollfn(reactor& r) : _r(r) {}
+    virtual bool poll() override {
+        return _r.process_io();
+    }
+    virtual bool try_enter_interrupt_mode() override {
+        // aio cannot generate events if there are no inflight aios
+        return _r._io_context_available.current() == reactor::max_aio;
+    }
+    virtual void exit_interrupt_mode() override {
+        // nothing to do
+    }
+};
+
+#endif
+
 int reactor::run() {
     auto collectd_metrics = register_collectd_metrics();
 
 #ifndef HAVE_OSV
-    poller io_poller([&] { return process_io(); });
+    poller io_poller(std::make_unique<io_pollfn>(*this));
 #endif
 
     poller sig_poller([&] { return _signals.poll_signal(); } );

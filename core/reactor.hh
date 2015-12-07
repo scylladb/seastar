@@ -683,6 +683,8 @@ private:
         virtual void exit_interrupt_mode() {}
     };
 
+    class io_pollfn;
+    friend io_pollfn;
 public:
     class poller {
         std::unique_ptr<pollfn> _pollfn;
