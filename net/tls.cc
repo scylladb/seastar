@@ -124,6 +124,11 @@ public:
                 gnutls_dh_params_import_pkcs3(*this, &w,
                         gnutls_x509_crt_fmt_t(fmt)));
     }
+    ~impl() {
+        if (_params != nullptr) {
+            gnutls_dh_params_deinit(_params);
+        }
+    }
     operator gnutls_dh_params_t() const {
         return _params;
     }
