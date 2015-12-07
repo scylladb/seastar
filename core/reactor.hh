@@ -670,7 +670,8 @@ class reactor {
 private:
     struct pollfn {
         virtual ~pollfn() {}
-        virtual bool poll_and_check_more_work() = 0;
+        // Returns true if work was done (false = idle)
+        virtual bool poll() = 0;
     };
 
 public:
@@ -681,8 +682,8 @@ public:
         registration_task* _registration_task;
     public:
         template <typename Func> // signature: bool ()
-        explicit poller(Func&& poll_and_check_more_work)
-                : _pollfn(make_pollfn(std::forward<Func>(poll_and_check_more_work))) {
+        explicit poller(Func&& poll)
+                : _pollfn(make_pollfn(std::forward<Func>(poll))) {
             do_register();
         }
         ~poller();
@@ -930,7 +931,7 @@ reactor::make_pollfn(Func&& func) {
     struct the_pollfn : pollfn {
         the_pollfn(Func&& func) : func(std::forward<Func>(func)) {}
         Func func;
-        virtual bool poll_and_check_more_work() override {
+        virtual bool poll() override {
             return func();
         }
     };

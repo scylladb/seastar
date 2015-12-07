@@ -1407,7 +1407,7 @@ bool
 reactor::poll_once() {
     bool work = false;
     for (auto c : _pollers) {
-        work |= c->poll_and_check_more_work();
+        work |= c->poll();
     }
 
     return work;
