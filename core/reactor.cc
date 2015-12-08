@@ -236,7 +236,7 @@ reactor::reactor()
     r = timer_create(CLOCK_REALTIME, &sev, &_timer);
     assert(r >= 0);
     sev.sigev_signo = task_quota_signal();
-    r = timer_create(CLOCK_REALTIME, &sev, &_task_quota_timer);
+    r = timer_create(CLOCK_THREAD_CPUTIME_ID, &sev, &_task_quota_timer);
     assert(r >= 0);
     sigemptyset(&mask);
     sigaddset(&mask, task_quota_signal());
