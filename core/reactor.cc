@@ -1394,6 +1394,15 @@ int reactor::run() {
     return _return;
 }
 
+void
+reactor::start_epoll() {
+    if (!_epoll_poller) {
+        _epoll_poller = poller([this] {
+            return wait_and_process();
+        });
+    }
+}
+
 bool
 reactor::poll_once() {
     bool work = false;

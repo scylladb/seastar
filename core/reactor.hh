@@ -850,13 +850,7 @@ public:
     network_stack& net() { return *_network_stack; }
     unsigned cpu_id() const { return _id; }
 
-    void start_epoll() {
-        if (!_epoll_poller) {
-            _epoll_poller = poller([this] {
-                return wait_and_process();
-            });
-        }
-    }
+    void start_epoll();
 
 #ifdef HAVE_OSV
     void timer_thread_func();
