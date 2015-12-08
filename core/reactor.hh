@@ -714,10 +714,9 @@ public:
         class deregistration_task;
         registration_task* _registration_task;
     public:
-        // SFINAE used to disambiguate between the two constructors, remove ASAP
         template <typename Func> // signature: bool ()
-        explicit poller(Func&& poll, std::result_of_t<Func ()>* = nullptr)
-                : poller(make_pollfn(std::forward<Func>(poll))) {
+        static poller simple(Func&& poll) {
+            return poller(make_pollfn(std::forward<Func>(poll)));
         }
         poller(std::unique_ptr<pollfn> fn)
                 : _pollfn(std::move(fn)) {
