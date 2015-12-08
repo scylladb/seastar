@@ -595,7 +595,7 @@ public:
     // and just processes events that have already happened, if any.
     // After the optional wait, just before processing the events, the
     // pre_process() function is called.
-    virtual bool wait_and_process() = 0;
+    virtual bool wait_and_process(int timeout = -1, const sigset_t* active_sigmask = nullptr) = 0;
     // Methods that allow polling on file descriptors. This will only work on
     // reactor_backend_epoll. Other reactor_backend will probably abort if
     // they are called (which is fine if no file descriptors are waited on):
@@ -626,7 +626,7 @@ private:
 public:
     reactor_backend_epoll();
     virtual ~reactor_backend_epoll() override { }
-    virtual bool wait_and_process() override;
+    virtual bool wait_and_process(int timeout, const sigset_t* active_sigmask) override;
     virtual future<> readable(pollable_fd_state& fd) override;
     virtual future<> writeable(pollable_fd_state& fd) override;
     virtual void forget(pollable_fd_state& fd) override;
@@ -895,6 +895,7 @@ public:
     unsigned cpu_id() const { return _id; }
 
     void start_epoll();
+    void sleep();
 
 #ifdef HAVE_OSV
     void timer_thread_func();
@@ -939,8 +940,8 @@ private:
     friend class poller;
     friend void add_to_flush_poller(output_stream<char>* os);
 public:
-    bool wait_and_process() {
-        return _backend.wait_and_process();
+    bool wait_and_process(int timeout = 0, const sigset_t* active_sigmask = nullptr) {
+        return _backend.wait_and_process(timeout, active_sigmask);
     }
 
     future<> readable(pollable_fd_state& fd) {
