@@ -781,7 +781,7 @@ private:
 
 class server_session : public net::server_socket_impl {
 public:
-    server_session(::shared_ptr<certificate_credentials> creds, ::server_socket sock)
+    server_session(::shared_ptr<server_credentials> creds, ::server_socket sock)
             : _creds(std::move(creds)), _sock(std::move(sock)) {
     }
     future<connected_socket, socket_address> accept() override {
@@ -789,10 +789,8 @@ public:
         // an actual connection. Then we create a "server" session
         // and wrap it up after handshaking.
         return _sock.accept().then([this](::connected_socket s, ::socket_address addr) {
-            auto sess = std::make_unique<session>(session::type::SERVER, _creds, std::move(s));
-            auto f = sess->handshake();
-            return f.then([sess = std::move(sess), addr = std::move(addr)]() mutable {
-                return make_ready_future<connected_socket, ::socket_address>(connected_socket(std::move(sess)), std::move(addr));
+            return wrap_server(_creds, std::move(s)).then([addr](::connected_socket s) {
+                return make_ready_future<connected_socket, socket_address>(std::move(s), addr);
             });
         });
     }
@@ -800,7 +798,7 @@ public:
         _sock.abort_accept();
     }
 private:
-    ::shared_ptr<certificate_credentials> _creds;
+    ::shared_ptr<server_credentials> _creds;
     ::server_socket _sock;
 };
 
@@ -818,18 +816,27 @@ data_sink seastar::tls::session::sink() {
 
 future<::connected_socket> seastar::tls::connect(::shared_ptr<certificate_credentials> cred, socket_address sa, sstring name) {
     return engine().connect(sa).then([cred = std::move(cred), name = std::move(name)](::connected_socket s) mutable {
-        return tls::connect(cred, std::move(s), std::move(name));
+        return wrap_client(cred, std::move(s), std::move(name));
     });
 }
 
 future<::connected_socket> seastar::tls::connect(::shared_ptr<certificate_credentials> cred, socket_address sa, socket_address local, sstring name) {
     return engine().connect(sa, local).then([cred = std::move(cred), name = std::move(name)](::connected_socket s) mutable {
-        return tls::connect(cred, std::move(s), std::move(name));
+        return wrap_client(cred, std::move(s), std::move(name));
     });
 }
 
-future<::connected_socket> seastar::tls::connect(::shared_ptr<certificate_credentials> cred, ::connected_socket&& s, sstring name) {
+future<::connected_socket> seastar::tls::wrap_client(::shared_ptr<certificate_credentials> cred, ::connected_socket&& s, sstring name) {
     auto sess = std::make_unique<session>(session::type::CLIENT, std::move(cred), std::move(s), std::move(name));
+    auto f = sess->handshake();
+    return f.then([sess = std::move(sess)]() mutable {
+        ::connected_socket ssls(std::move(sess));
+        return make_ready_future<::connected_socket>(std::move(ssls));
+    });
+}
+
+future<::connected_socket> seastar::tls::wrap_server(::shared_ptr<server_credentials> cred, ::connected_socket&& s) {
+    auto sess = std::make_unique<session>(session::type::SERVER, std::move(cred), std::move(s));
     auto f = sess->handshake();
     return f.then([sess = std::move(sess)]() mutable {
         ::connected_socket ssls(std::move(sess));

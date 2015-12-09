@@ -76,7 +76,7 @@ namespace tls {
         dh_params(const dh_params&) = delete;
         dh_params& operator=(const dh_params&) = delete;
 
-        // loads a key from file
+        /** loads a key from file */
         static future<dh_params> from_file(const sstring&, x509_crt_format);
     private:
         class impl;
@@ -136,7 +136,7 @@ namespace tls {
         std::unique_ptr<impl> _impl;
     };
 
-    // Exception thrown on certificate validation error
+    /** Exception thrown on certificate validation error */
     class verification_error : public std::runtime_error {
     public:
         using runtime_error::runtime_error;
@@ -157,25 +157,35 @@ namespace tls {
         server_credentials& operator=(const server_credentials&) = delete;
     };
 
-    /*
+    /**
      * Creates a TLS client connection using the default network stack and the
-     * supplied credentials. Typically these should contain enough information
+     * supplied credentials.
+     * Typically these should contain enough information
      * to validate the remote certificate (i.e. trust info).
      *
-     * "name" is an optional expected server name for the remote end point
+     * \param name An optional expected server name for the remote end point
      */
+    /// @{
     future<::connected_socket> connect(::shared_ptr<certificate_credentials>, ::socket_address, sstring name = {});
     future<::connected_socket> connect(::shared_ptr<certificate_credentials>, ::socket_address, ::socket_address local, sstring name = {});
-    // Wraps an existing connection in SSL/TLS.
-    future<::connected_socket> connect(::shared_ptr<certificate_credentials>, ::connected_socket&&, sstring name = {});
+    /// @}
 
-    /*
+    /** Wraps an existing connection in SSL/TLS. */
+    /// @{
+    future<::connected_socket> wrap_client(::shared_ptr<certificate_credentials>, ::connected_socket&&, sstring name = {});
+    future<::connected_socket> wrap_server(::shared_ptr<server_credentials>, ::connected_socket&&);
+    /// @}
+
+    /**
      * Creates a server socket that accepts SSL/TLS clients using default network stack
-     * and the supplied credentials. The credentials object should contain certificate info
+     * and the supplied credentials.
+     * The credentials object should contain certificate info
      * for the server and optionally trust/crl data.
      */
+    /// @{
     ::server_socket listen(::shared_ptr<server_credentials>, ::socket_address sa, ::listen_options opts = listen_options());
     // Wraps an existing server socket in SSL
     ::server_socket listen(::shared_ptr<server_credentials>, ::server_socket);
+    /// @}
 }
 }
