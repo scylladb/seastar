@@ -136,6 +136,12 @@ namespace tls {
         std::unique_ptr<impl> _impl;
     };
 
+    // Exception thrown on certificate validation error
+    class verification_error : public std::runtime_error {
+    public:
+        using runtime_error::runtime_error;
+    };
+
     /**
      * Extending certificates and keys for server usage.
      * More probably goes in here...
@@ -166,7 +172,7 @@ namespace tls {
     /*
      * Creates a server socket that accepts SSL/TLS clients using default network stack
      * and the supplied credentials. The credentials object should contain certificate info
-     * for the server and trust/crl data.
+     * for the server and optionally trust/crl data.
      */
     ::server_socket listen(::shared_ptr<server_credentials>, ::socket_address sa, ::listen_options opts = listen_options());
     // Wraps an existing server socket in SSL
