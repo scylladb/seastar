@@ -2127,7 +2127,7 @@ smp::get_options_description()
         ("smp,c", bpo::value<unsigned>(), "number of threads (default: one per CPU)")
         ("cpuset", bpo::value<cpuset_wrapper>(), "CPUs to use (in cpuset(7) format; default: all))")
         ("memory,m", bpo::value<std::string>(), "memory to use, in bytes (ex: 4G) (default: all)")
-        ("reserve-memory", bpo::value<std::string>()->default_value("512M"), "memory reserved to OS")
+        ("reserve-memory", bpo::value<std::string>(), "memory reserved to OS (if --memory not specified)")
         ("hugepages", bpo::value<std::string>(), "path to accessible hugetlbfs mount (typically /dev/hugepages/something)")
         ;
     return opts;
