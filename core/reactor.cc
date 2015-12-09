@@ -568,8 +568,8 @@ posix_file_impl::query_dma_alignment() {
 
 future<size_t>
 posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len) {
-    return engine().submit_io_write(len, [this, pos, buffer, len] (iocb& io) {
-        io_prep_pwrite(&io, _fd, const_cast<void*>(buffer), len, pos);
+    return engine().submit_io_write(len, [fd = _fd, pos, buffer, len] (iocb& io) {
+        io_prep_pwrite(&io, fd, const_cast<void*>(buffer), len, pos);
     }).then([] (io_event ev) {
         throw_kernel_error(long(ev.res));
         return make_ready_future<size_t>(size_t(ev.res));
@@ -579,8 +579,8 @@ posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len) {
 future<size_t>
 posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov) {
     auto len = boost::accumulate(iov | boost::adaptors::transformed(std::mem_fn(&iovec::iov_len)), size_t(0));
-    return engine().submit_io_write(len, [this, pos, iov = std::move(iov)] (iocb& io) {
-        io_prep_pwritev(&io, _fd, iov.data(), iov.size(), pos);
+    return engine().submit_io_write(len, [fd = _fd, pos, iov = std::move(iov)] (iocb& io) {
+        io_prep_pwritev(&io, fd, iov.data(), iov.size(), pos);
     }).then([] (io_event ev) {
         throw_kernel_error(long(ev.res));
         return make_ready_future<size_t>(size_t(ev.res));
@@ -589,8 +589,8 @@ posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov) {
 
 future<size_t>
 posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len) {
-    return engine().submit_io_read(len, [this, pos, buffer, len] (iocb& io) {
-        io_prep_pread(&io, _fd, buffer, len, pos);
+    return engine().submit_io_read(len, [fd = _fd, pos, buffer, len] (iocb& io) {
+        io_prep_pread(&io, fd, buffer, len, pos);
     }).then([] (io_event ev) {
         throw_kernel_error(long(ev.res));
         return make_ready_future<size_t>(size_t(ev.res));
@@ -600,8 +600,8 @@ posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len) {
 future<size_t>
 posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov) {
     auto len = boost::accumulate(iov | boost::adaptors::transformed(std::mem_fn(&iovec::iov_len)), size_t(0));
-    return engine().submit_io_read(len, [this, pos, iov = std::move(iov)] (iocb& io) {
-        io_prep_preadv(&io, _fd, iov.data(), iov.size(), pos);
+    return engine().submit_io_read(len, [fd = _fd, pos, iov = std::move(iov)] (iocb& io) {
+        io_prep_preadv(&io, fd, iov.data(), iov.size(), pos);
     }).then([] (io_event ev) {
         throw_kernel_error(long(ev.res));
         return make_ready_future<size_t>(size_t(ev.res));
