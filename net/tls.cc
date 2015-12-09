@@ -418,6 +418,9 @@ public:
     size_t in_avail() const {
         return _input.size();
     }
+    bool eof() const {
+        return _eof;
+    }
     future<> wait_for_input() {
         if (!_input.empty()) {
             return make_ready_future<>();
@@ -445,7 +448,7 @@ public:
     }
 
     ssize_t pull(void* dst, size_t len) {
-        if (_eof) {
+        if (eof()) {
             return 0;
         }
         // If we have data in buffers, we can complete.
@@ -652,6 +655,9 @@ private:
             }
             output.trim(n);
             return make_ready_future<temporary_buffer<char>>(std::move(output));
+        }
+        if (_session.eof()) {
+            return make_ready_future<temporary_buffer<char>>();
         }
         // No input? wait for out buffers to fill...
         return _session.wait_for_input().then([this] {
