@@ -20,6 +20,8 @@
  */
 
 #include <gnutls/gnutls.h>
+#include <gnutls/x509.h>
+
 #include <experimental/optional>
 #include <system_error>
 
@@ -153,6 +155,49 @@ future<seastar::tls::dh_params> seastar::tls::dh_params::from_file(
         const sstring& filename, x509_crt_format fmt) {
     return read_fully(filename).then([fmt](temporary_buffer<char> buf) {
         return make_ready_future<dh_params>(dh_params(blob(buf.get()), fmt));
+    });
+}
+
+class seastar::tls::x509_cert::impl {
+public:
+    impl()
+            : _cert([] {
+                gnutls_x509_crt_t cert;
+                gtls_chk(gnutls_x509_crt_init(&cert));
+                return cert;
+            }()) {
+    }
+    impl(const blob& b, x509_crt_format fmt)
+        : impl()
+    {
+        blob_wrapper w(b);
+        gtls_chk(gnutls_x509_crt_import(*this, &w, gnutls_x509_crt_fmt_t(fmt)));
+    }
+    ~impl() {
+        if (_cert != nullptr) {
+            gnutls_x509_crt_deinit(_cert);
+        }
+    }
+    operator gnutls_x509_crt_t() const {
+        return _cert;
+    }
+
+private:
+    gnutls_x509_crt_t _cert;
+};
+
+seastar::tls::x509_cert::x509_cert(::shared_ptr<impl> impl)
+        : _impl(std::move(impl)) {
+}
+
+seastar::tls::x509_cert::x509_cert(const blob& b, x509_crt_format fmt)
+        : x509_cert(::make_shared<impl>(b, fmt)) {
+}
+
+future<seastar::tls::x509_cert> seastar::tls::x509_cert::from_file(
+        const sstring& filename, x509_crt_format fmt) {
+    return read_fully(filename).then([fmt](temporary_buffer<char> buf) {
+        return make_ready_future<x509_cert>(x509_cert(blob(buf.get()), fmt));
     });
 }
 
