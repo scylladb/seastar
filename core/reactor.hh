@@ -824,6 +824,9 @@ public:
     future<> rename_file(sstring old_pathname, sstring new_pathname);
     future<> link_file(sstring oldpath, sstring newpath);
 
+    // In the following three methods, prepare_io is not guaranteed to execute in the same processor
+    // in which it was generated. Therefore, care must be taken to avoid the use of objects that could
+    // be destroyed within or at exit of prepare_io.
     template <typename Func>
     future<io_event> submit_io(Func prepare_io);
     template <typename Func>
