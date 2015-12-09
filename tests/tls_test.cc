@@ -32,33 +32,44 @@
 
 using namespace seastar;
 
-SEASTAR_TEST_CASE(test_simple_x509_client) {
-    auto certs = ::make_shared<tls::certificate_credentials>();
-    return certs->set_x509_trust_file("tests/tls-ca-bundle.pem", tls::x509_crt_format::PEM).then([certs]() {
-        auto addr = make_ipv4_address(ipv4_addr("216.58.209.132:443"));
-        return tls::connect(certs, addr, "www.google.com").then([](connected_socket s) {
-            return do_with(std::move(s), [](connected_socket& s) {
-                return do_with(s.output(), [&s](auto& os) {
-                    static const sstring msg("GET / HTTP/1.0\r\n\r\n");
-                    auto f = os.write(msg);
+static future<> connect_to_ssl_google(::shared_ptr<tls::certificate_credentials> certs) {
+    auto addr = make_ipv4_address(ipv4_addr("216.58.209.132:443"));
+    return tls::connect(certs, addr, "www.google.com").then([](connected_socket s) {
+        return do_with(std::move(s), [](connected_socket& s) {
+            return do_with(s.output(), [&s](auto& os) {
+                static const sstring msg("GET / HTTP/1.0\r\n\r\n");
+                auto f = os.write(msg);
+                return f.then([&s, &os]() mutable {
+                    auto f = os.flush();
                     return f.then([&s, &os]() mutable {
-                        auto f = os.flush();
-                        return f.then([&s, &os]() mutable {
-                            return do_with(s.input(), [](auto& in) {
-                                auto f = in.read();
-                                return f.then([](temporary_buffer<char> buf) {
-                                    // std::cout << buf.get() << std::endl;
-                                    BOOST_CHECK(strncmp(buf.get(), "HTTP/", 5) == 0);
-                                    BOOST_CHECK(buf.size() > 8);
-                                });
+                        return do_with(s.input(), [](auto& in) {
+                            auto f = in.read();
+                            return f.then([](temporary_buffer<char> buf) {
+                                // std::cout << buf.get() << std::endl;
+                                BOOST_CHECK(strncmp(buf.get(), "HTTP/", 5) == 0);
+                                BOOST_CHECK(buf.size() > 8);
                             });
                         });
-                    }).finally([&os] {
-                        return os.close();
                     });
+                }).finally([&os] {
+                    return os.close();
                 });
             });
         });
+    });
+}
+
+SEASTAR_TEST_CASE(test_simple_x509_client) {
+    auto certs = ::make_shared<tls::certificate_credentials>();
+    return certs->set_x509_trust_file("tests/tls-ca-bundle.pem", tls::x509_crt_format::PEM).then([certs]() {
+        return connect_to_ssl_google(certs);
+    });
+}
+
+SEASTAR_TEST_CASE(test_x509_client_with_system_trust) {
+    auto certs = ::make_shared<tls::certificate_credentials>();
+    return certs->set_system_trust().then([certs]() {
+        return connect_to_ssl_google(certs);
     });
 }
 

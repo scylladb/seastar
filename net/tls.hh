@@ -127,6 +127,12 @@ namespace tls {
 
         future<> set_simple_pkcs12_file(const sstring& pkcs12file, x509_crt_format, const sstring& password);
 
+        /**
+         * Loads default system cert trust file
+         * into this object.
+         */
+        future<> set_system_trust();
+
         // TODO add methods for certificate verification
     private:
         class impl;

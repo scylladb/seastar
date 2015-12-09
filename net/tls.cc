@@ -26,6 +26,7 @@
 #include <system_error>
 
 #include "core/reactor.hh"
+#include "core/thread.hh"
 #include "tls.hh"
 #include "stack.hh"
 
@@ -253,6 +254,12 @@ public:
         gnutls_certificate_set_dh_params(*this, *dh->_impl);
         _dh_params = std::move(dh);
     }
+
+    future<> set_system_trust() {
+        return seastar::async([this] {
+            gtls_chk(gnutls_certificate_set_x509_system_trust(_creds));
+        });
+    }
 private:
     gnutls_certificate_credentials_t _creds;
     ::shared_ptr<tls::dh_params> _dh_params;
@@ -319,6 +326,10 @@ future<> seastar::tls::certificate_credentials::set_simple_pkcs12_file(
     return read_fully(pkcs12file).then([this, fmt, password](temporary_buffer<char> buf) {
         _impl->set_simple_pkcs12(blob(buf.get(), buf.size()), fmt, password);
     });
+}
+
+future<> seastar::tls::certificate_credentials::set_system_trust() {
+    return _impl->set_system_trust();
 }
 
 seastar::tls::server_credentials::server_credentials(::shared_ptr<dh_params> dh) {
