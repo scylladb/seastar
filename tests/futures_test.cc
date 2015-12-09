@@ -646,3 +646,21 @@ SEASTAR_TEST_CASE(test_futurize_from_tuple) {
     BOOST_REQUIRE(futurize<void>::from_tuple(v2).get() == v2);
     return make_ready_future<>();
 }
+
+SEASTAR_TEST_CASE(test_repeat_until_value) {
+    namespace stdx = std::experimental;
+    return do_with(int(), [] (int& counter) {
+        return repeat_until_value([&counter] () -> future<stdx::optional<int>> {
+            if (counter == 10000) {
+                return make_ready_future<stdx::optional<int>>(counter);
+            } else {
+                ++counter;
+                return make_ready_future<stdx::optional<int>>(stdx::nullopt);
+            }
+        }).then([&counter] (int result) {
+            BOOST_REQUIRE(counter == 10000);
+            BOOST_REQUIRE(result == counter);
+        });
+    });
+}
+
