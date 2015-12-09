@@ -371,6 +371,9 @@ void reactor::configure(boost::program_options::variables_map vm) {
 
     _handle_sigint = !vm.count("no-handle-interrupt");
     _task_quota = vm["task-quota-ms"].as<double>() * 1ms;
+    if (vm.count("poll-mode")) {
+        _max_poll_time = std::chrono::nanoseconds::max();
+    }
 }
 
 future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd,
@@ -1598,7 +1601,7 @@ int reactor::run() {
                 idle = true;
             }
             _mm_pause();
-            if (idle_end - idle_start > 200us) {
+            if (idle_end - idle_start > _max_poll_time) {
                 sleep();
                 // We may have slept for a while, so freshen idle_end
                 idle_end = std::chrono::high_resolution_clock::now();
@@ -2068,6 +2071,7 @@ reactor::get_options_description() {
                 sprint("select network stack (valid values: %s)",
                         format_separated(net_stack_names.begin(), net_stack_names.end(), ", ")).c_str())
         ("no-handle-interrupt", "ignore SIGINT (for gdb)")
+        ("poll-mode", "poll continuously (100% cpu use)")
         ("task-quota-ms", bpo::value<double>()->default_value(2.0), "Max time (ms) between polls")
         ;
     opts.add(network_stack_registry::options_description());
