@@ -235,7 +235,7 @@ reactor::reactor()
     sev.sigev_notify = SIGEV_THREAD_ID;
     sev._sigev_un._tid = syscall(SYS_gettid);
     sev.sigev_signo = alarm_signal();
-    r = timer_create(CLOCK_REALTIME, &sev, &_timer);
+    r = timer_create(CLOCK_MONOTONIC, &sev, &_timer);
     assert(r >= 0);
     sev.sigev_signo = task_quota_signal();
     r = timer_create(CLOCK_THREAD_CPUTIME_ID, &sev, &_task_quota_timer);
@@ -1584,10 +1584,10 @@ int reactor::run() {
 
     using namespace std::chrono_literals;
     timer<lowres_clock> load_timer;
-    std::chrono::high_resolution_clock::rep idle_count = 0;
-    auto idle_start = std::chrono::high_resolution_clock::now(), idle_end = idle_start;
+    std::chrono::steady_clock::rep idle_count = 0;
+    auto idle_start = std::chrono::steady_clock::now(), idle_end = idle_start;
     load_timer.set_callback([this, &idle_count, &idle_start, &idle_end] () mutable {
-        auto load = double(idle_count + (idle_end - idle_start).count()) / double(std::chrono::duration_cast<std::chrono::high_resolution_clock::duration>(1s).count());
+        auto load = double(idle_count + (idle_end - idle_start).count()) / double(std::chrono::duration_cast<std::chrono::steady_clock::duration>(1s).count());
         load = std::min(load, 1.0);
         idle_count = 0;
         idle_start = idle_end;
@@ -1636,7 +1636,7 @@ int reactor::run() {
         }
 
         if (!poll_once() && _pending_tasks.empty()) {
-            idle_end = std::chrono::high_resolution_clock::now();
+            idle_end = std::chrono::steady_clock::now();
             if (!idle) {
                 idle_start = idle_end;
                 idle = true;
@@ -1645,7 +1645,7 @@ int reactor::run() {
             if (idle_end - idle_start > _max_poll_time) {
                 sleep();
                 // We may have slept for a while, so freshen idle_end
-                idle_end = std::chrono::high_resolution_clock::now();
+                idle_end = std::chrono::steady_clock::now();
             }
         } else {
             if (idle) {

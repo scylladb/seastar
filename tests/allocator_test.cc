@@ -124,7 +124,7 @@ int main(int ac, char** av) {
         }
     } else {
         auto time = vm["time"].as<float>();
-        using clock = std::chrono::high_resolution_clock;
+        using clock = std::chrono::steady_clock;
         auto end = clock::now() + std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::seconds(1) * time);
         while (clock::now() < end) {
             for (unsigned i = 0; i < 1000; ++i) {

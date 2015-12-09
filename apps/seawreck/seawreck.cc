@@ -189,7 +189,7 @@ int main(int ac, char** av) {
         auto http_clients = new distributed<http_client>;
 
         // Start http requests on all the cores
-        auto started = std::chrono::high_resolution_clock::now();
+        auto started = std::chrono::steady_clock::now();
         print("========== http_client ============\n");
         print("Server: %s\n", server);
         print("Connections: %u\n", total_conn);
@@ -202,7 +202,7 @@ int main(int ac, char** av) {
             return http_clients->map_reduce(adder<uint64_t>(), &http_client::total_reqs);
         }).then([http_clients, started] (auto total_reqs) {
            // All the http requests are finished
-           auto finished = std::chrono::high_resolution_clock::now();
+           auto finished = std::chrono::steady_clock::now();
            auto elapsed = finished - started;
            auto secs = static_cast<double>(elapsed.count() / 1000000000.0);
            print("Total cpus: %u\n", smp::count);

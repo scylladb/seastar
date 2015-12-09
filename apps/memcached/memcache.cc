@@ -82,6 +82,16 @@ struct expiration {
         } else if (s <= seconds_in_a_month) {
             _time = clock_type::now() + seconds(s); // from delta
         } else {
+            //
+            // seastar::reactor supports only a monotonic clock at the moment
+            // therefore this may make the elements with the absolute expiration
+            // time expire at the wrong time if the wall clock has been updated
+            // during the expiration period. However the original memcached has
+            // the same weakness.
+            //
+            // TODO: Fix this when a support for system_clock-based timers is
+            // added to the seastar::reactor.
+            //
             _time = time_point(seconds(s + wc_to_clock_type_delta)); // from real time
         }
     }

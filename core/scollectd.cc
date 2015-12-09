@@ -54,7 +54,7 @@ bool scollectd::type_instance_id::operator==(
 namespace scollectd {
 
 using namespace std::chrono_literals;
-using clock_type = std::chrono::high_resolution_clock;
+using clock_type = std::chrono::steady_clock;
 
 
 static const ipv4_addr default_addr("239.192.74.66:25826");
@@ -353,7 +353,7 @@ private:
         };
         // append as many values as we can fit into a packet (1024 bytes)
         auto send_packet = [this, ctxt]() {
-            auto start = std::chrono::high_resolution_clock::now();
+            auto start = std::chrono::steady_clock::now();
             auto & i = std::get<iterator>(*ctxt);
             auto & out = std::get<cpwriter>(*ctxt);
 
@@ -378,7 +378,7 @@ private:
             }
             return _chan.send(_addr, net::packet(out.data(), out.size())).then([start, ctxt, this]() {
                         auto & out = std::get<cpwriter>(*ctxt);
-                        auto now = std::chrono::high_resolution_clock::now();
+                        auto now = std::chrono::steady_clock::now();
                         // dogfood stats
                         ++_num_packets;
                         _millis += std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
