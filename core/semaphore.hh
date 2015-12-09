@@ -189,6 +189,9 @@ public:
     /// Does not take into account any waiters.
     size_t current() const { return _count; }
 
+    /// Returns the current number of waiters
+    size_t waiters() const { return _wait_list.size(); }
+
     /// Signal to waiters that an error occurred.  \ref wait() will see
     /// an exceptional future<> containing a \ref broken_semaphore exception.
     /// The future is made available immediately.
