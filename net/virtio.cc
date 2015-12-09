@@ -390,9 +390,9 @@ vring<BufferChain, Completion>::vring(ring_config conf, Completion complete)
     , _used(conf)
     , _avail_event(reinterpret_cast<std::atomic<uint16_t>*>(&_used._shared->_used_elements[conf.size]))
     , _used_event(reinterpret_cast<std::atomic<uint16_t>*>(&_avail._shared->_ring[conf.size]))
-    , _poller([this] {
+    , _poller(reactor::poller::simple([this] {
         return do_complete();
-    })
+    }))
 {
     setup();
 }

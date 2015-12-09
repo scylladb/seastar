@@ -1815,9 +1815,9 @@ template <bool HugetlbfsMemBackend>
 dpdk_qp<HugetlbfsMemBackend>::dpdk_qp(dpdk_device* dev, uint8_t qid,
                                       const std::string stats_plugin_name)
      : qp(true, stats_plugin_name, qid), _dev(dev), _qid(qid),
-       _rx_gc_poller([&] { return rx_gc(); }),
+       _rx_gc_poller(reactor::poller::simple([&] { return rx_gc(); })),
        _tx_buf_factory(qid),
-       _tx_gc_poller([&] { return _tx_buf_factory.gc(); })
+       _tx_gc_poller(reactor::poller::simple([&] { return _tx_buf_factory.gc(); }))
 {
     if (!init_rx_mbuf_pool()) {
         rte_exit(EXIT_FAILURE, "Cannot initialize mbuf pools\n");
@@ -1875,7 +1875,7 @@ dpdk_qp<HugetlbfsMemBackend>::dpdk_qp(dpdk_device* dev, uint8_t qid,
 
 template <bool HugetlbfsMemBackend>
 void dpdk_qp<HugetlbfsMemBackend>::rx_start() {
-    _rx_poller = reactor::poller([&] { return poll_rx_once(); });
+    _rx_poller = reactor::poller::simple([&] { return poll_rx_once(); });
 }
 
 template<>

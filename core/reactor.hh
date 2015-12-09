@@ -301,8 +301,16 @@ class smp_message_queue {
     static constexpr size_t batch_size = 16;
     static constexpr size_t prefetch_cnt = 2;
     struct work_item;
-    using lf_queue = boost::lockfree::spsc_queue<work_item*,
+    struct lf_queue_remote {
+        reactor* remote;
+    };
+    using lf_queue_base = boost::lockfree::spsc_queue<work_item*,
                             boost::lockfree::capacity<queue_length>>;
+    // use inheritence to control placement order
+    struct lf_queue : lf_queue_remote, lf_queue_base {
+        lf_queue(reactor* remote) : lf_queue_remote{remote} {}
+        void maybe_wakeup();
+    };
     lf_queue _pending;
     lf_queue _completed;
     struct alignas(64) {
@@ -370,7 +378,7 @@ class smp_message_queue {
     } _tx;
     std::vector<work_item*> _completed_fifo;
 public:
-    smp_message_queue();
+    smp_message_queue(reactor* from, reactor* to);
     template <typename Func>
     futurize_t<std::result_of_t<Func()>> submit(Func&& func) {
         auto wi = new async_work_item<Func>(std::forward<Func>(func));
@@ -432,7 +440,7 @@ public:
     // and just processes events that have already happened, if any.
     // After the optional wait, just before processing the events, the
     // pre_process() function is called.
-    virtual bool wait_and_process() = 0;
+    virtual bool wait_and_process(int timeout = -1, const sigset_t* active_sigmask = nullptr) = 0;
     // Methods that allow polling on file descriptors. This will only work on
     // reactor_backend_epoll. Other reactor_backend will probably abort if
     // they are called (which is fine if no file descriptors are waited on):
@@ -463,7 +471,7 @@ private:
 public:
     reactor_backend_epoll();
     virtual ~reactor_backend_epoll() override { }
-    virtual bool wait_and_process() override;
+    virtual bool wait_and_process(int timeout, const sigset_t* active_sigmask) override;
     virtual future<> readable(pollable_fd_state& fd) override;
     virtual future<> writeable(pollable_fd_state& fd) override;
     virtual void forget(pollable_fd_state& fd) override;
@@ -515,9 +523,35 @@ class reactor {
 private:
     struct pollfn {
         virtual ~pollfn() {}
-        virtual bool poll_and_check_more_work() = 0;
+        // Returns true if work was done (false = idle)
+        virtual bool poll() = 0;
+        // Tries to enter interrupt mode.
+        //
+        // If it returns true, then events from this poller will wake
+        // a sleeping idle loop, and exit_interrupt_mode() must be called
+        // to return to normal polling.
+        //
+        // If it returns false, the sleeping idle loop may not be entered.
+        virtual bool try_enter_interrupt_mode() { return false; }
+        virtual void exit_interrupt_mode() {}
     };
 
+    class io_pollfn;
+    class signal_pollfn;
+    class aio_batch_submit_pollfn;
+    class batch_flush_pollfn;
+    class smp_pollfn;
+    class drain_cross_cpu_freelist_pollfn;
+    class lowres_timer_pollfn;
+    class epoll_pollfn;
+    friend io_pollfn;
+    friend signal_pollfn;
+    friend aio_batch_submit_pollfn;
+    friend batch_flush_pollfn;
+    friend smp_pollfn;
+    friend drain_cross_cpu_freelist_pollfn;
+    friend lowres_timer_pollfn;
+    friend class epoll_pollfn;
 public:
     class poller {
         std::unique_ptr<pollfn> _pollfn;
@@ -526,8 +560,11 @@ public:
         registration_task* _registration_task;
     public:
         template <typename Func> // signature: bool ()
-        explicit poller(Func&& poll_and_check_more_work)
-                : _pollfn(make_pollfn(std::forward<Func>(poll_and_check_more_work))) {
+        static poller simple(Func&& poll) {
+            return poller(make_pollfn(std::forward<Func>(poll)));
+        }
+        poller(std::unique_ptr<pollfn> fn)
+                : _pollfn(std::move(fn)) {
             do_register();
         }
         ~poller();
@@ -549,6 +586,7 @@ private:
 #else
     reactor_backend_epoll _backend;
 #endif
+    sigset_t _active_sigmask; // holds sigmask while sleeping with sig disabled
     std::vector<pollfn*> _pollers;
     static constexpr size_t max_aio = 128;
     std::vector<std::function<future<> ()>> _exit_funcs;
@@ -587,9 +625,14 @@ private:
     circular_buffer<double> _loads;
     double _load = 0;
     circular_buffer<output_stream<char>* > _flush_batching;
+    std::atomic<bool> _sleeping alignas(64);
+    pthread_t _thread_id alignas(64) = pthread_self();
 private:
     static void clear_task_quota(int);
+    void wakeup();
     bool flush_pending_aio();
+    bool flush_tcp_batches();
+    bool do_expire_lowres_timers();
     void abort_on_error(int ret);
     template <typename T, typename E, typename EnableFunc>
     void complete_timers(T&, E&, EnableFunc&& enable_fn);
@@ -696,13 +739,8 @@ public:
     network_stack& net() { return *_network_stack; }
     unsigned cpu_id() const { return _id; }
 
-    void start_epoll() {
-        if (!_epoll_poller) {
-            _epoll_poller = poller([this] {
-                return wait_and_process();
-            });
-        }
-    }
+    void start_epoll();
+    void sleep();
 
 #ifdef HAVE_OSV
     void timer_thread_func();
@@ -747,8 +785,8 @@ private:
     friend class poller;
     friend void add_to_flush_poller(output_stream<char>* os);
 public:
-    bool wait_and_process() {
-        return _backend.wait_and_process();
+    bool wait_and_process(int timeout = 0, const sigset_t* active_sigmask = nullptr) {
+        return _backend.wait_and_process(timeout, active_sigmask);
     }
 
     future<> readable(pollable_fd_state& fd) {
@@ -782,7 +820,7 @@ reactor::make_pollfn(Func&& func) {
     struct the_pollfn : pollfn {
         the_pollfn(Func&& func) : func(std::forward<Func>(func)) {}
         Func func;
-        virtual bool poll_and_check_more_work() override {
+        virtual bool poll() override {
             return func();
         }
     };
@@ -803,6 +841,7 @@ class smp {
     using thread_adaptor = posix_thread;
 #endif
     static std::vector<thread_adaptor> _threads;
+    static std::vector<reactor*> _reactors;
     static smp_message_queue** _qs;
     static std::thread::id _tmain;
 
