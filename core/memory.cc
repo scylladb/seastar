@@ -1019,7 +1019,7 @@ void configure(std::vector<resource::memory> m,
 #ifdef HAVE_NUMA
         unsigned long nodemask = 1UL << x.nodeid;
         auto r = ::mbind(cpu_mem.mem() + pos, x.bytes,
-                        MPOL_BIND,
+                        MPOL_PREFERRED,
                         &nodemask, std::numeric_limits<unsigned long>::digits,
                         MPOL_MF_MOVE);
 
