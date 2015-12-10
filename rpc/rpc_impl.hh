@@ -25,7 +25,6 @@
 #include "core/shared_ptr.hh"
 #include "core/sstring.hh"
 #include "core/future-util.hh"
-#include "core/do_with.hh"
 #include "util/is_smart_ptr.hh"
 
 namespace rpc {
@@ -299,20 +298,27 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
             *unaligned_cast<uint64_t*>(p) = net::hton(uint64_t(t));
             *unaligned_cast<int64_t*>(p + 8) = net::hton(msg_id);
             *unaligned_cast<uint64_t*>(p + 16) = net::hton(data.size() - 24);
-            dst.out_ready() = do_with(std::move(data), [&dst] (sstring& data) {
-                return dst.out_ready().then([&dst, &data] () mutable {
+            promise<> sentp;
+            future<> sent = sentp.get_future();
+            dst.out_ready() = dst.out_ready().then([&dst, data = std::move(data), timeout] () {
+                if (timeout && clock_type::now() >= timeout.value()) {
+                    return make_ready_future<>(); // if message timed outed drop it without sending
+                } else {
                     return dst.out().write(data).then([&dst] {
                         return dst.out().flush();
                     });
-                });
-            }).finally([&dst] () {
+                }
+            }).finally([&dst, sentp = std::move(sentp)] () mutable {
+                sentp.set_value();
                 dst.get_stats_internal().pending--;
                 dst.get_stats_internal().sent_messages++;
             });
 
             // prepare reply handler, if return type is now_wait_type this does nothing, since no reply will be sent
             using wait = wait_signature_t<Ret>;
-            return wait_for_reply<Serializer, MsgType>(wait(), timeout, dst, msg_id, sig);
+            return when_all(std::move(sent), wait_for_reply<Serializer, MsgType>(wait(), timeout, dst, msg_id, sig)).then([] (auto r) {
+                return std::get<1>(std::move(r)); // return result of wait_for_reply
+            });
         }
         auto operator()(typename protocol<Serializer, MsgType>::client& dst, const InArgs&... args) {
             return send(dst, {}, args...);
@@ -334,35 +340,41 @@ protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, sstri
     auto p = data.begin();
     *unaligned_cast<int64_t*>(p) = net::hton(msg_id);
     *unaligned_cast<uint64_t*>(p + 8) = net::hton(data.size() - 16);
-    return do_with(std::move(data), this->shared_from_this(), [msg_id] (const sstring& data, lw_shared_ptr<protocol<Serializer, MsgType>::server::connection> conn) {
-        return conn->out().write(data.begin(), data.size()).then([conn] {
-            return conn->out().flush();
-        });
+    return this->out().write(data.begin(), data.size()).then([conn = this->shared_from_this()] {
+        return conn->out().flush();
     });
 }
 
 template<typename Serializer, typename MsgType, typename... RetTypes>
-inline future<> reply(wait_type, future<RetTypes...>&& r, int64_t msgid, typename protocol<Serializer, MsgType>::server::connection& client) {
-    client.get_stats_internal().sent_messages++;
-    try {
-        auto&& data = r.get();
-        auto str = ::apply(marshall<Serializer, const RetTypes&...>,
-                std::tuple_cat(std::make_tuple(std::ref(client.serializer()), 16), std::move(data)));
-        return client.respond(msgid, std::move(str));
-    } catch (std::exception& ex) {
-        return client.respond(-msgid, sstring(sstring::initialized_later(), 16) + ex.what());
+inline void reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client) {
+    if (!client->error()) {
+        client->out_ready() = client->out_ready().then([&client = *client, msg_id, ret = std::move(ret)] () mutable {
+            sstring data;
+            client.get_stats_internal().pending++;
+            client.get_stats_internal().sent_messages++;
+            try {
+                data = ::apply(marshall<Serializer, const RetTypes&...>,
+                        std::tuple_cat(std::make_tuple(std::ref(client.serializer()), 16), std::move(ret.get())));
+            } catch (std::exception& ex) {
+                data = sstring(sstring::initialized_later(), 16) + ex.what();
+                msg_id = -msg_id;
+            }
+
+            return client.respond(msg_id, std::move(data)).finally([&client]() {
+                client.get_stats_internal().pending--;
+            });
+        }).finally([client]{});
     }
 }
 
 // specialization for no_wait_type which does not send a reply
 template<typename Serializer, typename MsgType>
-inline future<> reply(no_wait_type, future<no_wait_type>&& r, int64_t msgid, typename protocol<Serializer, MsgType>::server::connection& client) {
+inline void reply(no_wait_type, future<no_wait_type>&& r, int64_t msgid, lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client) {
     try {
         r.get();
     } catch (std::exception& ex) {
-        client.get_protocol().log(client.info(), msgid, to_sstring("exception \"") + ex.what() + "\" in no_wait handler ignored");
+        client->get_protocol().log(client->info(), msgid, to_sstring("exception \"") + ex.what() + "\" in no_wait handler ignored");
     }
-    return make_ready_future<>();
 }
 
 template<typename Ret, typename... InArgs, typename WantClientInfo, typename Func, typename ArgsTuple>
@@ -398,15 +410,8 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
         auto args = unmarshall<Serializer, InArgs...>(client->serializer(), std::move(data));
         // note: apply is executed asynchronously with regards to networking so we cannot chain futures here by doing "return apply()"
         apply(func, client->info(), WantClientInfo(), signature(), std::move(args)).then_wrapped(
-                [client, msg_id] (futurize_t<typename signature::ret_type> ret) {
-            if (!client->error()) {
-                client->out_ready() = client->out_ready().then([client, msg_id, ret = std::move(ret)] () mutable {
-                    client->get_stats_internal().pending++;
-                    return reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, *client).finally([client]() {
-                        client->get_stats_internal().pending--;
-                    });
-                });
-            }
+                [client, msg_id] (futurize_t<typename signature::ret_type> ret) mutable {
+            reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, std::move(client));
         });
     };
 }
