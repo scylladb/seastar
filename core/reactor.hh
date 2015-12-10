@@ -73,6 +73,8 @@
 #include <osv/newpoll.hh>
 #endif
 
+using shard_id = unsigned;
+
 namespace scollectd { class registration; }
 
 class reactor;
@@ -851,7 +853,7 @@ public:
     void add_high_priority_task(std::unique_ptr<task>&&);
 
     network_stack& net() { return *_network_stack; }
-    unsigned cpu_id() const { return _id; }
+    shard_id cpu_id() const { return _id; }
 
     void start_epoll() {
         if (!_epoll_poller) {
