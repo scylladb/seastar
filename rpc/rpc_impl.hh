@@ -298,18 +298,23 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
             *unaligned_cast<uint64_t*>(p) = net::hton(uint64_t(t));
             *unaligned_cast<int64_t*>(p + 8) = net::hton(msg_id);
             *unaligned_cast<uint64_t*>(p + 16) = net::hton(data.size() - 24);
+            promise<> sentp;
+            future<> sent = sentp.get_future();
             dst.out_ready() = dst.out_ready().then([&dst, data = std::move(data)] () {
                 return dst.out().write(data).then([&dst] {
                     return dst.out().flush();
                 });
-            }).finally([&dst] () {
+            }).finally([&dst, sentp = std::move(sentp)] () mutable {
+                sentp.set_value();
                 dst.get_stats_internal().pending--;
                 dst.get_stats_internal().sent_messages++;
             });
 
             // prepare reply handler, if return type is now_wait_type this does nothing, since no reply will be sent
             using wait = wait_signature_t<Ret>;
-            return wait_for_reply<Serializer, MsgType>(wait(), timeout, dst, msg_id, sig);
+            return when_all(std::move(sent), wait_for_reply<Serializer, MsgType>(wait(), timeout, dst, msg_id, sig)).then([] (auto r) {
+                return std::get<1>(std::move(r)); // return result of wait_for_reply
+            });
         }
         auto operator()(typename protocol<Serializer, MsgType>::client& dst, const InArgs&... args) {
             return send(dst, {}, args...);
