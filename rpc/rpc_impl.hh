@@ -300,10 +300,14 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
             *unaligned_cast<uint64_t*>(p + 16) = net::hton(data.size() - 24);
             promise<> sentp;
             future<> sent = sentp.get_future();
-            dst.out_ready() = dst.out_ready().then([&dst, data = std::move(data)] () {
-                return dst.out().write(data).then([&dst] {
-                    return dst.out().flush();
-                });
+            dst.out_ready() = dst.out_ready().then([&dst, data = std::move(data), timeout] () {
+                if (timeout && clock_type::now() >= timeout.value()) {
+                    return make_ready_future<>(); // if message timed outed drop it without sending
+                } else {
+                    return dst.out().write(data).then([&dst] {
+                        return dst.out().flush();
+                    });
+                }
             }).finally([&dst, sentp = std::move(sentp)] () mutable {
                 sentp.set_value();
                 dst.get_stats_internal().pending--;
