@@ -25,7 +25,6 @@
 #include "core/shared_ptr.hh"
 #include "core/sstring.hh"
 #include "core/future-util.hh"
-#include "core/do_with.hh"
 #include "util/is_smart_ptr.hh"
 
 namespace rpc {
@@ -299,11 +298,9 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
             *unaligned_cast<uint64_t*>(p) = net::hton(uint64_t(t));
             *unaligned_cast<int64_t*>(p + 8) = net::hton(msg_id);
             *unaligned_cast<uint64_t*>(p + 16) = net::hton(data.size() - 24);
-            dst.out_ready() = do_with(std::move(data), [&dst] (sstring& data) {
-                return dst.out_ready().then([&dst, &data] () mutable {
-                    return dst.out().write(data).then([&dst] {
-                        return dst.out().flush();
-                    });
+            dst.out_ready() = dst.out_ready().then([&dst, data = std::move(data)] () {
+                return dst.out().write(data).then([&dst] {
+                    return dst.out().flush();
                 });
             }).finally([&dst] () {
                 dst.get_stats_internal().pending--;
@@ -334,10 +331,8 @@ protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, sstri
     auto p = data.begin();
     *unaligned_cast<int64_t*>(p) = net::hton(msg_id);
     *unaligned_cast<uint64_t*>(p + 8) = net::hton(data.size() - 16);
-    return do_with(std::move(data), this->shared_from_this(), [msg_id] (const sstring& data, lw_shared_ptr<protocol<Serializer, MsgType>::server::connection> conn) {
-        return conn->out().write(data.begin(), data.size()).then([conn] {
-            return conn->out().flush();
-        });
+    return this->out().write(data.begin(), data.size()).then([conn = this->shared_from_this()] {
+        return conn->out().flush();
     });
 }
 
