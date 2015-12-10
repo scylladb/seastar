@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include <deque>
 #include "future.hh"
 
 /// \addtogroup future-module
