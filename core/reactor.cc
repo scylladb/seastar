@@ -1097,17 +1097,17 @@ void reactor::enable_timer(clock_type::time_point when)
 #endif
 }
 
-void reactor::add_timer(timer<>* tmr) {
+void reactor::add_timer(timer<std::chrono::steady_clock>* tmr) {
     if (queue_timer(tmr)) {
         enable_timer(_timers.get_next_timeout());
     }
 }
 
-bool reactor::queue_timer(timer<>* tmr) {
+bool reactor::queue_timer(timer<std::chrono::steady_clock>* tmr) {
     return _timers.insert(*tmr);
 }
 
-void reactor::del_timer(timer<>* tmr) {
+void reactor::del_timer(timer<std::chrono::steady_clock>* tmr) {
     if (tmr->_expired) {
         _expired_timers.erase(_expired_timers.iterator_to(*tmr));
         tmr->_expired = false;

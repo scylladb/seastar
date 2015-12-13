@@ -815,9 +815,9 @@ private:
 
     bool process_io();
 
-    void add_timer(timer<>*);
-    bool queue_timer(timer<>*);
-    void del_timer(timer<>*);
+    void add_timer(timer<std::chrono::steady_clock>*);
+    bool queue_timer(timer<std::chrono::steady_clock>*);
+    void del_timer(timer<std::chrono::steady_clock>*);
     void add_timer(timer<lowres_clock>*);
     bool queue_timer(timer<lowres_clock>*);
     void del_timer(timer<lowres_clock>*);
