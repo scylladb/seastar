@@ -637,7 +637,7 @@ private:
     bool _handle_sigint = true;
     promise<std::unique_ptr<network_stack>> _network_stack_ready_promise;
     int _return = 0;
-    timer_t _timer = {};
+    timer_t _steady_clock_timer = {};
     timer_t _task_quota_timer = {};
     promise<> _start_promise;
     semaphore _cpu_started;

@@ -235,7 +235,7 @@ reactor::reactor()
     sev.sigev_notify = SIGEV_THREAD_ID;
     sev._sigev_un._tid = syscall(SYS_gettid);
     sev.sigev_signo = alarm_signal();
-    r = timer_create(CLOCK_MONOTONIC, &sev, &_timer);
+    r = timer_create(CLOCK_MONOTONIC, &sev, &_steady_clock_timer);
     assert(r >= 0);
     sev.sigev_signo = task_quota_signal();
     r = timer_create(CLOCK_THREAD_CPUTIME_ID, &sev, &_task_quota_timer);
@@ -254,7 +254,7 @@ reactor::reactor()
 
 reactor::~reactor() {
     timer_delete(_task_quota_timer);
-    timer_delete(_timer);
+    timer_delete(_steady_clock_timer);
     auto eraser = [](auto& list) {
         while (!list.empty()) {
             auto& timer = *list.begin();
@@ -1086,7 +1086,7 @@ void reactor::enable_timer(clock_type::time_point when)
     itimerspec its;
     its.it_interval = {};
     its.it_value = to_timespec(when);
-    auto ret = timer_settime(_timer, TIMER_ABSTIME, &its, NULL);
+    auto ret = timer_settime(_steady_clock_timer, TIMER_ABSTIME, &its, NULL);
     throw_system_error_on(ret == -1);
 #else
     using ns = std::chrono::nanoseconds;
