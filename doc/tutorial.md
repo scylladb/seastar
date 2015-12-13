@@ -3,9 +3,36 @@
   Avi Kivity - avi@ScyllaDB.com
 
 # Introduction
-**TODO:** Give historic introduction: Talk about how servers began with process (and later thread) per connection so the programming was "synchronous", i.e., when the code starts something the thread waits and later returns to the same place. Then event loops become popular, and the result is "asyncrhonous" code (define what this is). Mention how other asyncrhonous programming techniques and their pros and cons: libevent, CSP with channels (and newer golang), and futures and continuations (mention where these are used).
+## Asynchronous programming
+A server for a network protocol, such as the classic HTTP (Web) or SMTP (e-mail) servers, inherently deals with parallelism: Multiple clients send requests in parallel, and we cannot finish handling one request before starting to handle the next. A request may, and often does, need to block because of various reasons --- a full TCP window (i.e., a slow connection), disk I/O, or even the client holding on to an inactive connection --- and the server needs to handle other connections as well.
 
-**TODO:** Give a taste of Seastar - a very short working Seastar super-efficient http server, or something similar. Alternatively, build such code throughout the tutorial?
+The most straightforward way to handle such parallel connections, employed by classic network servers such as Inetd, Apache Httpd and Sendmail, is to use a separate operating-system process per connection. This technique evolved over the years to improve its performance: At first, a new process was spawned to handle each new connection; Later, a pool of existing processes was kept and each new connection was assigned to an unemployed process from the pool; Finally, the processes were replaced by threads. However, the common idea behind all these implementations is that at each moment, each process handles exclusively a single connection. Therefore, the server code is free to use blocking system calls, such as reading or writing to a connection, or reading from disk, and if this process blocks, all is well because we have many additional processes handling other connections in parallel.
+
+Programming a server which uses a process (or a thread) per connection is known as *synchronous* programming, because the code is written linearly, and one line of code starting to run after the previous line finished. For example, the code may read a request from a socket, parse the request, and then piecementally read a file from disk and write it back to the socket. Such code is easy to write, almost like traditional non-parallel programs. In fact, it's even possible to run an external non-parallel program to handle each request --- this is for example how Apache HTTPd ran "CGI" programs, the first implementation of dynamic Web-page generation.
+
+>NOTE: although the synchronous server application is written in a linear, non-parallel, fashion, behind the scenes the kernel helps ensure that everything happens in parallel and the machine's resources --- CPUs, disk and network --- are fully utilized. Beyond the obvious parallelism (we have multiple processes handling multiple connections in parallel), the kernel may even parallelize the work of one individual connection --- for example process an outstanding disk request (e.g., read from a disk file) in parallel with handling the network connection (send buffered-but-yet-unsent data, and buffer newly-received data until the application is ready to read it).
+
+But synchronous, process-per-connection, server programming didn't come without disavantages and costs. Slowly but surely, server authors realized that starting a new process is slow, context switching is slow, and each process comes with significant overheads --- most notably the size of its stack. Server and kernel authors worked hard to mitigate these overheads: They switched from processes to threads, from creating new threads to thread pools, they lowered default stack size of each thread, and increased the virtual memory size to allow more partially-utilized stacks (from 32 bits x86 to 36 bits (PAE) and finally 64 bits x86-64). But still, servers with synchronous designs had unsatisfactory performance, and scaled badly as the number of concurrent connections grew. In 1999, Dan Kigel popularized "the C10K problem", the need of a single server to efficiently handle 10,000 concurrent connections --- most of them slow or even inactive.
+
+The solution, which became popular in the following decade, was to abandon the cozy but inefficient synchronous server design, and switch to a new type of server design --- the *asynchronous*, or *event-driven*, server. An event-driven server has just one thread, or more accurately, one thread per CPU. This single thread runs a tight loop which, at each iteration, checks, using ```poll()``` (or the more efficient ```epoll```) for new events on many open file descriptors, e.g., sockets. For example, an event can be a socket becoming readable (new data has arrived from the remote end) or becoming writable (we can send more data on this connection). The application handles this event by doing some non-blocking operations, modifying one or more of the file descriptors, and maintaining its knowledge of the _state_ of this connection.
+
+However, writers of asynchronous server applications faced, and still face today, two significant challenges:
+
+* **Complexity:** Writing a simple asynchronous server is straightforward. But writing a *complex* asynchronous server is notoriously difficult. The handling of a single connection, instead of being a simple easy-to-read function call, now involves a large number of small callback functions, and a complex state machine to remember which function needs to be called when each event occurs.
+
+* **Non-blocking:** Having just one thread per core is important for the performance of the server application, because context switches are slow. However, if we only have one thread per core, the event-handling functions must _never_ block, or the core will remain idle. But some existing programming languages and frameworks leave the server author no choice but to use blocking functions, and therefore multiple threads.
+For example, ```Cassandra``` was written as an asynchronous server application; But because disk I/O was implemented with ```mmap```ed files, which can uncontrollably block the whole thread when accessed, they are forced to run multiple threads per CPU.
+
+Moreover, when the best possible performance is desired, the server application, and its programming framework, has no choice but to also take the following into account:
+
+* **Modern Machines**: Modern machines are very different from those of just 10 years ago. They have many cores and deep memory hierarchies (from L1 caches to NUMA) which reward certain programming practices and penalizes others: Unscalable programming practices (such as taking locks) can devestate performance on many cores; Shared memory and lock-free synchronization primitives are available (i.e., atomic operations and memory-ordering fences) but are dramatically slower than operations that involve only data in a single core's cache, and also prevent the application from scaling to many cores.
+
+* **Programming Language:** High-level languages such Java, Javascript, and similar "modern" languages are convenient, but each comes with its own set of assumptions which conflict with the requirements listed above. These languages, aiming to be portable, also give the programmer less control over the performance of critical code. For really optimal performance, we need a programming language which gives the programmer full control, zero run-time overheads, and on the other hand --- sophisticated compile-time code generation and optimization.
+
+Seastar is a framework for writing asyncrhonous server applications which aims to solve all four of the above challenges: It is a framework for writing *complex* asynchronous applications involving both network and disk I/O.  The framework's fast path is entirely single-threaded (per core), scalable to many cores and minimizes the use of costly sharing of memory between cores. It is a C++14 library, giving the user sophisticated compile-time features and full control over performance, without run-time overhead.
+
+## Seastar
+
 
 Seastar is an event-driven framework allowing you to write non-blocking, asynchronous code in a relatively straightforward manner (once understood). Its APIs are based on futures.  Seastar utilizes the following concepts to achieve extreme performance:
 
@@ -156,7 +183,7 @@ Examples include:
 
 The type `future<int>` variable holds an int that will eventually be available - at this point might already be available, or might not be available yet. The method available() tests if a value is already available, and the method get() gets the value. The type `future<>` indicates something which will eventually complete, but not return any value.
 
-A future is usually returned by a **promise**, also known as an **asynchronous function**, a function or object which returns a future and arranges for this future to be eventually resolved. One simple example is Seastar's function sleep():
+A future is usually returned by an **asynchronous function**, also known as a **promise**, a function which returns a future and arranges for this future to be eventually resolved. One simple example is Seastar's function sleep():
 
 ```cpp
 future<> sleep(std::chrono::duration<Rep, Period> dur);
@@ -395,7 +422,7 @@ Usually, aborting the current chain of operations and returning an exception is 
 TODO: give example code for the above. Also mention handle_exception - although
 perhaps delay that to a later chapter?
 
-# Futures are single use
+## Futures are single use
 Talk about if we have a future<int> variable, as soon as we get() or then() it,
 it becomes invalid - we need to store the value somewhere else. Think if there's
 an alternative we can suggest
@@ -403,16 +430,29 @@ an alternative we can suggest
 # Fibers
 ## Loops
 do_until and friends
+parallel_for_each and friends. Use boost::counting_iterator for integers.
+map_reduce, as a shortcut (?) for parallel_for_each which needs to produce
+some results (e.g., logical_or of boolean results), so we don't need to
+create a lw_shared_ptr explicitly (or do_with).
+## Semaphores
+limiting parallelism with semaphore. show an infinite parallel loop with a
+semaphore limiting it to N parallel tasks.
 ## Pipes
 pipe
+
+# Introducing shared-nothing programming
+
+TODO:
+Explain in more detail Seastar's shared-nothing approach where the entire memory is divided up-front to cores, malloc/free and pointers only work on 
+one core.
+Introduce our shared_ptr (and lw_shared_ptr) and sstring and say the standard ones use locked instructions which are unnecessary when we assume these objects (like all others) are for a single thread. Our futures and continuations do the same.
+
 
 
 # More about Seastar's event loop
 Mention the event loop (scheduler). remind that continuations on the same thread do not run in parallel, so do not need locks, atomic variables, etc (different threads shouldn't access the same data - more on that below). continuations obviously must not use blocking operations, or they block the whole thread.
 
 Talk about polling that we currently do, and how today even sleep() or waiting for incoming connections or whatever, takes 100% of all CPUs.
-
-# More about sharding
 
 # Introducing Seastar's network stack
 
@@ -506,7 +546,6 @@ future<> f() {
 
 The new part of this code begins by taking the ```connected_socket```'s ```output()```, which returns an ```output_stream<char>``` object. On this output stream ```out``` we can write our response using the ```write()``` method. The simple-looking ```write()``` operation is in fact a complex asyncrhonous operation behind the scenes,  possibly causing multiple packets to be sent, retransmitted, etc., as needed. ```write()``` returns a future saying when it is ok to ```write()``` again to this output stream; This does not necessarily guarantee that the remote peer received all the data we sent it, but it guarantees that the output stream has enough buffer space to allow another write to begin.
 
-
 After ```write()```ing the response to ```out```, the example code calls ```out.close()``` and waits for the future it returns. This is necessary, because ```write()``` attempts to batch writes so might not have yet written anything to the TCP stack at this point, and only when close() concludes can we be sure that all the data we wrote to the output stream has actually reached the TCP stack --- and only at this point we may finally dispose of the ```out``` and ```s``` objects.
 
 Indeed, this server returns the expected response:
@@ -578,8 +617,11 @@ The ```handle_connection()``` function itself is straightforward --- it repeated
 
 # Sharded servers
 
-TODO: next step: also show read and temporary-buffer. Show tcp echo server.
-TODO: talk about parallelism - the above does not accept a new connection until the previous connection was closed. Show how simple it is to change this to start the write in parallel and not wait for it.
+TODO: show how to fix the network server to work on multiple threads
+
+# Shutting down cleanly
+
+Handling interrupt, shutting down services, etc.
 
 # User-defined command-line options
 # Debugging a Seastar program
@@ -588,7 +630,7 @@ handle SIGALRM pass noprint
 
 # Promise objects
 
-As we already defined above, An **asynchronous function**, also called a **promise**, is a function or object which returns a future and arranges for this future to be eventually resolved. As we already saw, an asynchronous function is usually written in terms of other asynchronous functions, for example we saw the function `slow()` which waits for the existing asynchronous function `sleep()` to complete, and then returns 3:
+As we already defined above, An **asynchronous function**, also called a **promise**, is a function which returns a future and arranges for this future to be eventually resolved. As we already saw, an asynchronous function is usually written in terms of other asynchronous functions, for example we saw the function `slow()` which waits for the existing asynchronous function `sleep()` to complete, and then returns 3:
 
 ```cpp
 future<int> slow() {
