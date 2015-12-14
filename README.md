@@ -120,7 +120,7 @@ $ seabuild ninja-build
 
  1. Setup host to compile DPDK:
     - Ubuntu 
-         `sudo apt-get install -y build-essential linux-image-extra-$(uname -r$)` 
+         `sudo apt-get install -y build-essential linux-image-extra-$(uname -r)` 
  2. Run a configure.py: `./configure.py --enable-dpdk`.
  3. Run `ninja-build`.
 
