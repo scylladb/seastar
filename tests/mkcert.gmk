@@ -1,0 +1,91 @@
+server  = $(shell hostname)
+domain  = $(shell domainname)
+name    = $(server)
+
+country = SE
+state   = Stockholm
+locality= $(state)
+org     = $(domain)
+unit    = $(domain)
+mail    = mx
+common  = $(server).$(domain)
+email   = postmaster@$(domain)
+ckey    = ca$(key).pem
+
+pubkey  = $(name).pub
+prvkey  = $(name).key
+width   = 4096
+
+csr     = $(name).csr
+crt     = $(name).crt
+
+root    = ca$(name).pem
+rootkey = ca$(name).key
+
+config  = $(name).cfg
+days    = 3650
+
+hosts   =
+
+all     	: $(crt)
+
+clean		:
+		@rm -f $(crt) $(csr) $(pubkey) $(prvkey)
+
+%.key		:
+		@echo generating $@
+		openssl genrsa -out $@ $(width) 
+
+%.pub  		: %.key
+		@echo generating $@
+		openssl rsa -in $< -out $@
+
+$(config) 	: $(MAKEFILE_LIST)
+		@echo generating $@
+		@(										\
+			echo RANDFILE = $ENV::HOME/.rnd					;       \
+			echo [ req ]                                                    ;       \
+			echo default_bits = $(width)                                    ;       \
+			echo default_keyfile = $(pkey)                                  ;       \
+			echo distinguished_name = req_distinguished_name        	;       \
+			echo req_extensions = v3_req                                    ;       \
+			echo prompt = no                                                ;       \
+			echo [ req_distinguished_name ]         			;       \
+			echo C = $(country)     					;       \
+			echo ST = $(state)      					;       \
+			echo L = $(locality)            				;       \
+			echo O = $(org)							;	\
+			echo OU = $(unit)       					;       \
+			echo CN= $(common)      					;       \
+			echo emailAddress = $(email)            			;       \
+			echo [v3_ca]            					;       \
+			echo subjectKeyIdentifier=hash          			;       \
+			echo authorityKeyIdentifier=keyid:always,issuer:always  	;       \
+			echo basicConstraints = CA:true         			;       \
+			echo [v3_req]           					;       \
+			echo "# Extensions to add to a certificate request"       	;       \
+			echo basicConstraints = CA:FALSE        			;       \
+			echo keyUsage = nonRepudiation, digitalSignature, keyEncipherment ;     \
+			$(if $(hosts), echo subjectAltName = @alt_names         	;)      \
+			$(if $(hosts), echo [alt_names]         			;)      \
+			$(if $(hosts), index=1; for host in $(hosts);   			\
+		        	do echo DNS.$$index = $$host.$(domain);         		\
+				index=$$(($$index + 1));done    ;)      			\
+		) > $@
+
+%.csr		: %.key $(config)
+	        @echo generating $@
+	        openssl req -new -key $< -out $@ -config $(config) 
+
+%.crt  		: %.csr $(root) $(rootkey)
+		@echo generating $@
+		openssl x509 -req -in $< -CA $(root) -CAkey $(rootkey) -CAcreateserial 		\
+			-out $@ -days $(days)
+
+%.pem		: %.key $(config)
+	        @echo generating $@
+		openssl req -x509 -new -nodes -key $< -days $(days) -config $(config) 		\
+			-out $@
+
+.PRECIOUS	: %.pem %.key %.pub %.crt %.csr
+

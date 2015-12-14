@@ -21,6 +21,7 @@
 #pragma once
 
 #include <experimental/string_view>
+#include <vector>
 
 #include "core/future.hh"
 #include "core/sstring.hh"
@@ -75,13 +76,23 @@ namespace tls {
         dh_params(const dh_params&) = delete;
         dh_params& operator=(const dh_params&) = delete;
 
-        // loads a key from file
+        /** loads a key from file */
         static future<dh_params> from_file(const sstring&, x509_crt_format);
     private:
         class impl;
         friend class server_credentials;
         friend class certificate_credentials;
         std::unique_ptr<impl> _impl;
+    };
+
+    class x509_cert {
+        x509_cert(const blob&, x509_crt_format);
+
+        static future<x509_cert> from_file(const sstring&, x509_crt_format);
+    private:
+        class impl;
+        x509_cert(::shared_ptr<impl>);
+        ::shared_ptr<impl> _impl;
     };
 
     /**
@@ -116,6 +127,12 @@ namespace tls {
 
         future<> set_simple_pkcs12_file(const sstring& pkcs12file, x509_crt_format, const sstring& password);
 
+        /**
+         * Loads default system cert trust file
+         * into this object.
+         */
+        future<> set_system_trust();
+
         // TODO add methods for certificate verification
     private:
         class impl;
@@ -123,6 +140,12 @@ namespace tls {
         friend class server_session;
         friend class server_credentials;
         std::unique_ptr<impl> _impl;
+    };
+
+    /** Exception thrown on certificate validation error */
+    class verification_error : public std::runtime_error {
+    public:
+        using runtime_error::runtime_error;
     };
 
     /**
@@ -140,25 +163,35 @@ namespace tls {
         server_credentials& operator=(const server_credentials&) = delete;
     };
 
-    /*
+    /**
      * Creates a TLS client connection using the default network stack and the
-     * supplied credentials. Typically these should contain enough information
+     * supplied credentials.
+     * Typically these should contain enough information
      * to validate the remote certificate (i.e. trust info).
      *
-     * "name" is an optional expected server name for the remote end point
+     * \param name An optional expected server name for the remote end point
      */
+    /// @{
     future<::connected_socket> connect(::shared_ptr<certificate_credentials>, ::socket_address, sstring name = {});
     future<::connected_socket> connect(::shared_ptr<certificate_credentials>, ::socket_address, ::socket_address local, sstring name = {});
-    // Wraps an existing connection in SSL/TLS.
-    future<::connected_socket> connect(::shared_ptr<certificate_credentials>, ::connected_socket&&, sstring name = {});
+    /// @}
 
-    /*
+    /** Wraps an existing connection in SSL/TLS. */
+    /// @{
+    future<::connected_socket> wrap_client(::shared_ptr<certificate_credentials>, ::connected_socket&&, sstring name = {});
+    future<::connected_socket> wrap_server(::shared_ptr<server_credentials>, ::connected_socket&&);
+    /// @}
+
+    /**
      * Creates a server socket that accepts SSL/TLS clients using default network stack
-     * and the supplied credentials. The credentials object should contain certificate info
-     * for the server and trust/crl data.
+     * and the supplied credentials.
+     * The credentials object should contain certificate info
+     * for the server and optionally trust/crl data.
      */
+    /// @{
     ::server_socket listen(::shared_ptr<server_credentials>, ::socket_address sa, ::listen_options opts = listen_options());
     // Wraps an existing server socket in SSL
     ::server_socket listen(::shared_ptr<server_credentials>, ::server_socket);
+    /// @}
 }
 }
