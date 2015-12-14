@@ -458,6 +458,10 @@ warnings = ' '.join(warnings)
 dbgflag = debug_flag(args.cxx) if args.debuginfo else ''
 sanitize_flags = sanitize_vptr_flag(args.cxx)
 
+if not try_compile(args.cxx, '#include <gnutls/gnutls.h>'):
+    print('Seastar requires gnutls.  Install gnutls-devel/gnutls-dev')
+    sys.exit(1)
+
 modes['debug']['sanitize'] += ' ' + sanitize_flags
 
 def have_hwloc():
