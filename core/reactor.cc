@@ -2518,17 +2518,40 @@ void report_failed_future(std::exception_ptr eptr) {
 }
 
 future<> check_direct_io_support(sstring path) {
-    auto fpath = path + "/.o_direct_test";
-    return engine().open_file_dma(fpath, open_flags::wo | open_flags::create | open_flags::truncate).then_wrapped([path, fpath] (future<file> f) {
-        try {
-            f.get0();
-            return remove_file(fpath);
-        } catch (std::system_error& e) {
-            if (e.code() == std::error_code(EINVAL, std::system_category())) {
-                report_exception(sprint("Could not open file at %s. Does your filesystem support O_DIRECT?", path), std::current_exception());
+    struct w {
+        sstring path;
+        open_flags flags;
+        std::function<future<>()> cleanup;
+
+        static w parse(sstring path, std::experimental::optional<directory_entry_type> type) {
+            if (!type) {
+                throw std::invalid_argument(sprint("Could not open file at %s. Make sure it exists", path));
             }
-            throw;
-        }
+
+            if (type == directory_entry_type::directory) {
+                auto fpath = path + "/.o_direct_test";
+                return w{fpath, open_flags::wo | open_flags::create | open_flags::truncate, [fpath] { return remove_file(fpath); }};
+            } else if ((type == directory_entry_type::regular) || (type == directory_entry_type::link)) {
+                return w{path, open_flags::ro, [] { return make_ready_future<>(); }};
+            } else {
+                throw std::invalid_argument(sprint("%s neither a directory nor file. Can't be opened with O_DIRECT", path));
+            }
+        };
+    };
+
+    return engine().file_type(path).then([path] (auto type) {
+        auto w = w::parse(path, type);
+        return engine().open_file_dma(w.path, w.flags).then_wrapped([path = w.path, cleanup = std::move(w.cleanup)] (future<file> f) {
+            try {
+                f.get0();
+                return cleanup();
+            } catch (std::system_error& e) {
+                if (e.code() == std::error_code(EINVAL, std::system_category())) {
+                    report_exception(sprint("Could not open file at %s. Does your filesystem support O_DIRECT?", path), std::current_exception());
+                }
+                throw;
+            }
+        });
     });
 }
 
