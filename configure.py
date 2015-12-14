@@ -462,6 +462,10 @@ if not try_compile(args.cxx, '#include <gnutls/gnutls.h>'):
     print('Seastar requires gnutls.  Install gnutls-devel/libgnutls-dev')
     sys.exit(1)
 
+if not try_compile(args.cxx, '#include <gnutls/gnutls.h>\nint x = GNUTLS_NONBLOCK;'):
+    print('Seastar requires gnutls >= 2.8.  Install libgnutls28-dev or later.')
+    sys.exit(1)
+
 modes['debug']['sanitize'] += ' ' + sanitize_flags
 
 def have_hwloc():
