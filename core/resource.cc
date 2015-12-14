@@ -77,6 +77,28 @@ static size_t alloc_from_node(cpu& this_cpu, hwloc_obj_t node, std::unordered_ma
     return taken;
 }
 
+struct distribute_objects {
+    std::vector<hwloc_cpuset_t> cpu_sets;
+    hwloc_obj_t root;
+
+    distribute_objects(hwloc_topology_t& topology, size_t nobjs) : cpu_sets(nobjs), root(hwloc_get_root_obj(topology)) {
+#if HWLOC_API_VERSION >= 0x00010900
+        hwloc_distrib(topology, &root, 1, cpu_sets.data(), cpu_sets.size(), INT_MAX, 0);
+#else
+        hwloc_distribute(topology, root, cpu_sets.data(), cpu_sets.size(), INT_MAX);
+#endif
+    }
+
+    ~distribute_objects() {
+        for (auto&& cs : cpu_sets) {
+            hwloc_bitmap_free(cs);
+        }
+    }
+    std::vector<hwloc_cpuset_t>& operator()() {
+        return cpu_sets;
+    }
+};
+
 std::vector<cpu> allocate(configuration c) {
     hwloc_topology_t topology;
     hwloc_topology_init(&topology);
@@ -113,26 +135,17 @@ std::vector<cpu> allocate(configuration c) {
         throw std::runtime_error("insufficient processing units");
     }
     auto mem_per_proc = align_down<size_t>(mem / procs, 2 << 20);
-    std::vector<hwloc_cpuset_t> cpu_sets{procs};
-    auto free_cpu_sets = defer([&] {
-        for (auto&& cs : cpu_sets) {
-            hwloc_bitmap_free(cs);
-        }
-    });
-    auto root = hwloc_get_root_obj(topology);
-#if HWLOC_API_VERSION >= 0x00010900
-    hwloc_distrib(topology, &root, 1, cpu_sets.data(), cpu_sets.size(), INT_MAX, 0);
-#else
-    hwloc_distribute(topology, root, cpu_sets.data(), cpu_sets.size(), INT_MAX);
-#endif
+
     std::vector<cpu> ret;
     std::unordered_map<hwloc_obj_t, size_t> topo_used_mem;
     std::vector<std::pair<cpu, size_t>> remains;
     size_t remain;
     unsigned depth = find_memory_depth(topology);
 
+    auto cpu_sets = distribute_objects(topology, procs);
+
     // Divide local memory to cpus
-    for (auto&& cs : cpu_sets) {
+    for (auto&& cs : cpu_sets()) {
         auto cpu_id = hwloc_bitmap_first(cs);
         assert(cpu_id != -1);
         auto pu = hwloc_get_pu_obj_by_os_index(topology, cpu_id);
