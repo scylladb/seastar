@@ -2185,7 +2185,7 @@ smp::get_options_description()
 std::vector<smp::thread_adaptor> smp::_threads;
 std::vector<reactor*> smp::_reactors;
 smp_message_queue** smp::_qs;
-std::vector<io_queue*> reactor::all_io_queues;
+std::vector<std::unique_ptr<io_queue>> reactor::all_io_queues;
 std::thread::id smp::_tmain;
 unsigned smp::count = 1;
 
@@ -2342,7 +2342,8 @@ void smp::configure(boost::program_options::variables_map configuration)
                 continue;
             }
             if (shard == cid) {
-                reactor::all_io_queues[vec_idx] = new ::io_queue(coordinator.id, coordinator.capacity, io_info.shard_to_coordinator);
+                auto ptr = std::make_unique<::io_queue>(coordinator.id, coordinator.capacity, io_info.shard_to_coordinator);
+                reactor::all_io_queues[vec_idx].swap(ptr);
             }
             return vec_idx;
         }
@@ -2367,7 +2368,7 @@ void smp::configure(boost::program_options::variables_map configuration)
             auto queue_idx = alloc_io_queue(i);
             start_all_queues();
             inited.wait();
-            engine()._io_queue = reactor::all_io_queues[queue_idx];
+            engine()._io_queue = reactor::all_io_queues[queue_idx].get();
             engine()._io_coordinator = reactor::all_io_queues[queue_idx]->coordinator();
             engine().configure(configuration);
             engine().run();
@@ -2397,7 +2398,7 @@ void smp::configure(boost::program_options::variables_map configuration)
     start_all_queues();
     inited.wait();
 
-    engine()._io_queue = reactor::all_io_queues[queue_idx];
+    engine()._io_queue = reactor::all_io_queues[queue_idx].get();
     engine()._io_coordinator = reactor::all_io_queues[queue_idx]->coordinator();
     engine().configure(configuration);
     engine()._lowres_clock = std::make_unique<lowres_clock>();

@@ -623,7 +623,7 @@ private:
     std::vector<pollfn*> _pollers;
 
     static constexpr size_t max_aio = 128;
-    static std::vector<io_queue*> all_io_queues;
+    static std::vector<std::unique_ptr<io_queue>> all_io_queues;
 
     // For submiting the actual IO, all we need is the coordinator id. So storing it
     // separately saves us the pointer access.
