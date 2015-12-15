@@ -555,7 +555,7 @@ future<io_event>
 reactor::submit_io_read(size_t len, Func prepare_io) {
     ++_aio_reads;
     _aio_read_bytes += len;
-    return submit_io(std::move(prepare_io));
+    return io_queue::queue_request(_io_coordinator, len, std::move(prepare_io));
 }
 
 template <typename Func>
@@ -563,7 +563,7 @@ future<io_event>
 reactor::submit_io_write(size_t len, Func prepare_io) {
     ++_aio_writes;
     _aio_write_bytes += len;
-    return submit_io(std::move(prepare_io));
+    return io_queue::queue_request(_io_coordinator, len, std::move(prepare_io));
 }
 
 bool reactor::process_io()
@@ -579,6 +579,28 @@ bool reactor::process_io()
     }
     _io_context_available.signal(n);
     return n;
+}
+
+io_queue::io_queue(shard_id coordinator, size_t capacity, std::vector<shard_id> topology)
+        : _coordinator(coordinator)
+        , _capacity(capacity)
+        , _io_topology(std::move(topology))
+        , _has_room(capacity)
+{}
+
+template <typename Func>
+future<io_event>
+io_queue::queue_request(shard_id coordinator, size_t len, Func prepare_io) {
+    return smp::submit_to(coordinator, [len, prepare_io = std::move(prepare_io)] {
+        auto& queue = *(engine()._io_queue);
+        queue._pending_io += len;
+        return queue._has_room.wait(1).then([prepare_io = std::move(prepare_io)] {
+            return engine().submit_io(std::move(prepare_io));
+        }).finally([&queue, len] {
+            queue._pending_io -= len;
+            queue._has_room.signal(1);
+        });
+    });
 }
 
 posix_file_impl::posix_file_impl(int fd, file_open_options options)
@@ -608,8 +630,8 @@ posix_file_impl::query_dma_alignment() {
 
 future<size_t>
 posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len) {
-    return engine().submit_io_write(len, [this, pos, buffer, len] (iocb& io) {
-        io_prep_pwrite(&io, _fd, const_cast<void*>(buffer), len, pos);
+    return engine().submit_io_write(len, [fd = _fd, pos, buffer, len] (iocb& io) {
+        io_prep_pwrite(&io, fd, const_cast<void*>(buffer), len, pos);
     }).then([] (io_event ev) {
         throw_kernel_error(long(ev.res));
         return make_ready_future<size_t>(size_t(ev.res));
@@ -619,9 +641,12 @@ posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len) {
 future<size_t>
 posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov) {
     auto len = boost::accumulate(iov | boost::adaptors::transformed(std::mem_fn(&iovec::iov_len)), size_t(0));
-    return engine().submit_io_write(len, [this, pos, iov = std::move(iov)] (iocb& io) {
-        io_prep_pwritev(&io, _fd, iov.data(), iov.size(), pos);
-    }).then([] (io_event ev) {
+    auto iov_ptr = std::make_unique<std::vector<iovec>>(std::move(iov));
+    auto size = iov_ptr->size();
+    auto data = iov_ptr->data();
+    return engine().submit_io_write(len, [fd = _fd, pos, data, size] (iocb& io) {
+        io_prep_pwritev(&io, fd, data, size, pos);
+    }).then([iov_ptr = std::move(iov_ptr)] (io_event ev) {
         throw_kernel_error(long(ev.res));
         return make_ready_future<size_t>(size_t(ev.res));
     });
@@ -629,8 +654,8 @@ posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov) {
 
 future<size_t>
 posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len) {
-    return engine().submit_io_read(len, [this, pos, buffer, len] (iocb& io) {
-        io_prep_pread(&io, _fd, buffer, len, pos);
+    return engine().submit_io_read(len, [fd = _fd, pos, buffer, len] (iocb& io) {
+        io_prep_pread(&io, fd, buffer, len, pos);
     }).then([] (io_event ev) {
         throw_kernel_error(long(ev.res));
         return make_ready_future<size_t>(size_t(ev.res));
@@ -640,9 +665,12 @@ posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len) {
 future<size_t>
 posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov) {
     auto len = boost::accumulate(iov | boost::adaptors::transformed(std::mem_fn(&iovec::iov_len)), size_t(0));
-    return engine().submit_io_read(len, [this, pos, iov = std::move(iov)] (iocb& io) {
-        io_prep_preadv(&io, _fd, iov.data(), iov.size(), pos);
-    }).then([] (io_event ev) {
+    auto iov_ptr = std::make_unique<std::vector<iovec>>(std::move(iov));
+    auto size = iov_ptr->size();
+    auto data = iov_ptr->data();
+    return engine().submit_io_read(len, [fd = _fd, pos, data, size] (iocb& io) {
+        io_prep_preadv(&io, fd, data, size, pos);
+    }).then([iov_ptr = std::move(iov_ptr)] (io_event ev) {
         throw_kernel_error(long(ev.res));
         return make_ready_future<size_t>(size_t(ev.res));
     });
@@ -1195,6 +1223,17 @@ reactor::register_collectd_metrics() {
                     , scollectd::per_cpu_plugin_instance
                     , "derive", "aio-write-bytes")
                     , scollectd::make_typed(scollectd::data_type::DERIVE, _aio_write_bytes)
+            ),
+            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+                    , scollectd::per_cpu_plugin_instance
+                    , "gauge", "pending-io")
+                    , scollectd::make_typed(scollectd::data_type::GAUGE, _io_queue->_pending_io)
+            ),
+            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+                    , scollectd::per_cpu_plugin_instance
+                    , "gauge", "queued-io-requests")
+                    , scollectd::make_typed(scollectd::data_type::GAUGE,
+                        [this] { return _io_queue->queued_requests(); } )
             ),
             // total_operations value:DERIVE:0:U
             scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
@@ -2133,6 +2172,12 @@ smp::get_options_description()
         ("memory,m", bpo::value<std::string>(), "memory to use, in bytes (ex: 4G) (default: all)")
         ("reserve-memory", bpo::value<std::string>(), "memory reserved to OS (if --memory not specified)")
         ("hugepages", bpo::value<std::string>(), "path to accessible hugetlbfs mount (typically /dev/hugepages/something)")
+#ifdef HAVE_HWLOC
+        ("num-io-queues", bpo::value<unsigned>(), "Number of IO queues. Each IO unit will be responsible for a fraction of the IO requests. Defaults to the number of threads")
+        ("max-io-requests", bpo::value<unsigned>(), "Maximum amount of concurrent requests to be sent to the disk. Defaults to 128 times the number of IO queues")
+#else
+        ("max-io-requests", bpo::value<unsigned>(), "Maximum amount of concurrent requests to be sent to the disk. Defaults to 128 times the number of processors")
+#endif
         ;
     return opts;
 }
@@ -2140,6 +2185,7 @@ smp::get_options_description()
 std::vector<smp::thread_adaptor> smp::_threads;
 std::vector<reactor*> smp::_reactors;
 smp_message_queue** smp::_qs;
+std::vector<io_queue*> all_io_queues;
 std::thread::id smp::_tmain;
 unsigned smp::count = 1;
 
@@ -2255,8 +2301,17 @@ void smp::configure(boost::program_options::variables_map configuration)
     if (configuration.count("hugepages")) {
         hugepages_path = configuration["hugepages"].as<std::string>();
     }
+
     rc.cpus = smp::count;
     rc.cpu_set = std::move(cpu_set);
+    if (configuration.count("max-io-requests")) {
+        rc.max_io_requests = configuration["max-io-requests"].as<unsigned>();
+    }
+
+    if (configuration.count("num-io-queues")) {
+        rc.io_queues = configuration["num-io-queues"].as<unsigned>();
+    }
+
     std::vector<resource::cpu> allocations = resource::allocate(rc);
     smp::pin(allocations[0].cpu_id);
     memory::configure(allocations[0].mem, hugepages_path);
@@ -2275,10 +2330,29 @@ void smp::configure(boost::program_options::variables_map configuration)
     static boost::barrier smp_queues_constructed(smp::count);
     static boost::barrier inited(smp::count);
 
+    auto io_info = resource::allocate_io_queues(rc, allocations);
+    all_io_queues.resize(io_info.coordinators.size());
+
+    auto alloc_io_queue = [io_info] (unsigned shard) {
+        auto cid = io_info.shard_to_coordinator[shard];
+        int vec_idx = 0;
+        for (auto& coordinator: io_info.coordinators) {
+            if (coordinator.id != cid) {
+                vec_idx++;
+                continue;
+            }
+            if (shard == cid) {
+                all_io_queues[vec_idx] = new ::io_queue(coordinator.id, coordinator.capacity, io_info.shard_to_coordinator);
+            }
+            return vec_idx;
+        }
+        assert(0); // Impossible
+    };
+
     unsigned i;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        _threads.emplace_back([configuration, hugepages_path, i, allocation] {
+        _threads.emplace_back([configuration, hugepages_path, i, allocation, alloc_io_queue] {
             smp::pin(allocation.cpu_id);
             memory::configure(allocation.mem, hugepages_path);
             sigset_t mask;
@@ -2290,8 +2364,11 @@ void smp::configure(boost::program_options::variables_map configuration)
             _reactors[i] = &engine();
             reactors_registered.wait();
             smp_queues_constructed.wait();
+            auto queue_idx = alloc_io_queue(i);
             start_all_queues();
             inited.wait();
+            engine()._io_queue = all_io_queues[queue_idx];
+            engine()._io_coordinator = all_io_queues[queue_idx]->coordinator();
             engine().configure(configuration);
             engine().run();
         });
@@ -2299,6 +2376,7 @@ void smp::configure(boost::program_options::variables_map configuration)
 
     allocate_reactor();
     _reactors[0] = &engine();
+    auto queue_idx = alloc_io_queue(0);
 
 #ifdef HAVE_DPDK
     auto it = _threads.begin();
@@ -2318,6 +2396,9 @@ void smp::configure(boost::program_options::variables_map configuration)
     smp_queues_constructed.wait();
     start_all_queues();
     inited.wait();
+
+    engine()._io_queue = all_io_queues[queue_idx];
+    engine()._io_coordinator = all_io_queues[queue_idx]->coordinator();
     engine().configure(configuration);
     engine()._lowres_clock = std::make_unique<lowres_clock>();
 }
