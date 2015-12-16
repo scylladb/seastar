@@ -666,7 +666,7 @@ private:
     const bool _reuseport;
     circular_buffer<double> _loads;
     double _load = 0;
-    std::chrono::nanoseconds _max_poll_time{200};
+    std::chrono::nanoseconds _max_poll_time{200000};
     circular_buffer<output_stream<char>* > _flush_batching;
     std::atomic<bool> _sleeping alignas(64);
     pthread_t _thread_id alignas(64) = pthread_self();
