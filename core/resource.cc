@@ -311,14 +311,14 @@ allocate_io_queues(configuration c, std::vector<cpu> cpus) {
 }
 
 
-std::vector<cpu> allocate(configuration c) {
+resources allocate(configuration c) {
     resources ret;
 
     auto available_memory = ::sysconf(_SC_PAGESIZE) * size_t(::sysconf(_SC_PHYS_PAGES));
     auto mem = calculate_memory(c, available_memory);
     auto cpuset_procs = c.cpu_set ? c.cpu_set->size() : nr_processing_units();
     auto procs = c.cpus.value_or(cpuset_procs);
-    ret.cpus..reserve(procs);
+    ret.cpus.reserve(procs);
     for (unsigned i = 0; i < procs; ++i) {
         ret.cpus.push_back(cpu{i, {{mem / procs, 0}}});
     }
