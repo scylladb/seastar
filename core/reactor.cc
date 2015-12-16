@@ -2313,7 +2313,8 @@ void smp::configure(boost::program_options::variables_map configuration)
         rc.io_queues = configuration["num-io-queues"].as<unsigned>();
     }
 
-    std::vector<resource::cpu> allocations = resource::allocate(rc);
+    auto resources = resource::allocate(rc);
+    std::vector<resource::cpu> allocations = std::move(resources.cpus);
     smp::pin(allocations[0].cpu_id);
     memory::configure(allocations[0].mem, hugepages_path);
 
@@ -2331,7 +2332,7 @@ void smp::configure(boost::program_options::variables_map configuration)
     static boost::barrier smp_queues_constructed(smp::count);
     static boost::barrier inited(smp::count);
 
-    auto io_info = resource::allocate_io_queues(rc, allocations);
+    auto io_info = std::move(resources.io_queues);
     reactor::all_io_queues.resize(io_info.coordinators.size());
 
     auto alloc_io_queue = [io_info] (unsigned shard) {

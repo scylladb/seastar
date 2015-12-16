@@ -101,89 +101,8 @@ struct distribute_objects {
     }
 };
 
-std::vector<cpu> allocate(configuration c) {
-    hwloc_topology_t topology;
-    hwloc_topology_init(&topology);
-    auto free_hwloc = defer([&] { hwloc_topology_destroy(topology); });
-    hwloc_topology_load(topology);
-    if (c.cpu_set) {
-        auto bm = hwloc_bitmap_alloc();
-        auto free_bm = defer([&] { hwloc_bitmap_free(bm); });
-        for (auto idx : *c.cpu_set) {
-            hwloc_bitmap_set(bm, idx);
-        }
-        auto r = hwloc_topology_restrict(topology, bm,
-                HWLOC_RESTRICT_FLAG_ADAPT_DISTANCES
-                | HWLOC_RESTRICT_FLAG_ADAPT_MISC
-                | HWLOC_RESTRICT_FLAG_ADAPT_IO);
-        if (r == -1) {
-            if (errno == ENOMEM) {
-                throw std::bad_alloc();
-            }
-            if (errno == EINVAL) {
-                throw std::runtime_error("bad cpuset");
-            }
-            abort();
-        }
-    }
-    auto machine_depth = hwloc_get_type_depth(topology, HWLOC_OBJ_MACHINE);
-    assert(hwloc_get_nbobjs_by_depth(topology, machine_depth) == 1);
-    auto machine = hwloc_get_obj_by_depth(topology, machine_depth, 0);
-    auto available_memory = machine->memory.total_memory;
-    // hwloc doesn't account for kernel reserved memory, so set panic_factor = 2
-    size_t mem = calculate_memory(c, available_memory, 2);
-    unsigned available_procs = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
-    unsigned procs = c.cpus.value_or(available_procs);
-    if (procs > available_procs) {
-        throw std::runtime_error("insufficient processing units");
-    }
-    auto mem_per_proc = align_down<size_t>(mem / procs, 2 << 20);
-
-    std::vector<cpu> ret;
-    std::unordered_map<hwloc_obj_t, size_t> topo_used_mem;
-    std::vector<std::pair<cpu, size_t>> remains;
-    size_t remain;
-    unsigned depth = find_memory_depth(topology);
-
-    auto cpu_sets = distribute_objects(topology, procs);
-
-    // Divide local memory to cpus
-    for (auto&& cs : cpu_sets()) {
-        auto cpu_id = hwloc_bitmap_first(cs);
-        assert(cpu_id != -1);
-        auto pu = hwloc_get_pu_obj_by_os_index(topology, cpu_id);
-        auto node = hwloc_get_ancestor_obj_by_depth(topology, depth, pu); 
-        cpu this_cpu;
-        this_cpu.cpu_id = cpu_id;
-        remain = mem_per_proc - alloc_from_node(this_cpu, node, topo_used_mem, mem_per_proc);
-
-        remains.emplace_back(std::move(this_cpu), remain); 
-    }
-
-    // Divide the rest of the memory
-    for (auto&& r : remains) {
-        cpu this_cpu;
-        size_t remain; 
-        std::tie(this_cpu, remain) = r;
-        auto pu = hwloc_get_pu_obj_by_os_index(topology, this_cpu.cpu_id);
-        auto node = hwloc_get_ancestor_obj_by_depth(topology, depth, pu); 
-        auto obj = node;
-
-        while (remain) {
-            remain -= alloc_from_node(this_cpu, obj, topo_used_mem, remain);
-            do {
-                obj = hwloc_get_next_obj_by_depth(topology, depth, obj);
-            } while (!obj);
-            if (obj == node)
-                break;
-        }
-        assert(!remain);
-        ret.push_back(std::move(this_cpu));
-    }
-    return ret;
-}
-
-io_queue_topology allocate_io_queues(configuration c, std::vector<cpu> cpus) {
+static io_queue_topology
+allocate_io_queues(configuration c, std::vector<cpu> cpus) {
     unsigned num_io_queues = c.io_queues.value_or(cpus.size());
     unsigned max_io_requests = c.max_io_requests.value_or(128 * num_io_queues);
 
@@ -275,6 +194,91 @@ io_queue_topology allocate_io_queues(configuration c, std::vector<cpu> cpus) {
     return ret;
 }
 
+
+resources allocate(configuration c) {
+    hwloc_topology_t topology;
+    hwloc_topology_init(&topology);
+    auto free_hwloc = defer([&] { hwloc_topology_destroy(topology); });
+    hwloc_topology_load(topology);
+    if (c.cpu_set) {
+        auto bm = hwloc_bitmap_alloc();
+        auto free_bm = defer([&] { hwloc_bitmap_free(bm); });
+        for (auto idx : *c.cpu_set) {
+            hwloc_bitmap_set(bm, idx);
+        }
+        auto r = hwloc_topology_restrict(topology, bm,
+                HWLOC_RESTRICT_FLAG_ADAPT_DISTANCES
+                | HWLOC_RESTRICT_FLAG_ADAPT_MISC
+                | HWLOC_RESTRICT_FLAG_ADAPT_IO);
+        if (r == -1) {
+            if (errno == ENOMEM) {
+                throw std::bad_alloc();
+            }
+            if (errno == EINVAL) {
+                throw std::runtime_error("bad cpuset");
+            }
+            abort();
+        }
+    }
+    auto machine_depth = hwloc_get_type_depth(topology, HWLOC_OBJ_MACHINE);
+    assert(hwloc_get_nbobjs_by_depth(topology, machine_depth) == 1);
+    auto machine = hwloc_get_obj_by_depth(topology, machine_depth, 0);
+    auto available_memory = machine->memory.total_memory;
+    // hwloc doesn't account for kernel reserved memory, so set panic_factor = 2
+    size_t mem = calculate_memory(c, available_memory, 2);
+    unsigned available_procs = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
+    unsigned procs = c.cpus.value_or(available_procs);
+    if (procs > available_procs) {
+        throw std::runtime_error("insufficient processing units");
+    }
+    auto mem_per_proc = align_down<size_t>(mem / procs, 2 << 20);
+
+    resources ret;
+    std::unordered_map<hwloc_obj_t, size_t> topo_used_mem;
+    std::vector<std::pair<cpu, size_t>> remains;
+    size_t remain;
+    unsigned depth = find_memory_depth(topology);
+
+    auto cpu_sets = distribute_objects(topology, procs);
+
+    // Divide local memory to cpus
+    for (auto&& cs : cpu_sets()) {
+        auto cpu_id = hwloc_bitmap_first(cs);
+        assert(cpu_id != -1);
+        auto pu = hwloc_get_pu_obj_by_os_index(topology, cpu_id);
+        auto node = hwloc_get_ancestor_obj_by_depth(topology, depth, pu);
+        cpu this_cpu;
+        this_cpu.cpu_id = cpu_id;
+        remain = mem_per_proc - alloc_from_node(this_cpu, node, topo_used_mem, mem_per_proc);
+
+        remains.emplace_back(std::move(this_cpu), remain);
+    }
+
+    // Divide the rest of the memory
+    for (auto&& r : remains) {
+        cpu this_cpu;
+        size_t remain;
+        std::tie(this_cpu, remain) = r;
+        auto pu = hwloc_get_pu_obj_by_os_index(topology, this_cpu.cpu_id);
+        auto node = hwloc_get_ancestor_obj_by_depth(topology, depth, pu);
+        auto obj = node;
+
+        while (remain) {
+            remain -= alloc_from_node(this_cpu, obj, topo_used_mem, remain);
+            do {
+                obj = hwloc_get_next_obj_by_depth(topology, depth, obj);
+            } while (!obj);
+            if (obj == node)
+                break;
+        }
+        assert(!remain);
+        ret.cpus.push_back(std::move(this_cpu));
+    }
+
+    ret.io_queues = allocate_io_queues(c, ret.cpus);
+    return ret;
+}
+
 unsigned nr_processing_units() {
     hwloc_topology_t topology;
     hwloc_topology_init(&topology);
@@ -292,21 +296,9 @@ unsigned nr_processing_units() {
 
 namespace resource {
 
-std::vector<cpu> allocate(configuration c) {
-    auto available_memory = ::sysconf(_SC_PAGESIZE) * size_t(::sysconf(_SC_PHYS_PAGES));
-    auto mem = calculate_memory(c, available_memory);
-    auto cpuset_procs = c.cpu_set ? c.cpu_set->size() : nr_processing_units();
-    auto procs = c.cpus.value_or(cpuset_procs);
-    std::vector<cpu> ret;
-    ret.reserve(procs);
-    for (unsigned i = 0; i < procs; ++i) {
-        ret.push_back(cpu{i, {{mem / procs, 0}}});
-    }
-    return ret;
-}
-
 // Without hwloc, we don't support tuning the number of IO queues. So each CPU gets their.
-io_queue_topology allocate_io_queues(configuration c, std::vector<cpu> cpus) {
+static io_queue_topology
+allocate_io_queues(configuration c, std::vector<cpu> cpus) {
     io_queue_topology ret;
 
     unsigned nr_cpus = unsigned(cpus.size());
@@ -320,6 +312,23 @@ io_queue_topology allocate_io_queues(configuration c, std::vector<cpu> cpus) {
         ret.coordinators[shard].capacity =  std::max(max_io_requests / nr_cpus, 1u);
         ret.coordinators[shard].id = shard;
     }
+    return ret;
+}
+
+
+std::vector<cpu> allocate(configuration c) {
+    resources ret;
+
+    auto available_memory = ::sysconf(_SC_PAGESIZE) * size_t(::sysconf(_SC_PHYS_PAGES));
+    auto mem = calculate_memory(c, available_memory);
+    auto cpuset_procs = c.cpu_set ? c.cpu_set->size() : nr_processing_units();
+    auto procs = c.cpus.value_or(cpuset_procs);
+    ret.cpus..reserve(procs);
+    for (unsigned i = 0; i < procs; ++i) {
+        ret.cpus.push_back(cpu{i, {{mem / procs, 0}}});
+    }
+
+    ret.io_queues = allocate_io_queues(c, ret.cpus);
     return ret;
 }
 
