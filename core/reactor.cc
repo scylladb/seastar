@@ -40,6 +40,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/eventfd.h>
+#include <boost/filesystem.hpp>
 #include <boost/thread/barrier.hpp>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/split.hpp>
@@ -2743,6 +2744,23 @@ void reactor::add_high_priority_task(std::unique_ptr<task>&& t) {
     _pending_tasks.push_front(std::move(t));
     // break .then() chains
     future_avail_count = max_inlined_continuations - 1;
+}
+
+static
+bool
+virtualized() {
+    return boost::filesystem::exists("/sys/hypervisor/type");
+}
+
+std::chrono::nanoseconds
+reactor::calculate_poll_time() {
+    // In a non-virtualized environment, select a poll time
+    // that is competitive with halt/unhalt.
+    //
+    // In a virutalized environment, IPIs are slow and dominate
+    // sleep/wake (mprotect/tgkill), so increase poll time to reduce
+    // so we don't sleep in a request/reply workload
+    return virtualized() ? 2000us : 200us;
 }
 
 future<> later() {

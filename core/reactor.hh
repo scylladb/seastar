@@ -666,11 +666,12 @@ private:
     const bool _reuseport;
     circular_buffer<double> _loads;
     double _load = 0;
-    std::chrono::nanoseconds _max_poll_time{200000};
+    std::chrono::nanoseconds _max_poll_time = calculate_poll_time();
     circular_buffer<output_stream<char>* > _flush_batching;
     std::atomic<bool> _sleeping alignas(64);
     pthread_t _thread_id alignas(64) = pthread_self();
 private:
+    static std::chrono::nanoseconds calculate_poll_time();
     static void clear_task_quota(int);
     void wakeup();
     bool flush_pending_aio();
