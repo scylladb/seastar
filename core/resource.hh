@@ -68,8 +68,12 @@ struct cpu {
     std::vector<memory> mem;
 };
 
-std::vector<cpu> allocate(configuration c);
-io_queue_topology allocate_io_queues(configuration c, std::vector<cpu> cpus);
+struct resources {
+    std::vector<cpu> cpus;
+    io_queue_topology io_queues;
+};
+
+resources allocate(configuration c);
 unsigned nr_processing_units();
 
 }

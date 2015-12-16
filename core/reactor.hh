@@ -546,7 +546,7 @@ public:
     shard_id coordinator() const {
         return _coordinator;
     }
-    shard_id coordinator_of_shard(shard_id shard) {
+    shard_id coordinator_of_shard(shard_id shard) const {
         return _io_topology[shard];
     }
     friend class reactor;
