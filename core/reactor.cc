@@ -524,7 +524,8 @@ reactor::submit_io(Func prepare_io) {
         prepare_io(io);
         io.data = pr.get();
         _pending_aio.push_back(io);
-        if (_pending_aio.size() >= max_aio / 4) {
+        if ((_io_queue->queued_requests() > 0) ||
+            (_pending_aio.size() >= std::min(max_aio / 4, _io_queue->_capacity / 2))) {
             flush_pending_aio();
         }
         return pr.release()->get_future();
