@@ -105,7 +105,7 @@ static void gtls_chk(int res) {
     }
 }
 
-class seastar::tls::dh_params::impl {
+class seastar::tls::dh_params::impl : gnutlsobj {
 public:
     impl()
             : _params([] {
@@ -159,7 +159,7 @@ future<seastar::tls::dh_params> seastar::tls::dh_params::from_file(
     });
 }
 
-class seastar::tls::x509_cert::impl {
+class seastar::tls::x509_cert::impl : gnutlsobj {
 public:
     impl()
             : _cert([] {
