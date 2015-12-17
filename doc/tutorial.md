@@ -434,9 +434,80 @@ parallel_for_each and friends. Use boost::counting_iterator for integers.
 map_reduce, as a shortcut (?) for parallel_for_each which needs to produce
 some results (e.g., logical_or of boolean results), so we don't need to
 create a lw_shared_ptr explicitly (or do_with).
-## Semaphores
-limiting parallelism with semaphore. show an infinite parallel loop with a
-semaphore limiting it to N parallel tasks.
+## Limiting parallelism, and semaphores
+Seastar's semaphores are the standard computer-science semaphores, adapted for futures. A semaphore is a counter, into which you can deposit units or take them away. Taking units from the counter may wait if not enough units are available.
+
+The most common use for a semaphore in Seastar is for limiting parallelism, i.e., limiting the number of instances of some code which can run in parallel.
+
+Consider the following simple loop:
+
+```cpp
+include "core/sleep.hh"
+future<> slow() {
+    std::cerr << ".";
+    return sleep(std::chrono::seconds(1));
+}
+future<> f() {
+    return repeat([] {
+        return slow().then([] { return stop_iteration::no; });
+    });
+}
+```
+
+This loop runs the ```slow()``` function (taking one second to complete) without any parallelism --- the next ```slow()``` call starts only when the previous one completed. But what if we do not need to serialize the calls to ```slow()```, and want to allow multiple instances of it to be ongoing concurrently?
+
+Naively, we could achieve more parallelism, by starting the next call to ```slow()``` right after the previous call --- ignoring the future returned by the previous call to ```slow()``` and not waiting for it to resolve:
+```cpp
+future<> f() {
+    return repeat([] {
+        slow();
+        return stop_iteration::no;
+    });
+}
+```
+
+But in this loop, there is no limit to the amount of parallelism --- millions of ```sleep()``` calls might be active in parallel, before the first one ever returned. Eventually, this loop will consume all available memory and crash.
+
+Using a semaphore allows us to run many instances of ```slow()``` in parallel, but put a limit on the number of these parallel instances to, in the following example, 100:
+
+```cpp
+future<> f() {
+    return do_with(semaphore(100), [] (auto& limit) {
+        return repeat([&limit] {
+            return limit.wait(1).then([&limit] {
+                slow().finally([&limit] {
+                    limit.signal(1); 
+                });
+                return stop_iteration::no;
+            });
+        });
+    });
+}
+```
+
+In this example, the semaphore starts with the counter at 100. The asynchronous operation (```slow()```) is only started when we can reduce the counter by one (```wait(1)```), and when ```slow()``` is done, the counter is increased back by one (```signal(1)```). This way, when 100 iterations have already started their work and have not yet finished, the 101st iteration will wait, until one of the ongoing operations will finish and return a unit to the semaphore. This will ensure that at each time we have at most 100 concurrent ```slow()``` operations running in the above code.
+
+When the loop has an end (unlike the infinite loop in the above example), we often want, at the end of the loop, to wait for all the background operations which the loop started. We can easily do this by ```wait()```ing on the original count of the semaphore. When the full count is finally available, it means that *all* the operations have completed. For example, the following loop ends after 456 iterations:
+
+```cpp
+future<> f() {
+    return do_with(0, semaphore(100), [] (auto& i, auto& limit) {
+        return repeat([&i, &limit] {
+            return limit.wait(1).then([&i, &limit] {
+                slow().finally([&limit] {
+                    limit.signal(1); 
+                });
+                return i++ < 456 ? stop_iteration::no : stop_iteration::yes;
+            });
+        }).finally([&limit] {
+            return limit.wait(100);
+        });
+    });
+}
+````
+
+Note how after the ```repeat``` loop ends, we do a ```wait(100)``` to wait for the semaphore to reach its original value 100, meaning that all operations we started have completed. Note also how we used ```finally()```, rather than ```then()```, in two places, to ensure that the counter is increased even if a background operation finished unsuccessfully, and to ensure that we wait for all background operations to complete, even if the looped stopped prematurely because of an exception.
+
 ## Pipes
 pipe
 
