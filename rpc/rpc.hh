@@ -109,6 +109,7 @@ public:
         promise<> _ss_stopped;
     public:
         server(protocol& proto, ipv4_addr addr);
+        server(protocol& proto, server_socket);
         void accept();
         future<> stop() {
             _stopping = true; // prevents closed connections to be deleted from _conns
@@ -162,6 +163,14 @@ public:
         read_response_frame(input_stream<char>& in);
     public:
         client(protocol& proto, ipv4_addr addr, ipv4_addr local = ipv4_addr());
+        /**
+         * Create client object using the connected_socket result of the
+         * provided future.
+         *
+         * @param addr the remote address identifying this client
+         * @param f a future<> resulting in a connected_socket for the connection
+         */
+        client(protocol& proto, ipv4_addr addr, future<connected_socket> f);
 
         stats get_stats() const {
             stats res = _stats;
