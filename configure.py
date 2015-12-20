@@ -151,7 +151,7 @@ def sanitize_vptr_flag(compiler):
 modes = {
     'debug': {
         'sanitize': '-fsanitize=address -fsanitize=leak -fsanitize=undefined',
-        'sanitize_libs': '-lubsan -lasan',
+        'sanitize_libs': '-lasan -lubsan',
         'opt': '-O0 -DDEBUG -DDEBUG_SHARED_PTR -DDEFAULT_ALLOCATOR',
         'libs': '',
     },
@@ -561,7 +561,7 @@ with open(buildfile, 'w') as f:
             modeval['sanitize_libs'] = ''
         f.write(textwrap.dedent('''\
             cxxflags_{mode} = {sanitize} {opt} -I $builddir/{mode}/gen
-            libs_{mode} = {libs} {sanitize_libs}
+            libs_{mode} = {sanitize_libs} {libs}
             rule cxx.{mode}
               command = $cxx -MMD -MT $out -MF $out.d $cxxflags_{mode} $cxxflags -c -o $out $in
               description = CXX $out
@@ -596,7 +596,7 @@ with open(buildfile, 'w') as f:
                         URL: http://seastar-project.org/
                         Description: Advanced C++ framework for high-performance server applications on modern hardware.
                         Version: 1.0
-                        Libs: -L{srcdir}/{builddir} -Wl,--whole-archive,-lseastar,--no-whole-archive {dbgflag} -Wl,--no-as-needed {static} {pie} -fvisibility=hidden -pthread {user_ldflags} {libs} {sanitize_libs}
+                        Libs: -L{srcdir}/{builddir} -Wl,--whole-archive,-lseastar,--no-whole-archive {dbgflag} -Wl,--no-as-needed {static} {pie} -fvisibility=hidden -pthread {user_ldflags} {sanitize_libs} {libs}
                         Cflags: -std=gnu++1y {dbgflag} {fpie} -Wall -Werror -fvisibility=hidden -pthread -I{srcdir} -I{srcdir}/{builddir}/gen {user_cflags} {warnings} {defines} {sanitize} {opt}
                         ''').format(builddir = 'build/' + mode, srcdir = os.getcwd(), **vars)
                 f.write('build $builddir/{}/{}: gen\n  text = {}\n'.format(mode, binary, repr(pc)))
