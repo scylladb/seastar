@@ -15,32 +15,15 @@
 # !  -h|--help - print this help information
 # !
 
-make_hex_mask()
-{
-    local val=$1
-    local mask32=$(( (1 << 32) - 1))
-    local res=`printf %x $(( val & mask32 ))`
-    val=$(( val >> 32 ))
-
-    while [[ $val -gt 0 ]]
-    do
-        res=`printf %x $(( val & mask32 ))`",$res"
-        val=$(( val >> 32 ))
-    done
-
-    echo -n $res
-}
-
 #
 #  set_one_mask <config file> <CPU mask>
 #
 set_one_mask()
 {
     local cpuset_conf_file=$1
-    local mask=$2
-    local mask_hex=`make_hex_mask $mask`
-    echo "Setting mask $mask_hex in $cpuset_conf_file"
-    echo $mask_hex > $cpuset_conf_file
+    local mask=`echo $2 | sed -e 's/0x//g'`
+    echo "Setting mask $mask in $cpuset_conf_file"
+    echo $mask > $cpuset_conf_file
 }
 
 #
