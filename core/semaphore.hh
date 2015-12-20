@@ -231,6 +231,39 @@ semaphore::broken(std::exception_ptr xp) {
     }
 }
 
+/// \brief Runs a function protected by a semaphore
+///
+/// Acquires a \ref semaphore, runs a function, and releases
+/// the semphore, returning the the return value of the function,
+/// as a \ref future.
+///
+/// \param sem The sempahore to be held while the \c func is
+///            running.
+/// \param units  Number of units to acquire from \c sem (as
+///               with semaphore::wait())
+/// \param func   The function to run; signature \c void() or
+///               \c future<>().
+/// \return a \ref future<> holding the function's return value
+///         or exception thrown; or a \ref future<> containing
+///         an exeception from one of the semaphore::broken()
+///         variants.
+///
+/// \note The caller must guarantee that \c sem is valid until
+///       the future returned by with_semaphore() resolves.
+///
+/// \related semaphore
+template <typename Func>
+inline
+futurize_t<std::result_of_t<Func()>>
+with_semaphore(semaphore& sem, size_t units, Func&& func) {
+    return sem.wait(units)
+            .then(std::forward<Func>(func))
+            .then_wrapped([&sem, units] (auto&& fut) {
+        sem.signal(units);
+        return std::move(fut);
+    });
+}
+
 /// @}
 
 #endif /* CORE_SEMAPHORE_HH_ */

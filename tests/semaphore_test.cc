@@ -194,3 +194,20 @@ SEASTAR_TEST_CASE(test_shared_mutex_mixed) {
     });
 }
 
+
+SEASTAR_TEST_CASE(test_with_semaphore) {
+    return do_with(semaphore(1), 0, [] (semaphore& sem, int& counter) {
+        return with_semaphore(sem, 1, [&counter] {
+            ++counter;
+        }).then([&counter, &sem] () {
+            return with_semaphore(sem, 1, [&counter] {
+                ++counter;
+                throw 123;
+            }).then_wrapped([&counter] (auto&& fut) {
+                BOOST_REQUIRE_EQUAL(counter, 2);
+                BOOST_REQUIRE(fut.failed());
+                fut.ignore_ready_future();
+            });
+        });
+    });
+}
