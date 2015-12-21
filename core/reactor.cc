@@ -83,7 +83,7 @@ using namespace net;
 std::atomic<lowres_clock::rep> lowres_clock::_now;
 constexpr std::chrono::milliseconds lowres_clock::_granularity;
 
-timespec to_timespec(clock_type::time_point t) {
+timespec to_timespec(steady_clock_type::time_point t) {
     using ns = std::chrono::nanoseconds;
     auto n = std::chrono::duration_cast<ns>(t.time_since_epoch()).count();
     return { n / 1'000'000'000, n % 1'000'000'000 };
@@ -1080,7 +1080,7 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
     return ret;
 }
 
-void reactor::enable_timer(clock_type::time_point when)
+void reactor::enable_timer(steady_clock_type::time_point when)
 {
 #ifndef HAVE_OSV
     itimerspec its;
@@ -2541,7 +2541,7 @@ reactor_backend_osv::forget(pollable_fd_state& fd) {
 }
 
 void
-reactor_backend_osv::enable_timer(clock_type::time_point when) {
+reactor_backend_osv::enable_timer(steady_clock_type::time_point when) {
     _poller.set_timer(when);
 }
 

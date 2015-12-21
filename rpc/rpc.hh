@@ -182,7 +182,7 @@ public:
             return _stats;
         }
         auto next_message_id() { return _message_id++; }
-        void wait_for_reply(id_type id, std::unique_ptr<reply_handler_base>&& h, std::experimental::optional<clock_type::time_point> timeout) {
+        void wait_for_reply(id_type id, std::unique_ptr<reply_handler_base>&& h, std::experimental::optional<steady_clock_type::time_point> timeout) {
             if (timeout) {
                 h->t.set_callback(std::bind(std::mem_fn(&client::wait_timed_out), this, id));
                 h->t.arm(timeout.value());

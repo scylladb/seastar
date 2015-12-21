@@ -39,7 +39,7 @@ public:
     dhcp(dhcp &&);
     ~dhcp();
 
-    static const clock_type::duration default_timeout;
+    static const steady_clock_type::duration default_timeout;
 
     struct lease {
         ipv4_address ip;
@@ -70,8 +70,8 @@ public:
      * It only makes queries and records replys for the related NIC.
      * It is up to caller to use the returned information as he se fit.
      */
-    result_type discover(const clock_type::duration & = default_timeout);
-    result_type renew(const lease &, const clock_type::duration & = default_timeout);
+    result_type discover(const steady_clock_type::duration & = default_timeout);
+    result_type renew(const lease &, const steady_clock_type::duration & = default_timeout);
     ip_packet_filter* get_ipv4_filter();
 private:
     class impl;

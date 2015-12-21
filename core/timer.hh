@@ -26,7 +26,7 @@
 #include "future.hh"
 #include "timer-set.hh"
 
-using clock_type = std::chrono::steady_clock;
+using steady_clock_type = std::chrono::steady_clock;
 
 template <typename Clock = std::chrono::steady_clock>
 class timer {

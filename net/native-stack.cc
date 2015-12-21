@@ -265,7 +265,7 @@ void native_network_stack::on_dhcp(bool success, const dhcp::lease & res, bool i
                         run_dhcp(true, res);
                     });
             _timer.arm(
-                    std::chrono::duration_cast<clock_type::duration>(
+                    std::chrono::duration_cast<steady_clock_type::duration>(
                             res.lease_time));
         }
     }
