@@ -109,6 +109,16 @@ server_socket listen(socket_address sa, listen_options opts);
 /// \return a \ref connected_socket object, or an exception
 future<connected_socket> connect(socket_address sa);
 
+/// Establishes a connection to a given address
+///
+/// Attempts to connect to the given address with a defined local endpoint
+///
+/// \param sa socket address to connect to
+/// \param local socket address for local endpoint
+///
+/// \return a \ref connected_socket object, or an exception
+future<connected_socket> connect(socket_address sa, socket_address local);
+
 /// @}
 
 /// \defgroup fileio-module File Input/Output
