@@ -35,6 +35,8 @@
 #include <sys/socket.h>
 #include <netinet/ip.h>
 
+struct ipv4_addr;
+
 class socket_address {
 public:
     union {
@@ -45,6 +47,7 @@ public:
     socket_address(sockaddr_in sa) {
         u.in = sa;
     }
+    socket_address(ipv4_addr);
     socket_address() = default;
     ::sockaddr& as_posix_sockaddr() { return u.sa; }
     ::sockaddr_in& as_posix_sockaddr_in() { return u.in; }
@@ -54,6 +57,9 @@ public:
 
 struct listen_options {
     bool reuse_address = false;
+    listen_options(bool rua = false)
+        : reuse_address(rua)
+    {}
 };
 
 struct ipv4_addr {
