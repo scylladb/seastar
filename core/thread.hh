@@ -76,7 +76,7 @@ class thread_attributes;
 class thread_scheduling_group;
 
 /// Clock used for scheduling threads
-using thread_clock = std::chrono::steady_clock;
+using thread_clock = steady_clock_type;
 
 /// \cond internal
 class thread_context;

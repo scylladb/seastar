@@ -1097,17 +1097,17 @@ void reactor::enable_timer(steady_clock_type::time_point when)
 #endif
 }
 
-void reactor::add_timer(timer<std::chrono::steady_clock>* tmr) {
+void reactor::add_timer(timer<steady_clock_type>* tmr) {
     if (queue_timer(tmr)) {
         enable_timer(_timers.get_next_timeout());
     }
 }
 
-bool reactor::queue_timer(timer<std::chrono::steady_clock>* tmr) {
+bool reactor::queue_timer(timer<steady_clock_type>* tmr) {
     return _timers.insert(*tmr);
 }
 
-void reactor::del_timer(timer<std::chrono::steady_clock>* tmr) {
+void reactor::del_timer(timer<steady_clock_type>* tmr) {
     if (tmr->_expired) {
         _expired_timers.erase(_expired_timers.iterator_to(*tmr));
         tmr->_expired = false;
@@ -1584,10 +1584,10 @@ int reactor::run() {
 
     using namespace std::chrono_literals;
     timer<lowres_clock> load_timer;
-    std::chrono::steady_clock::rep idle_count = 0;
-    auto idle_start = std::chrono::steady_clock::now(), idle_end = idle_start;
+    steady_clock_type::rep idle_count = 0;
+    auto idle_start = steady_clock_type::now(), idle_end = idle_start;
     load_timer.set_callback([this, &idle_count, &idle_start, &idle_end] () mutable {
-        auto load = double(idle_count + (idle_end - idle_start).count()) / double(std::chrono::duration_cast<std::chrono::steady_clock::duration>(1s).count());
+        auto load = double(idle_count + (idle_end - idle_start).count()) / double(std::chrono::duration_cast<steady_clock_type::duration>(1s).count());
         load = std::min(load, 1.0);
         idle_count = 0;
         idle_start = idle_end;
@@ -1636,7 +1636,7 @@ int reactor::run() {
         }
 
         if (!poll_once() && _pending_tasks.empty()) {
-            idle_end = std::chrono::steady_clock::now();
+            idle_end = steady_clock_type::now();
             if (!idle) {
                 idle_start = idle_end;
                 idle = true;
@@ -1645,7 +1645,7 @@ int reactor::run() {
             if (idle_end - idle_start > _max_poll_time) {
                 sleep();
                 // We may have slept for a while, so freshen idle_end
-                idle_end = std::chrono::steady_clock::now();
+                idle_end = steady_clock_type::now();
             }
         } else {
             if (idle) {

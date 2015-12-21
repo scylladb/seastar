@@ -20,6 +20,7 @@
  */
 
 #include "core/memory.hh"
+#include "core/timer.hh"
 #include <random>
 #include <cmath>
 #include <iostream>
@@ -124,7 +125,7 @@ int main(int ac, char** av) {
         }
     } else {
         auto time = vm["time"].as<float>();
-        using clock = std::chrono::steady_clock;
+        using clock = steady_clock_type;
         auto end = clock::now() + std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::seconds(1) * time);
         while (clock::now() < end) {
             for (unsigned i = 0; i < 1000; ++i) {

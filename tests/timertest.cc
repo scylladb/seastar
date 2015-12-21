@@ -88,7 +88,7 @@ struct timer_test {
 
 int main(int ac, char** av) {
     app_template app;
-    timer_test<std::chrono::steady_clock> t1;
+    timer_test<steady_clock_type> t1;
     timer_test<lowres_clock> t2;
     return app.run_deprecated(ac, av, [&t1, &t2] {
         print("=== Start High res clock test\n");

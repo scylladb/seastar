@@ -28,7 +28,7 @@
 
 using steady_clock_type = std::chrono::steady_clock;
 
-template <typename Clock = std::chrono::steady_clock>
+template <typename Clock = steady_clock_type>
 class timer {
 public:
     typedef typename Clock::time_point time_point;
