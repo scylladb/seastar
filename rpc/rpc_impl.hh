@@ -29,6 +29,16 @@
 
 namespace rpc {
 
+template<typename T>
+struct remove_optional {
+    using type = T;
+};
+
+template<typename T>
+struct remove_optional<optional<T>> {
+    using type = T;
+};
+
 struct wait_type {}; // opposite of no_wait_type
 
 // tags to tell whether we want a const client_info& parameter
@@ -178,10 +188,28 @@ inline std::tuple<> do_unmarshall(Serializer& serializer, Input& in) {
     return std::make_tuple();
 }
 
+template<typename Serializer, typename Input, typename T>
+struct unmarshal_one {
+    static T doit(Serializer& serializer, Input& in) {
+        return read(serializer, in, type<T>());
+    }
+};
+
+template<typename Serializer, typename Input, typename T>
+struct unmarshal_one<Serializer, Input, optional<T>> {
+    static optional<T> doit(Serializer& serializer, Input& in) {
+        if (in.size()) {
+            return optional<T>(read(serializer, in, type<typename remove_optional<T>::type>()));
+        } else {
+            return optional<T>();
+        }
+    }
+};
+
 template <typename Serializer, typename Input, typename T0, typename... Trest>
 inline std::tuple<T0, Trest...> do_unmarshall(Serializer& serializer, Input& in) {
     // FIXME: something less recursive
-    auto first = std::make_tuple(read(serializer, in, type<T0>()));
+    auto first = std::make_tuple(unmarshal_one<Serializer, Input, T0>::doit(serializer, in));
     auto rest = do_unmarshall<Serializer, Input, Trest...>(serializer, in);
     return std::tuple_cat(std::move(first), std::move(rest));
 }
@@ -198,6 +226,9 @@ public:
         std::copy_n(_p, size, p);
         _p += size;
         _size -= size;
+    }
+    const size_t size() const {
+        return _size;
     }
 };
 
@@ -463,7 +494,7 @@ struct handler_type_impl;
 
 template<typename Ret, typename F, std::size_t... I>
 struct handler_type_impl<Ret, F, std::integer_sequence<std::size_t, I...>> {
-    using type = handler_type_helper<Ret, typename F::template arg<I>::type...>;
+    using type = handler_type_helper<Ret, typename remove_optional<typename F::template arg<I>::type>::type...>;
 };
 
 // this class is used to calculate client side rpc function signature

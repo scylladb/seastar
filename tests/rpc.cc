@@ -106,6 +106,12 @@ int main(int ac, char** av) {
         if (config.count("server")) {
             std::cout << "client" << std::endl;
             auto test7 = myrpc.make_client<long (long a, long b)>(7);
+            auto test9 = myrpc.make_client<long (long a, long b)>(9); // do not send optional
+            auto test9_1 = myrpc.make_client<long (long a, long b, int c)>(9); // send optional
+            auto test9_2 = myrpc.make_client<long (long a, long b, int c, long d)>(9); // send more data than handler expects
+            auto test10 = myrpc.make_client<long ()>(10); // receive less then replied
+            auto test10_1 = myrpc.make_client<future<long, int> ()>(10); // receive all
+            auto test11 = myrpc.make_client<future<long, rpc::optional<int>> ()>(11); // receive more then replied
 
             client = std::make_unique<rpc::protocol<serializer>::client>(myrpc, ipv4_addr{config["server"].as<std::string>()});
 
@@ -133,6 +139,12 @@ int main(int ac, char** av) {
                 test5(*client).then([] { print("test5 no wait ended\n"); });
                 test6(*client, 1).then([] { print("test6 ended\n"); });
                 test7(*client, 5, 6).then([] (long r) { print("test7 got %ld\n", r); });
+                test9(*client, 1, 2).then([] (long r) { print("test9 got %ld\n", r); });
+                test9_1(*client, 1, 2, 3).then([] (long r) { print("test9.1 got %ld\n", r); });
+                test9_2(*client, 1, 2, 3, 4).then([] (long r) { print("test9.2 got %ld\n", r); });
+                test10(*client).then([] (long r) { print("test10 got %ld\n", r); });
+                test10_1(*client).then([] (long r, int rr) { print("test10_1 got %ld and %d\n", r, rr); });
+                test11(*client).then([] (long r, rpc::optional<int> rr) { print("test11 got %ld and %d\n", r, bool(rr)); });
             }
             f.finally([] {
                 sleep(1s).then([] {
@@ -155,6 +167,25 @@ int main(int ac, char** av) {
                 t->arm(1s);
                 return f;
             });
+            myrpc.register_handler(9, [] (long a, long b, rpc::optional<int> c) {
+                long r = 2;
+                print("test9 got %ld %ld ", a, b);
+                if (c) {
+                    print("%d", c.value());
+                    r++;
+                }
+                print("\n");
+                return r;
+            });
+            myrpc.register_handler(10, [] {
+                print("test 10\n");
+                return make_ready_future<long, int>(1, 2);
+            });
+            myrpc.register_handler(11, [] {
+                print("test 11\n");
+                return 1ul;
+            });
+
             server = std::make_unique<rpc::protocol<serializer>::server>(myrpc, ipv4_addr{port});
         }
     });

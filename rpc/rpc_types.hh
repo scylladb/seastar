@@ -25,6 +25,7 @@
 #include <stdexcept>
 #include <string>
 #include <boost/any.hpp>
+#include <experimental/optional>
 
 namespace rpc {
 
@@ -82,5 +83,11 @@ struct no_wait_type {};
 
 // return this from a callback if client does not want to waiting for a reply
 extern no_wait_type no_wait;
+
+template <typename T>
+class optional : public std::experimental::optional<T> {
+public:
+     using std::experimental::optional<T>::optional;
+};
 
 } // namespace rpc
