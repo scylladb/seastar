@@ -497,20 +497,6 @@ public:
     using type = typename handler_type_impl<return_type, trait, std::make_index_sequence<trait::arity>>::type::type;
 };
 
-// this class is used to calculate client side rpc function signature
-// if rpc callback receives client_info as a first parameter it is dropped
-// from an argument list, otherwise signature is identical to what was passed to
-// make_client().
-template<typename Func>
-class server_function_type {
-    using trait = function_traits<Func>;
-    using return_type = typename trait::return_type;
-    using stype = typename handler_type_impl<return_type, trait, std::make_index_sequence<trait::arity>>::type;
-public:
-    using type = typename stype::type; // server function signature
-    static constexpr bool info = stype::info; // true if client_info is a first parameter of rpc handler
-};
-
 template<typename Serializer, typename MsgType>
 template<typename Func>
 auto protocol<Serializer, MsgType>::make_client(MsgType t) {
