@@ -2742,6 +2742,10 @@ future<connected_socket> connect(socket_address sa) {
     return engine().connect(sa);
 }
 
+future<connected_socket> connect(socket_address sa, socket_address local) {
+    return engine().connect(sa, local);
+}
+
 void reactor::add_high_priority_task(std::unique_ptr<task>&& t) {
     _pending_tasks.push_front(std::move(t));
     // break .then() chains

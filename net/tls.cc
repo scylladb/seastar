@@ -69,7 +69,7 @@ public:
 };
 
 // Helper
-static future<temporary_buffer<char>> read_fully(const sstring& name) {
+static future<temporary_buffer<char>> read_fully(const sstring& name, const sstring& what) {
     return engine().open_file_dma(name, open_flags::ro).then([](file f) {
         return do_with(std::move(f), [](file& f) {
             return f.size().then([&f](uint64_t size) {
@@ -78,6 +78,12 @@ static future<temporary_buffer<char>> read_fully(const sstring& name) {
                 return f.close();
             });
         });
+    }).handle_exception([name, what](std::exception_ptr ep) -> future<temporary_buffer<char>> {
+       try {
+           std::rethrow_exception(std::move(ep));
+       } catch (...) {
+           std::throw_with_nested(std::runtime_error(sstring("Could not read ") + what + " " + name));
+       }
     });
 }
 
@@ -105,7 +111,7 @@ static void gtls_chk(int res) {
     }
 }
 
-class seastar::tls::dh_params::impl {
+class seastar::tls::dh_params::impl : gnutlsobj {
 public:
     impl()
             : _params([] {
@@ -154,12 +160,12 @@ seastar::tls::dh_params& seastar::tls::dh_params::operator=(dh_params&&) noexcep
 
 future<seastar::tls::dh_params> seastar::tls::dh_params::from_file(
         const sstring& filename, x509_crt_format fmt) {
-    return read_fully(filename).then([fmt](temporary_buffer<char> buf) {
+    return read_fully(filename, "dh parameters").then([fmt](temporary_buffer<char> buf) {
         return make_ready_future<dh_params>(dh_params(blob(buf.get()), fmt));
     });
 }
 
-class seastar::tls::x509_cert::impl {
+class seastar::tls::x509_cert::impl : gnutlsobj {
 public:
     impl()
             : _cert([] {
@@ -197,7 +203,7 @@ seastar::tls::x509_cert::x509_cert(const blob& b, x509_crt_format fmt)
 
 future<seastar::tls::x509_cert> seastar::tls::x509_cert::from_file(
         const sstring& filename, x509_crt_format fmt) {
-    return read_fully(filename).then([fmt](temporary_buffer<char> buf) {
+    return read_fully(filename, "x509 certificate").then([fmt](temporary_buffer<char> buf) {
         return make_ready_future<x509_cert>(x509_cert(blob(buf.get()), fmt));
     });
 }
@@ -299,22 +305,22 @@ void seastar::tls::certificate_credentials::set_simple_pkcs12(const blob& b,
 
 future<> seastar::tls::certificate_credentials::set_x509_trust_file(
         const sstring& cafile, x509_crt_format fmt) {
-    return read_fully(cafile).then([this, fmt](temporary_buffer<char> buf) {
+    return read_fully(cafile, "trust file").then([this, fmt](temporary_buffer<char> buf) {
         _impl->set_x509_trust(blob(buf.get(), buf.size()), fmt);
     });
 }
 
 future<> seastar::tls::certificate_credentials::set_x509_crl_file(
         const sstring& crlfile, x509_crt_format fmt) {
-    return read_fully(crlfile).then([this, fmt](temporary_buffer<char> buf) {
+    return read_fully(crlfile, "crl file").then([this, fmt](temporary_buffer<char> buf) {
         _impl->set_x509_crl(blob(buf.get(), buf.size()), fmt);
     });
 }
 
 future<> seastar::tls::certificate_credentials::set_x509_key_file(
         const sstring& cf, const sstring& kf, x509_crt_format fmt) {
-    return read_fully(cf).then([this, fmt, kf](temporary_buffer<char> buf) {
-        return read_fully(kf).then([this, fmt, buf = std::move(buf)](temporary_buffer<char> buf2) {
+    return read_fully(cf, "certificate file").then([this, fmt, kf](temporary_buffer<char> buf) {
+        return read_fully(kf, "key file").then([this, fmt, buf = std::move(buf)](temporary_buffer<char> buf2) {
                     _impl->set_x509_key(blob(buf.get(), buf.size()), blob(buf2.get(), buf2.size()), fmt);
                 });
     });
@@ -323,7 +329,7 @@ future<> seastar::tls::certificate_credentials::set_x509_key_file(
 future<> seastar::tls::certificate_credentials::set_simple_pkcs12_file(
         const sstring& pkcs12file, x509_crt_format fmt,
         const sstring& password) {
-    return read_fully(pkcs12file).then([this, fmt, password](temporary_buffer<char> buf) {
+    return read_fully(pkcs12file, "pkcs12 file").then([this, fmt, password](temporary_buffer<char> buf) {
         _impl->set_simple_pkcs12(blob(buf.get(), buf.size()), fmt, password);
     });
 }

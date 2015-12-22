@@ -532,10 +532,13 @@ auto protocol<Serializer, MsgType>::register_handler(MsgType t, Func&& func) {
 }
 
 template<typename Serializer, typename MsgType>
-protocol<Serializer, MsgType>::server::server(protocol<Serializer, MsgType>& proto, ipv4_addr addr) : _proto(proto) {
-    listen_options lo;
-    lo.reuse_address = true;
-    _ss = engine().listen(make_ipv4_address(addr), lo);
+protocol<Serializer, MsgType>::server::server(protocol<Serializer, MsgType>& proto, ipv4_addr addr)
+    : server(proto, engine().listen(addr, listen_options(true)))
+{}
+
+template<typename Serializer, typename MsgType>
+protocol<Serializer, MsgType>::server::server(protocol<Serializer, MsgType>& proto, server_socket ss) : _proto(proto), _ss(std::move(ss))
+{
     accept();
 }
 
@@ -646,9 +649,9 @@ protocol<Serializer, MsgType>::client::read_response_frame(input_stream<char>& i
 }
 
 template<typename Serializer, typename MsgType>
-protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& proto, ipv4_addr addr, ipv4_addr local) : protocol<Serializer, MsgType>::connection(proto), _server_addr(addr) {
+protocol<Serializer, MsgType>::client::client(protocol& proto, ipv4_addr addr, future<connected_socket> f) : protocol<Serializer, MsgType>::connection(proto), _server_addr(addr) {
     this->_output_ready = _connected_promise.get_future();
-    engine().net().connect(make_ipv4_address(addr), make_ipv4_address(local)).then([this] (connected_socket fd) {
+    f.then([this] (connected_socket fd) {
         fd.set_nodelay(true);
         this->_fd = std::move(fd);
         this->_read_buf = this->_fd.input();
@@ -685,5 +688,10 @@ protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& pro
         });
     });
 }
+
+template<typename Serializer, typename MsgType>
+protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& proto, ipv4_addr addr, ipv4_addr local)
+    : client(proto, addr, ::connect(addr, local))
+{}
 
 }
