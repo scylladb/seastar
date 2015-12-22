@@ -53,7 +53,9 @@ inline
 auto do_with(T&& rvalue, F&& f) {
     auto obj = std::make_unique<T>(std::forward<T>(rvalue));
     auto fut = f(*obj);
-    return fut.finally([obj = std::move(obj)] () {});
+    return fut.then_wrapped([obj = std::move(obj)] (auto&& fut) {
+        return std::move(fut);
+    });
 }
 
 /// \cond internal
@@ -77,7 +79,10 @@ inline
 auto with_lock(Lock& lock, Func&& func) {
     return lock.lock().then([func = std::forward<Func>(func)] () mutable {
         return func();
-    }).finally([&lock] { lock.unlock(); });
+    }).then_wrapped([&lock] (auto&& fut) {
+        lock.unlock();
+        return std::move(fut);
+    });
 }
 
 /// Multiple argument variant of \ref do_with(T&& rvalue, F&& f).
@@ -101,7 +106,9 @@ do_with(T1&& rv1, T2&& rv2, T3_or_F&& rv3, More&&... more) {
     auto&& just_func = std::move(std::get<nr>(std::move(all)));
     auto obj = std::make_unique<std::remove_reference_t<decltype(just_values)>>(std::move(just_values));
     auto fut = apply(just_func, *obj);
-    return fut.finally([obj = std::move(obj)] () {});
+    return fut.then_wrapped([obj = std::move(obj)] (auto&& fut) {
+        return std::move(fut);
+    });
 }
 
 /// @}
