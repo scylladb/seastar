@@ -62,36 +62,44 @@ static __thread slab_allocator<item>* slab;
 template<typename T>
 using optional = boost::optional<T>;
 
+using clock_type = lowres_clock;
+static constexpr clock_type::time_point never_expire_timepoint = clock_type::time_point(clock_type::duration(-1));
+
 struct expiration {
+    using time_point = clock_type::time_point;
+    using duration   = time_point::duration;
+
     static constexpr uint32_t seconds_in_a_month = 60U * 60 * 24 * 30;
-    uint32_t _time;
+    time_point _time = never_expire_timepoint;
 
-    expiration() : _time(0U) {}
+    expiration() {}
 
-    expiration(uint32_t seconds) {
-        if (seconds == 0U) {
-            _time = 0U; // means never expire.
-        } else if (seconds <= seconds_in_a_month) {
-            _time = seconds + time(0); // from delta
+    expiration(int64_t wc_to_clock_type_delta, uint32_t s) {
+        using namespace std::chrono;
+
+        if (s == 0U) {
+            return; // means never expire.
+        } else if (s <= seconds_in_a_month) {
+            _time = clock_type::now() + seconds(s); // from delta
         } else {
-            _time = seconds; // from real time
+            _time = time_point(seconds(s + wc_to_clock_type_delta)); // from real time
         }
     }
 
     bool ever_expires() {
-        return _time;
+        return _time != never_expire_timepoint;
     }
 
-    clock_type::time_point to_time_point() {
-        return clock_type::time_point(std::chrono::seconds(_time));
+    time_point to_time_point() {
+        return _time;
     }
 };
 
 class item : public slab_item_base {
 public:
     using version_type = uint64_t;
-    using time_point = clock_type::time_point;
-    using duration = clock_type::duration;
+    using time_point = expiration::time_point;
+    using duration = expiration::duration;
     static constexpr uint8_t field_alignment = alignof(void*);
 private:
     using hook_type = bi::unordered_set_member_hook<>;
@@ -337,9 +345,11 @@ private:
     cache_type::bucket_type* _buckets;
     cache_type _cache;
     seastar::timer_set<item, &item::_timer_link> _alive;
-    timer<> _timer;
+    timer<clock_type> _timer;
+    // delta in seconds between the current values of a wall clock and a clock_type clock
+    int64_t _wc_to_clock_type_delta;
     cache_stats _stats;
-    timer<> _flush_timer;
+    timer<clock_type> _flush_timer;
 private:
     size_t item_size(item& item_ref) {
         constexpr size_t field_alignment = alignof(void*);
@@ -387,6 +397,16 @@ private:
     }
 
     void expire() {
+        using namespace std::chrono;
+
+        //
+        // Adjust the delta on every timer event to minimize an error caused
+        // by a wall clock adjustment.
+        //
+        _wc_to_clock_type_delta =
+            (duration_cast<seconds>(clock_type::now().time_since_epoch())-
+             duration_cast<seconds>(system_clock::now().time_since_epoch())).count();
+
         auto exp = _alive.expire(clock_type::now());
         while (!exp.empty()) {
             auto item = &*exp.begin();
@@ -460,6 +480,12 @@ public:
         : _buckets(new cache_type::bucket_type[initial_bucket_count])
         , _cache(cache_type::bucket_traits(_buckets, initial_bucket_count))
     {
+        using namespace std::chrono;
+
+        _wc_to_clock_type_delta =
+            (duration_cast<seconds>(clock_type::now().time_since_epoch())-
+             duration_cast<seconds>(system_clock::now().time_since_epoch())).count();
+
         _timer.set_callback([this] { expire(); });
         _flush_timer.set_callback([this] { flush_all(); });
 
@@ -486,8 +512,9 @@ public:
         });
     }
 
-    void flush_at(clock_type::time_point time_point) {
-        _flush_timer.rearm(time_point);
+    void flush_at(uint32_t time) {
+        auto expiry = expiration(get_wc_to_clock_type_delta(), time);
+        _flush_timer.rearm(expiry.to_time_point());
     }
 
     template <typename Origin = local_origin_tag>
@@ -669,6 +696,7 @@ public:
     }
 
     future<> stop() { return make_ready_future<>(); }
+    int64_t get_wc_to_clock_type_delta() { return _wc_to_clock_type_delta; }
 };
 
 class sharded_cache {
@@ -686,9 +714,11 @@ public:
         return _peers.invoke_on_all(&cache::flush_all);
     }
 
-    future<> flush_at(clock_type::time_point time_point) {
-        return _peers.invoke_on_all(&cache::flush_at, time_point);
+    future<> flush_at(uint32_t time) {
+        return _peers.invoke_on_all(&cache::flush_at, time);
     }
+
+    auto get_wc_to_clock_type_delta() { return _peers.local().get_wc_to_clock_type_delta(); }
 
     // The caller must keep @insertion live until the resulting future resolves.
     future<bool> set(item_insertion_data& insertion) {
@@ -975,7 +1005,7 @@ public:
             .key = std::move(_parser._key),
             .ascii_prefix = make_sstring(" ", _parser._flags_str, " ", _parser._size_str),
             .data = std::move(_parser._blob),
-            .expiry = expiration(_parser._expiration)
+            .expiry = expiration(_cache.get_wc_to_clock_type_delta(), _parser._expiration)
         };
     }
 
@@ -1071,8 +1101,7 @@ public:
                 {
                     _system_stats.local()._cmd_flush++;
                     if (_parser._expiration) {
-                        auto expiry = expiration(_parser._expiration);
-                        auto f = _cache.flush_at(expiry.to_time_point());
+                        auto f = _cache.flush_at(_parser._expiration);
                         if (_parser._noreply) {
                             return f;
                         }
@@ -1379,7 +1408,7 @@ int main(int ac, char** av) {
         uint64_t per_cpu_slab_size = config["max-slab-size"].as<uint64_t>() * MB;
         uint64_t slab_page_size = config["slab-page-size"].as<uint64_t>() * MB;
         return cache_peers.start(std::move(per_cpu_slab_size), std::move(slab_page_size)).then([&system_stats] {
-            return system_stats.start(clock_type::now());
+            return system_stats.start(memcache::clock_type::now());
         }).then([&] {
             std::cout << PLATFORM << " memcached " << VERSION << "\n";
             return make_ready_future<>();
