@@ -92,6 +92,11 @@ int main(int ac, char** av) {
     static std::unique_ptr<rpc::protocol<serializer>::client> client;
     static double x = 30.0;
 
+    myrpc.set_logger([] (const sstring& log) {
+        print("%s", log);
+        std::cout << std::flush;
+    });
+
     return app.run_deprecated(ac, av, [&] {
         auto&& config = app.configuration();
         uint16_t port = config["port"].as<uint16_t>();

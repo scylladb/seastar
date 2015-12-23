@@ -581,6 +581,81 @@ protocol<Serializer, MsgType>::server::connection::connection(protocol<Serialize
     _info.addr = std::move(addr);
 }
 
+template<typename Connection>
+static bool verify_frame(Connection& c, temporary_buffer<char>& buf, size_t expected, const char* log) {
+    if (buf.size() != expected) {
+        if (buf.size() != 0) {
+            c.get_protocol().log(c.peer_address(), log);
+        }
+        return false;
+    }
+    return true;
+}
+
+template<typename Connection>
+static void send_negotiation_frame(Connection& c, const negotiation_frame& nf) {
+    sstring reply(sstring::initialized_later(), sizeof(negotiation_frame));
+    auto p = reply.begin();
+    p = std::copy_n(rpc_magic, sizeof(nf.magic), p);
+    *unaligned_cast<uint32_t*>(p ) = net::hton(nf.required_features_mask);
+    *unaligned_cast<uint32_t*>(p + 4) = net::hton(nf.optional_features_mask);
+    *unaligned_cast<uint32_t*>(p + 8) = net::hton(nf.len);
+    c.out_ready() = c.out().write(reply).then([&c] {
+        return c.out().flush();
+    });
+}
+
+template<typename Connection>
+static
+future<negotiation_frame> receive_negotiation_frame(Connection& c, input_stream<char>& in) {
+    return in.read_exactly(sizeof(negotiation_frame)).then([&c, &in] (temporary_buffer<char> neg) {
+        if (!verify_frame(c, neg, sizeof(negotiation_frame), "unexpected eof during negotiation frame")) {
+            return make_exception_future<negotiation_frame>(closed_error());
+        }
+        negotiation_frame* frame = reinterpret_cast<negotiation_frame*>(neg.get_write());
+        if (std::memcmp(frame->magic, rpc_magic, sizeof(frame->magic)) != 0) {
+            c.get_protocol().log(c.peer_address(), "wrong protocol magic");
+            return make_exception_future<negotiation_frame>(closed_error());
+        }
+        frame->required_features_mask = net::ntoh(frame->required_features_mask);
+        frame->optional_features_mask = net::ntoh(frame->required_features_mask);
+        frame->len = net::ntoh(frame->len);
+        return make_ready_future<negotiation_frame>(*frame);
+    });
+}
+
+template<typename Connection>
+static
+future<temporary_buffer<char>> receive_additional_negotiation_data(Connection& c, input_stream<char>& in, size_t len) {
+    if (len == 0) {
+        return make_ready_future<temporary_buffer<char>>(temporary_buffer<char>());
+    } else {
+        return in.read_exactly(len).then([&c, &in, len] (temporary_buffer<char> neg) {
+            if (!verify_frame(c, neg, len, "unexpected eof during negotiation frame")) {
+                return make_exception_future<temporary_buffer<char>>(closed_error());
+            }
+            return make_ready_future<temporary_buffer<char>>(std::move(neg));
+        });
+    }
+}
+
+template<typename Serializer, typename MsgType>
+future<negotiation_frame>
+protocol<Serializer, MsgType>::server::connection::negotiate_protocol(input_stream<char>& in) {
+    return receive_negotiation_frame(*this, in).then([this, &in] (negotiation_frame nf) {
+        return receive_additional_negotiation_data(*this, in, nf.len).then([this, nf] (temporary_buffer<char> buf) mutable {
+            if (nf.required_features_mask != 0) {
+                this->get_protocol().log(_info, "negotiation failed: unsupported required features");
+                return make_exception_future<negotiation_frame>(closed_error());
+            }
+            nf.optional_features_mask = 0;
+            nf.len = 0;
+            send_negotiation_frame(*this, nf);
+            return make_ready_future<negotiation_frame>(nf);
+        });
+    });
+}
+
 template <typename Serializer, typename MsgType>
 future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
 protocol<Serializer, MsgType>::server::connection::read_request_frame(input_stream<char>& in) {
@@ -607,14 +682,16 @@ protocol<Serializer, MsgType>::server::connection::read_request_frame(input_stre
 
 template<typename Serializer, typename MsgType>
 future<> protocol<Serializer, MsgType>::server::connection::process() {
-    return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
-        return this->read_request_frame(this->_read_buf).then([this] (MsgType type, int64_t msg_id, std::experimental::optional<temporary_buffer<char>> data) {
-            auto it = _server._proto._handlers.find(type);
-            if (data && it != _server._proto._handlers.end()) {
-                it->second(this->shared_from_this(), msg_id, std::move(data.value()));
-            } else {
-                this->_error = true;
-            }
+    return this->negotiate_protocol(this->_read_buf).then([this] (negotiation_frame frame) mutable {
+        return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
+            return this->read_request_frame(this->_read_buf).then([this] (MsgType type, int64_t msg_id, std::experimental::optional<temporary_buffer<char>> data) {
+                auto it = _server._proto._handlers.find(type);
+                if (data && it != _server._proto._handlers.end()) {
+                    it->second(this->shared_from_this(), msg_id, std::move(data.value()));
+                } else {
+                    this->_error = true;
+                }
+            });
         });
     }).then_wrapped([this] (future<> f) {
         f.ignore_ready_future();
@@ -633,6 +710,18 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
         });
     }).finally([conn_ptr = this->shared_from_this()] {
         // hold onto connection pointer until do_until() exists
+    });
+}
+
+template<typename Serializer, typename MsgType>
+future<negotiation_frame>
+protocol<Serializer, MsgType>::client::negotiate_protocol(input_stream<char>& in) {
+    negotiation_frame nf = {{}, 0, 0, 0};
+    send_negotiation_frame(*this, nf);
+    return receive_negotiation_frame(*this, in).then([this, &in] (negotiation_frame nf) {
+        return receive_additional_negotiation_data(*this, in, nf.len).then([nf] (temporary_buffer<char> buf){
+            return nf;
+        });
     });
 }
 
@@ -672,16 +761,18 @@ protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& pro
         this->_write_buf = this->_fd.output();
         this->_connected_promise.set_value();
         this->_connected = true;
-        return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
-            return this->read_response_frame(this->_read_buf).then([this] (int64_t msg_id, std::experimental::optional<temporary_buffer<char>> data) {
-                auto it = _outstanding.find(::abs(msg_id));
-                if (data && it != _outstanding.end()) {
-                    auto handler = std::move(it->second);
-                    _outstanding.erase(it);
-                    (*handler)(*this, msg_id, std::move(data.value()));
-                } else {
-                    this->_error = true;
-                }
+        return this->negotiate_protocol(this->_read_buf).then([this] (negotiation_frame frame) {
+            return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
+                return this->read_response_frame(this->_read_buf).then([this] (int64_t msg_id, std::experimental::optional<temporary_buffer<char>> data) {
+                    auto it = _outstanding.find(::abs(msg_id));
+                    if (data && it != _outstanding.end()) {
+                        auto handler = std::move(it->second);
+                        _outstanding.erase(it);
+                        (*handler)(*this, msg_id, std::move(data.value()));
+                    } else {
+                        this->_error = true;
+                    }
+                });
             });
         });
     }).then_wrapped([this] (future<> f){
