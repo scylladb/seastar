@@ -4,7 +4,7 @@
 
 # Introduction
 ## Asynchronous programming
-A server for a network protocol, such as the classic HTTP (Web) or SMTP (e-mail) servers, inherently deals with parallelism: Multiple clients send requests in parallel, and we cannot finish handling one request before starting to handle the next. A request may, and often does, need to block because of various reasons --- a full TCP window (i.e., a slow connection), disk I/O, or even the client holding on to an inactive connection --- and the server needs to handle other connections as well.
+A server for a network protocol, such as the classic HTTP (Web) or SMTP (e-mail) servers, inherently deals with parallelism: Multiple clients send requests in parallel, and we cannot start handling one request before finishing to handle the next. A request may, and often does, need to block because of various reasons --- a full TCP window (i.e., a slow connection), disk I/O, or even the client holding on to an inactive connection --- and the server needs to handle other connections as well.
 
 The most straightforward way to handle such parallel connections, employed by classic network servers such as Inetd, Apache Httpd and Sendmail, is to use a separate operating-system process per connection. This technique evolved over the years to improve its performance: At first, a new process was spawned to handle each new connection; Later, a pool of existing processes was kept and each new connection was assigned to an unemployed process from the pool; Finally, the processes were replaced by threads. However, the common idea behind all these implementations is that at each moment, each process handles exclusively a single connection. Therefore, the server code is free to use blocking system calls, such as reading or writing to a connection, or reading from disk, and if this process blocks, all is well because we have many additional processes handling other connections in parallel.
 
@@ -72,7 +72,7 @@ The "`return make_ready_future<>();`" causes the event loop, and the whole appli
 
 To compile this program, first make sure you have downloaded and built Seastar. Below we'll use the symbol `$SEASTAR` to refer to the directory where Seastar was built (Seastar doesn't yet have a "`make install`" feature).
 
-Now, put the the above program in a source file anywhere you want, let's call the file `getting-started.cc`. You can compile it with the following command:
+Now, put the above program in a source file anywhere you want, let's call the file `getting-started.cc`. You can compile it with the following command:
 
 ```none
 c++ `pkg-config --cflags --libs $SEASTAR/build/release/seastar.pc` getting-started.cc
@@ -170,7 +170,7 @@ Couldn't start application: insufficient physical memory
 ```
 
 # Introducing futures and continuations
-Futures and continuations, which we will introduce now, are the building blocks of asynchronous programming in Seastar. Their strength lie in the ease of composing them together into a large, complex, asynchronous program, while keeping the code fairly readable and understandable. 
+Futures and continuations, which we will introduce now, are the building blocks of asynchronous programming in Seastar. Their strength lies in the ease of composing them together into a large, complex, asynchronous program, while keeping the code fairly readable and understandable. 
 
 A **future** is a result of a computation that may not be available yet.
 Examples include:
@@ -210,7 +210,7 @@ int main(int argc, char** argv) {
 }
 ```
 
-In this example we see us getting a `sleep(1s)` future, and attaching to it a continuation which prints a "Done." message. The future will become available after 1 second has passed, at which point the continuation is executed. Running this program, we indeed see the message "Sleeping..." immediately, and one second later the message "Done." appears and the program exits.
+In this example we see us getting a future from `sleep(1s)`, and attaching to it a continuation which prints a "Done." message. The future will become available after 1 second has passed, at which point the continuation is executed. Running this program, we indeed see the message "Sleeping..." immediately, and one second later the message "Done." appears and the program exits.
 
 The return value of `then()` is itself a future which is useful for chaining multiple continuations one after another, as we will explain below. But here we just note that we `return` this future from `app.run`'s function, so that the program will exit only after both the sleep and its continuation are done.
 
@@ -342,7 +342,7 @@ One implementation detail worth understanding is that when a continuation has ca
 
 In the above example, we captured `i` *by value* - i.e., a copy of the value of `i` was saved into the continuation. C++ has two additional capture options: capturing by *reference* and capturing by *move*:
 
-Using capture-by-reference in a continuation is almost always a mistake, and would lead to serious bugs. For example, if in the above example we captured a reference to i, instead of a copy to it,
+Using capture-by-reference in a continuation is almost always a mistake, and would lead to serious bugs. For example, if in the above example we captured a reference to i, instead of copying it,
 ```cpp
 future<int> incr(int i) {
     using namespace std::chrono_literals;
@@ -351,7 +351,9 @@ future<int> incr(int i) {
 ```
 this would have meant that the continuation would contain the address of `i`, not its value. But `i` is a stack variable, and the incr() function returns immediately, so when the continuation eventually gets to run, long after incr() returns, this address will contain unrelated content.
 
-Using capture-by-*move* in continuations, on the other hand, is valid and very useful in Seastar applications. By **moving** an object into a continuation, we transfer ownership of this object to the continuation, and make it easy for the object to be automatically deleted when the continuation ends. For example, consider a function taking a std::unique_ptr<T>.
+An exception to this rule is the `do_with()` idiom, which we will introduce later, which ensures that an object lives throughout the life of the continuation. This makes capture-by-reference possible, and very convenient.
+
+Using capture-by-*move* in continuations, on the other hand, is valid and very useful in Seastar applications. By **moving** an object into a continuation, we transfer ownership of this object to the continuation, and make it easy for the object to be automatically deleted when the continuation ends. For example, consider a traditional function taking a std::unique_ptr<T>.
 ```cpp
 int do_something(std::unique_ptr<T> obj) {
      // do some computation based on the contents of obj, let's say the result is 17
@@ -367,7 +369,7 @@ future<int> slow_do_something(std::unique_ptr<T> obj) {
 }
 ```
 
-The problem is that a unique_ptr cannot be passed into a continuation by value, as this would require copying it, which is forbidden because it violate the guarantee that only one copy of this pointer exists. We can, however, *move* obj into the continuation:
+The problem is that a unique_ptr cannot be passed into a continuation by value, as this would require copying it, which is forbidden because it violates the guarantee that only one copy of this pointer exists. We can, however, *move* obj into the continuation:
 ```cpp
 future<int> slow_do_something(std::unique_ptr<T> obj) {
     using namespace std::chrono_literals;
@@ -375,20 +377,18 @@ future<int> slow_do_something(std::unique_ptr<T> obj) {
         return do_something(std::move(obj))});
 }
 ```
-Here the use of `std::move()` causes obj's move-assignment is used to move the object from the outer function into the continuation. C++11's notion of move (*move semantics*) is similar to a shallow copy, followed by invalidating the source copy (so that the two copies do not co-exist, as forbidden by unique_ptr). After moving obj into the continuation, the top-level function can no longer use it (in this case it's of course ok, because we return anyway).
+Here the use of `std::move()` causes obj's move-assignment is used to move the object from the outer function into the continuation. The notion of move (*move semantics*), introduced in C++11, is similar to a shallow copy followed by invalidating the source copy (so that the two copies do not co-exist, as forbidden by unique_ptr). After moving obj into the continuation, the top-level function can no longer use it (in this case it's of course ok, because we return anyway).
 
 The `[obj = ...]` capture syntax we used here is new to C++14. This is the main reason why Seastar requires C++14, and does not support older C++11 compilers.
 
 ## Chaining continuations
-We already saw chaining example in slow() above. talk about the return from then, and returning a future and chaining more thens.
+We already saw chaining example in slow() above. TODO: talk about the return from then, and returning a future and chaining more thens.
 
 ## Lifetime
 
-Take about how we can't capture a reference to a local variable (the
-continuation runs when the local variable is gone). Take about *move*ing
-a variable into a continuation, about why with a chain of continuations it
-is difficult to move it between them so we have do_with, and also explain
-why lw_shared_ptr is very useful for this purpose.
+TODO: Talk about how we can't capture a reference to a local variable (the continuation runs when the local variable is gone). Take about *move*ing a variable into a continuation, about why with a chain of continuations it is difficult to move it between them so we have do_with, and also explain why lw_shared_ptr is very useful for this purpose.
+
+TODO: Make a simple example (object containing int i, us calling a "slow" method on this object doing "sleep 1; return i" needing the object to exist 1 second later). move is enough. But if we need to call two methods? Show two idiomatic solutions: do_with and lw_shared_ptr.
 
 # Handling exceptions
 
@@ -423,17 +423,11 @@ TODO: give example code for the above. Also mention handle_exception - although
 perhaps delay that to a later chapter?
 
 ## Futures are single use
-Talk about if we have a future<int> variable, as soon as we get() or then() it,
-it becomes invalid - we need to store the value somewhere else. Think if there's
-an alternative we can suggest
+TODO: Talk about if we have a future<int> variable, as soon as we get() or then() it, it becomes invalid - we need to store the value somewhere else. Think if there's an alternative we can suggest
 
 # Fibers
 ## Loops
-do_until and friends
-parallel_for_each and friends. Use boost::counting_iterator for integers.
-map_reduce, as a shortcut (?) for parallel_for_each which needs to produce
-some results (e.g., logical_or of boolean results), so we don't need to
-create a lw_shared_ptr explicitly (or do_with).
+TODO: do_until and friends; parallel_for_each and friends; Use boost::counting_iterator for integers. map_reduce, as a shortcut (?) for parallel_for_each which needs to produce some results (e.g., logical_or of boolean results), so we don't need to create a lw_shared_ptr explicitly (or do_with).
 ## Limiting parallelism with semaphores
 Seastar's semaphores are the standard computer-science semaphores, adapted for futures. A semaphore is a counter into which you can deposit units or take them away. Taking units from the counter may wait if not enough units are available.
 
@@ -553,20 +547,20 @@ future<> using_lots_of_memory(size_t bytes) {
 
 Watch out that in the above example, a call to `using_lots_of_memory(2000000)` will return a future that never resolves, because the semaphore will never contain enough units to satisfy the semaphore wait. `using_lots_of_memory` should probably check whether `bytes` is above the limit, and throw an exception in that case.
 
+TODO: say something about semaphore fairness - if someone is waiting for a lot of units and later someone asks for 1 unit, will both wait or will the request for 1 unit be satisfied?
+
+TODO: say something about broken semaphores? (or in later section especially about breaking/closing/shutting down/etc?)
+
 ## Pipes
-pipe
 
 # Introducing shared-nothing programming
 
-TODO:
-Explain in more detail Seastar's shared-nothing approach where the entire memory is divided up-front to cores, malloc/free and pointers only work on 
-one core.
-Introduce our shared_ptr (and lw_shared_ptr) and sstring and say the standard ones use locked instructions which are unnecessary when we assume these objects (like all others) are for a single thread. Our futures and continuations do the same.
-
+TODO: Explain in more detail Seastar's shared-nothing approach where the entire memory is divided up-front to cores, malloc/free and pointers only work on one core.
+TODO: Introduce our shared_ptr (and lw_shared_ptr) and sstring and say the standard ones use locked instructions which are unnecessary when we assume these objects (like all others) are for a single thread. Our futures and continuations do the same.
 
 
 # More about Seastar's event loop
-Mention the event loop (scheduler). remind that continuations on the same thread do not run in parallel, so do not need locks, atomic variables, etc (different threads shouldn't access the same data - more on that below). continuations obviously must not use blocking operations, or they block the whole thread.
+TODO: Mention the event loop (scheduler). remind that continuations on the same thread do not run in parallel, so do not need locks, atomic variables, etc (different threads shouldn't access the same data - more on that below). continuations obviously must not use blocking operations, or they block the whole thread.
 
 Talk about polling that we currently do, and how today even sleep() or waiting for incoming connections or whatever, takes 100% of all CPUs.
 
@@ -609,18 +603,18 @@ Accepted connection from 127.0.0.1:47582
 ...
 ```
 
-Note how we ran this Seastar application on a single thread, using the ```-c1``` option. Unintuitively, this options is actually necessary for running this program, as it will *not* work correctly if started on multiple threads. To understand why, we need to understand how Seastar's network stacks works on multiple threads:
+Note how we ran this Seastar application on a single thread, using the ```-c1``` option. Unintuitively, this options is actually necessary for running this program, as it will *not* work correctly if started on multiple threads. To understand why, we need to understand how Seastar's network stack works on multiple threads:
 
 For optimum performance, Seastar's network stack is sharded just like Seastar applications are: each shard (thread) takes responsibility for a different subset of the connections. In other words, each incoming connection is directed to one of the threads, and after a connection is established, it continues to be handled on the same thread. But in our example, our server code only runs on the first thread, and the result is that only some of the connections (those which are randomly directed to thread 0) will get serviced properly, and other connections attempts will be ignored.
 
-If you run the above example server immediately after killing the previous server, it often fails to start again, complaining that that:
+If you run the above example server immediately after killing the previous server, it often fails to start again, complaining that:
 
 ```
 $ ./a.out -c1
 program failed with uncaught exception: bind: Address already in use
 ```
 
-This happens because by default, Seastar refuses to reuse the local port if there are any vestiges of old connections using that port. In our silly server, because the server is the side which first closes the connection, each connection lingers for a while in the "```TIME_WAIT```" state after being closed, and these prevent ```listen()``` on the same port for succeeding. Luckily, we can give listen an option to work despite these remaining ```TIME_WAIT```. This option is analogous to ```socket(7)```'s ```SO_REUSEADDR``` option:
+This happens because by default, Seastar refuses to reuse the local port if there are any vestiges of old connections using that port. In our silly server, because the server is the side which first closes the connection, each connection lingers for a while in the "```TIME_WAIT```" state after being closed, and these prevent ```listen()``` on the same port from succeeding. Luckily, we can give listen an option to work despite these remaining ```TIME_WAIT```. This option is analogous to ```socket(7)```'s ```SO_REUSEADDR``` option:
 
 ```cpp
     listen_options lo;
