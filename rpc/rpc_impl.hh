@@ -356,11 +356,11 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
             // send message
             auto msg_id = dst.next_message_id();
             dst.get_stats_internal().pending++;
-            sstring data = marshall(dst.serializer(), 24, args...);
+            sstring data = marshall(dst.serializer(), 20, args...);
             auto p = data.begin();
             *unaligned_cast<uint64_t*>(p) = cpu_to_le(uint64_t(t));
             *unaligned_cast<int64_t*>(p + 8) = cpu_to_le(msg_id);
-            *unaligned_cast<uint64_t*>(p + 16) = cpu_to_le(data.size() - 24);
+            *unaligned_cast<uint32_t*>(p + 16) = cpu_to_le(data.size() - 20);
             promise<> sentp;
             future<> sent = sentp.get_future();
             dst.out_ready() = dst.out_ready().then([&dst, data = std::move(data), timeout] () {
@@ -402,7 +402,7 @@ future<>
 protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, sstring&& data) {
     auto p = data.begin();
     *unaligned_cast<int64_t*>(p) = cpu_to_le(msg_id);
-    *unaligned_cast<uint64_t*>(p + 8) = cpu_to_le(data.size() - 16);
+    *unaligned_cast<uint32_t*>(p + 8) = cpu_to_le(data.size() - 12);
     return this->out().write(data.begin(), data.size()).then([conn = this->shared_from_this()] {
         return conn->out().flush();
     });
@@ -417,11 +417,11 @@ inline void reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_share
             client.get_stats_internal().sent_messages++;
             try {
                 data = ::apply(marshall<Serializer, const RetTypes&...>,
-                        std::tuple_cat(std::make_tuple(std::ref(client.serializer()), 16), std::move(ret.get())));
+                        std::tuple_cat(std::make_tuple(std::ref(client.serializer()), 12), std::move(ret.get())));
             } catch (std::exception& ex) {
                 uint32_t len = std::strlen(ex.what());
-                data = sstring(sstring::initialized_later(), 24 + len);
-                auto p = data.begin() + 16;
+                data = sstring(sstring::initialized_later(), 20 + len);
+                auto p = data.begin() + 12;
                 *unaligned_cast<uint32_t*>(p) = le_to_cpu(uint32_t(exception_type::USER));
                 *unaligned_cast<uint32_t*>(p + 4) = le_to_cpu(len);
                 std::copy_n(ex.what(), len, p + 8);
@@ -696,8 +696,8 @@ protocol<Serializer, MsgType>::server::connection::negotiate_protocol(input_stre
 template <typename Serializer, typename MsgType>
 future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
 protocol<Serializer, MsgType>::server::connection::read_request_frame(input_stream<char>& in) {
-    return in.read_exactly(24).then([this, &in] (temporary_buffer<char> header) {
-        if (header.size() != 24) {
+    return in.read_exactly(20).then([this, &in] (temporary_buffer<char> header) {
+        if (header.size() != 20) {
             if (header.size() != 0) {
                 this->_server._proto.log(_info, "unexpected eof");
             }
@@ -706,7 +706,7 @@ protocol<Serializer, MsgType>::server::connection::read_request_frame(input_stre
         auto ptr = header.get();
         auto type = MsgType(le_to_cpu(*unaligned_cast<uint64_t>(ptr)));
         auto msgid = le_to_cpu(*unaligned_cast<int64_t*>(ptr + 8));
-        auto size = le_to_cpu(*unaligned_cast<uint64_t*>(ptr + 16));
+        auto size = le_to_cpu(*unaligned_cast<uint32_t*>(ptr + 16));
         return in.read_exactly(size).then([this, type, msgid, size] (temporary_buffer<char> data) {
             if (data.size() != size) {
                 this->_server._proto.log(_info, "unexpected eof");
@@ -730,8 +730,8 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
                         it->second(this->shared_from_this(), msg_id, std::move(data.value()));
                     } else {
                         // send unknown_verb exception back
-                        auto data = sstring(sstring::initialized_later(), 32);
-                        auto p = data.begin() + 16;
+                        auto data = sstring(sstring::initialized_later(), 28);
+                        auto p = data.begin() + 12;
                         *unaligned_cast<uint32_t*>(p) = cpu_to_le(uint32_t(exception_type::UNKNOWN_VERB));
                         *unaligned_cast<uint32_t*>(p + 4) = cpu_to_le(uint32_t(8));
                         *unaligned_cast<uint64_t*>(p + 8) = cpu_to_le(uint64_t(type));
@@ -781,8 +781,8 @@ template<typename Serializer, typename MsgType>
 inline
 future<int64_t, std::experimental::optional<temporary_buffer<char>>>
 protocol<Serializer, MsgType>::client::read_response_frame(input_stream<char>& in) {
-    return in.read_exactly(16).then([this, &in] (temporary_buffer<char> header) {
-        if (header.size() != 16) {
+    return in.read_exactly(12).then([this, &in] (temporary_buffer<char> header) {
+        if (header.size() != 12) {
             if (header.size() != 0) {
                 this->_proto.log(this->_server_addr, "unexpected eof");
             }
@@ -791,7 +791,7 @@ protocol<Serializer, MsgType>::client::read_response_frame(input_stream<char>& i
 
         auto ptr = header.get();
         auto msgid = le_to_cpu(*unaligned_cast<int64_t*>(ptr));
-        auto size = le_to_cpu(*unaligned_cast<uint64_t*>(ptr + 8));
+        auto size = le_to_cpu(*unaligned_cast<uint32_t*>(ptr + 8));
         return in.read_exactly(size).then([this, msgid, size] (temporary_buffer<char> data) {
             if (data.size() != size) {
                 this->_proto.log(this->_server_addr, "unexpected eof");
