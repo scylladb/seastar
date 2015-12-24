@@ -434,15 +434,15 @@ parallel_for_each and friends. Use boost::counting_iterator for integers.
 map_reduce, as a shortcut (?) for parallel_for_each which needs to produce
 some results (e.g., logical_or of boolean results), so we don't need to
 create a lw_shared_ptr explicitly (or do_with).
-## Limiting parallelism, and semaphores
-Seastar's semaphores are the standard computer-science semaphores, adapted for futures. A semaphore is a counter, into which you can deposit units or take them away. Taking units from the counter may wait if not enough units are available.
+## Limiting parallelism with semaphores
+Seastar's semaphores are the standard computer-science semaphores, adapted for futures. A semaphore is a counter into which you can deposit units or take them away. Taking units from the counter may wait if not enough units are available.
 
-The most common use for a semaphore in Seastar is for limiting parallelism, i.e., limiting the number of instances of some code which can run in parallel.
+The most common use for a semaphore in Seastar is for limiting parallelism, i.e., limiting the number of instances of some code which can run in parallel. This can be important when each of the parallel invocations uses a limited resource (e.g., memory) so letting an unlimited number of them run in parallel can exhaust this resource.
 
 Consider the following simple loop:
 
 ```cpp
-include "core/sleep.hh"
+#include "core/sleep.hh"
 future<> slow() {
     std::cerr << ".";
     return sleep(std::chrono::seconds(1));
@@ -468,7 +468,7 @@ future<> f() {
 
 But in this loop, there is no limit to the amount of parallelism --- millions of ```sleep()``` calls might be active in parallel, before the first one ever returned. Eventually, this loop will consume all available memory and crash.
 
-Using a semaphore allows us to run many instances of ```slow()``` in parallel, but put a limit on the number of these parallel instances to, in the following example, 100:
+Using a semaphore allows us to run many instances of ```slow()``` in parallel, but limit the number of these parallel instances to, in the following example, 100:
 
 ```cpp
 future<> f() {
@@ -507,6 +507,51 @@ future<> f() {
 ````
 
 Note how after the ```repeat``` loop ends, we do a ```wait(100)``` to wait for the semaphore to reach its original value 100, meaning that all operations we started have completed. Note also how we used ```finally()```, rather than ```then()```, in two places, to ensure that the counter is increased even if a background operation finished unsuccessfully, and to ensure that we wait for all background operations to complete, even if the looped stopped prematurely because of an exception.
+
+In the examples we saw in this section so far, we used a semaphore to control the parallelism of a *loop*: The loop waited for semaphore units to be available before proceeding to the next iteration. Semaphores are also useful to rare-limit work driven by external events:
+
+Consider a case where an external source of events (e.g., incoming network requests) causes an asyncrhonous function ```g()``` to be called. Again, we want to limit the number of concurrent ```g()``` operations to 100: If g() is started when 100 other invocations are still ongoing, it will delay its real work until one of the other invocations has completed. As before, we can do this with a semaphore:
+
+```c++
+future<> g() {
+    static thread_local semaphore limit(100);
+    return limit.wait(1).then([] {
+        return slow(); // do the real work of g()
+    }).finally([&limit] {
+        limit.signal(1);
+    });
+}
+```
+
+Note how we used a ```static thread_local``` semaphore, so that all calls to ```g()``` from the same shard count towards the same limit; As usual, a Seastar application is sharded so this limit is separate per shard (CPU thread). This is usually fine, because sharded applications consider resources to be separate per shard.
+
+We have a shortcut ```with_semaphore()``` that can be used in this use case:
+
+```c++
+future<> g() {
+    static thread_local semaphore limit(100);
+    return with_semaphore(limit, 1, [] {
+        return slow(); // do the real work of g()
+    });
+}
+```
+
+`with_semaphore()`, like the code above, waits for the given amount of units from the semaphore, then runs the given lambda, and when the future it returns resolves, it returns back the units to the semaphore. `with_semaphore()` returns a future which only resolves after all these steps are done.
+
+This last feature of `with_semaphore()` --- that it resolves only after the lambda's returned future resolves --- means that this shortcut cannot be used in the loop examples in the beginning of the section. The loop needs to know when just the semaphore units are available, to start the next iteration, but `with_semaphore()` does not return such a future. Attempting to "cheat" by having the lambda passed to `with_semaphore` return an immediately-available future (and starting `slow()` without waiting for it) will not work, because now `with_semaphore` will return a unit immediately to the semaphore, rather than only doing that after `slow()` finished.
+
+Because semaphores support waiting for any number of units, not just 1, we can use them for more than simple limiting of the number of parallel invocation. For example, consider we have an asynchrnous function ```using_lots_of_memory(size_t bytes)```, which uses ```bytes``` bytes of memory, and we want to ensure that not more than 1 MB of memory is used by all parallel invocations of this function --- and that additional calls are delayed until previous calls have finished. We can do this with a semaphore:
+
+```c++
+future<> using_lots_of_memory(size_t bytes) {
+    static thread_local semaphore limit(1000000); // limit to 1MB
+    return with_semaphore(limit, bytes, [bytes] {
+        // do something allocating 'bytes' bytes of memory
+    });
+}
+```
+
+Watch out that in the above example, a call to `using_lots_of_memory(2000000)` will return a future that never resolves, because the semaphore will never contain enough units to satisfy the semaphore wait. `using_lots_of_memory` should probably check whether `bytes` is above the limit, and throw an exception in that case.
 
 ## Pipes
 pipe
