@@ -26,6 +26,7 @@
 #include "core/sstring.hh"
 #include "core/future-util.hh"
 #include "util/is_smart_ptr.hh"
+#include "core/byteorder.hh"
 
 namespace rpc {
 
@@ -254,14 +255,14 @@ static std::exception_ptr unmarshal_exception(temporary_buffer<char>& data) {
         return p;
     };
 
-    exception_type ex_type = exception_type(net::ntoh(*unaligned_cast<uint32_t*>(get(4))));
-    uint32_t ex_len = net::ntoh(*unaligned_cast<uint32_t*>(get(4)));
+    exception_type ex_type = exception_type(le_to_cpu(*unaligned_cast<uint32_t*>(get(4))));
+    uint32_t ex_len = le_to_cpu(*unaligned_cast<uint32_t*>(get(4)));
     switch (ex_type) {
     case exception_type::USER:
         ex = std::make_exception_ptr(std::runtime_error(std::string(get(ex_len), ex_len)));
         break;
     case exception_type::UNKNOWN_VERB:
-        ex = std::make_exception_ptr(unknown_verb_error(net::ntoh(*unaligned_cast<uint64_t*>(get(8)))));
+        ex = std::make_exception_ptr(unknown_verb_error(le_to_cpu(*unaligned_cast<uint64_t*>(get(8)))));
         break;
     default:
         ex = std::make_exception_ptr(unknown_exception_error());
@@ -357,9 +358,9 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
             dst.get_stats_internal().pending++;
             sstring data = marshall(dst.serializer(), 24, args...);
             auto p = data.begin();
-            *unaligned_cast<uint64_t*>(p) = net::hton(uint64_t(t));
-            *unaligned_cast<int64_t*>(p + 8) = net::hton(msg_id);
-            *unaligned_cast<uint64_t*>(p + 16) = net::hton(data.size() - 24);
+            *unaligned_cast<uint64_t*>(p) = cpu_to_le(uint64_t(t));
+            *unaligned_cast<int64_t*>(p + 8) = cpu_to_le(msg_id);
+            *unaligned_cast<uint64_t*>(p + 16) = cpu_to_le(data.size() - 24);
             promise<> sentp;
             future<> sent = sentp.get_future();
             dst.out_ready() = dst.out_ready().then([&dst, data = std::move(data), timeout] () {
@@ -400,8 +401,8 @@ inline
 future<>
 protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, sstring&& data) {
     auto p = data.begin();
-    *unaligned_cast<int64_t*>(p) = net::hton(msg_id);
-    *unaligned_cast<uint64_t*>(p + 8) = net::hton(data.size() - 16);
+    *unaligned_cast<int64_t*>(p) = cpu_to_le(msg_id);
+    *unaligned_cast<uint64_t*>(p + 8) = cpu_to_le(data.size() - 16);
     return this->out().write(data.begin(), data.size()).then([conn = this->shared_from_this()] {
         return conn->out().flush();
     });
@@ -421,8 +422,8 @@ inline void reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_share
                 uint32_t len = std::strlen(ex.what());
                 data = sstring(sstring::initialized_later(), 24 + len);
                 auto p = data.begin() + 16;
-                *unaligned_cast<uint32_t*>(p) = net::hton(uint32_t(exception_type::USER));
-                *unaligned_cast<uint32_t*>(p + 4) = net::hton(len);
+                *unaligned_cast<uint32_t*>(p) = le_to_cpu(uint32_t(exception_type::USER));
+                *unaligned_cast<uint32_t*>(p + 4) = le_to_cpu(len);
                 std::copy_n(ex.what(), len, p + 8);
                 msg_id = -msg_id;
             }
@@ -633,9 +634,9 @@ static void send_negotiation_frame(Connection& c, const negotiation_frame& nf) {
     sstring reply(sstring::initialized_later(), sizeof(negotiation_frame));
     auto p = reply.begin();
     p = std::copy_n(rpc_magic, sizeof(nf.magic), p);
-    *unaligned_cast<uint32_t*>(p ) = net::hton(nf.required_features_mask);
-    *unaligned_cast<uint32_t*>(p + 4) = net::hton(nf.optional_features_mask);
-    *unaligned_cast<uint32_t*>(p + 8) = net::hton(nf.len);
+    *unaligned_cast<uint32_t*>(p ) = cpu_to_le(nf.required_features_mask);
+    *unaligned_cast<uint32_t*>(p + 4) = cpu_to_le(nf.optional_features_mask);
+    *unaligned_cast<uint32_t*>(p + 8) = cpu_to_le(nf.len);
     c.out_ready() = c.out().write(reply).then([&c] {
         return c.out().flush();
     });
@@ -653,9 +654,9 @@ future<negotiation_frame> receive_negotiation_frame(Connection& c, input_stream<
             c.get_protocol().log(c.peer_address(), "wrong protocol magic");
             return make_exception_future<negotiation_frame>(closed_error());
         }
-        frame->required_features_mask = net::ntoh(frame->required_features_mask);
-        frame->optional_features_mask = net::ntoh(frame->required_features_mask);
-        frame->len = net::ntoh(frame->len);
+        frame->required_features_mask = le_to_cpu(frame->required_features_mask);
+        frame->optional_features_mask = le_to_cpu(frame->required_features_mask);
+        frame->len = le_to_cpu(frame->len);
         return make_ready_future<negotiation_frame>(*frame);
     });
 }
@@ -703,9 +704,9 @@ protocol<Serializer, MsgType>::server::connection::read_request_frame(input_stre
             return make_ready_future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>(MsgType(0), 0, std::experimental::optional<temporary_buffer<char>>());
         }
         auto ptr = header.get();
-        auto type = MsgType(net::ntoh(*unaligned_cast<uint64_t>(ptr)));
-        auto msgid = net::ntoh(*unaligned_cast<int64_t*>(ptr + 8));
-        auto size = net::ntoh(*unaligned_cast<uint64_t*>(ptr + 16));
+        auto type = MsgType(le_to_cpu(*unaligned_cast<uint64_t>(ptr)));
+        auto msgid = le_to_cpu(*unaligned_cast<int64_t*>(ptr + 8));
+        auto size = le_to_cpu(*unaligned_cast<uint64_t*>(ptr + 16));
         return in.read_exactly(size).then([this, type, msgid, size] (temporary_buffer<char> data) {
             if (data.size() != size) {
                 this->_server._proto.log(_info, "unexpected eof");
@@ -731,9 +732,9 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
                         // send unknown_verb exception back
                         auto data = sstring(sstring::initialized_later(), 32);
                         auto p = data.begin() + 16;
-                        *unaligned_cast<uint32_t*>(p) = net::hton(uint32_t(exception_type::UNKNOWN_VERB));
-                        *unaligned_cast<uint32_t*>(p + 4) = net::hton(uint32_t(8));
-                        *unaligned_cast<uint64_t*>(p + 8) = net::hton(uint64_t(type));
+                        *unaligned_cast<uint32_t*>(p) = cpu_to_le(uint32_t(exception_type::UNKNOWN_VERB));
+                        *unaligned_cast<uint32_t*>(p + 4) = cpu_to_le(uint32_t(8));
+                        *unaligned_cast<uint64_t*>(p + 8) = cpu_to_le(uint64_t(type));
                         this->get_stats_internal().pending++;
                         this->respond(-msg_id, std::move(data)).finally([this]() {
                             this->get_stats_internal().pending--;
@@ -789,8 +790,8 @@ protocol<Serializer, MsgType>::client::read_response_frame(input_stream<char>& i
         }
 
         auto ptr = header.get();
-        auto msgid = net::ntoh(*unaligned_cast<int64_t*>(ptr));
-        auto size = net::ntoh(*unaligned_cast<uint64_t*>(ptr + 8));
+        auto msgid = le_to_cpu(*unaligned_cast<int64_t*>(ptr));
+        auto size = le_to_cpu(*unaligned_cast<uint64_t*>(ptr + 8));
         return in.read_exactly(size).then([this, msgid, size] (temporary_buffer<char> data) {
             if (data.size() != size) {
                 this->_proto.log(this->_server_addr, "unexpected eof");
