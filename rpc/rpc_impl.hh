@@ -29,6 +29,11 @@
 
 namespace rpc {
 
+enum class exception_type : uint32_t {
+    USER = 0,
+    UNKNOWN_VERB = 1,
+};
+
 template<typename T>
 struct remove_optional {
     using type = T;
@@ -238,6 +243,33 @@ inline std::tuple<T...> unmarshall(Serializer& serializer, temporary_buffer<char
     return do_unmarshall<Serializer, simple_input_stream, T...>(serializer, in);
 }
 
+static std::exception_ptr unmarshal_exception(temporary_buffer<char>& data) {
+    std::exception_ptr ex;
+    auto get = [&data] (size_t size) {
+        if (data.size() < size) {
+            throw rpc_protocol_error();
+        }
+        const char *p = data.get();
+        data.trim_front(size);
+        return p;
+    };
+
+    exception_type ex_type = exception_type(net::ntoh(*unaligned_cast<uint32_t*>(get(4))));
+    uint32_t ex_len = net::ntoh(*unaligned_cast<uint32_t*>(get(4)));
+    switch (ex_type) {
+    case exception_type::USER:
+        ex = std::make_exception_ptr(std::runtime_error(std::string(get(ex_len), ex_len)));
+        break;
+    case exception_type::UNKNOWN_VERB:
+        ex = std::make_exception_ptr(unknown_verb_error(net::ntoh(*unaligned_cast<uint64_t*>(get(8)))));
+        break;
+    default:
+        ex = std::make_exception_ptr(unknown_exception_error());
+        break;
+    }
+    return ex;
+}
+
 template <typename Payload, typename... T>
 struct rcv_reply_base  {
     bool done = false;
@@ -288,9 +320,8 @@ inline auto wait_for_reply(wait_type, std::experimental::optional<clock_type::ti
             return r.get_reply(dst, std::move(data));
         } else {
             dst.get_stats_internal().exception_received++;
-            std::string ex_str(data.begin(), data.end());
             r.done = true;
-            r.p.set_exception(std::runtime_error(ex_str));
+            r.p.set_exception(unmarshal_exception(data));
         }
     };
     using handler_type = typename protocol<Serializer, MsgType>::client::template reply_handler<reply_type, decltype(lambda)>;
@@ -387,7 +418,12 @@ inline void reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_share
                 data = ::apply(marshall<Serializer, const RetTypes&...>,
                         std::tuple_cat(std::make_tuple(std::ref(client.serializer()), 16), std::move(ret.get())));
             } catch (std::exception& ex) {
-                data = sstring(sstring::initialized_later(), 16) + ex.what();
+                uint32_t len = std::strlen(ex.what());
+                data = sstring(sstring::initialized_later(), 24 + len);
+                auto p = data.begin() + 16;
+                *unaligned_cast<uint32_t*>(p) = net::hton(uint32_t(exception_type::USER));
+                *unaligned_cast<uint32_t*>(p + 4) = net::hton(len);
+                std::copy_n(ex.what(), len, p + 8);
                 msg_id = -msg_id;
             }
 
@@ -685,11 +721,25 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
     return this->negotiate_protocol(this->_read_buf).then([this] (negotiation_frame frame) mutable {
         return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
             return this->read_request_frame(this->_read_buf).then([this] (MsgType type, int64_t msg_id, std::experimental::optional<temporary_buffer<char>> data) {
-                auto it = _server._proto._handlers.find(type);
-                if (data && it != _server._proto._handlers.end()) {
-                    it->second(this->shared_from_this(), msg_id, std::move(data.value()));
-                } else {
+                if (!data) {
                     this->_error = true;
+                } else {
+                    auto it = _server._proto._handlers.find(type);
+                    if (it != _server._proto._handlers.end()) {
+                        it->second(this->shared_from_this(), msg_id, std::move(data.value()));
+                    } else {
+                        // send unknown_verb exception back
+                        auto data = sstring(sstring::initialized_later(), 32);
+                        auto p = data.begin() + 16;
+                        *unaligned_cast<uint32_t*>(p) = net::hton(uint32_t(exception_type::UNKNOWN_VERB));
+                        *unaligned_cast<uint32_t*>(p + 4) = net::hton(uint32_t(8));
+                        *unaligned_cast<uint64_t*>(p + 8) = net::hton(uint64_t(type));
+                        this->get_stats_internal().pending++;
+                        this->respond(-msg_id, std::move(data)).finally([this]() {
+                            this->get_stats_internal().pending--;
+                        });
+
+                    }
                 }
             });
         });
@@ -765,10 +815,22 @@ protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& pro
             return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
                 return this->read_response_frame(this->_read_buf).then([this] (int64_t msg_id, std::experimental::optional<temporary_buffer<char>> data) {
                     auto it = _outstanding.find(::abs(msg_id));
-                    if (data && it != _outstanding.end()) {
+                    if (!data) {
+                        this->_error = true;
+                    } else if (it != _outstanding.end()) {
                         auto handler = std::move(it->second);
                         _outstanding.erase(it);
                         (*handler)(*this, msg_id, std::move(data.value()));
+                    } else if (msg_id < 0) {
+                        try {
+                            std::rethrow_exception(unmarshal_exception(data.value()));
+                        } catch(const unknown_verb_error& ex) {
+                            // if this is unknown verb exception with unknown id ignore it
+                            // can happen if unknown verb was used by no_wait client
+                            this->get_protocol().log(this->peer_address(), sprint("unknown verb exception %d ignored", ex.type));
+                        } catch(...) {
+                            this->_error = true;
+                        }
                     } else {
                         this->_error = true;
                     }

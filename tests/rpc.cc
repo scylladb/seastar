@@ -117,6 +117,8 @@ int main(int ac, char** av) {
             auto test10 = myrpc.make_client<long ()>(10); // receive less then replied
             auto test10_1 = myrpc.make_client<future<long, int> ()>(10); // receive all
             auto test11 = myrpc.make_client<future<long, rpc::optional<int>> ()>(11); // receive more then replied
+            auto test_nohandler = myrpc.make_client<void ()>(100000000); // non existing verb
+            auto test_nohandler_nowait = myrpc.make_client<rpc::no_wait_type ()>(100000000); // non existing verb, no_wait call
 
             client = std::make_unique<rpc::protocol<serializer>::client>(myrpc, ipv4_addr{config["server"].as<std::string>()});
 
@@ -136,7 +138,7 @@ int main(int ac, char** av) {
                 test4(*client).then_wrapped([](future<> f) {
                     try {
                         f.get();
-                        printf("test4 your should not see this!");
+                        print("test4 your should not see this!\n");
                     } catch (std::runtime_error& x){
                         print("test4 %s\n", x.what());
                     }
@@ -150,6 +152,17 @@ int main(int ac, char** av) {
                 test10(*client).then([] (long r) { print("test10 got %ld\n", r); });
                 test10_1(*client).then([] (long r, int rr) { print("test10_1 got %ld and %d\n", r, rr); });
                 test11(*client).then([] (long r, rpc::optional<int> rr) { print("test11 got %ld and %d\n", r, bool(rr)); });
+                test_nohandler(*client).then_wrapped([](future<> f) {
+                    try {
+                        f.get();
+                        print("test_nohandler your should not see this!\n");
+                    } catch (rpc::unknown_verb_error& x){
+                        print("test_nohandle no such verb\n");
+                    } catch (...) {
+                        print("incorrect exception!\n");
+                    }
+                });
+                test_nohandler_nowait(*client);
             }
             f.finally([] {
                 sleep(1s).then([] {

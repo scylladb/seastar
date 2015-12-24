@@ -79,6 +79,22 @@ public:
     timeout_error() : error("rpc call timed out") {}
 };
 
+class unknown_verb_error : public error {
+public:
+    uint64_t type;
+    unknown_verb_error(uint64_t type_) : error("unknown verb"), type(type_) {}
+};
+
+class unknown_exception_error : public error {
+public:
+    unknown_exception_error() : error("unknown exception") {}
+};
+
+class rpc_protocol_error : public error {
+public:
+    rpc_protocol_error() : error("rpc protocol exception") {}
+};
+
 struct no_wait_type {};
 
 // return this from a callback if client does not want to waiting for a reply
