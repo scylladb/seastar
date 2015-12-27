@@ -54,11 +54,11 @@ bool scollectd::type_instance_id::operator==(
 namespace scollectd {
 
 using namespace std::chrono_literals;
-using clock_type = std::chrono::high_resolution_clock;
+using duration = std::chrono::milliseconds;
 
 
 static const ipv4_addr default_addr("239.192.74.66:25826");
-static const clock_type::duration default_period(1s);
+static const duration default_period(1s);
 const plugin_instance_id per_cpu_plugin_instance("#cpu");
 
 future<> send_metric(const type_instance_id &, const value_list &);
@@ -69,7 +69,7 @@ class impl {
 
     sstring _host = "localhost";
     ipv4_addr _addr = default_addr;
-    clock_type::duration _period = default_period;
+    duration _period = default_period;
     uint64_t _num_packets = 0;
     uint64_t _millis = 0;
     uint64_t _bytes = 0;
@@ -96,7 +96,7 @@ public:
             return make_ready_future();
         }
         cpwriter out;
-        out.put(_host, clock_type::duration(), id, values);
+        out.put(_host, duration(), id, values);
         return _chan.send(_addr, net::packet(out.data(), out.size()));
     }
     future<> send_notification(const type_instance_id & id,
@@ -107,8 +107,7 @@ public:
         return _chan.send(_addr, net::packet(out.data(), out.size()));
     }
     // initiates actual value polling -> send to target "loop"
-    void start(const sstring & host, const ipv4_addr & addr,
-            const clock_type::duration period) {
+    void start(const sstring & host, const ipv4_addr & addr, const duration period) {
         _period = period;
         _addr = addr;
         _host = host;
@@ -166,7 +165,7 @@ private:
     static const size_t payload_size = 1024;
 
     void arm() {
-        if (_period != clock_type::duration()) {
+        if (_period != duration()) {
             _timer.arm(_period);
         }
     }
@@ -323,7 +322,7 @@ private:
             return *this;
         }
         cpwriter & put(const sstring & host,
-                const clock_type::duration & period,
+                const duration & period,
                 const type_instance_id & id, const value_list & v) {
             const auto ps = std::chrono::duration_cast<collectd_hres_duration>(
                     period).count();
@@ -353,7 +352,7 @@ private:
         };
         // append as many values as we can fit into a packet (1024 bytes)
         auto send_packet = [this, ctxt]() {
-            auto start = std::chrono::high_resolution_clock::now();
+            auto start = steady_clock_type::now();
             auto & i = std::get<iterator>(*ctxt);
             auto & out = std::get<cpwriter>(*ctxt);
 
@@ -378,7 +377,7 @@ private:
             }
             return _chan.send(_addr, net::packet(out.data(), out.size())).then([start, ctxt, this]() {
                         auto & out = std::get<cpwriter>(*ctxt);
-                        auto now = std::chrono::high_resolution_clock::now();
+                        auto now = steady_clock_type::now();
                         // dogfood stats
                         ++_num_packets;
                         _millis += std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
@@ -452,9 +451,7 @@ void configure(const boost::program_options::variables_map & opts) {
         return;
     }
     auto addr = ipv4_addr(opts["collectd-address"].as<std::string>());
-    auto period = std::chrono::duration_cast<clock_type::duration>(
-            std::chrono::milliseconds(
-                    opts["collectd-poll-period"].as<unsigned>()));
+    auto period = std::chrono::milliseconds(opts["collectd-poll-period"].as<unsigned>());
 
     auto host = opts["collectd-hostname"].as<std::string>();
 

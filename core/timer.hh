@@ -26,9 +26,9 @@
 #include "future.hh"
 #include "timer-set.hh"
 
-using clock_type = std::chrono::high_resolution_clock;
+using steady_clock_type = std::chrono::steady_clock;
 
-template <typename Clock = std::chrono::high_resolution_clock>
+template <typename Clock = steady_clock_type>
 class timer {
 public:
     typedef typename Clock::time_point time_point;

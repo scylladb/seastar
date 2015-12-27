@@ -46,7 +46,7 @@ private:
     bool _copy;
     std::vector<packet> _packets;
     std::unique_ptr<output_stream<char>> _out;
-    clock_type::time_point _last;
+    steady_clock_type::time_point _last;
     sstring _key;
     size_t _packet_size = 8*KB;
     char* _mem;
@@ -73,9 +73,9 @@ public:
 
         std::cout << "Listening on " << listen_addr << std::endl;
 
-        _last = clock_type::now();
+        _last = steady_clock_type::now();
         _stats_timer.set_callback([this] {
-            auto now = clock_type::now();
+            auto now = steady_clock_type::now();
             std::cout << "Out: "
                 << std::setprecision(2) << std::fixed
                 << (double)_n_sent / to_seconds(now - _last)

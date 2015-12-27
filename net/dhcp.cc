@@ -345,7 +345,7 @@ public:
     }
 
     future<bool, lease> run(const lease & l,
-            const clock_type::duration & timeout) {
+            const steady_clock_type::duration & timeout) {
 
         _state = state::NONE;
         _timer.set_callback([this]() {
@@ -441,7 +441,7 @@ const net::dhcp::impl::magic_tag net::dhcp::impl::options_magic = { { 0x63, 0x82
 const uint16_t net::dhcp::impl::client_port;
 const uint16_t net::dhcp::impl::server_port;
 
-const clock_type::duration net::dhcp::default_timeout = std::chrono::duration_cast<clock_type::duration>(std::chrono::seconds(30));
+const steady_clock_type::duration net::dhcp::default_timeout = std::chrono::duration_cast<steady_clock_type::duration>(std::chrono::seconds(30));
 
 net::dhcp::dhcp(ipv4 & ip)
 : _impl(std::make_unique<impl>(ip))
@@ -454,11 +454,11 @@ net::dhcp::dhcp(dhcp && v)
 net::dhcp::~dhcp()
 {}
 
-net::dhcp::result_type net::dhcp::discover(const clock_type::duration & timeout) {
+net::dhcp::result_type net::dhcp::discover(const steady_clock_type::duration & timeout) {
     return _impl->run(lease(), timeout);
 }
 
-net::dhcp::result_type net::dhcp::renew(const lease & l, const clock_type::duration & timeout) {
+net::dhcp::result_type net::dhcp::renew(const lease & l, const steady_clock_type::duration & timeout) {
     return _impl->run(l, timeout);
 }
 

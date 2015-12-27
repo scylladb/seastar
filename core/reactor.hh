@@ -503,7 +503,7 @@ public:
     virtual void forget(pollable_fd_state& fd) override;
     virtual future<> notified(reactor_notifier *n) override;
     virtual std::unique_ptr<reactor_notifier> make_reactor_notifier() override;
-    void enable_timer(clock_type::time_point when);
+    void enable_timer(steady_clock_type::time_point when);
     friend class reactor_notifier_osv;
 };
 #endif /* HAVE_OSV */
@@ -637,7 +637,7 @@ private:
     bool _handle_sigint = true;
     promise<std::unique_ptr<network_stack>> _network_stack_ready_promise;
     int _return = 0;
-    timer_t _timer = {};
+    timer_t _steady_clock_timer = {};
     timer_t _task_quota_timer = {};
     promise<> _start_promise;
     semaphore _cpu_started;
@@ -815,9 +815,9 @@ private:
 
     bool process_io();
 
-    void add_timer(timer<>*);
-    bool queue_timer(timer<>*);
-    void del_timer(timer<>*);
+    void add_timer(timer<steady_clock_type>*);
+    bool queue_timer(timer<steady_clock_type>*);
+    void del_timer(timer<steady_clock_type>*);
     void add_timer(timer<lowres_clock>*);
     bool queue_timer(timer<lowres_clock>*);
     void del_timer(timer<lowres_clock>*);
@@ -858,7 +858,7 @@ public:
     void abort_writer(pollable_fd_state& fd, std::exception_ptr ex) {
         return _backend.abort_writer(fd, std::move(ex));
     }
-    void enable_timer(clock_type::time_point when);
+    void enable_timer(steady_clock_type::time_point when);
     std::unique_ptr<reactor_notifier> make_reactor_notifier() {
         return _backend.make_reactor_notifier();
     }

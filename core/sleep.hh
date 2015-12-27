@@ -29,7 +29,7 @@
 #include "core/reactor.hh"
 #include "core/future.hh"
 
-template <typename Clock = std::chrono::high_resolution_clock, typename Rep, typename Period>
+template <typename Clock = steady_clock_type, typename Rep, typename Period>
 future<> sleep(std::chrono::duration<Rep, Period> dur) {
     struct sleeper {
         promise<> done;

@@ -252,7 +252,7 @@ class TestCommands(MemcacheTest):
     def test_expiry(self):
         self.assertEqual(call('set key 0 1 5\r\nhello\r\n'), b'STORED\r\n')
         self.assertEqual(call('get key\r\n'), b'VALUE key 0 5\r\nhello\r\nEND\r\n')
-        time.sleep(1)
+        time.sleep(2)
         self.assertEqual(call('get key\r\n'), b'END\r\n')
 
     @slow
@@ -288,7 +288,7 @@ class TestCommands(MemcacheTest):
         self.assertEqual(call('flush_all 2\r\n'), b'OK\r\n')
         self.assertHasKey('key')
         self.setKey('key2')
-        time.sleep(2)
+        time.sleep(3)
         self.assertNoKey('key')
         self.assertNoKey('key2')
 
@@ -297,7 +297,7 @@ class TestCommands(MemcacheTest):
         self.setKey('key')
         self.assertEqual(call('flush_all 2\r\n'), b'OK\r\n') # Can flush in anything between 1-2
         self.assertEqual(call('flush_all 4\r\n'), b'OK\r\n') # Can flush in anything between 3-4
-        time.sleep(2)
+        time.sleep(3)
         self.assertHasKey('key')
         self.setKey('key2')
         time.sleep(4)
