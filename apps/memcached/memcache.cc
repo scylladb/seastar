@@ -63,7 +63,22 @@ template<typename T>
 using optional = boost::optional<T>;
 
 using clock_type = lowres_clock;
-static constexpr clock_type::time_point never_expire_timepoint = clock_type::time_point(clock_type::duration(-1));
+
+//
+// "Expiration" is a uint32_t value.
+// The minimal value of _time is when "expiration" is set to (seconds_in_a_month
+// + 1).
+// In this case _time will have a value of
+//
+// (seconds_in_a_month + 1 - Wall_Clock_Time_Since_Epoch)
+//
+// because lowres_clock now() initialized to zero when the application starts.
+//
+// We will use a timepoint at LLONG_MIN to represent a "never expire" value
+// since it will not collide with the minimum _time value mentioned above for
+// about 290 thousand years to come.
+//
+static constexpr clock_type::time_point never_expire_timepoint = clock_type::time_point(clock_type::duration::min());
 
 struct expiration {
     using time_point = clock_type::time_point;
@@ -76,6 +91,8 @@ struct expiration {
 
     expiration(int64_t wc_to_clock_type_delta, uint32_t s) {
         using namespace std::chrono;
+
+        static_assert(sizeof(clock_type::duration::rep) >= 8, "clock_type::duration::rep must be at least 8 bytes wide");
 
         if (s == 0U) {
             return; // means never expire.
@@ -93,14 +110,6 @@ struct expiration {
             // added to the seastar::reactor.
             //
             _time = time_point(seconds(s + wc_to_clock_type_delta)); // from real time
-
-            //
-            // If an expiration event is set in the past - set it to now() in
-            // order to avoid a collision with never_expire_timepoint.
-            //
-            if (_time < clock_type::now()) {
-                _time = clock_type::now();
-            }
         }
     }
 
