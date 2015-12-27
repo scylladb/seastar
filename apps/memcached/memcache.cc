@@ -93,6 +93,14 @@ struct expiration {
             // added to the seastar::reactor.
             //
             _time = time_point(seconds(s + wc_to_clock_type_delta)); // from real time
+
+            //
+            // If an expiration event is set in the past - set it to now() in
+            // order to avoid a collision with never_expire_timepoint.
+            //
+            if (_time < clock_type::now()) {
+                _time = clock_type::now();
+            }
         }
     }
 
