@@ -381,20 +381,35 @@ future<> do_for_each(Container& c, AsyncAction&& action) {
 }
 
 /// \cond internal
-inline
-future<std::tuple<>>
-when_all() {
-    return make_ready_future<std::tuple<>>();
-}
-
-// gcc can't capture a parameter pack, so we need to capture
-// a tuple and use apply.  But apply cannot accept an overloaded
-// function pointer as its first parameter, so provide this instead.
-struct do_when_all {
-    template <typename... Future>
-    future<std::tuple<Future...>> operator()(Future&&... fut) const {
-        return when_all(std::move(fut)...);
+template<typename... Futures>
+class when_all_state : public enable_lw_shared_from_this<when_all_state<Futures...>> {
+    using type = std::tuple<Futures...>;
+    type tuple;
+    promise<type> p;
+    when_all_state(Futures&&... t) : tuple(std::make_tuple(std::move(t)...)) {}
+    ~when_all_state() {
+        p.set_value(std::move(tuple));
     }
+    template<size_t Idx>
+    int wait() {
+        auto& f = std::get<Idx>(tuple);
+        static_assert(is_future<std::remove_reference_t<decltype(f)>>::value, "when_all parameter must be a future");
+        if (!f.available()) {
+            f = f.then_wrapped([s = this->shared_from_this()] (auto&& f) {
+                return std::move(f);
+            });
+        }
+        return 0;
+    }
+    template <size_t... Idx>
+    future<type> wait_all(std::index_sequence<Idx...>) {
+        [] (...) {} (this->template wait<Idx>()...);
+        return p.get_future();
+    }
+    template <typename... Futs>
+    friend future<std::tuple<Futs...>> when_all(Futs&&... futs);
+    template<typename U>
+    friend class lw_shared_ptr;
 };
 /// \endcond
 
@@ -404,23 +419,15 @@ struct do_when_all {
 /// to resolve (either successfully or with an exception), and return
 /// them as a tuple so individual values or exceptions can be examined.
 ///
-/// \param fut the first future to wait for
-/// \param rest more futures to wait for
+/// \param futs futures to wait for
 /// \return an \c std::tuple<> of all the futures in the input; when
 ///         ready, all contained futures will be ready as well.
-template <typename... FutureArgs, typename... Rest>
+template <typename... Futs>
 inline
-future<std::tuple<future<FutureArgs...>, Rest...>>
-when_all(future<FutureArgs...>&& fut, Rest&&... rest) {
-    using Future = future<FutureArgs...>;
-    return fut.then_wrapped(
-            [rest = std::make_tuple(std::move(rest)...)] (Future&& fut) mutable {
-        return apply(do_when_all(), std::move(rest)).then_wrapped(
-                [fut = std::move(fut)] (future<std::tuple<Rest...>>&& rest) mutable {
-            return make_ready_future<std::tuple<Future, Rest...>>(
-                    std::tuple_cat(std::make_tuple(std::move(fut)), std::get<0>(rest.get())));
-        });
-    });
+future<std::tuple<Futs...>>
+when_all(Futs&&... futs) {
+    auto s = make_lw_shared<when_all_state<Futs...>>(std::forward<Futs>(futs)...);
+    return s->wait_all(std::make_index_sequence<sizeof...(Futs)>());
 }
 
 /// \cond internal

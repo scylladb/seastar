@@ -664,3 +664,6 @@ SEASTAR_TEST_CASE(test_repeat_until_value) {
     });
 }
 
+SEASTAR_TEST_CASE(test_when_allx) {
+    return when_all(later(), later(), make_ready_future()).discard_result();
+}
