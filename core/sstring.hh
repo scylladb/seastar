@@ -663,6 +663,7 @@ inline string_type to_sstring(T value) {
     return sstring::to_sstring<string_type>(value);
 }
 
+namespace std {
 template <typename T>
 inline
 std::ostream& operator<<(std::ostream& os, const std::vector<T>& v) {
@@ -678,6 +679,7 @@ std::ostream& operator<<(std::ostream& os, const std::vector<T>& v) {
     }
     os << "}";
     return os;
+}
 }
 
 #endif /* SSTRING_HH_ */
