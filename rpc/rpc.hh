@@ -44,6 +44,15 @@ struct SerializerConcept {
     // Input and Output expose void read(char*, size_t) and write(const char*, size_t).
 };
 
+static constexpr char rpc_magic[] = "SSTARRPC";
+
+struct negotiation_frame {
+    char magic[sizeof(rpc_magic) - 1];
+    uint32_t required_features_mask;
+    uint32_t optional_features_mask;
+    uint32_t len; // additional negotiation data length
+}  __attribute__((packed));
+
 // MsgType is a type that holds type of a message. The type should be hashable
 // and serializable. It is preferable to use enum for message types, but
 // do not forget to provide hash function for it
@@ -85,8 +94,10 @@ public:
             client_info _info;
             stats _stats;
         private:
+            future<negotiation_frame> negotiate_protocol(input_stream<char>& in);
             future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
             read_request_frame(input_stream<char>& in);
+
         public:
             connection(server& s, connected_socket&& fd, socket_address&& addr, protocol& proto);
             future<> process();
@@ -99,6 +110,9 @@ public:
 
             stats& get_stats_internal() {
                 return _stats;
+            }
+            ipv4_addr peer_address() const {
+                return ipv4_addr(_info.addr);
             }
         };
     private:
@@ -159,6 +173,7 @@ public:
         stats _stats;
         ipv4_addr _server_addr;
     private:
+        future<negotiation_frame> negotiate_protocol(input_stream<char>& in);
         future<int64_t, std::experimental::optional<temporary_buffer<char>>>
         read_response_frame(input_stream<char>& in);
     public:
@@ -207,6 +222,9 @@ public:
                 // connect(), just wait for it to timeout
                 return this->_stopped.get_future();
             }
+        }
+        ipv4_addr peer_address() const {
+            return _server_addr;
         }
     };
     friend server;
