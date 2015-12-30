@@ -679,20 +679,25 @@ future<temporary_buffer<char>> receive_additional_negotiation_data(Connection& c
     }
 }
 
+template<typename Connection>
+static
+future<negotiation_frame> verify_negotiation_data(Connection& c, input_stream<char>& in, negotiation_frame nf) {
+    return receive_additional_negotiation_data(c, in, nf.len).then([&c, nf] (temporary_buffer<char> buf) mutable {
+        if (nf.required_features_mask != 0) {
+            c.get_protocol().log(c.peer_address(), "negotiation failed: unsupported required features");
+            return make_exception_future<negotiation_frame>(closed_error());
+        }
+        return make_ready_future<negotiation_frame>(nf);
+    });
+}
+
 template<typename Serializer, typename MsgType>
 future<negotiation_frame>
 protocol<Serializer, MsgType>::server::connection::negotiate_protocol(input_stream<char>& in) {
     return receive_negotiation_frame(*this, in).then([this, &in] (negotiation_frame nf) {
-        return receive_additional_negotiation_data(*this, in, nf.len).then([this, nf] (temporary_buffer<char> buf) mutable {
-            if (nf.required_features_mask != 0) {
-                this->get_protocol().log(_info, "negotiation failed: unsupported required features");
-                return make_exception_future<negotiation_frame>(closed_error());
-            }
-            nf.optional_features_mask = 0;
-            nf.len = 0;
-            send_negotiation_frame(*this, nf);
-            return make_ready_future<negotiation_frame>(nf);
-        });
+        negotiation_frame mine = {{}, 0, 0, 0};
+        send_negotiation_frame(*this, mine);
+        return verify_negotiation_data(*this, in, nf);
     });
 }
 
@@ -773,9 +778,7 @@ protocol<Serializer, MsgType>::client::negotiate_protocol(input_stream<char>& in
     negotiation_frame nf = {{}, 0, 0, 0};
     send_negotiation_frame(*this, nf);
     return receive_negotiation_frame(*this, in).then([this, &in] (negotiation_frame nf) {
-        return receive_additional_negotiation_data(*this, in, nf.len).then([nf] (temporary_buffer<char> buf){
-            return nf;
-        });
+        return verify_negotiation_data(*this, in, nf);
     });
 }
 

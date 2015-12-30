@@ -267,7 +267,7 @@ public:
         log(to_sstring("client ") + inet_ntoa(info.addr.as_posix_sockaddr_in().sin_addr) + ": " + str);
     }
     void log(ipv4_addr addr, const sstring& str) {
-        log(to_sstring("client ") + inet_ntoa(in_addr{addr.ip}) + ": " + str);
+        log(to_sstring("client ") + inet_ntoa(in_addr{net::ntoh(addr.ip)}) + ": " + str);
     }
 
 private:
