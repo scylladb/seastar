@@ -21,9 +21,11 @@ Actual negotiation looks like this:
     send negotiation frame
                                         recv frame
                                         check magic (disconnect if magic is not SSTARRPC)
-                                        check required (disconnect if required features do not match)
                                         send negotiation frame back
+                                        check required (disconnect if required features do not match)
     recv frame
+    check magic (disconnect if magic is not SSTARRPC)
+    check required (disconnect if required features do not match)
 
 ## Request frame format
     uint64_t verb_type
