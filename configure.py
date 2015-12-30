@@ -128,7 +128,7 @@ def debug_flag(compiler):
 def sanitize_vptr_flag(compiler):
     # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=67258
     if (not try_compile(compiler, flags=['-fsanitize=vptr'])
-        or try_compile_and_run(compiler, flags=['-fsanitize=undefined', '-fno-sanitize-recover'],
+        or (try_compile_and_run(compiler, flags=['-fsanitize=undefined', '-fno-sanitize-recover'],
                                env={'UBSAN_OPTIONS': 'exitcode=1'}, source=textwrap.dedent('''
             struct A
             {
@@ -142,7 +142,8 @@ def sanitize_vptr_flag(compiler):
             {
                 D d;
             }
-            '''))):
+            '''))
+            and False)):   # -fsanitize=vptr is broken even when the test above passes
         return ''
     else:
         print('-fsanitize=vptr is broken, disabling')
