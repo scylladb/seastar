@@ -2626,7 +2626,7 @@ future<> check_direct_io_support(sstring path) {
 
     return engine().file_type(path).then([path] (auto type) {
         auto w = w::parse(path, type);
-        return engine().open_file_dma(w.path, w.flags).then_wrapped([path = w.path, cleanup = std::move(w.cleanup)] (future<file> f) {
+        return open_file_dma(w.path, w.flags).then_wrapped([path = w.path, cleanup = std::move(w.cleanup)] (future<file> f) {
             try {
                 f.get0();
                 return cleanup();

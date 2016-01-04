@@ -70,7 +70,7 @@ public:
 
 // Helper
 static future<temporary_buffer<char>> read_fully(const sstring& name, const sstring& what) {
-    return engine().open_file_dma(name, open_flags::ro).then([](file f) {
+    return open_file_dma(name, open_flags::ro).then([](file f) {
         return do_with(std::move(f), [](file& f) {
             return f.size().then([&f](uint64_t size) {
                 return f.dma_read_bulk<char>(0, size);

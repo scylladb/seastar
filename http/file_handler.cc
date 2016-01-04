@@ -97,7 +97,7 @@ future<std::unique_ptr<reply>> file_interaction_handler::read(
         std::unique_ptr<reply> rep) {
     sstring extension = get_extension(file_name);
     rep->set_content_type(extension);
-    return engine().open_file_dma(file_name, open_flags::ro).then(
+    return open_file_dma(file_name, open_flags::ro).then(
             [rep = std::move(rep), extension, this, req = std::move(req)](file f) mutable {
                 std::shared_ptr<reader> r = std::make_shared<reader>(std::move(f), std::move(rep));
 

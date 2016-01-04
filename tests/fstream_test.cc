@@ -42,8 +42,8 @@ struct reader {
 SEASTAR_TEST_CASE(test_fstream) {
     auto sem = make_lw_shared<semaphore>(0);
 
-        engine().open_file_dma("testfile.tmp",
-                open_flags::rw | open_flags::create | open_flags::truncate).then([sem] (file f) {
+        open_file_dma("testfile.tmp",
+                      open_flags::rw | open_flags::create | open_flags::truncate).then([sem] (file f) {
             auto w = make_shared<writer>(std::move(f));
             auto buf = static_cast<char*>(::malloc(4096));
             memset(buf, 0, 4096);
@@ -64,7 +64,7 @@ SEASTAR_TEST_CASE(test_fstream) {
                     return w->out.close().then([w] {});
                 });
             }).then([] {
-                return engine().open_file_dma("testfile.tmp", open_flags::ro);
+                return open_file_dma("testfile.tmp", open_flags::ro);
             }).then([] (file f) {
                 /*  file content after running the above:
                  * 00000000  5b 41 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |[A..............|
@@ -97,8 +97,8 @@ SEASTAR_TEST_CASE(test_fstream) {
 SEASTAR_TEST_CASE(test_fstream_unaligned) {
     auto sem = make_lw_shared<semaphore>(0);
 
-    engine().open_file_dma("testfile.tmp",
-            open_flags::rw | open_flags::create | open_flags::truncate).then([sem] (file f) {
+    open_file_dma("testfile.tmp",
+                  open_flags::rw | open_flags::create | open_flags::truncate).then([sem] (file f) {
         auto w = make_shared<writer>(std::move(f));
         auto buf = static_cast<char*>(::malloc(40));
         memset(buf, 0, 40);
@@ -109,7 +109,7 @@ SEASTAR_TEST_CASE(test_fstream_unaligned) {
             ::free(buf);
             return w->out.close().then([w] {});
         }).then([] {
-            return engine().open_file_dma("testfile.tmp", open_flags::ro);
+            return open_file_dma("testfile.tmp", open_flags::ro);
         }).then([] (file f) {
             return do_with(std::move(f), [] (file& f) {
                 return f.size().then([] (size_t size) {
@@ -119,7 +119,7 @@ SEASTAR_TEST_CASE(test_fstream_unaligned) {
                 });
             });
         }).then([] {
-            return engine().open_file_dma("testfile.tmp", open_flags::ro);
+            return open_file_dma("testfile.tmp", open_flags::ro);
         }).then([] (file f) {
             auto r = make_shared<reader>(std::move(f));
             return r->in.read_exactly(40).then([r] (temporary_buffer<char> buf) {
