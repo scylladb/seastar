@@ -117,6 +117,7 @@ int main(int ac, char** av) {
             auto test10 = myrpc.make_client<long ()>(10); // receive less then replied
             auto test10_1 = myrpc.make_client<future<long, int> ()>(10); // receive all
             auto test11 = myrpc.make_client<future<long, rpc::optional<int>> ()>(11); // receive more then replied
+            auto test12 = myrpc.make_client<void (int sleep_ms, sstring payload)>(12); // large payload vs. server limits
             auto test_nohandler = myrpc.make_client<void ()>(100000000); // non existing verb
             auto test_nohandler_nowait = myrpc.make_client<rpc::no_wait_type ()>(100000000); // non existing verb, no_wait call
 
@@ -164,6 +165,22 @@ int main(int ac, char** av) {
                 });
                 test_nohandler_nowait(*client);
             }
+            // delay a little for a time-sensitive test
+            sleep(400ms).then([test12] () mutable {
+                // server is configured for 10MB max, throw 25MB worth of requests at it.
+                auto now = std::chrono::steady_clock::now();
+                return parallel_for_each(boost::irange(0, 25), [test12, now] (int idx) mutable {
+                    return test12(*client, 100, sstring(sstring::initialized_later(), 1'000'000)).then([idx, now] {
+                        auto later = std::chrono::steady_clock::now();
+                        auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(later - now);
+                        print("idx %d completed after %d ms\n", idx, delta.count());
+                    });
+                }).then([now] {
+                    auto later = std::chrono::steady_clock::now();
+                    auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(later - now);
+                    print("test12 completed after %d ms (should be ~300)\n", delta.count());
+                });
+            });
             f.finally([] {
                 sleep(1s).then([] {
                     client->stop().then([] {
@@ -203,8 +220,17 @@ int main(int ac, char** av) {
                 print("test 11\n");
                 return 1ul;
             });
+            myrpc.register_handler(12, [] (int sleep_ms, sstring payload) {
+                return sleep(std::chrono::milliseconds(sleep_ms)).then([] {
+                    return make_ready_future<>();
+                });
+            });
 
-            server = std::make_unique<rpc::protocol<serializer>::server>(myrpc, ipv4_addr{port});
+            rpc::resource_limits limits;
+            limits.bloat_factor = 1;
+            limits.basic_request_size = 0;
+            limits.max_memory = 10'000'000;
+            server = std::make_unique<rpc::protocol<serializer>::server>(myrpc, ipv4_addr{port}, limits);
         }
     });
 
