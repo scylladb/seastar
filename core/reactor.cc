@@ -553,12 +553,19 @@ reactor::flush_pending_aio() {
     return did_work;
 }
 
+const io_priority_class& default_priority_class() {
+    static thread_local auto shard_default_class = [] {
+        return engine().register_one_priority_class(1);
+    }();
+    return shard_default_class;
+}
+
 template <typename Func>
 future<io_event>
 reactor::submit_io_read(size_t len, Func prepare_io) {
     ++_aio_reads;
     _aio_read_bytes += len;
-    return io_queue::queue_request(_io_coordinator, len, std::move(prepare_io));
+    return io_queue::queue_request(_io_coordinator, default_priority_class(), len, std::move(prepare_io));
 }
 
 template <typename Func>
@@ -566,7 +573,7 @@ future<io_event>
 reactor::submit_io_write(size_t len, Func prepare_io) {
     ++_aio_writes;
     _aio_write_bytes += len;
-    return io_queue::queue_request(_io_coordinator, len, std::move(prepare_io));
+    return io_queue::queue_request(_io_coordinator, default_priority_class(), len, std::move(prepare_io));
 }
 
 bool reactor::process_io()
@@ -588,20 +595,62 @@ io_queue::io_queue(shard_id coordinator, size_t capacity, std::vector<shard_id> 
         : _coordinator(coordinator)
         , _capacity(capacity)
         , _io_topology(std::move(topology))
-        , _has_room(capacity)
-{}
+        , _priority_classes()
+        , _fq(capacity) {
+}
+
+io_queue::~io_queue() {
+    // It is illegal to stop the I/O queue with pending requests.
+    // Technically we would use a gate to guarantee that. But here, it is not
+    // needed since this is expected to be destroyed only after the reactor is destroyed.
+    //
+    // And that will happen only when there are no more fibers to run. If we ever change
+    // that, then this has to change.
+    for (auto&& pclasses: _priority_classes) {
+        _fq.unregister_priority_class(pclasses.second);
+    }
+}
+
+std::array<std::atomic<uint32_t>, io_queue::_max_classes> io_queue::_registered_shares;
+
+void io_queue::fill_shares_array() {
+    for (unsigned i = 0; i < _max_classes; ++i) {
+        _registered_shares[i].store(0);
+    }
+}
+
+io_priority_class io_queue::register_one_priority_class(uint32_t shares) {
+    uint32_t unused = 0;
+    for (unsigned i = 0; i < _max_classes; ++i) {
+        auto s = _registered_shares[i].compare_exchange_strong(unused, shares, std::memory_order_acq_rel);
+        if (s) {
+            io_priority_class p;
+            p.val = i;
+            return std::move(p);
+        };
+    }
+    throw std::runtime_error("No more room for new I/O priority classes");
+}
 
 template <typename Func>
 future<io_event>
-io_queue::queue_request(shard_id coordinator, size_t len, Func prepare_io) {
-    return smp::submit_to(coordinator, [len, prepare_io = std::move(prepare_io)] {
+io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_t len, Func prepare_io) {
+    return smp::submit_to(coordinator, [&pc, len, prepare_io = std::move(prepare_io)] {
         auto& queue = *(engine()._io_queue);
         queue._pending_io += len;
-        return queue._has_room.wait(1).then([prepare_io = std::move(prepare_io)] {
+        unsigned weight = 1 + len/(16 << 10);
+        // First time will hit here, and then we create the class. It is important
+        // that we create the shared pointer in the same shard it will be used at later.
+        auto it_pclass = queue._priority_classes.find(pc);
+        if (it_pclass == queue._priority_classes.end()) {
+            auto shares = _registered_shares.at(pc).load(std::memory_order_acquire);
+            auto ret = queue._priority_classes.emplace(pc, queue._fq.register_priority_class(shares));
+            it_pclass = ret.first;
+        }
+        return queue._fq.queue((*it_pclass).second, weight, [prepare_io = std::move(prepare_io)] {
             return engine().submit_io(std::move(prepare_io));
         }).finally([&queue, len] {
             queue._pending_io -= len;
-            queue._has_room.signal(1);
         });
     });
 }
@@ -2345,6 +2394,7 @@ void smp::configure(boost::program_options::variables_map configuration)
 
     std::vector<io_queue*> all_io_queues;
     all_io_queues.resize(io_info.coordinators.size());
+    io_queue::fill_shares_array();
 
     auto alloc_io_queue = [io_info, &all_io_queues] (unsigned shard) {
         auto cid = io_info.shard_to_coordinator[shard];
