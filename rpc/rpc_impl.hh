@@ -409,7 +409,8 @@ protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, sstri
 }
 
 template<typename Serializer, typename MsgType, typename... RetTypes>
-inline void reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client) {
+inline void reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client,
+        size_t memory_consumed) {
     if (!client->error()) {
         client->out_ready() = client->out_ready().then([&client = *client, msg_id, ret = std::move(ret)] () mutable {
             sstring data;
@@ -431,13 +432,19 @@ inline void reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_share
             return client.respond(msg_id, std::move(data)).finally([&client]() {
                 client.get_stats_internal().pending--;
             });
-        }).finally([client]{});
+        }).finally([client, memory_consumed] {
+            client->release_resources(memory_consumed);
+        });
+    } else {
+        client->release_resources(memory_consumed);
     }
 }
 
 // specialization for no_wait_type which does not send a reply
 template<typename Serializer, typename MsgType>
-inline void reply(no_wait_type, future<no_wait_type>&& r, int64_t msgid, lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client) {
+inline void reply(no_wait_type, future<no_wait_type>&& r, int64_t msgid, lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client,
+        size_t memory_consumed) {
+    client->release_resources(memory_consumed);
     try {
         r.get();
     } catch (std::exception& ex) {
@@ -475,11 +482,14 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
     return [func = lref_to_cref(std::forward<Func>(func))](lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client,
                                                            int64_t msg_id,
                                                            temporary_buffer<char> data) mutable {
+        auto memory_consumed = client->estimate_request_size(data.size());
         auto args = unmarshall<Serializer, InArgs...>(client->serializer(), std::move(data));
         // note: apply is executed asynchronously with regards to networking so we cannot chain futures here by doing "return apply()"
-        apply(func, client->info(), WantClientInfo(), signature(), std::move(args)).then_wrapped(
-                [client, msg_id] (futurize_t<typename signature::ret_type> ret) mutable {
-            reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, std::move(client));
+        return client->wait_for_resources(memory_consumed).then([client, msg_id, memory_consumed, args = std::move(args), func = std::forward<Func>(func)] () mutable {
+          apply(func, client->info(), WantClientInfo(), signature(), std::move(args)).then_wrapped(
+                [client, msg_id, memory_consumed] (futurize_t<typename signature::ret_type> ret) mutable {
+            reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, std::move(client), memory_consumed);
+          });
         });
     };
 }
@@ -586,12 +596,13 @@ auto protocol<Serializer, MsgType>::register_handler(MsgType t, Func&& func) {
 }
 
 template<typename Serializer, typename MsgType>
-protocol<Serializer, MsgType>::server::server(protocol<Serializer, MsgType>& proto, ipv4_addr addr)
-    : server(proto, engine().listen(addr, listen_options(true)))
+protocol<Serializer, MsgType>::server::server(protocol<Serializer, MsgType>& proto, ipv4_addr addr, resource_limits limits)
+    : server(proto, engine().listen(addr, listen_options(true)), limits)
 {}
 
 template<typename Serializer, typename MsgType>
-protocol<Serializer, MsgType>::server::server(protocol<Serializer, MsgType>& proto, server_socket ss) : _proto(proto), _ss(std::move(ss))
+protocol<Serializer, MsgType>::server::server(protocol<Serializer, MsgType>& proto, server_socket ss, resource_limits limits)
+        : _proto(proto), _ss(std::move(ss)), _limits(limits), _resources_available(limits.max_memory)
 {
     accept();
 }

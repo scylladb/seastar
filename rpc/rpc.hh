@@ -46,6 +46,30 @@ struct SerializerConcept {
 
 static constexpr char rpc_magic[] = "SSTARRPC";
 
+
+/// \brief Resource limits for an RPC server
+///
+/// A request's memory use will be estimated as
+///
+///     req_mem = basic_request_size * sizeof(serialized_request) * bloat_factor
+///
+/// Concurrent requests will be limited so that
+///
+///     sum(req_mem) <= max_memory
+///
+/// \see server
+struct resource_limits {
+    size_t basic_request_size = 0; ///< Minimum request footprint in memory
+    unsigned bloat_factor = 1;     ///< Serialized size multiplied by this to estimate memory used by request
+    size_t max_memory = std::numeric_limits<size_t>::max(); ///< Maximum amount of memory that may be consumed by all requests
+};
+
+inline
+size_t
+estimate_request_size(const resource_limits& lim, size_t serialized_size) {
+    return lim.basic_request_size + serialized_size * lim.bloat_factor;
+}
+
 struct negotiation_frame {
     char magic[sizeof(rpc_magic) - 1];
     uint32_t required_features_mask;
@@ -114,20 +138,32 @@ public:
             ipv4_addr peer_address() const {
                 return ipv4_addr(_info.addr);
             }
+            future<> wait_for_resources(size_t memory_consumed) {
+                return _server._resources_available.wait(memory_consumed);
+            }
+            void release_resources(size_t memory_consumed) {
+                _server._resources_available.signal(memory_consumed);
+            }
+            size_t estimate_request_size(size_t serialized_size) {
+                return rpc::estimate_request_size(_server._limits, serialized_size);
+            }
         };
     private:
         protocol& _proto;
         server_socket _ss;
+        resource_limits _limits;
+        semaphore _resources_available;
         std::unordered_set<connection*> _conns;
         bool _stopping = false;
         promise<> _ss_stopped;
     public:
-        server(protocol& proto, ipv4_addr addr);
-        server(protocol& proto, server_socket);
+        server(protocol& proto, ipv4_addr addr, resource_limits memory_limit = resource_limits());
+        server(protocol& proto, server_socket, resource_limits memory_limit = resource_limits());
         void accept();
         future<> stop() {
             _stopping = true; // prevents closed connections to be deleted from _conns
             _ss.abort_accept();
+            _resources_available.broken();
             return when_all(_ss_stopped.get_future(),
                 parallel_for_each(_conns, [] (connection* conn) {
                     return conn->stop();
