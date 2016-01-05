@@ -66,13 +66,13 @@ inline double read(serializer, Input& input, rpc::type<double>) { return read_ar
 
 template <typename Output>
 inline void write(serializer, Output& out, const sstring& v) {
-    write(out, v.size());
+    write_arithmetic_type(out, uint32_t(v.size()));
     out.write(v.c_str(), v.size());
 }
 
 template <typename Input>
-inline sstring read(serializer, Input& in) {
-    auto size = read<size_t>(in);
+inline sstring read(serializer, Input& in, rpc::type<sstring>) {
+    auto size = read_arithmetic_type<uint32_t>(in);
     sstring ret(sstring::initialized_later(), size);
     in.read(ret.begin(), size);
     return ret;
