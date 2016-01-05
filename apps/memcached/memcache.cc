@@ -89,7 +89,7 @@ struct expiration {
 
     expiration() {}
 
-    expiration(int64_t wc_to_clock_type_delta, uint32_t s) {
+    expiration(clock_type::duration wc_to_clock_type_delta, uint32_t s) {
         using namespace std::chrono;
 
         static_assert(sizeof(clock_type::duration::rep) >= 8, "clock_type::duration::rep must be at least 8 bytes wide");
@@ -109,7 +109,7 @@ struct expiration {
             // TODO: Fix this when a support for system_clock-based timers is
             // added to the seastar::reactor.
             //
-            _time = time_point(seconds(s + wc_to_clock_type_delta)); // from real time
+            _time = time_point(seconds(s) + wc_to_clock_type_delta); // from real time
         }
     }
 
@@ -374,7 +374,7 @@ private:
     seastar::timer_set<item, &item::_timer_link> _alive;
     timer<clock_type> _timer;
     // delta in seconds between the current values of a wall clock and a clock_type clock
-    int64_t _wc_to_clock_type_delta;
+    clock_type::duration _wc_to_clock_type_delta;
     cache_stats _stats;
     timer<clock_type> _flush_timer;
 private:
@@ -431,8 +431,7 @@ private:
         // by a wall clock adjustment.
         //
         _wc_to_clock_type_delta =
-            (duration_cast<seconds>(clock_type::now().time_since_epoch())-
-             duration_cast<seconds>(system_clock::now().time_since_epoch())).count();
+            duration_cast<clock_type::duration>(clock_type::now().time_since_epoch() - system_clock::now().time_since_epoch());
 
         auto exp = _alive.expire(clock_type::now());
         while (!exp.empty()) {
@@ -510,8 +509,7 @@ public:
         using namespace std::chrono;
 
         _wc_to_clock_type_delta =
-            (duration_cast<seconds>(clock_type::now().time_since_epoch())-
-             duration_cast<seconds>(system_clock::now().time_since_epoch())).count();
+            duration_cast<clock_type::duration>(clock_type::now().time_since_epoch() - system_clock::now().time_since_epoch());
 
         _timer.set_callback([this] { expire(); });
         _flush_timer.set_callback([this] { flush_all(); });
@@ -723,7 +721,7 @@ public:
     }
 
     future<> stop() { return make_ready_future<>(); }
-    int64_t get_wc_to_clock_type_delta() { return _wc_to_clock_type_delta; }
+    clock_type::duration get_wc_to_clock_type_delta() { return _wc_to_clock_type_delta; }
 };
 
 class sharded_cache {
