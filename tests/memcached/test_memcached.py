@@ -320,6 +320,7 @@ class TestCommands(MemcacheTest):
         self.setKey('key2')
         key2_time = int(time.time())
         self.assertEqual(call('flush_all %d\r\n' % (key2_time - 1)), b'OK\r\n')
+        time.sleep(1)
         self.assertNoKey("key1")
         self.assertNoKey("key2")
 
