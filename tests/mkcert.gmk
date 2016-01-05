@@ -1,5 +1,5 @@
 server  = $(shell hostname)
-domain  = $(shell domainname)
+domain  = $(shell dnsdomainname)
 name    = $(server)
 
 country = SE
