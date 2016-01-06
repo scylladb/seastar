@@ -623,7 +623,11 @@ private:
     std::vector<pollfn*> _pollers;
 
     static constexpr size_t max_aio = 128;
-    static std::vector<std::unique_ptr<io_queue>> all_io_queues;
+    // Not all reactors have IO queues. If the number of IO queues is less than the number of shards,
+    // some reactors will talk to foreign io_queues. If this reactor holds a valid IO queue, it will
+    // be stored here.
+    std::unique_ptr<io_queue> my_io_queue = {};
+
 
     // For submiting the actual IO, all we need is the coordinator id. So storing it
     // separately saves us the pointer access.

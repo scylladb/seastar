@@ -2187,7 +2187,6 @@ smp::get_options_description()
 std::vector<smp::thread_adaptor> smp::_threads;
 std::vector<reactor*> smp::_reactors;
 smp_message_queue** smp::_qs;
-std::vector<std::unique_ptr<io_queue>> reactor::all_io_queues;
 std::thread::id smp::_tmain;
 unsigned smp::count = 1;
 
@@ -2334,9 +2333,11 @@ void smp::configure(boost::program_options::variables_map configuration)
     static boost::barrier inited(smp::count);
 
     auto io_info = std::move(resources.io_queues);
-    reactor::all_io_queues.resize(io_info.coordinators.size());
 
-    auto alloc_io_queue = [io_info] (unsigned shard) {
+    std::vector<io_queue*> all_io_queues;
+    all_io_queues.resize(io_info.coordinators.size());
+
+    auto alloc_io_queue = [io_info, &all_io_queues] (unsigned shard) {
         auto cid = io_info.shard_to_coordinator[shard];
         int vec_idx = 0;
         for (auto& coordinator: io_info.coordinators) {
@@ -2345,18 +2346,25 @@ void smp::configure(boost::program_options::variables_map configuration)
                 continue;
             }
             if (shard == cid) {
-                auto ptr = std::make_unique<::io_queue>(coordinator.id, coordinator.capacity, io_info.shard_to_coordinator);
-                reactor::all_io_queues[vec_idx].swap(ptr);
+                all_io_queues[vec_idx] = new io_queue(coordinator.id, coordinator.capacity, io_info.shard_to_coordinator);
             }
             return vec_idx;
         }
         assert(0); // Impossible
     };
 
+    auto assign_io_queue = [&all_io_queues] (shard_id id, int queue_idx) {
+        if (all_io_queues[queue_idx]->coordinator() == id) {
+            engine().my_io_queue.reset(all_io_queues[queue_idx]);
+        }
+        engine()._io_queue = all_io_queues[queue_idx];
+        engine()._io_coordinator = all_io_queues[queue_idx]->coordinator();
+    };
+
     unsigned i;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        _threads.emplace_back([configuration, hugepages_path, i, allocation, alloc_io_queue] {
+        _threads.emplace_back([configuration, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue] {
             smp::pin(allocation.cpu_id);
             memory::configure(allocation.mem, hugepages_path);
             sigset_t mask;
@@ -2366,13 +2374,12 @@ void smp::configure(boost::program_options::variables_map configuration)
             allocate_reactor();
             engine()._id = i;
             _reactors[i] = &engine();
+            auto queue_idx = alloc_io_queue(i);
             reactors_registered.wait();
             smp_queues_constructed.wait();
-            auto queue_idx = alloc_io_queue(i);
             start_all_queues();
+            assign_io_queue(i, queue_idx);
             inited.wait();
-            engine()._io_queue = reactor::all_io_queues[queue_idx].get();
-            engine()._io_coordinator = reactor::all_io_queues[queue_idx]->coordinator();
             engine().configure(configuration);
             engine().run();
         });
@@ -2399,10 +2406,9 @@ void smp::configure(boost::program_options::variables_map configuration)
     }
     smp_queues_constructed.wait();
     start_all_queues();
+    assign_io_queue(0, queue_idx);
     inited.wait();
 
-    engine()._io_queue = reactor::all_io_queues[queue_idx].get();
-    engine()._io_coordinator = reactor::all_io_queues[queue_idx]->coordinator();
     engine().configure(configuration);
     engine()._lowres_clock = std::make_unique<lowres_clock>();
 }
