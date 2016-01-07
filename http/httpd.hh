@@ -172,7 +172,9 @@ public:
                 // swallow error
                 // FIXME: count it?
                     return _replies.push_eventually( {});
-                });
+            }).finally([this] {
+                return _read_buf.close();
+            });
         }
         future<> read_one() {
             _parser.init();
@@ -192,6 +194,11 @@ public:
             });
         }
         future<> respond() {
+            return do_response_loop().finally([this] {
+                return _write_buf.close();
+            });
+        }
+        future<> do_response_loop() {
             return _replies.pop_eventually().then(
                     [this] (std::unique_ptr<reply> resp) {
                         if (!resp) {
@@ -200,7 +207,7 @@ public:
                         }
                         _resp = std::move(resp);
                         return start_response().then([this] {
-                                    return respond();
+                                    return do_response_loop();
                                 });
                     });
         }
