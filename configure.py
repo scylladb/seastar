@@ -198,6 +198,7 @@ tests = [
     'tests/semaphore_test',
     'tests/packet_test',
     'tests/tls_test',
+    'tests/fair_queue_test',
     ]
 
 apps = [
@@ -350,6 +351,7 @@ deps = {
     'tests/tcp_server': ['tests/tcp_server.cc'] + core + libnet,
     'tests/tcp_client': ['tests/tcp_client.cc'] + core + libnet,
     'tests/tls_test': ['tests/tls_test.cc'] + core + libnet + boost_test_lib,
+    'tests/fair_queue_test': ['tests/fair_queue_test.cc'] + core + boost_test_lib,
     'apps/seawreck/seawreck': ['apps/seawreck/seawreck.cc', 'http/http_response_parser.rl'] + core + libnet,
     'tests/blkdiscard_test': ['tests/blkdiscard_test.cc'] + core,
     'tests/sstring_test': ['tests/sstring_test.cc'] + core,
