@@ -522,16 +522,6 @@ inline open_flags operator|(open_flags a, open_flags b) {
     return open_flags(static_cast<unsigned int>(a) | static_cast<unsigned int>(b));
 }
 
-class io_queue;
-class io_priority_class {
-    unsigned val;
-    friend io_queue;
-public:
-    operator unsigned() const {
-        return val;
-    }
-};
-
 class io_queue {
 private:
     shard_id _coordinator;
@@ -797,9 +787,9 @@ public:
     template <typename Func>
     future<io_event> submit_io(Func prepare_io);
     template <typename Func>
-    future<io_event> submit_io_read(size_t len, Func prepare_io);
+    future<io_event> submit_io_read(const io_priority_class& priority_class, size_t len, Func prepare_io);
     template <typename Func>
-    future<io_event> submit_io_write(size_t len, Func prepare_io);
+    future<io_event> submit_io_write(const io_priority_class& priority_class, size_t len, Func prepare_io);
 
     int run();
     void exit(int ret);
