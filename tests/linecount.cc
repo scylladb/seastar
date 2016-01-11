@@ -52,23 +52,23 @@ int main(int ac, char** av) {
     app.add_positional_options({
         { "file", bpo::value<std::string>(), "File to process", 1 },
     });
-    app.run_deprecated(ac, av, [&app] {
+    return app.run(ac, av, [&app] {
         auto fname = app.configuration()["file"].as<std::string>();
-        open_file_dma(fname, open_flags::ro).then([] (file f) {
+        return open_file_dma(fname, open_flags::ro).then([] (file f) {
             auto r = make_shared<reader>(std::move(f));
-            r->is.consume(*r).then([r] {
+            return r->is.consume(*r).then([r] {
                print("%d lines\n", r->count);
             });
-        }).then_wrapped([] (future<> f) {
+        }).then_wrapped([] (future<> f) -> future<int> {
             try {
                 f.get();
-                engine().exit(0);
+                return make_ready_future<int>(0);
             } catch (std::exception& ex) {
                 std::cout << ex.what() << "\n";
-                engine().exit(1);
+                return make_ready_future<int>(1);
             } catch (...) {
                 std::cout << "unknown exception\n";
-                engine().exit(0);
+                return make_ready_future<int>(1);
             }
         });
     });
