@@ -640,7 +640,9 @@ static void send_negotiation_frame(Connection& c, const negotiation_frame& nf) {
     *unaligned_cast<uint32_t*>(p ) = cpu_to_le(nf.required_features_mask);
     *unaligned_cast<uint32_t*>(p + 4) = cpu_to_le(nf.optional_features_mask);
     *unaligned_cast<uint32_t*>(p + 8) = cpu_to_le(nf.len);
-    c.out_ready() = c.out().write(reply).then([&c] {
+    c.out_ready() = c.out_ready().then([&c, reply = std::move(reply)] () mutable {
+        return c.out().write(reply);
+    }).then([&c] {
         return c.out().flush();
     });
 }
@@ -775,8 +777,6 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
 template<typename Serializer, typename MsgType>
 future<negotiation_frame>
 protocol<Serializer, MsgType>::client::negotiate_protocol(input_stream<char>& in) {
-    negotiation_frame nf = {{}, 0, 0, 0};
-    send_negotiation_frame(*this, nf);
     return receive_negotiation_frame(*this, in).then([this, &in] (negotiation_frame nf) {
         return verify_negotiation_data(*this, in, nf);
     });
@@ -811,6 +811,8 @@ protocol<Serializer, MsgType>::client::read_response_frame(input_stream<char>& i
 template<typename Serializer, typename MsgType>
 protocol<Serializer, MsgType>::client::client(protocol& proto, ipv4_addr addr, future<connected_socket> f) : protocol<Serializer, MsgType>::connection(proto), _server_addr(addr) {
     this->_output_ready = _connected_promise.get_future();
+    negotiation_frame nf = {{}, 0, 0, 0};
+    send_negotiation_frame(*this, nf);
     f.then([this] (connected_socket fd) {
         fd.set_nodelay(true);
         this->_fd = std::move(fd);
