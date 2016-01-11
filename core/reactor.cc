@@ -375,6 +375,7 @@ void reactor::configure(boost::program_options::variables_map vm) {
     if (vm.count("poll-mode")) {
         _max_poll_time = std::chrono::nanoseconds::max();
     }
+    set_strict_dma(!vm.count("relaxed-dma"));
 }
 
 future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd,
@@ -695,8 +696,13 @@ file::file(int fd, file_open_options options)
 
 future<file>
 reactor::open_file_dma(sstring name, open_flags flags, file_open_options options) {
-    return _thread_pool.submit<syscall_result<int>>([name, flags, options] {
-        int fd = ::open(name.c_str(), O_DIRECT | O_CLOEXEC | static_cast<int>(flags), S_IRWXU);
+    return _thread_pool.submit<syscall_result<int>>([name, flags, options, strict_o_direct = _strict_o_direct] {
+        auto open_flags = O_DIRECT | O_CLOEXEC | static_cast<int>(flags);
+        int fd = ::open(name.c_str(), open_flags, S_IRWXU);
+        if (!strict_o_direct && fd == -1 && errno == EINVAL) {
+            open_flags &= ~O_DIRECT;
+            fd = ::open(name.c_str(), O_CLOEXEC | static_cast<int>(flags), S_IRWXU);
+        }
         if (fd != -1) {
             fsxattr attr = {};
             if (options.extent_allocation_size_hint) {
@@ -2114,6 +2120,7 @@ reactor::get_options_description() {
         ("no-handle-interrupt", "ignore SIGINT (for gdb)")
         ("poll-mode", "poll continuously (100% cpu use)")
         ("task-quota-ms", bpo::value<double>()->default_value(2.0), "Max time (ms) between polls")
+        ("relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)");
         ;
     opts.add(network_stack_registry::options_description());
     return opts;

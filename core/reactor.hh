@@ -674,6 +674,7 @@ private:
     circular_buffer<output_stream<char>* > _flush_batching;
     std::atomic<bool> _sleeping alignas(64);
     pthread_t _thread_id alignas(64) = pthread_self();
+    bool _strict_o_direct = true;
 private:
     static std::chrono::nanoseconds calculate_poll_time();
     static void clear_task_quota(int);
@@ -865,6 +866,18 @@ public:
     void enable_timer(steady_clock_type::time_point when);
     std::unique_ptr<reactor_notifier> make_reactor_notifier() {
         return _backend.make_reactor_notifier();
+    }
+    /// Sets the "Strict DMA" flag.
+    ///
+    /// When true (default), file I/O operations must use DMA.  This is
+    /// the most performant option, but does not work on some file systems
+    /// such as tmpfs or aufs (used in some Docker setups).
+    ///
+    /// When false, file I/O operations can fall back to buffered I/O if
+    /// DMA is not available.  This can result in dramatic reducation in
+    /// performance and an increase in memory consumption.
+    void set_strict_dma(bool value) {
+        _strict_o_direct = value;
     }
 };
 
