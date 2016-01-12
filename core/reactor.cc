@@ -700,7 +700,9 @@ reactor::open_file_dma(sstring name, open_flags flags, file_open_options options
         auto open_flags = O_DIRECT | O_CLOEXEC | static_cast<int>(flags);
         int fd = ::open(name.c_str(), open_flags, S_IRWXU);
         if (!strict_o_direct && fd == -1 && errno == EINVAL) {
-            open_flags &= ~O_DIRECT;
+            // open with O_DIRECT on tmppfs creates the file, then returns an
+            // EINVAL; so we must remove O_EXCL as well.
+            open_flags &= ~(O_DIRECT | O_EXCL);
             fd = ::open(name.c_str(), O_CLOEXEC | static_cast<int>(flags), S_IRWXU);
         }
         if (fd != -1) {
