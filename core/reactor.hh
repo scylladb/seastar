@@ -975,6 +975,17 @@ public:
     static boost::integer_range<unsigned> all_cpus() {
         return boost::irange(0u, count);
     }
+    // Invokes func on all shards.
+    // The returned future resolves when all async invocations finish.
+    // The func may return void or future<>.
+    // Each async invocation will work with a separate copy of func.
+    template<typename Func>
+    static future<> invoke_on_all(Func&& func) {
+        static_assert(std::is_same<future<>, typename futurize<std::result_of_t<Func()>>::type>::value, "bad Func signature");
+        return parallel_for_each(all_cpus(), [&func] (unsigned id) {
+            return smp::submit_to(id, Func(func));
+        });
+    }
 private:
     static void start_all_queues();
     static void pin(unsigned cpu_id);
