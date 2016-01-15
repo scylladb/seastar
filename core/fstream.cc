@@ -66,7 +66,7 @@ private:
             ++_reads_in_progress;
             // if _pos is not dma-aligned, we'll get a short read.  Account for that.
             auto now = _options.buffer_size - _pos % _file.disk_read_dma_alignment();
-            _read_buffers.push_back(_file.dma_read_bulk<char>(_pos, now).then_wrapped(
+            _read_buffers.push_back(_file.dma_read_bulk<char>(_pos, now, _options.io_priority_class).then_wrapped(
                     [this] (future<temporary_buffer<char>> ret) {
                 issue_read_aheads();
                 --_reads_in_progress;
@@ -174,7 +174,7 @@ private:
             truncate = true;
         }
 
-        return _file.dma_write(pos, p, buf_size).then(
+        return _file.dma_write(pos, p, buf_size, _options.io_priority_class).then(
                 [this, buf = std::move(buf), truncate] (size_t size) {
             if (truncate) {
                 return _file.truncate(_pos);

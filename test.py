@@ -47,6 +47,7 @@ other_tests = [
     'allocator_test',
     'directory_test',
     'thread_context_switch',
+    'fair_queue_test',
 ]
 
 last_len = 0
