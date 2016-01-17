@@ -751,10 +751,11 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
             return this->read_request_frame(this->_read_buf).then([this] (MsgType type, int64_t msg_id, std::experimental::optional<temporary_buffer<char>> data) {
                 if (!data) {
                     this->_error = true;
+                    return make_ready_future<>();
                 } else {
                     auto it = _server._proto._handlers.find(type);
                     if (it != _server._proto._handlers.end()) {
-                        it->second(this->shared_from_this(), msg_id, std::move(data.value()));
+                        return it->second(this->shared_from_this(), msg_id, std::move(data.value()));
                     } else {
                         // send unknown_verb exception back
                         auto data = sstring(sstring::initialized_later(), 28);
@@ -763,7 +764,7 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
                         *unaligned_cast<uint32_t*>(p + 4) = cpu_to_le(uint32_t(8));
                         *unaligned_cast<uint64_t*>(p + 8) = cpu_to_le(uint64_t(type));
                         this->get_stats_internal().pending++;
-                        this->respond(-msg_id, std::move(data)).finally([this]() {
+                        return this->respond(-msg_id, std::move(data)).finally([this]() {
                             this->get_stats_internal().pending--;
                         });
 

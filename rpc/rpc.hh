@@ -265,8 +265,8 @@ public:
     };
     friend server;
 private:
-    using rpc_handler = std::function<void (lw_shared_ptr<typename server::connection>, int64_t msgid,
-                                            temporary_buffer<char> data)>;
+    using rpc_handler = std::function<future<> (lw_shared_ptr<typename server::connection>, int64_t msgid,
+                                                temporary_buffer<char> data)>;
     std::unordered_map<MsgType, rpc_handler> _handlers;
     Serializer _serializer;
     std::function<void(const sstring&)> _logger;
