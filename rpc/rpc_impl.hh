@@ -485,7 +485,7 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
         auto memory_consumed = client->estimate_request_size(data.size());
         auto args = unmarshall<Serializer, InArgs...>(client->serializer(), std::move(data));
         // note: apply is executed asynchronously with regards to networking so we cannot chain futures here by doing "return apply()"
-        return client->wait_for_resources(memory_consumed).then([client, msg_id, memory_consumed, args = std::move(args), func = std::forward<Func>(func)] () mutable {
+        return client->wait_for_resources(memory_consumed).then([client, msg_id, memory_consumed, args = std::move(args), &func] () mutable {
           apply(func, client->info(), WantClientInfo(), signature(), std::move(args)).then_wrapped(
                 [client, msg_id, memory_consumed] (futurize_t<typename signature::ret_type> ret) mutable {
             reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, std::move(client), memory_consumed);
