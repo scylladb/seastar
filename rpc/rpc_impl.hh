@@ -103,7 +103,7 @@ struct wait_signature<no_wait_type> {
 template <>
 struct wait_signature<future<no_wait_type>> {
     using type = no_wait_type;
-    using cleaned_type = future<void>;
+    using cleaned_type = future<>;
 };
 
 template <typename T>
@@ -335,6 +335,12 @@ inline auto wait_for_reply(wait_type, std::experimental::optional<steady_clock_t
 template<typename Serializer, typename MsgType, typename... InArgs>
 inline auto wait_for_reply(no_wait_type, std::experimental::optional<steady_clock_type::time_point>, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id,
         signature<no_wait_type (InArgs...)> sig) {  // no_wait overload
+    return make_ready_future<>();
+}
+
+template<typename Serializer, typename MsgType, typename... InArgs>
+inline auto wait_for_reply(no_wait_type, std::experimental::optional<steady_clock_type::time_point>, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id,
+        signature<future<no_wait_type> (InArgs...)> sig) {  // future<no_wait> overload
     return make_ready_future<>();
 }
 
