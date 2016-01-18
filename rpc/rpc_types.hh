@@ -44,9 +44,6 @@ struct stats {
     counter_type timeout = 0;
 };
 
-struct server_stats : stats {
-    float resource_usage;  ///< resource usage, 0 = none, 1 = further messages will be blocked
-};
 
 struct client_info {
     socket_address addr;
