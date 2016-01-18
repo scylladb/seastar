@@ -116,7 +116,6 @@ public:
         class connection : public protocol::connection, public enable_lw_shared_from_this<connection> {
             server& _server;
             client_info _info;
-            stats _stats;
         private:
             future<negotiation_frame> negotiate_protocol(input_stream<char>& in);
             future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
@@ -128,12 +127,8 @@ public:
             future<> respond(int64_t msg_id, sstring&& data);
             client_info& info() { return _info; }
             const client_info& info() const { return _info; }
-            stats get_stats() const {
-                return _stats;
-            }
-
             stats& get_stats_internal() {
-                return _stats;
+                return _server._stats;
             }
             ipv4_addr peer_address() const {
                 return ipv4_addr(_info.addr);
@@ -156,6 +151,7 @@ public:
         std::unordered_set<connection*> _conns;
         bool _stopping = false;
         promise<> _ss_stopped;
+        server_stats _stats;
     public:
         server(protocol& proto, ipv4_addr addr, resource_limits memory_limit = resource_limits());
         server(protocol& proto, server_socket, resource_limits memory_limit = resource_limits());
@@ -170,11 +166,10 @@ public:
                 })
             ).discard_result();
         }
-        template<typename Func>
-        void foreach_connection(Func&& f) {
-            for (auto c : _conns) {
-                f(*c);
-            }
+        stats get_stats() const {
+            server_stats ret = _stats;
+            ret.resource_usage = 1.0f - float(_resources_available.current())/_limits.max_memory;
+            return ret;
         }
         friend connection;
     };
