@@ -151,7 +151,7 @@ public:
         std::unordered_set<connection*> _conns;
         bool _stopping = false;
         promise<> _ss_stopped;
-        stats _stats;
+        server_stats _stats;
     public:
         server(protocol& proto, ipv4_addr addr, resource_limits memory_limit = resource_limits());
         server(protocol& proto, server_socket, resource_limits memory_limit = resource_limits());
@@ -167,7 +167,9 @@ public:
             ).discard_result();
         }
         stats get_stats() const {
-            return _stats;
+            server_stats ret = _stats;
+            ret.resource_usage = 1.0f - float(_resources_available.current())/_limits.max_memory;
+            return ret;
         }
         friend connection;
     };
