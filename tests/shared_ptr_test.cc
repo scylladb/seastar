@@ -106,12 +106,12 @@ BOOST_AUTO_TEST_CASE(test_exception_thrown_from_constructor_is_propagated) {
         auto ptr = make_lw_shared<X>();
         BOOST_FAIL("Constructor should have thrown");
     } catch (const expected_exception& e) {
-        BOOST_MESSAGE("Expected exception caught");
+        BOOST_TEST_MESSAGE("Expected exception caught");
     }
     try {
         auto ptr = ::make_shared<X>();
         BOOST_FAIL("Constructor should have thrown");
     } catch (const expected_exception& e) {
-        BOOST_MESSAGE("Expected exception caught");
+        BOOST_TEST_MESSAGE("Expected exception caught");
     }
 }

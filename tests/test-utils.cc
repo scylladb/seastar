@@ -25,6 +25,7 @@
 #include "tests/test-utils.hh"
 #include "core/future.hh"
 #include "core/app-template.hh"
+#include <boost/test/included/unit_test.hpp>
 
 void seastar_test::run() {
     // HACK: please see https://github.com/cloudius-systems/seastar/issues/10
@@ -57,7 +58,12 @@ bool init_unit_test_suite() {
     ts.p_name.set(tests->size() ? (*tests)[0]->get_test_file() : "seastar-tests");
 
     for (seastar_test* test : *tests) {
+    #if BOOST_VERSION > 105800
+        ts.add(boost::unit_test::make_test_case([test] { test->run(); }, test->get_name(),
+                test->get_test_file(), 0), 0, 0);
+    #else
         ts.add(boost::unit_test::make_test_case([test] { test->run(); }, test->get_name()), 0, 0);
+    #endif
     }
 
     global_test_runner().start(ts.argc, ts.argv);
