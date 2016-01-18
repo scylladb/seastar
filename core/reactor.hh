@@ -526,7 +526,6 @@ class io_queue {
 private:
     shard_id _coordinator;
     size_t _capacity;
-    size_t _pending_io = 0;
     std::vector<shard_id> _io_topology;
 
     std::unordered_map<unsigned, priority_class_ptr> _priority_classes;
@@ -548,10 +547,6 @@ public:
 
     size_t queued_requests() const {
         return _fq.waiters();
-    }
-
-    size_t pending_io() const {
-        return _pending_io;
     }
 
     shard_id coordinator() const {

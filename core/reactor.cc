@@ -637,7 +637,6 @@ future<io_event>
 io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_t len, Func prepare_io) {
     return smp::submit_to(coordinator, [&pc, len, prepare_io = std::move(prepare_io)] {
         auto& queue = *(engine()._io_queue);
-        queue._pending_io += len;
         unsigned weight = 1 + len/(16 << 10);
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
@@ -649,8 +648,6 @@ io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_
         }
         return queue._fq.queue((*it_pclass).second, weight, [prepare_io = std::move(prepare_io)] {
             return engine().submit_io(std::move(prepare_io));
-        }).finally([&queue, len] {
-            queue._pending_io -= len;
         });
     });
 }
@@ -1282,11 +1279,6 @@ reactor::register_collectd_metrics() {
                     , scollectd::per_cpu_plugin_instance
                     , "derive", "aio-write-bytes")
                     , scollectd::make_typed(scollectd::data_type::DERIVE, _aio_write_bytes)
-            ),
-            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
-                    , scollectd::per_cpu_plugin_instance
-                    , "gauge", "pending-io")
-                    , scollectd::make_typed(scollectd::data_type::GAUGE, _io_queue->_pending_io)
             ),
             scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
                     , scollectd::per_cpu_plugin_instance
