@@ -52,14 +52,6 @@ input_stream<char> make_file_input_stream(
 input_stream<char> make_file_input_stream(
         file file, file_input_stream_options = {});
 
-inline
-input_stream<char> make_file_input_stream(
-        file file, uint64_t offset, uint64_t buffer_size) {
-    file_input_stream_options options;
-    options.buffer_size = buffer_size;
-    return make_file_input_stream(std::move(file), offset, std::move(options));
-}
-
 struct file_output_stream_options {
     unsigned buffer_size = 8192;
     unsigned preallocation_size = 1024*1024; // 1MB
