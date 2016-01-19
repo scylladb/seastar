@@ -2141,6 +2141,9 @@ network_stack_registry::create(options opts) {
 
 future<std::unique_ptr<network_stack>>
 network_stack_registry::create(sstring name, options opts) {
+    if (!_map().count(name)) {
+        throw std::runtime_error(sprint("network stack %s not registered", name));
+    }
     return _map()[name](opts);
 }
 
