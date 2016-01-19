@@ -29,7 +29,14 @@
 #include <algorithm>
 
 struct reader {
-    reader(file f) : is(make_file_input_stream(std::move(f), 0, 4096)) {}
+private:
+    static file_input_stream_options options() {
+        file_input_stream_options o;
+        o.buffer_size = 4096;
+        return o;
+    }
+public:
+    reader(file f) : is(make_file_input_stream(std::move(f), options())) {}
     input_stream<char> is;
     size_t count = 0;
 

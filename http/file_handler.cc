@@ -71,10 +71,16 @@ sstring file_interaction_handler::get_extension(const sstring& file) {
 }
 
 struct reader {
+private:
+    static file_input_stream_options options() {
+        file_input_stream_options o;
+        o.buffer_size = 4096;
+        return o;
+    }
+public:
     reader(file f, std::unique_ptr<reply> rep)
-            : is(
-                    make_file_input_stream(std::move(f),
-                            0, 4096)), _rep(std::move(rep)) {
+            : is(make_file_input_stream(std::move(f), options()))
+            , _rep(std::move(rep)) {
     }
     input_stream<char> is;
     std::unique_ptr<reply> _rep;

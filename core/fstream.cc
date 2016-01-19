@@ -35,8 +35,8 @@ class file_data_source_impl : public data_source_impl {
     unsigned _reads_in_progress = 0;
     std::experimental::optional<promise<>> _done;
 public:
-    file_data_source_impl(file f, file_input_stream_options options)
-            : _file(std::move(f)), _options(options), _pos(_options.offset) {}
+    file_data_source_impl(file f, uint64_t offset, file_input_stream_options options)
+            : _file(std::move(f)), _options(options), _pos(offset) {}
     virtual future<temporary_buffer<char>> get() override {
         if (_read_buffers.empty()) {
             issue_read_aheads(1);
@@ -82,23 +82,21 @@ private:
 
 class file_data_source : public data_source {
 public:
-    file_data_source(file f, file_input_stream_options options)
+    file_data_source(file f, uint64_t offset, file_input_stream_options options)
         : data_source(std::make_unique<file_data_source_impl>(
-                std::move(f), options)) {}
+                std::move(f), offset, options)) {}
 };
 
 input_stream<char> make_file_input_stream(
-        file f, file_input_stream_options options) {
-    return input_stream<char>(file_data_source(std::move(f), options));
+        file f, uint64_t offset, file_input_stream_options options) {
+    return input_stream<char>(file_data_source(std::move(f), offset, std::move(options)));
 }
 
 input_stream<char> make_file_input_stream(
-        file f, uint64_t offset, size_t buffer_size) {
-    file_input_stream_options options;
-    options.offset = offset;
-    options.buffer_size = buffer_size;
-    return make_file_input_stream(std::move(f), options);
+        file f, file_input_stream_options options) {
+    return make_file_input_stream(std::move(f), 0, std::move(options));
 }
+
 
 class file_data_sink_impl : public data_sink_impl {
     file _file;
