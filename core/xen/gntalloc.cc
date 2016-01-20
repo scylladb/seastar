@@ -25,6 +25,7 @@
 #include "osv_xen.hh"
 #include "gntalloc.hh"
 
+namespace seastar {
 namespace xen {
 
 gntref invalid_ref;
@@ -236,4 +237,5 @@ gntalloc *gntalloc::instance() {
     return _instance;
 }
 
-}
+} // namespace xen
+} // namespace seastar

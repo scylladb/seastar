@@ -27,6 +27,8 @@
 #include <boost/mpl/for_each.hpp>
 #include "align.hh"
 
+namespace seastar {
+
 static constexpr size_t  cacheline_size = 64;
 template <size_t N, int RW, int LOC>
 struct prefetcher;
@@ -110,5 +112,7 @@ template<size_t L, size_t C, typename T, int LOC = 3>
 void prefetchw_n(T** pptr) {
     boost::mpl::for_each< boost::mpl::range_c<size_t,0,C> >( [pptr] (size_t x) { prefetchw<L, LOC>(*(pptr + x)); } );
 }
+
+} // namespace seastar
 
 #endif

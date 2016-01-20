@@ -23,7 +23,8 @@
 #include "core/app-template.hh"
 #include "core/future-util.hh"
 
-using namespace net;
+using namespace seastar;
+using namespace seastar::net;
 using namespace std::chrono_literals;
 
 class udp_server {

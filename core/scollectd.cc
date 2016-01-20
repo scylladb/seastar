@@ -34,6 +34,8 @@
 #include "net/api.hh"
 #include "scollectd_api.hh"
 
+namespace seastar {
+
 bool scollectd::type_instance_id::operator<(
         const scollectd::type_instance_id& id2) const {
     auto& id1 = *this;
@@ -515,4 +517,6 @@ std::vector<data_type> get_collectd_types(
 std::vector<scollectd::type_instance_id> get_collectd_ids() {
     return get_impl().get_instance_ids();
 }
-}
+
+} // namespace scollectd
+} // namespace seastar

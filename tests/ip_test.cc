@@ -25,7 +25,8 @@
 #include "core/reactor.hh"
 #include "net/virtio.hh"
 
-using namespace net;
+using namespace seastar;
+using namespace seastar::net;
 
 int main(int ac, char** av) {
     boost::program_options::variables_map opts;

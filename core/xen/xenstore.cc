@@ -20,6 +20,8 @@
 #include <stdlib.h>
 #include <string>
 
+namespace seastar {
+
 using xenstore_transaction = xenstore::xenstore_transaction;
 
 xenstore_transaction xenstore::_xs_null = xenstore::xenstore_transaction();
@@ -92,3 +94,5 @@ std::list<std::string> xenstore::ls(std::string path, xenstore_transaction &t)
 
     return names;
 }
+
+} // namespace seastar

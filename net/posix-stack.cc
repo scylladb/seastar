@@ -25,6 +25,7 @@
 #include "api.hh"
 #include <netinet/tcp.h>
 
+namespace seastar {
 namespace net {
 
 class posix_connected_socket_impl final : public connected_socket_impl {
@@ -332,4 +333,5 @@ posix_udp_channel::receive() {
     });
 }
 
-}
+} // namespace net
+} // namespace seastar

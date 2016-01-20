@@ -46,6 +46,8 @@
 
 #include <vector>
 
+namespace seastar {
+
 using rss_key_type = std::vector<uint8_t>;
 
 // Mellanox Linux's driver key
@@ -90,4 +92,6 @@ toeplitz_hash(const rss_key_type& key, const T& data)
 	}
 	return (hash);
 }
+
+} // namespace seastar
 #endif

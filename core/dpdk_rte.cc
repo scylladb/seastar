@@ -23,6 +23,8 @@
 #include <experimental/optional>
 #include <rte_pci.h>
 
+namespace seastar {
+
 namespace dpdk {
 
 bool eal::initialized = false;
@@ -109,5 +111,7 @@ size_t eal::mem_size(int num_cpus, bool hugetlbfs_membackend)
 }
 
 } // namespace dpdk
+
+} // namespace seastar
 
 #endif // HAVE_DPDK

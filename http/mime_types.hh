@@ -13,6 +13,7 @@
 
 #include "core/sstring.hh"
 
+namespace seastar {
 namespace httpd {
 
 namespace mime_types {
@@ -28,5 +29,6 @@ const char* extension_to_type(const sstring& extension);
 } // namespace mime_types
 
 } // namespace httpd
+} // namespace seastar
 
 #endif // HTTP_MIME_TYPES_HH

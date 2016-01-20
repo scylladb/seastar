@@ -47,7 +47,8 @@
 #include "xenfront.hh"
 #include <unordered_set>
 
-using namespace net;
+namespace seastar {
+using namespace seastar::net;
 
 namespace xen {
 
@@ -454,4 +455,5 @@ std::unique_ptr<net::device> create_xenfront_net_device(boost::program_options::
     return std::make_unique<xenfront_device>(opts, userspace);
 }
 
-}
+} // namespace xen
+} // namespace seastar

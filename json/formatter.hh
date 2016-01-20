@@ -28,6 +28,7 @@
 #include <sstream>
 #include "core/sstring.hh"
 
+namespace seastar {
 namespace json {
 
 struct jsonable;
@@ -140,5 +141,6 @@ private:
 
 };
 
-}
+} // namespace json
+} // namespace seastar
 #endif /* FORMATTER_HH_ */

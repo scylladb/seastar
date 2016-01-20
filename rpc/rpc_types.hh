@@ -27,6 +27,7 @@
 #include <boost/any.hpp>
 #include <experimental/optional>
 
+namespace seastar {
 namespace rpc {
 
 // used to tag a type for serializers
@@ -107,3 +108,4 @@ public:
 };
 
 } // namespace rpc
+} // namespace seastar

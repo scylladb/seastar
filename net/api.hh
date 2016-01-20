@@ -35,6 +35,8 @@
 #include <sys/socket.h>
 #include <netinet/ip.h>
 
+namespace seastar {
+
 struct ipv4_addr;
 
 class socket_address {
@@ -262,5 +264,7 @@ public:
     }
     virtual bool has_per_core_namespace() = 0;
 };
+
+} // namespace seastar
 
 #endif

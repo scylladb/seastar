@@ -21,6 +21,7 @@
 #include "core/reactor.hh"
 #include "net/packet.hh"
 
+namespace seastar {
 namespace net {
 
 class packet_data_source final : public data_source_impl {
@@ -47,6 +48,7 @@ input_stream<char> as_input_stream(packet&& p) {
     return input_stream<char>(data_source(std::make_unique<packet_data_source>(std::move(p))));
 }
 
-}
+} // namespace net
+} // namespace seastar
 
 #endif

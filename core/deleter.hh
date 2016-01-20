@@ -27,6 +27,8 @@
 #include <assert.h>
 #include <type_traits>
 
+namespace seastar {
+
 /// \addtogroup memory-module
 /// @{
 
@@ -271,5 +273,7 @@ make_object_deleter(deleter d, T&& obj) {
 }
 
 /// @}
+
+} // namespace seastar
 
 #endif /* DELETER_HH_ */

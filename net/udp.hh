@@ -31,6 +31,7 @@
 #include "const.hh"
 #include "net.hh"
 
+namespace seastar {
 namespace net {
 
 struct udp_hdr {
@@ -54,6 +55,7 @@ struct udp_channel_state {
     void complete_send(size_t len) { _user_queue_space.signal(len); }
 };
 
-}
+} // namespace net
+} // namespace seastar
 
 #endif

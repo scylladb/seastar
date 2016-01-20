@@ -27,6 +27,8 @@
 #include <assert.h>
 #include <type_traits>
 
+namespace seastar {
+
 // Some C APIs have a structure with a variable length array at the end.
 // This is a helper function to help allocate it.
 //
@@ -53,5 +55,6 @@ make_struct_with_vla(E S::*last, size_t nr) {
 }
 
 
+} // namespace seatar
 
 #endif /* VLA_HH_ */

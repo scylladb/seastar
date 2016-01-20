@@ -26,6 +26,8 @@
 #include "core/print.hh"
 #include <boost/lexical_cast.hpp>
 
+namespace seastar {
+
 size_t parse_memory_size(std::string s) {
     size_t factor = 1;
     if (s.size()) {
@@ -40,6 +42,6 @@ size_t parse_memory_size(std::string s) {
     }
     return boost::lexical_cast<size_t>(s) * factor;
 }
-
+} // namespace seastar
 
 #endif /* CONVERSIONS_CC_ */

@@ -28,6 +28,8 @@
 #include <fstream>
 #include <cstdlib>
 
+namespace seastar {
+
 namespace bpo = boost::program_options;
 
 app_template::app_template()
@@ -124,3 +126,5 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
     smp::cleanup();
     return exit_code;
 }
+
+} // namespace seastar

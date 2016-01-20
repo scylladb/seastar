@@ -26,6 +26,8 @@
 #include "util/eclipse.hh"
 #include <malloc.h>
 
+namespace seastar {
+
 /// \addtogroup memory-module
 /// @{
 
@@ -197,5 +199,7 @@ public:
 };
 
 /// @}
+
+} // namespace seastar
 
 #endif /* TEMPORARY_BUFFER_HH_ */

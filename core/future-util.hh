@@ -34,6 +34,8 @@
 #include <vector>
 #include <experimental/optional>
 
+namespace seastar {
+
 /// \cond internal
 extern __thread size_t task_quota;
 /// \endcond
@@ -663,5 +665,7 @@ future<> now() {
 future<> later();
 
 /// @}
+
+} // namespace seastar
 
 #endif /* CORE_FUTURE_UTIL_HH_ */

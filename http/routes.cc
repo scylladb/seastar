@@ -23,6 +23,7 @@
 #include "reply.hh"
 #include "exception.hh"
 
+namespace seastar {
 namespace httpd {
 
 using namespace std;
@@ -142,4 +143,5 @@ routes& routes::add(operation_type type, const url& url,
     return add(rule, type);
 }
 
-}
+} // namespace httpd
+} // namespace seastar

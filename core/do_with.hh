@@ -26,6 +26,8 @@
 #include <memory>
 #include <tuple>
 
+namespace seastar {
+
 /// \addtogroup future-util
 /// @{
 
@@ -110,5 +112,7 @@ do_with(T1&& rv1, T2&& rv2, T3_or_F&& rv3, More&&... more) {
         return std::move(fut);
     });
 }
+
+} // namespace seastar
 
 /// @}

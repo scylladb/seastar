@@ -28,6 +28,8 @@
 
 #include "core/unaligned.hh"
 
+namespace seastar {
+
 inline uint64_t ntohq(uint64_t v) {
     return __builtin_bswap64(v);
 }
@@ -115,6 +117,7 @@ T hton(const T& x) {
     return tmp;
 }
 
-}
+} // namespace net
+} // namespace seastar
 
 #endif /* BYTEORDER_HH_ */

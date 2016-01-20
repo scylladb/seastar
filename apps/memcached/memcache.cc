@@ -48,7 +48,8 @@
 #define VERSION "v1.0"
 #define VERSION_STRING PLATFORM " " VERSION
 
-using namespace net;
+using namespace seastar;
+using namespace seastar::net;
 
 namespace bi = boost::intrusive;
 

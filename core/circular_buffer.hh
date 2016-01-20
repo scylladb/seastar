@@ -36,6 +36,8 @@
 #include <memory>
 #include <algorithm>
 
+namespace seastar {
+
 template <typename T, typename Alloc = std::allocator<T>>
 class circular_buffer {
     struct impl : Alloc {
@@ -380,5 +382,7 @@ T&
 circular_buffer<T, Alloc>::access_element_unsafe(size_t idx) {
     return _impl.storage[mask(_impl.begin + idx)];
 }
+
+} // namespace seastar
 
 #endif /* CIRCULAR_BUFFER_HH_ */

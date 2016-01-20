@@ -25,6 +25,8 @@
 #include <algorithm>
 #include <functional>
 
+using namespace seastar;
+
 %%{
 
 machine memcache_ascii_protocol;

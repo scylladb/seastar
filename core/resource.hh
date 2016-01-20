@@ -27,6 +27,8 @@
 #include <vector>
 #include <set>
 
+namespace seastar {
+
 cpu_set_t cpuid_to_cpuset(unsigned cpuid);
 
 namespace resource {
@@ -76,6 +78,8 @@ struct resources {
 resources allocate(configuration c);
 unsigned nr_processing_units();
 
-}
+} // namespace resource
+
+} // namespace seastar
 
 #endif /* RESOURCE_HH_ */

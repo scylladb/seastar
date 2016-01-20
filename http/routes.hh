@@ -32,6 +32,7 @@
 #include <vector>
 #include "core/future-util.hh"
 
+namespace seastar {
 namespace httpd {
 
 /**
@@ -202,6 +203,7 @@ public:
  */
 void verify_param(const httpd::request& req, const sstring& param);
 
-}
+} // namespace httpd
+} // namespace seastar
 
 #endif /* ROUTES_HH_ */

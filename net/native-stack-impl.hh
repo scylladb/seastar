@@ -25,6 +25,7 @@
 #include "core/reactor.hh"
 #include "stack.hh"
 
+namespace seastar {
 namespace net {
 
 template <typename Protocol>
@@ -165,7 +166,8 @@ native_connected_socket_impl<Protocol>::get_nodelay() const {
     return true;
 }
 
-}
+} // namespace net
+} // namespace seastar
 
 
 

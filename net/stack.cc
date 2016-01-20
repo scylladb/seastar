@@ -22,6 +22,8 @@
 #include "stack.hh"
 #include "core/reactor.hh"
 
+namespace seastar {
+
 net::udp_channel::udp_channel()
 {}
 
@@ -117,3 +119,4 @@ socket_address::socket_address(ipv4_addr addr)
     : socket_address(make_ipv4_address(addr))
 {}
 
+} // namespace seastar

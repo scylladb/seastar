@@ -28,6 +28,8 @@
 #include <exception>
 #include "timer.hh"
 
+namespace seastar {
+
 /// \addtogroup fiber-module
 /// @{
 
@@ -265,5 +267,7 @@ with_semaphore(semaphore& sem, size_t units, Func&& func) {
 }
 
 /// @}
+
+} // namespace seastar
 
 #endif /* CORE_SEMAPHORE_HH_ */

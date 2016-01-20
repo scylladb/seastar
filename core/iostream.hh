@@ -39,6 +39,8 @@
 #include "temporary_buffer.hh"
 #include "scattered_message.hh"
 
+namespace seastar {
+
 namespace net { class packet; }
 
 class data_source_impl {
@@ -213,5 +215,7 @@ public:
 private:
     friend class reactor;
 };
+
+} // namespace seastar
 
 #include "iostream-impl.hh"

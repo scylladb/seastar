@@ -21,6 +21,7 @@
 
 #include "json_path.hh"
 
+namespace seastar {
 namespace httpd {
 
 using namespace std;
@@ -65,4 +66,5 @@ path_description::path_description(const sstring& path, operation_type method,
 
 }
 
-}
+} // namespace httpd
+} // namespace seastar

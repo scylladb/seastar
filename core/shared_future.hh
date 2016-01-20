@@ -25,6 +25,8 @@
 #include <deque>
 #include "future.hh"
 
+namespace seastar {
+
 /// \addtogroup future-module
 /// @{
 
@@ -49,14 +51,14 @@
 /// When it's in such a state we say it's invalid and obtaining futures must not be attempted.
 ///
 /// The types in the parameter pack T must all be copy-constructible.
-template<typename... T>
+template<typename... U>
 class shared_future {
     /// \cond internal
     class shared_state {
-        future_state<T...> _future_state;
-        std::deque<promise<T...>> _peers;
+	future_state<U...> _future_state;
+	std::deque<promise<U...>> _peers;
     public:
-        void resolve(future<T...>&& f) noexcept {
+        void resolve(future<U...>&& f) noexcept {
             _future_state = f.get_available_state();
             if (_future_state.failed()) {
                 for (auto&& p : _peers) {
@@ -74,19 +76,19 @@ class shared_future {
             _peers.clear();
         }
 
-        future<T...> get_future() {
+        future<U...> get_future() {
             if (!_future_state.available()) {
-                promise<T...> p;
+                promise<U...> p;
                 auto f = p.get_future();
                 _peers.emplace_back(std::move(p));
                 return f;
             } else if (_future_state.failed()) {
-                return make_exception_future<T...>(_future_state.get_exception());
+                return make_exception_future<U...>(_future_state.get_exception());
             } else {
                 try {
-                    return make_ready_future<T...>(_future_state.get_value());
+                    return make_ready_future<U...>(_future_state.get_value());
                 } catch (...) {
-                    return make_exception_future<T...>(std::current_exception());
+                    return make_exception_future<U...>(std::current_exception());
                 }
             }
         }
@@ -95,10 +97,10 @@ class shared_future {
     lw_shared_ptr<shared_state> _state;
 public:
     /// \brief Forwards the result of future \c f into this shared_future.
-    shared_future(future<T...>&& f)
+    shared_future(future<U...>&& f)
         : _state(make_lw_shared<shared_state>())
     {
-        f.then_wrapped([s = _state] (future<T...>&& f) mutable {
+        f.then_wrapped([s = _state] (future<U...>&& f) mutable {
             s->resolve(std::move(f));
         });
     }
@@ -112,12 +114,12 @@ public:
     /// \brief Creates a new \c future which will resolve with the result of this shared_future
     ///
     /// This object must be in a valid state.
-    future<T...> get_future() const {
+    future<U...> get_future() const {
         return _state->get_future();
     }
 
     /// \brief Equivalent to \ref get_future()
-    operator future<T...>() const {
+    operator future<U...>() const {
         return get_future();
     }
 
@@ -126,5 +128,7 @@ public:
         return bool(_state);
     }
 };
+
+} // namespace seastar
 
 /// @}

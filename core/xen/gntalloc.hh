@@ -20,6 +20,7 @@
 
 #include "core/posix.hh"
 
+namespace seastar {
 namespace xen {
 
 class gntref {
@@ -64,6 +65,7 @@ public:
 
 extern gntref invalid_ref;
 
-}
+} // namespace xen
+} // namespace seastar
 
 #endif

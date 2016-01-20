@@ -36,6 +36,8 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
+namespace seastar {
+
 /// \addtogroup fileio-module
 /// @{
 
@@ -619,5 +621,7 @@ file::read_maybe_eof(uint64_t pos, size_t len, const io_priority_class& pc) {
 /// \endcond
 
 /// @}
+
+} // namespace seastar
 
 #endif /* FILE_HH_ */

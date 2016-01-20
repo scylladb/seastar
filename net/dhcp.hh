@@ -25,6 +25,7 @@
 #include "ip.hh"
 #include "core/reactor.hh"
 
+namespace seastar {
 namespace net {
 
 /*
@@ -78,6 +79,7 @@ private:
     std::unique_ptr<impl> _impl;
 };
 
-}
+} // namespace net
+} // namespace seastar
 
 #endif /* NET_DHCP_HH_ */

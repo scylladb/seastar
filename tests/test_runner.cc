@@ -26,6 +26,8 @@
 #include "core/reactor.hh"
 #include "test_runner.hh"
 
+using namespace seastar;
+
 static test_runner instance;
 
 struct stop_execution : public std::exception {};

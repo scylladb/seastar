@@ -43,6 +43,8 @@
 #include <memory>
 #include "net/api.hh"
 
+namespace seastar {
+
 inline void throw_system_error_on(bool condition, const char* what_arg = "");
 
 template <typename T>
@@ -382,5 +384,7 @@ sigset_t make_empty_sigset_mask() {
 }
 
 void pin_this_thread(unsigned cpu_id);
+
+} // namespace seastar
 
 #endif /* FILE_DESC_HH_ */

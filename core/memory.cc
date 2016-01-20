@@ -74,6 +74,8 @@
 #include <numaif.h>
 #endif
 
+namespace seastar {
+
 namespace memory {
 
 static constexpr unsigned cpu_id_shift = 36; // FIXME: make dynamic
@@ -1063,9 +1065,11 @@ memory_layout get_memory_layout() {
     return cpu_mem.memory_layout();
 }
 
-}
+} // namespace memory
 
-using namespace memory;
+} // namespace seastar
+
+using namespace seastar::memory;
 
 extern "C"
 [[gnu::visibility("default")]]
@@ -1091,7 +1095,7 @@ extern "C"
 [[gnu::externally_visible]]
 void free(void* ptr) {
     if (ptr) {
-        memory::free(ptr);
+	seastar::memory::free(ptr);
     }
 }
 
@@ -1130,7 +1134,7 @@ void* realloc(void* ptr, size_t size) {
         return nullptr;
     }
     if (size < old_size) {
-        memory::shrink(ptr, size);
+	seastar::memory::shrink(ptr, size);
         return ptr;
     }
     auto nptr = malloc(size);
@@ -1244,28 +1248,28 @@ void* operator new[](size_t size) {
 [[gnu::visibility("default")]]
 void operator delete(void* ptr) throw () {
     if (ptr) {
-        memory::free(ptr);
+	seastar::memory::free(ptr);
     }
 }
 
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr) throw () {
     if (ptr) {
-        memory::free(ptr);
+	seastar::memory::free(ptr);
     }
 }
 
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, size_t size) throw () {
     if (ptr) {
-        memory::free(ptr, size);
+	seastar::memory::free(ptr, size);
     }
 }
 
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, size_t size) throw () {
     if (ptr) {
-        memory::free(ptr, size);
+	seastar::memory::free(ptr, size);
     }
 }
 
@@ -1296,50 +1300,52 @@ void* operator new[](size_t size, std::nothrow_t) throw () {
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, std::nothrow_t) throw () {
     if (ptr) {
-        memory::free(ptr);
+	seastar::memory::free(ptr);
     }
 }
 
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, std::nothrow_t) throw () {
     if (ptr) {
-        memory::free(ptr);
+	seastar::memory::free(ptr);
     }
 }
 
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, size_t size, std::nothrow_t) throw () {
     if (ptr) {
-        memory::free(ptr, size);
+	seastar::memory::free(ptr, size);
     }
 }
 
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, size_t size, std::nothrow_t) throw () {
     if (ptr) {
-        memory::free(ptr, size);
+	seastar::memory::free(ptr, size);
     }
 }
 
-void* operator new(size_t size, with_alignment wa) {
+void* operator new(size_t size, seastar::with_alignment wa) {
     return allocate_aligned(wa.alignment(), size);
 }
 
-void* operator new[](size_t size, with_alignment wa) {
+void* operator new[](size_t size, seastar::with_alignment wa) {
     return allocate_aligned(wa.alignment(), size);
 }
 
-void operator delete(void* ptr, with_alignment wa) {
+void operator delete(void* ptr, seastar::with_alignment wa) {
     // only called for matching operator new, so we know ptr != nullptr
-    return memory::free(ptr);
+    return seastar::memory::free(ptr);
 }
 
-void operator delete[](void* ptr, with_alignment wa) {
+void operator delete[](void* ptr, seastar::with_alignment wa) {
     // only called for matching operator new, so we know ptr != nullptr
-    return memory::free(ptr);
+    return seastar::memory::free(ptr);
 }
 
 #else
+
+namespace seastar {
 
 namespace memory {
 
@@ -1372,9 +1378,10 @@ memory_layout get_memory_layout() {
     throw std::runtime_error("get_memory_layout() not supported");
 }
 
-}
+} // namespace memory
+} // namespace seastar
 
-void* operator new(size_t size, with_alignment wa) {
+void* operator new(size_t size, seastar::with_alignment wa) {
     void* ret;
     if (posix_memalign(&ret, wa.alignment(), size) != 0) {
         throw std::bad_alloc();
@@ -1382,7 +1389,7 @@ void* operator new(size_t size, with_alignment wa) {
     return ret;
 }
 
-void* operator new[](size_t size, with_alignment wa) {
+void* operator new[](size_t size, seastar::with_alignment wa) {
     void* ret;
     if (posix_memalign(&ret, wa.alignment(), size) != 0) {
         throw std::bad_alloc();
@@ -1390,13 +1397,14 @@ void* operator new[](size_t size, with_alignment wa) {
     return ret;
 }
 
-void operator delete(void* ptr, with_alignment wa) {
+void operator delete(void* ptr, seastar::with_alignment wa) {
     return ::free(ptr);
 }
 
-void operator delete[](void* ptr, with_alignment wa) {
+void operator delete[](void* ptr, seastar::with_alignment wa) {
     return ::free(ptr);
 }
+
 
 #endif
 

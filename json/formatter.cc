@@ -24,6 +24,7 @@
 
 using namespace std;
 
+namespace seastar {
 namespace json {
 
 sstring formatter::to_json(const sstring& str) {
@@ -83,4 +84,5 @@ sstring formatter::to_json(unsigned long l) {
     return to_string(l);
 }
 
-}
+} // namespace json
+} // namespace seastar

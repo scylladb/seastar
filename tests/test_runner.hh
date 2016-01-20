@@ -28,18 +28,20 @@
 #include "core/posix.hh"
 #include "exchanger.hh"
 
+namespace seastar {
 class posix_thread;
 
 class test_runner {
 private:
-    std::unique_ptr<posix_thread> _thread;
+    std::unique_ptr<seastar::posix_thread> _thread;
     std::atomic<bool> _started{false};
     exchanger<std::function<future<>()>> _task;
     bool _done = false;
 public:
     void start(int argc, char** argv);
     ~test_runner();
-    void run_sync(std::function<future<>()> task);
+    void run_sync(std::function<seastar::future<>()> task);
 };
+} // namespace seastar
 
-test_runner& global_test_runner();
+seastar::test_runner& global_test_runner();

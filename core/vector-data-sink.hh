@@ -24,6 +24,8 @@
 
 #include "core/reactor.hh"
 
+namespace seastar {
+
 class vector_data_sink final : public data_sink_impl {
 public:
     using vector_type = std::vector<net::packet>;
@@ -42,5 +44,7 @@ public:
         return make_ready_future<>();
     }
 };
+
+} // namespace seastar
 
 #endif

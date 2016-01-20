@@ -22,6 +22,7 @@
 #include "tests/test-utils.hh"
 #include "core/memory.hh"
 
+using namespace seastar;
 
 SEASTAR_TEST_CASE(alloc_almost_all_and_realloc_it_with_a_smaller_size) {
 #ifndef DEFAULT_ALLOCATOR

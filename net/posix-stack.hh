@@ -26,6 +26,7 @@
 #include "stack.hh"
 #include <boost/program_options.hpp>
 
+namespace seastar {
 namespace net {
 
 data_source posix_data_source(pollable_fd& fd);
@@ -114,6 +115,7 @@ public:
     }
 };
 
-}
+} // namespace net
+} // namespace seastar
 
 #endif

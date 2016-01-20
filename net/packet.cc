@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <cctype>
 
+namespace seastar {
 namespace net {
 
 constexpr size_t packet::internal_data_size;
@@ -119,4 +120,5 @@ std::ostream& operator<<(std::ostream& os, const packet& p) {
     return os;
 }
 
-}
+} // namespace net
+} // namespace seastar

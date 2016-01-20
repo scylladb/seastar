@@ -26,6 +26,7 @@
 #include <utility>
 #include "toeplitz.hh"
 
+namespace seastar {
 using std::move;
 
 ipv4_addr::ipv4_addr(const std::string &addr) {
@@ -364,4 +365,5 @@ future<> interface::dispatch_packet(packet p) {
     return make_ready_future<>();
 }
 
-}
+} // namespace net
+} // namespace seastar

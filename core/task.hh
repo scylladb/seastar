@@ -23,6 +23,8 @@
 
 #include <memory>
 
+namespace seastar {
+
 class task {
 public:
     virtual ~task() noexcept {}
@@ -46,3 +48,5 @@ std::unique_ptr<task>
 make_task(Func&& func) {
     return std::make_unique<lambda_task<Func>>(std::forward<Func>(func));
 }
+
+} // namespace seastar

@@ -21,6 +21,7 @@
 #include "core/posix.hh"
 #include "core/future.hh"
 
+namespace seastar {
 namespace xen {
 
 class evtchn;
@@ -62,6 +63,7 @@ public:
     port bind(int p) { return port(p); };
 };
 
-}
+} // namespace xen
+} // namespace seastar
 
 #endif

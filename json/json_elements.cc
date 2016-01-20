@@ -27,6 +27,7 @@
 
 using namespace std;
 
+namespace seastar {
 namespace json {
 
 /**
@@ -110,4 +111,5 @@ bool json_base::is_verify() const {
     return true;
 }
 
-}
+} // namespace json
+} // namespace seastar

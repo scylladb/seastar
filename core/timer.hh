@@ -27,6 +27,8 @@
 #include "future.hh"
 #include "timer-set.hh"
 
+namespace seastar {
+
 using steady_clock_type = std::chrono::steady_clock;
 
 template <typename Clock = steady_clock_type>
@@ -69,3 +71,5 @@ public:
     friend class seastar::timer_set<timer, &timer::_link>;
 };
 
+
+} // namespace seastar

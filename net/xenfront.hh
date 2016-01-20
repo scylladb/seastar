@@ -28,6 +28,7 @@
 #include "core/xen/gntalloc.hh"
 #include "core/queue.hh"
 
+namespace seastar {
 namespace xen {
 
 std::unique_ptr<net::device> create_xenfront_net_device(boost::program_options::variables_map opts, bool userspace);
@@ -150,6 +151,7 @@ private:
     xenfront_qp& _dev;
 };
 
-}
+} // namespace xen
+} // namespace seastar
 
 #endif /* XENFRONT_HH_ */

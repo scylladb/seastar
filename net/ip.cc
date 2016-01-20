@@ -26,6 +26,7 @@
 #include "core/shared_ptr.hh"
 #include "toeplitz.hh"
 
+namespace seastar {
 namespace net {
 
 std::ostream& operator<<(std::ostream& os, ipv4_address a) {
@@ -473,4 +474,5 @@ void icmp::received(packet p, ipaddr from, ipaddr to) {
     }
 }
 
-}
+} // namespace net
+} // namespace seastar

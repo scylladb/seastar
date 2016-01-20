@@ -22,6 +22,8 @@
 #ifndef BITOPS_HH_
 #define BITOPS_HH_
 
+namespace seastar {
+
 inline
 constexpr unsigned count_leading_zeros(unsigned x) {
     return __builtin_clz(x);
@@ -51,5 +53,7 @@ inline
 constexpr unsigned count_trailing_zeros(unsigned long long x) {
     return __builtin_ctzll(x);
 }
+
+} // namespace seastar
 
 #endif /* BITOPS_HH_ */

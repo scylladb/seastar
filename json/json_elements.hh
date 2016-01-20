@@ -29,6 +29,7 @@
 #include "formatter.hh"
 #include "core/sstring.hh"
 
+namespace seastar {
 namespace json {
 
 /**
@@ -256,6 +257,7 @@ struct json_return_type {
     json_return_type& operator=(json_return_type&&) = default;
 };
 
-}
+} // namespace json
+} // namespace seastar
 
 #endif /* JSON_ELEMENTS_HH_ */

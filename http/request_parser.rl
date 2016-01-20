@@ -26,7 +26,8 @@
 #include <unordered_map>
 #include "http/request.hh"
 
-using namespace httpd;
+using namespace seastar;
+using namespace seastar::httpd;
 
 %% machine request;
 

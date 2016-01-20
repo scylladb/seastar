@@ -13,7 +13,8 @@
 #include "core/future-util.hh"
 #include "tests/test-utils.hh"
 
-using namespace httpd;
+using namespace seastar;
+using namespace seastar::httpd;
 
 class handl : public httpd::handler_base {
 public:

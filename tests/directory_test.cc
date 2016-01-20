@@ -25,6 +25,8 @@
 #include "core/print.hh"
 #include "core/shared_ptr.hh"
 
+using namespace seastar;
+
 int main(int ac, char** av) {
     class lister {
         file _f;

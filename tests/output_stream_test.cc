@@ -29,7 +29,8 @@
 #include "test-utils.hh"
 #include <vector>
 
-using namespace net;
+using namespace seastar;
+using namespace seastar::net;
 
 static sstring to_sstring(const packet& p) {
     sstring res(sstring::initialized_later(), p.len());

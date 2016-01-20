@@ -29,6 +29,8 @@
 #include "core/reactor.hh"
 #include "core/future.hh"
 
+namespace seastar {
+
 template <typename Clock = steady_clock_type, typename Rep, typename Period>
 future<> sleep(std::chrono::duration<Rep, Period> dur) {
     struct sleeper {
@@ -44,3 +46,5 @@ future<> sleep(std::chrono::duration<Rep, Period> dur) {
     future<> fut = s->done.get_future();
     return fut.then([s] { delete s; });
 }
+
+} // namespace seastar

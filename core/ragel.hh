@@ -31,6 +31,8 @@
 #include <experimental/optional>
 #include "future.hh"
 
+namespace seastar {
+
 // Support classes for Ragel parsers
 
 // Builds an sstring that can be scattered across multiple packets.
@@ -136,5 +138,7 @@ public:
         return make_ready_future<unconsumed_remainder>();
     }
 };
+
+} // namespace seastar
 
 #endif /* RAGEL_HH_ */

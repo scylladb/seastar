@@ -22,6 +22,7 @@
 
 #include "api.hh"
 
+namespace seastar {
 namespace net {
 
 /// \cond internal
@@ -55,5 +56,6 @@ public:
 
 /// \endcond
 
-}
+} // namespace net
+} // namespace seastar
 
