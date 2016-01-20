@@ -2309,6 +2309,19 @@ void smp::cleanup() {
 
 void smp::configure(boost::program_options::variables_map configuration)
 {
+    // Mask most, to prevent threads (esp. dpdk helper threads)
+    // from servicing a signal.  Individual reactors will unmask signals
+    // as they become prepared to handle them.
+    //
+    // We leave some signals unmasked since we don't handle them ourself.
+    sigset_t sigs;
+    sigfillset(&sigs);
+    for (auto sig : {SIGHUP, SIGQUIT, SIGILL, SIGABRT, SIGFPE, SIGSEGV,
+            SIGALRM, SIGCONT, SIGSTOP, SIGTSTP, SIGTTIN, SIGTTOU}) {
+        sigdelset(&sigs, sig);
+    }
+    pthread_sigmask(SIG_BLOCK, &sigs, nullptr);
+
     smp::count = 1;
     smp::_tmain = std::this_thread::get_id();
     auto nr_cpus = resource::nr_processing_units();
