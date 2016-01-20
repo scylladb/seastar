@@ -150,7 +150,7 @@ reactor::signals::signals() : _pending_signals(0) {
 reactor::signals::~signals() {
     sigset_t mask;
     sigfillset(&mask);
-    ::sigprocmask(SIG_BLOCK, &mask, NULL);
+    ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
 }
 
 reactor::signals::signal_handler::signal_handler(int signo, std::function<void ()>&& handler)
@@ -162,7 +162,7 @@ reactor::signals::signal_handler::signal_handler(int signo, std::function<void (
     auto r = ::sigaction(signo, &sa, nullptr);
     throw_system_error_on(r == -1);
     auto mask = make_sigset_mask(signo);
-    r = ::sigprocmask(SIG_UNBLOCK, &mask, NULL);
+    r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
     throw_system_error_on(r == -1);
 }
 
@@ -230,7 +230,7 @@ reactor::reactor()
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask, alarm_signal());
-    r = ::sigprocmask(SIG_BLOCK, &mask, NULL);
+    r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
     assert(r == 0);
     struct sigevent sev;
     sev.sigev_notify = SIGEV_THREAD_ID;
@@ -243,7 +243,7 @@ reactor::reactor()
     assert(r >= 0);
     sigemptyset(&mask);
     sigaddset(&mask, task_quota_signal());
-    r = ::sigprocmask(SIG_UNBLOCK, &mask, NULL);
+    r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
     assert(r == 0);
 #endif
     memory::set_reclaim_hook([this] (std::function<void ()> reclaim_fn) {
@@ -1439,7 +1439,7 @@ public:
         // and epoll_pwait()
         sigset_t block_all;
         sigfillset(&block_all);
-        ::sigprocmask(SIG_SETMASK, &block_all, &_r._active_sigmask);
+        ::pthread_sigmask(SIG_SETMASK, &block_all, &_r._active_sigmask);
         if (poll()) {
             // raced already, and lost
             exit_interrupt_mode();
@@ -1448,7 +1448,7 @@ public:
         return true;
     }
     virtual void exit_interrupt_mode() override final {
-        ::sigprocmask(SIG_SETMASK, &_r._active_sigmask, nullptr);
+        ::pthread_sigmask(SIG_SETMASK, &_r._active_sigmask, nullptr);
     }
 };
 
@@ -2048,7 +2048,7 @@ thread_pool::thread_pool() : _worker_thread([this] { work(); }), _notify(pthread
 void thread_pool::work() {
     sigset_t mask;
     sigfillset(&mask);
-    auto r = ::sigprocmask(SIG_BLOCK, &mask, NULL);
+    auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
     throw_system_error_on(r == -1);
     while (true) {
         uint64_t count;
@@ -2424,7 +2424,7 @@ void smp::configure(boost::program_options::variables_map configuration)
             memory::configure(allocation.mem, hugepages_path);
             sigset_t mask;
             sigfillset(&mask);
-            auto r = ::sigprocmask(SIG_BLOCK, &mask, NULL);
+            auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
             throw_system_error_on(r == -1);
             allocate_reactor();
             engine()._id = i;
