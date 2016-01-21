@@ -528,13 +528,24 @@ private:
     size_t _capacity;
     std::vector<shard_id> _io_topology;
 
-    std::unordered_map<unsigned, priority_class_ptr> _priority_classes;
+    struct priority_class_data {
+        priority_class_ptr ptr;
+        size_t bytes;
+        uint64_t ops;
+        std::vector<scollectd::registration> collectd_reg;
+        priority_class_data(sstring name, priority_class_ptr ptr);
+    };
+
+    std::unordered_map<unsigned, lw_shared_ptr<priority_class_data>> _priority_classes;
     fair_queue _fq;
 
     static constexpr unsigned _max_classes = 1024;
     static std::array<std::atomic<uint32_t>, _max_classes> _registered_shares;
+    static std::array<sstring, _max_classes> _registered_names;
 
-    static io_priority_class register_one_priority_class(uint32_t shares);
+    static io_priority_class register_one_priority_class(sstring name, uint32_t shares);
+
+    priority_class_data& find_or_create_class(const io_priority_class& pc, shard_id owner);
 public:
     static void fill_shares_array();
 
@@ -738,8 +749,8 @@ public:
         return *_io_queue;
     }
 
-    io_priority_class register_one_priority_class(uint32_t shares) {
-        return io_queue::register_one_priority_class(shares);
+    io_priority_class register_one_priority_class(sstring name, uint32_t shares) {
+        return io_queue::register_one_priority_class(std::move(name), shares);
     }
 
     void configure(boost::program_options::variables_map config);

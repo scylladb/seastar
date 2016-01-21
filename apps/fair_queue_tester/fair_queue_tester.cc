@@ -39,6 +39,8 @@ static std::default_random_engine random_generator(random_seed);
 
 class context {
     struct class_data {
+        static int idgen();
+
         uint32_t _shares;
         io_priority_class _iop;
         unsigned _final = 0;
@@ -48,7 +50,7 @@ class context {
 
         class_data(uint32_t shares)
             : _shares(shares)
-            , _iop(engine().register_one_priority_class(shares))
+            , _iop(engine().register_one_priority_class(sprint("test-class-%d", idgen()), shares))
         {}
     };
     std::vector<class_data> _cl;
@@ -123,6 +125,10 @@ public:
     }
 };
 
+int context::class_data::idgen() {
+    static thread_local int id = 0;
+    return id++;
+}
 
 int main(int ac, char** av) {
     namespace bpo = boost::program_options;
