@@ -228,14 +228,14 @@ public:
     simple_input_stream(const char* p, size_t size) : _p(p), _size(size) {}
     void skip(size_t size) {
         if (size > _size) {
-            throw error("deserialization buffer overflow");
+            throw error("deserialization buffer underflow");
         }
         _p += size;
         _size -= size;
     }
     simple_input_stream read_substream(size_t size) {
        if (size > _size) {
-           throw error("deserialization buffer overflow");
+           throw error("deserialization buffer underflow");
        }
        simple_input_stream substream(_p, size);
        skip(size);
@@ -243,7 +243,7 @@ public:
     }
     void read(char* p, size_t size) {
         if (size > _size) {
-            throw error("deserialization buffer overflow");
+            throw error("deserialization buffer underflow");
         }
         std::copy_n(_p, size, p);
         skip(size);
