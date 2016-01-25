@@ -653,6 +653,20 @@ protocol<Serializer, MsgType>::server::connection::connection(protocol<Serialize
     _info.addr = std::move(addr);
 }
 
+
+template<typename Connection>
+static void log_exception(Connection& c, const char* log, std::exception_ptr eptr) {
+    const char* s;
+    try {
+        std::rethrow_exception(eptr);
+    } catch (std::exception& ex) {
+        s = ex.what();
+    } catch (...) {
+        s = "unknown exception";
+    }
+    c.get_protocol().log(c.peer_address(), sprint("%s: %s", log, s));
+}
+
 template<typename Connection>
 static bool verify_frame(Connection& c, temporary_buffer<char>& buf, size_t expected, const char* log) {
     if (buf.size() != expected) {
@@ -788,6 +802,9 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
             });
         });
     }).then_wrapped([this] (future<> f) {
+        if (f.failed()) {
+            log_exception(*this, "server connection dropped", f.get_exception());
+        }
         f.ignore_ready_future();
         this->_error = true;
         return this->out_ready().then_wrapped([this] (future<> f) {
@@ -879,7 +896,10 @@ protocol<Serializer, MsgType>::client::client(protocol& proto, ipv4_addr addr, f
                 });
             });
         });
-    }).then_wrapped([this] (future<> f){
+    }).then_wrapped([this] (future<> f) {
+        if (f.failed()) {
+            log_exception(*this, "client connection dropped", f.get_exception());
+        }
         f.ignore_ready_future();
         this->_error = true;
         auto need_close = _connected;
