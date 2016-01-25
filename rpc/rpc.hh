@@ -292,7 +292,6 @@ public:
     void log(const sstring& str) {
         if (_logger) {
             _logger(str);
-            _logger("\n");
         }
     }
 

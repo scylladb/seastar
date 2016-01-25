@@ -94,7 +94,7 @@ int main(int ac, char** av) {
 
     myrpc.set_logger([] (const sstring& log) {
         print("%s", log);
-        std::cout << std::flush;
+        std::cout << std::endl;
     });
 
     return app.run_deprecated(ac, av, [&] {
