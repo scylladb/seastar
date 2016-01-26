@@ -25,14 +25,14 @@
 #include <stdexcept>
 #include <string>
 #include <boost/any.hpp>
+#include <boost/type.hpp>
 #include <experimental/optional>
 
 namespace rpc {
 
 // used to tag a type for serializers
-template <typename T>
-struct type {
-};
+template<typename T>
+using type = boost::type<T>;
 
 struct stats {
     using counter_type = uint64_t;
