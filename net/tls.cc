@@ -93,6 +93,7 @@ static future<temporary_buffer<char>> read_fully(const sstring& name, const sstr
 // that much anyway. And they are sooo c++98...
 class gnutls_error_category : public std::error_category {
 public:
+    constexpr gnutls_error_category() noexcept : std::error_category{} {}
     const char * name() const noexcept {
         return "GnuTLS";
     }
