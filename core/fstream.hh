@@ -21,6 +21,8 @@
 
 #pragma once
 
+/// \file
+
 // File <-> streams adapters
 //
 // Seastar files are block-based due to the reliance on DMA - you must read
@@ -39,6 +41,18 @@ struct file_input_stream_options {
     unsigned read_ahead = 0;      ///< Number of extra read-ahead operations
     ::io_priority_class io_priority_class = default_priority_class();
 };
+
+/// \brief Creates an input_stream to read a portion of a file.
+///
+/// \param file File to read; multiple streams for the same file may coexist
+/// \param offset Starting offset to read from (no alignment restrictions)
+/// \param len Maximum number of bytes to read; the stream will stop at end-of-file
+///            even if `offset + len` is beyond end-of-file.
+/// \param options A set of options controlling the stream.
+///
+/// \note Multiple input streams may exist concurrently for the same file.
+input_stream<char> make_file_input_stream(
+        file file, uint64_t offset, uint64_t len, file_input_stream_options options = {});
 
 // Create an input_stream for a given file, with the specified options.
 // Multiple fibers of execution (continuations) may safely open

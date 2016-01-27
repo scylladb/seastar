@@ -29,6 +29,9 @@
 #include "core/do_with.hh"
 #include "core/seastar.hh"
 #include "test-utils.hh"
+#include "core/thread.hh"
+#include <random>
+#include <boost/range/adaptor/transformed.hpp>
 
 struct writer {
     output_stream<char> out;
@@ -189,3 +192,62 @@ SEASTAR_TEST_CASE(test_consume_unaligned_file_large) {
     return test_consume_until_end((1 << 20) + 1);
 }
 
+SEASTAR_TEST_CASE(test_input_stream_esp_around_eof) {
+    return seastar::async([] {
+        auto flen = uint64_t(5341);
+        auto rdist = std::uniform_int_distribution<char>();
+        auto reng = std::default_random_engine();
+        auto data = boost::copy_range<std::vector<uint8_t>>(
+                boost::irange<uint64_t>(0, flen)
+                | boost::adaptors::transformed([&] (int x) { return rdist(reng); }));
+        auto f = open_file_dma("file.tmp",
+                open_flags::rw | open_flags::create | open_flags::truncate).get0();
+        auto out = make_file_output_stream(f);
+        out.write(reinterpret_cast<const char*>(data.data()), data.size()).get();
+        out.flush().get();
+        //out.close().get();  // FIXME: closes underlying stream:?!
+        struct range { uint64_t start; uint64_t end; };
+        auto ranges = std::vector<range>{{
+            range{0, flen},
+            range{0, flen * 2},
+            range{0, flen + 1},
+            range{0, flen - 1},
+            range{0, 1},
+            range{1, 2},
+            range{flen - 1, flen},
+            range{flen - 1, flen + 1},
+            range{flen, flen + 1},
+            range{flen + 1, flen + 2},
+            range{1023, flen-1},
+            range{1023, flen},
+            range{1023, flen + 2},
+            range{8193, 8194},
+            range{1023, 1025},
+            range{1023, 1024},
+            range{1024, 1025},
+            range{1023, 4097},
+        }};
+        auto opt = file_input_stream_options();
+        opt.buffer_size = 512;
+        for (auto&& r : ranges) {
+            auto start = r.start;
+            auto end = r.end;
+            auto len = end - start;
+            auto in = make_file_input_stream(f, start, len, opt);
+            std::vector<uint8_t> readback;
+            auto more = true;
+            while (more) {
+                auto rdata = in.read().get0();
+                for (size_t i = 0; i < rdata.size(); ++i) {
+                    readback.push_back(rdata.get()[i]);
+                }
+                more = !rdata.empty();
+            }
+            //in.close().get();
+            auto xlen = std::min(end, flen) - std::min(flen, start);
+            BOOST_REQUIRE_EQUAL(xlen, readback.size());
+            BOOST_REQUIRE(std::equal(readback.begin(), readback.end(), data.begin() + std::min(start, flen)));
+        }
+        f.close().get();
+    });
+}
