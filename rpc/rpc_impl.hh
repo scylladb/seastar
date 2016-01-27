@@ -817,7 +817,7 @@ protocol<Serializer, MsgType>::client::client(protocol& proto, ipv4_addr addr, f
         return this->negotiate_protocol(this->_read_buf).then([this] (negotiation_frame frame) {
             return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
                 return this->read_response_frame(this->_read_buf).then([this] (int64_t msg_id, std::experimental::optional<temporary_buffer<char>> data) {
-                    auto it = _outstanding.find(::abs(msg_id));
+                    auto it = _outstanding.find(std::abs(msg_id));
                     if (!data) {
                         this->_error = true;
                     } else if (it != _outstanding.end()) {
