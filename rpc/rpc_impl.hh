@@ -28,6 +28,7 @@
 #include "core/future-util.hh"
 #include "util/is_smart_ptr.hh"
 #include "core/byteorder.hh"
+#include "core/simple-stream.hh"
 
 namespace rpc {
 
@@ -160,32 +161,12 @@ inline void do_marshall(Serializer& serializer, Output& out, const T&... args) {
     ignorer ignore{(marshall_one(serializer, out, args), 1)...};
 }
 
-class measuring_output_stream {
-    size_t _size = 0;
-public:
-    void write(const char* data, size_t size) {
-        _size += size;
-    }
-    size_t size() const {
-        return _size;
-    }
-};
-
-class simple_output_stream {
-    char* _p;
-public:
-    simple_output_stream(sstring& s, size_t start) : _p(s.begin() + start) {}
-    void write(const char* data, size_t size) {
-        _p = std::copy_n(data, size, _p);
-    }
-};
-
 template <typename Serializer, typename... T>
 inline sstring marshall(Serializer& serializer, size_t head_space, const T&... args) {
-    measuring_output_stream measure;
+    seastar::measuring_output_stream measure;
     do_marshall(serializer, measure, args...);
     sstring ret(sstring::initialized_later(), measure.size() + head_space);
-    simple_output_stream out(ret, head_space);
+    seastar::simple_output_stream out(ret, head_space);
     do_marshall(serializer, out, args...);
     return ret;
 }
@@ -221,42 +202,10 @@ inline std::tuple<T0, Trest...> do_unmarshall(Serializer& serializer, Input& in)
     return std::tuple_cat(std::move(first), std::move(rest));
 }
 
-class simple_input_stream {
-    const char* _p;
-    size_t _size;
-public:
-    simple_input_stream(const char* p, size_t size) : _p(p), _size(size) {}
-    void skip(size_t size) {
-        if (size > _size) {
-            throw error("deserialization buffer underflow");
-        }
-        _p += size;
-        _size -= size;
-    }
-    simple_input_stream read_substream(size_t size) {
-       if (size > _size) {
-           throw error("deserialization buffer underflow");
-       }
-       simple_input_stream substream(_p, size);
-       skip(size);
-       return substream;
-    }
-    void read(char* p, size_t size) {
-        if (size > _size) {
-            throw error("deserialization buffer underflow");
-        }
-        std::copy_n(_p, size, p);
-        skip(size);
-    }
-    const size_t size() const {
-        return _size;
-    }
-};
-
 template <typename Serializer, typename... T>
 inline std::tuple<T...> unmarshall(Serializer& serializer, temporary_buffer<char> input) {
-    simple_input_stream in(input.get(), input.size());
-    return do_unmarshall<Serializer, simple_input_stream, T...>(serializer, in);
+    seastar::simple_input_stream in(input.get(), input.size());
+    return do_unmarshall<Serializer, seastar::simple_input_stream, T...>(serializer, in);
 }
 
 static std::exception_ptr unmarshal_exception(temporary_buffer<char>& data) {
