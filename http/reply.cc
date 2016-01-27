@@ -91,13 +91,6 @@ static const sstring& to_string(reply::status_type status) {
 }
 } // namespace status_strings
 
-namespace misc_strings {
-
-const char name_value_separator[] = { ':', ' ' };
-const char crlf[] = { '\r', '\n' };
-
-} // namespace misc_strings
-
 sstring reply::response_line() {
     return "HTTP/" + _version + status_strings::to_string(_status);
 }
