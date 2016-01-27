@@ -137,7 +137,7 @@ def sanitize_vptr_flag(compiler):
             struct B : virtual A {};
             struct C : virtual A {};
             struct D : B, virtual C {};
-            
+
             int main()
             {
                 D d;
@@ -370,7 +370,15 @@ deps = {
 }
 
 warnings = [
-    '-Wno-mismatched-tags',  # clang-only
+    '-Wno-mismatched-tags',                 # clang-only
+    '-Wno-pessimizing-move',                # clang-only: moving a temporary object prevents copy elision
+    '-Wno-redundant-move',                  # clang-only: redundant move in return statement
+    '-Wno-inconsistent-missing-override',   # clang-only: 'x' overrides a member function but is not marked 'override'
+    '-Wno-unused-private-field',            # clang-only: private field 'x' is not used
+    '-Wno-unknown-attributes',              # clang-only: unknown attribute 'x' ignored (x in this case is gnu::externally_visible)
+    '-Wno-unneeded-internal-declaration',   # clang-only: 'x' function 'x' declared in header file shouldb e declared 'x'
+    '-Wno-undefined-inline',                # clang-only: inline function 'x' is not defined
+    '-Wno-overloaded-virtual',              # clang-only: 'x' hides overloaded virtual functions
     ]
 
 # The "--with-osv=<path>" parameter is a shortcut for a bunch of other
@@ -440,7 +448,7 @@ if args.dpdk:
     lines += 'CONFIG_RTE_MACHINE={}'.format(dpdk_machine)
     open(dotconfig, 'w', encoding='UTF-8').writelines(lines)
     args.dpdk_target = os.getcwd() + '/build/dpdk'
-    
+
 if args.dpdk_target:
     args.user_cflags = (args.user_cflags +
         ' -DHAVE_DPDK -I' + args.dpdk_target + '/include ' +
