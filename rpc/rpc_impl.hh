@@ -150,15 +150,10 @@ inline void marshall_one(Serializer& serializer, Output& out, const T& arg) {
     serialize_helper_type::serialize(serializer, out, arg);
 }
 
-struct ignorer {
-    template <typename... T>
-    ignorer(T&&...) {}
-};
-
 template <typename Serializer, typename Output, typename... T>
 inline void do_marshall(Serializer& serializer, Output& out, const T&... args) {
     // C++ guarantees that brace-initialization expressions are evaluted in order
-    ignorer ignore{(marshall_one(serializer, out, args), 1)...};
+    (void)std::initializer_list<int>{(marshall_one(serializer, out, args), 1)...};
 }
 
 template <typename Serializer, typename... T>
