@@ -23,9 +23,11 @@
 #define RESOURCE_HH_
 
 #include <cstdlib>
+#include <string>
 #include <experimental/optional>
 #include <vector>
 #include <set>
+#include <sched.h>
 
 cpu_set_t cpuid_to_cpuset(unsigned cpuid);
 

@@ -25,6 +25,7 @@
 #include <stdint.h>
 #include <algorithm>
 #include <string>
+#include <vector>
 #include <cstring>
 #include <stdexcept>
 #include <initializer_list>
@@ -658,7 +659,7 @@ static String make_sstring(Args&&... args)
     return ret;
 }
 
-template <typename string_type, typename T>
+template <typename string_type = sstring, typename T>
 inline string_type to_sstring(T value) {
     return sstring::to_sstring<string_type>(value);
 }

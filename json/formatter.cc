@@ -21,6 +21,7 @@
 
 #include "formatter.hh"
 #include "json_elements.hh"
+#include <cmath>
 
 using namespace std;
 

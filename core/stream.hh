@@ -24,6 +24,7 @@
 
 #include "future.hh"
 #include <exception>
+#include <functional>
 #include <cassert>
 
 // A stream/subscription pair is similar to a promise/future pair,

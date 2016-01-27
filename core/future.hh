@@ -28,6 +28,7 @@
 #include <memory>
 #include <type_traits>
 #include <assert.h>
+#include <cstdlib>
 
 
 /// \defgroup future-module Futures and Promises

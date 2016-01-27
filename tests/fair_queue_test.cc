@@ -30,6 +30,7 @@
 #include "core/future-util.hh"
 #include "core/sleep.hh"
 #include <boost/range/irange.hpp>
+#include <random>
 #include <chrono>
 
 using namespace std::chrono_literals;

@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <numeric>
 #include "core/reactor.hh"
 #include "core/fstream.hh"
 #include "core/shared_ptr.hh"

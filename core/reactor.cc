@@ -77,6 +77,8 @@
 #include <osv/newpoll.hh>
 #endif
 
+#include <xmmintrin.h>
+
 using namespace std::chrono_literals;
 
 using namespace net;
