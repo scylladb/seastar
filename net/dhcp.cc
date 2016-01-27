@@ -136,12 +136,12 @@ public:
     } __attribute__((packed));
 
     struct ip_option : public option {
-        ip_option(opt_type t = opt_type::BROADCAST_ADDRESS, const ipv4_address & ip = ipv4_address()) : option(t, sizeof(uint32_t)), ip(::htonl(ip.ip)) {}
+        ip_option(opt_type t = opt_type::BROADCAST_ADDRESS, const ipv4_address & ip = ipv4_address()) : option(t, sizeof(uint32_t)), ip(htonl(ip.ip)) {}
         packed<uint32_t> ip;
     } __attribute__((packed));
 
     struct time_option : public option {
-        time_option(opt_type t, uint32_t v) : option(t, sizeof(uint32_t)), time(::htonl(v)) {}
+        time_option(opt_type t, uint32_t v) : option(t, sizeof(uint32_t)), time(htonl(v)) {}
         packed<uint32_t> time;
     } __attribute__((packed));
 
@@ -229,7 +229,7 @@ public:
                 {
                     auto ipo = p.get_header<ip_option>(off);
                     if (ipo != nullptr) {
-                        set(o->type, ipv4_address(::ntohl(ipo->ip)));
+                        set(o->type, ipv4_address(ntohl(ipo->ip)));
                     }
                 }
                 break;
@@ -255,7 +255,7 @@ public:
                 {
                     auto to = p.get_header<time_option>(off);
                     if (to != nullptr) {
-                        set(o->type, std::chrono::seconds(::ntohl(to->time)));
+                        set(o->type, std::chrono::seconds(ntohl(to->time)));
                     }
                 }
                 break;
