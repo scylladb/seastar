@@ -60,6 +60,12 @@ public:
         return !(_mandatory && !_set);
     }
 
+    json_base_element& operator=(const json_base_element& o) {
+        // Names and mandatory are never changed after creation
+        _set = o._set;
+        return *this;
+    }
+
     /**
      * returns the internal value in a json format
      * Each inherit class must implement this method
