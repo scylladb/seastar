@@ -32,6 +32,7 @@
 #include <type_traits>
 #include <chrono>
 #include <experimental/optional>
+#include <ucontext.h>
 
 /// \defgroup thread-module Seastar threads
 ///
@@ -96,7 +97,11 @@ void init();
 }
 
 struct jmp_buf_link {
+#ifdef ASAN_ENABLED
+    ucontext_t context;
+#else
     jmp_buf jmpbuf;
+#endif
     jmp_buf_link* link;
     thread_context* thread;
 };

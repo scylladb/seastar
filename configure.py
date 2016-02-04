@@ -570,6 +570,8 @@ with open(buildfile, 'w') as f:
             print('Note: --static disables debug mode sanitizers')
             modeval['sanitize'] = ''
             modeval['sanitize_libs'] = ''
+        elif modeval['sanitize']:
+            modeval['sanitize'] += ' -DASAN_ENABLED'
         f.write(textwrap.dedent('''\
             cxxflags_{mode} = {sanitize} {opt} -I $builddir/{mode}/gen
             libs_{mode} = {sanitize_libs} {libs}

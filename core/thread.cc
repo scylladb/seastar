@@ -41,7 +41,7 @@ thread_context::thread_context(thread_attributes attr, std::function<void ()> fu
 std::unique_ptr<char[]>
 thread_context::make_stack() {
     auto stack = std::make_unique<char[]>(_stack_size);
-#ifdef DEBUG
+#ifdef ASAN_ENABLED
     // Avoid ASAN false positive due to garbage on stack
     std::fill_n(stack.get(), _stack_size, 0);
 #endif
@@ -66,9 +66,13 @@ thread_context::setup() {
     _context.link = prev;
     _context.thread = this;
     g_current_context = &_context;
+#ifdef ASAN_ENABLED
+    swapcontext(&prev->context, &initial_context);
+#else
     if (setjmp(prev->jmpbuf) == 0) {
         setcontext(&initial_context);
     }
+#endif
 }
 
 void
@@ -79,9 +83,13 @@ thread_context::switch_in() {
     if (_attr.scheduling_group) {
         _attr.scheduling_group->account_start();
     }
+#ifdef ASAN_ENABLED
+    swapcontext(&prev->context, &_context.context);
+#else
     if (setjmp(prev->jmpbuf) == 0) {
         longjmp(_context.jmpbuf, 1);
     }
+#endif
 }
 
 void
@@ -90,9 +98,13 @@ thread_context::switch_out() {
         _attr.scheduling_group->account_stop();
     }
     g_current_context = _context.link;
+#ifdef ASAN_ENABLED
+    swapcontext(&_context.context, &g_current_context->context);
+#else
     if (setjmp(_context.jmpbuf) == 0) {
         longjmp(g_current_context->jmpbuf, 1);
     }
+#endif
 }
 
 bool
@@ -145,7 +157,11 @@ thread_context::main() {
         _attr.scheduling_group->account_stop();
     }
     g_current_context = _context.link;
+#ifdef ASAN_ENABLED
+    setcontext(&g_current_context->context);
+#else
     longjmp(g_current_context->jmpbuf, 1);
+#endif
 }
 
 namespace thread_impl {
