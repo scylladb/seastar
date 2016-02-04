@@ -33,6 +33,8 @@
 #include <random>
 #include <chrono>
 
+using namespace seastar;
+
 using namespace std::chrono_literals;
 
 struct test_env {

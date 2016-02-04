@@ -28,7 +28,8 @@
 #include <random>
 #include <iomanip>
 
-using namespace net;
+using namespace seastar;
+using namespace seastar::net;
 using namespace std::chrono_literals;
 namespace bpo = boost::program_options;
 

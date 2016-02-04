@@ -25,7 +25,11 @@
 #include <assert.h>
 #include "core/slab.hh"
 
+using namespace seastar;
+
 static constexpr size_t max_object_size = 1024*1024;
+
+namespace bi = boost::intrusive;
 
 class item : public slab_item_base {
 public:

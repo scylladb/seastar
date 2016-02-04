@@ -26,6 +26,8 @@
 #include <functional>
 #include <core/future.hh>
 
+namespace seastar {
+
 class app_template {
 private:
     boost::program_options::options_description _opts;
@@ -55,5 +57,7 @@ public:
     // successfully.
     int run(int ac, char ** av, std::function<future<> ()>&& func);
 };
+
+} // namespace seastar
 
 #endif

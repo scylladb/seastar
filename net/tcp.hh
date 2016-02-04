@@ -46,6 +46,7 @@
 
 using namespace std::chrono_literals;
 
+namespace seastar {
 namespace net {
 
 class tcp_hdr;
@@ -1933,7 +1934,8 @@ constexpr std::chrono::milliseconds tcp<InetTraits>::tcb::_rto_clk_granularity;
 template <typename InetTraits>
 typename tcp<InetTraits>::tcb::isn_secret tcp<InetTraits>::tcb::_isn_secret;
 
-}
+} // namespace net
+} // namespace seastar
 
 
 

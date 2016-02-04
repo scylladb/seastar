@@ -23,8 +23,12 @@
 
 #include <memory> // for std::unique_ptr
 
+namespace seastar {
+
 template<typename T>
 struct is_smart_ptr : std::false_type {};
 
 template<typename T>
 struct is_smart_ptr<std::unique_ptr<T>> : std::true_type {};
+
+} // namespace seastar

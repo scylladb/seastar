@@ -7,6 +7,8 @@
 
 #include "core/scollectd.hh"
 
+namespace seastar {
+
 namespace scollectd {
 
 struct collectd_value {
@@ -53,6 +55,8 @@ std::vector<collectd_value> get_collectd_value(
 
 std::vector<scollectd::type_instance_id> get_collectd_ids();
 
-}
+} // namespace scollectd
+
+} // namespace seastar
 
 #endif /* CORE_SCOLLECTD_API_HH_ */

@@ -22,8 +22,7 @@
 #include "ip.hh"
 #include "stack.hh"
 
-using namespace net;
-
+namespace seastar {
 namespace net {
 namespace ipv4_udp_impl {
 
@@ -219,3 +218,4 @@ ipv4_udp::make_channel(ipv4_addr addr) {
 }
 
 } /* namespace net */
+} // namespace seastar

@@ -27,6 +27,8 @@
 #include "evtchn.hh"
 #include "osv_xen.hh"
 
+namespace seastar {
+
 namespace xen {
 
 void evtchn::make_ready_port(int port) {
@@ -216,4 +218,5 @@ evtchn *evtchn::instance(bool userspace, unsigned otherend)
     return _instance;
 }
 
-}
+} // namespace xen
+} // namespace seastar

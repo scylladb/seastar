@@ -29,6 +29,8 @@
 #include <sys/syscall.h>
 #endif
 
+namespace seastar {
+
 // cause all threads to invoke a full memory barrier (mprotect version)
 void
 systemwide_memory_barrier_mprotect() {
@@ -85,3 +87,5 @@ void
 systemwide_memory_barrier() {
     (*systemwide_memory_barrier_fn)();
 }
+
+} // namespace seastar

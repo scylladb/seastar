@@ -63,6 +63,9 @@
 
 namespace seastar {
 
+template<typename ...T>
+class shared_future;
+
 class thread_context;
 
 namespace thread_impl {
@@ -73,7 +76,6 @@ void switch_out(thread_context* from);
 
 }
 
-}
 
 
 /// \addtogroup future-module
@@ -685,7 +687,7 @@ private:
     template <typename Func>
     void schedule(Func&& func) {
         if (state()->available()) {
-            ::schedule(std::make_unique<continuation<Func, T...>>(std::move(func), std::move(*state())));
+            seastar::schedule(std::make_unique<continuation<Func, T...>>(std::move(func), std::move(*state())));
         } else {
             assert(_promise);
             _promise->schedule(std::move(func));
@@ -704,8 +706,7 @@ private:
         return std::move(*st);
     }
 
-    template<typename... U>
-    friend class shared_future;
+    friend class shared_future<T...>;
 public:
     /// \brief The data type carried by the future.
     using value_type = std::tuple<T...>;
@@ -1058,7 +1059,7 @@ inline
 void promise<T...>::make_ready() noexcept {
     if (_task) {
         _state = nullptr;
-        ::schedule(std::move(_task));
+       seastar::schedule(std::move(_task));
     }
 }
 
@@ -1115,7 +1116,7 @@ template<typename T>
 template<typename Func, typename... FuncArgs>
 typename futurize<T>::type futurize<T>::apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
     try {
-        return convert(::apply(std::forward<Func>(func), std::move(args)));
+	return convert(::seastar::apply(std::forward<Func>(func), std::move(args)));
     } catch (...) {
         return make_exception_future(std::current_exception());
     }
@@ -1159,7 +1160,7 @@ inline
 std::enable_if_t<!is_future<std::result_of_t<Func(FuncArgs&&...)>>::value, future<>>
 do_void_futurize_apply_tuple(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
     try {
-        ::apply(std::forward<Func>(func), std::move(args));
+        seastar::apply(std::forward<Func>(func), std::move(args));
         return make_ready_future<>();
     } catch (...) {
         return make_exception_future(std::current_exception());
@@ -1171,7 +1172,7 @@ inline
 std::enable_if_t<is_future<std::result_of_t<Func(FuncArgs&&...)>>::value, future<>>
 do_void_futurize_apply_tuple(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
     try {
-        return ::apply(std::forward<Func>(func), std::move(args));
+        return seastar::apply(std::forward<Func>(func), std::move(args));
     } catch (...) {
         return make_exception_future(std::current_exception());
     }
@@ -1191,7 +1192,7 @@ template<typename... Args>
 template<typename Func, typename... FuncArgs>
 typename futurize<future<Args...>>::type futurize<future<Args...>>::apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
     try {
-        return ::apply(std::forward<Func>(func), std::move(args));
+        return seastar::apply(std::forward<Func>(func), std::move(args));
     } catch (...) {
         return make_exception_future(std::current_exception());
     }
@@ -1212,7 +1213,7 @@ template <typename Arg>
 inline
 future<T>
 futurize<T>::make_exception_future(Arg&& arg) {
-    return ::make_exception_future<T>(std::forward<Arg>(arg));
+    return seastar::make_exception_future<T>(std::forward<Arg>(arg));
 }
 
 template <typename... T>
@@ -1220,14 +1221,14 @@ template <typename Arg>
 inline
 future<T...>
 futurize<future<T...>>::make_exception_future(Arg&& arg) {
-    return ::make_exception_future<T...>(std::forward<Arg>(arg));
+    return seastar::make_exception_future<T...>(std::forward<Arg>(arg));
 }
 
 template <typename Arg>
 inline
 future<>
 futurize<void>::make_exception_future(Arg&& arg) {
-    return ::make_exception_future<>(std::forward<Arg>(arg));
+    return seastar::make_exception_future<>(std::forward<Arg>(arg));
 }
 
 template <typename T>
@@ -1257,5 +1258,7 @@ futurize<void>::from_tuple(const std::tuple<>& value) {
 }
 
 /// \endcond
+
+} // namespace seastar
 
 #endif /* FUTURE_HH_ */

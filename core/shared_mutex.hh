@@ -160,4 +160,4 @@ with_lock(shared_mutex& sm, Func&& func) {
 
 /// @}
 
-}
+} // namespace seastar

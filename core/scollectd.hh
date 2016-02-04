@@ -39,6 +39,8 @@
 #include "core/shared_ptr.hh"
 #include "core/sstring.hh"
 
+namespace seastar {
+
 /**
  * Implementation of rudimentary collectd data gathering.
  *
@@ -441,7 +443,7 @@ static type_instance_id add_polled_metric(const type_instance_id & id,
         _Args&& ... args) {
     typedef decltype(make_type_instance(std::forward<_Args>(args)...)) impl_type;
     add_polled(id,
-            ::make_shared<impl_type>(
+	       ::seastar::make_shared<impl_type>(
                     make_type_instance(std::forward<_Args>(args)...)));
     return id;
 }
@@ -463,6 +465,8 @@ static notify_function create_explicit_metric(const type_instance_id & id,
 
 // Send a message packet (string)
 future<> send_notification(const type_instance_id & id, const sstring & msg);
-};
+
+} // namespace scollectd
+} // namespace seastar
 
 #endif /* SCOLLECTD_HH_ */

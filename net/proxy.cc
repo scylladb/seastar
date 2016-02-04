@@ -19,6 +19,7 @@
 #include "proxy.hh"
 #include <utility>
 
+namespace seastar {
 namespace net {
 
 class proxy_net_device : public qp {
@@ -72,4 +73,6 @@ uint32_t proxy_net_device::send(circular_buffer<packet>& p)
 std::unique_ptr<qp> create_proxy_net_device(unsigned master_cpu, device* dev) {
     return std::make_unique<proxy_net_device>(master_cpu, dev);
 }
-}
+
+} // namespace net
+} // namespace seastar

@@ -26,6 +26,7 @@
 #include "core/future.hh"
 #include "native-stack-impl.hh"
 
+namespace seastar {
 namespace net {
 
 void tcp_option::parse(uint8_t* beg, uint8_t* end) {
@@ -159,5 +160,6 @@ tcpv4_connect(tcp<ipv4_traits>& tcpv4, socket_address sa) {
     });
 }
 
-}
+} // namespace net
+} // namespace seastar
 

@@ -27,7 +27,8 @@
 #include "apps/memcached/ascii.hh"
 #include "core/future-util.hh"
 
-using namespace net;
+using namespace seastar;
+using namespace seastar::net;
 using namespace memcache;
 
 using parser_type = memcache_ascii_parser;

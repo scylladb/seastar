@@ -23,6 +23,7 @@
 #include <boost/algorithm/string.hpp>
 #include <string>
 
+namespace seastar {
 namespace net {
 
 std::ostream& operator<<(std::ostream& os, ethernet_address ea) {
@@ -48,7 +49,9 @@ ethernet_address parse_ethernet_address(std::string addr)
     }
     return a;
 }
-}
+
+} // namespace net
+} // namespace seastar
 
 
 

@@ -28,7 +28,8 @@
 #include <utility>
 #include <algorithm>
 
-using namespace net;
+using namespace seastar;
+using namespace seastar::net;
 
 void dump_packet(const packet& p) {
     std::cout << "rx:";

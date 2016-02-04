@@ -23,6 +23,8 @@
 #include <memory>
 #include <unordered_map>
 
+using namespace seastar;
+
 struct http_response {
     sstring _version;
     std::unordered_map<sstring, sstring> _headers;

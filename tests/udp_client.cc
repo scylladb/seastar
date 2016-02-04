@@ -24,7 +24,8 @@
 #include "core/reactor.hh"
 #include "net/api.hh"
 
-using namespace net;
+using namespace seastar;
+using namespace seastar::net;
 using namespace std::chrono_literals;
 
 class client {

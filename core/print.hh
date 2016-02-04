@@ -28,6 +28,8 @@
 #include <chrono>
 #include "core/sstring.hh"
 
+namespace seastar {
+
 inline void
 apply_format(boost::format& fmt) {
 }
@@ -121,5 +123,7 @@ log(A&&... a) {
     std::cout << usecfmt(std::chrono::high_resolution_clock::now()) << " ";
     print(std::forward<A>(a)...);
 }
+
+} // namespace seastar
 
 #endif /* PRINT_HH_ */

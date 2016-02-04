@@ -27,7 +27,8 @@
 #include "net/packet.hh"
 #include <array>
 
-using namespace net;
+using namespace seastar;
+using namespace seastar::net;
 
 BOOST_AUTO_TEST_CASE(test_headers_are_contiguous) {
     using tcp_header = std::array<char, 20>;

@@ -30,6 +30,7 @@
 #include "core/byteorder.hh"
 #include "core/simple-stream.hh"
 
+namespace seastar {
 namespace rpc {
 
 enum class exception_type : uint32_t {
@@ -382,7 +383,7 @@ inline void reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_share
             client.get_stats_internal().pending++;
             client.get_stats_internal().sent_messages++;
             try {
-                data = ::apply(marshall<Serializer, const RetTypes&...>,
+		data = ::seastar::apply(marshall<Serializer, const RetTypes&...>,
                         std::tuple_cat(std::make_tuple(std::ref(client.serializer()), 12), std::move(ret.get())));
             } catch (std::exception& ex) {
                 uint32_t len = std::strlen(ex.what());
@@ -864,7 +865,8 @@ protocol<Serializer, MsgType>::client::client(protocol& proto, ipv4_addr addr, f
 
 template<typename Serializer, typename MsgType>
 protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& proto, ipv4_addr addr, ipv4_addr local)
-    : client(proto, addr, ::connect(addr, local))
+    : client(proto, addr, seastar::connect(addr, local))
 {}
 
-}
+} // namespace rpc
+} // namespace seastar

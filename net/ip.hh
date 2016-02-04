@@ -41,6 +41,7 @@
 #include "toeplitz.hh"
 #include "net/udp.hh"
 
+namespace seastar {
 namespace net {
 
 class ipv4;
@@ -78,17 +79,19 @@ static inline bool is_unspecified(ipv4_address addr) { return addr.ip == 0; }
 
 std::ostream& operator<<(std::ostream& os, ipv4_address a);
 
-}
+} // namespace net
+} // namespace seastar
 
 namespace std {
 
 template <>
-struct hash<net::ipv4_address> {
-    size_t operator()(net::ipv4_address a) const { return a.ip; }
+struct hash<seastar::net::ipv4_address> {
+    size_t operator()(seastar::net::ipv4_address a) const { return a.ip; }
 };
 
-}
+} // namespace std
 
+namespace seastar {
 namespace net {
 
 struct ipv4_traits {
@@ -439,6 +442,7 @@ struct l4connid<InetTraits>::connid_hash : private std::hash<ipaddr>, private st
 
 void arp_learn(ethernet_address l2, ipv4_address l3);
 
-}
+} // namespace net
+} // namespace seastar
 
 #endif /* IP_HH_ */

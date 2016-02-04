@@ -37,6 +37,8 @@
 #include <vector>
 #include "httpd.hh"
 
+namespace seastar {
+
 using namespace std::chrono_literals;
 
 namespace httpd {
@@ -59,4 +61,5 @@ http_stats::http_stats(http_server& server)
                     [&server] { return server.requests_served(); })),
     } {
 }
-}
+} // namespace httpd
+} // namespace seastar

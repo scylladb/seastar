@@ -28,6 +28,7 @@ extern "C" {
     #include <xenstore.h>
 }
 
+namespace seastar {
 class xenstore {
 public:
     class xenstore_transaction {
@@ -82,6 +83,7 @@ public:
     template <typename T>
     void write(std::string path, T val, xenstore_transaction &t = _xs_null) { return write(path, std::to_string(val), t); }
 };
+} // namespace seastar
 
 
 #endif /* XENSTORE_HH_ */

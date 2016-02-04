@@ -45,6 +45,7 @@
 #include "reply.hh"
 #include "http/routes.hh"
 
+namespace seastar {
 namespace httpd {
 
 class http_server;
@@ -435,6 +436,7 @@ public:
     }
 };
 
-}
+} // namespace httpd
+} // namespace seastar
 
 #endif /* APPS_HTTPD_HTTPD_HH_ */

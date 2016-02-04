@@ -30,6 +30,7 @@
 //
 #include "reply.hh"
 
+namespace seastar {
 namespace httpd {
 
 namespace status_strings {
@@ -95,4 +96,5 @@ sstring reply::response_line() {
     return "HTTP/" + _version + status_strings::to_string(_status);
 }
 
-} // namespace server
+} // namespace httpd
+} // namespace seastar

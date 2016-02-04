@@ -27,6 +27,7 @@
 #include <functional>
 #include <vector>
 
+namespace seastar {
 
 /// \defgroup memory-module Memory management
 ///
@@ -183,7 +184,7 @@ struct memory_layout {
 // Supported only when seastar allocator is enabled.
 memory::memory_layout get_memory_layout();
 
-}
+} // namespace memory
 
 class with_alignment {
     size_t _align;
@@ -191,11 +192,14 @@ public:
     with_alignment(size_t align) : _align(align) {}
     size_t alignment() const { return _align; }
 };
+} // namespace seastar
 
-void* operator new(size_t size, with_alignment wa);
-void* operator new[](size_t size, with_alignment wa);
-void operator delete(void* ptr, with_alignment wa);
-void operator delete[](void* ptr, with_alignment wa);
+void* operator new(size_t size, seastar::with_alignment wa);
+void* operator new[](size_t size, seastar::with_alignment wa);
+void operator delete(void* ptr, seastar::with_alignment wa);
+void operator delete[](void* ptr, seastar::with_alignment wa);
+
+namespace seastar {
 
 template <typename T, size_t Align>
 class aligned_allocator {
@@ -215,5 +219,8 @@ public:
         return false;
     }
 };
+
+} // namespace seastar
+
 
 #endif /* MEMORY_HH_ */

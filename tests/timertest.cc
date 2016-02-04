@@ -25,6 +25,7 @@
 #include <chrono>
 
 using namespace std::chrono_literals;
+using namespace seastar;
 
 #define BUG() do { \
         std::cerr << "ERROR @ " << __FILE__ << ":" << __LINE__ << std::endl; \

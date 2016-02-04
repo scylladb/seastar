@@ -29,6 +29,8 @@
 #include "core/thread.hh"
 #include <boost/iterator/counting_iterator.hpp>
 
+using namespace seastar;
+
 class expected_exception : std::runtime_error {
 public:
     expected_exception() : runtime_error("expected") {}

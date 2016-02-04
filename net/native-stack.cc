@@ -40,6 +40,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+namespace seastar {
 namespace net {
 
 enum class xen_info {
@@ -341,4 +342,5 @@ network_stack_registrator nns_registrator{
     "native", nns_options(), native_network_stack::create
 };
 
-}
+} // namespace net
+} // namespace seastar

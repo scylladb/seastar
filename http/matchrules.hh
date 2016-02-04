@@ -29,6 +29,7 @@
 #include "core/sstring.hh"
 #include <vector>
 
+namespace seastar {
 namespace httpd {
 
 /**
@@ -113,6 +114,7 @@ private:
     handler_base* _handler;
 };
 
-}
+} // namespace httpd
+} // namespace seastar
 
 #endif /* MATCH_RULES_HH_ */

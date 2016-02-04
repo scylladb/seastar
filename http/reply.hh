@@ -35,6 +35,7 @@
 #include <unordered_map>
 #include "http/mime_types.hh"
 
+namespace seastar {
 namespace httpd {
 /**
  * A reply to be sent to a client.
@@ -130,3 +131,4 @@ struct reply {
 };
 
 } // namespace httpd
+} // namespace seastar

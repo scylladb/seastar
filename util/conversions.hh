@@ -26,6 +26,8 @@
 #include <string>
 #include <vector>
 
+namespace seastar {
+
 // Convert a string to a memory size, allowing binary SI
 // suffixes (intentionally, even though SI suffixes are
 // decimal, to follow existing usage).
@@ -43,5 +45,7 @@ static inline std::vector<char> string2vector(std::string str) {
     v.push_back('\0');
     return v;
 }
+
+} // namespace seastar
 
 #endif /* CONVERSIONS_HH_ */

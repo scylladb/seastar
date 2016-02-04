@@ -44,6 +44,8 @@
 #include "sstring.hh"
 #include "future.hh"
 
+namespace seastar {
+
 // iostream.hh
 template <class CharType> class input_stream;
 template <class CharType> class output_stream;
@@ -277,3 +279,4 @@ future<> link_file(sstring oldpath, sstring newpath);
 future<fs_type> file_system_at(sstring name);
 
 /// @}
+} // namespace seastar

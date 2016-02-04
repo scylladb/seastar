@@ -26,6 +26,8 @@
 #include <thread>
 #include <cassert>
 
+namespace seastar {
+
 // A counter that is only comfortable being incremented on the cpu
 // it was created on.  Useful for verifying that a shared_ptr
 // or lw_shared_ptr isn't misued across cores.
@@ -61,6 +63,8 @@ private:
         assert(_cpu == std::this_thread::get_id());
     }
 };
+
+} // namespace seastar
 
 #endif
 

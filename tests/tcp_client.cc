@@ -23,7 +23,8 @@
 #include "core/future-util.hh"
 #include "core/distributed.hh"
 
-using namespace net;
+using namespace seastar;
+using namespace seastar::net;
 using namespace std::chrono_literals;
 
 static int rx_msg_size = 4 * 1024;

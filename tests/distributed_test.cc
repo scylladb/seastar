@@ -25,6 +25,8 @@
 #include "core/future-util.hh"
 #include "core/sleep.hh"
 
+using namespace seastar;
+
 struct async : public seastar::async_sharded_service<async> {
     thread_local static bool deleted;
     ~async() {

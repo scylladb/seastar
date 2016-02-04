@@ -22,8 +22,12 @@
 #ifndef UNITS_HH_
 #define UNITS_HH_
 
+namespace seastar {
+
 static constexpr size_t KB = 1 << 10;
 static constexpr size_t MB = 1 << 20;
 static constexpr size_t GB = 1 << 30;
+
+} // namespace seastar
 
 #endif

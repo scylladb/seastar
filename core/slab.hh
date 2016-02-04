@@ -34,9 +34,9 @@
 #include "core/align.hh"
 #include "core/memory.hh"
 
-static constexpr uint16_t SLAB_MAGIC_NUMBER = 0x51AB; // meant to be 'SLAB' :-)
+namespace seastar {
 
-namespace bi = boost::intrusive;
+static constexpr uint16_t SLAB_MAGIC_NUMBER = 0x51AB; // meant to be 'SLAB' :-)
 
 /*
  * Item requirements
@@ -52,8 +52,8 @@ namespace bi = boost::intrusive;
  */
 struct slab_page_desc {
 private:
-    bi::list_member_hook<> _lru_link;
-    bi::list_member_hook<> _free_pages_link;
+    boost::intrusive::list_member_hook<> _lru_link;
+    boost::intrusive::list_member_hook<> _free_pages_link;
     void *_slab_page;
     std::vector<uintptr_t> _free_objects;
     uint32_t _refcnt;
@@ -126,7 +126,7 @@ public:
 };
 
 class slab_item_base {
-    bi::list_member_hook<> _lru_link;
+    boost::intrusive::list_member_hook<> _lru_link;
 
     template<typename Item>
     friend class slab_class;
@@ -135,11 +135,11 @@ class slab_item_base {
 template<typename Item>
 class slab_class {
 private:
-    bi::list<slab_page_desc,
-        bi::member_hook<slab_page_desc, bi::list_member_hook<>,
+    boost::intrusive::list<slab_page_desc,
+     boost::intrusive::member_hook<slab_page_desc, boost::intrusive::list_member_hook<>,
         &slab_page_desc::_free_pages_link>> _free_slab_pages;
-    bi::list<slab_item_base,
-        bi::member_hook<slab_item_base, bi::list_member_hook<>,
+    boost::intrusive::list<slab_item_base,
+      boost::intrusive::member_hook<slab_item_base, boost::intrusive::list_member_hook<>,
         &slab_item_base::_lru_link>> _lru;
     size_t _size; // size of objects
     uint8_t _slab_class_id;
@@ -282,8 +282,8 @@ private:
     // erase_func() is used to remove the item from the cache using slab.
     std::function<void (Item& item_ref)> _erase_func;
     std::vector<slab_page_desc*> _slab_pages_vector;
-    bi::list<slab_page_desc,
-        bi::member_hook<slab_page_desc, bi::list_member_hook<>,
+    boost::intrusive::list<slab_page_desc,
+        boost::intrusive::member_hook<slab_page_desc, boost::intrusive::list_member_hook<>,
         &slab_page_desc::_lru_link>> _slab_page_desc_lru;
     uint64_t _max_object_size;
     uint64_t _available_slab_pages;
@@ -568,5 +568,7 @@ public:
         return (slab_class) ? slab_class->size() : 0;
     }
 };
+
+} // namespace seastar
 
 #endif /* __SLAB_ALLOCATOR__ */

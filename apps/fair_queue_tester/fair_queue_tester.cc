@@ -34,6 +34,7 @@
 #include <random>
 
 using namespace std::chrono_literals;
+using namespace seastar;
 
 static auto random_seed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 static std::default_random_engine random_generator(random_seed);

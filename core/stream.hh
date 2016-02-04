@@ -27,6 +27,8 @@
 #include <functional>
 #include <cassert>
 
+namespace seastar {
+
 // A stream/subscription pair is similar to a promise/future pair,
 // but apply to a sequence of values instead of a single value.
 //
@@ -234,5 +236,7 @@ future<>
 subscription<T...>::done() {
     return _stream->_done.get_future();
 }
+
+} // namespace seastar
 
 #endif /* STREAM_HH_ */

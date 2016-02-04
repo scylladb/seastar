@@ -25,6 +25,8 @@
 
 #include "net/packet.hh"
 
+namespace seastar {
+
 template<typename CharType>
 inline
 future<> output_stream<CharType>::write(const char_type* buf) {
@@ -370,3 +372,5 @@ output_stream<CharType>::close() {
         return _fd.close();
     });
 }
+
+} // namespace seastar

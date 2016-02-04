@@ -29,6 +29,7 @@
 
 #include <unordered_map>
 
+namespace seastar {
 namespace httpd {
 
 typedef const httpd::request& const_req;
@@ -68,6 +69,7 @@ public:
 
 };
 
-}
+} // namespace httpd
+} // namespace seastar
 
 #endif /* HANDLERS_HH_ */

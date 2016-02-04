@@ -24,6 +24,7 @@
 
 #include "handlers.hh"
 
+namespace seastar {
 namespace httpd {
 /**
  * This is a base class for file transformer.
@@ -156,6 +157,7 @@ private:
     bool force_path;
 };
 
-}
+} // namespace httpd
+} // namespace seastar
 
 #endif /* HTTP_FILE_HANDLER_HH_ */

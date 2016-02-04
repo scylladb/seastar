@@ -53,6 +53,9 @@
 #include <rte_cycles.h>
 #include <rte_memzone.h>
 
+namespace seastar {
+
+
 #if RTE_VERSION <= RTE_VERSION_NUM(2,0,0,16)
 
 static
@@ -2211,5 +2214,7 @@ get_dpdk_net_options_description()
 #endif
     return opts;
 }
+
+} // namespace seastar
 
 #endif // HAVE_DPDK

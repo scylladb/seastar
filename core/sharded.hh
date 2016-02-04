@@ -79,7 +79,7 @@ public:
 template <typename Service>
 class sharded {
     struct entry {
-        ::shared_ptr<Service> service;
+	shared_ptr<Service> service;
         promise<> freed;
     };
     std::vector<entry> _instances;
@@ -163,7 +163,7 @@ public:
     map_reduce(Reducer&& r, Ret (Service::*func)(FuncArgs...), Args&&... args)
         -> typename reducer_traits<Reducer>::future_type
     {
-        return ::map_reduce(boost::make_counting_iterator<unsigned>(0),
+	return ::seastar::map_reduce(boost::make_counting_iterator<unsigned>(0),
                             boost::make_counting_iterator<unsigned>(_instances.size()),
             [this, func, args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) mutable {
                 return smp::submit_to(c, [this, func, args] () mutable {
@@ -187,7 +187,7 @@ public:
     inline
     auto map_reduce(Reducer&& r, Func&& func) -> typename reducer_traits<Reducer>::future_type
     {
-        return ::map_reduce(boost::make_counting_iterator<unsigned>(0),
+	return ::seastar::map_reduce(boost::make_counting_iterator<unsigned>(0),
                             boost::make_counting_iterator<unsigned>(_instances.size()),
             [this, &func] (unsigned c) mutable {
                 return smp::submit_to(c, [this, func] () mutable {
@@ -223,7 +223,7 @@ public:
                 return map(*inst);
             });
         };
-        return ::map_reduce(smp::all_cpus().begin(), smp::all_cpus().end(),
+	return ::seastar::map_reduce(smp::all_cpus().begin(), smp::all_cpus().end(),
                             std::move(wrapped_map),
                             std::move(initial),
                             std::move(reduce));
@@ -297,18 +297,18 @@ public:
     bool local_is_initialized();
 
 private:
-    void track_deletion(::shared_ptr<Service>& s, std::false_type) {
+    void track_deletion(shared_ptr<Service>& s, std::false_type) {
         // do not wait for instance to be deleted since it is not going to notify us
         service_deleted();
     }
 
-    void track_deletion(::shared_ptr<Service>& s, std::true_type) {
+    void track_deletion(shared_ptr<Service>& s, std::true_type) {
         s->_delete_cb = std::bind(std::mem_fn(&sharded<Service>::service_deleted), this);
     }
 
     template <typename... Args>
     shared_ptr<Service> create_local_service(Args&&... args) {
-        auto s = ::make_shared<Service>(std::forward<Args>(args)...);
+	auto s = ::seastar::make_shared<Service>(std::forward<Args>(args)...);
         track_deletion(s, std::is_base_of<async_sharded_service<Service>, Service>());
         return s;
     }
@@ -452,7 +452,6 @@ inline bool sharded<Service>::local_is_initialized() {
            _instances[engine().cpu_id()].service;
 }
 
-}
 
 /// Smart pointer wrapper which makes it safe to move across CPUs.
 ///
@@ -533,7 +532,9 @@ foreign_ptr<T> make_foreign(T ptr) {
 }
 
 template<typename T>
-struct is_smart_ptr<::foreign_ptr<T>> : std::true_type {};
+struct is_smart_ptr<::seastar::foreign_ptr<T>> : std::true_type {};
+
+} // namsepace seastar
 
 /// @}
 

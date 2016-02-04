@@ -26,9 +26,11 @@
 
 using namespace std;
 
+namespace seastar {
 namespace httpd {
 
 const sstring api_registry_builder::DEFAULT_PATH = "/api-doc";
 const sstring api_registry_builder::DEFAULT_DIR = ".";
 
-}
+} // namespace httpd
+} // namespace seastar

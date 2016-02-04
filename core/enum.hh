@@ -31,6 +31,8 @@
 #include <functional>
 #include <cstddef>
 
+namespace seastar {
+
 template <typename T>
 class enum_hash {
     static_assert(std::is_enum<T>::value, "must be an enum");
@@ -40,3 +42,5 @@ public:
         return std::hash<utype>()(static_cast<utype>(e));
     }
 };
+
+} // namespace seastar

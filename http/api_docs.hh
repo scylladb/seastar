@@ -27,6 +27,7 @@
 #include "transformers.hh"
 #include <string>
 
+namespace seastar {
 namespace httpd {
 
 struct api_doc : public json::json_base {
@@ -154,6 +155,7 @@ public:
     }
 };
 
-}
+} // namespace httpd
+} // namespace seastar
 
 #endif /* API_DOCS_HH_ */

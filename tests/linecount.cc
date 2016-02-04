@@ -28,6 +28,8 @@
 #include "core/reactor.hh"
 #include <algorithm>
 
+using namespace seastar;
+
 struct reader {
 public:
     reader(file f) : is(make_file_input_stream(std::move(f))) {}

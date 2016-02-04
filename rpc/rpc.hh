@@ -30,6 +30,7 @@
 #include "core/shared_ptr.hh"
 #include "rpc/rpc_types.hh"
 
+namespace seastar {
 namespace rpc {
 
 using id_type = int64_t;
@@ -310,6 +311,8 @@ private:
         _handlers.emplace(t, std::move(handler));
     }
 };
-}
+
+} // namespace rpc
+} // namespace seastar
 
 #include "rpc_impl.hh"

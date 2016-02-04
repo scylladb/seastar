@@ -25,6 +25,7 @@
 #include "reply.hh"
 #include "json/json_elements.hh"
 
+namespace seastar {
 namespace httpd {
 
 /**
@@ -134,6 +135,7 @@ private:
     }
 };
 
-}
+} // namespace httpd
+} // namespace seastar
 
 #endif /* EXCEPTION_HH_ */

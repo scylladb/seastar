@@ -81,7 +81,9 @@
 
 using namespace std::chrono_literals;
 
-using namespace net;
+namespace seastar {
+
+using namespace seastar::net;
 
 std::atomic<lowres_clock::rep> lowres_clock::_now;
 constexpr std::chrono::milliseconds lowres_clock::_granularity;
@@ -2161,9 +2163,13 @@ void schedule(std::unique_ptr<task> t) {
     engine().add_task(std::move(t));
 }
 
+} // namespace seastar;
+
 bool operator==(const ::sockaddr_in a, const ::sockaddr_in b) {
     return (a.sin_addr.s_addr == b.sin_addr.s_addr) && (a.sin_port == b.sin_port);
 }
+
+namespace seastar {
 
 void network_stack_registry::register_stack(sstring name,
         boost::program_options::options_description opts,
@@ -2916,3 +2922,5 @@ network_stack_registrator nsr_posix{"posix",
     },
     true
 };
+
+} // namespace seastar

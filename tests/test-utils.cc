@@ -27,6 +27,8 @@
 #include "core/app-template.hh"
 #include <boost/test/included/unit_test.hpp>
 
+using namespace seastar;
+
 void seastar_test::run() {
     // HACK: please see https://github.com/cloudius-systems/seastar/issues/10
     BOOST_REQUIRE(true);

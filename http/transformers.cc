@@ -23,6 +23,7 @@
 #include "transformers.hh"
 #include <experimental/string_view>
 
+namespace seastar {
 namespace httpd {
 
 using namespace std;
@@ -37,4 +38,5 @@ void content_replace::transform(sstring& content, const request& req,
     boost::replace_all(content, "{{Protocol}}", req.get_protocol_name());
 }
 
-}
+} // namespace httpd
+} // namespace seastar

@@ -17,6 +17,8 @@
 #include <bitset>
 #include <limits>
 
+namespace seastar {
+
 namespace bitsets {
 
 static constexpr int ulong_bits = std::numeric_limits<unsigned long>::digits;
@@ -173,6 +175,8 @@ static inline set_range<N> for_each_set(std::bitset<N> bitset, int offset = 0)
 }
 
 
-}
+} // namespace bitsets
+
+} // namespace seastar
 
 #endif

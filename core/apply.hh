@@ -25,6 +25,8 @@
 #include <tuple>
 #include <utility>
 
+namespace seastar {
+
 template <typename Func, typename Args, typename IndexList>
 struct apply_helper;
 
@@ -55,5 +57,7 @@ auto apply(Func&& func, const std::tuple<T...>& args) {
     using helper = apply_helper<Func, const std::tuple<T...>&, std::index_sequence_for<T...>>;
     return helper::apply(std::forward<Func>(func), args);
 }
+
+} // namespace seastar
 
 #endif /* APPLY_HH_ */

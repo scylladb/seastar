@@ -27,6 +27,8 @@
 #include <malloc.h>
 #include <string.h>
 
+namespace seastar {
+
 class file_data_source_impl : public data_source_impl {
     file _file;
     file_input_stream_options _options;
@@ -260,3 +262,5 @@ output_stream<char> make_file_output_stream(file f, file_output_stream_options o
     return output_stream<char>(file_data_sink(std::move(f), options), options.buffer_size, true);
 }
 
+
+} // namespace seastar

@@ -28,6 +28,7 @@
 #include "core/app-template.hh"
 #include "exception.hh"
 
+namespace seastar {
 namespace httpd {
 
 directory_handler::directory_handler(const sstring& doc_root,
@@ -131,4 +132,5 @@ future<std::unique_ptr<reply>> file_handler::handle(const sstring& path,
     return read(file, std::move(req), std::move(rep));
 }
 
-}
+} // namespace httpd
+} // namespace seastar

@@ -297,6 +297,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                        'json_elements.hh"', '"http/json_path.hh"'])
 
     add_include(hfile, ['<iostream>', '<boost/range/irange.hpp>'])
+    open_namespace(hfile, "seastar")
     open_namespace(hfile, "httpd")
     open_namespace(hfile, api_name)
 
@@ -417,6 +418,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                 fprintln(hfile, '});')
                 fprintln(hfile, enum_definitions)
 
+    close_namespace(hfile)
     close_namespace(hfile)
     close_namespace(hfile)
     hfile.write("#endif //__JSON_AUTO_GENERATED_HEADERS\n")

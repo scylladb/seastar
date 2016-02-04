@@ -24,6 +24,8 @@
 #include "rpc/rpc.hh"
 #include "core/sleep.hh"
 
+using namespace seastar;
+
 struct serializer {
 };
 

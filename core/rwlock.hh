@@ -24,6 +24,8 @@
 
 #include "semaphore.hh"
 
+namespace seastar {
+
 /// \cond internal
 // lock / unlock semantics for rwlock, so it can be used with with_lock()
 class rwlock;
@@ -134,5 +136,7 @@ inline void rwlock_for_write::unlock() {
 /// \endcond
 
 /// @}
+
+} // namespace seastar
 
 #endif /* CORE_RWLOCK_HH_ */

@@ -30,6 +30,8 @@
 #include <vector>
 #include <experimental/string_view>
 
+namespace seastar {
+
 template <typename CharType>
 class scattered_message {
 private:
@@ -101,5 +103,7 @@ public:
         return _p.len();
     }
 };
+
+} // namespace seastar
 
 #endif

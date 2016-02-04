@@ -29,6 +29,8 @@
 #include "udp.hh"
 #include "stack.hh"
 
+namespace seastar {
+
 using namespace std::literals::chrono_literals;
 
 class net::dhcp::impl : public ip_packet_filter {
@@ -465,3 +467,5 @@ net::dhcp::result_type net::dhcp::renew(const lease & l, const steady_clock_type
 net::ip_packet_filter* net::dhcp::get_ipv4_filter() {
     return _impl.get();
 }
+
+} // namespace seastar

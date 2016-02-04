@@ -36,6 +36,8 @@
 #include <experimental/string_view>
 #include "core/temporary_buffer.hh"
 
+namespace seastar {
+
 template <typename char_type, typename Size, Size max_size>
 class basic_sstring;
 
@@ -629,16 +631,21 @@ operator>>(std::basic_istream<char_type, char_traits>& is,
     return is;
 }
 
+} // namespace seastar
+
 namespace std {
 
 template <typename char_type, typename size_type, size_type max_size>
-struct hash<basic_sstring<char_type, size_type, max_size>> {
-    size_t operator()(const basic_sstring<char_type, size_type, max_size>& s) const {
-        return std::hash<std::experimental::basic_string_view<char_type>>()(s);
+struct hash<seastar::basic_sstring<char_type, size_type, max_size>> {
+    size_t operator()(const seastar::basic_sstring<char_type, size_type,
+		      max_size>& s) const {
+	return std::hash<std::experimental::basic_string_view<char_type>>()(s);
     }
 };
 
-}
+} // namespace std
+
+namespace seastar {
 
 static inline
 char* copy_str_to(char* dst) {
@@ -664,6 +671,8 @@ inline string_type to_sstring(T value) {
     return sstring::to_sstring<string_type>(value);
 }
 
+} // namespace seastar
+
 namespace std {
 template <typename T>
 inline
@@ -681,6 +690,6 @@ std::ostream& operator<<(std::ostream& os, const std::vector<T>& v) {
     os << "}";
     return os;
 }
-}
+} // namespace std
 
 #endif /* SSTRING_HH_ */

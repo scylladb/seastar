@@ -38,6 +38,8 @@
 #endif
 /******************************************************************************/
 
+namespace seastar {
+
 namespace dpdk {
 
 // DPDK Environment Abstraction Layer
@@ -57,5 +59,8 @@ public:
 };
 
 } // namespace dpdk
+
+} // namespace seastar
+
 #endif // HAVE_DPDK
 #endif // DPDK_RTE_HH_

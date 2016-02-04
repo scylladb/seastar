@@ -26,6 +26,7 @@
 #include "byteorder.hh"
 #include "core/print.hh"
 
+namespace seastar {
 namespace net {
 
 struct ethernet_address {
@@ -67,6 +68,8 @@ struct eth_hdr {
 } __attribute__((packed));
 
 ethernet_address parse_ethernet_address(std::string addr);
-}
+
+} // namespace net
+} // namespace seastar
 
 #endif /* ETHERNET_HH_ */

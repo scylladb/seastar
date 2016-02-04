@@ -26,6 +26,8 @@
 #include "core/future.hh"
 #include "core/sstring.hh"
 
+namespace seastar {
+
 class connected_socket;
 
 /**
@@ -38,7 +40,6 @@ class connected_socket;
  * with OpenSSL or similar.
  *
  */
-namespace seastar {
 namespace tls {
     enum class x509_crt_format {
         DER,
@@ -91,8 +92,8 @@ namespace tls {
         static future<x509_cert> from_file(const sstring&, x509_crt_format);
     private:
         class impl;
-        x509_cert(::shared_ptr<impl>);
-        ::shared_ptr<impl> _impl;
+        x509_cert(shared_ptr<impl>);
+        shared_ptr<impl> _impl;
     };
 
     /**
@@ -154,7 +155,7 @@ namespace tls {
      */
     class server_credentials : public certificate_credentials {
     public:
-        server_credentials(::shared_ptr<dh_params>);
+        server_credentials(shared_ptr<dh_params>);
 
         server_credentials(server_credentials&&) noexcept;
         server_credentials& operator=(server_credentials&&) noexcept;
@@ -172,14 +173,14 @@ namespace tls {
      * \param name An optional expected server name for the remote end point
      */
     /// @{
-    future<::connected_socket> connect(::shared_ptr<certificate_credentials>, ::socket_address, sstring name = {});
-    future<::connected_socket> connect(::shared_ptr<certificate_credentials>, ::socket_address, ::socket_address local, sstring name = {});
+    future<connected_socket> connect(shared_ptr<certificate_credentials>, socket_address, sstring name = {});
+    future<connected_socket> connect(shared_ptr<certificate_credentials>, socket_address, socket_address local, sstring name = {});
     /// @}
 
     /** Wraps an existing connection in SSL/TLS. */
     /// @{
-    future<::connected_socket> wrap_client(::shared_ptr<certificate_credentials>, ::connected_socket&&, sstring name = {});
-    future<::connected_socket> wrap_server(::shared_ptr<server_credentials>, ::connected_socket&&);
+    future<connected_socket> wrap_client(shared_ptr<certificate_credentials>, connected_socket&&, sstring name = {});
+    future<connected_socket> wrap_server(shared_ptr<server_credentials>, connected_socket&&);
     /// @}
 
     /**
@@ -189,9 +190,10 @@ namespace tls {
      * for the server and optionally trust/crl data.
      */
     /// @{
-    ::server_socket listen(::shared_ptr<server_credentials>, ::socket_address sa, ::listen_options opts = listen_options());
+    server_socket listen(shared_ptr<server_credentials>, socket_address sa, listen_options opts = listen_options());
     // Wraps an existing server socket in SSL
-    ::server_socket listen(::shared_ptr<server_credentials>, ::server_socket);
+    server_socket listen(shared_ptr<server_credentials>, server_socket);
     /// @}
-}
-}
+
+} // namespace tls
+} // namespace seastar

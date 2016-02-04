@@ -27,14 +27,14 @@ class cache;
 
 class item_key {
 private:
-    sstring _key;
+    seastar::sstring _key;
     size_t _hash;
 public:
     item_key() = default;
     item_key(item_key&) = default;
-    item_key(sstring key)
+    item_key(seastar::sstring key)
         : _key(key)
-        , _hash(std::hash<sstring>()(key))
+	, _hash(std::hash<seastar::sstring>()(key))
     {}
     item_key(item_key&& other)
         : _key(std::move(other._key))
@@ -45,7 +45,7 @@ public:
     size_t hash() const {
         return _hash;
     }
-    const sstring& key() const {
+    const seastar::sstring& key() const {
         return _key;
     }
     bool operator==(const item_key& other) const {

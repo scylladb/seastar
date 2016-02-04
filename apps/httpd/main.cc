@@ -28,7 +28,8 @@
 
 namespace bpo = boost::program_options;
 
-using namespace httpd;
+using namespace seastar;
+using namespace seastar::httpd;
 
 class handl : public httpd::handler_base {
 public:

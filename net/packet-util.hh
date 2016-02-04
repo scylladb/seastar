@@ -26,6 +26,7 @@
 #include <map>
 #include <iostream>
 
+namespace seastar {
 namespace net {
 
 template <typename Offset, typename Tag>
@@ -152,5 +153,6 @@ public:
     }
 };
 
-}
+} // namespace net
+} // namespace seastar
 #endif

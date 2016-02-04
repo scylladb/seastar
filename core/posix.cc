@@ -23,6 +23,8 @@
 #include "align.hh"
 #include <sys/mman.h>
 
+namespace seastar {
+
 file_desc
 file_desc::temporary(sstring directory) {
     // FIXME: add O_TMPFILE support one day
@@ -114,3 +116,4 @@ void pin_this_thread(unsigned cpu_id) {
     assert(r == 0);
 }
 
+} // namespace seastar

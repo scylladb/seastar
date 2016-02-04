@@ -44,6 +44,8 @@
 #include <osv/virtio-assign.hh>
 #endif
 
+namespace seastar {
+
 using namespace net;
 
 namespace virtio {
@@ -1015,6 +1017,8 @@ get_virtio_net_options_description()
 std::unique_ptr<net::device> create_virtio_net_device(boost::program_options::variables_map opts) {
     return std::make_unique<virtio::device>(opts);
 }
+
+} // namespace seastar
 
 // Locks the shared object in memory and forces on-load function resolution.
 // Needed if the function passed to enable_interrupt() is run at interrupt

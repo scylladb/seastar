@@ -21,6 +21,7 @@
 
 #include "arp.hh"
 
+namespace seastar {
 namespace net {
 
 arp_for_protocol::arp_for_protocol(arp& a, uint16_t proto_num)
@@ -77,4 +78,5 @@ arp::process_packet(packet p, ethernet_address from) {
     return make_ready_future<>();
 }
 
-}
+} // namespace net
+} // namespace seastar

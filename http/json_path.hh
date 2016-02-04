@@ -30,6 +30,7 @@
 #include "routes.hh"
 #include "function_handlers.hh"
 
+namespace seastar {
 namespace httpd {
 
 /**
@@ -133,5 +134,6 @@ struct path_description {
     void set(routes& _routes, const future_json_function& f) const;
 };
 
-}
+} // namespace httpd
+} // namespace seastar
 #endif /* JSON_PATH_HH_ */

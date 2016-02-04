@@ -23,7 +23,8 @@
 #include "core/reactor.hh"
 #include "net/virtio.hh"
 
-using namespace net;
+using namespace seastar;
+using namespace seastar::net;
 
 void dump_arp_packets(l3_protocol& proto) {
     proto.receive([&proto] (packet p, ethernet_address from) {

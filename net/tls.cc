@@ -30,6 +30,8 @@
 #include "tls.hh"
 #include "stack.hh"
 
+namespace seastar {
+
 class net::get_impl {
 public:
     static std::unique_ptr<connected_socket_impl> get(connected_socket s) {
@@ -39,7 +41,7 @@ public:
 
 class blob_wrapper: public gnutls_datum_t {
 public:
-    blob_wrapper(const seastar::tls::blob& in)
+    blob_wrapper(const tls::blob& in)
             : gnutls_datum_t {
                     reinterpret_cast<uint8_t *>(const_cast<char *>(in.data())),
                     unsigned(in.size()) } {
@@ -112,7 +114,7 @@ static void gtls_chk(int res) {
     }
 }
 
-class seastar::tls::dh_params::impl : gnutlsobj {
+class tls::dh_params::impl : gnutlsobj {
 public:
     impl()
             : _params([] {
@@ -146,27 +148,27 @@ private:
     gnutls_dh_params_t _params;
 };
 
-seastar::tls::dh_params::dh_params(level lvl) : _impl(std::make_unique<impl>(lvl))
+tls::dh_params::dh_params(level lvl) : _impl(std::make_unique<impl>(lvl))
 {}
 
-seastar::tls::dh_params::dh_params(const blob& b, x509_crt_format fmt)
+tls::dh_params::dh_params(const blob& b, x509_crt_format fmt)
         : _impl(std::make_unique<impl>(b, fmt)) {
 }
 
-seastar::tls::dh_params::~dh_params() {
+tls::dh_params::~dh_params() {
 }
 
-seastar::tls::dh_params::dh_params(dh_params&&) noexcept = default;
-seastar::tls::dh_params& seastar::tls::dh_params::operator=(dh_params&&) noexcept = default;
+tls::dh_params::dh_params(dh_params&&) noexcept = default;
+tls::dh_params& tls::dh_params::operator=(dh_params&&) noexcept = default;
 
-future<seastar::tls::dh_params> seastar::tls::dh_params::from_file(
+future<tls::dh_params> tls::dh_params::from_file(
         const sstring& filename, x509_crt_format fmt) {
     return read_fully(filename, "dh parameters").then([fmt](temporary_buffer<char> buf) {
         return make_ready_future<dh_params>(dh_params(blob(buf.get()), fmt));
     });
 }
 
-class seastar::tls::x509_cert::impl : gnutlsobj {
+class tls::x509_cert::impl : gnutlsobj {
 public:
     impl()
             : _cert([] {
@@ -194,22 +196,22 @@ private:
     gnutls_x509_crt_t _cert;
 };
 
-seastar::tls::x509_cert::x509_cert(::shared_ptr<impl> impl)
+tls::x509_cert::x509_cert(seastar::shared_ptr<impl> impl)
         : _impl(std::move(impl)) {
 }
 
-seastar::tls::x509_cert::x509_cert(const blob& b, x509_crt_format fmt)
-        : x509_cert(::make_shared<impl>(b, fmt)) {
+tls::x509_cert::x509_cert(const blob& b, x509_crt_format fmt)
+    : x509_cert(seastar::make_shared<impl>(b, fmt)) {
 }
 
-future<seastar::tls::x509_cert> seastar::tls::x509_cert::from_file(
+future<tls::x509_cert> tls::x509_cert::from_file(
         const sstring& filename, x509_crt_format fmt) {
     return read_fully(filename, "x509 certificate").then([fmt](temporary_buffer<char> buf) {
         return make_ready_future<x509_cert>(x509_cert(blob(buf.get()), fmt));
     });
 }
 
-class seastar::tls::certificate_credentials::impl: public gnutlsobj {
+class tls::certificate_credentials::impl: public gnutlsobj {
 public:
     impl()
             : _creds([] {
@@ -257,68 +259,68 @@ public:
                 gnutls_certificate_set_x509_simple_pkcs12_mem(_creds, &w,
                         gnutls_x509_crt_fmt_t(fmt), password.c_str()));
     }
-    void dh_params(::shared_ptr<tls::dh_params> dh) {
+    void dh_params(seastar::shared_ptr<tls::dh_params> dh) {
         gnutls_certificate_set_dh_params(*this, *dh->_impl);
         _dh_params = std::move(dh);
     }
 
     future<> set_system_trust() {
-        return seastar::async([this] {
+        return async([this] {
             gtls_chk(gnutls_certificate_set_x509_system_trust(_creds));
         });
     }
 private:
     gnutls_certificate_credentials_t _creds;
-    ::shared_ptr<tls::dh_params> _dh_params;
+    seastar::shared_ptr<tls::dh_params> _dh_params;
 };
 
-seastar::tls::certificate_credentials::certificate_credentials()
+tls::certificate_credentials::certificate_credentials()
         : _impl(std::make_unique<impl>()) {
 }
 
-seastar::tls::certificate_credentials::~certificate_credentials() {
+tls::certificate_credentials::~certificate_credentials() {
 }
 
-seastar::tls::certificate_credentials::certificate_credentials(
+tls::certificate_credentials::certificate_credentials(
         certificate_credentials&&) noexcept = default;
-seastar::tls::certificate_credentials& seastar::tls::certificate_credentials::operator=(
+tls::certificate_credentials& tls::certificate_credentials::operator=(
         certificate_credentials&&) noexcept = default;
 
-void seastar::tls::certificate_credentials::set_x509_trust(const blob& b,
+void tls::certificate_credentials::set_x509_trust(const blob& b,
         x509_crt_format fmt) {
     _impl->set_x509_trust(b, fmt);
 }
 
-void seastar::tls::certificate_credentials::set_x509_crl(const blob& b,
+void tls::certificate_credentials::set_x509_crl(const blob& b,
         x509_crt_format fmt) {
     _impl->set_x509_crl(b, fmt);
 
 }
-void seastar::tls::certificate_credentials::set_x509_key(const blob& cert,
+void tls::certificate_credentials::set_x509_key(const blob& cert,
         const blob& key, x509_crt_format fmt) {
     _impl->set_x509_key(cert, key, fmt);
 }
 
-void seastar::tls::certificate_credentials::set_simple_pkcs12(const blob& b,
+void tls::certificate_credentials::set_simple_pkcs12(const blob& b,
         x509_crt_format fmt, const sstring& password) {
     _impl->set_simple_pkcs12(b, fmt, password);
 }
 
-future<> seastar::tls::certificate_credentials::set_x509_trust_file(
+future<> tls::certificate_credentials::set_x509_trust_file(
         const sstring& cafile, x509_crt_format fmt) {
     return read_fully(cafile, "trust file").then([this, fmt](temporary_buffer<char> buf) {
         _impl->set_x509_trust(blob(buf.get(), buf.size()), fmt);
     });
 }
 
-future<> seastar::tls::certificate_credentials::set_x509_crl_file(
+future<> tls::certificate_credentials::set_x509_crl_file(
         const sstring& crlfile, x509_crt_format fmt) {
     return read_fully(crlfile, "crl file").then([this, fmt](temporary_buffer<char> buf) {
         _impl->set_x509_crl(blob(buf.get(), buf.size()), fmt);
     });
 }
 
-future<> seastar::tls::certificate_credentials::set_x509_key_file(
+future<> tls::certificate_credentials::set_x509_key_file(
         const sstring& cf, const sstring& kf, x509_crt_format fmt) {
     return read_fully(cf, "certificate file").then([this, fmt, kf](temporary_buffer<char> buf) {
         return read_fully(kf, "key file").then([this, fmt, buf = std::move(buf)](temporary_buffer<char> buf2) {
@@ -327,7 +329,7 @@ future<> seastar::tls::certificate_credentials::set_x509_key_file(
     });
 }
 
-future<> seastar::tls::certificate_credentials::set_simple_pkcs12_file(
+future<> tls::certificate_credentials::set_simple_pkcs12_file(
         const sstring& pkcs12file, x509_crt_format fmt,
         const sstring& password) {
     return read_fully(pkcs12file, "pkcs12 file").then([this, fmt, password](temporary_buffer<char> buf) {
@@ -335,19 +337,18 @@ future<> seastar::tls::certificate_credentials::set_simple_pkcs12_file(
     });
 }
 
-future<> seastar::tls::certificate_credentials::set_system_trust() {
+future<> tls::certificate_credentials::set_system_trust() {
     return _impl->set_system_trust();
 }
 
-seastar::tls::server_credentials::server_credentials(::shared_ptr<dh_params> dh) {
+tls::server_credentials::server_credentials(seastar::shared_ptr<dh_params> dh) {
     _impl->dh_params(std::move(dh));
 }
 
-seastar::tls::server_credentials::server_credentials(server_credentials&&) noexcept = default;
-seastar::tls::server_credentials& seastar::tls::server_credentials::operator=(
+tls::server_credentials::server_credentials(server_credentials&&) noexcept = default;
+tls::server_credentials& tls::server_credentials::operator=(
         server_credentials&&) noexcept = default;
 
-namespace seastar {
 namespace tls {
 
 /**
@@ -366,8 +367,8 @@ public:
             CLIENT = GNUTLS_CLIENT, SERVER = GNUTLS_SERVER,
     };
 
-    session(type t, ::shared_ptr<certificate_credentials> creds,
-            std::unique_ptr<net::connected_socket_impl> sock, sstring name = { })
+    session(type t, seastar::shared_ptr<certificate_credentials> creds,
+	    std::unique_ptr<net::connected_socket_impl> sock, sstring name = { })
             : _type(t), _sock(std::move(sock)), _creds(std::move(creds)), _hostname(
                     std::move(name)), _in(_sock->source()), _out(_sock->sink()), _output_pending(
                     make_ready_future<>()), _session([t] {
@@ -392,8 +393,8 @@ public:
         gnutls_session_set_verify_function(_session, &verify_wrapper);
 #endif
     }
-    session(type t, ::shared_ptr<certificate_credentials> creds,
-            ::connected_socket sock, sstring name = { })
+    session(type t, seastar::shared_ptr<certificate_credentials> creds,
+            connected_socket sock, sstring name = { })
             : session(t, std::move(creds), net::get_impl::get(std::move(sock)),
                     std::move(name)) {
     }
@@ -665,7 +666,7 @@ private:
     type _type;
 
     std::unique_ptr<net::connected_socket_impl> _sock;
-    ::shared_ptr<certificate_credentials> _creds;
+    seastar::shared_ptr<certificate_credentials> _creds;
     const sstring _hostname;
     data_source _in;
     data_sink _out;
@@ -681,7 +682,7 @@ private:
 };
 
 
-class session::source_impl: public ::data_source_impl {
+class session::source_impl: public seastar::data_source_impl {
 public:
     source_impl(session& s)
             : _session(s) {
@@ -739,7 +740,7 @@ private:
 // produced, cannot exist outside the direct life span of
 // the connected_socket itself. This is consistent with
 // other sockets in seastar, though I am than less fond of it...
-class session::sink_impl: public ::data_sink_impl {
+class session::sink_impl: public data_sink_impl {
 public:
     sink_impl(session& s)
             : _session(s) {
@@ -799,15 +800,15 @@ private:
 
 class server_session : public net::server_socket_impl {
 public:
-    server_session(::shared_ptr<server_credentials> creds, ::server_socket sock)
+    server_session(seastar::shared_ptr<server_credentials> creds, server_socket sock)
             : _creds(std::move(creds)), _sock(std::move(sock)) {
     }
     future<connected_socket, socket_address> accept() override {
         // We're not actually doing anything very SSL until we get
         // an actual connection. Then we create a "server" session
         // and wrap it up after handshaking.
-        return _sock.accept().then([this](::connected_socket s, ::socket_address addr) {
-            return wrap_server(_creds, std::move(s)).then([addr](::connected_socket s) {
+        return _sock.accept().then([this](connected_socket s, socket_address addr) {
+            return wrap_server(_creds, std::move(s)).then([addr](connected_socket s) {
                 return make_ready_future<connected_socket, socket_address>(std::move(s), addr);
             });
         });
@@ -816,58 +817,59 @@ public:
         _sock.abort_accept();
     }
 private:
-    ::shared_ptr<server_credentials> _creds;
-    ::server_socket _sock;
+    seastar::shared_ptr<server_credentials> _creds;
+    server_socket _sock;
 };
 
 }
-}
 
-data_source seastar::tls::session::source() {
+data_source tls::session::source() {
     return data_source(std::make_unique<source_impl>(*this));
 }
 
-data_sink seastar::tls::session::sink() {
+data_sink tls::session::sink() {
     return data_sink(std::make_unique<sink_impl>(*this));
 }
 
 
-future<::connected_socket> seastar::tls::connect(::shared_ptr<certificate_credentials> cred, socket_address sa, sstring name) {
-    return engine().connect(sa).then([cred = std::move(cred), name = std::move(name)](::connected_socket s) mutable {
+future<connected_socket> tls::connect(seastar::shared_ptr<certificate_credentials> cred, socket_address sa, sstring name) {
+    return engine().connect(sa).then([cred = std::move(cred), name = std::move(name)](connected_socket s) mutable {
         return wrap_client(cred, std::move(s), std::move(name));
     });
 }
 
-future<::connected_socket> seastar::tls::connect(::shared_ptr<certificate_credentials> cred, socket_address sa, socket_address local, sstring name) {
-    return engine().connect(sa, local).then([cred = std::move(cred), name = std::move(name)](::connected_socket s) mutable {
+future<connected_socket> tls::connect(seastar::shared_ptr<certificate_credentials> cred, socket_address sa, socket_address local, sstring name) {
+    return engine().connect(sa, local).then([cred = std::move(cred), name = std::move(name)](connected_socket s) mutable {
         return wrap_client(cred, std::move(s), std::move(name));
     });
 }
 
-future<::connected_socket> seastar::tls::wrap_client(::shared_ptr<certificate_credentials> cred, ::connected_socket&& s, sstring name) {
+future<connected_socket> tls::wrap_client(seastar::shared_ptr<certificate_credentials> cred, connected_socket&& s, sstring name) {
     auto sess = std::make_unique<session>(session::type::CLIENT, std::move(cred), std::move(s), std::move(name));
     auto f = sess->handshake();
     return f.then([sess = std::move(sess)]() mutable {
-        ::connected_socket ssls(std::move(sess));
-        return make_ready_future<::connected_socket>(std::move(ssls));
+        connected_socket ssls(std::move(sess));
+        return make_ready_future<connected_socket>(std::move(ssls));
     });
 }
 
-future<::connected_socket> seastar::tls::wrap_server(::shared_ptr<server_credentials> cred, ::connected_socket&& s) {
+future<connected_socket> tls::wrap_server(seastar::shared_ptr<server_credentials> cred, connected_socket&& s) {
     auto sess = std::make_unique<session>(session::type::SERVER, std::move(cred), std::move(s));
     auto f = sess->handshake();
     return f.then([sess = std::move(sess)]() mutable {
-        ::connected_socket ssls(std::move(sess));
-        return make_ready_future<::connected_socket>(std::move(ssls));
+        connected_socket ssls(std::move(sess));
+        return make_ready_future<connected_socket>(std::move(ssls));
     });
 }
 
-::server_socket seastar::tls::listen(::shared_ptr<server_credentials> creds, ::socket_address sa, ::listen_options opts) {
+server_socket tls::listen(shared_ptr<server_credentials> creds, socket_address sa, listen_options opts) {
     return listen(std::move(creds), engine().listen(sa, opts));
 }
 
-::server_socket seastar::tls::listen(::shared_ptr<server_credentials> creds, ::server_socket ss) {
-    ::server_socket ssls(std::make_unique<server_session>(creds, std::move(ss)));
-    return ::server_socket(std::move(ssls));
+server_socket tls::listen(shared_ptr<server_credentials> creds, server_socket ss) {
+    server_socket ssls(std::make_unique<server_session>(creds, std::move(ss)));
+    return server_socket(std::move(ssls));
 }
 
+
+} // namespace seastar

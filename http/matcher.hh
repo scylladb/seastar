@@ -26,6 +26,7 @@
 
 #include "core/sstring.hh"
 
+namespace seastar {
 namespace httpd {
 
 /**
@@ -105,6 +106,7 @@ private:
     unsigned _len;
 };
 
-}
+} // namespace httpd
+} // namespace seastar
 
 #endif /* MATCHER_HH_ */

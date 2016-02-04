@@ -21,6 +21,8 @@
 
 #pragma once
 
+namespace seastar {
+
 // The following unaligned_cast<T*>(p) is a portable replacement for
 // reinterpret_cast<T*>(p) which should be used every time address p
 // is not guaranteed to be properly aligned to alignof(T).
@@ -64,3 +66,5 @@ template <typename T, typename F>
 inline auto unaligned_cast(const F* p) {
     return reinterpret_cast<const unaligned<std::remove_pointer_t<T>>*>(p);
 }
+
+} // namespace seastar

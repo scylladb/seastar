@@ -34,12 +34,13 @@
 #include "iostream.hh"
 #include "shared_ptr.hh"
 
+namespace seastar {
 
 /// Data structure describing options for opening a file input stream
 struct file_input_stream_options {
     size_t buffer_size = 8192;    ///< I/O buffer size
     unsigned read_ahead = 0;      ///< Number of extra read-ahead operations
-    ::io_priority_class io_priority_class = default_priority_class();
+    seastar::io_priority_class io_priority_class = default_priority_class();
 };
 
 /// \brief Creates an input_stream to read a portion of a file.
@@ -70,7 +71,7 @@ struct file_output_stream_options {
     unsigned buffer_size = 8192;
     unsigned preallocation_size = 1024*1024; // 1MB
     unsigned write_behind = 1; ///< Number of buffers to write in parallel
-    ::io_priority_class io_priority_class = default_priority_class();
+    seastar::io_priority_class io_priority_class = default_priority_class();
 };
 
 // Create an output_stream for writing starting at the position zero of a
@@ -87,3 +88,4 @@ output_stream<char> make_file_output_stream(
         file file,
         file_output_stream_options options);
 
+} // namespace seastar

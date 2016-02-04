@@ -31,6 +31,8 @@
 #include <chrono>
 #include <boost/program_options.hpp>
 
+using namespace seastar;
+
 template <size_t N>
 void test_aligned_allocator() {
     using aptr = std::unique_ptr<char[]>;
