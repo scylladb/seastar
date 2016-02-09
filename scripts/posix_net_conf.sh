@@ -65,9 +65,23 @@ setup_xps()
     done
 }
 
+#
+# Prints IRQ numbers for the $IFACE
+#
+get_irqs()
+{
+    if [[ `ls -1 /sys/class/net/$IFACE/device/msi_irqs/ | wc -l` -gt 0 ]]; then
+        # Device uses MSI IRQs
+        ls -1 /sys/class/net/$IFACE/device/msi_irqs/
+    else
+        # Device uses INT#x
+        cat /sys/class/net/$IFACE/device/irq
+    fi
+}
+
 distribute_irqs()
 {
-    local irqs=( `cat  /proc/interrupts | grep $IFACE | cut -d":" -f1` )
+    local irqs=( `get_irqs` )
     local mask
     local i=0
 
@@ -113,7 +127,7 @@ restart_irqbalance()
 
     local new_options="$options_key=\""
     local irq
-    for irq in `cat  /proc/interrupts | grep $IFACE | cut -d":" -f1`
+    for irq in `get_irqs`
     do
         new_options="$new_options --banirq=$irq"
         echo -n "$irq "
@@ -171,7 +185,7 @@ restart_irqbalance
 
 # bind all NIC IRQs to CPU0
 if [[ -z "$MQ_MODE" ]]; then
-    for irq in `cat  /proc/interrupts | grep $IFACE | cut -d":" -f1`
+    for irq in `get_irqs`
     do
         echo "Binding IRQ $irq to CPU0"
         echo 1 > /proc/irq/$irq/smp_affinity
