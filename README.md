@@ -93,6 +93,11 @@ To compile Seastar explicitly using gcc 4.9, use:
 ninja
 ```
 
+Then finally:
+```
+ninja
+```
+
 ### Building seastar in Docker container
 
 To build a Docker image:
