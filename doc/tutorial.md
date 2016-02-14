@@ -553,6 +553,75 @@ TODO: say something about broken semaphores? (or in later section especially abo
 
 ## Pipes
 
+## Shutting down a service with a gate
+Consider an application which has some long operation `slow()`, and many such operations may be started at any time. A number of `slow()` operations may even even be active in parallel.  Now, you want to shut down this service, but want to make sure that before that, all outstanding operations are completed. Moreover, you don't want to allow new `slow()` operations to start while the shut-down is in progress.
+
+This is the purpose of a `seastar::gate`. A gate `g` maintains an internal counter of operations in progress. We call `g.enter()` when entering an operation (i.e., before running `slow()`), and call `g.leave()` when leaving the operation (when a call to `slow()` completed). The method `g.close()` *closes the gate*, which means it forbids any further calls to `g.enter()` (such attempts will generate an exception); Moreover `g.close()` returns a future which resolves when all the existing operations have completed. In other words, when `g.close()` resolves, we know that no more invocations of `slow()` can be in progress - because the ones that already started have completed, and new ones could not have started.
+
+The construct
+```cpp
+seastar::with_gate(g, [] { return slow(); })
+```
+can be used as a shortcut to the idiom
+```cpp
+g.enter();
+slow().finally([&g] { g.leave(); });
+```
+
+Here is a typical example of using a gate:
+
+```cpp
+#include "core/sleep.hh"
+#include "core/gate.hh"
+#include <boost/iterator/counting_iterator.hpp>
+
+future<> slow(int i) {
+    std::cerr << "starting " << i << "\n";
+    return sleep(std::chrono::seconds(10)).then([i] {
+        std::cerr << "done " << i << "\n";
+    });
+}
+
+future<> f() {
+    return do_with(seastar::gate(), [] (auto& g) {
+        return do_for_each(boost::counting_iterator<int>(1),
+                boost::counting_iterator<int>(6),
+                [&g] (int i) {
+            seastar::with_gate(g, [i] { return slow(i); });
+            // wait one second before starting the next iteration
+            return sleep(std::chrono::seconds(1));
+		}).then([&g] {
+            sleep(std::chrono::seconds(1)).then([&g] {
+                // This will fail, because it will be after the close()
+                g.enter();
+                seastar::with_gate(g, [] { return slow(6); });
+            });
+            return g.close();
+        });
+    });
+}
+```
+
+In this example, we have a function `future<> slow()` taking 10 seconds to complete. We run it in a loop 5 times, waiting 1 second between calls, and surround each call with entering and leaving the gate (using `with_gate`). After the 5th call, while all calls are still ongoing (because each takes 10 seconds to complete), we close the gate and wait for it before exiting the program. We also test that new calls cannot begin after closing the gate, by trying to enter the gate again one second after closing it.
+
+The output of this program looks like this:
+```
+starting 1
+starting 2
+starting 3
+starting 4
+starting 5
+WARNING: exceptional future ignored of type 'seastar::gate_closed_exception': gate closed
+done 1
+done 2
+done 3
+done 4
+done 5
+```
+
+Here, the invovations of `slow()` were started at 1 second intervals. After the "`starting 5`" message, we closed the gate and another attempt to use it resulted in a `seastar::gate_closed_exception`, which we ignored and hence this message. At this point the application waits for the future returned by `g.close()`. This will happen once all the `slow()` invocations have completed: Immediately after printing "`done 5`", the test program stops.
+
+
 # Introducing shared-nothing programming
 
 TODO: Explain in more detail Seastar's shared-nothing approach where the entire memory is divided up-front to cores, malloc/free and pointers only work on one core.
