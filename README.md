@@ -22,6 +22,11 @@ Getting started
 
 There is a [mini tutorial](doc/mini-tutorial.md) and a [more comprehensive one](doc/tutorial.md).
 
+The Native TCP/IP Stack
+-----------------------
+
+Seastar comes with its own [userspace TCP/IP stack](doc/native-stack.md) for better performance.
+
 Recommended hardware configuration for SeaStar
 ----------------------------------------------
 
