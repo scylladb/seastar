@@ -15,17 +15,7 @@ See instructions for [Fedora](doc/building-fedora.md) and [Ubuntu](doc/building-
 
 There are also instructions for building on any host that supports [Docker](doc/building-docker.md).
 
-### Building with a DPDK network backend
-
- 1. Setup host to compile DPDK:
-    - Ubuntu 
-         `sudo apt-get install -y build-essential linux-image-extra-$(uname -r$)` 
- 2. Run a configure.py: `./configure.py --enable-dpdk`.
- 3. Run `ninja-build`.
-
-To run with the DPDK backend for a native stack give the seastar application `--dpdk-pmd 1` parameter.
-
-You can also configure DPDK as an [external package](README-DPDK.md).
+Use of the [DPDK](http://dpdk.org) is [optional](doc/building-dpdk.md).
 
 Futures and promises
 --------------------
