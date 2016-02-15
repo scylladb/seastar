@@ -557,6 +557,10 @@ public:
     static future<io_event>
     queue_request(shard_id coordinator, const io_priority_class& pc, size_t len, Func do_io);
 
+    size_t capacity() const {
+        return _capacity;
+    }
+
     size_t queued_requests() const {
         return _fq.waiters();
     }
