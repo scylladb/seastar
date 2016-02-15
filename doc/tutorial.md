@@ -621,6 +621,26 @@ done 5
 
 Here, the invovations of `slow()` were started at 1 second intervals. After the "`starting 5`" message, we closed the gate and another attempt to use it resulted in a `seastar::gate_closed_exception`, which we ignored and hence this message. At this point the application waits for the future returned by `g.close()`. This will happen once all the `slow()` invocations have completed: Immediately after printing "`done 5`", the test program stops.
 
+As explained so far, a gate can prevent new invocations of an operation, and wait for any in-progress operations to complete. However, these in-progress operations may take a very long time to complete. Often, a long operation would like to know that a shut-down has been requested, so it could stop its work prematurely. An operation can check whether its gate was closed by calling the gate's `check()` method: If the gate is already closed, the `check()` method throws an exception (the same `seastar::gate_closeed_exception` that `enter()` would throw at that point). The intent is that the exception will cause the operation calling it to stop at this point.
+
+In the previous example code, we had an un-interruptible operation `slow()` which slept for 10 seconds. Let's replace it by a loop of 10 one-second sleeps, calling `g.check()` each second:
+
+```cpp
+future<> slow(int i, seastar::gate &g) {
+    std::cerr << "starting " << i << "\n";
+    return do_for_each(boost::counting_iterator<int>(0),
+                       boost::counting_iterator<int>(10),
+            [&g] (int) {
+        g.check();
+        return sleep(std::chrono::seconds(1));
+    }).finally([i] {
+        std::cerr << "done " << i << "\n";
+    });
+}
+```
+
+Now, just one second after gate is closed (after the "starting 5" message is printed), all the `slow()` operations notice the gate was closed, and stop. As expected, the exception stops the `do_for_each()` loop, and the `finally()` continuation is performed so we see the "done" messages for all five operations.
+
 
 # Introducing shared-nothing programming
 

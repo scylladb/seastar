@@ -70,6 +70,20 @@ public:
             _stopped->set_value();
         }
     }
+    /// Potentially stop an in-progress request.
+    ///
+    /// If the gate is already closed, a \ref gate_closed_exception is thrown.
+    /// By using \ref enter() and \ref leave(), the program can ensure that
+    /// no further requests are serviced. However, long-running requests may
+    /// continue to run. The check() method allows such a long operation to
+    /// voluntarily stop itself after the gate is closed, by making calls to
+    /// check() in appropriate places. check() with throw an exception and
+    /// bail out of the long-running code if the gate is closed.
+    void check() {
+        if (_stopped) {
+            throw gate_closed_exception();
+        }
+    }
     /// Closes the gate.
     ///
     /// Future calls to \ref enter() will fail with an exception, and when
