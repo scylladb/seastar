@@ -1238,10 +1238,12 @@ void reactor::del_timer(timer<lowres_clock>* tmr) {
 }
 
 void reactor::at_exit(std::function<future<> ()> func) {
+    assert(!_stopping);
     _exit_funcs.push_back(std::move(func));
 }
 
 future<> reactor::run_exit_tasks() {
+    _stopping = true;
     return do_for_each(_exit_funcs.rbegin(), _exit_funcs.rend(), [] (auto& func) {
         return func();
     });

@@ -656,6 +656,7 @@ private:
 
     std::vector<std::function<future<> ()>> _exit_funcs;
     unsigned _id = 0;
+    bool _stopping = false;
     bool _stopped = false;
     bool _handle_sigint = true;
     promise<std::unique_ptr<network_stack>> _network_stack_ready_promise;
