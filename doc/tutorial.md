@@ -172,7 +172,7 @@ Couldn't start application: insufficient physical memory
 # Introducing futures and continuations
 Futures and continuations, which we will introduce now, are the building blocks of asynchronous programming in Seastar. Their strength lies in the ease of composing them together into a large, complex, asynchronous program, while keeping the code fairly readable and understandable. 
 
-A **future** is a result of a computation that may not be available yet.
+A [future](\ref future) is a result of a computation that may not be available yet.
 Examples include:
 
   * a data buffer that we are reading from the network
