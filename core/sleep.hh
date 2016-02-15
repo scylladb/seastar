@@ -29,6 +29,14 @@
 #include "core/reactor.hh"
 #include "core/future.hh"
 
+
+/// \file
+
+/// Returns a future which completes after a specified time has elapsed.
+///
+/// \param dur minimum amount of time before the returned future becomes
+///            ready.
+/// \return A \ref future which becomes ready when the sleep duration elapses.
 template <typename Clock = steady_clock_type, typename Rep, typename Period>
 future<> sleep(std::chrono::duration<Rep, Period> dur) {
     struct sleeper {
