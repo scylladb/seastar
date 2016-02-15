@@ -19,8 +19,49 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
+#include <boost/program_options.hpp>
+#include <boost/algorithm/string.hpp>
+#include <regex>
 #include "resource.hh"
 #include "core/align.hh"
+
+// Overload for boost program options parsing/validation
+void validate(boost::any& v,
+              const std::vector<std::string>& values,
+              cpuset_bpo_wrapper* target_type, int) {
+    using namespace boost::program_options;
+    static std::regex r("(\\d+-)?(\\d+)(,(\\d+-)?(\\d+))*");
+    validators::check_first_occurrence(v);
+    // Extract the first string from 'values'. If there is more than
+    // one string, it's an error, and exception will be thrown.
+    auto&& s = validators::get_single_string(values);
+    std::smatch match;
+    if (std::regex_match(s, match, r)) {
+        std::vector<std::string> ranges;
+        boost::split(ranges, s, boost::is_any_of(","));
+        cpuset_bpo_wrapper ret;
+        for (auto&& range: ranges) {
+            std::string beg = range;
+            std::string end = range;
+            auto dash = range.find('-');
+            if (dash != range.npos) {
+                beg = range.substr(0, dash);
+                end = range.substr(dash + 1);
+            }
+            auto b = boost::lexical_cast<unsigned>(beg);
+            auto e = boost::lexical_cast<unsigned>(end);
+            if (b > e) {
+                throw validation_error(validation_error::invalid_option_value);
+            }
+            for (auto i = b; i <= e; ++i) {
+                ret.value.insert(i);
+            }
+        }
+        v = std::move(ret);
+    } else {
+        throw validation_error(validation_error::invalid_option_value);
+    }
+}
 
 namespace resource {
 
