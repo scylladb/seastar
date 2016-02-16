@@ -50,6 +50,7 @@ class simple_input_stream {
     const char* _p;
     size_t _size;
 public:
+    simple_input_stream(const simple_input_stream& o) : _p(o._p), _size(o._size) {}
     simple_input_stream(const char* p, size_t size) : _p(p), _size(size) {}
     void skip(size_t size) {
         if (size > _size) {
