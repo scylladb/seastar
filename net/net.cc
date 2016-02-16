@@ -311,6 +311,10 @@ unsigned interface::hash2cpu(uint32_t hash) {
     return _dev->hash2cpu(hash);
 }
 
+uint16_t interface::hw_queues_count() {
+    return _dev->hw_queues_count();
+}
+
 const rss_key_type& interface::rss_key() const {
     return _dev->rss_key();
 }

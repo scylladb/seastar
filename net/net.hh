@@ -131,7 +131,7 @@ public:
     void register_packet_provider(l3_protocol::packet_provider_type func) {
         _pkt_providers.push_back(std::move(func));
     }
-    uint16_t hw_queues_count() { return _dev->hw_queues_count(); }
+    uint16_t hw_queues_count();
     const rss_key_type& rss_key() const;
     friend class l3_protocol;
 };
