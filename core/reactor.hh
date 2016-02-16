@@ -49,6 +49,7 @@
 #include <boost/lockfree/spsc_queue.hpp>
 #include <boost/optional.hpp>
 #include <boost/program_options.hpp>
+#include <boost/thread/barrier.hpp>
 #include <set>
 #include "util/eclipse.hh"
 #include "future.hh"
@@ -659,6 +660,7 @@ private:
 
     std::vector<std::function<future<> ()>> _exit_funcs;
     unsigned _id = 0;
+    bool _stopping = false;
     bool _stopped = false;
     bool _handle_sigint = true;
     promise<std::unique_ptr<network_stack>> _network_stack_ready_promise;
@@ -935,6 +937,7 @@ class smp {
     using thread_adaptor = posix_thread;
 #endif
     static std::vector<thread_adaptor> _threads;
+    static std::experimental::optional<boost::barrier> _all_event_loops_done;
     static std::vector<reactor*> _reactors;
     static smp_message_queue** _qs;
     static std::thread::id _tmain;
@@ -947,6 +950,7 @@ public:
     static boost::program_options::options_description get_options_description();
     static void configure(boost::program_options::variables_map vm);
     static void cleanup();
+    static void arrive_at_event_loop_end();
     static void join_all();
     static bool main_thread() { return std::this_thread::get_id() == _tmain; }
 

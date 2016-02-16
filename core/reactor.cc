@@ -1238,10 +1238,12 @@ void reactor::del_timer(timer<lowres_clock>* tmr) {
 }
 
 void reactor::at_exit(std::function<future<> ()> func) {
+    assert(!_stopping);
     _exit_funcs.push_back(std::move(func));
 }
 
 future<> reactor::run_exit_tasks() {
+    _stopping = true;
     return do_for_each(_exit_funcs.rbegin(), _exit_funcs.rend(), [] (auto& func) {
         return func();
     });
@@ -1726,6 +1728,7 @@ int reactor::run() {
             while (!_at_destroy_tasks.empty()) {
                 run_tasks(_at_destroy_tasks);
             }
+            smp::arrive_at_event_loop_end();
             if (_id == 0) {
                 smp::join_all();
             }
@@ -2247,6 +2250,7 @@ smp::get_options_description()
 }
 
 std::vector<smp::thread_adaptor> smp::_threads;
+std::experimental::optional<boost::barrier> smp::_all_event_loops_done;
 std::vector<reactor*> smp::_reactors;
 smp_message_queue** smp::_qs;
 std::thread::id smp::_tmain;
@@ -2288,6 +2292,12 @@ void smp::pin(unsigned cpu_id) {
     pin_this_thread(cpu_id);
 }
 #endif
+
+void smp::arrive_at_event_loop_end() {
+    if (_all_event_loops_done) {
+        _all_event_loops_done->wait();
+    }
+}
 
 void smp::allocate_reactor() {
     struct reactor_deleter {
@@ -2436,6 +2446,8 @@ void smp::configure(boost::program_options::variables_map configuration)
         engine()._io_queue = all_io_queues[queue_idx];
         engine()._io_coordinator = all_io_queues[queue_idx]->coordinator();
     };
+
+    _all_event_loops_done.emplace(smp::count);
 
     unsigned i;
     for (i = 1; i < smp::count; i++) {
