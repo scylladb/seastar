@@ -344,8 +344,16 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
 
             // prepare reply handler, if return type is now_wait_type this does nothing, since no reply will be sent
             using wait = wait_signature_t<Ret>;
-            return when_all(std::move(sent), wait_for_reply<Serializer, MsgType>(wait(), timeout, dst, msg_id, sig)).then([] (auto r) {
-                return std::get<1>(std::move(r)); // return result of wait_for_reply
+            return wait_for_reply<Serializer, MsgType>(wait(), timeout, dst, msg_id, sig).then_wrapped([sent = std::move(sent)] (auto f) mutable {
+               // FIXME: if wait_for_reply timeouts the code does not wait for data to be sent,
+               //        so it should cancel sending in addition 
+               if (f.failed()) {
+                    return f;
+                } else {
+                    return sent.then([f = std::move(f)] () mutable {
+                        return std::move(f);
+                    });
+                }
             });
         }
         auto operator()(typename protocol<Serializer, MsgType>::client& dst, const InArgs&... args) {
