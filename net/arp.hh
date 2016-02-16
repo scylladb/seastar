@@ -124,7 +124,11 @@ public:
     future<ethernet_address> lookup(const l3addr& addr);
     void learn(l2addr l2, l3addr l3);
     void run();
-    void set_self_addr(l3addr addr) { _l3self = addr; }
+    void set_self_addr(l3addr addr) {
+        _table.erase(_l3self);
+        _table[addr] = l2self();
+        _l3self = addr;
+    }
     friend class arp;
 };
 
