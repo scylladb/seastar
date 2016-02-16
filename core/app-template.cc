@@ -95,6 +95,10 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
             if (ifs) {
                 bpo::store(bpo::parse_config_file(ifs, _opts), configuration);
             }
+            std::ifstream ifs_io(std::string(home) + "/.config/seastar/io.conf");
+            if (ifs_io) {
+                bpo::store(bpo::parse_config_file(ifs_io, _opts), configuration);
+            }
         }
     } catch (bpo::error& e) {
         print("error: %s\n\nTry --help.\n", e.what());

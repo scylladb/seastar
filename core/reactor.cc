@@ -2225,50 +2225,6 @@ reactor::get_options_description() {
     return opts;
 }
 
-// We need a wrapper class, because boost::program_options wants validate()
-// (below) to be in the same namespace as the type it is validating.
-struct cpuset_wrapper {
-    resource::cpuset value;
-};
-
-// Overload for boost program options parsing/validation
-void validate(boost::any& v,
-              const std::vector<std::string>& values,
-              cpuset_wrapper* target_type, int) {
-    using namespace boost::program_options;
-    static std::regex r("(\\d+-)?(\\d+)(,(\\d+-)?(\\d+))*");
-    validators::check_first_occurrence(v);
-    // Extract the first string from 'values'. If there is more than
-    // one string, it's an error, and exception will be thrown.
-    auto&& s = validators::get_single_string(values);
-    std::smatch match;
-    if (std::regex_match(s, match, r)) {
-        std::vector<std::string> ranges;
-        boost::split(ranges, s, boost::is_any_of(","));
-        cpuset_wrapper ret;
-        for (auto&& range: ranges) {
-            std::string beg = range;
-            std::string end = range;
-            auto dash = range.find('-');
-            if (dash != range.npos) {
-                beg = range.substr(0, dash);
-                end = range.substr(dash + 1);
-            }
-            auto b = boost::lexical_cast<unsigned>(beg);
-            auto e = boost::lexical_cast<unsigned>(end);
-            if (b > e) {
-                throw validation_error(validation_error::invalid_option_value);
-            }
-            for (auto i = b; i <= e; ++i) {
-                ret.value.insert(i);
-            }
-        }
-        v = std::move(ret);
-    } else {
-        throw validation_error(validation_error::invalid_option_value);
-    }
-}
-
 boost::program_options::options_description
 smp::get_options_description()
 {
@@ -2276,7 +2232,7 @@ smp::get_options_description()
     bpo::options_description opts("SMP options");
     opts.add_options()
         ("smp,c", bpo::value<unsigned>(), "number of threads (default: one per CPU)")
-        ("cpuset", bpo::value<cpuset_wrapper>(), "CPUs to use (in cpuset(7) format; default: all))")
+        ("cpuset", bpo::value<cpuset_bpo_wrapper>(), "CPUs to use (in cpuset(7) format; default: all))")
         ("memory,m", bpo::value<std::string>(), "memory to use, in bytes (ex: 4G) (default: all)")
         ("reserve-memory", bpo::value<std::string>(), "memory reserved to OS (if --memory not specified)")
         ("hugepages", bpo::value<std::string>(), "path to accessible hugetlbfs mount (typically /dev/hugepages/something)")
@@ -2381,7 +2337,7 @@ void smp::configure(boost::program_options::variables_map configuration)
     std::copy(boost::counting_iterator<unsigned>(0), boost::counting_iterator<unsigned>(nr_cpus),
             std::inserter(cpu_set, cpu_set.end()));
     if (configuration.count("cpuset")) {
-        cpu_set = configuration["cpuset"].as<cpuset_wrapper>().value;
+        cpu_set = configuration["cpuset"].as<cpuset_bpo_wrapper>().value;
     }
     if (configuration.count("smp")) {
         nr_cpus = configuration["smp"].as<unsigned>();
