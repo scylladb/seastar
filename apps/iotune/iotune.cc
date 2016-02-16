@@ -64,8 +64,9 @@ struct test_file {
 };
 
 struct run_stats {
-    uint64_t IOPS = 0;
-    uint64_t concurrency = 0;
+    uint64_t IOPS;
+    uint64_t concurrency;
+    run_stats(uint64_t iops = 0, uint64_t conc = 0) : IOPS(iops), concurrency(conc) {}
     run_stats& operator+=(const struct run_stats& stats) {
         if (stats.concurrency != 0) {
             IOPS += stats.IOPS;
