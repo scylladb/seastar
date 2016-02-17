@@ -42,6 +42,8 @@
 
 using namespace std::chrono_literals;
 
+bool filesystem_has_good_aio_support(sstring directory, bool verbose);
+
 struct directory {
     sstring name;
     file_desc file;
@@ -576,6 +578,12 @@ int main(int ac, char** av) {
     }
 
     directory = configuration["evaluation-directory"].as<sstring>();
+
+    if (!filesystem_has_good_aio_support(directory, false)) {
+        std::cerr << "File system on " << directory << " is not qualified for seastar AIO;"
+                " see http://www.scylladb.com/kb/kb-fs-not-qualified-aio/ for details\n";
+        return 1;
+    }
 
     auto iodepth = io_queue_discovery(directory, cpuvec);
     auto num_io_queues = cpuvec.size();
