@@ -449,7 +449,8 @@ run_stats iotune_manager::issue_reads(size_t cpu_id, unsigned concurrency) {
 void test_file::generate() {
     std::cout << "Generating evaluation file..." << std::flush;
     io_context_t io_context = {0};
-    auto r = ::io_setup(iotune_manager::file_size / iotune_manager::wbuffer_size, &io_context);
+    auto max_aio = 128;
+    auto r = ::io_setup(max_aio, &io_context);
     assert(r >= 0);
     auto destroyer = defer([&io_context] { ::io_destroy(io_context); });
 
@@ -462,29 +463,36 @@ void test_file::generate() {
     std::vector<iocb> iocbs;
     std::vector<io_event> ev;
 
-    iocbs.resize(iotune_manager::file_size / iotune_manager::wbuffer_size);
-    ev.resize(iotune_manager::file_size / iotune_manager::wbuffer_size);
-    iocb_vecptr.reserve(iotune_manager::file_size / iotune_manager::wbuffer_size);
+    iocbs.resize(max_aio);
+    ev.resize(max_aio);
+    iocb_vecptr.resize(max_aio);
+    std::iota(iocb_vecptr.begin(), iocb_vecptr.end(), iocbs.data());
+    uint64_t pos = 0;
+    unsigned aio_outstanding = 0;
 
-    for (auto i = 0ul; i < (iotune_manager::file_size / iotune_manager::wbuffer_size); ++i) {
-        auto& iocb = iocbs[i];
-        iocb.data = buf.get();
-        io_prep_pwrite(&iocb, file.get(), buf.get(), iotune_manager::wbuffer_size, i * iotune_manager::wbuffer_size);
-        iocb_vecptr.push_back(&iocb);
-    }
-
-    r = ::io_submit(io_context, iocb_vecptr.size(), iocb_vecptr.data());
-    throw_kernel_error(r);
-
-    auto finished = 0ul;
-    while (finished != (iotune_manager::file_size / iotune_manager::wbuffer_size)) {
-        struct timespec timeout = {0, 0};
-        int n = ::io_getevents(io_context, 1, ev.size(), ev.data(), &timeout);
-        throw_kernel_error(n);
-        for (auto i = 0ul; i < size_t(n); ++i) {
-            sanity_check_ev(ev[i], iotune_manager::wbuffer_size);
+    while (pos < iotune_manager::file_size || aio_outstanding) {
+        unsigned i = 0;
+        while (i < max_aio - aio_outstanding && pos < iotune_manager::file_size) {
+            auto now = std::min(iotune_manager::file_size - pos, iotune_manager::wbuffer_size);
+            auto& iocb = iocbs[i++];
+            iocb.data = buf.get();
+            io_prep_pwrite(&iocb, file.get(), buf.get(), now, pos);
+            pos += now;
         }
-        finished += n;
+        if (i) {
+            r = ::io_submit(io_context, i, iocb_vecptr.data());
+            throw_kernel_error(r);
+            aio_outstanding += r;
+        }
+        if (aio_outstanding) {
+            struct timespec timeout = {0, 0};
+            int n = ::io_getevents(io_context, 1, ev.size(), ev.data(), &timeout);
+            throw_kernel_error(n);
+            for (auto i = 0ul; i < size_t(n); ++i) {
+                sanity_check_ev(ev[i], iotune_manager::wbuffer_size);
+            }
+            aio_outstanding -= n;
+        }
     }
     std::cout << " done." << std::endl;
 }
