@@ -94,6 +94,8 @@ parallel_for_each(Iterator begin, Iterator end, Func&& func) {
                         // We can only store one exception.  For more, use when_all().
                         if (!state.ex) {
                             state.ex = f.get_exception();
+                        } else {
+                            f.ignore_ready_future();
                         }
                     }
                     state.complete();
