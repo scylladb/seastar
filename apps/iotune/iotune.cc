@@ -339,6 +339,10 @@ public:
     }
 };
 
+constexpr uint64_t iotune_manager::file_size;
+constexpr uint64_t iotune_manager::wbuffer_size;
+constexpr uint64_t iotune_manager::rbuffer_size;
+
 static thread_local std::default_random_engine random_generator(std::chrono::duration_cast<std::chrono::nanoseconds>(iotune_manager::clock::now().time_since_epoch()).count());
 
 class reader {
