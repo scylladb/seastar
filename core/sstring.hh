@@ -516,6 +516,12 @@ public:
         x.u = u;
         u = tmp;
     }
+    char_type* data() {
+        return str();
+    }
+    const char_type* data() const {
+        return str();
+    }
     const char_type* c_str() const {
         return str();
     }
