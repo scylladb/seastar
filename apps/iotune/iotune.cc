@@ -517,7 +517,7 @@ uint32_t io_queue_discovery(sstring dir, std::vector<unsigned> cpus) {
     return iotune_manager.finish_estimate();
 }
 
-void write_configuration_file(std::string conf_file, unsigned max_io_requests, std::experimental::optional<unsigned> num_io_queues = {}) {
+void write_configuration_file(std::string conf_file, std::string format, unsigned max_io_requests, std::experimental::optional<unsigned> num_io_queues = {}) {
     std::cout << "Recommended --max-io-requests: " << max_io_requests << std::endl;
     if (num_io_queues) {
         std::cout << "Recommended --num-io-queues: " << *num_io_queues << std::endl;
@@ -539,9 +539,17 @@ void write_configuration_file(std::string conf_file, unsigned max_io_requests, s
         ofs_io.exceptions(std::ofstream::failbit | std::ofstream::badbit);
         ofs_io.open(conf_path.string(), std::ofstream::trunc);
         if (ofs_io) {
-            ofs_io << "max-io-requests=" << max_io_requests << std::endl;
-            if (num_io_queues) {
-                ofs_io << "num-io-queues=" << *num_io_queues << std::endl;
+            if (format == "seastar") {
+                ofs_io << "max-io-requests=" << max_io_requests << std::endl;
+                if (num_io_queues) {
+                    ofs_io << "num-io-queues=" << *num_io_queues << std::endl;
+                }
+            } else {
+                ofs_io << "SCYLLA_IO=\"--max-io-requests=" << max_io_requests;
+                if (num_io_queues) {
+                    ofs_io << " --num-io-queues=" << *num_io_queues;
+                }
+                ofs_io << "\"" << std::endl;
             }
         }
         ofs_io.close();
@@ -560,6 +568,7 @@ int main(int ac, char** av) {
         ("evaluation-directory", bpo::value<sstring>()->required(), "directory where to execute the evaluation")
         ("cpuset", bpo::value<cpuset_bpo_wrapper>(), "CPUs to use (in cpuset(7) format; default: all))")
         ("options-file", bpo::value<sstring>()->default_value("~/.config/seastar/io.conf"), "Output configuration file")
+        ("format", bpo::value<sstring>()->default_value("seastar"), "Configuration file format (seastar | envfile)")
     ;
 
     bpo::variables_map configuration;
@@ -570,6 +579,11 @@ int main(int ac, char** av) {
         return 2;
     }
     if (configuration.count("help")) {
+        std::cout << desc << "\n";
+        return 1;
+    }
+    auto format = configuration["format"].as<sstring>();
+    if (format != "seastar" && format != "envfile") {
         std::cout << desc << "\n";
         return 1;
     }
@@ -605,9 +619,9 @@ int main(int ac, char** av) {
 
     if (num_io_queues != cpuvec.size()) {
         iodepth = (iodepth / num_io_queues) * num_io_queues;
-        write_configuration_file(conf_file, iodepth, num_io_queues);
+        write_configuration_file(conf_file, format, iodepth, num_io_queues);
     } else {
-        write_configuration_file(conf_file, iodepth);
+        write_configuration_file(conf_file, format, iodepth);
     }
     return 0;
 }
