@@ -275,6 +275,28 @@ public:
     std::experimental::optional<uint32_t> set_rss_hash(uint32_t hash) {
         return _impl->_rss_hash = hash;
     }
+    // Call `func` for each fragment, avoiding data copies when possible
+    // `func` is called with a temporary_buffer<char> parameter
+    template <typename Func>
+    void release_into(Func&& func) {
+        unsigned idx = 0;
+        if (_impl->using_internal_data()) {
+            auto&& f = frag(idx++);
+            func(temporary_buffer<char>(f.base, f.size));
+        }
+        while (idx < nr_frags()) {
+            auto&& f = frag(idx++);
+            func(temporary_buffer<char>(f.base, f.size, _impl->_deleter.share()));
+        }
+    }
+    std::vector<temporary_buffer<char>> release() {
+        std::vector<temporary_buffer<char>> ret;
+        ret.reserve(_impl->_nr_frags);
+        release_into([&ret] (temporary_buffer<char>&& frag) {
+            ret.push_back(std::move(frag));
+        });
+        return ret;
+    }
 private:
     void linearize(size_t at_frag, size_t desired_size);
     bool allocate_headroom(size_t size);
