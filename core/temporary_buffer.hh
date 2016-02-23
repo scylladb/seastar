@@ -25,6 +25,7 @@
 #include "deleter.hh"
 #include "util/eclipse.hh"
 #include <malloc.h>
+#include <algorithm>
 
 /// \addtogroup memory-module
 /// @{
@@ -91,6 +92,13 @@ public:
     ///          will be destroyed when there are no longer any users for the buffer.
     temporary_buffer(CharType* buf, size_t size, deleter d)
         : _buffer(buf), _size(size), _deleter(std::move(d)) {}
+    /// Creates a `temporary_buffer` containing a copy of the provided data
+    ///
+    /// \param src  data buffer to be copied
+    /// \param size size of data buffer in `src`
+    temporary_buffer(const CharType* src, size_t size) : temporary_buffer(size) {
+        std::copy_n(src, size, _buffer);
+    }
     void operator=(const temporary_buffer&) = delete;
     /// Moves a \c temporary_buffer.
     temporary_buffer& operator=(temporary_buffer&& x) {
