@@ -38,6 +38,7 @@ boost_tests = [
     'fileiotest',
     'packet_test',
     'tls_test',
+    'rpc_test',
 ]
 
 other_tests = [

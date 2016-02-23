@@ -199,6 +199,7 @@ tests = [
     'tests/packet_test',
     'tests/tls_test',
     'tests/fair_queue_test',
+    'tests/rpc_test',
     ]
 
 apps = [
@@ -368,6 +369,7 @@ deps = {
     'tests/fstream_test': ['tests/fstream_test.cc'] + core + boost_test_lib,
     'tests/distributed_test': ['tests/distributed_test.cc'] + core,
     'tests/rpc': ['tests/rpc.cc'] + core + libnet,
+    'tests/rpc_test': ['tests/rpc_test.cc'] + core + libnet + boost_test_lib,
     'tests/packet_test': ['tests/packet_test.cc'] + core + libnet,
 }
 
