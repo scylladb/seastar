@@ -133,7 +133,7 @@ public:
     /// Checks whether the buffer is empty.
     bool empty() const { return !size(); }
     /// Checks whether the buffer is not empty.
-    operator bool() { return size(); }
+    explicit operator bool() const { return size(); }
     /// Create a new \c temporary_buffer object referring to the same
     /// underlying data.  The underlying \ref deleter will not be destroyed
     /// until both the original and the clone have been destroyed.
