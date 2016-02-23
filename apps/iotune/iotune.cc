@@ -545,7 +545,7 @@ void write_configuration_file(std::string conf_file, std::string format, unsigne
                     ofs_io << "num-io-queues=" << *num_io_queues << std::endl;
                 }
             } else {
-                ofs_io << "SCYLLA_IO=\"--max-io-requests=" << max_io_requests;
+                ofs_io << "SEASTAR_IO=\"--max-io-requests=" << max_io_requests;
                 if (num_io_queues) {
                     ofs_io << " --num-io-queues=" << *num_io_queues;
                 }
