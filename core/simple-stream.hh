@@ -52,6 +52,7 @@ class simple_input_stream {
 public:
     simple_input_stream(const simple_input_stream& o) : _p(o._p), _size(o._size) {}
     simple_input_stream(const char* p, size_t size) : _p(p), _size(size) {}
+    const char* begin() const { return _p; }
     void skip(size_t size) {
         if (size > _size) {
             throw std::out_of_range("deserialization buffer underflow");
