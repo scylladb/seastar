@@ -80,7 +80,7 @@ inline sstring read(serializer, Input& in, rpc::type<sstring>) {
 }
 
 using test_rpc_proto = rpc::protocol<serializer>;
-using connect_fn = std::function<test_rpc_proto::client (ipv4_addr addr, rpc::client_options options)>;
+using connect_fn = std::function<test_rpc_proto::client (ipv4_addr addr)>;
 
 future<>
 with_rpc_env(rpc::resource_limits resource_limits,
@@ -92,8 +92,8 @@ with_rpc_env(rpc::resource_limits resource_limits,
     };
     return do_with(state(), [=] (state& s) {
         s.server = std::make_unique<test_rpc_proto::server>(s.proto, s.lcf.get_server_socket(), resource_limits);
-        auto make_client = [&s] (ipv4_addr addr, rpc::client_options options) {
-            return test_rpc_proto::client(s.proto, addr, s.lcf.make_new_connection(), options);
+        auto make_client = [&s] (ipv4_addr addr) {
+            return test_rpc_proto::client(s.proto, addr, s.lcf.make_new_connection());
         };
         return test_fn(s.proto, *s.server, make_client);
     });
@@ -103,7 +103,7 @@ with_rpc_env(rpc::resource_limits resource_limits,
 SEASTAR_TEST_CASE(test_rpc_connect) {
     return with_rpc_env({}, [] (test_rpc_proto& proto, test_rpc_proto::server& s, connect_fn connect) {
         return seastar::async([&proto, &s, connect] {
-            auto c1 = connect(ipv4_addr(), rpc::client_options());
+            auto c1 = connect(ipv4_addr());
             auto sum = proto.register_handler(1, [](int a, int b) {
                 return make_ready_future<int>(a+b);
             });
