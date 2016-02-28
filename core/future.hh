@@ -627,6 +627,9 @@ struct futurize<future<Args...>> {
     template<typename Func, typename... FuncArgs>
     static inline type apply(Func&& func, FuncArgs&&... args) noexcept;
 
+    static inline type convert(Args&&... values) { return make_ready_future<Args...>(std::move(values)...); }
+    static inline type convert(type&& value) { return std::move(value); }
+
     template <typename Arg>
     static type make_exception_future(Arg&& arg);
 };
