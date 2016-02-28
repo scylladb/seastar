@@ -493,13 +493,28 @@ when_all(FutureIterator begin, FutureIterator end) {
     return complete_when_all(std::move(ret), ret.begin());
 }
 
+template <typename T, bool IsFuture>
+struct reducer_with_get_traits;
+
 template <typename T>
-struct reducer_with_get_traits {
+struct reducer_with_get_traits<T, false> {
     using result_type = decltype(std::declval<T>().get());
     using future_type = future<result_type>;
     static future_type maybe_call_get(future<> f, lw_shared_ptr<T> r) {
         return f.then([r = std::move(r)] () mutable {
             return make_ready_future<result_type>(std::move(*r).get());
+        });
+    }
+};
+
+template <typename T>
+struct reducer_with_get_traits<T, true> {
+    using future_type = decltype(std::declval<T>().get());
+    static future_type maybe_call_get(future<> f, lw_shared_ptr<T> r) {
+        return f.then([r = std::move(r)] () mutable {
+            return r->get();
+        }).then_wrapped([r] (future_type f) {
+            return f;
         });
     }
 };
@@ -513,7 +528,7 @@ struct reducer_traits {
 };
 
 template <typename T>
-struct reducer_traits<T, decltype(std::declval<T>().get(), void())> : public reducer_with_get_traits<T> {};
+struct reducer_traits<T, decltype(std::declval<T>().get(), void())> : public reducer_with_get_traits<T, is_future<std::result_of_t<decltype(&T::get)(T)>>::value> {};
 
 // @Mapper is a callable which transforms values from the iterator range
 // into a future<T>. @Reducer is an object which can be called with T as
