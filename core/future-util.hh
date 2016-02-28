@@ -268,7 +268,7 @@ repeat_until_value(AsyncAction&& action) {
         if (!f.available()) {
             return f.then([action = std::forward<AsyncAction>(action)] (auto&& optional) mutable {
                 if (optional) {
-                    return make_ready_future<value_type>(std::move(optional).value());
+                    return make_ready_future<value_type>(std::move(optional.value()));
                 } else {
                     return repeat_until_value(std::forward<AsyncAction>(action));
                 }
@@ -281,7 +281,7 @@ repeat_until_value(AsyncAction&& action) {
 
         optional_type&& optional = std::move(f).get0();
         if (optional) {
-            return make_ready_future<value_type>(std::move(optional).value());
+            return make_ready_future<value_type>(std::move(optional.value()));
         }
     } while (++future_avail_count % max_inlined_continuations);
 
