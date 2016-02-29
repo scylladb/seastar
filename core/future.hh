@@ -931,7 +931,8 @@ public:
      * nested will be propagated.
      */
     template <typename Func>
-    future<T...> finally(Func&& func) noexcept {
+    std::enable_if_t<is_future<std::result_of_t<Func()>>::value, future<T...>>
+    finally(Func&& func) noexcept {
         return then_wrapped([func = std::forward<Func>(func)](future<T...> result) mutable {
             using futurator = futurize<std::result_of_t<Func()>>;
             return futurator::apply(std::forward<Func>(func)).then_wrapped([result = std::move(result)](auto f_res) mutable {
@@ -965,6 +966,27 @@ public:
                     }
                 }
             });
+        });
+    }
+
+    /**
+     * Specialization of the finally continuation for the common case
+     * where the specified function is guaranteed to not return a future.
+     */
+    template <typename Func>
+    std::enable_if_t<!is_future<std::result_of_t<Func()>>::value, future<T...>>
+    finally(Func&& func) noexcept {
+        return then_wrapped([func = std::forward<Func>(func)](future<T...> result) mutable {
+            try {
+                func();
+                if (!result.failed()) {
+                    return std::move(result);
+                } else {
+                    return make_exception_future<T...>(result.get_exception());
+                }
+            } catch (...) {
+                return make_exception_future<T...>(std::current_exception());
+            }
         });
     }
 
