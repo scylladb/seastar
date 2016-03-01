@@ -57,6 +57,23 @@ SEASTAR_TEST_CASE(test_finally_is_called_on_success_and_failure) {
     });
 }
 
+SEASTAR_TEST_CASE(test_finally_waits_for_inner) {
+    auto finally = make_shared<bool>();
+    auto p = make_shared<promise<>>();
+
+    auto f = make_ready_future().then([] {
+    }).finally([=] {
+        return p->get_future().then([=] {
+            *finally = true;
+        });
+    }).then([=] {
+        BOOST_REQUIRE(*finally);
+    });
+    BOOST_REQUIRE(!*finally);
+    p->set_value();
+    return f;
+}
+
 SEASTAR_TEST_CASE(test_finally_is_called_on_success_and_failure__not_ready_to_armed) {
     auto finally1 = make_shared<bool>();
     auto finally2 = make_shared<bool>();
