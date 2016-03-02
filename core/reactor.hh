@@ -533,6 +533,8 @@ private:
         priority_class_ptr ptr;
         size_t bytes;
         uint64_t ops;
+        uint32_t nr_queued;
+        std::chrono::duration<double> queue_time;
         std::vector<scollectd::registration> collectd_reg;
         priority_class_data(sstring name, priority_class_ptr ptr);
     };

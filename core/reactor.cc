@@ -644,6 +644,8 @@ io_queue::priority_class_data::priority_class_data(sstring name, priority_class_
     : ptr(ptr)
     , bytes(0)
     , ops(0)
+    , nr_queued(0)
+    , queue_time(1s)
     , collectd_reg(scollectd::registrations({
         scollectd::add_polled_metric(scollectd::type_instance_id("io_queue"
             , scollectd::per_cpu_plugin_instance
@@ -654,6 +656,27 @@ io_queue::priority_class_data::priority_class_data(sstring name, priority_class_
             , scollectd::per_cpu_plugin_instance
             , "total_operations", name)
             , scollectd::make_typed(scollectd::data_type::DERIVE, ops)
+        ),
+
+        // Note: The counter below is not the same as reactor's queued-io-requests
+        // queued-io-requests shows us how many requests in total exist in this I/O Queue.
+        //
+        // This counter lives in the priority class, so it will count only queued requests
+        // that belong to that class.
+        //
+        // In other words: the new counter tells you how busy a class is, and the
+        // old counter tells you how busy the system is.
+        scollectd::add_polled_metric(scollectd::type_instance_id("io_queue"
+            , scollectd::per_cpu_plugin_instance
+            , "queue_length", name)
+            , scollectd::make_typed(scollectd::data_type::GAUGE, nr_queued)
+        ),
+        scollectd::add_polled_metric(scollectd::type_instance_id("io_queue"
+            , scollectd::per_cpu_plugin_instance
+            , "delay", name)
+            , scollectd::make_typed(scollectd::data_type::GAUGE, [this] {
+                return queue_time.count();
+            })
         )
     }))
 {
@@ -686,7 +709,8 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
 template <typename Func>
 future<io_event>
 io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_t len, Func prepare_io) {
-    return smp::submit_to(coordinator, [&pc, len, prepare_io = std::move(prepare_io), owner = engine().cpu_id()] {
+    auto start = std::chrono::steady_clock::now();
+    return smp::submit_to(coordinator, [start, &pc, len, prepare_io = std::move(prepare_io), owner = engine().cpu_id()] {
         auto& queue = *(engine()._io_queue);
         unsigned weight = 1 + len/(16 << 10);
         // First time will hit here, and then we create the class. It is important
@@ -694,7 +718,10 @@ io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_
         auto& pclass = queue.find_or_create_class(pc, owner);
         pclass.bytes += len;
         pclass.ops++;
-        return queue._fq.queue(pclass.ptr, weight, [prepare_io = std::move(prepare_io)] {
+        pclass.nr_queued++;
+        return queue._fq.queue(pclass.ptr, weight, [&pclass, start, prepare_io = std::move(prepare_io)] {
+            pclass.nr_queued--;
+            pclass.queue_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start);
             return engine().submit_io(std::move(prepare_io));
         });
     });
