@@ -24,6 +24,9 @@
 #define BOOST_TEST_MODULE core
 
 #include <boost/test/included/unit_test.hpp>
+#include <set>
+#include <unordered_map>
+#include "core/sstring.hh"
 #include "core/shared_ptr.hh"
 
 struct expected_exception : public std::exception {};
@@ -113,5 +116,43 @@ BOOST_AUTO_TEST_CASE(test_exception_thrown_from_constructor_is_propagated) {
         BOOST_FAIL("Constructor should have thrown");
     } catch (const expected_exception& e) {
         BOOST_TEST_MESSAGE("Expected exception caught");
+    }
+}
+
+BOOST_AUTO_TEST_CASE(test_indirect_functors) {
+    {
+        std::multiset<shared_ptr<sstring>, indirect_less<shared_ptr<sstring>>> a_set;
+
+        a_set.insert(make_shared<sstring>("k3"));
+        a_set.insert(make_shared<sstring>("k1"));
+        a_set.insert(make_shared<sstring>("k2"));
+        a_set.insert(make_shared<sstring>("k4"));
+        a_set.insert(make_shared<sstring>("k0"));
+
+
+        auto i = a_set.begin();
+        BOOST_REQUIRE_EQUAL(sstring("k0"), *(*i++));
+        BOOST_REQUIRE_EQUAL(sstring("k1"), *(*i++));
+        BOOST_REQUIRE_EQUAL(sstring("k2"), *(*i++));
+        BOOST_REQUIRE_EQUAL(sstring("k3"), *(*i++));
+        BOOST_REQUIRE_EQUAL(sstring("k4"), *(*i++));
+    }
+
+    {
+        std::unordered_map<shared_ptr<sstring>, bool,
+                indirect_hash<shared_ptr<sstring>>, indirect_equal_to<shared_ptr<sstring>>> a_map;
+
+        a_map.emplace(make_shared<sstring>("k3"), true);
+        a_map.emplace(make_shared<sstring>("k1"), true);
+        a_map.emplace(make_shared<sstring>("k2"), true);
+        a_map.emplace(make_shared<sstring>("k4"), true);
+        a_map.emplace(make_shared<sstring>("k0"), true);
+
+        BOOST_REQUIRE(a_map.count(make_shared<sstring>("k0")));
+        BOOST_REQUIRE(a_map.count(make_shared<sstring>("k1")));
+        BOOST_REQUIRE(a_map.count(make_shared<sstring>("k2")));
+        BOOST_REQUIRE(a_map.count(make_shared<sstring>("k3")));
+        BOOST_REQUIRE(a_map.count(make_shared<sstring>("k4")));
+        BOOST_REQUIRE(!a_map.count(make_shared<sstring>("k5")));
     }
 }

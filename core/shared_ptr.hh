@@ -28,6 +28,7 @@
 #include <functional>
 #include <iostream>
 #include "util/is_smart_ptr.hh"
+#include "util/indirect.hh"
 
 // This header defines two shared pointer facilities, lw_shared_ptr<> and
 // shared_ptr<>, both modeled after std::shared_ptr<>.
@@ -684,24 +685,10 @@ std::ostream& operator<<(std::ostream& out, const shared_ptr<T>& p) {
 }
 
 template<typename T>
-struct shared_ptr_equal_by_value {
-    bool operator()(const shared_ptr<T>& i1, const shared_ptr<T>& i2) const {
-        if (bool(i1) ^ bool(i2)) {
-            return false;
-        }
-        return !i1 || *i1 == *i2;
-    }
-};
+using shared_ptr_equal_by_value = indirect_equal_to<shared_ptr<T>>;
 
 template<typename T>
-struct shared_ptr_value_hash {
-    size_t operator()(const shared_ptr<T>& p) const {
-        if (p) {
-            return std::hash<T>()(*p);
-        }
-        return 0;
-    }
-};
+using shared_ptr_value_hash = indirect_hash<shared_ptr<T>>;
 
 namespace std {
 
