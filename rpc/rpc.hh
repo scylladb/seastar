@@ -72,10 +72,11 @@ estimate_request_size(const resource_limits& lim, size_t serialized_size) {
 
 struct negotiation_frame {
     char magic[sizeof(rpc_magic) - 1];
-    uint32_t required_features_mask;
-    uint32_t optional_features_mask;
-    uint32_t len; // additional negotiation data length
+    uint32_t len; // additional negotiation data length; multiple negotiation_frame_feature_record structs
 }  __attribute__((packed));
+
+// internal representation of feature data
+using feature_map = std::map<uint32_t, sstring>;
 
 // MsgType is a type that holds type of a message. The type should be hashable
 // and serializable. It is preferable to use enum for message types, but
@@ -118,10 +119,10 @@ public:
             client_info _info;
             stats _stats;
         private:
-            future<negotiation_frame> negotiate_protocol(input_stream<char>& in);
+            future<> negotiate_protocol(input_stream<char>& in);
             future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
             read_request_frame(input_stream<char>& in);
-
+            feature_map negotiate(feature_map requested);
         public:
             connection(server& s, connected_socket&& fd, socket_address&& addr, protocol& proto);
             future<> process();
@@ -209,7 +210,8 @@ public:
         stats _stats;
         ipv4_addr _server_addr;
     private:
-        future<negotiation_frame> negotiate_protocol(input_stream<char>& in);
+        future<> negotiate_protocol(input_stream<char>& in);
+        void negotiate(feature_map server_features);
         future<int64_t, std::experimental::optional<temporary_buffer<char>>>
         read_response_frame(input_stream<char>& in);
     public:

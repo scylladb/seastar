@@ -9,10 +9,19 @@ All integral data is encoded in little endian format.
 The negotiation works by exchanging negotiation frame immediately after connection establishment. The negotiation frame format is:
     
     uint8_t magic[8] = SSTARRPC
-    uint32_t required_features_mask
-    uint32_t optional_features_mask
     uint32_t len
     uint8_t data[len]
+
+The negotiation frame data is itself composed of multiple records, one for each feature number present.  Feature numbers begin at zero and will be defined by later versions of this document.
+
+
+     struct negotiation_frame_feature_record {
+         uint32_t feature_number;
+         uint32_t len;
+         uint8_t data[len];
+     }
+
+A `negotiation_frame_feature_record` signals that an optional feature is present in the client, and can contain additional feature-specific data.  The featue number will be omitted in a server response if an optional feature is declined by the server.
     
 Actual negotiation looks like this:
     
@@ -22,10 +31,8 @@ Actual negotiation looks like this:
                                         recv frame
                                         check magic (disconnect if magic is not SSTARRPC)
                                         send negotiation frame back
-                                        check required (disconnect if required features do not match)
     recv frame
     check magic (disconnect if magic is not SSTARRPC)
-    check required (disconnect if required features do not match)
 
 ## Request frame format
     uint64_t verb_type
@@ -81,6 +88,10 @@ This exception is sent as a response to a request with unknown verb_id, the verb
 	msg_id = int64_t
 	len = uint32_t
 	byte = uint8_t
+	negotiation_frame = 'SSTARRPC' len32(negotiation_frame_data) negotiation_frame_data
+	negotiation_frame_data = negotiation_frame_feature_record*
+	negotiation_frame_feature_record = feature_number len {byte}*len
+	feature_number = uint32_t 
 
 Note that replies can come in order different from requests, and some requests may not have a reply at all.
 

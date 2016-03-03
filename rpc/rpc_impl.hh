@@ -29,6 +29,8 @@
 #include "util/is_smart_ptr.hh"
 #include "core/byteorder.hh"
 #include "core/simple-stream.hh"
+#include <boost/range/numeric.hpp>
+#include <boost/range/adaptor/transformed.hpp>
 
 namespace rpc {
 
@@ -631,13 +633,25 @@ static bool verify_frame(Connection& c, temporary_buffer<char>& buf, size_t expe
 }
 
 template<typename Connection>
-static void send_negotiation_frame(Connection& c, const negotiation_frame& nf) {
-    sstring reply(sstring::initialized_later(), sizeof(negotiation_frame));
+static void send_negotiation_frame(Connection& c, feature_map features) {
+    auto negotiation_frame_feature_record_size = [] (const feature_map::value_type& e) {
+        return 8 + e.second.size();
+    };
+    auto extra_len = boost::accumulate(
+            features | boost::adaptors::transformed(negotiation_frame_feature_record_size),
+            uint32_t(0));
+    sstring reply(sstring::initialized_later(), sizeof(negotiation_frame) + extra_len);
     auto p = reply.begin();
-    p = std::copy_n(rpc_magic, sizeof(nf.magic), p);
-    *unaligned_cast<uint32_t*>(p ) = cpu_to_le(nf.required_features_mask);
-    *unaligned_cast<uint32_t*>(p + 4) = cpu_to_le(nf.optional_features_mask);
-    *unaligned_cast<uint32_t*>(p + 8) = cpu_to_le(nf.len);
+    p = std::copy_n(rpc_magic, 8, p);
+    *unaligned_cast<uint32_t*>(p) = cpu_to_le(extra_len);
+    p += 4;
+    for (auto&& e : features) {
+        *unaligned_cast<uint32_t*>(p) = cpu_to_le(e.first);
+        p += 4;
+        *unaligned_cast<uint32_t*>(p) = cpu_to_le(e.second.size());
+        p += 4;
+        p = std::copy_n(e.second.begin(), e.second.size(), p);
+    }
     c.out_ready() = c.out_ready().then([&c, reply = std::move(reply)] () mutable {
         return c.out().write(reply);
     }).then([&c] {
@@ -647,57 +661,69 @@ static void send_negotiation_frame(Connection& c, const negotiation_frame& nf) {
 
 template<typename Connection>
 static
-future<negotiation_frame> receive_negotiation_frame(Connection& c, input_stream<char>& in) {
+future<feature_map>
+receive_negotiation_frame(Connection& c, input_stream<char>& in) {
     return in.read_exactly(sizeof(negotiation_frame)).then([&c, &in] (temporary_buffer<char> neg) {
         if (!verify_frame(c, neg, sizeof(negotiation_frame), "unexpected eof during negotiation frame")) {
-            return make_exception_future<negotiation_frame>(closed_error());
+            return make_exception_future<feature_map>(closed_error());
         }
         negotiation_frame* frame = reinterpret_cast<negotiation_frame*>(neg.get_write());
         if (std::memcmp(frame->magic, rpc_magic, sizeof(frame->magic)) != 0) {
             c.get_protocol().log(c.peer_address(), "wrong protocol magic");
-            return make_exception_future<negotiation_frame>(closed_error());
+            return make_exception_future<feature_map>(closed_error());
         }
-        frame->required_features_mask = le_to_cpu(frame->required_features_mask);
-        frame->optional_features_mask = le_to_cpu(frame->required_features_mask);
-        frame->len = le_to_cpu(frame->len);
-        return make_ready_future<negotiation_frame>(*frame);
-    });
-}
-
-template<typename Connection>
-static
-future<temporary_buffer<char>> receive_additional_negotiation_data(Connection& c, input_stream<char>& in, size_t len) {
-    if (len == 0) {
-        return make_ready_future<temporary_buffer<char>>(temporary_buffer<char>());
-    } else {
-        return in.read_exactly(len).then([&c, &in, len] (temporary_buffer<char> neg) {
-            if (!verify_frame(c, neg, len, "unexpected eof during negotiation frame")) {
-                return make_exception_future<temporary_buffer<char>>(closed_error());
+        auto len = le_to_cpu(frame->len);
+        return in.read_exactly(len).then([&c, len] (temporary_buffer<char> extra) {
+            if (extra.size() != len) {
+                c.get_protocol().log(c.peer_address(), "unexpected eof during negotiation frame");
+                return make_exception_future<feature_map>(closed_error());
             }
-            return make_ready_future<temporary_buffer<char>>(std::move(neg));
+            feature_map map;
+            auto p = extra.get();
+            auto end = p + extra.size();
+            while (p != end) {
+                if (end - p < 8) {
+                    c.get_protocol().log(c.peer_address(), "bad feature data format in negotiation frame");
+                    return make_exception_future<feature_map>(closed_error());
+                }
+                auto feature = le_to_cpu(*unaligned_cast<const uint32_t*>(p));
+                auto f_len = le_to_cpu(*unaligned_cast<const uint32_t*>(p + 4));
+                p += 8;
+                if (f_len > end - p) {
+                    c.get_protocol().log(c.peer_address(), "buffer underflow in feature data in negotiation frame");
+                    return make_exception_future<feature_map>(closed_error());
+                }
+                auto data = sstring(p, f_len);
+                p += f_len;
+                map.emplace(feature, std::move(data));
+            }
+            return make_ready_future<feature_map>(std::move(map));
         });
-    }
+    });
 }
 
-template<typename Connection>
-static
-future<negotiation_frame> verify_negotiation_data(Connection& c, input_stream<char>& in, negotiation_frame nf) {
-    return receive_additional_negotiation_data(c, in, nf.len).then([&c, nf] (temporary_buffer<char> buf) mutable {
-        if (nf.required_features_mask != 0) {
-            c.get_protocol().log(c.peer_address(), "negotiation failed: unsupported required features");
-            return make_exception_future<negotiation_frame>(closed_error());
+template <typename Serializer, typename MsgType>
+feature_map
+protocol<Serializer, MsgType>::server::connection::negotiate(feature_map requested) {
+    feature_map ret;
+    for (auto&& e : requested) {
+        auto id = e.first;
+        switch (id) {
+        // supported features go here
+        default:
+            // nothing to do
+            ;
         }
-        return make_ready_future<negotiation_frame>(nf);
-    });
+    }
+    return ret;
 }
 
 template<typename Serializer, typename MsgType>
-future<negotiation_frame>
+future<>
 protocol<Serializer, MsgType>::server::connection::negotiate_protocol(input_stream<char>& in) {
-    return receive_negotiation_frame(*this, in).then([this, &in] (negotiation_frame nf) {
-        negotiation_frame mine = {{}, 0, 0, 0};
-        send_negotiation_frame(*this, mine);
-        return verify_negotiation_data(*this, in, nf);
+    return receive_negotiation_frame(*this, in).then([this, &in] (feature_map requested_features) {
+        auto returned_features = negotiate(std::move(requested_features));
+        send_negotiation_frame(*this, std::move(returned_features));
     });
 }
 
@@ -725,9 +751,15 @@ protocol<Serializer, MsgType>::server::connection::read_request_frame(input_stre
     });
 }
 
+template <typename Serializer, typename MsgType>
+void
+protocol<Serializer, MsgType>::client::negotiate(feature_map provided) {
+    // record features returned here
+}
+
 template<typename Serializer, typename MsgType>
 future<> protocol<Serializer, MsgType>::server::connection::process() {
-    return this->negotiate_protocol(this->_read_buf).then([this] (negotiation_frame frame) mutable {
+    return this->negotiate_protocol(this->_read_buf).then([this] () mutable {
         return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
             return this->read_request_frame(this->_read_buf).then([this] (MsgType type, int64_t msg_id, std::experimental::optional<temporary_buffer<char>> data) {
                 if (!data) {
@@ -777,10 +809,10 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
 }
 
 template<typename Serializer, typename MsgType>
-future<negotiation_frame>
+future<>
 protocol<Serializer, MsgType>::client::negotiate_protocol(input_stream<char>& in) {
-    return receive_negotiation_frame(*this, in).then([this, &in] (negotiation_frame nf) {
-        return verify_negotiation_data(*this, in, nf);
+    return receive_negotiation_frame(*this, in).then([this, &in] (feature_map features) {
+        return negotiate(features);
     });
 }
 
@@ -813,8 +845,8 @@ protocol<Serializer, MsgType>::client::read_response_frame(input_stream<char>& i
 template<typename Serializer, typename MsgType>
 protocol<Serializer, MsgType>::client::client(protocol& proto, ipv4_addr addr, future<connected_socket> f) : protocol<Serializer, MsgType>::connection(proto), _server_addr(addr) {
     this->_output_ready = _connected_promise.get_future();
-    negotiation_frame nf = {{}, 0, 0, 0};
-    send_negotiation_frame(*this, nf);
+    feature_map features;
+    send_negotiation_frame(*this, std::move(features));
     f.then([this] (connected_socket fd) {
         fd.set_nodelay(true);
         this->_fd = std::move(fd);
@@ -822,7 +854,7 @@ protocol<Serializer, MsgType>::client::client(protocol& proto, ipv4_addr addr, f
         this->_write_buf = this->_fd.output();
         this->_connected_promise.set_value();
         this->_connected = true;
-        return this->negotiate_protocol(this->_read_buf).then([this] (negotiation_frame frame) {
+        return this->negotiate_protocol(this->_read_buf).then([this] () {
             return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
                 return this->read_response_frame(this->_read_buf).then([this] (int64_t msg_id, std::experimental::optional<temporary_buffer<char>> data) {
                     auto it = _outstanding.find(std::abs(msg_id));
