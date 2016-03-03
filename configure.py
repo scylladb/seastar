@@ -236,6 +236,8 @@ arg_parser.add_argument('--dpdk-target', action = 'store', dest = 'dpdk_target',
                         help = 'Path to DPDK SDK target location (e.g. <DPDK SDK dir>/x86_64-native-linuxapp-gcc)')
 arg_parser.add_argument('--debuginfo', action = 'store', dest = 'debuginfo', type = int, default = 1,
                         help = 'Enable(1)/disable(0)compiler debug information generation')
+arg_parser.add_argument('--static-stdc++', dest = 'staticcxx', action = 'store_true',
+                        help = 'Link libgcc and libstdc++ statically')
 add_tristate(arg_parser, name = 'hwloc', dest = 'hwloc', help = 'hwloc support')
 add_tristate(arg_parser, name = 'xen', dest = 'xen', help = 'Xen support')
 args = arg_parser.parse_args()
@@ -323,6 +325,10 @@ if apply_tristate(args.xen, test = have_xen,
 if xen_used and args.dpdk_target:
     print("Error: only xen or dpdk can be used, not both.")
     sys.exit(1)
+
+if args.staticcxx:
+    libs = libs.replace('-lstdc++', '')
+    libs += ' -static-libgcc -static-libstdc++'
 
 memcache_base = [
     'apps/memcached/ascii.rl'
