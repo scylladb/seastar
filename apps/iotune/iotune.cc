@@ -57,11 +57,7 @@ struct test_file {
     sstring name;
     file_desc file;
 
-    test_file(const directory& dir) : name(dir.name + "/ioqueue-discovery")
-                                    , file(file_desc::open(name.c_str(),  O_DIRECT | O_CLOEXEC | O_RDWR | O_CREAT, S_IRWXU))
-    {
-        ::unlink(name.c_str());
-    }
+    test_file(const directory& dir);
     void generate();
 };
 
@@ -342,6 +338,22 @@ public:
 constexpr uint64_t iotune_manager::file_size;
 constexpr uint64_t iotune_manager::wbuffer_size;
 constexpr uint64_t iotune_manager::rbuffer_size;
+
+test_file::test_file(const directory& dir)
+    : name(dir.name + "/ioqueue-discovery")
+    , file(file_desc::open(name.c_str(),  O_DIRECT | O_CLOEXEC | O_RDWR | O_CREAT, S_IRWXU)) {
+
+    auto gb = [] (auto b) {
+        return float(b) / (1ull << 30);
+    };
+
+    auto si = boost::filesystem::space(boost::filesystem::path(dir.name));
+    ::unlink(name.c_str());
+
+    if (si.available < iotune_manager::file_size) {
+        throw std::runtime_error(sprint("iotune requires at least %.2f GB available. Filesystem contains only %.2f GB available\n", gb(iotune_manager::file_size), gb(si.available)));
+    }
+}
 
 static thread_local std::default_random_engine random_generator(std::chrono::duration_cast<std::chrono::nanoseconds>(iotune_manager::clock::now().time_since_epoch()).count());
 
