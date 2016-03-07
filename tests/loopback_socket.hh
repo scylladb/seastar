@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <system_error>
 #include "core/iostream.hh"
 #include "core/circular_buffer.hh"
 #include "core/shared_ptr.hh"
