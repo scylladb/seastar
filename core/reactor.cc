@@ -1955,10 +1955,16 @@ void syscall_work_queue::submit_item(syscall_work_queue::work_item* item) {
 }
 
 void syscall_work_queue::complete() {
-    auto nr = _completed.consume_all([this] (work_item* wi) {
+    std::array<work_item*, queue_length> tmp_buf;
+    auto end = tmp_buf.data();
+    auto nr = _completed.consume_all([&] (work_item* wi) {
+        *end++ = wi;
+    });
+    for (auto p = tmp_buf.data(); p != end; ++p) {
+        auto wi = *p;
         wi->complete();
         delete wi;
-    });
+    }
     _queue_has_room.signal(nr);
 }
 
@@ -2132,6 +2138,7 @@ void thread_pool::work() {
     sigfillset(&mask);
     auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
     throw_system_error_on(r == -1);
+    std::array<syscall_work_queue::work_item*, syscall_work_queue::queue_length> tmp_buf;
     while (true) {
         uint64_t count;
         auto r = ::read(inter_thread_wq._start_eventfd.get_read_fd(), &count, sizeof(count));
@@ -2139,10 +2146,15 @@ void thread_pool::work() {
         if (_stopped.load(std::memory_order_relaxed)) {
             break;
         }
-        inter_thread_wq._pending.consume_all([this] (syscall_work_queue::work_item* wi) {
+        auto end = tmp_buf.data();
+        inter_thread_wq._pending.consume_all([&] (syscall_work_queue::work_item* wi) {
+            *end++ = wi;
+        });
+        for (auto p = tmp_buf.data(); p != end; ++p) {
+            auto wi = *p;
             wi->process();
             inter_thread_wq._completed.push(wi);
-        });
+        }
         pthread_kill(_notify, SIGUSR1);
     }
 }
