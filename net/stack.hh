@@ -20,6 +20,7 @@
  */
 #pragma once
 
+#include <chrono>
 #include "api.hh"
 
 namespace net {
@@ -34,6 +35,10 @@ public:
     virtual future<> shutdown_output() = 0;
     virtual void set_nodelay(bool nodelay) = 0;
     virtual bool get_nodelay() const = 0;
+    virtual void set_keepalive(bool keepalive) = 0;
+    virtual bool get_keepalive() const = 0;
+    virtual void set_keepalive_parameters(const tcp_keepalive_params&) = 0;
+    virtual tcp_keepalive_params get_keepalive_parameters() const = 0;
 };
 
 class server_socket_impl {

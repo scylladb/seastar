@@ -81,6 +81,10 @@ public:
     virtual future<> shutdown_output() override;
     virtual void set_nodelay(bool nodelay) override;
     virtual bool get_nodelay() const override;
+    void set_keepalive(bool keepalive) override;
+    bool get_keepalive() const override;
+    void set_keepalive_parameters(const tcp_keepalive_params&) override;
+    tcp_keepalive_params get_keepalive_parameters() const override;
 };
 
 template <typename Protocol>
@@ -163,6 +167,29 @@ bool
 native_connected_socket_impl<Protocol>::get_nodelay() const {
     // FIXME: implement
     return true;
+}
+
+template <typename Protocol>
+void native_connected_socket_impl<Protocol>::set_keepalive(bool keepalive) {
+    // FIXME: implement
+    std::cerr << "Keepalive is not supported by native stack" << std::endl;
+}
+template <typename Protocol>
+bool native_connected_socket_impl<Protocol>::get_keepalive() const {
+    // FIXME: implement
+    return false;
+}
+
+template <typename Protocol>
+void native_connected_socket_impl<Protocol>::set_keepalive_parameters(const tcp_keepalive_params&) {
+    // FIXME: implement
+    std::cerr << "Keepalive parameters are not supported by native stack" << std::endl;
+}
+
+template <typename Protocol>
+tcp_keepalive_params native_connected_socket_impl<Protocol>::get_keepalive_parameters() const {
+    // FIXME: implement
+    return {std::chrono::seconds(0), std::chrono::seconds(0), 0};
 }
 
 }

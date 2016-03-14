@@ -48,6 +48,24 @@ public:
     virtual bool get_nodelay() const override {
         return _fd.get_file_desc().getsockopt<int>(IPPROTO_TCP, TCP_NODELAY);
     }
+    void set_keepalive(bool keepalive) override {
+        _fd.get_file_desc().setsockopt(SOL_SOCKET, SO_KEEPALIVE, int(keepalive));
+    }
+    bool get_keepalive() const override {
+        return _fd.get_file_desc().getsockopt<int>(SOL_SOCKET, SO_KEEPALIVE);
+    }
+    void set_keepalive_parameters(const tcp_keepalive_params& p) override {
+        _fd.get_file_desc().setsockopt(IPPROTO_TCP, TCP_KEEPCNT, p.count);
+        _fd.get_file_desc().setsockopt(IPPROTO_TCP, TCP_KEEPIDLE, int(p.idle.count()));
+        _fd.get_file_desc().setsockopt(IPPROTO_TCP, TCP_KEEPINTVL, int(p.interval.count()));
+    }
+    tcp_keepalive_params get_keepalive_parameters() const override {
+        return {
+            std::chrono::seconds(_fd.get_file_desc().getsockopt<int>(IPPROTO_TCP, TCP_KEEPIDLE)),
+            std::chrono::seconds(_fd.get_file_desc().getsockopt<int>(IPPROTO_TCP, TCP_KEEPINTVL)),
+            _fd.get_file_desc().getsockopt<unsigned>(IPPROTO_TCP, TCP_KEEPCNT)
+        };
+    }
     friend class posix_server_socket_impl;
     friend class posix_ap_server_socket_impl;
     friend class posix_reuseport_server_socket_impl;

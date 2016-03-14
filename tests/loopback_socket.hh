@@ -125,6 +125,14 @@ public:
     bool get_nodelay() const override {
         return true;
     }
+    void set_keepalive(bool keepalive) override {}
+    bool get_keepalive() const override {
+        return false;
+    }
+    void set_keepalive_parameters(const net::tcp_keepalive_params&) override {}
+    net::tcp_keepalive_params get_keepalive_parameters() const override {
+        return {std::chrono::seconds(0), std::chrono::seconds(0), 0};
+    }
 };
 
 class loopback_server_socket_impl : public net::server_socket_impl {

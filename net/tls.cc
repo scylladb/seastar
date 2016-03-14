@@ -654,6 +654,19 @@ public:
     bool get_nodelay() const override {
         return _sock->get_nodelay();
     }
+    void set_keepalive(bool keepalive) override {
+        _sock->set_keepalive(keepalive);
+    }
+    bool get_keepalive() const override {
+        return _sock->get_keepalive();
+    }
+    void set_keepalive_parameters(const net::tcp_keepalive_params& p) override {
+        _sock->set_keepalive_parameters(p);
+    }
+    net::tcp_keepalive_params get_keepalive_parameters() const override {
+        return _sock->get_keepalive_parameters();
+    }
+
     // helper for sink
     future<> flush() {
         return _out.flush();

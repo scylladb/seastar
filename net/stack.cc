@@ -84,6 +84,18 @@ void connected_socket::set_nodelay(bool nodelay) {
 bool connected_socket::get_nodelay() const {
     return _csi->get_nodelay();
 }
+void connected_socket::set_keepalive(bool keepalive) {
+    _csi->set_keepalive(keepalive);
+}
+bool connected_socket::get_keepalive() const {
+    return _csi->get_keepalive();
+}
+void connected_socket::set_keepalive_parameters(const net::tcp_keepalive_params& p) {
+    _csi->set_keepalive_parameters(p);
+}
+net::tcp_keepalive_params connected_socket::get_keepalive_parameters() const {
+    return _csi->get_keepalive_parameters();
+}
 
 future<> connected_socket::shutdown_output() {
     return _csi->shutdown_output();

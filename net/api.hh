@@ -111,6 +111,13 @@ socket_address make_ipv4_address(ipv4_addr addr) {
 
 namespace net {
 
+// see linux tcp(7) for parameter explanation
+struct tcp_keepalive_params {
+    std::chrono::seconds idle; // TCP_KEEPIDLE
+    std::chrono::seconds interval; // TCP_KEEPINTVL
+    unsigned count; // TCP_KEEPCNT
+};
+
 /// \cond internal
 class connected_socket_impl;
 class server_socket_impl;
@@ -196,6 +203,16 @@ public:
     ///
     /// \return whether the nodelay option is enabled or not
     bool get_nodelay() const;
+    /// Sets SO_KEEPALIVE option (enable keepalive timer on a socket)
+    void set_keepalive(bool keepalive);
+    /// Gets O_KEEPALIVE option
+    /// \return whether the keepalive option is enabled or not
+    bool get_keepalive() const;
+    /// Sets TCP keepalive parameters
+    void set_keepalive_parameters(const net::tcp_keepalive_params& p);
+    /// Get TCP keepalive parameters
+    net::tcp_keepalive_params get_keepalive_parameters() const;
+
     /// Disables output to the socket.
     ///
     /// Current or future writes that have not been successfully flushed
