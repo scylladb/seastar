@@ -842,12 +842,16 @@ protocol<Serializer, MsgType>::client::read_response_frame(input_stream<char>& i
 }
 
 template<typename Serializer, typename MsgType>
-protocol<Serializer, MsgType>::client::client(protocol& proto, ipv4_addr addr, future<connected_socket> f) : protocol<Serializer, MsgType>::connection(proto), _server_addr(addr) {
+protocol<Serializer, MsgType>::client::client(protocol& proto, client_options ops, ipv4_addr addr, future<connected_socket> f) : protocol<Serializer, MsgType>::connection(proto), _server_addr(addr) {
     this->_output_ready = _connected_promise.get_future();
     feature_map features;
     send_negotiation_frame(*this, std::move(features));
-    f.then([this] (connected_socket fd) {
+    f.then([this, ops = std::move(ops)] (connected_socket fd) {
         fd.set_nodelay(true);
+        if (ops.keepalive) {
+            fd.set_keepalive(true);
+            fd.set_keepalive_parameters(ops.keepalive.value());
+        }
         this->_fd = std::move(fd);
         this->_read_buf = this->_fd.input();
         this->_write_buf = this->_fd.output();
@@ -902,7 +906,17 @@ protocol<Serializer, MsgType>::client::client(protocol& proto, ipv4_addr addr, f
 
 template<typename Serializer, typename MsgType>
 protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& proto, ipv4_addr addr, ipv4_addr local)
-    : client(proto, addr, ::connect(addr, local))
+    : client(proto, client_options{}, addr, ::connect(addr, local))
+{}
+
+template<typename Serializer, typename MsgType>
+protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& proto, client_options ops, ipv4_addr addr, ipv4_addr local)
+    : client(proto, std::move(ops), addr, ::connect(addr, local))
+{}
+
+template<typename Serializer, typename MsgType>
+protocol<Serializer, MsgType>::client::client(protocol& proto, ipv4_addr addr, future<connected_socket> f)
+    : client(proto, client_options{}, addr, std::move(f))
 {}
 
 }

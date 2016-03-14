@@ -64,6 +64,10 @@ struct resource_limits {
     size_t max_memory = std::numeric_limits<size_t>::max(); ///< Maximum amount of memory that may be consumed by all requests
 };
 
+struct client_options {
+    std::experimental::optional<net::tcp_keepalive_params> keepalive;
+};
+
 inline
 size_t
 estimate_request_size(const resource_limits& lim, size_t serialized_size) {
@@ -216,6 +220,7 @@ public:
         read_response_frame(input_stream<char>& in);
     public:
         client(protocol& proto, ipv4_addr addr, ipv4_addr local = ipv4_addr());
+        client(protocol& proto, client_options options, ipv4_addr addr, ipv4_addr local = ipv4_addr());
         /**
          * Create client object using the connected_socket result of the
          * provided future.
@@ -224,6 +229,7 @@ public:
          * @param f a future<> resulting in a connected_socket for the connection
          */
         client(protocol& proto, ipv4_addr addr, future<connected_socket> f);
+        client(protocol& proto, client_options options, ipv4_addr addr, future<connected_socket> f);
 
         stats get_stats() const {
             stats res = _stats;
