@@ -1316,7 +1316,7 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
     }
 
     // 4.7 seventh, process the segment text
-    if (in_state(ESTABLISHED | FIN_WAIT_1 | FIN_WAIT_1)) {
+    if (in_state(ESTABLISHED | FIN_WAIT_1 | FIN_WAIT_2)) {
         if (p.len()) {
             // Once the TCP takes responsibility for the data it advances
             // RCV.NXT over the data accepted, and adjusts RCV.WND as
