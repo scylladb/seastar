@@ -28,7 +28,7 @@ class deferred_action {
     bool _cancelled = false;
 public:
     deferred_action(Func&& func) : _func(std::move(func)) {}
-    ~deferred_action() { _func(); }
+    ~deferred_action() { if (!_cancelled) { _func(); }; }
     void cancel() { _cancelled = true; }
 };
 
