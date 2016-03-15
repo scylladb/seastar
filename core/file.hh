@@ -94,7 +94,11 @@ public:
 
 const io_priority_class& default_priority_class();
 
+class file;
+
 class file_impl {
+protected:
+    static file_impl* get_file_impl(file& f);
 public:
     unsigned _memory_dma_alignment = 4096;
     unsigned _disk_read_dma_alignment = 4096;
@@ -175,6 +179,9 @@ public:
     /// \ref operator bool(); One can reset a file back to uninitialized state
     /// by assigning file() to it.
     file() : _file_impl(nullptr) {}
+
+    file(shared_ptr<file_impl> impl)
+            : _file_impl(std::move(impl)) {}
 
     /// Checks whether the file object was initialized.
     ///
@@ -447,6 +454,7 @@ private:
     read_maybe_eof(uint64_t pos, size_t len, const io_priority_class& pc = default_priority_class());
 
     friend class reactor;
+    friend class file_impl;
 };
 
 /// \cond internal

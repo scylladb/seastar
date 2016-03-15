@@ -727,6 +727,10 @@ io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_
     });
 }
 
+file_impl* file_impl::get_file_impl(file& f) {
+    return f._file_impl.get();
+}
+
 posix_file_impl::posix_file_impl(int fd, file_open_options options)
         : _fd(fd) {
     query_dma_alignment();
