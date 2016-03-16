@@ -335,9 +335,9 @@ sharded<Service>::start(Args&&... args) {
     return parallel_for_each(boost::irange<unsigned>(0, _instances.size()),
         [this, args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) mutable {
             return smp::submit_to(c, [this, args] () mutable {
-                _instances[engine().cpu_id()].service = apply([this] (Args&&... args) {
+                _instances[engine().cpu_id()].service = apply([this] (Args... args) {
                     return create_local_service(std::forward<Args>(args)...);
-                }, std::move(args));
+                }, args);
             });
     }).then_wrapped([this] (future<> f) {
         try {
@@ -358,9 +358,9 @@ sharded<Service>::start_single(Args&&... args) {
     assert(_instances.empty());
     _instances.resize(1);
     return smp::submit_to(0, [this, args = std::make_tuple(std::forward<Args>(args)...)] () mutable {
-        _instances[0].service = apply([this] (Args&&... args) {
+        _instances[0].service = apply([this] (Args... args) {
             return create_local_service(std::forward<Args>(args)...);
-        }, std::move(args));
+        }, args);
     }).then_wrapped([this] (future<> f) {
         try {
             f.get();
