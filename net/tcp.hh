@@ -569,6 +569,7 @@ public:
         tcp& _tcp;
         uint16_t _port;
         queue<connection> _q;
+        size_t _pending = 0;
     private:
         listener(tcp& t, uint16_t port, size_t queue_length)
             : _tcp(t), _port(port), _q(queue_length) {
@@ -593,6 +594,9 @@ public:
         void abort_accept() {
             _q.abort(std::make_exception_ptr(std::system_error(ECONNABORTED, std::system_category())));
         }
+        bool full() { return _pending + _q.size() >= _q.max_size(); }
+        void inc_pending() { _pending++; }
+        void dec_pending() { _pending--; }
         friend class tcp;
     };
 public:
@@ -603,6 +607,13 @@ public:
     future<connection> connect(socket_address sa);
     const net::hw_features& hw_features() const { return _inet._inet.hw_features(); }
     future<> poll_tcb(ipaddr to, lw_shared_ptr<tcb> tcb);
+    void add_connected_tcb(lw_shared_ptr<tcb> tcbp, uint16_t local_port) {
+        auto it = _listening.find(local_port);
+        if (it != _listening.end()) {
+            it->second->_q.push(connection(tcbp));
+            it->second->dec_pending();
+        }
+    }
 private:
     void send_packet_without_tcb(ipaddr from, ipaddr to, packet p);
     void respond_with_reset(tcp_hdr* rth, ipaddr local_ip, ipaddr foreign_ip);
@@ -721,7 +732,7 @@ void tcp<InetTraits>::received(packet p, ipaddr from, ipaddr to) {
     lw_shared_ptr<tcb> tcbp;
     if (tcbi == _tcbs.end()) {
         auto listener = _listening.find(id.local_port);
-        if (listener == _listening.end() || listener->second->_q.full()) {
+        if (listener == _listening.end() || listener->second->full()) {
             // 1) In CLOSE state
             // 1.1 all data in the incoming segment is discarded.  An incoming
             // segment containing a RST is discarded. An incoming segment not
@@ -749,8 +760,11 @@ void tcp<InetTraits>::received(packet p, ipaddr from, ipaddr to) {
                 // check the security
                 // NOTE: Ignored for now
                 tcbp = make_lw_shared<tcb>(*this, id);
-                listener->second->_q.push(connection(tcbp));
                 _tcbs.insert({id, tcbp});
+                // TODO: we need to remove the tcb and decrease the pending if
+                // it stays SYN_RECEIVED state forever.
+                listener->second->inc_pending();
+
                 return tcbp->input_handle_listen_state(&h, std::move(p));
             }
             // 2.4 fourth other text or control
@@ -1133,6 +1147,7 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
             if (_snd.unacknowledged <= seg_ack && seg_ack <= _snd.next) {
                 tcp_debug("SYN_RECEIVED -> ESTABLISHED\n");
                 do_established();
+                _tcp.add_connected_tcb(this->shared_from_this(), _local_port);
             } else {
                 // <SEQ=SEG.ACK><CTL=RST>
                 return respond_with_reset(th);

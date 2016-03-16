@@ -77,6 +77,8 @@ public:
 
     size_t size() const { return _q.size(); }
 
+    size_t max_size() const { return _max; }
+
     // Destroy any items in the queue, and pass the provided exception to any
     // waiting readers or writers.
     void abort(std::exception_ptr ex) {
