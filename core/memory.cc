@@ -1356,7 +1356,7 @@ void configure(std::vector<resource::memory> m, std::experimental::optional<std:
 }
 
 statistics stats() {
-    return statistics{0, 0, 0, 1 << 30, 0, 0};
+    return statistics{0, 0, 0, 1 << 30, 1 << 30, 0};
 }
 
 bool drain_cross_cpu_freelist() {
