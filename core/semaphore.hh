@@ -69,6 +69,7 @@ public:
 class semaphore {
 private:
     size_t _count;
+    std::exception_ptr _ex;
     struct entry {
         promise<> pr;
         size_t nr;
@@ -110,6 +111,9 @@ public:
         if (_count >= nr && _wait_list.empty()) {
             _count -= nr;
             return make_ready_future<>();
+        }
+        if (_ex) {
+            return make_exception_future(_ex);
         }
         promise<> pr;
         auto fut = pr.get_future();
@@ -155,6 +159,9 @@ public:
     ///
     /// \param nr Number of units to deposit (default 1).
     void signal(size_t nr = 1) {
+        if (_ex) {
+            return;
+        }
         _count += nr;
         while (!_wait_list.empty() && _wait_list.front().nr <= _count) {
             auto& x = _wait_list.front();
@@ -195,17 +202,11 @@ public:
     /// Signal to waiters that an error occurred.  \ref wait() will see
     /// an exceptional future<> containing a \ref broken_semaphore exception.
     /// The future is made available immediately.
-    ///
-    /// This may only be used once per semaphore; after using it the
-    /// semaphore is in an indeterminate state and should not be waited on.
     void broken() { broken(std::make_exception_ptr(broken_semaphore())); }
 
     /// Signal to waiters that an error occurred.  \ref wait() will see
     /// an exceptional future<> containing the provided exception parameter.
     /// The future is made available immediately.
-    ///
-    /// This may only be used once per semaphore; after using it the
-    /// semaphore is in an indeterminate state and should not be waited on.
     template <typename Exception>
     void broken(const Exception& ex) {
         broken(std::make_exception_ptr(ex));
@@ -214,15 +215,14 @@ public:
     /// Signal to waiters that an error occurred.  \ref wait() will see
     /// an exceptional future<> containing the provided exception parameter.
     /// The future is made available immediately.
-    ///
-    /// This may only be used once per semaphore; after using it the
-    /// semaphore is in an indeterminate state and should not be waited on.
     void broken(std::exception_ptr ex);
 };
 
 inline
 void
 semaphore::broken(std::exception_ptr xp) {
+    _ex = xp;
+    _count = 0;
     while (!_wait_list.empty()) {
         auto& x = _wait_list.front();
         x.pr.set_exception(xp);

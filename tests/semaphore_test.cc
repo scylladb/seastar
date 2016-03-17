@@ -106,7 +106,7 @@ SEASTAR_TEST_CASE(test_semaphore_mix_1) {
 SEASTAR_TEST_CASE(test_broken_semaphore) {
     auto sem = make_lw_shared<semaphore>(0);
     struct oops {};
-    auto ret = sem->wait().then_wrapped([sem] (future<> f) {
+    auto check_result = [sem] (future<> f) {
         try {
             f.get();
             BOOST_FAIL("expecting exception");
@@ -118,9 +118,12 @@ SEASTAR_TEST_CASE(test_broken_semaphore) {
         }
         BOOST_FAIL("unreachable");
         return make_ready_future<>();
-    });
+    };
+    auto ret = sem->wait().then_wrapped(check_result);
     sem->broken(oops());
-    return ret;
+    return sem->wait().then_wrapped(check_result).then([ret = std::move(ret)] () mutable {
+        return std::move(ret);
+    });
 }
 
 SEASTAR_TEST_CASE(test_shared_mutex_exclusive) {
