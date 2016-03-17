@@ -1282,22 +1282,24 @@ future<> reactor::run_exit_tasks() {
 
 void reactor::stop() {
     assert(engine()._id == 0);
-    run_exit_tasks().then([this] {
-        do_with(semaphore(0), [this] (semaphore& sem) {
-            for (unsigned i = 1; i < smp::count; i++) {
-                smp::submit_to<>(i, []() {
-                    return engine().run_exit_tasks().then([] {
-                        engine()._stopped = true;
+    if (!_stopping) {
+        run_exit_tasks().then([this] {
+            do_with(semaphore(0), [this] (semaphore& sem) {
+                for (unsigned i = 1; i < smp::count; i++) {
+                    smp::submit_to<>(i, []() {
+                        return engine().run_exit_tasks().then([] {
+                                engine()._stopped = true;
+                        });
+                    }).then([&sem]() {
+                        sem.signal();
                     });
-                }).then([&sem]() {
-                    sem.signal();
+                }
+                return sem.wait(smp::count - 1).then([this] {
+                    _stopped = true;
                 });
-            }
-            return sem.wait(smp::count - 1).then([this] {
-                _stopped = true;
             });
         });
-    });
+    }
 }
 
 void reactor::exit(int ret) {
