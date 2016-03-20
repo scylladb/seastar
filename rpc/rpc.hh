@@ -258,14 +258,15 @@ public:
         }
 
         future<> stop() {
-            if (_connected && !this->_error) {
+            if (!this->_error) {
                 this->_error = true;
-                return connection::stop();
-            } else {
-                // connection::stop will fail on shutdown(); since we can't shutdown a
-                // connect(), just wait for it to timeout
-                return this->_stopped.get_future();
+                if (_connected) {
+                    return connection::stop();
+                }
             }
+            // connection::stop will fail on shutdown(); since we can't shutdown a
+            // connect(), just wait for it to timeout
+            return this->_stopped.get_future();
         }
         ipv4_addr peer_address() const {
             return _server_addr;
