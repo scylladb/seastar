@@ -1093,7 +1093,7 @@ template <typename... T>
 inline
 future<T...>
 promise<T...>::get_future() noexcept {
-    assert(!_future);
+    assert(!_future && _state && !_task);
     return future<T...>(this);
 }
 
