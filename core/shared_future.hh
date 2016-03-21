@@ -127,4 +127,51 @@ public:
     }
 };
 
+/// \brief Like \ref promise except that its counterpart is \ref shared_future instead of \ref future
+///
+/// When the shared_promise is made ready, every waiter is also made ready.
+///
+/// Like the shared_future, the types in the parameter pack T must all be copy-constructible.
+template <typename... T>
+class shared_promise : public enable_shared_from_this<shared_promise<T...>> {
+    promise<T...> _promise;
+    shared_future<T...> _shared_future;
+    static constexpr bool copy_noexcept = future_state<T...>::copy_noexcept;
+public:
+    shared_promise(const shared_promise&) = delete;
+    shared_promise(shared_promise&&) = default;
+    shared_promise() : _promise(), _shared_future(_promise.get_future()) {
+    }
+
+    future<T...> get_shared_future() {
+        return _shared_future.get_future();
+    }
+    /// \brief Sets the shared_promise's value (as tuple; by copying), same as normal promise
+    void set_value(const std::tuple<T...>& result) noexcept(copy_noexcept) {
+        _promise.set_value(result);
+    }
+
+    /// \brief Sets the shared_promise's value (as tuple; by moving), same as normal promise
+    void set_value(std::tuple<T...>&& result) noexcept {
+        _promise.set_value(std::move(result));
+    }
+
+    /// \brief Sets the shared_promise's value (variadic), same as normal promise
+    template <typename... A>
+    void set_value(A&&... a) noexcept {
+        _promise.set_value(std::forward<A>(a)...);
+    }
+
+    /// \brief Marks the shared_promise as failed, same as normal promise
+    void set_exception(std::exception_ptr ex) noexcept {
+        _promise.set_exception(std::move(ex));
+    }
+
+    /// \brief Marks the shared_promise as failed, same as normal promise
+    template<typename Exception>
+    void set_exception(Exception&& e) noexcept {
+        set_exception(make_exception_ptr(std::forward<Exception>(e)));
+    }
+};
+
 /// @}
