@@ -43,6 +43,17 @@
 using namespace std::chrono_literals;
 
 bool filesystem_has_good_aio_support(sstring directory, bool verbose);
+class iotune_manager;
+
+class iotune_timeout_exception : public std::exception {
+    sstring _msg;
+public:
+    iotune_timeout_exception(sstring s) : _msg(s) {}
+    const char *what() const noexcept {
+        return _msg.c_str();
+    }
+};
+
 
 struct directory {
     sstring name;
@@ -58,7 +69,7 @@ struct test_file {
     file_desc file;
 
     test_file(const directory& dir);
-    void generate();
+    void generate(iotune_manager& iotune_manager, std::chrono::seconds timeout);
 };
 
 struct run_stats {
@@ -78,7 +89,7 @@ class iotune_manager {
 public:
     enum class test_done { no, yes };
     using clock = std::chrono::steady_clock;
-    static constexpr uint64_t file_size = 10ull << 30;
+    uint64_t file_size = 10ull << 30;
     static constexpr uint64_t wbuffer_size = 128ul << 10;
     static constexpr uint64_t rbuffer_size = 4ul << 10;
 private:
@@ -118,6 +129,7 @@ private:
     std::vector<std::thread> _threads;
 
     iotune_manager::clock::time_point _run_start_time;
+    iotune_manager::clock::time_point _maximum_end_time;
 
     run_stats issue_reads(size_t cpu_id, unsigned this_concurrency);
 
@@ -231,27 +243,48 @@ private:
     }
 
     void find_next_concurrency(const run_stats& result) {
+        bool should_run_more = (clock::now() < _maximum_end_time);
+        if (!should_run_more && _current_test_phase == test_phase::find_max_region) {
+            throw iotune_timeout_exception("IOTune timed out before the end of first disk scan. Can't provide a meaningful result - Aborting");
+        }
+
+        if (!should_run_more) {
+            update_current_best(result);
+            std::queue<unsigned> _empty_queue;
+            _concurrency_queue.swap(_empty_queue);
+            std::cerr << "IOtune timed out before it could finish. An estimate will be provided but accuracy may suffer" << std::endl;
+            return;
+        }
+
         if (_current_test_phase == test_phase::find_max_region) {
             find_max_region(result);
         } else if (_current_test_phase == test_phase::find_max_point) {
             find_max_point(result, _desired_percentile);
         } else {
-            uint64_t critical_IOPS = _desired_percentile * _best_result.IOPS;
-            uint64_t d = std::abs(int64_t(critical_IOPS - result.IOPS));
-            if (d < _best_critical_delta) {
-                _best_critical_delta = d;
-                _best_critical_concurrency = result.concurrency;
-            }
+            update_current_best(result);
+        }
+    }
+
+    void update_current_best(const run_stats& result) {
+        uint64_t critical_IOPS = _desired_percentile * _best_result.IOPS;
+        uint64_t d = std::abs(int64_t(critical_IOPS - result.IOPS));
+        if (d < _best_critical_delta) {
+            _best_critical_delta = d;
+            _best_critical_concurrency = result.concurrency;
         }
     }
 public:
-    iotune_manager(size_t n, sstring dirname) : _start_run_barrier(n)
-                                              , _finish_run_barrier(n)
-                                              , _results_barrier(n)
-                                              , _time_run_atomic(n)
-                                              , _test_file(directory(dirname))
-                                              , _run_start_time(iotune_manager::clock::now()) {
-        _test_file.generate();
+    iotune_manager(size_t n, sstring dirname, std::chrono::seconds timeout)
+        : _start_run_barrier(n)
+        , _finish_run_barrier(n)
+        , _results_barrier(n)
+        , _time_run_atomic(n)
+        , _test_file(directory(dirname))
+        , _run_start_time(iotune_manager::clock::now())
+        , _maximum_end_time(_run_start_time + timeout)
+    {
+        _test_file.generate(*this, (timeout * 4) / 10);
+
         // Initial exploratory run
         for (auto initial: boost::irange<unsigned, unsigned>(4, 512, 4)) {
             _concurrency_queue.push(initial);
@@ -335,24 +368,13 @@ public:
     }
 };
 
-constexpr uint64_t iotune_manager::file_size;
 constexpr uint64_t iotune_manager::wbuffer_size;
 constexpr uint64_t iotune_manager::rbuffer_size;
 
 test_file::test_file(const directory& dir)
     : name(dir.name + "/ioqueue-discovery")
     , file(file_desc::open(name.c_str(),  O_DIRECT | O_CLOEXEC | O_RDWR | O_CREAT, S_IRWXU)) {
-
-    auto gb = [] (auto b) {
-        return float(b) / (1ull << 30);
-    };
-
-    auto si = boost::filesystem::space(boost::filesystem::path(dir.name));
-    ::unlink(name.c_str());
-
-    if (si.available < iotune_manager::file_size) {
-        throw std::runtime_error(sprint("iotune requires at least %.2f GB available. Filesystem contains only %.2f GB available\n", gb(iotune_manager::file_size), gb(si.available)));
-    }
+    unlink(name.c_str());
 }
 
 static thread_local std::default_random_engine random_generator(std::chrono::duration_cast<std::chrono::nanoseconds>(iotune_manager::clock::now().time_since_epoch()).count());
@@ -367,9 +389,9 @@ class reader {
     iotune_manager::clock::time_point _end_time;
     std::unique_ptr<char[], free_deleter> _buf;
 public:
-    reader(file_desc f, iotune_manager::clock::time_point start_time, iotune_manager::clock::time_point end_time)
+    reader(file_desc f, uint64_t file_size, iotune_manager::clock::time_point start_time, iotune_manager::clock::time_point end_time)
                 : _file(std::move(f))
-                , _pos_distribution(0, (iotune_manager::file_size/ iotune_manager::rbuffer_size) - 1)
+                , _pos_distribution(0, (file_size/ iotune_manager::rbuffer_size) - 1)
                 , _start_time(start_time)
                 , _tstamp(iotune_manager::clock::now())
                 , _end_time(end_time)
@@ -402,8 +424,14 @@ public:
     }
 };
 
+void sanity_check_ev(const io_event& ev) {
+    if (long(ev.res) < 0) {
+        throw_kernel_error(long(ev.res));
+    }
+}
+
 void sanity_check_ev(const io_event& ev, size_t size) {
-    throw_kernel_error(long(ev.res));
+    sanity_check_ev(ev);
     if (size_t(ev.res) != size) {
         throw std::runtime_error(sprint("Expected %ld bytes I/O, found %ld\n", size, size_t(ev.res)));
     }
@@ -427,7 +455,7 @@ run_stats iotune_manager::issue_reads(size_t cpu_id, unsigned concurrency) {
 
     auto fds = std::vector<reader>();
     for (unsigned i = 0u; i < concurrency; ++i) {
-        fds.emplace_back(_test_file.file.dup(), start_time, start_time + total_time);
+        fds.emplace_back(_test_file.file.dup(), file_size, start_time, start_time + total_time);
     }
 
     for (auto& r: fds) {
@@ -462,8 +490,16 @@ run_stats iotune_manager::issue_reads(size_t cpu_id, unsigned concurrency) {
     return result;
 }
 
-void test_file::generate() {
-    std::cout << "Generating evaluation file..." << std::flush;
+void test_file::generate(iotune_manager& iotune_manager, std::chrono::seconds timeout) {
+    auto to_gb = [] (auto b) {
+        return float(b) / (1ull << 30);
+    };
+
+    std::cout << "Generating evaluation file sized " << to_gb(iotune_manager.file_size) << "GB..." << std::flush;
+
+    auto start_time = iotune_manager::clock::now();
+    auto latest_tstamp = start_time;
+
     io_context_t io_context = {0};
     auto max_aio = 128;
     auto r = ::io_setup(max_aio, &io_context);
@@ -472,7 +508,7 @@ void test_file::generate() {
 
     auto buf = allocate_aligned_buffer<char>(iotune_manager::wbuffer_size, 4096);
     memset(buf.get(), 0, iotune_manager::wbuffer_size);
-    auto ft = ftruncate(file.get(), iotune_manager::file_size);
+    auto ft = ftruncate(file.get(), iotune_manager.file_size);
     throw_kernel_error(ft);
 
     std::vector<iocb*> iocb_vecptr;
@@ -484,12 +520,14 @@ void test_file::generate() {
     iocb_vecptr.resize(max_aio);
     std::iota(iocb_vecptr.begin(), iocb_vecptr.end(), iocbs.data());
     uint64_t pos = 0;
+    uint64_t bytes_written = 0;
     unsigned aio_outstanding = 0;
+    bool stopped_on_error = false;
 
-    while (pos < iotune_manager::file_size || aio_outstanding) {
+    while ((pos < iotune_manager.file_size && !stopped_on_error) || aio_outstanding) {
         unsigned i = 0;
-        while (i < max_aio - aio_outstanding && pos < iotune_manager::file_size) {
-            auto now = std::min(iotune_manager::file_size - pos, iotune_manager::wbuffer_size);
+        while (i < max_aio - aio_outstanding && pos < iotune_manager.file_size) {
+            auto now = std::min(iotune_manager.file_size - pos, iotune_manager::wbuffer_size);
             auto& iocb = iocbs[i++];
             iocb.data = buf.get();
             io_prep_pwrite(&iocb, file.get(), buf.get(), now, pos);
@@ -504,17 +542,45 @@ void test_file::generate() {
             struct timespec timeout = {0, 0};
             int n = ::io_getevents(io_context, 1, ev.size(), ev.data(), &timeout);
             throw_kernel_error(n);
-            for (auto i = 0ul; i < size_t(n); ++i) {
-                sanity_check_ev(ev[i], iotune_manager::wbuffer_size);
-            }
             aio_outstanding -= n;
+            for (auto i = 0ul; i < size_t(n); ++i) {
+                if (stopped_on_error) {
+                    // We have given up already, just loop through so we will
+                    // flush all outstanding I/O.
+                    break;
+                } else if ((long(ev[i].res) == -ENOSPC) || (ev[i].res < iotune_manager::wbuffer_size)) {
+                    // FIXME: The buffer size can be cut short due to other conditions that are unrelated
+                    // to ENOSPC. We should be testing it separately.
+                    std::cout << " stopped early due to disk space issues. Will continue but accuracy may suffer." << std::endl;
+                    iotune_manager.file_size = bytes_written;
+                    stopped_on_error = true;
+                    break;
+                } else {
+                    sanity_check_ev(ev[i], iotune_manager::wbuffer_size);
+                    bytes_written += iotune_manager::wbuffer_size;
+                }
+            }
         }
+        latest_tstamp = iotune_manager::clock::now();
+        if ((latest_tstamp - start_time) > timeout) {
+            std::cout << " timed out before we could write the entire file. Will continue but accuracy may suffer." << std::endl;
+            aio_outstanding = 0;
+            iotune_manager.file_size = bytes_written;
+            if (bytes_written < (1ul << 30)) {
+                throw iotune_timeout_exception("timed out before we could write 1GB worth of data. Not enough to continue");
+            }
+            break;
+        }
+
     }
-    std::cout << " done." << std::endl;
+    iotune_manager.file_size = bytes_written;
+    std::cout << to_gb(iotune_manager.file_size) << "GB written in "
+              << std::chrono::duration_cast<std::chrono::seconds>(latest_tstamp - start_time).count()
+              << " seconds" << std::endl;
 }
 
-uint32_t io_queue_discovery(sstring dir, std::vector<unsigned> cpus) {
-    iotune_manager iotune_manager(cpus.size(), dir);
+uint32_t io_queue_discovery(sstring dir, std::vector<unsigned> cpus, std::chrono::seconds timeout) {
+    iotune_manager iotune_manager(cpus.size(), dir, timeout);
 
     for (auto i = 0ul; i < cpus.size(); ++i) {
         iotune_manager.spawn_new([&cpus, &iotune_manager, id = i] {
@@ -581,6 +647,7 @@ int main(int ac, char** av) {
         ("cpuset", bpo::value<cpuset_bpo_wrapper>(), "CPUs to use (in cpuset(7) format; default: all))")
         ("options-file", bpo::value<sstring>()->default_value("~/.config/seastar/io.conf"), "Output configuration file")
         ("format", bpo::value<sstring>()->default_value("seastar"), "Configuration file format (seastar | envfile)")
+        ("timeout", bpo::value<uint64_t>()->default_value(60 * 6), "Maximum time to wait for iotune to finish (seconds)")
     ;
 
     bpo::variables_map configuration;
@@ -622,18 +689,25 @@ int main(int ac, char** av) {
                 " see http://www.scylladb.com/kb/kb-fs-not-qualified-aio/ for details\n";
         return 1;
     }
+    auto timeout = std::chrono::seconds(configuration["timeout"].as<uint64_t>());
 
-    auto iodepth = io_queue_discovery(directory, cpuvec);
-    auto num_io_queues = cpuvec.size();
-    if (iodepth / num_io_queues < 4) {
-        num_io_queues = iodepth / 4;
-    }
+    try {
+        auto iodepth = io_queue_discovery(directory, cpuvec, timeout);
+        auto num_io_queues = cpuvec.size();
+        if (iodepth / num_io_queues < 4) {
+            num_io_queues = iodepth / 4;
+        }
 
-    if (num_io_queues != cpuvec.size()) {
-        iodepth = (iodepth / num_io_queues) * num_io_queues;
-        write_configuration_file(conf_file, format, iodepth, num_io_queues);
-    } else {
-        write_configuration_file(conf_file, format, iodepth);
+        if (num_io_queues != cpuvec.size()) {
+            iodepth = (iodepth / num_io_queues) * num_io_queues;
+            write_configuration_file(conf_file, format, iodepth, num_io_queues);
+        } else {
+            write_configuration_file(conf_file, format, iodepth);
+        }
+    } catch (iotune_timeout_exception &e) {
+        // Otherwise we'll coredump on the exception, but this can happen
+        std::cerr << "Timed out: " << e.what() << std::endl;
+        return 1;
     }
     return 0;
 }
