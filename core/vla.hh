@@ -26,6 +26,7 @@
 #include <new>
 #include <assert.h>
 #include <type_traits>
+#include <core/reactor.hh>
 
 // Some C APIs have a structure with a variable length array at the end.
 // This is a helper function to help allocate it.
@@ -42,14 +43,14 @@
 //
 template <class S, typename E>
 inline
-std::unique_ptr<S>
+std::unique_ptr<S, free_deleter>
 make_struct_with_vla(E S::*last, size_t nr) {
     auto fake = reinterpret_cast<S*>(0);
     size_t offset = reinterpret_cast<uintptr_t>(&(fake->*last));
     size_t element_size = sizeof((fake->*last)[0]);
     assert(offset == sizeof(S));
-    auto p = ::operator new(offset + element_size * nr);
-    return std::unique_ptr<S>(new (p) S());
+    auto p = ::malloc(offset + element_size * nr);
+    return std::unique_ptr<S, free_deleter>(new (p) S());
 }
 
 
