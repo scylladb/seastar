@@ -20,7 +20,7 @@
 tap=tap0
 bridge=virbr0
 user=`whoami`
-sudo tunctl -d $tap
+sudo ip link del $tap
 sudo ip tuntap add mode tap dev $tap user $user one_queue vnet_hdr
 sudo ifconfig $tap up
 sudo brctl addif $bridge $tap
