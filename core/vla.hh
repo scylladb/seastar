@@ -49,8 +49,9 @@ make_struct_with_vla(E S::*last, size_t nr) {
     size_t offset = reinterpret_cast<uintptr_t>(&(fake->*last));
     size_t element_size = sizeof((fake->*last)[0]);
     assert(offset == sizeof(S));
-    auto p = ::malloc(offset + element_size * nr);
-    return std::unique_ptr<S, free_deleter>(new (p) S());
+    auto p = std::unique_ptr<char, free_deleter>(
+            reinterpret_cast<char*>(::malloc(offset + element_size * nr)));
+    return std::unique_ptr<S, free_deleter>(new (p.release()) S());
 }
 
 
