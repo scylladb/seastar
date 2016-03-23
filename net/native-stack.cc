@@ -24,6 +24,7 @@
 #include "net.hh"
 #include "ip.hh"
 #include "tcp-stack.hh"
+#include "tcp.hh"
 #include "udp.hh"
 #include "virtio.hh"
 #include "dpdk.hh"
@@ -145,10 +146,10 @@ private:
 public:
     explicit native_network_stack(boost::program_options::variables_map opts, std::shared_ptr<device> dev);
     virtual server_socket listen(socket_address sa, listen_options opt) override;
-    virtual future<connected_socket> connect(socket_address sa, socket_address local) override;
-    virtual ::seastar::socket socket() override {
-        throw "not implemented";
+    virtual future<connected_socket> connect(socket_address sa, socket_address local) override {
+        return socket().connect(sa, local);
     }
+    virtual ::seastar::socket socket() override;
     virtual udp_channel make_udp_channel(ipv4_addr addr) override;
     virtual future<> initialize() override;
     static future<std::unique_ptr<network_stack>> create(boost::program_options::variables_map opts) {
@@ -207,11 +208,8 @@ native_network_stack::listen(socket_address sa, listen_options opts) {
     return tcpv4_listen(_inet.get_tcp(), ntohs(sa.as_posix_sockaddr_in().sin_port), opts);
 }
 
-future<connected_socket>
-native_network_stack::connect(socket_address sa, socket_address local) {
-    // FIXME: local is ignored since native stack does not support multiple IPs yet
-    assert(sa.as_posix_sockaddr().sa_family == AF_INET);
-    return tcpv4_connect(_inet.get_tcp(), sa);
+seastar::socket native_network_stack::socket() {
+    return tcpv4_socket(_inet.get_tcp());
 }
 
 using namespace std::chrono_literals;

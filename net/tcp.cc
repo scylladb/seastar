@@ -151,12 +151,10 @@ tcpv4_listen(tcp<ipv4_traits>& tcpv4, uint16_t port, listen_options opts) {
 			tcpv4, port, opts));
 }
 
-future<connected_socket>
-tcpv4_connect(tcp<ipv4_traits>& tcpv4, socket_address sa) {
-    return tcpv4.connect(sa).then([] (tcp<ipv4_traits>::connection conn) mutable {
-        std::unique_ptr<connected_socket_impl> csi(new native_connected_socket_impl<tcp<ipv4_traits>>(std::move(conn)));
-        return make_ready_future<connected_socket>(connected_socket(std::move(csi)));
-    });
+::seastar::socket
+tcpv4_socket(tcp<ipv4_traits>& tcpv4) {
+    return ::seastar::socket(std::make_unique<native_socket_impl<tcp<ipv4_traits>>>(
+            tcpv4));
 }
 
 }
