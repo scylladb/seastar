@@ -41,6 +41,13 @@ public:
     virtual tcp_keepalive_params get_keepalive_parameters() const = 0;
 };
 
+class socket_impl {
+public:
+    virtual ~socket_impl() {}
+    virtual future<connected_socket> connect(socket_address sa, socket_address local) = 0;
+    virtual void shutdown() = 0;
+};
+
 class server_socket_impl {
 public:
     virtual ~server_socket_impl() {}
