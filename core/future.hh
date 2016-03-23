@@ -954,9 +954,23 @@ public:
      */
     template <typename Func>
     future<T...> finally(Func&& func) noexcept {
-        return then_wrapped([func = std::forward<Func>(func)](future<T...> result) mutable {
+        return then_wrapped(finally_body<Func, is_future<std::result_of_t<Func()>>::value>(std::forward<Func>(func)));
+    }
+
+
+    template <typename Func, bool FuncReturnsFuture>
+    struct finally_body;
+
+    template <typename Func>
+    struct finally_body<Func, true> {
+        Func _func;
+
+        finally_body(Func&& func) : _func(std::forward<Func>(func))
+        { }
+
+        future<T...> operator()(future<T...>&& result) {
             using futurator = futurize<std::result_of_t<Func()>>;
-            return futurator::apply(std::forward<Func>(func)).then_wrapped([result = std::move(result)](auto f_res) mutable {
+            return futurator::apply(_func).then_wrapped([result = std::move(result)](auto f_res) mutable {
                 if (!f_res.failed()) {
                     return std::move(result);
                 } else {
@@ -968,8 +982,25 @@ public:
                     assert(0 && "we should not be here");
                 }
             });
-        });
-    }
+        }
+    };
+
+    template <typename Func>
+    struct finally_body<Func, false> {
+        Func _func;
+
+        finally_body(Func&& func) : _func(std::forward<Func>(func))
+        { }
+
+        future<T...> operator()(future<T...>&& result) {
+            try {
+                _func();
+                return std::move(result);
+            } catch (...) {
+                return result.rethrow_with_nested();
+            }
+        };
+    };
 
     /// \brief Terminate the program if this future fails.
     ///
