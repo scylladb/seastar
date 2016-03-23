@@ -146,9 +146,6 @@ private:
 public:
     explicit native_network_stack(boost::program_options::variables_map opts, std::shared_ptr<device> dev);
     virtual server_socket listen(socket_address sa, listen_options opt) override;
-    virtual future<connected_socket> connect(socket_address sa, socket_address local) override {
-        return socket().connect(sa, local);
-    }
     virtual ::seastar::socket socket() override;
     virtual udp_channel make_udp_channel(ipv4_addr addr) override;
     virtual future<> initialize() override;

@@ -94,9 +94,6 @@ private:
 public:
     explicit posix_network_stack(boost::program_options::variables_map opts) : _reuseport(engine().posix_reuseport_available()) {}
     virtual server_socket listen(socket_address sa, listen_options opts) override;
-    virtual future<connected_socket> connect(socket_address sa, socket_address local) override {
-        return socket().connect(sa, local);
-    }
     virtual ::seastar::socket socket() override;
     virtual net::udp_channel make_udp_channel(ipv4_addr addr) override;
     static future<std::unique_ptr<network_stack>> create(boost::program_options::variables_map opts) {
