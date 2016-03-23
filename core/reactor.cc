@@ -98,8 +98,10 @@ lowres_clock::lowres_clock() {
 }
 
 void lowres_clock::update() {
-    auto ticks = _granularity.count();
-    _now.fetch_add(ticks, std::memory_order_relaxed);
+    using namespace std::chrono;
+    auto now = steady_clock_type::now();
+    auto ticks = duration_cast<milliseconds>(now.time_since_epoch()).count();
+    _now.store(ticks, std::memory_order_relaxed);
 }
 
 template <typename T>
