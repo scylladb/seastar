@@ -707,6 +707,28 @@ private:
         return std::move(*st);
     }
 
+    [[gnu::noinline]]
+    future<T...> rethrow_with_nested() {
+        if (!failed()) {
+            return make_exception_future<T...>(std::current_exception());
+        } else {
+            //
+            // Encapsulate the current exception into the
+            // std::nested_exception because the current libstdc++
+            // implementation has a bug requiring the value of a
+            // std::throw_with_nested() parameter to be of a polymorphic
+            // type.
+            //
+            std::nested_exception f_ex;
+            try {
+                get();
+            } catch (...) {
+                std::throw_with_nested(f_ex);
+            }
+        }
+        assert(0 && "we should not be here");
+    }
+
     template<typename... U>
     friend class shared_future;
 public:
@@ -938,31 +960,12 @@ public:
                 if (!f_res.failed()) {
                     return std::move(result);
                 } else {
-                    if (!result.failed()) {
-                        return make_exception_future<T...>(f_res.get_exception());
-                    } else {
-                        // both exception are failed we need to construct nested exception
-                        // so we will have to re-throw
-                        try {
-                            f_res.get();
-                        } catch(...) {
-                            //
-                            // Encapsulate the current exception into the
-                            // std::nested_exception because the current libstdc++
-                            // implementation has a bug requiring the value of a
-                            // std::throw_with_nested() parameter to be of a polymorphic
-                            // type.
-                            //
-                            std::nested_exception f_ex;
-
-                            try {
-                                result.get();
-                            } catch (...) {
-                                std::throw_with_nested(f_ex);
-                            }
-                        }
-                        assert(0 && "we should not be here");
+                    try {
+                        f_res.get();
+                    } catch (...) {
+                        return result.rethrow_with_nested();
                     }
+                    assert(0 && "we should not be here");
                 }
             });
         });
