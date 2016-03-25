@@ -1480,6 +1480,9 @@ int dpdk_device::init_port_start()
             rte_exit(EXIT_FAILURE,
                 "Port %d: We support only 40 or 52 bytes RSS hash keys, %d bytes key requested",
                 _port_idx, _dev_info.hash_key_size);
+        } else {
+            _rss_key = default_rsskey_40bytes;
+            _dev_info.hash_key_size = 40;
         }
 
         port_conf.rxmode.mq_mode = ETH_MQ_RX_RSS;
