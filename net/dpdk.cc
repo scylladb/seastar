@@ -129,6 +129,13 @@ static constexpr uint8_t  max_frags              = 32 + 1;
 //
 static constexpr uint8_t  i40e_max_xmit_segment_frags = 8;
 
+//
+// VMWare's virtual NIC limit for a number of fragments in an xmit segment.
+//
+// see drivers/net/vmxnet3/base/vmxnet3_defs.h VMXNET3_MAX_TXD_PER_PKT
+//
+static constexpr uint8_t vmxnet3_max_xmit_segment_frags = 16;
+
 static constexpr uint16_t inline_mbuf_size       =
                                 inline_mbuf_data_size + mbuf_overhead;
 
@@ -217,6 +224,7 @@ class dpdk_device : public device {
     const std::string _stats_plugin_inst;
     std::vector<scollectd::registration> _collectd_regs;
     bool _is_i40e_device = false;
+    bool _is_vmxnet3_device = false;
 
 public:
     rte_eth_dev_info _dev_info = {};
@@ -415,6 +423,9 @@ public:
     uint8_t port_idx() { return _port_idx; }
     bool is_i40e_device() const {
         return _is_i40e_device;
+    }
+    bool is_vmxnet3_device() const {
+        return _is_vmxnet3_device;
     }
 
     virtual const rss_key_type& rss_key() const override { return _rss_key; }
@@ -621,7 +632,8 @@ build_mbuf_cluster:
             //    - Build the cluster once again
             //
             if (head->nb_segs > max_frags ||
-                (p.nr_frags() > 1 && qp.port().is_i40e_device() && i40e_should_linearize(head))) {
+                (p.nr_frags() > 1 && qp.port().is_i40e_device() && i40e_should_linearize(head)) ||
+                (p.nr_frags() > vmxnet3_max_xmit_segment_frags && qp.port().is_vmxnet3_device())) {
                 me(head)->recycle();
                 p.linearize();
                 ++qp._stats.tx.linearized;
@@ -1387,6 +1399,11 @@ int dpdk_device::init_port_start()
         sstring("rte_i40e_pmd") == _dev_info.driver_name) {
         printf("Device is an Intel's 40G NIC. Enabling 8 fragments hack!\n");
         _is_i40e_device = true;
+    }
+
+    if (std::string("rte_vmxnet3_pmd") == _dev_info.driver_name) {
+      printf("Device is a VMWare Virtual NIC. Enabling 16 fragments hack!\n");
+      _is_vmxnet3_device = true;
     }
 
     //
