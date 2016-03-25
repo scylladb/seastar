@@ -32,7 +32,7 @@
 #include "net/posix-stack.hh"
 #include "resource.hh"
 #include "print.hh"
-#include "scollectd.hh"
+#include "scollectd-impl.hh"
 #include "util/conversions.hh"
 #include "core/future-util.hh"
 #include "thread.hh"
@@ -2296,6 +2296,21 @@ smp::get_options_description()
     return opts;
 }
 
+thread_local scollectd::impl scollectd_impl;
+
+scollectd::impl & scollectd::get_impl() {
+    return scollectd_impl;
+}
+
+struct reactor_deleter {
+    void operator()(reactor* p) {
+        p->~reactor();
+        free(p);
+    }
+};
+
+thread_local std::unique_ptr<reactor, reactor_deleter> reactor_holder;
+
 std::vector<smp::thread_adaptor> smp::_threads;
 std::experimental::optional<boost::barrier> smp::_all_event_loops_done;
 std::vector<reactor*> smp::_reactors;
@@ -2347,15 +2362,6 @@ void smp::arrive_at_event_loop_end() {
 }
 
 void smp::allocate_reactor() {
-    struct reactor_deleter {
-        void operator()(reactor* p) {
-            p->~reactor();
-            free(p);
-        }
-    };
-    static thread_local std::unique_ptr<reactor, reactor_deleter>
-        reactor_holder;
-
     assert(!reactor_holder);
 
     // we cannot just write "local_engin = new reactor" since reactor's constructor
