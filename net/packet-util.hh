@@ -43,7 +43,7 @@ public:
     }
 
     void merge(Offset offset, packet p) {
-        bool insert;
+        bool insert = true;
         auto beg = offset;
         auto end = beg + p.len();
         // Fisrt, try to merge the packet with existing segment
