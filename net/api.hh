@@ -196,7 +196,8 @@ public:
     /// Gets the output stream.
     ///
     /// Gets an object that sends data to the remote endpoint.
-    output_stream<char> output();
+    /// \param buffer_size how much data to buffer
+    output_stream<char> output(size_t buffer_size = 8192);
     /// Sets the TCP_NODELAY option (disabling Nagle's algorithm)
     void set_nodelay(bool nodelay);
     /// Gets the TCP_NODELAY option (Nagle's algorithm)

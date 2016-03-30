@@ -72,9 +72,9 @@ input_stream<char> connected_socket::input() {
     return input_stream<char>(_csi->source());
 }
 
-output_stream<char> connected_socket::output() {
+output_stream<char> connected_socket::output(size_t buffer_size) {
     // TODO: allow user to determine buffer size etc
-    return output_stream<char>(_csi->sink(), 8192, false, true);
+    return output_stream<char>(_csi->sink(), buffer_size, false, true);
 }
 
 void connected_socket::set_nodelay(bool nodelay) {
