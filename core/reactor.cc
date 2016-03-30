@@ -93,6 +93,7 @@ timespec to_timespec(steady_clock_type::time_point t) {
 }
 
 lowres_clock::lowres_clock() {
+    update();
     _timer.set_callback([this] { update(); });
     _timer.arm_periodic(_granularity);
 }
