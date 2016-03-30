@@ -686,7 +686,7 @@ int main(int ac, char** av) {
 
     if (!filesystem_has_good_aio_support(directory, false)) {
         std::cerr << "File system on " << directory << " is not qualified for seastar AIO;"
-                " see http://www.scylladb.com/kb/kb-fs-not-qualified-aio/ for details\n";
+                " see http://docs.scylladb.com/kb/kb-fs-not-qualified-aio/ for details\n";
         return 1;
     }
     auto timeout = std::chrono::seconds(configuration["timeout"].as<uint64_t>());
