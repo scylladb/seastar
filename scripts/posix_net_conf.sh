@@ -205,32 +205,46 @@ get_def_mq_mode()
     fi
 }
 
+#
+# setup_one_hw_iface <iface> <mq_mode>
+#
+# configure a single HW interface
+#
+setup_one_hw_iface()
+{
+    local iface=$1
+    local mq_mode=$2
+
+    [[ -z $mq_mode ]] && mq_mode=`get_def_mq_mode $iface`
+
+    # Ban irqbalance from moving NICs IRQs
+    restart_irqbalance $iface
+
+    # bind all NIC IRQs to CPU0
+    if [[ "$mq_mode" == "sq" ]]; then
+        for irq in `get_irqs $iface`
+        do
+            echo "Binding IRQ $irq to CPU0"
+            echo 1 > /proc/irq/$irq/smp_affinity
+        done
+
+        # Setup RPS
+        setup_rps $iface
+    else # "$mq_mode == "mq"
+        distribute_irqs $iface
+    fi
+
+    # Setup XPS
+    setup_xps $iface
+
+}
+
 IFACE="eth0"
 MQ_MODE=""
 
 parse_args $@
 
-[[ -z $MQ_MODE ]] && MQ_MODE=`get_def_mq_mode $IFACE`
-
-# Ban irqbalance from moving NICs IRQs
-restart_irqbalance $IFACE
-
-# bind all NIC IRQs to CPU0
-if [[ "$MQ_MODE" == "sq" ]]; then
-    for irq in `get_irqs $IFACE`
-    do
-        echo "Binding IRQ $irq to CPU0"
-        echo 1 > /proc/irq/$irq/smp_affinity
-    done
-
-    # Setup RPS
-    setup_rps $IFACE
-else # "$MQ_MODE == "mq"
-    distribute_irqs $IFACE
-fi
-
-# Setup XPS
-setup_xps $IFACE
+setup_one_hw_iface $IFACE $MQ_MODE
 
 # Increase the socket listen() backlog
 echo 4096 > /proc/sys/net/core/somaxconn
