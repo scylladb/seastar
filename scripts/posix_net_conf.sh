@@ -1,14 +1,19 @@
 #!/bin/bash
 # !
-# !  Usage: posix_net_conf.sh [iface name, eth0 by default] [-mq] [-h|--help]
+# !  Usage: posix_net_conf.sh [iface name, eth0 by default] [-mq|-sq] [-h|--help]
 # !
 # !  Ban NIC IRQs from being moved by irqbalance.
 # !
-# !  If -mq is not given - set all IRQs of a given NIC to CPU0 and configure RPS
+# !  -sq - set all IRQs of a given NIC to CPU0 and configure RPS
 # !  to spreads NAPIs' handling between other CPUs.
 # !
-# !  If "-mq" is given - distribute NIC's IRQs among all CPUs instead of binding
+# !  -mq - distribute NIC's IRQs among all CPUs instead of binding
 # !  them all to CPU0 and do not enable RPS.
+# !
+# !  If neither -mq nor -sq is given script will use a default mode:
+# !     - If number of NIC's IRQs is greater than half of CPUs cores (not including hyperthreads) - use an '-mq' mode.
+# !     - Otherwise if number or NIC's IRQs is greater than 7 - use an '-mq' mode.
+# !     - Otherwise use an '-sq' mode.
 # !
 # !  Enable XPS, increase the default values of somaxconn and tcp_max_syn_backlog.
 # !
@@ -168,7 +173,10 @@ parse_args()
     do
         case "$arg" in
             "-mq")
-                MQ_MODE="yes"
+                MQ_MODE="mq"
+                ;;
+            "-sq")
+                MQ_MODE="sq"
                 ;;
             "-h"|"--help")
                 usage
@@ -181,16 +189,34 @@ parse_args()
     done
 }
 
+#
+# Prints the default MQ mode for a given networking interface
+#
+get_def_mq_mode()
+{
+    local iface=$1
+    local num_irqs=`get_irqs $iface | wc -l`
+    local num_cores=`hwloc-calc --number-of core machine:0`
+
+    if [ "$num_irqs" -ge "$((num_cores / 2))" ] || [ "$num_irqs" -ge 8 ]; then
+        echo "mq"
+    else
+        echo "sq"
+    fi
+}
+
 IFACE="eth0"
 MQ_MODE=""
 
 parse_args $@
 
+[[ -z $MQ_MODE ]] && MQ_MODE=`get_def_mq_mode $IFACE`
+
 # Ban irqbalance from moving NICs IRQs
 restart_irqbalance $IFACE
 
 # bind all NIC IRQs to CPU0
-if [[ -z "$MQ_MODE" ]]; then
+if [[ "$MQ_MODE" == "sq" ]]; then
     for irq in `get_irqs $IFACE`
     do
         echo "Binding IRQ $irq to CPU0"
@@ -199,7 +225,7 @@ if [[ -z "$MQ_MODE" ]]; then
 
     # Setup RPS
     setup_rps $IFACE
-else
+else # "$MQ_MODE == "mq"
     distribute_irqs $IFACE
 fi
 
