@@ -73,9 +73,35 @@ setup_xps()
 }
 
 #
+# dev_is_hw_iface <iface>
+#
+# Returns zero if a given interface is a physical network interface
+dev_is_hw_iface()
+{
+    [ -e /sys/class/net/$1/device ] && return 0
+    return 1
+}
+
+#
+# dev_is_bond_iface <iface>
+#
+dev_is_bond_iface()
+{
+    local iface=$1
+
+    [ ! -e /sys/class/net/bonding_masters ] && return 1
+
+    if cat /sys/class/net/bonding_masters | grep $iface &> /dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+#
 # Prints IRQ numbers for the given physical interface
 #
-get_irqs()
+get_irqs_one()
 {
     local iface=$1
 
@@ -85,6 +111,25 @@ get_irqs()
     else
         # Device uses INT#x
         cat /sys/class/net/$iface/device/irq
+    fi
+}
+
+#
+#   get_irqs <iface>
+#
+get_irqs()
+{
+    local main_iface=$1
+
+    if dev_is_bond_iface $main_iface; then
+        for iface in `cat /sys/class/net/$main_iface/bonding/slaves`
+        do
+            if dev_is_hw_iface $iface; then
+                get_irqs_one $iface
+            fi
+        done
+    else
+        get_irqs_one $main_iface
     fi
 }
 
@@ -217,9 +262,6 @@ setup_one_hw_iface()
 
     [[ -z $mq_mode ]] && mq_mode=`get_def_mq_mode $iface`
 
-    # Ban irqbalance from moving NICs IRQs
-    restart_irqbalance $iface
-
     # bind all NIC IRQs to CPU0
     if [[ "$mq_mode" == "sq" ]]; then
         for irq in `get_irqs $iface`
@@ -239,12 +281,47 @@ setup_one_hw_iface()
 
 }
 
+setup_bonding_iface()
+{
+    local bond_iface=$1
+    local mq_mode=$2
+    local iface
+
+    for iface in `cat /sys/class/net/$bond_iface/bonding/slaves`
+    do
+        if dev_is_hw_iface $iface; then
+            echo "Setting up $iface..."
+            setup_one_hw_iface $iface $mq_mode
+        else
+            echo "Skipping $iface (not a physical slave device?)"
+        fi
+    done
+}
+
 IFACE="eth0"
 MQ_MODE=""
 
 parse_args $@
 
-setup_one_hw_iface $IFACE $MQ_MODE
+# Currently we support of HW or bonding interfaces
+if dev_is_hw_iface $IFACE; then
+    echo "Setting a physical interface $IFACE..."
+elif dev_is_bond_iface $IFACE; then
+    echo "Setting $IFACE bonding interface..."
+else
+    echo "Not supported virtual device: $IFACE"
+    exit 1
+fi
+
+# Ban irqbalance from moving NICs IRQs
+restart_irqbalance $IFACE
+
+if dev_is_hw_iface $IFACE; then
+    # setup a HW NIC
+    setup_one_hw_iface $IFACE $MQ_MODE
+else # setup a bonding interface
+    setup_bonding_iface $IFACE $MQ_MODE
+fi
 
 # Increase the socket listen() backlog
 echo 4096 > /proc/sys/net/core/somaxconn
