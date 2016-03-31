@@ -103,7 +103,6 @@ future<std::unique_ptr<reply> > routes::handle(const sstring& path, std::unique_
         rep->set_status(reply::status_type::not_found, ex.to_json()).done(
                 "json");
     }
-    cerr << "Failed with " << path << " " << rep->_content << endl;
     return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
 }
 
