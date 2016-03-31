@@ -33,17 +33,18 @@ set_one_mask()
 #
 setup_rps()
 {
+    local iface=$1
     # If we are in a single core environment - there is no point in configuring RPS
     [[ `hwloc-calc core:0.pu:all` -eq `hwloc-calc all` ]] && return
 
-    local rps_queues_count=`ls -1 /sys/class/net/$IFACE/queues/*/rps_cpus | wc -l`
+    local rps_queues_count=`ls -1 /sys/class/net/$iface/queues/*/rps_cpus | wc -l`
     local mask
     local i=0
 
     # Distribute all cores except for CPU0 siblings
     for mask in `hwloc-distrib --restrict $(hwloc-calc all ~core:0) $rps_queues_count`
     do
-        set_one_mask "/sys/class/net/$IFACE/queues/rx-$i/rps_cpus" $mask
+        set_one_mask "/sys/class/net/$iface/queues/rx-$i/rps_cpus" $mask
         i=$(( i + 1 ))
     done
 }
@@ -54,34 +55,38 @@ setup_rps()
 #
 setup_xps()
 {
-    local xps_queues_count=`ls -1 /sys/class/net/$IFACE/queues/*/xps_cpus | wc -l`
+    local iface=$1
+    local xps_queues_count=`ls -1 /sys/class/net/$iface/queues/*/xps_cpus | wc -l`
     local mask
     local i=0
 
     for mask in `hwloc-distrib $xps_queues_count`
     do
-        set_one_mask "/sys/class/net/$IFACE/queues/tx-$i/xps_cpus" $mask
+        set_one_mask "/sys/class/net/$iface/queues/tx-$i/xps_cpus" $mask
         i=$(( i + 1 ))
     done
 }
 
 #
-# Prints IRQ numbers for the $IFACE
+# Prints IRQ numbers for the given physical interface
 #
 get_irqs()
 {
-    if [[ `ls -1 /sys/class/net/$IFACE/device/msi_irqs/ | wc -l` -gt 0 ]]; then
+    local iface=$1
+
+    if [[ `ls -1 /sys/class/net/$iface/device/msi_irqs/ | wc -l` -gt 0 ]]; then
         # Device uses MSI IRQs
-        ls -1 /sys/class/net/$IFACE/device/msi_irqs/
+        ls -1 /sys/class/net/$iface/device/msi_irqs/
     else
         # Device uses INT#x
-        cat /sys/class/net/$IFACE/device/irq
+        cat /sys/class/net/$iface/device/irq
     fi
 }
 
 distribute_irqs()
 {
-    local irqs=( `get_irqs` )
+    local iface=$1
+    local irqs=( `get_irqs $iface` )
     local mask
     local i=0
 
@@ -94,6 +99,7 @@ distribute_irqs()
 
 restart_irqbalance()
 {
+    local iface=$1
     local config_file="/etc/default/irqbalance"
     local options_key="OPTIONS"
     local systemd=""
@@ -108,7 +114,7 @@ restart_irqbalance()
             systemd="yes"
         else
             echo "Unknown system configuration - not restarting irqbalance!"
-            echo "You have to prevent it from moving $IFACE IRQs manually!"
+            echo "You have to prevent it from moving $iface IRQs manually!"
             return
         fi
     fi
@@ -127,7 +133,7 @@ restart_irqbalance()
 
     local new_options="$options_key=\""
     local irq
-    for irq in `get_irqs`
+    for irq in `get_irqs $iface`
     do
         new_options="$new_options --banirq=$irq"
         echo -n "$irq "
@@ -181,24 +187,24 @@ MQ_MODE=""
 parse_args $@
 
 # Ban irqbalance from moving NICs IRQs
-restart_irqbalance
+restart_irqbalance $IFACE
 
 # bind all NIC IRQs to CPU0
 if [[ -z "$MQ_MODE" ]]; then
-    for irq in `get_irqs`
+    for irq in `get_irqs $IFACE`
     do
         echo "Binding IRQ $irq to CPU0"
         echo 1 > /proc/irq/$irq/smp_affinity
     done
 
     # Setup RPS
-    setup_rps
+    setup_rps $IFACE
 else
-    distribute_irqs
+    distribute_irqs $IFACE
 fi
 
 # Setup XPS
-setup_xps
+setup_xps $IFACE
 
 # Increase the socket listen() backlog
 echo 4096 > /proc/sys/net/core/somaxconn
