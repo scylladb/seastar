@@ -44,7 +44,8 @@ class priority_class {
     friend class fair_queue;
     uint32_t _shares = 0;
     float _accumulated = 0;
-    std::queue<request> _queue;
+    circular_buffer<request> _queue;
+    bool _queued = false;
 
     friend struct shared_ptr_no_esft<priority_class>;
     explicit priority_class(uint32_t shares) : _shares(shares) {}
@@ -97,14 +98,31 @@ class fair_queue {
     prioq _handles;
     std::unordered_set<priority_class_ptr> _all_classes;
 
+    void push_priority_class(priority_class_ptr pc) {
+        if (!pc->_queued) {
+            _handles.push(pc);
+            pc->_queued = true;
+        }
+    }
+
+    priority_class_ptr pop_priority_class() {
+        assert(!_handles.empty());
+        auto h = _handles.top();
+        _handles.pop();
+        assert(h->_queued);
+        h->_queued = false;
+        return h;
+    }
+
     void execute_one() {
         _sem.wait().then([this] {
-            assert(!_handles.empty()); // impossible, would mean trying to execute command in empty queue
-            auto h = _handles.top();
-            _handles.pop();
+            priority_class_ptr h;
+            do {
+                h = pop_priority_class();
+            } while (h->_queue.empty());
 
             auto req = std::move(h->_queue.front());
-            h->_queue.pop();
+            h->_queue.pop_front();
 
             req.pr.set_value();
             auto delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
@@ -119,7 +137,7 @@ class fair_queue {
             h->_accumulated += cost;
 
             if (!h->_queue.empty()) {
-                _handles.push(h);
+                push_priority_class(h);
             }
             return make_ready_future<>();
         });
@@ -179,11 +197,15 @@ public:
         // someone else's, we need a separate promise at this point.
         promise<> pr;
         auto fut = pr.get_future();
-        if (pc->_queue.empty()) {
-            _handles.push(pc);
+
+        push_priority_class(pc);
+        pc->_queue.push_back(priority_class::request{std::move(pr), weight});
+        try {
+            execute_one();
+        } catch (...) {
+            pc->_queue.pop_back();
+            throw;
         }
-        pc->_queue.push(priority_class::request{std::move(pr), weight});
-        execute_one();
         return fut.then([func = std::move(func)] {
             return func();
         }).finally([this] {
