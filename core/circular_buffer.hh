@@ -75,6 +75,7 @@ public:
     bool empty() const;
     size_t size() const;
     size_t capacity() const;
+    void reserve(size_t);
     T& operator[](size_t idx);
     template <typename Func>
     void for_each(Func func);
@@ -83,6 +84,7 @@ public:
     T& access_element_unsafe(size_t idx);
 private:
     void expand();
+    void expand(size_t);
     void maybe_expand(size_t nr = 1);
     size_t mask(size_t idx) const;
 
@@ -211,6 +213,15 @@ circular_buffer<T, Alloc>::capacity() const {
 
 template <typename T, typename Alloc>
 inline
+void
+circular_buffer<T, Alloc>::reserve(size_t size) {
+    if (capacity() < size) {
+        expand(size);
+    }
+}
+
+template <typename T, typename Alloc>
+inline
 circular_buffer<T, Alloc>::circular_buffer(circular_buffer&& x)
     : _impl(std::move(x._impl)) {
     x._impl = {};
@@ -240,7 +251,12 @@ circular_buffer<T, Alloc>::~circular_buffer() {
 template <typename T, typename Alloc>
 void
 circular_buffer<T, Alloc>::expand() {
-    auto new_cap = std::max<size_t>(_impl.capacity * 2, 1);
+    expand(std::max<size_t>(_impl.capacity * 2, 1));
+}
+
+template <typename T, typename Alloc>
+void
+circular_buffer<T, Alloc>::expand(size_t new_cap) {
     auto new_storage = _impl.allocate(new_cap);
     auto p = new_storage;
     try {
