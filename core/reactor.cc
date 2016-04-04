@@ -1748,6 +1748,7 @@ int reactor::run() {
 
     struct sigaction sa_task_quota = {};
     sa_task_quota.sa_handler = &reactor::clear_task_quota;
+    sa_task_quota.sa_flags = SA_RESTART;
     r = sigaction(task_quota_signal(), &sa_task_quota, nullptr);
     assert(r == 0);
 
