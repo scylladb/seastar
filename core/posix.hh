@@ -313,7 +313,7 @@ private:
     bool _valid = true;
     mmap_area _stack;
 private:
-    static void* start_routine(void* arg);
+    static void* start_routine(void* arg) noexcept;
 public:
     posix_thread(std::function<void ()> func);
     posix_thread(attr a, std::function<void ()> func);
