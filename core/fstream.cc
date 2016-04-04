@@ -66,6 +66,7 @@ private:
             return;
         }
         auto ra = std::max(min_ra, _options.read_ahead);
+        _read_buffers.reserve(ra); // prevent push_back() failure
         while (_read_buffers.size() < ra) {
             if (!_remain) {
                 if (_read_buffers.size() >= min_ra) {
@@ -81,7 +82,9 @@ private:
             auto start = align_down(_pos, align);
             auto end = align_up(std::min(start + _options.buffer_size, _pos + _remain), align);
             auto len = end - start;
-            _read_buffers.push_back(_file.dma_read_bulk<char>(start, len, _options.io_priority_class).then_wrapped(
+            _read_buffers.push_back(futurize<future<temporary_buffer<char>>>::apply([&] {
+                    return _file.dma_read_bulk<char>(start, len, _options.io_priority_class);
+            }).then_wrapped(
                     [this, start, end, pos = _pos, remain = _remain] (future<temporary_buffer<char>> ret) {
                 issue_read_aheads();
                 --_reads_in_progress;
