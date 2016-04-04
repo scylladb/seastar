@@ -85,6 +85,7 @@ using namespace net;
 
 std::atomic<lowres_clock::rep> lowres_clock::_now;
 constexpr std::chrono::milliseconds lowres_clock::_granularity;
+static thread_local uint64_t logging_failures = 0;
 
 timespec to_timespec(steady_clock_type::time_point t) {
     using ns = std::chrono::nanoseconds;
@@ -1441,6 +1442,13 @@ reactor::register_collectd_metrics() {
                 scollectd::make_typed(scollectd::data_type::DERIVE,
                         [] { return memory::stats().reclaims(); })
             ),
+            scollectd::add_polled_metric(
+                scollectd::type_instance_id("reactor",
+                    scollectd::per_cpu_plugin_instance,
+                    "total_operations", "logging_failures"),
+                scollectd::make_typed(scollectd::data_type::GAUGE,
+                        [] { return logging_failures; })
+            ),
     } };
 }
 
@@ -2696,7 +2704,8 @@ reactor_backend_osv::enable_timer(steady_clock_type::time_point when) {
 
 #endif
 
-void report_exception(sstring message, std::exception_ptr eptr) {
+void report_exception(sstring message, std::exception_ptr eptr) noexcept {
+    try {
 #ifndef __GNUC__
     std::cerr << message << ".\n";
 #else
@@ -2731,6 +2740,9 @@ void report_exception(sstring message, std::exception_ptr eptr) {
         }
     }
 #endif
+    } catch (...) {
+        ++logging_failures;
+    }
 }
 
 /**
