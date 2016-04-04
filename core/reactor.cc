@@ -541,7 +541,7 @@ reactor::submit_io(Func prepare_io) {
 
 bool
 reactor::flush_pending_aio() {
-    bool did_work = !_pending_aio.empty();
+    bool did_work = false;
     while (!_pending_aio.empty()) {
         auto nr = _pending_aio.size();
         struct iocb* iocbs[max_aio];
@@ -549,8 +549,34 @@ reactor::flush_pending_aio() {
             iocbs[i] = &_pending_aio[i];
         }
         auto r = ::io_submit(_io_context, nr, iocbs);
-        throw_kernel_error(r);
-        if (size_t(r) == nr) {
+        size_t nr_consumed;
+        if (r < 0) {
+            auto ec = -r;
+            switch (ec) {
+                case EAGAIN:
+                    return did_work;
+                case EBADF: {
+                    auto pr = reinterpret_cast<promise<io_event>*>(iocbs[0]->data);
+                    try {
+                        throw_kernel_error(r);
+                    } catch (...) {
+                        pr->set_exception(std::current_exception());
+                    }
+                    delete pr;
+                    _io_context_available.signal(1);
+                    nr_consumed = 1;
+                    break;
+                }
+                default:
+                    throw_kernel_error(r);
+                    abort();
+            }
+        } else {
+            nr_consumed = size_t(r);
+        }
+
+        did_work = true;
+        if (nr_consumed == nr) {
             _pending_aio.clear();
         } else {
             _pending_aio.erase(_pending_aio.begin(), _pending_aio.begin() + r);
