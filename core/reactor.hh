@@ -93,8 +93,14 @@ std::unique_ptr<CharType[], free_deleter> allocate_aligned_buffer(size_t size, s
     static_assert(sizeof(CharType) == 1, "must allocate byte type");
     void* ret;
     auto r = posix_memalign(&ret, align, size);
-    assert(r == 0);
-    return std::unique_ptr<CharType[], free_deleter>(reinterpret_cast<CharType*>(ret));
+    if (r == ENOMEM) {
+        throw std::bad_alloc();
+    } else if (r == EINVAL) {
+        throw std::runtime_error(sprint("Invalid alignment of %d; allocating %d bytes", align, size));
+    } else {
+        assert(r == 0);
+        return std::unique_ptr<CharType[], free_deleter>(reinterpret_cast<CharType *>(ret));
+    }
 }
 
 class lowres_clock {
