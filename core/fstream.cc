@@ -194,8 +194,9 @@ public:
             return make_ready_future<>();
         });
     }
-private:
-    virtual future<> do_put(uint64_t pos, temporary_buffer<char> buf) {
+public:
+    future<> do_put(uint64_t pos, temporary_buffer<char> buf) noexcept {
+      try {
         // put() must usually be of chunks multiple of file::dma_alignment.
         // Only the last part can have an unaligned length. If put() was
         // called again with an unaligned pos, we have a bug in the caller.
@@ -222,6 +223,9 @@ private:
             }
             return make_ready_future<>();
         });
+      } catch (...) {
+          return make_exception_future<>(std::current_exception());
+      }
     }
     future<> wait() {
         return _write_behind_sem.wait(_options.write_behind).then([this] {
