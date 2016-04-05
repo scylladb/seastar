@@ -150,7 +150,9 @@ class file_data_sink_impl : public data_sink_impl {
     bool _failed = false;
 public:
     file_data_sink_impl(file f, file_output_stream_options options)
-            : _file(std::move(f)), _options(options) {}
+            : _file(std::move(f)), _options(options) {
+        _write_behind_sem.ensure_space_for_waiters(1); // So that wait() doesn't throw
+    }
     future<> put(net::packet data) { abort(); }
     virtual temporary_buffer<char> allocate_buffer(size_t size) override {
         return temporary_buffer<char>::aligned(_file.memory_dma_alignment(), size);
@@ -227,7 +229,7 @@ public:
           return make_exception_future<>(std::current_exception());
       }
     }
-    future<> wait() {
+    future<> wait() noexcept {
         // restore to pristine state; for flush() + close() sequence
         // (we allow either flush, or close, or both)
         return _write_behind_sem.wait(_options.write_behind).then([this] {
@@ -242,7 +244,7 @@ public:
             return _file.flush();
         });
     }
-    virtual future<> close() {
+    virtual future<> close() noexcept {
         return wait().then([this] {
             return _file.close();
         });
