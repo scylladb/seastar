@@ -228,13 +228,12 @@ public:
       }
     }
     future<> wait() {
+        // restore to pristine state; for flush() + close() sequence
+        // (we allow either flush, or close, or both)
         return _write_behind_sem.wait(_options.write_behind).then([this] {
-            return _background_writes_done.then([this] {
-                // restore to pristine state; for flush() + close() sequence
-                // (we allow either flush, or close, or both)
-                _write_behind_sem.signal(_options.write_behind);
-                _background_writes_done = make_ready_future<>();
-            });
+            return std::exchange(_background_writes_done, make_ready_future<>());
+        }).finally([this] {
+            _write_behind_sem.signal(_options.write_behind);
         });
     }
 public:
