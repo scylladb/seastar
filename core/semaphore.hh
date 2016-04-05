@@ -104,7 +104,7 @@ public:
     ///       at once, they may be reordered by the scheduler.
     ///
     /// \param nr Amount of units to wait for (default 1).
-    /// \return a future that becomes ready when sufficient units are availble
+    /// \return a future that becomes ready when sufficient units are available
     ///         to satisfy the request.  If the semaphore was \ref broken(), may
     ///         contain an exception.
     future<> wait(size_t nr = 1) {
@@ -129,7 +129,7 @@ public:
     ///
     /// \param timeout how long to wait.
     /// \param nr Amount of units to wait for (default 1).
-    /// \return a future that becomes ready when sufficient units are availble
+    /// \return a future that becomes ready when sufficient units are available
     ///         to satisfy the request.  On timeout, the future contains a
     ///         \ref semaphore_timed_out exception.  If the semaphore was
     ///         \ref broken(), may contain an exception.
@@ -234,10 +234,10 @@ semaphore::broken(std::exception_ptr xp) {
 /// \brief Runs a function protected by a semaphore
 ///
 /// Acquires a \ref semaphore, runs a function, and releases
-/// the semphore, returning the the return value of the function,
+/// the semaphore, returning the the return value of the function,
 /// as a \ref future.
 ///
-/// \param sem The sempahore to be held while the \c func is
+/// \param sem The semaphore to be held while the \c func is
 ///            running.
 /// \param units  Number of units to acquire from \c sem (as
 ///               with semaphore::wait())
@@ -245,7 +245,7 @@ semaphore::broken(std::exception_ptr xp) {
 ///               \c future<>().
 /// \return a \ref future<> holding the function's return value
 ///         or exception thrown; or a \ref future<> containing
-///         an exeception from one of the semaphore::broken()
+///         an exception from one of the semaphore::broken()
 ///         variants.
 ///
 /// \note The caller must guarantee that \c sem is valid until

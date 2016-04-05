@@ -160,7 +160,7 @@ public:
         }
         // Write behind strategy:
         //
-        // 1. Issue N writes in parallel, using a semphore to limit to N
+        // 1. Issue N writes in parallel, using a semaphore to limit to N
         // 2. Collect results in _background_writes_done, merging exception futures
         // 3. If we've already seen a failure, don't issue more writes.
         return _write_behind_sem.wait().then([this, pos, buf = std::move(buf)] () mutable {
