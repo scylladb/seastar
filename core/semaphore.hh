@@ -136,16 +136,25 @@ public:
     future<> wait(typename timer<>::duration timeout, size_t nr = 1) {
         auto fut = wait(nr);
         if (!fut.available()) {
-            // Since circular_buffer<> can cause objects to move around,
-            // track them via entry::tracker
-            entry** e = _wait_list.back().track();
-            (*e)->tr.set_callback([e, this] {
-                (*e)->pr.set_exception(semaphore_timed_out());
+            auto cancel = [this] (entry** e) {
                 (*e)->nr = 0;
                 (*e)->tracker = nullptr;
                 signal(0);
-            });
-            (*e)->tr.arm(timeout);
+            };
+
+            // Since circular_buffer<> can cause objects to move around,
+            // track them via entry::tracker
+            entry** e = _wait_list.back().track();
+            try {
+                (*e)->tr.set_callback([e, cancel] {
+                    (*e)->pr.set_exception(semaphore_timed_out());
+                    cancel(e);
+                });
+                (*e)->tr.arm(timeout);
+            } catch (...) {
+                (*e)->pr.set_exception(std::current_exception());
+                cancel(e);
+            }
         }
         return std::move(fut);
     }
