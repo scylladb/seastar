@@ -216,6 +216,11 @@ public:
     /// an exceptional future<> containing the provided exception parameter.
     /// The future is made available immediately.
     void broken(std::exception_ptr ex);
+
+    /// Reserve memory for waiters so that wait() will not throw.
+    void ensure_space_for_waiters(size_t n) {
+        _wait_list.reserve(n);
+    }
 };
 
 inline
