@@ -37,6 +37,7 @@
 #include "core/future-util.hh"
 #include "thread.hh"
 #include "systemwide_memory_barrier.hh"
+#include "report_exception.hh"
 #include <cassert>
 #include <unistd.h>
 #include <fcntl.h>
@@ -1107,10 +1108,18 @@ posix_file_impl::size(void) {
 }
 
 future<>
-posix_file_impl::close() {
-    return engine()._thread_pool.submit<syscall_result<int>>([fd = _fd] {
-        return wrap_syscall<int>(::close(fd));
-    }).then([this] (syscall_result<int> sr) {
+posix_file_impl::close() noexcept {
+    auto closed = [fd = _fd] () noexcept {
+        try {
+            return engine()._thread_pool.submit<syscall_result<int>>([fd] {
+                return wrap_syscall<int>(::close(fd));
+            });
+        } catch (...) {
+            report_exception("Running ::close() in reactor thread, submission failed with exception", std::current_exception());
+            return make_ready_future<syscall_result<int>>(wrap_syscall<int>(::close(fd)));
+        }
+    }();
+    return closed.then([this] (syscall_result<int> sr) {
         _fd = -1;
         sr.throw_if_error();
     });
