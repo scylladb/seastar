@@ -2704,7 +2704,7 @@ reactor_backend_osv::enable_timer(steady_clock_type::time_point when) {
 
 #endif
 
-void report_exception(sstring message, std::exception_ptr eptr) noexcept {
+void report_exception(std::experimental::string_view message, std::exception_ptr eptr) noexcept {
     try {
 #ifndef __GNUC__
     std::cerr << message << ".\n";
