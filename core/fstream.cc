@@ -245,7 +245,7 @@ public:
         });
     }
     virtual future<> close() noexcept {
-        return wait().then([this] {
+        return wait().finally([this] {
             return _file.close();
         });
     }
