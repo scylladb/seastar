@@ -113,6 +113,16 @@ static void gtls_chk(int res) {
 }
 
 class seastar::tls::dh_params::impl : gnutlsobj {
+    static gnutls_sec_param_t to_gnutls_level(level l) {
+        switch (l) {
+            case level::LEGACY: return GNUTLS_SEC_PARAM_LEGACY;
+            case level::MEDIUM: return GNUTLS_SEC_PARAM_MEDIUM;
+            case level::HIGH: return GNUTLS_SEC_PARAM_HIGH;
+            case level::ULTRA: return GNUTLS_SEC_PARAM_ULTRA;
+            default:
+                throw std::runtime_error(sprint("Unknown value of dh_params::level: %d", static_cast<std::underlying_type_t<level>>(l)));
+        }
+    }
 public:
     impl()
             : _params([] {
@@ -123,8 +133,7 @@ public:
     }
     impl(level lvl)
             : impl() {
-        auto bits = gnutls_sec_param_to_pk_bits(GNUTLS_PK_DH,
-                gnutls_sec_param_t(lvl));
+        auto bits = gnutls_sec_param_to_pk_bits(GNUTLS_PK_DH, to_gnutls_level(lvl));
         gtls_chk(gnutls_dh_params_generate2(*this, bits));
     }
     impl(const blob& pkcs3, x509_crt_format fmt)
