@@ -110,13 +110,15 @@ class fair_queue {
             auto delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
             auto req_cost  = float(req.weight) / h->_shares;
             auto cost  = expf(1.0f/_tau.count() * delta.count()) * req_cost;
-            if ((std::numeric_limits<float>::max() - h->_accumulated) < cost) {
+            float next_accumulated = h->_accumulated + cost;
+            if (std::isinf(next_accumulated)) {
                 normalize_stats();
                 // If we have renormalized, our time base will have changed. This should happen very infrequently
                 delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
                 cost  = expf(1.0f/_tau.count() * delta.count()) * req_cost;
+                next_accumulated = h->_accumulated + cost;
             }
-            h->_accumulated += cost;
+            h->_accumulated = next_accumulated;
 
             if (!h->_queue.empty()) {
                 _handles.push(h);
