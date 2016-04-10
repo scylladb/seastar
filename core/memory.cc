@@ -320,6 +320,7 @@ struct cpu_pages {
     void* allocate_small(unsigned size);
     void free(void* ptr);
     void free(void* ptr, size_t size);
+    bool try_cross_cpu_free(void* ptr);
     void shrink(void* ptr, size_t new_size);
     void free_cross_cpu(unsigned cpu_id, void* ptr);
     bool drain_cross_cpu_freelist();
@@ -549,10 +550,6 @@ bool cpu_pages::drain_cross_cpu_freelist() {
 }
 
 void cpu_pages::free(void* ptr) {
-    auto obj_cpu = object_cpu_id(ptr);
-    if (obj_cpu != cpu_id) {
-        return free_cross_cpu(obj_cpu, ptr);
-    }
     page* span = to_page(ptr);
     if (span->pool) {
         span->pool->deallocate(ptr);
@@ -566,16 +563,22 @@ void cpu_pages::free(void* ptr, size_t size) {
     if (size <= sizeof(free_object)) {
         size = sizeof(free_object);
     }
-    auto obj_cpu = object_cpu_id(ptr);
-    if (obj_cpu != cpu_id) {
-        return free_cross_cpu(obj_cpu, ptr);
-    }
     if (size <= max_small_allocation) {
         auto pool = &small_pools[small_pool::size_to_idx(size)];
         pool->deallocate(ptr);
     } else {
         free_large(ptr);
     }
+}
+
+bool
+cpu_pages::try_cross_cpu_free(void* ptr) {
+    auto obj_cpu = object_cpu_id(ptr);
+    if (obj_cpu != cpu_id) {
+        free_cross_cpu(obj_cpu, ptr);
+        return true;
+    }
+    return false;
 }
 
 void cpu_pages::shrink(void* ptr, size_t new_size) {
@@ -967,11 +970,17 @@ void* allocate_aligned(size_t align, size_t size) {
 }
 
 void free(void* obj) {
+    if (cpu_mem.try_cross_cpu_free(obj)) {
+        return;
+    }
     ++g_frees;
     cpu_mem.free(obj);
 }
 
 void free(void* obj, size_t size) {
+    if (cpu_mem.try_cross_cpu_free(obj)) {
+        return;
+    }
     ++g_frees;
     cpu_mem.free(obj, size);
 }
