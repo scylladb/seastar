@@ -450,6 +450,11 @@ cpu_pages::find_and_unlink_span_reclaiming(unsigned n_pages) {
 template <typename Trimmer>
 void*
 cpu_pages::allocate_large_and_trim(unsigned n_pages, Trimmer trimmer) {
+    // Avoid exercising the reclaimers for requests we'll not be able to satisfy
+    // nr_pages might be zero during startup, so check for that too
+    if (nr_pages && n_pages >= nr_pages) {
+        return nullptr;
+    }
     page* span = find_and_unlink_span_reclaiming(n_pages);
     if (!span) {
         return nullptr;
