@@ -21,6 +21,9 @@
 
 #include "tests/test-utils.hh"
 #include "core/memory.hh"
+#include "core/reactor.hh"
+#include <vector>
+
 
 
 SEASTAR_TEST_CASE(alloc_almost_all_and_realloc_it_with_a_smaller_size) {
@@ -37,3 +40,15 @@ SEASTAR_TEST_CASE(alloc_almost_all_and_realloc_it_with_a_smaller_size) {
     return make_ready_future<>();
 }
 
+SEASTAR_TEST_CASE(test_live_objects_counter_with_cross_cpu_free) {
+    return smp::submit_to(1, [] {
+        auto ret = std::vector<std::unique_ptr<bool>>(1000000);
+        for (auto& o : ret) {
+            o = std::make_unique<bool>(false);
+        }
+        return ret;
+    }).then([] (auto&& vec) {
+        vec.clear(); // cause cross-cpu free
+        BOOST_REQUIRE(memory::stats().live_objects() < std::numeric_limits<size_t>::max() / 2);
+    });
+}
