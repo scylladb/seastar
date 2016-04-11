@@ -639,6 +639,7 @@ void write_configuration_file(std::string conf_file, std::string format, unsigne
 
 int main(int ac, char** av) {
     namespace bpo = boost::program_options;
+    bool fs_check = false;
 
     bpo::options_description desc("Parameters for evaluation. This is intended to be ran with parameters that will match the desired use.");
     desc.add_options()
@@ -648,6 +649,7 @@ int main(int ac, char** av) {
         ("options-file", bpo::value<sstring>()->default_value("~/.config/seastar/io.conf"), "Output configuration file")
         ("format", bpo::value<sstring>()->default_value("seastar"), "Configuration file format (seastar | envfile)")
         ("timeout", bpo::value<uint64_t>()->default_value(60 * 6), "Maximum time to wait for iotune to finish (seconds)")
+        ("fs-check", bpo::bool_switch(&fs_check), "perform FS check only")
     ;
 
     bpo::variables_map configuration;
@@ -688,6 +690,9 @@ int main(int ac, char** av) {
         std::cerr << "File system on " << directory << " is not qualified for seastar AIO;"
                 " see http://docs.scylladb.com/kb/kb-fs-not-qualified-aio/ for details\n";
         return 1;
+    }
+    if (fs_check) {
+        return 0;
     }
     auto timeout = std::chrono::seconds(configuration["timeout"].as<uint64_t>());
 
