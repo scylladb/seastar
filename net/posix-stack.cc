@@ -102,12 +102,20 @@ future<connected_socket, socket_address> posix_ap_server_socket_impl::accept() {
     if (conni != conn_q.end()) {
         connection c = std::move(conni->second);
         conn_q.erase(conni);
-        std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl(std::move(c.fd)));
-        return make_ready_future<connected_socket, socket_address>(connected_socket(std::move(csi)), std::move(c.addr));
+        try {
+            std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl(std::move(c.fd)));
+            return make_ready_future<connected_socket, socket_address>(connected_socket(std::move(csi)), std::move(c.addr));
+        } catch (...) {
+            return make_exception_future<connected_socket, socket_address>(std::current_exception());
+        }
     } else {
-        auto i = sockets.emplace(std::piecewise_construct, std::make_tuple(_sa.as_posix_sockaddr_in()), std::make_tuple());
-        assert(i.second);
-        return i.first->second.get_future();
+        try {
+            auto i = sockets.emplace(std::piecewise_construct, std::make_tuple(_sa.as_posix_sockaddr_in()), std::make_tuple());
+            assert(i.second);
+            return i.first->second.get_future();
+        } catch (...) {
+            return make_exception_future<connected_socket, socket_address>(std::current_exception());
+        }
     }
 }
 
@@ -138,8 +146,12 @@ posix_reuseport_server_socket_impl::abort_accept() {
 void  posix_ap_server_socket_impl::move_connected_socket(socket_address sa, pollable_fd fd, socket_address addr) {
     auto i = sockets.find(sa.as_posix_sockaddr_in());
     if (i != sockets.end()) {
-        std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl(std::move(fd)));
-        i->second.set_value(connected_socket(std::move(csi)), std::move(addr));
+        try {
+            std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl(std::move(fd)));
+            i->second.set_value(connected_socket(std::move(csi)), std::move(addr));
+        } catch (...) {
+            i->second.set_exception(std::current_exception());
+        }
         sockets.erase(i);
     } else {
         conn_q.emplace(std::piecewise_construct, std::make_tuple(sa.as_posix_sockaddr_in()), std::make_tuple(std::move(fd), std::move(addr)));

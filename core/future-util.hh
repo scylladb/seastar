@@ -189,8 +189,8 @@ future<> repeat(AsyncAction&& action) {
     using futurator = futurize<std::result_of_t<AsyncAction()>>;
     static_assert(std::is_same<future<stop_iteration>, typename futurator::type>::value, "bad AsyncAction signature");
 
-    do {
-        try {
+    try {
+        do {
             auto f = futurator::apply(action);
 
             if (!f.available()) {
@@ -206,17 +206,17 @@ future<> repeat(AsyncAction&& action) {
             if (f.get0() == stop_iteration::yes) {
                 return make_ready_future<>();
             }
-        } catch (...) {
-            return make_exception_future<>(std::current_exception());
-        }
-    } while (++future_avail_count % max_inlined_continuations);
+        } while (++future_avail_count % max_inlined_continuations);
 
-    promise<> p;
-    auto f = p.get_future();
-    schedule(make_task([action = std::forward<AsyncAction>(action), p = std::move(p)] () mutable {
-        repeat(std::forward<AsyncAction>(action)).forward_to(std::move(p));
-    }));
-    return f;
+        promise<> p;
+        auto f = p.get_future();
+        schedule(make_task([action = std::forward<AsyncAction>(action), p = std::move(p)]() mutable {
+            repeat(std::forward<AsyncAction>(action)).forward_to(std::move(p));
+        }));
+        return f;
+    } catch (...) {
+        return make_exception_future(std::current_exception());
+    }
 }
 
 /// \cond internal
