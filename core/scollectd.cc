@@ -371,7 +371,7 @@ void impl::run() {
                     }
                 });
     };
-    do_until(stop_when, send_packet).then([this]() {
+    do_until(stop_when, send_packet).finally([this]() {
         arm();
     });
 }
