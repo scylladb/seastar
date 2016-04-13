@@ -878,7 +878,9 @@ protocol<Serializer, MsgType>::client::client(protocol& proto, client_options op
                             this->_error = true;
                         }
                     } else {
-                        this->_error = true;
+                        // we get a reply for a message id not in _outstanding
+                        // this can happened if the message id is timed out already
+                        // FIXME: log it but with low level, currently log levels are not supported
                     }
                 });
             });
