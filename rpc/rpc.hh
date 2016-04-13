@@ -96,6 +96,7 @@ class protocol {
         bool _error = false;
         protocol& _proto;
         promise<> _stopped;
+        stats _stats;
     public:
         connection(connected_socket&& fd, protocol& proto) : _fd(std::move(fd)), _read_buf(_fd.input()), _write_buf(_fd.output()), _proto(proto) {}
         connection(protocol& proto) : _proto(proto) {}
@@ -121,7 +122,6 @@ public:
         class connection : public protocol::connection, public enable_lw_shared_from_this<connection> {
             server& _server;
             client_info _info;
-            stats _stats;
         private:
             future<> negotiate_protocol(input_stream<char>& in);
             future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
@@ -134,11 +134,11 @@ public:
             client_info& info() { return _info; }
             const client_info& info() const { return _info; }
             stats get_stats() const {
-                return _stats;
+                return this->_stats;
             }
 
             stats& get_stats_internal() {
-                return _stats;
+                return this->_stats;
             }
             ipv4_addr peer_address() const {
                 return ipv4_addr(_info.addr);
@@ -211,7 +211,6 @@ public:
         };
     private:
         std::unordered_map<id_type, std::unique_ptr<reply_handler_base>> _outstanding;
-        stats _stats;
         ipv4_addr _server_addr;
     private:
         future<> negotiate_protocol(input_stream<char>& in);
@@ -232,13 +231,13 @@ public:
         client(protocol& proto, client_options options, ipv4_addr addr, future<connected_socket> f);
 
         stats get_stats() const {
-            stats res = _stats;
+            stats res = this->_stats;
             res.wait_reply = _outstanding.size();
             return res;
         }
 
         stats& get_stats_internal() {
-            return _stats;
+            return this->_stats;
         }
         auto next_message_id() { return _message_id++; }
         void wait_for_reply(id_type id, std::unique_ptr<reply_handler_base>&& h, std::experimental::optional<steady_clock_type::time_point> timeout) {
@@ -252,7 +251,7 @@ public:
             struct timeout_handler : reply_handler_base {
                 virtual void operator()(client& client, id_type msg_id, temporary_buffer<char> data) {}
             };
-            _stats.timeout++;
+            this->_stats.timeout++;
             _outstanding[id]->timeout();
             _outstanding[id] = std::make_unique<timeout_handler>();
         }
