@@ -770,17 +770,19 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
                     if (it != _server._proto._handlers.end()) {
                         return it->second(this->shared_from_this(), msg_id, std::move(data.value()));
                     } else {
-                        // send unknown_verb exception back
-                        auto data = sstring(sstring::initialized_later(), 28);
-                        auto p = data.begin() + 12;
-                        *unaligned_cast<uint32_t*>(p) = cpu_to_le(uint32_t(exception_type::UNKNOWN_VERB));
-                        *unaligned_cast<uint32_t*>(p + 4) = cpu_to_le(uint32_t(8));
-                        *unaligned_cast<uint64_t*>(p + 8) = cpu_to_le(uint64_t(type));
-                        this->get_stats_internal().pending++;
-                        return this->respond(-msg_id, std::move(data)).finally([this]() {
-                            this->get_stats_internal().pending--;
+                        return this->wait_for_resources(28).then([this, msg_id, type] {
+                            // send unknown_verb exception back
+                            auto data = sstring(sstring::initialized_later(), 28);
+                            auto p = data.begin() + 12;
+                            *unaligned_cast<uint32_t*>(p) = cpu_to_le(uint32_t(exception_type::UNKNOWN_VERB));
+                            *unaligned_cast<uint32_t*>(p + 4) = cpu_to_le(uint32_t(8));
+                            *unaligned_cast<uint64_t*>(p + 8) = cpu_to_le(uint64_t(type));
+                            this->get_stats_internal().pending++;
+                            this->respond(-msg_id, std::move(data)).finally([this] {
+                                this->get_stats_internal().pending--;
+                                this->release_resources(28);
+                            });
                         });
-
                     }
                 }
             });
