@@ -285,12 +285,16 @@ repeat_until_value(AsyncAction&& action) {
         }
     } while (++future_avail_count % max_inlined_continuations);
 
-    promise<value_type> p;
-    auto f = p.get_future();
-    schedule(make_task([action = std::forward<AsyncAction>(action), p = std::move(p)] () mutable {
-        repeat_until_value(std::forward<AsyncAction>(action)).forward_to(std::move(p));
-    }));
-    return f;
+    try {
+        promise<value_type> p;
+        auto f = p.get_future();
+        schedule(make_task([action = std::forward<AsyncAction>(action), p = std::move(p)] () mutable {
+            repeat_until_value(std::forward<AsyncAction>(action)).forward_to(std::move(p));
+        }));
+        return f;
+    } catch (...) {
+        return make_exception_future<value_type>(std::current_exception());
+    }
 }
 
 /// Invokes given action until it fails or given condition evaluates to true.
