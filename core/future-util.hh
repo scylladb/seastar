@@ -550,10 +550,11 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
 {
     auto r_ptr = make_lw_shared(std::forward<Reducer>(r));
     future<> ret = make_ready_future<>();
+    using futurator = futurize<decltype(mapper(*begin))>;
     while (begin != end) {
-        ret = mapper(*begin++).then([ret = std::move(ret), r_ptr] (auto value) mutable {
-            return ret.then([value = std::move(value), r_ptr] () mutable {
-                return (*r_ptr)(std::move(value));
+        ret = futurator::apply(mapper, *begin++).then_wrapped([ret = std::move(ret), r_ptr] (auto f) mutable {
+            return ret.then([f = std::move(f), r_ptr] () mutable {
+                return (*r_ptr)(std::move(f.get0()));
             });
         });
     }
@@ -605,10 +606,18 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Initial initial, Reduc
     };
     auto s = make_lw_shared(state{std::move(initial), std::move(reduce)});
     future<> ret = make_ready_future<>();
+    using futurator = futurize<decltype(mapper(*begin))>;
     while (begin != end) {
-        ret = mapper(*begin++).then([s = s.get(), ret = std::move(ret)] (auto&& value) mutable {
-            s->result = s->reduce(std::move(s->result), std::move(value));
-            return std::move(ret);
+        ret = futurator::apply(mapper, *begin++).then_wrapped([s = s.get(), ret = std::move(ret)] (auto f) mutable {
+            try {
+                s->result = s->reduce(std::move(s->result), std::move(f.get0()));
+                return std::move(ret);
+            } catch (...) {
+                return std::move(ret).then_wrapped([ex = std::current_exception()] (auto f) {
+                    f.ignore_ready_future();
+                    return make_exception_future<>(ex);
+                });
+            }
         });
     }
     return ret.then([s] {
