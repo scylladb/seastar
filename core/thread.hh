@@ -190,6 +190,10 @@ public:
     /// Useful where we cannot call yield() immediately because we
     /// Need to take some cleanup action first.
     static bool should_yield();
+
+    static bool running_in_thread() {
+        return seastar::thread_impl::get() != nullptr;
+    }
 };
 
 class thread_scheduling_group {

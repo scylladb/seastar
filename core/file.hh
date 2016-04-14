@@ -137,7 +137,7 @@ public:
     future<> discard(uint64_t offset, uint64_t length);
     virtual future<> allocate(uint64_t position, uint64_t length) override;
     future<size_t> size(void);
-    virtual future<> close() override;
+    virtual future<> close() noexcept override;
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) override;
 private:
     void query_dma_alignment();

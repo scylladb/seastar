@@ -37,6 +37,7 @@
 #include "core/future-util.hh"
 #include "thread.hh"
 #include "systemwide_memory_barrier.hh"
+#include "report_exception.hh"
 #include <cassert>
 #include <unistd.h>
 #include <fcntl.h>
@@ -85,6 +86,7 @@ using namespace net;
 
 std::atomic<lowres_clock::rep> lowres_clock::_now;
 constexpr std::chrono::milliseconds lowres_clock::_granularity;
+static thread_local uint64_t logging_failures = 0;
 
 timespec to_timespec(steady_clock_type::time_point t) {
     using ns = std::chrono::nanoseconds;
@@ -1132,10 +1134,18 @@ posix_file_impl::size(void) {
 }
 
 future<>
-posix_file_impl::close() {
-    return engine()._thread_pool.submit<syscall_result<int>>([fd = _fd] {
-        return wrap_syscall<int>(::close(fd));
-    }).then([this] (syscall_result<int> sr) {
+posix_file_impl::close() noexcept {
+    auto closed = [fd = _fd] () noexcept {
+        try {
+            return engine()._thread_pool.submit<syscall_result<int>>([fd] {
+                return wrap_syscall<int>(::close(fd));
+            });
+        } catch (...) {
+            report_exception("Running ::close() in reactor thread, submission failed with exception", std::current_exception());
+            return make_ready_future<syscall_result<int>>(wrap_syscall<int>(::close(fd)));
+        }
+    }();
+    return closed.then([this] (syscall_result<int> sr) {
         _fd = -1;
         sr.throw_if_error();
     });
@@ -1467,6 +1477,13 @@ reactor::register_collectd_metrics() {
                 scollectd::make_typed(scollectd::data_type::DERIVE,
                         [] { return memory::stats().reclaims(); })
             ),
+            scollectd::add_polled_metric(
+                scollectd::type_instance_id("reactor",
+                    scollectd::per_cpu_plugin_instance,
+                    "total_operations", "logging_failures"),
+                scollectd::make_typed(scollectd::data_type::GAUGE,
+                        [] { return logging_failures; })
+            ),
     } };
 }
 
@@ -1774,6 +1791,7 @@ int reactor::run() {
 
     struct sigaction sa_task_quota = {};
     sa_task_quota.sa_handler = &reactor::clear_task_quota;
+    sa_task_quota.sa_flags = SA_RESTART;
     r = sigaction(task_quota_signal(), &sa_task_quota, nullptr);
     assert(r == 0);
 
@@ -2721,7 +2739,8 @@ reactor_backend_osv::enable_timer(steady_clock_type::time_point when) {
 
 #endif
 
-void report_exception(sstring message, std::exception_ptr eptr) {
+void report_exception(std::experimental::string_view message, std::exception_ptr eptr) noexcept {
+    try {
 #ifndef __GNUC__
     std::cerr << message << ".\n";
 #else
@@ -2756,6 +2775,9 @@ void report_exception(sstring message, std::exception_ptr eptr) {
         }
     }
 #endif
+    } catch (...) {
+        ++logging_failures;
+    }
 }
 
 /**

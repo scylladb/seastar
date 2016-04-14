@@ -749,7 +749,7 @@ private:
 
     signals _signals;
     thread_pool _thread_pool;
-    friend thread_pool;
+    friend class thread_pool;
 
     void run_tasks(circular_buffer<std::unique_ptr<task>>& tasks);
     bool posix_reuseport_detect();
