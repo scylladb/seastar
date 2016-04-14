@@ -23,15 +23,11 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <cassert>
-#ifdef HAVE_SYS_MEMBARRIER
-#include <linux/membarrier.h>
-#include <linux/unistd.h>
-#include <sys/syscall.h>
-#endif
 
-// cause all threads to invoke a full memory barrier (mprotect version)
+// cause all threads to invoke a full memory barrier
 void
-systemwide_memory_barrier_mprotect() {
+systemwide_memory_barrier() {
+    // FIXME: use sys_membarrier() when available
     static thread_local char* mem = [] {
        void* mem = mmap(nullptr, getpagesize(),
                PROT_READ | PROT_WRITE,
@@ -50,38 +46,4 @@ systemwide_memory_barrier_mprotect() {
     // FIXME: does this work on ARM?
     int r2 = mprotect(mem, getpagesize(), PROT_READ);
     assert(r2 == 0);
-}
-
-#ifdef HAVE_SYS_MEMBARRIER
-
-// cause all threads to invoke a full memory barrier (sys_membarrier version)
-void
-systemwide_memory_barrier_syscall() {
-    int r = syscall(__NR_membarrier, MEMBARRIER_CMD_SHARED, 0);
-    assert(r == 0);
-}
-
-#endif
-
-using systemwide_memory_barrier_fn_type = void (*)();
-
-static
-systemwide_memory_barrier_fn_type
-select_systemwide_memory_barrier_implementation() {
-#ifdef HAVE_SYS_MEMBARRIER
-    int r1 = syscall(__NR_membarrier, MEMBARRIER_CMD_QUERY, 0);
-    if (r1 >= 0 && (r1 & MEMBARRIER_CMD_SHARED)) {
-        return systemwide_memory_barrier_syscall;
-    }
-#endif
-    return systemwide_memory_barrier_mprotect;
-}
-
-static systemwide_memory_barrier_fn_type systemwide_memory_barrier_fn
-    = select_systemwide_memory_barrier_implementation();
-
-// cause all threads to invoke a full memory barrier
-void
-systemwide_memory_barrier() {
-    (*systemwide_memory_barrier_fn)();
 }

@@ -507,12 +507,6 @@ if apply_tristate(args.hwloc, test = have_hwloc,
     defines.append('HAVE_HWLOC')
     defines.append('HAVE_NUMA')
 
-def have_sys_membarrier():
-    return try_compile(compiler=args.cxx, source='#include <linux/membarrier.h>')
-
-if have_sys_membarrier():
-    defines.append('HAVE_SYS_MEMBARRIER')
-
 if args.so:
     args.pie = '-shared'
     args.fpie = '-fpic'
