@@ -116,7 +116,11 @@ class seastar::tls::dh_params::impl : gnutlsobj {
     static gnutls_sec_param_t to_gnutls_level(level l) {
         switch (l) {
             case level::LEGACY: return GNUTLS_SEC_PARAM_LEGACY;
+#if GNUTLS_VERSION_NUMBER >= 0x030300
             case level::MEDIUM: return GNUTLS_SEC_PARAM_MEDIUM;
+#else
+            case level::MEDIUM: return GNUTLS_SEC_PARAM_NORMAL;
+#endif
             case level::HIGH: return GNUTLS_SEC_PARAM_HIGH;
             case level::ULTRA: return GNUTLS_SEC_PARAM_ULTRA;
             default:
