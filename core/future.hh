@@ -315,6 +315,7 @@ struct future_state<> {
             // Move ex out so future::~future() knows we've handled it
             // Moving it will reset us to invalid state
             new (&_u.ex) std::exception_ptr(std::move(x._u.ex));
+            x._u.ex.~exception_ptr();
         }
         x._u.st = state::invalid;
     }
@@ -1076,6 +1077,7 @@ void future_state<>::forward_to(promise<>& pr) noexcept {
     assert(_u.st != state::future && _u.st != state::invalid);
     if (_u.st >= state::exception_min) {
         pr.set_exception(std::move(_u.ex));
+        _u.ex.~exception_ptr();
     } else {
         pr.set_value(std::tuple<>());
     }
