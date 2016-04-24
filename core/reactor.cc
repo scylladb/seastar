@@ -2047,14 +2047,13 @@ smp_message_queue::smp_message_queue(reactor* from, reactor* to)
 }
 
 void smp_message_queue::move_pending() {
-    auto queue_room = queue_length - _current_queue_length;
-    auto nr = std::min(queue_room, _tx.a.pending_fifo.size());
-    if (!nr) {
+    auto begin = _tx.a.pending_fifo.cbegin();
+    auto end = _tx.a.pending_fifo.cend();
+    end = _pending.push(begin, end);
+    if (begin == end) {
         return;
     }
-    auto begin = _tx.a.pending_fifo.begin();
-    auto end = begin + nr;
-    _pending.push(begin, end);
+    auto nr = end - begin;
     _pending.maybe_wakeup();
     _tx.a.pending_fifo.erase(begin, end);
     _current_queue_length += nr;
@@ -2078,9 +2077,14 @@ void smp_message_queue::respond(work_item* item) {
 
 void smp_message_queue::flush_response_batch() {
     if (!_completed_fifo.empty()) {
-        _completed.push(_completed_fifo.begin(), _completed_fifo.end());
+        auto begin = _completed_fifo.cbegin();
+        auto end = _completed_fifo.cend();
+        end = _completed.push(begin, end);
+        if (begin == end) {
+            return;
+        }
         _completed.maybe_wakeup();
-        _completed_fifo.clear();
+        _completed_fifo.erase(begin, end);
     }
 }
 
