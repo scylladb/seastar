@@ -719,7 +719,7 @@ Accepted connection from 127.0.0.1:47582
 Note how we ran this Seastar application on a single thread, using the ```-c1``` option. Unintuitively, this options is actually necessary for running this program, as it will *not* work correctly if started on multiple threads. To understand why, we need to understand how Seastar's network stack works on multiple threads:
 
 For optimum performance, Seastar's network stack is sharded just like Seastar applications are: each shard (thread) takes responsibility for a different subset of the connections. In other words, each incoming connection is directed to one of the threads, and after a connection is established, it continues to be handled on the same thread. But in our example, our server code only runs on the first thread, and the result is that only some of the connections (those which are randomly directed to thread 0) will get serviced properly, and other connections attempts will be ignored.
-
+> 为了优化性能,Seastar的网路协议栈也是分片不共享的.这就意味着每一个线程仅仅只是负责部分连接;换而言之,每一个连接会被分配给这些线程中的某一个,然后连接被建立,之后这个连接就有这个线程来负责;但是在我们的程序中,我们的服务程序仅仅运行在第一个线程这边,所以如果 -c n, n 大于 1的话就会被分配给其他的线程,但是线程没有服务线程,所以就起不了作用;而服务程序也只能接收到一部分的链接
 If you run the above example server immediately after killing the previous server, it often fails to start again, complaining that:
 
 ```
