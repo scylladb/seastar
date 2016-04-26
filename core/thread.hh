@@ -79,13 +79,15 @@ class thread_scheduling_group;
 /// Clock used for scheduling threads
 using thread_clock = steady_clock_type;
 
-/// \cond internal
-class thread_context;
-
+/// Class that holds attributes controling the behavior of a thread.
 class thread_attributes {
 public:
     thread_scheduling_group* scheduling_group = nullptr;
 };
+
+
+/// \cond internal
+class thread_context;
 
 namespace thread_impl {
 
@@ -196,6 +198,27 @@ public:
     }
 };
 
+/// An instance of this class can be used to assign a thread to a particular scheduling group.
+/// Threads can share the same scheduling group if they hold a pointer to the same instance
+/// of this class.
+///
+/// All threads that belongs to a scheduling group will have a time granularity defined by \c period,
+/// and can specify a fraction \c usage of that period that indicates the maximum amount of time they
+/// expect to run. \c usage, is expected to be a number between 0 and 1 for this to have any effect.
+/// Numbers greater than 1 are allowed for simplicity, but they just have the same meaning of 1, alas,
+/// "the whole period".
+///
+/// Note that this is not a preemptive runtime, and a thread will not exit the CPU unless it is scheduled out.
+/// In that case, \c usage will not be enforced and the thread will simply run until it loses the CPU.
+/// This can happen when a thread waits on a future that is not ready, or when it voluntarily call yield.
+///
+/// Unlike what happens for a thread that is not part of a scheduling group - which puts itself at the back
+/// of the runqueue everytime it yields, a thread that is part of a scheduling group will only yield if
+/// it has exhausted its \c usage at the call to yield. Therefore, threads in a schedule group can and
+/// should yield often.
+///
+/// After those events, if the thread has already run for more than its fraction, it will be scheduled to
+/// run again only after \c period completes.
 class thread_scheduling_group {
     std::chrono::nanoseconds _period;
     std::chrono::nanoseconds _quota;
@@ -203,6 +226,10 @@ class thread_scheduling_group {
     std::chrono::time_point<thread_clock> _this_run_start = {};
     std::chrono::nanoseconds _this_period_remain = {};
 public:
+    /// \brief Constructs a \c thread_scheduling_group object
+    ///
+    /// \param period a duration representing the period
+    /// \param usage which fraction of the \c period to assign for the scheduling group. Expected between 0 and 1.
     thread_scheduling_group(std::chrono::nanoseconds period, float usage);
 private:
     void account_start();
