@@ -263,6 +263,7 @@ thread::join() {
 /// which allows it to block (using \ref future::get()).  The
 /// result of the callable is returned as a future.
 ///
+/// \param attr a \ref thread_attributes instance
 /// \param func a callable to be executed in a thread
 /// \param args a parameter pack to be forwarded to \c func.
 /// \return whatever \c func returns, as a future.
@@ -270,7 +271,9 @@ thread::join() {
 /// Example:
 /// \code
 ///    future<int> compute_sum(int a, int b) {
-///        return seastar::async([a, b] {
+///        thread_attributes attr = {};
+///        attr.scheduling_group = some_scheduling_group_ptr;
+///        return seastar::async(attr, [a, b] {
 ///            // some blocking code:
 ///            sleep(1s).get();
 ///            return a + b;
@@ -280,17 +283,18 @@ thread::join() {
 template <typename Func, typename... Args>
 inline
 futurize_t<std::result_of_t<std::decay_t<Func>(std::decay_t<Args>...)>>
-async(Func&& func, Args&&... args) {
+async(thread_attributes attr, Func&& func, Args&&... args) {
     using return_type = std::result_of_t<std::decay_t<Func>(std::decay_t<Args>...)>;
     struct work {
+        thread_attributes attr;
         Func func;
         std::tuple<Args...> args;
         promise<return_type> pr;
         thread th;
     };
-    return do_with(work{std::forward<Func>(func), std::forward_as_tuple(std::forward<Args>(args)...)}, [] (work& w) mutable {
+    return do_with(work{std::move(attr), std::forward<Func>(func), std::forward_as_tuple(std::forward<Args>(args)...)}, [] (work& w) mutable {
         auto ret = w.pr.get_future();
-        w.th = thread([&w] {
+        w.th = thread(std::move(w.attr), [&w] {
             futurize<return_type>::apply(std::move(w.func), std::move(w.args)).forward_to(std::move(w.pr));
         });
         return w.th.join().then([ret = std::move(ret)] () mutable {
@@ -299,6 +303,21 @@ async(Func&& func, Args&&... args) {
     });
 }
 
+/// Executes a callable in a seastar thread.
+///
+/// Runs a block of code in a threaded context,
+/// which allows it to block (using \ref future::get()).  The
+/// result of the callable is returned as a future.
+///
+/// \param func a callable to be executed in a thread
+/// \param args a parameter pack to be forwarded to \c func.
+/// \return whatever \c func returns, as a future.
+template <typename Func, typename... Args>
+inline
+futurize_t<std::result_of_t<std::decay_t<Func>(std::decay_t<Args>...)>>
+async(Func&& func, Args&&... args) {
+    return async(thread_attributes{}, std::forward<Func>(func), std::forward<Args>(args)...);
+}
 /// @}
 
 }
