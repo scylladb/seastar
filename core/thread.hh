@@ -231,6 +231,12 @@ public:
     /// \param period a duration representing the period
     /// \param usage which fraction of the \c period to assign for the scheduling group. Expected between 0 and 1.
     thread_scheduling_group(std::chrono::nanoseconds period, float usage);
+    /// \brief changes the current maximum usage per period
+    ///
+    /// \param new_usage The new fraction of the \c period (Expected between 0 and 1) during which to run
+    void update_usage(float new_usage) {
+        _quota = std::chrono::duration_cast<std::chrono::nanoseconds>(new_usage * _period);
+    }
 private:
     void account_start();
     void account_stop();
