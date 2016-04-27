@@ -147,6 +147,14 @@ public:
                 gnutls_dh_params_import_pkcs3(*this, &w,
                         gnutls_x509_crt_fmt_t(fmt)));
     }
+    impl(const impl& v)
+            : _params([&v] {
+                gnutls_dh_params_t params;
+                gtls_chk(gnutls_dh_params_init(&params));
+                gtls_chk(gnutls_dh_params_cpy(params, v._params));
+                return params;
+            }()) {
+    }
     ~impl() {
         if (_params != nullptr) {
             gnutls_dh_params_deinit(_params);
@@ -270,11 +278,11 @@ public:
                 gnutls_certificate_set_x509_simple_pkcs12_mem(_creds, &w,
                         gnutls_x509_crt_fmt_t(fmt), password.c_str()));
     }
-    void dh_params(::shared_ptr<tls::dh_params> dh) {
-        gnutls_certificate_set_dh_params(*this, *dh->_impl);
-        _dh_params = std::move(dh);
+    void dh_params(const tls::dh_params& dh) {
+        auto cpy = std::make_unique<tls::dh_params::impl>(*dh._impl);
+        gnutls_certificate_set_dh_params(*this, *cpy);
+        _dh_params = std::move(cpy);
     }
-
     future<> set_system_trust() {
         return seastar::async([this] {
             gtls_chk(gnutls_certificate_set_x509_system_trust(_creds));
@@ -282,7 +290,7 @@ public:
     }
 private:
     gnutls_certificate_credentials_t _creds;
-    ::shared_ptr<tls::dh_params> _dh_params;
+    std::unique_ptr<tls::dh_params::impl> _dh_params;
 };
 
 seastar::tls::certificate_credentials::certificate_credentials()
@@ -352,8 +360,12 @@ future<> seastar::tls::certificate_credentials::set_system_trust() {
     return _impl->set_system_trust();
 }
 
-seastar::tls::server_credentials::server_credentials(::shared_ptr<dh_params> dh) {
-    _impl->dh_params(std::move(dh));
+seastar::tls::server_credentials::server_credentials(::shared_ptr<dh_params> dh)
+    : server_credentials(*dh)
+{}
+
+seastar::tls::server_credentials::server_credentials(const dh_params& dh) {
+    _impl->dh_params(dh);
 }
 
 seastar::tls::server_credentials::server_credentials(server_credentials&&) noexcept = default;

@@ -155,6 +155,7 @@ namespace tls {
     class server_credentials : public certificate_credentials {
     public:
         server_credentials(::shared_ptr<dh_params>);
+        server_credentials(const dh_params&);
 
         server_credentials(server_credentials&&) noexcept;
         server_credentials& operator=(server_credentials&&) noexcept;
