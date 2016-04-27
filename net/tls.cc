@@ -785,34 +785,34 @@ public:
 private:
     typedef net::fragment* frag_iter;
 
-    future<> put(net::packet p, frag_iter i, frag_iter e) {
+    future<> put(net::packet p, frag_iter i, frag_iter e, size_t off = 0) {
         while (i != e) {
             auto ptr = i->base;
             auto size = i->size;
-            // gnutls does not have a sendv. Why?...
-            auto res = gnutls_record_send(_session, ptr, size);
+            while (off < size) {
+                // gnutls does not have a sendv. Why?...
+                auto res = gnutls_record_send(_session, ptr + off, size - off);
 
-            ++i;
-
-            if (res < 0) {
-                switch (res) {
-                case GNUTLS_E_AGAIN:
-                    // See the session::put comments.
-                    // If underlying says EAGAIN, we've actually issued
-                    // a send, but must wait for completion.
-                    return _session.wait_for_output().then(
-                            [this, p = std::move(p), size, i, e]() mutable {
-                                // re-send same buffers (gnutls internal)
-                                auto check = gnutls_record_send(_session, nullptr, 0);
-                                if (size_t(check) != size) {
-                                   throw std::logic_error("State machine broken?");
-                                }
-                                return this->put(std::move(p), i, e);
-                            });
-                default:
-                    return _session.handle_output_error(res);
+                if (res < 0) {
+                    switch (res) {
+                    case GNUTLS_E_AGAIN:
+                        // See the session::put comments.
+                        // If underlying says EAGAIN, we've actually issued
+                        // a send, but must wait for completion.
+                        return _session.wait_for_output().then(
+                                [this, p = std::move(p), size, i, e, off]() mutable {
+                                    // re-send same buffers (gnutls internal)
+                                    auto check = gnutls_record_send(_session, nullptr, 0);
+                                    return this->put(std::move(p), i, e, off + check);
+                                });
+                    default:
+                        return _session.handle_output_error(res);
+                    }
                 }
+                off += res;
             }
+            off = 0;
+            ++i;
         }
         return make_ready_future<>();
     }
