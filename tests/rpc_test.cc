@@ -95,7 +95,9 @@ with_rpc_env(rpc::resource_limits resource_limits,
         auto make_client = [&s] (ipv4_addr addr) {
             return test_rpc_proto::client(s.proto, addr, s.lcf.make_new_connection());
         };
-        return test_fn(s.proto, *s.server, make_client);
+        return test_fn(s.proto, *s.server, make_client).finally([&] {
+            return s.server->stop();
+        });
     });
 }
 
@@ -109,6 +111,7 @@ SEASTAR_TEST_CASE(test_rpc_connect) {
             });
             auto result = sum(c1, 2, 3).get0();
             BOOST_REQUIRE_EQUAL(result, 2 + 3);
+            c1.stop().get();
         });
     });
 }
