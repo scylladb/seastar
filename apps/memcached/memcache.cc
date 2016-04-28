@@ -237,6 +237,11 @@ public:
         return _ref_count == 1;
     }
 
+    // touch item for lru position
+    void touch() {
+      slab->touch(this);
+    }
+
     friend bool operator==(const item &a, const item &b) {
          return (a._key_hash == b._key_hash) &&
             (a._key_size == b._key_size) &&
@@ -598,6 +603,7 @@ public:
             _stats._get_misses++;
             return nullptr;
         }
+        i->touch();
         _stats._get_hits++;
         auto& item_ref = *i;
         return item_ptr(&item_ref);
