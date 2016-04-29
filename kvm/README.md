@@ -39,12 +39,12 @@ cd ~/dpdk
 ./tools/setup.sh
 
 # input numbers by following order:
-(type 9 to re-compile DPDK)
-(type 12 to insert IGB UIO module)
-(type 15, then input "64" to setup hugepage mappings)
-(type 18, then input PCI device id something like "0000:xx:yy.z",
+(type 14 to re-compile DPDK)
+(type 17 to insert IGB UIO module)
+(type 21, then input "64" to setup hugepage mappings)
+(type 23, then input PCI device id something like "0000:xx:yy.z",
 which is shown at 'Network devices using DPDK-compatible driver')
-(type 30 to exit)
+(type 34 to exit)
 
 cd ~/seastar
 # httpd example
