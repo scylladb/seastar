@@ -2141,7 +2141,9 @@ size_t smp_message_queue::process_completions() {
 }
 
 void smp_message_queue::flush_request_batch() {
-    move_pending();
+    if (!_tx.a.pending_fifo.empty()) {
+        move_pending();
+    }
 }
 
 size_t smp_message_queue::process_incoming() {
