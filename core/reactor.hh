@@ -693,7 +693,6 @@ private:
     circular_buffer<std::unique_ptr<task>> _pending_tasks;
     circular_buffer<std::unique_ptr<task>> _at_destroy_tasks;
     std::chrono::duration<double> _task_quota;
-    sig_atomic_t _task_quota_finished;
     std::unique_ptr<network_stack> _network_stack;
     // _lowres_clock will only be created on cpu 0
     std::unique_ptr<lowres_clock> _lowres_clock;

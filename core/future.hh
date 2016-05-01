@@ -404,12 +404,6 @@ struct continuation final : task {
     Func _func;
 };
 
-#ifndef DEBUG
-static constexpr unsigned max_inlined_continuations = 256;
-#else
-static constexpr unsigned max_inlined_continuations = 1;
-#endif
-
 /// \endcond
 
 /// \brief promise - allows a future value to be made available at a later time.
@@ -554,7 +548,18 @@ struct ready_future_marker {};
 struct ready_future_from_tuple_marker {};
 struct exception_future_marker {};
 
-extern __thread size_t future_avail_count;
+extern __thread bool g_need_preempt;
+
+inline bool need_preempt() {
+#ifndef DEBUG
+    // prevent compiler from eliminating loads in a loop
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+    return g_need_preempt;
+#else
+    return true;
+#endif
+}
+
 /// \endcond
 
 
@@ -852,7 +857,7 @@ public:
     Result
     then(Func&& func) noexcept {
         using futurator = futurize<std::result_of_t<Func(T&&...)>>;
-        if (available() && (++future_avail_count % max_inlined_continuations)) {
+        if (available() && !need_preempt()) {
             if (failed()) {
                 return futurator::make_exception_future(get_available_state().get_exception());
             } else {
@@ -898,7 +903,7 @@ public:
     Result
     then_wrapped(Func&& func) noexcept {
         using futurator = futurize<std::result_of_t<Func(future)>>;
-        if (available() && (++future_avail_count % max_inlined_continuations)) {
+        if (available() && !need_preempt()) {
             return futurator::apply(std::forward<Func>(func), future(get_available_state()));
         }
         typename futurator::promise_type pr;

@@ -206,7 +206,7 @@ future<> repeat(AsyncAction&& action) {
             if (f.get0() == stop_iteration::yes) {
                 return make_ready_future<>();
             }
-        } while (++future_avail_count % max_inlined_continuations);
+        } while (!need_preempt());
 
         promise<> p;
         auto f = p.get_future();
@@ -283,7 +283,7 @@ repeat_until_value(AsyncAction&& action) {
         if (optional) {
             return make_ready_future<value_type>(std::move(optional.value()));
         }
-    } while (++future_avail_count % max_inlined_continuations);
+    } while (!need_preempt());
 
     try {
         promise<value_type> p;

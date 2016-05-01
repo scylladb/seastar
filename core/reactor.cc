@@ -275,8 +275,7 @@ reactor::~reactor() {
 
 void
 reactor::clear_task_quota(int) {
-    future_avail_count = max_inlined_continuations - 1;
-    local_engine->_task_quota_finished = true;
+    g_need_preempt = true;
 }
 
 template <typename T, typename E, typename EnableFunc>
@@ -1488,20 +1487,22 @@ reactor::register_collectd_metrics() {
 }
 
 void reactor::run_tasks(circular_buffer<std::unique_ptr<task>>& tasks) {
-    _task_quota_finished = false;
-    future_avail_count = 0;
-    while (!tasks.empty() && !_task_quota_finished) {
+    g_need_preempt = false;
+    while (!tasks.empty()) {
         auto tsk = std::move(tasks.front());
         tasks.pop_front();
         tsk->run();
         tsk.reset();
         ++_tasks_processed;
-        std::atomic_signal_fence(std::memory_order_relaxed); // for _task_quota_finished flag
+        // check at end of loop, to allow at least one task to run
+        if (need_preempt()) {
+            break;
+        }
     }
 }
 
 void reactor::force_poll() {
-    _task_quota_finished = true;
+    g_need_preempt = true;
 }
 
 bool
@@ -2624,7 +2625,7 @@ void smp::configure(boost::program_options::variables_map configuration)
     engine()._lowres_clock = std::make_unique<lowres_clock>();
 }
 
-__thread size_t future_avail_count = 0;
+__thread bool g_need_preempt;
 
 __thread reactor* local_engine;
 
@@ -2970,7 +2971,7 @@ future<connected_socket> connect(socket_address sa, socket_address local) {
 void reactor::add_high_priority_task(std::unique_ptr<task>&& t) {
     _pending_tasks.push_front(std::move(t));
     // break .then() chains
-    future_avail_count = max_inlined_continuations - 1;
+    g_need_preempt = true;
 }
 
 static
