@@ -554,7 +554,7 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
     while (begin != end) {
         ret = futurator::apply(mapper, *begin++).then_wrapped([ret = std::move(ret), r_ptr] (auto f) mutable {
             return ret.then([f = std::move(f), r_ptr] () mutable {
-                return (*r_ptr)(std::move(f.get0()));
+                return apply(*r_ptr, std::move(f.get()));
             });
         });
     }
