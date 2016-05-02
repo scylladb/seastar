@@ -322,40 +322,16 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
 
             // send message
             auto msg_id = dst.next_message_id();
-            dst.get_stats_internal().pending++;
             sstring data = marshall(dst.serializer(), 20, args...);
             auto p = data.begin();
             *unaligned_cast<uint64_t*>(p) = cpu_to_le(uint64_t(t));
             *unaligned_cast<int64_t*>(p + 8) = cpu_to_le(msg_id);
             *unaligned_cast<uint32_t*>(p + 16) = cpu_to_le(data.size() - 20);
-            promise<> sentp;
-            future<> sent = sentp.get_future();
-            dst.out_ready() = dst.out_ready().then([&dst, data = std::move(data), timeout] () {
-                if (timeout && steady_clock_type::now() >= timeout.value()) {
-                    return make_ready_future<>(); // if message timed outed drop it without sending
-                } else {
-                    return dst.out().write(data).then([&dst] {
-                        return dst.out().flush();
-                    });
-                }
-            }).finally([&dst, sentp = std::move(sentp)] () mutable {
-                sentp.set_value();
-                dst.get_stats_internal().pending--;
-                dst.get_stats_internal().sent_messages++;
-            });
 
             // prepare reply handler, if return type is now_wait_type this does nothing, since no reply will be sent
             using wait = wait_signature_t<Ret>;
-            return wait_for_reply<Serializer, MsgType>(wait(), timeout, dst, msg_id, sig).then_wrapped([sent = std::move(sent)] (auto f) mutable {
-               // FIXME: if wait_for_reply timeouts the code does not wait for data to be sent,
-               //        so it should cancel sending in addition 
-               if (f.failed()) {
-                    return f;
-                } else {
-                    return sent.then([f = std::move(f)] () mutable {
-                        return std::move(f);
-                    });
-                }
+            return when_all(dst.send(std::move(data), timeout), wait_for_reply<Serializer, MsgType>(wait(), timeout, dst, msg_id, sig)).then([] (auto r) {
+                    return std::move(std::get<1>(r)); // return future of wait_for_reply
             });
         }
         auto operator()(typename protocol<Serializer, MsgType>::client& dst, const InArgs&... args) {
@@ -378,36 +354,28 @@ protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, sstri
     auto p = data.begin();
     *unaligned_cast<int64_t*>(p) = cpu_to_le(msg_id);
     *unaligned_cast<uint32_t*>(p + 8) = cpu_to_le(data.size() - 12);
-    return this->out().write(data.begin(), data.size()).then([conn = this->shared_from_this()] {
-        return conn->out().flush();
-    });
+    return this->send(std::move(data));
 }
 
 template<typename Serializer, typename MsgType, typename... RetTypes>
 inline void reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client,
         size_t memory_consumed) {
     if (!client->error()) {
-        client->out_ready() = client->out_ready().then([&client = *client, msg_id, ret = std::move(ret)] () mutable {
-            sstring data;
-            client.get_stats_internal().pending++;
-            client.get_stats_internal().sent_messages++;
-            try {
-                data = ::apply(marshall<Serializer, const RetTypes&...>,
-                        std::tuple_cat(std::make_tuple(std::ref(client.serializer()), 12), std::move(ret.get())));
-            } catch (std::exception& ex) {
-                uint32_t len = std::strlen(ex.what());
-                data = sstring(sstring::initialized_later(), 20 + len);
-                auto p = data.begin() + 12;
-                *unaligned_cast<uint32_t*>(p) = le_to_cpu(uint32_t(exception_type::USER));
-                *unaligned_cast<uint32_t*>(p + 4) = le_to_cpu(len);
-                std::copy_n(ex.what(), len, p + 8);
-                msg_id = -msg_id;
-            }
+        sstring data;
+        try {
+            data = ::apply(marshall<Serializer, const RetTypes&...>,
+                    std::tuple_cat(std::make_tuple(std::ref(client->serializer()), 12), std::move(ret.get())));
+        } catch (std::exception& ex) {
+            uint32_t len = std::strlen(ex.what());
+            data = sstring(sstring::initialized_later(), 20 + len);
+            auto p = data.begin() + 12;
+            *unaligned_cast<uint32_t*>(p) = le_to_cpu(uint32_t(exception_type::USER));
+            *unaligned_cast<uint32_t*>(p + 4) = le_to_cpu(len);
+            std::copy_n(ex.what(), len, p + 8);
+            msg_id = -msg_id;
+        }
 
-            return client.respond(msg_id, std::move(data)).finally([&client]() {
-                client.get_stats_internal().pending--;
-            });
-        }).finally([client, memory_consumed] {
+        client->respond(msg_id, std::move(data)).finally([client, memory_consumed] {
             client->release_resources(memory_consumed);
         });
     } else {
@@ -652,11 +620,7 @@ static void send_negotiation_frame(Connection& c, feature_map features) {
         p += 4;
         p = std::copy_n(e.second.begin(), e.second.size(), p);
     }
-    c.out_ready() = c.out_ready().then([&c, reply = std::move(reply)] () mutable {
-        return c.out().write(reply);
-    }).then([&c] {
-        return c.out().flush();
-    });
+    c.send(std::move(reply));
 }
 
 template<typename Connection>
@@ -759,6 +723,7 @@ protocol<Serializer, MsgType>::client::negotiate(feature_map provided) {
 
 template<typename Serializer, typename MsgType>
 future<> protocol<Serializer, MsgType>::server::connection::process() {
+    this->send_loop();
     return this->negotiate_protocol(this->_read_buf).then([this] () mutable {
         return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
             return this->read_request_frame(this->_read_buf).then([this] (MsgType type, int64_t msg_id, std::experimental::optional<temporary_buffer<char>> data) {
@@ -777,9 +742,7 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
                             *unaligned_cast<uint32_t*>(p) = cpu_to_le(uint32_t(exception_type::UNKNOWN_VERB));
                             *unaligned_cast<uint32_t*>(p + 4) = cpu_to_le(uint32_t(8));
                             *unaligned_cast<uint64_t*>(p + 8) = cpu_to_le(uint64_t(type));
-                            this->get_stats_internal().pending++;
                             this->respond(-msg_id, std::move(data)).finally([this] {
-                                this->get_stats_internal().pending--;
                                 this->release_resources(28);
                             });
                         });
@@ -792,10 +755,7 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
             log_exception(*this, "server connection dropped", f.get_exception());
         }
         this->_error = true;
-        return this->out_ready().then_wrapped([this] (future<> f) {
-            f.ignore_ready_future();
-            return this->_write_buf.close();
-        }).then_wrapped([this] (future<> f) {
+        return this->stop_send_loop().then_wrapped([this] (future<> f) {
             f.ignore_ready_future();
             if (!this->_server._stopping) {
                 // if server is stopping do not remove connection
@@ -845,7 +805,6 @@ protocol<Serializer, MsgType>::client::read_response_frame(input_stream<char>& i
 
 template<typename Serializer, typename MsgType>
 protocol<Serializer, MsgType>::client::client(protocol& proto, client_options ops, ipv4_addr addr, future<connected_socket> f) : protocol<Serializer, MsgType>::connection(proto), _server_addr(addr) {
-    this->_output_ready = _connected_promise.get_future();
     feature_map features;
     send_negotiation_frame(*this, std::move(features));
     f.then([this, ops = std::move(ops)] (connected_socket fd) {
@@ -857,8 +816,8 @@ protocol<Serializer, MsgType>::client::client(protocol& proto, client_options op
         this->_fd = std::move(fd);
         this->_read_buf = this->_fd.input();
         this->_write_buf = this->_fd.output();
-        this->_connected_promise.set_value();
         this->_connected = true;
+        this->send_loop();
         return this->negotiate_protocol(this->_read_buf).then([this] () {
             return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
                 return this->read_response_frame(this->_read_buf).then([this] (int64_t msg_id, std::experimental::optional<temporary_buffer<char>> data) {
@@ -892,15 +851,8 @@ protocol<Serializer, MsgType>::client::client(protocol& proto, client_options op
             log_exception(*this, _connected ? "client connection dropped" : "fail to connect", f.get_exception());
         }
         this->_error = true;
-        auto need_close = _connected;
-        if (!_connected) {
-            this->_connected_promise.set_exception(closed_error());
-        }
         _connected = false; // prevent running shutdown() on this
-        this->_output_ready.then_wrapped([this, need_close] (future<> f) {
-            f.ignore_ready_future();
-            return need_close ? this->_write_buf.close() : make_ready_future<>();
-        }).then_wrapped([this] (future<> f) {
+        this->stop_send_loop().then_wrapped([this] (future<> f) {
             f.ignore_ready_future();
             this->_stopped.set_value();
             this->_outstanding.clear();

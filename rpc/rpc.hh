@@ -23,11 +23,13 @@
 
 #include <unordered_map>
 #include <unordered_set>
+#include <list>
 #include "core/future.hh"
 #include "net/api.hh"
 #include "core/reactor.hh"
 #include "core/iostream.hh"
 #include "core/shared_ptr.hh"
+#include "core/condition-variable.hh"
 #include "rpc/rpc_types.hh"
 
 namespace rpc {
@@ -92,19 +94,76 @@ class protocol {
         connected_socket _fd;
         input_stream<char> _read_buf;
         output_stream<char> _write_buf;
-        future<> _output_ready = make_ready_future<>();
         bool _error = false;
         protocol& _proto;
         promise<> _stopped;
         stats _stats;
+        struct outgoing_entry {
+            timer<> t;
+            sstring buf;
+            promise<> p;
+            outgoing_entry(sstring b) : buf(std::move(b)) {}
+            outgoing_entry(outgoing_entry&&) = default;
+            ~outgoing_entry() {
+                if (!buf.empty()) {
+                    p.set_value();
+                }
+            }
+            void set_timeout(connection& c, typename std::list<outgoing_entry>::const_iterator it, steady_clock_type::time_point exp) {
+                t.set_callback([&c, it] {
+                    c._outgoing_queue.erase(it);
+                });
+                t.arm(exp);
+            }
+        };
+        friend outgoing_entry;
+        std::list<outgoing_entry> _outgoing_queue;
+        condition_variable _outgoing_queue_cond;
+        future<> _send_loop_stopped = make_ready_future<>();
+
+        void send_loop() {
+            _send_loop_stopped = do_until([this] { return _error; }, [this] {
+                return _outgoing_queue_cond.wait([this] { return !_outgoing_queue.empty(); }).then([this] {
+                    auto d = std::move(_outgoing_queue.front());
+                    _outgoing_queue.pop_front();
+                    d.t.cancel(); // cancel timeout timer
+                    auto f = _write_buf.write(d.buf).then([this] {
+                        _stats.sent_messages++;
+                        return _write_buf.flush();
+                    });
+                    return f.finally([d = std::move(d)] {});
+                });
+            }).handle_exception([this] (std::exception_ptr eptr) {
+                _error = true;
+            }).finally([this] {
+                _outgoing_queue.clear();
+                return _write_buf.close();
+            });
+        }
+
+        future<>& stop_send_loop() {
+            _error = true;
+            _outgoing_queue_cond.broken();
+            return _send_loop_stopped;
+        }
+
     public:
         connection(connected_socket&& fd, protocol& proto) : _fd(std::move(fd)), _read_buf(_fd.input()), _write_buf(_fd.output()), _proto(proto) {}
         connection(protocol& proto) : _proto(proto) {}
         // functions below are public because they are used by external heavily templated functions
         // and I am not smart enough to know how to define them as friends
-        auto& in() { return _read_buf; }
-        auto& out() { return _write_buf; }
-        auto& out_ready() { return _output_ready; }
+        future<> send(sstring buf, std::experimental::optional<steady_clock_type::time_point> timeout = {}) {
+            if (!_error) {
+                _outgoing_queue.emplace_back(std::move(buf));
+                if (timeout) {
+                    _outgoing_queue.back().set_timeout(*this, std::prev(_outgoing_queue.cend()), timeout.value());
+                }
+                _outgoing_queue_cond.signal();
+                return _outgoing_queue.back().p.get_future();
+            } else {
+                return make_exception_future<>(closed_error());
+            }
+        }
         bool error() { return _error; }
         auto& serializer() { return _proto._serializer; }
         auto& get_protocol() { return _proto; }
@@ -134,7 +193,9 @@ public:
             client_info& info() { return _info; }
             const client_info& info() const { return _info; }
             stats get_stats() const {
-                return this->_stats;
+                stats res = this->_stats;
+                res.pending = this->_outgoing_queue.size();
+                return res;
             }
 
             stats& get_stats_internal() {
@@ -185,7 +246,6 @@ public:
     };
 
     class client : public protocol::connection {
-        promise<> _connected_promise;
         bool _connected = false;
         id_type _message_id = 1;
         struct reply_handler_base {
@@ -233,6 +293,7 @@ public:
         stats get_stats() const {
             stats res = this->_stats;
             res.wait_reply = _outstanding.size();
+            res.pending = this->_outgoing_queue.size();
             return res;
         }
 
