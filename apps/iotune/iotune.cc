@@ -249,7 +249,32 @@ private:
         }
 
         if (!should_run_more) {
-            update_current_best(result);
+            // If we are stopping early, we may not have reached phase 3 and that means we have
+            // points in _all_results with various degrees of precision. For the least precise
+            // points, IOPS may vary and we can expect to find points that are later in the list
+            // but are closer to the critical range than the ones near the critical region, but
+            // that's likely because we didn't run for long enough, not because that's the expected
+            // IOPS of that concurrency point. So we'll stop this loop if we see that we have
+            // stopped getting better at some point.
+            //
+            // There is a fair question about why can't we just run a loop like that at the end of
+            // the run unconditionally instead of doing this only when we timeout. And the reason
+            // for that is precisely because of the mixed precision of all points. By calling
+            // update_current_best iteratively for new points in phase 3 only, we can guarantee that
+            // in the case in which we don't have timeout problems, we run update_current_best only
+            // with the more precise points. An alternative to that could involve keeping those
+            // points in a separate list, then swapping _all_results with that if we are successful
+            // and merging them if we are not. But it's hard to argue that this would be simpler...
+            int not_updated = 0;
+            // Do not use the 0 point
+            _all_results.erase(0);
+            for (auto c : _all_results) {
+                if (update_current_best(run_stats(c.second, c.first))) {
+                    not_updated = 0;
+                } else if (++not_updated == 3) {
+                    break;
+                }
+            }
             std::queue<unsigned> _empty_queue;
             _concurrency_queue.swap(_empty_queue);
             std::cerr << "IOtune timed out before it could finish. An estimate will be provided but accuracy may suffer" << std::endl;
@@ -265,12 +290,15 @@ private:
         }
     }
 
-    void update_current_best(const run_stats& result) {
+    bool update_current_best(const run_stats& result) {
         uint64_t critical_IOPS = _desired_percentile * _best_result.IOPS;
         uint64_t d = std::abs(int64_t(critical_IOPS - result.IOPS));
         if (d < _best_critical_delta) {
             _best_critical_delta = d;
             _best_critical_concurrency = result.concurrency;
+            return true;
+        } else {
+            return false;
         }
     }
 public:
