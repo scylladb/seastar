@@ -623,7 +623,7 @@ uint32_t io_queue_discovery(sstring dir, std::vector<unsigned> cpus, std::chrono
     return iotune_manager.finish_estimate();
 }
 
-void write_configuration_file(std::string conf_file, std::string format, unsigned max_io_requests, std::experimental::optional<unsigned> num_io_queues = {}) {
+int write_configuration_file(std::string conf_file, std::string format, unsigned max_io_requests, std::experimental::optional<unsigned> num_io_queues = {}) {
     std::cout << "Recommended --max-io-requests: " << max_io_requests << std::endl;
     if (num_io_queues) {
         std::cout << "Recommended --num-io-queues: " << *num_io_queues << std::endl;
@@ -637,10 +637,9 @@ void write_configuration_file(std::string conf_file, std::string format, unsigne
     boost::filesystem::path conf_path(k.we_wordv[0]);
     wordfree(&k);
 
-    // No need to test the return value here. If by any chance the directory was not created,
-    // writing the file itself will generate an exception.
-    boost::filesystem::create_directories(conf_path.parent_path());
+    auto error_msg = " when writing configuration file. Please add them to your seastar command line";
     try {
+        boost::filesystem::create_directories(conf_path.parent_path());
         std::ofstream ofs_io;
         ofs_io.exceptions(std::ofstream::failbit | std::ofstream::badbit);
         ofs_io.open(conf_path.string(), std::ofstream::trunc);
@@ -660,9 +659,14 @@ void write_configuration_file(std::string conf_file, std::string format, unsigne
         }
         ofs_io.close();
         std::cout << "Written the above values to " << conf_path.string() << std::endl;
+    } catch (boost::filesystem::filesystem_error &e) { // create directory may throw this
+        std::cout << e.what() << error_msg << std::endl;
+        return 1;
     } catch (std::ios_base::failure& e) {
-        std::cout << e.what() << " when writing configuration file. Please add them to your seastar command line" << std::endl;
+        std::cout << e.what() << error_msg << std::endl;
+        return 1;
     }
+    return 0;
 }
 
 int main(int ac, char** av) {
@@ -733,9 +737,9 @@ int main(int ac, char** av) {
 
         if (num_io_queues != cpuvec.size()) {
             iodepth = (iodepth / num_io_queues) * num_io_queues;
-            write_configuration_file(conf_file, format, iodepth, num_io_queues);
+            return write_configuration_file(conf_file, format, iodepth, num_io_queues);
         } else {
-            write_configuration_file(conf_file, format, iodepth);
+            return write_configuration_file(conf_file, format, iodepth);
         }
     } catch (iotune_timeout_exception &e) {
         // Otherwise we'll coredump on the exception, but this can happen
