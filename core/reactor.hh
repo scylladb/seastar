@@ -300,7 +300,13 @@ public:
     }
 private:
     void work();
-    void complete();
+    // Scans the _completed queue, that contains the requests already handled by the syscall thread,
+    // effectively opening up space for more requests to be submitted. One consequence of this is
+    // that from the reactor's point of view, a request is not considered handled until it is
+    // removed from the _completed queue.
+    //
+    // Returns the number of requests handled.
+    unsigned complete();
     void submit_item(work_item* wi);
 
     friend class thread_pool;
