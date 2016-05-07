@@ -175,6 +175,7 @@ void f() {
         f();
     }).then_wrapped([] (auto&& f) {
         try {
+        // 获得f future里面的值,这个时候如果是异常就会重新抛出异常
             f.get();
         } catch (std::exception& e) {
             // your handler goes here
@@ -187,6 +188,8 @@ The previous future is passed as a parameter to the lambda, and its value can
 be inspected with `f.get()`. When the `get()` variable is called as a
 function, it will re-throw the exception that aborted processing, and you can
 then apply any needed error handling.  It is essentially a transformation of
+
+> 异常会接收到f参数,调用f.get函数,会重新抛出异常,这个时候就可以处理异常了
 
 ```C++
 buffer receive();
