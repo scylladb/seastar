@@ -159,6 +159,7 @@ exception, add a `.then_wrapped()` clause at the end:
 
 > 如果要处理异常可以在你的处理流程最后加上`then_wrapped()`, 它会重新抛出异常,所以你可以在then_wrapped中加入异常处理函数
 > then_wrapped也是每一次都会被调用的,调用到了then_wrapped中不表示你一定出了异常,只要到了异常处理模块中才表示你处理异常;
+> 从源码的角度上,then 与 then_wrapped区别在于then会对result判断是否为exception,而then_wrapped会将上面传入的参数重新包装成一个future传给then_wrapped的lambda表达式，当lambda表达式中调用get就会重新抛出异常;
 
 ```C++
 future<buffer> receive();
