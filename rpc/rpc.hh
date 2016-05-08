@@ -136,15 +136,16 @@ class protocol {
             }).handle_exception([this] (std::exception_ptr eptr) {
                 _error = true;
             }).finally([this] {
-                _outgoing_queue.clear();
                 return _write_buf.close();
             });
         }
 
-        future<>& stop_send_loop() {
+        future<> stop_send_loop() {
             _error = true;
             _outgoing_queue_cond.broken();
-            return _send_loop_stopped;
+            return _send_loop_stopped.finally([this] {
+                _outgoing_queue.clear();
+            });
         }
 
     public:
