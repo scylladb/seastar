@@ -82,6 +82,19 @@ inline sstring read(serializer, Input& in, rpc::type<sstring>) {
 using test_rpc_proto = rpc::protocol<serializer>;
 using connect_fn = std::function<test_rpc_proto::client (ipv4_addr addr)>;
 
+class rpc_socket_impl : public net::socket_impl {
+    loopback_connection_factory& _factory;
+public:
+    rpc_socket_impl(loopback_connection_factory& factory)
+            : _factory(factory) {
+    }
+    virtual future<connected_socket> connect(socket_address sa, socket_address local) override {
+        return _factory.make_new_connection();
+    }
+    virtual void shutdown() override {
+    }
+};
+
 future<>
 with_rpc_env(rpc::resource_limits resource_limits,
         std::function<future<> (test_rpc_proto& proto, test_rpc_proto::server& server, connect_fn connect)> test_fn) {
@@ -93,7 +106,8 @@ with_rpc_env(rpc::resource_limits resource_limits,
     return do_with(state(), [=] (state& s) {
         s.server = std::make_unique<test_rpc_proto::server>(s.proto, s.lcf.get_server_socket(), resource_limits);
         auto make_client = [&s] (ipv4_addr addr) {
-            return test_rpc_proto::client(s.proto, addr, s.lcf.make_new_connection());
+            auto socket = seastar::socket(std::make_unique<rpc_socket_impl>(s.lcf));
+            return test_rpc_proto::client(s.proto, std::move(socket), addr);
         };
         return test_fn(s.proto, *s.server, make_client).finally([&] {
             return s.server->stop();
