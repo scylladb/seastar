@@ -778,7 +778,8 @@ public:
 
     bool posix_reuseport_available() const { return _reuseport; }
 
-    future<pollable_fd> posix_connect(socket_address sa, socket_address local);
+    lw_shared_ptr<pollable_fd> make_pollable_fd(socket_address sa);
+    future<> posix_connect(lw_shared_ptr<pollable_fd> pfd, socket_address sa, socket_address local);
 
     future<pollable_fd, socket_address> accept(pollable_fd_state& listen_fd);
 

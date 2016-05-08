@@ -482,19 +482,22 @@ reactor::posix_reuseport_detect() {
     }
 }
 
-future<pollable_fd>
-reactor::posix_connect(socket_address sa, socket_address local) {
+lw_shared_ptr<pollable_fd>
+reactor::make_pollable_fd(socket_address sa) {
     file_desc fd = file_desc::socket(sa.u.sa.sa_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
-    fd.bind(local.u.sa, sizeof(sa.u.sas));
-    fd.connect(sa.u.sa, sizeof(sa.u.sas));
-    auto pfd = pollable_fd(std::move(fd));
-    auto f = pfd.writeable();
-    return f.then([pfd = std::move(pfd)] () mutable {
-        auto err = pfd.get_file_desc().getsockopt<int>(SOL_SOCKET, SO_ERROR);
+    return make_lw_shared<pollable_fd>(pollable_fd(std::move(fd)));
+}
+
+future<>
+reactor::posix_connect(lw_shared_ptr<pollable_fd> pfd, socket_address sa, socket_address local) {
+    pfd->get_file_desc().bind(local.u.sa, sizeof(sa.u.sas));
+    pfd->get_file_desc().connect(sa.u.sa, sizeof(sa.u.sas));
+    return pfd->writeable().then([pfd]() mutable {
+        auto err = pfd->get_file_desc().getsockopt<int>(SOL_SOCKET, SO_ERROR);
         if (err != 0) {
             throw std::system_error(err, std::system_category());
         }
-        return make_ready_future<pollable_fd>(std::move(pfd));
+        return make_ready_future<>();
     });
 }
 

@@ -105,6 +105,25 @@ future<> connected_socket::shutdown_input() {
     return _csi->shutdown_input();
 }
 
+seastar::socket::~socket()
+{}
+
+seastar::socket::socket(
+        std::unique_ptr<net::socket_impl> si)
+        : _si(std::move(si)) {
+}
+
+seastar::socket::socket(seastar::socket&&) noexcept = default;
+seastar::socket& seastar::socket::operator=(seastar::socket&&) noexcept = default;
+
+future<connected_socket> seastar::socket::connect(socket_address sa, socket_address local) {
+    return _si->connect(sa, local);
+}
+
+void seastar::socket::shutdown() {
+    _si->shutdown();
+}
+
 server_socket::server_socket() {
 }
 

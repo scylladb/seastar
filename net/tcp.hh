@@ -553,6 +553,9 @@ public:
             }
             return *this;
         }
+        future<> connected() {
+            return _tcb->connect_done();
+        }
         future<> send(packet p) {
             return _tcb->send(std::move(p));
         }
@@ -562,6 +565,7 @@ public:
         packet read() {
             return _tcb->read();
         }
+        void shutdown_connect();
         void close_read();
         void close_write();
     };
@@ -604,7 +608,7 @@ public:
     void received(packet p, ipaddr from, ipaddr to);
     bool forward(forward_hash& out_hash_data, packet& p, size_t off);
     listener listen(uint16_t port, size_t queue_length = 100);
-    future<connection> connect(socket_address sa);
+    connection connect(socket_address sa);
     const net::hw_features& hw_features() const { return _inet._inet.hw_features(); }
     future<> poll_tcb(ipaddr to, lw_shared_ptr<tcb> tcb);
     void add_connected_tcb(lw_shared_ptr<tcb> tcbp, uint16_t local_port) {
@@ -674,7 +678,7 @@ auto tcp<InetTraits>::listen(uint16_t port, size_t queue_length) -> listener {
 }
 
 template <typename InetTraits>
-future<typename tcp<InetTraits>::connection> tcp<InetTraits>::connect(socket_address sa) {
+auto tcp<InetTraits>::connect(socket_address sa) -> connection {
     uint16_t src_port;
     connid id;
     auto src_ip = _inet._inet.host_address();
@@ -691,10 +695,7 @@ future<typename tcp<InetTraits>::connection> tcp<InetTraits>::connect(socket_add
     auto tcbp = make_lw_shared<tcb>(*this, id);
     _tcbs.insert({id, tcbp});
     tcbp->connect();
-
-    return tcbp->connect_done().then([tcbp] {
-        return make_ready_future<connection>(connection(tcbp));
-    });
+    return connection(tcbp);
 }
 
 template <typename InetTraits>
@@ -1228,7 +1229,7 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
                     // RFC5681: The fast retransmit algorithm uses the arrival
                     // of 3 duplicate ACKs (as defined in section 2, without
                     // any intervening ACKs which move SND.UNA) as an
-                    // indication that a segment has been lost.  
+                    // indication that a segment has been lost.
                     //
                     // So, here we reset dupacks to zero becasue this ACK moves
                     // SND.UNA.
@@ -1616,9 +1617,7 @@ packet tcp<InetTraits>::tcb::read() {
 template <typename InetTraits>
 future<> tcp<InetTraits>::tcb::send(packet p) {
     // We can not send after the connection is closed
-    assert(!_snd.closed);
-
-    if (in_state(CLOSED)) {
+    if (_snd.closed || in_state(CLOSED)) {
         return make_exception_future<>(tcp_reset_error());
     }
 
@@ -1626,7 +1625,9 @@ future<> tcp<InetTraits>::tcb::send(packet p) {
     auto len = p.len();
     _snd.queued_len += len;
     return _snd.user_queue_space.wait(len).then([this, zis = this->shared_from_this(), p = std::move(p)] () mutable {
-        assert(!_snd.closed);
+        if (_snd.closed) {
+            return make_exception_future<>(tcp_reset_error());
+        }
         _snd.unsent_len += p.len();
         _snd.queued_len -= p.len();
         _snd.unsent.push_back(std::move(p));
@@ -1932,6 +1933,17 @@ void tcp<InetTraits>::connection::close_read() {
 template <typename InetTraits>
 void tcp<InetTraits>::connection::close_write() {
     _tcb->close();
+}
+
+template <typename InetTraits>
+void tcp<InetTraits>::connection::shutdown_connect() {
+    if (_tcb->syn_needs_on()) {
+      _tcb->_connect_done.set_exception(tcp_refused_error());
+      _tcb->cleanup();
+    } else {
+        close_read();
+        close_write();
+    }
 }
 
 template <typename InetTraits>
