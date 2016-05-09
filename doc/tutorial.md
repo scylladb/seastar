@@ -51,7 +51,7 @@ https://github.com/scylladb/seastar/wiki/Networking
 
 The simplest Seastar program is this:
 
-```cpp
+```
 #include "core/app-template.hh"
 #include "core/reactor.hh"
 #include <iostream>
@@ -67,6 +67,7 @@ int main(int argc, char** argv) {
 
 As we do in this example, each Seastar program must define and run, an `app_template` object. This object starts the main event loop (the Seastar *engine*) on one or more CPUs, and then runs the given function - in this case an unnamed function, a *lambda* - once.
 
+> app_template对象必须被定义，这个对象会在一个或者多个cpu上运行一个主要的事件循环,用来运行它被定义的函数;
 
 The "`return make_ready_future<>();`" causes the event loop, and the whole application, to exit immediately after printing the "Hello World" message. In a more typical Seastar application, we will want event loop to remain alive and process incoming packets (for example), until explicitly exited. Such applications will return a _future_ which determines when to exit the application. We will introduce futures and how to use them below. In any case, the regular C `exit()` should not be used, because it prevents Seastar or the application from cleaning up appropriately.
 
@@ -89,9 +90,12 @@ $
 
 # Threads and memory
 ## Seastar threads
+
+> 每一个cpu一个线程模式; 这些线程都各自在自己的cpu核上运行着自己的事件循环，我们叫engine;
+
 As explained in the introduction, Seastar-based programs run a single thread on each CPU. Each of these threads runs its own event loop, known as the *engine* in Seastar nomenclature. By default, the Seastar application will take over all the available cores, starting one thread per core. We can see this with the following program, printing `smp::count` which is the number of started threads:
 
-```cpp
+```
 #include "core/app-template.hh"
 #include "core/reactor.hh"
 #include <iostream>
@@ -114,12 +118,16 @@ $ ./a.out
 
 Each of these 4 engine threads will be pinned (a la **taskset(1)**) to a different hardware thread. Note how, as we mentioned above, the app's initialization function is run only on one thread, so we see the ouput "4" only once. Later in the tutorial we'll see how to make use of all threads.
 
+> 4个engine 线程会被分配到不同的物理线程; app_template在运行初始化函数的时候默认只会运行一个线程; 所以上面的函数仅仅只会运行一次;
+
 The user can pass a command line parameter, `-c`, to tell Seastar to start fewer threads than the available number of hardware threads. For example, to start Seastar on only 2 threads, the user can do:
 ```none
 $ ./a.out -c2
 2
 ```
 When the machine is configured as in the example above - two cores with two hyperthreads on each - and only two threads are requested, Seastar ensures that each thread is pinned to a different core, and we don't get the two threads competing as hyperthreads of the same core (which would, of course, damage performance).
+
+> seastar 会默认先把线程分配到不同core上去;为了性能考虑;
 
 We cannot start more threads than the number of hardware threads, as allowing this will be grossly inefficient. Trying it will result in an error:
 ```none
@@ -131,7 +139,7 @@ abort (core dumped)
 
 The error is an exception thrown from app.run, which we did not catch, leading to this ugly uncaught-exception crash. It is better to catch this sort of startup exceptions, and exit gracefully without a core dump:
 
-```cpp
+```
 #include "core/app-template.hh"
 #include "core/reactor.hh"
 #include <iostream>
@@ -185,7 +193,9 @@ The type `future<int>` variable holds an int that will eventually be available -
 
 A future is usually returned by an **asynchronous function**, also known as a **promise**, a function which returns a future and arranges for this future to be eventually resolved. One simple example is Seastar's function sleep():
 
-```cpp
+> promise就是那些返回future的异步函数; continuation是当future 已经ok的时候被回调的函数
+
+```
 future<> sleep(std::chrono::duration<Rep, Period> dur);
 ```
 
@@ -193,7 +203,7 @@ This function arranges a timer so that the returned future becomes available (wi
 
 A **continuation** is a callback (typically a lambda) to run when a future becomes available. A continuation is attached to a future with the `then()` method. Here is a simple example:
 
-```cpp
+```
 #include "core/app-template.hh"
 #include "core/sleep.hh"
 #include <iostream>
@@ -216,7 +226,7 @@ The return value of `then()` is itself a future which is useful for chaining mul
 
 To avoid repeating the boilerplate "app_engine" part in every code example in this tutorial, let's create a simple main() with which we will compile the following examples. This main just calls function `future<> f()`, does the appropriate exception handling, and exits when the future returned by `f` is resolved:
 
-```cpp
+```
 #include "core/app-template.hh"
 #include <iostream>
 #include <stdexcept>
@@ -237,7 +247,7 @@ int main(int argc, char** argv) {
 
 Compiling together with this `main.cc`, the above sleep() example code becomes:
 
-```cpp
+```
 #include "core/sleep.hh"
 #include <iostream>
 
@@ -273,7 +283,7 @@ Sleeping... 100ms 200ms Done.
 
 `sleep()` returns `future<>`, meaning it will complete at a future time, but once complete, does not return any value. More interesting futures do specify a value of any type (or multiple values) that will become available later. In the following example, we have a function returning a `future<int>`, and a continuation to be run once this value becomes available. Note how the continuation gets the future's value as a parameter:
 
-```cpp
+```
 #include "core/sleep.hh"
 #include <iostream>
 
@@ -296,11 +306,15 @@ This example begins to show the convenience of the futures programming model, wh
 ## Ready futures
 A future value might already be ready when `then()` is called to chain a continuation to it. This important case is optimized, and *usually* the continuation is run immediately instead of being registered to run later in the next iteration of the event loop.
 
+> 一个很重要的优化,如果future已经准备好那么continuation会立即执行来替换注册到下一个事件循环来执行;
+
 This optimization is done *usually*, though sometimes it is avoided: The implementation of `then()` holds a counter of such immediate continuations, and after many continuations have been run immediately without returning to the event loop (currently the limit is 256), the next continuation is deferred to the event loop in any case. This is important because in some cases (such as future loops, discussed later) we could find that each ready continuation spawns a new one, and without this limit we can starve the event loop. It important not to starve the event loop, as this would starve continuations of futures that weren't ready but have since become ready, and also starve the important **polling** done by the event loop (e.g., checking whether there is new activity on the network card).
+
+> then的实现机制是它会维持一个立即执行continuation的个数，如果它的个数超过限制(现在的限制是256)的话,那么之后的continuation会被推迟到下一个事件循环; 这是限制很重要, 因为在一个案例中，我们发现每一个continuation ready之后会又产生一个future的，如果不限制的话，将会导致eventloop会被饿死；饿死eventloop不重要，但是会饿死那些一开始没有准备好，但是后来准备好的continuation; 还有就是饿死很重要的poll; 因为这个线程还需要判断很多其他的事件状态;
 
 `make_ready_future<>` can be used to return a future which is already ready. The following example is identical to the previous one, except the promise function `fast()` returns a future which is already ready, and not one which will be ready in a second as in the previous example. The nice thing is that the consumer of the future does not care, and uses the future in the same way in both cases.
 
-```cpp
+```
 #include "core/future.hh"
 #include <iostream>
 
@@ -320,7 +334,7 @@ future<> f() {
 
 We've already seen that Seastar *continuations* are lambdas, passed to the `then()` method of a future. In the examples we've seen so far, lambdas have been nothing more than anonymous functions. But C++11 lambdas have one more trick up their sleeve, which is extremely important for future-based asynchronous programming in Seastar: Lambdas can **capture** state. Consider the following example:
 
-```cpp
+```】
 #include "core/sleep.hh"
 #include <iostream>
 
@@ -338,12 +352,16 @@ future<> f() {
 
 The future operation `incr(i)` takes some time to complete (it needs to sleep a bit first :wink:), and in that duration, it needs to save the `i` value it is working on. In the early event-driven programming models, the programmer needed to explicitly define an object for holding this state, and to manage all these objects. Everything is much simpler in Seastar, with C++11's lambdas: The *capture syntax* `[i]` in the above example means that the value of i, as it existed when incr() was called() is captured into the lambda. The lambda is not just a function - it is in fact an *object*, with both code and data. In essence, the compiler created for us automatically the state object, and we neither need to define it, nor to keep track of it (it gets saved together with the continuation, when the continuation is deferred, and gets deleted automatically after the continuation runs).
 
+> lambda不仅仅是一个函数，它本质是一个对象,包含了代码和数据; 在编译环节，编译器会自动创建一个state object, 我们不需要主动去定义它，也不需要去跟踪它;
+
 One implementation detail worth understanding is that when a continuation has captured state and is run immediately, this capture incurs no runtime overhead. However, when the continuation cannot be run immediately (because the future is not yet ready) and needs to be saved till later, memory needs to be allocated on the heap for this data, and the continuation's captured data needs to be copied there. This has runtime overhead, but it is unavoidable, and is very small compared to the parallel overhead in the threaded programming model (in a threaded program, this sort of state usually resides on the stack of the blocked thread, but the stack is much larger than our tiny capture state, takes up a lot of memory and causes a lot of cache pollution on context switches between those threads).
+
+> 一个实现必须是要清楚的; 关于continuation捕获状态，如果caption马上执行，那就没有运行时负担；但是如果continuation没有立即也被执行(可能是因为future还没有处于ready状态),那么就需要把这个状态的内存事先分配好,因为continuation需要把这个数据copy到这个地方;[lambda 表达式自动完成这功能]
 
 In the above example, we captured `i` *by value* - i.e., a copy of the value of `i` was saved into the continuation. C++ has two additional capture options: capturing by *reference* and capturing by *move*:
 
 Using capture-by-reference in a continuation is almost always a mistake, and would lead to serious bugs. For example, if in the above example we captured a reference to i, instead of copying it,
-```cpp
+```
 future<int> incr(int i) {
     using namespace std::chrono_literals;
     return sleep(10ms).then([&i] { return i + 1; });   // Oops, the "&" here is wrong.
@@ -362,7 +380,7 @@ int do_something(std::unique_ptr<T> obj) {
 ```
 By using unique_ptr in this way, the caller passes an object to the function, but tells it the object is now its exclusive responsibility - and when the function is done with the object, it should delete the object. How do we use unique_ptr in a continuation? The following won't work:
 
-```cpp
+```
 future<int> slow_do_something(std::unique_ptr<T> obj) {
     using namespace std::chrono_literals;
     return sleep(10ms).then([obj] { return do_something(std::move(obj))}); // WON'T COMPILE
@@ -388,6 +406,8 @@ We already saw chaining example in slow() above. TODO: talk about the return fro
 
 TODO: Talk about how we can't capture a reference to a local variable (the continuation runs when the local variable is gone). Take about *move*ing a variable into a continuation, about why with a chain of continuations it is difficult to move it between them so we have do_with, and also explain why lw_shared_ptr is very useful for this purpose.
 
+> move ing 这种方法有的时候也不是总是管用的，所以我们还提供了`do_with`和`lw_shared_ptr`;
+
 TODO: Make a simple example (object containing int i, us calling a "slow" method on this object doing "sleep 1; return i" needing the object to exist 1 second later). move is enough. But if we need to call two methods? Show two idiomatic solutions: do_with and lw_shared_ptr.
 
 # Handling exceptions
@@ -398,7 +418,7 @@ Calling `.then()` on such a future skips over the continuation, and transfers th
 
 This default handling parallels normal exception behavior -- if an exception is thrown in straight-line code, all following lines are skipped:
 
-```cpp
+```
 line1();
 line2(); // throws!
 line3(); // skipped
@@ -414,10 +434,14 @@ return line1().then([] {
 });
 ```
 
+> 如果future返回的是一个exception，then的源码分析可知它会判断这个状态，如果是异常的话他就把这个异常在往后面抛，而跳过执行then的函数体;
+
 Usually, aborting the current chain of operations and returning an exception is what's needed, but sometimes more fine-grained control is required. There are several primitives for handling exceptions:
 
 1. `.then_wrapped()`: instead of passing the values carried by the future into the continuation, `.then_wrapped()` passes the input future to the continuation. The future is guaranteed to be in ready state, so the continuation can examine whether it contains a value or an exception, and take appropriate action.
 2. `.finally()`: similar to a Java finally block, a `.finally()` continuation is executed whether or not its input future carries an exception or not. The result of the finally continuation is its input future, so `.finally()` can be used to insert code in a flow that is executed unconditionally, but otherwise does not alter the flow.
+
+> `finally`内部实现其实就是封装了`.then_wrapped`, 所以这两个是一致;
 
 TODO: give example code for the above. Also mention handle_exception - although
 perhaps delay that to a later chapter?
@@ -425,9 +449,11 @@ perhaps delay that to a later chapter?
 ## Futures are single use
 TODO: Talk about if we have a future<int> variable, as soon as we get() or then() it, it becomes invalid - we need to store the value somewhere else. Think if there's an alternative we can suggest
 
+
 # Fibers
 ## Loops
 TODO: do_until and friends; parallel_for_each and friends; Use boost::counting_iterator for integers. map_reduce, as a shortcut (?) for parallel_for_each which needs to produce some results (e.g., logical_or of boolean results), so we don't need to create a lw_shared_ptr explicitly (or do_with).
+
 ## Limiting parallelism with semaphores
 Seastar's semaphores are the standard computer-science semaphores, adapted for futures. A semaphore is a counter into which you can deposit units or take them away. Taking units from the counter may wait if not enough units are available.
 
@@ -435,7 +461,7 @@ A common use for a semaphore in Seastar is for limiting parallelism, i.e., limit
 
 Consider a case where an external source of events (e.g., incoming network requests) causes an asynchronous function ```g()``` to be called. Imagine that we want to limit the number of concurrent ```g()``` operations to 100. I.e., If g() is started when 100 other invocations are still ongoing, we want it to delay its real work until one of the other invocations has completed. We can do this with a semaphore:
 
-```c++
+```
 future<> g() {
     static thread_local semaphore limit(100);
     return limit.wait(1).then([] {
@@ -452,7 +478,7 @@ Note how we used a ```static thread_local``` semaphore, so that all calls to ```
 
 We have a shortcut ```with_semaphore()``` that can be used in this use case:
 
-```c++
+```
 future<> g() {
     static thread_local semaphore limit(100);
     return with_semaphore(limit, 1, [] {
@@ -465,7 +491,7 @@ future<> g() {
 
 Because semaphores support waiting for any number of units, not just 1, we can use them for more than simple limiting of the *number* of parallel invocation. For example, consider we have an asynchronous function ```using_lots_of_memory(size_t bytes)```, which uses ```bytes``` bytes of memory, and we want to ensure that not more than 1 MB of memory is used by all parallel invocations of this function --- and that additional calls are delayed until previous calls have finished. We can do this with a semaphore:
 
-```c++
+```
 future<> using_lots_of_memory(size_t bytes) {
     static thread_local semaphore limit(1000000); // limit to 1MB
     return with_semaphore(limit, bytes, [bytes] {
@@ -476,11 +502,13 @@ future<> using_lots_of_memory(size_t bytes) {
 
 Watch out that in the above example, a call to `using_lots_of_memory(2000000)` will return a future that never resolves, because the semaphore will never contain enough units to satisfy the semaphore wait. `using_lots_of_memory()` should probably check whether `bytes` is above the limit, and throw an exception in that case.
 
+> 用信号量来进行资源的限制;
+
 
 ### Limiting parallelism of loops
 Consider the following simple loop:
 
-```cpp
+```
 #include "core/sleep.hh"
 future<> slow() {
     std::cerr << ".";
@@ -493,10 +521,12 @@ future<> f() {
 }
 ```
 
+> repeat函数的语义是:执行被传入的action，直到action执行返回exception 或者返回` stop_iteration::yes` 这个repeat函数才会被退出; 而如果action被执行的很ok，但是不返回`stop_iteration::no`，那repeat函数会停留住; 如果直接返回`stop_iteration::no`那repeat就会重复执行;
+
 This loop runs the ```slow()``` function (taking one second to complete) without any parallelism --- the next ```slow()``` call starts only when the previous one completed. But what if we do not need to serialize the calls to ```slow()```, and want to allow multiple instances of it to be ongoing concurrently?
 
 Naively, we could achieve more parallelism, by starting the next call to ```slow()``` right after the previous call --- ignoring the future returned by the previous call to ```slow()``` and not waiting for it to resolve:
-```cpp
+```
 future<> f() {
     return repeat([] {
         slow();
@@ -509,7 +539,7 @@ But in this loop, there is no limit to the amount of parallelism --- millions of
 
 Using a semaphore allows us to run many instances of ```slow()``` in parallel, but limit the number of these parallel instances to, in the following example, 100:
 
-```cpp
+```
 future<> f() {
     return do_with(semaphore(100), [] (auto& limit) {
         return repeat([&limit] {
@@ -523,6 +553,8 @@ future<> f() {
     });
 }
 ```
+
+> do_with的语义: 会保证一个对象在function被执行完成之前都是存在的，上面的例子中:`semaphore(100)`这是一个临时变量，而`auto & limit`就是这个临时变量传入到function；do_with保证在repeat执行完成之前让这个临时变量都存在并且可被function访问;
 
 Note how in this code we do not wait for `slow()` to complete before continuing the loop (i.e., we do not `return` the future chain starting at `slow()`); The loop continues to the next iteration when a semaphore unit becomes available, while (in our example) 99 other operations might be ongoing in the background and we do not wait for them.
 
@@ -594,7 +626,7 @@ slow().finally([&g] { g.leave(); });
 
 Here is a typical example of using a gate:
 
-```cpp
+```
 #include "core/sleep.hh"
 #include "core/gate.hh"
 #include <boost/iterator/counting_iterator.hpp>
@@ -649,7 +681,7 @@ As explained so far, a gate can prevent new invocations of an operation, and wai
 
 In the previous example code, we had an un-interruptible operation `slow()` which slept for 10 seconds. Let's replace it by a loop of 10 one-second sleeps, calling `g.check()` each second:
 
-```cpp
+```
 future<> slow(int i, seastar::gate &g) {
     std::cerr << "starting " << i << "\n";
     return do_for_each(boost::counting_iterator<int>(0),
@@ -664,6 +696,8 @@ future<> slow(int i, seastar::gate &g) {
 ```
 
 Now, just one second after gate is closed (after the "starting 5" message is printed), all the `slow()` operations notice the gate was closed, and stop. As expected, the exception stops the `do_for_each()` loop, and the `finally()` continuation is performed so we see the "done" messages for all five operations.
+
+> seastar::gate 用来管内部程序运行计数的;`g.enter`:计数+1，`g.leave`:计数-1,`g.close`:g.enter会失败;g.close会等所有的运行结束才会退出; `g.check`：用来判断gate是否已经关闭
 
 
 # Introducing shared-nothing programming
