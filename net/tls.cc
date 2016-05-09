@@ -27,6 +27,7 @@
 
 #include "core/reactor.hh"
 #include "core/thread.hh"
+#include "core/sstring.hh"
 #include "tls.hh"
 #include "stack.hh"
 
@@ -286,11 +287,29 @@ public:
     future<> set_system_trust() {
         return seastar::async([this] {
             gtls_chk(gnutls_certificate_set_x509_system_trust(_creds));
+            _load_system_trust = false; // should only do once, for whatever reason
         });
     }
 private:
+    friend class credentials_builder;
+    friend class session;
+
+    bool need_load_system_trust() const {
+        return _load_system_trust;
+    }
+    future<> maybe_load_system_trust() {
+        return with_semaphore(_system_trust_sem, 1, [this] {
+            if (!_load_system_trust) {
+                return make_ready_future();
+            }
+            return set_system_trust();
+        });
+    }
+
     gnutls_certificate_credentials_t _creds;
     std::unique_ptr<tls::dh_params::impl> _dh_params;
+    bool _load_system_trust = false;
+    semaphore _system_trust_sem;
 };
 
 seastar::tls::certificate_credentials::certificate_credentials()
@@ -325,34 +344,34 @@ void seastar::tls::certificate_credentials::set_simple_pkcs12(const blob& b,
     _impl->set_simple_pkcs12(b, fmt, password);
 }
 
-future<> seastar::tls::certificate_credentials::set_x509_trust_file(
+future<> seastar::tls::abstract_credentials::set_x509_trust_file(
         const sstring& cafile, x509_crt_format fmt) {
     return read_fully(cafile, "trust file").then([this, fmt](temporary_buffer<char> buf) {
-        _impl->set_x509_trust(blob(buf.get(), buf.size()), fmt);
+        set_x509_trust(blob(buf.get(), buf.size()), fmt);
     });
 }
 
-future<> seastar::tls::certificate_credentials::set_x509_crl_file(
+future<> seastar::tls::abstract_credentials::set_x509_crl_file(
         const sstring& crlfile, x509_crt_format fmt) {
     return read_fully(crlfile, "crl file").then([this, fmt](temporary_buffer<char> buf) {
-        _impl->set_x509_crl(blob(buf.get(), buf.size()), fmt);
+        set_x509_crl(blob(buf.get(), buf.size()), fmt);
     });
 }
 
-future<> seastar::tls::certificate_credentials::set_x509_key_file(
+future<> seastar::tls::abstract_credentials::set_x509_key_file(
         const sstring& cf, const sstring& kf, x509_crt_format fmt) {
     return read_fully(cf, "certificate file").then([this, fmt, kf](temporary_buffer<char> buf) {
         return read_fully(kf, "key file").then([this, fmt, buf = std::move(buf)](temporary_buffer<char> buf2) {
-                    _impl->set_x509_key(blob(buf.get(), buf.size()), blob(buf2.get(), buf2.size()), fmt);
+                    set_x509_key(blob(buf.get(), buf.size()), blob(buf2.get(), buf2.size()), fmt);
                 });
     });
 }
 
-future<> seastar::tls::certificate_credentials::set_simple_pkcs12_file(
+future<> seastar::tls::abstract_credentials::set_simple_pkcs12_file(
         const sstring& pkcs12file, x509_crt_format fmt,
         const sstring& password) {
     return read_fully(pkcs12file, "pkcs12 file").then([this, fmt, password](temporary_buffer<char> buf) {
-        _impl->set_simple_pkcs12(blob(buf.get(), buf.size()), fmt, password);
+        set_simple_pkcs12(blob(buf.get(), buf.size()), fmt, password);
     });
 }
 
@@ -371,6 +390,106 @@ seastar::tls::server_credentials::server_credentials(const dh_params& dh) {
 seastar::tls::server_credentials::server_credentials(server_credentials&&) noexcept = default;
 seastar::tls::server_credentials& seastar::tls::server_credentials::operator=(
         server_credentials&&) noexcept = default;
+
+static const sstring dh_level_key = "dh_level";
+static const sstring x509_trust_key = "x509_trust";
+static const sstring x509_crl_key = "x509_crl";
+static const sstring x509_key_key = "x509_key";
+static const sstring pkcs12_key = "pkcs12";
+static const sstring system_trust = "system_trust";
+
+typedef std::basic_string<seastar::tls::blob::value_type, seastar::tls::blob::traits_type, std::allocator<seastar::tls::blob::value_type>> buffer_type;
+
+void seastar::tls::credentials_builder::set_dh_level(dh_params::level level) {
+    _blobs.emplace(dh_level_key, level);
+}
+
+void seastar::tls::credentials_builder::set_x509_trust(const blob& b, x509_crt_format fmt) {
+    _blobs.emplace(x509_trust_key, std::make_pair(b.to_string(), fmt));
+}
+
+void seastar::tls::credentials_builder::set_x509_crl(const blob& b, x509_crt_format fmt) {
+    _blobs.emplace(x509_crl_key, std::make_pair(b.to_string(), fmt));
+}
+
+void seastar::tls::credentials_builder::set_x509_key(const blob& cert, const blob& key, x509_crt_format fmt) {
+    _blobs.emplace(x509_key_key, std::make_tuple(cert.to_string(), key.to_string(), fmt));
+}
+
+void seastar::tls::credentials_builder::set_simple_pkcs12(const blob& b, x509_crt_format fmt, const sstring& password) {
+    _blobs.emplace(pkcs12_key, std::make_tuple(b.to_string(), fmt, password));
+}
+
+future<> seastar::tls::credentials_builder::set_system_trust() {
+    // TODO / Caveat:
+    // We cannot actually issue a loading of system trust here,
+    // because we have no actual tls context.
+    // And we probably _don't want to get into the guessing game
+    // of where the system trust cert chains are, since this is
+    // super distro dependent, and usually compiled into the library.
+    // Pretent it is raining, and just set a flag.
+    // Leave the function returning future, so if we change our
+    // minds and want to do explicit loading, we can...
+    _blobs.emplace(system_trust, true);
+    return make_ready_future();
+}
+
+void seastar::tls::credentials_builder::apply_to(certificate_credentials& creds) const {
+    // Could potentially be templated down, but why bother...
+    {
+        auto tr = _blobs.equal_range(x509_trust_key);
+        for (auto& p : boost::make_iterator_range(tr.first, tr.second)) {
+            auto v = boost::any_cast<std::pair<buffer_type, x509_crt_format>>(p.second);
+            creds.set_x509_trust(v.first, v.second);
+        }
+    }
+    {
+        auto tr = _blobs.equal_range(x509_crl_key);
+        for (auto& p : boost::make_iterator_range(tr.first, tr.second)) {
+            auto v = boost::any_cast<std::pair<buffer_type, x509_crt_format>>(p.second);
+            creds.set_x509_crl(v.first, v.second);
+        }
+    }
+    {
+        auto tr = _blobs.equal_range(x509_key_key);
+        for (auto& p : boost::make_iterator_range(tr.first, tr.second)) {
+            auto v = boost::any_cast<std::tuple<buffer_type, buffer_type, x509_crt_format>>(p.second);
+            creds.set_x509_key(std::get<0>(v), std::get<1>(v), std::get<2>(v));
+        }
+    }
+    {
+        auto tr = _blobs.equal_range(pkcs12_key);
+        for (auto& p : boost::make_iterator_range(tr.first, tr.second)) {
+            auto v = boost::any_cast<std::tuple<buffer_type, x509_crt_format, sstring>>(p.second);
+            creds.set_simple_pkcs12(std::get<0>(v), std::get<1>(v), std::get<2>(v));
+        }
+    }
+
+    // TODO / Caveat:
+    // We cannot do this immediately, because we are not a continuation, and
+    // potentially blocking calls are a no-no.
+    // Doing this detached would be indeterministic, so set a flag in
+    // credentials, and do actual loading in first handshake (see session)
+    if (_blobs.count(system_trust)) {
+        creds._impl->_load_system_trust = true;
+    }
+}
+
+::shared_ptr<seastar::tls::certificate_credentials> seastar::tls::credentials_builder::build_certificate_credentials() const {
+    auto creds = ::make_shared<certificate_credentials>();
+    apply_to(*creds);
+    return creds;
+}
+
+::shared_ptr<seastar::tls::server_credentials> seastar::tls::credentials_builder::build_server_credentials() const {
+    auto i = _blobs.find(dh_level_key);
+    if (i == _blobs.end()) {
+        throw std::invalid_argument("No DH level set");
+    }
+    auto creds = ::make_shared<server_credentials>(dh_params(boost::any_cast<dh_params::level>(i->second)));
+    apply_to(*creds);
+    return creds;
+}
 
 namespace seastar {
 namespace tls {
@@ -447,6 +566,13 @@ public:
     }
 
     future<> handshake() {
+        // maybe load system certificates before handshake, in case we
+        // have not done so yet...
+        if (_creds->_impl->need_load_system_trust()) {
+            return _creds->_impl->maybe_load_system_trust().then([this] {
+               return handshake();
+            });
+        }
         auto res = gnutls_handshake(_session);
         if (res < 0) {
             switch (res) {

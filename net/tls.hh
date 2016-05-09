@@ -51,6 +51,7 @@ namespace tls {
     class server_session;
     class server_credentials;
     class certificate_credentials;
+    class credentials_builder;
 
     /**
      * Diffie-Hellman parameters for
@@ -95,6 +96,23 @@ namespace tls {
         ::shared_ptr<impl> _impl;
     };
 
+    class abstract_credentials {
+    public:
+        virtual ~abstract_credentials() {};
+
+        virtual void set_x509_trust(const blob&, x509_crt_format) = 0;
+        virtual void set_x509_crl(const blob&, x509_crt_format) = 0;
+        virtual void set_x509_key(const blob& cert, const blob& key, x509_crt_format) = 0;
+
+        virtual void set_simple_pkcs12(const blob&, x509_crt_format, const sstring& password) = 0;
+
+        future<> set_x509_trust_file(const sstring& cafile, x509_crt_format);
+        future<> set_x509_crl_file(const sstring& crlfile, x509_crt_format);
+        future<> set_x509_key_file(const sstring& cf, const sstring& kf, x509_crt_format);
+
+        future<> set_simple_pkcs12_file(const sstring& pkcs12file, x509_crt_format, const sstring& password);
+    };
+
     /**
      * Holds certificates and keys.
      *
@@ -104,7 +122,7 @@ namespace tls {
      * You should probably set it up once, before starting client/server
      * connections.
      */
-    class certificate_credentials {
+    class certificate_credentials : public abstract_credentials {
     public:
         certificate_credentials();
         ~certificate_credentials();
@@ -115,17 +133,10 @@ namespace tls {
         certificate_credentials(const certificate_credentials&) = delete;
         certificate_credentials& operator=(const certificate_credentials&) = delete;
 
-        void set_x509_trust(const blob&, x509_crt_format);
-        void set_x509_crl(const blob&, x509_crt_format);
-        void set_x509_key(const blob& cert, const blob& key, x509_crt_format);
-
-        void set_simple_pkcs12(const blob&, x509_crt_format, const sstring& password);
-
-        future<> set_x509_trust_file(const sstring& cafile, x509_crt_format);
-        future<> set_x509_crl_file(const sstring& crlfile, x509_crt_format);
-        future<> set_x509_key_file(const sstring& cf, const sstring& kf, x509_crt_format);
-
-        future<> set_simple_pkcs12_file(const sstring& pkcs12file, x509_crt_format, const sstring& password);
+        void set_x509_trust(const blob&, x509_crt_format) override;
+        void set_x509_crl(const blob&, x509_crt_format) override;
+        void set_x509_key(const blob& cert, const blob& key, x509_crt_format) override;
+        void set_simple_pkcs12(const blob&, x509_crt_format, const sstring& password) override;
 
         /**
          * Loads default system cert trust file
@@ -139,6 +150,7 @@ namespace tls {
         friend class session;
         friend class server_session;
         friend class server_credentials;
+        friend class credentials_builder;
         std::unique_ptr<impl> _impl;
     };
 
@@ -162,6 +174,36 @@ namespace tls {
 
         server_credentials(const server_credentials&) = delete;
         server_credentials& operator=(const server_credentials&) = delete;
+    };
+
+    /**
+     * Intentionally "primitive", and more importantly, copyable
+     * container for certificate credentials options.
+     * The intendend use case is to be able to use across shards,
+     * at, say, initialization of tls objects
+     *
+     * Note that loading invalid objects (malformed certs etc) will
+     * _not_ generate exceptions until, earliest, the build functions
+     * are called.
+     */
+    class credentials_builder : public abstract_credentials {
+    public:
+        void set_dh_level(dh_params::level = dh_params::level::LEGACY);
+
+        void set_x509_trust(const blob&, x509_crt_format) override ;
+        void set_x509_crl(const blob&, x509_crt_format) override;
+        void set_x509_key(const blob& cert, const blob& key, x509_crt_format) override;
+        void set_simple_pkcs12(const blob&, x509_crt_format, const sstring& password) override;
+
+        future<> set_system_trust();
+
+        void apply_to(certificate_credentials&) const;
+
+        ::shared_ptr<certificate_credentials> build_certificate_credentials() const;
+        ::shared_ptr<server_credentials> build_server_credentials() const;
+
+    private:
+        std::multimap<sstring, boost::any> _blobs;
     };
 
     /**
