@@ -697,7 +697,12 @@ future<> slow(int i, seastar::gate &g) {
 
 Now, just one second after gate is closed (after the "starting 5" message is printed), all the `slow()` operations notice the gate was closed, and stop. As expected, the exception stops the `do_for_each()` loop, and the `finally()` continuation is performed so we see the "done" messages for all five operations.
 
-> seastar::gate 用来管内部程序运行计数的;`g.enter`:计数+1，`g.leave`:计数-1,`g.close`:g.enter会失败;g.close会等所有的运行结束才会退出; `g.check`：用来判断gate是否已经关闭
+> seastar::gate:管理程序内部有多少的操作正在进行, 当调用gate.close之后，之后有调用gate.enter将会失败; 这个gate用的最多的地方就是: 但我们的程序需要优雅的退出,我们希望正在运行的程序能感知到这点，并且没有新的任务被执行起来; 而gate就完成了这个任务:
+> 
+> * `gate:enter`:当你开始执行这个任务的时候，就调用这个；如果gate已经被关闭的话，那么将抛出异常;
+> * `gate:leave`:当你的task已经完成的时候，就调用这个函数，用来告诉gate一个任务已经结束;
+> * `gate:close`:禁止新的task被创建，并且等待所有的正在运行的程序结束
+> * `gate:check`: 如果有的task要运行很长很长时间，那么让task内存每个一段时间检查这个函数，如果gate已经close的话，那么这个函数就会抛出异常;
 
 
 # Introducing shared-nothing programming
@@ -709,6 +714,8 @@ TODO: Introduce our shared_ptr (and lw_shared_ptr) and sstring and say the stand
 # More about Seastar's event loop
 TODO: Mention the event loop (scheduler). remind that continuations on the same thread do not run in parallel, so do not need locks, atomic variables, etc (different threads shouldn't access the same data - more on that below). continuations obviously must not use blocking operations, or they block the whole thread.
 
+> continuaion是被运行在相同线程中的，而不是平行执行的，所以不需要lock和原子变量; 当然一个很明显的特点是continuation的操作必须是非阻塞的，不然他会阻塞整个线程的;
+
 Talk about polling that we currently do, and how today even sleep() or waiting for incoming connections or whatever, takes 100% of all CPUs.
 
 # Introducing Seastar's network stack
@@ -717,7 +724,7 @@ TODO: Mention the two modes of operation: Posix and native (i.e., take a L2 (Eth
 
 We begin with a simple example of a TCP network server written in Seastar. This server repeatedly accepts connections on TCP port 1234, and returns an empty response:
 
-```cpp
+```
 #include "core/seastar.hh"
 #include "core/reactor.hh"
 #include "core/future-util.hh"
@@ -773,7 +780,7 @@ Most servers will always turn on this ```reuse_address``` listen option. Stevens
 
 Let's advance our example server by outputting some canned response to each connection, instead of closing each connection immediately with an empty reply.
 
-```cpp
+```
 #include "core/seastar.hh"
 #include "core/reactor.hh"
 #include "core/future-util.hh"
@@ -804,6 +811,8 @@ future<> f() {
 The new part of this code begins by taking the ```connected_socket```'s ```output()```, which returns an ```output_stream<char>``` object. On this output stream ```out``` we can write our response using the ```write()``` method. The simple-looking ```write()``` operation is in fact a complex asynchronous operation behind the scenes,  possibly causing multiple packets to be sent, retransmitted, etc., as needed. ```write()``` returns a future saying when it is ok to ```write()``` again to this output stream; This does not necessarily guarantee that the remote peer received all the data we sent it, but it guarantees that the output stream has enough buffer space to allow another write to begin.
 
 After ```write()```ing the response to ```out```, the example code calls ```out.close()``` and waits for the future it returns. This is necessary, because ```write()``` attempts to batch writes so might not have yet written anything to the TCP stack at this point, and only when close() concludes can we be sure that all the data we wrote to the output stream has actually reached the TCP stack --- and only at this point we may finally dispose of the ```out``` and ```s``` objects.
+
+> out.close是必须的,当write返回成功之后，仅仅只是表明把数据放到了tmpBUffer上面，此时可能还没有把放到协议栈中，之后调用到out.close的时候，才能保证所有的数据已经到达协议栈;
 
 Indeed, this server returns the expected response:
 
@@ -867,6 +876,8 @@ future<> f() {
 The main function ```f()``` loops accepting new connections, and for each connection calls ```handle_connection()``` to handle this connection. Our ```handle_connection()``` returns a future saying when handling this connection completed, but importantly, we do ***not*** wait for this future: Remember that ```keep_doing``` will only start the next iteration when the future returned by the previous iteration is resolved. Because we want to allow parallel ongoing connections, we don't want the next ```accept()``` to wait until the previously accepted connection was closed. So we call ```handle_connection()``` to start the handling of the connection, but return nothing from the continuation, which resolves that future immediately, so ```keep_doing``` will continue to the next ```accept()```.
 
 This demonstrates how easy it is to run parallel _fibers_ (chains of continuations) in Seastar - When a continuation runs an asynchronous function but ignores the future it returns, the asynchronous operation continues in parallel, but never waited for.
+
+> 在seastar中，当一个continuation运行一个函数，但是没有返回显示的返回future，那么异步操作将持续并行，而不会等待;
 
 It is often a mistake to silently ignore an exception, so if the future we're ignoring might resolve with an except, it is recommended to handle this case, e.g. using a ```handle_exception()``` continuation. In our case, a failed connection is fine (e.g., the client might close its connection will we're sending it output), so we did not bother to handle the exception.
 
