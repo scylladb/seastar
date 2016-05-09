@@ -804,10 +804,11 @@ protocol<Serializer, MsgType>::client::read_response_frame(input_stream<char>& i
 }
 
 template<typename Serializer, typename MsgType>
-protocol<Serializer, MsgType>::client::client(protocol& proto, client_options ops, ipv4_addr addr, future<connected_socket> f) : protocol<Serializer, MsgType>::connection(proto), _server_addr(addr) {
+protocol<Serializer, MsgType>::client::client(protocol& proto, client_options ops, seastar::socket socket, ipv4_addr addr, ipv4_addr local)
+        : protocol<Serializer, MsgType>::connection(proto), _socket(std::move(socket)), _server_addr(addr) {
     feature_map features;
     send_negotiation_frame(*this, std::move(features));
-    f.then([this, ops = std::move(ops)] (connected_socket fd) {
+    _socket.connect(addr, local).then([this, ops = std::move(ops)] (connected_socket fd) {
         fd.set_nodelay(true);
         if (ops.keepalive) {
             fd.set_keepalive(true);
@@ -851,7 +852,6 @@ protocol<Serializer, MsgType>::client::client(protocol& proto, client_options op
             log_exception(*this, _connected ? "client connection dropped" : "fail to connect", f.get_exception());
         }
         this->_error = true;
-        _connected = false; // prevent running shutdown() on this
         this->stop_send_loop().then_wrapped([this] (future<> f) {
             f.ignore_ready_future();
             this->_stopped.set_value();
@@ -862,17 +862,17 @@ protocol<Serializer, MsgType>::client::client(protocol& proto, client_options op
 
 template<typename Serializer, typename MsgType>
 protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& proto, ipv4_addr addr, ipv4_addr local)
-    : client(proto, client_options{}, addr, ::connect(addr, local))
+    : client(proto, client_options{}, engine().net().socket(), addr, local)
 {}
 
 template<typename Serializer, typename MsgType>
-protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& proto, client_options ops, ipv4_addr addr, ipv4_addr local)
-    : client(proto, std::move(ops), addr, ::connect(addr, local))
+protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& proto, client_options options, ipv4_addr addr, ipv4_addr local)
+    : client(proto, options, engine().net().socket(), addr, local)
 {}
 
 template<typename Serializer, typename MsgType>
-protocol<Serializer, MsgType>::client::client(protocol& proto, ipv4_addr addr, future<connected_socket> f)
-    : client(proto, client_options{}, addr, std::move(f))
+protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& proto, seastar::socket socket, ipv4_addr addr, ipv4_addr local)
+    : client(proto, client_options{}, std::move(socket), addr, local)
 {}
 
 }

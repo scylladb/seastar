@@ -177,6 +177,18 @@ namespace tls {
     future<::connected_socket> connect(::shared_ptr<certificate_credentials>, ::socket_address, ::socket_address local, sstring name = {});
     /// @}
 
+    /**
+     * Creates a socket through which a TLS client connection can be created,
+     * using the default network stack and the supplied credentials.
+     * Typically these should contain enough information
+     * to validate the remote certificate (i.e. trust info).
+     *
+     * \param name An optional expected server name for the remote end point
+     */
+    /// @{
+    ::seastar::socket socket(::shared_ptr<certificate_credentials>, sstring name = {});
+    /// @}
+
     /** Wraps an existing connection in SSL/TLS. */
     /// @{
     future<::connected_socket> wrap_client(::shared_ptr<certificate_credentials>, ::connected_socket&&, sstring name = {});
