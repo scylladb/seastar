@@ -83,18 +83,20 @@ using test_rpc_proto = rpc::protocol<serializer>;
 using connect_fn = std::function<test_rpc_proto::client (ipv4_addr addr)>;
 
 class rpc_socket_impl : public net::socket_impl {
-    loopback_connection_factory& _factory;
     promise<connected_socket> _p;
     bool _connect;
+    loopback_socket_impl _socket;
 public:
     rpc_socket_impl(loopback_connection_factory& factory, bool connect)
-            : _factory(factory), _connect(connect) {
+            : _connect(connect), _socket(factory) {
     }
     virtual future<connected_socket> connect(socket_address sa, socket_address local) override {
-        return _connect ? _factory.make_new_connection() : _p.get_future();
+        return _connect ? _socket.connect(sa, local) : _p.get_future();
     }
     virtual void shutdown() override {
-        if (!_connect) {
+        if (_connect) {
+            _socket.shutdown();
+        } else {
             _p.set_exception(std::make_exception_ptr(std::system_error(ECONNABORTED, std::system_category())));
         }
     }
