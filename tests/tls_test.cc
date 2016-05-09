@@ -73,6 +73,21 @@ SEASTAR_TEST_CASE(test_x509_client_with_system_trust) {
     });
 }
 
+SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust) {
+    tls::credentials_builder b;
+    b.set_system_trust();
+    return connect_to_ssl_google(b.build_certificate_credentials());
+}
+
+SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust_multiple) {
+    tls::credentials_builder b;
+    b.set_system_trust();
+    auto creds = b.build_certificate_credentials();
+
+    return parallel_for_each(boost::irange(0, 20), [creds](auto i) { return connect_to_ssl_google(creds); });
+}
+
+
 struct streams {
     ::connected_socket s;
     input_stream<char> in;
