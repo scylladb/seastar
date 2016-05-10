@@ -1708,6 +1708,28 @@ public:
     }
 };
 
+class reactor::syscall_pollfn final : public reactor::pollfn {
+    reactor& _r;
+public:
+    syscall_pollfn(reactor& r) : _r(r) {}
+    virtual bool poll() final override {
+        return _r._thread_pool.complete();
+    }
+    virtual bool try_enter_interrupt_mode() override {
+        _r._thread_pool.enter_interrupt_mode();
+        if (poll()) {
+            // raced
+            _r._thread_pool.exit_interrupt_mode();
+            return false;
+        }
+        return true;
+    }
+    virtual void exit_interrupt_mode() override final {
+        _r._thread_pool.exit_interrupt_mode();
+    }
+};
+
+
 alignas(64) reactor::smp_pollfn::aligned_flag reactor::smp_pollfn::_membarrier_lock;
 
 class reactor::epoll_pollfn final : public reactor::pollfn {
@@ -1769,6 +1791,7 @@ int reactor::run() {
         smp_poller = poller(std::make_unique<smp_pollfn>(*this));
     }
 
+    poller syscall_poller(std::make_unique<syscall_pollfn>(*this));
 #ifndef HAVE_OSV
     _signals.handle_signal(alarm_signal(), [this] {
         complete_timers(_timers, _expired_timers, [this] {
@@ -2030,7 +2053,7 @@ void syscall_work_queue::submit_item(syscall_work_queue::work_item* item) {
     });
 }
 
-void syscall_work_queue::complete() {
+unsigned syscall_work_queue::complete() {
     std::array<work_item*, queue_length> tmp_buf;
     auto end = tmp_buf.data();
     auto nr = _completed.consume_all([&] (work_item* wi) {
@@ -2042,6 +2065,7 @@ void syscall_work_queue::complete() {
         delete wi;
     }
     _queue_has_room.signal(nr);
+    return nr;
 }
 
 smp_message_queue::smp_message_queue(reactor* from, reactor* to)
@@ -2237,7 +2261,9 @@ void thread_pool::work() {
             wi->process();
             inter_thread_wq._completed.push(wi);
         }
-        pthread_kill(_notify, SIGUSR1);
+        if (_main_thread_idle.load(std::memory_order_seq_cst)) {
+            pthread_kill(_notify, SIGUSR1);
+        }
     }
 }
 

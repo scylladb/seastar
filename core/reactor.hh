@@ -300,7 +300,13 @@ public:
     }
 private:
     void work();
-    void complete();
+    // Scans the _completed queue, that contains the requests already handled by the syscall thread,
+    // effectively opening up space for more requests to be submitted. One consequence of this is
+    // that from the reactor's point of view, a request is not considered handled until it is
+    // removed from the _completed queue.
+    //
+    // Returns the number of requests handled.
+    unsigned complete();
     void submit_item(work_item* wi);
 
     friend class thread_pool;
@@ -419,6 +425,7 @@ class thread_pool {
     syscall_work_queue inter_thread_wq;
     posix_thread _worker_thread;
     std::atomic<bool> _stopped = { false };
+    std::atomic<bool> _main_thread_idle = { false };
     pthread_t _notify;
 public:
     thread_pool();
@@ -429,6 +436,20 @@ public:
         return inter_thread_wq.submit<T>(std::move(func));
     }
     uint64_t operation_count() const { return _aio_threaded_fallbacks; }
+
+    unsigned complete() { return inter_thread_wq.complete(); }
+    // Before we enter interrupt mode, we must make sure that the syscall thread will properly
+    // generate signals to wake us up. This means we need to make sure that all modifications to
+    // the pending and completed fields in the inter_thread_wq are visible to all threads.
+    //
+    // Simple release-acquire won't do because we also need to serialize all writes that happens
+    // before the syscall thread loads this value, so we'll need full seq_cst.
+    void enter_interrupt_mode() { _main_thread_idle.store(true, std::memory_order_seq_cst); }
+    // When we exit interrupt mode, however, we can safely used relaxed order. If any reordering
+    // takes place, we'll get an extra signal and complete will be called one extra time, which is
+    // harmless.
+    void exit_interrupt_mode() { _main_thread_idle.store(false, std::memory_order_relaxed); }
+
 #else
 public:
     template <typename T, typename Func>
@@ -608,6 +629,7 @@ private:
     class drain_cross_cpu_freelist_pollfn;
     class lowres_timer_pollfn;
     class epoll_pollfn;
+    class syscall_pollfn;
     friend io_pollfn;
     friend signal_pollfn;
     friend aio_batch_submit_pollfn;
@@ -616,6 +638,7 @@ private:
     friend drain_cross_cpu_freelist_pollfn;
     friend lowres_timer_pollfn;
     friend class epoll_pollfn;
+    friend class syscall_pollfn;
 public:
     class poller {
         std::unique_ptr<pollfn> _pollfn;
