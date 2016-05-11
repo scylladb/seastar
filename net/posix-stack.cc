@@ -89,7 +89,13 @@ public:
 
     virtual void shutdown() override {
         if (_fd) {
-            _fd->shutdown(SHUT_RDWR);
+            try {
+                _fd->shutdown(SHUT_RDWR);
+            } catch (std::system_error& e) {
+                if (e.code().value() != ENOTCONN) {
+                    throw;
+                }
+            }
         }
     }
 };
