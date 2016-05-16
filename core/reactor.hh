@@ -67,6 +67,7 @@
 #include "core/enum.hh"
 #include <boost/range/irange.hpp>
 #include "timer.hh"
+#include "condition-variable.hh"
 
 #ifdef HAVE_OSV
 #include <osv/sched.hh>
@@ -670,6 +671,7 @@ private:
     unsigned _id = 0;
     bool _stopping = false;
     bool _stopped = false;
+    condition_variable _stop_requested;
     bool _handle_sigint = true;
     promise<std::unique_ptr<network_stack>> _network_stack_ready_promise;
     int _return = 0;
@@ -815,6 +817,12 @@ public:
     int run();
     void exit(int ret);
     future<> when_started() { return _start_promise.get_future(); }
+    // The function waits for timeout period for reactor stop notification
+    // which happens on termination signals or call for exit().
+    template <typename Rep, typename Period>
+    future<> wait_for_stop(std::chrono::duration<Rep, Period> timeout) {
+        return _stop_requested.wait(timeout, [this] { return _stopping; });
+    }
 
     void at_exit(std::function<future<> ()> func);
 
