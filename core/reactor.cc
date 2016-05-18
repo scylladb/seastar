@@ -457,7 +457,7 @@ future<> reactor_backend_epoll::notified(reactor_notifier *n) {
 
 pollable_fd
 reactor::posix_listen(socket_address sa, listen_options opts) {
-    file_desc fd = file_desc::socket(sa.u.sa.sa_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    file_desc fd = file_desc::socket(sa.u.sa.sa_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, int(opts.proto));
     if (opts.reuse_address) {
         fd.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1);
     }
@@ -483,8 +483,8 @@ reactor::posix_reuseport_detect() {
 }
 
 lw_shared_ptr<pollable_fd>
-reactor::make_pollable_fd(socket_address sa) {
-    file_desc fd = file_desc::socket(sa.u.sa.sa_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+reactor::make_pollable_fd(socket_address sa, transport proto) {
+    file_desc fd = file_desc::socket(sa.u.sa.sa_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, int(proto));
     return make_lw_shared<pollable_fd>(pollable_fd(std::move(fd)));
 }
 
@@ -512,8 +512,8 @@ reactor::connect(socket_address sa) {
 }
 
 future<connected_socket>
-reactor::connect(socket_address sa, socket_address local) {
-    return _network_stack->connect(sa, local);
+reactor::connect(socket_address sa, socket_address local, transport proto) {
+    return _network_stack->connect(sa, local, proto);
 }
 
 void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd, promise<> pollable_fd_state::*pr,
@@ -2993,8 +2993,8 @@ future<connected_socket> connect(socket_address sa) {
     return engine().connect(sa);
 }
 
-future<connected_socket> connect(socket_address sa, socket_address local) {
-    return engine().connect(sa, local);
+future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) {
+    return engine().connect(sa, local, proto);
 }
 
 void reactor::add_high_priority_task(std::unique_ptr<task>&& t) {

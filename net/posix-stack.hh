@@ -54,6 +54,7 @@ public:
     }
 };
 
+template <transport Transport>
 class posix_ap_server_socket_impl : public server_socket_impl {
     struct connection {
         pollable_fd fd;
@@ -65,11 +66,14 @@ class posix_ap_server_socket_impl : public server_socket_impl {
     socket_address _sa;
 public:
     explicit posix_ap_server_socket_impl(socket_address sa) : _sa(sa) {}
-    virtual future<connected_socket, socket_address> accept();
+    virtual future<connected_socket, socket_address> accept() override;
     virtual void abort_accept() override;
     static void move_connected_socket(socket_address sa, pollable_fd fd, socket_address addr);
 };
+using posix_tcp_ap_server_socket_impl = posix_ap_server_socket_impl<transport::TCP>;
+using posix_sctp_ap_server_socket_impl = posix_ap_server_socket_impl<transport::SCTP>;
 
+template <transport Transport>
 class posix_server_socket_impl : public server_socket_impl {
     socket_address _sa;
     pollable_fd _lfd;
@@ -78,7 +82,10 @@ public:
     virtual future<connected_socket, socket_address> accept();
     virtual void abort_accept() override;
 };
+using posix_server_tcp_socket_impl = posix_server_socket_impl<transport::TCP>;
+using posix_server_sctp_socket_impl = posix_server_socket_impl<transport::SCTP>;
 
+template <transport Transport>
 class posix_reuseport_server_socket_impl : public server_socket_impl {
     socket_address _sa;
     pollable_fd _lfd;
@@ -87,6 +94,8 @@ public:
     virtual future<connected_socket, socket_address> accept();
     virtual void abort_accept() override;
 };
+using posix_reuseport_server_tcp_socket_impl = posix_reuseport_server_socket_impl<transport::TCP>;
+using posix_reuseport_server_sctp_socket_impl = posix_reuseport_server_socket_impl<transport::SCTP>;
 
 class posix_network_stack : public network_stack {
 private:

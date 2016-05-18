@@ -811,10 +811,10 @@ public:
     bool get_keepalive() const override {
         return _sock->get_keepalive();
     }
-    void set_keepalive_parameters(const net::tcp_keepalive_params& p) override {
+    void set_keepalive_parameters(const net::keepalive_params& p) override {
         _sock->set_keepalive_parameters(p);
     }
-    net::tcp_keepalive_params get_keepalive_parameters() const override {
+    net::keepalive_params get_keepalive_parameters() const override {
         return _sock->get_keepalive_parameters();
     }
 
@@ -992,8 +992,8 @@ public:
     tls_socket_impl(::shared_ptr<certificate_credentials> cred, sstring name)
             : _cred(cred), _name(std::move(name)), _socket(engine().net().socket()) {
     }
-    virtual future<connected_socket> connect(socket_address sa, socket_address local) override {
-        return _socket.connect(sa, local).then([cred = std::move(_cred), name = std::move(_name)](::connected_socket s) mutable {
+    virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
+        return _socket.connect(sa, local, proto).then([cred = std::move(_cred), name = std::move(_name)](::connected_socket s) mutable {
             return wrap_client(cred, std::move(s), std::move(name));
         });
     }

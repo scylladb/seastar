@@ -83,8 +83,8 @@ public:
     virtual bool get_nodelay() const override;
     void set_keepalive(bool keepalive) override;
     bool get_keepalive() const override;
-    void set_keepalive_parameters(const tcp_keepalive_params&) override;
-    tcp_keepalive_params get_keepalive_parameters() const override;
+    void set_keepalive_parameters(const keepalive_params&) override;
+    keepalive_params get_keepalive_parameters() const override;
 };
 
 template <typename Protocol>
@@ -95,7 +95,10 @@ public:
     explicit native_socket_impl(Protocol& proto)
         : _proto(proto), _conn(nullptr) { }
 
-    virtual future<connected_socket> connect(socket_address sa, socket_address local) override {
+    virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
+        //TODO: implement SCTP
+        assert(proto == transport::TCP);
+
         // FIXME: local is ignored since native stack does not support multiple IPs yet
         assert(sa.as_posix_sockaddr().sa_family == AF_INET);
 
@@ -207,15 +210,15 @@ bool native_connected_socket_impl<Protocol>::get_keepalive() const {
 }
 
 template <typename Protocol>
-void native_connected_socket_impl<Protocol>::set_keepalive_parameters(const tcp_keepalive_params&) {
+void native_connected_socket_impl<Protocol>::set_keepalive_parameters(const keepalive_params&) {
     // FIXME: implement
     std::cerr << "Keepalive parameters are not supported by native stack" << std::endl;
 }
 
 template <typename Protocol>
-tcp_keepalive_params native_connected_socket_impl<Protocol>::get_keepalive_parameters() const {
+keepalive_params native_connected_socket_impl<Protocol>::get_keepalive_parameters() const {
     // FIXME: implement
-    return {std::chrono::seconds(0), std::chrono::seconds(0), 0};
+    return tcp_keepalive_params {std::chrono::seconds(0), std::chrono::seconds(0), 0};
 }
 
 }

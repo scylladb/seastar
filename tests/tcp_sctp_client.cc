@@ -35,6 +35,8 @@ static std::string str_txbuf(tx_msg_size, 'X');
 class client;
 distributed<client> clients;
 
+transport protocol = transport::TCP;
+
 class client {
 private:
     static constexpr unsigned _pings_per_connection = 10000;
@@ -204,7 +206,8 @@ public:
         _test = test;
 
         for (unsigned i = 0; i < ncon; i++) {
-            engine().net().connect(make_ipv4_address(server_addr)).then([this, server_addr, test] (connected_socket fd) {
+            socket_address local = socket_address(::sockaddr_in{AF_INET, INADDR_ANY, {0}});
+            engine().net().connect(make_ipv4_address(server_addr), local, protocol).then([this, server_addr, test] (connected_socket fd) {
                 auto conn = new connection(std::move(fd));
                 (this->*tests.at(test))(conn).then_wrapped([this, conn] (auto&& f) {
                     delete conn;
@@ -234,6 +237,7 @@ int main(int ac, char ** av) {
         ("server", bpo::value<std::string>(), "Server address")
         ("test", bpo::value<std::string>()->default_value("ping"), "test type(ping | rxrx | txtx)")
         ("conn", bpo::value<unsigned>()->default_value(16), "nr connections per cpu")
+        ("proto", bpo::value<std::string>()->default_value("tcp"), "transport protocol tcp|sctp")
         ;
 
     return app.run_deprecated(ac, av, [&app] {
@@ -241,6 +245,16 @@ int main(int ac, char ** av) {
         auto server = config["server"].as<std::string>();
         auto test = config["test"].as<std::string>();
         auto ncon = config["conn"].as<unsigned>();
+        auto proto = config["proto"].as<std::string>();
+
+        if (proto == "tcp") {
+            protocol = transport::TCP;
+        } else if (proto == "sctp") {
+            protocol = transport::SCTP;
+        } else {
+            fprint(std::cerr, "Error: --proto=tcp|sctp\n");
+            return engine().exit(1);
+        }
 
         if (!client::tests.count(test)) {
             fprint(std::cerr, "Error: -test=ping | rxrx | txtx\n");

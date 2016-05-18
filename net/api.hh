@@ -34,6 +34,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/ip.h>
+#include <boost/variant.hpp>
 
 struct ipv4_addr;
 
@@ -55,7 +56,13 @@ public:
     const ::sockaddr_in& as_posix_sockaddr_in() const { return u.in; }
 };
 
+enum class transport {
+    TCP = IPPROTO_TCP,
+    SCTP = IPPROTO_SCTP
+};
+
 struct listen_options {
+    transport proto = transport::TCP;
     bool reuse_address = false;
     listen_options(bool rua = false)
         : reuse_address(rua)
@@ -117,6 +124,14 @@ struct tcp_keepalive_params {
     std::chrono::seconds interval; // TCP_KEEPINTVL
     unsigned count; // TCP_KEEPCNT
 };
+
+// see linux sctp(7) for parameter explanation
+struct sctp_keepalive_params {
+    std::chrono::seconds interval; // spp_hbinterval
+    unsigned count; // spp_pathmaxrt
+};
+
+using keepalive_params = boost::variant<tcp_keepalive_params, sctp_keepalive_params>;
 
 /// \cond internal
 class connected_socket_impl;
@@ -211,9 +226,9 @@ public:
     /// \return whether the keepalive option is enabled or not
     bool get_keepalive() const;
     /// Sets TCP keepalive parameters
-    void set_keepalive_parameters(const net::tcp_keepalive_params& p);
+    void set_keepalive_parameters(const net::keepalive_params& p);
     /// Get TCP keepalive parameters
-    net::tcp_keepalive_params get_keepalive_parameters() const;
+    net::keepalive_params get_keepalive_parameters() const;
 
     /// Disables output to the socket.
     ///
@@ -259,7 +274,7 @@ public:
     /// Attempts to establish the connection.
     ///
     /// \return a \ref connected_socket representing the connection.
-    future<connected_socket> connect(socket_address sa, socket_address local = socket_address(::sockaddr_in{AF_INET, INADDR_ANY, {0}}));
+    future<connected_socket> connect(socket_address sa, socket_address local = socket_address(::sockaddr_in{AF_INET, INADDR_ANY, {0}}), transport proto = transport::TCP);
     /// Stops any in-flight connection attempt.
     ///
     /// Cancels the connection attempt if it's still in progress, and
@@ -311,8 +326,8 @@ public:
     virtual ~network_stack() {}
     virtual server_socket listen(socket_address sa, listen_options opts) = 0;
     // FIXME: local parameter assumes ipv4 for now, fix when adding other AF
-    future<connected_socket> connect(socket_address sa, socket_address local = socket_address(::sockaddr_in{AF_INET, INADDR_ANY, {0}})) {
-        return socket().connect(sa, local);
+    future<connected_socket> connect(socket_address sa, socket_address local = socket_address(::sockaddr_in{AF_INET, INADDR_ANY, {0}}), transport proto = transport::TCP) {
+        return socket().connect(sa, local, proto);
     }
     virtual seastar::socket socket() = 0;
     virtual net::udp_channel make_udp_channel(ipv4_addr addr = {}) = 0;
