@@ -110,6 +110,10 @@ private:
     };
     circular_buffer<entry> _wait_list;
 public:
+    using duration =  timer<>::duration;
+    using clock =  timer<>::clock;
+    using time_point =  timer<>::time_point;
+
     /// Constructs a semaphore object with a specific number of units
     /// in its internal counter.  The default is 1, suitable for use as
     /// an unlocked mutex.
@@ -146,13 +150,13 @@ public:
     /// \note Waits are serviced in FIFO order, though if several are awakened
     ///       at once, they may be reordered by the scheduler.
     ///
-    /// \param timeout how long to wait.
+    /// \param timeout expiration time.
     /// \param nr Amount of units to wait for (default 1).
     /// \return a future that becomes ready when sufficient units are available
     ///         to satisfy the request.  On timeout, the future contains a
     ///         \ref semaphore_timed_out exception.  If the semaphore was
     ///         \ref broken(), may contain an exception.
-    future<> wait(typename timer<>::duration timeout, size_t nr = 1) {
+    future<> wait(time_point timeout, size_t nr = 1) {
         auto fut = wait(nr);
         if (!fut.available()) {
             auto cancel = [this] (entry** e) {
@@ -176,6 +180,23 @@ public:
             }
         }
         return std::move(fut);
+    }
+
+    /// Waits until at least a specific number of units are available in the
+    /// counter, and reduces the counter by that amount of units.  If the request
+    /// cannot be satisfied in time, the request is aborted.
+    ///
+    /// \note Waits are serviced in FIFO order, though if several are awakened
+    ///       at once, they may be reordered by the scheduler.
+    ///
+    /// \param timeout how long to wait.
+    /// \param nr Amount of units to wait for (default 1).
+    /// \return a future that becomes ready when sufficient units are available
+    ///         to satisfy the request.  On timeout, the future contains a
+    ///         \ref semaphore_timed_out exception.  If the semaphore was
+    ///         \ref broken(), may contain an exception.
+    future<> wait(duration timeout, size_t nr = 1) {
+        return wait(clock::now() + timeout, nr);
     }
     /// Deposits a specified number of units into the counter.
     ///
