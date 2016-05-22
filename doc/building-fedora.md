@@ -4,7 +4,7 @@
 
 Installing required packages:
 ```
-yum install gcc-c++ libaio-devel ninja-build ragel hwloc-devel numactl-devel libpciaccess-devel cryptopp-devel xen-devel boost-devel libxml2-devel xfsprogs-devel gnutls-devel
+yum install gcc-c++ libaio-devel ninja-build ragel hwloc-devel numactl-devel libpciaccess-devel cryptopp-devel xen-devel boost-devel libxml2-devel xfsprogs-devel gnutls-devel lksctp-tools-devel
 ```
 
 You then need to run the following to create the "build.ninja" file:
