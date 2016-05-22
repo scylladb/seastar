@@ -795,13 +795,13 @@ public:
     server_socket listen(socket_address sa, listen_options opts = {});
 
     future<connected_socket> connect(socket_address sa);
-    future<connected_socket> connect(socket_address, socket_address, transport proto = transport::TCP);
+    future<connected_socket> connect(socket_address, socket_address, seastar::transport proto = seastar::transport::TCP);
 
     pollable_fd posix_listen(socket_address sa, listen_options opts = {});
 
     bool posix_reuseport_available() const { return _reuseport; }
 
-    lw_shared_ptr<pollable_fd> make_pollable_fd(socket_address sa, transport proto = transport::TCP);
+    lw_shared_ptr<pollable_fd> make_pollable_fd(socket_address sa, seastar::transport proto = seastar::transport::TCP);
     future<> posix_connect(lw_shared_ptr<pollable_fd> pfd, socket_address sa, socket_address local);
 
     future<pollable_fd, socket_address> accept(pollable_fd_state& listen_fd);

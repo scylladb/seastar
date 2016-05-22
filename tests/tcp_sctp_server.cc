@@ -26,6 +26,8 @@
 #include <vector>
 #include <iostream>
 
+using namespace seastar;
+
 static std::string str_ping{"ping"};
 static std::string str_txtx{"txtx"};
 static std::string str_rxrx{"rxrx"};

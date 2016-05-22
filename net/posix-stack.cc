@@ -28,6 +28,8 @@
 
 namespace net {
 
+using namespace seastar;
+
 template <transport Transport>
 class posix_connected_socket_operations;
 

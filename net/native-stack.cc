@@ -43,6 +43,8 @@
 
 namespace net {
 
+using namespace seastar;
+
 enum class xen_info {
     nonxen = 0,
     userspace = 1,

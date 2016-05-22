@@ -25,6 +25,8 @@
 #include "test-utils.hh"
 #include "core/thread.hh"
 
+using namespace seastar;
+
 struct serializer {
 };
 

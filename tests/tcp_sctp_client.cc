@@ -24,6 +24,7 @@
 #include "core/distributed.hh"
 
 using namespace net;
+using namespace seastar;
 using namespace std::chrono_literals;
 
 static int rx_msg_size = 4 * 1024;

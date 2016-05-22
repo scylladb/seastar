@@ -175,7 +175,7 @@ public:
     loopback_socket_impl(loopback_connection_factory& factory)
             : _factory(factory)
     { }
-    future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) {
+    future<connected_socket> connect(socket_address sa, socket_address local, seastar::transport proto = seastar::transport::TCP) {
         _b1 = make_lw_shared<loopback_buffer>();
         _b2 = make_lw_shared<loopback_buffer>();
         return _factory.make_new_connection(_b1, _b2);

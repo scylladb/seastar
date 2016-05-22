@@ -56,13 +56,17 @@ public:
     const ::sockaddr_in& as_posix_sockaddr_in() const { return u.in; }
 };
 
+namespace seastar {
+
 enum class transport {
     TCP = IPPROTO_TCP,
     SCTP = IPPROTO_SCTP
 };
 
+}
+
 struct listen_options {
-    transport proto = transport::TCP;
+    seastar::transport proto = seastar::transport::TCP;
     bool reuse_address = false;
     listen_options(bool rua = false)
         : reuse_address(rua)
@@ -274,7 +278,7 @@ public:
     /// Attempts to establish the connection.
     ///
     /// \return a \ref connected_socket representing the connection.
-    future<connected_socket> connect(socket_address sa, socket_address local = socket_address(::sockaddr_in{AF_INET, INADDR_ANY, {0}}), transport proto = transport::TCP);
+    future<connected_socket> connect(socket_address sa, socket_address local = socket_address(::sockaddr_in{AF_INET, INADDR_ANY, {0}}), seastar::transport proto = seastar::transport::TCP);
     /// Stops any in-flight connection attempt.
     ///
     /// Cancels the connection attempt if it's still in progress, and
@@ -326,7 +330,7 @@ public:
     virtual ~network_stack() {}
     virtual server_socket listen(socket_address sa, listen_options opts) = 0;
     // FIXME: local parameter assumes ipv4 for now, fix when adding other AF
-    future<connected_socket> connect(socket_address sa, socket_address local = socket_address(::sockaddr_in{AF_INET, INADDR_ANY, {0}}), transport proto = transport::TCP) {
+    future<connected_socket> connect(socket_address sa, socket_address local = socket_address(::sockaddr_in{AF_INET, INADDR_ANY, {0}}), seastar::transport proto = seastar::transport::TCP) {
         return socket().connect(sa, local, proto);
     }
     virtual seastar::socket socket() = 0;

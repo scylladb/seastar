@@ -53,7 +53,9 @@ class server_socket;
 class connected_socket;
 class socket_address;
 class listen_options;
+namespace seastar {
 enum class transport;
+}
 
 // file.hh
 class file;
@@ -119,7 +121,7 @@ future<connected_socket> connect(socket_address sa);
 /// \param proto transport protocol (TCP or SCTP)
 ///
 /// \return a \ref connected_socket object, or an exception
-future<connected_socket> connect(socket_address sa, socket_address local, transport proto);
+future<connected_socket> connect(socket_address sa, socket_address local, seastar::transport proto);
 
 /// @}
 

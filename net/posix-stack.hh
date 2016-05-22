@@ -28,6 +28,8 @@
 
 namespace net {
 
+using namespace seastar;
+
 data_source posix_data_source(pollable_fd& fd);
 data_sink posix_data_sink(pollable_fd& fd);
 

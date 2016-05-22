@@ -27,6 +27,8 @@
 
 namespace net {
 
+using namespace seastar;
+
 template <typename Protocol>
 class native_server_socket_impl;
 
