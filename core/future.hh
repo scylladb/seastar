@@ -785,12 +785,7 @@ public:
         if (!state()->available()) {
             wait();
         }
-        // detach from promise, so that promise::abandoned() doesn't trigger
-        if (_promise) {
-            _promise->_future = nullptr;
-            _promise = nullptr;
-        }
-        return std::move(*state()).get();
+        return get_available_state().get();
     }
 
     [[gnu::always_inline]]
