@@ -1877,7 +1877,14 @@ int reactor::run() {
                 idle_start = idle_end;
                 idle = true;
             }
-            if (_idle_cpu_handler(check_for_work) == idle_cpu_handler_result::no_more_work) {
+            bool go_to_sleep = true;
+            try {
+                auto handler_result = _idle_cpu_handler(check_for_work);
+                go_to_sleep = handler_result == idle_cpu_handler_result::no_more_work;
+            } catch (...) {
+                report_exception("Exception while running idle cpu handler", std::current_exception());
+            }
+            if (go_to_sleep) {
                 _mm_pause();
                 if (idle_end - idle_start > _max_poll_time) {
                     sleep();
