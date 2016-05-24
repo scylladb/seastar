@@ -65,6 +65,7 @@
 #include "fair_queue.hh"
 #include "core/scattered_message.hh"
 #include "core/enum.hh"
+#include "core/memory.hh"
 #include <boost/range/irange.hpp>
 #include "timer.hh"
 
@@ -660,6 +661,12 @@ public:
         void do_register();
         friend class reactor;
     };
+    enum class idle_cpu_handler_result {
+        no_more_work,
+        interrupted_by_higher_priority_task
+    };
+    using work_waiting_on_reactor = const std::function<bool()>&;
+    using idle_cpu_handler = std::function<idle_cpu_handler_result(work_waiting_on_reactor)>;
 
 private:
     // FIXME: make _backend a unique_ptr<reactor_backend>, not a compile-time #ifdef.
@@ -716,6 +723,15 @@ private:
     circular_buffer<std::unique_ptr<task>> _pending_tasks;
     circular_buffer<std::unique_ptr<task>> _at_destroy_tasks;
     std::chrono::duration<double> _task_quota;
+    /// Handler that will be called when there is no task to execute on cpu.
+    /// It represents a low priority work.
+    /// 
+    /// Handler's return value determines whether handler did any actual work. If no work was done then reactor will go
+    /// into sleep.
+    ///
+    /// Handler's argument is a function that returns true if a task which should be executed on cpu appears or false
+    /// otherwise. This function should be used by a handler to return early if a task appears.
+    idle_cpu_handler _idle_cpu_handler{ [] (work_waiting_on_reactor) {return idle_cpu_handler_result::no_more_work;} };
     std::unique_ptr<network_stack> _network_stack;
     // _lowres_clock will only be created on cpu 0
     std::unique_ptr<lowres_clock> _lowres_clock;
@@ -847,6 +863,18 @@ public:
     }
 
     void add_task(std::unique_ptr<task>&& t) { _pending_tasks.push_back(std::move(t)); }
+
+    /// Set a handler that will be called when there is no task to execute on cpu.
+    /// Handler should do a low priority work.
+    /// 
+    /// Handler's return value determines whether handler did any actual work. If no work was done then reactor will go
+    /// into sleep.
+    ///
+    /// Handler's argument is a function that returns true if a task which should be executed on cpu appears or false
+    /// otherwise. This function should be used by a handler to return early if a task appears.
+    void set_idle_cpu_handler(idle_cpu_handler&& handler) {
+        _idle_cpu_handler = std::move(handler);
+    }
     void force_poll();
 
     void add_high_priority_task(std::unique_ptr<task>&&);

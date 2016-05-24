@@ -1844,6 +1844,9 @@ int reactor::run() {
 
     bool idle = false;
 
+    std::function<bool()> check_for_work = [this] () {
+        return poll_once() || !_pending_tasks.empty() || seastar::thread::try_run_one_yielded_thread();
+    };
     while (true) {
         run_tasks(_pending_tasks);
         if (_stopped) {
@@ -1862,23 +1865,25 @@ int reactor::run() {
             break;
         }
 
-        if (!poll_once() && _pending_tasks.empty() && !seastar::thread::try_run_one_yielded_thread()) {
+        if (check_for_work()) {
+            if (idle) {
+                idle_count += (idle_end - idle_start).count();
+                idle_start = idle_end;
+                idle = false;
+            }
+        } else {
             idle_end = steady_clock_type::now();
             if (!idle) {
                 idle_start = idle_end;
                 idle = true;
             }
-            _mm_pause();
-            if (idle_end - idle_start > _max_poll_time) {
-                sleep();
-                // We may have slept for a while, so freshen idle_end
-                idle_end = steady_clock_type::now();
-            }
-        } else {
-            if (idle) {
-                idle_count += (idle_end - idle_start).count();
-                idle_start = idle_end;
-                idle = false;
+            if (_idle_cpu_handler(check_for_work) == idle_cpu_handler_result::no_more_work) {
+                _mm_pause();
+                if (idle_end - idle_start > _max_poll_time) {
+                    sleep();
+                    // We may have slept for a while, so freshen idle_end
+                    idle_end = steady_clock_type::now();
+                }
             }
         }
     }
