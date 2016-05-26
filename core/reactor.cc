@@ -1484,7 +1484,7 @@ reactor::register_collectd_metrics() {
                 scollectd::type_instance_id("reactor",
                     scollectd::per_cpu_plugin_instance,
                     "total_operations", "logging_failures"),
-                scollectd::make_typed(scollectd::data_type::GAUGE,
+                scollectd::make_typed(scollectd::data_type::DERIVE,
                         [] { return logging_failures; })
             ),
     } };
