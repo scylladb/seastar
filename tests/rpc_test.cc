@@ -24,6 +24,7 @@
 #include "rpc/rpc.hh"
 #include "test-utils.hh"
 #include "core/thread.hh"
+#include "core/sleep.hh"
 
 using namespace seastar;
 
@@ -148,6 +149,41 @@ SEASTAR_TEST_CASE(test_rpc_connect_abort) {
                 f(c1).get0();
                 BOOST_REQUIRE(false);
             } catch (...) {}
+        });
+    });
+}
+
+SEASTAR_TEST_CASE(test_rpc_cancel) {
+    using namespace std::chrono_literals;
+    return with_rpc_env({}, true, [] (test_rpc_proto& proto, test_rpc_proto::server& s, connect_fn connect) {
+        return seastar::async([&proto, &s, connect] {
+            auto c1 = connect(ipv4_addr());
+            bool rpc_executed = false;
+            int good = 0;
+            auto call = proto.register_handler(1, [&rpc_executed]() {
+                rpc_executed = true; return sleep(1ms);
+            });
+            rpc::cancellable cancel;
+            auto f = call(c1, cancel);
+            // cancel send side
+            cancel.cancel();
+            try {
+                f.get();
+            } catch(rpc::canceled_error&) {
+                good += !rpc_executed;
+            };
+            f = call(c1, cancel);
+            // cancel wait side
+            sleep(500us).then([cancel = std::move(cancel)] () mutable {
+                cancel.cancel();
+            }).get();
+            try {
+                f.get();
+            } catch(rpc::canceled_error&) {
+                good += rpc_executed;
+            };
+            c1.stop().get();
+            BOOST_REQUIRE_EQUAL(good, 2);
         });
     });
 }

@@ -106,7 +106,8 @@ int main(int ac, char** av) {
         auto test4 = myrpc.register_handler(4, [](){ print("test4 throw!\n"); throw std::runtime_error("exception!"); });
         auto test5 = myrpc.register_handler(5, [](){ print("test5 no wait\n"); return rpc::no_wait; });
         auto test6 = myrpc.register_handler(6, [](const rpc::client_info& info, int x){ print("test6 client %s, %d\n", inet_ntoa(info.addr.as_posix_sockaddr_in().sin_addr), x); });
-        auto test8 = myrpc.register_handler(8, [](){ print("test8 sleep for 5 sec\n"); return sleep(2s); });
+        auto test8 = myrpc.register_handler(8, [](){ print("test8 sleep for 2 sec\n"); return sleep(2s); });
+        auto test13 = myrpc.register_handler(13, [](){ print("test13 sleep for 1 msec\n"); return sleep(1ms); });
 
         if (config.count("server")) {
             std::cout << "client" << std::endl;
@@ -164,6 +165,29 @@ int main(int ac, char** av) {
                     }
                 });
                 test_nohandler_nowait(*client);
+                auto c = make_lw_shared<rpc::cancellable>();
+                test13(*client, *c).then_wrapped([](future<> f) {
+                    try {
+                        f.get();
+                        print("test13 shold not get here\n");
+                    } catch(rpc::canceled_error&) {
+                        print("test13 canceled\n");
+                    } catch(...) {
+                        print("test13 wrong exception\n");
+                    }
+                });
+                c->cancel();
+                test13(*client, *c).then_wrapped([](future<> f) {
+                    try {
+                        f.get();
+                        print("test13 shold not get here\n");
+                    } catch(rpc::canceled_error&) {
+                        print("test13 canceled\n");
+                    } catch(...) {
+                        print("test13 wrong exception\n");
+                    }
+                });
+                sleep(500us).then([c] { c->cancel(); });
             }
             // delay a little for a time-sensitive test
             sleep(400ms).then([test12] () mutable {
