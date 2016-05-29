@@ -102,18 +102,17 @@ class protocol {
             timer<> t;
             sstring buf;
             promise<> p;
+            cancellable* pcancel = nullptr;
             outgoing_entry(sstring b) : buf(std::move(b)) {}
             outgoing_entry(outgoing_entry&&) = default;
             ~outgoing_entry() {
                 if (!buf.empty()) {
+                    if (pcancel) {
+                        pcancel->cancel_send = std::function<void()>();
+                        pcancel->send_back_pointer = nullptr;
+                    }
                     p.set_value();
                 }
-            }
-            void set_timeout(connection& c, typename std::list<outgoing_entry>::const_iterator it, steady_clock_type::time_point exp) {
-                t.set_callback([&c, it] {
-                    c._outgoing_queue.erase(it);
-                });
-                t.arm(exp);
             }
         };
         friend outgoing_entry;
@@ -127,6 +126,9 @@ class protocol {
                     auto d = std::move(_outgoing_queue.front());
                     _outgoing_queue.pop_front();
                     d.t.cancel(); // cancel timeout timer
+                    if (d.pcancel) {
+                        d.pcancel->cancel_send = std::function<void()>(); // request is no longer cancellable
+                    }
                     auto f = _write_buf.write(d.buf).then([this] {
                         _stats.sent_messages++;
                         return _write_buf.flush();
@@ -153,11 +155,21 @@ class protocol {
         connection(protocol& proto) : _proto(proto) {}
         // functions below are public because they are used by external heavily templated functions
         // and I am not smart enough to know how to define them as friends
-        future<> send(sstring buf, std::experimental::optional<steady_clock_type::time_point> timeout = {}) {
+        future<> send(sstring buf, std::experimental::optional<steady_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr) {
             if (!_error) {
                 _outgoing_queue.emplace_back(std::move(buf));
+                auto deleter = [this, it = std::prev(_outgoing_queue.cend())] {
+                    _outgoing_queue.erase(it);
+                };
                 if (timeout) {
-                    _outgoing_queue.back().set_timeout(*this, std::prev(_outgoing_queue.cend()), timeout.value());
+                    auto& t = _outgoing_queue.back().t;
+                    t.set_callback(deleter);
+                    t.arm(timeout.value());
+                }
+                if (cancel) {
+                    cancel->cancel_send = std::move(deleter);
+                    cancel->send_back_pointer = &_outgoing_queue.back().pcancel;
+                    _outgoing_queue.back().pcancel = cancel;
                 }
                 _outgoing_queue_cond.signal();
                 return _outgoing_queue.back().p.get_future();
@@ -252,9 +264,16 @@ public:
         id_type _message_id = 1;
         struct reply_handler_base {
             timer<> t;
+            cancellable* pcancel = nullptr;
             virtual void operator()(client&, id_type, temporary_buffer<char> data) = 0;
             virtual void timeout() {}
-            virtual ~reply_handler_base() {};
+            virtual void cancel() {}
+            virtual ~reply_handler_base() {
+                if (pcancel) {
+                    pcancel->cancel_wait = std::function<void()>();
+                    pcancel->wait_back_pointer = nullptr;
+                }
+            };
         };
     public:
         template<typename Reply, typename Func>
@@ -268,6 +287,10 @@ public:
             virtual void timeout() override {
                 reply.done = true;
                 reply.p.set_exception(timeout_error());
+            }
+            virtual void cancel() override {
+                reply.done = true;
+                reply.p.set_exception(canceled_error());
             }
             virtual ~reply_handler() {}
         };
@@ -311,10 +334,18 @@ public:
             return this->_stats;
         }
         auto next_message_id() { return _message_id++; }
-        void wait_for_reply(id_type id, std::unique_ptr<reply_handler_base>&& h, std::experimental::optional<steady_clock_type::time_point> timeout) {
+        void wait_for_reply(id_type id, std::unique_ptr<reply_handler_base>&& h, std::experimental::optional<steady_clock_type::time_point> timeout, cancellable* cancel) {
             if (timeout) {
                 h->t.set_callback(std::bind(std::mem_fn(&client::wait_timed_out), this, id));
                 h->t.arm(timeout.value());
+            }
+            if (cancel) {
+                cancel->cancel_wait = [this, id] {
+                    _outstanding[id]->cancel();
+                    _outstanding.erase(id);
+                };
+                h->pcancel = cancel;
+                cancel->wait_back_pointer = &h->pcancel;
             }
             _outstanding.emplace(id, std::move(h));
         }

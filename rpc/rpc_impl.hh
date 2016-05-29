@@ -273,7 +273,7 @@ template<typename Serializer, typename MsgType>
 struct rcv_reply<Serializer, MsgType, future<>> : rcv_reply<Serializer, MsgType, void> {};
 
 template <typename Serializer, typename MsgType, typename Ret, typename... InArgs>
-inline auto wait_for_reply(wait_type, std::experimental::optional<steady_clock_type::time_point> timeout, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id,
+inline auto wait_for_reply(wait_type, std::experimental::optional<steady_clock_type::time_point> timeout, cancellable* cancel, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id,
         signature<Ret (InArgs...)> sig) {
     using reply_type = rcv_reply<Serializer, MsgType, Ret>;
     auto lambda = [] (reply_type& r, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id, temporary_buffer<char> data) mutable {
@@ -289,18 +289,18 @@ inline auto wait_for_reply(wait_type, std::experimental::optional<steady_clock_t
     using handler_type = typename protocol<Serializer, MsgType>::client::template reply_handler<reply_type, decltype(lambda)>;
     auto r = std::make_unique<handler_type>(std::move(lambda));
     auto fut = r->reply.p.get_future();
-    dst.wait_for_reply(msg_id, std::move(r), timeout);
+    dst.wait_for_reply(msg_id, std::move(r), timeout, cancel);
     return fut;
 }
 
 template<typename Serializer, typename MsgType, typename... InArgs>
-inline auto wait_for_reply(no_wait_type, std::experimental::optional<steady_clock_type::time_point>, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id,
+inline auto wait_for_reply(no_wait_type, std::experimental::optional<steady_clock_type::time_point>, cancellable* cancel, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id,
         signature<no_wait_type (InArgs...)> sig) {  // no_wait overload
     return make_ready_future<>();
 }
 
 template<typename Serializer, typename MsgType, typename... InArgs>
-inline auto wait_for_reply(no_wait_type, std::experimental::optional<steady_clock_type::time_point>, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id,
+inline auto wait_for_reply(no_wait_type, std::experimental::optional<steady_clock_type::time_point>, cancellable* cancel, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id,
         signature<future<no_wait_type> (InArgs...)> sig) {  // future<no_wait> overload
     return make_ready_future<>();
 }
@@ -314,7 +314,7 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
     struct shelper {
         MsgType t;
         signature<Ret (InArgs...)> sig;
-        auto send(typename protocol<Serializer, MsgType>::client& dst, std::experimental::optional<steady_clock_type::time_point> timeout, const InArgs&... args) {
+        auto send(typename protocol<Serializer, MsgType>::client& dst, std::experimental::optional<steady_clock_type::time_point> timeout, cancellable* cancel, const InArgs&... args) {
             if (dst.error()) {
                 using cleaned_ret_type = typename wait_signature<Ret>::cleaned_type;
                 return futurize<cleaned_ret_type>::make_exception_future(closed_error());
@@ -330,19 +330,23 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
 
             // prepare reply handler, if return type is now_wait_type this does nothing, since no reply will be sent
             using wait = wait_signature_t<Ret>;
-            return when_all(dst.send(std::move(data), timeout), wait_for_reply<Serializer, MsgType>(wait(), timeout, dst, msg_id, sig)).then([] (auto r) {
+            return when_all(dst.send(std::move(data), timeout, cancel), wait_for_reply<Serializer, MsgType>(wait(), timeout, cancel, dst, msg_id, sig)).then([] (auto r) {
                     return std::move(std::get<1>(r)); // return future of wait_for_reply
             });
         }
         auto operator()(typename protocol<Serializer, MsgType>::client& dst, const InArgs&... args) {
-            return send(dst, {}, args...);
+            return send(dst, {}, nullptr, args...);
         }
         auto operator()(typename protocol<Serializer, MsgType>::client& dst, steady_clock_type::time_point timeout, const InArgs&... args) {
-            return send(dst, timeout, args...);
+            return send(dst, timeout, nullptr, args...);
         }
         auto operator()(typename protocol<Serializer, MsgType>::client& dst, steady_clock_type::duration timeout, const InArgs&... args) {
-            return send(dst, steady_clock_type::now() + timeout, args...);
+            return send(dst, steady_clock_type::now() + timeout, nullptr, args...);
         }
+        auto operator()(typename protocol<Serializer, MsgType>::client& dst, cancellable& cancel, const InArgs&... args) {
+            return send(dst, {}, &cancel, args...);
+        }
+
     };
     return shelper{xt, xsig};
 }
