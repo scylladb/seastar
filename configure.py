@@ -272,6 +272,7 @@ core = [
     'core/thread.cc',
     'core/dpdk_rte.cc',
     'util/conversions.cc',
+    'util/log.cc',
     'net/packet.cc',
     'net/posix-stack.cc',
     'net/net.cc',
