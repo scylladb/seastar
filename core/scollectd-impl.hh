@@ -60,6 +60,8 @@ public:
     void start(const sstring & host, const ipv4_addr & addr, const std::chrono::milliseconds period);
     void stop();
 
+    value_list_map& get_value_list_map();
+
 private:
     void arm();
     void run();
