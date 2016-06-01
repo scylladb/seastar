@@ -846,7 +846,72 @@ TODO: show how to fix the network server to work on multiple threads
 
 Handling interrupt, shutting down services, etc.
 
-# User-defined command-line options
+# Command line options
+## Standard Seastar command-line options
+All Seastar applications accept a standard set of command-line arguments, such as those we've already seen above: The `-c` option for controlling the number of threads used, or  `-m` for determining the amount of memory given to the application.
+
+TODO: list and explain more of these options.
+
+Every Seastar application also accepts the `-h` (or `--help`) option, which lists and explains all the available options --- the standard Seastar ones, and the user-defined ones as explained below.
+## User-defined command-line options
+Seastar parses the command line options (`argv[]`) when it is passed to `app_template::run()`, looking for its own standard options. Therefore, it is not recommended that the application tries to parse `argv[]` on its own because the application might not understand some of the standard Seastar options and not be able to correctly skip them.
+
+Rather, applications which want to have command-line options of their own should tell Seastar's command line parser of these additional application-specific options, and ask Seastar's command line parser to recognize them too. Seastar's command line parser is actually the Boost library's `boost::program_options`. An application adds its own option by using the `add_options()` and `add_positional_options()` methods on the `app_template` to define options, and later calling `configuration()` to retrieve the setting of these options. For example,
+
+```cpp
+#include <iostream>
+#include <core/app-template.hh>
+#include <core/reactor.hh>
+int main(int argc, char** argv) {
+    app_template app;
+    namespace bpo = boost::program_options;
+    app.add_options()
+        ("flag", "some optional flag")
+        ("size,s", bpo::value<int>()->default_value(100), "size")
+        ;
+    app.add_positional_options({
+       { "filename", bpo::value<std::vector<sstring>>()->default_value({}),
+         "sstable files to verify", -1}
+    });
+    app.run(argc, argv, [&app] {
+        auto& args = app.configuration();
+        if (args.count("flag")) {
+            std::cout << "Flag is on\n";
+        }
+        std::cout << "Size is " << args["size"].as<int>() << "\n";
+        auto& filenames = args["filename"].as<std::vector<sstring>>();
+        for (auto&& fn : filenames) {
+            std::cout << fn << "\n";
+        }
+        return make_ready_future<>();
+    });
+    return 0;
+}
+```
+
+In this example, we add via `add_options()` two application-specific options: `--flag` is an optional parameter which doesn't take any additional agruments, and `--size` (or `-s`) takes an integer value, which defaults (if this option is missing) to 100. Additionally, we ask via `add_positional_options()` that an unlimited number of arguments that do not begin with a "`-`" --- the so-called _positional_ arguments --- be collected to a vector of strings under the "filename" option. Some example outputs from this program:
+
+```
+$ ./a.out
+Size is 100
+$ ./a.out --flag
+Flag is on
+Size is 100
+$ ./a.out --flag -s 3
+Flag is on
+Size is 3
+$ ./a.out --size 3 hello hi
+Size is 3
+hello
+hi
+$ ./a.out --filename hello --size 3 hi
+Size is 3
+hello
+hi
+```
+
+`boost::program_options` has more powerful features, such as required options, option checking and combining, various option types, and more. Please refer to Boost's documentation for more information.
+
 # Debugging a Seastar program
 handle SIGUSR1 pass noprint
 handle SIGALRM pass noprint
