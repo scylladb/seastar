@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <string>
 #include <vector>
+#include <unordered_map>
 #include <cstring>
 #include <stdexcept>
 #include <initializer_list>
@@ -683,6 +684,22 @@ std::ostream& operator<<(std::ostream& os, const std::vector<T>& v) {
             first = false;
         }
         os << elem;
+    }
+    os << "}";
+    return os;
+}
+
+template <typename Key, typename T, typename Hash, typename KeyEqual, typename Allocator>
+std::ostream& operator<<(std::ostream& os, const std::unordered_map<Key, T, Hash, KeyEqual, Allocator>& v) {
+    bool first = true;
+    os << "{";
+    for (auto&& elem : v) {
+        if (!first) {
+            os << ", ";
+        } else {
+            first = false;
+        }
+        os << "{ " << elem.first << " -> " << elem.second << "}";
     }
     os << "}";
     return os;
