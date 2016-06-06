@@ -160,8 +160,10 @@ SEASTAR_TEST_CASE(test_rpc_cancel) {
             auto c1 = connect(ipv4_addr());
             bool rpc_executed = false;
             int good = 0;
-            auto call = proto.register_handler(1, [&rpc_executed]() {
-                rpc_executed = true; return sleep(1ms);
+            promise<> handler_called;
+            future<> f_handler_called = handler_called.get_future();
+            auto call = proto.register_handler(1, [&rpc_executed,  handler_called = std::move(handler_called)] () mutable {
+                handler_called.set_value(); rpc_executed = true; return sleep(1ms);
             });
             rpc::cancellable cancel;
             auto f = call(c1, cancel);
@@ -174,16 +176,16 @@ SEASTAR_TEST_CASE(test_rpc_cancel) {
             };
             f = call(c1, cancel);
             // cancel wait side
-            sleep(500us).then([cancel = std::move(cancel)] () mutable {
+            f_handler_called.then([cancel = std::move(cancel)] () mutable {
                 cancel.cancel();
             }).get();
             try {
                 f.get();
             } catch(rpc::canceled_error&) {
-                good += rpc_executed;
+                good += 10*rpc_executed;
             };
             c1.stop().get();
-            BOOST_REQUIRE_EQUAL(good, 2);
+            BOOST_REQUIRE_EQUAL(good, 11);
         });
     });
 }
