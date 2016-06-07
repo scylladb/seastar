@@ -429,11 +429,15 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
         auto args = unmarshall<Serializer, InArgs...>(client->serializer(), std::move(data));
         // note: apply is executed asynchronously with regards to networking so we cannot chain futures here by doing "return apply()"
         return client->wait_for_resources(memory_consumed).then([client, msg_id, memory_consumed, args = std::move(args), &func] () mutable {
-          apply(func, client->info(), WantClientInfo(), signature(), std::move(args)).then_wrapped([client, msg_id, memory_consumed] (futurize_t<typename signature::ret_type> ret) mutable {
-              reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, client).finally([client, memory_consumed] {
-                  client->release_resources(memory_consumed);
-               });
-          });
+            try {
+                seastar::with_gate(client->get_server().reply_gate(), [client, msg_id, memory_consumed, args = std::move(args), &func] () mutable {
+                    return apply(func, client->info(), WantClientInfo(), signature(), std::move(args)).then_wrapped([client, msg_id, memory_consumed] (futurize_t<typename signature::ret_type> ret) mutable {
+                        return reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, client).finally([client, memory_consumed] {
+                            client->release_resources(memory_consumed);
+                        });
+                    });
+                });
+            } catch (seastar::gate_closed_exception&) {/* ignore */ }
         });
     };
 }
@@ -743,9 +747,13 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
                             *unaligned_cast<uint32_t*>(p) = cpu_to_le(uint32_t(exception_type::UNKNOWN_VERB));
                             *unaligned_cast<uint32_t*>(p + 4) = cpu_to_le(uint32_t(8));
                             *unaligned_cast<uint64_t*>(p + 8) = cpu_to_le(uint64_t(type));
-                            this->respond(-msg_id, std::move(data)).finally([this] {
-                                this->release_resources(28);
-                            });
+                            try {
+                                seastar::with_gate(this->_server._reply_gate, [this, msg_id, data = std::move(data)] () mutable {
+                                    return this->respond(-msg_id, std::move(data)).finally([c = this->shared_from_this()] {
+                                        c->release_resources(28);
+                                    });
+                                });
+                            } catch(seastar::gate_closed_exception&) {/* ignore */}
                         });
                     }
                 }

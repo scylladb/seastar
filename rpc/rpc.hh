@@ -30,6 +30,7 @@
 #include "core/iostream.hh"
 #include "core/shared_ptr.hh"
 #include "core/condition-variable.hh"
+#include "core/gate.hh"
 #include "rpc/rpc_types.hh"
 
 namespace rpc {
@@ -226,6 +227,9 @@ public:
             size_t estimate_request_size(size_t serialized_size) {
                 return rpc::estimate_request_size(_server._limits, serialized_size);
             }
+            server& get_server() {
+                return _server;
+            }
         };
     private:
         protocol& _proto;
@@ -235,6 +239,7 @@ public:
         std::unordered_set<connection*> _conns;
         bool _stopping = false;
         promise<> _ss_stopped;
+        seastar::gate _reply_gate;
     public:
         server(protocol& proto, ipv4_addr addr, resource_limits memory_limit = resource_limits());
         server(protocol& proto, server_socket, resource_limits memory_limit = resource_limits());
@@ -246,7 +251,8 @@ public:
             return when_all(_ss_stopped.get_future(),
                 parallel_for_each(_conns, [] (connection* conn) {
                     return conn->stop();
-                })
+                }),
+                _reply_gate.close()
             ).discard_result();
         }
         template<typename Func>
@@ -254,6 +260,9 @@ public:
             for (auto c : _conns) {
                 f(*c);
             }
+        }
+        seastar::gate& reply_gate() {
+            return _reply_gate;
         }
         friend connection;
     };
