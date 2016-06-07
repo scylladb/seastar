@@ -362,8 +362,7 @@ protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, sstri
 }
 
 template<typename Serializer, typename MsgType, typename... RetTypes>
-inline void reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client,
-        size_t memory_consumed) {
+inline future<> reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client) {
     if (!client->error()) {
         sstring data;
         try {
@@ -379,24 +378,21 @@ inline void reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_share
             msg_id = -msg_id;
         }
 
-        client->respond(msg_id, std::move(data)).finally([client, memory_consumed] {
-            client->release_resources(memory_consumed);
-        });
+        return client->respond(msg_id, std::move(data));
     } else {
-        client->release_resources(memory_consumed);
+        return make_ready_future<>();
     }
 }
 
 // specialization for no_wait_type which does not send a reply
 template<typename Serializer, typename MsgType>
-inline void reply(no_wait_type, future<no_wait_type>&& r, int64_t msgid, lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client,
-        size_t memory_consumed) {
-    client->release_resources(memory_consumed);
+inline future<> reply(no_wait_type, future<no_wait_type>&& r, int64_t msgid, lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client) {
     try {
         r.get();
     } catch (std::exception& ex) {
         client->get_protocol().log(client->info(), msgid, to_sstring("exception \"") + ex.what() + "\" in no_wait handler ignored");
     }
+    return make_ready_future<>();
 }
 
 template<typename Ret, typename... InArgs, typename WantClientInfo, typename Func, typename ArgsTuple>
@@ -433,9 +429,10 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
         auto args = unmarshall<Serializer, InArgs...>(client->serializer(), std::move(data));
         // note: apply is executed asynchronously with regards to networking so we cannot chain futures here by doing "return apply()"
         return client->wait_for_resources(memory_consumed).then([client, msg_id, memory_consumed, args = std::move(args), &func] () mutable {
-          apply(func, client->info(), WantClientInfo(), signature(), std::move(args)).then_wrapped(
-                [client, msg_id, memory_consumed] (futurize_t<typename signature::ret_type> ret) mutable {
-            reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, std::move(client), memory_consumed);
+          apply(func, client->info(), WantClientInfo(), signature(), std::move(args)).then_wrapped([client, msg_id, memory_consumed] (futurize_t<typename signature::ret_type> ret) mutable {
+              reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, client).finally([client, memory_consumed] {
+                  client->release_resources(memory_consumed);
+               });
           });
         });
     };
