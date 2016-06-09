@@ -30,6 +30,8 @@
 namespace seastar {
 log_registry& logger_registry();
 
+thread_local uint64_t logging_failures = 0;
+
 const std::map<log_level, sstring> log_level_names = {
         { log_level::trace, "trace" },
         { log_level::debug, "debug" },
@@ -153,7 +155,9 @@ void logger::failed_to_log(std::exception_ptr ex)
 {
     try {
         do_log(log_level::error, "failed to log message: {}", ex);
-    } catch (...) { }
+    } catch (...) {
+        ++logging_failures;
+    }
 }
 
 void

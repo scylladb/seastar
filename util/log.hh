@@ -263,6 +263,8 @@ public:
 
 /// \cond internal
 
+extern thread_local uint64_t logging_failures;
+
 sstring pretty_type_name(const std::type_info&);
 
 sstring level_name(log_level level);

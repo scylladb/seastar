@@ -38,6 +38,7 @@
 #include "thread.hh"
 #include "systemwide_memory_barrier.hh"
 #include "report_exception.hh"
+#include "util/log.hh"
 #include <cassert>
 #include <unistd.h>
 #include <fcntl.h>
@@ -85,9 +86,10 @@ using namespace std::chrono_literals;
 using namespace net;
 using namespace seastar;
 
+static seastar::logger seastar_logger("seastar");
+
 std::atomic<lowres_clock::rep> lowres_clock::_now;
 constexpr std::chrono::milliseconds lowres_clock::_granularity;
-static thread_local uint64_t logging_failures = 0;
 
 timespec to_timespec(steady_clock_type::time_point t) {
     using ns = std::chrono::nanoseconds;
@@ -2809,44 +2811,7 @@ reactor_backend_osv::enable_timer(steady_clock_type::time_point when) {
 #endif
 
 void report_exception(std::experimental::string_view message, std::exception_ptr eptr) noexcept {
-    try {
-#ifndef __GNUC__
-    std::cerr << message << ".\n";
-#else
-    try {
-        std::rethrow_exception(eptr);
-    } catch(...) {
-        auto tp = abi::__cxa_current_exception_type();
-        std::cerr << message;
-        if (tp) {
-            int status;
-            char *demangled = abi::__cxa_demangle(tp->name(), 0, 0, &status);
-            std::cerr << " of type '";
-            if (status == 0) {
-                std::cerr << demangled;
-                free(demangled);
-            } else {
-                std::cerr << tp->name();
-            }
-            std::cerr << "'";
-        } else {
-            std::cerr << " of unknown type";
-        }
-        // Print more information on some known exception types
-        try {
-            throw;
-        } catch(const std::system_error &e) {
-            std::cerr << ": Error " << e.code() << " (" << e.code().message() << ")\n";
-        } catch(const std::exception& e) {
-            std::cerr << ": " << e.what() << "\n";
-        } catch(...) {
-            std::cerr << ".\n";
-        }
-    }
-#endif
-    } catch (...) {
-        ++logging_failures;
-    }
+    seastar_logger.error("{}: {}", message, eptr);
 }
 
 /**
@@ -2864,7 +2829,7 @@ void engine_exit(std::exception_ptr eptr) {
 }
 
 void report_failed_future(std::exception_ptr eptr) {
-    report_exception("WARNING: exceptional future ignored", eptr);
+    seastar_logger.warn("Exceptional future ignored: {}", eptr);
 }
 
 future<> check_direct_io_support(sstring path) {
