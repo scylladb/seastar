@@ -663,8 +663,8 @@ void io_queue::fill_shares_array() {
 }
 
 io_priority_class io_queue::register_one_priority_class(sstring name, uint32_t shares) {
-    uint32_t unused = 0;
     for (unsigned i = 0; i < _max_classes; ++i) {
+        uint32_t unused = 0;
         auto s = _registered_shares[i].compare_exchange_strong(unused, shares, std::memory_order_acq_rel);
         if (s) {
             io_priority_class p;
