@@ -247,6 +247,7 @@ public:
         future<> stop() {
             _stopping = true; // prevents closed connections to be deleted from _conns
             _ss.abort_accept();
+            _ss = server_socket();
             _resources_available.broken();
             return when_all(_ss_stopped.get_future(),
                 parallel_for_each(_conns, [] (connection* conn) {
