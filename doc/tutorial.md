@@ -134,6 +134,7 @@ The error is an exception thrown from app.run, which we did not catch, leading t
 ```cpp
 #include "core/app-template.hh"
 #include "core/reactor.hh"
+#include "util/log.hh"
 #include <iostream>
 #include <stdexcept>
 
@@ -144,8 +145,9 @@ int main(int argc, char** argv) {
             std::cout << smp::count << "\n";
             return make_ready_future<>();
         });
-    } catch(std::runtime_error &e) {
-        std::cerr << "Couldn't start application: " << e.what() << "\n";
+    } catch(...) {
+        std::cerr << "Failed to start application: "
+                  << std::current_exception() << "\n";
         return 1;
     }
     return 0;
@@ -153,7 +155,7 @@ int main(int argc, char** argv) {
 ```
 ```none
 $ ./a.out -c5
-Couldn't start application: insufficient processing units
+Couldn't start application: std::runtime_error (insufficient processing units)
 ```
 
 Note that catching the exceptions this way does **not** catch exceptions thrown in the application's actual asynchronous code. We will discuss these later in this tutorial.
@@ -166,7 +168,7 @@ By default, the machine's **entire memory** except a small reservation left for 
 Trying to give Seastar more memory than physical memory immediately fails:
 ```none
 $ ./a.out -m10T
-Couldn't start application: insufficient physical memory
+Couldn't start application: std::runtime_error (insufficient physical memory)
 ```
 
 # Introducing futures and continuations
@@ -218,6 +220,7 @@ To avoid repeating the boilerplate "app_engine" part in every code example in th
 
 ```cpp
 #include "core/app-template.hh"
+#include "util/log.hh"
 #include <iostream>
 #include <stdexcept>
 
@@ -227,8 +230,9 @@ int main(int argc, char** argv) {
     app_template app;
     try {
         app.run(argc, argv, f);
-    } catch(std::runtime_error &e) {
-        std::cerr << "Couldn't start application: " << e.what() << "\n";
+    } catch(...) {
+        std::cerr << "Couldn't start application: "
+                  << std::current_exception() << "\n";
         return 1;
     }
     return 0;
