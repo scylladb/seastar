@@ -72,6 +72,7 @@
 #include <cxxabi.h>
 #endif
 
+#include <sys/mman.h>
 #include <linux/falloc.h>
 #include <linux/magic.h>
 
@@ -2469,6 +2470,7 @@ smp::get_options_description()
         ("memory,m", bpo::value<std::string>(), "memory to use, in bytes (ex: 4G) (default: all)")
         ("reserve-memory", bpo::value<std::string>(), "memory reserved to OS (if --memory not specified)")
         ("hugepages", bpo::value<std::string>(), "path to accessible hugetlbfs mount (typically /dev/hugepages/something)")
+        ("lock-memory", bpo::value<bool>(), "lock all memory (prevents swapping)")
 #ifdef HAVE_HWLOC
         ("num-io-queues", bpo::value<unsigned>(), "Number of IO queues. Each IO unit will be responsible for a fraction of the IO requests. Defaults to the number of threads")
         ("max-io-requests", bpo::value<unsigned>(), "Maximum amount of concurrent requests to be sent to the disk. Defaults to 128 times the number of IO queues")
@@ -2622,6 +2624,17 @@ void smp::configure(boost::program_options::variables_map configuration)
     std::experimental::optional<std::string> hugepages_path;
     if (configuration.count("hugepages")) {
         hugepages_path = configuration["hugepages"].as<std::string>();
+    }
+    auto mlock = false;
+    if (configuration.count("lock-memory")) {
+        mlock = configuration["lock-memory"].as<bool>();
+    }
+    if (mlock) {
+        auto r = mlockall(MCL_CURRENT | MCL_FUTURE);
+        if (r) {
+            // Don't hard fail for now, it's hard to get the configuration right
+            print("warning: failed to mlockall: %s\n", strerror(errno));
+        }
     }
 
     rc.cpus = smp::count;
