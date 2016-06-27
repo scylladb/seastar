@@ -416,6 +416,8 @@ private:
     void move_pending();
     void flush_request_batch();
     void flush_response_batch();
+    bool pure_poll_rx() const;
+    bool pure_poll_tx() const;
 
     friend class smp;
 };
@@ -612,6 +614,9 @@ private:
         virtual ~pollfn() {}
         // Returns true if work was done (false = idle)
         virtual bool poll() = 0;
+        // Checks if work needs to be done, but without actually doing any
+        // returns true if works needs to be done (false = idle)
+        virtual bool pure_poll() = 0;
         // Tries to enter interrupt mode.
         //
         // If it returns true, then events from this poller will wake
@@ -754,6 +759,7 @@ private:
     bool flush_pending_aio();
     bool flush_tcp_batches();
     bool do_expire_lowres_timers();
+    bool do_check_lowres_timers() const;
     void abort_on_error(int ret);
     template <typename T, typename E, typename EnableFunc>
     void complete_timers(T&, E&, EnableFunc&& enable_fn);
@@ -765,6 +771,7 @@ private:
      *         execution.
      */
     bool poll_once();
+    bool pure_poll_once();
     template <typename Func> // signature: bool ()
     static std::unique_ptr<pollfn> make_pollfn(Func&& func);
 
@@ -774,6 +781,7 @@ private:
         ~signals();
 
         bool poll_signal();
+        bool pure_poll_signal() const;
         void handle_signal(int signo, std::function<void ()>&& handler);
         void handle_signal_once(int signo, std::function<void ()>&& handler);
         static void action(int signo, siginfo_t* siginfo, void* ignore);
@@ -983,8 +991,11 @@ reactor::make_pollfn(Func&& func) {
     struct the_pollfn : pollfn {
         the_pollfn(Func&& func) : func(std::forward<Func>(func)) {}
         Func func;
-        virtual bool poll() override {
+        virtual bool poll() override final {
             return func();
+        }
+        virtual bool pure_poll() override final {
+            return poll(); // dubious, but compatible
         }
     };
     return std::make_unique<the_pollfn>(std::forward<Func>(func));
@@ -1068,6 +1079,18 @@ public:
             }
         }
         return got != 0;
+    }
+    static bool pure_poll_queues() {
+        for (unsigned i = 0; i < count; i++) {
+            if (engine().cpu_id() != i) {
+                auto& rxq = _qs[engine().cpu_id()][i];
+                auto& txq = _qs[i][engine()._id];
+                if (rxq.pure_poll_rx() || txq.pure_poll_tx()) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
     static boost::integer_range<unsigned> all_cpus() {
         return boost::irange(0u, count);

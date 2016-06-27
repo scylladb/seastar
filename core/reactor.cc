@@ -205,6 +205,10 @@ bool reactor::signals::poll_signal() {
     return signals;
 }
 
+bool reactor::signals::pure_poll_signal() const {
+    return _pending_signals.load(std::memory_order_relaxed);
+}
+
 void reactor::signals::action(int signo, siginfo_t* siginfo, void* ignore) {
     engine()._signals._pending_signals.fetch_or(1ull << signo, std::memory_order_relaxed);
 }
@@ -1542,14 +1546,25 @@ reactor::do_expire_lowres_timers() {
     return false;
 }
 
+bool
+reactor::do_check_lowres_timers() const {
+    if (_lowres_next_timeout == lowres_clock::time_point()) {
+        return false;
+    }
+    return lowres_clock::now() > _lowres_next_timeout;
+}
+
 #ifndef HAVE_OSV
 
 class reactor::io_pollfn final : public reactor::pollfn {
     reactor& _r;
 public:
     io_pollfn(reactor& r) : _r(r) {}
-    virtual bool poll() override {
+    virtual bool poll() override final {
         return _r.process_io();
+    }
+    virtual bool pure_poll() override final {
+        return poll(); // actually performs work, but triggers no user continuations, so okay
     }
     virtual bool try_enter_interrupt_mode() override {
         // aio cannot generate events if there are no inflight aios
@@ -1568,6 +1583,9 @@ public:
     signal_pollfn(reactor& r) : _r(r) {}
     virtual bool poll() final override {
         return _r._signals.poll_signal();
+    }
+    virtual bool pure_poll() override final {
+        return _r._signals.pure_poll_signal();
     }
     virtual bool try_enter_interrupt_mode() override {
         // Signals will interrupt our epoll_pwait() call, but
@@ -1595,6 +1613,9 @@ public:
     virtual bool poll() final override {
         return _r.flush_tcp_batches();
     }
+    virtual bool pure_poll() override final {
+        return poll(); // actually performs work, but triggers no user continuations, so okay
+    }
     virtual bool try_enter_interrupt_mode() override {
         // This is a passive poller, so if a previous poll
         // returned false (idle), there's no more work to do.
@@ -1611,6 +1632,9 @@ public:
     virtual bool poll() final override {
         return _r.flush_pending_aio();
     }
+    virtual bool pure_poll() override final {
+        return poll(); // actually performs work, but triggers no user continuations, so okay
+    }
     virtual bool try_enter_interrupt_mode() override {
         // This is a passive poller, so if a previous poll
         // returned false (idle), there's no more work to do.
@@ -1624,6 +1648,9 @@ class reactor::drain_cross_cpu_freelist_pollfn final : public reactor::pollfn {
 public:
     virtual bool poll() final override {
         return memory::drain_cross_cpu_freelist();
+    }
+    virtual bool pure_poll() override final {
+        return poll(); // actually performs work, but triggers no user continuations, so okay
     }
     virtual bool try_enter_interrupt_mode() override {
         // Other cpus can queue items for us to free; and they won't notify
@@ -1648,6 +1675,9 @@ public:
     lowres_timer_pollfn(reactor& r) : _r(r) {}
     virtual bool poll() final override {
         return _r.do_expire_lowres_timers();
+    }
+    virtual bool pure_poll() final override {
+        return _r.do_check_lowres_timers();
     }
     virtual bool try_enter_interrupt_mode() override {
         // arm our highres timer so a signal will wake us up
@@ -1691,6 +1721,9 @@ public:
     virtual bool poll() final override {
         return smp::poll_queues();
     }
+    virtual bool pure_poll() final override {
+        return smp::pure_poll_queues();
+    }
     virtual bool try_enter_interrupt_mode() override {
         // systemwide_memory_barrier() is very slow if run concurrently,
         // so don't go to sleep if it is running now.
@@ -1719,6 +1752,9 @@ public:
     virtual bool poll() final override {
         return _r._thread_pool.complete();
     }
+    virtual bool pure_poll() override final {
+        return poll(); // actually performs work, but triggers no user continuations, so okay
+    }
     virtual bool try_enter_interrupt_mode() override {
         _r._thread_pool.enter_interrupt_mode();
         if (poll()) {
@@ -1742,6 +1778,9 @@ public:
     epoll_pollfn(reactor& r) : _r(r) {}
     virtual bool poll() final override {
         return _r.wait_and_process();
+    }
+    virtual bool pure_poll() override final {
+        return poll(); // actually performs work, but triggers no user continuations, so okay
     }
     virtual bool try_enter_interrupt_mode() override {
         // Since we'll be sleeping in epoll, no need to do anything
@@ -1850,6 +1889,9 @@ int reactor::run() {
     std::function<bool()> check_for_work = [this] () {
         return poll_once() || !_pending_tasks.empty() || seastar::thread::try_run_one_yielded_thread();
     };
+    std::function<bool()> pure_check_for_work = [this] () {
+        return pure_poll_once() || !_pending_tasks.empty() || seastar::thread::try_run_one_yielded_thread();
+    };
     while (true) {
         run_tasks(_pending_tasks);
         if (_stopped) {
@@ -1882,7 +1924,10 @@ int reactor::run() {
             }
             bool go_to_sleep = true;
             try {
-                auto handler_result = _idle_cpu_handler(check_for_work);
+                // we can't run check_for_work(), because that can run tasks in the context
+                // of the idle handler which change its state, without the idle handler expecting
+                // it.  So run pure_check_for_work() instead.
+                auto handler_result = _idle_cpu_handler(pure_check_for_work);
                 go_to_sleep = handler_result == idle_cpu_handler_result::no_more_work;
             } catch (...) {
                 report_exception("Exception while running idle cpu handler", std::current_exception());
@@ -1894,6 +1939,10 @@ int reactor::run() {
                     // We may have slept for a while, so freshen idle_end
                     idle_end = steady_clock_type::now();
                 }
+            } else {
+                // We previously ran pure_check_for_work(), might not actually have performed
+                // any work.
+                check_for_work();
             }
         }
     }
@@ -1937,6 +1986,16 @@ reactor::poll_once() {
     }
 
     return work;
+}
+
+bool
+reactor::pure_poll_once() {
+    for (auto c : _pollers) {
+        if (c->pure_poll()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 class reactor::poller::registration_task : public task {
@@ -2105,6 +2164,10 @@ void smp_message_queue::move_pending() {
     _sent += nr;
 }
 
+bool smp_message_queue::pure_poll_tx() const {
+    return !_tx.a.pending_fifo.empty() && _pending.write_available();
+}
+
 void smp_message_queue::submit_item(smp_message_queue::work_item* item) {
     _tx.a.pending_fifo.push_back(item);
     if (_tx.a.pending_fifo.size() >= batch_size) {
@@ -2130,6 +2193,10 @@ void smp_message_queue::flush_response_batch() {
         _completed.maybe_wakeup();
         _completed_fifo.erase(begin, end);
     }
+}
+
+bool smp_message_queue::pure_poll_rx() const {
+    return _completed.read_available();
 }
 
 void
