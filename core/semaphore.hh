@@ -23,7 +23,7 @@
 #define CORE_SEMAPHORE_HH_
 
 #include "future.hh"
-#include "circular_buffer.hh"
+#include "chunked_fifo.hh"
 #include <stdexcept>
 #include <exception>
 #include "timer.hh"
@@ -108,7 +108,7 @@ private:
         }
         entry& operator=(entry&&) noexcept = delete;
     };
-    circular_buffer<entry> _wait_list;
+    chunked_fifo<entry> _wait_list;
 public:
     using duration =  timer<>::duration;
     using clock =  timer<>::clock;
