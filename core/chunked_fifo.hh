@@ -126,6 +126,8 @@ public:
     chunked_fifo& operator=(chunked_fifo&&) noexcept;
     inline void push_back(const T& data);
     inline void push_back(T&& data);
+    T& back();
+    const T& back() const;
     template <typename... A>
     inline void emplace_back(A&&... args);
     inline T& front() const noexcept;
@@ -368,6 +370,20 @@ chunked_fifo<T, items_per_chunk>::push_back(T&& data) {
         throw;
     }
     ++_back_chunk->end;
+}
+
+template <typename T, size_t items_per_chunk>
+inline
+T&
+chunked_fifo<T, items_per_chunk>::back() {
+    return _back_chunk->items[mask(_back_chunk->end - 1)];
+}
+
+template <typename T, size_t items_per_chunk>
+inline
+const T&
+chunked_fifo<T, items_per_chunk>::back() const {
+    return _back_chunk->items[mask(_back_chunk->end - 1)];
 }
 
 template <typename T, size_t items_per_chunk>
