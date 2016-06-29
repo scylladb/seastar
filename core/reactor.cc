@@ -387,6 +387,7 @@ void reactor::configure(boost::program_options::variables_map vm) {
 
     _handle_sigint = !vm.count("no-handle-interrupt");
     _task_quota = vm["task-quota-ms"].as<double>() * 1ms;
+    _max_poll_time = vm["idle-poll-time-us"].as<unsigned>() * 1us;
     if (vm.count("poll-mode")) {
         _max_poll_time = std::chrono::nanoseconds::max();
     }
@@ -2452,6 +2453,8 @@ reactor::get_options_description() {
                         format_separated(net_stack_names.begin(), net_stack_names.end(), ", ")).c_str())
         ("no-handle-interrupt", "ignore SIGINT (for gdb)")
         ("poll-mode", "poll continuously (100% cpu use)")
+        ("idle-poll-time-us", bpo::value<unsigned>()->default_value(calculate_poll_time() / 1us),
+                "idle polling time in microseconds (reduce for overprovisioned environments or laptops)")
         ("task-quota-ms", bpo::value<double>()->default_value(2.0), "Max time (ms) between polls")
         ("relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)");
         ;
