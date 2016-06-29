@@ -2471,6 +2471,7 @@ smp::get_options_description()
         ("reserve-memory", bpo::value<std::string>(), "memory reserved to OS (if --memory not specified)")
         ("hugepages", bpo::value<std::string>(), "path to accessible hugetlbfs mount (typically /dev/hugepages/something)")
         ("lock-memory", bpo::value<bool>(), "lock all memory (prevents swapping)")
+        ("thread-affinity", bpo::value<bool>()->default_value(true), "pin threads to their cpus (disable for overprovisioning)")
 #ifdef HAVE_HWLOC
         ("num-io-queues", bpo::value<unsigned>(), "Number of IO queues. Each IO unit will be responsible for a fraction of the IO requests. Defaults to the number of threads")
         ("max-io-requests", bpo::value<unsigned>(), "Maximum amount of concurrent requests to be sent to the disk. Defaults to 128 times the number of IO queues")
@@ -2595,6 +2596,10 @@ void smp::configure(boost::program_options::variables_map configuration)
 #ifdef HAVE_DPDK
     _using_dpdk = configuration.count("dpdk-pmd");
 #endif
+    auto thread_affinity = configuration["thread-affinity"].as<bool>();
+    if (!thread_affinity && _using_dpdk) {
+        print("warning: --thread-affinity 0 ignored in dpdk mode\n");
+    }
     smp::count = 1;
     smp::_tmain = std::this_thread::get_id();
     auto nr_cpus = resource::nr_processing_units();
@@ -2666,7 +2671,9 @@ void smp::configure(boost::program_options::variables_map configuration)
 
     auto resources = resource::allocate(rc);
     std::vector<resource::cpu> allocations = std::move(resources.cpus);
-    smp::pin(allocations[0].cpu_id);
+    if (thread_affinity) {
+        smp::pin(allocations[0].cpu_id);
+    }
     memory::configure(allocations[0].mem, hugepages_path);
 
 #ifdef HAVE_DPDK
@@ -2720,8 +2727,10 @@ void smp::configure(boost::program_options::variables_map configuration)
     unsigned i;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        create_thread([configuration, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue] {
-            smp::pin(allocation.cpu_id);
+        create_thread([configuration, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity] {
+            if (thread_affinity) {
+                smp::pin(allocation.cpu_id);
+            }
             memory::configure(allocation.mem, hugepages_path);
             sigset_t mask;
             sigfillset(&mask);
