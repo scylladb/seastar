@@ -2496,12 +2496,14 @@ struct reactor_deleter {
 
 thread_local std::unique_ptr<reactor, reactor_deleter> reactor_holder;
 
-std::vector<smp::thread_adaptor> smp::_threads;
+std::vector<posix_thread> smp::_threads;
+std::vector<std::function<void ()>> smp::_thread_loops;
 std::experimental::optional<boost::barrier> smp::_all_event_loops_done;
 std::vector<reactor*> smp::_reactors;
 smp_message_queue** smp::_qs;
 std::thread::id smp::_tmain;
 unsigned smp::count = 1;
+bool smp::_using_dpdk;
 
 void smp::start_all_queues()
 {
@@ -2520,25 +2522,28 @@ int dpdk_thread_adaptor(void* f)
     return 0;
 }
 
-void smp::join_all()
-{
-    rte_eal_mp_wait_lcore();
-}
+#endif
 
-void smp::pin(unsigned cpu_id) {
-}
-#else
 void smp::join_all()
 {
+#ifdef HAVE_DPDK
+    if (_using_dpdk) {
+        rte_eal_mp_wait_lcore();
+        return;
+    }
+#endif
     for (auto&& t: smp::_threads) {
         t.join();
     }
 }
 
 void smp::pin(unsigned cpu_id) {
+    if (_using_dpdk) {
+        // dpdk does its own pinning
+        return;
+    }
     pin_this_thread(cpu_id);
 }
-#endif
 
 void smp::arrive_at_event_loop_end() {
     if (_all_event_loops_done) {
@@ -2560,7 +2565,16 @@ void smp::allocate_reactor() {
 }
 
 void smp::cleanup() {
-    smp::_threads = std::vector<thread_adaptor>();
+    smp::_threads = std::vector<posix_thread>();
+    _thread_loops.clear();
+}
+
+void smp::create_thread(std::function<void ()> thread_loop) {
+    if (_using_dpdk) {
+        _thread_loops.push_back(std::move(thread_loop));
+    } else {
+        _threads.emplace_back(std::move(thread_loop));
+    }
 }
 
 void smp::configure(boost::program_options::variables_map configuration)
@@ -2578,6 +2592,9 @@ void smp::configure(boost::program_options::variables_map configuration)
     }
     pthread_sigmask(SIG_BLOCK, &sigs, nullptr);
 
+#ifdef HAVE_DPDK
+    _using_dpdk = configuration.count("dpdk-pmd");
+#endif
     smp::count = 1;
     smp::_tmain = std::this_thread::get_id();
     auto nr_cpus = resource::nr_processing_units();
@@ -2600,7 +2617,7 @@ void smp::configure(boost::program_options::variables_map configuration)
 #ifdef HAVE_DPDK
         if (configuration.count("hugepages") &&
             !configuration["network-stack"].as<std::string>().compare("native") &&
-            configuration.count("dpdk-pmd")) {
+            _using_dpdk) {
             size_t dpdk_memory = dpdk::eal::mem_size(smp::count);
 
             if (dpdk_memory >= rc.total_memory) {
@@ -2653,11 +2670,13 @@ void smp::configure(boost::program_options::variables_map configuration)
     memory::configure(allocations[0].mem, hugepages_path);
 
 #ifdef HAVE_DPDK
-    dpdk::eal::cpuset cpus;
-    for (auto&& a : allocations) {
-        cpus[a.cpu_id] = true;
+    if (smp::_using_dpdk) {
+        dpdk::eal::cpuset cpus;
+        for (auto&& a : allocations) {
+            cpus[a.cpu_id] = true;
+        }
+        dpdk::eal::init(cpus, configuration);
     }
-    dpdk::eal::init(cpus, configuration);
 #endif
 
     // Better to put it into the smp class, but at smp construction time
@@ -2701,7 +2720,7 @@ void smp::configure(boost::program_options::variables_map configuration)
     unsigned i;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        _threads.emplace_back([configuration, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue] {
+        create_thread([configuration, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue] {
             smp::pin(allocation.cpu_id);
             memory::configure(allocation.mem, hugepages_path);
             sigset_t mask;
@@ -2727,9 +2746,11 @@ void smp::configure(boost::program_options::variables_map configuration)
     auto queue_idx = alloc_io_queue(0);
 
 #ifdef HAVE_DPDK
-    auto it = _threads.begin();
-    RTE_LCORE_FOREACH_SLAVE(i) {
-        rte_eal_remote_launch(dpdk_thread_adaptor, static_cast<void*>(&*(it++)), i);
+    if (_using_dpdk) {
+        auto it = _thread_loops.begin();
+        RTE_LCORE_FOREACH_SLAVE(i) {
+            rte_eal_remote_launch(dpdk_thread_adaptor, static_cast<void*>(&*(it++)), i);
+        }
     }
 #endif
 

@@ -1009,16 +1009,13 @@ inline reactor& engine() {
 }
 
 class smp {
-#if HAVE_DPDK
-    using thread_adaptor = std::function<void ()>;
-#else
-    using thread_adaptor = posix_thread;
-#endif
-    static std::vector<thread_adaptor> _threads;
+    static std::vector<posix_thread> _threads;
+    static std::vector<std::function<void ()>> _thread_loops; // for dpdk
     static std::experimental::optional<boost::barrier> _all_event_loops_done;
     static std::vector<reactor*> _reactors;
     static smp_message_queue** _qs;
     static std::thread::id _tmain;
+    static bool _using_dpdk;
 
     template <typename Func>
     using returns_future = is_future<std::result_of_t<Func()>>;
@@ -1110,6 +1107,7 @@ private:
     static void start_all_queues();
     static void pin(unsigned cpu_id);
     static void allocate_reactor();
+    static void create_thread(std::function<void ()> thread_loop);
 public:
     static unsigned count;
 };
