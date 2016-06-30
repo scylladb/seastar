@@ -384,6 +384,20 @@ public:
             t.join();
         }
 
+        if (_best_critical_concurrency == 0) {
+            std::cerr << "============= Cut here ===============" << std::endl;
+            std::cerr << "Something is not right! Results found:" << std::endl;
+            for (auto& r: _all_results) {
+                std::cerr << r.first << ", " << r.second << std::endl;
+            }
+
+            std::cerr << "Target critical IOPS: " << _desired_percentile * _best_result.IOPS << std::endl;
+            std::cerr << "best concurrency: " << _best_critical_concurrency << std::endl;
+            std::cerr << "best delta: " << _best_critical_delta << std::endl;
+            auto msg = "iotune encountered an error and could not calculate proper I/O Scheduler configuration. Please report the status above";
+            throw std::runtime_error(msg);
+        }
+
         // We now have a point where the curve starts to bend, which means,
         // latency is increasing while throughput is not. We, however, don't
         // want to put Seastar's I/O queue at exactly this point. We have all
