@@ -391,6 +391,11 @@ void reactor::configure(boost::program_options::variables_map vm) {
     if (vm.count("poll-mode")) {
         _max_poll_time = std::chrono::nanoseconds::max();
     }
+    if (vm.count(["overprovisioned"])
+           && vm["idle-poll-time-us"].defaulted()
+           && vm["poll-mode"].defaulted()) {
+        _max_poll_time = 0us;
+    }
     set_strict_dma(!vm.count("relaxed-dma"));
 }
 
@@ -2456,7 +2461,8 @@ reactor::get_options_description() {
         ("idle-poll-time-us", bpo::value<unsigned>()->default_value(calculate_poll_time() / 1us),
                 "idle polling time in microseconds (reduce for overprovisioned environments or laptops)")
         ("task-quota-ms", bpo::value<double>()->default_value(2.0), "Max time (ms) between polls")
-        ("relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)");
+        ("relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
+        ("overprovisioned", "run in an overprovisioned environment (such as docker or a laptop); equivalent to --idle-poll-time-us 0 --thread-affinity 0")
         ;
     opts.add(network_stack_registry::options_description());
     return opts;
@@ -2600,9 +2606,14 @@ void smp::configure(boost::program_options::variables_map configuration)
     _using_dpdk = configuration.count("dpdk-pmd");
 #endif
     auto thread_affinity = configuration["thread-affinity"].as<bool>();
+    if (configuration.count("overprovisioned")
+           && configuration["thread-affinity"].defaulted()) {
+        thread_affinity = true;
+    }
     if (!thread_affinity && _using_dpdk) {
         print("warning: --thread-affinity 0 ignored in dpdk mode\n");
     }
+
     smp::count = 1;
     smp::_tmain = std::this_thread::get_id();
     auto nr_cpus = resource::nr_processing_units();
