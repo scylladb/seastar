@@ -50,6 +50,7 @@
 #include <boost/iterator/counting_iterator.hpp>
 #include <boost/range/numeric.hpp>
 #include <boost/range/adaptor/transformed.hpp>
+#include <boost/version.hpp>
 #include <atomic>
 #include <dirent.h>
 #include <linux/types.h> // for xfs, below
@@ -2172,7 +2173,11 @@ void smp_message_queue::move_pending() {
 }
 
 bool smp_message_queue::pure_poll_tx() const {
+#if BOOST_VERSION >= 15600
     return !_tx.a.pending_fifo.empty() && _pending.write_available();
+#else
+    return true;
+#endif
 }
 
 void smp_message_queue::submit_item(smp_message_queue::work_item* item) {
