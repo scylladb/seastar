@@ -2173,7 +2173,7 @@ void smp_message_queue::move_pending() {
 }
 
 bool smp_message_queue::pure_poll_tx() const {
-#if BOOST_VERSION >= 15600
+#if BOOST_VERSION >= 105600
     return !_tx.a.pending_fifo.empty() && _pending.write_available();
 #else
     return true;
