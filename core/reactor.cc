@@ -387,8 +387,14 @@ void reactor::configure(boost::program_options::variables_map vm) {
 
     _handle_sigint = !vm.count("no-handle-interrupt");
     _task_quota = vm["task-quota-ms"].as<double>() * 1ms;
+    _max_poll_time = vm["idle-poll-time-us"].as<unsigned>() * 1us;
     if (vm.count("poll-mode")) {
         _max_poll_time = std::chrono::nanoseconds::max();
+    }
+    if (vm.count(["overprovisioned"])
+           && vm["idle-poll-time-us"].defaulted()
+           && vm["poll-mode"].defaulted()) {
+        _max_poll_time = 0us;
     }
     set_strict_dma(!vm.count("relaxed-dma"));
 }
@@ -2452,8 +2458,11 @@ reactor::get_options_description() {
                         format_separated(net_stack_names.begin(), net_stack_names.end(), ", ")).c_str())
         ("no-handle-interrupt", "ignore SIGINT (for gdb)")
         ("poll-mode", "poll continuously (100% cpu use)")
+        ("idle-poll-time-us", bpo::value<unsigned>()->default_value(calculate_poll_time() / 1us),
+                "idle polling time in microseconds (reduce for overprovisioned environments or laptops)")
         ("task-quota-ms", bpo::value<double>()->default_value(2.0), "Max time (ms) between polls")
-        ("relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)");
+        ("relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
+        ("overprovisioned", "run in an overprovisioned environment (such as docker or a laptop); equivalent to --idle-poll-time-us 0 --thread-affinity 0")
         ;
     opts.add(network_stack_registry::options_description());
     return opts;
@@ -2471,6 +2480,7 @@ smp::get_options_description()
         ("reserve-memory", bpo::value<std::string>(), "memory reserved to OS (if --memory not specified)")
         ("hugepages", bpo::value<std::string>(), "path to accessible hugetlbfs mount (typically /dev/hugepages/something)")
         ("lock-memory", bpo::value<bool>(), "lock all memory (prevents swapping)")
+        ("thread-affinity", bpo::value<bool>()->default_value(true), "pin threads to their cpus (disable for overprovisioning)")
 #ifdef HAVE_HWLOC
         ("num-io-queues", bpo::value<unsigned>(), "Number of IO queues. Each IO unit will be responsible for a fraction of the IO requests. Defaults to the number of threads")
         ("max-io-requests", bpo::value<unsigned>(), "Maximum amount of concurrent requests to be sent to the disk. Defaults to 128 times the number of IO queues")
@@ -2496,12 +2506,14 @@ struct reactor_deleter {
 
 thread_local std::unique_ptr<reactor, reactor_deleter> reactor_holder;
 
-std::vector<smp::thread_adaptor> smp::_threads;
+std::vector<posix_thread> smp::_threads;
+std::vector<std::function<void ()>> smp::_thread_loops;
 std::experimental::optional<boost::barrier> smp::_all_event_loops_done;
 std::vector<reactor*> smp::_reactors;
 smp_message_queue** smp::_qs;
 std::thread::id smp::_tmain;
 unsigned smp::count = 1;
+bool smp::_using_dpdk;
 
 void smp::start_all_queues()
 {
@@ -2520,25 +2532,28 @@ int dpdk_thread_adaptor(void* f)
     return 0;
 }
 
-void smp::join_all()
-{
-    rte_eal_mp_wait_lcore();
-}
+#endif
 
-void smp::pin(unsigned cpu_id) {
-}
-#else
 void smp::join_all()
 {
+#ifdef HAVE_DPDK
+    if (_using_dpdk) {
+        rte_eal_mp_wait_lcore();
+        return;
+    }
+#endif
     for (auto&& t: smp::_threads) {
         t.join();
     }
 }
 
 void smp::pin(unsigned cpu_id) {
+    if (_using_dpdk) {
+        // dpdk does its own pinning
+        return;
+    }
     pin_this_thread(cpu_id);
 }
-#endif
 
 void smp::arrive_at_event_loop_end() {
     if (_all_event_loops_done) {
@@ -2560,7 +2575,16 @@ void smp::allocate_reactor() {
 }
 
 void smp::cleanup() {
-    smp::_threads = std::vector<thread_adaptor>();
+    smp::_threads = std::vector<posix_thread>();
+    _thread_loops.clear();
+}
+
+void smp::create_thread(std::function<void ()> thread_loop) {
+    if (_using_dpdk) {
+        _thread_loops.push_back(std::move(thread_loop));
+    } else {
+        _threads.emplace_back(std::move(thread_loop));
+    }
 }
 
 void smp::configure(boost::program_options::variables_map configuration)
@@ -2577,6 +2601,18 @@ void smp::configure(boost::program_options::variables_map configuration)
         sigdelset(&sigs, sig);
     }
     pthread_sigmask(SIG_BLOCK, &sigs, nullptr);
+
+#ifdef HAVE_DPDK
+    _using_dpdk = configuration.count("dpdk-pmd");
+#endif
+    auto thread_affinity = configuration["thread-affinity"].as<bool>();
+    if (configuration.count("overprovisioned")
+           && configuration["thread-affinity"].defaulted()) {
+        thread_affinity = true;
+    }
+    if (!thread_affinity && _using_dpdk) {
+        print("warning: --thread-affinity 0 ignored in dpdk mode\n");
+    }
 
     smp::count = 1;
     smp::_tmain = std::this_thread::get_id();
@@ -2600,7 +2636,7 @@ void smp::configure(boost::program_options::variables_map configuration)
 #ifdef HAVE_DPDK
         if (configuration.count("hugepages") &&
             !configuration["network-stack"].as<std::string>().compare("native") &&
-            configuration.count("dpdk-pmd")) {
+            _using_dpdk) {
             size_t dpdk_memory = dpdk::eal::mem_size(smp::count);
 
             if (dpdk_memory >= rc.total_memory) {
@@ -2649,15 +2685,19 @@ void smp::configure(boost::program_options::variables_map configuration)
 
     auto resources = resource::allocate(rc);
     std::vector<resource::cpu> allocations = std::move(resources.cpus);
-    smp::pin(allocations[0].cpu_id);
+    if (thread_affinity) {
+        smp::pin(allocations[0].cpu_id);
+    }
     memory::configure(allocations[0].mem, hugepages_path);
 
 #ifdef HAVE_DPDK
-    dpdk::eal::cpuset cpus;
-    for (auto&& a : allocations) {
-        cpus[a.cpu_id] = true;
+    if (smp::_using_dpdk) {
+        dpdk::eal::cpuset cpus;
+        for (auto&& a : allocations) {
+            cpus[a.cpu_id] = true;
+        }
+        dpdk::eal::init(cpus, configuration);
     }
-    dpdk::eal::init(cpus, configuration);
 #endif
 
     // Better to put it into the smp class, but at smp construction time
@@ -2701,8 +2741,10 @@ void smp::configure(boost::program_options::variables_map configuration)
     unsigned i;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        _threads.emplace_back([configuration, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue] {
-            smp::pin(allocation.cpu_id);
+        create_thread([configuration, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity] {
+            if (thread_affinity) {
+                smp::pin(allocation.cpu_id);
+            }
             memory::configure(allocation.mem, hugepages_path);
             sigset_t mask;
             sigfillset(&mask);
@@ -2727,9 +2769,11 @@ void smp::configure(boost::program_options::variables_map configuration)
     auto queue_idx = alloc_io_queue(0);
 
 #ifdef HAVE_DPDK
-    auto it = _threads.begin();
-    RTE_LCORE_FOREACH_SLAVE(i) {
-        rte_eal_remote_launch(dpdk_thread_adaptor, static_cast<void*>(&*(it++)), i);
+    if (_using_dpdk) {
+        auto it = _thread_loops.begin();
+        RTE_LCORE_FOREACH_SLAVE(i) {
+            rte_eal_remote_launch(dpdk_thread_adaptor, static_cast<void*>(&*(it++)), i);
+        }
     }
 #endif
 
