@@ -77,7 +77,9 @@ template <typename Func>
 inline lazy_eval<Func> value_of(Func&& func) {
     return lazy_eval<Func>(std::forward<Func>(func));
 }
+}
 
+namespace std {
 /// Output operator for a seastar::lazy_eval<Func>
 /// This would allow printing a seastar::lazy_eval<Func> as if it's a regular
 /// value.
@@ -94,17 +96,17 @@ inline lazy_eval<Func> value_of(Func&& func) {
 ///
 /// \return os
 template <typename Func>
-std::ostream& operator<<(std::ostream& os, const seastar::lazy_eval<Func>& lf) {
+ostream& operator<<(ostream& os, const seastar::lazy_eval<Func>& lf) {
     return os << lf();
 }
 
 template <typename Func>
-std::ostream& operator<<(std::ostream& os, seastar::lazy_eval<Func>& lf) {
+ostream& operator<<(ostream& os, seastar::lazy_eval<Func>& lf) {
     return os << lf();
 }
 
 template <typename Func>
-std::ostream& operator<<(std::ostream& os, seastar::lazy_eval<Func>&& lf) {
+ostream& operator<<(ostream& os, seastar::lazy_eval<Func>&& lf) {
     return os << lf();
 }
 }
