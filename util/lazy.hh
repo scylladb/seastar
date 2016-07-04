@@ -51,6 +51,19 @@ public:
         return _func();
     }
 
+    /// \brief cast operator overload
+    ///
+    /// An implicit cast operator is needed during assignment when lazy_eval is
+    /// at the right side of the assignment.
+    ///
+    /// \tparam T type to cast to
+    ///
+    /// \return the value returned by a delayed evaluation
+    template <typename T>
+    operator T() const {
+        return _func();
+    }
+
     /// \brief Evaluate a value (const version).
     ///
     /// \return the evaluated value
