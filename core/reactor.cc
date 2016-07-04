@@ -391,7 +391,7 @@ void reactor::configure(boost::program_options::variables_map vm) {
     if (vm.count("poll-mode")) {
         _max_poll_time = std::chrono::nanoseconds::max();
     }
-    if (vm.count(["overprovisioned"])
+    if (vm.count("overprovisioned")
            && vm["idle-poll-time-us"].defaulted()
            && vm["poll-mode"].defaulted()) {
         _max_poll_time = 0us;
