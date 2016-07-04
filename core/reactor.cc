@@ -2203,7 +2203,9 @@ void smp_message_queue::flush_response_batch() {
 }
 
 bool smp_message_queue::pure_poll_rx() const {
-    return _completed.read_available();
+    // can't use read_available(), not available on older boost
+    // empty() is not const, so need const_cast.
+    return !const_cast<lf_queue&>(_completed).empty();
 }
 
 void
