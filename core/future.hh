@@ -1296,6 +1296,12 @@ futurize<void>::from_tuple(const std::tuple<>& value) {
     return make_ready_future<>();
 }
 
+template<typename Func, typename... Args>
+auto futurize_apply(Func&& func, Args&&... args) {
+    using futurator = futurize<std::result_of_t<Func(Args&&...)>>;
+    return futurator::apply(std::forward<Func>(func), std::forward<Args>(args)...);
+}
+
 /// \endcond
 
 #endif /* FUTURE_HH_ */
