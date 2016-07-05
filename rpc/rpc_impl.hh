@@ -702,7 +702,7 @@ protocol<Serializer, MsgType>::server::connection::read_request_frame(input_stre
     return in.read_exactly(20).then([this, &in] (temporary_buffer<char> header) {
         if (header.size() != 20) {
             if (header.size() != 0) {
-                this->_server._proto.log(_info, "unexpected eof");
+                this->_server._proto.log(_info, sprint("unexpected eof on a server while reading header: expected 20 got %d", header.size()));
             }
             return make_ready_future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>(MsgType(0), 0, std::experimental::optional<temporary_buffer<char>>());
         }
@@ -712,7 +712,7 @@ protocol<Serializer, MsgType>::server::connection::read_request_frame(input_stre
         auto size = le_to_cpu(*unaligned_cast<uint32_t*>(ptr + 16));
         return in.read_exactly(size).then([this, type, msgid, size] (temporary_buffer<char> data) {
             if (data.size() != size) {
-                this->_server._proto.log(_info, "unexpected eof");
+                this->_server._proto.log(_info, sprint("unexpected eof on a server while reading data: expected %d got %d", size, data.size()));
                 return make_ready_future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>(MsgType(0), 0, std::experimental::optional<temporary_buffer<char>>());
             }
             return make_ready_future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>(type, msgid, std::experimental::optional<temporary_buffer<char>>(std::move(data)));
@@ -794,7 +794,7 @@ protocol<Serializer, MsgType>::client::read_response_frame(input_stream<char>& i
     return in.read_exactly(12).then([this, &in] (temporary_buffer<char> header) {
         if (header.size() != 12) {
             if (header.size() != 0) {
-                this->_proto.log(this->_server_addr, "unexpected eof");
+                this->_proto.log(this->_server_addr, sprint("unexpected eof on a client while reading header: expected 12 got %d", header.size()));
             }
             return make_ready_future<int64_t, std::experimental::optional<temporary_buffer<char>>>(0, std::experimental::optional<temporary_buffer<char>>());
         }
@@ -804,7 +804,7 @@ protocol<Serializer, MsgType>::client::read_response_frame(input_stream<char>& i
         auto size = le_to_cpu(*unaligned_cast<uint32_t*>(ptr + 8));
         return in.read_exactly(size).then([this, msgid, size] (temporary_buffer<char> data) {
             if (data.size() != size) {
-                this->_proto.log(this->_server_addr, "unexpected eof");
+                this->_proto.log(this->_server_addr, sprint("unexpected eof on a client while reading data: expected %d got %d", size, data.size()));
                 return make_ready_future<int64_t, std::experimental::optional<temporary_buffer<char>>>(0, std::experimental::optional<temporary_buffer<char>>());
             }
             return make_ready_future<int64_t, std::experimental::optional<temporary_buffer<char>>>(msgid, std::experimental::optional<temporary_buffer<char>>(std::move(data)));
