@@ -335,6 +335,25 @@ public:
     }
 
     /**
+     *  Resize string.
+     *  @param n  new size.
+     *  @param c  if n greater than current size character to fill newly allocated space with.
+     */
+    void resize(size_t n, const char_type c  = '\0') {
+        if (n > size()) {
+            *this += sstring(n - size(), c);
+        } else if (n < size()) {
+            if (is_internal()) {
+                u.internal.size = n;
+            } else if (n + 1 <= sizeof(u.internal.str)) {
+                *this = sstring(u.external.str, n);
+            } else {
+                u.external.size = n;
+            }
+        }
+    }
+
+    /**
      *  Replace characters with a value of a C style substring.
      *
      */
