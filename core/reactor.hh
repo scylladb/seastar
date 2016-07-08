@@ -744,6 +744,7 @@ private:
     std::unique_ptr<lowres_clock> _lowres_clock;
     lowres_clock::time_point _lowres_next_timeout;
     std::experimental::optional<poller> _epoll_poller;
+    std::experimental::optional<pollable_fd> _aio_eventfd;
     const bool _reuseport;
     circular_buffer<double> _loads;
     double _load = 0;
@@ -761,6 +762,8 @@ private:
     bool do_expire_lowres_timers();
     bool do_check_lowres_timers() const;
     void abort_on_error(int ret);
+    void start_aio_eventfd_loop();
+    void stop_aio_eventfd_loop();
     template <typename T, typename E, typename EnableFunc>
     void complete_timers(T&, E&, EnableFunc&& enable_fn);
 

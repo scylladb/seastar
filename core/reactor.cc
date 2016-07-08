@@ -398,6 +398,10 @@ void reactor::configure(boost::program_options::variables_map vm) {
         _max_poll_time = 0us;
     }
     set_strict_dma(!vm.count("relaxed-dma"));
+    if (!vm["poll-aio"].as<bool>()
+            || (vm["poll-aio"].defaulted() && vm.count("overprovisioned"))) {
+        _aio_eventfd = pollable_fd(file_desc::eventfd(0, 0));
+    }
 }
 
 future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd,
@@ -548,6 +552,9 @@ reactor::submit_io(Func prepare_io) {
         auto pr = std::make_unique<promise<io_event>>();
         iocb io;
         prepare_io(io);
+        if (_aio_eventfd) {
+            io_set_eventfd(&io, _aio_eventfd->get_fd());
+        }
         io.data = pr.get();
         _pending_aio.push_back(io);
         if ((_io_queue->queued_requests() > 0) ||
@@ -1332,6 +1339,7 @@ void reactor::at_exit(std::function<future<> ()> func) {
 future<> reactor::run_exit_tasks() {
     _stop_requested.broadcast();
     _stopping = true;
+    stop_aio_eventfd_loop();
     return do_for_each(_exit_funcs.rbegin(), _exit_funcs.rend(), [] (auto& func) {
         return func();
     });
@@ -1575,8 +1583,10 @@ public:
         return poll(); // actually performs work, but triggers no user continuations, so okay
     }
     virtual bool try_enter_interrupt_mode() override {
-        // aio cannot generate events if there are no inflight aios
-        return _r._io_context_available.current() == reactor::max_aio;
+        // aio cannot generate events if there are no inflight aios;
+        // but if we enabled _aio_eventfd, we can always enter
+        return _r._io_context_available.current() == reactor::max_aio
+                || _r._aio_eventfd;
     }
     virtual void exit_interrupt_mode() override {
         // nothing to do
@@ -1804,6 +1814,31 @@ reactor::wakeup() {
     pthread_kill(_thread_id, alarm_signal());
 }
 
+void reactor::start_aio_eventfd_loop() {
+    if (!_aio_eventfd) {
+        return;
+    }
+    future<> loop_done = repeat([this] {
+        return _aio_eventfd->readable().then([this] {
+            char garbage[8];
+            ::read(_aio_eventfd->get_fd(), garbage, 8); // totally uninteresting
+            return _stopping ? stop_iteration::yes : stop_iteration::no;
+        });
+    });
+    // must use make_lw_shared, because at_exit expects a copyable function
+    at_exit([loop_done = make_lw_shared(std::move(loop_done))] {
+        return std::move(*loop_done);
+    });
+}
+
+void reactor::stop_aio_eventfd_loop() {
+    if (!_aio_eventfd) {
+        return;
+    }
+    uint64_t one = 1;
+    ::write(_aio_eventfd->get_fd(), &one, 8);
+}
+
 int reactor::run() {
     auto collectd_metrics = register_collectd_metrics();
 
@@ -1814,6 +1849,8 @@ int reactor::run() {
     poller sig_poller(std::make_unique<signal_pollfn>(*this));
     poller aio_poller(std::make_unique<aio_batch_submit_pollfn>(*this));
     poller batch_flush_poller(std::make_unique<batch_flush_pollfn>(*this));
+
+    start_aio_eventfd_loop();
 
     if (_id == 0) {
        if (_handle_sigint) {
@@ -2467,9 +2504,11 @@ reactor::get_options_description() {
         ("poll-mode", "poll continuously (100% cpu use)")
         ("idle-poll-time-us", bpo::value<unsigned>()->default_value(calculate_poll_time() / 1us),
                 "idle polling time in microseconds (reduce for overprovisioned environments or laptops)")
+        ("poll-aio", bpo::value<bool>()->default_value(true),
+                "busy-poll for disk I/O (reduces latency and increases throughput)")
         ("task-quota-ms", bpo::value<double>()->default_value(2.0), "Max time (ms) between polls")
         ("relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
-        ("overprovisioned", "run in an overprovisioned environment (such as docker or a laptop); equivalent to --idle-poll-time-us 0 --thread-affinity 0")
+        ("overprovisioned", "run in an overprovisioned environment (such as docker or a laptop); equivalent to --idle-poll-time-us 0 --thread-affinity 0 --poll-aio 0")
         ;
     opts.add(network_stack_registry::options_description());
     return opts;
