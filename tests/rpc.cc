@@ -23,6 +23,7 @@
 #include "core/app-template.hh"
 #include "rpc/rpc.hh"
 #include "core/sleep.hh"
+#include "rpc/lz4_compressor.hh"
 
 struct serializer {
 };
@@ -81,11 +82,25 @@ inline sstring read(serializer, Input& in, rpc::type<sstring>) {
 namespace bpo = boost::program_options;
 using namespace std::chrono_literals;
 
+class mycomp : public rpc::compressor::factory {
+    const sstring _name = "LZ4";
+public:
+    virtual const sstring& supported() const override {
+        print("supported called\n");
+        return _name;
+    }
+    virtual std::unique_ptr<rpc::compressor> negotiate(sstring feature, bool is_server) const override {
+        print("negotiate called with %s\n", feature);
+        return feature == _name ? std::make_unique<rpc::lz4_compressor>() : nullptr;
+    }
+};
+
 int main(int ac, char** av) {
     app_template app;
     app.add_options()
                     ("port", bpo::value<uint16_t>()->default_value(10000), "RPC server port")
-                    ("server", bpo::value<std::string>(), "Server address");
+                    ("server", bpo::value<std::string>(), "Server address")
+                    ("compress", bpo::value<bool>()->default_value(false), "Compress RPC traffic");
     std::cout << "start ";
     rpc::protocol<serializer> myrpc(serializer{});
     static std::unique_ptr<rpc::protocol<serializer>::server> server;
@@ -100,6 +115,8 @@ int main(int ac, char** av) {
     return app.run_deprecated(ac, av, [&] {
         auto&& config = app.configuration();
         uint16_t port = config["port"].as<uint16_t>();
+        bool compress = config["compress"].as<bool>();
+        static mycomp mc;
         auto test1 = myrpc.register_handler(1, [x = 0](int i) mutable { print("test1 count %d got %d\n", ++x, i); });
         auto test2 = myrpc.register_handler(2, [](int a, int b){ print("test2 got %d %d\n", a, b); return make_ready_future<int>(a+b); });
         auto test3 = myrpc.register_handler(3, [](double x){ print("test3 got %f\n", x); return std::make_unique<double>(sin(x)); });
@@ -121,8 +138,12 @@ int main(int ac, char** av) {
             auto test12 = myrpc.make_client<void (int sleep_ms, sstring payload)>(12); // large payload vs. server limits
             auto test_nohandler = myrpc.make_client<void ()>(100000000); // non existing verb
             auto test_nohandler_nowait = myrpc.make_client<rpc::no_wait_type ()>(100000000); // non existing verb, no_wait call
+            rpc::client_options co;
+            if (compress) {
+                co.compressor_factory = &mc;
+            }
 
-            client = std::make_unique<rpc::protocol<serializer>::client>(myrpc, ipv4_addr{config["server"].as<std::string>()});
+            client = std::make_unique<rpc::protocol<serializer>::client>(myrpc, co, ipv4_addr{config["server"].as<std::string>()});
 
             auto f = test8(*client, 1500ms).then_wrapped([](future<> f) {
                 try {
@@ -254,7 +275,11 @@ int main(int ac, char** av) {
             limits.bloat_factor = 1;
             limits.basic_request_size = 0;
             limits.max_memory = 10'000'000;
-            server = std::make_unique<rpc::protocol<serializer>::server>(myrpc, ipv4_addr{port}, limits);
+            rpc::server_options so;
+            if (compress) {
+                so.compressor_factory = &mc;
+            }
+            server = std::make_unique<rpc::protocol<serializer>::server>(myrpc, so, ipv4_addr{port}, limits);
         }
     });
 

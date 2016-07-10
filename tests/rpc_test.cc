@@ -22,6 +22,8 @@
 
 #include "loopback_socket.hh"
 #include "rpc/rpc.hh"
+#include "rpc/lz4_compressor.hh"
+#include "rpc/multi_algo_compressor_factory.hh"
 #include "test-utils.hh"
 #include "core/thread.hh"
 #include "core/sleep.hh"
@@ -106,7 +108,7 @@ public:
 };
 
 future<>
-with_rpc_env(rpc::resource_limits resource_limits, bool connect,
+with_rpc_env(rpc::resource_limits resource_limits, rpc::client_options co, rpc::server_options so, bool connect,
         std::function<future<> (test_rpc_proto& proto, test_rpc_proto::server& server, connect_fn connect)> test_fn) {
     struct state {
         test_rpc_proto proto{serializer()};
@@ -114,10 +116,10 @@ with_rpc_env(rpc::resource_limits resource_limits, bool connect,
         std::unique_ptr<test_rpc_proto::server> server;
     };
     return do_with(state(), [=] (state& s) {
-        s.server = std::make_unique<test_rpc_proto::server>(s.proto, s.lcf.get_server_socket(), resource_limits);
-        auto make_client = [&s, connect] (ipv4_addr addr) {
+        s.server = std::make_unique<test_rpc_proto::server>(s.proto, so, s.lcf.get_server_socket(), resource_limits);
+        auto make_client = [&s, connect, co] (ipv4_addr addr) {
             auto socket = seastar::socket(std::make_unique<rpc_socket_impl>(s.lcf, connect));
-            return test_rpc_proto::client(s.proto, std::move(socket), addr);
+            return test_rpc_proto::client(s.proto, co, std::move(socket), addr);
         };
         return test_fn(s.proto, *s.server, make_client).finally([&] {
             return s.server->stop();
@@ -125,8 +127,70 @@ with_rpc_env(rpc::resource_limits resource_limits, bool connect,
     });
 }
 
+struct cfactory : rpc::compressor::factory {
+    mutable int use_compression = 0;
+    const sstring name;
+    cfactory(sstring name_ = "LZ4") : name(std::move(name_)) {}
+    const sstring& supported() const override {
+        return name;
+    }
+    std::unique_ptr<rpc::compressor> negotiate(sstring feature, bool is_server) const override {
+        if (feature == name) {
+            use_compression++;
+            return std::make_unique<rpc::lz4_compressor>();
+        } else {
+            return nullptr;
+        }
+    }
+};
+
 SEASTAR_TEST_CASE(test_rpc_connect) {
-    return with_rpc_env({}, true, [] (test_rpc_proto& proto, test_rpc_proto::server& s, connect_fn connect) {
+    std::vector<future<>> fs;
+
+    for (auto i = 0; i < 2; i++) {
+        for (auto j = 0; j < 2; j++) {
+            auto factory = std::make_unique<cfactory>();
+            rpc::server_options so;
+            rpc::client_options co;
+            if (i == 1) {
+                so.compressor_factory = factory.get();
+            }
+            if (j == 1) {
+                co.compressor_factory = factory.get();
+            }
+            auto f = with_rpc_env({}, co, so, true, [] (test_rpc_proto& proto, test_rpc_proto::server& s, connect_fn connect) {
+                return seastar::async([&proto, &s, connect] {
+                    auto c1 = connect(ipv4_addr());
+                    auto sum = proto.register_handler(1, [](int a, int b) {
+                        return make_ready_future<int>(a+b);
+                    });
+                    auto result = sum(c1, 2, 3).get0();
+                    BOOST_REQUIRE_EQUAL(result, 2 + 3);
+                    c1.stop().get();
+                });
+            }).finally([factory = std::move(factory), i, j] {
+                if (i == 1 && j == 1) {
+                    BOOST_REQUIRE_EQUAL(factory->use_compression, 2);
+                } else {
+                    BOOST_REQUIRE_EQUAL(factory->use_compression, 0);
+                }
+            });
+            fs.emplace_back(std::move(f));
+        }
+    }
+    return when_all(fs.begin(), fs.end()).discard_result();
+}
+
+SEASTAR_TEST_CASE(test_rpc_connect_multi_compression_algo) {
+    auto factory1 = std::make_unique<cfactory>();
+    auto factory2 = std::make_unique<cfactory>("LZ4NEW");
+    rpc::server_options so;
+    rpc::client_options co;
+    static rpc::multi_algo_compressor_factory server({factory1.get(), factory2.get()});
+    static rpc::multi_algo_compressor_factory client({factory2.get(), factory1.get()});
+    so.compressor_factory = &server;
+    co.compressor_factory = &client;
+    return with_rpc_env({}, co, so, true, [] (test_rpc_proto& proto, test_rpc_proto::server& s, connect_fn connect) {
         return seastar::async([&proto, &s, connect] {
             auto c1 = connect(ipv4_addr());
             auto sum = proto.register_handler(1, [](int a, int b) {
@@ -136,11 +200,14 @@ SEASTAR_TEST_CASE(test_rpc_connect) {
             BOOST_REQUIRE_EQUAL(result, 2 + 3);
             c1.stop().get();
         });
+    }).finally([factory1 = std::move(factory1), factory2 = std::move(factory2)] {
+        BOOST_REQUIRE_EQUAL(factory1->use_compression, 0);
+        BOOST_REQUIRE_EQUAL(factory2->use_compression, 2);
     });
 }
 
 SEASTAR_TEST_CASE(test_rpc_connect_abort) {
-    return with_rpc_env({}, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, connect_fn connect) {
+    return with_rpc_env({}, {}, {}, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, connect_fn connect) {
         return seastar::async([&proto, &s, connect] {
             auto c1 = connect(ipv4_addr());
             auto f = proto.register_handler(1, []() { return make_ready_future<>(); });
@@ -155,7 +222,7 @@ SEASTAR_TEST_CASE(test_rpc_connect_abort) {
 
 SEASTAR_TEST_CASE(test_rpc_cancel) {
     using namespace std::chrono_literals;
-    return with_rpc_env({}, true, [] (test_rpc_proto& proto, test_rpc_proto::server& s, connect_fn connect) {
+    return with_rpc_env({}, {}, {}, true, [] (test_rpc_proto& proto, test_rpc_proto::server& s, connect_fn connect) {
         return seastar::async([&proto, &s, connect] {
             auto c1 = connect(ipv4_addr());
             bool rpc_executed = false;
