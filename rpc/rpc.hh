@@ -32,6 +32,7 @@
 #include "core/condition-variable.hh"
 #include "core/gate.hh"
 #include "rpc/rpc_types.hh"
+#include "core/byteorder.hh"
 
 namespace rpc {
 
@@ -69,6 +70,11 @@ struct resource_limits {
 
 struct client_options {
     std::experimental::optional<net::tcp_keepalive_params> keepalive;
+    compressor::factory* compressor_factory = nullptr;
+};
+
+struct server_options {
+    compressor::factory* compressor_factory = nullptr;
 };
 
 inline
@@ -82,8 +88,12 @@ struct negotiation_frame {
     uint32_t len; // additional negotiation data length; multiple negotiation_frame_feature_record structs
 }  __attribute__((packed));
 
+enum class protocol_features : uint32_t {
+    COMPRESS = 0,
+};
+
 // internal representation of feature data
-using feature_map = std::map<uint32_t, sstring>;
+using feature_map = std::map<protocol_features, sstring>;
 
 // MsgType is a type that holds type of a message. The type should be hashable
 // and serializable. It is preferable to use enum for message types, but
@@ -120,7 +130,17 @@ class protocol {
         std::list<outgoing_entry> _outgoing_queue;
         condition_variable _outgoing_queue_cond;
         future<> _send_loop_stopped = make_ready_future<>();
+        std::unique_ptr<compressor> _compressor;
 
+        sstring compress(sstring buf) {
+            if (_compressor) {
+                buf = _compressor->compress(4, std::move(buf));
+                auto p = buf.begin();
+                *unaligned_cast<uint32_t*>(p) = cpu_to_le(buf.size() - 4);
+                return std::move(buf);
+            }
+            return std::move(buf);
+        }
         void send_loop() {
             _send_loop_stopped = do_until([this] { return _error; }, [this] {
                 return _outgoing_queue_cond.wait([this] { return !_outgoing_queue.empty(); }).then([this] {
@@ -130,6 +150,7 @@ class protocol {
                     if (d.pcancel) {
                         d.pcancel->cancel_send = std::function<void()>(); // request is no longer cancellable
                     }
+                    d.buf = compress(std::move(d.buf));
                     auto f = _write_buf.write(d.buf).then([this] {
                         _stats.sent_messages++;
                         return _write_buf.flush();
@@ -154,6 +175,12 @@ class protocol {
     public:
         connection(connected_socket&& fd, protocol& proto) : _fd(std::move(fd)), _read_buf(_fd.input()), _write_buf(_fd.output()), _proto(proto) {}
         connection(protocol& proto) : _proto(proto) {}
+        future<> send_negotiation_frame(sstring buf) {
+            return _write_buf.write(buf).then([this] {
+                _stats.sent_messages++;
+                return _write_buf.flush();
+            });
+        }
         // functions below are public because they are used by external heavily templated functions
         // and I am not smart enough to know how to define them as friends
         future<> send(sstring buf, std::experimental::optional<steady_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr) {
@@ -199,6 +226,8 @@ public:
             future<> negotiate_protocol(input_stream<char>& in);
             future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
             read_request_frame(input_stream<char>& in);
+            future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
+            read_request_frame_compressed(input_stream<char>& in);
             feature_map negotiate(feature_map requested);
         public:
             connection(server& s, connected_socket&& fd, socket_address&& addr, protocol& proto);
@@ -240,9 +269,12 @@ public:
         bool _stopping = false;
         promise<> _ss_stopped;
         seastar::gate _reply_gate;
+        server_options _options;
     public:
         server(protocol& proto, ipv4_addr addr, resource_limits memory_limit = resource_limits());
-        server(protocol& proto, server_socket, resource_limits memory_limit = resource_limits());
+        server(protocol& proto, server_options opts, ipv4_addr addr, resource_limits memory_limit = resource_limits());
+        server(protocol& proto, server_socket, resource_limits memory_limit = resource_limits(), server_options opts = server_options{});
+        server(protocol& proto, server_options opts, server_socket, resource_limits memory_limit = resource_limits());
         void accept();
         future<> stop() {
             _stopping = true; // prevents closed connections to be deleted from _conns
@@ -307,11 +339,14 @@ public:
     private:
         std::unordered_map<id_type, std::unique_ptr<reply_handler_base>> _outstanding;
         ipv4_addr _server_addr;
+        client_options _options;
     private:
         future<> negotiate_protocol(input_stream<char>& in);
         void negotiate(feature_map server_features);
         future<int64_t, std::experimental::optional<temporary_buffer<char>>>
         read_response_frame(input_stream<char>& in);
+        future<int64_t, std::experimental::optional<temporary_buffer<char>>>
+        read_response_frame_compressed(input_stream<char>& in);
     public:
         /**
          * Create client object which will attempt to connect to the remote address.

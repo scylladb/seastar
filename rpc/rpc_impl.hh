@@ -27,10 +27,10 @@
 #include "core/sstring.hh"
 #include "core/future-util.hh"
 #include "util/is_smart_ptr.hh"
-#include "core/byteorder.hh"
 #include "core/simple-stream.hh"
 #include <boost/range/numeric.hpp>
 #include <boost/range/adaptor/transformed.hpp>
+#include "net/packet-data-source.hh"
 
 namespace rpc {
 
@@ -545,15 +545,25 @@ auto protocol<Serializer, MsgType>::register_handler(MsgType t, Func&& func) {
 
 template<typename Serializer, typename MsgType>
 protocol<Serializer, MsgType>::server::server(protocol<Serializer, MsgType>& proto, ipv4_addr addr, resource_limits limits)
-    : server(proto, engine().listen(addr, listen_options(true)), limits)
+    : server(proto, engine().listen(addr, listen_options(true)), limits, server_options{})
 {}
 
 template<typename Serializer, typename MsgType>
-protocol<Serializer, MsgType>::server::server(protocol<Serializer, MsgType>& proto, server_socket ss, resource_limits limits)
-        : _proto(proto), _ss(std::move(ss)), _limits(limits), _resources_available(limits.max_memory)
+protocol<Serializer, MsgType>::server::server(protocol<Serializer, MsgType>& proto, server_options opts, ipv4_addr addr, resource_limits limits)
+    : server(proto, engine().listen(addr, listen_options(true)), limits, opts)
+{}
+
+template<typename Serializer, typename MsgType>
+protocol<Serializer, MsgType>::server::server(protocol<Serializer, MsgType>& proto, server_socket ss, resource_limits limits, server_options opts)
+        : _proto(proto), _ss(std::move(ss)), _limits(limits), _resources_available(limits.max_memory), _options(opts)
 {
     accept();
 }
+
+template<typename Serializer, typename MsgType>
+protocol<Serializer, MsgType>::server::server(protocol<Serializer, MsgType>& proto, server_options opts, server_socket ss, resource_limits limits)
+        : server(proto, std::move(ss), limits, opts)
+{}
 
 template<typename Serializer, typename MsgType>
 void protocol<Serializer, MsgType>::server::accept() {
@@ -606,7 +616,7 @@ static bool verify_frame(Connection& c, temporary_buffer<char>& buf, size_t expe
 }
 
 template<typename Connection>
-static void send_negotiation_frame(Connection& c, feature_map features) {
+static future<> send_negotiation_frame(Connection& c, feature_map features) {
     auto negotiation_frame_feature_record_size = [] (const feature_map::value_type& e) {
         return 8 + e.second.size();
     };
@@ -619,13 +629,13 @@ static void send_negotiation_frame(Connection& c, feature_map features) {
     *unaligned_cast<uint32_t*>(p) = cpu_to_le(extra_len);
     p += 4;
     for (auto&& e : features) {
-        *unaligned_cast<uint32_t*>(p) = cpu_to_le(e.first);
+        *unaligned_cast<uint32_t*>(p) = cpu_to_le(static_cast<uint32_t>(e.first));
         p += 4;
         *unaligned_cast<uint32_t*>(p) = cpu_to_le(e.second.size());
         p += 4;
         p = std::copy_n(e.second.begin(), e.second.size(), p);
     }
-    c.send(std::move(reply));
+    return c.send_negotiation_frame(std::move(reply));
 }
 
 template<typename Connection>
@@ -655,7 +665,7 @@ receive_negotiation_frame(Connection& c, input_stream<char>& in) {
                     c.get_protocol().log(c.peer_address(), "bad feature data format in negotiation frame");
                     return make_exception_future<feature_map>(closed_error());
                 }
-                auto feature = le_to_cpu(*unaligned_cast<const uint32_t*>(p));
+                auto feature = static_cast<protocol_features>(le_to_cpu(*unaligned_cast<const uint32_t*>(p)));
                 auto f_len = le_to_cpu(*unaligned_cast<const uint32_t*>(p + 4));
                 p += 8;
                 if (f_len > end - p) {
@@ -679,6 +689,13 @@ protocol<Serializer, MsgType>::server::connection::negotiate(feature_map request
         auto id = e.first;
         switch (id) {
         // supported features go here
+        case protocol_features::COMPRESS: {
+            if (_server._options.compressor_factory) {
+                this->_compressor = _server._options.compressor_factory->negotiate(e.second, true);
+                ret[protocol_features::COMPRESS] = _server._options.compressor_factory->supported();
+            }
+        }
+        break;
         default:
             // nothing to do
             ;
@@ -692,7 +709,7 @@ future<>
 protocol<Serializer, MsgType>::server::connection::negotiate_protocol(input_stream<char>& in) {
     return receive_negotiation_frame(*this, in).then([this, &in] (feature_map requested_features) {
         auto returned_features = negotiate(std::move(requested_features));
-        send_negotiation_frame(*this, std::move(returned_features));
+        return send_negotiation_frame(*this, std::move(returned_features));
     });
 }
 
@@ -721,9 +738,51 @@ protocol<Serializer, MsgType>::server::connection::read_request_frame(input_stre
 }
 
 template <typename Serializer, typename MsgType>
+future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
+protocol<Serializer, MsgType>::server::connection::read_request_frame_compressed(input_stream<char>& in) {
+    if (this->_compressor) {
+        return in.read_exactly(4).then([this, &in] (temporary_buffer<char> compress_header) {
+            if (compress_header.size() != 4) {
+                if (compress_header.size() != 0) {
+                    this->_proto.log(_info, sprint("unexpected eof on a server while reading compression header: expected 4 got %d", compress_header.size()));
+                }
+                return make_ready_future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>(MsgType(0), 0, std::experimental::optional<temporary_buffer<char>>());
+            }
+            auto ptr = compress_header.get();
+            auto size = le_to_cpu(*unaligned_cast<uint32_t*>(ptr));
+            return in.read_exactly(size).then([this, size] (temporary_buffer<char> compressed_data) {
+                if (compressed_data.size() != size) {
+                    this->_proto.log(_info, sprint("unexpected eof on a server while reading compressed data: expected %d got %d", size, compressed_data.size()));
+                    return make_ready_future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>(MsgType(0), 0, std::experimental::optional<temporary_buffer<char>>());
+                }
+                return do_with(as_input_stream(net::packet(net::packet(), this->_compressor->decompress(std::move(compressed_data)))), [this] (input_stream<char>& in) {
+                    return read_request_frame(in);
+                });
+            });
+        });
+    } else {
+        return read_request_frame(in);
+    }
+}
+
+template <typename Serializer, typename MsgType>
 void
 protocol<Serializer, MsgType>::client::negotiate(feature_map provided) {
     // record features returned here
+    for (auto&& e : provided) {
+        auto id = e.first;
+        switch (id) {
+        // supported features go here
+        case protocol_features::COMPRESS:
+            if (_options.compressor_factory) {
+                this->_compressor = _options.compressor_factory->negotiate(e.second, false);
+            }
+        break;
+        default:
+            // nothing to do
+            ;
+        }
+    }
 }
 
 template<typename Serializer, typename MsgType>
@@ -731,7 +790,7 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
     this->send_loop();
     return this->negotiate_protocol(this->_read_buf).then([this] () mutable {
         return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
-            return this->read_request_frame(this->_read_buf).then([this] (MsgType type, int64_t msg_id, std::experimental::optional<temporary_buffer<char>> data) {
+            return this->read_request_frame_compressed(this->_read_buf).then([this] (MsgType type, int64_t msg_id, std::experimental::optional<temporary_buffer<char>> data) {
                 if (!data) {
                     this->_error = true;
                     return make_ready_future<>();
@@ -813,10 +872,37 @@ protocol<Serializer, MsgType>::client::read_response_frame(input_stream<char>& i
 }
 
 template<typename Serializer, typename MsgType>
+inline
+future<int64_t, std::experimental::optional<temporary_buffer<char>>>
+protocol<Serializer, MsgType>::client::read_response_frame_compressed(input_stream<char>& in) {
+    if (this->_compressor) {
+        return in.read_exactly(4).then([this, &in] (temporary_buffer<char> compress_header) {
+            if (compress_header.size() != 4) {
+                if (compress_header.size() != 0) {
+                    this->_proto.log(this->_server_addr, sprint("unexpected eof on a client while reading compression header: expected 4 got %d", compress_header.size()));
+                }
+                return make_ready_future<int64_t, std::experimental::optional<temporary_buffer<char>>>(0, std::experimental::optional<temporary_buffer<char>>());
+            }
+            auto ptr = compress_header.get();
+            auto size = le_to_cpu(*unaligned_cast<uint32_t*>(ptr));
+            return in.read_exactly(size).then([this, size] (temporary_buffer<char> compressed_data) {
+                if (compressed_data.size() != size) {
+                    this->_proto.log(this->_server_addr, sprint("unexpected eof on a client while reading compressed data: expected %d got %d", size, compressed_data.size()));
+                    return make_ready_future<int64_t, std::experimental::optional<temporary_buffer<char>>>(0, std::experimental::optional<temporary_buffer<char>>());
+                }
+                return do_with(as_input_stream(net::packet(net::packet(), this->_compressor->decompress(std::move(compressed_data)))), [this] (input_stream<char>& in) {
+                    return this->read_response_frame(in);
+                });
+            });
+        });
+    } else {
+        return read_response_frame(in);
+    }
+}
+
+template<typename Serializer, typename MsgType>
 protocol<Serializer, MsgType>::client::client(protocol& proto, client_options ops, seastar::socket socket, ipv4_addr addr, ipv4_addr local)
-        : protocol<Serializer, MsgType>::connection(proto), _socket(std::move(socket)), _server_addr(addr) {
-    feature_map features;
-    send_negotiation_frame(*this, std::move(features));
+        : protocol<Serializer, MsgType>::connection(proto), _socket(std::move(socket)), _server_addr(addr), _options(ops) {
     _socket.connect(addr, local).then([this, ops = std::move(ops)] (connected_socket fd) {
         fd.set_nodelay(true);
         if (ops.keepalive) {
@@ -827,10 +913,17 @@ protocol<Serializer, MsgType>::client::client(protocol& proto, client_options op
         this->_read_buf = this->_fd.input();
         this->_write_buf = this->_fd.output();
         this->_connected = true;
-        this->send_loop();
+
+        feature_map features;
+        if (_options.compressor_factory) {
+            features[protocol_features::COMPRESS] = _options.compressor_factory->supported();
+        }
+        send_negotiation_frame(*this, std::move(features));
+
         return this->negotiate_protocol(this->_read_buf).then([this] () {
+            this->send_loop();
             return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
-                return this->read_response_frame(this->_read_buf).then([this] (int64_t msg_id, std::experimental::optional<temporary_buffer<char>> data) {
+                return this->read_response_frame_compressed(this->_read_buf).then([this] (int64_t msg_id, std::experimental::optional<temporary_buffer<char>> data) {
                     auto it = _outstanding.find(std::abs(msg_id));
                     if (!data) {
                         this->_error = true;
