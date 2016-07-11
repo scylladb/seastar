@@ -24,6 +24,8 @@
 
 namespace rpc {
 
+const sstring lz4_compressor::factory::_name = "LZ4";
+
 sstring lz4_compressor::compress(size_t head_space, sstring data) {
     head_space += 4;
     sstring dst(sstring::initialized_later(), head_space + LZ4_compressBound(data.size()));
