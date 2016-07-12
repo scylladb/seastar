@@ -177,6 +177,7 @@ chunked_fifo<T, items_per_chunk>::operator=(chunked_fifo&& x) noexcept {
         this->~chunked_fifo();
         new (this) chunked_fifo(std::move(x));
     }
+    return *this;
 }
 
 template <typename T, size_t items_per_chunk>
