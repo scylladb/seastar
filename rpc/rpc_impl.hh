@@ -682,6 +682,58 @@ receive_negotiation_frame(Connection& c, input_stream<char>& in) {
 }
 
 template <typename Serializer, typename MsgType>
+template<typename FrameType, typename Info>
+typename FrameType::return_type
+protocol<Serializer, MsgType>::read_frame(const Info& info, input_stream<char>& in) {
+    auto header_size = FrameType::header_size();
+    return in.read_exactly(header_size).then([this, header_size, &info, &in] (temporary_buffer<char> header) {
+        if (header.size() != header_size) {
+            if (header.size() != 0) {
+                log(info, sprint("unexpected eof on a %s while reading header: expected %d got %d", FrameType::role(), header_size, header.size()));
+            }
+            return FrameType::empty_value();
+        }
+        auto h = FrameType::decode_header(header.get());
+        return in.read_exactly(FrameType::get_size(h)).then([this, h = std::move(h), &info] (temporary_buffer<char> data) {
+            if (data.size() != FrameType::get_size(h)) {
+                log(info, sprint("unexpected eof on a %s while reading data: expected %d got %d", FrameType::role(), FrameType::get_size(h), data.size()));
+                return FrameType::empty_value();
+            }
+            return FrameType::make_value(h, std::move(data));
+        });
+    });
+}
+
+template <typename Serializer, typename MsgType>
+template<typename FrameType, typename Info>
+typename FrameType::return_type
+protocol<Serializer, MsgType>::read_frame_compressed(const Info& info, std::unique_ptr<compressor>& compressor, input_stream<char>& in) {
+    if (compressor) {
+        return in.read_exactly(4).then([&] (temporary_buffer<char> compress_header) {
+            if (compress_header.size() != 4) {
+                if (compress_header.size() != 0) {
+                    log(info, sprint("unexpected eof on a %s while reading compression header: expected 4 got %d", FrameType::role(), compress_header.size()));
+                }
+                return FrameType::empty_value();
+            }
+            auto ptr = compress_header.get();
+            auto size = le_to_cpu(*unaligned_cast<uint32_t*>(ptr));
+            return in.read_exactly(size).then([this, size, &compressor, &info] (temporary_buffer<char> compressed_data) {
+                if (compressed_data.size() != size) {
+                    log(info, sprint("unexpected eof on a %s while reading compressed data: expected %d got %d", FrameType::role(), size, compressed_data.size()));
+                    return FrameType::empty_value();
+                }
+                return do_with(as_input_stream(net::packet(net::packet(), compressor->decompress(std::move(compressed_data)))), [this, &info] (input_stream<char>& in) {
+                    return read_frame<FrameType>(info, in);
+                });
+            });
+        });
+    } else {
+        return read_frame<FrameType>(info, in);
+    }
+}
+
+template <typename Serializer, typename MsgType>
 feature_map
 protocol<Serializer, MsgType>::server::connection::negotiate(feature_map requested) {
     feature_map ret;
@@ -713,56 +765,43 @@ protocol<Serializer, MsgType>::server::connection::negotiate_protocol(input_stre
     });
 }
 
-template <typename Serializer, typename MsgType>
-future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
-protocol<Serializer, MsgType>::server::connection::read_request_frame(input_stream<char>& in) {
-    return in.read_exactly(20).then([this, &in] (temporary_buffer<char> header) {
-        if (header.size() != 20) {
-            if (header.size() != 0) {
-                this->_server._proto.log(_info, sprint("unexpected eof on a server while reading header: expected 20 got %d", header.size()));
-            }
-            return make_ready_future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>(MsgType(0), 0, std::experimental::optional<temporary_buffer<char>>());
-        }
-        auto ptr = header.get();
+template<typename MsgType>
+struct request_frame {
+    using return_type = future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>;
+    using header_type = std::tuple<MsgType, int64_t, uint32_t>;
+    static size_t header_size() {
+        return 20;
+    }
+    static const char* role() {
+        return "server";
+    }
+    static auto empty_value() {
+        return make_ready_future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>(MsgType(0), 0, std::experimental::nullopt);
+    }
+    static header_type decode_header(const char* ptr) {
         auto type = MsgType(le_to_cpu(*unaligned_cast<uint64_t>(ptr)));
         auto msgid = le_to_cpu(*unaligned_cast<int64_t*>(ptr + 8));
         auto size = le_to_cpu(*unaligned_cast<uint32_t*>(ptr + 16));
-        return in.read_exactly(size).then([this, type, msgid, size] (temporary_buffer<char> data) {
-            if (data.size() != size) {
-                this->_server._proto.log(_info, sprint("unexpected eof on a server while reading data: expected %d got %d", size, data.size()));
-                return make_ready_future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>(MsgType(0), 0, std::experimental::optional<temporary_buffer<char>>());
-            }
-            return make_ready_future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>(type, msgid, std::experimental::optional<temporary_buffer<char>>(std::move(data)));
-        });
-    });
+        return std::make_tuple(type, msgid, size);
+    }
+    static uint32_t get_size(const header_type& t) {
+        return std::get<2>(t);
+    }
+    static auto make_value(const header_type& t, temporary_buffer<char> data) {
+        return make_ready_future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>(std::get<0>(t), std::get<1>(t), std::move(data));
+    }
+};
+
+template <typename Serializer, typename MsgType>
+future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
+protocol<Serializer, MsgType>::server::connection::read_request_frame(input_stream<char>& in) {
+    return this->_server._proto.read_frame<request_frame<MsgType>>(_info, in);
 }
 
 template <typename Serializer, typename MsgType>
 future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
 protocol<Serializer, MsgType>::server::connection::read_request_frame_compressed(input_stream<char>& in) {
-    if (this->_compressor) {
-        return in.read_exactly(4).then([this, &in] (temporary_buffer<char> compress_header) {
-            if (compress_header.size() != 4) {
-                if (compress_header.size() != 0) {
-                    this->_proto.log(_info, sprint("unexpected eof on a server while reading compression header: expected 4 got %d", compress_header.size()));
-                }
-                return make_ready_future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>(MsgType(0), 0, std::experimental::optional<temporary_buffer<char>>());
-            }
-            auto ptr = compress_header.get();
-            auto size = le_to_cpu(*unaligned_cast<uint32_t*>(ptr));
-            return in.read_exactly(size).then([this, size] (temporary_buffer<char> compressed_data) {
-                if (compressed_data.size() != size) {
-                    this->_proto.log(_info, sprint("unexpected eof on a server while reading compressed data: expected %d got %d", size, compressed_data.size()));
-                    return make_ready_future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>(MsgType(0), 0, std::experimental::optional<temporary_buffer<char>>());
-                }
-                return do_with(as_input_stream(net::packet(net::packet(), this->_compressor->decompress(std::move(compressed_data)))), [this] (input_stream<char>& in) {
-                    return read_request_frame(in);
-                });
-            });
-        });
-    } else {
-        return read_request_frame(in);
-    }
+    return this->_server._proto.read_frame_compressed<request_frame<MsgType>>(_info, this->_compressor, in);
 }
 
 template <typename Serializer, typename MsgType>
@@ -845,59 +884,44 @@ protocol<Serializer, MsgType>::client::negotiate_protocol(input_stream<char>& in
     });
 }
 
+struct response_frame {
+    using return_type = future<int64_t, std::experimental::optional<temporary_buffer<char>>>;
+    using header_type = std::tuple<int64_t, uint32_t>;
+    static size_t header_size() {
+        return 12;
+    }
+    static const char* role() {
+        return "client";
+    }
+    static auto empty_value() {
+        return make_ready_future<int64_t, std::experimental::optional<temporary_buffer<char>>>(0, std::experimental::nullopt);
+    }
+    static header_type decode_header(const char* ptr) {
+        auto msgid = le_to_cpu(*unaligned_cast<int64_t*>(ptr));
+        auto size = le_to_cpu(*unaligned_cast<uint32_t*>(ptr + 8));
+        return std::make_tuple(msgid, size);
+    }
+    static uint32_t get_size(const header_type& t) {
+        return std::get<1>(t);
+    }
+    static auto make_value(const header_type& t, temporary_buffer<char> data) {
+        return make_ready_future<int64_t, std::experimental::optional<temporary_buffer<char>>>(std::get<0>(t), std::move(data));
+    }
+};
+
 // FIXME: take out-of-line?
 template<typename Serializer, typename MsgType>
 inline
 future<int64_t, std::experimental::optional<temporary_buffer<char>>>
 protocol<Serializer, MsgType>::client::read_response_frame(input_stream<char>& in) {
-    return in.read_exactly(12).then([this, &in] (temporary_buffer<char> header) {
-        if (header.size() != 12) {
-            if (header.size() != 0) {
-                this->_proto.log(this->_server_addr, sprint("unexpected eof on a client while reading header: expected 12 got %d", header.size()));
-            }
-            return make_ready_future<int64_t, std::experimental::optional<temporary_buffer<char>>>(0, std::experimental::optional<temporary_buffer<char>>());
-        }
-
-        auto ptr = header.get();
-        auto msgid = le_to_cpu(*unaligned_cast<int64_t*>(ptr));
-        auto size = le_to_cpu(*unaligned_cast<uint32_t*>(ptr + 8));
-        return in.read_exactly(size).then([this, msgid, size] (temporary_buffer<char> data) {
-            if (data.size() != size) {
-                this->_proto.log(this->_server_addr, sprint("unexpected eof on a client while reading data: expected %d got %d", size, data.size()));
-                return make_ready_future<int64_t, std::experimental::optional<temporary_buffer<char>>>(0, std::experimental::optional<temporary_buffer<char>>());
-            }
-            return make_ready_future<int64_t, std::experimental::optional<temporary_buffer<char>>>(msgid, std::experimental::optional<temporary_buffer<char>>(std::move(data)));
-        });
-    });
+    return this->_proto.read_frame<response_frame>(this->_server_addr, in);
 }
 
 template<typename Serializer, typename MsgType>
 inline
 future<int64_t, std::experimental::optional<temporary_buffer<char>>>
 protocol<Serializer, MsgType>::client::read_response_frame_compressed(input_stream<char>& in) {
-    if (this->_compressor) {
-        return in.read_exactly(4).then([this, &in] (temporary_buffer<char> compress_header) {
-            if (compress_header.size() != 4) {
-                if (compress_header.size() != 0) {
-                    this->_proto.log(this->_server_addr, sprint("unexpected eof on a client while reading compression header: expected 4 got %d", compress_header.size()));
-                }
-                return make_ready_future<int64_t, std::experimental::optional<temporary_buffer<char>>>(0, std::experimental::optional<temporary_buffer<char>>());
-            }
-            auto ptr = compress_header.get();
-            auto size = le_to_cpu(*unaligned_cast<uint32_t*>(ptr));
-            return in.read_exactly(size).then([this, size] (temporary_buffer<char> compressed_data) {
-                if (compressed_data.size() != size) {
-                    this->_proto.log(this->_server_addr, sprint("unexpected eof on a client while reading compressed data: expected %d got %d", size, compressed_data.size()));
-                    return make_ready_future<int64_t, std::experimental::optional<temporary_buffer<char>>>(0, std::experimental::optional<temporary_buffer<char>>());
-                }
-                return do_with(as_input_stream(net::packet(net::packet(), this->_compressor->decompress(std::move(compressed_data)))), [this] (input_stream<char>& in) {
-                    return this->read_response_frame(in);
-                });
-            });
-        });
-    } else {
-        return read_response_frame(in);
-    }
+    return this->_proto.read_frame_compressed<response_frame>(this->_server_addr, this->_compressor, in);
 }
 
 template<typename Serializer, typename MsgType>

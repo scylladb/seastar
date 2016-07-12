@@ -457,6 +457,12 @@ private:
     void register_receiver(MsgType t, rpc_handler&& handler) {
         _handlers.emplace(t, std::move(handler));
     }
+
+    template <typename FrameType, typename Info>
+    typename FrameType::return_type read_frame(const Info& info, input_stream<char>& in);
+
+    template <typename FrameType, typename Info>
+    typename FrameType::return_type read_frame_compressed(const Info& info, std::unique_ptr<compressor>& compressor, input_stream<char>& in);
 };
 }
 
