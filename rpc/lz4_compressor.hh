@@ -19,6 +19,8 @@
  * Copyright (C) 2016 Scylladb, Ltd.
  */
 
+#pragma once
+
 #include "core/sstring.hh"
 #include "rpc/rpc_types.hh"
 #include <lz4.h>

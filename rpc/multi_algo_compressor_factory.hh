@@ -19,6 +19,8 @@
  * Copyright (C) 2016 Scylladb, Ltd.
  */
 
+#pragma once
+
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/algorithm/string.hpp>
 #include "core/sstring.hh"
