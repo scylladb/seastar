@@ -29,7 +29,9 @@ const sstring lz4_compressor::factory::_name = "LZ4";
 sstring lz4_compressor::compress(size_t head_space, sstring data) {
     head_space += 4;
     sstring dst(sstring::initialized_later(), head_space + LZ4_compressBound(data.size()));
-    auto size = LZ4_compress_default(data.begin(), dst.begin() + head_space, data.size(), dst.size() - head_space);
+    // Can't use LZ4_compress_default() since it's too new.
+    // Safe since output buffer is sized properly.
+    auto size = LZ4_compress(data.begin(), dst.begin() + head_space, data.size());
     dst.resize(size + head_space);
     *unaligned_cast<uint32_t*>(dst.data() + 4) = cpu_to_le(data.size());
     return dst;
