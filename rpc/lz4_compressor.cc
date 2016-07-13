@@ -32,6 +32,9 @@ sstring lz4_compressor::compress(size_t head_space, sstring data) {
     // Can't use LZ4_compress_default() since it's too new.
     // Safe since output buffer is sized properly.
     auto size = LZ4_compress(data.begin(), dst.begin() + head_space, data.size());
+    if (size == 0) {
+        throw std::runtime_error("RPC frame LZ4 compression failure");
+    }
     dst.resize(size + head_space);
     *unaligned_cast<uint32_t*>(dst.data() + 4) = cpu_to_le(data.size());
     return dst;
@@ -44,7 +47,9 @@ temporary_buffer<char> lz4_compressor::decompress(temporary_buffer<char> data) {
         auto size = le_to_cpu(*unaligned_cast<uint32_t*>(data.begin()));
         if (size) {
             temporary_buffer<char> dst(size);
-            LZ4_decompress_fast(data.begin() + 4, dst.get_write(), dst.size());
+            if (LZ4_decompress_fast(data.begin() + 4, dst.get_write(), dst.size()) < 0) {
+                throw std::runtime_error("RPC frame LZ4 decompression failure");
+            }
             return dst;
         } else {
             // special case: if uncompressed size is zero it means that data was not compressed
