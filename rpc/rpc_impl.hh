@@ -159,11 +159,11 @@ inline void do_marshall(Serializer& serializer, Output& out, const T&... args) {
 }
 
 template <typename Serializer, typename... T>
-inline sstring marshall(Serializer& serializer, size_t head_space, const T&... args) {
+inline temporary_buffer<char> marshall(Serializer& serializer, size_t head_space, const T&... args) {
     seastar::measuring_output_stream measure;
     do_marshall(serializer, measure, args...);
-    sstring ret(sstring::initialized_later(), measure.size() + head_space);
-    seastar::simple_output_stream out(ret, head_space);
+    temporary_buffer<char> ret(measure.size() + head_space);
+    seastar::simple_output_stream out(ret.get_write(), head_space);
     do_marshall(serializer, out, args...);
     return ret;
 }
@@ -322,8 +322,8 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
 
             // send message
             auto msg_id = dst.next_message_id();
-            sstring data = marshall(dst.serializer(), 20, args...);
-            auto p = data.begin();
+            temporary_buffer<char> data = marshall(dst.serializer(), 20, args...);
+            auto p = data.get_write();
             write_le<uint64_t>(p, uint64_t(t));
             write_le<int64_t>(p + 8, msg_id);
             write_le<uint32_t>(p + 16, data.size() - 20);
@@ -354,8 +354,8 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
 template <typename Serializer, typename MsgType>
 inline
 future<>
-protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, sstring&& data) {
-    auto p = data.begin();
+protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, temporary_buffer<char>&& data) {
+    auto p = data.get_write();
     write_le<int64_t>(p, msg_id);
     write_le<uint32_t>(p + 8, data.size() - 12);
     return this->send(std::move(data));
@@ -364,14 +364,14 @@ protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, sstri
 template<typename Serializer, typename MsgType, typename... RetTypes>
 inline future<> reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client) {
     if (!client->error()) {
-        sstring data;
+        temporary_buffer<char> data;
         try {
             data = ::apply(marshall<Serializer, const RetTypes&...>,
                     std::tuple_cat(std::make_tuple(std::ref(client->serializer()), 12), std::move(ret.get())));
         } catch (std::exception& ex) {
             uint32_t len = std::strlen(ex.what());
-            data = sstring(sstring::initialized_later(), 20 + len);
-            auto p = data.begin() + 12;
+            data = temporary_buffer<char>(20 + len);
+            auto p = data.get_write() + 12;
             write_le<uint32_t>(p, uint32_t(exception_type::USER));
             write_le<uint32_t>(p + 4, len);
             std::copy_n(ex.what(), len, p + 8);
@@ -623,8 +623,8 @@ static future<> send_negotiation_frame(Connection& c, feature_map features) {
     auto extra_len = boost::accumulate(
             features | boost::adaptors::transformed(negotiation_frame_feature_record_size),
             uint32_t(0));
-    sstring reply(sstring::initialized_later(), sizeof(negotiation_frame) + extra_len);
-    auto p = reply.begin();
+    temporary_buffer<char> reply(sizeof(negotiation_frame) + extra_len);
+    auto p = reply.get_write();
     p = std::copy_n(rpc_magic, 8, p);
     write_le<uint32_t>(p, extra_len);
     p += 4;
@@ -842,8 +842,8 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
                     } else {
                         return this->wait_for_resources(28).then([this, msg_id, type] {
                             // send unknown_verb exception back
-                            auto data = sstring(sstring::initialized_later(), 28);
-                            auto p = data.begin() + 12;
+                            auto data = temporary_buffer<char>(28);
+                            auto p = data.get_write() + 12;
                             write_le<uint32_t>(p, uint32_t(exception_type::UNKNOWN_VERB));
                             write_le<uint32_t>(p + 4, uint32_t(8));
                             write_le<uint64_t>(p + 8, uint64_t(type));

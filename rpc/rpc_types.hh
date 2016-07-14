@@ -151,7 +151,7 @@ class compressor {
 public:
     virtual ~compressor() {}
     // compress data and leave head_space bytes at the beginning of returned buffer
-    virtual sstring compress(size_t head_space, sstring data) = 0;
+    virtual temporary_buffer<char> compress(size_t head_space, temporary_buffer<char> data) = 0;
     // decompress data
     virtual temporary_buffer<char> decompress(temporary_buffer<char> data) = 0;
 

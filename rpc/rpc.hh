@@ -111,10 +111,10 @@ class protocol {
         stats _stats;
         struct outgoing_entry {
             timer<> t;
-            sstring buf;
+            temporary_buffer<char> buf;
             std::experimental::optional<promise<>> p = promise<>();
             cancellable* pcancel = nullptr;
-            outgoing_entry(sstring b) : buf(std::move(b)) {}
+            outgoing_entry(temporary_buffer<char> b) : buf(std::move(b)) {}
             outgoing_entry(outgoing_entry&& o) : t(std::move(o.t)), buf(std::move(o.buf)), p(std::move(o.p)), pcancel(o.pcancel) {
                 o.p = std::experimental::nullopt;
             }
@@ -134,11 +134,10 @@ class protocol {
         future<> _send_loop_stopped = make_ready_future<>();
         std::unique_ptr<compressor> _compressor;
 
-        sstring compress(sstring buf) {
+        temporary_buffer<char> compress(temporary_buffer<char> buf) {
             if (_compressor) {
                 buf = _compressor->compress(4, std::move(buf));
-                auto p = buf.begin();
-                write_le<uint32_t>(p, buf.size() - 4);
+                write_le<uint32_t>(buf.get_write(), buf.size() - 4);
                 return std::move(buf);
             }
             return std::move(buf);
@@ -159,8 +158,7 @@ class protocol {
                         d.pcancel->cancel_send = std::function<void()>(); // request is no longer cancellable
                     }
                     d.buf = compress(std::move(d.buf));
-                    auto b = std::move(d.buf);
-                    auto f = _write_buf.write(b).then([this] {
+                    auto f = _write_buf.write(std::move(d.buf)).then([this] {
                         _stats.sent_messages++;
                         return _write_buf.flush();
                     });
@@ -184,15 +182,15 @@ class protocol {
     public:
         connection(connected_socket&& fd, protocol& proto) : _fd(std::move(fd)), _read_buf(_fd.input()), _write_buf(_fd.output()), _proto(proto) {}
         connection(protocol& proto) : _proto(proto) {}
-        future<> send_negotiation_frame(sstring buf) {
-            return _write_buf.write(buf).then([this] {
+        future<> send_negotiation_frame(temporary_buffer<char> buf) {
+            return _write_buf.write(std::move(buf)).then([this] {
                 _stats.sent_messages++;
                 return _write_buf.flush();
             });
         }
         // functions below are public because they are used by external heavily templated functions
         // and I am not smart enough to know how to define them as friends
-        future<> send(sstring buf, std::experimental::optional<steady_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr) {
+        future<> send(temporary_buffer<char> buf, std::experimental::optional<steady_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr) {
             if (!_error) {
                 _outgoing_queue.emplace_back(std::move(buf));
                 auto deleter = [this, it = std::prev(_outgoing_queue.cend())] {
@@ -244,7 +242,7 @@ public:
         public:
             connection(server& s, connected_socket&& fd, socket_address&& addr, protocol& proto);
             future<> process();
-            future<> respond(int64_t msg_id, sstring&& data);
+            future<> respond(int64_t msg_id, temporary_buffer<char>&& data);
             client_info& info() { return _info; }
             const client_info& info() const { return _info; }
             stats get_stats() const {
