@@ -112,17 +112,19 @@ class protocol {
         struct outgoing_entry {
             timer<> t;
             sstring buf;
-            promise<> p;
+            std::experimental::optional<promise<>> p = promise<>();
             cancellable* pcancel = nullptr;
             outgoing_entry(sstring b) : buf(std::move(b)) {}
-            outgoing_entry(outgoing_entry&&) = default;
+            outgoing_entry(outgoing_entry&& o) : t(std::move(o.t)), buf(std::move(o.buf)), p(std::move(o.p)), pcancel(o.pcancel) {
+                o.p = std::experimental::nullopt;
+            }
             ~outgoing_entry() {
-                if (!buf.empty()) {
+                if (p) {
                     if (pcancel) {
                         pcancel->cancel_send = std::function<void()>();
                         pcancel->send_back_pointer = nullptr;
                     }
-                    p.set_value();
+                    p->set_value();
                 }
             }
         };
@@ -157,7 +159,8 @@ class protocol {
                         d.pcancel->cancel_send = std::function<void()>(); // request is no longer cancellable
                     }
                     d.buf = compress(std::move(d.buf));
-                    auto f = _write_buf.write(d.buf).then([this] {
+                    auto b = std::move(d.buf);
+                    auto f = _write_buf.write(b).then([this] {
                         _stats.sent_messages++;
                         return _write_buf.flush();
                     });
@@ -206,7 +209,7 @@ class protocol {
                     _outgoing_queue.back().pcancel = cancel;
                 }
                 _outgoing_queue_cond.signal();
-                return _outgoing_queue.back().p.get_future();
+                return _outgoing_queue.back().p->get_future();
             } else {
                 return make_exception_future<>(closed_error());
             }
