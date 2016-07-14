@@ -71,6 +71,7 @@ struct resource_limits {
 struct client_options {
     std::experimental::optional<net::tcp_keepalive_params> keepalive;
     compressor::factory* compressor_factory = nullptr;
+    bool send_timeout_data = true;
 };
 
 struct server_options {
@@ -90,6 +91,7 @@ struct negotiation_frame {
 
 enum class protocol_features : uint32_t {
     COMPRESS = 0,
+    TIMEOUT = 1,
 };
 
 // internal representation of feature data
@@ -133,6 +135,7 @@ class protocol {
         condition_variable _outgoing_queue_cond;
         future<> _send_loop_stopped = make_ready_future<>();
         std::unique_ptr<compressor> _compressor;
+        bool _timeout_negotiated = false;
 
         temporary_buffer<char> compress(temporary_buffer<char> buf) {
             if (_compressor) {
@@ -142,6 +145,11 @@ class protocol {
             }
             return std::move(buf);
         }
+        enum class outgoing_queue_type {
+            request,
+            response
+        };
+        template<outgoing_queue_type QueueType>
         void send_loop() {
             _send_loop_stopped = do_until([this] { return _error; }, [this] {
                 return _outgoing_queue_cond.wait([this] { return !_outgoing_queue.empty(); }).then([this] {
@@ -156,6 +164,18 @@ class protocol {
                     d.t.cancel(); // cancel timeout timer
                     if (d.pcancel) {
                         d.pcancel->cancel_send = std::function<void()>(); // request is no longer cancellable
+                    }
+                    if (QueueType == outgoing_queue_type::request) {
+                        if (_timeout_negotiated) {
+                            auto expire = d.t.get_timeout();
+                            uint64_t left = 0;
+                            if (expire != typename timer<>::time_point()) {
+                                left = std::chrono::duration_cast<std::chrono::milliseconds>(expire - timer<>::clock::now()).count();
+                            }
+                            write_le<uint64_t>(d.buf.get_write(), left);
+                        } else {
+                            d.buf.trim_front(8);
+                        }
                     }
                     d.buf = compress(std::move(d.buf));
                     auto f = _write_buf.write(std::move(d.buf)).then([this] {
@@ -234,15 +254,18 @@ public:
             client_info _info;
         private:
             future<> negotiate_protocol(input_stream<char>& in);
-            future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
+            future<std::experimental::optional<uint64_t>, MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
             read_request_frame(input_stream<char>& in);
-            future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
+            future<std::experimental::optional<uint64_t>, MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
             read_request_frame_compressed(input_stream<char>& in);
             feature_map negotiate(feature_map requested);
+            void send_loop() {
+                protocol::connection::template send_loop<protocol::connection::outgoing_queue_type::response>();
+            }
         public:
             connection(server& s, connected_socket&& fd, socket_address&& addr, protocol& proto);
             future<> process();
-            future<> respond(int64_t msg_id, temporary_buffer<char>&& data);
+            future<> respond(int64_t msg_id, temporary_buffer<char>&& data, std::experimental::optional<steady_clock_type::time_point> timeout);
             client_info& info() { return _info; }
             const client_info& info() const { return _info; }
             stats get_stats() const {
@@ -357,6 +380,9 @@ public:
         read_response_frame(input_stream<char>& in);
         future<int64_t, std::experimental::optional<temporary_buffer<char>>>
         read_response_frame_compressed(input_stream<char>& in);
+        void send_loop() {
+            protocol::connection::template send_loop<protocol::connection::outgoing_queue_type::request>();
+        }
     public:
         /**
          * Create client object which will attempt to connect to the remote address.
@@ -423,7 +449,7 @@ public:
     };
     friend server;
 private:
-    using rpc_handler = std::function<future<> (lw_shared_ptr<typename server::connection>, int64_t msgid,
+    using rpc_handler = std::function<future<> (lw_shared_ptr<typename server::connection>, std::experimental::optional<steady_clock_type::time_point> timeout, int64_t msgid,
                                                 temporary_buffer<char> data)>;
     std::unordered_map<MsgType, rpc_handler> _handlers;
     Serializer _serializer;
