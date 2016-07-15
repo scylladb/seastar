@@ -36,7 +36,7 @@ sstring lz4_compressor::compress(size_t head_space, sstring data) {
         throw std::runtime_error("RPC frame LZ4 compression failure");
     }
     dst.resize(size + head_space);
-    *unaligned_cast<uint32_t*>(dst.data() + 4) = cpu_to_le(data.size());
+    write_le<uint32_t>(dst.data() + 4, data.size());
     return dst;
 }
 
@@ -44,7 +44,7 @@ temporary_buffer<char> lz4_compressor::decompress(temporary_buffer<char> data) {
     if (data.size() < 4) {
         return temporary_buffer<char>();
     } else {
-        auto size = le_to_cpu(*unaligned_cast<uint32_t*>(data.begin()));
+        auto size = read_le<uint32_t>(data.begin());
         if (size) {
             temporary_buffer<char> dst(size);
             if (LZ4_decompress_fast(data.begin() + 4, dst.get_write(), dst.size()) < 0) {

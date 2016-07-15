@@ -216,14 +216,14 @@ static std::exception_ptr unmarshal_exception(temporary_buffer<char>& data) {
         return p;
     };
 
-    exception_type ex_type = exception_type(le_to_cpu(*unaligned_cast<uint32_t*>(get(4))));
-    uint32_t ex_len = le_to_cpu(*unaligned_cast<uint32_t*>(get(4)));
+    exception_type ex_type = exception_type(read_le<uint32_t>(get(4)));
+    uint32_t ex_len = read_le<uint32_t>(get(4));
     switch (ex_type) {
     case exception_type::USER:
         ex = std::make_exception_ptr(std::runtime_error(std::string(get(ex_len), ex_len)));
         break;
     case exception_type::UNKNOWN_VERB:
-        ex = std::make_exception_ptr(unknown_verb_error(le_to_cpu(*unaligned_cast<uint64_t*>(get(8)))));
+        ex = std::make_exception_ptr(unknown_verb_error(read_le<uint64_t>(get(8))));
         break;
     default:
         ex = std::make_exception_ptr(unknown_exception_error());
@@ -324,9 +324,9 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
             auto msg_id = dst.next_message_id();
             sstring data = marshall(dst.serializer(), 20, args...);
             auto p = data.begin();
-            *unaligned_cast<uint64_t*>(p) = cpu_to_le(uint64_t(t));
-            *unaligned_cast<int64_t*>(p + 8) = cpu_to_le(msg_id);
-            *unaligned_cast<uint32_t*>(p + 16) = cpu_to_le(data.size() - 20);
+            write_le<uint64_t>(p, uint64_t(t));
+            write_le<int64_t>(p + 8, msg_id);
+            write_le<uint32_t>(p + 16, data.size() - 20);
 
             // prepare reply handler, if return type is now_wait_type this does nothing, since no reply will be sent
             using wait = wait_signature_t<Ret>;
@@ -356,8 +356,8 @@ inline
 future<>
 protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, sstring&& data) {
     auto p = data.begin();
-    *unaligned_cast<int64_t*>(p) = cpu_to_le(msg_id);
-    *unaligned_cast<uint32_t*>(p + 8) = cpu_to_le(data.size() - 12);
+    write_le<int64_t>(p, msg_id);
+    write_le<uint32_t>(p + 8, data.size() - 12);
     return this->send(std::move(data));
 }
 
@@ -372,8 +372,8 @@ inline future<> reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_s
             uint32_t len = std::strlen(ex.what());
             data = sstring(sstring::initialized_later(), 20 + len);
             auto p = data.begin() + 12;
-            *unaligned_cast<uint32_t*>(p) = le_to_cpu(uint32_t(exception_type::USER));
-            *unaligned_cast<uint32_t*>(p + 4) = le_to_cpu(len);
+            write_le<uint32_t>(p, uint32_t(exception_type::USER));
+            write_le<uint32_t>(p + 4, len);
             std::copy_n(ex.what(), len, p + 8);
             msg_id = -msg_id;
         }
@@ -626,12 +626,12 @@ static future<> send_negotiation_frame(Connection& c, feature_map features) {
     sstring reply(sstring::initialized_later(), sizeof(negotiation_frame) + extra_len);
     auto p = reply.begin();
     p = std::copy_n(rpc_magic, 8, p);
-    *unaligned_cast<uint32_t*>(p) = cpu_to_le(extra_len);
+    write_le<uint32_t>(p, extra_len);
     p += 4;
     for (auto&& e : features) {
-        *unaligned_cast<uint32_t*>(p) = cpu_to_le(static_cast<uint32_t>(e.first));
+        write_le<uint32_t>(p, static_cast<uint32_t>(e.first));
         p += 4;
-        *unaligned_cast<uint32_t*>(p) = cpu_to_le(e.second.size());
+        write_le<uint32_t>(p, e.second.size());
         p += 4;
         p = std::copy_n(e.second.begin(), e.second.size(), p);
     }
@@ -646,12 +646,14 @@ receive_negotiation_frame(Connection& c, input_stream<char>& in) {
         if (!verify_frame(c, neg, sizeof(negotiation_frame), "unexpected eof during negotiation frame")) {
             return make_exception_future<feature_map>(closed_error());
         }
-        negotiation_frame* frame = reinterpret_cast<negotiation_frame*>(neg.get_write());
-        if (std::memcmp(frame->magic, rpc_magic, sizeof(frame->magic)) != 0) {
+        negotiation_frame frame;
+        std::copy_n(neg.get_write(), sizeof(frame.magic), frame.magic);
+        frame.len = read_le<uint32_t>(neg.get_write() + 8);
+        if (std::memcmp(frame.magic, rpc_magic, sizeof(frame.magic)) != 0) {
             c.get_protocol().log(c.peer_address(), "wrong protocol magic");
             return make_exception_future<feature_map>(closed_error());
         }
-        auto len = le_to_cpu(frame->len);
+        auto len = frame.len;
         return in.read_exactly(len).then([&c, len] (temporary_buffer<char> extra) {
             if (extra.size() != len) {
                 c.get_protocol().log(c.peer_address(), "unexpected eof during negotiation frame");
@@ -665,8 +667,8 @@ receive_negotiation_frame(Connection& c, input_stream<char>& in) {
                     c.get_protocol().log(c.peer_address(), "bad feature data format in negotiation frame");
                     return make_exception_future<feature_map>(closed_error());
                 }
-                auto feature = static_cast<protocol_features>(le_to_cpu(*unaligned_cast<const uint32_t*>(p)));
-                auto f_len = le_to_cpu(*unaligned_cast<const uint32_t*>(p + 4));
+                auto feature = static_cast<protocol_features>(read_le<uint32_t>(p));
+                auto f_len = read_le<uint32_t>(p + 4);
                 p += 8;
                 if (f_len > end - p) {
                     c.get_protocol().log(c.peer_address(), "buffer underflow in feature data in negotiation frame");
@@ -717,7 +719,7 @@ protocol<Serializer, MsgType>::read_frame_compressed(const Info& info, std::uniq
                 return FrameType::empty_value();
             }
             auto ptr = compress_header.get();
-            auto size = le_to_cpu(*unaligned_cast<uint32_t*>(ptr));
+            auto size = read_le<uint32_t>(ptr);
             return in.read_exactly(size).then([this, size, &compressor, &info] (temporary_buffer<char> compressed_data) {
                 if (compressed_data.size() != size) {
                     log(info, sprint("unexpected eof on a %s while reading compressed data: expected %d got %d", FrameType::role(), size, compressed_data.size()));
@@ -779,9 +781,9 @@ struct request_frame {
         return make_ready_future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>(MsgType(0), 0, std::experimental::nullopt);
     }
     static header_type decode_header(const char* ptr) {
-        auto type = MsgType(le_to_cpu(*unaligned_cast<uint64_t>(ptr)));
-        auto msgid = le_to_cpu(*unaligned_cast<int64_t*>(ptr + 8));
-        auto size = le_to_cpu(*unaligned_cast<uint32_t*>(ptr + 16));
+        auto type = MsgType(read_le<uint64_t>(ptr));
+        auto msgid = read_le<int64_t>(ptr + 8);
+        auto size = read_le<uint32_t>(ptr + 16);
         return std::make_tuple(type, msgid, size);
     }
     static uint32_t get_size(const header_type& t) {
@@ -842,9 +844,9 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
                             // send unknown_verb exception back
                             auto data = sstring(sstring::initialized_later(), 28);
                             auto p = data.begin() + 12;
-                            *unaligned_cast<uint32_t*>(p) = cpu_to_le(uint32_t(exception_type::UNKNOWN_VERB));
-                            *unaligned_cast<uint32_t*>(p + 4) = cpu_to_le(uint32_t(8));
-                            *unaligned_cast<uint64_t*>(p + 8) = cpu_to_le(uint64_t(type));
+                            write_le<uint32_t>(p, uint32_t(exception_type::UNKNOWN_VERB));
+                            write_le<uint32_t>(p + 4, uint32_t(8));
+                            write_le<uint64_t>(p + 8, uint64_t(type));
                             try {
                                 seastar::with_gate(this->_server._reply_gate, [this, msg_id, data = std::move(data)] () mutable {
                                     return this->respond(-msg_id, std::move(data)).finally([c = this->shared_from_this()] {
@@ -897,8 +899,8 @@ struct response_frame {
         return make_ready_future<int64_t, std::experimental::optional<temporary_buffer<char>>>(0, std::experimental::nullopt);
     }
     static header_type decode_header(const char* ptr) {
-        auto msgid = le_to_cpu(*unaligned_cast<int64_t*>(ptr));
-        auto size = le_to_cpu(*unaligned_cast<uint32_t*>(ptr + 8));
+        auto msgid = read_le<int64_t>(ptr);
+        auto size = read_le<uint32_t>(ptr + 8);
         return std::make_tuple(msgid, size);
     }
     static uint32_t get_size(const header_type& t) {

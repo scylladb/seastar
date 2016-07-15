@@ -86,7 +86,7 @@ estimate_request_size(const resource_limits& lim, size_t serialized_size) {
 struct negotiation_frame {
     char magic[sizeof(rpc_magic) - 1];
     uint32_t len; // additional negotiation data length; multiple negotiation_frame_feature_record structs
-}  __attribute__((packed));
+};
 
 enum class protocol_features : uint32_t {
     COMPRESS = 0,
@@ -136,7 +136,7 @@ class protocol {
             if (_compressor) {
                 buf = _compressor->compress(4, std::move(buf));
                 auto p = buf.begin();
-                *unaligned_cast<uint32_t*>(p) = cpu_to_le(buf.size() - 4);
+                write_le<uint32_t>(p, buf.size() - 4);
                 return std::move(buf);
             }
             return std::move(buf);
