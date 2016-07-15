@@ -51,3 +51,37 @@ template <typename T>
 inline T le_to_cpu(const unaligned<T>& v) {
     return le_to_cpu(T(v));
 }
+
+template <typename T>
+inline
+T
+read_le(const char* p) {
+    T datum;
+    std::copy_n(p, sizeof(T), reinterpret_cast<char*>(&datum));
+    return le_to_cpu(datum);
+}
+
+template <typename T>
+inline
+void
+write_le(char* p, T datum) {
+    datum = cpu_to_le(datum);
+    std::copy_n(reinterpret_cast<const char*>(&datum), sizeof(T), p);
+}
+
+template <typename T>
+inline
+T
+read_be(const char* p) {
+    T datum;
+    std::copy_n(p, sizeof(T), reinterpret_cast<char*>(&datum));
+    return be_to_cpu(datum);
+}
+
+template <typename T>
+inline
+void
+write_be(char* p, T datum) {
+    datum = cpu_to_be(datum);
+    std::copy_n(reinterpret_cast<const char*>(&datum), sizeof(T), p);
+}
