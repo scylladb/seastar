@@ -33,6 +33,7 @@ static int tx_msg_nr = tx_msg_total_size / tx_msg_size;
 static std::string str_txbuf(tx_msg_size, 'X');
 
 class client;
+//将service分布到所有逻辑核
 distributed<client> clients;
 
 class client {

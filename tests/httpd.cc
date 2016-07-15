@@ -34,7 +34,7 @@ SEASTAR_TEST_CASE(test_reply)
 
 SEASTAR_TEST_CASE(test_str_matcher)
 {
-
+    //预定义字符串,后面的字符串是否匹配这个模式
     str_matcher m("/hello");
     parameters param;
     BOOST_REQUIRE_EQUAL(m.match("/abc/hello", 4, param), 10);
