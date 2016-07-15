@@ -57,6 +57,13 @@ SEASTAR_TEST_CASE(test_finally_is_called_on_success_and_failure) {
     });
 }
 
+SEASTAR_TEST_CASE(test_get_on_promise) {
+    auto p = promise<uint32_t>();
+    p.set_value(10);
+    BOOST_REQUIRE_EQUAL(10, p.get_future().get0());
+    return make_ready_future();
+}
+
 SEASTAR_TEST_CASE(test_finally_waits_for_inner) {
     auto finally = make_shared<bool>();
     auto p = make_shared<promise<>>();

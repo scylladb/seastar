@@ -27,6 +27,8 @@
 
 namespace net {
 
+using namespace seastar;
+
 template <typename Protocol>
 class native_server_socket_impl;
 
@@ -55,7 +57,7 @@ future<connected_socket, socket_address>
 native_server_socket_impl<Protocol>::accept() {
     return _listener.accept().then([this] (typename Protocol::connection conn) {
         return make_ready_future<connected_socket, socket_address>(
-                connected_socket(std::make_unique<native_connected_socket_impl<Protocol>>(std::move(conn))),
+                connected_socket(std::make_unique<native_connected_socket_impl<Protocol>>(make_lw_shared(std::move(conn)))),
                 socket_address()); // FIXME: don't fake it
     });
 }
@@ -69,11 +71,11 @@ native_server_socket_impl<Protocol>::abort_accept() {
 // native_connected_socket_impl
 template <typename Protocol>
 class native_connected_socket_impl : public connected_socket_impl {
-    typename Protocol::connection _conn;
+    lw_shared_ptr<typename Protocol::connection> _conn;
     class native_data_source_impl;
     class native_data_sink_impl;
 public:
-    explicit native_connected_socket_impl(typename Protocol::connection conn)
+    explicit native_connected_socket_impl(lw_shared_ptr<typename Protocol::connection> conn)
         : _conn(std::move(conn)) {}
     virtual data_source source() override;
     virtual data_sink sink() override;
@@ -83,8 +85,37 @@ public:
     virtual bool get_nodelay() const override;
     void set_keepalive(bool keepalive) override;
     bool get_keepalive() const override;
-    void set_keepalive_parameters(const tcp_keepalive_params&) override;
-    tcp_keepalive_params get_keepalive_parameters() const override;
+    void set_keepalive_parameters(const keepalive_params&) override;
+    keepalive_params get_keepalive_parameters() const override;
+};
+
+template <typename Protocol>
+class native_socket_impl final : public socket_impl {
+    Protocol& _proto;
+    lw_shared_ptr<typename Protocol::connection> _conn;
+public:
+    explicit native_socket_impl(Protocol& proto)
+        : _proto(proto), _conn(nullptr) { }
+
+    virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
+        //TODO: implement SCTP
+        assert(proto == transport::TCP);
+
+        // FIXME: local is ignored since native stack does not support multiple IPs yet
+        assert(sa.as_posix_sockaddr().sa_family == AF_INET);
+
+        _conn = make_lw_shared<typename Protocol::connection>(_proto.connect(sa));
+        return _conn->connected().then([conn = _conn]() mutable {
+            auto csi = std::make_unique<native_connected_socket_impl<Protocol>>(std::move(conn));
+            return make_ready_future<connected_socket>(connected_socket(std::move(csi)));
+        });
+    }
+
+    virtual void shutdown() override {
+        if (_conn) {
+            _conn->shutdown_connect();
+        }
+    }
 };
 
 template <typename Protocol>
@@ -134,25 +165,25 @@ public:
 
 template <typename Protocol>
 data_source native_connected_socket_impl<Protocol>::source() {
-    return data_source(std::make_unique<native_data_source_impl>(_conn));
+    return data_source(std::make_unique<native_data_source_impl>(*_conn));
 }
 
 template <typename Protocol>
 data_sink native_connected_socket_impl<Protocol>::sink() {
-    return data_sink(std::make_unique<native_data_sink_impl>(_conn));
+    return data_sink(std::make_unique<native_data_sink_impl>(*_conn));
 }
 
 template <typename Protocol>
 future<>
 native_connected_socket_impl<Protocol>::shutdown_input() {
-    _conn.close_read();
+    _conn->close_read();
     return make_ready_future<>();
 }
 
 template <typename Protocol>
 future<>
 native_connected_socket_impl<Protocol>::shutdown_output() {
-    _conn.close_write();
+    _conn->close_write();
     return make_ready_future<>();
 }
 
@@ -181,15 +212,15 @@ bool native_connected_socket_impl<Protocol>::get_keepalive() const {
 }
 
 template <typename Protocol>
-void native_connected_socket_impl<Protocol>::set_keepalive_parameters(const tcp_keepalive_params&) {
+void native_connected_socket_impl<Protocol>::set_keepalive_parameters(const keepalive_params&) {
     // FIXME: implement
     std::cerr << "Keepalive parameters are not supported by native stack" << std::endl;
 }
 
 template <typename Protocol>
-tcp_keepalive_params native_connected_socket_impl<Protocol>::get_keepalive_parameters() const {
+keepalive_params native_connected_socket_impl<Protocol>::get_keepalive_parameters() const {
     // FIXME: implement
-    return {std::chrono::seconds(0), std::chrono::seconds(0), 0};
+    return tcp_keepalive_params {std::chrono::seconds(0), std::chrono::seconds(0), 0};
 }
 
 }

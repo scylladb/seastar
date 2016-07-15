@@ -65,8 +65,10 @@
 #include "fair_queue.hh"
 #include "core/scattered_message.hh"
 #include "core/enum.hh"
+#include "core/memory.hh"
 #include <boost/range/irange.hpp>
 #include "timer.hh"
+#include "condition-variable.hh"
 
 #ifdef HAVE_OSV
 #include <osv/sched.hh>
@@ -300,7 +302,13 @@ public:
     }
 private:
     void work();
-    void complete();
+    // Scans the _completed queue, that contains the requests already handled by the syscall thread,
+    // effectively opening up space for more requests to be submitted. One consequence of this is
+    // that from the reactor's point of view, a request is not considered handled until it is
+    // removed from the _completed queue.
+    //
+    // Returns the number of requests handled.
+    unsigned complete();
     void submit_item(work_item* wi);
 
     friend class thread_pool;
@@ -408,6 +416,8 @@ private:
     void move_pending();
     void flush_request_batch();
     void flush_response_batch();
+    bool pure_poll_rx() const;
+    bool pure_poll_tx() const;
 
     friend class smp;
 };
@@ -419,6 +429,7 @@ class thread_pool {
     syscall_work_queue inter_thread_wq;
     posix_thread _worker_thread;
     std::atomic<bool> _stopped = { false };
+    std::atomic<bool> _main_thread_idle = { false };
     pthread_t _notify;
 public:
     thread_pool();
@@ -429,6 +440,20 @@ public:
         return inter_thread_wq.submit<T>(std::move(func));
     }
     uint64_t operation_count() const { return _aio_threaded_fallbacks; }
+
+    unsigned complete() { return inter_thread_wq.complete(); }
+    // Before we enter interrupt mode, we must make sure that the syscall thread will properly
+    // generate signals to wake us up. This means we need to make sure that all modifications to
+    // the pending and completed fields in the inter_thread_wq are visible to all threads.
+    //
+    // Simple release-acquire won't do because we also need to serialize all writes that happens
+    // before the syscall thread loads this value, so we'll need full seq_cst.
+    void enter_interrupt_mode() { _main_thread_idle.store(true, std::memory_order_seq_cst); }
+    // When we exit interrupt mode, however, we can safely used relaxed order. If any reordering
+    // takes place, we'll get an extra signal and complete will be called one extra time, which is
+    // harmless.
+    void exit_interrupt_mode() { _main_thread_idle.store(false, std::memory_order_relaxed); }
+
 #else
 public:
     template <typename T, typename Func>
@@ -589,6 +614,9 @@ private:
         virtual ~pollfn() {}
         // Returns true if work was done (false = idle)
         virtual bool poll() = 0;
+        // Checks if work needs to be done, but without actually doing any
+        // returns true if works needs to be done (false = idle)
+        virtual bool pure_poll() = 0;
         // Tries to enter interrupt mode.
         //
         // If it returns true, then events from this poller will wake
@@ -608,6 +636,7 @@ private:
     class drain_cross_cpu_freelist_pollfn;
     class lowres_timer_pollfn;
     class epoll_pollfn;
+    class syscall_pollfn;
     friend io_pollfn;
     friend signal_pollfn;
     friend aio_batch_submit_pollfn;
@@ -616,6 +645,7 @@ private:
     friend drain_cross_cpu_freelist_pollfn;
     friend lowres_timer_pollfn;
     friend class epoll_pollfn;
+    friend class syscall_pollfn;
 public:
     class poller {
         std::unique_ptr<pollfn> _pollfn;
@@ -637,6 +667,12 @@ public:
         void do_register();
         friend class reactor;
     };
+    enum class idle_cpu_handler_result {
+        no_more_work,
+        interrupted_by_higher_priority_task
+    };
+    using work_waiting_on_reactor = const std::function<bool()>&;
+    using idle_cpu_handler = std::function<idle_cpu_handler_result(work_waiting_on_reactor)>;
 
 private:
     // FIXME: make _backend a unique_ptr<reactor_backend>, not a compile-time #ifdef.
@@ -670,6 +706,7 @@ private:
     unsigned _id = 0;
     bool _stopping = false;
     bool _stopped = false;
+    condition_variable _stop_requested;
     bool _handle_sigint = true;
     promise<std::unique_ptr<network_stack>> _network_stack_ready_promise;
     int _return = 0;
@@ -693,12 +730,21 @@ private:
     circular_buffer<std::unique_ptr<task>> _pending_tasks;
     circular_buffer<std::unique_ptr<task>> _at_destroy_tasks;
     std::chrono::duration<double> _task_quota;
-    sig_atomic_t _task_quota_finished;
+    /// Handler that will be called when there is no task to execute on cpu.
+    /// It represents a low priority work.
+    /// 
+    /// Handler's return value determines whether handler did any actual work. If no work was done then reactor will go
+    /// into sleep.
+    ///
+    /// Handler's argument is a function that returns true if a task which should be executed on cpu appears or false
+    /// otherwise. This function should be used by a handler to return early if a task appears.
+    idle_cpu_handler _idle_cpu_handler{ [] (work_waiting_on_reactor) {return idle_cpu_handler_result::no_more_work;} };
     std::unique_ptr<network_stack> _network_stack;
     // _lowres_clock will only be created on cpu 0
     std::unique_ptr<lowres_clock> _lowres_clock;
     lowres_clock::time_point _lowres_next_timeout;
     std::experimental::optional<poller> _epoll_poller;
+    std::experimental::optional<pollable_fd> _aio_eventfd;
     const bool _reuseport;
     circular_buffer<double> _loads;
     double _load = 0;
@@ -714,7 +760,10 @@ private:
     bool flush_pending_aio();
     bool flush_tcp_batches();
     bool do_expire_lowres_timers();
+    bool do_check_lowres_timers() const;
     void abort_on_error(int ret);
+    void start_aio_eventfd_loop();
+    void stop_aio_eventfd_loop();
     template <typename T, typename E, typename EnableFunc>
     void complete_timers(T&, E&, EnableFunc&& enable_fn);
 
@@ -725,6 +774,7 @@ private:
      *         execution.
      */
     bool poll_once();
+    bool pure_poll_once();
     template <typename Func> // signature: bool ()
     static std::unique_ptr<pollfn> make_pollfn(Func&& func);
 
@@ -734,6 +784,7 @@ private:
         ~signals();
 
         bool poll_signal();
+        bool pure_poll_signal() const;
         void handle_signal(int signo, std::function<void ()>&& handler);
         void handle_signal_once(int signo, std::function<void ()>&& handler);
         static void action(int signo, siginfo_t* siginfo, void* ignore);
@@ -773,13 +824,14 @@ public:
     server_socket listen(socket_address sa, listen_options opts = {});
 
     future<connected_socket> connect(socket_address sa);
-    future<connected_socket> connect(socket_address, socket_address);
+    future<connected_socket> connect(socket_address, socket_address, seastar::transport proto = seastar::transport::TCP);
 
     pollable_fd posix_listen(socket_address sa, listen_options opts = {});
 
     bool posix_reuseport_available() const { return _reuseport; }
 
-    future<pollable_fd> posix_connect(socket_address sa, socket_address local);
+    lw_shared_ptr<pollable_fd> make_pollable_fd(socket_address sa, seastar::transport proto = seastar::transport::TCP);
+    future<> posix_connect(lw_shared_ptr<pollable_fd> pfd, socket_address sa, socket_address local);
 
     future<pollable_fd, socket_address> accept(pollable_fd_state& listen_fd);
 
@@ -815,6 +867,12 @@ public:
     int run();
     void exit(int ret);
     future<> when_started() { return _start_promise.get_future(); }
+    // The function waits for timeout period for reactor stop notification
+    // which happens on termination signals or call for exit().
+    template <typename Rep, typename Period>
+    future<> wait_for_stop(std::chrono::duration<Rep, Period> timeout) {
+        return _stop_requested.wait(timeout, [this] { return _stopping; });
+    }
 
     void at_exit(std::function<future<> ()> func);
 
@@ -824,6 +882,18 @@ public:
     }
 
     void add_task(std::unique_ptr<task>&& t) { _pending_tasks.push_back(std::move(t)); }
+
+    /// Set a handler that will be called when there is no task to execute on cpu.
+    /// Handler should do a low priority work.
+    /// 
+    /// Handler's return value determines whether handler did any actual work. If no work was done then reactor will go
+    /// into sleep.
+    ///
+    /// Handler's argument is a function that returns true if a task which should be executed on cpu appears or false
+    /// otherwise. This function should be used by a handler to return early if a task appears.
+    void set_idle_cpu_handler(idle_cpu_handler&& handler) {
+        _idle_cpu_handler = std::move(handler);
+    }
     void force_poll();
 
     void add_high_priority_task(std::unique_ptr<task>&&);
@@ -924,8 +994,11 @@ reactor::make_pollfn(Func&& func) {
     struct the_pollfn : pollfn {
         the_pollfn(Func&& func) : func(std::forward<Func>(func)) {}
         Func func;
-        virtual bool poll() override {
+        virtual bool poll() override final {
             return func();
+        }
+        virtual bool pure_poll() override final {
+            return poll(); // dubious, but compatible
         }
     };
     return std::make_unique<the_pollfn>(std::forward<Func>(func));
@@ -939,16 +1012,13 @@ inline reactor& engine() {
 }
 
 class smp {
-#if HAVE_DPDK
-    using thread_adaptor = std::function<void ()>;
-#else
-    using thread_adaptor = posix_thread;
-#endif
-    static std::vector<thread_adaptor> _threads;
+    static std::vector<posix_thread> _threads;
+    static std::vector<std::function<void ()>> _thread_loops; // for dpdk
     static std::experimental::optional<boost::barrier> _all_event_loops_done;
     static std::vector<reactor*> _reactors;
     static smp_message_queue** _qs;
     static std::thread::id _tmain;
+    static bool _using_dpdk;
 
     template <typename Func>
     using returns_future = is_future<std::result_of_t<Func()>>;
@@ -1010,6 +1080,18 @@ public:
         }
         return got != 0;
     }
+    static bool pure_poll_queues() {
+        for (unsigned i = 0; i < count; i++) {
+            if (engine().cpu_id() != i) {
+                auto& rxq = _qs[engine().cpu_id()][i];
+                auto& txq = _qs[i][engine()._id];
+                if (rxq.pure_poll_rx() || txq.pure_poll_tx()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
     static boost::integer_range<unsigned> all_cpus() {
         return boost::irange(0u, count);
     }
@@ -1028,6 +1110,7 @@ private:
     static void start_all_queues();
     static void pin(unsigned cpu_id);
     static void allocate_reactor();
+    static void create_thread(std::function<void ()> thread_loop);
 public:
     static unsigned count;
 };

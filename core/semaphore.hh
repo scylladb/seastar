@@ -23,7 +23,7 @@
 #define CORE_SEMAPHORE_HH_
 
 #include "future.hh"
-#include "circular_buffer.hh"
+#include "chunked_fifo.hh"
 #include <stdexcept>
 #include <exception>
 #include "timer.hh"
@@ -53,6 +53,19 @@ public:
     }
 };
 
+/// Exception Factory for standard semaphore
+///
+/// constructs standard semaphore exceptions
+/// \see semaphore_timed_out and broken_semaphore
+struct semaphore_default_exception_factory {
+    static semaphore_timed_out timeout() {
+        return semaphore_timed_out();
+    }
+    static broken_semaphore broken() {
+        return broken_semaphore();
+    }
+};
+
 /// \brief Counted resource guard.
 ///
 /// This is a standard computer science semaphore, adapted
@@ -66,7 +79,13 @@ public:
 /// fibers that are blocked on a semaphore to continue.  This is
 /// similar to POSIX's `pthread_cancel()`, with \ref wait() acting
 /// as a cancellation point.
-class semaphore {
+///
+/// \tparam ExceptionFactory template parameter allows modifying a semaphore to throw
+/// customized exceptions on timeout/broken(). It has to provide two static functions
+/// ExceptionFactory::timeout() and ExceptionFactory::broken() which return corresponding
+/// exception object.
+template<typename ExceptionFactory>
+class basic_semaphore {
 private:
     size_t _count;
     std::exception_ptr _ex;
@@ -89,14 +108,18 @@ private:
         }
         entry& operator=(entry&&) noexcept = delete;
     };
-    circular_buffer<entry> _wait_list;
+    chunked_fifo<entry> _wait_list;
 public:
+    using duration =  timer<>::duration;
+    using clock =  timer<>::clock;
+    using time_point =  timer<>::time_point;
+
     /// Constructs a semaphore object with a specific number of units
     /// in its internal counter.  The default is 1, suitable for use as
     /// an unlocked mutex.
     ///
     /// \param count number of initial units present in the counter (default 1).
-    semaphore(size_t count = 1) : _count(count) {}
+    basic_semaphore(size_t count = 1) : _count(count) {}
     /// Waits until at least a specific number of units are available in the
     /// counter, and reduces the counter by that amount of units.
     ///
@@ -127,13 +150,13 @@ public:
     /// \note Waits are serviced in FIFO order, though if several are awakened
     ///       at once, they may be reordered by the scheduler.
     ///
-    /// \param timeout how long to wait.
+    /// \param timeout expiration time.
     /// \param nr Amount of units to wait for (default 1).
     /// \return a future that becomes ready when sufficient units are available
     ///         to satisfy the request.  On timeout, the future contains a
     ///         \ref semaphore_timed_out exception.  If the semaphore was
     ///         \ref broken(), may contain an exception.
-    future<> wait(typename timer<>::duration timeout, size_t nr = 1) {
+    future<> wait(time_point timeout, size_t nr = 1) {
         auto fut = wait(nr);
         if (!fut.available()) {
             auto cancel = [this] (entry** e) {
@@ -147,7 +170,7 @@ public:
             entry** e = _wait_list.back().track();
             try {
                 (*e)->tr.set_callback([e, cancel] {
-                    (*e)->pr.set_exception(semaphore_timed_out());
+                    (*e)->pr.set_exception(ExceptionFactory::timeout());
                     cancel(e);
                 });
                 (*e)->tr.arm(timeout);
@@ -157,6 +180,23 @@ public:
             }
         }
         return std::move(fut);
+    }
+
+    /// Waits until at least a specific number of units are available in the
+    /// counter, and reduces the counter by that amount of units.  If the request
+    /// cannot be satisfied in time, the request is aborted.
+    ///
+    /// \note Waits are serviced in FIFO order, though if several are awakened
+    ///       at once, they may be reordered by the scheduler.
+    ///
+    /// \param timeout how long to wait.
+    /// \param nr Amount of units to wait for (default 1).
+    /// \return a future that becomes ready when sufficient units are available
+    ///         to satisfy the request.  On timeout, the future contains a
+    ///         \ref semaphore_timed_out exception.  If the semaphore was
+    ///         \ref broken(), may contain an exception.
+    future<> wait(duration timeout, size_t nr = 1) {
+        return wait(clock::now() + timeout, nr);
     }
     /// Deposits a specified number of units into the counter.
     ///
@@ -211,7 +251,7 @@ public:
     /// Signal to waiters that an error occurred.  \ref wait() will see
     /// an exceptional future<> containing a \ref broken_semaphore exception.
     /// The future is made available immediately.
-    void broken() { broken(std::make_exception_ptr(broken_semaphore())); }
+    void broken() { broken(std::make_exception_ptr(ExceptionFactory::broken())); }
 
     /// Signal to waiters that an error occurred.  \ref wait() will see
     /// an exceptional future<> containing the provided exception parameter.
@@ -232,9 +272,10 @@ public:
     }
 };
 
+template<typename ExceptionFactory>
 inline
 void
-semaphore::broken(std::exception_ptr xp) {
+basic_semaphore<ExceptionFactory>::broken(std::exception_ptr xp) {
     _ex = xp;
     _count = 0;
     while (!_wait_list.empty()) {
@@ -266,10 +307,10 @@ semaphore::broken(std::exception_ptr xp) {
 ///       the future returned by with_semaphore() resolves.
 ///
 /// \related semaphore
-template <typename Func>
+template <typename ExceptionFactory, typename Func>
 inline
 futurize_t<std::result_of_t<Func()>>
-with_semaphore(semaphore& sem, size_t units, Func&& func) {
+with_semaphore(basic_semaphore<ExceptionFactory>& sem, size_t units, Func&& func) {
     return sem.wait(units)
             .then(std::forward<Func>(func))
             .then_wrapped([&sem, units] (auto&& fut) {
@@ -277,6 +318,10 @@ with_semaphore(semaphore& sem, size_t units, Func&& func) {
         return std::move(fut);
     });
 }
+
+/// default basic_semaphore specialization that throws semaphore specific exceptions
+/// on error conditions.
+using semaphore = basic_semaphore<semaphore_default_exception_factory>;
 
 /// @}
 

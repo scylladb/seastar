@@ -90,10 +90,10 @@ void connected_socket::set_keepalive(bool keepalive) {
 bool connected_socket::get_keepalive() const {
     return _csi->get_keepalive();
 }
-void connected_socket::set_keepalive_parameters(const net::tcp_keepalive_params& p) {
+void connected_socket::set_keepalive_parameters(const net::keepalive_params& p) {
     _csi->set_keepalive_parameters(p);
 }
-net::tcp_keepalive_params connected_socket::get_keepalive_parameters() const {
+net::keepalive_params connected_socket::get_keepalive_parameters() const {
     return _csi->get_keepalive_parameters();
 }
 
@@ -103,6 +103,25 @@ future<> connected_socket::shutdown_output() {
 
 future<> connected_socket::shutdown_input() {
     return _csi->shutdown_input();
+}
+
+seastar::socket::~socket()
+{}
+
+seastar::socket::socket(
+        std::unique_ptr<net::socket_impl> si)
+        : _si(std::move(si)) {
+}
+
+seastar::socket::socket(seastar::socket&&) noexcept = default;
+seastar::socket& seastar::socket::operator=(seastar::socket&&) noexcept = default;
+
+future<connected_socket> seastar::socket::connect(socket_address sa, socket_address local, transport proto) {
+    return _si->connect(sa, local, proto);
+}
+
+void seastar::socket::shutdown() {
+    _si->shutdown();
 }
 
 server_socket::server_socket() {

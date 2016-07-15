@@ -129,9 +129,9 @@ public:
     bool get_keepalive() const override {
         return false;
     }
-    void set_keepalive_parameters(const net::tcp_keepalive_params&) override {}
-    net::tcp_keepalive_params get_keepalive_parameters() const override {
-        return {std::chrono::seconds(0), std::chrono::seconds(0), 0};
+    void set_keepalive_parameters(const net::keepalive_params&) override {}
+    net::keepalive_params get_keepalive_parameters() const override {
+        return net::tcp_keepalive_params {std::chrono::seconds(0), std::chrono::seconds(0), 0};
     }
 };
 
@@ -158,13 +158,31 @@ public:
     server_socket get_server_socket() {
         return server_socket(std::make_unique<loopback_server_socket_impl>(_pending));
     }
-    future<connected_socket> make_new_connection() {
-        auto b1 = make_lw_shared<loopback_buffer>();
-        auto b2 = make_lw_shared<loopback_buffer>();
+    future<connected_socket> make_new_connection(lw_shared_ptr<loopback_buffer> b1, lw_shared_ptr<loopback_buffer> b2) {
         auto c1 = connected_socket(std::make_unique<loopback_connected_socket_impl>(b1, b2));
         auto c2 = connected_socket(std::make_unique<loopback_connected_socket_impl>(b2, b1));
         return _pending->push_eventually(std::move(c1)).then([c2 = std::move(c2)] () mutable {
             return std::move(c2);
         });
+    }
+};
+
+class loopback_socket_impl : public net::socket_impl {
+    loopback_connection_factory& _factory;
+    lw_shared_ptr<loopback_buffer> _b1;
+    lw_shared_ptr<loopback_buffer> _b2;
+public:
+    loopback_socket_impl(loopback_connection_factory& factory)
+            : _factory(factory)
+    { }
+    future<connected_socket> connect(socket_address sa, socket_address local, seastar::transport proto = seastar::transport::TCP) {
+        _b1 = make_lw_shared<loopback_buffer>();
+        _b2 = make_lw_shared<loopback_buffer>();
+        return _factory.make_new_connection(_b1, _b2);
+    }
+
+    void shutdown() {
+        _b1->shutdown();
+        _b2->shutdown();
     }
 };

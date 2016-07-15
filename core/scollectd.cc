@@ -219,6 +219,10 @@ struct cpwriter {
     }
 };
 
+impl::value_list_map& impl::get_value_list_map() {
+    return _values;
+}
+
 void impl::add_polled(const type_instance_id & id,
         const shared_ptr<value_list> & values) {
     _values[id] = values;
@@ -342,11 +346,13 @@ void impl::run() {
                 i = _values.erase(i);
                 continue;
             }
-            auto m = out.mark();
-            out.put(_host, _period, i->first, *i->second);
-            if (!out) {
-                out.reset(m);
-                break;
+            if (i->second->is_enabled()) {
+                auto m = out.mark();
+                out.put(_host, _period, i->first, *i->second);
+                if (!out) {
+                    out.reset(m);
+                    break;
+                }
             }
             ++i;
         }
@@ -483,4 +489,13 @@ std::vector<data_type> get_collectd_types(
 std::vector<scollectd::type_instance_id> get_collectd_ids() {
     return get_impl().get_instance_ids();
 }
+
+bool is_enabled(const scollectd::type_instance_id& id) {
+    return get_impl().get_value_list_map()[id]->is_enabled();
+}
+
+void enable(const scollectd::type_instance_id& id, bool enable) {
+    get_impl().get_value_list_map()[id]->set_enabled(enable);
+}
+
 }

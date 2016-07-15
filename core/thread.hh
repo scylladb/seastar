@@ -33,6 +33,7 @@
 #include <chrono>
 #include <experimental/optional>
 #include <ucontext.h>
+#include <boost/intrusive/list.hpp>
 
 /// \defgroup thread-module Seastar threads
 ///
@@ -74,6 +75,7 @@
 namespace seastar {
 
 namespace stdx = std::experimental;
+namespace bi = boost::intrusive;
 
 /// \addtogroup thread-module
 /// @{
@@ -85,13 +87,15 @@ class thread_scheduling_group;
 /// Clock used for scheduling threads
 using thread_clock = steady_clock_type;
 
-/// \cond internal
-class thread_context;
-
+/// Class that holds attributes controling the behavior of a thread.
 class thread_attributes {
 public:
     thread_scheduling_group* scheduling_group = nullptr;
 };
+
+
+/// \cond internal
+class thread_context;
 
 namespace thread_impl {
  /**
@@ -132,6 +136,14 @@ class thread_context {
     bool _joined = false;
     timer<> _sched_timer{[this] { reschedule(); }};
     stdx::optional<promise<>> _sched_promise;
+
+    bi::list_member_hook<> _link;
+    using thread_list = bi::list<thread_context,
+        bi::member_hook<thread_context, bi::list_member_hook<>,
+        &thread_context::_link>,
+        bi::constant_time_size<false>>;
+
+    static thread_local thread_list _preempted_threads;
 private:
     static void s_main(unsigned int lo, unsigned int hi);
     void setup();
@@ -213,9 +225,35 @@ public:
     static bool running_in_thread() {
         return seastar::thread_impl::get() != nullptr;
     }
+private:
+    friend class ::reactor;
+    // To be used by seastar reactor only.
+    static bool try_run_one_yielded_thread();
 };
 
-    //调度组
+//调度组
+/// An instance of this class can be used to assign a thread to a particular scheduling group.
+/// Threads can share the same scheduling group if they hold a pointer to the same instance
+/// of this class.
+///
+/// All threads that belongs to a scheduling group will have a time granularity defined by \c period,
+/// and can specify a fraction \c usage of that period that indicates the maximum amount of time they
+/// expect to run. \c usage, is expected to be a number between 0 and 1 for this to have any effect.
+/// Numbers greater than 1 are allowed for simplicity, but they just have the same meaning of 1, alas,
+/// "the whole period".
+///
+/// Note that this is not a preemptive runtime, and a thread will not exit the CPU unless it is scheduled out.
+/// In that case, \c usage will not be enforced and the thread will simply run until it loses the CPU.
+/// This can happen when a thread waits on a future that is not ready, or when it voluntarily call yield.
+///
+/// Unlike what happens for a thread that is not part of a scheduling group - which puts itself at the back
+/// of the runqueue everytime it yields, a thread that is part of a scheduling group will only yield if
+/// it has exhausted its \c usage at the call to yield. Therefore, threads in a schedule group can and
+/// should yield often.
+///
+/// After those events, if the thread has already run for more than its fraction, it will be scheduled to
+/// run again only after \c period completes, unless there are no other tasks to run (the system is
+/// idle)
 class thread_scheduling_group {
     std::chrono::nanoseconds _period;//周期
     std::chrono::nanoseconds _quota; //
@@ -223,7 +261,17 @@ class thread_scheduling_group {
     std::chrono::time_point<thread_clock> _this_run_start = {};
     std::chrono::nanoseconds _this_period_remain = {};
 public:
+    /// \brief Constructs a \c thread_scheduling_group object
+    ///
+    /// \param period a duration representing the period
+    /// \param usage which fraction of the \c period to assign for the scheduling group. Expected between 0 and 1.
     thread_scheduling_group(std::chrono::nanoseconds period, float usage);
+    /// \brief changes the current maximum usage per period
+    ///
+    /// \param new_usage The new fraction of the \c period (Expected between 0 and 1) during which to run
+    void update_usage(float new_usage) {
+        _quota = std::chrono::duration_cast<std::chrono::nanoseconds>(new_usage * _period);
+    }
 private:
     void account_start();
     void account_stop();
@@ -258,6 +306,7 @@ thread::join() {
 /// which allows it to block (using \ref future::get()).  The
 /// result of the callable is returned as a future.
 ///
+/// \param attr a \ref thread_attributes instance
 /// \param func a callable to be executed in a thread
 /// \param args a parameter pack to be forwarded to \c func.
 /// \return whatever \c func returns, as a future.
@@ -265,7 +314,9 @@ thread::join() {
 /// Example:
 /// \code
 ///    future<int> compute_sum(int a, int b) {
-///        return seastar::async([a, b] {
+///        thread_attributes attr = {};
+///        attr.scheduling_group = some_scheduling_group_ptr;
+///        return seastar::async(attr, [a, b] {
 ///            // some blocking code:
 ///            sleep(1s).get();
 ///            return a + b;
@@ -275,17 +326,18 @@ thread::join() {
 template <typename Func, typename... Args>
 inline
 futurize_t<std::result_of_t<std::decay_t<Func>(std::decay_t<Args>...)>>
-async(Func&& func, Args&&... args) {
+async(thread_attributes attr, Func&& func, Args&&... args) {
     using return_type = std::result_of_t<std::decay_t<Func>(std::decay_t<Args>...)>;
     struct work {
+        thread_attributes attr;
         Func func;
         std::tuple<Args...> args;
         promise<return_type> pr;
         thread th;
     };
-    return do_with(work{std::forward<Func>(func), std::forward_as_tuple(std::forward<Args>(args)...)}, [] (work& w) mutable {
+    return do_with(work{std::move(attr), std::forward<Func>(func), std::forward_as_tuple(std::forward<Args>(args)...)}, [] (work& w) mutable {
         auto ret = w.pr.get_future();
-        w.th = thread([&w] {
+        w.th = thread(std::move(w.attr), [&w] {
             futurize<return_type>::apply(std::move(w.func), std::move(w.args)).forward_to(std::move(w.pr));
         });
         return w.th.join().then([ret = std::move(ret)] () mutable {
@@ -294,6 +346,21 @@ async(Func&& func, Args&&... args) {
     });
 }
 
+/// Executes a callable in a seastar thread.
+///
+/// Runs a block of code in a threaded context,
+/// which allows it to block (using \ref future::get()).  The
+/// result of the callable is returned as a future.
+///
+/// \param func a callable to be executed in a thread
+/// \param args a parameter pack to be forwarded to \c func.
+/// \return whatever \c func returns, as a future.
+template <typename Func, typename... Args>
+inline
+futurize_t<std::result_of_t<std::decay_t<Func>(std::decay_t<Args>...)>>
+async(Func&& func, Args&&... args) {
+    return async(thread_attributes{}, std::forward<Func>(func), std::forward<Args>(args)...);
+}
 /// @}
 
 }

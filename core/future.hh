@@ -25,6 +25,7 @@
 #include "apply.hh"
 #include "task.hh"
 #include <stdexcept>
+#include <atomic>
 #include <memory>
 #include <type_traits>
 #include <assert.h>
@@ -66,7 +67,9 @@ namespace seastar {
 
     namespace thread_impl {
         thread_context *get();
+
         void switch_in(thread_context *to);
+
         void switch_out(thread_context *from);
     }
 }
@@ -212,6 +215,7 @@ struct future_state {
     bool failed() const noexcept { return _state == state::exception; }
 
     void wait();
+
     //只有当future的状态为future的时候它才能被set
     void set(const std::tuple<T...> &value) noexcept {
         assert(_state == state::future);
@@ -260,6 +264,7 @@ struct future_state {
 
     template<typename U = std::tuple < T...>>
     std
+
     ::enable_if_t <std::is_copy_constructible<U>::value, U> get_value() const &noexcept(copy_noexcept) {
         assert(_state == state::result);
         return _u.value;
@@ -284,6 +289,7 @@ struct future_state {
         }
         return _u.value;
     }
+
     // 让future的状态无效,是认为失效
     void ignore() noexcept {
         assert(_state != state::future);
@@ -462,12 +468,6 @@ struct continuation final : task {
     Func _func;
 };
 
-#ifndef DEBUG
-static constexpr unsigned max_inlined_continuations = 256;
-#else
-static constexpr unsigned max_inlined_continuations = 1;
-#endif
-
 /// \endcond
 
 /// \brief promise - allows a future value to be made available at a later time.
@@ -640,7 +640,18 @@ struct ready_future_from_tuple_marker {
 struct exception_future_marker {
 };
 
-extern __thread size_t future_avail_count;
+extern __thread bool g_need_preempt;
+
+inline bool need_preempt() {
+#ifndef DEBUG
+    // prevent compiler from eliminating loads in a loop
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+    return g_need_preempt;
+#else
+    return true;
+#endif
+}
+
 /// \endcond
 
 
@@ -888,12 +899,7 @@ public:
         if (!state()->available()) {
             wait();
         }
-        // detach from promise, so that promise::abandoned() doesn't trigger
-        if (_promise) {
-            _promise->_future = nullptr;
-            _promise = nullptr;
-        }
-        return std::move(*state()).get();
+        return get_available_state().get();
     }
 
     [[gnu::always_inline]]
@@ -961,7 +967,7 @@ public:
     Result
     then(Func &&func) noexcept {
         using futurator = futurize<std::result_of_t < Func(T && ...)>>;
-        if (available() && (++future_avail_count % max_inlined_continuations)) {
+        if (available() && !need_preempt()) {
             if (failed()) {
                 return futurator::make_exception_future(get_available_state().get_exception());
             } else {
@@ -1009,7 +1015,7 @@ public:
     Result
     then_wrapped(Func &&func) noexcept {
         using futurator = futurize<std::result_of_t < Func(future)>>;
-        if (available() && (++future_avail_count % max_inlined_continuations)) {
+        if (available() && !need_preempt()) {
             return futurator::apply(std::forward<Func>(func), future(get_available_state()));
         }
         typename futurator::promise_type pr;
@@ -1202,7 +1208,7 @@ template<typename... T>
 inline
 future<T...>
 promise<T...>::get_future() noexcept {
-    assert(!_future);
+    assert(!_future && _state && !_task);
     return future<T...>(this);
 }
 
@@ -1418,6 +1424,12 @@ inline
 future<>
 futurize<void>::from_tuple(const std::tuple<> &value) {
     return make_ready_future<>();
+}
+
+template<typename Func, typename... Args>
+auto futurize_apply(Func &&func, Args &&... args) {
+    using futurator = futurize<std::result_of_t < Func(Args && ...)>>;
+    return futurator::apply(std::forward<Func>(func), std::forward<Args>(args)...);
 }
 
 /// \endcond

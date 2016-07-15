@@ -39,6 +39,7 @@ boost_tests = [
     'packet_test',
     'tls_test',
     'rpc_test',
+    'connect_test',
 ]
 
 other_tests = [

@@ -185,8 +185,8 @@ tests = [
     'tests/sstring_test',
     'tests/httpd',
     'tests/memcached/test_ascii_parser',
-    'tests/tcp_server',
-    'tests/tcp_client',
+    'tests/tcp_sctp_server',
+    'tests/tcp_sctp_client',
     'tests/allocator_test',
     'tests/output_stream_test',
     'tests/udp_zero_copy',
@@ -200,6 +200,8 @@ tests = [
     'tests/tls_test',
     'tests/fair_queue_test',
     'tests/rpc_test',
+    'tests/connect_test',
+    'tests/chunked_fifo_test',
     ]
 
 apps = [
@@ -271,11 +273,13 @@ core = [
     'core/thread.cc',
     'core/dpdk_rte.cc',
     'util/conversions.cc',
+    'util/log.cc',
     'net/packet.cc',
     'net/posix-stack.cc',
     'net/net.cc',
     'net/stack.cc',
     'rpc/rpc.cc',
+    'rpc/lz4_compressor.cc',
     ]
 
 http = ['http/transformers.cc',
@@ -299,7 +303,7 @@ boost_test_lib = [
 ]
 
 defines = []
-libs = '-laio -lboost_program_options -lboost_system -lboost_filesystem -lstdc++ -lm -lboost_unit_test_framework -lboost_thread -lcryptopp -lrt -lgnutls -lgnutlsxx'
+libs = '-laio -lboost_program_options -lboost_system -lboost_filesystem -lstdc++ -lm -lboost_unit_test_framework -lboost_thread -lcryptopp -lrt -lgnutls -lgnutlsxx -llz4'
 hwloc_libs = '-lhwloc -lnuma -lpciaccess -lxml2 -lz'
 xen_used = False
 def have_xen():
@@ -359,8 +363,8 @@ deps = {
     'tests/thread_context_switch': ['tests/thread_context_switch.cc'] + core,
     'tests/udp_server': ['tests/udp_server.cc'] + core + libnet,
     'tests/udp_client': ['tests/udp_client.cc'] + core + libnet,
-    'tests/tcp_server': ['tests/tcp_server.cc'] + core + libnet,
-    'tests/tcp_client': ['tests/tcp_client.cc'] + core + libnet,
+    'tests/tcp_sctp_server': ['tests/tcp_sctp_server.cc'] + core + libnet,
+    'tests/tcp_sctp_client': ['tests/tcp_sctp_client.cc'] + core + libnet,
     'tests/tls_test': ['tests/tls_test.cc'] + core + libnet + boost_test_lib,
     'tests/fair_queue_test': ['tests/fair_queue_test.cc'] + core + boost_test_lib,
     'apps/seawreck/seawreck': ['apps/seawreck/seawreck.cc', 'http/http_response_parser.rl'] + core + libnet,
@@ -379,6 +383,8 @@ deps = {
     'tests/rpc': ['tests/rpc.cc'] + core + libnet,
     'tests/rpc_test': ['tests/rpc_test.cc'] + core + libnet + boost_test_lib,
     'tests/packet_test': ['tests/packet_test.cc'] + core + libnet,
+    'tests/connect_test': ['tests/connect_test.cc'] + core + libnet + boost_test_lib,
+    'tests/chunked_fifo_test': ['tests/chunked_fifo_test.cc'] + core,
 }
 
 warnings = [

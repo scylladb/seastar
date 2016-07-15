@@ -53,6 +53,15 @@ std::vector<collectd_value> get_collectd_value(
 
 std::vector<scollectd::type_instance_id> get_collectd_ids();
 
+bool is_enabled(const scollectd::type_instance_id& id);
+/**
+ * Enable or disable collectd metrics on local instance
+ * @id - the metric to enable or disable
+ * @enable - should the collectd metrics be enable or disable
+ */
+void enable(const scollectd::type_instance_id& id, bool enable);
+
+
 }
 
 #endif /* CORE_SCOLLECTD_API_HH_ */

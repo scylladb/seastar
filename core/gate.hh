@@ -97,6 +97,11 @@ public:
         }
         return _stopped->get_future();
     }
+
+    /// Returns a current number of registered in-progress requests.
+    size_t get_count() const {
+        return _count;
+    }
 };
 
 /// Executes the function \c func making sure the gate \c g is properly entered

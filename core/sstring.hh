@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <string>
 #include <vector>
+#include <unordered_map>
 #include <cstring>
 #include <stdexcept>
 #include <initializer_list>
@@ -331,6 +332,25 @@ public:
         std::copy(s, s + n, ret.begin() + size());
         *this = std::move(ret);
         return *this;
+    }
+
+    /**
+     *  Resize string.
+     *  @param n  new size.
+     *  @param c  if n greater than current size character to fill newly allocated space with.
+     */
+    void resize(size_t n, const char_type c  = '\0') {
+        if (n > size()) {
+            *this += sstring(n - size(), c);
+        } else if (n < size()) {
+            if (is_internal()) {
+                u.internal.size = n;
+            } else if (n + 1 <= sizeof(u.internal.str)) {
+                *this = sstring(u.external.str, n);
+            } else {
+                u.external.size = n;
+            }
+        }
     }
 
     /**
@@ -683,6 +703,22 @@ std::ostream& operator<<(std::ostream& os, const std::vector<T>& v) {
             first = false;
         }
         os << elem;
+    }
+    os << "}";
+    return os;
+}
+
+template <typename Key, typename T, typename Hash, typename KeyEqual, typename Allocator>
+std::ostream& operator<<(std::ostream& os, const std::unordered_map<Key, T, Hash, KeyEqual, Allocator>& v) {
+    bool first = true;
+    os << "{";
+    for (auto&& elem : v) {
+        if (!first) {
+            os << ", ";
+        } else {
+            first = false;
+        }
+        os << "{ " << elem.first << " -> " << elem.second << "}";
     }
     os << "}";
     return os;

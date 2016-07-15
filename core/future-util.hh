@@ -206,7 +206,7 @@ future<> repeat(AsyncAction&& action) {
             if (f.get0() == stop_iteration::yes) {
                 return make_ready_future<>();
             }
-        } while (++future_avail_count % max_inlined_continuations);
+        } while (!need_preempt());
 
         promise<> p;
         auto f = p.get_future();
@@ -283,7 +283,7 @@ repeat_until_value(AsyncAction&& action) {
         if (optional) {
             return make_ready_future<value_type>(std::move(optional.value()));
         }
-    } while (++future_avail_count % max_inlined_continuations);
+    } while (!need_preempt());
 
     try {
         promise<value_type> p;
@@ -553,8 +553,13 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
     using futurator = futurize<decltype(mapper(*begin))>;
     while (begin != end) {
         ret = futurator::apply(mapper, *begin++).then_wrapped([ret = std::move(ret), r_ptr] (auto f) mutable {
-            return ret.then([f = std::move(f), r_ptr] () mutable {
-                return (*r_ptr)(std::move(f.get0()));
+            return ret.then_wrapped([f = std::move(f), r_ptr] (auto rf) mutable {
+                if (rf.failed()) {
+                    f.ignore_ready_future();
+                    return std::move(rf);
+                } else {
+                    return futurize<void>::apply(*r_ptr, std::move(f.get()));
+                }
             });
         });
     }

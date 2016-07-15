@@ -249,7 +249,32 @@ private:
         }
 
         if (!should_run_more) {
-            update_current_best(result);
+            // If we are stopping early, we may not have reached phase 3 and that means we have
+            // points in _all_results with various degrees of precision. For the least precise
+            // points, IOPS may vary and we can expect to find points that are later in the list
+            // but are closer to the critical range than the ones near the critical region, but
+            // that's likely because we didn't run for long enough, not because that's the expected
+            // IOPS of that concurrency point. So we'll stop this loop if we see that we have
+            // stopped getting better at some point.
+            //
+            // There is a fair question about why can't we just run a loop like that at the end of
+            // the run unconditionally instead of doing this only when we timeout. And the reason
+            // for that is precisely because of the mixed precision of all points. By calling
+            // update_current_best iteratively for new points in phase 3 only, we can guarantee that
+            // in the case in which we don't have timeout problems, we run update_current_best only
+            // with the more precise points. An alternative to that could involve keeping those
+            // points in a separate list, then swapping _all_results with that if we are successful
+            // and merging them if we are not. But it's hard to argue that this would be simpler...
+            int not_updated = 0;
+            // Do not use the 0 point
+            _all_results.erase(0);
+            for (auto c : _all_results) {
+                if (update_current_best(run_stats(c.second, c.first))) {
+                    not_updated = 0;
+                } else if (++not_updated == 3) {
+                    break;
+                }
+            }
             std::queue<unsigned> _empty_queue;
             _concurrency_queue.swap(_empty_queue);
             std::cerr << "IOtune timed out before it could finish. An estimate will be provided but accuracy may suffer" << std::endl;
@@ -265,12 +290,15 @@ private:
         }
     }
 
-    void update_current_best(const run_stats& result) {
+    bool update_current_best(const run_stats& result) {
         uint64_t critical_IOPS = _desired_percentile * _best_result.IOPS;
         uint64_t d = std::abs(int64_t(critical_IOPS - result.IOPS));
         if (d < _best_critical_delta) {
             _best_critical_delta = d;
             _best_critical_concurrency = result.concurrency;
+            return true;
+        } else {
+            return false;
         }
     }
 public:
@@ -354,6 +382,20 @@ public:
     uint32_t finish_estimate() {
         for (auto&& t: _threads) {
             t.join();
+        }
+
+        if (_best_critical_concurrency == 0) {
+            std::cerr << "============= Cut here ===============" << std::endl;
+            std::cerr << "Something is not right! Results found:" << std::endl;
+            for (auto& r: _all_results) {
+                std::cerr << r.first << ", " << r.second << std::endl;
+            }
+
+            std::cerr << "Target critical IOPS: " << _desired_percentile * _best_result.IOPS << std::endl;
+            std::cerr << "best concurrency: " << _best_critical_concurrency << std::endl;
+            std::cerr << "best delta: " << _best_critical_delta << std::endl;
+            auto msg = "iotune encountered an error and could not calculate proper I/O Scheduler configuration. Please report the status above";
+            throw std::runtime_error(msg);
         }
 
         // We now have a point where the curve starts to bend, which means,
@@ -595,7 +637,7 @@ uint32_t io_queue_discovery(sstring dir, std::vector<unsigned> cpus, std::chrono
     return iotune_manager.finish_estimate();
 }
 
-void write_configuration_file(std::string conf_file, std::string format, unsigned max_io_requests, std::experimental::optional<unsigned> num_io_queues = {}) {
+int write_configuration_file(std::string conf_file, std::string format, unsigned max_io_requests, std::experimental::optional<unsigned> num_io_queues = {}) {
     std::cout << "Recommended --max-io-requests: " << max_io_requests << std::endl;
     if (num_io_queues) {
         std::cout << "Recommended --num-io-queues: " << *num_io_queues << std::endl;
@@ -609,10 +651,9 @@ void write_configuration_file(std::string conf_file, std::string format, unsigne
     boost::filesystem::path conf_path(k.we_wordv[0]);
     wordfree(&k);
 
-    // No need to test the return value here. If by any chance the directory was not created,
-    // writing the file itself will generate an exception.
-    boost::filesystem::create_directories(conf_path.parent_path());
+    auto error_msg = " when writing configuration file. Please add them to your seastar command line";
     try {
+        boost::filesystem::create_directories(conf_path.parent_path());
         std::ofstream ofs_io;
         ofs_io.exceptions(std::ofstream::failbit | std::ofstream::badbit);
         ofs_io.open(conf_path.string(), std::ofstream::trunc);
@@ -632,9 +673,14 @@ void write_configuration_file(std::string conf_file, std::string format, unsigne
         }
         ofs_io.close();
         std::cout << "Written the above values to " << conf_path.string() << std::endl;
+    } catch (boost::filesystem::filesystem_error &e) { // create directory may throw this
+        std::cout << e.what() << error_msg << std::endl;
+        return 1;
     } catch (std::ios_base::failure& e) {
-        std::cout << e.what() << " when writing configuration file. Please add them to your seastar command line" << std::endl;
+        std::cout << e.what() << error_msg << std::endl;
+        return 1;
     }
+    return 0;
 }
 
 int main(int ac, char** av) {
@@ -705,9 +751,9 @@ int main(int ac, char** av) {
 
         if (num_io_queues != cpuvec.size()) {
             iodepth = (iodepth / num_io_queues) * num_io_queues;
-            write_configuration_file(conf_file, format, iodepth, num_io_queues);
+            return write_configuration_file(conf_file, format, iodepth, num_io_queues);
         } else {
-            write_configuration_file(conf_file, format, iodepth);
+            return write_configuration_file(conf_file, format, iodepth);
         }
     } catch (iotune_timeout_exception &e) {
         // Otherwise we'll coredump on the exception, but this can happen

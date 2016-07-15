@@ -26,6 +26,8 @@
 #include <vector>
 #include <iostream>
 
+using namespace seastar;
+
 static std::string str_ping{"ping"};
 static std::string str_txtx{"txtx"};
 static std::string str_rxrx{"rxrx"};
@@ -36,15 +38,29 @@ static int tx_msg_size = 4 * 1024;
 static int tx_msg_nr = tx_msg_total_size / tx_msg_size;
 static int rx_msg_size = 4 * 1024;
 static std::string str_txbuf(tx_msg_size, 'X');
+static bool enable_tcp = false;
+static bool enable_sctp = false;
 
 class tcp_server {
-    std::vector<server_socket> _listeners;
+    std::vector<server_socket> _tcp_listeners;
+    std::vector<server_socket> _sctp_listeners;
 public:
     future<> listen(ipv4_addr addr) {
-        listen_options lo;
-        lo.reuse_address = true;
-        _listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
-        do_accepts(_listeners.size() - 1);
+        if (enable_tcp) {
+            listen_options lo;
+            lo.proto = transport::TCP;
+            lo.reuse_address = true;
+            _tcp_listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
+            do_accepts(_tcp_listeners);
+        }
+
+        if (enable_sctp) {
+            listen_options lo;
+            lo.proto = transport::SCTP;
+            lo.reuse_address = true;
+            _sctp_listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
+            do_accepts(_sctp_listeners);
+        }
         return make_ready_future<>();
     }
 
@@ -53,8 +69,9 @@ public:
         return make_ready_future<>();
     }
 
-    void do_accepts(int which) {
-        _listeners[which].accept().then([this, which] (connected_socket fd, socket_address addr) mutable {
+    void do_accepts(std::vector<server_socket>& listeners) {
+        int which = listeners.size() - 1;
+        listeners[which].accept().then([this, which, &listeners] (connected_socket fd, socket_address addr) mutable {
             auto conn = new connection(*this, std::move(fd), addr);
             conn->process().then_wrapped([this, conn] (auto&& f) {
                 delete conn;
@@ -64,7 +81,7 @@ public:
                     std::cout << "request error " << ex.what() << "\n";
                 }
             });
-            do_accepts(which);
+            do_accepts(listeners);
         }).then_wrapped([] (auto&& f) {
             try {
                 f.get();
@@ -158,10 +175,18 @@ namespace bpo = boost::program_options;
 int main(int ac, char** av) {
     app_template app;
     app.add_options()
-        ("port", bpo::value<uint16_t>()->default_value(10000), "TCP server port") ;
+        ("port", bpo::value<uint16_t>()->default_value(10000), "TCP server port")
+        ("tcp", bpo::value<std::string>()->default_value("yes"), "tcp listen")
+        ("sctp", bpo::value<std::string>()->default_value("no"), "sctp listen") ;
     return app.run_deprecated(ac, av, [&] {
         auto&& config = app.configuration();
         uint16_t port = config["port"].as<uint16_t>();
+        enable_tcp = config["tcp"].as<std::string>() == "yes";
+        enable_sctp = config["sctp"].as<std::string>() == "yes";
+        if (!enable_tcp && !enable_sctp) {
+            fprint(std::cerr, "Error: no protocols enabled. Use \"--tcp yes\" and/or \"--sctp yes\" to enable\n");
+            return engine().exit(1);
+        }
         auto server = new distributed<tcp_server>;
         server->start().then([server = std::move(server), port] () mutable {
             engine().at_exit([server] {

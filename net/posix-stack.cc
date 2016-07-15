@@ -24,86 +24,194 @@
 #include "packet.hh"
 #include "api.hh"
 #include <netinet/tcp.h>
+#include <netinet/sctp.h>
 
 namespace net {
 
-class posix_connected_socket_impl final : public connected_socket_impl {
-    pollable_fd _fd;
-private:
-    explicit posix_connected_socket_impl(pollable_fd fd) : _fd(std::move(fd)) {}
+using namespace seastar;
+
+template <transport Transport>
+class posix_connected_socket_operations;
+
+template <>
+class posix_connected_socket_operations<transport::TCP> {
 public:
-    virtual data_source source() override { return posix_data_source(_fd); }
-    virtual data_sink sink() override { return posix_data_sink(_fd); }
+    void set_nodelay(file_desc& _fd, bool nodelay) {
+        _fd.setsockopt(IPPROTO_TCP, TCP_NODELAY, int(nodelay));
+    }
+    bool get_nodelay(file_desc& _fd) const {
+        return _fd.getsockopt<int>(IPPROTO_TCP, TCP_NODELAY);
+    }
+    void set_keepalive(file_desc& _fd, bool keepalive) {
+        _fd.setsockopt(SOL_SOCKET, SO_KEEPALIVE, int(keepalive));
+    }
+    bool get_keepalive(file_desc& _fd) const {
+        return _fd.getsockopt<int>(SOL_SOCKET, SO_KEEPALIVE);
+    }
+    void set_keepalive_parameters(file_desc& _fd, const keepalive_params& params) {
+        const tcp_keepalive_params& pms = boost::get<tcp_keepalive_params>(params);
+        _fd.setsockopt(IPPROTO_TCP, TCP_KEEPCNT, pms.count);
+        _fd.setsockopt(IPPROTO_TCP, TCP_KEEPIDLE, int(pms.idle.count()));
+        _fd.setsockopt(IPPROTO_TCP, TCP_KEEPINTVL, int(pms.interval.count()));
+    }
+    keepalive_params get_keepalive_parameters(file_desc& _fd) const {
+        return tcp_keepalive_params {
+            std::chrono::seconds(_fd.getsockopt<int>(IPPROTO_TCP, TCP_KEEPIDLE)),
+            std::chrono::seconds(_fd.getsockopt<int>(IPPROTO_TCP, TCP_KEEPINTVL)),
+            _fd.getsockopt<unsigned>(IPPROTO_TCP, TCP_KEEPCNT)
+        };
+    }
+};
+
+template <>
+class posix_connected_socket_operations<transport::SCTP> {
+public:
+    void set_nodelay(file_desc& _fd, bool nodelay) {
+        _fd.setsockopt(SOL_SCTP, SCTP_NODELAY, int(nodelay));
+    }
+    bool get_nodelay(file_desc& _fd) const {
+        return _fd.getsockopt<int>(SOL_SCTP, SCTP_NODELAY);
+    }
+    void set_keepalive(file_desc& _fd, bool keepalive) {
+        auto heartbeat = _fd.getsockopt<sctp_paddrparams>(SOL_SCTP, SCTP_PEER_ADDR_PARAMS);
+        if (keepalive) {
+            heartbeat.spp_flags |= SPP_HB_ENABLE;
+        } else {
+            heartbeat.spp_flags &= ~SPP_HB_ENABLE;
+        }
+        _fd.setsockopt(SOL_SCTP, SCTP_PEER_ADDR_PARAMS, heartbeat);
+    }
+    bool get_keepalive(file_desc& _fd) const {
+        return _fd.getsockopt<sctp_paddrparams>(SOL_SCTP, SCTP_PEER_ADDR_PARAMS).spp_flags & SPP_HB_ENABLE;
+    }
+    void set_keepalive_parameters(file_desc& _fd, const keepalive_params& kpms) {
+        const sctp_keepalive_params& pms = boost::get<sctp_keepalive_params>(kpms);
+        auto params = _fd.getsockopt<sctp_paddrparams>(SOL_SCTP, SCTP_PEER_ADDR_PARAMS);
+        params.spp_hbinterval = pms.interval.count() * 1000; // in milliseconds
+        params.spp_pathmaxrxt = pms.count;
+        _fd.setsockopt(SOL_SCTP, SCTP_PEER_ADDR_PARAMS, params);
+    }
+    keepalive_params get_keepalive_parameters(file_desc& _fd) const {
+        auto params = _fd.getsockopt<sctp_paddrparams>(SOL_SCTP, SCTP_PEER_ADDR_PARAMS);
+        return sctp_keepalive_params {
+            std::chrono::seconds(params.spp_hbinterval/1000), // in seconds
+            params.spp_pathmaxrxt
+        };
+    }
+};
+
+template <transport Transport>
+class posix_connected_socket_impl final : public connected_socket_impl, posix_connected_socket_operations<Transport> {
+    lw_shared_ptr<pollable_fd> _fd;
+    using _ops = posix_connected_socket_operations<Transport>;
+private:
+    explicit posix_connected_socket_impl(lw_shared_ptr<pollable_fd> fd) : _fd(std::move(fd)) {}
+public:
+    virtual data_source source() override { return posix_data_source(*_fd); }
+    virtual data_sink sink() override { return posix_data_sink(*_fd); }
     virtual future<> shutdown_input() override {
-        _fd.shutdown(SHUT_RD);
+        _fd->shutdown(SHUT_RD);
         return make_ready_future<>();
     }
     virtual future<> shutdown_output() override {
-        _fd.shutdown(SHUT_WR);
+        _fd->shutdown(SHUT_WR);
         return make_ready_future<>();
     }
     virtual void set_nodelay(bool nodelay) override {
-        _fd.get_file_desc().setsockopt(IPPROTO_TCP, TCP_NODELAY, int(nodelay));
+        return _ops::set_nodelay(_fd->get_file_desc(), nodelay);
     }
     virtual bool get_nodelay() const override {
-        return _fd.get_file_desc().getsockopt<int>(IPPROTO_TCP, TCP_NODELAY);
+        return _ops::get_nodelay(_fd->get_file_desc());
     }
     void set_keepalive(bool keepalive) override {
-        _fd.get_file_desc().setsockopt(SOL_SOCKET, SO_KEEPALIVE, int(keepalive));
+        return _ops::set_keepalive(_fd->get_file_desc(), keepalive);
     }
     bool get_keepalive() const override {
-        return _fd.get_file_desc().getsockopt<int>(SOL_SOCKET, SO_KEEPALIVE);
+        return _ops::get_keepalive(_fd->get_file_desc());
     }
-    void set_keepalive_parameters(const tcp_keepalive_params& p) override {
-        _fd.get_file_desc().setsockopt(IPPROTO_TCP, TCP_KEEPCNT, p.count);
-        _fd.get_file_desc().setsockopt(IPPROTO_TCP, TCP_KEEPIDLE, int(p.idle.count()));
-        _fd.get_file_desc().setsockopt(IPPROTO_TCP, TCP_KEEPINTVL, int(p.interval.count()));
+    void set_keepalive_parameters(const keepalive_params& p) override {
+        return _ops::set_keepalive_parameters(_fd->get_file_desc(), p);
     }
-    tcp_keepalive_params get_keepalive_parameters() const override {
-        return {
-            std::chrono::seconds(_fd.get_file_desc().getsockopt<int>(IPPROTO_TCP, TCP_KEEPIDLE)),
-            std::chrono::seconds(_fd.get_file_desc().getsockopt<int>(IPPROTO_TCP, TCP_KEEPINTVL)),
-            _fd.get_file_desc().getsockopt<unsigned>(IPPROTO_TCP, TCP_KEEPCNT)
-        };
+    keepalive_params get_keepalive_parameters() const override {
+        return _ops::get_keepalive_parameters(_fd->get_file_desc());
     }
-    friend class posix_server_socket_impl;
-    friend class posix_ap_server_socket_impl;
-    friend class posix_reuseport_server_socket_impl;
+    friend class posix_server_socket_impl<Transport>;
+    friend class posix_ap_server_socket_impl<Transport>;
+    friend class posix_reuseport_server_socket_impl<Transport>;
     friend class posix_network_stack;
     friend class posix_ap_network_stack;
+    friend class posix_socket_impl;
+};
+using posix_connected_tcp_socket_impl = posix_connected_socket_impl<transport::TCP>;
+using posix_connected_sctp_socket_impl = posix_connected_socket_impl<transport::SCTP>;
+
+class posix_socket_impl final : public socket_impl {
+    lw_shared_ptr<pollable_fd> _fd;
+public:
+    posix_socket_impl() = default;
+
+    virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
+        _fd = engine().make_pollable_fd(sa, proto);
+        return engine().posix_connect(_fd, sa, local).then([fd = _fd, proto]() mutable {
+            std::unique_ptr<connected_socket_impl> csi;
+            if (proto == transport::TCP) {
+                csi.reset(new posix_connected_tcp_socket_impl(std::move(fd)));
+            } else {
+                csi.reset(new posix_connected_sctp_socket_impl(std::move(fd)));
+            }
+            return make_ready_future<connected_socket>(connected_socket(std::move(csi)));
+        });
+    }
+
+    virtual void shutdown() override {
+        if (_fd) {
+            try {
+                _fd->shutdown(SHUT_RDWR);
+            } catch (std::system_error& e) {
+                if (e.code().value() != ENOTCONN) {
+                    throw;
+                }
+            }
+        }
+    }
 };
 
+template <transport Transport>
 future<connected_socket, socket_address>
-posix_server_socket_impl::accept() {
+posix_server_socket_impl<Transport>::accept() {
     return _lfd.accept().then([this] (pollable_fd fd, socket_address sa) {
         static unsigned balance = 0;
         auto cpu = balance++ % smp::count;
 
         if (cpu == engine().cpu_id()) {
-            std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl(std::move(fd)));
+            std::unique_ptr<connected_socket_impl> csi(
+                    new posix_connected_socket_impl<Transport>(make_lw_shared(std::move(fd))));
             return make_ready_future<connected_socket, socket_address>(
                     connected_socket(std::move(csi)), sa);
         } else {
             smp::submit_to(cpu, [this, fd = std::move(fd.get_file_desc()), sa] () mutable {
-                posix_ap_server_socket_impl::move_connected_socket(_sa, pollable_fd(std::move(fd)), sa);
+                posix_ap_server_socket_impl<Transport>::move_connected_socket(_sa, pollable_fd(std::move(fd)), sa);
             });
             return accept();
         }
     });
 }
 
+template <transport Transport>
 void
-posix_server_socket_impl::abort_accept() {
+posix_server_socket_impl<Transport>::abort_accept() {
     _lfd.abort_reader(std::make_exception_ptr(std::system_error(ECONNABORTED, std::system_category())));
 }
 
-future<connected_socket, socket_address> posix_ap_server_socket_impl::accept() {
+template <transport Transport>
+future<connected_socket, socket_address> posix_ap_server_socket_impl<Transport>::accept() {
     auto conni = conn_q.find(_sa.as_posix_sockaddr_in());
     if (conni != conn_q.end()) {
         connection c = std::move(conni->second);
         conn_q.erase(conni);
         try {
-            std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl(std::move(c.fd)));
+            std::unique_ptr<connected_socket_impl> csi(
+                    new posix_connected_socket_impl<Transport>(make_lw_shared(std::move(c.fd))));
             return make_ready_future<connected_socket, socket_address>(connected_socket(std::move(csi)), std::move(c.addr));
         } catch (...) {
             return make_exception_future<connected_socket, socket_address>(std::current_exception());
@@ -119,8 +227,9 @@ future<connected_socket, socket_address> posix_ap_server_socket_impl::accept() {
     }
 }
 
+template <transport Transport>
 void
-posix_ap_server_socket_impl::abort_accept() {
+posix_ap_server_socket_impl<Transport>::abort_accept() {
     conn_q.erase(_sa.as_posix_sockaddr_in());
     auto i = sockets.find(_sa.as_posix_sockaddr_in());
     if (i != sockets.end()) {
@@ -129,25 +238,29 @@ posix_ap_server_socket_impl::abort_accept() {
     }
 }
 
+template <transport Transport>
 future<connected_socket, socket_address>
-posix_reuseport_server_socket_impl::accept() {
+posix_reuseport_server_socket_impl<Transport>::accept() {
     return _lfd.accept().then([this] (pollable_fd fd, socket_address sa) {
-        std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl(std::move(fd)));
+        std::unique_ptr<connected_socket_impl> csi(
+                new posix_connected_socket_impl<Transport>(make_lw_shared(std::move(fd))));
         return make_ready_future<connected_socket, socket_address>(
             connected_socket(std::move(csi)), sa);
     });
 }
 
+template <transport Transport>
 void
-posix_reuseport_server_socket_impl::abort_accept() {
+posix_reuseport_server_socket_impl<Transport>::abort_accept() {
     _lfd.abort_reader(std::make_exception_ptr(std::system_error(ECONNABORTED, std::system_category())));
 }
 
-void  posix_ap_server_socket_impl::move_connected_socket(socket_address sa, pollable_fd fd, socket_address addr) {
+template <transport Transport>
+void  posix_ap_server_socket_impl<Transport>::move_connected_socket(socket_address sa, pollable_fd fd, socket_address addr) {
     auto i = sockets.find(sa.as_posix_sockaddr_in());
     if (i != sockets.end()) {
         try {
-            std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl(std::move(fd)));
+            std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl<Transport>(make_lw_shared(std::move(fd))));
             i->second.set_value(connected_socket(std::move(csi)), std::move(addr));
         } catch (...) {
             i->second.set_exception(std::current_exception());
@@ -207,37 +320,41 @@ posix_data_sink_impl::put(packet p) {
 
 server_socket
 posix_network_stack::listen(socket_address sa, listen_options opt) {
-    if (_reuseport)
-        return server_socket(std::make_unique<posix_reuseport_server_socket_impl>(sa, engine().posix_listen(sa, opt)));
-    else
-        return server_socket(std::make_unique<posix_server_socket_impl>(sa, engine().posix_listen(sa, opt)));
+    if (opt.proto == transport::TCP) {
+        return _reuseport ?
+            server_socket(std::make_unique<posix_reuseport_server_tcp_socket_impl>(sa, engine().posix_listen(sa, opt)))
+            :
+            server_socket(std::make_unique<posix_server_tcp_socket_impl>(sa, engine().posix_listen(sa, opt)));
+    } else {
+        return _reuseport ?
+            server_socket(std::make_unique<posix_reuseport_server_sctp_socket_impl>(sa, engine().posix_listen(sa, opt)))
+            :
+            server_socket(std::make_unique<posix_server_sctp_socket_impl>(sa, engine().posix_listen(sa, opt)));
+    }
 }
 
-future<connected_socket>
-posix_network_stack::connect(socket_address sa, socket_address local) {
-    return engine().posix_connect(sa, local).then([] (pollable_fd fd) {
-        std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl(std::move(fd)));
-        return make_ready_future<connected_socket>(connected_socket(std::move(csi)));
-    });
+::seastar::socket posix_network_stack::socket() {
+    return ::seastar::socket(std::make_unique<posix_socket_impl>());
 }
 
-thread_local std::unordered_map<::sockaddr_in, promise<connected_socket, socket_address>> posix_ap_server_socket_impl::sockets;
-thread_local std::unordered_multimap<::sockaddr_in, posix_ap_server_socket_impl::connection> posix_ap_server_socket_impl::conn_q;
+template<transport Transport>
+thread_local std::unordered_map<::sockaddr_in, promise<connected_socket, socket_address>> posix_ap_server_socket_impl<Transport>::sockets;
+template<transport Transport>
+thread_local std::unordered_multimap<::sockaddr_in, typename posix_ap_server_socket_impl<Transport>::connection> posix_ap_server_socket_impl<Transport>::conn_q;
 
 server_socket
 posix_ap_network_stack::listen(socket_address sa, listen_options opt) {
-    if (_reuseport)
-        return server_socket(std::make_unique<posix_reuseport_server_socket_impl>(sa, engine().posix_listen(sa, opt)));
-    else
-        return server_socket(std::make_unique<posix_ap_server_socket_impl>(sa));
-}
-
-future<connected_socket>
-posix_ap_network_stack::connect(socket_address sa, socket_address local) {
-    return engine().posix_connect(sa, local).then([] (pollable_fd fd) {
-        std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl(std::move(fd)));
-        return make_ready_future<connected_socket>(connected_socket(std::move(csi)));
-    });
+    if (opt.proto == transport::TCP) {
+        return _reuseport ?
+            server_socket(std::make_unique<posix_reuseport_server_tcp_socket_impl>(sa, engine().posix_listen(sa, opt)))
+            :
+            server_socket(std::make_unique<posix_tcp_ap_server_socket_impl>(sa));
+    } else {
+        return _reuseport ?
+            server_socket(std::make_unique<posix_reuseport_server_sctp_socket_impl>(sa, engine().posix_listen(sa, opt)))
+            :
+            server_socket(std::make_unique<posix_sctp_ap_server_socket_impl>(sa));
+    }
 }
 
 struct cmsg_with_pktinfo {

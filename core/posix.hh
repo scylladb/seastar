@@ -165,6 +165,7 @@ public:
     Data getsockopt(int level, int optname) {
         Data data;
         socklen_t len = sizeof(data);
+        memset(&data, 0, len);
         int r = ::getsockopt(_fd, level, optname, &data, &len);
         throw_system_error_on(r == -1, "getsockopt");
         return data;

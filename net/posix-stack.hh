@@ -28,6 +28,8 @@
 
 namespace net {
 
+using namespace seastar;
+
 data_source posix_data_source(pollable_fd& fd);
 data_sink posix_data_sink(pollable_fd& fd);
 
@@ -54,6 +56,7 @@ public:
     }
 };
 
+template <transport Transport>
 class posix_ap_server_socket_impl : public server_socket_impl {
     struct connection {
         pollable_fd fd;
@@ -65,11 +68,14 @@ class posix_ap_server_socket_impl : public server_socket_impl {
     socket_address _sa;
 public:
     explicit posix_ap_server_socket_impl(socket_address sa) : _sa(sa) {}
-    virtual future<connected_socket, socket_address> accept();
+    virtual future<connected_socket, socket_address> accept() override;
     virtual void abort_accept() override;
     static void move_connected_socket(socket_address sa, pollable_fd fd, socket_address addr);
 };
+using posix_tcp_ap_server_socket_impl = posix_ap_server_socket_impl<transport::TCP>;
+using posix_sctp_ap_server_socket_impl = posix_ap_server_socket_impl<transport::SCTP>;
 
+template <transport Transport>
 class posix_server_socket_impl : public server_socket_impl {
     socket_address _sa;
     pollable_fd _lfd;
@@ -78,7 +84,10 @@ public:
     virtual future<connected_socket, socket_address> accept();
     virtual void abort_accept() override;
 };
+using posix_server_tcp_socket_impl = posix_server_socket_impl<transport::TCP>;
+using posix_server_sctp_socket_impl = posix_server_socket_impl<transport::SCTP>;
 
+template <transport Transport>
 class posix_reuseport_server_socket_impl : public server_socket_impl {
     socket_address _sa;
     pollable_fd _lfd;
@@ -87,6 +96,8 @@ public:
     virtual future<connected_socket, socket_address> accept();
     virtual void abort_accept() override;
 };
+using posix_reuseport_server_tcp_socket_impl = posix_reuseport_server_socket_impl<transport::TCP>;
+using posix_reuseport_server_sctp_socket_impl = posix_reuseport_server_socket_impl<transport::SCTP>;
 
 class posix_network_stack : public network_stack {
 private:
@@ -94,7 +105,7 @@ private:
 public:
     explicit posix_network_stack(boost::program_options::variables_map opts) : _reuseport(engine().posix_reuseport_available()) {}
     virtual server_socket listen(socket_address sa, listen_options opts) override;
-    virtual future<connected_socket> connect(socket_address sa, socket_address local) override;
+    virtual ::seastar::socket socket() override;
     virtual net::udp_channel make_udp_channel(ipv4_addr addr) override;
     static future<std::unique_ptr<network_stack>> create(boost::program_options::variables_map opts) {
         return make_ready_future<std::unique_ptr<network_stack>>(std::unique_ptr<network_stack>(new posix_network_stack(opts)));
@@ -108,7 +119,6 @@ private:
 public:
     posix_ap_network_stack(boost::program_options::variables_map opts) : posix_network_stack(std::move(opts)), _reuseport(engine().posix_reuseport_available()) {}
     virtual server_socket listen(socket_address sa, listen_options opts) override;
-    virtual future<connected_socket> connect(socket_address sa, socket_address local) override;
     static future<std::unique_ptr<network_stack>> create(boost::program_options::variables_map opts) {
         return make_ready_future<std::unique_ptr<network_stack>>(std::unique_ptr<network_stack>(new posix_ap_network_stack(opts)));
     }

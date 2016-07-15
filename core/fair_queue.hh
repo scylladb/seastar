@@ -25,6 +25,7 @@
 #include "semaphore.hh"
 #include "shared_ptr.hh"
 #include "print.hh"
+#include "circular_buffer.hh"
 #include <queue>
 #include <type_traits>
 #include <experimental/optional>
@@ -92,7 +93,8 @@ class fair_queue {
 
     semaphore _sem;
     unsigned _capacity;
-    std::chrono::steady_clock::time_point _base;
+    using clock_type = std::chrono::steady_clock::time_point;
+    clock_type _base;
     std::chrono::microseconds _tau;
     using prioq = std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare>;
     prioq _handles;
@@ -129,7 +131,7 @@ class fair_queue {
             auto req_cost  = float(req.weight) / h->_shares;
             auto cost  = expf(1.0f/_tau.count() * delta.count()) * req_cost;
             float next_accumulated = h->_accumulated + cost;
-            if (std::isinf(next_accumulated)) {
+            while (std::isinf(next_accumulated)) {
                 normalize_stats();
                 // If we have renormalized, our time base will have changed. This should happen very infrequently
                 delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
@@ -146,13 +148,15 @@ class fair_queue {
     }
 
     float normalize_factor() const {
-        return std::numeric_limits<float>::max();
+        return std::numeric_limits<float>::min();
     }
 
     void normalize_stats() {
-        _base = std::chrono::steady_clock::now();
+        auto time_delta = std::log(normalize_factor()) * _tau;
+        // time_delta is negative; and this may advance _base into the future
+        _base -= std::chrono::duration_cast<clock_type::duration>(time_delta);
         for (auto& pc: _all_classes) {
-            pc->_accumulated /= normalize_factor();
+            pc->_accumulated *= normalize_factor();
         }
     }
 public:

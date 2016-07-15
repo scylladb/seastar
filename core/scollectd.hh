@@ -350,6 +350,7 @@ public:
 };
 
 class value_list {
+    bool _enabled = true;
 public:
     virtual ~value_list() {}
     virtual size_t size() const = 0;
@@ -359,6 +360,14 @@ public:
 
     bool empty() const {
         return size() == 0;
+    }
+
+    bool is_enabled() const {
+        return _enabled;
+    }
+
+    void set_enabled(bool b) {
+        _enabled = b;
     }
 };
 

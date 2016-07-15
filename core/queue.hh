@@ -33,6 +33,7 @@ class queue {
     size_t _max;
     std::experimental::optional<promise<>> _not_empty;
     std::experimental::optional<promise<>> _not_full;
+    std::exception_ptr _ex = nullptr;
 private:
     void notify_not_empty();
     void notify_not_full();
@@ -85,6 +86,7 @@ public:
         while (!_q.empty()) {
             _q.pop();
         }
+        _ex = ex;
         if (_not_full) {
             _not_full->set_exception(ex);
             _not_full= std::experimental::nullopt;
@@ -148,7 +150,11 @@ inline
 future<T> queue<T>::pop_eventually() {
     if (empty()) {
         return not_empty().then([this] {
-            return make_ready_future<T>(pop());
+            if (_ex) {
+                return make_exception_future<T>(_ex);
+            } else {
+                return make_ready_future<T>(pop());
+            }
         });
     } else {
         return make_ready_future<T>(pop());

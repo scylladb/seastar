@@ -184,13 +184,11 @@ allocate_io_queues(hwloc_topology_t& topology, configuration c, std::vector<cpu>
     io_queue_topology ret;
     ret.shard_to_coordinator.resize(cpus.size());
 
-    // If we have more than one node, we will mandate at least one coordinator
-    // per node. It simplifies the coordinator assignment and in real scenarios
-    // we don't want to be passing things around to the other side of the box
-    // anyway. We could silently adjust, but it is better to avoid surprises.
-    if ((num_io_queues < numa_nodes.size()) || (num_io_queues > cpus.size())) {
-        auto msg = sprint("Invalid number of IO queues. Asked for %d. Minimum value is %d, maximum %d", num_io_queues, numa_nodes.size(), cpus.size());
-        throw std::runtime_error(std::move(msg));
+    // User may be playing with --smp option, but num_io_queues was independently
+    // determined by iotune, so adjust for any conflicts.
+    if (num_io_queues > cpus.size()) {
+        print("Warning: number of IO queues (%d) greater than logical cores (%d). Adjusting downwards.\n", num_io_queues, cpus.size());
+        num_io_queues = cpus.size();
     }
 
     auto find_shard = [&cpus] (unsigned cpu_id) {

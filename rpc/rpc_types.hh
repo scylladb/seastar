@@ -95,6 +95,11 @@ public:
     rpc_protocol_error() : error("rpc protocol exception") {}
 };
 
+class canceled_error : public error {
+public:
+    canceled_error() : error("rpc call was canceled") {}
+};
+
 struct no_wait_type {};
 
 // return this from a callback if client does not want to waiting for a reply
@@ -104,6 +109,52 @@ template <typename T>
 class optional : public std::experimental::optional<T> {
 public:
      using std::experimental::optional<T>::optional;
+};
+
+struct cancellable {
+    std::function<void()> cancel_send;
+    std::function<void()> cancel_wait;
+    cancellable** send_back_pointer = nullptr;
+    cancellable** wait_back_pointer = nullptr;
+    cancellable() = default;
+    cancellable(cancellable&& x) : cancel_send(std::move(x.cancel_send)), cancel_wait(std::move(x.cancel_wait)), send_back_pointer(x.send_back_pointer), wait_back_pointer(x.wait_back_pointer) {
+        if (send_back_pointer) {
+            *send_back_pointer = this;
+        }
+        if (wait_back_pointer) {
+            *wait_back_pointer = this;
+        }
+    }
+    void cancel() {
+        if (cancel_send) {
+            cancel_send();
+        }
+        if (cancel_wait) {
+            cancel_wait();
+        }
+    }
+    ~cancellable() {
+        cancel();
+    }
+};
+
+class compressor {
+public:
+    virtual ~compressor() {}
+    // compress data and leave head_space bytes at the beginning of returned buffer
+    virtual sstring compress(size_t head_space, sstring data) = 0;
+    // decompress data
+    virtual temporary_buffer<char> decompress(temporary_buffer<char> data) = 0;
+
+    // factory to create compressor for a connection
+    class factory {
+    public:
+        virtual ~factory() {}
+        // return feature string that will be sent as part of protocol negotiation
+        virtual const sstring& supported() const = 0;
+        // negotiate compress algorithm
+        virtual std::unique_ptr<compressor> negotiate(sstring feature, bool is_server) const = 0;
+    };
 };
 
 } // namespace rpc

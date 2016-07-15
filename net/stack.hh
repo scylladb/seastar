@@ -37,8 +37,15 @@ public:
     virtual bool get_nodelay() const = 0;
     virtual void set_keepalive(bool keepalive) = 0;
     virtual bool get_keepalive() const = 0;
-    virtual void set_keepalive_parameters(const tcp_keepalive_params&) = 0;
-    virtual tcp_keepalive_params get_keepalive_parameters() const = 0;
+    virtual void set_keepalive_parameters(const keepalive_params&) = 0;
+    virtual keepalive_params get_keepalive_parameters() const = 0;
+};
+
+class socket_impl {
+public:
+    virtual ~socket_impl() {}
+    virtual future<connected_socket> connect(socket_address sa, socket_address local, seastar::transport proto = seastar::transport::TCP) = 0;
+    virtual void shutdown() = 0;
 };
 
 class server_socket_impl {
