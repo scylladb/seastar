@@ -876,14 +876,15 @@ file::file(int fd, file_open_options options)
 
 future<file>
 reactor::open_file_dma(sstring name, open_flags flags, file_open_options options) {
+    static constexpr mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH; // 0644
     return _thread_pool.submit<syscall_result<int>>([name, flags, options, strict_o_direct = _strict_o_direct] {
         auto open_flags = O_DIRECT | O_CLOEXEC | static_cast<int>(flags);
-        int fd = ::open(name.c_str(), open_flags, S_IRWXU);
+        int fd = ::open(name.c_str(), open_flags, mode);
         if (!strict_o_direct && fd == -1 && errno == EINVAL) {
             // open with O_DIRECT on tmppfs creates the file, then returns an
             // EINVAL; so we must remove O_EXCL as well.
             open_flags &= ~(O_DIRECT | O_EXCL);
-            fd = ::open(name.c_str(), open_flags, S_IRWXU);
+            fd = ::open(name.c_str(), open_flags, mode);
         }
         if (fd != -1) {
             fsxattr attr = {};
