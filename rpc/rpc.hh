@@ -144,6 +144,12 @@ class protocol {
         void send_loop() {
             _send_loop_stopped = do_until([this] { return _error; }, [this] {
                 return _outgoing_queue_cond.wait([this] { return !_outgoing_queue.empty(); }).then([this] {
+                    // despite using wait with predicated above _outgoing_queue can still be empty here if
+                    // there is only one entry on the list and its expire timer runs after wait() returned ready future,
+                    // but before this continuation runs.
+                    if (_outgoing_queue.empty()) {
+                        return make_ready_future();
+                    }
                     auto d = std::move(_outgoing_queue.front());
                     _outgoing_queue.pop_front();
                     d.t.cancel(); // cancel timeout timer
