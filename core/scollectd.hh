@@ -412,7 +412,7 @@ private:
     std::tuple < Args... > _values;
 };
 
-void add_polled(const type_instance_id &, const shared_ptr<value_list> &);
+void add_polled(const type_instance_id &, const shared_ptr<value_list> &, bool enabled = true);
 
 typedef std::function<void()> notify_function;
 template<typename... _Args>
@@ -454,6 +454,17 @@ static type_instance_id add_polled_metric(const type_instance_id & id,
                     make_type_instance(std::forward<_Args>(args)...)));
     return id;
 }
+
+template<typename ... _Args>
+static type_instance_id add_disabled_polled_metric(const type_instance_id & id,
+        _Args&& ... args) {
+    typedef decltype(make_type_instance(std::forward<_Args>(args)...)) impl_type;
+    add_polled(id,
+            ::make_shared<impl_type>(
+                    make_type_instance(std::forward<_Args>(args)...)), false);
+    return id;
+}
+
 // "Explicit" metric sends. Sends a single value list as a message.
 // Obviously not super efficient either. But maybe someone needs it sometime.
 template<typename ... _Args>

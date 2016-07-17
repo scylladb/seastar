@@ -49,7 +49,7 @@ public:
     typedef value_list_map::value_type value_list_pair;
 
     void add_polled(const type_instance_id & id,
-            const shared_ptr<value_list> & values);
+            const shared_ptr<value_list> & values, bool enable = true);
     void remove_polled(const type_instance_id & id);
     // explicitly send a type_instance value list (outside polling)
     future<> send_metric(const type_instance_id & id,

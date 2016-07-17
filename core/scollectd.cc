@@ -224,8 +224,10 @@ impl::value_list_map& impl::get_value_list_map() {
 }
 
 void impl::add_polled(const type_instance_id & id,
-        const shared_ptr<value_list> & values) {
+        const shared_ptr<value_list> & values, bool enable) {
+    values->set_enabled(enable);
     _values[id] = values;
+
 }
 
 void impl::remove_polled(const type_instance_id & id) {
@@ -401,8 +403,8 @@ std::vector<type_instance_id> impl::get_instance_ids() {
 }
 
 void add_polled(const type_instance_id & id,
-        const shared_ptr<value_list> & values) {
-    get_impl().add_polled(id, values);
+        const shared_ptr<value_list> & values, bool enabled) {
+    get_impl().add_polled(id, values, enabled);
 }
 
 void remove_polled_metric(const type_instance_id & id) {
