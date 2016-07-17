@@ -43,6 +43,24 @@ inline int32_t le_to_cpu(int32_t x) { return le32toh(x); }
 inline int64_t cpu_to_le(int64_t x) { return htole64(x); }
 inline int64_t le_to_cpu(int64_t x) { return le64toh(x); }
 
+inline uint8_t cpu_to_be(uint8_t x) { return x; }
+inline uint8_t be_to_cpu(uint8_t x) { return x; }
+inline uint16_t cpu_to_be(uint16_t x) { return htobe16(x); }
+inline uint16_t be_to_cpu(uint16_t x) { return be16toh(x); }
+inline uint32_t cpu_to_be(uint32_t x) { return htobe32(x); }
+inline uint32_t be_to_cpu(uint32_t x) { return be32toh(x); }
+inline uint64_t cpu_to_be(uint64_t x) { return htobe64(x); }
+inline uint64_t be_to_cpu(uint64_t x) { return be64toh(x); }
+
+inline int8_t cpu_to_be(int8_t x) { return x; }
+inline int8_t be_to_cpu(int8_t x) { return x; }
+inline int16_t cpu_to_be(int16_t x) { return htobe16(x); }
+inline int16_t be_to_cpu(int16_t x) { return be16toh(x); }
+inline int32_t cpu_to_be(int32_t x) { return htobe32(x); }
+inline int32_t be_to_cpu(int32_t x) { return be32toh(x); }
+inline int64_t cpu_to_be(int64_t x) { return htobe64(x); }
+inline int64_t be_to_cpu(int64_t x) { return be64toh(x); }
+
 template <typename T>
 inline T cpu_to_le(const unaligned<T>& v) {
     return cpu_to_le(T(v));
