@@ -2327,40 +2327,40 @@ void smp_message_queue::start(unsigned cpuid) {
     _collectd_regs = scollectd::registrations({
             // queue_length     value:GAUGE:0:U
             // Absolute value of num packets in last tx batch.
-            scollectd::add_polled_metric(scollectd::type_instance_id("smp"
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
                     , instance
                     , "queue_length", "send-batch")
             , scollectd::make_typed(scollectd::data_type::GAUGE, _last_snt_batch)
             ),
-            scollectd::add_polled_metric(scollectd::type_instance_id("smp"
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
                     , instance
                     , "queue_length", "receive-batch")
             , scollectd::make_typed(scollectd::data_type::GAUGE, _last_rcv_batch)
             ),
-            scollectd::add_polled_metric(scollectd::type_instance_id("smp"
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
                     , instance
                     , "queue_length", "complete-batch")
             , scollectd::make_typed(scollectd::data_type::GAUGE, _last_cmpl_batch)
             ),
-            scollectd::add_polled_metric(scollectd::type_instance_id("smp"
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
                     , instance
                     , "queue_length", "send-queue-length")
             , scollectd::make_typed(scollectd::data_type::GAUGE, _current_queue_length)
             ),
             // total_operations value:DERIVE:0:U
-            scollectd::add_polled_metric(scollectd::type_instance_id("smp"
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
                     , instance
                     , "total_operations", "received-messages")
             , scollectd::make_typed(scollectd::data_type::DERIVE, _received)
             ),
             // total_operations value:DERIVE:0:U
-            scollectd::add_polled_metric(scollectd::type_instance_id("smp"
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
                     , instance
                     , "total_operations", "sent-messages")
             , scollectd::make_typed(scollectd::data_type::DERIVE, _sent)
             ),
             // total_operations value:DERIVE:0:U
-            scollectd::add_polled_metric(scollectd::type_instance_id("smp"
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
                     , instance
                     , "total_operations", "completed-messages")
             , scollectd::make_typed(scollectd::data_type::DERIVE, _compl)
