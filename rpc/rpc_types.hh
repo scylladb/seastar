@@ -120,10 +120,19 @@ struct cancellable {
     cancellable(cancellable&& x) : cancel_send(std::move(x.cancel_send)), cancel_wait(std::move(x.cancel_wait)), send_back_pointer(x.send_back_pointer), wait_back_pointer(x.wait_back_pointer) {
         if (send_back_pointer) {
             *send_back_pointer = this;
+            x.send_back_pointer = nullptr;
         }
         if (wait_back_pointer) {
             *wait_back_pointer = this;
+            x.wait_back_pointer = nullptr;
         }
+    }
+    cancellable& operator=(cancellable&& x) {
+        if (&x != this) {
+            this->~cancellable();
+            new (this) cancellable(std::move(x));
+        }
+        return *this;
     }
     void cancel() {
         if (cancel_send) {
