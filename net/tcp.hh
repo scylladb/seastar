@@ -96,36 +96,81 @@ struct tcp_option {
     // The kind and len field are fixed and defined in TCP protocol
     enum class option_kind: uint8_t { mss = 2, win_scale = 3, sack = 4, timestamps = 8,  nop = 1, eol = 0 };
     enum class option_len:  uint8_t { mss = 4, win_scale = 3, sack = 2, timestamps = 10, nop = 1, eol = 1 };
+    static void write(char* p, option_kind kind, option_len len) {
+        p[0] = static_cast<uint8_t>(kind);
+        if (static_cast<uint8_t>(len) > 1) {
+            p[1] = static_cast<uint8_t>(kind);
+        }
+    }
     struct mss {
-        option_kind kind = option_kind::mss;
-        option_len len = option_len::mss;
-        packed<uint16_t> mss;
-        template <typename Adjuster>
-        void adjust_endianness(Adjuster a) { a(mss); }
-    } __attribute__((packed));
+        static constexpr option_kind kind = option_kind::mss;
+        static constexpr option_len len = option_len::mss;
+        uint16_t mss;
+        static tcp_option::mss read(const char* p) {
+            tcp_option::mss x;
+            x.mss = read_be<uint16_t>(p + 2);
+            return x;
+        }
+        void write(char* p) const {
+            tcp_option::write(p, kind, len);
+            write_be<uint16_t>(p + 2, mss);
+        }
+    };
     struct win_scale {
-        option_kind kind = option_kind::win_scale;
-        option_len len = option_len::win_scale;
+        static constexpr option_kind kind = option_kind::win_scale;
+        static constexpr option_len len = option_len::win_scale;
         uint8_t shift;
-    } __attribute__((packed));
+        static tcp_option::win_scale read(const char* p) {
+            tcp_option::win_scale x;
+            x.shift = p[2];
+            return x;
+        }
+        void write(char* p) const {
+            tcp_option::write(p, kind, len);
+            p[2] = shift;
+        }
+    };
     struct sack {
-        option_kind kind = option_kind::sack;
-        option_len len = option_len::sack;
-    } __attribute__((packed));
+        static constexpr option_kind kind = option_kind::sack;
+        static constexpr option_len len = option_len::sack;
+        static tcp_option::sack read(const char* p) {
+            return {};
+        }
+        void write(char* p) const {
+            tcp_option::write(p, kind, len);
+        }
+    };
     struct timestamps {
-        option_kind kind = option_kind::timestamps;
-        option_len len = option_len::timestamps;
-        packed<uint32_t> t1;
-        packed<uint32_t> t2;
-        template <typename Adjuster>
-        void adjust_endianness(Adjuster a) { a(t1, t2); }
-    } __attribute__((packed));
+        static constexpr option_kind kind = option_kind::timestamps;
+        static constexpr option_len len = option_len::timestamps;
+        uint32_t t1;
+        uint32_t t2;
+        static tcp_option::timestamps read(const char* p) {
+            tcp_option::timestamps ts;
+            ts.t1 = read_be<uint32_t>(p + 2);
+            ts.t2 = read_be<uint32_t>(p + 6);
+            return ts;
+        }
+        void write(char* p) const {
+            tcp_option::write(p, kind, len);
+            write_be<uint32_t>(p + 2, t1);
+            write_be<uint32_t>(p + 6, t2);
+        }
+    };
     struct nop {
-        option_kind kind = option_kind::nop;
-    } __attribute__((packed));
+        static constexpr option_kind kind = option_kind::nop;
+        static constexpr option_len len = option_len::nop;
+        void write(char* p) const {
+            tcp_option::write(p, kind, len);
+        }
+    };
     struct eol {
-        option_kind kind = option_kind::eol;
-    } __attribute__((packed));
+        static constexpr option_kind kind = option_kind::eol;
+        static constexpr option_len len = option_len::eol;
+        void write(char* p) const {
+            tcp_option::write(p, kind, len);
+        }
+    };
     static const uint8_t align = 4;
 
     void parse(uint8_t* beg, uint8_t* end);
@@ -144,7 +189,8 @@ struct tcp_option {
     uint8_t _remote_win_scale = 0;
     uint8_t _local_win_scale = 0;
 };
-inline uint8_t*& operator+=(uint8_t*& x, tcp_option::option_len len) { x += uint8_t(len); return x; }
+inline char*& operator+=(char*& x, tcp_option::option_len len) { x += uint8_t(len); return x; }
+inline const char*& operator+=(const char*& x, tcp_option::option_len len) { x += uint8_t(len); return x; }
 inline uint8_t& operator+=(uint8_t& x, tcp_option::option_len len) { x += uint8_t(len); return x; }
 
 struct tcp_seq {
