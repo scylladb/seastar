@@ -87,6 +87,191 @@ enum class data_type : uint8_t {
     ABSOLUTE, // unsigned int 64
 };
 
+enum class known_type {
+    // from types.db. Defined collectd types (type_id) selection.
+    // This enum omits the very application specific types, such
+    // as mysql_* etc, since if you really are re-writing mysql
+    // in seastar, you probably know how to look the type up manually...
+
+    absolute,
+    backends,
+    bitrate,
+    blocked_clients,
+    bytes,
+    cache_eviction,
+    cache_operation,
+    cache_ratio,
+    cache_result,
+    cache_size,
+    capacity,
+    changes_since_last_save,
+    charge,
+    clock_last_meas,
+    clock_last_update,
+    clock_mode,
+    clock_reachability,
+    clock_skew_ppm,
+    clock_state,
+    clock_stratum,
+    compression,
+    compression_ratio,
+    connections,
+    conntrack,
+    contextswitch,
+    count,
+    counter,
+    cpu,
+    cpufreq,
+    current,
+    current_connections,
+    current_sessions,
+    delay,
+    derive,
+    df,
+    df_complex,
+    df_inodes,
+    disk_io_time,
+    disk_latency,
+    disk_merged,
+    disk_octets,
+    disk_ops,
+    disk_ops_complex,
+    disk_time,
+    dns_answer,
+    dns_notify,
+    dns_octets,
+    dns_opcode,
+    dns_qtype,
+    dns_qtype_cached,
+    dns_query,
+    dns_question,
+    dns_rcode,
+    dns_reject,
+    dns_request,
+    dns_resolver,
+    dns_response,
+    dns_transfer,
+    dns_update,
+    dns_zops,
+    drbd_resource,
+    duration,
+    email_check,
+    email_count,
+    email_size,
+    entropy,
+    evicted_keys,
+    expired_keys,
+    fanspeed,
+    file_handles,
+    file_size,
+    files,
+    flow,
+    fork_rate,
+    frequency,
+    frequency_error,
+    frequency_offset,
+    fscache_stat,
+    gauge,
+    hash_collisions,
+    http_request_methods,
+    http_requests,
+    http_response_codes,
+    humidity,
+    if_collisions,
+    if_dropped,
+    if_errors,
+    if_multicast,
+    if_octets,
+    if_packets,
+    if_rx_errors,
+    if_rx_octets,
+    if_tx_errors,
+    if_tx_octets,
+    invocations,
+    io_octets,
+    io_packets,
+    ipt_bytes,
+    ipt_packets,
+    irq,
+    latency,
+    links,
+    load,
+    md_disks,
+    memory,
+    memory_lua,
+    memory_throttle_count,
+    multimeter,
+    mutex_operations,
+    objects,
+    operations,
+    packets,
+    pending_operations,
+    percent,
+    percent_bytes,
+    percent_inodes,
+    ping,
+    ping_droprate,
+    ping_stddev,
+    players,
+    power,
+    pressure,
+    protocol_counter,
+    pubsub,
+    queue_length,
+    records,
+    requests,
+    response_code,
+    response_time,
+    root_delay,
+    root_dispersion,
+    route_etx,
+    route_metric,
+    routes,
+    segments,
+    serial_octets,
+    signal_noise,
+    signal_power,
+    signal_quality,
+    snr,
+    spl,
+    swap,
+    swap_io,
+    tcp_connections,
+    temperature,
+    threads,
+    time_dispersion,
+    time_offset,
+    time_offset_ntp,
+    time_offset_rms,
+    time_ref,
+    timeleft,
+    total_bytes,
+    total_connections,
+    total_objects,
+    total_operations,
+    total_requests,
+    total_sessions,
+    total_threads,
+    total_time_in_ms,
+    total_values,
+    uptime,
+    users,
+    vcl,
+    vcpu,
+    virt_cpu_total,
+    virt_vcpu,
+    vmpage_action,
+    vmpage_faults,
+    vmpage_io,
+    vmpage_number,
+    volatile_changes,
+    voltage,
+    voltage_threshold,
+    vs_memory,
+    vs_processes,
+    vs_threads,
+};
+
 // don't use directly. use make_typed.
 template<typename T>
 struct typed {
@@ -106,6 +291,8 @@ typedef sstring plugin_id;
 typedef sstring plugin_instance_id;
 typedef sstring type_id;
 typedef sstring type_instance;
+
+type_id type_id_for(known_type);
 
 class type_instance_id {
 public:
@@ -147,6 +334,8 @@ void configure(const boost::program_options::variables_map&);
 boost::program_options::options_description get_options_description();
 void remove_polled_metric(const type_instance_id &);
 
+class plugin_instance_metrics;
+
 /**
  * Anchor for polled registration.
  * Iff the registered type is in some way none-persistent,
@@ -180,6 +369,8 @@ struct registration {
         _id = type_instance_id();
     }
 private:
+    friend class plugin_instance_metrics;
+
     type_instance_id _id;
 };
 
@@ -210,6 +401,90 @@ public:
         return registrations::operator=(registrations(l));
     }
 };
+
+class value_list;
+
+struct typed_value {
+    /**
+     * Wraps N values of a given type (type_id).
+     * Used to group types into a plugin_instance_metrics
+     */
+    template<typename... Args>
+    typed_value(const type_id& tid, const scollectd::type_instance& ti, Args&&... args);
+
+    const scollectd::type_instance& type_instance() const {
+        return _type_instance;
+    }
+    const shared_ptr<value_list>& values() const {
+        return _values;
+    }
+    const type_id & type() const {
+        return _type_id;
+    }
+private:
+    type_id _type_id;
+    scollectd::type_instance _type_instance;
+    ::shared_ptr<value_list> _values;
+};
+
+class plugin_instance_metrics {
+public:
+    template<typename... TypedValues>
+    plugin_instance_metrics(const plugin_id& p, const plugin_instance_id& pi, TypedValues&&... values)
+        : _plugin_id(p)
+        , _plugin_instance(pi)
+        , _registrations({ add_impl(values)... })
+    {}
+    std::vector<type_instance_id> bound_ids() const;
+    void add(const typed_value&);
+private:
+    type_instance_id add_impl(const typed_value&);
+
+    plugin_id _plugin_id;
+    plugin_instance_id _plugin_instance;
+    registrations _registrations;
+};
+
+/**
+ * Simplified wrapper for the common case of per-cpu plugin instances
+ * (i.e. distributed objects)
+ */
+class percpu_plugin_instance_metrics : public plugin_instance_metrics {
+public:
+    template<typename... TypedValues>
+    percpu_plugin_instance_metrics(const plugin_id& p, TypedValues&&... values)
+        : plugin_instance_metrics(p, per_cpu_plugin_instance, std::forward<TypedValues>(values)...)
+    {}
+};
+
+/**
+ * Template wrapper for type_id values, deriving type_id string
+ * from the known_types enum, for auto-completetion joy.
+ */
+template<known_type Type>
+struct typed_value_impl: public typed_value {
+    template<typename ... Args>
+    typed_value_impl(const scollectd::type_instance& ti, Args&& ... args)
+        : typed_value(type_id_for(Type), ti, std::forward<Args>(args)...)
+    {}
+};
+
+/**
+ * Some typedefs for common used types. Feel free to add.
+ */
+typedef typed_value_impl<known_type::total_bytes> total_bytes;
+typedef typed_value_impl<known_type::total_connections> total_connections;
+typedef typed_value_impl<known_type::total_objects> total_objects;
+typedef typed_value_impl<known_type::total_operations> total_operations;
+typedef typed_value_impl<known_type::total_requests> total_requests;
+typedef typed_value_impl<known_type::total_sessions> total_sessions;
+typedef typed_value_impl<known_type::total_threads> total_threads;
+typedef typed_value_impl<known_type::total_time_in_ms> total_time_in_ms;
+typedef typed_value_impl<known_type::total_values> total_values;
+typedef typed_value_impl<known_type::queue_length> queue_length;
+typedef typed_value_impl<known_type::counter> counter;
+typedef typed_value_impl<known_type::count> count;
+typedef typed_value_impl<known_type::gauge> gauge;
 
 // lots of template junk to build typed value list tuples
 // for registered values.
@@ -469,6 +744,13 @@ static notify_function create_explicit_metric(const type_instance_id & id,
         send_metric(id, list);
     };
 }
+
+template<typename... Args>
+typed_value::typed_value(const type_id& tid, const scollectd::type_instance& ti, Args&&... args)
+    : _type_id(tid)
+    , _type_instance(ti)
+    , _values(::make_shared<decltype(make_type_instance(std::forward<Args>(args)...))>(make_type_instance(std::forward<Args>(args)...)))
+{}
 
 // Send a message packet (string)
 future<> send_notification(const type_instance_id & id, const sstring & msg);
