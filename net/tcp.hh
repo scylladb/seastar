@@ -26,6 +26,7 @@
 #include "core/queue.hh"
 #include "core/semaphore.hh"
 #include "core/print.hh"
+#include "core/byteorder.hh"
 #include "net.hh"
 #include "ip_checksum.hh"
 #include "ip.hh"
@@ -128,7 +129,7 @@ struct tcp_option {
     static const uint8_t align = 4;
 
     void parse(uint8_t* beg, uint8_t* end);
-    uint8_t fill(tcp_hdr* th, uint8_t option_size);
+    uint8_t fill(void* h, const tcp_hdr* th, uint8_t option_size);
     uint8_t get_size(bool syn_on, bool ack_on);
 
     // For option negotiattion
@@ -177,10 +178,11 @@ inline bool operator<=(tcp_seq s, tcp_seq q) { return !(s > q); }
 inline bool operator>=(tcp_seq s, tcp_seq q) { return !(s < q); }
 
 struct tcp_hdr {
-    packed<uint16_t> src_port;
-    packed<uint16_t> dst_port;
-    packed<tcp_seq> seq;
-    packed<tcp_seq> ack;
+    static constexpr size_t len = 20;
+    uint16_t src_port;
+    uint16_t dst_port;
+    tcp_seq seq;
+    tcp_seq ack;
     uint8_t rsvd1 : 4;
     uint8_t data_offset : 4;
     uint8_t f_fin : 1;
@@ -190,13 +192,50 @@ struct tcp_hdr {
     uint8_t f_ack : 1;
     uint8_t f_urg : 1;
     uint8_t rsvd2 : 2;
-    packed<uint16_t> window;
-    packed<uint16_t> checksum;
-    packed<uint16_t> urgent;
-
-    template <typename Adjuster>
-    void adjust_endianness(Adjuster a) { a(src_port, dst_port, seq, ack, window, checksum, urgent); }
-} __attribute__((packed));
+    uint16_t window;
+    uint16_t checksum;
+    uint16_t urgent;
+    static tcp_hdr read(const char* p) {
+        tcp_hdr h;
+        h.src_port = read_be<uint16_t>(p + 0);
+        h.dst_port = read_be<uint16_t>(p + 2);
+        h.seq = tcp_seq{read_be<uint32_t>(p + 4)};
+        h.ack = tcp_seq{read_be<uint32_t>(p + 8)};
+        h.rsvd1 = p[12] & 15;
+        h.data_offset = uint8_t(p[12]) >> 4;
+        h.f_fin = (uint8_t(p[13]) >> 0) & 1;
+        h.f_syn = (uint8_t(p[13]) >> 1) & 1;
+        h.f_rst = (uint8_t(p[13]) >> 2) & 1;
+        h.f_psh = (uint8_t(p[13]) >> 3) & 1;
+        h.f_ack = (uint8_t(p[13]) >> 4) & 1;
+        h.f_urg = (uint8_t(p[13]) >> 5) & 1;
+        h.rsvd2 = (uint8_t(p[13]) >> 6) & 3;
+        h.window = read_be<uint16_t>(p + 14);
+        h.checksum = read_be<uint16_t>(p + 16);
+        h.urgent = read_be<uint16_t>(p + 18);
+        return h;
+    }
+    void write(char* p) const {
+        write_be<uint16_t>(p + 0, src_port);
+        write_be<uint16_t>(p + 2, dst_port);
+        write_be<uint32_t>(p + 4, seq.raw);
+        write_be<uint32_t>(p + 8, ack.raw);
+        p[12] = rsvd1 | (data_offset << 4);
+        p[13] = (f_fin << 0)
+                | (f_syn << 1)
+                | (f_rst << 2)
+                | (f_psh << 3)
+                | (f_ack << 4)
+                | (f_urg << 5)
+                | (rsvd2 << 6);
+        write_be<uint16_t>(p + 14, window);
+        write_be<uint16_t>(p + 16, checksum);
+        write_be<uint16_t>(p + 18, urgent);
+    }
+    static void write_nbo_checksum(char* p, uint16_t checksum_in_network_byte_order) {
+        std::copy_n(reinterpret_cast<const char*>(&checksum_in_network_byte_order), 2, p + 16);
+    }
+};
 
 struct tcp_tag {};
 using tcp_packet_merger = packet_merger<tcp_seq, tcp_tag>;
@@ -706,22 +745,26 @@ auto tcp<InetTraits>::connect(socket_address sa) -> connection {
 
 template <typename InetTraits>
 bool tcp<InetTraits>::forward(forward_hash& out_hash_data, packet& p, size_t off) {
-    auto th = p.get_header<tcp_hdr>(off);
+    auto th = p.get_header(off, tcp_hdr::len);
     if (th) {
-        out_hash_data.push_back(th->src_port);
-        out_hash_data.push_back(th->dst_port);
+        // src_port, dst_port in network byte order
+        out_hash_data.push_back(uint8_t(th[0]));
+        out_hash_data.push_back(uint8_t(th[1]));
+        out_hash_data.push_back(uint8_t(th[2]));
+        out_hash_data.push_back(uint8_t(th[3]));
     }
     return true;
 }
 
 template <typename InetTraits>
 void tcp<InetTraits>::received(packet p, ipaddr from, ipaddr to) {
-    auto th = p.get_header<tcp_hdr>(0);
+    auto th = p.get_header(0, tcp_hdr::len);
     if (!th) {
         return;
     }
-    // th->data_offset is correct even before ntoh()
-    if (unsigned(th->data_offset * 4) < sizeof(*th)) {
+    // data_offset is correct even before ntoh()
+    auto data_offset = uint8_t(th[12]) >> 4;
+    if (size_t(data_offset * 4) < tcp_hdr::len) {
         return;
     }
 
@@ -733,7 +776,7 @@ void tcp<InetTraits>::received(packet p, ipaddr from, ipaddr to) {
             return;
         }
     }
-    auto h = ntoh(*th);
+    auto h = tcp_hdr::read(th);
     auto id = connid{to, from, h.dst_port, h.src_port};
     auto tcbi = _tcbs.find(id);
     lw_shared_ptr<tcb> tcbp;
@@ -835,36 +878,39 @@ void tcp<InetTraits>::respond_with_reset(tcp_hdr* rth, ipaddr local_ip, ipaddr f
         return;
     }
     packet p;
-    auto th = p.prepend_header<tcp_hdr>();
-    th->src_port = rth->dst_port;
-    th->dst_port = rth->src_port;
+    auto th = p.prepend_uninitialized_header(tcp_hdr::len);
+    auto h = tcp_hdr{};
+    h.src_port = rth->dst_port;
+    h.dst_port = rth->src_port;
     if (rth->f_ack) {
-        th->seq = rth->ack;
+        h.seq = rth->ack;
     }
     // If this RST packet is in response to a SYN packet. We ACK the ISN.
     if (rth->f_syn) {
-        th->ack = rth->seq + 1;
-        th->f_ack = true;
+        h.ack = rth->seq + 1;
+        h.f_ack = true;
     }
-    th->f_rst = true;
-    th->data_offset = sizeof(*th) / 4;
-    th->checksum = 0;
-    *th = hton(*th);
+    h.f_rst = true;
+    h.data_offset = tcp_hdr::len / 4;
+    h.checksum = 0;
+    h.write(th);
 
     checksummer csum;
     offload_info oi;
-    InetTraits::tcp_pseudo_header_checksum(csum, local_ip, foreign_ip, sizeof(*th));
+    InetTraits::tcp_pseudo_header_checksum(csum, local_ip, foreign_ip, tcp_hdr::len);
+    uint16_t checksum;
     if (hw_features().tx_csum_l4_offload) {
-        th->checksum = ~csum.get();
+        checksum = ~csum.get();
         oi.needs_csum = true;
     } else {
         csum.sum(p);
-        th->checksum = csum.get();
+        checksum = csum.get();
         oi.needs_csum = false;
     }
+    tcp_hdr::write_nbo_checksum(th, checksum);
 
     oi.protocol = ip_protocol_num::tcp;
-    oi.tcp_hdr_len = sizeof(tcp_hdr);
+    oi.tcp_hdr_len = tcp_hdr::len;
     p.set_offload_info(oi);
 
     send_packet_without_tcb(local_ip, foreign_ip, std::move(p));
@@ -961,8 +1007,8 @@ void tcp<InetTraits>::tcb::init_from_options(tcp_hdr* th, uint8_t* opt_start, ui
 
 template <typename InetTraits>
 void tcp<InetTraits>::tcb::input_handle_listen_state(tcp_hdr* th, packet p) {
-    auto opt_len = th->data_offset * 4 - sizeof(tcp_hdr);
-    auto opt_start = reinterpret_cast<uint8_t*>(p.get_header(0, th->data_offset * 4)) + sizeof(tcp_hdr);
+    auto opt_len = th->data_offset * 4 - tcp_hdr::len;
+    auto opt_start = reinterpret_cast<uint8_t*>(p.get_header(0, th->data_offset * 4)) + tcp_hdr::len;
     auto opt_end = opt_start + opt_len;
     p.trim_front(th->data_offset * 4);
     tcp_seq seg_seq = th->seq;
@@ -990,8 +1036,8 @@ void tcp<InetTraits>::tcb::input_handle_listen_state(tcp_hdr* th, packet p) {
 
 template <typename InetTraits>
 void tcp<InetTraits>::tcb::input_handle_syn_sent_state(tcp_hdr* th, packet p) {
-    auto opt_len = th->data_offset * 4 - sizeof(tcp_hdr);
-    auto opt_start = reinterpret_cast<uint8_t*>(p.get_header(0, th->data_offset * 4)) + sizeof(tcp_hdr);
+    auto opt_len = th->data_offset * 4 - tcp_hdr::len;
+    auto opt_start = reinterpret_cast<uint8_t*>(p.get_header(0, th->data_offset * 4)) + tcp_hdr::len;
     auto opt_end = opt_start + opt_len;
     p.trim_front(th->data_offset * 4);
     tcp_seq seg_seq = th->seq;
@@ -1474,18 +1520,19 @@ void tcp<InetTraits>::tcb::output_one(bool data_retransmit) {
     bool ack_on = ack_needs_on();
 
     auto options_size = _option.get_size(syn_on, ack_on);
-    auto th = p.prepend_header<tcp_hdr>(options_size);
+    auto th = p.prepend_uninitialized_header(tcp_hdr::len + options_size);
+    auto h = tcp_hdr{};
 
-    th->src_port = _local_port;
-    th->dst_port = _foreign_port;
+    h.src_port = _local_port;
+    h.dst_port = _foreign_port;
 
-    th->f_syn = syn_on;
-    th->f_ack = ack_on;
+    h.f_syn = syn_on;
+    h.f_ack = ack_on;
     if (ack_on) {
         clear_delayed_ack();
     }
-    th->f_urg = false;
-    th->f_psh = false;
+    h.f_urg = false;
+    h.f_psh = false;
 
     tcp_seq seq;
     if (data_retransmit) {
@@ -1494,25 +1541,25 @@ void tcp<InetTraits>::tcb::output_one(bool data_retransmit) {
         seq = syn_on ? _snd.initial : _snd.next;
         _snd.next += len;
     }
-    th->seq = seq;
-    th->ack = _rcv.next;
-    th->data_offset = (sizeof(*th) + options_size) / 4;
-    th->window = _rcv.window >> _rcv.window_scale;
-    th->checksum = 0;
+    h.seq = seq;
+    h.ack = _rcv.next;
+    h.data_offset = (tcp_hdr::len + options_size) / 4;
+    h.window = _rcv.window >> _rcv.window_scale;
+    h.checksum = 0;
 
     // FIXME: does the FIN have to fit in the window?
     bool fin_on = fin_needs_on();
-    th->f_fin = fin_on;
+    h.f_fin = fin_on;
 
     // Add tcp options
-    _option.fill(th, options_size);
-    *th = hton(*th);
+    _option.fill(th, &h, options_size);
+    h.write(th);
 
     offload_info oi;
     checksummer csum;
     uint16_t pseudo_hdr_seg_len = 0;
 
-    oi.tcp_hdr_len = sizeof(tcp_hdr) + options_size;
+    oi.tcp_hdr_len = tcp_hdr::len + options_size;
 
     if (_tcp.hw_features().tx_csum_l4_offload) {
         oi.needs_csum = true;
@@ -1529,22 +1576,24 @@ void tcp<InetTraits>::tcb::output_one(bool data_retransmit) {
         if (_tcp.hw_features().tx_tso && len > _snd.mss) {
             oi.tso_seg_size = _snd.mss;
         } else {
-            pseudo_hdr_seg_len = sizeof(*th) + options_size + len;
+            pseudo_hdr_seg_len = tcp_hdr::len + options_size + len;
         }
     } else {
-        pseudo_hdr_seg_len = sizeof(*th) + options_size + len;
+        pseudo_hdr_seg_len = tcp_hdr::len + options_size + len;
         oi.needs_csum = false;
     }
 
     InetTraits::tcp_pseudo_header_checksum(csum, _local_ip, _foreign_ip,
                                            pseudo_hdr_seg_len);
 
+    uint16_t checksum;
     if (_tcp.hw_features().tx_csum_l4_offload) {
-        th->checksum = ~csum.get();
+        checksum = ~csum.get();
     } else {
         csum.sum(p);
-        th->checksum = csum.get();
+        checksum = csum.get();
     }
+    tcp_hdr::write_nbo_checksum(th, checksum);
 
     oi.protocol = ip_protocol_num::tcp;
 

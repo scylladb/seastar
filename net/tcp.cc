@@ -73,9 +73,9 @@ void tcp_option::parse(uint8_t* beg, uint8_t* end) {
     }
 }
 
-uint8_t tcp_option::fill(tcp_hdr* th, uint8_t options_size) {
-    auto hdr = reinterpret_cast<uint8_t*>(th);
-    auto off = hdr + sizeof(tcp_hdr);
+uint8_t tcp_option::fill(void* h, const tcp_hdr* th, uint8_t options_size) {
+    auto hdr = reinterpret_cast<uint8_t*>(h);
+    auto off = hdr + tcp_hdr::len;
     uint8_t size = 0;
     bool syn_on = th->f_syn;
     bool ack_on = th->f_ack;
