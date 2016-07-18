@@ -215,8 +215,11 @@ class protocol {
         auto& serializer() { return _proto._serializer; }
         auto& get_protocol() { return _proto; }
         future<> stop() {
-            _fd.shutdown_input();
-            _fd.shutdown_output();
+            if (!_error) {
+                _error = true;
+                _fd.shutdown_input();
+                _fd.shutdown_output();
+            }
             return _stopped.get_future();
         }
     };
