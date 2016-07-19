@@ -294,12 +294,39 @@ typedef sstring type_instance;
 
 type_id type_id_for(known_type);
 
+/*
+ * Human-readable description of a metric/group.
+ * Uses a separate class to deal with type resolution
+ *
+ * Add this to either typed wrappers or raw counter
+ * registration:
+ *
+ * <code>
+ * add_polled_metric(type_instance_id("my_plug", "my_inst", "total_operations", "value"),
+ *  description("This is a counter description that should have content"),
+ *  make_typed(data_type::DERIVE, _my_counter_var)
+ *  );
+ * </code>
+ *
+ */
+class description {
+public:
+    description(sstring s = sstring()) : _s(std::move(s))
+    {}
+    const sstring& str() const {
+        return _s;
+    }
+private:
+    sstring _s;
+};
+
 class type_instance_id {
 public:
     type_instance_id() = default;
-    type_instance_id(const plugin_id & p, const plugin_instance_id & pi,
-            const type_id & t, const scollectd::type_instance & ti = std::string())
-    : _plugin(p), _plugin_instance(pi), _type(t), _type_instance(ti) {
+    type_instance_id(plugin_id p, plugin_instance_id pi, type_id t,
+                    scollectd::type_instance ti = std::string())
+                    : _plugin(std::move(p)), _plugin_instance(std::move(pi)), _type(
+                                    std::move(t)), _type_instance(std::move(ti)) {
     }
     type_instance_id(type_instance_id &&) = default;
     type_instance_id(const type_instance_id &) = default;
@@ -410,7 +437,12 @@ struct typed_value {
      * Used to group types into a plugin_instance_metrics
      */
     template<typename... Args>
-    typed_value(const type_id& tid, const scollectd::type_instance& ti, Args&&... args);
+    typed_value(const type_id& tid, const scollectd::type_instance& ti, description, Args&&... args);
+
+    template<typename... Args>
+    typed_value(const type_id& tid, const scollectd::type_instance& ti, Args&&... args)
+        : typed_value(tid, ti, description(), std::forward<Args>(args)...)
+    {}
 
     const scollectd::type_instance& type_instance() const {
         return _type_instance;
@@ -466,6 +498,15 @@ struct typed_value_impl: public typed_value {
     template<typename ... Args>
     typed_value_impl(const scollectd::type_instance& ti, Args&& ... args)
         : typed_value(type_id_for(Type), ti, std::forward<Args>(args)...)
+    {}
+
+    template<typename ... Args>
+    typed_value_impl(scollectd::type_instance ti, description d, Args&& ... args)
+        : typed_value(type_id_for(Type), std::move(ti), std::move(d), std::forward<Args>(args)...)
+    {}
+    template<typename ... Args>
+    typed_value_impl(description d, Args&& ... args)
+        : typed_value(type_id_for(Type), scollectd::type_instance(), std::move(d), std::forward<Args>(args)...)
     {}
 };
 
@@ -627,11 +668,19 @@ public:
 class value_list {
     bool _enabled = true;
 public:
+    value_list(description d) : _description(std::move(d))
+    {}
+    value_list(value_list&&) = default;
     virtual ~value_list() {}
+
     virtual size_t size() const = 0;
 
     virtual void types(data_type *) const = 0;
     virtual void values(net::packed<uint64_t> *) const = 0;
+
+    const description& desc() const {
+        return _description;
+    }
 
     bool empty() const {
         return size() == 0;
@@ -644,6 +693,8 @@ public:
     void set_enabled(bool b) {
         _enabled = b;
     }
+private:
+    description _description;
 };
 
 template<typename ... Args>
@@ -651,8 +702,9 @@ class values_impl: public value_list {
 public:
     static const size_t num_values = sizeof...(Args);
 
-    values_impl(Args&& ...args)
-    : _values(std::forward<Args>(args)...)
+    values_impl(description d, Args&& ...args)
+        : value_list(std::move(d))
+        , _values(std::forward<Args>(args)...)
     {}
 
     values_impl(values_impl<Args...>&& a) = default;
@@ -691,17 +743,24 @@ void add_polled(const type_instance_id &, const shared_ptr<value_list> &);
 
 typedef std::function<void()> notify_function;
 template<typename... _Args>
-static auto make_type_instance(_Args && ... args) -> values_impl < decltype(value<_Args>(std::forward<_Args>(args)))... >
+static auto make_type_instance(description d, _Args && ... args) -> values_impl < decltype(value<_Args>(std::forward<_Args>(args)))... >
 {
-    return values_impl<decltype(value<_Args>(std::forward<_Args>(args)))... >
-    (value<_Args>(std::forward<_Args>(args))...);
+    return values_impl<decltype(value<_Args>(std::forward<_Args>(args)))...>(
+                    std::move(d), value<_Args>(std::forward<_Args>(args))...);
 }
 template<typename ... _Args>
 static type_instance_id add_polled_metric(const plugin_id & plugin,
         const plugin_instance_id & plugin_instance, const type_id & type,
         const scollectd::type_instance & type_instance, _Args&& ... args) {
+    return add_polled_metric(plugin, plugin_instance, type, type_instance, description(),
+            std::forward<_Args>(args)...);
+}
+template<typename ... _Args>
+static type_instance_id add_polled_metric(const plugin_id & plugin,
+        const plugin_instance_id & plugin_instance, const type_id & type,
+        const scollectd::type_instance & type_instance, description d, _Args&& ... args) {
     return add_polled_metric(
-            type_instance_id(plugin, plugin_instance, type, type_instance),
+            type_instance_id(plugin, plugin_instance, type, type_instance), std::move(d),
             std::forward<_Args>(args)...);
 }
 template<typename ... _Args>
@@ -723,10 +782,15 @@ static notify_function create_explicit_metric(const plugin_id & plugin,
 template<typename ... _Args>
 static type_instance_id add_polled_metric(const type_instance_id & id,
         _Args&& ... args) {
-    typedef decltype(make_type_instance(std::forward<_Args>(args)...)) impl_type;
+    return add_polled_metric(id, description(), std::forward<_Args>(args)...);
+}
+template<typename ... _Args>
+static type_instance_id add_polled_metric(const type_instance_id & id, description d,
+        _Args&& ... args) {
+    typedef decltype(make_type_instance(std::move(d), std::forward<_Args>(args)...)) impl_type;
     add_polled(id,
             ::make_shared<impl_type>(
-                    make_type_instance(std::forward<_Args>(args)...)));
+                    make_type_instance(std::move(d), std::forward<_Args>(args)...)));
     return id;
 }
 // "Explicit" metric sends. Sends a single value list as a message.
@@ -746,10 +810,10 @@ static notify_function create_explicit_metric(const type_instance_id & id,
 }
 
 template<typename... Args>
-typed_value::typed_value(const type_id& tid, const scollectd::type_instance& ti, Args&&... args)
+typed_value::typed_value(const type_id& tid, const scollectd::type_instance& ti, description d, Args&&... args)
     : _type_id(tid)
     , _type_instance(ti)
-    , _values(::make_shared<decltype(make_type_instance(std::forward<Args>(args)...))>(make_type_instance(std::forward<Args>(args)...)))
+    , _values(::make_shared<decltype(make_type_instance(std::move(d), std::forward<Args>(args)...))>(make_type_instance(std::move(d), std::forward<Args>(args)...)))
 {}
 
 // Send a message packet (string)
