@@ -119,4 +119,22 @@ log(A&&... a) {
     print(std::forward<A>(a)...);
 }
 
+namespace seastar {
+/**
+ * Evaluate the formatted string in a native fmt library format
+ *
+ * @param fmt format string with the native fmt library syntax
+ * @param a positional parameters
+ *
+ * @return sstring object with the result of applying the given positional
+ *         parameters on a given format string.
+ */
+template <typename... A>
+sstring
+format(const char* fmt, A&&... a) {
+    fmt::MemoryWriter out;
+    out.write(fmt, std::forward<A>(a)...);
+    return sstring{out.data(), out.size()};
+}
+}
 #endif /* PRINT_HH_ */
