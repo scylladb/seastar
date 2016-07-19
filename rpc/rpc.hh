@@ -302,7 +302,7 @@ public:
         server_socket _ss;
         resource_limits _limits;
         semaphore _resources_available;
-        std::unordered_set<connection*> _conns;
+        std::unordered_set<lw_shared_ptr<connection>> _conns;
         bool _stopping = false;
         promise<> _ss_stopped;
         seastar::gate _reply_gate;
@@ -319,7 +319,7 @@ public:
             _ss = server_socket();
             _resources_available.broken();
             return when_all(_ss_stopped.get_future(),
-                parallel_for_each(_conns, [] (connection* conn) {
+                parallel_for_each(_conns, [] (lw_shared_ptr<connection> conn) {
                     return conn->stop();
                 }),
                 _reply_gate.close()
