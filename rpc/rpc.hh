@@ -193,7 +193,12 @@ class protocol {
 
         future<> stop_send_loop() {
             _error = true;
-            _outgoing_queue_cond.broken();
+            if (!_send_loop_stopped.available()) {
+                // if _send_loop_stopped is ready it means that _fd is closed already
+                // and nobody waits on _outgoing_queue_cond
+                _outgoing_queue_cond.broken();
+                _fd.shutdown_output();
+            }
             return _send_loop_stopped.finally([this] {
                 _outgoing_queue.clear();
             });
@@ -239,7 +244,6 @@ class protocol {
             if (!_error) {
                 _error = true;
                 _fd.shutdown_input();
-                _fd.shutdown_output();
             }
             return _stopped.get_future();
         }
