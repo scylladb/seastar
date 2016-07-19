@@ -303,7 +303,6 @@ public:
         resource_limits _limits;
         semaphore _resources_available;
         std::unordered_set<lw_shared_ptr<connection>> _conns;
-        bool _stopping = false;
         promise<> _ss_stopped;
         seastar::gate _reply_gate;
         server_options _options;
@@ -314,7 +313,6 @@ public:
         server(protocol& proto, server_options opts, server_socket, resource_limits memory_limit = resource_limits());
         void accept();
         future<> stop() {
-            _stopping = true; // prevents closed connections to be deleted from _conns
             _ss.abort_accept();
             _ss = server_socket();
             _resources_available.broken();
