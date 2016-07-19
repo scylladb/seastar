@@ -382,11 +382,12 @@ void impl::run() {
     });
 }
 
-shared_ptr<value_list> impl::get_values(const type_instance_id & id) {
-    return _values[id];
+shared_ptr<value_list> impl::get_values(const type_instance_id & id) const {
+    auto i = _values.find(id);
+    return i != _values.end() ? i->second : nullptr;
 }
 
-std::vector<type_instance_id> impl::get_instance_ids() {
+std::vector<type_instance_id> impl::get_instance_ids() const {
     std::vector<type_instance_id> res;
     for (auto i: _values) {
         // Need to check for empty value_list, since unreg is two-stage.
@@ -488,6 +489,11 @@ std::vector<data_type> get_collectd_types(
 
 std::vector<scollectd::type_instance_id> get_collectd_ids() {
     return get_impl().get_instance_ids();
+}
+
+sstring get_collectd_description_str(const scollectd::type_instance_id& id) {
+    auto v = get_impl().get_values(id);
+    return v != nullptr ? v->desc().str() : sstring();
 }
 
 bool is_enabled(const scollectd::type_instance_id& id) {

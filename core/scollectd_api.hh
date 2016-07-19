@@ -53,6 +53,8 @@ std::vector<collectd_value> get_collectd_value(
 
 std::vector<scollectd::type_instance_id> get_collectd_ids();
 
+sstring get_collectd_description_str(const scollectd::type_instance_id&);
+
 bool is_enabled(const scollectd::type_instance_id& id);
 /**
  * Enable or disable collectd metrics on local instance
