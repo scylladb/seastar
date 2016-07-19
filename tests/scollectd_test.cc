@@ -71,6 +71,23 @@ SEASTAR_TEST_CASE(test_simple_plugin_instance_metrics) {
     int64_t rx, tx;
     test_bind_counters(typed_value_impl<known_type::io_packets>("christmas_presents", rx, tx));
 
+    // comment/description
+    int64_t woff;
+    test_bind_counters(typed_value_impl<known_type::connections>("woffs", description("this is how many woffs where barked"), woff));
+
+
+    return make_ready_future();
+}
+
+SEASTAR_TEST_CASE(test_simple_description) {
+    uint64_t counter = 12;
+    sstring desc = "I am hungry like the wolf";
+
+    plugin_instance_metrics pm(plugin, my_id, total_bytes("test_bytes", description(desc), counter));
+
+    auto s = get_collectd_description_str(pm.bound_ids().front());
+    BOOST_CHECK_EQUAL(s, desc);
+
     return make_ready_future();
 }
 
