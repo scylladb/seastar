@@ -196,6 +196,21 @@ private:
     // concurrency.
     std::map<uint64_t, uint64_t> _all_results = { {0ul, 0ul} };
 
+    void refill_concurrency_queue(auto begin, auto end) {
+        unsigned first = (*begin).first;
+        unsigned last;
+
+        if (end == _all_results.end()) {
+            last = (*_all_results.rbegin()).first;
+        } else {
+            last = (*end).first;
+        }
+
+        for (auto i = first; i < last; ++i) {
+            _concurrency_queue.push(i);
+        }
+    }
+
     void find_max_region(const run_stats& result) {
         if (result.IOPS > _best_result.IOPS) {
             _best_result = result;
@@ -206,12 +221,8 @@ private:
             std::cout << "Refining search for maximum. So far, " << _best_result.IOPS <<  " IOPS" << std::endl;
             _phase_timing = 500ms;
             auto it = _all_results.find(_best_result.concurrency);
-            auto prev = std::prev(it);
-            auto next = std::next(it);
 
-            for (auto i = (*prev).first; i < (*next).first; ++i) {
-                _concurrency_queue.push(i);
-            }
+            refill_concurrency_queue(std::prev(it), std::next(it));
             _current_test_phase = test_phase::find_max_point;
         }
     }
@@ -230,15 +241,18 @@ private:
             for (auto it = _all_results.begin(); it != _all_results.end(); ++it) {
                 if (((*it).second > (percentile - 0.20) * _best_result.IOPS) && (iterator_of_minimum == _all_results.begin())) {
                     iterator_of_minimum = it;
-                } else if ((*it).second > ((percentile + 0.10) * _best_result.IOPS)) {
+                    break;
+                }
+            }
+
+            for (auto it = std::next(iterator_of_minimum); it != _all_results.end(); ++it) {
+                if ((*it).second > ((percentile + 0.10) * _best_result.IOPS)) {
                     iterator_of_maximum = it;
                     break;
                 }
             }
 
-            for (auto i = (*iterator_of_minimum).first; i < (*iterator_of_maximum).first; ++i) {
-                _concurrency_queue.push(i);
-            }
+            refill_concurrency_queue(iterator_of_minimum, iterator_of_maximum);
         }
     }
 
