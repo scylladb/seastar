@@ -24,6 +24,21 @@ struct collectd_value {
         u._ui = i;
     }
 
+    scollectd::data_type type() const {
+        return _type;
+    }
+
+    double d() const {
+        return u._d;
+    }
+
+    uint64_t ui() const {
+        return u._ui;
+    }
+    int64_t i() const {
+        return u._i;
+    }
+
     collectd_value& operator=(const collectd_value& c) = default;
 
     collectd_value& operator+=(const collectd_value& c) {
