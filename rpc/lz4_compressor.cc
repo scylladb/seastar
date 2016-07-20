@@ -26,17 +26,17 @@ namespace rpc {
 
 const sstring lz4_compressor::factory::_name = "LZ4";
 
-sstring lz4_compressor::compress(size_t head_space, sstring data) {
+temporary_buffer<char> lz4_compressor::compress(size_t head_space, temporary_buffer<char> data) {
     head_space += 4;
-    sstring dst(sstring::initialized_later(), head_space + LZ4_compressBound(data.size()));
+    temporary_buffer<char> dst(head_space + LZ4_compressBound(data.size()));
     // Can't use LZ4_compress_default() since it's too new.
     // Safe since output buffer is sized properly.
-    auto size = LZ4_compress(data.begin(), dst.begin() + head_space, data.size());
+    auto size = LZ4_compress(data.begin(), dst.get_write() + head_space, data.size());
     if (size == 0) {
         throw std::runtime_error("RPC frame LZ4 compression failure");
     }
-    dst.resize(size + head_space);
-    write_le<uint32_t>(dst.data() + 4, data.size());
+    dst.trim(size + head_space);
+    write_le<uint32_t>(dst.get_write() + 4, data.size());
     return dst;
 }
 

@@ -44,6 +44,15 @@ Actual negotiation looks like this:
 
     If compression is negotiated request and response frames are encapsulated in a compressed frame.
 
+#### Timeout propagation
+    feature_number:  1
+    data          :  none
+
+    If timeout propagation is negotiated request frame has additional 8 bytes that hold timeout value
+    for a request in milliseconds. Zero value means that timeout value was not specified.
+    If timeout is specified and server cannot handle the request in specified time frame it my choose
+    to not send the reply back (sending it back will not be an error either).
+
 ##### Compressed frame format
     uint32_t len
     uint8_t compressed_data[len]
@@ -51,6 +60,7 @@ Actual negotiation looks like this:
     after compressed_data is uncompressed it becomes regular request or response frame 
 
 ## Request frame format
+    uint64_t timeout_in_ms - only present if timeout propagation is negotiated
     uint64_t verb_type
     int64_t msg_id
     uint32_t len

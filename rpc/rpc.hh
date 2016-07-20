@@ -71,6 +71,7 @@ struct resource_limits {
 struct client_options {
     std::experimental::optional<net::tcp_keepalive_params> keepalive;
     compressor::factory* compressor_factory = nullptr;
+    bool send_timeout_data = true;
 };
 
 struct server_options {
@@ -90,6 +91,7 @@ struct negotiation_frame {
 
 enum class protocol_features : uint32_t {
     COMPRESS = 0,
+    TIMEOUT = 1,
 };
 
 // internal representation of feature data
@@ -111,18 +113,20 @@ class protocol {
         stats _stats;
         struct outgoing_entry {
             timer<> t;
-            sstring buf;
-            promise<> p;
+            temporary_buffer<char> buf;
+            std::experimental::optional<promise<>> p = promise<>();
             cancellable* pcancel = nullptr;
-            outgoing_entry(sstring b) : buf(std::move(b)) {}
-            outgoing_entry(outgoing_entry&&) = default;
+            outgoing_entry(temporary_buffer<char> b) : buf(std::move(b)) {}
+            outgoing_entry(outgoing_entry&& o) : t(std::move(o.t)), buf(std::move(o.buf)), p(std::move(o.p)), pcancel(o.pcancel) {
+                o.p = std::experimental::nullopt;
+            }
             ~outgoing_entry() {
-                if (!buf.empty()) {
+                if (p) {
                     if (pcancel) {
                         pcancel->cancel_send = std::function<void()>();
                         pcancel->send_back_pointer = nullptr;
                     }
-                    p.set_value();
+                    p->set_value();
                 }
             }
         };
@@ -131,16 +135,21 @@ class protocol {
         condition_variable _outgoing_queue_cond;
         future<> _send_loop_stopped = make_ready_future<>();
         std::unique_ptr<compressor> _compressor;
+        bool _timeout_negotiated = false;
 
-        sstring compress(sstring buf) {
+        temporary_buffer<char> compress(temporary_buffer<char> buf) {
             if (_compressor) {
                 buf = _compressor->compress(4, std::move(buf));
-                auto p = buf.begin();
-                write_le<uint32_t>(p, buf.size() - 4);
+                write_le<uint32_t>(buf.get_write(), buf.size() - 4);
                 return std::move(buf);
             }
             return std::move(buf);
         }
+        enum class outgoing_queue_type {
+            request,
+            response
+        };
+        template<outgoing_queue_type QueueType>
         void send_loop() {
             _send_loop_stopped = do_until([this] { return _error; }, [this] {
                 return _outgoing_queue_cond.wait([this] { return !_outgoing_queue.empty(); }).then([this] {
@@ -156,8 +165,20 @@ class protocol {
                     if (d.pcancel) {
                         d.pcancel->cancel_send = std::function<void()>(); // request is no longer cancellable
                     }
+                    if (QueueType == outgoing_queue_type::request) {
+                        if (_timeout_negotiated) {
+                            auto expire = d.t.get_timeout();
+                            uint64_t left = 0;
+                            if (expire != typename timer<>::time_point()) {
+                                left = std::chrono::duration_cast<std::chrono::milliseconds>(expire - timer<>::clock::now()).count();
+                            }
+                            write_le<uint64_t>(d.buf.get_write(), left);
+                        } else {
+                            d.buf.trim_front(8);
+                        }
+                    }
                     d.buf = compress(std::move(d.buf));
-                    auto f = _write_buf.write(d.buf).then([this] {
+                    auto f = _write_buf.write(std::move(d.buf)).then([this] {
                         _stats.sent_messages++;
                         return _write_buf.flush();
                     });
@@ -181,15 +202,15 @@ class protocol {
     public:
         connection(connected_socket&& fd, protocol& proto) : _fd(std::move(fd)), _read_buf(_fd.input()), _write_buf(_fd.output()), _proto(proto) {}
         connection(protocol& proto) : _proto(proto) {}
-        future<> send_negotiation_frame(sstring buf) {
-            return _write_buf.write(buf).then([this] {
+        future<> send_negotiation_frame(temporary_buffer<char> buf) {
+            return _write_buf.write(std::move(buf)).then([this] {
                 _stats.sent_messages++;
                 return _write_buf.flush();
             });
         }
         // functions below are public because they are used by external heavily templated functions
         // and I am not smart enough to know how to define them as friends
-        future<> send(sstring buf, std::experimental::optional<steady_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr) {
+        future<> send(temporary_buffer<char> buf, std::experimental::optional<steady_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr) {
             if (!_error) {
                 _outgoing_queue.emplace_back(std::move(buf));
                 auto deleter = [this, it = std::prev(_outgoing_queue.cend())] {
@@ -206,7 +227,7 @@ class protocol {
                     _outgoing_queue.back().pcancel = cancel;
                 }
                 _outgoing_queue_cond.signal();
-                return _outgoing_queue.back().p.get_future();
+                return _outgoing_queue.back().p->get_future();
             } else {
                 return make_exception_future<>(closed_error());
             }
@@ -233,15 +254,18 @@ public:
             client_info _info;
         private:
             future<> negotiate_protocol(input_stream<char>& in);
-            future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
+            future<std::experimental::optional<uint64_t>, MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
             read_request_frame(input_stream<char>& in);
-            future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
+            future<std::experimental::optional<uint64_t>, MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
             read_request_frame_compressed(input_stream<char>& in);
             feature_map negotiate(feature_map requested);
+            void send_loop() {
+                protocol::connection::template send_loop<protocol::connection::outgoing_queue_type::response>();
+            }
         public:
             connection(server& s, connected_socket&& fd, socket_address&& addr, protocol& proto);
             future<> process();
-            future<> respond(int64_t msg_id, sstring&& data);
+            future<> respond(int64_t msg_id, temporary_buffer<char>&& data, std::experimental::optional<steady_clock_type::time_point> timeout);
             client_info& info() { return _info; }
             const client_info& info() const { return _info; }
             stats get_stats() const {
@@ -356,6 +380,9 @@ public:
         read_response_frame(input_stream<char>& in);
         future<int64_t, std::experimental::optional<temporary_buffer<char>>>
         read_response_frame_compressed(input_stream<char>& in);
+        void send_loop() {
+            protocol::connection::template send_loop<protocol::connection::outgoing_queue_type::request>();
+        }
     public:
         /**
          * Create client object which will attempt to connect to the remote address.
@@ -422,7 +449,7 @@ public:
     };
     friend server;
 private:
-    using rpc_handler = std::function<future<> (lw_shared_ptr<typename server::connection>, int64_t msgid,
+    using rpc_handler = std::function<future<> (lw_shared_ptr<typename server::connection>, std::experimental::optional<steady_clock_type::time_point> timeout, int64_t msgid,
                                                 temporary_buffer<char> data)>;
     std::unordered_map<MsgType, rpc_handler> _handlers;
     Serializer _serializer;
