@@ -950,14 +950,14 @@ template<typename Serializer, typename MsgType>
 inline
 future<int64_t, std::experimental::optional<temporary_buffer<char>>>
 protocol<Serializer, MsgType>::client::read_response_frame(input_stream<char>& in) {
-    return this->_proto.read_frame<response_frame>(this->_server_addr, in);
+    return this->_proto.template read_frame<response_frame>(this->_server_addr, in);
 }
 
 template<typename Serializer, typename MsgType>
 inline
 future<int64_t, std::experimental::optional<temporary_buffer<char>>>
 protocol<Serializer, MsgType>::client::read_response_frame_compressed(input_stream<char>& in) {
-    return this->_proto.read_frame_compressed<response_frame>(this->_server_addr, this->_compressor, in);
+    return this->_proto.template read_frame_compressed<response_frame>(this->_server_addr, this->_compressor, in);
 }
 
 template<typename Serializer, typename MsgType>
