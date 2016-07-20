@@ -715,6 +715,7 @@ private:
     promise<> _start_promise;
     semaphore _cpu_started;
     uint64_t _tasks_processed = 0;
+    unsigned _max_task_backlog = 1000;
     seastar::timer_set<timer<>, &timer<>::_link> _timers;
     seastar::timer_set<timer<>, &timer<>::_link>::timer_list_t _expired_timers;
     seastar::timer_set<timer<lowres_clock>, &timer<lowres_clock>::_link> _lowres_timers;
