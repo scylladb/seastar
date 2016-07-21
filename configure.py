@@ -286,6 +286,10 @@ protobuf = [
     'proto/metrics2.proto',
     ]
 
+prometheus = [
+    'core/prometheus.cc',
+    ]
+
 http = ['http/transformers.cc',
         'http/json_path.cc',
         'http/file_handler.cc',
@@ -345,7 +349,7 @@ memcache_base = [
 ] + libnet + core
 
 deps = {
-    'libseastar.a' : core + libnet + http + protobuf,
+    'libseastar.a' : core + libnet + http + protobuf + prometheus,
     'seastar.pc': [],
     'apps/httpd/httpd': ['apps/httpd/demo.json', 'apps/httpd/main.cc'] + http + libnet + core,
     'apps/memcached/memcached': ['apps/memcached/memcache.cc'] + memcache_base,
