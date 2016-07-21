@@ -31,29 +31,28 @@
 namespace httpd {
 
 directory_handler::directory_handler(const sstring& doc_root,
-        file_transformer* transformer)
-        : file_interaction_handler(transformer), doc_root(doc_root) {
+    file_transformer* transformer)
+    : file_interaction_handler(transformer), doc_root(doc_root) {
 }
 
 future<std::unique_ptr<reply>> directory_handler::handle(const sstring& path,
-        std::unique_ptr<request> req, std::unique_ptr<reply> rep) {
+    std::unique_ptr<request> req, std::unique_ptr<reply> rep) {
     sstring full_path = doc_root + req->param["path"];
     auto h = this;
     return engine().file_type(full_path).then(
             [h, full_path, req = std::move(req), rep = std::move(rep)](auto val) mutable {
-                if (val) {
-                    if (val.value() == directory_entry_type::directory) {
-                        if (h->redirect_if_needed(*req.get(), *rep.get())) {
-                            return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
-                        }
-                        full_path += "/index.html";
+            if (val) {
+                if (val.value() == directory_entry_type::directory) {
+                    if (h->redirect_if_needed(*req.get(), *rep.get())) {
+                        return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
                     }
-                    return h->read(full_path, std::move(req), std::move(rep));
+                    full_path += "/index.html";
                 }
-                rep->set_status(reply::status_type::not_found).done();
-                return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
-
-            });
+                return h->read(full_path, std::move(req), std::move(rep));
+            }
+            rep->set_status(reply::status_type::not_found).done();
+            return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
+    });
 }
 
 file_interaction_handler::~file_interaction_handler() {
@@ -94,22 +93,21 @@ public:
 };
 
 future<std::unique_ptr<reply>> file_interaction_handler::read(
-        const sstring& file_name, std::unique_ptr<request> req,
-        std::unique_ptr<reply> rep) {
+    const sstring& file_name, std::unique_ptr<request> req,
+    std::unique_ptr<reply> rep) {
     sstring extension = get_extension(file_name);
     rep->set_content_type(extension);
     return open_file_dma(file_name, open_flags::ro).then(
             [rep = std::move(rep), extension, this, req = std::move(req)](file f) mutable {
-                std::shared_ptr<reader> r = std::make_shared<reader>(std::move(f), std::move(rep));
-
-                return r->is.consume(*r).then([r, extension, this, req = std::move(req)]() {
-                            if (transformer != nullptr) {
-                                transformer->transform(r->_rep->_content, *req, extension);
-                            }
-                            r->_rep->done();
-                            return make_ready_future<std::unique_ptr<reply>>(std::move(r->_rep));
-                        });
+            std::shared_ptr<reader> r = std::make_shared<reader>(std::move(f), std::move(rep));
+            return r->is.consume(*r).then([r, extension, this, req = std::move(req)]() {
+                    if (transformer != nullptr) {
+                        transformer->transform(r->_rep->_content, *req, extension);
+                    }
+                    r->_rep->done();
+                    return make_ready_future<std::unique_ptr<reply>>(std::move(r->_rep));
             });
+    });
 }
 
 bool file_interaction_handler::redirect_if_needed(const request& req,
@@ -124,11 +122,10 @@ bool file_interaction_handler::redirect_if_needed(const request& req,
 }
 
 future<std::unique_ptr<reply>> file_handler::handle(const sstring& path,
-        std::unique_ptr<request> req, std::unique_ptr<reply> rep) {
-    if (force_path && redirect_if_needed(*req.get(), *rep.get())) {
-        return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
+    std::unique_ptr<request> req, std::unique_ptr<reply> rep) {
+        if (force_path && redirect_if_needed(*req.get(), *rep.get())) {
+            return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
+        }
+        return read(file, std::move(req), std::move(rep));
     }
-    return read(file, std::move(req), std::move(rep));
-}
-
 }
