@@ -565,6 +565,12 @@ public:
         packet read() {
             return _tcb->read();
         }
+        ipaddr foreign_ip() {
+            return _tcb->_foreign_ip;
+        }
+        uint16_t foreign_port() {
+            return _tcb->_foreign_port;
+        }
         void shutdown_connect();
         void close_read();
         void close_write();
