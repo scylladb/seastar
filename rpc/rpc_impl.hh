@@ -573,7 +573,7 @@ void protocol<Serializer, MsgType>::server::accept() {
         return _ss.accept().then([this] (connected_socket fd, socket_address addr) mutable {
             fd.set_nodelay(true);
             auto conn = make_lw_shared<connection>(*this, std::move(fd), std::move(addr), _proto);
-            _conns.insert(conn.get());
+            _conns.insert(conn);
             conn->process();
         });
     }).then_wrapped([this] (future<>&& f){
@@ -900,11 +900,7 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
         this->_error = true;
         return this->stop_send_loop().then_wrapped([this] (future<> f) {
             f.ignore_ready_future();
-            if (!this->_server._stopping) {
-                // if server is stopping do not remove connection
-                // since it may invalidate _conns iterators
-                this->_server._conns.erase(this);
-            }
+            this->_server._conns.erase(this->shared_from_this());
             this->_stopped.set_value();
         });
     }).finally([conn_ptr = this->shared_from_this()] {

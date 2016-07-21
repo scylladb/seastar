@@ -193,7 +193,12 @@ class protocol {
 
         future<> stop_send_loop() {
             _error = true;
-            _outgoing_queue_cond.broken();
+            if (!_send_loop_stopped.available()) {
+                // if _send_loop_stopped is ready it means that _fd is closed already
+                // and nobody waits on _outgoing_queue_cond
+                _outgoing_queue_cond.broken();
+                _fd.shutdown_output();
+            }
             return _send_loop_stopped.finally([this] {
                 _outgoing_queue.clear();
             });
@@ -239,7 +244,6 @@ class protocol {
             if (!_error) {
                 _error = true;
                 _fd.shutdown_input();
-                _fd.shutdown_output();
             }
             return _stopped.get_future();
         }
@@ -298,8 +302,7 @@ public:
         server_socket _ss;
         resource_limits _limits;
         semaphore _resources_available;
-        std::unordered_set<connection*> _conns;
-        bool _stopping = false;
+        std::unordered_set<lw_shared_ptr<connection>> _conns;
         promise<> _ss_stopped;
         seastar::gate _reply_gate;
         server_options _options;
@@ -310,12 +313,11 @@ public:
         server(protocol& proto, server_options opts, server_socket, resource_limits memory_limit = resource_limits());
         void accept();
         future<> stop() {
-            _stopping = true; // prevents closed connections to be deleted from _conns
             _ss.abort_accept();
             _ss = server_socket();
             _resources_available.broken();
             return when_all(_ss_stopped.get_future(),
-                parallel_for_each(_conns, [] (connection* conn) {
+                parallel_for_each(_conns, [] (lw_shared_ptr<connection> conn) {
                     return conn->stop();
                 }),
                 _reply_gate.close()

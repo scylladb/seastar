@@ -119,7 +119,9 @@ public:
     }
     void shutdown(int how) {
         auto ret = ::shutdown(_fd, how);
-        throw_system_error_on(ret == -1, "shutdown");
+        if (ret == -1 && errno != ENOTCONN) {
+            throw_system_error_on(ret == -1, "shutdown");
+        }
     }
     void truncate(size_t size) {
         auto ret = ::ftruncate(_fd, size);
