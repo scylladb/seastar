@@ -3175,8 +3175,8 @@ reactor::calculate_poll_time() {
 future<> later() {
     promise<> p;
     auto f = p.get_future();
+    engine().force_poll();
     schedule(make_task([p = std::move(p)] () mutable {
-        engine().force_poll();
         p.set_value();
     }));
     return f;
