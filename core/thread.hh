@@ -132,7 +132,14 @@ class thread_context {
         &thread_context::_preempted_link>,
         bi::constant_time_size<false>>;
 
+    bi::list_member_hook<> _all_link;
+    using all_thread_list = bi::list<thread_context,
+        bi::member_hook<thread_context, bi::list_member_hook<>,
+        &thread_context::_all_link>,
+        bi::constant_time_size<false>>;
+
     static thread_local preempted_thread_list _preempted_threads;
+    static thread_local all_thread_list _all_threads;
 private:
     static void s_main(unsigned int lo, unsigned int hi);
     void setup();
@@ -140,6 +147,7 @@ private:
     static std::unique_ptr<char[]> make_stack();
 public:
     thread_context(thread_attributes attr, std::function<void ()> func);
+    ~thread_context();
     void switch_in();
     void switch_out();
     bool should_yield() const;

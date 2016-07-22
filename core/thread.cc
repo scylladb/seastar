@@ -36,6 +36,11 @@ thread_context::thread_context(thread_attributes attr, std::function<void ()> fu
         : _attr(std::move(attr))
         , _func(std::move(func)) {
     setup();
+    _all_threads.push_front(*this);
+}
+
+thread_context::~thread_context() {
+    _all_threads.erase(_all_threads.iterator_to(*this));
 }
 
 std::unique_ptr<char[]>
@@ -116,6 +121,7 @@ thread_context::should_yield() const {
 }
 
 thread_local thread_context::preempted_thread_list thread_context::_preempted_threads;
+thread_local thread_context::all_thread_list thread_context::_all_threads;
 
 void
 thread_context::yield() {
