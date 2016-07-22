@@ -126,13 +126,13 @@ class thread_context {
     timer<> _sched_timer{[this] { reschedule(); }};
     stdx::optional<promise<>> _sched_promise;
 
-    bi::list_member_hook<> _link;
-    using thread_list = bi::list<thread_context,
+    bi::list_member_hook<> _preempted_link;
+    using preempted_thread_list = bi::list<thread_context,
         bi::member_hook<thread_context, bi::list_member_hook<>,
-        &thread_context::_link>,
+        &thread_context::_preempted_link>,
         bi::constant_time_size<false>>;
 
-    static thread_local thread_list _preempted_threads;
+    static thread_local preempted_thread_list _preempted_threads;
 private:
     static void s_main(unsigned int lo, unsigned int hi);
     void setup();

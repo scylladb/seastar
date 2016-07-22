@@ -115,7 +115,7 @@ thread_context::should_yield() const {
     return bool(_attr.scheduling_group->next_scheduling_point());
 }
 
-thread_local thread_context::thread_list thread_context::_preempted_threads;
+thread_local thread_context::preempted_thread_list thread_context::_preempted_threads;
 
 void
 thread_context::yield() {
