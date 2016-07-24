@@ -88,7 +88,7 @@ using namespace std::chrono_literals;
 using namespace net;
 using namespace seastar;
 
-static seastar::logger seastar_logger("seastar");
+seastar::logger seastar_logger("seastar");
 
 std::atomic<lowres_clock::rep> lowres_clock::_now;
 constexpr std::chrono::milliseconds lowres_clock::_granularity;

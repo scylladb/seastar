@@ -69,6 +69,7 @@
 #include <boost/range/irange.hpp>
 #include "timer.hh"
 #include "condition-variable.hh"
+#include "util/log.hh"
 
 #ifdef HAVE_OSV
 #include <osv/sched.hh>
@@ -1435,5 +1436,7 @@ inline
 typename timer<Clock>::time_point timer<Clock>::get_timeout() {
     return _expiry;
 }
+
+extern seastar::logger seastar_logger;
 
 #endif /* REACTOR_HH_ */
