@@ -282,6 +282,14 @@ core = [
     'rpc/lz4_compressor.cc',
     ]
 
+protobuf = [
+    'proto/metrics2.proto',
+    ]
+
+prometheus = [
+    'core/prometheus.cc',
+    ]
+
 http = ['http/transformers.cc',
         'http/json_path.cc',
         'http/file_handler.cc',
@@ -303,7 +311,7 @@ boost_test_lib = [
 ]
 
 defines = ['FMT_HEADER_ONLY']
-libs = '-laio -lboost_program_options -lboost_system -lboost_filesystem -lstdc++ -lm -lboost_unit_test_framework -lboost_thread -lcryptopp -lrt -lgnutls -lgnutlsxx -llz4'
+libs = '-laio -lboost_program_options -lboost_system -lboost_filesystem -lstdc++ -lm -lboost_unit_test_framework -lboost_thread -lcryptopp -lrt -lgnutls -lgnutlsxx -llz4 -lprotobuf'
 hwloc_libs = '-lhwloc -lnuma -lpciaccess -lxml2 -lz'
 xen_used = False
 def have_xen():
@@ -341,7 +349,7 @@ memcache_base = [
 ] + libnet + core
 
 deps = {
-    'libseastar.a' : core + libnet + http,
+    'libseastar.a' : core + libnet + http + protobuf + prometheus,
     'seastar.pc': [],
     'apps/httpd/httpd': ['apps/httpd/demo.json', 'apps/httpd/main.cc'] + http + libnet + core,
     'apps/memcached/memcached': ['apps/memcached/memcache.cc'] + memcache_base,
@@ -573,6 +581,9 @@ with open(buildfile, 'w') as f:
         rule swagger
             command = json/json2code.py -f $in -o $out
             description = SWAGGER $out
+        rule protobuf
+            command = protoc --cpp_out=$outdir $in
+            description = PROTOC $out
         ''').format(**globals()))
     if args.dpdk:
         f.write(textwrap.dedent('''\
@@ -612,11 +623,15 @@ with open(buildfile, 'w') as f:
         compiles = {}
         ragels = {}
         swaggers = {}
+        protobufs = {}
         for binary in build_artifacts:
             srcs = deps[binary]
             objs = ['$builddir/' + mode + '/' + src.replace('.cc', '.o')
                     for src in srcs
                     if src.endswith('.cc')]
+            objs += ['$builddir/' + mode + '/gen/' + src.replace('.proto', '.pb.o')
+                    for src in srcs
+                    if src.endswith('.proto')]
             if binary.endswith('.pc'):
                 vars = modeval.copy()
                 vars.update(globals())
@@ -647,6 +662,10 @@ with open(buildfile, 'w') as f:
                 if src.endswith('.cc'):
                     obj = '$builddir/' + mode + '/' + src.replace('.cc', '.o')
                     compiles[obj] = src
+                elif src.endswith('.proto'):
+                    hh = '$builddir/' + mode + '/gen/' + src.replace('.proto', '.pb.h')
+                    protobufs[hh] = src
+                    compiles[hh.replace('.h', '.o')] = hh.replace('.h', '.cc')
                 elif src.endswith('.rl'):
                     hh = '$builddir/' + mode + '/gen/' + src.replace('.rl', '.hh')
                     ragels[hh] = src
@@ -657,7 +676,7 @@ with open(buildfile, 'w') as f:
                     raise Exception('No rule for ' + src)
         for obj in compiles:
             src = compiles[obj]
-            gen_headers = list(ragels.keys()) + list(swaggers.keys())
+            gen_headers = list(ragels.keys()) + list(swaggers.keys()) + list(protobufs.keys())
             f.write('build {}: cxx.{} {} || {} \n'.format(obj, mode, src, ' '.join(gen_headers) + dpdk_deps))
         for hh in ragels:
             src = ragels[hh]
@@ -665,6 +684,12 @@ with open(buildfile, 'w') as f:
         for hh in swaggers:
             src = swaggers[hh]
             f.write('build {}: swagger {}\n'.format(hh,src))
+        for pb in protobufs:
+            src = protobufs[pb]
+            c_pb = pb.replace('.h','.cc')
+            outd = os.path.dirname(os.path.dirname(pb))
+            f.write('build {} {}: protobuf {}\n  outdir = {}\n'.format(c_pb, pb, src, outd))
+
     f.write(textwrap.dedent('''\
         rule configure
           command = python3 configure.py $configure_args

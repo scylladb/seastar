@@ -62,6 +62,7 @@ struct collectd_value {
         return res;
     }
 };
+typedef std::map<type_instance_id, std::vector<collectd_value> > value_map;
 
 std::vector<collectd_value> get_collectd_value(
         const scollectd::type_instance_id& id);
@@ -77,6 +78,7 @@ bool is_enabled(const scollectd::type_instance_id& id);
 void enable(const scollectd::type_instance_id& id, bool enable);
 
 
+value_map get_value_map();
 }
 
 #endif /* CORE_SCOLLECTD_API_HH_ */

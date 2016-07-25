@@ -457,10 +457,8 @@ boost::program_options::options_description get_options_description() {
     return opts;
 }
 
-std::vector<collectd_value> get_collectd_value(
-        const scollectd::type_instance_id& id) {
+static std::vector<collectd_value> raw_to_value(shared_ptr<value_list> raw_types) {
     std::vector<collectd_value> res_values;
-    auto raw_types = get_impl().get_values(id);
     if (raw_types == nullptr) {
         return res_values;
     }
@@ -475,6 +473,11 @@ std::vector<collectd_value> get_collectd_value(
         res_values.push_back(c);
     }
     return res_values;
+}
+
+std::vector<collectd_value> get_collectd_value(
+        const scollectd::type_instance_id& id) {
+    return raw_to_value(get_impl().get_values(id));
 }
 
 std::vector<data_type> get_collectd_types(
@@ -498,6 +501,16 @@ bool is_enabled(const scollectd::type_instance_id& id) {
 
 void enable(const scollectd::type_instance_id& id, bool enable) {
     get_impl().get_value_list_map()[id]->set_enabled(enable);
+}
+
+value_map get_value_map() {
+    value_map res;
+    for (auto i : get_impl().get_value_list_map()) {
+        if (i.second->is_enabled()) {
+            res[i.first] = raw_to_value(i.second);
+        }
+    }
+    return res;
 }
 
 }
