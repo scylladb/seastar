@@ -28,12 +28,22 @@
 #include <string.h>
 
 class file_data_source_impl : public data_source_impl {
+    struct issued_read {
+        uint64_t _pos;
+        uint64_t _size;
+        future<temporary_buffer<char>> _ready;
+
+        issued_read(uint64_t pos, uint64_t size, future<temporary_buffer<char>> f)
+            : _pos(pos), _size(size), _ready(std::move(f)) { }
+    };
+
     file _file;
     file_input_stream_options _options;
     uint64_t _pos;
     uint64_t _remain;
-    circular_buffer<future<temporary_buffer<char>>> _read_buffers;
+    circular_buffer<issued_read> _read_buffers;
     unsigned _reads_in_progress = 0;
+    future<> _dropped_reads = make_ready_future<>();
     std::experimental::optional<promise<>> _done;
 public:
     file_data_source_impl(file f, uint64_t offset, uint64_t len, file_input_stream_options options)
@@ -47,7 +57,33 @@ public:
         }
         auto ret = std::move(_read_buffers.front());
         _read_buffers.pop_front();
-        return ret;
+        return std::move(ret._ready);
+    }
+    virtual future<temporary_buffer<char>> skip(uint64_t n) override {
+        while (n) {
+            if (_read_buffers.empty()) {
+                assert(n <= _remain);
+                _pos += n;
+                _remain -= n;
+                break;
+            }
+            auto& front = _read_buffers.front();
+            if (n < front._size) {
+                front._size -= n;
+                front._pos += n;
+                front._ready = front._ready.then([n] (temporary_buffer<char> buf) {
+                    buf.trim_front(n);
+                    return buf;
+                });
+                break;
+            } else {
+                auto f = front._ready.then_wrapped([] (auto f) { f.ignore_ready_future(); });
+                _dropped_reads = _dropped_reads.then([f = std::move(f)] () mutable { return std::move(f); });
+                n -= front._size;
+                _read_buffers.pop_front();
+            }
+        }
+        return make_ready_future<temporary_buffer<char>>();
     }
     virtual future<> close() {
         _done.emplace();
@@ -56,8 +92,9 @@ public:
         }
         return _done->get_future().then([this] {
             for (auto&& c : _read_buffers) {
-                c.ignore_ready_future();
+                c._ready.ignore_ready_future();
             }
+            return std::move(_dropped_reads);
         });
     }
 private:
@@ -72,7 +109,7 @@ private:
                 if (_read_buffers.size() >= min_ra) {
                     return;
                 }
-                _read_buffers.push_back(make_ready_future<temporary_buffer<char>>());
+                _read_buffers.emplace_back(_pos, 0, make_ready_future<temporary_buffer<char>>());
                 continue;
             }
             ++_reads_in_progress;
@@ -82,7 +119,8 @@ private:
             auto start = align_down(_pos, align);
             auto end = align_up(std::min(start + _options.buffer_size, _pos + _remain), align);
             auto len = end - start;
-            _read_buffers.push_back(futurize<future<temporary_buffer<char>>>::apply([&] {
+            auto actual_size = std::min(end - _pos, _remain);
+            _read_buffers.emplace_back(_pos, actual_size, futurize<future<temporary_buffer<char>>>::apply([&] {
                     return _file.dma_read_bulk<char>(start, len, _options.io_priority_class);
             }).then_wrapped(
                     [this, start, end, pos = _pos, remain = _remain] (future<temporary_buffer<char>> ret) {
