@@ -25,8 +25,8 @@ if [ "$ID" = "ubuntu" ] || [ "$ID" = "debian" ]; then
             apt-get -y install software-properties-common
         fi
 
-        sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-        sudo apt-get -y update
+        add-apt-repository -y ppa:ubuntu-toolchain-r/test
+        apt-get -y update
     fi
     apt-get install -y libaio-dev ninja-build ragel libhwloc-dev libnuma-dev libpciaccess-dev libcrypto++-dev libboost-all-dev libxen-dev libxml2-dev xfslibs-dev libgnutls28-dev liblz4-dev libsctp-dev gcc make libprotobuf-dev protobuf-compiler
     if [ "$ID" = "ubuntu" ]; then
