@@ -11,7 +11,7 @@ It is based on [futures](http://en.wikipedia.org/wiki/Futures_and_promises).
 Building Seastar
 --------------------
 
-See instructions for [Fedora](doc/building-fedora.md) and [Ubuntu](doc/building-ubuntu.md).
+See instructions for [Fedora](doc/building-fedora.md), [CentOS](doc/building-centos.md) and [Ubuntu](doc/building-ubuntu.md).
 
 There are also instructions for building on any host that supports [Docker](doc/building-docker.md).
 
