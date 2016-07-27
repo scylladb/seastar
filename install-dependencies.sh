@@ -21,6 +21,10 @@
 
 if [ "$ID" = "ubuntu" ] || [ "$ID" = "debian" ]; then
     if [ "$VERSION_ID" = "14.04" ]; then
+        if [ ! -f /usr/bin/add-apt-repository ]; then
+            apt-get -y install software-properties-common
+        fi
+
         sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
         sudo apt-get -y update
     fi
