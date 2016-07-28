@@ -78,6 +78,8 @@
 #include <osv/newpoll.hh>
 #endif
 
+extern "C" int _Unwind_RaiseException(void *h);
+
 using shard_id = unsigned;
 
 namespace scollectd { class registration; }
@@ -729,6 +731,7 @@ private:
     uint64_t _aio_writes = 0;
     uint64_t _aio_write_bytes = 0;
     uint64_t _fsyncs = 0;
+    uint64_t _cxx_exceptions = 0;
     circular_buffer<std::unique_ptr<task>> _pending_tasks;
     circular_buffer<std::unique_ptr<task>> _at_destroy_tasks;
     std::chrono::duration<double> _task_quota;
@@ -948,6 +951,7 @@ private:
     friend class smp_message_queue;
     friend class poller;
     friend void add_to_flush_poller(output_stream<char>* os);
+    friend int _Unwind_RaiseException(void *h);
 public:
     bool wait_and_process(int timeout = 0, const sigset_t* active_sigmask = nullptr) {
         return _backend.wait_and_process(timeout, active_sigmask);

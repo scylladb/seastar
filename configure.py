@@ -344,6 +344,9 @@ if args.staticcxx:
     libs = libs.replace('-lstdc++', '')
     libs += ' -static-libgcc -static-libstdc++'
 
+if args.staticcxx or args.static:
+    defines.append("NO_EXCEPTION_INTERCEPT");
+
 memcache_base = [
     'apps/memcached/ascii.rl'
 ] + libnet + core

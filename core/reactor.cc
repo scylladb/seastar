@@ -1512,6 +1512,12 @@ reactor::register_collectd_metrics() {
                 scollectd::make_typed(scollectd::data_type::DERIVE,
                         [] { return logging_failures; })
             ),
+            // total_operations value:DERIVE:0:U
+            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+                    , scollectd::per_cpu_plugin_instance
+                    , "total_operations", "c++exceptions")
+                    , scollectd::make_typed(scollectd::data_type::DERIVE, _cxx_exceptions)
+            ),
     } };
 }
 
@@ -3193,3 +3199,23 @@ network_stack_registrator nsr_posix{"posix",
     },
     true
 };
+
+#ifndef NO_EXCEPTION_INTERCEPT
+#include <dlfcn.h>
+
+extern "C"
+[[gnu::visibility("default")]]
+[[gnu::externally_visible]]
+int _Unwind_RaiseException(void *h) {
+    using throw_fn =  int (*)(void *);
+    static throw_fn org = nullptr;
+
+    if (!org) {
+        org = (throw_fn)dlsym (RTLD_NEXT, "_Unwind_RaiseException");
+    }
+    if (local_engine) {
+        engine()._cxx_exceptions++;
+    }
+    return org(h);
+}
+#endif
