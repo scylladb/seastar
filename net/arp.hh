@@ -25,7 +25,7 @@
 
 #include "net.hh"
 #include "core/reactor.hh"
-#include "byteorder.hh"
+#include "core/byteorder.hh"
 #include "ethernet.hh"
 #include "core/print.hh"
 #include <unordered_map>
@@ -56,11 +56,16 @@ class arp {
     circular_buffer<l3_protocol::l3packet> _packetq;
 private:
     struct arp_hdr {
-        packed<uint16_t> htype;
-        packed<uint16_t> ptype;
+        uint16_t htype;
+        uint16_t ptype;
 
-        template <typename Adjuster>
-        void adjust_endianness(Adjuster a) { return a(htype, ptype); }
+        static arp_hdr read(const char* p) {
+            arp_hdr ah;
+            ah.htype = consume_be<uint16_t>(p);
+            ah.ptype = consume_be<uint16_t>(p);
+            return ah;
+        }
+        static constexpr size_t size() { return 4; }
     };
 public:
     explicit arp(interface* netif);
@@ -87,19 +92,42 @@ private:
         op_reply = 2,
     };
     struct arp_hdr {
-        packed<uint16_t> htype;
-        packed<uint16_t> ptype;
+        uint16_t htype;
+        uint16_t ptype;
         uint8_t hlen;
         uint8_t plen;
-        packed<uint16_t> oper;
+        uint16_t oper;
         l2addr sender_hwaddr;
         l3addr sender_paddr;
         l2addr target_hwaddr;
         l3addr target_paddr;
 
-        template <typename Adjuster>
-        void adjust_endianness(Adjuster a) {
-            a(htype, ptype, oper, sender_hwaddr, sender_paddr, target_hwaddr, target_paddr);
+        static arp_hdr read(const char* p) {
+            arp_hdr ah;
+            ah.htype = consume_be<uint16_t>(p);
+            ah.ptype = consume_be<uint16_t>(p);
+            ah.hlen = consume_be<uint8_t>(p);
+            ah.plen = consume_be<uint8_t>(p);
+            ah.oper = consume_be<uint16_t>(p);
+            ah.sender_hwaddr = l2addr::consume(p);
+            ah.sender_paddr = l3addr::consume(p);
+            ah.target_hwaddr = l2addr::consume(p);
+            ah.target_paddr = l3addr::consume(p);
+            return ah;
+        }
+        void write(char* p) const {
+            produce_be<uint16_t>(p, htype);
+            produce_be<uint16_t>(p, ptype);
+            produce_be<uint8_t>(p, hlen);
+            produce_be<uint8_t>(p, plen);
+            produce_be<uint16_t>(p, oper);
+            sender_hwaddr.produce(p);
+            sender_paddr.produce(p);
+            target_hwaddr.produce(p);
+            target_paddr.produce(p);
+        }
+        static constexpr size_t size() {
+            return 8 + 2 * (l2addr::size() + l3addr::size());
         }
     };
     struct resolution {
@@ -145,8 +173,10 @@ arp_for<L3>::make_query_packet(l3addr paddr) {
     hdr.sender_paddr = _l3self;
     hdr.target_hwaddr = ethernet::broadcast_address();
     hdr.target_paddr = paddr;
-    hdr = hton(hdr);
-    return packet(reinterpret_cast<char*>(&hdr), sizeof(hdr));
+    auto p = packet();
+    p.prepend_uninitialized_header(hdr.size());
+    hdr.write(p.get_header(0, hdr.size()));
+    return p;
 }
 
 template <typename L3>
@@ -225,11 +255,11 @@ arp_for<L3>::learn(l2addr hwaddr, l3addr paddr) {
 template <typename L3>
 future<>
 arp_for<L3>::received(packet p) {
-    auto ah = p.get_header<arp_hdr>();
+    auto ah = p.get_header(0, arp_hdr::size());
     if (!ah) {
         return make_ready_future<>();
     }
-    auto h = ntoh(*ah);
+    auto h = arp_hdr::read(ah);
     if (h.hlen != sizeof(l2addr) || h.plen != sizeof(l3addr)) {
         return make_ready_future<>();
     }
@@ -254,8 +284,9 @@ arp_for<L3>::handle_request(arp_hdr* ah) {
         ah->target_paddr = ah->sender_paddr;
         ah->sender_hwaddr = l2self();
         ah->sender_paddr = _l3self;
-        *ah = hton(*ah);
-        send(ah->target_hwaddr, packet(reinterpret_cast<char*>(ah), sizeof(*ah)));
+        auto p = packet();
+        ah->write(p.prepend_uninitialized_header(ah->size()));
+        send(ah->target_hwaddr, std::move(p));
     }
     return make_ready_future<>();
 }
