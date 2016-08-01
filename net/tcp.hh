@@ -99,7 +99,7 @@ struct tcp_option {
     static void write(char* p, option_kind kind, option_len len) {
         p[0] = static_cast<uint8_t>(kind);
         if (static_cast<uint8_t>(len) > 1) {
-            p[1] = static_cast<uint8_t>(kind);
+            p[1] = static_cast<uint8_t>(len);
         }
     }
     struct mss {
