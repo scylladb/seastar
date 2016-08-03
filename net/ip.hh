@@ -33,6 +33,7 @@
 #include <chrono>
 #include "core/array_map.hh"
 #include "byteorder.hh"
+#include "core/byteorder.hh"
 #include "arp.hh"
 #include "ip_checksum.hh"
 #include "const.hh"
@@ -77,6 +78,26 @@ struct ipv4_address {
     }
     friend bool operator!=(ipv4_address x, ipv4_address y) {
         return x.ip != y.ip;
+    }
+
+    static ipv4_address read(const char* p) {
+        ipv4_address ia;
+        ia.ip = read_be<uint32_t>(p);
+        return ia;
+    }
+    static ipv4_address consume(const char*& p) {
+        auto ia = read(p);
+        p += 4;
+        return ia;
+    }
+    void write(char* p) const {
+        write_be<uint32_t>(p, ip);
+    }
+    void produce(char*& p) const {
+        produce_be<uint32_t>(p, ip);
+    }
+    static constexpr size_t size() {
+        return 4;
     }
 } __attribute__((packed));
 

@@ -69,7 +69,11 @@ void arp::del(uint16_t proto_num) {
 
 future<>
 arp::process_packet(packet p, ethernet_address from) {
-    auto ah = ntoh(*p.get_header<arp_hdr>());
+    auto h = p.get_header(0, arp_hdr::size());
+    if (!h) {
+        return make_ready_future<>();
+    }
+    auto ah = arp_hdr::read(h);
     auto i = _arp_for_protocol.find(ah.ptype);
     if (i != _arp_for_protocol.end()) {
         i->second->received(std::move(p));

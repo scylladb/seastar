@@ -104,3 +104,20 @@ write_be(char* p, T datum) {
     datum = cpu_to_be(datum);
     std::copy_n(reinterpret_cast<const char*>(&datum), sizeof(T), p);
 }
+
+template <typename T>
+inline
+T
+consume_be(const char*& p) {
+    auto ret = read_be<T>(p);
+    p += sizeof(T);
+    return ret;
+}
+
+template <typename T>
+inline
+void
+produce_be(char*& p, T datum) {
+    write_be<T>(p, datum);
+    p += sizeof(T);
+}
