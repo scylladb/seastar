@@ -556,13 +556,15 @@ reactor::submit_io(Func prepare_io) {
         if (_aio_eventfd) {
             io_set_eventfd(&io, _aio_eventfd->get_fd());
         }
+        auto f = pr->get_future();
         io.data = pr.get();
         _pending_aio.push_back(io);
+        pr.release();
         if ((_io_queue->queued_requests() > 0) ||
             (_pending_aio.size() >= std::min(max_aio / 4, _io_queue->_capacity / 2))) {
             flush_pending_aio();
         }
-        return pr.release()->get_future();
+        return f;
     });
 }
 
