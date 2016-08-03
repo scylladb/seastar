@@ -75,6 +75,8 @@ SEASTAR_TEST_CASE(test_simple_plugin_instance_metrics) {
     int64_t woff;
     test_bind_counters(typed_value_impl<known_type::connections>("woffs", description("this is how many woffs where barked"), woff));
 
+    // typed
+    test_bind_counters(typed_value_impl<known_type::connections>("waffs", make_typed(data_type::ABSOLUTE, woff)));
 
     return make_ready_future();
 }
@@ -87,6 +89,47 @@ SEASTAR_TEST_CASE(test_simple_description) {
 
     auto s = get_collectd_description_str(pm.bound_ids().front());
     BOOST_CHECK_EQUAL(s, desc);
+
+    return make_ready_future();
+}
+
+SEASTAR_TEST_CASE(test_bind_callable) {
+    uint64_t val;
+
+    auto callable = [&val] { return val; };
+
+    plugin_instance_metrics pm(plugin, my_id, total_bytes("test_bytes", callable));
+
+    auto bound = pm.bound_ids();
+
+    for (auto& id : bound) {
+        for (uint64_t i : { 1, 4, 45542, 2323, 12, 0 }) {
+            val = i;
+            auto vals = get_collectd_value(id);
+            for (auto v : vals) {
+                BOOST_CHECK_EQUAL(v.u._ui, i);
+            }
+        }
+    }
+
+    return make_ready_future();
+}
+
+SEASTAR_TEST_CASE(test_bind_callable_raw) {
+    uint64_t val;
+
+    auto callable = [&val] { return val; };
+
+    scollectd::type_instance_id id("apa", per_cpu_plugin_instance, "total_bytes", "ko");
+    scollectd::registration r = add_polled_metric(id, make_typed(data_type::DERIVE, callable));
+
+    for (uint64_t i : { 1, 4, 45542, 2323, 12, 0 }) {
+        val = i;
+        auto vals = get_collectd_value(id);
+        for (auto v : vals) {
+            BOOST_CHECK_EQUAL(v.u._ui, i);
+        }
+    }
 
     return make_ready_future();
 }
