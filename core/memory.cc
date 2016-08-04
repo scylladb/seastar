@@ -51,6 +51,7 @@
 // by size.  When spans are broken up or coalesced, they may move into new lists.
 
 #include "memory.hh"
+#include "reactor.hh"
 
 #ifndef DEFAULT_ALLOCATOR
 
@@ -58,7 +59,6 @@
 #include "align.hh"
 #include "posix.hh"
 #include "shared_ptr.hh"
-#include "reactor.hh"
 #include <new>
 #include <cstdint>
 #include <algorithm>
@@ -1382,6 +1382,10 @@ void operator delete[](void* ptr, with_alignment wa) {
 #else
 
 namespace memory {
+
+void enable_abort_on_allocation_failure() {
+    seastar_logger.warn("Seastar compiled with default allocator, will not abort on bad_alloc");
+}
 
 reclaimer::reclaimer(reclaim_fn reclaim, reclaimer_scope) {
 }
