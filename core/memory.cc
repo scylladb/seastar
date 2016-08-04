@@ -58,6 +58,7 @@
 #include "align.hh"
 #include "posix.hh"
 #include "shared_ptr.hh"
+#include "reactor.hh"
 #include <new>
 #include <cstdint>
 #include <algorithm>
@@ -75,6 +76,19 @@
 #endif
 
 namespace memory {
+
+static std::atomic<bool> abort_on_allocation_failure{false};
+
+void enable_abort_on_allocation_failure() {
+    abort_on_allocation_failure.store(true, std::memory_order_seq_cst);
+}
+
+static void on_allocation_failure(size_t size) {
+    if (abort_on_allocation_failure.load(std::memory_order_relaxed)) {
+        seastar_logger.error("Failed to allocate {} bytes", size);
+        abort();
+    }
+}
 
 static constexpr unsigned cpu_id_shift = 36; // FIXME: make dynamic
 static constexpr unsigned max_cpus = 256;
@@ -951,11 +965,16 @@ void* allocate(size_t size) {
     if (size <= sizeof(free_object)) {
         size = sizeof(free_object);
     }
+    void* ptr;
     if (size <= max_small_allocation) {
-        return cpu_mem.allocate_small(size);
+        ptr = cpu_mem.allocate_small(size);
     } else {
-        return allocate_large(size);
+        ptr = allocate_large(size);
     }
+    if (!ptr) {
+        on_allocation_failure(size);
+    }
+    return ptr;
 }
 
 void* allocate_aligned(size_t align, size_t size) {
@@ -964,14 +983,19 @@ void* allocate_aligned(size_t align, size_t size) {
     if (size <= sizeof(free_object)) {
         size = sizeof(free_object);
     }
+    void* ptr;
     if (size <= max_small_allocation && align <= page_size) {
         // Our small allocator only guarantees alignment for power-of-two
         // allocations which are not larger than a page.
         size = 1 << log2ceil(size);
-        return cpu_mem.allocate_small(size);
+        ptr = cpu_mem.allocate_small(size);
     } else {
-        return allocate_large_aligned(align, size);
+        ptr = allocate_large_aligned(align, size);
     }
+    if (!ptr) {
+        on_allocation_failure(size);
+    }
+    return ptr;
 }
 
 void free(void* obj) {
@@ -1091,6 +1115,7 @@ void* malloc(size_t n) throw () {
     try {
         return allocate(n);
     } catch (std::bad_alloc& ba) {
+        on_allocation_failure(n);
         return nullptr;
     }
 }
@@ -1174,6 +1199,7 @@ int posix_memalign(void** ptr, size_t align, size_t size) {
         }
         return 0;
     } catch (std::bad_alloc&) {
+        on_allocation_failure(size);
         return ENOMEM;
     }
 }

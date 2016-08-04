@@ -2520,6 +2520,7 @@ reactor::get_options_description() {
         ("max-task-backlog", bpo::value<unsigned>()->default_value(1000), "Maximum number of task backlog to allow; above this we ignore I/O")
         ("relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
         ("overprovisioned", "run in an overprovisioned environment (such as docker or a laptop); equivalent to --idle-poll-time-us 0 --thread-affinity 0 --poll-aio 0")
+        ("abort-on-seastar-bad-alloc", "abort when seastar allocator cannot allocate memory")
         ;
     opts.add(network_stack_registry::options_description());
     return opts;
@@ -2746,6 +2747,10 @@ void smp::configure(boost::program_options::variables_map configuration)
         smp::pin(allocations[0].cpu_id);
     }
     memory::configure(allocations[0].mem, hugepages_path);
+
+    if (configuration.count("abort-on-seastar-bad-alloc")) {
+        memory::enable_abort_on_allocation_failure();
+    }
 
 #ifdef HAVE_DPDK
     if (smp::_using_dpdk) {
