@@ -39,6 +39,7 @@
 #include "systemwide_memory_barrier.hh"
 #include "report_exception.hh"
 #include "util/log.hh"
+#include "file-impl.hh"
 #include <cassert>
 #include <unistd.h>
 #include <fcntl.h>
