@@ -83,6 +83,7 @@ private:
     bool size_changing(const op& candidate) const;
     bool may_dispatch(const op& candidate) const;
     void dispatch(op& candidate);
+    void optimize_queue();
     void process_queue();
     bool may_quit() const;
     void enqueue(op&& op);

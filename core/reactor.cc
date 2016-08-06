@@ -899,8 +899,44 @@ append_challenged_posix_file_impl::dispatch(op& candidate) {
     });
 }
 
+// If we have a bunch of size-extending writes in the queue,
+// issue an ftruncate() extending the file size, so they can
+// be issued concurrently.
+void
+append_challenged_posix_file_impl::optimize_queue() {
+    if (_current_non_size_changing_ops || _current_size_changing_ops) {
+        // Can't issue an ftruncate() if something is going on
+        return;
+    }
+    auto speculative_size = _committed_size;
+    unsigned n_appending_writes = 0;
+    for (const auto& op : _q) {
+        if (op.type == opcode::truncate) {
+            break;
+        }
+        if (op.type == opcode::write && op.pos + op.len > _committed_size) {
+            speculative_size = std::max(speculative_size, op.pos + op.len);
+            ++n_appending_writes;
+        }
+    }
+    if (n_appending_writes > 1) {
+        // We're all alone, so issuing the ftruncate() in the reactor
+        // thread won't block us.
+        //
+        // Issuing it in the syscall thread is too slow; this can happen
+        // every several ops, and the syscall thread latency can be very
+        // high.
+        auto r = ::ftruncate(_fd, speculative_size);
+        if (r != -1) {
+            _committed_size = speculative_size;
+            // If we failed, the next write will pick it up.
+        }
+    }
+}
+
 void
 append_challenged_posix_file_impl::process_queue() {
+    optimize_queue();
     while (!_q.empty() && may_dispatch(_q.front())) {
         dispatch(_q.front());
         _q.pop_front();
