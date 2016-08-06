@@ -863,6 +863,201 @@ posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priorit
     });
 }
 
+append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, file_open_options options)
+        : posix_file_impl(fd, options) {
+    auto r = ::lseek(fd, 0, SEEK_END);
+    throw_system_error_on(r == -1);
+    _committed_size = r;
+}
+
+append_challenged_posix_file_impl::~append_challenged_posix_file_impl() {
+}
+
+bool
+append_challenged_posix_file_impl::size_changing(const op& candidate) const {
+    return (candidate.type == opcode::write && candidate.pos + candidate.len > _committed_size)
+            || (candidate.type == opcode::truncate);
+}
+
+bool
+append_challenged_posix_file_impl::may_dispatch(const op& candidate) const {
+    if (size_changing(candidate)) {
+        return !_current_size_changing_ops && !_current_non_size_changing_ops;
+    } else {
+        return !_current_size_changing_ops;
+    }
+}
+
+void
+append_challenged_posix_file_impl::dispatch(op& candidate) {
+    unsigned* op_counter = size_changing(candidate)
+            ? &_current_size_changing_ops : &_current_non_size_changing_ops;
+    ++*op_counter;
+    candidate.run().then([this, op_counter] {
+        --*op_counter;
+        process_queue();
+    });
+}
+
+void
+append_challenged_posix_file_impl::process_queue() {
+    while (!_q.empty() && may_dispatch(_q.front())) {
+        dispatch(_q.front());
+        _q.pop_front();
+    }
+    if (may_quit()) {
+        _completed.set_value();
+    }
+}
+
+void
+append_challenged_posix_file_impl::enqueue(op&& op) {
+    _q.push_back(std::move(op));
+    process_queue();
+}
+
+bool
+append_challenged_posix_file_impl::may_quit() const {
+    return _done && _q.empty() && !_current_non_size_changing_ops && !_current_size_changing_ops;
+}
+
+void
+append_challenged_posix_file_impl::commit_size(uint64_t size) {
+    if (size <= _committed_size) {
+        return;
+    }
+    _committed_size = std::max(size, _committed_size);
+}
+
+future<size_t>
+append_challenged_posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc) {
+    auto pr = make_lw_shared(promise<size_t>());
+    enqueue({
+        opcode::read,
+        pos,
+        len,
+        [this, pr, pos, buffer, len, &pc] {
+            return posix_file_impl::read_dma(pos, buffer, len, pc).then_wrapped([pr] (future<size_t> f) {
+                f.forward_to(std::move(*pr));
+            });
+        }
+    });
+    return pr->get_future();
+}
+
+future<size_t>
+append_challenged_posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) {
+    auto pr = make_lw_shared(promise<size_t>());
+    auto len = boost::accumulate(iov | boost::adaptors::transformed(std::mem_fn(&iovec::iov_len)), size_t(0));
+    enqueue({
+        opcode::read,
+        pos,
+        len,
+        [this, pr, pos, iov = std::move(iov), &pc] () mutable {
+            return posix_file_impl::read_dma(pos, std::move(iov), pc).then_wrapped([pr] (future<size_t> f) {
+                f.forward_to(std::move(*pr));
+            });
+        }
+    });
+    return pr->get_future();
+}
+
+future<size_t>
+append_challenged_posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc) {
+    auto pr = make_lw_shared(promise<size_t>());
+    enqueue({
+        opcode::write,
+        pos,
+        len,
+        [this, pr, pos, buffer, len, &pc] {
+            return posix_file_impl::write_dma(pos, buffer, len, pc).then_wrapped([this, pos, pr] (future<size_t> f) {
+                if (!f.failed()) {
+                    auto ret = f.get0();
+                    commit_size(pos + ret);
+                    // Can't use forward_to(), because future::get0() invalidates the future.
+                    pr->set_value(ret);
+                } else {
+                    f.forward_to(std::move(*pr));
+                }
+            });
+        }
+    });
+    return pr->get_future();
+}
+
+future<size_t>
+append_challenged_posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) {
+    auto pr = make_lw_shared(promise<size_t>());
+    auto len = boost::accumulate(iov | boost::adaptors::transformed(std::mem_fn(&iovec::iov_len)), size_t(0));
+    enqueue({
+        opcode::write,
+        pos,
+        len,
+        [this, pr, pos, iov = std::move(iov), &pc] () mutable {
+            return posix_file_impl::write_dma(pos, std::move(iov), pc).then_wrapped([this, pos, pr] (future<size_t> f) {
+                if (!f.failed()) {
+                    auto ret = f.get0();
+                    commit_size(pos + ret);
+                    // Can't use forward_to(), because future::get0() invalidates the future.
+                    pr->set_value(ret);
+                } else {
+                    f.forward_to(std::move(*pr));
+                }
+            });
+        }
+    });
+    return pr->get_future();
+}
+
+future<>
+append_challenged_posix_file_impl::flush() {
+    // FIXME: determine if flush can block concurrent reads or writes
+    return posix_file_impl::flush();
+}
+
+future<struct stat>
+append_challenged_posix_file_impl::stat() {
+    // FIXME: can this conflict with anything?
+    return posix_file_impl::stat().then([this] (struct stat stat) {
+        stat.st_size = _committed_size;
+        return stat;
+    });
+}
+
+future<>
+append_challenged_posix_file_impl::truncate(uint64_t length) {
+    auto pr = make_lw_shared(promise<>());
+    enqueue({
+        opcode::truncate,
+        length,
+        0,
+        [this, pr, length] () mutable {
+            return posix_file_impl::truncate(length).then_wrapped([this, pr, length] (future<> f) {
+                if (!f.failed()) {
+                    _committed_size = length;
+                }
+                f.forward_to(std::move(*pr));
+            });
+        }
+    });
+    return pr->get_future();
+}
+
+future<size_t>
+append_challenged_posix_file_impl::size() {
+    return make_ready_future<size_t>(_committed_size);
+}
+
+future<>
+append_challenged_posix_file_impl::close() noexcept {
+    // Caller should have drained all pending I/O
+    _done = true;
+    process_queue();
+    return _completed.get_future().then([this] {
+        return posix_file_impl::close();
+    });
+}
+
 inline
 shared_ptr<file_impl>
 make_file_impl(int fd, file_open_options options) {
@@ -870,7 +1065,12 @@ make_file_impl(int fd, file_open_options options) {
     if (r != -1) {
         return make_shared<blockdev_file_impl>(fd, options);
     } else {
-        return make_shared<posix_file_impl>(fd, options);
+        // FIXME: obtain these flags from somewhere else
+        auto flags = ::fcntl(fd, F_GETFD);
+        if (flags != -1 && (flags & O_ACCMODE) == O_RDONLY) {
+            return make_shared<posix_file_impl>(fd, options);
+        }
+        return make_shared<append_challenged_posix_file_impl>(fd, options);
     }
 }
 
