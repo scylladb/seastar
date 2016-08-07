@@ -82,6 +82,7 @@
 #include "util/backtrace.hh"
 #include "util/spinlock.hh"
 #include "util/print_safe.hh"
+#include <sys/sdt.h>
 
 #ifdef HAVE_OSV
 #include <osv/newpoll.hh>
@@ -1981,18 +1982,22 @@ void reactor::register_collectd_metrics() {
 }
 
 void reactor::run_tasks(circular_buffer<std::unique_ptr<task>>& tasks) {
+    STAP_PROBE(seastar, reactor_run_tasks_start);
     g_need_preempt = false;
     while (!tasks.empty()) {
         auto tsk = std::move(tasks.front());
         tasks.pop_front();
+        STAP_PROBE(seastar, reactor_run_tasks_single_start);
         tsk->run();
         tsk.reset();
+        STAP_PROBE(seastar, reactor_run_tasks_single_end);
         ++_tasks_processed;
         // check at end of loop, to allow at least one task to run
         if (need_preempt() && tasks.size() <= _max_task_backlog) {
             break;
         }
     }
+    STAP_PROBE(seastar, reactor_run_tasks_end);
 }
 
 void reactor::force_poll() {
