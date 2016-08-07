@@ -1,0 +1,24 @@
+#!/usr/bin/stap
+
+# usage: task_latency.stap process_name latency_threshold_ms
+
+global start_time
+
+probe process(@1).mark("reactor_run_tasks_single_start") {
+    start_time[tid()] = gettimeofday_us()
+}
+
+probe process(@1).mark("reactor_run_tasks_single_end") {
+    delete start_time[tid()]
+}
+
+probe timer.profile {
+    if ([tid()] in start_time) {
+        now = gettimeofday_us()
+        start = start_time[tid()]
+        if ((now - start) > $2 * 1000) {
+            printf("detected tasks running for >%sms\n", @2)
+            print_usyms(ubacktrace())
+	}
+    }
+}
