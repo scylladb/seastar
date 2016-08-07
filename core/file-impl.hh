@@ -55,6 +55,8 @@ private:
 class append_challenged_posix_file_impl : public posix_file_impl {
     // File size as a result of completed kernel operations (writes and truncates)
     uint64_t _committed_size;
+    // File size as a result of seastar API calls
+    uint64_t _logical_size;
     // Pending operations
     enum class opcode {
         invalid,
@@ -76,6 +78,7 @@ class append_challenged_posix_file_impl : public posix_file_impl {
     unsigned _current_size_changing_ops = 0;
     // Set when the user closes the file
     bool _done = false;
+    bool _sloppy_size = false;
     // Fulfiled when _done and I/O is complete
     promise<> _completed;
 private:
