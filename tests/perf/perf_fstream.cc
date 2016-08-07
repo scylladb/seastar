@@ -33,14 +33,18 @@ int main(int ac, char** av) {
             ("concurrency", bpo::value<unsigned>()->default_value(1), "Write operations to issue in parallel")
             ("buffer-size", bpo::value<size_t>()->default_value(4096), "Write buffer size")
             ("total-ops", bpo::value<unsigned>()->default_value(100000), "Total write operations to issue")
+            ("sloppy-size", bpo::value<bool>()->default_value(false), "Enable the sloppy-size optimization")
             ;
     return at.run(ac, av, [&at] {
         auto concurrency = at.configuration()["concurrency"].as<unsigned>();
         auto buffer_size = at.configuration()["buffer-size"].as<size_t>();
         auto total_ops = at.configuration()["total-ops"].as<unsigned>();
+        auto sloppy_size = at.configuration()["sloppy-size"].as<bool>();
+        file_open_options foo;
+        foo.sloppy_size = sloppy_size;
         return open_file_dma(
                 "testfile.tmp", open_flags::wo | open_flags::create | open_flags::exclusive,
-                file_open_options()).then([=] (file f) {
+                foo).then([=] (file f) {
             file_output_stream_options foso;
             foso.buffer_size = buffer_size;
             foso.preallocation_size = 32 << 20;
