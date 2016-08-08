@@ -419,6 +419,7 @@ private:
     void move_pending();
     void flush_request_batch();
     void flush_response_batch();
+    bool has_unflushed_responses() const;
     bool pure_poll_rx() const;
     bool pure_poll_tx() const;
 

@@ -2254,6 +2254,10 @@ void smp_message_queue::flush_response_batch() {
     }
 }
 
+bool smp_message_queue::has_unflushed_responses() const {
+    return !_completed_fifo.empty();
+}
+
 bool smp_message_queue::pure_poll_rx() const {
     // can't use read_available(), not available on older boost
     // empty() is not const, so need const_cast.
@@ -2862,6 +2866,7 @@ bool smp::poll_queues() {
         if (engine().cpu_id() != i) {
             auto& rxq = _qs[engine().cpu_id()][i];
             rxq.flush_response_batch();
+            got += rxq.has_unflushed_responses();
             got += rxq.process_incoming();
             auto& txq = _qs[i][engine()._id];
             txq.flush_request_batch();
@@ -2876,7 +2881,7 @@ bool smp::pure_poll_queues() {
         if (engine().cpu_id() != i) {
             auto& rxq = _qs[engine().cpu_id()][i];
             auto& txq = _qs[i][engine()._id];
-            if (rxq.pure_poll_rx() || txq.pure_poll_tx()) {
+            if (rxq.pure_poll_rx() || txq.pure_poll_tx() || rxq.has_unflushed_responses()) {
                 return true;
             }
         }
