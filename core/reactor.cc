@@ -2856,6 +2856,34 @@ void smp::configure(boost::program_options::variables_map configuration)
     engine()._lowres_clock = std::make_unique<lowres_clock>();
 }
 
+bool smp::poll_queues() {
+    size_t got = 0;
+    for (unsigned i = 0; i < count; i++) {
+        if (engine().cpu_id() != i) {
+            auto& rxq = _qs[engine().cpu_id()][i];
+            rxq.flush_response_batch();
+            got += rxq.process_incoming();
+            auto& txq = _qs[i][engine()._id];
+            txq.flush_request_batch();
+            got += txq.process_completions();
+        }
+    }
+    return got != 0;
+}
+
+bool smp::pure_poll_queues() {
+    for (unsigned i = 0; i < count; i++) {
+        if (engine().cpu_id() != i) {
+            auto& rxq = _qs[engine().cpu_id()][i];
+            auto& txq = _qs[i][engine()._id];
+            if (rxq.pure_poll_rx() || txq.pure_poll_tx()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 __thread bool g_need_preempt;
 
 __thread reactor* local_engine;
