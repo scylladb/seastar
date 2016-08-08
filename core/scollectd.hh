@@ -794,14 +794,20 @@ static type_instance_id add_polled_metric(const type_instance_id & id, descripti
     return id;
 }
 
-template<typename ... _Args>
-static type_instance_id add_disabled_polled_metric(const type_instance_id & id,
-        _Args&& ... args) {
-    typedef decltype(make_type_instance(std::forward<_Args>(args)...)) impl_type;
+template<typename ... Args>
+static type_instance_id add_disabled_polled_metric(const type_instance_id & id, description d,
+        Args&& ... args) {
+    typedef decltype(make_type_instance(std::move(d), std::forward<Args>(args)...)) impl_type;
     add_polled(id,
             ::make_shared<impl_type>(
-                    make_type_instance(std::forward<_Args>(args)...)), false);
+                    make_type_instance(std::move(d), std::forward<Args>(args)...)), false);
     return id;
+}
+
+template<typename ... Args>
+static type_instance_id add_disabled_polled_metric(const type_instance_id & id,
+        Args&& ... args) {
+    return add_disabled_polled_metric(id, description(), std::forward<Args>(args)...);
 }
 
 // "Explicit" metric sends. Sends a single value list as a message.
