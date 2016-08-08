@@ -824,6 +824,12 @@ static type_instance_id add_disabled_polled_metric(const type_instance_id & id,
     return add_disabled_polled_metric(id, description(), std::forward<Args>(args));
 }
 
+template<typename ... Args>
+static type_instance_id add_disabled_polled_metric(const type_instance_id & id,
+        Args&& ... args) {
+    return add_disabled_polled_metric(id, description(), std::forward<Args>(args)...);
+}
+
 // "Explicit" metric sends. Sends a single value list as a message.
 // Obviously not super efficient either. But maybe someone needs it sometime.
 template<typename ... _Args>
