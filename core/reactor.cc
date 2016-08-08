@@ -2220,11 +2220,9 @@ void smp_message_queue::move_pending() {
 }
 
 bool smp_message_queue::pure_poll_tx() const {
-#if BOOST_VERSION >= 105600
-    return !_tx.a.pending_fifo.empty() && _pending.write_available();
-#else
-    return true;
-#endif
+    // can't use read_available(), not available on older boost
+    // empty() is not const, so need const_cast.
+    return !const_cast<lf_queue&>(_completed).empty();
 }
 
 void smp_message_queue::submit_item(smp_message_queue::work_item* item) {
@@ -2261,7 +2259,7 @@ bool smp_message_queue::has_unflushed_responses() const {
 bool smp_message_queue::pure_poll_rx() const {
     // can't use read_available(), not available on older boost
     // empty() is not const, so need const_cast.
-    return !const_cast<lf_queue&>(_completed).empty();
+    return !const_cast<lf_queue&>(_pending).empty();
 }
 
 void
@@ -2880,7 +2878,9 @@ bool smp::pure_poll_queues() {
     for (unsigned i = 0; i < count; i++) {
         if (engine().cpu_id() != i) {
             auto& rxq = _qs[engine().cpu_id()][i];
+            rxq.flush_response_batch();
             auto& txq = _qs[i][engine()._id];
+            txq.flush_request_batch();
             if (rxq.pure_poll_rx() || txq.pure_poll_tx() || rxq.has_unflushed_responses()) {
                 return true;
             }
