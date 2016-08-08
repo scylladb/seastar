@@ -39,6 +39,7 @@
 #include "systemwide_memory_barrier.hh"
 #include "report_exception.hh"
 #include "util/log.hh"
+#include "file-impl.hh"
 #include <cassert>
 #include <unistd.h>
 #include <fcntl.h>
@@ -862,6 +863,300 @@ posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priorit
     });
 }
 
+append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, file_open_options options)
+        : posix_file_impl(fd, options) {
+    auto r = ::lseek(fd, 0, SEEK_END);
+    throw_system_error_on(r == -1);
+    _committed_size = _logical_size = r;
+    _sloppy_size = options.sloppy_size;
+    auto hint = align_up<uint64_t>(options.sloppy_size_hint, _disk_write_dma_alignment);
+    if (_sloppy_size && _committed_size < hint) {
+        auto r = ::ftruncate(_fd, hint);
+        // We can ignore errors, since it's just a hint.
+        if (r != -1) {
+            _committed_size = hint;
+        }
+    }
+}
+
+append_challenged_posix_file_impl::~append_challenged_posix_file_impl() {
+}
+
+bool
+append_challenged_posix_file_impl::size_changing(const op& candidate) const {
+    return (candidate.type == opcode::write && candidate.pos + candidate.len > _committed_size)
+            || (candidate.type == opcode::truncate)
+            || (_sloppy_size && candidate.type == opcode::flush);
+}
+
+bool
+append_challenged_posix_file_impl::may_dispatch(const op& candidate) const {
+    if (size_changing(candidate)) {
+        return !_current_size_changing_ops && !_current_non_size_changing_ops;
+    } else {
+        return !_current_size_changing_ops;
+    }
+}
+
+void
+append_challenged_posix_file_impl::dispatch(op& candidate) {
+    unsigned* op_counter = size_changing(candidate)
+            ? &_current_size_changing_ops : &_current_non_size_changing_ops;
+    ++*op_counter;
+    candidate.run().then([this, op_counter] {
+        --*op_counter;
+        process_queue();
+    });
+}
+
+// If we have a bunch of size-extending writes in the queue,
+// issue an ftruncate() extending the file size, so they can
+// be issued concurrently.
+void
+append_challenged_posix_file_impl::optimize_queue() {
+    if (_current_non_size_changing_ops || _current_size_changing_ops) {
+        // Can't issue an ftruncate() if something is going on
+        return;
+    }
+    auto speculative_size = _committed_size;
+    unsigned n_appending_writes = 0;
+    for (const auto& op : _q) {
+        if (op.type == opcode::truncate) {
+            break;
+        }
+        if (op.type == opcode::write && op.pos + op.len > _committed_size) {
+            speculative_size = std::max(speculative_size, op.pos + op.len);
+            ++n_appending_writes;
+        }
+    }
+    if (n_appending_writes > 1u - _sloppy_size) {
+        if (_sloppy_size && speculative_size < 2 * _committed_size) {
+            speculative_size = align_up<uint64_t>(2 * _committed_size, _disk_write_dma_alignment);
+        }
+        // We're all alone, so issuing the ftruncate() in the reactor
+        // thread won't block us.
+        //
+        // Issuing it in the syscall thread is too slow; this can happen
+        // every several ops, and the syscall thread latency can be very
+        // high.
+        auto r = ::ftruncate(_fd, speculative_size);
+        if (r != -1) {
+            _committed_size = speculative_size;
+            // If we failed, the next write will pick it up.
+        }
+    }
+}
+
+void
+append_challenged_posix_file_impl::process_queue() {
+    optimize_queue();
+    while (!_q.empty() && may_dispatch(_q.front())) {
+        dispatch(_q.front());
+        _q.pop_front();
+    }
+    if (may_quit()) {
+        _completed.set_value();
+    }
+}
+
+void
+append_challenged_posix_file_impl::enqueue(op&& op) {
+    _q.push_back(std::move(op));
+    process_queue();
+}
+
+bool
+append_challenged_posix_file_impl::may_quit() const {
+    return _done && _q.empty() && !_current_non_size_changing_ops && !_current_size_changing_ops;
+}
+
+void
+append_challenged_posix_file_impl::commit_size(uint64_t size) {
+    _committed_size = std::max(size, _committed_size);
+    _logical_size = std::max(size, _logical_size);
+}
+
+future<size_t>
+append_challenged_posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc) {
+    if (pos >= _logical_size) {
+        // later() avoids tail recursion
+        return later().then([] {
+            return size_t(0);
+        });
+    }
+    len = std::min(pos + len, align_up<uint64_t>(_logical_size, _disk_read_dma_alignment)) - pos;
+    auto pr = make_lw_shared(promise<size_t>());
+    enqueue({
+        opcode::read,
+        pos,
+        len,
+        [this, pr, pos, buffer, len, &pc] {
+            return posix_file_impl::read_dma(pos, buffer, len, pc).then_wrapped([pr] (future<size_t> f) {
+                f.forward_to(std::move(*pr));
+            });
+        }
+    });
+    return pr->get_future();
+}
+
+future<size_t>
+append_challenged_posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) {
+    if (pos >= _logical_size) {
+        // later() avoids tail recursion
+        return later().then([] {
+            return size_t(0);
+        });
+    }
+    size_t len = 0;
+    auto i = iov.begin();
+    while (i != iov.end() && pos + len + i->iov_len <= _logical_size) {
+        len += i++->iov_len;
+    }
+    auto aligned_logical_size = align_up<uint64_t>(_logical_size, _disk_read_dma_alignment);
+    if (i != iov.end()) {
+        auto last_len = pos + len + i->iov_len - aligned_logical_size;
+        if (last_len) {
+            i++->iov_len = last_len;
+        }
+        iov.erase(i, iov.end());
+    }
+    auto pr = make_lw_shared(promise<size_t>());
+    enqueue({
+        opcode::read,
+        pos,
+        len,
+        [this, pr, pos, iov = std::move(iov), &pc] () mutable {
+            return posix_file_impl::read_dma(pos, std::move(iov), pc).then_wrapped([pr] (future<size_t> f) {
+                f.forward_to(std::move(*pr));
+            });
+        }
+    });
+    return pr->get_future();
+}
+
+future<size_t>
+append_challenged_posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc) {
+    auto pr = make_lw_shared(promise<size_t>());
+    enqueue({
+        opcode::write,
+        pos,
+        len,
+        [this, pr, pos, buffer, len, &pc] {
+            return posix_file_impl::write_dma(pos, buffer, len, pc).then_wrapped([this, pos, pr] (future<size_t> f) {
+                if (!f.failed()) {
+                    auto ret = f.get0();
+                    commit_size(pos + ret);
+                    // Can't use forward_to(), because future::get0() invalidates the future.
+                    pr->set_value(ret);
+                } else {
+                    f.forward_to(std::move(*pr));
+                }
+            });
+        }
+    });
+    return pr->get_future();
+}
+
+future<size_t>
+append_challenged_posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) {
+    auto pr = make_lw_shared(promise<size_t>());
+    auto len = boost::accumulate(iov | boost::adaptors::transformed(std::mem_fn(&iovec::iov_len)), size_t(0));
+    enqueue({
+        opcode::write,
+        pos,
+        len,
+        [this, pr, pos, iov = std::move(iov), &pc] () mutable {
+            return posix_file_impl::write_dma(pos, std::move(iov), pc).then_wrapped([this, pos, pr] (future<size_t> f) {
+                if (!f.failed()) {
+                    auto ret = f.get0();
+                    commit_size(pos + ret);
+                    // Can't use forward_to(), because future::get0() invalidates the future.
+                    pr->set_value(ret);
+                } else {
+                    f.forward_to(std::move(*pr));
+                }
+            });
+        }
+    });
+    return pr->get_future();
+}
+
+future<>
+append_challenged_posix_file_impl::flush() {
+    if (!_sloppy_size || _logical_size == _committed_size) {
+        // FIXME: determine if flush can block concurrent reads or writes
+        return posix_file_impl::flush();
+    } else {
+        auto pr = make_lw_shared(promise<>());
+        enqueue({
+            opcode::flush,
+            0,
+            0,
+            [this, pr] () {
+                if (_logical_size != _committed_size) {
+                    // We're all alone, so can truncate in reactor thread
+                    auto r = ::ftruncate(_fd, _logical_size);
+                    throw_system_error_on(r == -1);
+                    _committed_size = _logical_size;
+                }
+                return posix_file_impl::flush().then_wrapped([this, pr] (future<> f) {
+                    f.forward_to(std::move(*pr));
+                });
+            }
+        });
+        return pr->get_future();
+    }
+}
+
+future<struct stat>
+append_challenged_posix_file_impl::stat() {
+    // FIXME: can this conflict with anything?
+    return posix_file_impl::stat().then([this] (struct stat stat) {
+        stat.st_size = _logical_size;
+        return stat;
+    });
+}
+
+future<>
+append_challenged_posix_file_impl::truncate(uint64_t length) {
+    auto pr = make_lw_shared(promise<>());
+    enqueue({
+        opcode::truncate,
+        length,
+        0,
+        [this, pr, length] () mutable {
+            return posix_file_impl::truncate(length).then_wrapped([this, pr, length] (future<> f) {
+                if (!f.failed()) {
+                    _committed_size = _logical_size = length;
+                }
+                f.forward_to(std::move(*pr));
+            });
+        }
+    });
+    return pr->get_future();
+}
+
+future<size_t>
+append_challenged_posix_file_impl::size() {
+    return make_ready_future<size_t>(_logical_size);
+}
+
+future<>
+append_challenged_posix_file_impl::close() noexcept {
+    // Caller should have drained all pending I/O
+    _done = true;
+    process_queue();
+    return _completed.get_future().then([this] {
+        if (_logical_size != _committed_size) {
+            auto r = ::ftruncate(_fd, _logical_size);
+            if (r != -1) {
+                _committed_size = _logical_size;
+            }
+        }
+        return posix_file_impl::close();
+    });
+}
+
 inline
 shared_ptr<file_impl>
 make_file_impl(int fd, file_open_options options) {
@@ -869,7 +1164,12 @@ make_file_impl(int fd, file_open_options options) {
     if (r != -1) {
         return make_shared<blockdev_file_impl>(fd, options);
     } else {
-        return make_shared<posix_file_impl>(fd, options);
+        // FIXME: obtain these flags from somewhere else
+        auto flags = ::fcntl(fd, F_GETFD);
+        if (flags != -1 && (flags & O_ACCMODE) == O_RDONLY) {
+            return make_shared<posix_file_impl>(fd, options);
+        }
+        return make_shared<append_challenged_posix_file_impl>(fd, options);
     }
 }
 

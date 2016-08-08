@@ -203,6 +203,7 @@ tests = [
     'tests/connect_test',
     'tests/chunked_fifo_test',
     'tests/scollectd_test',
+    'tests/perf/perf_fstream',
     ]
 
 apps = [
@@ -398,6 +399,7 @@ deps = {
     'tests/connect_test': ['tests/connect_test.cc'] + core + libnet + boost_test_lib,
     'tests/chunked_fifo_test': ['tests/chunked_fifo_test.cc'] + core,
     'tests/scollectd_test': ['tests/scollectd_test.cc'] + core + boost_test_lib,
+    'tests/perf/perf_fstream': ['tests/perf/perf_fstream.cc'] + core,
 }
 
 warnings = [
