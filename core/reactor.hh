@@ -419,6 +419,7 @@ private:
     void move_pending();
     void flush_request_batch();
     void flush_response_batch();
+    bool has_unflushed_responses() const;
     bool pure_poll_rx() const;
     bool pure_poll_tx() const;
 
@@ -1072,32 +1073,8 @@ public:
             return _qs[t][engine().cpu_id()].submit(std::forward<Func>(func));
         }
     }
-    static bool poll_queues() {
-        size_t got = 0;
-        for (unsigned i = 0; i < count; i++) {
-            if (engine().cpu_id() != i) {
-                auto& rxq = _qs[engine().cpu_id()][i];
-                rxq.flush_response_batch();
-                got += rxq.process_incoming();
-                auto& txq = _qs[i][engine()._id];
-                txq.flush_request_batch();
-                got += txq.process_completions();
-            }
-        }
-        return got != 0;
-    }
-    static bool pure_poll_queues() {
-        for (unsigned i = 0; i < count; i++) {
-            if (engine().cpu_id() != i) {
-                auto& rxq = _qs[engine().cpu_id()][i];
-                auto& txq = _qs[i][engine()._id];
-                if (rxq.pure_poll_rx() || txq.pure_poll_tx()) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
+    static bool poll_queues();
+    static bool pure_poll_queues();
     static boost::integer_range<unsigned> all_cpus() {
         return boost::irange(0u, count);
     }

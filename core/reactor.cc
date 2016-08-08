@@ -2220,11 +2220,9 @@ void smp_message_queue::move_pending() {
 }
 
 bool smp_message_queue::pure_poll_tx() const {
-#if BOOST_VERSION >= 105600
-    return !_tx.a.pending_fifo.empty() && _pending.write_available();
-#else
-    return true;
-#endif
+    // can't use read_available(), not available on older boost
+    // empty() is not const, so need const_cast.
+    return !const_cast<lf_queue&>(_completed).empty();
 }
 
 void smp_message_queue::submit_item(smp_message_queue::work_item* item) {
@@ -2254,10 +2252,14 @@ void smp_message_queue::flush_response_batch() {
     }
 }
 
+bool smp_message_queue::has_unflushed_responses() const {
+    return !_completed_fifo.empty();
+}
+
 bool smp_message_queue::pure_poll_rx() const {
     // can't use read_available(), not available on older boost
     // empty() is not const, so need const_cast.
-    return !const_cast<lf_queue&>(_completed).empty();
+    return !const_cast<lf_queue&>(_pending).empty();
 }
 
 void
@@ -2854,6 +2856,37 @@ void smp::configure(boost::program_options::variables_map configuration)
 
     engine().configure(configuration);
     engine()._lowres_clock = std::make_unique<lowres_clock>();
+}
+
+bool smp::poll_queues() {
+    size_t got = 0;
+    for (unsigned i = 0; i < count; i++) {
+        if (engine().cpu_id() != i) {
+            auto& rxq = _qs[engine().cpu_id()][i];
+            rxq.flush_response_batch();
+            got += rxq.has_unflushed_responses();
+            got += rxq.process_incoming();
+            auto& txq = _qs[i][engine()._id];
+            txq.flush_request_batch();
+            got += txq.process_completions();
+        }
+    }
+    return got != 0;
+}
+
+bool smp::pure_poll_queues() {
+    for (unsigned i = 0; i < count; i++) {
+        if (engine().cpu_id() != i) {
+            auto& rxq = _qs[engine().cpu_id()][i];
+            rxq.flush_response_batch();
+            auto& txq = _qs[i][engine()._id];
+            txq.flush_request_batch();
+            if (rxq.pure_poll_rx() || txq.pure_poll_tx() || rxq.has_unflushed_responses()) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 __thread bool g_need_preempt;
