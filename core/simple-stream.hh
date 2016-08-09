@@ -75,6 +75,10 @@ public:
         std::copy_n(_p, size, p);
         skip(size);
     }
+    template<typename Output>
+    void copy_to(Output& out) const {
+        out.write(_p, _size);
+    }
     const size_t size() const {
         return _size;
     }
