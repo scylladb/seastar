@@ -1681,7 +1681,7 @@ struct reactor::collectd_registrations {
 
 reactor::collectd_registrations
 reactor::register_collectd_metrics() {
-    return collectd_registrations{ {
+    auto ret = collectd_registrations{ {
             // queue_length     value:GAUGE:0:U
             // Absolute value of num tasks in queue.
             scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
@@ -1731,12 +1731,6 @@ reactor::register_collectd_metrics() {
                     , scollectd::per_cpu_plugin_instance
                     , "derive", "aio-write-bytes")
                     , scollectd::make_typed(scollectd::data_type::DERIVE, _aio_write_bytes)
-            ),
-            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
-                    , scollectd::per_cpu_plugin_instance
-                    , "gauge", "queued-io-requests")
-                    , scollectd::make_typed(scollectd::data_type::GAUGE,
-                        [this] { return _io_queue->queued_requests(); } )
             ),
             // total_operations value:DERIVE:0:U
             scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
@@ -1821,6 +1815,16 @@ reactor::register_collectd_metrics() {
                     , scollectd::make_typed(scollectd::data_type::DERIVE, _cxx_exceptions)
             ),
     } };
+
+    if (my_io_queue) {
+        ret.regs.push_back(scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+            , scollectd::per_cpu_plugin_instance
+            , "gauge", "queued-io-requests")
+            , scollectd::make_typed(scollectd::data_type::GAUGE,
+                [this] { return my_io_queue->queued_requests(); } )
+        ));
+    }
+    return ret;
 }
 
 void reactor::run_tasks(circular_buffer<std::unique_ptr<task>>& tasks) {
