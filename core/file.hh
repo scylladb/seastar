@@ -89,7 +89,7 @@ class io_priority_class {
     unsigned val;
     friend io_queue;
 public:
-    operator unsigned() const {
+    unsigned id() const {
         return val;
     }
 };
