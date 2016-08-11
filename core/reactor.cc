@@ -396,7 +396,7 @@ void reactor::configure(boost::program_options::variables_map vm) {
     }
     if (vm.count("overprovisioned")
            && vm["idle-poll-time-us"].defaulted()
-           && vm["poll-mode"].defaulted()) {
+           && !vm.count("poll-mode")) {
         _max_poll_time = 0us;
     }
     set_strict_dma(!vm.count("relaxed-dma"));
