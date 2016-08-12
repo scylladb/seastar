@@ -115,7 +115,7 @@ thread_context::switch_out() {
 bool
 thread_context::should_yield() const {
     if (!_attr.scheduling_group) {
-        return true;
+        return need_preempt();
     }
     return bool(_attr.scheduling_group->next_scheduling_point());
 }
