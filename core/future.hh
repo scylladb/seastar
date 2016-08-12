@@ -760,6 +760,8 @@ public:
     std::tuple<T...> get() {
         if (!state()->available()) {
             wait();
+        } else if (seastar::thread_impl::get() && seastar::thread_impl::should_yield()) {
+            seastar::thread_impl::yield();
         }
         return get_available_state().get();
     }
