@@ -190,6 +190,10 @@ thread_context::main() {
 
 namespace thread_impl {
 
+void yield() {
+    g_current_context->thread->yield();
+}
+
 void switch_in(thread_context* to) {
     to->switch_in();
 }

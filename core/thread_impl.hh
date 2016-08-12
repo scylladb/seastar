@@ -21,6 +21,7 @@
  */
 
 #pragma once
+#include "preempt.hh"
 #include <setjmp.h>
 #include <chrono>
 #include <experimental/optional>
@@ -51,6 +52,17 @@ inline thread_context* get() {
     return g_current_context->thread;
 }
 
+inline bool should_yield() {
+    if (need_preempt()) {
+        return true;
+    } else if (g_current_context->yield_at) {
+        return std::chrono::steady_clock::now() >= *(g_current_context->yield_at);
+    } else {
+        return false;
+    }
+}
+
+void yield();
 void switch_in(thread_context* to);
 void switch_out(thread_context* from);
 void init();
