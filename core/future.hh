@@ -24,6 +24,7 @@
 
 #include "apply.hh"
 #include "task.hh"
+#include "preempt.hh"
 #include "thread_impl.hh"
 #include <stdexcept>
 #include <atomic>
@@ -534,18 +535,6 @@ template <typename... T> struct is_future<future<T...>> : std::true_type {};
 struct ready_future_marker {};
 struct ready_future_from_tuple_marker {};
 struct exception_future_marker {};
-
-extern __thread bool g_need_preempt;
-
-inline bool need_preempt() {
-#ifndef DEBUG
-    // prevent compiler from eliminating loads in a loop
-    std::atomic_signal_fence(std::memory_order_seq_cst);
-    return g_need_preempt;
-#else
-    return true;
-#endif
-}
 
 /// \endcond
 
