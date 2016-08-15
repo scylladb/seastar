@@ -22,8 +22,13 @@
 
 #pragma once
 #include <setjmp.h>
+#include <chrono>
+#include <experimental/optional>
 
 namespace seastar {
+/// Clock used for scheduling threads
+using thread_clock = std::chrono::steady_clock;
+
 /// \cond internal
 class thread_context;
 
@@ -35,7 +40,9 @@ struct jmp_buf_link {
 #endif
     jmp_buf_link* link;
     thread_context* thread;
+    std::experimental::optional<std::chrono::time_point<thread_clock>> yield_at = {};
 };
+
 extern thread_local jmp_buf_link* g_current_context;
 
 namespace thread_impl {

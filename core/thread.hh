@@ -79,9 +79,6 @@ class thread;
 class thread_attributes;
 class thread_scheduling_group;
 
-/// Clock used for scheduling threads
-using thread_clock = steady_clock_type;
-
 /// Class that holds attributes controling the behavior of a thread.
 class thread_attributes {
 public:

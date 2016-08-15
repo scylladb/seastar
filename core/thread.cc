@@ -87,6 +87,9 @@ thread_context::switch_in() {
     _context.link = prev;
     if (_attr.scheduling_group) {
         _attr.scheduling_group->account_start();
+        _context.yield_at = thread_clock::now() + _attr.scheduling_group->_this_period_remain;
+    } else {
+        _context.yield_at = {};
     }
 #ifdef ASAN_ENABLED
     swapcontext(&prev->context, &_context.context);
