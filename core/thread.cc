@@ -187,10 +187,6 @@ thread_context::main() {
 
 namespace thread_impl {
 
-thread_context* get() {
-    return g_current_context->thread;
-}
-
 void switch_in(thread_context* to) {
     to->switch_in();
 }

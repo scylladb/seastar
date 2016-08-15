@@ -24,6 +24,7 @@
 
 #include "apply.hh"
 #include "task.hh"
+#include "thread_impl.hh"
 #include <stdexcept>
 #include <atomic>
 #include <memory>
@@ -60,21 +61,6 @@
 ///
 /// \brief
 /// These utilities are provided to help perform operations on futures.
-
-
-namespace seastar {
-
-class thread_context;
-
-namespace thread_impl {
-
-thread_context* get();
-void switch_in(thread_context* to);
-void switch_out(thread_context* from);
-
-}
-
-}
 
 
 /// \addtogroup future-module

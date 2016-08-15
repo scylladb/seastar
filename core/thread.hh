@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "thread_impl.hh"
 #include "future.hh"
 #include "do_with.hh"
 #include "future-util.hh"
@@ -89,27 +90,6 @@ public:
 
 
 /// \cond internal
-class thread_context;
-
-namespace thread_impl {
-
-thread_context* get();
-void switch_in(thread_context* to);
-void switch_out(thread_context* from);
-void init();
-
-}
-
-struct jmp_buf_link {
-#ifdef ASAN_ENABLED
-    ucontext_t context;
-#else
-    jmp_buf jmpbuf;
-#endif
-    jmp_buf_link* link;
-    thread_context* thread;
-};
-
 extern thread_local jmp_buf_link g_unthreaded_context;
 
 // Internal class holding thread state.  We can't hold this in
