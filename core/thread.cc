@@ -87,6 +87,9 @@ thread_context::switch_in() {
     _context.link = prev;
     if (_attr.scheduling_group) {
         _attr.scheduling_group->account_start();
+        _context.yield_at = thread_clock::now() + _attr.scheduling_group->_this_period_remain;
+    } else {
+        _context.yield_at = {};
     }
 #ifdef ASAN_ENABLED
     swapcontext(&prev->context, &_context.context);
@@ -115,7 +118,7 @@ thread_context::switch_out() {
 bool
 thread_context::should_yield() const {
     if (!_attr.scheduling_group) {
-        return true;
+        return need_preempt();
     }
     return bool(_attr.scheduling_group->next_scheduling_point());
 }
@@ -187,8 +190,8 @@ thread_context::main() {
 
 namespace thread_impl {
 
-thread_context* get() {
-    return g_current_context->thread;
+void yield() {
+    g_current_context->thread->yield();
 }
 
 void switch_in(thread_context* to) {

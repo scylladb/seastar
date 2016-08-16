@@ -24,6 +24,8 @@
 
 #include "apply.hh"
 #include "task.hh"
+#include "preempt.hh"
+#include "thread_impl.hh"
 #include <stdexcept>
 #include <atomic>
 #include <memory>
@@ -60,21 +62,6 @@
 ///
 /// \brief
 /// These utilities are provided to help perform operations on futures.
-
-
-namespace seastar {
-
-class thread_context;
-
-namespace thread_impl {
-
-thread_context* get();
-void switch_in(thread_context* to);
-void switch_out(thread_context* from);
-
-}
-
-}
 
 
 /// \addtogroup future-module
@@ -549,18 +536,6 @@ struct ready_future_marker {};
 struct ready_future_from_tuple_marker {};
 struct exception_future_marker {};
 
-extern __thread bool g_need_preempt;
-
-inline bool need_preempt() {
-#ifndef DEBUG
-    // prevent compiler from eliminating loads in a loop
-    std::atomic_signal_fence(std::memory_order_seq_cst);
-    return g_need_preempt;
-#else
-    return true;
-#endif
-}
-
 /// \endcond
 
 
@@ -785,6 +760,8 @@ public:
     std::tuple<T...> get() {
         if (!state()->available()) {
             wait();
+        } else if (seastar::thread_impl::get() && seastar::thread_impl::should_yield()) {
+            seastar::thread_impl::yield();
         }
         return get_available_state().get();
     }
