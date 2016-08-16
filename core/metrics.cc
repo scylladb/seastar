@@ -225,5 +225,30 @@ void impl::add_registration(const metric_id& id, shared_ptr<registered_metric> r
 const bool metric_disabled = false;
 
 
+histogram& histogram::operator+=(const histogram& c) {
+    for (size_t i = 0; i < c.buckets.size(); i++) {
+        if (buckets.size() <= i) {
+            buckets.push_back(c.buckets[i]);
+        } else {
+            if (buckets[i].upper_bound != c.buckets[i].upper_bound) {
+                throw std::out_of_range("Trying to add histogram with different bucket limits");
+            }
+            buckets[i].count += c.buckets[i].count;
+        }
+    }
+    return *this;
+}
+
+histogram histogram::operator+(const histogram& c) const {
+    histogram res = *this;
+    res += c;
+    return res;
+}
+
+histogram histogram::operator+(histogram&& c) const {
+    c += *this;
+    return std::move(c);
+}
+
 }
 }
