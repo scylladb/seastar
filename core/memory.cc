@@ -962,7 +962,6 @@ size_t object_size(void* ptr) {
 }
 
 void* allocate(size_t size) {
-    ++g_allocs;
     if (size <= sizeof(free_object)) {
         size = sizeof(free_object);
     }
@@ -975,11 +974,11 @@ void* allocate(size_t size) {
     if (!ptr) {
         on_allocation_failure(size);
     }
+    ++g_allocs;
     return ptr;
 }
 
 void* allocate_aligned(size_t align, size_t size) {
-    ++g_allocs;
     size = std::max(size, align);
     if (size <= sizeof(free_object)) {
         size = sizeof(free_object);
@@ -996,6 +995,7 @@ void* allocate_aligned(size_t align, size_t size) {
     if (!ptr) {
         on_allocation_failure(size);
     }
+    ++g_allocs;
     return ptr;
 }
 
