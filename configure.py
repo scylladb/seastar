@@ -146,7 +146,7 @@ def sanitize_vptr_flag(compiler):
             and False)):   # -fsanitize=vptr is broken even when the test above passes
         return ''
     else:
-        print('-fsanitize=vptr is broken, disabling')
+        print('Notice: -fsanitize=vptr is broken, disabling; some debug mode tests are bypassed.')
         return '-fno-sanitize=vptr'
 
 modes = {
