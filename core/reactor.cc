@@ -23,6 +23,7 @@
 
 #include <sys/syscall.h>
 #include <sys/vfs.h>
+#include <sys/statfs.h>
 #include "task.hh"
 #include "reactor.hh"
 #include "memory.hh"
@@ -863,8 +864,9 @@ posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priorit
     });
 }
 
-append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, file_open_options options)
-        : posix_file_impl(fd, options) {
+append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, file_open_options options,
+        unsigned max_size_changing_ops)
+        : posix_file_impl(fd, options), _max_size_changing_ops(max_size_changing_ops) {
     auto r = ::lseek(fd, 0, SEEK_END);
     throw_system_error_on(r == -1);
     _committed_size = _logical_size = r;
@@ -929,7 +931,8 @@ append_challenged_posix_file_impl::optimize_queue() {
             ++n_appending_writes;
         }
     }
-    if (n_appending_writes > 1u - _sloppy_size) {
+    if (n_appending_writes > _max_size_changing_ops
+            || (n_appending_writes && _sloppy_size)) {
         if (_sloppy_size && speculative_size < 2 * _committed_size) {
             speculative_size = align_up<uint64_t>(2 * _committed_size, _disk_write_dma_alignment);
         }
@@ -1170,7 +1173,42 @@ make_file_impl(int fd, file_open_options options) {
         if ((flags & O_ACCMODE) == O_RDONLY) {
             return make_shared<posix_file_impl>(fd, options);
         }
-        return make_shared<append_challenged_posix_file_impl>(fd, options);
+        struct stat st;
+        auto r = ::fstat(fd, &st);
+        throw_system_error_on(r == -1);
+        if (S_ISDIR(st.st_mode)) {
+            return make_shared<posix_file_impl>(fd, options);
+        }
+        struct append_support {
+            bool append_challenged;
+            unsigned append_concurrency;
+        };
+        static thread_local std::unordered_map<decltype(st.st_dev), append_support> s_fstype;
+        if (!s_fstype.count(st.st_dev)) {
+            struct statfs sfs;
+            auto r = ::fstatfs(fd, &sfs);
+            throw_system_error_on(r == -1);
+            append_support as;
+            switch (sfs.f_type) {
+            case 0x58465342: /* XFS */
+                as.append_challenged = true;
+                as.append_concurrency = 1;
+                break;
+            case 0x6969: /* NFS */
+                as.append_challenged = false;
+                as.append_concurrency = 0;
+                break;
+            default:
+                as.append_challenged = true;
+                as.append_concurrency = 0;
+            }
+            s_fstype[st.st_dev] = as;
+        }
+        auto as = s_fstype[st.st_dev];
+        if (!as.append_challenged) {
+            return make_shared<posix_file_impl>(fd, options);
+        }
+        return make_shared<append_challenged_posix_file_impl>(fd, options, as.append_concurrency);
     }
 }
 
