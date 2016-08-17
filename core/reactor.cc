@@ -1165,8 +1165,9 @@ make_file_impl(int fd, file_open_options options) {
         return make_shared<blockdev_file_impl>(fd, options);
     } else {
         // FIXME: obtain these flags from somewhere else
-        auto flags = ::fcntl(fd, F_GETFD);
-        if (flags != -1 && (flags & O_ACCMODE) == O_RDONLY) {
+        auto flags = ::fcntl(fd, F_GETFL);
+        throw_system_error_on(flags == -1);
+        if ((flags & O_ACCMODE) == O_RDONLY) {
             return make_shared<posix_file_impl>(fd, options);
         }
         return make_shared<append_challenged_posix_file_impl>(fd, options);
