@@ -562,6 +562,7 @@ bool cpu_pages::drain_cross_cpu_freelist() {
     auto p = xcpu_freelist.exchange(nullptr, std::memory_order_acquire);
     while (p) {
         auto n = p->next;
+        ++g_frees;
         free(p);
         p = n;
     }
