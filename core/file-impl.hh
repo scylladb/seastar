@@ -38,7 +38,7 @@ public:
     future<> truncate(uint64_t length);
     future<> discard(uint64_t offset, uint64_t length);
     virtual future<> allocate(uint64_t position, uint64_t length) override;
-    future<size_t> size(void);
+    future<uint64_t> size();
     virtual future<> close() noexcept override;
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) override;
 private:
@@ -100,7 +100,7 @@ public:
     future<> flush() override;
     future<struct stat> stat() override;
     future<> truncate(uint64_t length) override;
-    future<size_t> size() override;
+    future<uint64_t> size() override;
     future<> close() noexcept override;
 };
 
@@ -109,7 +109,7 @@ public:
     blockdev_file_impl(int fd, file_open_options options);
     future<> truncate(uint64_t length) override;
     future<> discard(uint64_t offset, uint64_t length) override;
-    future<size_t> size(void) override;
+    future<uint64_t> size() override;
     virtual future<> allocate(uint64_t position, uint64_t length) override;
 };
 

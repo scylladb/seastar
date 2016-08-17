@@ -1136,7 +1136,7 @@ append_challenged_posix_file_impl::truncate(uint64_t length) {
     return pr->get_future();
 }
 
-future<size_t>
+future<uint64_t>
 append_challenged_posix_file_impl::size() {
     return make_ready_future<size_t>(_logical_size);
 }
@@ -1454,7 +1454,7 @@ blockdev_file_impl::allocate(uint64_t position, uint64_t length) {
 }
 
 future<uint64_t>
-posix_file_impl::size(void) {
+posix_file_impl::size() {
     auto r = ::lseek(_fd, 0, SEEK_END);
     if (r == -1) {
         return make_exception_future<uint64_t>(std::system_error(errno, std::system_category()));
