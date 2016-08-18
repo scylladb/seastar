@@ -53,6 +53,8 @@ public:
     simple_input_stream(const simple_input_stream& o) : _p(o._p), _size(o._size) {}
     simple_input_stream(const char* p, size_t size) : _p(p), _size(size) {}
     const char* begin() const { return _p; }
+
+    [[gnu::always_inline]]
     void skip(size_t size) {
         if (size > _size) {
             throw std::out_of_range("deserialization buffer underflow");
@@ -60,6 +62,8 @@ public:
         _p += size;
         _size -= size;
     }
+
+    [[gnu::always_inline]]
     simple_input_stream read_substream(size_t size) {
        if (size > _size) {
            throw std::out_of_range("deserialization buffer underflow");
@@ -68,6 +72,8 @@ public:
        skip(size);
        return substream;
     }
+
+    [[gnu::always_inline]]
     void read(char* p, size_t size) {
         if (size > _size) {
             throw std::out_of_range("deserialization buffer underflow");
@@ -75,10 +81,14 @@ public:
         std::copy_n(_p, size, p);
         skip(size);
     }
+
     template<typename Output>
+    [[gnu::always_inline]]
     void copy_to(Output& out) const {
         out.write(_p, _size);
     }
+
+    [[gnu::always_inline]]
     const size_t size() const {
         return _size;
     }
