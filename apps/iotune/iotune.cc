@@ -196,7 +196,8 @@ private:
     // concurrency.
     std::map<uint64_t, uint64_t> _all_results = { {0ul, 0ul} };
 
-    void refill_concurrency_queue(auto begin, auto end) {
+    template <typename Iterator>
+    void refill_concurrency_queue(Iterator begin, Iterator end) {
         unsigned first = (*begin).first;
         unsigned last;
 
