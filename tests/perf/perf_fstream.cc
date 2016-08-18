@@ -56,7 +56,8 @@ int main(int ac, char** av) {
                     if (completed == total_ops) {
                         return make_ready_future<stop_iteration>(stop_iteration::yes);
                     }
-                    char buf[buffer_size] = {};
+                    char buf[buffer_size];
+                    memset(buf, 0, buffer_size);
                     return os.write(buf, buffer_size).then([&completed] {
                         ++completed;
                         return stop_iteration::no;
