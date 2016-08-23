@@ -97,6 +97,10 @@ enum class protocol_features : uint32_t {
 // internal representation of feature data
 using feature_map = std::map<protocol_features, sstring>;
 
+// An rpc signature, in the form signature<Ret (In0, In1, In2)>.
+template <typename Function>
+struct signature;
+
 // MsgType is a type that holds type of a message. The type should be hashable
 // and serializable. It is preferable to use enum for message types, but
 // do not forget to provide hash function for it
@@ -492,6 +496,9 @@ public:
     }
 
 private:
+    template<typename Ret, typename... In>
+    auto make_client(signature<Ret(In...)> sig, MsgType t);
+
     void register_receiver(MsgType t, rpc_handler&& handler) {
         _handlers.emplace(t, std::move(handler));
     }

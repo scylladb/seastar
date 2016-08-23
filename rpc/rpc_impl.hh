@@ -55,10 +55,6 @@ struct wait_type {}; // opposite of no_wait_type
 struct do_want_client_info {};
 struct dont_want_client_info {};
 
-// An rpc signature, in the form signature<Ret (In0, In1, In2)>.
-template <typename Function>
-struct signature;
-
 // General case
 template <typename Ret, typename... In>
 struct signature<Ret (In...)> {
@@ -456,54 +452,14 @@ auto make_copyable_function(Func&& func, std::enable_if_t<std::is_copy_construct
     return std::forward<Func>(func);
 }
 
-template<typename Ret, typename... Args>
-struct handler_type_helper {
-    using type = Ret(Args...);
-    static constexpr bool info = false;
-};
-
-template<typename Ret, typename First, typename... Args>
-struct handler_type_helper<Ret, First, Args...> {
-    using type = Ret(First, Args...);
-    static constexpr bool info = false;
-};
-
-template<typename Ret, typename... Args>
-struct handler_type_helper<Ret, const client_info&, Args...> {
-    using type = Ret(Args...);
-    static constexpr bool info = true;
-};
-
-template<typename Ret, typename... Args>
-struct handler_type_helper<Ret, client_info&, Args...> {
-    using type = Ret(Args...);
-    static constexpr bool info = true;
-};
-
-template<typename Ret, typename... Args>
-struct handler_type_helper<Ret, client_info, Args...> {
-    using type = Ret(Args...);
-    static constexpr bool info = true;
-};
-
-template<typename Ret, typename F, typename I>
-struct handler_type_impl;
-
-template<typename Ret, typename F, std::size_t... I>
-struct handler_type_impl<Ret, F, std::integer_sequence<std::size_t, I...>> {
-    using type = handler_type_helper<Ret, typename remove_optional<typename F::template arg<I>::type>::type...>;
-};
-
-// this class is used to calculate client side rpc function signature
-// if rpc callback receives client_info as a first parameter it is dropped
-// from an argument list and if return type is a smart pointer it is converted to be
-// a type it points to, otherwise signature is identical to what was passed to
-// make_client().
+// This class is used to calculate client side rpc function signature.
+// Return type is converted from a smart pointer to a type it points to.
+// rpc::optional are converted to non optional type.
 //
 // Examples:
-// std::unique_ptr<int>(client_info, int, long) -> int(int, long)
-// double(client_info, float) -> double(float)
-template<typename Func>
+// std::unique_ptr<int>(int, rpc::optional<long>) -> int(int, long)
+// double(float) -> double(float)
+template<typename Ret, typename... In>
 class client_function_type {
     template<typename T, bool IsSmartPtr>
     struct drop_smart_ptr_impl;
@@ -518,19 +474,23 @@ class client_function_type {
     template<typename T>
     using drop_smart_ptr = drop_smart_ptr_impl<T, is_smart_ptr<T>::value>;
 
-    using trait = function_traits<Func>;
     // if return type is smart ptr take a type it points to instead
-    using return_type = typename drop_smart_ptr<typename trait::return_type>::type;
+    using return_type = typename drop_smart_ptr<Ret>::type;
 public:
-    using type = typename handler_type_impl<return_type, trait, std::make_index_sequence<trait::arity>>::type::type;
+    using type = return_type(typename remove_optional<In>::type...);
 };
+
+template<typename Serializer, typename MsgType>
+template<typename Ret, typename... In>
+auto protocol<Serializer, MsgType>::make_client(signature<Ret(In...)> clear_sig, MsgType t) {
+    using sig_type = signature<typename client_function_type<Ret, In...>::type>;
+    return send_helper<Serializer>(t, sig_type());
+}
 
 template<typename Serializer, typename MsgType>
 template<typename Func>
 auto protocol<Serializer, MsgType>::make_client(MsgType t) {
-    using trait = function_traits<typename client_function_type<Func>::type>;
-    using sig_type = signature<typename trait::signature>;
-    return send_helper<Serializer>(t, sig_type());
+    return make_client(typename signature<typename function_traits<Func>::signature>::clean(), t);
 }
 
 template<typename Serializer, typename MsgType>
@@ -542,7 +502,7 @@ auto protocol<Serializer, MsgType>::register_handler(MsgType t, Func&& func) {
     auto recv = recv_helper<Serializer, MsgType>(clean_sig_type(), std::forward<Func>(func),
             want_client_info());
     register_receiver(t, make_copyable_function(std::move(recv)));
-    return make_client<Func>(t);
+    return make_client(clean_sig_type(), t);
 }
 
 template<typename Serializer, typename MsgType>
