@@ -55,6 +55,10 @@ struct wait_type {}; // opposite of no_wait_type
 struct do_want_client_info {};
 struct dont_want_client_info {};
 
+// tags to tell whether we want a opt_time_point parameter
+struct do_want_time_point {};
+struct dont_want_time_point {};
+
 // General case
 template <typename Ret, typename... In>
 struct signature<Ret (In...)> {
@@ -62,6 +66,7 @@ struct signature<Ret (In...)> {
     using arg_types = std::tuple<In...>;
     using clean = signature;
     using want_client_info = dont_want_client_info;
+    using want_time_point = dont_want_time_point;
 };
 
 // Specialize 'clean' for handlers that receive client_info
@@ -71,6 +76,7 @@ struct signature<Ret (const client_info&, In...)> {
     using arg_types = std::tuple<In...>;
     using clean = signature<Ret (In...)>;
     using want_client_info = do_want_client_info;
+    using want_time_point = dont_want_time_point;
 };
 
 template <typename Ret, typename... In>
@@ -79,8 +85,37 @@ struct signature<Ret (client_info&, In...)> {
     using arg_types = std::tuple<In...>;
     using clean = signature<Ret (In...)>;
     using want_client_info = do_want_client_info;
+    using want_time_point = dont_want_time_point;
 };
 
+// Specialize 'clean' for handlers that receive client_info and opt_time_point
+template <typename Ret, typename... In>
+struct signature<Ret (const client_info&, opt_time_point, In...)> {
+    using ret_type = Ret;
+    using arg_types = std::tuple<In...>;
+    using clean = signature<Ret (In...)>;
+    using want_client_info = do_want_client_info;
+    using want_time_point = do_want_time_point;
+};
+
+template <typename Ret, typename... In>
+struct signature<Ret (client_info&, opt_time_point, In...)> {
+    using ret_type = Ret;
+    using arg_types = std::tuple<In...>;
+    using clean = signature<Ret (In...)>;
+    using want_client_info = do_want_client_info;
+    using want_time_point = do_want_time_point;
+};
+
+// Specialize 'clean' for handlers that receive opt_time_point
+template <typename Ret, typename... In>
+struct signature<Ret (opt_time_point, In...)> {
+    using ret_type = Ret;
+    using arg_types = std::tuple<In...>;
+    using clean = signature<Ret (In...)>;
+    using want_client_info = dont_want_client_info;
+    using want_time_point = do_want_time_point;
+};
 
 template <typename T>
 struct wait_signature {
@@ -121,6 +156,20 @@ inline
 std::tuple<std::reference_wrapper<client_info>, In...>
 maybe_add_client_info(do_want_client_info, client_info& ci, std::tuple<In...>&& args) {
     return std::tuple_cat(std::make_tuple(std::ref(ci)), std::move(args));
+}
+
+template <typename... In>
+inline
+std::tuple<In...>
+maybe_add_time_point(dont_want_time_point, opt_time_point& otp, std::tuple<In...>&& args) {
+    return std::move(args);
+}
+
+template <typename... In>
+inline
+std::tuple<opt_time_point, In...>
+maybe_add_time_point(do_want_time_point, opt_time_point& otp, std::tuple<In...>&& args) {
+    return std::tuple_cat(std::make_tuple(otp), std::move(args));
 }
 
 template <bool IsSmartPtr>
@@ -392,11 +441,11 @@ inline future<> reply(no_wait_type, future<no_wait_type>&& r, int64_t msgid, lw_
     return make_ready_future<>();
 }
 
-template<typename Ret, typename... InArgs, typename WantClientInfo, typename Func, typename ArgsTuple>
-inline futurize_t<Ret> apply(Func& func, client_info& info, WantClientInfo wci, signature<Ret (InArgs...)> sig, ArgsTuple&& args) {
+template<typename Ret, typename... InArgs, typename WantClientInfo, typename WantTimePoint, typename Func, typename ArgsTuple>
+inline futurize_t<Ret> apply(Func& func, client_info& info, opt_time_point time_point, WantClientInfo wci, WantTimePoint wtp, signature<Ret (InArgs...)> sig, ArgsTuple&& args) {
     using futurator = futurize<Ret>;
     try {
-        return futurator::apply(func, maybe_add_client_info(wci, info, std::forward<ArgsTuple>(args)));
+        return futurator::apply(func, maybe_add_client_info(wci, info, maybe_add_time_point(wtp, time_point, std::forward<ArgsTuple>(args))));
     } catch (std::runtime_error& ex) {
         return futurator::make_exception_future(std::current_exception());
     }
@@ -415,8 +464,8 @@ auto lref_to_cref(T& x) {
 
 // Creates lambda to handle RPC message on a server.
 // The lambda unmarshalls all parameters, calls a handler, marshall return values and sends them back to a client
-template <typename Serializer, typename MsgType, typename Func, typename Ret, typename... InArgs, typename WantClientInfo>
-auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci) {
+template <typename Serializer, typename MsgType, typename Func, typename Ret, typename... InArgs, typename WantClientInfo, typename WantTimePoint>
+auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci, WantTimePoint wtp) {
     using signature = decltype(sig);
     using wait_style = wait_signature_t<Ret>;
     return [func = lref_to_cref(std::forward<Func>(func))](lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client,
@@ -429,7 +478,7 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
         return client->wait_for_resources(memory_consumed).then([client, timeout, msg_id, memory_consumed, args = std::move(args), &func] () mutable {
             try {
                 seastar::with_gate(client->get_server().reply_gate(), [client, timeout, msg_id, memory_consumed, args = std::move(args), &func] () mutable {
-                    return apply(func, client->info(), WantClientInfo(), signature(), std::move(args)).then_wrapped([client, timeout, msg_id, memory_consumed] (futurize_t<typename signature::ret_type> ret) mutable {
+                    return apply(func, client->info(), timeout, WantClientInfo(), WantTimePoint(), signature(), std::move(args)).then_wrapped([client, timeout, msg_id, memory_consumed] (futurize_t<typename signature::ret_type> ret) mutable {
                         return reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, client, timeout).finally([client, memory_consumed] {
                             client->release_resources(memory_consumed);
                         });
@@ -499,8 +548,9 @@ auto protocol<Serializer, MsgType>::register_handler(MsgType t, Func&& func) {
     using sig_type = signature<typename function_traits<Func>::signature>;
     using clean_sig_type = typename sig_type::clean;
     using want_client_info = typename sig_type::want_client_info;
+    using want_time_point = typename sig_type::want_time_point;
     auto recv = recv_helper<Serializer, MsgType>(clean_sig_type(), std::forward<Func>(func),
-            want_client_info());
+            want_client_info(), want_time_point());
     register_receiver(t, make_copyable_function(std::move(recv)));
     return make_client(clean_sig_type(), t);
 }

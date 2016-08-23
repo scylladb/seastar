@@ -27,6 +27,7 @@
 #include <boost/any.hpp>
 #include <boost/type.hpp>
 #include <experimental/optional>
+#include "core/timer.hh"
 
 namespace rpc {
 
@@ -109,6 +110,14 @@ template <typename T>
 class optional : public std::experimental::optional<T> {
 public:
      using std::experimental::optional<T>::optional;
+};
+
+class opt_time_point : public std::experimental::optional<steady_clock_type::time_point> {
+public:
+     using std::experimental::optional<steady_clock_type::time_point>::optional;
+     opt_time_point(std::experimental::optional<steady_clock_type::time_point> time_point) {
+         static_cast<std::experimental::optional<steady_clock_type::time_point>&>(*this) = time_point;
+     }
 };
 
 struct cancellable {
