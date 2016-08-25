@@ -476,12 +476,12 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
                                                            int64_t msg_id,
                                                            rcv_buf data) mutable {
         auto memory_consumed = client->estimate_request_size(data.size);
-        auto args = unmarshall<Serializer, InArgs...>(client->serializer(), std::move(data));
         // note: apply is executed asynchronously with regards to networking so we cannot chain futures here by doing "return apply()"
-        auto f = client->wait_for_resources(memory_consumed, timeout).then([client, timeout, msg_id, memory_consumed, args = std::move(args), &func] () mutable {
+        auto f = client->wait_for_resources(memory_consumed, timeout).then([client, timeout, msg_id, memory_consumed, data = std::move(data), &func] () mutable {
             try {
-                seastar::with_gate(client->get_server().reply_gate(), [client, timeout, msg_id, memory_consumed, args = std::move(args), &func] () mutable {
-                    return apply(func, client->info(), timeout, WantClientInfo(), WantTimePoint(), signature(), std::move(args)).then_wrapped([client, timeout, msg_id, memory_consumed] (futurize_t<typename signature::ret_type> ret) mutable {
+                seastar::with_gate(client->get_server().reply_gate(), [client, timeout, msg_id, memory_consumed, data = std::move(data), &func] () mutable {
+                    auto args = unmarshall<Serializer, InArgs...>(client->serializer(), std::move(data));
+                    return apply(func, client->info(), timeout, WantClientInfo(), WantTimePoint(), signature(), std::move(args)).then_wrapped([client, timeout, msg_id, memory_consumed] (futurize_t<Ret> ret) mutable {
                         return reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, client, timeout).finally([client, memory_consumed] {
                             client->release_resources(memory_consumed);
                         });
