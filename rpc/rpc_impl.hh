@@ -478,7 +478,7 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
         auto memory_consumed = client->estimate_request_size(data.size);
         auto args = unmarshall<Serializer, InArgs...>(client->serializer(), std::move(data));
         // note: apply is executed asynchronously with regards to networking so we cannot chain futures here by doing "return apply()"
-        return client->wait_for_resources(memory_consumed).then([client, timeout, msg_id, memory_consumed, args = std::move(args), &func] () mutable {
+        auto f = client->wait_for_resources(memory_consumed, timeout).then([client, timeout, msg_id, memory_consumed, args = std::move(args), &func] () mutable {
             try {
                 seastar::with_gate(client->get_server().reply_gate(), [client, timeout, msg_id, memory_consumed, args = std::move(args), &func] () mutable {
                     return apply(func, client->info(), timeout, WantClientInfo(), WantTimePoint(), signature(), std::move(args)).then_wrapped([client, timeout, msg_id, memory_consumed] (futurize_t<typename signature::ret_type> ret) mutable {
@@ -489,6 +489,12 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
                 });
             } catch (seastar::gate_closed_exception&) {/* ignore */ }
         });
+
+        if (timeout) {
+            f = f.handle_exception_type([] (semaphore_timed_out&) { /* ignore */ });
+        }
+
+        return std::move(f);
     };
 }
 
@@ -938,7 +944,7 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
                     if (it != _server._proto._handlers.end()) {
                         return it->second(this->shared_from_this(), timeout, msg_id, std::move(data.value()));
                     } else {
-                        return this->wait_for_resources(28).then([this, timeout, msg_id, type] {
+                        return this->wait_for_resources(28, timeout).then([this, timeout, msg_id, type] {
                             // send unknown_verb exception back
                             auto data = temporary_buffer<char>(28);
                             auto p = data.get_write() + 12;
