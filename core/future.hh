@@ -32,6 +32,7 @@
 #include <type_traits>
 #include <assert.h>
 #include <cstdlib>
+#include "function_traits.hh"
 
 
 /// \defgroup future-module Futures and Promises
@@ -1025,6 +1026,32 @@ public:
                 return make_ready_future<T...>(fut.get());
             } else {
                 return futurize<func_ret>::apply(func, fut.get_exception());
+            }
+        });
+    }
+
+    /// \brief Handle the exception of a certain type carried by this future.
+    ///
+    /// When the future resolves, if it resolves with an exception of a type that
+    /// provided callback receives as a parameter, handle_exception(func) replaces
+    /// the exception with the value returned by func. The exception is passed (by
+    /// reference) as a parameter to func; func may return the replacement value
+    /// immediately (T or std::tuple<T...>) or in the future (future<T...>)
+    /// and is even allowed to return (or throw) its own exception.
+    /// If exception, that future holds, does not match func parameter type
+    /// it is propagated as is.
+    template <typename Func>
+    future<T...> handle_exception_type(Func&& func) noexcept {
+        using trait = function_traits<Func>;
+        static_assert(trait::arity == 1, "func can take only one parameter");
+        using ex_type = typename trait::template arg<0>::type;
+        using func_ret = typename trait::return_type;
+        return then_wrapped([func = std::forward<Func>(func)]
+                             (auto&& fut) -> future<T...> {
+            try {
+                return make_ready_future<T...>(fut.get());
+            } catch(ex_type& ex) {
+                return futurize<func_ret>::apply(func, ex);
             }
         });
     }
