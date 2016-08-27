@@ -1220,13 +1220,30 @@ future<file>
 reactor::open_file_dma(sstring name, open_flags flags, file_open_options options) {
     static constexpr mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH; // 0644
     return _thread_pool.submit<syscall_result<int>>([name, flags, options, strict_o_direct = _strict_o_direct] {
-        auto open_flags = O_DIRECT | O_CLOEXEC | static_cast<int>(flags);
+        // We want O_DIRECT, except in two cases:
+        //   - tmpfs (which doesn't support it, but works fine anyway)
+        //   - strict_o_direct == false (where we forgive it being not supported)
+        // Because open() with O_DIRECT will fail, we open it without O_DIRECT, try
+        // to update it to O_DIRECT with fcntl(), and if that fails, see if we
+        // can forgive it.
+        auto is_tmpfs = [] (int fd) {
+            struct ::statfs buf;
+            auto r = ::fstatfs(fd, &buf);
+            if (r == -1) {
+                return false;
+            }
+            return buf.f_type == 0x01021994; // TMPFS_MAGIC
+        };
+        auto open_flags = O_CLOEXEC | static_cast<int>(flags);
         int fd = ::open(name.c_str(), open_flags, mode);
-        if (!strict_o_direct && fd == -1 && errno == EINVAL) {
-            // open with O_DIRECT on tmppfs creates the file, then returns an
-            // EINVAL; so we must remove O_EXCL as well.
-            open_flags &= ~(O_DIRECT | O_EXCL);
-            fd = ::open(name.c_str(), open_flags, mode);
+        if (fd == -1) {
+            return wrap_syscall<int>(fd);
+        }
+        int r = ::fcntl(fd, F_SETFL, open_flags | O_DIRECT);
+        auto maybe_ret = wrap_syscall<int>(r);  // capture errno (should be EINVAL)
+        if (r == -1  && strict_o_direct && !is_tmpfs(fd)) {
+            ::close(fd);
+            return maybe_ret;
         }
         if (fd != -1) {
             fsxattr attr = {};
