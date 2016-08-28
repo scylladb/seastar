@@ -1502,7 +1502,13 @@ posix_file_impl::size() {
 
 future<>
 posix_file_impl::close() noexcept {
-    auto closed = [fd = _fd] () noexcept {
+    if (_fd == -1) {
+        seastar_logger.warn("double close() detected, contact support\n");
+        return make_ready_future<>();
+    }
+    auto fd = _fd;
+    _fd = -1;  // Prevent a concurrent close (which is illegal) from closing another file's fd
+    auto closed = [fd] () noexcept {
         try {
             return engine()._thread_pool.submit<syscall_result<int>>([fd] {
                 return wrap_syscall<int>(::close(fd));
@@ -1513,7 +1519,6 @@ posix_file_impl::close() noexcept {
         }
     }();
     return closed.then([this] (syscall_result<int> sr) {
-        _fd = -1;
         sr.throw_if_error();
     });
 }
