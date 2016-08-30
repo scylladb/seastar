@@ -112,7 +112,7 @@ void report_failed_future(std::exception_ptr ex);
 //
 // Both promise and future maintain a pointer to the state, which is modified
 // the the state moves to a new location due to events (such as .then() being
-// called) or due to the promise or future being mobved around.
+// called) or due to the promise or future being moved around.
 //
 
 /// \cond internal
