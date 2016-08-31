@@ -347,7 +347,7 @@ CPU_MASK=
 
 parse_args $@
 
-if $CPU_MASK; then
+if [[ $CPU_MASK ]]; then
     if dev_is_hw_iface $IFACE; then
         gen_cpumask_one_hw_iface $IFACE $MQ_MODE
     elif dev_is_bond_iface $IFACE; then
