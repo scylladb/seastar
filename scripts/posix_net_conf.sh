@@ -107,7 +107,7 @@ get_irqs_one()
 {
     local iface=$1
 
-    if [[ `ls -1 /sys/class/net/$iface/device/msi_irqs/ | wc -l` -gt 0 ]]; then
+    if test -e /sys/class/net/$iface/device/msi_irqs; then
         # Device uses MSI IRQs
         ls -1 /sys/class/net/$iface/device/msi_irqs/
     else
