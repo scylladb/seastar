@@ -262,9 +262,9 @@ public:
             client_info _info;
         private:
             future<> negotiate_protocol(input_stream<char>& in);
-            future<std::experimental::optional<uint64_t>, MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
+            future<std::experimental::optional<uint64_t>, MsgType, int64_t, std::experimental::optional<rcv_buf>>
             read_request_frame(input_stream<char>& in);
-            future<std::experimental::optional<uint64_t>, MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
+            future<std::experimental::optional<uint64_t>, MsgType, int64_t, std::experimental::optional<rcv_buf>>
             read_request_frame_compressed(input_stream<char>& in);
             feature_map negotiate(feature_map requested);
             void send_loop() {
@@ -346,7 +346,7 @@ public:
         struct reply_handler_base {
             timer<> t;
             cancellable* pcancel = nullptr;
-            virtual void operator()(client&, id_type, temporary_buffer<char> data) = 0;
+            virtual void operator()(client&, id_type, rcv_buf data) = 0;
             virtual void timeout() {}
             virtual void cancel() {}
             virtual ~reply_handler_base() {
@@ -362,7 +362,7 @@ public:
             Func func;
             Reply reply;
             reply_handler(Func&& f) : func(std::move(f)) {}
-            virtual void operator()(client& client, id_type msg_id, temporary_buffer<char> data) override {
+            virtual void operator()(client& client, id_type msg_id, rcv_buf data) override {
                 return func(reply, client, msg_id, std::move(data));
             }
             virtual void timeout() override {
@@ -382,9 +382,9 @@ public:
     private:
         future<> negotiate_protocol(input_stream<char>& in);
         void negotiate(feature_map server_features);
-        future<int64_t, std::experimental::optional<temporary_buffer<char>>>
+        future<int64_t, std::experimental::optional<rcv_buf>>
         read_response_frame(input_stream<char>& in);
-        future<int64_t, std::experimental::optional<temporary_buffer<char>>>
+        future<int64_t, std::experimental::optional<rcv_buf>>
         read_response_frame_compressed(input_stream<char>& in);
         void send_loop() {
             protocol::connection::template send_loop<protocol::connection::outgoing_queue_type::request>();
@@ -456,7 +456,7 @@ public:
     friend server;
 private:
     using rpc_handler = std::function<future<> (lw_shared_ptr<typename server::connection>, std::experimental::optional<steady_clock_type::time_point> timeout, int64_t msgid,
-                                                temporary_buffer<char> data)>;
+                                                rcv_buf data)>;
     std::unordered_map<MsgType, rpc_handler> _handlers;
     Serializer _serializer;
     std::function<void(const sstring&)> _logger;
