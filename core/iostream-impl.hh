@@ -188,6 +188,31 @@ input_stream<CharType>::consume(Consumer& consumer) {
 
 template <typename CharType>
 future<temporary_buffer<CharType>>
+input_stream<CharType>::read_up_to(size_t n) {
+    using tmp_buf = temporary_buffer<CharType>;
+    if (_buf.empty()) {
+        if (_eof) {
+            return make_ready_future<tmp_buf>();
+        } else {
+            return _fd.get().then([this, n] (tmp_buf buf) {
+                _eof = buf.empty();
+                _buf = std::move(buf);
+                return read_up_to(n);
+            });
+        }
+    } else if (_buf.size() <= n) {
+        // easy case: steal buffer, return to caller
+        return make_ready_future<tmp_buf>(std::move(_buf));
+    } else {
+        // buffer is larger than n, so share its head with a caller
+        auto front = _buf.share(0, n);
+        _buf.trim_front(n);
+        return make_ready_future<tmp_buf>(std::move(front));
+    }
+}
+
+template <typename CharType>
+future<temporary_buffer<CharType>>
 input_stream<CharType>::read() {
     using tmp_buf = temporary_buffer<CharType>;
     if (_eof) {
