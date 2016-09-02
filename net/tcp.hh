@@ -338,13 +338,15 @@ private:
             std::deque<unacked_segment> data;
             std::deque<packet> unsent;
             uint32_t unsent_len = 0;
-            uint32_t queued_len = 0;
             bool closed = false;
             promise<> _window_opened;
             // Wait for all data are acked
             std::experimental::optional<promise<>> _all_data_acked_promise;
             // Limit number of data queued into send queue
-            semaphore user_queue_space = {212992};
+            size_t max_queue_space = 212992;
+            size_t current_queue_space = 0;
+            // wait for there is at least one byte available in the queue
+            std::experimental::optional<promise<>> _send_available_promise;
             // Round-trip time variation
             std::chrono::milliseconds rttvar;
             // Smoothed round-trip time
@@ -413,6 +415,7 @@ private:
         future<> wait_for_data();
         void abort_reader();
         future<> wait_for_all_data_acked();
+        future<> wait_send_available();
         future<> send(packet p);
         void connect();
         packet read();
@@ -528,9 +531,15 @@ private:
             }
         }
         void signal_all_data_acked() {
-            if (_snd._all_data_acked_promise && _snd.unsent_len == 0 && _snd.queued_len == 0) {
+            if (_snd._all_data_acked_promise && _snd.unsent_len == 0) {
                 _snd._all_data_acked_promise->set_value();
                 _snd._all_data_acked_promise = {};
+            }
+        }
+        void signal_send_available() {
+            if (_snd._send_available_promise && _snd.max_queue_space > _snd.current_queue_space) {
+                _snd._send_available_promise->set_value();
+                _snd._send_available_promise = {};
             }
         }
         void do_syn_sent() {
@@ -552,8 +561,6 @@ private:
         }
         void do_reset() {
             _state = CLOSED;
-            // Free packets to be sent which are waiting for _snd.user_queue_space
-            _snd.user_queue_space.broken(tcp_reset_error());
             cleanup();
             if (_rcv._data_received_promise) {
                 _rcv._data_received_promise->set_exception(tcp_reset_error());
@@ -562,6 +569,10 @@ private:
             if (_snd._all_data_acked_promise) {
                 _snd._all_data_acked_promise->set_exception(tcp_reset_error());
                 _snd._all_data_acked_promise = std::experimental::nullopt;
+            }
+            if (_snd._send_available_promise) {
+                _snd._send_available_promise->set_exception(tcp_reset_error());
+                _snd._send_available_promise = std::experimental::nullopt;
             }
         }
         void do_time_wait() {
@@ -588,7 +599,7 @@ private:
         }
         bool fin_needs_on() {
             return in_state(FIN_WAIT_1 | CLOSING | LAST_ACK) && _snd.closed &&
-                   _snd.unsent_len == 0 && _snd.queued_len == 0;
+                   _snd.unsent_len == 0;
         }
         bool ack_needs_on() {
             return !in_state(CLOSED | LISTEN | SYN_SENT);
@@ -976,7 +987,8 @@ uint32_t tcp<InetTraits>::tcb::data_segment_acked(tcp_seq seg_ack) {
         }
         update_cwnd(acked_bytes);
         total_acked_bytes += acked_bytes;
-        _snd.user_queue_space.signal(_snd.data.front().data_len);
+        _snd.current_queue_space -= _snd.data.front().data_len;
+        signal_send_available();
         _snd.data.pop_front();
     }
     // Partial ACK of segment
@@ -1681,7 +1693,7 @@ tcp<InetTraits>::tcb::abort_reader() {
 
 template <typename InetTraits>
 future<> tcp<InetTraits>::tcb::wait_for_all_data_acked() {
-    if (_snd.data.empty() && _snd.unsent_len == 0 && _snd.queued_len == 0) {
+    if (_snd.data.empty() && _snd.unsent_len == 0) {
         return make_ready_future<>();
     }
     _snd._all_data_acked_promise = promise<>();
@@ -1716,27 +1728,31 @@ packet tcp<InetTraits>::tcb::read() {
 }
 
 template <typename InetTraits>
+future<> tcp<InetTraits>::tcb::wait_send_available() {
+    if (_snd.max_queue_space > _snd.current_queue_space) {
+        return make_ready_future<>();
+    }
+    _snd._send_available_promise = promise<>();
+    return _snd._send_available_promise->get_future();
+}
+
+template <typename InetTraits>
 future<> tcp<InetTraits>::tcb::send(packet p) {
     // We can not send after the connection is closed
     if (_snd.closed || in_state(CLOSED)) {
         return make_exception_future<>(tcp_reset_error());
     }
 
-    // TODO: Handle p.len() > max user_queue_space case
     auto len = p.len();
-    _snd.queued_len += len;
-    return _snd.user_queue_space.wait(len).then([this, zis = this->shared_from_this(), p = std::move(p)] () mutable {
-        if (_snd.closed) {
-            return make_exception_future<>(tcp_reset_error());
-        }
-        _snd.unsent_len += p.len();
-        _snd.queued_len -= p.len();
-        _snd.unsent.push_back(std::move(p));
-        if (can_send() > 0) {
-            output();
-        }
-        return make_ready_future<>();
-    });
+    _snd.current_queue_space += len;
+    _snd.unsent_len += len;
+    _snd.unsent.push_back(std::move(p));
+
+    if (can_send() > 0) {
+        output();
+    }
+
+    return wait_send_available();
 }
 
 template <typename InetTraits>
