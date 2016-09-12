@@ -146,7 +146,7 @@ def sanitize_vptr_flag(compiler):
             and False)):   # -fsanitize=vptr is broken even when the test above passes
         return ''
     else:
-        print('-fsanitize=vptr is broken, disabling')
+        print('Notice: -fsanitize=vptr is broken, disabling; some debug mode tests are bypassed.')
         return '-fno-sanitize=vptr'
 
 modes = {
@@ -202,6 +202,8 @@ tests = [
     'tests/rpc_test',
     'tests/connect_test',
     'tests/chunked_fifo_test',
+    'tests/scollectd_test',
+    'tests/perf/perf_fstream',
     ]
 
 apps = [
@@ -282,6 +284,14 @@ core = [
     'rpc/lz4_compressor.cc',
     ]
 
+protobuf = [
+    'proto/metrics2.proto',
+    ]
+
+prometheus = [
+    'core/prometheus.cc',
+    ]
+
 http = ['http/transformers.cc',
         'http/json_path.cc',
         'http/file_handler.cc',
@@ -302,8 +312,8 @@ boost_test_lib = [
    'tests/test_runner.cc',
 ]
 
-defines = []
-libs = '-laio -lboost_program_options -lboost_system -lboost_filesystem -lstdc++ -lm -lboost_unit_test_framework -lboost_thread -lcryptopp -lrt -lgnutls -lgnutlsxx -llz4'
+defines = ['FMT_HEADER_ONLY']
+libs = '-laio -lboost_program_options -lboost_system -lboost_filesystem -lstdc++ -lm -lboost_unit_test_framework -lboost_thread -lcryptopp -lrt -lgnutls -lgnutlsxx -llz4 -lprotobuf -ldl'
 hwloc_libs = '-lhwloc -lnuma -lpciaccess -lxml2 -lz'
 xen_used = False
 def have_xen():
@@ -336,12 +346,15 @@ if args.staticcxx:
     libs = libs.replace('-lstdc++', '')
     libs += ' -static-libgcc -static-libstdc++'
 
+if args.staticcxx or args.static:
+    defines.append("NO_EXCEPTION_INTERCEPT");
+
 memcache_base = [
     'apps/memcached/ascii.rl'
 ] + libnet + core
 
 deps = {
-    'libseastar.a' : core + libnet + http,
+    'libseastar.a' : core + libnet + http + protobuf + prometheus,
     'seastar.pc': [],
     'apps/httpd/httpd': ['apps/httpd/demo.json', 'apps/httpd/main.cc'] + http + libnet + core,
     'apps/memcached/memcached': ['apps/memcached/memcache.cc'] + memcache_base,
@@ -373,7 +386,7 @@ deps = {
     'tests/blkdiscard_test': ['tests/blkdiscard_test.cc'] + core,
     'tests/sstring_test': ['tests/sstring_test.cc'] + core,
     'tests/httpd': ['tests/httpd.cc'] + http + core + boost_test_lib,
-    'tests/allocator_test': ['tests/allocator_test.cc', 'core/memory.cc', 'core/posix.cc'],
+    'tests/allocator_test': ['tests/allocator_test.cc'] + core,
     'tests/output_stream_test': ['tests/output_stream_test.cc'] + core + libnet + boost_test_lib,
     'tests/udp_zero_copy': ['tests/udp_zero_copy.cc'] + core + libnet,
     'tests/shared_ptr_test': ['tests/shared_ptr_test.cc'] + core,
@@ -385,6 +398,8 @@ deps = {
     'tests/packet_test': ['tests/packet_test.cc'] + core + libnet,
     'tests/connect_test': ['tests/connect_test.cc'] + core + libnet + boost_test_lib,
     'tests/chunked_fifo_test': ['tests/chunked_fifo_test.cc'] + core,
+    'tests/scollectd_test': ['tests/scollectd_test.cc'] + core + boost_test_lib,
+    'tests/perf/perf_fstream': ['tests/perf/perf_fstream.cc'] + core,
 }
 
 warnings = [
@@ -477,6 +492,8 @@ if args.dpdk_target:
         libs += '-lintel_dpdk -lrt -lm -ldl'
     else:
         libs += '-Wl,--whole-archive -lrte_pmd_vmxnet3_uio -lrte_pmd_i40e -lrte_pmd_ixgbe -lrte_pmd_e1000 -lrte_pmd_ring -Wl,--no-whole-archive -lrte_hash -lrte_kvargs -lrte_mbuf -lethdev -lrte_eal -lrte_malloc -lrte_mempool -lrte_ring -lrte_cmdline -lrte_cfgfile -lrt -lm -ldl'
+
+args.user_cflags += ' -Ifmt'
 
 warnings = [w
             for w in warnings
@@ -571,6 +588,9 @@ with open(buildfile, 'w') as f:
         rule swagger
             command = json/json2code.py -f $in -o $out
             description = SWAGGER $out
+        rule protobuf
+            command = protoc --cpp_out=$outdir $in
+            description = PROTOC $out
         ''').format(**globals()))
     if args.dpdk:
         f.write(textwrap.dedent('''\
@@ -610,11 +630,15 @@ with open(buildfile, 'w') as f:
         compiles = {}
         ragels = {}
         swaggers = {}
+        protobufs = {}
         for binary in build_artifacts:
             srcs = deps[binary]
             objs = ['$builddir/' + mode + '/' + src.replace('.cc', '.o')
                     for src in srcs
                     if src.endswith('.cc')]
+            objs += ['$builddir/' + mode + '/gen/' + src.replace('.proto', '.pb.o')
+                    for src in srcs
+                    if src.endswith('.proto')]
             if binary.endswith('.pc'):
                 vars = modeval.copy()
                 vars.update(globals())
@@ -624,7 +648,7 @@ with open(buildfile, 'w') as f:
                         Description: Advanced C++ framework for high-performance server applications on modern hardware.
                         Version: 1.0
                         Libs: -L{srcdir}/{builddir} -Wl,--whole-archive,-lseastar,--no-whole-archive {dbgflag} -Wl,--no-as-needed {static} {pie} -fvisibility=hidden -pthread {user_ldflags} {sanitize_libs} {libs}
-                        Cflags: -std=gnu++1y {dbgflag} {fpie} -Wall -Werror -fvisibility=hidden -pthread -I{srcdir} -I{srcdir}/{builddir}/gen {user_cflags} {warnings} {defines} {sanitize} {opt}
+                        Cflags: -std=gnu++1y {dbgflag} {fpie} -Wall -Werror -fvisibility=hidden -pthread -I{srcdir} -I{srcdir}/fmt -I{srcdir}/{builddir}/gen {user_cflags} {warnings} {defines} {sanitize} {opt}
                         ''').format(builddir = 'build/' + mode, srcdir = os.getcwd(), **vars)
                 f.write('build $builddir/{}/{}: gen\n  text = {}\n'.format(mode, binary, repr(pc)))
             elif binary.endswith('.a'):
@@ -645,6 +669,10 @@ with open(buildfile, 'w') as f:
                 if src.endswith('.cc'):
                     obj = '$builddir/' + mode + '/' + src.replace('.cc', '.o')
                     compiles[obj] = src
+                elif src.endswith('.proto'):
+                    hh = '$builddir/' + mode + '/gen/' + src.replace('.proto', '.pb.h')
+                    protobufs[hh] = src
+                    compiles[hh.replace('.h', '.o')] = hh.replace('.h', '.cc')
                 elif src.endswith('.rl'):
                     hh = '$builddir/' + mode + '/gen/' + src.replace('.rl', '.hh')
                     ragels[hh] = src
@@ -655,7 +683,7 @@ with open(buildfile, 'w') as f:
                     raise Exception('No rule for ' + src)
         for obj in compiles:
             src = compiles[obj]
-            gen_headers = list(ragels.keys()) + list(swaggers.keys())
+            gen_headers = list(ragels.keys()) + list(swaggers.keys()) + list(protobufs.keys())
             f.write('build {}: cxx.{} {} || {} \n'.format(obj, mode, src, ' '.join(gen_headers) + dpdk_deps))
         for hh in ragels:
             src = ragels[hh]
@@ -663,6 +691,12 @@ with open(buildfile, 'w') as f:
         for hh in swaggers:
             src = swaggers[hh]
             f.write('build {}: swagger {}\n'.format(hh,src))
+        for pb in protobufs:
+            src = protobufs[pb]
+            c_pb = pb.replace('.h','.cc')
+            outd = os.path.dirname(os.path.dirname(pb))
+            f.write('build {} {}: protobuf {}\n  outdir = {}\n'.format(c_pb, pb, src, outd))
+
     f.write(textwrap.dedent('''\
         rule configure
           command = python3 configure.py $configure_args

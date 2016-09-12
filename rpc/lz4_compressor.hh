@@ -41,7 +41,7 @@ namespace rpc {
     public:
         ~lz4_compressor() {}
         // compress data, leaving head_space empty in returned buffer
-        sstring compress(size_t head_space, sstring data) override;
+        temporary_buffer<char> compress(size_t head_space, temporary_buffer<char> data) override;
         // decompress data
         temporary_buffer<char> decompress(temporary_buffer<char> data) override;
     };

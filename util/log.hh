@@ -96,9 +96,6 @@ private:
     };
     template <typename... Args>
     void do_log(log_level level, const char* fmt, Args&&... args);
-    template <typename Arg, typename... Args>
-    void do_log_step(log_level level, const char* fmt, stringer** s, size_t n, size_t idx, Arg&& arg, Args&&... args);
-    void do_log_step(log_level level, const char* fmt, stringer** s, size_t n, size_t idx);
     void really_do_log(log_level level, const char* fmt, stringer** stringers, size_t n);
     void failed_to_log(std::exception_ptr ex);
 public:
@@ -277,27 +274,13 @@ public:
     logger_for() : logger(pretty_type_name(typeid(T))) {}
 };
 
-inline
-void
-logger::do_log_step(log_level level, const char* fmt, stringer** s, size_t n, size_t idx) {
-    really_do_log(level, fmt, s, n);
-}
-
-template <typename Arg, typename... Args>
-inline
-void
-logger::do_log_step(log_level level, const char* fmt, stringer** s, size_t n, size_t idx, Arg&& arg, Args&&... args) {
-    stringer_for<Arg> sarg{arg};
-    s[idx] = &sarg;
-    do_log_step(level, fmt, s, n, idx + 1, std::forward<Args>(args)...);
-}
-
-
 template <typename... Args>
 void
 logger::do_log(log_level level, const char* fmt, Args&&... args) {
-    stringer* s[sizeof...(Args)];
-    do_log_step(level, fmt, s, sizeof...(Args), 0, std::forward<Args>(args)...);
+    [&](auto&&... stringers) {
+        stringer* s[sizeof...(stringers)] = {&stringers...};
+        this->really_do_log(level, fmt, s, sizeof...(stringers));
+    } (stringer_for<Args>(std::forward<Args>(args))...);
 }
 
 /// \endcond

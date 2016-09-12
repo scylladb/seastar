@@ -24,6 +24,21 @@ struct collectd_value {
         u._ui = i;
     }
 
+    scollectd::data_type type() const {
+        return _type;
+    }
+
+    double d() const {
+        return u._d;
+    }
+
+    uint64_t ui() const {
+        return u._ui;
+    }
+    int64_t i() const {
+        return u._i;
+    }
+
     collectd_value& operator=(const collectd_value& c) = default;
 
     collectd_value& operator+=(const collectd_value& c) {
@@ -47,11 +62,14 @@ struct collectd_value {
         return res;
     }
 };
+typedef std::map<type_instance_id, std::vector<collectd_value> > value_map;
 
 std::vector<collectd_value> get_collectd_value(
         const scollectd::type_instance_id& id);
 
 std::vector<scollectd::type_instance_id> get_collectd_ids();
+
+sstring get_collectd_description_str(const scollectd::type_instance_id&);
 
 bool is_enabled(const scollectd::type_instance_id& id);
 /**
@@ -62,6 +80,7 @@ bool is_enabled(const scollectd::type_instance_id& id);
 void enable(const scollectd::type_instance_id& id, bool enable);
 
 
+value_map get_value_map();
 }
 
 #endif /* CORE_SCOLLECTD_API_HH_ */

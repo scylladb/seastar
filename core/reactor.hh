@@ -69,6 +69,7 @@
 #include <boost/range/irange.hpp>
 #include "timer.hh"
 #include "condition-variable.hh"
+#include "util/log.hh"
 
 #ifdef HAVE_OSV
 #include <osv/sched.hh>
@@ -76,6 +77,8 @@
 #include <osv/condvar.h>
 #include <osv/newpoll.hh>
 #endif
+
+extern "C" int _Unwind_RaiseException(void *h);
 
 using shard_id = unsigned;
 
@@ -416,6 +419,7 @@ private:
     void move_pending();
     void flush_request_batch();
     void flush_response_batch();
+    bool has_unflushed_responses() const;
     bool pure_poll_rx() const;
     bool pure_poll_tx() const;
 
@@ -715,6 +719,7 @@ private:
     promise<> _start_promise;
     semaphore _cpu_started;
     uint64_t _tasks_processed = 0;
+    unsigned _max_task_backlog = 1000;
     seastar::timer_set<timer<>, &timer<>::_link> _timers;
     seastar::timer_set<timer<>, &timer<>::_link>::timer_list_t _expired_timers;
     seastar::timer_set<timer<lowres_clock>, &timer<lowres_clock>::_link> _lowres_timers;
@@ -727,6 +732,7 @@ private:
     uint64_t _aio_writes = 0;
     uint64_t _aio_write_bytes = 0;
     uint64_t _fsyncs = 0;
+    uint64_t _cxx_exceptions = 0;
     circular_buffer<std::unique_ptr<task>> _pending_tasks;
     circular_buffer<std::unique_ptr<task>> _at_destroy_tasks;
     std::chrono::duration<double> _task_quota;
@@ -946,6 +952,7 @@ private:
     friend class smp_message_queue;
     friend class poller;
     friend void add_to_flush_poller(output_stream<char>* os);
+    friend int _Unwind_RaiseException(void *h);
 public:
     bool wait_and_process(int timeout = 0, const sigset_t* active_sigmask = nullptr) {
         return _backend.wait_and_process(timeout, active_sigmask);
@@ -1066,32 +1073,8 @@ public:
             return _qs[t][engine().cpu_id()].submit(std::forward<Func>(func));
         }
     }
-    static bool poll_queues() {
-        size_t got = 0;
-        for (unsigned i = 0; i < count; i++) {
-            if (engine().cpu_id() != i) {
-                auto& rxq = _qs[engine().cpu_id()][i];
-                rxq.flush_response_batch();
-                got += rxq.process_incoming();
-                auto& txq = _qs[i][engine()._id];
-                txq.flush_request_batch();
-                got += txq.process_completions();
-            }
-        }
-        return got != 0;
-    }
-    static bool pure_poll_queues() {
-        for (unsigned i = 0; i < count; i++) {
-            if (engine().cpu_id() != i) {
-                auto& rxq = _qs[engine().cpu_id()][i];
-                auto& txq = _qs[i][engine()._id];
-                if (rxq.pure_poll_rx() || txq.pure_poll_tx()) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
+    static bool poll_queues();
+    static bool pure_poll_queues();
     static boost::integer_range<unsigned> all_cpus() {
         return boost::irange(0u, count);
     }
@@ -1435,5 +1418,7 @@ inline
 typename timer<Clock>::time_point timer<Clock>::get_timeout() {
     return _expiry;
 }
+
+extern seastar::logger seastar_logger;
 
 #endif /* REACTOR_HH_ */

@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "thread_impl.hh"
 #include "future.hh"
 #include "do_with.hh"
 #include "future-util.hh"
@@ -84,9 +85,6 @@ class thread;
 class thread_attributes;
 class thread_scheduling_group;
 
-/// Clock used for scheduling threads
-using thread_clock = steady_clock_type;
-
 /// Class that holds attributes controling the behavior of a thread.
 class thread_attributes {
 public:
@@ -137,13 +135,20 @@ class thread_context {
     timer<> _sched_timer{[this] { reschedule(); }};
     stdx::optional<promise<>> _sched_promise;
 
-    bi::list_member_hook<> _link;
-    using thread_list = bi::list<thread_context,
+    bi::list_member_hook<> _preempted_link;
+    using preempted_thread_list = bi::list<thread_context,
         bi::member_hook<thread_context, bi::list_member_hook<>,
-        &thread_context::_link>,
+        &thread_context::_preempted_link>,
         bi::constant_time_size<false>>;
 
-    static thread_local thread_list _preempted_threads;
+    bi::list_member_hook<> _all_link;
+    using all_thread_list = bi::list<thread_context,
+        bi::member_hook<thread_context, bi::list_member_hook<>,
+        &thread_context::_all_link>,
+        bi::constant_time_size<false>>;
+
+    static thread_local preempted_thread_list _preempted_threads;
+    static thread_local all_thread_list _all_threads;
 private:
     static void s_main(unsigned int lo, unsigned int hi);
     void setup();
@@ -151,6 +156,7 @@ private:
     static std::unique_ptr<char[]> make_stack();
 public:
     thread_context(thread_attributes attr, std::function<void ()> func);
+    ~thread_context();
     void switch_in();
     void switch_out();
     bool should_yield() const;

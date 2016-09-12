@@ -148,16 +148,17 @@ SEASTAR_TEST_CASE(test_rpc_connect) {
     std::vector<future<>> fs;
 
     for (auto i = 0; i < 2; i++) {
-        for (auto j = 0; j < 2; j++) {
+        for (auto j = 0; j < 4; j++) {
             auto factory = std::make_unique<cfactory>();
             rpc::server_options so;
             rpc::client_options co;
             if (i == 1) {
                 so.compressor_factory = factory.get();
             }
-            if (j == 1) {
+            if (j & 1) {
                 co.compressor_factory = factory.get();
             }
+            co.send_timeout_data = j & 2;
             auto f = with_rpc_env({}, co, so, true, [] (test_rpc_proto& proto, test_rpc_proto::server& s, connect_fn connect) {
                 return seastar::async([&proto, &s, connect] {
                     auto c1 = connect(ipv4_addr());
@@ -168,7 +169,7 @@ SEASTAR_TEST_CASE(test_rpc_connect) {
                     BOOST_REQUIRE_EQUAL(result, 2 + 3);
                     c1.stop().get();
                 });
-            }).finally([factory = std::move(factory), i, j] {
+            }).finally([factory = std::move(factory), i, j = j & 1] {
                 if (i == 1 && j == 1) {
                     BOOST_REQUIRE_EQUAL(factory->use_compression, 2);
                 } else {

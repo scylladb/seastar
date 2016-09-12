@@ -58,7 +58,7 @@ native_server_socket_impl<Protocol>::accept() {
     return _listener.accept().then([this] (typename Protocol::connection conn) {
         return make_ready_future<connected_socket, socket_address>(
                 connected_socket(std::make_unique<native_connected_socket_impl<Protocol>>(make_lw_shared(std::move(conn)))),
-                socket_address()); // FIXME: don't fake it
+                make_ipv4_address(conn.foreign_ip().ip, conn.foreign_port()));
     });
 }
 

@@ -49,7 +49,7 @@ public:
     typedef value_list_map::value_type value_list_pair;
 
     void add_polled(const type_instance_id & id,
-            const shared_ptr<value_list> & values);
+            const shared_ptr<value_list> & values, bool enable = true);
     void remove_polled(const type_instance_id & id);
     // explicitly send a type_instance value list (outside polling)
     future<> send_metric(const type_instance_id & id,
@@ -67,9 +67,9 @@ private:
     void run();
 
 public:
-    shared_ptr<value_list> get_values(const type_instance_id & id);
-    std::vector<type_instance_id> get_instance_ids();
-
+    shared_ptr<value_list> get_values(const type_instance_id & id) const;
+    std::vector<type_instance_id> get_instance_ids() const;
+    sstring get_collectd_description_str(const scollectd::type_instance_id&) const;
 private:
     value_list_map _values;
     registrations _regs;

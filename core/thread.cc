@@ -36,6 +36,11 @@ thread_context::thread_context(thread_attributes attr, std::function<void ()> fu
         : _attr(std::move(attr))
         , _func(std::move(func)) {
     setup();
+    _all_threads.push_front(*this);
+}
+
+thread_context::~thread_context() {
+    _all_threads.erase(_all_threads.iterator_to(*this));
 }
 
 std::unique_ptr<char[]>
@@ -82,6 +87,9 @@ thread_context::switch_in() {
     _context.link = prev;
     if (_attr.scheduling_group) {
         _attr.scheduling_group->account_start();
+        _context.yield_at = thread_clock::now() + _attr.scheduling_group->_this_period_remain;
+    } else {
+        _context.yield_at = {};
     }
 #ifdef ASAN_ENABLED
     swapcontext(&prev->context, &_context.context);
@@ -110,12 +118,13 @@ thread_context::switch_out() {
 bool
 thread_context::should_yield() const {
     if (!_attr.scheduling_group) {
-        return true;
+        return need_preempt();
     }
     return bool(_attr.scheduling_group->next_scheduling_point());
 }
 
-thread_local thread_context::thread_list thread_context::_preempted_threads;
+thread_local thread_context::preempted_thread_list thread_context::_preempted_threads;
+thread_local thread_context::all_thread_list thread_context::_all_threads;
 
 void
 thread_context::yield() {
@@ -181,8 +190,8 @@ thread_context::main() {
 
 namespace thread_impl {
 
-thread_context* get() {
-    return g_current_context->thread;
+void yield() {
+    g_current_context->thread->yield();
 }
 
 void switch_in(thread_context* to) {

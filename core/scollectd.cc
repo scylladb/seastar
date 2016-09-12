@@ -224,8 +224,10 @@ impl::value_list_map& impl::get_value_list_map() {
 }
 
 void impl::add_polled(const type_instance_id & id,
-        const shared_ptr<value_list> & values) {
+        const shared_ptr<value_list> & values, bool enable) {
+    values->set_enabled(enable);
     _values[id] = values;
+
 }
 
 void impl::remove_polled(const type_instance_id & id) {
@@ -382,11 +384,12 @@ void impl::run() {
     });
 }
 
-shared_ptr<value_list> impl::get_values(const type_instance_id & id) {
-    return _values[id];
+shared_ptr<value_list> impl::get_values(const type_instance_id & id) const {
+    auto i = _values.find(id);
+    return i != _values.end() ? i->second : nullptr;
 }
 
-std::vector<type_instance_id> impl::get_instance_ids() {
+std::vector<type_instance_id> impl::get_instance_ids() const {
     std::vector<type_instance_id> res;
     for (auto i: _values) {
         // Need to check for empty value_list, since unreg is two-stage.
@@ -401,8 +404,8 @@ std::vector<type_instance_id> impl::get_instance_ids() {
 }
 
 void add_polled(const type_instance_id & id,
-        const shared_ptr<value_list> & values) {
-    get_impl().add_polled(id, values);
+        const shared_ptr<value_list> & values, bool enabled) {
+    get_impl().add_polled(id, values, enabled);
 }
 
 void remove_polled_metric(const type_instance_id & id) {
@@ -455,10 +458,8 @@ boost::program_options::options_description get_options_description() {
     return opts;
 }
 
-std::vector<collectd_value> get_collectd_value(
-        const scollectd::type_instance_id& id) {
+static std::vector<collectd_value> raw_to_value(shared_ptr<value_list> raw_types) {
     std::vector<collectd_value> res_values;
-    auto raw_types = get_impl().get_values(id);
     if (raw_types == nullptr) {
         return res_values;
     }
@@ -473,6 +474,11 @@ std::vector<collectd_value> get_collectd_value(
         res_values.push_back(c);
     }
     return res_values;
+}
+
+std::vector<collectd_value> get_collectd_value(
+        const scollectd::type_instance_id& id) {
+    return raw_to_value(get_impl().get_values(id));
 }
 
 std::vector<data_type> get_collectd_types(
@@ -490,12 +496,407 @@ std::vector<scollectd::type_instance_id> get_collectd_ids() {
     return get_impl().get_instance_ids();
 }
 
+sstring get_collectd_description_str(const scollectd::type_instance_id& id) {
+    auto v = get_impl().get_values(id);
+    return v != nullptr ? v->desc().str() : sstring();
+}
+
 bool is_enabled(const scollectd::type_instance_id& id) {
     return get_impl().get_value_list_map()[id]->is_enabled();
 }
 
 void enable(const scollectd::type_instance_id& id, bool enable) {
     get_impl().get_value_list_map()[id]->set_enabled(enable);
+}
+
+type_instance_id plugin_instance_metrics::add_impl(const typed_value& v) {
+    type_instance_id id(_plugin_id, _plugin_instance, v.type(), v.type_instance());
+    get_impl().add_polled(id, v.values());
+    return id;
+}
+
+void plugin_instance_metrics::add(const typed_value& v) {
+    _registrations.emplace_back(add_impl(v));
+}
+
+std::vector<type_instance_id> plugin_instance_metrics::bound_ids() const {
+    std::vector<type_instance_id> res;
+    res.reserve(_registrations.size());
+    std::transform(_registrations.begin(), _registrations.end(), std::back_inserter(res), [](const registration& r) {
+       return r._id;
+    });
+    return res;
+}
+
+type_id type_id_for(known_type t) {
+    switch (t) {
+    case known_type::absolute:
+        return "absolute";
+    case known_type::backends:
+        return "backends";
+    case known_type::bitrate:
+        return "bitrate";
+    case known_type::blocked_clients:
+        return "blocked_clients";
+    case known_type::bytes:
+        return "bytes";
+    case known_type::cache_eviction:
+        return "cache_eviction";
+    case known_type::cache_operation:
+        return "cache_operation";
+    case known_type::cache_ratio:
+        return "cache_ratio";
+    case known_type::cache_result:
+        return "cache_result";
+    case known_type::cache_size:
+        return "cache_size";
+    case known_type::capacity:
+        return "capacity";
+    case known_type::changes_since_last_save:
+        return "changes_since_last_save";
+    case known_type::charge:
+        return "charge";
+    case known_type::clock_last_meas:
+        return "clock_last_meas";
+    case known_type::clock_last_update:
+        return "clock_last_update";
+    case known_type::clock_mode:
+        return "clock_mode";
+    case known_type::clock_reachability:
+        return "clock_reachability";
+    case known_type::clock_skew_ppm:
+        return "clock_skew_ppm";
+    case known_type::clock_state:
+        return "clock_state";
+    case known_type::clock_stratum:
+        return "clock_stratum";
+    case known_type::compression:
+        return "compression";
+    case known_type::compression_ratio:
+        return "compression_ratio";
+    case known_type::connections:
+        return "connections";
+    case known_type::conntrack:
+        return "conntrack";
+    case known_type::contextswitch:
+        return "contextswitch";
+    case known_type::count:
+        return "count";
+    case known_type::counter:
+        return "counter";
+    case known_type::cpu:
+        return "cpu";
+    case known_type::cpufreq:
+        return "cpufreq";
+    case known_type::current:
+        return "current";
+    case known_type::current_connections:
+        return "current_connections";
+    case known_type::current_sessions:
+        return "current_sessions";
+    case known_type::delay:
+        return "delay";
+    case known_type::derive:
+        return "derive";
+    case known_type::df:
+        return "df";
+    case known_type::df_complex:
+        return "df_complex";
+    case known_type::df_inodes:
+        return "df_inodes";
+    case known_type::disk_io_time:
+        return "disk_io_time";
+    case known_type::disk_latency:
+        return "disk_latency";
+    case known_type::disk_merged:
+        return "disk_merged";
+    case known_type::disk_octets:
+        return "disk_octets";
+    case known_type::disk_ops:
+        return "disk_ops";
+    case known_type::disk_ops_complex:
+        return "disk_ops_complex";
+    case known_type::disk_time:
+        return "disk_time";
+    case known_type::dns_answer:
+        return "dns_answer";
+    case known_type::dns_notify:
+        return "dns_notify";
+    case known_type::dns_octets:
+        return "dns_octets";
+    case known_type::dns_opcode:
+        return "dns_opcode";
+    case known_type::dns_qtype:
+        return "dns_qtype";
+    case known_type::dns_qtype_cached:
+        return "dns_qtype_cached";
+    case known_type::dns_query:
+        return "dns_query";
+    case known_type::dns_question:
+        return "dns_question";
+    case known_type::dns_rcode:
+        return "dns_rcode";
+    case known_type::dns_reject:
+        return "dns_reject";
+    case known_type::dns_request:
+        return "dns_request";
+    case known_type::dns_resolver:
+        return "dns_resolver";
+    case known_type::dns_response:
+        return "dns_response";
+    case known_type::dns_transfer:
+        return "dns_transfer";
+    case known_type::dns_update:
+        return "dns_update";
+    case known_type::dns_zops:
+        return "dns_zops";
+    case known_type::drbd_resource:
+        return "drbd_resource";
+    case known_type::duration:
+        return "duration";
+    case known_type::email_check:
+        return "email_check";
+    case known_type::email_count:
+        return "email_count";
+    case known_type::email_size:
+        return "email_size";
+    case known_type::entropy:
+        return "entropy";
+    case known_type::evicted_keys:
+        return "evicted_keys";
+    case known_type::expired_keys:
+        return "expired_keys";
+    case known_type::fanspeed:
+        return "fanspeed";
+    case known_type::file_handles:
+        return "file_handles";
+    case known_type::file_size:
+        return "file_size";
+    case known_type::files:
+        return "files";
+    case known_type::flow:
+        return "flow";
+    case known_type::fork_rate:
+        return "fork_rate";
+    case known_type::frequency:
+        return "frequency";
+    case known_type::frequency_error:
+        return "frequency_error";
+    case known_type::frequency_offset:
+        return "frequency_offset";
+    case known_type::fscache_stat:
+        return "fscache_stat";
+    case known_type::gauge:
+        return "gauge";
+    case known_type::hash_collisions:
+        return "hash_collisions";
+    case known_type::http_request_methods:
+        return "http_request_methods";
+    case known_type::http_requests:
+        return "http_requests";
+    case known_type::http_response_codes:
+        return "http_response_codes";
+    case known_type::humidity:
+        return "humidity";
+    case known_type::if_collisions:
+        return "if_collisions";
+    case known_type::if_dropped:
+        return "if_dropped";
+    case known_type::if_errors:
+        return "if_errors";
+    case known_type::if_multicast:
+        return "if_multicast";
+    case known_type::if_octets:
+        return "if_octets";
+    case known_type::if_packets:
+        return "if_packets";
+    case known_type::if_rx_errors:
+        return "if_rx_errors";
+    case known_type::if_rx_octets:
+        return "if_rx_octets";
+    case known_type::if_tx_errors:
+        return "if_tx_errors";
+    case known_type::if_tx_octets:
+        return "if_tx_octets";
+    case known_type::invocations:
+        return "invocations";
+    case known_type::io_octets:
+        return "io_octets";
+    case known_type::io_packets:
+        return "io_packets";
+    case known_type::ipt_bytes:
+        return "ipt_bytes";
+    case known_type::ipt_packets:
+        return "ipt_packets";
+    case known_type::irq:
+        return "irq";
+    case known_type::latency:
+        return "latency";
+    case known_type::links:
+        return "links";
+    case known_type::load:
+        return "load";
+    case known_type::md_disks:
+        return "md_disks";
+    case known_type::memory:
+        return "memory";
+    case known_type::memory_lua:
+        return "memory_lua";
+    case known_type::memory_throttle_count:
+        return "memory_throttle_count";
+    case known_type::multimeter:
+        return "multimeter";
+    case known_type::mutex_operations:
+        return "mutex_operations";
+    case known_type::objects:
+        return "objects";
+    case known_type::operations:
+        return "operations";
+    case known_type::packets:
+        return "packets";
+    case known_type::pending_operations:
+        return "pending_operations";
+    case known_type::percent:
+        return "percent";
+    case known_type::percent_bytes:
+        return "percent_bytes";
+    case known_type::percent_inodes:
+        return "percent_inodes";
+    case known_type::ping:
+        return "ping";
+    case known_type::ping_droprate:
+        return "ping_droprate";
+    case known_type::ping_stddev:
+        return "ping_stddev";
+    case known_type::players:
+        return "players";
+    case known_type::power:
+        return "power";
+    case known_type::pressure:
+        return "pressure";
+    case known_type::protocol_counter:
+        return "protocol_counter";
+    case known_type::pubsub:
+        return "pubsub";
+    case known_type::queue_length:
+        return "queue_length";
+    case known_type::records:
+        return "records";
+    case known_type::requests:
+        return "requests";
+    case known_type::response_code:
+        return "response_code";
+    case known_type::response_time:
+        return "response_time";
+    case known_type::root_delay:
+        return "root_delay";
+    case known_type::root_dispersion:
+        return "root_dispersion";
+    case known_type::route_etx:
+        return "route_etx";
+    case known_type::route_metric:
+        return "route_metric";
+    case known_type::routes:
+        return "routes";
+    case known_type::segments:
+        return "segments";
+    case known_type::serial_octets:
+        return "serial_octets";
+    case known_type::signal_noise:
+        return "signal_noise";
+    case known_type::signal_power:
+        return "signal_power";
+    case known_type::signal_quality:
+        return "signal_quality";
+    case known_type::snr:
+        return "snr";
+    case known_type::spl:
+        return "spl";
+    case known_type::swap:
+        return "swap";
+    case known_type::swap_io:
+        return "swap_io";
+    case known_type::tcp_connections:
+        return "tcp_connections";
+    case known_type::temperature:
+        return "temperature";
+    case known_type::threads:
+        return "threads";
+    case known_type::time_dispersion:
+        return "time_dispersion";
+    case known_type::time_offset:
+        return "time_offset";
+    case known_type::time_offset_ntp:
+        return "time_offset_ntp";
+    case known_type::time_offset_rms:
+        return "time_offset_rms";
+    case known_type::time_ref:
+        return "time_ref";
+    case known_type::timeleft:
+        return "timeleft";
+    case known_type::total_bytes:
+        return "total_bytes";
+    case known_type::total_connections:
+        return "total_connections";
+    case known_type::total_objects:
+        return "total_objects";
+    case known_type::total_operations:
+        return "total_operations";
+    case known_type::total_requests:
+        return "total_requests";
+    case known_type::total_sessions:
+        return "total_sessions";
+    case known_type::total_threads:
+        return "total_threads";
+    case known_type::total_time_in_ms:
+        return "total_time_in_ms";
+    case known_type::total_values:
+        return "total_values";
+    case known_type::uptime:
+        return "uptime";
+    case known_type::users:
+        return "users";
+    case known_type::vcl:
+        return "vcl";
+    case known_type::vcpu:
+        return "vcpu";
+    case known_type::virt_cpu_total:
+        return "virt_cpu_total";
+    case known_type::virt_vcpu:
+        return "virt_vcpu";
+    case known_type::vmpage_action:
+        return "vmpage_action";
+    case known_type::vmpage_faults:
+        return "vmpage_faults";
+    case known_type::vmpage_io:
+        return "vmpage_io";
+    case known_type::vmpage_number:
+        return "vmpage_number";
+    case known_type::volatile_changes:
+        return "volatile_changes";
+    case known_type::voltage:
+        return "voltage";
+    case known_type::voltage_threshold:
+        return "voltage_threshold";
+    case known_type::vs_memory:
+        return "vs_memory";
+    case known_type::vs_processes:
+        return "vs_processes";
+    case known_type::vs_threads:
+        return "vs_threads";
+    default:
+        throw std::invalid_argument("Unknown type");
+    }
+}
+
+value_map get_value_map() {
+    value_map res;
+    for (auto i : get_impl().get_value_list_map()) {
+        if (i.second->is_enabled()) {
+            res[i.first] = raw_to_value(i.second);
+        }
+    }
+    return res;
 }
 
 }

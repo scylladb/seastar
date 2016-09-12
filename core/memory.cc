@@ -51,6 +51,7 @@
 // by size.  When spans are broken up or coalesced, they may move into new lists.
 
 #include "memory.hh"
+#include "reactor.hh"
 
 #ifndef DEFAULT_ALLOCATOR
 
@@ -75,6 +76,19 @@
 #endif
 
 namespace memory {
+
+static std::atomic<bool> abort_on_allocation_failure{false};
+
+void enable_abort_on_allocation_failure() {
+    abort_on_allocation_failure.store(true, std::memory_order_seq_cst);
+}
+
+static void on_allocation_failure(size_t size) {
+    if (abort_on_allocation_failure.load(std::memory_order_relaxed)) {
+        seastar_logger.error("Failed to allocate {} bytes", size);
+        abort();
+    }
+}
 
 static constexpr unsigned cpu_id_shift = 36; // FIXME: make dynamic
 static constexpr unsigned max_cpus = 256;
@@ -548,6 +562,7 @@ bool cpu_pages::drain_cross_cpu_freelist() {
     auto p = xcpu_freelist.exchange(nullptr, std::memory_order_acquire);
     while (p) {
         auto n = p->next;
+        ++g_frees;
         free(p);
         p = n;
     }
@@ -947,31 +962,41 @@ size_t object_size(void* ptr) {
 }
 
 void* allocate(size_t size) {
-    ++g_allocs;
     if (size <= sizeof(free_object)) {
         size = sizeof(free_object);
     }
+    void* ptr;
     if (size <= max_small_allocation) {
-        return cpu_mem.allocate_small(size);
+        ptr = cpu_mem.allocate_small(size);
     } else {
-        return allocate_large(size);
+        ptr = allocate_large(size);
     }
+    if (!ptr) {
+        on_allocation_failure(size);
+    }
+    ++g_allocs;
+    return ptr;
 }
 
 void* allocate_aligned(size_t align, size_t size) {
-    ++g_allocs;
     size = std::max(size, align);
     if (size <= sizeof(free_object)) {
         size = sizeof(free_object);
     }
+    void* ptr;
     if (size <= max_small_allocation && align <= page_size) {
         // Our small allocator only guarantees alignment for power-of-two
         // allocations which are not larger than a page.
         size = 1 << log2ceil(size);
-        return cpu_mem.allocate_small(size);
+        ptr = cpu_mem.allocate_small(size);
     } else {
-        return allocate_large_aligned(align, size);
+        ptr = allocate_large_aligned(align, size);
     }
+    if (!ptr) {
+        on_allocation_failure(size);
+    }
+    ++g_allocs;
+    return ptr;
 }
 
 void free(void* obj) {
@@ -1091,6 +1116,7 @@ void* malloc(size_t n) throw () {
     try {
         return allocate(n);
     } catch (std::bad_alloc& ba) {
+        on_allocation_failure(n);
         return nullptr;
     }
 }
@@ -1174,6 +1200,7 @@ int posix_memalign(void** ptr, size_t align, size_t size) {
         }
         return 0;
     } catch (std::bad_alloc&) {
+        on_allocation_failure(size);
         return ENOMEM;
     }
 }
@@ -1356,6 +1383,10 @@ void operator delete[](void* ptr, with_alignment wa) {
 #else
 
 namespace memory {
+
+void enable_abort_on_allocation_failure() {
+    seastar_logger.warn("Seastar compiled with default allocator, will not abort on bad_alloc");
+}
 
 reclaimer::reclaimer(reclaim_fn reclaim, reclaimer_scope) {
 }

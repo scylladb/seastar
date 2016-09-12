@@ -55,9 +55,9 @@ struct wait_type {}; // opposite of no_wait_type
 struct do_want_client_info {};
 struct dont_want_client_info {};
 
-// An rpc signature, in the form signature<Ret (In0, In1, In2)>.
-template <typename Function>
-struct signature;
+// tags to tell whether we want a opt_time_point parameter
+struct do_want_time_point {};
+struct dont_want_time_point {};
 
 // General case
 template <typename Ret, typename... In>
@@ -66,6 +66,7 @@ struct signature<Ret (In...)> {
     using arg_types = std::tuple<In...>;
     using clean = signature;
     using want_client_info = dont_want_client_info;
+    using want_time_point = dont_want_time_point;
 };
 
 // Specialize 'clean' for handlers that receive client_info
@@ -75,6 +76,7 @@ struct signature<Ret (const client_info&, In...)> {
     using arg_types = std::tuple<In...>;
     using clean = signature<Ret (In...)>;
     using want_client_info = do_want_client_info;
+    using want_time_point = dont_want_time_point;
 };
 
 template <typename Ret, typename... In>
@@ -83,8 +85,37 @@ struct signature<Ret (client_info&, In...)> {
     using arg_types = std::tuple<In...>;
     using clean = signature<Ret (In...)>;
     using want_client_info = do_want_client_info;
+    using want_time_point = dont_want_time_point;
 };
 
+// Specialize 'clean' for handlers that receive client_info and opt_time_point
+template <typename Ret, typename... In>
+struct signature<Ret (const client_info&, opt_time_point, In...)> {
+    using ret_type = Ret;
+    using arg_types = std::tuple<In...>;
+    using clean = signature<Ret (In...)>;
+    using want_client_info = do_want_client_info;
+    using want_time_point = do_want_time_point;
+};
+
+template <typename Ret, typename... In>
+struct signature<Ret (client_info&, opt_time_point, In...)> {
+    using ret_type = Ret;
+    using arg_types = std::tuple<In...>;
+    using clean = signature<Ret (In...)>;
+    using want_client_info = do_want_client_info;
+    using want_time_point = do_want_time_point;
+};
+
+// Specialize 'clean' for handlers that receive opt_time_point
+template <typename Ret, typename... In>
+struct signature<Ret (opt_time_point, In...)> {
+    using ret_type = Ret;
+    using arg_types = std::tuple<In...>;
+    using clean = signature<Ret (In...)>;
+    using want_client_info = dont_want_client_info;
+    using want_time_point = do_want_time_point;
+};
 
 template <typename T>
 struct wait_signature {
@@ -127,6 +158,20 @@ maybe_add_client_info(do_want_client_info, client_info& ci, std::tuple<In...>&& 
     return std::tuple_cat(std::make_tuple(std::ref(ci)), std::move(args));
 }
 
+template <typename... In>
+inline
+std::tuple<In...>
+maybe_add_time_point(dont_want_time_point, opt_time_point& otp, std::tuple<In...>&& args) {
+    return std::move(args);
+}
+
+template <typename... In>
+inline
+std::tuple<opt_time_point, In...>
+maybe_add_time_point(do_want_time_point, opt_time_point& otp, std::tuple<In...>&& args) {
+    return std::tuple_cat(std::make_tuple(otp), std::move(args));
+}
+
 template <bool IsSmartPtr>
 struct serialize_helper;
 
@@ -159,11 +204,11 @@ inline void do_marshall(Serializer& serializer, Output& out, const T&... args) {
 }
 
 template <typename Serializer, typename... T>
-inline sstring marshall(Serializer& serializer, size_t head_space, const T&... args) {
+inline temporary_buffer<char> marshall(Serializer& serializer, size_t head_space, const T&... args) {
     seastar::measuring_output_stream measure;
     do_marshall(serializer, measure, args...);
-    sstring ret(sstring::initialized_later(), measure.size() + head_space);
-    seastar::simple_output_stream out(ret, head_space);
+    temporary_buffer<char> ret(measure.size() + head_space);
+    seastar::simple_output_stream out(ret.get_write(), head_space);
     do_marshall(serializer, out, args...);
     return ret;
 }
@@ -216,14 +261,14 @@ static std::exception_ptr unmarshal_exception(temporary_buffer<char>& data) {
         return p;
     };
 
-    exception_type ex_type = exception_type(le_to_cpu(*unaligned_cast<uint32_t*>(get(4))));
-    uint32_t ex_len = le_to_cpu(*unaligned_cast<uint32_t*>(get(4)));
+    exception_type ex_type = exception_type(read_le<uint32_t>(get(4)));
+    uint32_t ex_len = read_le<uint32_t>(get(4));
     switch (ex_type) {
     case exception_type::USER:
         ex = std::make_exception_ptr(std::runtime_error(std::string(get(ex_len), ex_len)));
         break;
     case exception_type::UNKNOWN_VERB:
-        ex = std::make_exception_ptr(unknown_verb_error(le_to_cpu(*unaligned_cast<uint64_t*>(get(8)))));
+        ex = std::make_exception_ptr(unknown_verb_error(read_le<uint64_t>(get(8))));
         break;
     default:
         ex = std::make_exception_ptr(unknown_exception_error());
@@ -322,11 +367,11 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
 
             // send message
             auto msg_id = dst.next_message_id();
-            sstring data = marshall(dst.serializer(), 20, args...);
-            auto p = data.begin();
-            *unaligned_cast<uint64_t*>(p) = cpu_to_le(uint64_t(t));
-            *unaligned_cast<int64_t*>(p + 8) = cpu_to_le(msg_id);
-            *unaligned_cast<uint32_t*>(p + 16) = cpu_to_le(data.size() - 20);
+            temporary_buffer<char> data = marshall(dst.serializer(), 28, args...);
+            auto p = data.get_write() + 8; // 8 extra bytes for expiration timer
+            write_le<uint64_t>(p, uint64_t(t));
+            write_le<int64_t>(p + 8, msg_id);
+            write_le<uint32_t>(p + 16, data.size() - 28);
 
             // prepare reply handler, if return type is now_wait_type this does nothing, since no reply will be sent
             using wait = wait_signature_t<Ret>;
@@ -354,31 +399,32 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
 template <typename Serializer, typename MsgType>
 inline
 future<>
-protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, sstring&& data) {
-    auto p = data.begin();
-    *unaligned_cast<int64_t*>(p) = cpu_to_le(msg_id);
-    *unaligned_cast<uint32_t*>(p + 8) = cpu_to_le(data.size() - 12);
-    return this->send(std::move(data));
+protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, temporary_buffer<char>&& data, std::experimental::optional<steady_clock_type::time_point> timeout) {
+    auto p = data.get_write();
+    write_le<int64_t>(p, msg_id);
+    write_le<uint32_t>(p + 8, data.size() - 12);
+    return this->send(std::move(data), timeout);
 }
 
 template<typename Serializer, typename MsgType, typename... RetTypes>
-inline future<> reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client) {
+inline future<> reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client,
+        std::experimental::optional<steady_clock_type::time_point> timeout) {
     if (!client->error()) {
-        sstring data;
+        temporary_buffer<char> data;
         try {
             data = ::apply(marshall<Serializer, const RetTypes&...>,
                     std::tuple_cat(std::make_tuple(std::ref(client->serializer()), 12), std::move(ret.get())));
         } catch (std::exception& ex) {
             uint32_t len = std::strlen(ex.what());
-            data = sstring(sstring::initialized_later(), 20 + len);
-            auto p = data.begin() + 12;
-            *unaligned_cast<uint32_t*>(p) = le_to_cpu(uint32_t(exception_type::USER));
-            *unaligned_cast<uint32_t*>(p + 4) = le_to_cpu(len);
+            data = temporary_buffer<char>(20 + len);
+            auto p = data.get_write() + 12;
+            write_le<uint32_t>(p, uint32_t(exception_type::USER));
+            write_le<uint32_t>(p + 4, len);
             std::copy_n(ex.what(), len, p + 8);
             msg_id = -msg_id;
         }
 
-        return client->respond(msg_id, std::move(data));
+        return client->respond(msg_id, std::move(data), timeout);
     } else {
         return make_ready_future<>();
     }
@@ -386,7 +432,7 @@ inline future<> reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_s
 
 // specialization for no_wait_type which does not send a reply
 template<typename Serializer, typename MsgType>
-inline future<> reply(no_wait_type, future<no_wait_type>&& r, int64_t msgid, lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client) {
+inline future<> reply(no_wait_type, future<no_wait_type>&& r, int64_t msgid, lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client, std::experimental::optional<steady_clock_type::time_point> timeout) {
     try {
         r.get();
     } catch (std::exception& ex) {
@@ -395,11 +441,11 @@ inline future<> reply(no_wait_type, future<no_wait_type>&& r, int64_t msgid, lw_
     return make_ready_future<>();
 }
 
-template<typename Ret, typename... InArgs, typename WantClientInfo, typename Func, typename ArgsTuple>
-inline futurize_t<Ret> apply(Func& func, client_info& info, WantClientInfo wci, signature<Ret (InArgs...)> sig, ArgsTuple&& args) {
+template<typename Ret, typename... InArgs, typename WantClientInfo, typename WantTimePoint, typename Func, typename ArgsTuple>
+inline futurize_t<Ret> apply(Func& func, client_info& info, opt_time_point time_point, WantClientInfo wci, WantTimePoint wtp, signature<Ret (InArgs...)> sig, ArgsTuple&& args) {
     using futurator = futurize<Ret>;
     try {
-        return futurator::apply(func, maybe_add_client_info(wci, info, std::forward<ArgsTuple>(args)));
+        return futurator::apply(func, maybe_add_client_info(wci, info, maybe_add_time_point(wtp, time_point, std::forward<ArgsTuple>(args))));
     } catch (std::runtime_error& ex) {
         return futurator::make_exception_future(std::current_exception());
     }
@@ -418,21 +464,22 @@ auto lref_to_cref(T& x) {
 
 // Creates lambda to handle RPC message on a server.
 // The lambda unmarshalls all parameters, calls a handler, marshall return values and sends them back to a client
-template <typename Serializer, typename MsgType, typename Func, typename Ret, typename... InArgs, typename WantClientInfo>
-auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci) {
+template <typename Serializer, typename MsgType, typename Func, typename Ret, typename... InArgs, typename WantClientInfo, typename WantTimePoint>
+auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci, WantTimePoint wtp) {
     using signature = decltype(sig);
     using wait_style = wait_signature_t<Ret>;
     return [func = lref_to_cref(std::forward<Func>(func))](lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client,
+                                                           std::experimental::optional<steady_clock_type::time_point> timeout,
                                                            int64_t msg_id,
                                                            temporary_buffer<char> data) mutable {
         auto memory_consumed = client->estimate_request_size(data.size());
         auto args = unmarshall<Serializer, InArgs...>(client->serializer(), std::move(data));
         // note: apply is executed asynchronously with regards to networking so we cannot chain futures here by doing "return apply()"
-        return client->wait_for_resources(memory_consumed).then([client, msg_id, memory_consumed, args = std::move(args), &func] () mutable {
+        return client->wait_for_resources(memory_consumed).then([client, timeout, msg_id, memory_consumed, args = std::move(args), &func] () mutable {
             try {
-                seastar::with_gate(client->get_server().reply_gate(), [client, msg_id, memory_consumed, args = std::move(args), &func] () mutable {
-                    return apply(func, client->info(), WantClientInfo(), signature(), std::move(args)).then_wrapped([client, msg_id, memory_consumed] (futurize_t<typename signature::ret_type> ret) mutable {
-                        return reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, client).finally([client, memory_consumed] {
+                seastar::with_gate(client->get_server().reply_gate(), [client, timeout, msg_id, memory_consumed, args = std::move(args), &func] () mutable {
+                    return apply(func, client->info(), timeout, WantClientInfo(), WantTimePoint(), signature(), std::move(args)).then_wrapped([client, timeout, msg_id, memory_consumed] (futurize_t<typename signature::ret_type> ret) mutable {
+                        return reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, client, timeout).finally([client, memory_consumed] {
                             client->release_resources(memory_consumed);
                         });
                     });
@@ -454,54 +501,14 @@ auto make_copyable_function(Func&& func, std::enable_if_t<std::is_copy_construct
     return std::forward<Func>(func);
 }
 
-template<typename Ret, typename... Args>
-struct handler_type_helper {
-    using type = Ret(Args...);
-    static constexpr bool info = false;
-};
-
-template<typename Ret, typename First, typename... Args>
-struct handler_type_helper<Ret, First, Args...> {
-    using type = Ret(First, Args...);
-    static constexpr bool info = false;
-};
-
-template<typename Ret, typename... Args>
-struct handler_type_helper<Ret, const client_info&, Args...> {
-    using type = Ret(Args...);
-    static constexpr bool info = true;
-};
-
-template<typename Ret, typename... Args>
-struct handler_type_helper<Ret, client_info&, Args...> {
-    using type = Ret(Args...);
-    static constexpr bool info = true;
-};
-
-template<typename Ret, typename... Args>
-struct handler_type_helper<Ret, client_info, Args...> {
-    using type = Ret(Args...);
-    static constexpr bool info = true;
-};
-
-template<typename Ret, typename F, typename I>
-struct handler_type_impl;
-
-template<typename Ret, typename F, std::size_t... I>
-struct handler_type_impl<Ret, F, std::integer_sequence<std::size_t, I...>> {
-    using type = handler_type_helper<Ret, typename remove_optional<typename F::template arg<I>::type>::type...>;
-};
-
-// this class is used to calculate client side rpc function signature
-// if rpc callback receives client_info as a first parameter it is dropped
-// from an argument list and if return type is a smart pointer it is converted to be
-// a type it points to, otherwise signature is identical to what was passed to
-// make_client().
+// This class is used to calculate client side rpc function signature.
+// Return type is converted from a smart pointer to a type it points to.
+// rpc::optional are converted to non optional type.
 //
 // Examples:
-// std::unique_ptr<int>(client_info, int, long) -> int(int, long)
-// double(client_info, float) -> double(float)
-template<typename Func>
+// std::unique_ptr<int>(int, rpc::optional<long>) -> int(int, long)
+// double(float) -> double(float)
+template<typename Ret, typename... In>
 class client_function_type {
     template<typename T, bool IsSmartPtr>
     struct drop_smart_ptr_impl;
@@ -516,19 +523,23 @@ class client_function_type {
     template<typename T>
     using drop_smart_ptr = drop_smart_ptr_impl<T, is_smart_ptr<T>::value>;
 
-    using trait = function_traits<Func>;
     // if return type is smart ptr take a type it points to instead
-    using return_type = typename drop_smart_ptr<typename trait::return_type>::type;
+    using return_type = typename drop_smart_ptr<Ret>::type;
 public:
-    using type = typename handler_type_impl<return_type, trait, std::make_index_sequence<trait::arity>>::type::type;
+    using type = return_type(typename remove_optional<In>::type...);
 };
+
+template<typename Serializer, typename MsgType>
+template<typename Ret, typename... In>
+auto protocol<Serializer, MsgType>::make_client(signature<Ret(In...)> clear_sig, MsgType t) {
+    using sig_type = signature<typename client_function_type<Ret, In...>::type>;
+    return send_helper<Serializer>(t, sig_type());
+}
 
 template<typename Serializer, typename MsgType>
 template<typename Func>
 auto protocol<Serializer, MsgType>::make_client(MsgType t) {
-    using trait = function_traits<typename client_function_type<Func>::type>;
-    using sig_type = signature<typename trait::signature>;
-    return send_helper<Serializer>(t, sig_type());
+    return make_client(typename signature<typename function_traits<Func>::signature>::clean(), t);
 }
 
 template<typename Serializer, typename MsgType>
@@ -537,10 +548,11 @@ auto protocol<Serializer, MsgType>::register_handler(MsgType t, Func&& func) {
     using sig_type = signature<typename function_traits<Func>::signature>;
     using clean_sig_type = typename sig_type::clean;
     using want_client_info = typename sig_type::want_client_info;
+    using want_time_point = typename sig_type::want_time_point;
     auto recv = recv_helper<Serializer, MsgType>(clean_sig_type(), std::forward<Func>(func),
-            want_client_info());
+            want_client_info(), want_time_point());
     register_receiver(t, make_copyable_function(std::move(recv)));
-    return make_client<Func>(t);
+    return make_client(clean_sig_type(), t);
 }
 
 template<typename Serializer, typename MsgType>
@@ -571,7 +583,7 @@ void protocol<Serializer, MsgType>::server::accept() {
         return _ss.accept().then([this] (connected_socket fd, socket_address addr) mutable {
             fd.set_nodelay(true);
             auto conn = make_lw_shared<connection>(*this, std::move(fd), std::move(addr), _proto);
-            _conns.insert(conn.get());
+            _conns.insert(conn);
             conn->process();
         });
     }).then_wrapped([this] (future<>&& f){
@@ -623,15 +635,15 @@ static future<> send_negotiation_frame(Connection& c, feature_map features) {
     auto extra_len = boost::accumulate(
             features | boost::adaptors::transformed(negotiation_frame_feature_record_size),
             uint32_t(0));
-    sstring reply(sstring::initialized_later(), sizeof(negotiation_frame) + extra_len);
-    auto p = reply.begin();
+    temporary_buffer<char> reply(sizeof(negotiation_frame) + extra_len);
+    auto p = reply.get_write();
     p = std::copy_n(rpc_magic, 8, p);
-    *unaligned_cast<uint32_t*>(p) = cpu_to_le(extra_len);
+    write_le<uint32_t>(p, extra_len);
     p += 4;
     for (auto&& e : features) {
-        *unaligned_cast<uint32_t*>(p) = cpu_to_le(static_cast<uint32_t>(e.first));
+        write_le<uint32_t>(p, static_cast<uint32_t>(e.first));
         p += 4;
-        *unaligned_cast<uint32_t*>(p) = cpu_to_le(e.second.size());
+        write_le<uint32_t>(p, e.second.size());
         p += 4;
         p = std::copy_n(e.second.begin(), e.second.size(), p);
     }
@@ -646,12 +658,14 @@ receive_negotiation_frame(Connection& c, input_stream<char>& in) {
         if (!verify_frame(c, neg, sizeof(negotiation_frame), "unexpected eof during negotiation frame")) {
             return make_exception_future<feature_map>(closed_error());
         }
-        negotiation_frame* frame = reinterpret_cast<negotiation_frame*>(neg.get_write());
-        if (std::memcmp(frame->magic, rpc_magic, sizeof(frame->magic)) != 0) {
+        negotiation_frame frame;
+        std::copy_n(neg.get_write(), sizeof(frame.magic), frame.magic);
+        frame.len = read_le<uint32_t>(neg.get_write() + 8);
+        if (std::memcmp(frame.magic, rpc_magic, sizeof(frame.magic)) != 0) {
             c.get_protocol().log(c.peer_address(), "wrong protocol magic");
             return make_exception_future<feature_map>(closed_error());
         }
-        auto len = le_to_cpu(frame->len);
+        auto len = frame.len;
         return in.read_exactly(len).then([&c, len] (temporary_buffer<char> extra) {
             if (extra.size() != len) {
                 c.get_protocol().log(c.peer_address(), "unexpected eof during negotiation frame");
@@ -665,8 +679,8 @@ receive_negotiation_frame(Connection& c, input_stream<char>& in) {
                     c.get_protocol().log(c.peer_address(), "bad feature data format in negotiation frame");
                     return make_exception_future<feature_map>(closed_error());
                 }
-                auto feature = static_cast<protocol_features>(le_to_cpu(*unaligned_cast<const uint32_t*>(p)));
-                auto f_len = le_to_cpu(*unaligned_cast<const uint32_t*>(p + 4));
+                auto feature = static_cast<protocol_features>(read_le<uint32_t>(p));
+                auto f_len = read_le<uint32_t>(p + 4);
                 p += 8;
                 if (f_len > end - p) {
                     c.get_protocol().log(c.peer_address(), "buffer underflow in feature data in negotiation frame");
@@ -717,7 +731,7 @@ protocol<Serializer, MsgType>::read_frame_compressed(const Info& info, std::uniq
                 return FrameType::empty_value();
             }
             auto ptr = compress_header.get();
-            auto size = le_to_cpu(*unaligned_cast<uint32_t*>(ptr));
+            auto size = read_le<uint32_t>(ptr);
             return in.read_exactly(size).then([this, size, &compressor, &info] (temporary_buffer<char> compressed_data) {
                 if (compressed_data.size() != size) {
                     log(info, sprint("unexpected eof on a %s while reading compressed data: expected %d got %d", FrameType::role(), size, compressed_data.size()));
@@ -748,6 +762,10 @@ protocol<Serializer, MsgType>::server::connection::negotiate(feature_map request
             }
         }
         break;
+        case protocol_features::TIMEOUT:
+            this->_timeout_negotiated = true;
+            ret[protocol_features::TIMEOUT] = "";
+            break;
         default:
             // nothing to do
             ;
@@ -767,8 +785,8 @@ protocol<Serializer, MsgType>::server::connection::negotiate_protocol(input_stre
 
 template<typename MsgType>
 struct request_frame {
-    using return_type = future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>;
-    using header_type = std::tuple<MsgType, int64_t, uint32_t>;
+    using return_type = future<std::experimental::optional<uint64_t>, MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>;
+    using header_type = std::tuple<std::experimental::optional<uint64_t>, MsgType, int64_t, uint32_t>;
     static size_t header_size() {
         return 20;
     }
@@ -776,32 +794,53 @@ struct request_frame {
         return "server";
     }
     static auto empty_value() {
-        return make_ready_future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>(MsgType(0), 0, std::experimental::nullopt);
+        return make_ready_future<std::experimental::optional<uint64_t>, MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>(std::experimental::nullopt, MsgType(0), 0, std::experimental::nullopt);
     }
     static header_type decode_header(const char* ptr) {
-        auto type = MsgType(le_to_cpu(*unaligned_cast<uint64_t>(ptr)));
-        auto msgid = le_to_cpu(*unaligned_cast<int64_t*>(ptr + 8));
-        auto size = le_to_cpu(*unaligned_cast<uint32_t*>(ptr + 16));
-        return std::make_tuple(type, msgid, size);
+        auto type = MsgType(read_le<uint64_t>(ptr));
+        auto msgid = read_le<int64_t>(ptr + 8);
+        auto size = read_le<uint32_t>(ptr + 16);
+        return std::make_tuple(std::experimental::nullopt, type, msgid, size);
     }
     static uint32_t get_size(const header_type& t) {
-        return std::get<2>(t);
+        return std::get<3>(t);
     }
     static auto make_value(const header_type& t, temporary_buffer<char> data) {
-        return make_ready_future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>(std::get<0>(t), std::get<1>(t), std::move(data));
+        return make_ready_future<std::experimental::optional<uint64_t>, MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>(std::get<0>(t), std::get<1>(t), std::get<2>(t), std::move(data));
+    }
+};
+
+template<typename MsgType>
+struct request_frame_with_timeout : request_frame<MsgType> {
+    using super = request_frame<MsgType>;
+    static size_t header_size() {
+        return 28;
+    }
+    static typename super::header_type decode_header(const char* ptr) {
+        auto h = super::decode_header(ptr + 8);
+        std::get<0>(h) = read_le<uint64_t>(ptr);
+        return h;
     }
 };
 
 template <typename Serializer, typename MsgType>
-future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
+future<std::experimental::optional<uint64_t>, MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
 protocol<Serializer, MsgType>::server::connection::read_request_frame(input_stream<char>& in) {
-    return this->_server._proto.read_frame<request_frame<MsgType>>(_info, in);
+    if (this->_timeout_negotiated) {
+        return this->_server._proto.template read_frame<request_frame_with_timeout<MsgType>>(_info, in);
+    } else {
+        return this->_server._proto.template read_frame<request_frame<MsgType>>(_info, in);
+    }
 }
 
 template <typename Serializer, typename MsgType>
-future<MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
+future<std::experimental::optional<uint64_t>, MsgType, int64_t, std::experimental::optional<temporary_buffer<char>>>
 protocol<Serializer, MsgType>::server::connection::read_request_frame_compressed(input_stream<char>& in) {
-    return this->_server._proto.read_frame_compressed<request_frame<MsgType>>(_info, this->_compressor, in);
+    if (this->_timeout_negotiated) {
+        return this->_server._proto.template read_frame_compressed<request_frame_with_timeout<MsgType>>(_info, this->_compressor, in);
+    } else {
+        return this->_server._proto.template read_frame_compressed<request_frame<MsgType>>(_info, this->_compressor, in);
+    }
 }
 
 template <typename Serializer, typename MsgType>
@@ -817,6 +856,9 @@ protocol<Serializer, MsgType>::client::negotiate(feature_map provided) {
                 this->_compressor = _options.compressor_factory->negotiate(e.second, false);
             }
         break;
+        case protocol_features::TIMEOUT:
+            this->_timeout_negotiated = true;
+            break;
         default:
             // nothing to do
             ;
@@ -826,28 +868,32 @@ protocol<Serializer, MsgType>::client::negotiate(feature_map provided) {
 
 template<typename Serializer, typename MsgType>
 future<> protocol<Serializer, MsgType>::server::connection::process() {
-    this->send_loop();
+    send_loop();
     return this->negotiate_protocol(this->_read_buf).then([this] () mutable {
         return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
-            return this->read_request_frame_compressed(this->_read_buf).then([this] (MsgType type, int64_t msg_id, std::experimental::optional<temporary_buffer<char>> data) {
+            return this->read_request_frame_compressed(this->_read_buf).then([this] (std::experimental::optional<uint64_t> expire, MsgType type, int64_t msg_id, std::experimental::optional<temporary_buffer<char>> data) {
                 if (!data) {
                     this->_error = true;
                     return make_ready_future<>();
                 } else {
+                    std::experimental::optional<steady_clock_type::time_point> timeout;
+                    if (expire && *expire) {
+                        timeout = steady_clock_type::now() + std::chrono::milliseconds(*expire);
+                    }
                     auto it = _server._proto._handlers.find(type);
                     if (it != _server._proto._handlers.end()) {
-                        return it->second(this->shared_from_this(), msg_id, std::move(data.value()));
+                        return it->second(this->shared_from_this(), timeout, msg_id, std::move(data.value()));
                     } else {
-                        return this->wait_for_resources(28).then([this, msg_id, type] {
+                        return this->wait_for_resources(28).then([this, timeout, msg_id, type] {
                             // send unknown_verb exception back
-                            auto data = sstring(sstring::initialized_later(), 28);
-                            auto p = data.begin() + 12;
-                            *unaligned_cast<uint32_t*>(p) = cpu_to_le(uint32_t(exception_type::UNKNOWN_VERB));
-                            *unaligned_cast<uint32_t*>(p + 4) = cpu_to_le(uint32_t(8));
-                            *unaligned_cast<uint64_t*>(p + 8) = cpu_to_le(uint64_t(type));
+                            auto data = temporary_buffer<char>(28);
+                            auto p = data.get_write() + 12;
+                            write_le<uint32_t>(p, uint32_t(exception_type::UNKNOWN_VERB));
+                            write_le<uint32_t>(p + 4, uint32_t(8));
+                            write_le<uint64_t>(p + 8, uint64_t(type));
                             try {
-                                seastar::with_gate(this->_server._reply_gate, [this, msg_id, data = std::move(data)] () mutable {
-                                    return this->respond(-msg_id, std::move(data)).finally([c = this->shared_from_this()] {
+                                seastar::with_gate(this->_server._reply_gate, [this, timeout, msg_id, data = std::move(data)] () mutable {
+                                    return this->respond(-msg_id, std::move(data), timeout).finally([c = this->shared_from_this()] {
                                         c->release_resources(28);
                                     });
                                 });
@@ -864,11 +910,7 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
         this->_error = true;
         return this->stop_send_loop().then_wrapped([this] (future<> f) {
             f.ignore_ready_future();
-            if (!this->_server._stopping) {
-                // if server is stopping do not remove connection
-                // since it may invalidate _conns iterators
-                this->_server._conns.erase(this);
-            }
+            this->_server._conns.erase(this->shared_from_this());
             this->_stopped.set_value();
         });
     }).finally([conn_ptr = this->shared_from_this()] {
@@ -897,8 +939,8 @@ struct response_frame {
         return make_ready_future<int64_t, std::experimental::optional<temporary_buffer<char>>>(0, std::experimental::nullopt);
     }
     static header_type decode_header(const char* ptr) {
-        auto msgid = le_to_cpu(*unaligned_cast<int64_t*>(ptr));
-        auto size = le_to_cpu(*unaligned_cast<uint32_t*>(ptr + 8));
+        auto msgid = read_le<int64_t>(ptr);
+        auto size = read_le<uint32_t>(ptr + 8);
         return std::make_tuple(msgid, size);
     }
     static uint32_t get_size(const header_type& t) {
@@ -914,14 +956,14 @@ template<typename Serializer, typename MsgType>
 inline
 future<int64_t, std::experimental::optional<temporary_buffer<char>>>
 protocol<Serializer, MsgType>::client::read_response_frame(input_stream<char>& in) {
-    return this->_proto.read_frame<response_frame>(this->_server_addr, in);
+    return this->_proto.template read_frame<response_frame>(this->_server_addr, in);
 }
 
 template<typename Serializer, typename MsgType>
 inline
 future<int64_t, std::experimental::optional<temporary_buffer<char>>>
 protocol<Serializer, MsgType>::client::read_response_frame_compressed(input_stream<char>& in) {
-    return this->_proto.read_frame_compressed<response_frame>(this->_server_addr, this->_compressor, in);
+    return this->_proto.template read_frame_compressed<response_frame>(this->_server_addr, this->_compressor, in);
 }
 
 template<typename Serializer, typename MsgType>
@@ -942,10 +984,13 @@ protocol<Serializer, MsgType>::client::client(protocol& proto, client_options op
         if (_options.compressor_factory) {
             features[protocol_features::COMPRESS] = _options.compressor_factory->supported();
         }
+        if (_options.send_timeout_data) {
+            features[protocol_features::TIMEOUT] = "";
+        }
         send_negotiation_frame(*this, std::move(features));
 
         return this->negotiate_protocol(this->_read_buf).then([this] () {
-            this->send_loop();
+            send_loop();
             return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
                 return this->read_response_frame_compressed(this->_read_buf).then([this] (int64_t msg_id, std::experimental::optional<temporary_buffer<char>> data) {
                     auto it = _outstanding.find(std::abs(msg_id));

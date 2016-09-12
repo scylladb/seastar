@@ -27,6 +27,7 @@
 #include <boost/any.hpp>
 #include <boost/type.hpp>
 #include <experimental/optional>
+#include "core/timer.hh"
 
 namespace rpc {
 
@@ -111,6 +112,14 @@ public:
      using std::experimental::optional<T>::optional;
 };
 
+class opt_time_point : public std::experimental::optional<steady_clock_type::time_point> {
+public:
+     using std::experimental::optional<steady_clock_type::time_point>::optional;
+     opt_time_point(std::experimental::optional<steady_clock_type::time_point> time_point) {
+         static_cast<std::experimental::optional<steady_clock_type::time_point>&>(*this) = time_point;
+     }
+};
+
 struct cancellable {
     std::function<void()> cancel_send;
     std::function<void()> cancel_wait;
@@ -120,10 +129,19 @@ struct cancellable {
     cancellable(cancellable&& x) : cancel_send(std::move(x.cancel_send)), cancel_wait(std::move(x.cancel_wait)), send_back_pointer(x.send_back_pointer), wait_back_pointer(x.wait_back_pointer) {
         if (send_back_pointer) {
             *send_back_pointer = this;
+            x.send_back_pointer = nullptr;
         }
         if (wait_back_pointer) {
             *wait_back_pointer = this;
+            x.wait_back_pointer = nullptr;
         }
+    }
+    cancellable& operator=(cancellable&& x) {
+        if (&x != this) {
+            this->~cancellable();
+            new (this) cancellable(std::move(x));
+        }
+        return *this;
     }
     void cancel() {
         if (cancel_send) {
@@ -142,7 +160,7 @@ class compressor {
 public:
     virtual ~compressor() {}
     // compress data and leave head_space bytes at the beginning of returned buffer
-    virtual sstring compress(size_t head_space, sstring data) = 0;
+    virtual temporary_buffer<char> compress(size_t head_space, temporary_buffer<char> data) = 0;
     // decompress data
     virtual temporary_buffer<char> decompress(temporary_buffer<char> data) = 0;
 

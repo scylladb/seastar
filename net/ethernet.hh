@@ -44,6 +44,27 @@ struct ethernet_address {
 
     template <typename Adjuster>
     void adjust_endianness(Adjuster a) {}
+
+    static ethernet_address read(const char* p) {
+        ethernet_address ea;
+        std::copy_n(p, size(), reinterpret_cast<char*>(ea.mac.data()));\
+        return ea;
+    }
+    static ethernet_address consume(const char*& p) {
+        auto ea = read(p);
+        p += size();
+        return ea;
+    }
+    void write(char* p) const {
+        std::copy_n(reinterpret_cast<const char*>(mac.data()), size(), p);
+    }
+    void produce(char*& p) const {
+        write(p);
+        p += size();
+    }
+    static constexpr size_t size() {
+        return 6;
+    }
 } __attribute__((packed));
 
 std::ostream& operator<<(std::ostream& os, ethernet_address ea);

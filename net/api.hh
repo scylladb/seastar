@@ -120,6 +120,15 @@ socket_address make_ipv4_address(ipv4_addr addr) {
     return sa;
 }
 
+inline
+socket_address make_ipv4_address(uint32_t ip, uint16_t port) {
+    socket_address sa;
+    sa.u.in.sin_family = AF_INET;
+    sa.u.in.sin_port = htons(port);
+    sa.u.in.sin_addr.s_addr = htonl(ip);
+    return sa;
+}
+
 namespace net {
 
 // see linux tcp(7) for parameter explanation

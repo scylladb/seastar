@@ -79,6 +79,8 @@ struct directory_entry {
 /// \ref file
 struct file_open_options {
     uint64_t extent_allocation_size_hint = 1 << 20; ///< Allocate this much disk space when extending the file
+    bool sloppy_size = false; ///< Allow the file size not to track the amount of data written until a flush
+    uint64_t sloppy_size_hint = 1 << 20; ///< Hint as to what the eventual file size will be
 };
 
 /// \cond internal
@@ -87,7 +89,7 @@ class io_priority_class {
     unsigned val;
     friend io_queue;
 public:
-    operator unsigned() const {
+    unsigned id() const {
         return val;
     }
 };
@@ -120,36 +122,6 @@ public:
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) = 0;
 
     friend class reactor;
-};
-
-class posix_file_impl : public file_impl {
-public:
-    int _fd;
-    posix_file_impl(int fd, file_open_options options);
-    virtual ~posix_file_impl() override;
-    future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc);
-    future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc);
-    future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc);
-    future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc);
-    future<> flush(void);
-    future<struct stat> stat(void);
-    future<> truncate(uint64_t length);
-    future<> discard(uint64_t offset, uint64_t length);
-    virtual future<> allocate(uint64_t position, uint64_t length) override;
-    future<size_t> size(void);
-    virtual future<> close() noexcept override;
-    virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) override;
-private:
-    void query_dma_alignment();
-};
-
-class blockdev_file_impl : public posix_file_impl {
-public:
-    blockdev_file_impl(int fd, file_open_options options);
-    future<> truncate(uint64_t length) override;
-    future<> discard(uint64_t offset, uint64_t length) override;
-    future<size_t> size(void) override;
-    virtual future<> allocate(uint64_t position, uint64_t length) override;
 };
 
 /// \endcond

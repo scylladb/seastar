@@ -23,6 +23,7 @@
 
 #include <sys/syscall.h>
 #include <sys/vfs.h>
+#include <sys/statfs.h>
 #include "task.hh"
 #include "reactor.hh"
 #include "memory.hh"
@@ -39,6 +40,7 @@
 #include "systemwide_memory_barrier.hh"
 #include "report_exception.hh"
 #include "util/log.hh"
+#include "file-impl.hh"
 #include <cassert>
 #include <unistd.h>
 #include <fcntl.h>
@@ -88,7 +90,7 @@ using namespace std::chrono_literals;
 using namespace net;
 using namespace seastar;
 
-static seastar::logger seastar_logger("seastar");
+seastar::logger seastar_logger("seastar");
 
 std::atomic<lowres_clock::rep> lowres_clock::_now;
 constexpr std::chrono::milliseconds lowres_clock::_granularity;
@@ -388,13 +390,14 @@ void reactor::configure(boost::program_options::variables_map vm) {
 
     _handle_sigint = !vm.count("no-handle-interrupt");
     _task_quota = vm["task-quota-ms"].as<double>() * 1ms;
+    _max_task_backlog = vm["max-task-backlog"].as<unsigned>();
     _max_poll_time = vm["idle-poll-time-us"].as<unsigned>() * 1us;
     if (vm.count("poll-mode")) {
         _max_poll_time = std::chrono::nanoseconds::max();
     }
     if (vm.count("overprovisioned")
            && vm["idle-poll-time-us"].defaulted()
-           && vm["poll-mode"].defaulted()) {
+           && !vm.count("poll-mode")) {
         _max_poll_time = 0us;
     }
     set_strict_dma(!vm.count("relaxed-dma"));
@@ -555,13 +558,15 @@ reactor::submit_io(Func prepare_io) {
         if (_aio_eventfd) {
             io_set_eventfd(&io, _aio_eventfd->get_fd());
         }
+        auto f = pr->get_future();
         io.data = pr.get();
         _pending_aio.push_back(io);
+        pr.release();
         if ((_io_queue->queued_requests() > 0) ||
             (_pending_aio.size() >= std::min(max_aio / 4, _io_queue->_capacity / 2))) {
             flush_pending_aio();
         }
-        return pr.release()->get_future();
+        return f;
     });
 }
 
@@ -738,10 +743,10 @@ io_queue::priority_class_data::priority_class_data(sstring name, priority_class_
 }
 
 io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc, shard_id owner) {
-    auto it_pclass = _priority_classes.find(pc);
+    auto it_pclass = _priority_classes.find(pc.id());
     if (it_pclass == _priority_classes.end()) {
-        auto shares = _registered_shares.at(pc).load(std::memory_order_acquire);
-        auto name = _registered_names.at(pc);
+        auto shares = _registered_shares.at(pc.id()).load(std::memory_order_acquire);
+        auto name = _registered_names.at(pc.id());
         // A note on naming:
         //
         // We could just add the owner as the instance id and have something like:
@@ -755,7 +760,7 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
         //
         // This conveys all the information we need and allows one to easily group all classes from
         // the same I/O queue (by filtering by instance ID)
-        auto ret = _priority_classes.emplace(pc, make_lw_shared<priority_class_data>(sprint("%s-%d", name, owner), _fq.register_priority_class(shares)));
+        auto ret = _priority_classes.emplace(pc.id(), make_lw_shared<priority_class_data>(sprint("%s-%d", name, owner), _fq.register_priority_class(shares)));
         it_pclass = ret.first;
     }
     return *(it_pclass->second);
@@ -859,6 +864,302 @@ posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priorit
     });
 }
 
+append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, file_open_options options,
+        unsigned max_size_changing_ops)
+        : posix_file_impl(fd, options), _max_size_changing_ops(max_size_changing_ops) {
+    auto r = ::lseek(fd, 0, SEEK_END);
+    throw_system_error_on(r == -1);
+    _committed_size = _logical_size = r;
+    _sloppy_size = options.sloppy_size;
+    auto hint = align_up<uint64_t>(options.sloppy_size_hint, _disk_write_dma_alignment);
+    if (_sloppy_size && _committed_size < hint) {
+        auto r = ::ftruncate(_fd, hint);
+        // We can ignore errors, since it's just a hint.
+        if (r != -1) {
+            _committed_size = hint;
+        }
+    }
+}
+
+append_challenged_posix_file_impl::~append_challenged_posix_file_impl() {
+}
+
+bool
+append_challenged_posix_file_impl::size_changing(const op& candidate) const {
+    return (candidate.type == opcode::write && candidate.pos + candidate.len > _committed_size)
+            || (candidate.type == opcode::truncate)
+            || (_sloppy_size && candidate.type == opcode::flush);
+}
+
+bool
+append_challenged_posix_file_impl::may_dispatch(const op& candidate) const {
+    if (size_changing(candidate)) {
+        return !_current_size_changing_ops && !_current_non_size_changing_ops;
+    } else {
+        return !_current_size_changing_ops;
+    }
+}
+
+void
+append_challenged_posix_file_impl::dispatch(op& candidate) {
+    unsigned* op_counter = size_changing(candidate)
+            ? &_current_size_changing_ops : &_current_non_size_changing_ops;
+    ++*op_counter;
+    candidate.run().then([this, op_counter] {
+        --*op_counter;
+        process_queue();
+    });
+}
+
+// If we have a bunch of size-extending writes in the queue,
+// issue an ftruncate() extending the file size, so they can
+// be issued concurrently.
+void
+append_challenged_posix_file_impl::optimize_queue() {
+    if (_current_non_size_changing_ops || _current_size_changing_ops) {
+        // Can't issue an ftruncate() if something is going on
+        return;
+    }
+    auto speculative_size = _committed_size;
+    unsigned n_appending_writes = 0;
+    for (const auto& op : _q) {
+        if (op.type == opcode::truncate) {
+            break;
+        }
+        if (op.type == opcode::write && op.pos + op.len > _committed_size) {
+            speculative_size = std::max(speculative_size, op.pos + op.len);
+            ++n_appending_writes;
+        }
+    }
+    if (n_appending_writes > _max_size_changing_ops
+            || (n_appending_writes && _sloppy_size)) {
+        if (_sloppy_size && speculative_size < 2 * _committed_size) {
+            speculative_size = align_up<uint64_t>(2 * _committed_size, _disk_write_dma_alignment);
+        }
+        // We're all alone, so issuing the ftruncate() in the reactor
+        // thread won't block us.
+        //
+        // Issuing it in the syscall thread is too slow; this can happen
+        // every several ops, and the syscall thread latency can be very
+        // high.
+        auto r = ::ftruncate(_fd, speculative_size);
+        if (r != -1) {
+            _committed_size = speculative_size;
+            // If we failed, the next write will pick it up.
+        }
+    }
+}
+
+void
+append_challenged_posix_file_impl::process_queue() {
+    optimize_queue();
+    while (!_q.empty() && may_dispatch(_q.front())) {
+        dispatch(_q.front());
+        _q.pop_front();
+    }
+    if (may_quit()) {
+        _completed.set_value();
+    }
+}
+
+void
+append_challenged_posix_file_impl::enqueue(op&& op) {
+    _q.push_back(std::move(op));
+    process_queue();
+}
+
+bool
+append_challenged_posix_file_impl::may_quit() const {
+    return _done && _q.empty() && !_current_non_size_changing_ops && !_current_size_changing_ops;
+}
+
+void
+append_challenged_posix_file_impl::commit_size(uint64_t size) {
+    _committed_size = std::max(size, _committed_size);
+    _logical_size = std::max(size, _logical_size);
+}
+
+future<size_t>
+append_challenged_posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc) {
+    if (pos >= _logical_size) {
+        // later() avoids tail recursion
+        return later().then([] {
+            return size_t(0);
+        });
+    }
+    len = std::min(pos + len, align_up<uint64_t>(_logical_size, _disk_read_dma_alignment)) - pos;
+    auto pr = make_lw_shared(promise<size_t>());
+    enqueue({
+        opcode::read,
+        pos,
+        len,
+        [this, pr, pos, buffer, len, &pc] {
+            return posix_file_impl::read_dma(pos, buffer, len, pc).then_wrapped([pr] (future<size_t> f) {
+                f.forward_to(std::move(*pr));
+            });
+        }
+    });
+    return pr->get_future();
+}
+
+future<size_t>
+append_challenged_posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) {
+    if (pos >= _logical_size) {
+        // later() avoids tail recursion
+        return later().then([] {
+            return size_t(0);
+        });
+    }
+    size_t len = 0;
+    auto i = iov.begin();
+    while (i != iov.end() && pos + len + i->iov_len <= _logical_size) {
+        len += i++->iov_len;
+    }
+    auto aligned_logical_size = align_up<uint64_t>(_logical_size, _disk_read_dma_alignment);
+    if (i != iov.end()) {
+        auto last_len = pos + len + i->iov_len - aligned_logical_size;
+        if (last_len) {
+            i++->iov_len = last_len;
+        }
+        iov.erase(i, iov.end());
+    }
+    auto pr = make_lw_shared(promise<size_t>());
+    enqueue({
+        opcode::read,
+        pos,
+        len,
+        [this, pr, pos, iov = std::move(iov), &pc] () mutable {
+            return posix_file_impl::read_dma(pos, std::move(iov), pc).then_wrapped([pr] (future<size_t> f) {
+                f.forward_to(std::move(*pr));
+            });
+        }
+    });
+    return pr->get_future();
+}
+
+future<size_t>
+append_challenged_posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc) {
+    auto pr = make_lw_shared(promise<size_t>());
+    enqueue({
+        opcode::write,
+        pos,
+        len,
+        [this, pr, pos, buffer, len, &pc] {
+            return posix_file_impl::write_dma(pos, buffer, len, pc).then_wrapped([this, pos, pr] (future<size_t> f) {
+                if (!f.failed()) {
+                    auto ret = f.get0();
+                    commit_size(pos + ret);
+                    // Can't use forward_to(), because future::get0() invalidates the future.
+                    pr->set_value(ret);
+                } else {
+                    f.forward_to(std::move(*pr));
+                }
+            });
+        }
+    });
+    return pr->get_future();
+}
+
+future<size_t>
+append_challenged_posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) {
+    auto pr = make_lw_shared(promise<size_t>());
+    auto len = boost::accumulate(iov | boost::adaptors::transformed(std::mem_fn(&iovec::iov_len)), size_t(0));
+    enqueue({
+        opcode::write,
+        pos,
+        len,
+        [this, pr, pos, iov = std::move(iov), &pc] () mutable {
+            return posix_file_impl::write_dma(pos, std::move(iov), pc).then_wrapped([this, pos, pr] (future<size_t> f) {
+                if (!f.failed()) {
+                    auto ret = f.get0();
+                    commit_size(pos + ret);
+                    // Can't use forward_to(), because future::get0() invalidates the future.
+                    pr->set_value(ret);
+                } else {
+                    f.forward_to(std::move(*pr));
+                }
+            });
+        }
+    });
+    return pr->get_future();
+}
+
+future<>
+append_challenged_posix_file_impl::flush() {
+    if (!_sloppy_size || _logical_size == _committed_size) {
+        // FIXME: determine if flush can block concurrent reads or writes
+        return posix_file_impl::flush();
+    } else {
+        auto pr = make_lw_shared(promise<>());
+        enqueue({
+            opcode::flush,
+            0,
+            0,
+            [this, pr] () {
+                if (_logical_size != _committed_size) {
+                    // We're all alone, so can truncate in reactor thread
+                    auto r = ::ftruncate(_fd, _logical_size);
+                    throw_system_error_on(r == -1);
+                    _committed_size = _logical_size;
+                }
+                return posix_file_impl::flush().then_wrapped([this, pr] (future<> f) {
+                    f.forward_to(std::move(*pr));
+                });
+            }
+        });
+        return pr->get_future();
+    }
+}
+
+future<struct stat>
+append_challenged_posix_file_impl::stat() {
+    // FIXME: can this conflict with anything?
+    return posix_file_impl::stat().then([this] (struct stat stat) {
+        stat.st_size = _logical_size;
+        return stat;
+    });
+}
+
+future<>
+append_challenged_posix_file_impl::truncate(uint64_t length) {
+    auto pr = make_lw_shared(promise<>());
+    enqueue({
+        opcode::truncate,
+        length,
+        0,
+        [this, pr, length] () mutable {
+            return posix_file_impl::truncate(length).then_wrapped([this, pr, length] (future<> f) {
+                if (!f.failed()) {
+                    _committed_size = _logical_size = length;
+                }
+                f.forward_to(std::move(*pr));
+            });
+        }
+    });
+    return pr->get_future();
+}
+
+future<uint64_t>
+append_challenged_posix_file_impl::size() {
+    return make_ready_future<size_t>(_logical_size);
+}
+
+future<>
+append_challenged_posix_file_impl::close() noexcept {
+    // Caller should have drained all pending I/O
+    _done = true;
+    process_queue();
+    return _completed.get_future().then([this] {
+        if (_logical_size != _committed_size) {
+            auto r = ::ftruncate(_fd, _logical_size);
+            if (r != -1) {
+                _committed_size = _logical_size;
+            }
+        }
+        return posix_file_impl::close();
+    });
+}
+
 inline
 shared_ptr<file_impl>
 make_file_impl(int fd, file_open_options options) {
@@ -866,7 +1167,48 @@ make_file_impl(int fd, file_open_options options) {
     if (r != -1) {
         return make_shared<blockdev_file_impl>(fd, options);
     } else {
-        return make_shared<posix_file_impl>(fd, options);
+        // FIXME: obtain these flags from somewhere else
+        auto flags = ::fcntl(fd, F_GETFL);
+        throw_system_error_on(flags == -1);
+        if ((flags & O_ACCMODE) == O_RDONLY) {
+            return make_shared<posix_file_impl>(fd, options);
+        }
+        struct stat st;
+        auto r = ::fstat(fd, &st);
+        throw_system_error_on(r == -1);
+        if (S_ISDIR(st.st_mode)) {
+            return make_shared<posix_file_impl>(fd, options);
+        }
+        struct append_support {
+            bool append_challenged;
+            unsigned append_concurrency;
+        };
+        static thread_local std::unordered_map<decltype(st.st_dev), append_support> s_fstype;
+        if (!s_fstype.count(st.st_dev)) {
+            struct statfs sfs;
+            auto r = ::fstatfs(fd, &sfs);
+            throw_system_error_on(r == -1);
+            append_support as;
+            switch (sfs.f_type) {
+            case 0x58465342: /* XFS */
+                as.append_challenged = true;
+                as.append_concurrency = 1;
+                break;
+            case 0x6969: /* NFS */
+                as.append_challenged = false;
+                as.append_concurrency = 0;
+                break;
+            default:
+                as.append_challenged = true;
+                as.append_concurrency = 0;
+            }
+            s_fstype[st.st_dev] = as;
+        }
+        auto as = s_fstype[st.st_dev];
+        if (!as.append_challenged) {
+            return make_shared<posix_file_impl>(fd, options);
+        }
+        return make_shared<append_challenged_posix_file_impl>(fd, options, as.append_concurrency);
     }
 }
 
@@ -876,14 +1218,32 @@ file::file(int fd, file_open_options options)
 
 future<file>
 reactor::open_file_dma(sstring name, open_flags flags, file_open_options options) {
+    static constexpr mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH; // 0644
     return _thread_pool.submit<syscall_result<int>>([name, flags, options, strict_o_direct = _strict_o_direct] {
-        auto open_flags = O_DIRECT | O_CLOEXEC | static_cast<int>(flags);
-        int fd = ::open(name.c_str(), open_flags, S_IRWXU);
-        if (!strict_o_direct && fd == -1 && errno == EINVAL) {
-            // open with O_DIRECT on tmppfs creates the file, then returns an
-            // EINVAL; so we must remove O_EXCL as well.
-            open_flags &= ~(O_DIRECT | O_EXCL);
-            fd = ::open(name.c_str(), open_flags, S_IRWXU);
+        // We want O_DIRECT, except in two cases:
+        //   - tmpfs (which doesn't support it, but works fine anyway)
+        //   - strict_o_direct == false (where we forgive it being not supported)
+        // Because open() with O_DIRECT will fail, we open it without O_DIRECT, try
+        // to update it to O_DIRECT with fcntl(), and if that fails, see if we
+        // can forgive it.
+        auto is_tmpfs = [] (int fd) {
+            struct ::statfs buf;
+            auto r = ::fstatfs(fd, &buf);
+            if (r == -1) {
+                return false;
+            }
+            return buf.f_type == 0x01021994; // TMPFS_MAGIC
+        };
+        auto open_flags = O_CLOEXEC | static_cast<int>(flags);
+        int fd = ::open(name.c_str(), open_flags, mode);
+        if (fd == -1) {
+            return wrap_syscall<int>(fd);
+        }
+        int r = ::fcntl(fd, F_SETFL, open_flags | O_DIRECT);
+        auto maybe_ret = wrap_syscall<int>(r);  // capture errno (should be EINVAL)
+        if (r == -1  && strict_o_direct && !is_tmpfs(fd)) {
+            ::close(fd);
+            return maybe_ret;
         }
         if (fd != -1) {
             fsxattr attr = {};
@@ -1149,7 +1509,7 @@ blockdev_file_impl::allocate(uint64_t position, uint64_t length) {
 }
 
 future<uint64_t>
-posix_file_impl::size(void) {
+posix_file_impl::size() {
     auto r = ::lseek(_fd, 0, SEEK_END);
     if (r == -1) {
         return make_exception_future<uint64_t>(std::system_error(errno, std::system_category()));
@@ -1159,7 +1519,13 @@ posix_file_impl::size(void) {
 
 future<>
 posix_file_impl::close() noexcept {
-    auto closed = [fd = _fd] () noexcept {
+    if (_fd == -1) {
+        seastar_logger.warn("double close() detected, contact support");
+        return make_ready_future<>();
+    }
+    auto fd = _fd;
+    _fd = -1;  // Prevent a concurrent close (which is illegal) from closing another file's fd
+    auto closed = [fd] () noexcept {
         try {
             return engine()._thread_pool.submit<syscall_result<int>>([fd] {
                 return wrap_syscall<int>(::close(fd));
@@ -1170,7 +1536,6 @@ posix_file_impl::close() noexcept {
         }
     }();
     return closed.then([this] (syscall_result<int> sr) {
-        _fd = -1;
         sr.throw_if_error();
     });
 }
@@ -1377,7 +1742,7 @@ struct reactor::collectd_registrations {
 
 reactor::collectd_registrations
 reactor::register_collectd_metrics() {
-    return collectd_registrations{ {
+    auto ret = collectd_registrations{ {
             // queue_length     value:GAUGE:0:U
             // Absolute value of num tasks in queue.
             scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
@@ -1427,12 +1792,6 @@ reactor::register_collectd_metrics() {
                     , scollectd::per_cpu_plugin_instance
                     , "derive", "aio-write-bytes")
                     , scollectd::make_typed(scollectd::data_type::DERIVE, _aio_write_bytes)
-            ),
-            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
-                    , scollectd::per_cpu_plugin_instance
-                    , "gauge", "queued-io-requests")
-                    , scollectd::make_typed(scollectd::data_type::GAUGE,
-                        [this] { return _io_queue->queued_requests(); } )
             ),
             // total_operations value:DERIVE:0:U
             scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
@@ -1510,7 +1869,23 @@ reactor::register_collectd_metrics() {
                 scollectd::make_typed(scollectd::data_type::DERIVE,
                         [] { return logging_failures; })
             ),
+            // total_operations value:DERIVE:0:U
+            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+                    , scollectd::per_cpu_plugin_instance
+                    , "total_operations", "c++exceptions")
+                    , scollectd::make_typed(scollectd::data_type::DERIVE, _cxx_exceptions)
+            ),
     } };
+
+    if (my_io_queue) {
+        ret.regs.push_back(scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+            , scollectd::per_cpu_plugin_instance
+            , "gauge", "queued-io-requests")
+            , scollectd::make_typed(scollectd::data_type::GAUGE,
+                [this] { return my_io_queue->queued_requests(); } )
+        ));
+    }
+    return ret;
 }
 
 void reactor::run_tasks(circular_buffer<std::unique_ptr<task>>& tasks) {
@@ -1522,7 +1897,7 @@ void reactor::run_tasks(circular_buffer<std::unique_ptr<task>>& tasks) {
         tsk.reset();
         ++_tasks_processed;
         // check at end of loop, to allow at least one task to run
-        if (need_preempt()) {
+        if (need_preempt() && tasks.size() <= _max_task_backlog) {
             break;
         }
     }
@@ -2210,11 +2585,9 @@ void smp_message_queue::move_pending() {
 }
 
 bool smp_message_queue::pure_poll_tx() const {
-#if BOOST_VERSION >= 105600
-    return !_tx.a.pending_fifo.empty() && _pending.write_available();
-#else
-    return true;
-#endif
+    // can't use read_available(), not available on older boost
+    // empty() is not const, so need const_cast.
+    return !const_cast<lf_queue&>(_completed).empty();
 }
 
 void smp_message_queue::submit_item(smp_message_queue::work_item* item) {
@@ -2244,10 +2617,14 @@ void smp_message_queue::flush_response_batch() {
     }
 }
 
+bool smp_message_queue::has_unflushed_responses() const {
+    return !_completed_fifo.empty();
+}
+
 bool smp_message_queue::pure_poll_rx() const {
     // can't use read_available(), not available on older boost
     // empty() is not const, so need const_cast.
-    return !const_cast<lf_queue&>(_completed).empty();
+    return !const_cast<lf_queue&>(_pending).empty();
 }
 
 void
@@ -2326,40 +2703,40 @@ void smp_message_queue::start(unsigned cpuid) {
     _collectd_regs = scollectd::registrations({
             // queue_length     value:GAUGE:0:U
             // Absolute value of num packets in last tx batch.
-            scollectd::add_polled_metric(scollectd::type_instance_id("smp"
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
                     , instance
                     , "queue_length", "send-batch")
             , scollectd::make_typed(scollectd::data_type::GAUGE, _last_snt_batch)
             ),
-            scollectd::add_polled_metric(scollectd::type_instance_id("smp"
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
                     , instance
                     , "queue_length", "receive-batch")
             , scollectd::make_typed(scollectd::data_type::GAUGE, _last_rcv_batch)
             ),
-            scollectd::add_polled_metric(scollectd::type_instance_id("smp"
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
                     , instance
                     , "queue_length", "complete-batch")
             , scollectd::make_typed(scollectd::data_type::GAUGE, _last_cmpl_batch)
             ),
-            scollectd::add_polled_metric(scollectd::type_instance_id("smp"
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
                     , instance
                     , "queue_length", "send-queue-length")
             , scollectd::make_typed(scollectd::data_type::GAUGE, _current_queue_length)
             ),
             // total_operations value:DERIVE:0:U
-            scollectd::add_polled_metric(scollectd::type_instance_id("smp"
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
                     , instance
                     , "total_operations", "received-messages")
             , scollectd::make_typed(scollectd::data_type::DERIVE, _received)
             ),
             // total_operations value:DERIVE:0:U
-            scollectd::add_polled_metric(scollectd::type_instance_id("smp"
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
                     , instance
                     , "total_operations", "sent-messages")
             , scollectd::make_typed(scollectd::data_type::DERIVE, _sent)
             ),
             // total_operations value:DERIVE:0:U
-            scollectd::add_polled_metric(scollectd::type_instance_id("smp"
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
                     , instance
                     , "total_operations", "completed-messages")
             , scollectd::make_typed(scollectd::data_type::DERIVE, _compl)
@@ -2507,8 +2884,10 @@ reactor::get_options_description() {
         ("poll-aio", bpo::value<bool>()->default_value(true),
                 "busy-poll for disk I/O (reduces latency and increases throughput)")
         ("task-quota-ms", bpo::value<double>()->default_value(2.0), "Max time (ms) between polls")
+        ("max-task-backlog", bpo::value<unsigned>()->default_value(1000), "Maximum number of task backlog to allow; above this we ignore I/O")
         ("relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
         ("overprovisioned", "run in an overprovisioned environment (such as docker or a laptop); equivalent to --idle-poll-time-us 0 --thread-affinity 0 --poll-aio 0")
+        ("abort-on-seastar-bad-alloc", "abort when seastar allocator cannot allocate memory")
         ;
     opts.add(network_stack_registry::options_description());
     return opts;
@@ -2736,6 +3115,10 @@ void smp::configure(boost::program_options::variables_map configuration)
     }
     memory::configure(allocations[0].mem, hugepages_path);
 
+    if (configuration.count("abort-on-seastar-bad-alloc")) {
+        memory::enable_abort_on_allocation_failure();
+    }
+
 #ifdef HAVE_DPDK
     if (smp::_using_dpdk) {
         dpdk::eal::cpuset cpus;
@@ -2838,6 +3221,37 @@ void smp::configure(boost::program_options::variables_map configuration)
 
     engine().configure(configuration);
     engine()._lowres_clock = std::make_unique<lowres_clock>();
+}
+
+bool smp::poll_queues() {
+    size_t got = 0;
+    for (unsigned i = 0; i < count; i++) {
+        if (engine().cpu_id() != i) {
+            auto& rxq = _qs[engine().cpu_id()][i];
+            rxq.flush_response_batch();
+            got += rxq.has_unflushed_responses();
+            got += rxq.process_incoming();
+            auto& txq = _qs[i][engine()._id];
+            txq.flush_request_batch();
+            got += txq.process_completions();
+        }
+    }
+    return got != 0;
+}
+
+bool smp::pure_poll_queues() {
+    for (unsigned i = 0; i < count; i++) {
+        if (engine().cpu_id() != i) {
+            auto& rxq = _qs[engine().cpu_id()][i];
+            rxq.flush_response_batch();
+            auto& txq = _qs[i][engine()._id];
+            txq.flush_request_batch();
+            if (rxq.pure_poll_rx() || txq.pure_poll_tx() || rxq.has_unflushed_responses()) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 __thread bool g_need_preempt;
@@ -3172,8 +3586,8 @@ reactor::calculate_poll_time() {
 future<> later() {
     promise<> p;
     auto f = p.get_future();
+    engine().force_poll();
     schedule(make_task([p = std::move(p)] () mutable {
-        engine().force_poll();
         p.set_value();
     }));
     return f;
@@ -3190,3 +3604,23 @@ network_stack_registrator nsr_posix{"posix",
     },
     true
 };
+
+#ifndef NO_EXCEPTION_INTERCEPT
+#include <dlfcn.h>
+
+extern "C"
+[[gnu::visibility("default")]]
+[[gnu::externally_visible]]
+int _Unwind_RaiseException(void *h) {
+    using throw_fn =  int (*)(void *);
+    static throw_fn org = nullptr;
+
+    if (!org) {
+        org = (throw_fn)dlsym (RTLD_NEXT, "_Unwind_RaiseException");
+    }
+    if (local_engine) {
+        engine()._cxx_exceptions++;
+    }
+    return org(h);
+}
+#endif
