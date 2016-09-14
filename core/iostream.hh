@@ -146,6 +146,9 @@ public:
     /// Returns some data from the stream, or an empty buffer on end of
     /// stream.
     future<tmp_buf> read();
+    /// Returns up to n bytes from the stream, or an empty buffer on end of
+    /// stream.
+    future<tmp_buf> read_up_to(size_t n);
     /// Detaches the \c input_stream from the underlying data source.
     ///
     /// Waits for any background operations (for example, read-ahead) to

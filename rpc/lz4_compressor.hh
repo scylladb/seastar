@@ -43,6 +43,6 @@ namespace rpc {
         // compress data, leaving head_space empty in returned buffer
         temporary_buffer<char> compress(size_t head_space, temporary_buffer<char> data) override;
         // decompress data
-        temporary_buffer<char> decompress(temporary_buffer<char> data) override;
+        rcv_buf decompress(rcv_buf data) override;
     };
 }

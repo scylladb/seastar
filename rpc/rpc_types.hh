@@ -27,7 +27,9 @@
 #include <boost/any.hpp>
 #include <boost/type.hpp>
 #include <experimental/optional>
+#include <boost/variant.hpp>
 #include "core/timer.hh"
+#include "core/simple-stream.hh"
 
 namespace rpc {
 
@@ -156,13 +158,31 @@ struct cancellable {
     }
 };
 
+struct rcv_buf {
+    uint32_t size = 0;
+    boost::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
+    using iterator = std::vector<temporary_buffer<char>>::iterator;
+    rcv_buf() {}
+    explicit rcv_buf(size_t size_) : size(size_) {}
+};
+
+static inline seastar::memory_stream<rcv_buf::iterator> make_deserializer_stream(rcv_buf& input) {
+    auto* b = boost::get<temporary_buffer<char>>(&input.bufs);
+    if (b) {
+        return seastar::memory_stream<rcv_buf::iterator>(seastar::memory_stream<rcv_buf::iterator>::simple(b->begin(), b->size()));
+    } else {
+        auto& ar = boost::get<std::vector<temporary_buffer<char>>>(input.bufs);
+        return seastar::memory_stream<rcv_buf::iterator>(seastar::memory_stream<rcv_buf::iterator>::fragmented(ar.begin(), input.size));
+    }
+}
+
 class compressor {
 public:
     virtual ~compressor() {}
     // compress data and leave head_space bytes at the beginning of returned buffer
     virtual temporary_buffer<char> compress(size_t head_space, temporary_buffer<char> data) = 0;
     // decompress data
-    virtual temporary_buffer<char> decompress(temporary_buffer<char> data) = 0;
+    virtual rcv_buf decompress(rcv_buf data) = 0;
 
     // factory to create compressor for a connection
     class factory {
