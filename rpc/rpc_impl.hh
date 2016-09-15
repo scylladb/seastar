@@ -700,7 +700,7 @@ receive_negotiation_frame(Connection& c, input_stream<char>& in) {
 
 inline future<rcv_buf>
 read_rcv_buf(input_stream<char>& in, uint32_t size) {
-    return in.read_up_to(size).then([&] (temporary_buffer<char> data) {
+    return in.read_up_to(size).then([&, size] (temporary_buffer<char> data) mutable {
         rcv_buf rb(size);
         if (data.size() == 0) {
             return make_ready_future<rcv_buf>(rcv_buf());
@@ -712,7 +712,7 @@ read_rcv_buf(input_stream<char>& in, uint32_t size) {
             std::vector<temporary_buffer<char>> v;
             v.push_back(std::move(data));
             rb.bufs = std::move(v);
-            return do_with(std::move(rb), size, [&in] (rcv_buf& rb, uint32_t& left) {
+            return do_with(std::move(rb), std::move(size), [&in] (rcv_buf& rb, uint32_t& left) {
                 return repeat([&] () {
                     return in.read_up_to(left).then([&] (temporary_buffer<char> data) {
                         if (!data.size()) {
