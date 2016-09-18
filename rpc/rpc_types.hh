@@ -166,6 +166,17 @@ struct rcv_buf {
     explicit rcv_buf(size_t size_) : size(size_) {}
 };
 
+struct snd_buf {
+    static constexpr size_t chunk_size = 128*1024;
+    uint32_t size = 0;
+    boost::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
+    using iterator = std::vector<temporary_buffer<char>>::iterator;
+    snd_buf() {}
+    explicit snd_buf(size_t size_);
+    explicit snd_buf(temporary_buffer<char> b) : size(b.size()), bufs(std::move(b)) {};
+    temporary_buffer<char>& front();
+};
+
 static inline seastar::memory_input_stream<rcv_buf::iterator> make_deserializer_stream(rcv_buf& input) {
     auto* b = boost::get<temporary_buffer<char>>(&input.bufs);
     if (b) {
@@ -180,7 +191,7 @@ class compressor {
 public:
     virtual ~compressor() {}
     // compress data and leave head_space bytes at the beginning of returned buffer
-    virtual temporary_buffer<char> compress(size_t head_space, temporary_buffer<char> data) = 0;
+    virtual snd_buf compress(size_t head_space, snd_buf data) = 0;
     // decompress data
     virtual rcv_buf decompress(rcv_buf data) = 0;
 

@@ -26,18 +26,35 @@ namespace rpc {
 
 const sstring lz4_compressor::factory::_name = "LZ4";
 
-temporary_buffer<char> lz4_compressor::compress(size_t head_space, temporary_buffer<char> data) {
+
+static temporary_buffer<char> linearize(boost::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>>& v, uint32_t size) {
+    auto* one = boost::get<temporary_buffer<char>>(&v);
+    if (one) {
+        // no need to linearize
+        return std::move(*one);
+    } else {
+        temporary_buffer<char> src(size);
+        auto p = src.get_write();
+        for (auto&& b : boost::get<std::vector<temporary_buffer<char>>>(v)) {
+            p = std::copy_n(b.begin(), b.size(), p);
+        }
+        return src;
+    }
+}
+
+snd_buf lz4_compressor::compress(size_t head_space, snd_buf data) {
     head_space += 4;
-    temporary_buffer<char> dst(head_space + LZ4_compressBound(data.size()));
+    temporary_buffer<char> dst(head_space + LZ4_compressBound(data.size));
+    temporary_buffer<char> src = linearize(data.bufs, data.size);
     // Can't use LZ4_compress_default() since it's too new.
     // Safe since output buffer is sized properly.
-    auto size = LZ4_compress(data.begin(), dst.get_write() + head_space, data.size());
+    auto size = LZ4_compress(src.begin(), dst.get_write() + head_space, src.size());
     if (size == 0) {
         throw std::runtime_error("RPC frame LZ4 compression failure");
     }
     dst.trim(size + head_space);
-    write_le<uint32_t>(dst.get_write() + 4, data.size());
-    return dst;
+    write_le<uint32_t>(dst.get_write() + (head_space - 4), data.size);
+    return snd_buf(std::move(dst));
 }
 
 rcv_buf lz4_compressor::decompress(rcv_buf data) {
@@ -49,22 +66,8 @@ rcv_buf lz4_compressor::decompress(rcv_buf data) {
         in.read(reinterpret_cast<char*>(&v32), 4);
         auto size = le_to_cpu(v32);
         if (size) {
-            temporary_buffer<char> src;
-            auto* one = boost::get<temporary_buffer<char>>(&data.bufs);
-            if (one) {
-                // no need to leniarize
-                src = std::move(*one);
-                src.trim_front(4);
-            } else {
-                src = temporary_buffer<char>(size);
-                struct {
-                    char* it;
-                    void write(const char* p, size_t size) {
-                        it = std::copy_n(p, size, it);
-                    }
-                } l{src.get_write()};
-                in.copy_to(l);
-            }
+            temporary_buffer<char> src = linearize(data.bufs, data.size);
+            src.trim_front(4);
             rcv_buf rb(size);
             rb.bufs = temporary_buffer<char>(size);
             auto& dst = boost::get<temporary_buffer<char>>(rb.bufs);
