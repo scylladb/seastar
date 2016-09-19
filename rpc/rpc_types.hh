@@ -166,13 +166,13 @@ struct rcv_buf {
     explicit rcv_buf(size_t size_) : size(size_) {}
 };
 
-static inline seastar::memory_stream<rcv_buf::iterator> make_deserializer_stream(rcv_buf& input) {
+static inline seastar::memory_input_stream<rcv_buf::iterator> make_deserializer_stream(rcv_buf& input) {
     auto* b = boost::get<temporary_buffer<char>>(&input.bufs);
     if (b) {
-        return seastar::memory_stream<rcv_buf::iterator>(seastar::memory_stream<rcv_buf::iterator>::simple(b->begin(), b->size()));
+        return seastar::memory_input_stream<rcv_buf::iterator>(seastar::memory_input_stream<rcv_buf::iterator>::simple(b->begin(), b->size()));
     } else {
         auto& ar = boost::get<std::vector<temporary_buffer<char>>>(input.bufs);
-        return seastar::memory_stream<rcv_buf::iterator>(seastar::memory_stream<rcv_buf::iterator>::fragmented(ar.begin(), input.size));
+        return seastar::memory_input_stream<rcv_buf::iterator>(seastar::memory_input_stream<rcv_buf::iterator>::fragmented(ar.begin(), input.size));
     }
 }
 

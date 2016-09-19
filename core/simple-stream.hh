@@ -57,13 +57,13 @@ concept bool StreamVisitor() {
     };
 }
 */
-// memory_stream performs type erasure optimized for cases where
+// memory_input_stream performs type erasure optimized for cases where
 // simple is used.
 // By using a lot of [[gnu::always_inline]] attributes this class attempts to
 // make the compiler generate code with simple functions inlined
 // directly in the user of the intput_stream.
 template<typename Iterator>
-class memory_stream {
+class memory_input_stream {
 public:
     class simple {
         const char* _p = nullptr;
@@ -200,22 +200,22 @@ public:
 public:
     using has_with_stream = std::true_type;
     using iterator_type = Iterator;
-    memory_stream(simple stream)
+    memory_input_stream(simple stream)
             : _is_simple(true), _simple(std::move(stream)) {}
-    memory_stream(fragmented stream)
+    memory_input_stream(fragmented stream)
             : _is_simple(false), _fragmented(std::move(stream)) {}
 
     [[gnu::always_inline]]
-    memory_stream(const memory_stream& other) noexcept : _is_simple(other._is_simple) {
+    memory_input_stream(const memory_input_stream& other) noexcept : _is_simple(other._is_simple) {
         // Making this copy constructor noexcept makes copy assignment simpler.
-        // Besides, performance of memory_stream relies on the fact that both
+        // Besides, performance of memory_input_stream relies on the fact that both
         // fragmented and simple input stream are PODs and the branch below
         // is optimized away, so throwable copy constructors aren't something
         // we want.
         static_assert(std::is_nothrow_copy_constructible<fragmented>::value,
-                      "seastar::memory_stream::fragmented should be copy constructible");
+                      "seastar::memory_input_stream::fragmented should be copy constructible");
         static_assert(std::is_nothrow_copy_constructible<simple>::value,
-                      "seastar::memory_stream::simple should be copy constructible");
+                      "seastar::memory_input_stream::simple should be copy constructible");
         if (_is_simple) {
             new (&_simple) simple(other._simple);
         } else {
@@ -224,7 +224,7 @@ public:
     }
 
     [[gnu::always_inline]]
-    memory_stream(memory_stream&& other) noexcept : _is_simple(other._is_simple) {
+    memory_input_stream(memory_input_stream&& other) noexcept : _is_simple(other._is_simple) {
         if (_is_simple) {
             new (&_simple) simple(std::move(other._simple));
         } else {
@@ -233,28 +233,28 @@ public:
     }
 
     [[gnu::always_inline]]
-    memory_stream& operator=(const memory_stream& other) noexcept {
+    memory_input_stream& operator=(const memory_input_stream& other) noexcept {
         // Copy constructor being noexcept makes copy assignment simpler.
-        static_assert(std::is_nothrow_copy_constructible<memory_stream>::value,
-                      "memory_stream copy constructor shouldn't throw");
+        static_assert(std::is_nothrow_copy_constructible<memory_input_stream>::value,
+                      "memory_input_stream copy constructor shouldn't throw");
         if (this != &other) {
-            this->~memory_stream();
-            new (this) memory_stream(other);
+            this->~memory_input_stream();
+            new (this) memory_input_stream(other);
         }
         return *this;
     }
 
     [[gnu::always_inline]]
-    memory_stream& operator=(memory_stream&& other) noexcept {
+    memory_input_stream& operator=(memory_input_stream&& other) noexcept {
         if (this != &other) {
-            this->~memory_stream();
-            new (this) memory_stream(std::move(other));
+            this->~memory_input_stream();
+            new (this) memory_input_stream(std::move(other));
         }
         return *this;
     }
 
     [[gnu::always_inline]]
-    ~memory_stream() {
+    ~memory_input_stream() {
         if (_is_simple) {
             _simple.~simple();
         } else {
@@ -270,8 +270,8 @@ public:
     }
 
     [[gnu::always_inline]]
-    memory_stream read_substream(size_t size) {
-        return with_stream([size] (auto& stream) -> memory_stream {
+    memory_input_stream read_substream(size_t size) {
+        return with_stream([size] (auto& stream) -> memory_input_stream {
             return stream.read_substream(size);
         });
     }
@@ -330,6 +330,6 @@ template<typename Stream, typename StreamVisitor>
     return visitor(stream);
 }
 
-using simple_input_stream = memory_stream<simple_stream_tag>::simple;
+using simple_input_stream = memory_input_stream<simple_stream_tag>::simple;
 
 }
