@@ -36,17 +36,225 @@ public:
     }
 };
 
-class simple_output_stream {
-    char* _p;
+struct simple_stream_tag {};
+
+template<typename Iterator>
+class memory_output_stream {
 public:
-    simple_output_stream(sstring& s, size_t start = 0) : _p(s.begin() + start) {}
-    simple_output_stream(char* s, size_t start = 0) : _p(reinterpret_cast<char*>(s) + start) {}
-    void write(const char* data, size_t size) {
-        _p = std::copy_n(data, size, _p);
+    class simple {
+        char* _p = nullptr;
+        size_t _size = 0;
+    public:
+        using has_with_stream = std::false_type;
+        using iterator_type = Iterator;
+        simple() {}
+        simple(char* p, size_t size, size_t start = 0) : _p(p + start), _size(size) {}
+        char* begin() { return _p; }
+
+        [[gnu::always_inline]]
+        void skip(size_t size) {
+            if (size > _size) {
+                throw std::out_of_range("serialization buffer overflow");
+            }
+            _p += size;
+            _size -= size;
+        }
+
+        [[gnu::always_inline]]
+        simple write_substream(size_t size) {
+           if (size > _size) {
+               throw std::out_of_range("serialization buffer overflow");
+           }
+           simple substream(_p, size);
+           skip(size);
+           return substream;
+        }
+
+        [[gnu::always_inline]]
+        void write(const char* p, size_t size) {
+            if (size > _size) {
+                throw std::out_of_range("serialization buffer overflow");
+            }
+            std::copy_n(p, size, _p);
+            skip(size);
+        }
+
+        [[gnu::always_inline]]
+        const size_t size() const {
+            return _size;
+        }
+    };
+
+    class fragmented {
+        Iterator _it;
+        simple _current;
+        size_t _size;
+    private:
+        template<typename Func>
+        //requires requires(Func f, view bv) { { f(bv) } -> void; }
+        void for_each_fragment(size_t size, Func&& func) {
+            if (size > _size) {
+                throw std::out_of_range("serialization buffer overflow");
+            }
+            _size -= size;
+            while (size) {
+                if (!_current.size()) {
+                    _current = simple(reinterpret_cast<char*>((*_it).get_write()), (*_it).size());
+                    _it++;
+                }
+                auto this_size = std::min(_current.size(), size);
+                func(_current.write_substream(this_size));
+                size -= this_size;
+            }
+        }
+        fragmented(Iterator it, simple bv, size_t size)
+            : _it(it), _current(bv), _size(size) { }
+    public:
+        using has_with_stream = std::false_type;
+        using iterator_type = Iterator;
+        fragmented(Iterator it, size_t size)
+            : _it(it), _size(size) {
+        }
+
+        void skip(size_t size) {
+            for_each_fragment(size, [] (auto) { });
+        }
+        fragmented write_substream(size_t size) {
+            if (size > _size) {
+                throw std::out_of_range("serialization buffer overflow");
+            }
+            fragmented substream(_it, _current, size);
+            skip(size);
+            return substream;
+        }
+        void write(const char* p, size_t size) {
+            for_each_fragment(size, [&p] (auto bv) {
+                std::copy_n(p, bv.size(), bv.begin());
+                p += bv.size();
+            });
+        }
+        const size_t size() const {
+            return _size;
+        }
+    };
+private:
+    const bool _is_simple;
+    using fragmented_type = std::conditional_t<std::is_same<Iterator, simple_stream_tag>::value, simple, fragmented>;
+    union {
+        simple _simple;
+        fragmented_type _fragmented;
+    };
+public:
+    template<typename StreamVisitor>
+    [[gnu::always_inline]]
+    decltype(auto) with_stream(StreamVisitor&& visitor) {
+        if (__builtin_expect(_is_simple, true)) {
+            return visitor(_simple);
+        }
+        return visitor(_fragmented);
+    }
+
+    template<typename StreamVisitor>
+    [[gnu::always_inline]]
+    decltype(auto) with_stream(StreamVisitor&& visitor) const {
+        if (__builtin_expect(_is_simple, true)) {
+            return visitor(_simple);
+        }
+        return visitor(_fragmented);
+    }
+public:
+    using has_with_stream = std::true_type;
+    using iterator_type = Iterator;
+    memory_output_stream(simple stream)
+            : _is_simple(true), _simple(std::move(stream)) {}
+    memory_output_stream(fragmented stream)
+            : _is_simple(false), _fragmented(std::move(stream)) {}
+
+    [[gnu::always_inline]]
+    memory_output_stream(const memory_output_stream& other) noexcept : _is_simple(other._is_simple) {
+        // Making this copy constructor noexcept makes copy assignment simpler.
+        // Besides, performance of memory_output_stream relies on the fact that both
+        // fragmented and simple input stream are PODs and the branch below
+        // is optimized away, so throwable copy constructors aren't something
+        // we want.
+        static_assert(std::is_nothrow_copy_constructible<fragmented>::value,
+                      "seastar::memory_output_stream::fragmented should be copy constructible");
+        static_assert(std::is_nothrow_copy_constructible<simple>::value,
+                      "seastar::memory_output_stream::simple should be copy constructible");
+        if (_is_simple) {
+            new (&_simple) simple(other._simple);
+        } else {
+            new (&_fragmented) fragmented_type(other._fragmented);
+        }
+    }
+
+    [[gnu::always_inline]]
+    memory_output_stream(memory_output_stream&& other) noexcept : _is_simple(other._is_simple) {
+        if (_is_simple) {
+            new (&_simple) simple(std::move(other._simple));
+        } else {
+            new (&_fragmented) fragmented_type(std::move(other._fragmented));
+        }
+    }
+
+    [[gnu::always_inline]]
+    memory_output_stream& operator=(const memory_output_stream& other) noexcept {
+        // Copy constructor being noexcept makes copy assignment simpler.
+        static_assert(std::is_nothrow_copy_constructible<memory_output_stream>::value,
+                      "memory_output_stream copy constructor shouldn't throw");
+        if (this != &other) {
+            this->~memory_output_stream();
+            new (this) memory_output_stream(other);
+        }
+        return *this;
+    }
+
+    [[gnu::always_inline]]
+    memory_output_stream& operator=(memory_output_stream&& other) noexcept {
+        if (this != &other) {
+            this->~memory_output_stream();
+            new (this) memory_output_stream(std::move(other));
+        }
+        return *this;
+    }
+
+    [[gnu::always_inline]]
+    ~memory_output_stream() {
+        if (_is_simple) {
+            _simple.~simple();
+        } else {
+            _fragmented.~fragmented_type();
+        }
+    }
+
+    [[gnu::always_inline]]
+    void skip(size_t size) {
+        with_stream([size] (auto& stream) {
+            stream.skip(size);
+        });
+    }
+
+    [[gnu::always_inline]]
+    memory_output_stream write_substream(size_t size) {
+        return with_stream([size] (auto& stream) -> memory_output_stream {
+            return stream.write_substream(size);
+        });
+    }
+
+    [[gnu::always_inline]]
+    void write(const char* p, size_t size) {
+        with_stream([p, size] (auto& stream) {
+            stream.write(p, size);
+        });
+    }
+
+    [[gnu::always_inline]]
+    size_t size() const {
+        return with_stream([] (auto& stream) {
+            return stream.size();
+        });
     }
 };
-
-struct simple_stream_tag {};
 
 /*
 template<typename Visitor>
@@ -331,5 +539,6 @@ template<typename Stream, typename StreamVisitor>
 }
 
 using simple_input_stream = memory_input_stream<simple_stream_tag>::simple;
+using simple_output_stream = memory_output_stream<simple_stream_tag>::simple;
 
 }
