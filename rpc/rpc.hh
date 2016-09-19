@@ -288,8 +288,12 @@ public:
             ipv4_addr peer_address() const {
                 return ipv4_addr(_info.addr);
             }
-            future<> wait_for_resources(size_t memory_consumed) {
-                return _server._resources_available.wait(memory_consumed);
+            future<> wait_for_resources(size_t memory_consumed,  std::experimental::optional<steady_clock_type::time_point> timeout) {
+                if (timeout) {
+                    return _server._resources_available.wait(*timeout, memory_consumed);
+                } else {
+                    return _server._resources_available.wait(memory_consumed);
+                }
             }
             void release_resources(size_t memory_consumed) {
                 _server._resources_available.signal(memory_consumed);
