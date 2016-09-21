@@ -24,6 +24,7 @@
 #pragma once
 
 #include "net/packet.hh"
+#include "core/future-util.hh"
 
 template<typename CharType>
 inline
@@ -234,19 +235,20 @@ future<>
 output_stream<CharType>::split_and_put(temporary_buffer<CharType> buf) {
     assert(_end == 0);
 
-    if (buf.size() < _size) {
-        if (!_buf) {
-            _buf = _fd.allocate_buffer(_size);
+    return repeat([this, buf = std::move(buf)] () mutable {
+        if (buf.size() < _size) {
+            if (!_buf) {
+                _buf = _fd.allocate_buffer(_size);
+            }
+            std::copy(buf.get(), buf.get() + buf.size(), _buf.get_write());
+            _end = buf.size();
+            return make_ready_future<stop_iteration>(stop_iteration::yes);
         }
-        std::copy(buf.get(), buf.get() + buf.size(), _buf.get_write());
-        _end = buf.size();
-        return make_ready_future<>();
-    }
-
-    auto chunk = buf.share(0, _size);
-    buf.trim_front(_size);
-    return put(std::move(chunk)).then([this, buf = std::move(buf)] () mutable {
-        return split_and_put(std::move(buf));
+        auto chunk = buf.share(0, _size);
+        buf.trim_front(_size);
+        return put(std::move(chunk)).then([] {
+            return stop_iteration::no;
+        });
     });
 }
 
