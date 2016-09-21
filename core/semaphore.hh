@@ -115,11 +115,11 @@ public:
     using time_point =  timer<>::time_point;
 
     /// Constructs a semaphore object with a specific number of units
-    /// in its internal counter.  The default is 1, suitable for use as
+    /// in its internal counter. E.g., starting it at 1 is suitable for use as
     /// an unlocked mutex.
     ///
-    /// \param count number of initial units present in the counter (default 1).
-    basic_semaphore(size_t count = 1) : _count(count) {}
+    /// \param count number of initial units present in the counter.
+    basic_semaphore(size_t count) : _count(count) {}
     /// Waits until at least a specific number of units are available in the
     /// counter, and reduces the counter by that amount of units.
     ///

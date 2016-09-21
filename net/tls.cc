@@ -309,7 +309,7 @@ private:
     gnutls_certificate_credentials_t _creds;
     std::unique_ptr<tls::dh_params::impl> _dh_params;
     bool _load_system_trust = false;
-    semaphore _system_trust_sem;
+    semaphore _system_trust_sem {1};
 };
 
 seastar::tls::certificate_credentials::certificate_credentials()
