@@ -74,6 +74,11 @@ class condition_variable {
     };
     basic_semaphore<condition_variable_exception_factory> _sem;
 public:
+    /// Constructs a condition_variable object.
+    /// Initialzie the semaphore with a default value of 0 to enusre
+    /// the first call to wait() before signal() won't be waken up immediately.
+    condition_variable() : _sem(0) {}
+
     /// Waits until condition variable is signaled, may wake up without condition been met
     ///
     /// \return a future that becomes ready when \ref signal() is called
