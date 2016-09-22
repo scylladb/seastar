@@ -146,12 +146,12 @@ template <typename CharType>
 template <typename Consumer>
 future<>
 input_stream<CharType>::consume(Consumer& consumer) {
-    for (;;) {
+    return repeat([&consumer, this] {
         if (_buf.empty() && !_eof) {
             return _fd.get().then([this, &consumer] (tmp_buf buf) {
                 _buf = std::move(buf);
                 _eof = _buf.empty();
-                return consume(consumer);
+                return make_ready_future<stop_iteration>(stop_iteration::no);
             });
         }
         future<unconsumed_remainder> unconsumed = consumer(std::move(_buf));
@@ -160,15 +160,16 @@ input_stream<CharType>::consume(Consumer& consumer) {
             if (u) {
                 // consumer is done
                 _buf = std::move(u.value());
-                return make_ready_future<>();
+                return make_ready_future<stop_iteration>(stop_iteration::yes);
             }
             if (_eof) {
-                return make_ready_future<>();
+                return make_ready_future<stop_iteration>(stop_iteration::yes);
             }
             // If we're here, consumer consumed entire buffer and is ready for
             // more now. So we do not return, and rather continue the loop.
             // TODO: if we did too many iterations, schedule a call to
             // consume() instead of continuing the loop.
+            return make_ready_future<stop_iteration>(stop_iteration::no);
         } else {
             // TODO: here we wait for the consumer to finish the previous
             // buffer (fulfilling "unconsumed") before starting to read the
@@ -177,14 +178,14 @@ input_stream<CharType>::consume(Consumer& consumer) {
                 if (u) {
                     // consumer is done
                     _buf = std::move(u.value());
-                    return make_ready_future<>();
+                    return make_ready_future<stop_iteration>(stop_iteration::yes);
                 } else {
                     // consumer consumed entire buffer, and is ready for more
-                    return consume(consumer);
+                    return make_ready_future<stop_iteration>(stop_iteration::no);
                 }
             });
         }
-    }
+    });
 }
 
 template <typename CharType>
