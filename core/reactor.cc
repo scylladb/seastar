@@ -78,6 +78,9 @@
 #include <sys/mman.h>
 #include <linux/falloc.h>
 #include <linux/magic.h>
+#include "util/backtrace.hh"
+#include "util/spinlock.hh"
+#include "util/print_safe.hh"
 
 #ifdef HAVE_OSV
 #include <osv/newpoll.hh>
@@ -2214,6 +2217,16 @@ void reactor::stop_aio_eventfd_loop() {
     ::write(_aio_eventfd->get_fd(), &one, 8);
 }
 
+// Prints current backtrace to stderr.
+// Async-signal safe.
+static void print_backtrace_safe() noexcept {
+    backtrace([&] (uintptr_t addr) {
+        print_safe("  0x");
+        print_zero_padded_hex_safe(addr - 1);
+        print_safe("\n");
+    });
+}
+
 int reactor::run() {
     auto collectd_metrics = register_collectd_metrics();
 
@@ -3012,6 +3025,61 @@ void smp::create_thread(std::function<void ()> thread_loop) {
     }
 }
 
+// Installs handler for Signal which ensures that Func is invoked only once
+// in the whole program and that after it is invoked the default handler is restored.
+template<int Signal, void(*Func)()>
+void install_oneshot_signal_handler() {
+    static bool handled = false;
+    static util::spinlock lock;
+
+    struct sigaction sa;
+    sa.sa_sigaction = [](int sig, siginfo_t *info, void *p) {
+        std::lock_guard<util::spinlock> g(lock);
+        if (!handled) {
+            handled = true;
+            Func();
+            signal(sig, SIG_DFL);
+        }
+    };
+    sigfillset(&sa.sa_mask);
+    sa.sa_flags = SA_SIGINFO | SA_RESTART;
+    if (Signal == SIGSEGV) {
+        sa.sa_flags |= SA_ONSTACK;
+    }
+    auto r = ::sigaction(Signal, &sa, nullptr);
+    throw_system_error_on(r == -1);
+}
+
+static void install_signal_handler_stack() {
+    size_t size = SIGSTKSZ;
+    auto mem = std::make_unique<char[]>(size);
+    stack_t stack;
+    stack.ss_sp = mem.get();
+    stack.ss_flags = 0;
+    stack.ss_size = size;
+    auto r = sigaltstack(&stack, NULL);
+    throw_system_error_on(r == -1);
+    mem.release();
+}
+
+static void print_with_backtrace(const char* cause) noexcept {
+    print_safe(cause);
+    if (local_engine) {
+        print_safe(" on shard ");
+        print_decimal_safe(local_engine->cpu_id());
+    }
+    print_safe(".\nBacktrace:\n");
+    print_backtrace_safe();
+}
+
+static void sigsegv_action() noexcept {
+    print_with_backtrace("Segmentation fault");
+}
+
+static void sigabrt_action() noexcept {
+    print_with_backtrace("Aborting");
+}
+
 void smp::configure(boost::program_options::variables_map configuration)
 {
     // Mask most, to prevent threads (esp. dpdk helper threads)
@@ -3026,6 +3094,10 @@ void smp::configure(boost::program_options::variables_map configuration)
         sigdelset(&sigs, sig);
     }
     pthread_sigmask(SIG_BLOCK, &sigs, nullptr);
+
+    install_signal_handler_stack();
+    install_oneshot_signal_handler<SIGSEGV, sigsegv_action>();
+    install_oneshot_signal_handler<SIGABRT, sigabrt_action>();
 
 #ifdef HAVE_DPDK
     _using_dpdk = configuration.count("dpdk-pmd");
@@ -3175,8 +3247,12 @@ void smp::configure(boost::program_options::variables_map configuration)
                 smp::pin(allocation.cpu_id);
             }
             memory::configure(allocation.mem, hugepages_path);
+            install_signal_handler_stack();
             sigset_t mask;
             sigfillset(&mask);
+            for (auto sig : { SIGSEGV }) {
+                sigdelset(&mask, sig);
+            }
             auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
             throw_system_error_on(r == -1);
             allocate_reactor();
