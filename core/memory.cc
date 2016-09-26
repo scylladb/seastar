@@ -1160,7 +1160,9 @@ abort_on_underflow(size_t size) {
 void* allocate_large(size_t size) {
     abort_on_underflow(size);
     unsigned size_in_pages = (size + page_size - 1) >> page_bits;
-    assert((size_t(size_in_pages) << page_bits) >= size);
+    if ((size_t(size_in_pages) << page_bits) < size) {
+        throw std::bad_alloc();
+    }
     return cpu_mem.allocate_large(size_in_pages);
 
 }
