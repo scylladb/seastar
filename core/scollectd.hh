@@ -38,6 +38,8 @@
 #include "net/byteorder.hh"
 #include "core/shared_ptr.hh"
 #include "core/sstring.hh"
+#include "core/print.hh"
+#include "util/log.hh"
 
 /**
  * Implementation of rudimentary collectd data gathering.
@@ -78,6 +80,8 @@
  */
 
 namespace scollectd {
+
+extern seastar::logger logger;
 
 // The value binding data types
 enum class data_type : uint8_t {
@@ -320,13 +324,32 @@ private:
     sstring _s;
 };
 
+static constexpr unsigned max_collectd_field_text_len = 63;
+
 class type_instance_id {
+    static thread_local unsigned _next_truncated_idx;
+
+    /// truncate a given field to the maximum allowed length
+    void truncate(sstring& field, const char* field_desc) {
+        if (field.size() > max_collectd_field_text_len) {
+            auto suffix_len = std::ceil(std::log10(++_next_truncated_idx)) + 1;
+            sstring new_field(seastar::format("{}~{:d}", sstring(field.data(), max_collectd_field_text_len - suffix_len), _next_truncated_idx));
+
+            logger.warn("Truncating \"{}\" to {} chars: \"{}\" -> \"{}\"", field_desc, max_collectd_field_text_len, field, new_field);
+            field = std::move(new_field);
+        }
+    }
 public:
     type_instance_id() = default;
     type_instance_id(plugin_id p, plugin_instance_id pi, type_id t,
                     scollectd::type_instance ti = std::string())
                     : _plugin(std::move(p)), _plugin_instance(std::move(pi)), _type(
                                     std::move(t)), _type_instance(std::move(ti)) {
+        // truncate strings to the maximum allowed length
+        truncate(_plugin, "plugin");
+        truncate(_plugin_instance, "plugin_instance");
+        truncate(_type, "type");
+        truncate(_type_instance, "type_instance");
     }
     type_instance_id(type_instance_id &&) = default;
     type_instance_id(const type_instance_id &) = default;

@@ -51,6 +51,9 @@ bool scollectd::type_instance_id::operator==(
 
 namespace scollectd {
 
+seastar::logger logger("scollectd");
+thread_local unsigned type_instance_id::_next_truncated_idx = 0;
+
 const plugin_instance_id per_cpu_plugin_instance("#cpu");
 
 static const size_t payload_size = 1024;
