@@ -203,12 +203,23 @@ inline void do_marshall(Serializer& serializer, Output& out, const T&... args) {
     (void)std::initializer_list<int>{(marshall_one(serializer, out, args), 1)...};
 }
 
+static inline seastar::memory_output_stream<snd_buf::iterator> make_serializer_stream(snd_buf& output) {
+    auto* b = boost::get<temporary_buffer<char>>(&output.bufs);
+    if (b) {
+        return seastar::memory_output_stream<snd_buf::iterator>(seastar::memory_output_stream<snd_buf::iterator>::simple(b->get_write(), b->size()));
+    } else {
+        auto& ar = boost::get<std::vector<temporary_buffer<char>>>(output.bufs);
+        return seastar::memory_output_stream<snd_buf::iterator>(seastar::memory_output_stream<snd_buf::iterator>::fragmented(ar.begin(), output.size));
+    }
+}
+
 template <typename Serializer, typename... T>
-inline temporary_buffer<char> marshall(Serializer& serializer, size_t head_space, const T&... args) {
+inline snd_buf marshall(Serializer& serializer, size_t head_space, const T&... args) {
     seastar::measuring_output_stream measure;
     do_marshall(serializer, measure, args...);
-    temporary_buffer<char> ret(measure.size() + head_space);
-    seastar::simple_output_stream out(ret.get_write(), head_space);
+    snd_buf ret(measure.size() + head_space);
+    auto out = make_serializer_stream(ret);
+    out.skip(head_space);
     do_marshall(serializer, out, args...);
     return ret;
 }
@@ -370,11 +381,12 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
 
             // send message
             auto msg_id = dst.next_message_id();
-            temporary_buffer<char> data = marshall(dst.serializer(), 28, args...);
-            auto p = data.get_write() + 8; // 8 extra bytes for expiration timer
+            snd_buf data = marshall(dst.serializer(), 28, args...);
+            static_assert(snd_buf::chunk_size >= 28, "send buffer chunk size is too small");
+            auto p = data.front().get_write() + 8; // 8 extra bytes for expiration timer
             write_le<uint64_t>(p, uint64_t(t));
             write_le<int64_t>(p + 8, msg_id);
-            write_le<uint32_t>(p + 16, data.size() - 28);
+            write_le<uint32_t>(p + 16, data.size - 28);
 
             // prepare reply handler, if return type is now_wait_type this does nothing, since no reply will be sent
             using wait = wait_signature_t<Ret>;
@@ -402,10 +414,11 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
 template <typename Serializer, typename MsgType>
 inline
 future<>
-protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, temporary_buffer<char>&& data, std::experimental::optional<steady_clock_type::time_point> timeout) {
-    auto p = data.get_write();
+protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, snd_buf&& data, std::experimental::optional<steady_clock_type::time_point> timeout) {
+    static_assert(snd_buf::chunk_size >= 12, "send buffer chunk size is too small");
+    auto p = data.front().get_write();
     write_le<int64_t>(p, msg_id);
-    write_le<uint32_t>(p + 8, data.size() - 12);
+    write_le<uint32_t>(p + 8, data.size - 12);
     return this->send(std::move(data), timeout);
 }
 
@@ -413,17 +426,20 @@ template<typename Serializer, typename MsgType, typename... RetTypes>
 inline future<> reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client,
         std::experimental::optional<steady_clock_type::time_point> timeout) {
     if (!client->error()) {
-        temporary_buffer<char> data;
+        snd_buf data;
         try {
             data = ::apply(marshall<Serializer, const RetTypes&...>,
                     std::tuple_cat(std::make_tuple(std::ref(client->serializer()), 12), std::move(ret.get())));
         } catch (std::exception& ex) {
             uint32_t len = std::strlen(ex.what());
-            data = temporary_buffer<char>(20 + len);
-            auto p = data.get_write() + 12;
-            write_le<uint32_t>(p, uint32_t(exception_type::USER));
-            write_le<uint32_t>(p + 4, len);
-            std::copy_n(ex.what(), len, p + 8);
+            data = snd_buf(20 + len);
+            auto os = make_serializer_stream(data);
+            os.skip(12);
+            uint32_t v32 = cpu_to_le(uint32_t(exception_type::USER));
+            os.write(reinterpret_cast<char*>(&v32), sizeof(v32));
+            v32 = cpu_to_le(len);
+            os.write(reinterpret_cast<char*>(&v32), sizeof(v32));
+            os.write(ex.what(), len);
             msg_id = -msg_id;
         }
 
@@ -946,8 +962,9 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
                     } else {
                         return this->wait_for_resources(28, timeout).then([this, timeout, msg_id, type] {
                             // send unknown_verb exception back
-                            auto data = temporary_buffer<char>(28);
-                            auto p = data.get_write() + 12;
+                            snd_buf data(28);
+                            static_assert(snd_buf::chunk_size >= 28, "send buffer chunk size is too small");
+                            auto p = data.front().get_write() + 12;
                             write_le<uint32_t>(p, uint32_t(exception_type::UNKNOWN_VERB));
                             write_le<uint32_t>(p + 4, uint32_t(8));
                             write_le<uint64_t>(p + 8, uint64_t(type));

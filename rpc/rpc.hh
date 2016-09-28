@@ -117,10 +117,10 @@ class protocol {
         stats _stats;
         struct outgoing_entry {
             timer<> t;
-            temporary_buffer<char> buf;
+            snd_buf buf;
             std::experimental::optional<promise<>> p = promise<>();
             cancellable* pcancel = nullptr;
-            outgoing_entry(temporary_buffer<char> b) : buf(std::move(b)) {}
+            outgoing_entry(snd_buf b) : buf(std::move(b)) {}
             outgoing_entry(outgoing_entry&& o) : t(std::move(o.t)), buf(std::move(o.buf)), p(std::move(o.p)), pcancel(o.pcancel) {
                 o.p = std::experimental::nullopt;
             }
@@ -141,14 +141,30 @@ class protocol {
         std::unique_ptr<compressor> _compressor;
         bool _timeout_negotiated = false;
 
-        temporary_buffer<char> compress(temporary_buffer<char> buf) {
+        snd_buf compress(snd_buf buf) {
             if (_compressor) {
                 buf = _compressor->compress(4, std::move(buf));
-                write_le<uint32_t>(buf.get_write(), buf.size() - 4);
+                static_assert(snd_buf::chunk_size >= 4, "send buffer chunk size is too small");
+                write_le<uint32_t>(buf.front().get_write(), buf.size - 4);
                 return std::move(buf);
             }
             return std::move(buf);
         }
+
+        future<> send_buffer(snd_buf buf) {
+            auto* b = boost::get<temporary_buffer<char>>(&buf.bufs);
+            if (b) {
+                return _write_buf.write(std::move(*b));
+            } else {
+                return do_with(std::move(boost::get<std::vector<temporary_buffer<char>>>(buf.bufs)),
+                        [this] (std::vector<temporary_buffer<char>>& ar) {
+                    return do_for_each(ar.begin(), ar.end(), [this] (auto& b) {
+                        return _write_buf.write(std::move(b));
+                    });
+                });
+            }
+        }
+
         enum class outgoing_queue_type {
             request,
             response
@@ -170,19 +186,20 @@ class protocol {
                         d.pcancel->cancel_send = std::function<void()>(); // request is no longer cancellable
                     }
                     if (QueueType == outgoing_queue_type::request) {
+                        static_assert(snd_buf::chunk_size >= 8, "send buffer chunk size is too small");
                         if (_timeout_negotiated) {
                             auto expire = d.t.get_timeout();
                             uint64_t left = 0;
                             if (expire != typename timer<>::time_point()) {
                                 left = std::chrono::duration_cast<std::chrono::milliseconds>(expire - timer<>::clock::now()).count();
                             }
-                            write_le<uint64_t>(d.buf.get_write(), left);
+                            write_le<uint64_t>(d.buf.front().get_write(), left);
                         } else {
-                            d.buf.trim_front(8);
+                            d.buf.front().trim_front(8);
                         }
                     }
                     d.buf = compress(std::move(d.buf));
-                    auto f = _write_buf.write(std::move(d.buf)).then([this] {
+                    auto f = send_buffer(std::move(d.buf)).then([this] {
                         _stats.sent_messages++;
                         return _write_buf.flush();
                     });
@@ -219,7 +236,7 @@ class protocol {
         }
         // functions below are public because they are used by external heavily templated functions
         // and I am not smart enough to know how to define them as friends
-        future<> send(temporary_buffer<char> buf, std::experimental::optional<steady_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr) {
+        future<> send(snd_buf buf, std::experimental::optional<steady_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr) {
             if (!_error) {
                 _outgoing_queue.emplace_back(std::move(buf));
                 auto deleter = [this, it = std::prev(_outgoing_queue.cend())] {
@@ -273,7 +290,7 @@ public:
         public:
             connection(server& s, connected_socket&& fd, socket_address&& addr, protocol& proto);
             future<> process();
-            future<> respond(int64_t msg_id, temporary_buffer<char>&& data, std::experimental::optional<steady_clock_type::time_point> timeout);
+            future<> respond(int64_t msg_id, snd_buf&& data, std::experimental::optional<steady_clock_type::time_point> timeout);
             client_info& info() { return _info; }
             const client_info& info() const { return _info; }
             stats get_stats() const {
