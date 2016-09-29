@@ -87,6 +87,7 @@
 #endif
 
 #include <xmmintrin.h>
+#include "util/defer.hh"
 
 using namespace std::chrono_literals;
 
@@ -228,6 +229,30 @@ inline int alarm_signal() {
 
 inline int task_quota_signal() {
     return SIGRTMIN + 1;
+}
+
+// Installs signal handler stack for current thread.
+// The stack remains installed as long as the returned object is kept alive.
+// When it goes out of scope the previous handler is restored.
+static decltype(auto) install_signal_handler_stack() {
+    size_t size = SIGSTKSZ;
+    auto mem = std::make_unique<char[]>(size);
+    stack_t stack;
+    stack_t prev_stack;
+    stack.ss_sp = mem.get();
+    stack.ss_flags = 0;
+    stack.ss_size = size;
+    auto r = sigaltstack(&stack, &prev_stack);
+    throw_system_error_on(r == -1);
+    return defer([mem = std::move(mem), prev_stack] () mutable {
+        try {
+            auto r = sigaltstack(&prev_stack, NULL);
+            throw_system_error_on(r == -1);
+        } catch (...) {
+            mem.release(); // We failed to restore previous stack, must leak it.
+            seastar_logger.error("Failed to restore signal stack: {}", std::current_exception());
+        }
+    });
 }
 
 reactor::reactor()
@@ -2228,6 +2253,8 @@ static void print_backtrace_safe() noexcept {
 }
 
 int reactor::run() {
+    auto signal_stack = install_signal_handler_stack();
+
     auto collectd_metrics = register_collectd_metrics();
 
 #ifndef HAVE_OSV
@@ -3050,18 +3077,6 @@ void install_oneshot_signal_handler() {
     throw_system_error_on(r == -1);
 }
 
-static void install_signal_handler_stack() {
-    size_t size = SIGSTKSZ;
-    auto mem = std::make_unique<char[]>(size);
-    stack_t stack;
-    stack.ss_sp = mem.get();
-    stack.ss_flags = 0;
-    stack.ss_size = size;
-    auto r = sigaltstack(&stack, NULL);
-    throw_system_error_on(r == -1);
-    mem.release();
-}
-
 static void print_with_backtrace(const char* cause) noexcept {
     print_safe(cause);
     if (local_engine) {
@@ -3095,7 +3110,6 @@ void smp::configure(boost::program_options::variables_map configuration)
     }
     pthread_sigmask(SIG_BLOCK, &sigs, nullptr);
 
-    install_signal_handler_stack();
     install_oneshot_signal_handler<SIGSEGV, sigsegv_action>();
     install_oneshot_signal_handler<SIGABRT, sigabrt_action>();
 
@@ -3247,7 +3261,6 @@ void smp::configure(boost::program_options::variables_map configuration)
                 smp::pin(allocation.cpu_id);
             }
             memory::configure(allocation.mem, hugepages_path);
-            install_signal_handler_stack();
             sigset_t mask;
             sigfillset(&mask);
             for (auto sig : { SIGSEGV }) {
