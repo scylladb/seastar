@@ -286,6 +286,54 @@ basic_semaphore<ExceptionFactory>::broken(std::exception_ptr xp) {
     }
 }
 
+template<typename ExceptionFactory = semaphore_default_exception_factory>
+class semaphore_units {
+    basic_semaphore<ExceptionFactory>& _sem;
+    size_t _n;
+public:
+    semaphore_units(basic_semaphore<ExceptionFactory>& sem, size_t n) noexcept : _sem(sem), _n(n) {}
+    semaphore_units(semaphore_units&& o) noexcept : _sem(o._sem), _n(o._n) {
+        o._n = 0;
+    }
+    semaphore_units& operator=(semaphore_units&& o) noexcept {
+        if (this != &o) {
+            this->~semaphore_units();
+            new (this) semaphore_units(std::move(o));
+        }
+    }
+    semaphore_units(const semaphore_units&) = delete;
+    ~semaphore_units() noexcept {
+        if (_n) {
+            _sem.signal(_n);
+        }
+    }
+};
+
+/// \brief Take units from semaphore temporarily
+///
+/// Takes units from the semaphore and returns them when the \ref semaphore_units object goes out of scope.
+/// This provides a safe way to temporarily take units from a semaphore and ensure
+/// that they are eventually returned under all circumstances (exceptions, premature scope exits, etc).
+///
+/// Unlike with_semaphore(), the scope of unit holding is not limited to the scope of a single async lambda.
+///
+/// \param sem The semaphore to take units from
+/// \param units  Number of units to take
+/// \return a \ref future<> holding \ref semaphore_units object. When the object goes out of scope
+///         the units are returned to the semaphore.
+///
+/// \note The caller must guarantee that \c sem is valid as long as
+///      \ref seaphore_units object is alive.
+///
+/// \related semaphore
+template<typename ExceptionFactory>
+future<semaphore_units<ExceptionFactory>>
+get_units(basic_semaphore<ExceptionFactory>& sem, size_t units) {
+    return sem.wait(units).then([&sem, units] {
+        return semaphore_units<ExceptionFactory>{ sem, units };
+    });
+}
+
 /// \brief Runs a function protected by a semaphore
 ///
 /// Acquires a \ref semaphore, runs a function, and releases
