@@ -26,6 +26,7 @@
 
 #include "scollectd_api.hh"
 #include "http/function_handlers.hh"
+#include <boost/algorithm/string/replace.hpp>
 
 namespace prometheus {
 namespace pm = io::prometheus::client;
@@ -54,8 +55,12 @@ static bool write_delimited_to(const google::protobuf::MessageLite& message,
     return true;
 }
 
+static std::string safe_name(const sstring& name) {
+    return boost::replace_all_copy(boost::replace_all_copy(name, "-", "_"), " ", "_");
+}
+
 static sstring collectd_name(const scollectd::type_instance_id & id, uint32_t cpu) {
-    return id.plugin() + ":" + id.type() + ":" + id.type_instance() + ":" + to_sstring(cpu);
+    return safe_name(id.plugin()) + ":" + safe_name(id.type()) + ":" + safe_name(id.type_instance()) + ":" + std::to_string(cpu);
 }
 
 
