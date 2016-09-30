@@ -26,7 +26,7 @@
 
 // Invokes func for each frame passing return address as argument.
 template<typename Func>
-void backtrace(Func&& func) noexcept {
+void backtrace(Func&& func) noexcept(noexcept(func(0))) {
     unw_context_t context;
     if (unw_getcontext(&context) < 0) {
         return;
