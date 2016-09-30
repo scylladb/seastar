@@ -71,11 +71,48 @@
 #include <cstring>
 #include <boost/intrusive/list.hpp>
 #include <sys/mman.h>
+#include "util/defer.hh"
+#include "util/backtrace.hh"
+
 #ifdef HAVE_NUMA
 #include <numaif.h>
 #endif
 
+struct allocation_site {
+    size_t count = 0; // number of live objects allocated at backtrace.
+    size_t size = 0; // amount of bytes in live objects allocated at backtrace.
+    allocation_site* next = nullptr;
+    std::vector<uintptr_t> backtrace;
+
+    bool operator==(const allocation_site& o) const {
+        return backtrace == o.backtrace;
+    }
+
+    bool operator!=(const allocation_site& o) const {
+        return !(*this == o);
+    }
+};
+
+namespace std {
+
+template<>
+struct hash<::allocation_site> {
+    size_t operator()(const ::allocation_site& bi) const {
+        size_t h = 0;
+        for (auto addr : bi.backtrace) {
+            h = ((h << 5) - h) ^ addr;
+        }
+        return h;
+    }
+};
+
+}
+
+using allocation_site_ptr = allocation_site*;
+
 namespace memory {
+
+static allocation_site_ptr get_allocation_site() __attribute__((unused));
 
 static std::atomic<bool> abort_on_allocation_failure{false};
 
@@ -145,6 +182,14 @@ static char* mem_base() {
     return known;
 }
 
+constexpr bool is_page_aligned(size_t size) {
+    return (size & (page_size - 1)) == 0;
+}
+
+constexpr size_t next_page_aligned(size_t size) {
+    return (size + (page_size - 1)) & ~(page_size - 1);
+}
+
 class small_pool;
 
 struct free_object {
@@ -159,6 +204,9 @@ struct page {
     page_list_link link;
     small_pool* pool;  // if used in a small_pool
     free_object* freelist;
+#ifdef SEASTAR_HEAPPROF
+    allocation_site_ptr alloc_site; // for objects whose size is multiple of page size, valid for head only
+#endif
 };
 
 class page_list {
@@ -229,8 +277,10 @@ public:
     void* allocate();
     void deallocate(void* object);
     unsigned object_size() const { return _object_size; }
+    bool objects_page_aligned() const { return is_page_aligned(_object_size); }
     static constexpr unsigned size_to_idx(unsigned size);
     static constexpr unsigned idx_to_size(unsigned idx);
+    allocation_site_ptr& alloc_site_holder(void* ptr);
 private:
     void add_more_objects();
     void trim_free_list();
@@ -283,6 +333,31 @@ public:
 static constexpr size_t max_small_allocation
     = small_pool::idx_to_size(small_pool_array::nr_small_pools - 1);
 
+constexpr size_t object_size_with_alloc_site(size_t size) {
+#ifdef SEASTAR_HEAPPROF
+    // For page-aligned sizes, allocation_site* lives in page::alloc_site, not with the object.
+    static_assert(is_page_aligned(max_small_allocation), "assuming that max_small_allocation is page aligned so that we"
+            " don't need to add allocation_site_ptr to objects of size close to it");
+    size_t next_page_aligned_size = next_page_aligned(size);
+    if (next_page_aligned_size - size > sizeof(allocation_site_ptr)) {
+        size += sizeof(allocation_site_ptr);
+    } else {
+        return next_page_aligned_size;
+    }
+#endif
+    return size;
+}
+
+#ifdef SEASTAR_HEAPPROF
+// Ensure that object_size_with_alloc_site() does not exceed max_small_allocation
+static_assert(object_size_with_alloc_site(max_small_allocation) == max_small_allocation, "");
+static_assert(object_size_with_alloc_site(max_small_allocation - 1) == max_small_allocation, "");
+static_assert(object_size_with_alloc_site(max_small_allocation - sizeof(allocation_site_ptr) + 1) == max_small_allocation, "");
+static_assert(object_size_with_alloc_site(max_small_allocation - sizeof(allocation_site_ptr)) == max_small_allocation, "");
+static_assert(object_size_with_alloc_site(max_small_allocation - sizeof(allocation_site_ptr) - 1) == max_small_allocation - 1, "");
+static_assert(object_size_with_alloc_site(max_small_allocation - sizeof(allocation_site_ptr) - 2) == max_small_allocation - 2, "");
+#endif
+
 struct cross_cpu_free_item {
     cross_cpu_free_item* next;
 };
@@ -314,6 +389,18 @@ struct cpu_pages {
     alignas(cache_line_size) std::vector<physical_address> virt_to_phys_map;
     static std::atomic<unsigned> cpu_id_gen;
     static cpu_pages* all_cpus[max_cpus];
+    union asu {
+        using alloc_sites_type = std::unordered_set<std::unique_ptr<allocation_site>,
+                indirect_hash<std::unique_ptr<allocation_site>>,
+                indirect_equal_to<std::unique_ptr<allocation_site>>>;
+        asu() {
+            new (&alloc_sites) alloc_sites_type();
+        }
+        ~asu() {} // alloc_sites live forever
+        alloc_sites_type alloc_sites;
+    } asu;
+    allocation_site* alloc_site_list_head = nullptr; // For easy traversal of asu.alloc_sites from scylla-gdb.py
+    bool collect_backtrace = false;
     char* mem() { return memory; }
 
     void link(page_list& list, page* span);
@@ -361,6 +448,20 @@ constexpr unsigned cpu_pages::min_free_pages;
 static thread_local cpu_pages cpu_mem;
 std::atomic<unsigned> cpu_pages::cpu_id_gen;
 cpu_pages* cpu_pages::all_cpus[max_cpus];
+
+void set_heap_profiling_enabled(bool enable) {
+    bool is_enabled = cpu_mem.collect_backtrace;
+    if (enable) {
+        if (!is_enabled) {
+            seastar_logger.info("Enabling heap profiler");
+        }
+    } else {
+        if (is_enabled) {
+            seastar_logger.info("Disabling heap profiler");
+        }
+    }
+    cpu_mem.collect_backtrace = enable;
+}
 
 // Free spans are store in the largest index i such that nr_pages >= 1 << i.
 static inline
@@ -492,6 +593,14 @@ cpu_pages::allocate_large_and_trim(unsigned n_pages, Trimmer trimmer) {
     span->free = span_end->free = false;
     span->span_size = span_end->span_size = t.nr_pages;
     span->pool = nullptr;
+#ifdef SEASTAR_HEAPPROF
+    auto alloc_site = get_allocation_site();
+    span->alloc_site = alloc_site;
+    if (alloc_site) {
+        ++alloc_site->count;
+        alloc_site->size += span->span_size * page_size;
+    }
+#endif
     if (nr_free_pages < current_min_free_pages) {
         drain_cross_cpu_freelist();
         run_reclaimers(reclaimer_scope::sync);
@@ -516,17 +625,92 @@ cpu_pages::allocate_large_aligned(unsigned align_pages, unsigned n_pages) {
     });
 }
 
+#ifdef SEASTAR_HEAPPROF
+
+class disable_backtrace_temporarily {
+    bool _old;
+public:
+    disable_backtrace_temporarily() {
+        _old = cpu_mem.collect_backtrace;
+        cpu_mem.collect_backtrace = false;
+    }
+    ~disable_backtrace_temporarily() {
+        cpu_mem.collect_backtrace = _old;
+    }
+};
+
+#else
+
+struct disable_backtrace_temporarily {};
+
+#endif
+
+static
+std::vector<uintptr_t> get_backtrace() noexcept {
+    disable_backtrace_temporarily dbt;
+    std::vector<uintptr_t> result;
+    backtrace([&result] (uintptr_t addr) {
+        result.push_back(addr);
+    });
+    return result;
+}
+
+static
+allocation_site_ptr get_allocation_site() {
+    if (!cpu_mem.is_initialized() || !cpu_mem.collect_backtrace) {
+        return nullptr;
+    }
+    disable_backtrace_temporarily dbt;
+    auto new_alloc_site = std::make_unique<allocation_site>();
+    new_alloc_site->backtrace = get_backtrace();
+    auto insert_result = cpu_mem.asu.alloc_sites.insert(std::move(new_alloc_site));
+    allocation_site_ptr alloc_site = insert_result.first->get();
+    if (insert_result.second) {
+        alloc_site->next = cpu_mem.alloc_site_list_head;
+        cpu_mem.alloc_site_list_head = alloc_site;
+    }
+    return alloc_site;
+}
+
+allocation_site_ptr&
+small_pool::alloc_site_holder(void* ptr) {
+    if (objects_page_aligned()) {
+        return cpu_mem.to_page(ptr)->alloc_site;
+    } else {
+        return *reinterpret_cast<allocation_site_ptr*>(reinterpret_cast<char*>(ptr) + _object_size - sizeof(allocation_site_ptr));
+    }
+}
+
 void*
 cpu_pages::allocate_small(unsigned size) {
     auto idx = small_pool::size_to_idx(size);
     auto& pool = small_pools[idx];
     assert(size <= pool.object_size());
-    return pool.allocate();
+    auto ptr = pool.allocate();
+#ifdef SEASTAR_HEAPPROF
+    if (!ptr) {
+        return nullptr;
+    }
+    allocation_site* alloc_site = get_allocation_site();
+    if (alloc_site) {
+        ++alloc_site->count;
+        alloc_site->size += pool.object_size();
+    }
+    pool.alloc_site_holder(ptr) = alloc_site;
+#endif
+    return ptr;
 }
 
 void cpu_pages::free_large(void* ptr) {
     pageidx idx = (reinterpret_cast<char*>(ptr) - mem()) / page_size;
     page* span = &pages[idx];
+#ifdef SEASTAR_HEAPPROF
+    auto alloc_site = span->alloc_site;
+    if (alloc_site) {
+        --alloc_site->count;
+        alloc_site->size -= span->span_size * page_size;
+    }
+#endif
     free_span(idx, span->span_size);
 }
 
@@ -534,7 +718,14 @@ size_t cpu_pages::object_size(void* ptr) {
     pageidx idx = (reinterpret_cast<char*>(ptr) - mem()) / page_size;
     page* span = &pages[idx];
     if (span->pool) {
-        return span->pool->object_size();
+        auto s = span->pool->object_size();
+#ifdef SEASTAR_HEAPPROF
+        // We must not allow the object to be extended onto the allocation_site_ptr field.
+        if (!span->pool->objects_page_aligned()) {
+            s -= sizeof(allocation_site_ptr);
+        }
+#endif
+        return s;
     } else {
         return size_t(span->span_size) * page_size;
     }
@@ -572,7 +763,15 @@ bool cpu_pages::drain_cross_cpu_freelist() {
 void cpu_pages::free(void* ptr) {
     page* span = to_page(ptr);
     if (span->pool) {
-        span->pool->deallocate(ptr);
+        small_pool& pool = *span->pool;
+#ifdef SEASTAR_HEAPPROF
+        allocation_site* alloc_site = pool.alloc_site_holder(ptr);
+        if (alloc_site) {
+            --alloc_site->count;
+            alloc_site->size -= pool.object_size();
+        }
+#endif
+        pool.deallocate(ptr);
     } else {
         free_large(ptr);
     }
@@ -584,7 +783,15 @@ void cpu_pages::free(void* ptr, size_t size) {
         size = sizeof(free_object);
     }
     if (size <= max_small_allocation) {
+        size = object_size_with_alloc_site(size);
         auto pool = &small_pools[small_pool::size_to_idx(size)];
+#ifdef SEASTAR_HEAPPROF
+        allocation_site* alloc_site = pool->alloc_site_holder(ptr);
+        if (alloc_site) {
+            --alloc_site->count;
+            alloc_site->size -= pool->object_size();
+        }
+#endif
         pool->deallocate(ptr);
     } else {
         free_large(ptr);
@@ -614,6 +821,13 @@ void cpu_pages::shrink(void* ptr, size_t new_size) {
     if (new_size_pages == old_size_pages) {
         return;
     }
+#ifdef SEASTAR_HEAPPROF
+    auto alloc_site = span->alloc_site;
+    if (alloc_site) {
+        alloc_site->size -= span->span_size * page_size;
+        alloc_site->size += new_size_pages * page_size;
+    }
+#endif
     span->span_size = new_size_pages;
     span[new_size_pages - 1].free = false;
     span[new_size_pages - 1].span_size = new_size_pages;
@@ -881,6 +1095,7 @@ small_pool::add_more_objects() {
         }
     }
     while (_free_count < goal) {
+        disable_backtrace_temporarily dbt;
         auto data = reinterpret_cast<char*>(cpu_mem.allocate_large(_span_size));
         if (!data) {
             return;
@@ -967,6 +1182,7 @@ void* allocate(size_t size) {
     }
     void* ptr;
     if (size <= max_small_allocation) {
+        size = object_size_with_alloc_site(size);
         ptr = cpu_mem.allocate_small(size);
     } else {
         ptr = allocate_large(size);
@@ -987,7 +1203,7 @@ void* allocate_aligned(size_t align, size_t size) {
     if (size <= max_small_allocation && align <= page_size) {
         // Our small allocator only guarantees alignment for power-of-two
         // allocations which are not larger than a page.
-        size = 1 << log2ceil(size);
+        size = 1 << log2ceil(object_size_with_alloc_site(size));
         ptr = cpu_mem.allocate_small(size);
     } else {
         ptr = allocate_large_aligned(align, size);
@@ -1383,6 +1599,10 @@ void operator delete[](void* ptr, with_alignment wa) {
 #else
 
 namespace memory {
+
+void set_heap_profiling_enabled(bool enabled) {
+    seastar_logger.warn("Seastar compiled with default allocator, heap profiler not supported");
+}
 
 void enable_abort_on_allocation_failure() {
     seastar_logger.warn("Seastar compiled with default allocator, will not abort on bad_alloc");

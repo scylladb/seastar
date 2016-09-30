@@ -2928,6 +2928,9 @@ reactor::get_options_description() {
         ("relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
         ("overprovisioned", "run in an overprovisioned environment (such as docker or a laptop); equivalent to --idle-poll-time-us 0 --thread-affinity 0 --poll-aio 0")
         ("abort-on-seastar-bad-alloc", "abort when seastar allocator cannot allocate memory")
+#ifdef SEASTAR_HEAPPROF
+        ("heapprof", "enable seastar heap profiling")
+#endif
         ;
     opts.add(network_stack_registry::options_description());
     return opts;
@@ -3205,6 +3208,9 @@ void smp::configure(boost::program_options::variables_map configuration)
         memory::enable_abort_on_allocation_failure();
     }
 
+    bool heapprof_enabled = configuration.count("heapprof");
+    memory::set_heap_profiling_enabled(heapprof_enabled);
+
 #ifdef HAVE_DPDK
     if (smp::_using_dpdk) {
         dpdk::eal::cpuset cpus;
@@ -3256,11 +3262,12 @@ void smp::configure(boost::program_options::variables_map configuration)
     unsigned i;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        create_thread([configuration, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity] {
+        create_thread([configuration, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity, heapprof_enabled] {
             if (thread_affinity) {
                 smp::pin(allocation.cpu_id);
             }
             memory::configure(allocation.mem, hugepages_path);
+            memory::set_heap_profiling_enabled(heapprof_enabled);
             sigset_t mask;
             sigfillset(&mask);
             for (auto sig : { SIGSEGV }) {
