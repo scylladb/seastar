@@ -82,10 +82,13 @@ template <typename T, size_t items_per_chunk = 128>
 class chunked_fifo {
     static_assert((items_per_chunk & (items_per_chunk - 1)) == 0,
             "chunked_fifo chunk size must be power of two");
-    // Note: a "chunk" struct should be allocated but not constructed, so that
-    // the individual items are not constructed until first pushed.
+    union maybe_item {
+        maybe_item() noexcept {}
+        ~maybe_item() {}
+        T data;
+    };
     struct chunk {
-        T items[items_per_chunk];
+        maybe_item items[items_per_chunk];
         struct chunk* next;
         // begin and end interpreted mod items_per_chunk
         unsigned begin;
@@ -223,10 +226,10 @@ void chunked_fifo<T, items_per_chunk>::clear() noexcept {
     }
     // Delete front chunk (partially filled)
     for (auto i = _front_chunk->begin; i != _front_chunk->end; ++i) {
-        _front_chunk->items[mask(i)].~T();
+        _front_chunk->items[mask(i)].data.~T();
     }
     chunk *p = _front_chunk->next;
-    operator delete(_front_chunk, sizeof(chunk));
+    delete _front_chunk;
     // Delete all the middle chunks (all completely filled)
     if (p) {
         while (p != _back_chunk) {
@@ -235,16 +238,16 @@ void chunked_fifo<T, items_per_chunk>::clear() noexcept {
             for (auto i = 0; i != items_per_chunk; ++i) {
                 // Note we delete out of order (we don't start with p->begin).
                 // That should be fine..
-                p->items[i].~T();
+                p->items[i].data.~T();
         }
-            operator delete(p, sizeof(chunk));
+            delete p;
             p = nextp;
         }
         // Finally delete back chunk (partially filled)
         for (auto i = _back_chunk->begin; i != _back_chunk->end; ++i) {
-            _back_chunk->items[mask(i)].~T();
+            _back_chunk->items[mask(i)].data.~T();
         }
-        operator delete(_back_chunk, sizeof(chunk));
+        delete _back_chunk;
     }
     _front_chunk = nullptr;
     _back_chunk = nullptr;
@@ -256,7 +259,7 @@ template <typename T, size_t items_per_chunk> void
 chunked_fifo<T, items_per_chunk>::shrink_to_fit() {
     while (_free_chunks) {
         auto next = _free_chunks->next;
-        operator delete(_free_chunks, sizeof(chunk));
+        delete _free_chunks;
         _free_chunks = next;
     }
     _nfree_chunks = 0;
@@ -277,7 +280,7 @@ chunked_fifo<T, items_per_chunk>::back_chunk_new() {
         _free_chunks = _free_chunks->next;
         --_nfree_chunks;
     } else {
-        _back_chunk = static_cast<chunk*>(operator new(sizeof(chunk)));
+        _back_chunk = new chunk;
     }
     _back_chunk->next = nullptr;
     _back_chunk->begin = 0;
@@ -310,7 +313,7 @@ chunked_fifo<T, items_per_chunk>::undo_room_back() {
     // (either immediately, if the fifo was empty, or when all the items are
     // popped, if it already had items).
     if (_back_chunk->begin == _back_chunk->end) {
-        operator delete(_back_chunk, sizeof(chunk));
+        delete _back_chunk;
         --_nchunks;
         if (_nchunks == 0) {
             _back_chunk = nullptr;
@@ -335,7 +338,7 @@ template <typename... Args>
 inline void
 chunked_fifo<T, items_per_chunk>::emplace_back(Args&&... args) {
     ensure_room_back();
-    auto p = &_back_chunk->items[mask(_back_chunk->end)];
+    auto p = &_back_chunk->items[mask(_back_chunk->end)].data;
     try {
         new(p) T(std::forward<Args>(args)...);
     } catch(...) {
@@ -349,7 +352,7 @@ template <typename T, size_t items_per_chunk>
 inline void
 chunked_fifo<T, items_per_chunk>::push_back(const T& data) {
     ensure_room_back();
-    auto p = &_back_chunk->items[mask(_back_chunk->end)];
+    auto p = &_back_chunk->items[mask(_back_chunk->end)].data;
     try {
         new(p) T(data);
     } catch(...) {
@@ -363,7 +366,7 @@ template <typename T, size_t items_per_chunk>
 inline void
 chunked_fifo<T, items_per_chunk>::push_back(T&& data) {
     ensure_room_back();
-    auto p = &_back_chunk->items[mask(_back_chunk->end)];
+    auto p = &_back_chunk->items[mask(_back_chunk->end)].data;
     try {
         new(p) T(std::move(data));
     } catch(...) {
@@ -377,20 +380,20 @@ template <typename T, size_t items_per_chunk>
 inline
 T&
 chunked_fifo<T, items_per_chunk>::back() {
-    return _back_chunk->items[mask(_back_chunk->end - 1)];
+    return _back_chunk->items[mask(_back_chunk->end - 1)].data;
 }
 
 template <typename T, size_t items_per_chunk>
 inline
 const T&
 chunked_fifo<T, items_per_chunk>::back() const {
-    return _back_chunk->items[mask(_back_chunk->end - 1)];
+    return _back_chunk->items[mask(_back_chunk->end - 1)].data;
 }
 
 template <typename T, size_t items_per_chunk>
 inline T&
 chunked_fifo<T, items_per_chunk>::front() const noexcept {
-    return _front_chunk->items[mask(_front_chunk->begin)];
+    return _front_chunk->items[mask(_front_chunk->begin)].data;
 }
 
 template <typename T, size_t items_per_chunk>
@@ -414,7 +417,7 @@ chunked_fifo<T, items_per_chunk>::front_chunk_delete() noexcept {
         _free_chunks = _front_chunk;
         ++_nfree_chunks;
     } else {
-        operator delete(_front_chunk, sizeof(chunk));
+        delete _front_chunk;
     }
     // If we only had one chunk, _back_chunk is gone too.
     if (_back_chunk == _front_chunk) {
@@ -453,7 +456,7 @@ void chunked_fifo<T, items_per_chunk>::reserve(size_t n) {
     }
     needed_chunks -= _nfree_chunks;
     while (needed_chunks--) {
-        chunk *c = static_cast<chunk*>(operator new(sizeof(chunk)));
+        chunk *c = new chunk;
         c->next = _free_chunks;
         _free_chunks = c;
         ++_nfree_chunks;
