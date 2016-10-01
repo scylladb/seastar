@@ -672,6 +672,8 @@ allocation_site_ptr get_allocation_site() {
     return alloc_site;
 }
 
+#ifdef SEASTAR_HEAPPROF
+
 allocation_site_ptr&
 small_pool::alloc_site_holder(void* ptr) {
     if (objects_page_aligned()) {
@@ -680,6 +682,8 @@ small_pool::alloc_site_holder(void* ptr) {
         return *reinterpret_cast<allocation_site_ptr*>(reinterpret_cast<char*>(ptr) + _object_size - sizeof(allocation_site_ptr));
     }
 }
+
+#endif
 
 void*
 cpu_pages::allocate_small(unsigned size) {
