@@ -249,6 +249,14 @@ public:
         return !operator==(x);
     }
 
+    bool operator<(const lw_shared_ptr<const T>& x) const {
+        return _p < x._p;
+    }
+
+    bool operator<(const lw_shared_ptr<std::remove_const_t<T>>& x) const {
+        return _p < x._p;
+    }
+
     template <typename U>
     friend class lw_shared_ptr;
 

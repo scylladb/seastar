@@ -23,8 +23,25 @@
 
 #pragma once
 
+#include "future-util.hh"
 #include "net/packet.hh"
 #include "core/future-util.hh"
+
+inline future<temporary_buffer<char>> data_source_impl::skip(uint64_t n)
+{
+    return do_with(uint64_t(n), [this] (uint64_t& n) {
+        return repeat_until_value([&] {
+            return get().then([&] (temporary_buffer<char> buffer) -> std::experimental::optional<temporary_buffer<char>> {
+                if (buffer.size() >= n) {
+                    buffer.trim_front(n);
+                    return std::move(buffer);
+                }
+                n -= buffer.size();
+                return { };
+            });
+        });
+    });
+}
 
 template<typename CharType>
 inline
@@ -228,6 +245,20 @@ input_stream<CharType>::read() {
     } else {
         return make_ready_future<tmp_buf>(std::move(_buf));
     }
+}
+
+template <typename CharType>
+future<>
+input_stream<CharType>::skip(uint64_t n) {
+    auto skip_buf = std::min(n, _buf.size());
+    _buf.trim_front(skip_buf);
+    n -= skip_buf;
+    if (!n) {
+        return make_ready_future<>();
+    }
+    return _fd.skip(n).then([this] (temporary_buffer<CharType> buffer) {
+        _buf = std::move(buffer);
+    });
 }
 
 // Writes @buf in chunks of _size length. The last chunk is buffered if smaller.
