@@ -238,7 +238,7 @@ public:
     ///
     /// \tparam  Mapper unary function taking `Service&` and producing some result.
     /// \return  Result vector of applying `map` to each instance in parallel
-    template <typename Mapper, typename return_type = std::result_of_t<Mapper(const Service&)>>
+    template <typename Mapper, typename return_type = std::result_of_t<Mapper(Service&)>>
     inline future<std::vector<return_type>> map(Mapper mapper) {
         return do_with(std::vector<return_type>(),
                 [&mapper, this] (std::vector<return_type>& vec) mutable {
