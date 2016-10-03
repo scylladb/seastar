@@ -52,9 +52,7 @@ public:
         _remain = std::min(std::numeric_limits<uint64_t>::max() - _pos, _remain);
     }
     virtual future<temporary_buffer<char>> get() override {
-        if (_read_buffers.empty()) {
-            issue_read_aheads(1);
-        }
+        issue_read_aheads(1);
         auto ret = std::move(_read_buffers.front());
         _read_buffers.pop_front();
         return std::move(ret._ready);
@@ -98,15 +96,15 @@ public:
         });
     }
 private:
-    void issue_read_aheads(unsigned min_ra = 0) {
+    void issue_read_aheads(unsigned additional = 0) {
         if (_done) {
             return;
         }
-        auto ra = std::max(min_ra, _options.read_ahead);
+        auto ra = _options.read_ahead + additional;
         _read_buffers.reserve(ra); // prevent push_back() failure
         while (_read_buffers.size() < ra) {
             if (!_remain) {
-                if (_read_buffers.size() >= min_ra) {
+                if (_read_buffers.size() >= additional) {
                     return;
                 }
                 _read_buffers.emplace_back(_pos, 0, make_ready_future<temporary_buffer<char>>());
@@ -124,7 +122,6 @@ private:
                     return _file.dma_read_bulk<char>(start, len, _options.io_priority_class);
             }).then_wrapped(
                     [this, start, end, pos = _pos, remain = _remain] (future<temporary_buffer<char>> ret) {
-                issue_read_aheads();
                 --_reads_in_progress;
                 if (_done && !_reads_in_progress) {
                     _done->set_value();
