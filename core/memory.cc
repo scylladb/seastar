@@ -641,7 +641,9 @@ public:
 
 #else
 
-struct disable_backtrace_temporarily {};
+struct disable_backtrace_temporarily {
+    ~disable_backtrace_temporarily() {}
+};
 
 #endif
 
