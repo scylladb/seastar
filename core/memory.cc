@@ -715,7 +715,7 @@ cpu_pages::allocate_small(unsigned size) {
         ++alloc_site->count;
         alloc_site->size += pool.object_size();
     }
-    pool.alloc_site_holder(ptr) = alloc_site;
+    new (&pool.alloc_site_holder(ptr)) allocation_site_ptr{alloc_site};
 #endif
     return ptr;
 }
