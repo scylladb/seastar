@@ -53,6 +53,20 @@
 #include "memory.hh"
 #include "reactor.hh"
 
+namespace memory {
+
+static thread_local int abort_on_alloc_failure_suppressed = 0;
+
+disable_abort_on_alloc_failure_temporarily::disable_abort_on_alloc_failure_temporarily() {
+    ++abort_on_alloc_failure_suppressed;
+}
+
+disable_abort_on_alloc_failure_temporarily::~disable_abort_on_alloc_failure_temporarily() noexcept {
+    --abort_on_alloc_failure_suppressed;
+}
+
+}
+
 #ifndef DEFAULT_ALLOCATOR
 
 #include "bitops.hh"
@@ -121,7 +135,8 @@ void enable_abort_on_allocation_failure() {
 }
 
 static void on_allocation_failure(size_t size) {
-    if (abort_on_allocation_failure.load(std::memory_order_relaxed)) {
+    if (!abort_on_alloc_failure_suppressed
+            && abort_on_allocation_failure.load(std::memory_order_relaxed)) {
         seastar_logger.error("Failed to allocate {} bytes", size);
         abort();
     }
