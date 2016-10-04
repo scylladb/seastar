@@ -93,9 +93,9 @@ disable_abort_on_alloc_failure_temporarily::~disable_abort_on_alloc_failure_temp
 #endif
 
 struct allocation_site {
-    size_t count = 0; // number of live objects allocated at backtrace.
-    size_t size = 0; // amount of bytes in live objects allocated at backtrace.
-    allocation_site* next = nullptr;
+    mutable size_t count = 0; // number of live objects allocated at backtrace.
+    mutable size_t size = 0; // amount of bytes in live objects allocated at backtrace.
+    mutable const allocation_site* next = nullptr;
     std::vector<uintptr_t> backtrace;
 
     bool operator==(const allocation_site& o) const {
@@ -122,7 +122,7 @@ struct hash<::allocation_site> {
 
 }
 
-using allocation_site_ptr = allocation_site*;
+using allocation_site_ptr = const allocation_site*;
 
 namespace memory {
 
@@ -405,16 +405,14 @@ struct cpu_pages {
     static std::atomic<unsigned> cpu_id_gen;
     static cpu_pages* all_cpus[max_cpus];
     union asu {
-        using alloc_sites_type = std::unordered_set<std::unique_ptr<allocation_site>,
-                indirect_hash<std::unique_ptr<allocation_site>>,
-                indirect_equal_to<std::unique_ptr<allocation_site>>>;
+        using alloc_sites_type = std::unordered_set<allocation_site>;
         asu() {
             new (&alloc_sites) alloc_sites_type();
         }
         ~asu() {} // alloc_sites live forever
         alloc_sites_type alloc_sites;
     } asu;
-    allocation_site* alloc_site_list_head = nullptr; // For easy traversal of asu.alloc_sites from scylla-gdb.py
+    allocation_site_ptr alloc_site_list_head = nullptr; // For easy traversal of asu.alloc_sites from scylla-gdb.py
     bool collect_backtrace = false;
     char* mem() { return memory; }
 
@@ -678,10 +676,10 @@ allocation_site_ptr get_allocation_site() {
         return nullptr;
     }
     disable_backtrace_temporarily dbt;
-    auto new_alloc_site = std::make_unique<allocation_site>();
-    new_alloc_site->backtrace = get_backtrace();
+    allocation_site new_alloc_site;
+    new_alloc_site.backtrace = get_backtrace();
     auto insert_result = cpu_mem.asu.alloc_sites.insert(std::move(new_alloc_site));
-    allocation_site_ptr alloc_site = insert_result.first->get();
+    allocation_site_ptr alloc_site = &*insert_result.first;
     if (insert_result.second) {
         alloc_site->next = cpu_mem.alloc_site_list_head;
         cpu_mem.alloc_site_list_head = alloc_site;
@@ -712,7 +710,7 @@ cpu_pages::allocate_small(unsigned size) {
     if (!ptr) {
         return nullptr;
     }
-    allocation_site* alloc_site = get_allocation_site();
+    allocation_site_ptr alloc_site = get_allocation_site();
     if (alloc_site) {
         ++alloc_site->count;
         alloc_site->size += pool.object_size();
@@ -786,7 +784,7 @@ void cpu_pages::free(void* ptr) {
     if (span->pool) {
         small_pool& pool = *span->pool;
 #ifdef SEASTAR_HEAPPROF
-        allocation_site* alloc_site = pool.alloc_site_holder(ptr);
+        allocation_site_ptr alloc_site = pool.alloc_site_holder(ptr);
         if (alloc_site) {
             --alloc_site->count;
             alloc_site->size -= pool.object_size();
@@ -807,7 +805,7 @@ void cpu_pages::free(void* ptr, size_t size) {
         size = object_size_with_alloc_site(size);
         auto pool = &small_pools[small_pool::size_to_idx(size)];
 #ifdef SEASTAR_HEAPPROF
-        allocation_site* alloc_site = pool->alloc_site_holder(ptr);
+        allocation_site_ptr alloc_site = pool->alloc_site_holder(ptr);
         if (alloc_site) {
             --alloc_site->count;
             alloc_site->size -= pool->object_size();
