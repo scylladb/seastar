@@ -181,7 +181,7 @@ reactor::signals::signal_handler::signal_handler(int signo, std::function<void (
     throw_system_error_on(r == -1);
     auto mask = make_sigset_mask(signo);
     r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
-    throw_system_error_on(r == -1);
+    throw_pthread_error(r);
 }
 
 void
@@ -2794,7 +2794,7 @@ void thread_pool::work() {
     sigset_t mask;
     sigfillset(&mask);
     auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
-    throw_system_error_on(r == -1);
+    throw_pthread_error(r);
     std::array<syscall_work_queue::work_item*, syscall_work_queue::queue_length> tmp_buf;
     while (true) {
         uint64_t count;
@@ -3274,7 +3274,7 @@ void smp::configure(boost::program_options::variables_map configuration)
                 sigdelset(&mask, sig);
             }
             auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
-            throw_system_error_on(r == -1);
+            throw_pthread_error(r);
             allocate_reactor();
             engine()._id = i;
             _reactors[i] = &engine();
