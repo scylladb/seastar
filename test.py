@@ -29,6 +29,7 @@ boost_tests = [
     'thread_test',
     'memcached/test_ascii_parser',
     'sstring_test',
+    'unwind_test',
     'defer_test',
     'output_stream_test',
     'httpd',
