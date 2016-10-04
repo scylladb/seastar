@@ -362,6 +362,14 @@ void throw_kernel_error(T r) {
     }
 }
 
+template <typename T>
+inline
+void throw_pthread_error(T r) {
+    if (r != 0) {
+        throw std::system_error(r, std::system_category());
+    }
+}
+
 inline
 sigset_t make_sigset_mask(int signo) {
     sigset_t set;

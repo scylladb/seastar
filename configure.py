@@ -183,6 +183,7 @@ tests = [
     'tests/udp_client',
     'tests/blkdiscard_test',
     'tests/sstring_test',
+    'tests/unwind_test',
     'tests/defer_test',
     'tests/httpd',
     'tests/memcached/test_ascii_parser',
@@ -314,7 +315,8 @@ boost_test_lib = [
 ]
 
 defines = ['FMT_HEADER_ONLY']
-libs = '-laio -lboost_program_options -lboost_system -lboost_filesystem -lstdc++ -lm -lboost_unit_test_framework -lboost_thread -lcryptopp -lrt -lgnutls -lgnutlsxx -llz4 -lprotobuf -ldl -lunwind'
+# Include -lgcc_s before -lunwind to work around for https://savannah.nongnu.org/bugs/?48486. See https://github.com/scylladb/scylla/issues/1725.
+libs = '-laio -lboost_program_options -lboost_system -lboost_filesystem -lstdc++ -lm -lboost_unit_test_framework -lboost_thread -lcryptopp -lrt -lgnutls -lgnutlsxx -llz4 -lprotobuf -ldl -lgcc_s -lunwind'
 hwloc_libs = '-lhwloc -lnuma -lpciaccess -lxml2 -lz'
 xen_used = False
 def have_xen():
@@ -386,6 +388,7 @@ deps = {
     'apps/iotune/iotune': ['apps/iotune/iotune.cc', 'apps/iotune/fsqual.cc'] + core,
     'tests/blkdiscard_test': ['tests/blkdiscard_test.cc'] + core,
     'tests/sstring_test': ['tests/sstring_test.cc'] + core,
+    'tests/unwind_test': ['tests/unwind_test.cc'] + core,
     'tests/defer_test': ['tests/defer_test.cc'] + core,
     'tests/httpd': ['tests/httpd.cc'] + http + core + boost_test_lib,
     'tests/allocator_test': ['tests/allocator_test.cc'] + core,
