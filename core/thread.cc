@@ -40,12 +40,20 @@ thread_context::thread_context(thread_attributes attr, std::function<void ()> fu
 }
 
 thread_context::~thread_context() {
+#ifdef SEASTAR_THREAD_STACK_GUARDS
+    auto mp_result = mprotect(_stack.get(), getpagesize(), PROT_READ | PROT_WRITE);
+    assert(mp_result == 0);
+#endif
     _all_threads.erase(_all_threads.iterator_to(*this));
 }
 
 std::unique_ptr<char[]>
 thread_context::make_stack() {
+#ifdef SEASTAR_THREAD_STACK_GUARDS
+    auto stack = std::unique_ptr<char[]>(new (with_alignment(getpagesize())) char[_stack_size]);
+#else
     auto stack = std::make_unique<char[]>(_stack_size);
+#endif
 #ifdef ASAN_ENABLED
     // Avoid ASAN false positive due to garbage on stack
     std::fill_n(stack.get(), _stack_size, 0);
@@ -63,6 +71,13 @@ thread_context::setup() {
     auto main = reinterpret_cast<void (*)()>(&thread_context::s_main);
     auto r = getcontext(&initial_context);
     throw_system_error_on(r == -1);
+#ifdef SEASTAR_THREAD_STACK_GUARDS
+    size_t page_size = getpagesize();
+    assert(align_up(_stack.get(), page_size) == _stack.get());
+    assert(_stack_size > page_size * 4 && "Stack guard would take too much portion of the stack");
+    auto mp_status = mprotect(_stack.get(), page_size, PROT_READ);
+    throw_system_error_on(mp_status != 0, "mprotect");
+#endif
     initial_context.uc_stack.ss_sp = _stack.get();
     initial_context.uc_stack.ss_size = _stack_size;
     initial_context.uc_link = nullptr;

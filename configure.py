@@ -153,7 +153,7 @@ modes = {
     'debug': {
         'sanitize': '-fsanitize=address -fsanitize=leak -fsanitize=undefined',
         'sanitize_libs': '-lasan -lubsan',
-        'opt': '-O0 -DDEBUG -DDEBUG_SHARED_PTR -DDEFAULT_ALLOCATOR',
+        'opt': '-O0 -DDEBUG -DDEBUG_SHARED_PTR -DDEFAULT_ALLOCATOR -DSEASTAR_THREAD_STACK_GUARDS',
         'libs': '',
     },
     'release': {
