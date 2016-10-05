@@ -26,13 +26,14 @@
 #include <pthread.h>
 #include "util/defer.hh"
 #include "core/posix.hh"
+#include "util/backtrace.hh"
 
 void foo() {
     throw std::runtime_error("foo");
 }
 
 // Exploits issue #1725
-BOOST_AUTO_TEST_CASE(test_signal_mask_is_preserved_after_exception_throwing) {
+BOOST_AUTO_TEST_CASE(test_signal_mask_is_preserved_on_unwinding) {
     sigset_t mask;
     sigset_t old;
     sigfillset(&mask);
@@ -47,6 +48,13 @@ BOOST_AUTO_TEST_CASE(test_signal_mask_is_preserved_after_exception_throwing) {
         foo();
     } catch (...) {
         // ignore
+    }
+
+    // Check backtrace()
+    {
+        size_t count = 0;
+        backtrace([&count] (auto) { ++count; });
+        BOOST_REQUIRE(count > 0);
     }
 
     {
