@@ -473,8 +473,15 @@ static std::vector<collectd_value> raw_to_value(shared_ptr<value_list> raw_types
 
     auto i = value.begin();
     for (auto t : types) {
-        collectd_value c(t, static_cast<uint64_t>(*i));
-        res_values.push_back(c);
+        if (t == data_type::GAUGE) {
+            collectd_value c(t, static_cast<uint64_t>(*i));
+            res_values.push_back(c);
+        } else {
+            collectd_value c(t, htonq(static_cast<uint64_t>(*i)));
+            res_values.push_back(c);
+
+        }
+        ++i;
     }
     return res_values;
 }
