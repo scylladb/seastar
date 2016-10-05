@@ -101,7 +101,6 @@ future<> start(httpd::http_server_control& http_server, const config& ctx) {
                 }).then([rep = std::move(rep), &vec, &ctx]() mutable {
                     uint32_t cpu = 0;
                     for (auto value: vec) {
-                        cpu++;
                         for (auto i : value) {
                             pm::MetricFamily mtf;
                             std::string s;
@@ -117,6 +116,7 @@ future<> start(httpd::http_server_control& http_server, const config& ctx) {
                                 rep->_content += s;
                             }
                         }
+                        cpu++;
                     }
                     return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
                 });
