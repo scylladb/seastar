@@ -718,6 +718,7 @@ int main(int ac, char** av) {
     bpo::variables_map configuration;
     try {
         bpo::store(bpo::parse_command_line(ac, av, desc), configuration);
+        bpo::notify(configuration);
     } catch (bpo::error& e) {
         print("error: %s\n\nTry --help.\n", e.what());
         return 2;
@@ -731,7 +732,6 @@ int main(int ac, char** av) {
         std::cout << desc << "\n";
         return 1;
     }
-    bpo::notify(configuration);
 
     auto conf_file = configuration["options-file"].as<sstring>();
 
