@@ -311,14 +311,6 @@ small_pool::idx_to_size(unsigned idx) {
                   >> idx_frac_bits;
 }
 
-static constexpr unsigned log2ceil(unsigned n) {
-    return std::numeric_limits<unsigned>::digits - count_leading_zeros(n-1);
-}
-
-static constexpr unsigned log2floor(unsigned n) {
-    return std::numeric_limits<unsigned>::digits - count_leading_zeros(n) - 1;
-}
-
 constexpr unsigned
 small_pool::size_to_idx(unsigned size) {
     return ((log2floor(size) << idx_frac_bits) - ((1 << idx_frac_bits) - 1))
