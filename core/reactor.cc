@@ -623,6 +623,8 @@ reactor::flush_pending_aio() {
                     }
                     delete pr;
                     _io_context_available.signal(1);
+                    // if EBADF, it means that the first request has a bad fd, so
+                    // we will only remove it from _pending_aio and try again.
                     nr_consumed = 1;
                     break;
                 }
@@ -638,7 +640,7 @@ reactor::flush_pending_aio() {
         if (nr_consumed == nr) {
             _pending_aio.clear();
         } else {
-            _pending_aio.erase(_pending_aio.begin(), _pending_aio.begin() + r);
+            _pending_aio.erase(_pending_aio.begin(), _pending_aio.begin() + nr_consumed);
         }
     }
     return did_work;
