@@ -25,6 +25,7 @@
 #include "proto/metrics2.pb.h"
 
 #include "scollectd_api.hh"
+#include "scollectd-impl.hh"
 #include "http/function_handlers.hh"
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/range/algorithm_ext/erase.hpp>
@@ -64,27 +65,50 @@ static std::string safe_name(const sstring& name) {
 }
 
 static sstring collectd_name(const scollectd::type_instance_id & id, uint32_t cpu) {
-    return safe_name(id.plugin()) + ":" + safe_name(id.type()) + ":" + safe_name(id.type_instance()) + ":" + std::to_string(cpu);
+    return safe_name(id.plugin());
 }
 
+static pm::Metric* add_label(pm::Metric* mt, const scollectd::type_instance_id & id, uint32_t cpu) {
+    auto label = mt->add_label();
+    label->set_name("shard");
+    label->set_value(std::to_string(cpu));
+    label = mt->add_label();
+    label->set_name("type");
+    label->set_value(id.type());
 
-static void fill_metric(pm::MetricFamily& mf, const std::vector<scollectd::collectd_value>& vals) {
+    if (id.type_instance() != "") {
+        label = mt->add_label();
+        label->set_name("metric");
+        label->set_value(id.type_instance());
+    }
+    const sstring& host = scollectd::get_impl().host();
+    if (host != "") {
+        label = mt->add_label();
+        label->set_name("instance");
+        label->set_value(host);
+    }
+    return mt;
+}
+
+static void fill_metric(pm::MetricFamily& mf, const std::vector<scollectd::collectd_value>& vals,
+        const scollectd::type_instance_id & id, uint32_t cpu) {
     for (const scollectd::collectd_value& c : vals) {
         switch (c.type()) {
         case scollectd::data_type::DERIVE:
-            mf.add_metric()->mutable_counter()->set_value(c.i());
+            add_label(mf.add_metric(), id, cpu)->mutable_counter()->set_value(c.i());
             mf.set_type(pm::MetricType::COUNTER);
             break;
         case scollectd::data_type::GAUGE:
-            mf.add_metric()->mutable_gauge()->set_value(c.d());
+            add_label(mf.add_metric(), id, cpu)->mutable_gauge()->set_value(c.d());
             mf.set_type(pm::MetricType::GAUGE);
             break;
         default:
-            mf.add_metric()->mutable_counter()->set_value(c.ui());
+            add_label(mf.add_metric(), id, cpu)->mutable_counter()->set_value(c.ui());
             mf.set_type(pm::MetricType::COUNTER);
             break;
         }
     }
+
 }
 
 future<> start(httpd::http_server_control& http_server, const config& ctx) {
@@ -105,9 +129,9 @@ future<> start(httpd::http_server_control& http_server, const config& ctx) {
                             pm::MetricFamily mtf;
                             std::string s;
                             google::protobuf::io::StringOutputStream os(&s);
-                            mtf.set_name(collectd_name(i.first, cpu));
+                            mtf.set_name(ctx.prefix + "_" + collectd_name(i.first, cpu));
                             mtf.set_help(ctx.metric_help);
-                            fill_metric(mtf, i.second);
+                            fill_metric(mtf, i.second, i.first, cpu);
                             if (mtf.metric_size() > 0) {
                                 std::stringstream ss;
                                 if (!write_delimited_to(mtf, &os)) {

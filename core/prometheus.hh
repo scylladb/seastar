@@ -30,6 +30,7 @@ namespace prometheus {
  */
 struct config {
     sstring metric_help; //!< Default help message for the returned metrics
+    sstring prefix = "seastar"; //!< a prefix that will be added to metric names
 };
 
 future<> start(httpd::http_server_control& http_server, const config& ctx);
