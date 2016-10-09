@@ -61,6 +61,9 @@ public:
     void stop();
 
     value_list_map& get_value_list_map();
+    const sstring& host() const {
+        return _host;
+    }
 
 private:
     void arm();
