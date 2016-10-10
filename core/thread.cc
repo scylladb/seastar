@@ -47,18 +47,26 @@ thread_context::~thread_context() {
     _all_threads.erase(_all_threads.iterator_to(*this));
 }
 
-std::unique_ptr<char[]>
+thread_context::stack_holder
 thread_context::make_stack() {
 #ifdef SEASTAR_THREAD_STACK_GUARDS
-    auto stack = std::unique_ptr<char[]>(new (with_alignment(getpagesize())) char[_stack_size]);
+    auto stack = stack_holder(new (with_alignment(getpagesize())) char[_stack_size]);
 #else
-    auto stack = std::make_unique<char[]>(_stack_size);
+    auto stack = stack_holder(new char[_stack_size]);
 #endif
 #ifdef ASAN_ENABLED
     // Avoid ASAN false positive due to garbage on stack
     std::fill_n(stack.get(), _stack_size, 0);
 #endif
     return stack;
+}
+
+void thread_context::stack_deleter::operator()(char* ptr) const noexcept {
+#ifdef SEASTAR_THREAD_STACK_GUARDS
+    operator delete[] (ptr, with_alignment(getpagesize()));
+#else
+    delete[] ptr;
+#endif
 }
 
 void

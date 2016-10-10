@@ -93,9 +93,13 @@ extern thread_local jmp_buf_link g_unthreaded_context;
 // \c thread itself because \c thread is movable, and we want pointers
 // to this state to be captured.
 class thread_context {
+    struct stack_deleter {
+        void operator()(char *ptr) const noexcept;
+    };
+    using stack_holder = std::unique_ptr<char[], stack_deleter>;
     thread_attributes _attr;
     static constexpr size_t _stack_size = 128*1024;
-    std::unique_ptr<char[]> _stack{make_stack()};
+    stack_holder _stack{make_stack()};
     std::function<void ()> _func;
     jmp_buf_link _context;
     promise<> _done;
@@ -121,7 +125,7 @@ private:
     static void s_main(unsigned int lo, unsigned int hi);
     void setup();
     void main();
-    static std::unique_ptr<char[]> make_stack();
+    static stack_holder make_stack();
 public:
     thread_context(thread_attributes attr, std::function<void ()> func);
     ~thread_context();
