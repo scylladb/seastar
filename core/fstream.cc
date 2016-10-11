@@ -43,15 +43,19 @@ class file_data_source_impl : public data_source_impl {
     uint64_t _remain;
     circular_buffer<issued_read> _read_buffers;
     unsigned _reads_in_progress = 0;
+    unsigned _current_read_ahead;
     future<> _dropped_reads = make_ready_future<>();
     std::experimental::optional<promise<>> _done;
 public:
     file_data_source_impl(file f, uint64_t offset, uint64_t len, file_input_stream_options options)
-            : _file(std::move(f)), _options(options), _pos(offset), _remain(len) {
+            : _file(std::move(f)), _options(options), _pos(offset), _remain(len), _current_read_ahead(!!_options.read_ahead) {
         // prevent wraparounds
         _remain = std::min(std::numeric_limits<uint64_t>::max() - _pos, _remain);
     }
     virtual future<temporary_buffer<char>> get() override {
+        if (!_read_buffers.empty() && _current_read_ahead < _options.read_ahead && !_read_buffers.front()._ready.available()) {
+            _current_read_ahead++;
+        }
         issue_read_aheads(1);
         auto ret = std::move(_read_buffers.front());
         _read_buffers.pop_front();
@@ -100,7 +104,7 @@ private:
         if (_done) {
             return;
         }
-        auto ra = _options.read_ahead + additional;
+        auto ra = _current_read_ahead + additional;
         _read_buffers.reserve(ra); // prevent push_back() failure
         while (_read_buffers.size() < ra) {
             if (!_remain) {

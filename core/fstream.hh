@@ -38,7 +38,7 @@
 /// Data structure describing options for opening a file input stream
 struct file_input_stream_options {
     size_t buffer_size = 8192;    ///< I/O buffer size
-    unsigned read_ahead = 0;      ///< Number of extra read-ahead operations
+    unsigned read_ahead = 0;      ///< Maximum number of extra read-ahead operations
     ::io_priority_class io_priority_class = default_priority_class();
 };
 
