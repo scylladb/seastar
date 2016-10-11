@@ -95,6 +95,7 @@ public:
     static constexpr uint64_t wbuffer_size = 128ul << 10;
     static constexpr uint64_t rbuffer_size = 4ul << 10;
 private:
+    size_t _num_threads;
     // We need all threads to synchronize and start the various phases at the same time.
     // Each of them will serve a purpose:
     //
@@ -320,7 +321,8 @@ private:
     }
 public:
     iotune_manager(size_t n, sstring dirname, std::chrono::seconds timeout)
-        : _start_run_barrier(n)
+        : _num_threads(n)
+        , _start_run_barrier(n)
         , _finish_run_barrier(n)
         , _results_barrier(n)
         , _time_run_atomic(n)
@@ -358,8 +360,8 @@ public:
     unsigned get_thread_concurrency(size_t cpu_id) {
         _start_run_barrier.wait();
         auto overall_concurrency = _next_concurrency;
-        auto my_concurrency = overall_concurrency / _threads.size();
-        if (cpu_id < (overall_concurrency % _threads.size())) {
+        auto my_concurrency = overall_concurrency / _num_threads;
+        if (cpu_id < (overall_concurrency % _num_threads)) {
             my_concurrency++;
         }
         return my_concurrency;
