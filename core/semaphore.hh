@@ -307,6 +307,12 @@ public:
             _sem.signal(_n);
         }
     }
+    /// Releases ownership of the units. The semaphore will not be signalled.
+    ///
+    /// \return the number of units held
+    size_t release() {
+        return std::exchange(_n, 0);
+    }
 };
 
 /// \brief Take units from semaphore temporarily
