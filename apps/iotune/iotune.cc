@@ -30,14 +30,17 @@
 #include <wordexp.h>
 #include <boost/thread/barrier.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/range/irange.hpp>
+#include <boost/program_options.hpp>
 #include <mutex>
 #include <deque>
 #include <queue>
 #include <fstream>
+#include <future>
 #include "core/sstring.hh"
 #include "core/posix.hh"
-#include "core/reactor.hh"
 #include "core/resource.hh"
+#include "core/aligned_buffer.hh"
 #include "util/defer.hh"
 
 using namespace std::chrono_literals;
@@ -93,6 +96,7 @@ public:
     static constexpr uint64_t wbuffer_size = 128ul << 10;
     static constexpr uint64_t rbuffer_size = 4ul << 10;
 private:
+    size_t _num_threads;
     // We need all threads to synchronize and start the various phases at the same time.
     // Each of them will serve a purpose:
     //
@@ -103,10 +107,6 @@ private:
     // All threads must finish before we can compute results. Therefore, after finishing,
     // they all must gather around _finish_run_barrier
     boost::barrier _finish_run_barrier;
-    // After computing the results, the coordinator thread will decide whether
-    // or not to proceed with another round. All threads synchronize again at
-    // this point to wait for that decision.
-    boost::barrier _results_barrier;
 
     // We need a synchronization point once more, when deciding at which time
     // to start counting requests. We will avoid a barrier here due to its
@@ -126,7 +126,25 @@ private:
     // add its information here.
     run_stats _test_result;
     std::mutex _result_mutex;
-    std::vector<std::thread> _threads;
+    struct async_obj {
+        async_obj(std::packaged_task<void()> task)
+            : _future(task.get_future())
+            , _thread(std::move(task)) {}
+        async_obj() = default;
+        async_obj(async_obj&&) = default;
+        ~async_obj() {
+            if (_thread.joinable()) {
+                _thread.join();
+            }
+            if (_future.valid()) {
+                _future.get();
+            }
+        }
+    private:
+        std::future<void> _future;
+        std::thread _thread;
+    };
+    std::vector<async_obj> _async_objs;
 
     iotune_manager::clock::time_point _run_start_time;
     iotune_manager::clock::time_point _maximum_end_time;
@@ -318,10 +336,10 @@ private:
     }
 public:
     iotune_manager(size_t n, sstring dirname, std::chrono::seconds timeout)
-        : _start_run_barrier(n)
+        : _num_threads(n)
+        , _start_run_barrier(n)
         , _finish_run_barrier(n)
-        , _results_barrier(n)
-        , _time_run_atomic(n)
+        , _time_run_atomic(0)
         , _test_file(directory(dirname))
         , _run_start_time(iotune_manager::clock::now())
         , _maximum_end_time(_run_start_time + timeout)
@@ -335,7 +353,13 @@ public:
     }
     template <typename Func>
     void spawn_new(Func&& func) {
-        _threads.emplace_back(std::thread(std::forward<Func>(func)));
+        std::packaged_task<void()> task(std::forward<Func>(func));
+        _async_objs.emplace_back(std::move(task));
+    }
+
+    void wait_for_threads() {
+        std::vector<async_obj> running;
+        std::swap(running, _async_objs);
     }
 
     clock::time_point get_start_time(size_t cpu_id) {
@@ -354,10 +378,11 @@ public:
     }
 
     unsigned get_thread_concurrency(size_t cpu_id) {
+        _time_run_atomic.fetch_add(1, std::memory_order_release);
         _start_run_barrier.wait();
         auto overall_concurrency = _next_concurrency;
-        auto my_concurrency = overall_concurrency / _threads.size();
-        if (cpu_id < (overall_concurrency % _threads.size())) {
+        auto my_concurrency = overall_concurrency / _num_threads;
+        if (cpu_id < (overall_concurrency % _num_threads)) {
             my_concurrency++;
         }
         return my_concurrency;
@@ -376,29 +401,21 @@ public:
         _finish_run_barrier.wait();
     }
 
-    test_done analyze_results(size_t cpu_id) {
-        if (cpu_id == 0) {
-            struct run_stats result = current_result(cpu_id);
-            _all_results[result.concurrency] = result.IOPS;
-            find_next_concurrency(result);
-            // Still empty, nothing else to do.
-            if (_concurrency_queue.empty()) {
-                _test_done = test_done::yes;
-            } else {
-                _next_concurrency = _concurrency_queue.front();
-                _concurrency_queue.pop();
-            }
+    test_done analyze_results() {
+        struct run_stats result = current_result(0);
+        _all_results[result.concurrency] = result.IOPS;
+        find_next_concurrency(result);
+        // Still empty, nothing else to do.
+        if (_concurrency_queue.empty()) {
+            _test_done = test_done::yes;
+        } else {
+            _next_concurrency = _concurrency_queue.front();
+            _concurrency_queue.pop();
         }
-        _time_run_atomic.fetch_add(1, std::memory_order_release);
-        _results_barrier.wait();
         return _test_done;
     }
 
     uint32_t finish_estimate() {
-        for (auto&& t: _threads) {
-            t.join();
-        }
-
         if (_best_critical_concurrency == 0) {
             std::cerr << "============= Cut here ===============" << std::endl;
             std::cerr << "Something is not right! Results found:" << std::endl;
@@ -639,15 +656,16 @@ void test_file::generate(iotune_manager& iotune_manager, std::chrono::seconds ti
 uint32_t io_queue_discovery(sstring dir, std::vector<unsigned> cpus, std::chrono::seconds timeout) {
     iotune_manager iotune_manager(cpus.size(), dir, timeout);
 
-    for (auto i = 0ul; i < cpus.size(); ++i) {
-        iotune_manager.spawn_new([&cpus, &iotune_manager, id = i] {
-            pin_this_thread(cpus[id]);
-            do {
-                auto my_concurrency = iotune_manager.get_thread_concurrency(id);
-                iotune_manager.run_test(id, my_concurrency);
-            } while (iotune_manager.analyze_results(id) == iotune_manager::test_done::no);
-        });
-    }
+    do {
+        for (auto i = 0ul; i < cpus.size(); ++i) {
+            iotune_manager.spawn_new([&iotune_manager, &cpus, id = i] {
+               pin_this_thread(cpus[id]);
+               auto my_concurrency = iotune_manager.get_thread_concurrency(id);
+               iotune_manager.run_test(id, my_concurrency);
+            });
+        }
+        iotune_manager.wait_for_threads();
+    } while (iotune_manager.analyze_results() == iotune_manager::test_done::no);
 
     return iotune_manager.finish_estimate();
 }
@@ -716,6 +734,7 @@ int main(int ac, char** av) {
     bpo::variables_map configuration;
     try {
         bpo::store(bpo::parse_command_line(ac, av, desc), configuration);
+        bpo::notify(configuration);
     } catch (bpo::error& e) {
         print("error: %s\n\nTry --help.\n", e.what());
         return 2;
@@ -729,7 +748,6 @@ int main(int ac, char** av) {
         std::cout << desc << "\n";
         return 1;
     }
-    bpo::notify(configuration);
 
     auto conf_file = configuration["options-file"].as<sstring>();
 

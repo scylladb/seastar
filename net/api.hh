@@ -27,69 +27,13 @@
 #include <cstring>
 #include "core/future.hh"
 #include "net/byteorder.hh"
+#include "net/socket_defs.hh"
 #include "net/packet.hh"
 #include "core/print.hh"
 #include "core/temporary_buffer.hh"
 #include "core/iostream.hh"
 #include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/ip.h>
 #include <boost/variant.hpp>
-
-struct ipv4_addr;
-
-class socket_address {
-public:
-    union {
-        ::sockaddr_storage sas;
-        ::sockaddr sa;
-        ::sockaddr_in in;
-    } u;
-    socket_address(sockaddr_in sa) {
-        u.in = sa;
-    }
-    socket_address(ipv4_addr);
-    socket_address() = default;
-    ::sockaddr& as_posix_sockaddr() { return u.sa; }
-    ::sockaddr_in& as_posix_sockaddr_in() { return u.in; }
-    const ::sockaddr& as_posix_sockaddr() const { return u.sa; }
-    const ::sockaddr_in& as_posix_sockaddr_in() const { return u.in; }
-};
-
-namespace seastar {
-
-enum class transport {
-    TCP = IPPROTO_TCP,
-    SCTP = IPPROTO_SCTP
-};
-
-}
-
-struct listen_options {
-    seastar::transport proto = seastar::transport::TCP;
-    bool reuse_address = false;
-    listen_options(bool rua = false)
-        : reuse_address(rua)
-    {}
-};
-
-struct ipv4_addr {
-    uint32_t ip;
-    uint16_t port;
-
-    ipv4_addr() : ip(0), port(0) {}
-    ipv4_addr(uint32_t ip, uint16_t port) : ip(ip), port(port) {}
-    ipv4_addr(uint16_t port) : ip(0), port(port) {}
-    ipv4_addr(const std::string &addr);
-    ipv4_addr(const std::string &addr, uint16_t port);
-
-    ipv4_addr(const socket_address &sa) {
-        ip = net::ntoh(sa.u.in.sin_addr.s_addr);
-        port = net::ntoh(sa.u.in.sin_port);
-    }
-
-    ipv4_addr(socket_address &&sa) : ipv4_addr(sa) {}
-};
 
 static inline
 bool is_ip_unspecified(ipv4_addr &addr) {
