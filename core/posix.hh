@@ -41,7 +41,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <memory>
-#include "net/api.hh"
+#include "net/socket_defs.hh"
 
 inline void throw_system_error_on(bool condition, const char* what_arg = "");
 
