@@ -30,14 +30,16 @@
 #include <wordexp.h>
 #include <boost/thread/barrier.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/range/irange.hpp>
+#include <boost/program_options.hpp>
 #include <mutex>
 #include <deque>
 #include <queue>
 #include <fstream>
 #include "core/sstring.hh"
 #include "core/posix.hh"
-#include "core/reactor.hh"
 #include "core/resource.hh"
+#include "core/aligned_buffer.hh"
 #include "util/defer.hh"
 
 using namespace std::chrono_literals;
