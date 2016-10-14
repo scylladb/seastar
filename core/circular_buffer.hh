@@ -33,6 +33,7 @@
 // constructors instead of move/copy assignments, which are less efficient).
 
 #include "transfer.hh"
+#include "bitops.hh"
 #include <memory>
 #include <algorithm>
 
@@ -216,7 +217,8 @@ inline
 void
 circular_buffer<T, Alloc>::reserve(size_t size) {
     if (capacity() < size) {
-        expand(size);
+        // Make sure that the new capacity is a power of two.
+        expand(size_t(1) << log2ceil(size));
     }
 }
 
