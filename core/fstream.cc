@@ -186,9 +186,12 @@ public:
             _done->set_value();
         }
         return _done->get_future().then([this] {
+            uint64_t dropped = 0;
             for (auto&& c : _read_buffers) {
+                dropped += c._size;
                 c._ready.ignore_ready_future();
             }
+            update_history_unused(dropped);
             return std::move(_dropped_reads);
         });
     }
