@@ -109,6 +109,13 @@ private:
         entry& operator=(entry&&) noexcept = delete;
     };
     chunked_fifo<entry> _wait_list;
+
+    bool has_available_units(size_t nr) const {
+        return _count >= nr;
+    }
+    bool may_proceed(size_t nr) const {
+        return has_available_units(nr) && _wait_list.empty();
+    }
 public:
     using duration =  timer<>::duration;
     using clock =  timer<>::clock;
@@ -136,7 +143,7 @@ public:
     ///         to satisfy the request.  If the semaphore was \ref broken(), may
     ///         contain an exception.
     future<> wait(size_t nr = 1) {
-        if (_count >= nr && _wait_list.empty()) {
+        if (may_proceed(nr)) {
             _count -= nr;
             return make_ready_future<>();
         }
@@ -217,7 +224,7 @@ public:
             return;
         }
         _count += nr;
-        while (!_wait_list.empty() && _wait_list.front().nr <= _count) {
+        while (!_wait_list.empty() && has_available_units(_wait_list.front().nr)) {
             auto& x = _wait_list.front();
             if (x.nr) {
                _count -= x.nr;
@@ -238,7 +245,7 @@ public:
     /// \param nr number of units to reduce the counter by (default 1).
     /// \return `true` if the counter had sufficient units, and was decremented.
     bool try_wait(size_t nr = 1) {
-        if (_count >= nr && _wait_list.empty()) {
+        if (may_proceed(nr)) {
             _count -= nr;
             return true;
         } else {
