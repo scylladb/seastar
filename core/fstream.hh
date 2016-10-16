@@ -34,7 +34,7 @@
 #include "iostream.hh"
 #include "shared_ptr.hh"
 
-struct file_input_stream_history {
+class file_input_stream_history {
     static constexpr uint64_t window_size = 4 * 1024 * 1024;
     struct window {
         uint64_t total_read = 0;
@@ -43,6 +43,8 @@ struct file_input_stream_history {
     window current_window;
     window previous_window;
     unsigned read_ahead = 1;
+
+    friend class file_data_source_impl;
 };
 
 /// Data structure describing options for opening a file input stream
