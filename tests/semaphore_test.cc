@@ -35,6 +35,22 @@
 using namespace seastar;
 using namespace std::chrono_literals;
 
+
+SEASTAR_TEST_CASE(test_semaphore_consume) {
+    semaphore sem(0);
+    sem.consume(1);
+    BOOST_REQUIRE_EQUAL(sem.current(), 0);
+    BOOST_REQUIRE_EQUAL(sem.waiters(), 0);
+
+    BOOST_REQUIRE_EQUAL(sem.try_wait(0), false);
+    auto fut = sem.wait(1);
+    BOOST_REQUIRE_EQUAL(fut.available(), false);
+    BOOST_REQUIRE_EQUAL(sem.waiters(), 1);
+    sem.signal(2);
+    BOOST_REQUIRE_EQUAL(sem.waiters(), 0);
+    return make_ready_future<>();
+}
+
 SEASTAR_TEST_CASE(test_semaphore_1) {
     return do_with(std::make_pair(semaphore(0), 0), [] (std::pair<semaphore, int>& x) {
         x.first.wait().then([&x] {

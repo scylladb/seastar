@@ -87,7 +87,7 @@ struct semaphore_default_exception_factory {
 template<typename ExceptionFactory>
 class basic_semaphore {
 private:
-    size_t _count;
+    ssize_t _count;
     std::exception_ptr _ex;
     struct entry {
         promise<> pr;
@@ -109,10 +109,22 @@ private:
         entry& operator=(entry&&) noexcept = delete;
     };
     chunked_fifo<entry> _wait_list;
+
+    bool has_available_units(size_t nr) const {
+        return _count >= 0 && (static_cast<size_t>(_count) >= nr);
+    }
+    bool may_proceed(size_t nr) const {
+        return has_available_units(nr) && _wait_list.empty();
+    }
 public:
     using duration =  timer<>::duration;
     using clock =  timer<>::clock;
     using time_point =  timer<>::time_point;
+
+    /// Returns the maximum number of units the semaphore counter can hold
+    static constexpr size_t max_counter() {
+        return std::numeric_limits<decltype(_count)>::max();
+    }
 
     /// Constructs a semaphore object with a specific number of units
     /// in its internal counter. E.g., starting it at 1 is suitable for use as
@@ -131,7 +143,7 @@ public:
     ///         to satisfy the request.  If the semaphore was \ref broken(), may
     ///         contain an exception.
     future<> wait(size_t nr = 1) {
-        if (_count >= nr && _wait_list.empty()) {
+        if (may_proceed(nr)) {
             _count -= nr;
             return make_ready_future<>();
         }
@@ -212,7 +224,7 @@ public:
             return;
         }
         _count += nr;
-        while (!_wait_list.empty() && _wait_list.front().nr <= _count) {
+        while (!_wait_list.empty() && has_available_units(_wait_list.front().nr)) {
             auto& x = _wait_list.front();
             if (x.nr) {
                _count -= x.nr;
@@ -222,6 +234,21 @@ public:
             _wait_list.pop_front();
         }
     }
+
+    /// Consume the specific number of units without blocking
+    //
+    /// Consume the specific number of units now, regardless of how many units are available
+    /// in the counter, and reduces the counter by that amount of units. This operation may
+    /// cause the counter to go negative.
+    ///
+    /// \param nr Amount of units to consume (default 1).
+    void consume(size_t nr = 1) {
+        if (_ex) {
+            return;
+        }
+        _count -= nr;
+    }
+
     /// Attempts to reduce the counter value by a specified number of units.
     ///
     /// If sufficient units are available in the counter, and if no
@@ -233,7 +260,7 @@ public:
     /// \param nr number of units to reduce the counter by (default 1).
     /// \return `true` if the counter had sufficient units, and was decremented.
     bool try_wait(size_t nr = 1) {
-        if (_count >= nr && _wait_list.empty()) {
+        if (may_proceed(nr)) {
             _count -= nr;
             return true;
         } else {
@@ -243,7 +270,7 @@ public:
     /// Returns the number of units available in the counter.
     ///
     /// Does not take into account any waiters.
-    size_t current() const { return _count; }
+    size_t current() const { return std::max(_count, ssize_t(0)); }
 
     /// Returns the current number of waiters
     size_t waiters() const { return _wait_list.size(); }
