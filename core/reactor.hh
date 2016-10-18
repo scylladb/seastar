@@ -908,8 +908,7 @@ private:
     void register_poller(pollfn* p);
     void unregister_poller(pollfn* p);
     void replace_poller(pollfn* old, pollfn* neww);
-    struct collectd_registrations;
-    collectd_registrations register_collectd_metrics();
+    void register_collectd_metrics();
     future<> write_all_part(pollable_fd_state& fd, const void* buffer, size_t size, size_t completed);
 
     bool process_io();
@@ -935,6 +934,7 @@ private:
     friend class poller;
     friend void add_to_flush_poller(output_stream<char>* os);
     friend int _Unwind_RaiseException(void *h);
+    std::vector<scollectd::registration> _collectd_regs;
 public:
     bool wait_and_process(int timeout = 0, const sigset_t* active_sigmask = nullptr) {
         return _backend.wait_and_process(timeout, active_sigmask);
