@@ -32,6 +32,7 @@
 #include <boost/filesystem.hpp>
 #include <boost/range/irange.hpp>
 #include <boost/program_options.hpp>
+#include <boost/iterator/counting_iterator.hpp>
 #include <mutex>
 #include <deque>
 #include <queue>
@@ -724,6 +725,7 @@ int main(int ac, char** av) {
     desc.add_options()
         ("help,h", "show help message")
         ("evaluation-directory", bpo::value<sstring>()->required(), "directory where to execute the evaluation")
+        ("smp,c", bpo::value<unsigned>(), "number of threads (default: one per CPU)")
         ("cpuset", bpo::value<cpuset_bpo_wrapper>(), "CPUs to use (in cpuset(7) format; default: all))")
         ("options-file", bpo::value<sstring>()->default_value("~/.config/seastar/io.conf"), "Output configuration file")
         ("format", bpo::value<sstring>()->default_value("seastar"), "Configuration file format (seastar | envfile)")
@@ -753,12 +755,26 @@ int main(int ac, char** av) {
 
     std::vector<unsigned> cpuvec;
     sstring directory;
+    auto nr_cpus = resource::nr_processing_units();
+    resource::cpuset cpu_set;
+    std::copy(boost::counting_iterator<unsigned>(0), boost::counting_iterator<unsigned>(nr_cpus),
+            std::inserter(cpu_set, cpu_set.end()));
+    if (configuration.count("cpuset")) {
+        cpu_set = configuration["cpuset"].as<cpuset_bpo_wrapper>().value;
+    }
+    if (configuration.count("smp")) {
+        nr_cpus = configuration["smp"].as<unsigned>();
+    } else {
+        nr_cpus = cpu_set.size();
+    }
+
     if (configuration.count("cpuset")) {
         for (auto& c: configuration["cpuset"].as<cpuset_bpo_wrapper>().value) {
-            cpuvec.push_back(c);
+            if (nr_cpus--)
+                cpuvec.push_back(c);
         }
     } else {
-        for (auto c = 0u; c < resource::nr_processing_units(); ++c) {
+        for (auto c = 0u; c < nr_cpus; ++c) {
             cpuvec.push_back(c);
         }
     }
