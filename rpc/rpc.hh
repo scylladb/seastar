@@ -196,6 +196,7 @@ class protocol {
                             write_le<uint64_t>(d.buf.front().get_write(), left);
                         } else {
                             d.buf.front().trim_front(8);
+                            d.buf.size -= 8;
                         }
                     }
                     d.buf = compress(std::move(d.buf));
