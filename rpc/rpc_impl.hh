@@ -1053,10 +1053,7 @@ protocol<Serializer, MsgType>::client::client(protocol& proto, client_options op
             fd.set_keepalive(true);
             fd.set_keepalive_parameters(ops.keepalive.value());
         }
-        this->_fd = std::move(fd);
-        this->_read_buf = this->_fd.input();
-        this->_write_buf = this->_fd.output();
-        this->_connected = true;
+        this->set_socket(std::move(fd));
 
         feature_map features;
         if (_options.compressor_factory) {
@@ -1098,7 +1095,7 @@ protocol<Serializer, MsgType>::client::client(protocol& proto, client_options op
         });
     }).then_wrapped([this] (future<> f) {
         if (f.failed()) {
-            log_exception(*this, _connected ? "client connection dropped" : "fail to connect", f.get_exception());
+            log_exception(*this, this->_connected ? "client connection dropped" : "fail to connect", f.get_exception());
         }
         this->_error = true;
         this->stop_send_loop().then_wrapped([this] (future<> f) {

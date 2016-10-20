@@ -113,6 +113,7 @@ class protocol {
         output_stream<char> _write_buf;
         bool _error = false;
         protocol& _proto;
+        bool _connected = false;
         promise<> _stopped;
         stats _stats;
         struct outgoing_entry {
@@ -227,8 +228,17 @@ class protocol {
         }
 
     public:
-        connection(connected_socket&& fd, protocol& proto) : _fd(std::move(fd)), _read_buf(_fd.input()), _write_buf(_fd.output()), _proto(proto) {}
+        connection(connected_socket&& fd, protocol& proto) : _fd(std::move(fd)), _read_buf(_fd.input()), _write_buf(_fd.output()), _proto(proto), _connected(true) {}
         connection(protocol& proto) : _proto(proto) {}
+        void set_socket(connected_socket&& fd) {
+            if (_connected) {
+                throw std::runtime_error("already connected");
+            }
+            _fd = std::move(fd);
+            _read_buf =_fd.input();
+            _write_buf = _fd.output();
+            _connected = true;
+        }
         future<> send_negotiation_frame(temporary_buffer<char> buf) {
             return _write_buf.write(std::move(buf)).then([this] {
                 _stats.sent_messages++;
@@ -362,7 +372,6 @@ public:
     };
 
     class client : public protocol::connection {
-        bool _connected = false;
         ::seastar::socket _socket;
         id_type _message_id = 1;
         struct reply_handler_base {
