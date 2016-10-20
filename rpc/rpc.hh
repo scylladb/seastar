@@ -65,7 +65,7 @@ static constexpr char rpc_magic[] = "SSTARRPC";
 struct resource_limits {
     size_t basic_request_size = 0; ///< Minimum request footprint in memory
     unsigned bloat_factor = 1;     ///< Serialized size multiplied by this to estimate memory used by request
-    size_t max_memory = std::numeric_limits<size_t>::max(); ///< Maximum amount of memory that may be consumed by all requests
+    size_t max_memory = std::numeric_limits<ssize_t>::max(); ///< Maximum amount of memory that may be consumed by all requests
 };
 
 struct client_options {
