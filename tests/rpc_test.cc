@@ -169,6 +169,8 @@ SEASTAR_TEST_CASE(test_rpc_connect) {
                     BOOST_REQUIRE_EQUAL(result, 2 + 3);
                     c1.stop().get();
                 });
+            }).handle_exception([] (auto ep) {
+                BOOST_FAIL("No exception expected");
             }).finally([factory = std::move(factory), i, j = j & 1] {
                 if (i == 1 && j == 1) {
                     BOOST_REQUIRE_EQUAL(factory->use_compression, 2);
