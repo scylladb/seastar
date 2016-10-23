@@ -246,6 +246,8 @@ arg_parser.add_argument('--tests-debuginfo', action='store', dest='tests_debugin
                         help='Enable(1)/disable(0)compiler debug information generation for tests')
 arg_parser.add_argument('--static-stdc++', dest = 'staticcxx', action = 'store_true',
                         help = 'Link libgcc and libstdc++ statically')
+arg_parser.add_argument('--static-boost', dest = 'staticboost', action = 'store_true',
+                        help = 'Link with boost statically')
 add_tristate(arg_parser, name = 'hwloc', dest = 'hwloc', help = 'hwloc support')
 add_tristate(arg_parser, name = 'xen', dest = 'xen', help = 'Xen support')
 args = arg_parser.parse_args()
@@ -314,9 +316,22 @@ boost_test_lib = [
    'tests/test_runner.cc',
 ]
 
+
+def maybe_static(flag, libs):
+    if flag and not args.static:
+        libs = '-Wl,-Bstatic {} -Wl,-Bdynamic'.format(libs)
+    return libs
+
 defines = ['FMT_HEADER_ONLY']
 # Include -lgcc_s before -lunwind to work around for https://savannah.nongnu.org/bugs/?48486. See https://github.com/scylladb/scylla/issues/1725.
-libs = '-laio -lboost_program_options -lboost_system -lboost_filesystem -lstdc++ -lm -lboost_unit_test_framework -lboost_thread -lcryptopp -lrt -lgnutls -lgnutlsxx -llz4 -lprotobuf -ldl -lgcc_s -lunwind'
+libs = ' '.join(['-laio',
+                 maybe_static(args.staticboost,
+                              '-lboost_program_options -lboost_system -lboost_filesystem'),
+                 '-lstdc++ -lm',
+                 maybe_static(args.staticboost, '-lboost_unit_test_framework -lboost_thread'),
+                 '-lcryptopp -lrt -lgnutls -lgnutlsxx -llz4 -lprotobuf -ldl -lgcc_s -lunwind',
+                 ])
+
 hwloc_libs = '-lhwloc -lnuma -lpciaccess -lxml2 -lz'
 xen_used = False
 def have_xen():
