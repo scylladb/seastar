@@ -63,6 +63,7 @@ bool filesystem_has_good_aio_support(sstring directory, bool verbose) {
     auto fd = file_desc::open(fname, O_CREAT|O_EXCL|O_RDWR|O_DIRECT, 0600);
     unlink(fname.c_str());
     auto nr = 1000;
+    fd.truncate(nr * 4096);
     auto bufsize = 4096;
     auto ctxsw = 0;
     auto buf = aligned_alloc(4096, 4096);
