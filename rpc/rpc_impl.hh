@@ -1084,7 +1084,8 @@ protocol<Serializer, MsgType>::client::client(protocol& proto, client_options op
                             // can happen if unknown verb was used by no_wait client
                             this->get_protocol().log(this->peer_address(), sprint("unknown verb exception %d ignored", ex.type));
                         } catch(...) {
-                            this->_error = true;
+                            // We've got error response but handler is no longer waiting, could be timed out.
+                            log_exception(*this, "ignoring error response", std::current_exception());
                         }
                     } else {
                         // we get a reply for a message id not in _outstanding
