@@ -30,6 +30,7 @@ public:
 };
 
 void schedule(std::unique_ptr<task> t);
+void schedule_urgent(std::unique_ptr<task> t);
 
 template <typename Func>
 class lambda_task final : public task {

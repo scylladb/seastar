@@ -869,6 +869,7 @@ public:
     }
 
     void add_task(std::unique_ptr<task>&& t) { _pending_tasks.push_back(std::move(t)); }
+    void add_urgent_task(std::unique_ptr<task>&& t) { _pending_tasks.push_front(std::move(t)); }
 
     /// Set a handler that will be called when there is no task to execute on cpu.
     /// Handler should do a low priority work.

@@ -261,10 +261,10 @@ struct future_state {
     void forward_to(promise<T...>& pr) noexcept {
         assert(_state != state::future);
         if (_state == state::exception) {
-            pr.set_exception(std::move(_u.ex));
+            pr.set_urgent_exception(std::move(_u.ex));
             _u.ex.~exception_ptr();
         } else {
-            pr.set_value(std::move(_u.value));
+            pr.set_urgent_value(std::move(_u.value));
             _u.value.~tuple();
         }
         _state = state::invalid;
@@ -400,6 +400,7 @@ struct continuation final : task {
 ///
 template <typename... T>
 class promise {
+    enum class urgent { no, yes };
     future<T...>* _future = nullptr;
     future_state<T...> _local_state;
     future_state<T...>* _state;
@@ -448,9 +449,7 @@ public:
     /// Copies the tuple argument and makes it available to the associated
     /// future.  May be called either before or after \c get_future().
     void set_value(const std::tuple<T...>& result) noexcept(copy_noexcept) {
-        assert(_state);
-        _state->set(result);
-        make_ready();
+        do_set_value<urgent::no>(result);
     }
 
     /// \brief Sets the promises value (as tuple; by moving)
@@ -458,9 +457,7 @@ public:
     /// Moves the tuple argument and makes it available to the associated
     /// future.  May be called either before or after \c get_future().
     void set_value(std::tuple<T...>&& result) noexcept {
-        assert(_state);
-        _state->set(std::move(result));
-        make_ready();
+        do_set_value<urgent::no>(std::move(result));
     }
 
     /// \brief Sets the promises value (variadic)
@@ -471,7 +468,7 @@ public:
     void set_value(A&&... a) noexcept {
         assert(_state);
         _state->set(std::forward<A>(a)...);
-        make_ready();
+        make_ready<urgent::no>();
     }
 
     /// \brief Marks the promise as failed
@@ -479,9 +476,7 @@ public:
     /// Forwards the exception argument to the future and makes it
     /// available.  May be called either before or after \c get_future().
     void set_exception(std::exception_ptr ex) noexcept {
-        assert(_state);
-        _state->set_exception(std::move(ex));
-        make_ready();
+        do_set_exception<urgent::no>(std::move(ex));
     }
 
     /// \brief Marks the promise as failed
@@ -493,12 +488,39 @@ public:
         set_exception(make_exception_ptr(std::forward<Exception>(e)));
     }
 private:
+    template<urgent Urgent>
+    void do_set_value(std::tuple<T...> result) noexcept {
+        assert(_state);
+        _state->set(std::move(result));
+        make_ready<Urgent>();
+    }
+
+    void set_urgent_value(const std::tuple<T...>& result) noexcept(copy_noexcept) {
+        do_set_value<urgent::yes>(result);
+    }
+
+    void set_urgent_value(std::tuple<T...>&& result) noexcept {
+        do_set_value<urgent::yes>(std::move(result));
+    }
+
+    template<urgent Urgent>
+    void do_set_exception(std::exception_ptr ex) noexcept {
+        assert(_state);
+        _state->set_exception(std::move(ex));
+        make_ready<Urgent>();
+    }
+
+    void set_urgent_exception(std::exception_ptr ex) noexcept {
+        do_set_exception<urgent::yes>(std::move(ex));
+    }
+private:
     template <typename Func>
     void schedule(Func&& func) {
         auto tws = std::make_unique<continuation<Func, T...>>(std::move(func));
         _state = &tws->_state;
         _task = std::move(tws);
     }
+    template<urgent Urgent>
     __attribute__((always_inline))
     void make_ready() noexcept;
     void migrated() noexcept;
@@ -506,6 +528,8 @@ private:
 
     template <typename... U>
     friend class future;
+
+    friend class future_state<T...>;
 };
 
 /// \brief Specialization of \c promise<void>
@@ -1081,10 +1105,10 @@ inline
 void future_state<>::forward_to(promise<>& pr) noexcept {
     assert(_u.st != state::future && _u.st != state::invalid);
     if (_u.st >= state::exception_min) {
-        pr.set_exception(std::move(_u.ex));
+        pr.set_urgent_exception(std::move(_u.ex));
         _u.ex.~exception_ptr();
     } else {
-        pr.set_value(std::tuple<>());
+        pr.set_urgent_value(std::tuple<>());
     }
     _u.st = state::invalid;
 }
@@ -1098,11 +1122,16 @@ promise<T...>::get_future() noexcept {
 }
 
 template <typename... T>
+template<typename promise<T...>::urgent Urgent>
 inline
 void promise<T...>::make_ready() noexcept {
     if (_task) {
         _state = nullptr;
-        ::schedule(std::move(_task));
+        if (Urgent == urgent::yes && !need_preempt()) {
+            ::schedule_urgent(std::move(_task));
+        } else {
+            ::schedule(std::move(_task));
+        }
     }
 }
 
