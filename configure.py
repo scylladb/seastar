@@ -329,9 +329,12 @@ libs = ' '.join(['-laio',
                  maybe_static(args.staticboost,
                               '-lboost_program_options -lboost_system -lboost_filesystem'),
                  '-lstdc++ -lm',
-                 maybe_static(args.staticboost, '-lboost_unit_test_framework -lboost_thread'),
+                 maybe_static(args.staticboost, '-lboost_thread'),
                  '-lcryptopp -lrt -lgnutls -lgnutlsxx -llz4 -lprotobuf -ldl -lgcc_s -lunwind',
                  ])
+
+boost_unit_test_lib = maybe_static(args.staticboost, '-lboost_unit_test_framework')
+
 
 hwloc_libs = '-lhwloc -lnuma -lpciaccess -lxml2 -lz'
 xen_used = False
@@ -377,8 +380,8 @@ deps = {
     'seastar.pc': [],
     'apps/httpd/httpd': ['apps/httpd/demo.json', 'apps/httpd/main.cc'] + http + libnet + core,
     'apps/memcached/memcached': ['apps/memcached/memcache.cc'] + memcache_base,
-    'tests/memcached/test_ascii_parser': ['tests/memcached/test_ascii_parser.cc'] + memcache_base + boost_test_lib,
-    'tests/fileiotest': ['tests/fileiotest.cc'] + core + boost_test_lib,
+    'tests/memcached/test_ascii_parser': ['tests/memcached/test_ascii_parser.cc'] + memcache_base,
+    'tests/fileiotest': ['tests/fileiotest.cc'] + core,
     'tests/directory_test': ['tests/directory_test.cc'] + core,
     'tests/linecount': ['tests/linecount.cc'] + core,
     'tests/echotest': ['tests/echotest.cc'] + core + libnet,
@@ -386,19 +389,19 @@ deps = {
     'tests/ip_test': ['tests/ip_test.cc'] + core + libnet,
     'tests/tcp_test': ['tests/tcp_test.cc'] + core + libnet,
     'tests/timertest': ['tests/timertest.cc'] + core,
-    'tests/futures_test': ['tests/futures_test.cc'] + core + boost_test_lib,
-    'tests/alloc_test': ['tests/alloc_test.cc'] + core + boost_test_lib,
-    'tests/foreign_ptr_test': ['tests/foreign_ptr_test.cc'] + core + boost_test_lib,
-    'tests/semaphore_test': ['tests/semaphore_test.cc'] + core + boost_test_lib,
+    'tests/futures_test': ['tests/futures_test.cc'] + core,
+    'tests/alloc_test': ['tests/alloc_test.cc'] + core,
+    'tests/foreign_ptr_test': ['tests/foreign_ptr_test.cc'] + core,
+    'tests/semaphore_test': ['tests/semaphore_test.cc'] + core,
     'tests/smp_test': ['tests/smp_test.cc'] + core,
-    'tests/thread_test': ['tests/thread_test.cc'] + core + boost_test_lib,
+    'tests/thread_test': ['tests/thread_test.cc'] + core,
     'tests/thread_context_switch': ['tests/thread_context_switch.cc'] + core,
     'tests/udp_server': ['tests/udp_server.cc'] + core + libnet,
     'tests/udp_client': ['tests/udp_client.cc'] + core + libnet,
     'tests/tcp_sctp_server': ['tests/tcp_sctp_server.cc'] + core + libnet,
     'tests/tcp_sctp_client': ['tests/tcp_sctp_client.cc'] + core + libnet,
-    'tests/tls_test': ['tests/tls_test.cc'] + core + libnet + boost_test_lib,
-    'tests/fair_queue_test': ['tests/fair_queue_test.cc'] + core + boost_test_lib,
+    'tests/tls_test': ['tests/tls_test.cc'] + core + libnet,
+    'tests/fair_queue_test': ['tests/fair_queue_test.cc'] + core,
     'apps/seawreck/seawreck': ['apps/seawreck/seawreck.cc', 'http/http_response_parser.rl'] + core + libnet,
     'apps/fair_queue_tester/fair_queue_tester': ['apps/fair_queue_tester/fair_queue_tester.cc'] + core,
     'apps/iotune/iotune': ['apps/iotune/iotune.cc', 'apps/iotune/fsqual.cc'] + ['core/resource.cc'],
@@ -406,23 +409,45 @@ deps = {
     'tests/sstring_test': ['tests/sstring_test.cc'] + core,
     'tests/unwind_test': ['tests/unwind_test.cc'] + core,
     'tests/defer_test': ['tests/defer_test.cc'] + core,
-    'tests/httpd': ['tests/httpd.cc'] + http + core + boost_test_lib,
+    'tests/httpd': ['tests/httpd.cc'] + http + core,
     'tests/allocator_test': ['tests/allocator_test.cc'] + core,
-    'tests/output_stream_test': ['tests/output_stream_test.cc'] + core + libnet + boost_test_lib,
+    'tests/output_stream_test': ['tests/output_stream_test.cc'] + core + libnet,
     'tests/udp_zero_copy': ['tests/udp_zero_copy.cc'] + core + libnet,
     'tests/shared_ptr_test': ['tests/shared_ptr_test.cc'] + core,
     'tests/slab_test': ['tests/slab_test.cc'] + core,
-    'tests/fstream_test': ['tests/fstream_test.cc'] + core + boost_test_lib,
+    'tests/fstream_test': ['tests/fstream_test.cc'] + core,
     'tests/distributed_test': ['tests/distributed_test.cc'] + core,
     'tests/rpc': ['tests/rpc.cc'] + core + libnet,
-    'tests/rpc_test': ['tests/rpc_test.cc'] + core + libnet + boost_test_lib,
+    'tests/rpc_test': ['tests/rpc_test.cc'] + core + libnet,
     'tests/packet_test': ['tests/packet_test.cc'] + core + libnet,
-    'tests/connect_test': ['tests/connect_test.cc'] + core + libnet + boost_test_lib,
+    'tests/connect_test': ['tests/connect_test.cc'] + core + libnet,
     'tests/chunked_fifo_test': ['tests/chunked_fifo_test.cc'] + core,
-    'tests/scollectd_test': ['tests/scollectd_test.cc'] + core + boost_test_lib,
+    'tests/scollectd_test': ['tests/scollectd_test.cc'] + core,
     'tests/perf/perf_fstream': ['tests/perf/perf_fstream.cc'] + core,
-    'tests/json_formatter_test': ['tests/json_formatter_test.cc'] + core + http + boost_test_lib,
+    'tests/json_formatter_test': ['tests/json_formatter_test.cc'] + core + http,
 }
+
+boost_tests = [
+    'tests/memcached/test_ascii_parser',
+    'tests/fileiotest',
+    'tests/futures_test',
+    'tests/alloc_test',
+    'tests/foreign_ptr_test',
+    'tests/semaphore_test',
+    'tests/thread_test',
+    'tests/tls_test',
+    'tests/fair_queue_test',
+    'tests/httpd',
+    'tests/output_stream_test',
+    'tests/fstream_test',
+    'tests/rpc_test',
+    'tests/connect_test',
+    'tests/scollectd_test',
+    'tests/json_formatter_test',
+    ]
+
+for bt in boost_tests:
+    deps[bt] += boost_test_lib
 
 warnings = [
     '-Wno-mismatched-tags',                 # clang-only
@@ -636,11 +661,11 @@ with open(buildfile, 'w') as f:
               description = CXX $out
               depfile = $out.d
             rule link.{mode}
-              command = $cxx  $cxxflags_{mode} $ldflags -o $out $in $libs $libs_{mode}
+              command = $cxx  $cxxflags_{mode} $ldflags -o $out $in $libs $libs_{mode} $extralibs
               description = LINK $out
               pool = link_pool
             rule link_stripped.{mode}
-              command = $cxx  $cxxflags_{mode} -s $ldflags -o $out $in $libs $libs_{mode}
+              command = $cxx  $cxxflags_{mode} -s $ldflags -o $out $in $libs $libs_{mode} $extralibs
               description = LINK (stripped) $out
               pool = link_pool
             rule ar.{mode}
@@ -676,14 +701,19 @@ with open(buildfile, 'w') as f:
             elif binary.endswith('.a'):
                 f.write('build $builddir/{}/{}: ar.{} {}\n'.format(mode, binary, mode, str.join(' ', objs)))
             else:
+                extralibs = []
                 if binary.startswith('tests/'):
+                    if binary in boost_tests:
+                        extralibs += [maybe_static(args.staticboost, '-lboost_unit_test_framework')]
                     # Our code's debugging information is huge, and multiplied
                     # by many tests yields ridiculous amounts of disk space.
                     # So we strip the tests by default; The user can very
                     # quickly re-link the test unstripped by adding a "_g"
                     # to the test name, e.g., "ninja build/release/testname_g"
                     f.write('build $builddir/{}/{}: {}.{} {} | {}\n'.format(mode, binary, tests_link_rule, mode, str.join(' ', objs), dpdk_deps))
+                    f.write('  extralibs = {}\n'.format(' '.join(extralibs)))
                     f.write('build $builddir/{}/{}_g: link.{} {} | {}\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps))
+                    f.write('  extralibs = {}\n'.format(' '.join(extralibs)))
                 else:
                     f.write('build $builddir/{}/{}: link.{} {} | {}\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps))
 
