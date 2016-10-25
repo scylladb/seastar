@@ -445,6 +445,7 @@ inline future<> reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_s
 
         return client->respond(msg_id, std::move(data), timeout);
     } else {
+        ret.ignore_ready_future();
         return make_ready_future<>();
     }
 }
