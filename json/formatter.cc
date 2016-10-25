@@ -27,6 +27,23 @@ using namespace std;
 
 namespace json {
 
+sstring formatter::begin(state s) {
+    switch (s) {
+    case state::array: return "[";
+    case state::map: return "{";
+    default: return {};
+    }
+}
+
+sstring formatter::end(state s) {
+    switch (s) {
+    case state::array: return "]";
+    case state::map: return "}";
+    default: return {};
+    }
+}
+
+
 sstring formatter::to_json(const sstring& str) {
     return to_json(str.c_str());
 }

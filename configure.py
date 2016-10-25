@@ -206,6 +206,7 @@ tests = [
     'tests/chunked_fifo_test',
     'tests/scollectd_test',
     'tests/perf/perf_fstream',
+    'tests/json_formatter_test',
     ]
 
 apps = [
@@ -420,6 +421,7 @@ deps = {
     'tests/chunked_fifo_test': ['tests/chunked_fifo_test.cc'] + core,
     'tests/scollectd_test': ['tests/scollectd_test.cc'] + core + boost_test_lib,
     'tests/perf/perf_fstream': ['tests/perf/perf_fstream.cc'] + core,
+    'tests/json_formatter_test': ['tests/json_formatter_test.cc'] + core + http + boost_test_lib,
 }
 
 warnings = [
