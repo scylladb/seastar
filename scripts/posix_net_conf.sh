@@ -110,9 +110,21 @@ get_irqs_one()
     if test -e /sys/class/net/$iface/device/msi_irqs; then
         # Device uses MSI IRQs
         ls -1 /sys/class/net/$iface/device/msi_irqs/
-    else
+    elif test -e /sys/class/net/$iface/device/irq; then
         # Device uses INT#x
         cat /sys/class/net/$iface/device/irq
+    else
+        # No irq file detected
+        local modalias=`cat /sys/class/net/$iface/device/modalias`
+        if [[ "$modalias" =~ ^virtio: ]]; then
+            cd /sys/class/net/$iface/device/driver
+            for i in `ls -d virtio*`; do
+                grep $i /proc/interrupts|awk '{ print $1 }'|sed -e 's/:$//'
+            done
+            cd -
+        elif [[ "$modalias" =~ ^xen:vif ]]; then
+            grep $iface /proc/interrupts|awk '{ print $1 }'|sed -e 's/:$//'
+        fi
     fi
 }
 
