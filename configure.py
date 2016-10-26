@@ -542,6 +542,9 @@ if args.dpdk_target:
 
 args.user_cflags += ' -Ifmt'
 
+if not args.staticboost:
+    args.user_cflags += ' -DBOOST_TEST_DYN_LINK'
+
 warnings = [w
             for w in warnings
             if warning_supported(warning = w, compiler = args.cxx)]

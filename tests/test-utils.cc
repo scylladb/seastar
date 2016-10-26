@@ -20,6 +20,12 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
+// hack: define it even when statically linking, to avoid
+// Boost.Test defining main()
+#ifndef BOOST_TEST_DYN_LINK
+#define BOOST_TEST_DYN_LINK
+#endif
+
 #include <thread>
 
 #include "tests/test-utils.hh"
