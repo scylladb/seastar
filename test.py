@@ -42,6 +42,7 @@ boost_tests = [
     'tls_test',
     'rpc_test',
     'connect_test',
+    'json_formatter_test',
 ]
 
 other_tests = [
