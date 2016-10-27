@@ -286,7 +286,7 @@ reactor::reactor()
     r = timer_create(CLOCK_MONOTONIC, &sev, &_steady_clock_timer);
     assert(r >= 0);
     sev.sigev_signo = task_quota_signal();
-    r = timer_create(CLOCK_THREAD_CPUTIME_ID, &sev, &_task_quota_timer);
+    r = timer_create(CLOCK_MONOTONIC, &sev, &_task_quota_timer);
     assert(r >= 0);
     sigemptyset(&mask);
     sigaddset(&mask, task_quota_signal());
@@ -2384,6 +2384,7 @@ int reactor::run() {
     its.it_interval = its.it_value;
     auto r = timer_settime(_task_quota_timer, 0, &its, nullptr);
     assert(r == 0);
+    auto& task_quote_itimerspec = its;
 
     struct sigaction sa_task_quota = {};
     sa_task_quota.sa_handler = &reactor::clear_task_quota;
@@ -2442,9 +2443,13 @@ int reactor::run() {
             if (go_to_sleep) {
                 _mm_pause();
                 if (idle_end - idle_start > _max_poll_time) {
+                    // Turn off the task quota timer to avoid spurious wakeiups
+                    struct itimerspec zero_itimerspec = {};
+                    timer_settime(_task_quota_timer, 0, &zero_itimerspec, nullptr);
                     sleep();
                     // We may have slept for a while, so freshen idle_end
                     idle_end = steady_clock_type::now();
+                    timer_settime(_task_quota_timer, 0, &task_quote_itimerspec, nullptr);
                 }
             } else {
                 // We previously ran pure_check_for_work(), might not actually have performed
