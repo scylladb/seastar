@@ -156,12 +156,14 @@ class protocol {
         future<> send_buffer(snd_buf buf) {
             auto* b = boost::get<temporary_buffer<char>>(&buf.bufs);
             if (b) {
-                return _write_buf.write(std::move(*b));
+                // zero-copy write() is lacking batching so using copying write(). Refs #213.
+                return _write_buf.write(b->get(), b->size());
             } else {
                 return do_with(std::move(boost::get<std::vector<temporary_buffer<char>>>(buf.bufs)),
                         [this] (std::vector<temporary_buffer<char>>& ar) {
                     return do_for_each(ar.begin(), ar.end(), [this] (auto& b) {
-                        return _write_buf.write(std::move(b));
+                        // zero-copy write() is lacking batching so using copying write(). Refs #213.
+                        return _write_buf.write(b.get(), b.size());
                     });
                 });
             }
@@ -241,7 +243,8 @@ class protocol {
             _connected = true;
         }
         future<> send_negotiation_frame(temporary_buffer<char> buf) {
-            return _write_buf.write(std::move(buf)).then([this] {
+            // zero-copy write() is lacking batching so using copying write(). Refs #213.
+            return _write_buf.write(buf.get(), buf.size()).then([this] {
                 _stats.sent_messages++;
                 return _write_buf.flush();
             });
