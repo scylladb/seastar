@@ -55,11 +55,14 @@ struct unaligned {
     operator T() const { return raw; }
 } __attribute__((packed));
 
+
+// deprecated: violates strict aliasing rules
 template <typename T, typename F>
 inline auto unaligned_cast(F* p) {
     return reinterpret_cast<unaligned<std::remove_pointer_t<T>>*>(p);
 }
 
+// deprecated: violates strict aliasing rules
 template <typename T, typename F>
 inline auto unaligned_cast(const F* p) {
     return reinterpret_cast<const unaligned<std::remove_pointer_t<T>>*>(p);

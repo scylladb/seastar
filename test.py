@@ -29,6 +29,8 @@ boost_tests = [
     'thread_test',
     'memcached/test_ascii_parser',
     'sstring_test',
+    'unwind_test',
+    'defer_test',
     'output_stream_test',
     'httpd',
     'fstream_test',
@@ -40,6 +42,7 @@ boost_tests = [
     'tls_test',
     'rpc_test',
     'connect_test',
+    'json_formatter_test',
 ]
 
 other_tests = [

@@ -23,7 +23,7 @@
 #define CORE_SEMAPHORE_HH_
 
 #include "future.hh"
-#include "circular_buffer.hh"
+#include "chunked_fifo.hh"
 #include <stdexcept>
 #include <exception>
 #include "timer.hh"
@@ -87,7 +87,7 @@ struct semaphore_default_exception_factory {
 template<typename ExceptionFactory>
 class basic_semaphore {
 private:
-    size_t _count;
+    ssize_t _count;
     std::exception_ptr _ex;
     struct entry {
         promise<> pr;
@@ -108,18 +108,30 @@ private:
         }
         entry& operator=(entry&&) noexcept = delete;
     };
-    circular_buffer<entry> _wait_list;
+    chunked_fifo<entry> _wait_list;
+
+    bool has_available_units(size_t nr) const {
+        return _count >= 0 && (static_cast<size_t>(_count) >= nr);
+    }
+    bool may_proceed(size_t nr) const {
+        return has_available_units(nr) && _wait_list.empty();
+    }
 public:
     using duration =  timer<>::duration;
     using clock =  timer<>::clock;
     using time_point =  timer<>::time_point;
 
+    /// Returns the maximum number of units the semaphore counter can hold
+    static constexpr size_t max_counter() {
+        return std::numeric_limits<decltype(_count)>::max();
+    }
+
     /// Constructs a semaphore object with a specific number of units
-    /// in its internal counter.  The default is 1, suitable for use as
+    /// in its internal counter. E.g., starting it at 1 is suitable for use as
     /// an unlocked mutex.
     ///
-    /// \param count number of initial units present in the counter (default 1).
-    basic_semaphore(size_t count = 1) : _count(count) {}
+    /// \param count number of initial units present in the counter.
+    basic_semaphore(size_t count) : _count(count) {}
     /// Waits until at least a specific number of units are available in the
     /// counter, and reduces the counter by that amount of units.
     ///
@@ -131,7 +143,7 @@ public:
     ///         to satisfy the request.  If the semaphore was \ref broken(), may
     ///         contain an exception.
     future<> wait(size_t nr = 1) {
-        if (_count >= nr && _wait_list.empty()) {
+        if (may_proceed(nr)) {
             _count -= nr;
             return make_ready_future<>();
         }
@@ -212,7 +224,7 @@ public:
             return;
         }
         _count += nr;
-        while (!_wait_list.empty() && _wait_list.front().nr <= _count) {
+        while (!_wait_list.empty() && has_available_units(_wait_list.front().nr)) {
             auto& x = _wait_list.front();
             if (x.nr) {
                _count -= x.nr;
@@ -222,6 +234,21 @@ public:
             _wait_list.pop_front();
         }
     }
+
+    /// Consume the specific number of units without blocking
+    //
+    /// Consume the specific number of units now, regardless of how many units are available
+    /// in the counter, and reduces the counter by that amount of units. This operation may
+    /// cause the counter to go negative.
+    ///
+    /// \param nr Amount of units to consume (default 1).
+    void consume(size_t nr = 1) {
+        if (_ex) {
+            return;
+        }
+        _count -= nr;
+    }
+
     /// Attempts to reduce the counter value by a specified number of units.
     ///
     /// If sufficient units are available in the counter, and if no
@@ -233,7 +260,7 @@ public:
     /// \param nr number of units to reduce the counter by (default 1).
     /// \return `true` if the counter had sufficient units, and was decremented.
     bool try_wait(size_t nr = 1) {
-        if (_count >= nr && _wait_list.empty()) {
+        if (may_proceed(nr)) {
             _count -= nr;
             return true;
         } else {
@@ -243,7 +270,7 @@ public:
     /// Returns the number of units available in the counter.
     ///
     /// Does not take into account any waiters.
-    size_t current() const { return _count; }
+    size_t current() const { return std::max(_count, ssize_t(0)); }
 
     /// Returns the current number of waiters
     size_t waiters() const { return _wait_list.size(); }
@@ -284,6 +311,60 @@ basic_semaphore<ExceptionFactory>::broken(std::exception_ptr xp) {
         x.tr.cancel();
         _wait_list.pop_front();
     }
+}
+
+template<typename ExceptionFactory = semaphore_default_exception_factory>
+class semaphore_units {
+    basic_semaphore<ExceptionFactory>& _sem;
+    size_t _n;
+public:
+    semaphore_units(basic_semaphore<ExceptionFactory>& sem, size_t n) noexcept : _sem(sem), _n(n) {}
+    semaphore_units(semaphore_units&& o) noexcept : _sem(o._sem), _n(o._n) {
+        o._n = 0;
+    }
+    semaphore_units& operator=(semaphore_units&& o) noexcept {
+        if (this != &o) {
+            this->~semaphore_units();
+            new (this) semaphore_units(std::move(o));
+        }
+    }
+    semaphore_units(const semaphore_units&) = delete;
+    ~semaphore_units() noexcept {
+        if (_n) {
+            _sem.signal(_n);
+        }
+    }
+    /// Releases ownership of the units. The semaphore will not be signalled.
+    ///
+    /// \return the number of units held
+    size_t release() {
+        return std::exchange(_n, 0);
+    }
+};
+
+/// \brief Take units from semaphore temporarily
+///
+/// Takes units from the semaphore and returns them when the \ref semaphore_units object goes out of scope.
+/// This provides a safe way to temporarily take units from a semaphore and ensure
+/// that they are eventually returned under all circumstances (exceptions, premature scope exits, etc).
+///
+/// Unlike with_semaphore(), the scope of unit holding is not limited to the scope of a single async lambda.
+///
+/// \param sem The semaphore to take units from
+/// \param units  Number of units to take
+/// \return a \ref future<> holding \ref semaphore_units object. When the object goes out of scope
+///         the units are returned to the semaphore.
+///
+/// \note The caller must guarantee that \c sem is valid as long as
+///      \ref seaphore_units object is alive.
+///
+/// \related semaphore
+template<typename ExceptionFactory>
+future<semaphore_units<ExceptionFactory>>
+get_units(basic_semaphore<ExceptionFactory>& sem, size_t units) {
+    return sem.wait(units).then([&sem, units] {
+        return semaphore_units<ExceptionFactory>{ sem, units };
+    });
 }
 
 /// \brief Runs a function protected by a semaphore

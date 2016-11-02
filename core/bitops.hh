@@ -22,6 +22,8 @@
 #ifndef BITOPS_HH_
 #define BITOPS_HH_
 
+#include <limits>
+
 inline
 constexpr unsigned count_leading_zeros(unsigned x) {
     return __builtin_clz(x);
@@ -50,6 +52,18 @@ constexpr unsigned count_trailing_zeros(unsigned long x) {
 inline
 constexpr unsigned count_trailing_zeros(unsigned long long x) {
     return __builtin_ctzll(x);
+}
+
+template<typename T>
+//requires stdx::is_integral_v<T>
+inline constexpr unsigned log2ceil(T n) {
+    return std::numeric_limits<T>::digits - count_leading_zeros(n - 1);
+}
+
+template<typename T>
+//requires stdx::is_integral_v<T>
+inline constexpr unsigned log2floor(T n) {
+    return std::numeric_limits<T>::digits - count_leading_zeros(n) - 1;
 }
 
 #endif /* BITOPS_HH_ */

@@ -68,7 +68,7 @@ test_runner::start(int ac, char** av) {
 
 void
 test_runner::run_sync(std::function<future<>()> task) {
-    exchanger<std::experimental::optional<std::exception_ptr>> e;
+    exchanger<std::exception_ptr> e;
     _task.give([task = std::move(task), &e] {
         try {
             return task().then_wrapped([&e](auto&& f) {
@@ -76,17 +76,17 @@ test_runner::run_sync(std::function<future<>()> task) {
                     f.get();
                     e.give({});
                 } catch (...) {
-                    e.give({std::current_exception()});
+                    e.give(std::current_exception());
                 }
             });
         } catch (...) {
-            e.give({std::current_exception()});
+            e.give(std::current_exception());
             return make_ready_future<>();
         }
     });
     auto maybe_exception = e.take();
     if (maybe_exception) {
-        std::rethrow_exception(*maybe_exception);
+        std::rethrow_exception(maybe_exception);
     }
 }
 

@@ -28,12 +28,14 @@
 
 namespace net {
 
-void tcp_option::parse(uint8_t* beg, uint8_t* end) {
+void tcp_option::parse(uint8_t* beg1, uint8_t* end1) {
+    const char* beg = reinterpret_cast<const char*>(beg1);
+    const char* end = reinterpret_cast<const char*>(end1);
     while (beg < end) {
         auto kind = option_kind(*beg);
         if (kind != option_kind::nop && kind != option_kind::eol) {
             // Make sure there is enough room for this option
-            auto len = *(beg + 1);
+            auto len = uint8_t(beg[1]);
             if (beg + len > end) {
                 return;
             }
@@ -41,12 +43,12 @@ void tcp_option::parse(uint8_t* beg, uint8_t* end) {
         switch (kind) {
         case option_kind::mss:
             _mss_received = true;
-            _remote_mss = ntoh(reinterpret_cast<mss*>(beg)->mss);
+            _remote_mss = mss::read(beg).mss;
             beg += option_len::mss;
             break;
         case option_kind::win_scale:
             _win_scale_received = true;
-            _remote_win_scale = reinterpret_cast<win_scale*>(beg)->shift;
+            _remote_win_scale = win_scale::read(beg).shift;
             // We can turn on win_scale option, 7 is Linux's default win scale size
             _local_win_scale = 7;
             beg += option_len::win_scale;
@@ -62,7 +64,7 @@ void tcp_option::parse(uint8_t* beg, uint8_t* end) {
             return;
         default:
             // Ignore options we do not understand
-            auto len = *(beg + 1);
+            uint8_t len = *(beg + 1);
             beg += len;
             // Prevent infinite loop
             if (len == 0) {
@@ -73,37 +75,40 @@ void tcp_option::parse(uint8_t* beg, uint8_t* end) {
     }
 }
 
-uint8_t tcp_option::fill(tcp_hdr* th, uint8_t options_size) {
-    auto hdr = reinterpret_cast<uint8_t*>(th);
-    auto off = hdr + sizeof(tcp_hdr);
+uint8_t tcp_option::fill(void* h, const tcp_hdr* th, uint8_t options_size) {
+    auto hdr = reinterpret_cast<char*>(h);
+    auto off = hdr + tcp_hdr::len;
     uint8_t size = 0;
     bool syn_on = th->f_syn;
     bool ack_on = th->f_ack;
 
     if (syn_on) {
         if (_mss_received || !ack_on) {
-            auto mss = new (off) tcp_option::mss;
-            mss->mss = _local_mss;
-            off += mss->len;
-            size += mss->len;
-            *mss = hton(*mss);
+            auto mss = tcp_option::mss();
+            mss.mss = _local_mss;
+            mss.write(off);
+            off += mss.len;
+            size += mss.len;
         }
         if (_win_scale_received || !ack_on) {
-            auto win_scale = new (off) tcp_option::win_scale;
-            win_scale->shift = _local_win_scale;
-            off += win_scale->len;
-            size += win_scale->len;
+            auto win_scale = tcp_option::win_scale();
+            win_scale.shift = _local_win_scale;
+            win_scale.write(off);
+            off += win_scale.len;
+            size += win_scale.len;
         }
     }
     if (size > 0) {
         // Insert NOP option
         auto size_max = align_up(uint8_t(size + 1), tcp_option::align);
         while (size < size_max - uint8_t(option_len::eol)) {
-            new (off) tcp_option::nop;
+            auto nop = tcp_option::nop();
+            nop.write(off);
             off += option_len::nop;
             size += option_len::nop;
         }
-        new (off) tcp_option::eol;
+        auto eol = tcp_option::eol();
+        eol.write(off);
         size += option_len::eol;
     }
     assert(size == options_size);

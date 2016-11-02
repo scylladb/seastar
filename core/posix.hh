@@ -41,7 +41,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <memory>
-#include "net/api.hh"
+#include "net/socket_defs.hh"
 
 inline void throw_system_error_on(bool condition, const char* what_arg = "");
 
@@ -119,7 +119,9 @@ public:
     }
     void shutdown(int how) {
         auto ret = ::shutdown(_fd, how);
-        throw_system_error_on(ret == -1, "shutdown");
+        if (ret == -1 && errno != ENOTCONN) {
+            throw_system_error_on(ret == -1, "shutdown");
+        }
     }
     void truncate(size_t size) {
         auto ret = ::ftruncate(_fd, size);
@@ -360,6 +362,14 @@ void throw_kernel_error(T r) {
     }
 }
 
+template <typename T>
+inline
+void throw_pthread_error(T r) {
+    if (r != 0) {
+        throw std::system_error(r, std::system_category());
+    }
+}
+
 inline
 sigset_t make_sigset_mask(int signo) {
     sigset_t set;
@@ -382,6 +392,12 @@ sigset_t make_empty_sigset_mask() {
     return set;
 }
 
-void pin_this_thread(unsigned cpu_id);
-
+inline
+void pin_this_thread(unsigned cpu_id) {
+    cpu_set_t cs;
+    CPU_ZERO(&cs);
+    CPU_SET(cpu_id, &cs);
+    auto r = pthread_setaffinity_np(pthread_self(), sizeof(cs), &cs);
+    assert(r == 0);
+}
 #endif /* FILE_DESC_HH_ */

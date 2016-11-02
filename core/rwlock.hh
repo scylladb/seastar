@@ -51,7 +51,7 @@ struct rwlock_for_write {
 /// Acquiring the write lock will effectively cause all readers not to be executed
 /// until the write part is done.
 class rwlock : private rwlock_for_read, rwlock_for_write {
-    static const size_t max_ops = std::numeric_limits<size_t>::max();
+    static constexpr size_t max_ops = semaphore::max_counter();
 
     semaphore _sem;
 public:

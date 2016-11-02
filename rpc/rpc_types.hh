@@ -27,6 +27,9 @@
 #include <boost/any.hpp>
 #include <boost/type.hpp>
 #include <experimental/optional>
+#include <boost/variant.hpp>
+#include "core/timer.hh"
+#include "core/simple-stream.hh"
 
 namespace rpc {
 
@@ -111,6 +114,14 @@ public:
      using std::experimental::optional<T>::optional;
 };
 
+class opt_time_point : public std::experimental::optional<steady_clock_type::time_point> {
+public:
+     using std::experimental::optional<steady_clock_type::time_point>::optional;
+     opt_time_point(std::experimental::optional<steady_clock_type::time_point> time_point) {
+         static_cast<std::experimental::optional<steady_clock_type::time_point>&>(*this) = time_point;
+     }
+};
+
 struct cancellable {
     std::function<void()> cancel_send;
     std::function<void()> cancel_wait;
@@ -120,10 +131,19 @@ struct cancellable {
     cancellable(cancellable&& x) : cancel_send(std::move(x.cancel_send)), cancel_wait(std::move(x.cancel_wait)), send_back_pointer(x.send_back_pointer), wait_back_pointer(x.wait_back_pointer) {
         if (send_back_pointer) {
             *send_back_pointer = this;
+            x.send_back_pointer = nullptr;
         }
         if (wait_back_pointer) {
             *wait_back_pointer = this;
+            x.wait_back_pointer = nullptr;
         }
+    }
+    cancellable& operator=(cancellable&& x) {
+        if (&x != this) {
+            this->~cancellable();
+            new (this) cancellable(std::move(x));
+        }
+        return *this;
     }
     void cancel() {
         if (cancel_send) {
@@ -137,4 +157,53 @@ struct cancellable {
         cancel();
     }
 };
+
+struct rcv_buf {
+    uint32_t size = 0;
+    boost::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
+    using iterator = std::vector<temporary_buffer<char>>::iterator;
+    rcv_buf() {}
+    explicit rcv_buf(size_t size_) : size(size_) {}
+};
+
+struct snd_buf {
+    static constexpr size_t chunk_size = 128*1024;
+    uint32_t size = 0;
+    boost::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
+    using iterator = std::vector<temporary_buffer<char>>::iterator;
+    snd_buf() {}
+    explicit snd_buf(size_t size_);
+    explicit snd_buf(temporary_buffer<char> b) : size(b.size()), bufs(std::move(b)) {};
+    temporary_buffer<char>& front();
+};
+
+static inline seastar::memory_input_stream<rcv_buf::iterator> make_deserializer_stream(rcv_buf& input) {
+    auto* b = boost::get<temporary_buffer<char>>(&input.bufs);
+    if (b) {
+        return seastar::memory_input_stream<rcv_buf::iterator>(seastar::memory_input_stream<rcv_buf::iterator>::simple(b->begin(), b->size()));
+    } else {
+        auto& ar = boost::get<std::vector<temporary_buffer<char>>>(input.bufs);
+        return seastar::memory_input_stream<rcv_buf::iterator>(seastar::memory_input_stream<rcv_buf::iterator>::fragmented(ar.begin(), input.size));
+    }
+}
+
+class compressor {
+public:
+    virtual ~compressor() {}
+    // compress data and leave head_space bytes at the beginning of returned buffer
+    virtual snd_buf compress(size_t head_space, snd_buf data) = 0;
+    // decompress data
+    virtual rcv_buf decompress(rcv_buf data) = 0;
+
+    // factory to create compressor for a connection
+    class factory {
+    public:
+        virtual ~factory() {}
+        // return feature string that will be sent as part of protocol negotiation
+        virtual const sstring& supported() const = 0;
+        // negotiate compress algorithm
+        virtual std::unique_ptr<compressor> negotiate(sstring feature, bool is_server) const = 0;
+    };
+};
+
 } // namespace rpc

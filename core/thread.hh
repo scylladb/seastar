@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "thread_impl.hh"
 #include "future.hh"
 #include "do_with.hh"
 #include "future-util.hh"
@@ -78,9 +79,6 @@ class thread;
 class thread_attributes;
 class thread_scheduling_group;
 
-/// Clock used for scheduling threads
-using thread_clock = steady_clock_type;
-
 /// Class that holds attributes controling the behavior of a thread.
 class thread_attributes {
 public:
@@ -89,36 +87,19 @@ public:
 
 
 /// \cond internal
-class thread_context;
-
-namespace thread_impl {
-
-thread_context* get();
-void switch_in(thread_context* to);
-void switch_out(thread_context* from);
-void init();
-
-}
-
-struct jmp_buf_link {
-#ifdef ASAN_ENABLED
-    ucontext_t context;
-#else
-    jmp_buf jmpbuf;
-#endif
-    jmp_buf_link* link;
-    thread_context* thread;
-};
-
 extern thread_local jmp_buf_link g_unthreaded_context;
 
 // Internal class holding thread state.  We can't hold this in
 // \c thread itself because \c thread is movable, and we want pointers
 // to this state to be captured.
 class thread_context {
+    struct stack_deleter {
+        void operator()(char *ptr) const noexcept;
+    };
+    using stack_holder = std::unique_ptr<char[], stack_deleter>;
     thread_attributes _attr;
     static constexpr size_t _stack_size = 128*1024;
-    std::unique_ptr<char[]> _stack{make_stack()};
+    stack_holder _stack{make_stack()};
     std::function<void ()> _func;
     jmp_buf_link _context;
     promise<> _done;
@@ -126,20 +107,28 @@ class thread_context {
     timer<> _sched_timer{[this] { reschedule(); }};
     stdx::optional<promise<>> _sched_promise;
 
-    bi::list_member_hook<> _link;
-    using thread_list = bi::list<thread_context,
+    bi::list_member_hook<> _preempted_link;
+    using preempted_thread_list = bi::list<thread_context,
         bi::member_hook<thread_context, bi::list_member_hook<>,
-        &thread_context::_link>,
+        &thread_context::_preempted_link>,
         bi::constant_time_size<false>>;
 
-    static thread_local thread_list _preempted_threads;
+    bi::list_member_hook<> _all_link;
+    using all_thread_list = bi::list<thread_context,
+        bi::member_hook<thread_context, bi::list_member_hook<>,
+        &thread_context::_all_link>,
+        bi::constant_time_size<false>>;
+
+    static thread_local preempted_thread_list _preempted_threads;
+    static thread_local all_thread_list _all_threads;
 private:
     static void s_main(unsigned int lo, unsigned int hi);
     void setup();
     void main();
-    static std::unique_ptr<char[]> make_stack();
+    static stack_holder make_stack();
 public:
     thread_context(thread_attributes attr, std::function<void ()> func);
+    ~thread_context();
     void switch_in();
     void switch_out();
     bool should_yield() const;

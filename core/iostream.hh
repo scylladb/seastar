@@ -45,6 +45,7 @@ class data_source_impl {
 public:
     virtual ~data_source_impl() {}
     virtual future<temporary_buffer<char>> get() = 0;
+    virtual future<temporary_buffer<char>> skip(uint64_t n);
     virtual future<> close() { return make_ready_future<>(); }
 };
 
@@ -58,6 +59,7 @@ public:
     data_source(data_source&& x) = default;
     data_source& operator=(data_source&& x) = default;
     future<temporary_buffer<char>> get() { return _dsi->get(); }
+    future<temporary_buffer<char>> skip(uint64_t n) { return _dsi->skip(n); }
     future<> close() { return _dsi->close(); }
 };
 
@@ -146,6 +148,9 @@ public:
     /// Returns some data from the stream, or an empty buffer on end of
     /// stream.
     future<tmp_buf> read();
+    /// Returns up to n bytes from the stream, or an empty buffer on end of
+    /// stream.
+    future<tmp_buf> read_up_to(size_t n);
     /// Detaches the \c input_stream from the underlying data source.
     ///
     /// Waits for any background operations (for example, read-ahead) to
@@ -158,6 +163,8 @@ public:
     future<> close() {
         return _fd.close();
     }
+    /// Ignores n next bytes from the stream.
+    future<> skip(uint64_t n);
 private:
     future<temporary_buffer<CharType>> read_exactly_part(size_t n, tmp_buf buf, size_t completed);
 };

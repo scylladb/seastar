@@ -30,6 +30,8 @@
 namespace seastar {
 log_registry& logger_registry();
 
+thread_local uint64_t logging_failures = 0;
+
 const std::map<log_level, sstring> log_level_names = {
         { log_level::trace, "trace" },
         { log_level::debug, "debug" },
@@ -106,7 +108,11 @@ logger::really_do_log(log_level level, const char* fmt, stringer** s, size_t n) 
         out << tmp << sprint(",%03d", residual_millis);
         syslog_offset += 24;
     }
-    out << " [shard " << engine().cpu_id() << "] " << _name << " - ";
+    if (local_engine) {
+        out << " [shard " << engine().cpu_id() << "] " << _name << " - ";
+    } else {
+        out << " " << _name << " - ";
+    }
     const char* p = fmt;
     while (*p != '\0') {
         if (*p == '{' && *(p+1) == '}') {
@@ -153,7 +159,9 @@ void logger::failed_to_log(std::exception_ptr ex)
 {
     try {
         do_log(log_level::error, "failed to log message: {}", ex);
-    } catch (...) { }
+    } catch (...) {
+        ++logging_failures;
+    }
 }
 
 void

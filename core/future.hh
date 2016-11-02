@@ -24,12 +24,15 @@
 
 #include "apply.hh"
 #include "task.hh"
+#include "preempt.hh"
+#include "thread_impl.hh"
 #include <stdexcept>
 #include <atomic>
 #include <memory>
 #include <type_traits>
 #include <assert.h>
 #include <cstdlib>
+#include "function_traits.hh"
 
 
 /// \defgroup future-module Futures and Promises
@@ -60,21 +63,6 @@
 ///
 /// \brief
 /// These utilities are provided to help perform operations on futures.
-
-
-namespace seastar {
-
-class thread_context;
-
-namespace thread_impl {
-
-thread_context* get();
-void switch_in(thread_context* to);
-void switch_out(thread_context* from);
-
-}
-
-}
 
 
 /// \addtogroup future-module
@@ -273,10 +261,10 @@ struct future_state {
     void forward_to(promise<T...>& pr) noexcept {
         assert(_state != state::future);
         if (_state == state::exception) {
-            pr.set_exception(std::move(_u.ex));
+            pr.set_urgent_exception(std::move(_u.ex));
             _u.ex.~exception_ptr();
         } else {
-            pr.set_value(std::move(_u.value));
+            pr.set_urgent_value(std::move(_u.value));
             _u.value.~tuple();
         }
         _state = state::invalid;
@@ -412,6 +400,7 @@ struct continuation final : task {
 ///
 template <typename... T>
 class promise {
+    enum class urgent { no, yes };
     future<T...>* _future = nullptr;
     future_state<T...> _local_state;
     future_state<T...>* _state;
@@ -460,9 +449,7 @@ public:
     /// Copies the tuple argument and makes it available to the associated
     /// future.  May be called either before or after \c get_future().
     void set_value(const std::tuple<T...>& result) noexcept(copy_noexcept) {
-        assert(_state);
-        _state->set(result);
-        make_ready();
+        do_set_value<urgent::no>(result);
     }
 
     /// \brief Sets the promises value (as tuple; by moving)
@@ -470,9 +457,7 @@ public:
     /// Moves the tuple argument and makes it available to the associated
     /// future.  May be called either before or after \c get_future().
     void set_value(std::tuple<T...>&& result) noexcept {
-        assert(_state);
-        _state->set(std::move(result));
-        make_ready();
+        do_set_value<urgent::no>(std::move(result));
     }
 
     /// \brief Sets the promises value (variadic)
@@ -483,7 +468,7 @@ public:
     void set_value(A&&... a) noexcept {
         assert(_state);
         _state->set(std::forward<A>(a)...);
-        make_ready();
+        make_ready<urgent::no>();
     }
 
     /// \brief Marks the promise as failed
@@ -491,9 +476,7 @@ public:
     /// Forwards the exception argument to the future and makes it
     /// available.  May be called either before or after \c get_future().
     void set_exception(std::exception_ptr ex) noexcept {
-        assert(_state);
-        _state->set_exception(std::move(ex));
-        make_ready();
+        do_set_exception<urgent::no>(std::move(ex));
     }
 
     /// \brief Marks the promise as failed
@@ -505,12 +488,39 @@ public:
         set_exception(make_exception_ptr(std::forward<Exception>(e)));
     }
 private:
+    template<urgent Urgent>
+    void do_set_value(std::tuple<T...> result) noexcept {
+        assert(_state);
+        _state->set(std::move(result));
+        make_ready<Urgent>();
+    }
+
+    void set_urgent_value(const std::tuple<T...>& result) noexcept(copy_noexcept) {
+        do_set_value<urgent::yes>(result);
+    }
+
+    void set_urgent_value(std::tuple<T...>&& result) noexcept {
+        do_set_value<urgent::yes>(std::move(result));
+    }
+
+    template<urgent Urgent>
+    void do_set_exception(std::exception_ptr ex) noexcept {
+        assert(_state);
+        _state->set_exception(std::move(ex));
+        make_ready<Urgent>();
+    }
+
+    void set_urgent_exception(std::exception_ptr ex) noexcept {
+        do_set_exception<urgent::yes>(std::move(ex));
+    }
+private:
     template <typename Func>
     void schedule(Func&& func) {
         auto tws = std::make_unique<continuation<Func, T...>>(std::move(func));
         _state = &tws->_state;
         _task = std::move(tws);
     }
+    template<urgent Urgent>
     __attribute__((always_inline))
     void make_ready() noexcept;
     void migrated() noexcept;
@@ -518,6 +528,8 @@ private:
 
     template <typename... U>
     friend class future;
+
+    friend class future_state<T...>;
 };
 
 /// \brief Specialization of \c promise<void>
@@ -548,18 +560,6 @@ template <typename... T> struct is_future<future<T...>> : std::true_type {};
 struct ready_future_marker {};
 struct ready_future_from_tuple_marker {};
 struct exception_future_marker {};
-
-extern __thread bool g_need_preempt;
-
-inline bool need_preempt() {
-#ifndef DEBUG
-    // prevent compiler from eliminating loads in a loop
-    std::atomic_signal_fence(std::memory_order_seq_cst);
-    return g_need_preempt;
-#else
-    return true;
-#endif
-}
 
 /// \endcond
 
@@ -785,6 +785,8 @@ public:
     std::tuple<T...> get() {
         if (!state()->available()) {
             wait();
+        } else if (seastar::thread_impl::get() && seastar::thread_impl::should_yield()) {
+            seastar::thread_impl::yield();
         }
         return get_available_state().get();
     }
@@ -1052,6 +1054,32 @@ public:
         });
     }
 
+    /// \brief Handle the exception of a certain type carried by this future.
+    ///
+    /// When the future resolves, if it resolves with an exception of a type that
+    /// provided callback receives as a parameter, handle_exception(func) replaces
+    /// the exception with the value returned by func. The exception is passed (by
+    /// reference) as a parameter to func; func may return the replacement value
+    /// immediately (T or std::tuple<T...>) or in the future (future<T...>)
+    /// and is even allowed to return (or throw) its own exception.
+    /// If exception, that future holds, does not match func parameter type
+    /// it is propagated as is.
+    template <typename Func>
+    future<T...> handle_exception_type(Func&& func) noexcept {
+        using trait = function_traits<Func>;
+        static_assert(trait::arity == 1, "func can take only one parameter");
+        using ex_type = typename trait::template arg<0>::type;
+        using func_ret = typename trait::return_type;
+        return then_wrapped([func = std::forward<Func>(func)]
+                             (auto&& fut) -> future<T...> {
+            try {
+                return make_ready_future<T...>(fut.get());
+            } catch(ex_type& ex) {
+                return futurize<func_ret>::apply(func, ex);
+            }
+        });
+    }
+
     /// \brief Ignore any result hold by this future
     ///
     /// Ignore any result (value or exception) hold by this future.
@@ -1077,10 +1105,10 @@ inline
 void future_state<>::forward_to(promise<>& pr) noexcept {
     assert(_u.st != state::future && _u.st != state::invalid);
     if (_u.st >= state::exception_min) {
-        pr.set_exception(std::move(_u.ex));
+        pr.set_urgent_exception(std::move(_u.ex));
         _u.ex.~exception_ptr();
     } else {
-        pr.set_value(std::tuple<>());
+        pr.set_urgent_value(std::tuple<>());
     }
     _u.st = state::invalid;
 }
@@ -1094,11 +1122,16 @@ promise<T...>::get_future() noexcept {
 }
 
 template <typename... T>
+template<typename promise<T...>::urgent Urgent>
 inline
 void promise<T...>::make_ready() noexcept {
     if (_task) {
         _state = nullptr;
-        ::schedule(std::move(_task));
+        if (Urgent == urgent::yes && !need_preempt()) {
+            ::schedule_urgent(std::move(_task));
+        } else {
+            ::schedule(std::move(_task));
+        }
     }
 }
 
@@ -1294,6 +1327,12 @@ inline
 future<>
 futurize<void>::from_tuple(const std::tuple<>& value) {
     return make_ready_future<>();
+}
+
+template<typename Func, typename... Args>
+auto futurize_apply(Func&& func, Args&&... args) {
+    using futurator = futurize<std::result_of_t<Func(Args&&...)>>;
+    return futurator::apply(std::forward<Func>(func), std::forward<Args>(args)...);
 }
 
 /// \endcond

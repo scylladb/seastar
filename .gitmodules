@@ -1,3 +1,6 @@
 [submodule "dpdk"]
 	path = dpdk
 	url = ../dpdk
+[submodule "fmt"]
+	path = fmt
+	url = ../fmt

@@ -25,6 +25,7 @@
 #include "semaphore.hh"
 #include "shared_ptr.hh"
 #include "print.hh"
+#include "circular_buffer.hh"
 #include <queue>
 #include <type_traits>
 #include <experimental/optional>

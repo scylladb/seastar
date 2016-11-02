@@ -21,7 +21,7 @@ The negotiation frame data is itself composed of multiple records, one for each 
          uint8_t data[len];
      }
 
-A `negotiation_frame_feature_record` signals that an optional feature is present in the client, and can contain additional feature-specific data.  The featue number will be omitted in a server response if an optional feature is declined by the server.
+A `negotiation_frame_feature_record` signals that an optional feature is present in the client, and can contain additional feature-specific data.  The feature number will be omitted in a server response if an optional feature is declined by the server.
     
 Actual negotiation looks like this:
     
@@ -34,13 +34,39 @@ Actual negotiation looks like this:
     recv frame
     check magic (disconnect if magic is not SSTARRPC)
 
+### Supported features
+
+#### Compression
+    feature_number:  0
+    data          :  opaque data that is passed to a compressor factory
+                     provided by an application. Compressor factory is
+                     responsible for negotiation of compression algorithm.
+
+    If compression is negotiated request and response frames are encapsulated in a compressed frame.
+
+#### Timeout propagation
+    feature_number:  1
+    data          :  none
+
+    If timeout propagation is negotiated request frame has additional 8 bytes that hold timeout value
+    for a request in milliseconds. Zero value means that timeout value was not specified.
+    If timeout is specified and server cannot handle the request in specified time frame it my choose
+    to not send the reply back (sending it back will not be an error either).
+
+##### Compressed frame format
+    uint32_t len
+    uint8_t compressed_data[len]
+
+    after compressed_data is uncompressed it becomes regular request or response frame 
+
 ## Request frame format
+    uint64_t timeout_in_ms - only present if timeout propagation is negotiated
     uint64_t verb_type
     int64_t msg_id
     uint32_t len
     uint8_t data[len]
 
-msg_id has to be posotive and may never be reused.
+msg_id has to be positive and may never be reused.
 
 ## Response frame format
     int64_t msg_id
@@ -74,10 +100,12 @@ This exception is sent as a response to a request with unknown verb_id, the verb
 
 ## More formal protocol description
 
-	request_stream = negotiation_frame, { request }
+	request_stream = negotiation_frame, { request | compressed_request }
 	request = verb_type, msg_id, len, { byte }*len
-	response_stream = negotiation_frame, { response }
+	compressed_request = len, { bytes }*len
+	response_stream = negotiation_frame, { response | compressed_response }
 	response = reply | exception
+	compressed_response = len, { byte }*len
 	reply = msg_id, len, { byte }*len
 	exception = exception_header, serialized_exception
 	exception_header = -msg_id, len

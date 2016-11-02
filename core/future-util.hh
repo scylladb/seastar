@@ -553,8 +553,13 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
     using futurator = futurize<decltype(mapper(*begin))>;
     while (begin != end) {
         ret = futurator::apply(mapper, *begin++).then_wrapped([ret = std::move(ret), r_ptr] (auto f) mutable {
-            return ret.then([f = std::move(f), r_ptr] () mutable {
-                return apply(*r_ptr, std::move(f.get()));
+            return ret.then_wrapped([f = std::move(f), r_ptr] (auto rf) mutable {
+                if (rf.failed()) {
+                    f.ignore_ready_future();
+                    return std::move(rf);
+                } else {
+                    return futurize<void>::apply(*r_ptr, std::move(f.get()));
+                }
             });
         });
     }

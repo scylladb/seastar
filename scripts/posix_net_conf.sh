@@ -1,6 +1,6 @@
 #!/bin/bash
 # !
-# !  Usage: posix_net_conf.sh [iface name, eth0 by default] [-mq|-sq] [-h|--help]
+# !  Usage: posix_net_conf.sh [iface name, eth0 by default] [-mq|-sq] [--cpu-mask] [-h|--help]
 # !
 # !  Ban NIC IRQs from being moved by irqbalance.
 # !
@@ -16,6 +16,8 @@
 # !     - Otherwise use an '-sq' mode.
 # !
 # !  Enable XPS, increase the default values of somaxconn and tcp_max_syn_backlog.
+# !
+# !  --cpu-mask - Print out RPS CPU assignments. On MQ NIC, just print all cpus.
 # !
 # !  -h|--help - print this help information
 # !
@@ -105,12 +107,24 @@ get_irqs_one()
 {
     local iface=$1
 
-    if [[ `ls -1 /sys/class/net/$iface/device/msi_irqs/ | wc -l` -gt 0 ]]; then
+    if test -e /sys/class/net/$iface/device/msi_irqs; then
         # Device uses MSI IRQs
         ls -1 /sys/class/net/$iface/device/msi_irqs/
-    else
+    elif test -e /sys/class/net/$iface/device/irq; then
         # Device uses INT#x
         cat /sys/class/net/$iface/device/irq
+    else
+        # No irq file detected
+        local modalias=`cat /sys/class/net/$iface/device/modalias`
+        if [[ "$modalias" =~ ^virtio: ]]; then
+            cd /sys/class/net/$iface/device/driver
+            for i in `ls -d virtio*`; do
+                grep $i /proc/interrupts|awk '{ print $1 }'|sed -e 's/:$//'
+            done
+            cd -
+        elif [[ "$modalias" =~ ^xen:vif ]]; then
+            grep $iface /proc/interrupts|awk '{ print $1 }'|sed -e 's/:$//'
+        fi
     fi
 }
 
@@ -223,6 +237,9 @@ parse_args()
             "-sq")
                 MQ_MODE="sq"
                 ;;
+            "--cpu-mask")
+                CPU_MASK=1
+                ;;
             "-h"|"--help")
                 usage
                 exit 0
@@ -298,10 +315,61 @@ setup_bonding_iface()
     done
 }
 
+gen_cpumask_one_hw_iface()
+{
+    local iface=$1
+    local mq_mode=$2
+
+    [[ -z $mq_mode ]] && mq_mode=`get_def_mq_mode $iface`
+
+    # bind all NIC IRQs to CPU0
+    if [[ "$mq_mode" == "sq" ]]; then
+        hwloc-distrib --restrict $(hwloc-calc all ~core:0) 1 
+    else # "$mq_mode == "mq"
+        hwloc-calc all
+    fi
+}
+
+gen_cpumask_bonding_iface()
+{
+    local bond_iface=$1
+    local mq_mode=$2
+    local iface
+    local found_mq=
+
+    for iface in `cat /sys/class/net/$bond_iface/bonding/slaves`
+    do
+        if dev_is_hw_iface $iface; then
+            [[ -z $mq_mode ]] && mq_mode=`get_def_mq_mode $iface`
+            if [[ "$mq_mode" == "mq" ]]; then
+                found_mq=1
+            fi
+        fi
+    done
+    if found_mq; then
+        hwloc-calc all
+    else
+        hwloc-distrib --restrict $(hwloc-calc all ~core:0) 1 
+    fi 
+}
+
 IFACE="eth0"
 MQ_MODE=""
+CPU_MASK=
 
 parse_args $@
+
+if [[ $CPU_MASK ]]; then
+    if dev_is_hw_iface $IFACE; then
+        gen_cpumask_one_hw_iface $IFACE $MQ_MODE
+    elif dev_is_bond_iface $IFACE; then
+        gen_cpumask_bonding_iface $IFACE $MQ_MODE
+    else
+        echo "Not supported virtual device: $IFACE"
+        exit 1
+    fi
+    exit 0
+fi
 
 # Currently we support of HW or bonding interfaces
 if dev_is_hw_iface $IFACE; then

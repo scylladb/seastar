@@ -52,6 +52,10 @@ typedef std::function<json::json_return_type(const_req req)> json_request_functi
  */
 typedef std::function<
         future<json::json_return_type>(std::unique_ptr<request> req)> future_json_function;
+
+typedef std::function<
+        future<std::unique_ptr<reply>>(std::unique_ptr<request> req,
+                std::unique_ptr<reply> rep)> future_handler_function;
 /**
  * The function handler get a lambda expression in the constructor.
  * it will call that expression to get the result
@@ -67,6 +71,10 @@ public:
                         rep->_content += f_handle(*req.get(), *rep.get());
                         return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
                     }), _type(type) {
+    }
+
+    function_handler(const future_handler_function& f_handle, const sstring& type)
+        : _f_handle(f_handle), _type(type) {
     }
 
     function_handler(const request_function & _handle, const sstring& type)
@@ -107,9 +115,7 @@ public:
     }
 
 protected:
-    std::function<
-            future<std::unique_ptr<reply>>(std::unique_ptr<request> req,
-                    std::unique_ptr<reply> rep)> _f_handle;
+    future_handler_function _f_handle;
     sstring _type;
 };
 

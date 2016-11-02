@@ -36,16 +36,37 @@ thread_context::thread_context(thread_attributes attr, std::function<void ()> fu
         : _attr(std::move(attr))
         , _func(std::move(func)) {
     setup();
+    _all_threads.push_front(*this);
 }
 
-std::unique_ptr<char[]>
+thread_context::~thread_context() {
+#ifdef SEASTAR_THREAD_STACK_GUARDS
+    auto mp_result = mprotect(_stack.get(), getpagesize(), PROT_READ | PROT_WRITE);
+    assert(mp_result == 0);
+#endif
+    _all_threads.erase(_all_threads.iterator_to(*this));
+}
+
+thread_context::stack_holder
 thread_context::make_stack() {
-    auto stack = std::make_unique<char[]>(_stack_size);
+#ifdef SEASTAR_THREAD_STACK_GUARDS
+    auto stack = stack_holder(new (with_alignment(getpagesize())) char[_stack_size]);
+#else
+    auto stack = stack_holder(new char[_stack_size]);
+#endif
 #ifdef ASAN_ENABLED
     // Avoid ASAN false positive due to garbage on stack
     std::fill_n(stack.get(), _stack_size, 0);
 #endif
     return stack;
+}
+
+void thread_context::stack_deleter::operator()(char* ptr) const noexcept {
+#ifdef SEASTAR_THREAD_STACK_GUARDS
+    operator delete[] (ptr, with_alignment(getpagesize()));
+#else
+    delete[] ptr;
+#endif
 }
 
 void
@@ -58,6 +79,13 @@ thread_context::setup() {
     auto main = reinterpret_cast<void (*)()>(&thread_context::s_main);
     auto r = getcontext(&initial_context);
     throw_system_error_on(r == -1);
+#ifdef SEASTAR_THREAD_STACK_GUARDS
+    size_t page_size = getpagesize();
+    assert(align_up(_stack.get(), page_size) == _stack.get());
+    assert(_stack_size > page_size * 4 && "Stack guard would take too much portion of the stack");
+    auto mp_status = mprotect(_stack.get(), page_size, PROT_READ);
+    throw_system_error_on(mp_status != 0, "mprotect");
+#endif
     initial_context.uc_stack.ss_sp = _stack.get();
     initial_context.uc_stack.ss_size = _stack_size;
     initial_context.uc_link = nullptr;
@@ -82,6 +110,9 @@ thread_context::switch_in() {
     _context.link = prev;
     if (_attr.scheduling_group) {
         _attr.scheduling_group->account_start();
+        _context.yield_at = _attr.scheduling_group->_this_run_start + _attr.scheduling_group->_this_period_remain;
+    } else {
+        _context.yield_at = {};
     }
 #ifdef ASAN_ENABLED
     swapcontext(&prev->context, &_context.context);
@@ -110,12 +141,13 @@ thread_context::switch_out() {
 bool
 thread_context::should_yield() const {
     if (!_attr.scheduling_group) {
-        return true;
+        return need_preempt();
     }
     return bool(_attr.scheduling_group->next_scheduling_point());
 }
 
-thread_local thread_context::thread_list thread_context::_preempted_threads;
+thread_local thread_context::preempted_thread_list thread_context::_preempted_threads;
+thread_local thread_context::all_thread_list thread_context::_all_threads;
 
 void
 thread_context::yield() {
@@ -181,8 +213,8 @@ thread_context::main() {
 
 namespace thread_impl {
 
-thread_context* get() {
-    return g_current_context->thread;
+void yield() {
+    g_current_context->thread->yield();
 }
 
 void switch_in(thread_context* to) {

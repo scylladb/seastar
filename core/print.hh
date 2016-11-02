@@ -22,61 +22,58 @@
 #ifndef PRINT_HH_
 #define PRINT_HH_
 
-#include <boost/format.hpp>
+#include <fmt/ostream.h>
+#include <fmt/printf.h>
 #include <iostream>
 #include <iomanip>
 #include <chrono>
+#include <sstream>
 #include "core/sstring.hh"
 
-inline void
-apply_format(boost::format& fmt) {
-}
-
-template <typename A0, typename... Arest>
-inline void
-apply_format(boost::format& fmt, A0&& a0, Arest&&... arest) {
-    apply_format(fmt % std::forward<A0>(a0), std::forward<Arest>(arest)...);
-}
-
-template <typename... A>
+#if 0
+inline
 std::ostream&
-fprint(std::ostream& os, boost::format& fmt, A&&... a) {
-    apply_format(fmt, std::forward<A>(a)...);
-    return os << fmt;
+operator<<(std::ostream& os, const void* ptr) {
+    auto flags = os.flags();
+    os << "0x" << std::hex << reinterpret_cast<uintptr_t>(ptr);
+    os.flags(flags);
+    return os;
 }
+#endif
 
-template <typename... A>
-void
-print(boost::format& fmt, A&&... a) {
-    fprint(std::cout, fmt, std::forward<A>(a)...);
+inline
+std::ostream&
+operator<<(std::ostream&& os, const void* ptr) {
+    return os << ptr; // selects non-rvalue version
 }
 
 template <typename... A>
 std::ostream&
 fprint(std::ostream& os, const char* fmt, A&&... a) {
-    boost::format bfmt(fmt);
-    return fprint(os, bfmt, std::forward<A>(a)...);
+    ::fmt::fprintf(os, fmt, std::forward<A>(a)...);
+    return os;
 }
 
 template <typename... A>
 void
 print(const char* fmt, A&&... a) {
-    boost::format bfmt(fmt);
-    return print(bfmt, std::forward<A>(a)...);
+    ::fmt::printf(fmt, std::forward<A>(a)...);
 }
 
 template <typename... A>
 std::string
 sprint(const char* fmt, A&&... a) {
-    boost::format bfmt(fmt);
-    apply_format(bfmt, std::forward<A>(a)...);
-    return bfmt.str();
+    std::ostringstream os;
+    ::fmt::fprintf(os, fmt, std::forward<A>(a)...);
+    return os.str();
 }
 
 template <typename... A>
 std::string
 sprint(const sstring& fmt, A&&... a) {
-    return sprint(fmt.c_str(), std::forward<A>(a)...);
+    std::ostringstream os;
+    ::fmt::fprintf(os, fmt.c_str(), std::forward<A>(a)...);
+    return os.str();
 }
 
 template <typename Iterator>
@@ -122,4 +119,22 @@ log(A&&... a) {
     print(std::forward<A>(a)...);
 }
 
+namespace seastar {
+/**
+ * Evaluate the formatted string in a native fmt library format
+ *
+ * @param fmt format string with the native fmt library syntax
+ * @param a positional parameters
+ *
+ * @return sstring object with the result of applying the given positional
+ *         parameters on a given format string.
+ */
+template <typename... A>
+sstring
+format(const char* fmt, A&&... a) {
+    fmt::MemoryWriter out;
+    out.write(fmt, std::forward<A>(a)...);
+    return sstring{out.data(), out.size()};
+}
+}
 #endif /* PRINT_HH_ */

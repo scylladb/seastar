@@ -27,7 +27,7 @@ class evtchn;
 
 class port {
     int _port = -1;
-    semaphore _sem;
+    semaphore _sem{1};
     evtchn *_evtchn;
 public:
     explicit port(int p);

@@ -20,7 +20,6 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE core
 
 #include <boost/test/included/unit_test.hpp>

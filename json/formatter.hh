@@ -24,6 +24,8 @@
 
 #include <string>
 #include <vector>
+#include <unordered_map>
+#include <map>
 #include <time.h>
 #include <sstream>
 #include "core/sstring.hh"
@@ -40,6 +42,39 @@ typedef struct tm date_time;
  * all to_json parameters are passed as a pointer
  */
 class formatter {
+    enum class state {
+        none, array, map
+    };
+    static sstring begin(state);
+    static sstring end(state);
+
+    template<typename K, typename V>
+    static sstring to_json(state s, const std::pair<K, V>& p) {
+        return s == state::array ?
+                        "{" + to_json(state::none, p) + "}" :
+                        to_json(p.first) + ":" + to_json(p.second);
+    }
+
+    template<typename Iter>
+    static sstring to_json(state s, Iter i, Iter e) {
+        std::stringstream res;
+        res << begin(s);
+        size_t n = 0;
+        while (i != e) {
+            if (n++ != 0) {
+                res << ",";
+            }
+            res << to_json(s, *i++);
+        }
+        res << end(s);
+        return res.str();
+    }
+
+    // fallback template
+    template<typename T>
+    static sstring to_json(state, const T& t) {
+        return to_json(t);
+    }
 public:
 
     /**
@@ -96,21 +131,19 @@ public:
      * @param vec the vector to format
      * @return the given vector in a json format
      */
-    template<typename T>
-    static sstring to_json(const std::vector<T>& vec) {
-        std::stringstream res;
-        res << "[";
-        bool first = true;
-        for (auto i : vec) {
-            if (first) {
-                first = false;
-            } else {
-                res << ",";
-            }
-            res << to_json(i);
-        }
-        res << "]";
-        return res.str();
+    template<typename... Args>
+    static sstring to_json(const std::vector<Args...>& vec) {
+        return to_json(state::array, vec.begin(), vec.end());
+    }
+
+    template<typename... Args>
+    static sstring to_json(const std::map<Args...>& map) {
+        return to_json(state::map, map.begin(), map.end());
+    }
+
+    template<typename... Args>
+    static sstring to_json(const std::unordered_map<Args...>& map) {
+        return to_json(state::map, map.begin(), map.end());
     }
 
     /**

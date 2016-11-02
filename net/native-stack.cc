@@ -214,26 +214,20 @@ seastar::socket native_network_stack::socket() {
 using namespace std::chrono_literals;
 
 future<> native_network_stack::run_dhcp(bool is_renew, const dhcp::lease& res) {
-    lw_shared_ptr<dhcp> d = make_lw_shared<dhcp>(_inet);
-
+    dhcp d(_inet);
     // Hijack the ip-stack.
-    for (unsigned i = 0; i < smp::count; i++) {
-        smp::submit_to(i, [d] {
-            auto & ns = static_cast<native_network_stack&>(engine().net());
-            ns.set_ipv4_packet_filter(d->get_ipv4_filter());
-        });
-    }
-
-    net::dhcp::result_type fut = is_renew ? d->renew(res) : d->discover();
-
-    return fut.then([this, d, is_renew](bool success, const dhcp::lease & res) {
-        for (unsigned i = 0; i < smp::count; i++) {
-            smp::submit_to(i, [] {
+    auto f = d.get_ipv4_filter();
+    return smp::invoke_on_all([f] {
+        auto & ns = static_cast<native_network_stack&>(engine().net());
+        ns.set_ipv4_packet_filter(f);
+    }).then([this, d = std::move(d), is_renew, res]() mutable {
+        net::dhcp::result_type fut = is_renew ? d.renew(res) : d.discover();
+        return fut.then([this, is_renew](bool success, const dhcp::lease & res) {
+            return smp::invoke_on_all([] {
                 auto & ns = static_cast<native_network_stack&>(engine().net());
                 ns.set_ipv4_packet_filter(nullptr);
-            });
-        }
-        on_dhcp(success, res, is_renew);
+            }).then(std::bind(&net::native_network_stack::on_dhcp, this, success, res, is_renew));
+        }).finally([d = std::move(d)] {});
     });
 }
 

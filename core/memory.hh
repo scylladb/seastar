@@ -60,6 +60,16 @@ static constexpr size_t huge_page_size = 512 * page_size; // 2M
 void configure(std::vector<resource::memory> m,
         std::experimental::optional<std::string> hugetlbfs_path = {});
 
+void enable_abort_on_allocation_failure();
+
+class disable_abort_on_alloc_failure_temporarily {
+public:
+    disable_abort_on_alloc_failure_temporarily();
+    ~disable_abort_on_alloc_failure_temporarily() noexcept;
+};
+
+void set_heap_profiling_enabled(bool);
+
 void* allocate_reclaimable(size_t size);
 
 enum class reclaiming_result {
