@@ -1339,9 +1339,6 @@ extern "C"
 [[gnu::visibility("default")]]
 [[gnu::externally_visible]]
 void* malloc(size_t n) throw () {
-    if (n == 0) {
-        return nullptr;
-    }
     try {
         return allocate(n);
     } catch (std::bad_alloc& ba) {
