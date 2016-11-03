@@ -54,6 +54,15 @@ namespace scollectd {
 seastar::logger logger("scollectd");
 thread_local unsigned type_instance_id::_next_truncated_idx = 0;
 
+registration::~registration() {
+    unregister();
+}
+
+seastar::metrics::impl::metric_id to_metrics_id(const type_instance_id & id) {
+    return std::move(seastar::metrics::impl::metric_id(id.plugin(), id.plugin_instance(), id.type(), id.type_instance()));
+}
+
+
 const plugin_instance_id per_cpu_plugin_instance("#cpu");
 
 static const size_t payload_size = 1024;
@@ -188,7 +197,19 @@ struct cpwriter {
         }
         return *this;
     }
-    cpwriter & put(const sstring & host, const type_instance_id & id) {
+
+    cpwriter & put(part_type type, const seastar::metrics::impl::registered_metric & v) {
+        auto sz = 7 +  sizeof(uint64_t);
+        if (check(sz)) {
+            write(uint16_t(type));
+            write(uint16_t(sz));
+            write(uint16_t(1));
+            write(static_cast<uint8_t>(v.get_type()));
+            write(v().ui());
+        }
+        return *this;
+    }
+    cpwriter & put(const sstring & host, const seastar::metrics::impl::metric_id & id) {
         const auto ts = std::chrono::system_clock::now().time_since_epoch();
         const auto lrts =
                 std::chrono::duration_cast<std::chrono::seconds>(ts).count();
@@ -198,19 +219,32 @@ struct cpwriter {
         // Seems hi-res timestamp does not work very well with
         // at the very least my default collectd in fedora (or I did it wrong?)
         // Use lo-res ts for now, it is probably quite sufficient.
-        put_cached(part_type::Plugin, id.plugin());
+        put_cached(part_type::Plugin, id.group_name());
         // Optional
         put_cached(part_type::PluginInst,
-                id.plugin_instance() == per_cpu_plugin_instance ?
-                        to_sstring(engine().cpu_id()) : id.plugin_instance());
-        put_cached(part_type::Type, id.type());
+                id.instance_id() == per_cpu_plugin_instance ?
+                        to_sstring(engine().cpu_id()) : id.instance_id());
+        put_cached(part_type::Type, id.measurement());
         // Optional
-        put_cached(part_type::TypeInst, id.type_instance());
+        put_cached(part_type::TypeInst, id.sub_measurement());
         return *this;
     }
     cpwriter & put(const sstring & host,
             const duration & period,
             const type_instance_id & id, const value_list & v) {
+        const auto ps = std::chrono::duration_cast<collectd_hres_duration>(
+                        period).count();
+            put(host, to_metrics_id(id));
+            put(part_type::Values, v);
+            if (ps != 0) {
+                put(part_type::IntervalHr, ps);
+            }
+            return *this;
+    }
+
+    cpwriter & put(const sstring & host,
+            const duration & period,
+            const seastar::metrics::impl::metric_id & id, const seastar::metrics::impl::registered_metric & v) {
         const auto ps = std::chrono::duration_cast<collectd_hres_duration>(
                 period).count();
         put(host, id);
@@ -222,22 +256,15 @@ struct cpwriter {
     }
 };
 
-impl::value_list_map& impl::get_value_list_map() {
-    return _values;
-}
-
 void impl::add_polled(const type_instance_id & id,
         const shared_ptr<value_list> & values, bool enable) {
-    values->set_enabled(enable);
-    _values[id] = values;
+    // do nothing
+    // add_polled is now implemented on the metrics layer
 
 }
 
 void impl::remove_polled(const type_instance_id & id) {
-    auto i = _values.find(id);
-    if (i != _values.end()) {
-        i->second = nullptr;
-    }
+    seastar::metrics::impl::unregister_metric(to_metrics_id(id));
 }
 
 // explicitly send a type_instance value list (outside polling)
@@ -254,7 +281,7 @@ future<> impl::send_metric(const type_instance_id & id,
 future<> impl::send_notification(const type_instance_id & id,
         const sstring & msg) {
     cpwriter out;
-    out.put(_host, id);
+    out.put(_host, to_metrics_id(id));
     out.put(part_type::Message, msg);
     return _chan.send(_addr, net::packet(out.data(), out.size()));
 }
@@ -283,7 +310,7 @@ void impl::start(const sstring & host, const ipv4_addr & addr, const duration pe
         // latency          value:GAUGE:0:U
         add_polled_metric(
                 type_instance_id("scollectd", per_cpu_plugin_instance,
-                        "latency"), _avg),
+                        "latency"), make_typed(data_type::GAUGE, _avg)),
         // total_time_in_ms    value:DERIVE:0:U
         add_polled_metric(
                 type_instance_id("scollectd", per_cpu_plugin_instance,
@@ -294,13 +321,13 @@ void impl::start(const sstring & host, const ipv4_addr & addr, const duration pe
         add_polled_metric(
                 type_instance_id("scollectd", per_cpu_plugin_instance,
                         "total_values"),
-                make_typed(data_type::DERIVE, std::bind(&value_list_map::size, &_values))
+                make_typed(data_type::DERIVE, [this] {return values().size();})
         ),
         // records          value:GAUGE:0:U
         add_polled_metric(
                 type_instance_id("scollectd", per_cpu_plugin_instance,
                         "records"),
-                make_typed(data_type::GAUGE, std::bind(&value_list_map::size, &_values))
+                make_typed(data_type::GAUGE, [this] {return values().size();})
         ),
     };
 
@@ -323,7 +350,7 @@ void impl::arm() {
 }
 
 void impl::run() {
-    typedef value_list_map::iterator iterator;
+    typedef value_list_map::const_iterator iterator;
     typedef std::tuple<iterator, cpwriter> context;
 
     auto ctxt = make_lw_shared<context>();
@@ -331,10 +358,10 @@ void impl::run() {
     // note we're doing this unsynced since we assume
     // all registrations to this instance will be done on the
     // same cpu, and without interuptions (no wait-states)
-    std::get<iterator>(*ctxt) = _values.begin();
+    std::get<iterator>(*ctxt) = values().begin();
 
     auto stop_when = [this, ctxt]() {
-        auto done = std::get<iterator>(*ctxt) == _values.end();
+        auto done = std::get<iterator>(*ctxt) == values().end();
         return done;
     };
     // append as many values as we can fit into a packet (1024 bytes)
@@ -345,12 +372,7 @@ void impl::run() {
 
         out.clear();
 
-        while (i != _values.end()) {
-            // nullptr value list means removed value. so remove.
-            if (!i->second) {
-                i = _values.erase(i);
-                continue;
-            }
+        while (i != values().end()) {
             if (i->second->is_enabled()) {
                 auto m = out.mark();
                 out.put(_host, _period, i->first, *i->second);
@@ -387,14 +409,9 @@ void impl::run() {
     });
 }
 
-shared_ptr<value_list> impl::get_values(const type_instance_id & id) const {
-    auto i = _values.find(id);
-    return i != _values.end() ? i->second : nullptr;
-}
-
 std::vector<type_instance_id> impl::get_instance_ids() const {
     std::vector<type_instance_id> res;
-    for (auto i: _values) {
+    for (auto i: values()) {
         // Need to check for empty value_list, since unreg is two-stage.
         // Not an issue for most uses, but unit testing etc that would like
         // fully deterministic operation here would like us to only return
@@ -461,44 +478,22 @@ boost::program_options::options_description get_options_description() {
     return opts;
 }
 
-static std::vector<collectd_value> raw_to_value(shared_ptr<value_list> raw_types) {
-    std::vector<collectd_value> res_values;
-    if (raw_types == nullptr) {
-        return res_values;
-    }
-    std::vector<data_type> types(raw_types->size());
-    raw_types->types(&(*types.begin()));
-    std::vector<net::packed<uint64_t>> value(raw_types->size());
-    raw_types->values(&(*value.begin()));
-
-    auto i = value.begin();
-    for (auto t : types) {
-        if (t == data_type::GAUGE) {
-            collectd_value c(t, static_cast<uint64_t>(*i));
-            res_values.push_back(c);
-        } else {
-            collectd_value c(t, htonq(static_cast<uint64_t>(*i)));
-            res_values.push_back(c);
-
-        }
-        ++i;
-    }
-    return res_values;
-}
-
 std::vector<collectd_value> get_collectd_value(
         const scollectd::type_instance_id& id) {
-    return raw_to_value(get_impl().get_values(id));
+    std::vector<collectd_value> vals;
+    const seastar::metrics::impl::registered_metric& val = *seastar::metrics::impl::get_value_map().at(to_metrics_id(id));
+    vals.push_back(val());
+    return vals;
 }
 
 std::vector<data_type> get_collectd_types(
         const scollectd::type_instance_id& id) {
-    auto res = get_impl().get_values(id);
+    auto res = seastar::metrics::impl::get_value_map().at(to_metrics_id(id));
     if (res == nullptr) {
         return std::vector<data_type>();
     }
-    std::vector<data_type> vals(res->size());
-    res->types(&(*vals.begin()));
+    std::vector<data_type> vals;
+    vals.push_back(res->get_type());
     return vals;
 }
 
@@ -507,16 +502,16 @@ std::vector<scollectd::type_instance_id> get_collectd_ids() {
 }
 
 sstring get_collectd_description_str(const scollectd::type_instance_id& id) {
-    auto v = get_impl().get_values(id);
-    return v != nullptr ? v->desc().str() : sstring();
+    auto v = seastar::metrics::impl::get_value_map().at(to_metrics_id(id));
+    return v != nullptr ? v->get_description().str() : sstring();
 }
 
 bool is_enabled(const scollectd::type_instance_id& id) {
-    return get_impl().get_value_list_map()[id]->is_enabled();
+    return seastar::metrics::impl::get_value_map().at(to_metrics_id(id))->is_enabled();
 }
 
 void enable(const scollectd::type_instance_id& id, bool enable) {
-    get_impl().get_value_list_map()[id]->set_enabled(enable);
+    seastar::metrics::impl::get_value_map().at(to_metrics_id(id))->set_enabled(enable);
 }
 
 type_instance_id plugin_instance_metrics::add_impl(const typed_value& v) {
@@ -899,14 +894,8 @@ type_id type_id_for(known_type t) {
     }
 }
 
-value_map get_value_map() {
-    value_map res;
-    for (auto i : get_impl().get_value_list_map()) {
-        if (i.second->is_enabled()) {
-            res[i.first] = raw_to_value(i.second);
-        }
-    }
-    return res;
+seastar::metrics::impl::value_map get_value_map() {
+    return seastar::metrics::impl::get_value_map();
 }
 
 }

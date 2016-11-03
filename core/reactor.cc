@@ -1811,13 +1811,8 @@ void reactor::exit(int ret) {
     smp::submit_to(0, [this, ret] { _return = ret; stop(); });
 }
 
-struct reactor::collectd_registrations {
-    scollectd::registrations regs;
-};
-
-reactor::collectd_registrations
-reactor::register_collectd_metrics() {
-    auto ret = collectd_registrations{ {
+void reactor::register_collectd_metrics() {
+    _collectd_regs.push_back(
             // queue_length     value:GAUGE:0:U
             // Absolute value of num tasks in queue.
             scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
@@ -1825,13 +1820,15 @@ reactor::register_collectd_metrics() {
                     , "queue_length", "tasks-pending")
                     , scollectd::make_typed(scollectd::data_type::GAUGE
                             , std::bind(&decltype(_pending_tasks)::size, &_pending_tasks))
-            ),
+            ));
+    _collectd_regs.push_back(
             // total_operations value:DERIVE:0:U
             scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
                     , scollectd::per_cpu_plugin_instance
                     , "total_operations", "tasks-processed")
                     , scollectd::make_typed(scollectd::data_type::DERIVE, _tasks_processed)
-            ),
+            ));
+    _collectd_regs.push_back(
             // queue_length     value:GAUGE:0:U
             // Absolute value of num timers in queue.
             scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
@@ -1839,128 +1836,129 @@ reactor::register_collectd_metrics() {
                     , "queue_length", "timers-pending")
                     , scollectd::make_typed(scollectd::data_type::GAUGE
                             , std::bind(&decltype(_timers)::size, &_timers))
-            ),
+            ));
+    _collectd_regs.push_back(
             scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
                     , scollectd::per_cpu_plugin_instance
                     , "gauge", "load")
                     , scollectd::make_typed(scollectd::data_type::GAUGE,
                             [this] () -> uint32_t { return (1 - _load) * 100; })
-            ),
+            ));
+    _collectd_regs.push_back(
             // total_operations value:DERIVE:0:U
             scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
                     , scollectd::per_cpu_plugin_instance
                     , "total_operations", "aio-reads")
                     , scollectd::make_typed(scollectd::data_type::DERIVE, _aio_reads)
-            ),
+            ));
+    _collectd_regs.push_back(
             scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
                     , scollectd::per_cpu_plugin_instance
                     , "derive", "aio-read-bytes")
                     , scollectd::make_typed(scollectd::data_type::DERIVE, _aio_read_bytes)
-            ),
+            ));
             // total_operations value:DERIVE:0:U
-            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+    _collectd_regs.push_back(scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
                     , scollectd::per_cpu_plugin_instance
                     , "total_operations", "aio-writes")
                     , scollectd::make_typed(scollectd::data_type::DERIVE, _aio_writes)
-            ),
-            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+            ));
+    _collectd_regs.push_back(scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
                     , scollectd::per_cpu_plugin_instance
                     , "derive", "aio-write-bytes")
                     , scollectd::make_typed(scollectd::data_type::DERIVE, _aio_write_bytes)
-            ),
+            ));
             // total_operations value:DERIVE:0:U
-            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+    _collectd_regs.push_back(scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
                     , scollectd::per_cpu_plugin_instance
                     , "total_operations", "fsyncs")
                     , scollectd::make_typed(scollectd::data_type::DERIVE, _fsyncs)
-            ),
+            ));
             // total_operations value:DERIVE:0:U
-            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+    _collectd_regs.push_back(scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
                     , scollectd::per_cpu_plugin_instance
                     , "total_operations", "io-threaded-fallbacks")
                     , scollectd::make_typed(scollectd::data_type::DERIVE,
                             std::bind(&thread_pool::operation_count, &_thread_pool))
-            ),
-            scollectd::add_polled_metric(
+            ));
+    _collectd_regs.push_back(scollectd::add_polled_metric(
                 scollectd::type_instance_id("memory",
                     scollectd::per_cpu_plugin_instance,
                     "total_operations", "malloc"),
                 scollectd::make_typed(scollectd::data_type::DERIVE,
                         [] { return memory::stats().mallocs(); })
-            ),
-            scollectd::add_polled_metric(
+            ));
+    _collectd_regs.push_back(scollectd::add_polled_metric(
                 scollectd::type_instance_id("memory",
                     scollectd::per_cpu_plugin_instance,
                     "total_operations", "free"),
                 scollectd::make_typed(scollectd::data_type::DERIVE,
                         [] { return memory::stats().frees(); })
-            ),
-            scollectd::add_polled_metric(
+            ));
+    _collectd_regs.push_back(scollectd::add_polled_metric(
                 scollectd::type_instance_id("memory",
                     scollectd::per_cpu_plugin_instance,
                     "total_operations", "cross_cpu_free"),
                 scollectd::make_typed(scollectd::data_type::DERIVE,
                         [] { return memory::stats().cross_cpu_frees(); })
-            ),
-            scollectd::add_polled_metric(
+            ));
+    _collectd_regs.push_back(scollectd::add_polled_metric(
                 scollectd::type_instance_id("memory",
                     scollectd::per_cpu_plugin_instance,
                     "objects", "malloc"),
                 scollectd::make_typed(scollectd::data_type::GAUGE,
                         [] { return memory::stats().live_objects(); })
-            ),
-            scollectd::add_polled_metric(
+            ));
+    _collectd_regs.push_back(scollectd::add_polled_metric(
                 scollectd::type_instance_id("memory",
                     scollectd::per_cpu_plugin_instance,
                     "memory", "free_memory"),
                 scollectd::make_typed(scollectd::data_type::GAUGE,
                         [] { return memory::stats().free_memory(); })
-            ),
-            scollectd::add_polled_metric(
+            ));
+    _collectd_regs.push_back(scollectd::add_polled_metric(
                 scollectd::type_instance_id("memory",
                     scollectd::per_cpu_plugin_instance,
                     "memory", "total_memory"),
                 scollectd::make_typed(scollectd::data_type::GAUGE,
                         [] { return memory::stats().total_memory(); })
-            ),
-            scollectd::add_polled_metric(
+            ));
+    _collectd_regs.push_back(scollectd::add_polled_metric(
                 scollectd::type_instance_id("memory",
                     scollectd::per_cpu_plugin_instance,
                     "memory", "allocated_memory"),
                 scollectd::make_typed(scollectd::data_type::GAUGE,
                         [] { return memory::stats().allocated_memory(); })
-            ),
-            scollectd::add_polled_metric(
+            ));
+    _collectd_regs.push_back(scollectd::add_polled_metric(
                 scollectd::type_instance_id("memory",
                     scollectd::per_cpu_plugin_instance,
                     "total_operations", "reclaims"),
                 scollectd::make_typed(scollectd::data_type::DERIVE,
                         [] { return memory::stats().reclaims(); })
-            ),
-            scollectd::add_polled_metric(
+            ));
+    _collectd_regs.push_back(scollectd::add_polled_metric(
                 scollectd::type_instance_id("reactor",
                     scollectd::per_cpu_plugin_instance,
                     "total_operations", "logging_failures"),
                 scollectd::make_typed(scollectd::data_type::DERIVE,
                         [] { return logging_failures; })
-            ),
+            ));
             // total_operations value:DERIVE:0:U
-            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+    _collectd_regs.push_back(scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
                     , scollectd::per_cpu_plugin_instance
                     , "total_operations", "c++exceptions")
                     , scollectd::make_typed(scollectd::data_type::DERIVE, _cxx_exceptions)
-            ),
-    } };
+            ));
 
     if (my_io_queue) {
-        ret.regs.push_back(scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+        _collectd_regs.push_back(scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
             , scollectd::per_cpu_plugin_instance
             , "gauge", "queued-io-requests")
             , scollectd::make_typed(scollectd::data_type::GAUGE,
                 [this] { return my_io_queue->queued_requests(); } )
         ));
     }
-    return ret;
 }
 
 void reactor::run_tasks(circular_buffer<std::unique_ptr<task>>& tasks) {
@@ -2302,7 +2300,7 @@ static void print_backtrace_safe() noexcept {
 int reactor::run() {
     auto signal_stack = install_signal_handler_stack();
 
-    auto collectd_metrics = register_collectd_metrics();
+    register_collectd_metrics();
 
 #ifndef HAVE_OSV
     poller io_poller(std::make_unique<io_pollfn>(*this));

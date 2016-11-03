@@ -26,10 +26,13 @@
 
 #include "scollectd_api.hh"
 #include "scollectd-impl.hh"
+#include "metrics_api.hh"
 #include "http/function_handlers.hh"
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/range/algorithm_ext/erase.hpp>
 #include <boost/algorithm/string.hpp>
+
+using namespace seastar;
 
 namespace prometheus {
 namespace pm = io::prometheus::client;
@@ -64,22 +67,23 @@ static std::string safe_name(const sstring& name) {
     return rep;
 }
 
-static sstring collectd_name(const scollectd::type_instance_id & id, uint32_t cpu) {
-    return safe_name(id.plugin());
+
+static sstring collectd_name(const metrics::impl::metric_id & id, uint32_t cpu) {
+    return safe_name(id.group_name());
 }
 
-static pm::Metric* add_label(pm::Metric* mt, const scollectd::type_instance_id & id, uint32_t cpu) {
+static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::metric_id & id, uint32_t cpu) {
     auto label = mt->add_label();
     label->set_name("shard");
     label->set_value(std::to_string(cpu));
     label = mt->add_label();
     label->set_name("type");
-    label->set_value(id.type());
+    label->set_value(id.measurement());
 
-    if (id.type_instance() != "") {
+    if (id.sub_measurement() != "") {
         label = mt->add_label();
         label->set_name("metric");
-        label->set_value(id.type_instance());
+        label->set_value(id.sub_measurement());
     }
     const sstring& host = scollectd::get_impl().host();
     if (host != "") {
@@ -90,35 +94,32 @@ static pm::Metric* add_label(pm::Metric* mt, const scollectd::type_instance_id &
     return mt;
 }
 
-static void fill_metric(pm::MetricFamily& mf, const std::vector<scollectd::collectd_value>& vals,
-        const scollectd::type_instance_id & id, uint32_t cpu) {
-    for (const scollectd::collectd_value& c : vals) {
-        switch (c.type()) {
-        case scollectd::data_type::DERIVE:
-            add_label(mf.add_metric(), id, cpu)->mutable_counter()->set_value(c.i());
-            mf.set_type(pm::MetricType::COUNTER);
-            break;
-        case scollectd::data_type::GAUGE:
-            add_label(mf.add_metric(), id, cpu)->mutable_gauge()->set_value(c.d());
-            mf.set_type(pm::MetricType::GAUGE);
-            break;
-        default:
-            add_label(mf.add_metric(), id, cpu)->mutable_counter()->set_value(c.ui());
-            mf.set_type(pm::MetricType::COUNTER);
-            break;
-        }
+static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value& c,
+        const metrics::impl::metric_id & id, uint32_t cpu) {
+    switch (c.type()) {
+    case scollectd::data_type::DERIVE:
+        add_label(mf.add_metric(), id, cpu)->mutable_counter()->set_value(c.i());
+        mf.set_type(pm::MetricType::COUNTER);
+        break;
+    case scollectd::data_type::GAUGE:
+        add_label(mf.add_metric(), id, cpu)->mutable_gauge()->set_value(c.d());
+        mf.set_type(pm::MetricType::GAUGE);
+        break;
+    default:
+        add_label(mf.add_metric(), id, cpu)->mutable_counter()->set_value(c.ui());
+        mf.set_type(pm::MetricType::COUNTER);
+        break;
     }
-
 }
 
 future<> start(httpd::http_server_control& http_server, const config& ctx) {
     return http_server.set_routes([&ctx](httpd::routes& r) {
         httpd::future_handler_function f = [&ctx](std::unique_ptr<request> req, std::unique_ptr<reply> rep) {
-            return do_with(std::vector<scollectd::value_map>(), [rep = std::move(rep), &ctx] (auto& vec) mutable {
+            return do_with(std::vector<metrics::impl::values_copy>(), [rep = std::move(rep), &ctx] (auto& vec) mutable {
                 vec.resize(smp::count);
                 return parallel_for_each(boost::irange(0u, smp::count), [&vec] (auto cpu) {
                     return smp::submit_to(cpu, [] {
-                        return scollectd::get_value_map();
+                        return metrics::impl::get_values();
                     }).then([&vec, cpu] (auto res) {
                         vec[cpu] = res;
                     });

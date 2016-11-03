@@ -276,6 +276,7 @@ core = [
     'core/memory.cc',
     'core/resource.cc',
     'core/scollectd.cc',
+    'core/metrics.cc',
     'core/app-template.cc',
     'core/thread.cc',
     'core/dpdk_rte.cc',

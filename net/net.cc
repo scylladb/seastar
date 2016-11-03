@@ -86,9 +86,14 @@ qp::qp(bool register_copy_stats,
             scollectd::add_polled_metric(scollectd::type_instance_id(
                     _stats_plugin_name
                     , scollectd::per_cpu_plugin_instance
-                    , "if_packets", _queue_name)
+                    , "if_packets_rx", _queue_name)
                     , scollectd::make_typed(scollectd::data_type::DERIVE
                     , _stats.rx.good.packets)
+            ),
+            scollectd::add_polled_metric(scollectd::type_instance_id(
+                    _stats_plugin_name
+                    , scollectd::per_cpu_plugin_instance
+                    , "if_packets_tx", _queue_name)
                     , scollectd::make_typed(scollectd::data_type::DERIVE
                     , _stats.tx.good.packets)
             ),
@@ -98,9 +103,15 @@ qp::qp(bool register_copy_stats,
             scollectd::add_polled_metric(scollectd::type_instance_id(
                     _stats_plugin_name
                     , scollectd::per_cpu_plugin_instance
-                    , "if_octets", _queue_name)
+                    , "if_octets_rx", _queue_name)
                     , scollectd::make_typed(scollectd::data_type::DERIVE
                     , _stats.rx.good.bytes)
+            ),
+
+            scollectd::add_polled_metric(scollectd::type_instance_id(
+                    _stats_plugin_name
+                    , scollectd::per_cpu_plugin_instance
+                    , "if_octets_tx", _queue_name)
                     , scollectd::make_typed(scollectd::data_type::DERIVE
                     , _stats.tx.good.bytes)
             ),
@@ -177,12 +188,19 @@ qp::qp(bool register_copy_stats,
             scollectd::add_polled_metric(scollectd::type_instance_id(
                     _stats_plugin_name
                     , scollectd::per_cpu_plugin_instance
-                    , "if_octets", _queue_name + " Copy Bytes")
+                    , "if_octets_rx", _queue_name + " Copy Bytes")
                     , scollectd::make_typed(scollectd::data_type::DERIVE
                     , _stats.rx.good.copy_bytes)
+            ));
+        _collectd_regs.push_back(
+            scollectd::add_polled_metric(scollectd::type_instance_id(
+                    _stats_plugin_name
+                    , scollectd::per_cpu_plugin_instance
+                    , "if_octets_tx", _queue_name + " Copy Bytes")
                     , scollectd::make_typed(scollectd::data_type::DERIVE
                     , _stats.tx.good.copy_bytes)
             ));
+
         //
         // Non-zero-copy data fragments rate: DERIVE:0:u
         //
