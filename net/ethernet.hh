@@ -47,7 +47,7 @@ struct ethernet_address {
 
     static ethernet_address read(const char* p) {
         ethernet_address ea;
-        std::copy_n(p, size(), reinterpret_cast<char*>(ea.mac.data()));\
+        std::copy_n(p, size(), reinterpret_cast<char*>(ea.mac.data()));
         return ea;
     }
     static ethernet_address consume(const char*& p) {
