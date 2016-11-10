@@ -27,6 +27,7 @@
 #include <stdexcept>
 #include <exception>
 #include "timer.hh"
+#include "expiring_fifo.hh"
 
 /// \addtogroup fiber-module
 /// @{
@@ -86,30 +87,24 @@ struct semaphore_default_exception_factory {
 /// exception object.
 template<typename ExceptionFactory>
 class basic_semaphore {
+public:
+    using duration =  timer<>::duration;
+    using clock =  timer<>::clock;
+    using time_point =  timer<>::time_point;
 private:
     ssize_t _count;
     std::exception_ptr _ex;
     struct entry {
         promise<> pr;
         size_t nr;
-        timer<> tr;
-        // points at pointer back to this, to track the entry object as it moves
-        std::unique_ptr<entry*> tracker;
         entry(promise<>&& pr_, size_t nr_) : pr(std::move(pr_)), nr(nr_) {}
-        entry(entry&& x) noexcept
-                : pr(std::move(x.pr)), nr(x.nr), tr(std::move(x.tr)), tracker(std::move(x.tracker)) {
-            if (tracker) {
-                *tracker = this;
-            }
-        }
-        entry** track() {
-            tracker = std::make_unique<entry*>(this);
-            return tracker.get();
-        }
-        entry& operator=(entry&&) noexcept = delete;
     };
-    chunked_fifo<entry> _wait_list;
-
+    struct expiry_handler {
+        void operator()(entry& e) noexcept {
+            e.pr.set_exception(ExceptionFactory::timeout());
+        }
+    };
+    expiring_fifo<entry, expiry_handler, clock> _wait_list;
     bool has_available_units(size_t nr) const {
         return _count >= 0 && (static_cast<size_t>(_count) >= nr);
     }
@@ -117,10 +112,6 @@ private:
         return has_available_units(nr) && _wait_list.empty();
     }
 public:
-    using duration =  timer<>::duration;
-    using clock =  timer<>::clock;
-    using time_point =  timer<>::time_point;
-
     /// Returns the maximum number of units the semaphore counter can hold
     static constexpr size_t max_counter() {
         return std::numeric_limits<decltype(_count)>::max();
@@ -143,17 +134,7 @@ public:
     ///         to satisfy the request.  If the semaphore was \ref broken(), may
     ///         contain an exception.
     future<> wait(size_t nr = 1) {
-        if (may_proceed(nr)) {
-            _count -= nr;
-            return make_ready_future<>();
-        }
-        if (_ex) {
-            return make_exception_future(_ex);
-        }
-        promise<> pr;
-        auto fut = pr.get_future();
-        _wait_list.push_back(entry(std::move(pr), nr));
-        return fut;
+        return wait(time_point::max(), nr);
     }
     /// Waits until at least a specific number of units are available in the
     /// counter, and reduces the counter by that amount of units.  If the request
@@ -169,29 +150,17 @@ public:
     ///         \ref semaphore_timed_out exception.  If the semaphore was
     ///         \ref broken(), may contain an exception.
     future<> wait(time_point timeout, size_t nr = 1) {
-        auto fut = wait(nr);
-        if (!fut.available()) {
-            auto cancel = [this] (entry** e) {
-                (*e)->nr = 0;
-                (*e)->tracker = nullptr;
-                signal(0);
-            };
-
-            // Since circular_buffer<> can cause objects to move around,
-            // track them via entry::tracker
-            entry** e = _wait_list.back().track();
-            try {
-                (*e)->tr.set_callback([e, cancel] {
-                    (*e)->pr.set_exception(ExceptionFactory::timeout());
-                    cancel(e);
-                });
-                (*e)->tr.arm(timeout);
-            } catch (...) {
-                (*e)->pr.set_exception(std::current_exception());
-                cancel(e);
-            }
+        if (may_proceed(nr)) {
+            _count -= nr;
+            return make_ready_future<>();
         }
-        return std::move(fut);
+        if (_ex) {
+            return make_exception_future(_ex);
+        }
+        promise<> pr;
+        auto fut = pr.get_future();
+        _wait_list.push_back(entry(std::move(pr), nr), timeout);
+        return fut;
     }
 
     /// Waits until at least a specific number of units are available in the
@@ -226,11 +195,8 @@ public:
         _count += nr;
         while (!_wait_list.empty() && has_available_units(_wait_list.front().nr)) {
             auto& x = _wait_list.front();
-            if (x.nr) {
-               _count -= x.nr;
-               x.pr.set_value();
-               x.tr.cancel();
-            }
+            _count -= x.nr;
+            x.pr.set_value();
             _wait_list.pop_front();
         }
     }
@@ -308,7 +274,6 @@ basic_semaphore<ExceptionFactory>::broken(std::exception_ptr xp) {
     while (!_wait_list.empty()) {
         auto& x = _wait_list.front();
         x.pr.set_exception(xp);
-        x.tr.cancel();
         _wait_list.pop_front();
     }
 }
