@@ -99,6 +99,20 @@ static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value&
         add_label(mf.add_metric(), id, cpu, ctx)->mutable_gauge()->set_value(c.d());
         mf.set_type(pm::MetricType::GAUGE);
         break;
+    case scollectd::data_type::HISTOGRAM:
+    {
+        auto h = c.get_histogram();
+        auto mh = add_label(mf.add_metric(), id, cpu, ctx)->mutable_histogram();
+        mh->set_sample_count(h.sample_count);
+        mh->set_sample_sum(h.sample_sum);
+        for (auto b : h.buckets) {
+            auto bc = mh->add_bucket();
+            bc->set_cumulative_count(b.count);
+            bc->set_upper_bound(b.upper_bound);
+        }
+        mf.set_type(pm::MetricType::HISTOGRAM);
+        break;
+    }
     default:
         add_label(mf.add_metric(), id, cpu, ctx)->mutable_counter()->set_value(c.ui());
         mf.set_type(pm::MetricType::COUNTER);
