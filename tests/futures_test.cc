@@ -29,6 +29,8 @@
 #include "core/thread.hh"
 #include <boost/iterator/counting_iterator.hpp>
 
+using namespace std::chrono_literals;
+
 class expected_exception : std::runtime_error {
 public:
     expected_exception() : runtime_error("expected") {}
@@ -690,4 +692,86 @@ SEASTAR_TEST_CASE(test_repeat_until_value) {
 
 SEASTAR_TEST_CASE(test_when_allx) {
     return when_all(later(), later(), make_ready_future()).discard_result();
+}
+
+template<typename E, typename... T>
+static void check_failed_with(future<T...>&& f) {
+    BOOST_REQUIRE(f.failed());
+    try {
+        f.get();
+        BOOST_FAIL("exception expected");
+    } catch (const E& e) {
+        // expected
+    } catch (...) {
+        BOOST_FAIL(sprint("wrong exception: %s", std::current_exception()));
+    }
+}
+
+template<typename... T>
+static void check_timed_out(future<T...>&& f) {
+    check_failed_with<timed_out_error>(std::move(f));
+}
+
+SEASTAR_TEST_CASE(test_with_timeout_when_it_times_out) {
+    return seastar::async([] {
+        promise<> pr;
+        auto f = with_timeout(manual_clock::now() + 2s, pr.get_future());
+
+        BOOST_REQUIRE(!f.available());
+
+        manual_clock::advance(1s);
+        later().get();
+
+        BOOST_REQUIRE(!f.available());
+
+        manual_clock::advance(1s);
+        later().get();
+
+        check_timed_out(std::move(f));
+
+        pr.set_value();
+    });
+}
+
+SEASTAR_TEST_CASE(test_custom_exception_factory_in_with_timeout) {
+    return seastar::async([] {
+        class custom_error : public std::exception {
+        public:
+            virtual const char* what() const noexcept {
+                return "timedout";
+            }
+        };
+        struct my_exception_factory {
+            static auto timeout() {
+                return custom_error();
+            }
+        };
+        promise<> pr;
+        auto f = with_timeout<my_exception_factory>(manual_clock::now() + 1s, pr.get_future());
+
+        manual_clock::advance(1s);
+        later().get();
+
+        check_failed_with<custom_error>(std::move(f));
+    });
+}
+
+SEASTAR_TEST_CASE(test_with_timeout_when_it_does_not_time_out) {
+    return seastar::async([] {
+        {
+            promise<int> pr;
+            auto f = with_timeout(manual_clock::now() + 1s, pr.get_future());
+
+            pr.set_value(42);
+
+            later().get();
+
+            BOOST_REQUIRE(f.available());
+            BOOST_REQUIRE_EQUAL(f.get0(), 42);
+        }
+
+        // Check that timer was indeed cancelled
+        manual_clock::advance(1s);
+        later().get();
+    });
 }
