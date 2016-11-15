@@ -48,6 +48,11 @@ $endif$
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{6pt plus 2pt minus 1pt}
 
+% Apparently, newer versions of pandoc use a "\tightlist" command, and
+% we need to implement it.
+\providecommand{\tightlist}{%
+\setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
 % Fancy-formatted title, but take the author list and date (if set) from the
 % preable in the markdown file.
 \title{\textbf{\fontsize{0.75cm}{1.5em}\selectfont Asynchronous Programming} \\ \textbf{\fontsize{0.75cm}{1.5em}\selectfont with} \\ \textbf{\fontsize{3cm}{1.5em}\selectfont Seastar}}
