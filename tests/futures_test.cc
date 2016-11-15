@@ -775,3 +775,36 @@ SEASTAR_TEST_CASE(test_with_timeout_when_it_does_not_time_out) {
         later().get();
     });
 }
+
+SEASTAR_TEST_CASE(test_shared_future_with_timeout) {
+    return seastar::async([] {
+        shared_promise<with_clock<manual_clock>, int> pr;
+        auto f1 = pr.get_shared_future(manual_clock::now() + 1s);
+        auto f2 = pr.get_shared_future(manual_clock::now() + 2s);
+        auto f3 = pr.get_shared_future();
+
+        BOOST_REQUIRE(!f1.available());
+        BOOST_REQUIRE(!f2.available());
+        BOOST_REQUIRE(!f3.available());
+
+        manual_clock::advance(1s);
+        later().get();
+
+        check_timed_out(std::move(f1));
+        BOOST_REQUIRE(!f2.available());
+        BOOST_REQUIRE(!f3.available());
+
+        manual_clock::advance(1s);
+        later().get();
+
+        check_timed_out(std::move(f2));
+        BOOST_REQUIRE(!f3.available());
+
+        pr.set_value(42);
+
+        later().get();
+
+        BOOST_REQUIRE(f3.available());
+        BOOST_REQUIRE_EQUAL(42, f3.get0());
+    });
+}
