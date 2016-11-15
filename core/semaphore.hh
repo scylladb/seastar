@@ -367,6 +367,28 @@ get_units(basic_semaphore<ExceptionFactory>& sem, size_t units) {
     });
 }
 
+/// \brief Take units from semaphore temporarily with time bound on wait
+///
+/// Like \ref get_units(basic_semaphore<ExceptionFactory>&, size_t) but when
+/// timeout is reached before units are granted throws semaphore_timed_out exception.
+///
+/// \param sem The semaphore to take units from
+/// \param units  Number of units to take
+/// \return a \ref future<> holding \ref semaphore_units object. When the object goes out of scope
+///         the units are returned to the semaphore.
+///
+/// \note The caller must guarantee that \c sem is valid as long as
+///      \ref seaphore_units object is alive.
+///
+/// \related semaphore
+template<typename ExceptionFactory>
+future<semaphore_units<ExceptionFactory>>
+get_units(basic_semaphore<ExceptionFactory>& sem, size_t units, typename basic_semaphore<ExceptionFactory>::time_point timeout) {
+    return sem.wait(timeout, units).then([&sem, units] {
+        return semaphore_units<ExceptionFactory>{ sem, units };
+    });
+}
+
 /// \brief Runs a function protected by a semaphore
 ///
 /// Acquires a \ref semaphore, runs a function, and releases
