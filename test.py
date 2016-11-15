@@ -37,6 +37,7 @@ boost_tests = [
     'foreign_ptr_test',
     'semaphore_test',
     'shared_ptr_test',
+    'weak_ptr_test',
     'fileiotest',
     'packet_test',
     'tls_test',
