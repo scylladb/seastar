@@ -24,6 +24,7 @@
 #include <chrono>
 #include <experimental/optional>
 #include <atomic>
+#include <functional>
 #include "future.hh"
 #include "timer-set.hh"
 
