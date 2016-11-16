@@ -433,6 +433,8 @@ public:
     virtual future<> send(ipv4_addr dst, packet p);
     virtual void close() override {
         _closed = true;
+        _fd->abort_reader(std::make_exception_ptr(std::system_error(EPIPE, std::system_category())));
+        _fd->abort_writer(std::make_exception_ptr(std::system_error(EPIPE, std::system_category())));
         _fd.reset();
     }
     virtual bool is_closed() const override { return _closed; }
