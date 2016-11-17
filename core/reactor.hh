@@ -72,6 +72,7 @@
 #include "condition-variable.hh"
 #include "util/log.hh"
 #include "lowres_clock.hh"
+#include "manual_clock.hh"
 
 #ifdef HAVE_OSV
 #include <osv/sched.hh>
@@ -596,6 +597,7 @@ private:
     class smp_pollfn;
     class drain_cross_cpu_freelist_pollfn;
     class lowres_timer_pollfn;
+    class manual_timer_pollfn;
     class epoll_pollfn;
     class syscall_pollfn;
     friend io_pollfn;
@@ -605,6 +607,7 @@ private:
     friend smp_pollfn;
     friend drain_cross_cpu_freelist_pollfn;
     friend lowres_timer_pollfn;
+    friend class manual_clock;
     friend class epoll_pollfn;
     friend class syscall_pollfn;
 public:
@@ -681,6 +684,8 @@ private:
     seastar::timer_set<timer<>, &timer<>::_link>::timer_list_t _expired_timers;
     seastar::timer_set<timer<lowres_clock>, &timer<lowres_clock>::_link> _lowres_timers;
     seastar::timer_set<timer<lowres_clock>, &timer<lowres_clock>::_link>::timer_list_t _expired_lowres_timers;
+    seastar::timer_set<timer<manual_clock>, &timer<manual_clock>::_link> _manual_timers;
+    seastar::timer_set<timer<manual_clock>, &timer<manual_clock>::_link>::timer_list_t _expired_manual_timers;
     io_context_t _io_context;
     std::vector<struct ::iocb> _pending_aio;
     semaphore _io_context_available;
@@ -724,6 +729,7 @@ private:
     bool flush_tcp_batches();
     bool do_expire_lowres_timers();
     bool do_check_lowres_timers() const;
+    void expire_manual_timers();
     void abort_on_error(int ret);
     void start_aio_eventfd_loop();
     void stop_aio_eventfd_loop();
@@ -895,6 +901,9 @@ private:
     void add_timer(timer<lowres_clock>*);
     bool queue_timer(timer<lowres_clock>*);
     void del_timer(timer<lowres_clock>*);
+    void add_timer(timer<manual_clock>*);
+    bool queue_timer(timer<manual_clock>*);
+    void del_timer(timer<manual_clock>*);
 
     future<> run_exit_tasks();
     void stop();
@@ -905,6 +914,7 @@ private:
     friend class readable_eventfd;
     friend class timer<>;
     friend class timer<lowres_clock>;
+    friend class timer<manual_clock>;
     friend class smp;
     friend class smp_message_queue;
     friend class poller;
