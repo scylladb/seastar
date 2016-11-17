@@ -31,6 +31,7 @@
 #include "scollectd-impl.hh"
 #include "core/future-util.hh"
 #include "scollectd_api.hh"
+#include "core/metrics_api.hh"
 
 bool scollectd::type_instance_id::operator<(
         const scollectd::type_instance_id& id2) const {
@@ -198,14 +199,14 @@ struct cpwriter {
         return *this;
     }
 
-    cpwriter & put(part_type type, const seastar::metrics::impl::registered_metric & v) {
+    cpwriter & put(part_type type, const seastar::metrics::impl::metric_value & v) {
         auto sz = 7 +  sizeof(uint64_t);
         if (check(sz)) {
             write(uint16_t(type));
             write(uint16_t(sz));
             write(uint16_t(1));
-            write(static_cast<uint8_t>(v.get_type()));
-            write(v().ui());
+            write(static_cast<uint8_t>(v.type()));
+            write(v.ui());
         }
         return *this;
     }
@@ -244,7 +245,7 @@ struct cpwriter {
 
     cpwriter & put(const sstring & host,
             const duration & period,
-            const seastar::metrics::impl::metric_id & id, const seastar::metrics::impl::registered_metric & v) {
+            const seastar::metrics::impl::metric_id & id, const seastar::metrics::impl::metric_value & v) {
         const auto ps = std::chrono::duration_cast<collectd_hres_duration>(
                 period).count();
         put(host, id);
@@ -350,36 +351,35 @@ void impl::arm() {
 }
 
 void impl::run() {
-    typedef value_list_map::const_iterator iterator;
+    typedef seastar::metrics::impl::values_copy::iterator iterator;
     typedef std::tuple<iterator, cpwriter> context;
 
     auto ctxt = make_lw_shared<context>();
+    auto vals =  make_lw_shared<seastar::metrics::impl::values_copy>(seastar::metrics::impl::get_values());
 
     // note we're doing this unsynced since we assume
     // all registrations to this instance will be done on the
     // same cpu, and without interuptions (no wait-states)
-    std::get<iterator>(*ctxt) = values().begin();
+    std::get<iterator>(*ctxt) = vals->begin();
 
-    auto stop_when = [this, ctxt]() {
-        auto done = std::get<iterator>(*ctxt) == values().end();
+    auto stop_when = [this, ctxt, vals]() {
+        auto done = std::get<iterator>(*ctxt) == vals->end();
         return done;
     };
     // append as many values as we can fit into a packet (1024 bytes)
-    auto send_packet = [this, ctxt]() {
+    auto send_packet = [this, ctxt, vals]() {
         auto start = steady_clock_type::now();
         auto & i = std::get<iterator>(*ctxt);
         auto & out = std::get<cpwriter>(*ctxt);
 
         out.clear();
 
-        while (i != values().end()) {
-            if (i->second->is_enabled()) {
-                auto m = out.mark();
-                out.put(_host, _period, i->first, *i->second);
-                if (!out) {
-                    out.reset(m);
-                    break;
-                }
+        while (i != vals->end()) {
+            auto m = out.mark();
+            out.put(_host, _period, i->first, i->second);
+            if (!out) {
+                out.reset(m);
+                break;
             }
             ++i;
         }

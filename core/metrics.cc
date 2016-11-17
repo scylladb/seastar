@@ -122,7 +122,9 @@ values_copy get_values() {
     values_copy res;
 
     for (auto i : metrics_impl.get_value_map()) {
-        res[i.first] = (*(i.second))();
+        if (i.second.get() && i.second->is_enabled()) {
+            res[i.first] = (*(i.second))();
+        }
     }
     return std::move(res);
 }
