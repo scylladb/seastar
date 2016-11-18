@@ -32,6 +32,7 @@
 #include "core/future-util.hh"
 #include "scollectd_api.hh"
 #include "core/metrics_api.hh"
+#include "core/byteorder.hh"
 
 bool scollectd::type_instance_id::operator<(
         const scollectd::type_instance_id& id2) const {
@@ -158,6 +159,28 @@ struct cpwriter {
         write(p, e);
         return *this;
     }
+    template<typename T>
+    typename std::enable_if<std::is_integral<T>::value, cpwriter &>::type write_le(const T & t) {
+        T tmp = cpu_to_le(t);
+        auto * p = reinterpret_cast<const uint8_t *>(&tmp);
+        auto * e = p + sizeof(T);
+        write(p, e);
+        return *this;
+    }
+    void write_value(const seastar::metrics::impl::metric_value& v) {
+        switch (v.type()) {
+            case data_type::GAUGE:
+                write_le(v.ui());
+                break;
+            case data_type::COUNTER:
+            case data_type::DERIVE:
+            case data_type::ABSOLUTE:
+                write(v.ui()); // big endian
+                break;
+            default:
+                assert(0);
+        }
+    }
     cpwriter & write(const sstring & s) {
         write(s.begin(), s.end() + 1); // include \0
         return *this;
@@ -206,7 +229,7 @@ struct cpwriter {
             write(uint16_t(sz));
             write(uint16_t(1));
             write(static_cast<uint8_t>(v.type()));
-            write(v.ui());
+            write_value(v);
         }
         return *this;
     }
