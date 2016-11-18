@@ -60,7 +60,7 @@ public:
     circular_buffer(const circular_buffer& X) = delete;
     ~circular_buffer();
     circular_buffer& operator=(const circular_buffer&) = delete;
-    circular_buffer& operator=(circular_buffer&&) = delete;
+    circular_buffer& operator=(circular_buffer&& b) noexcept;
     void push_front(const T& data);
     void push_front(T&& data);
     template <typename... A>
@@ -227,6 +227,16 @@ inline
 circular_buffer<T, Alloc>::circular_buffer(circular_buffer&& x)
     : _impl(std::move(x._impl)) {
     x._impl = {};
+}
+
+template <typename T, typename Alloc>
+inline
+circular_buffer<T, Alloc>& circular_buffer<T, Alloc>::operator=(circular_buffer&& x) noexcept {
+    if (this != &x) {
+        this->~circular_buffer();
+        new (this) circular_buffer(std::move(x));
+    }
+    return *this;
 }
 
 template <typename T, typename Alloc>
