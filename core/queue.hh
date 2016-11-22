@@ -72,13 +72,23 @@ public:
     // available when some element is available.
     future<T> pop_eventually();
 
-    // Pushes the element now or when there is room. Returns a future<> which
-    // resolves when data was pushed.
     future<> push_eventually(T&& data);
 
     size_t size() const { return _q.size(); }
 
     size_t max_size() const { return _max; }
+
+    // Pushes the element now or when there is room. Returns a future<> which
+    // resolves when data was pushed.
+    // Set the maximum size to a new value. If the queue's max size is reduced,
+    // items already in the queue will not be expunged and the queue will be temporarily
+    // bigger than its max_size.
+    void set_max_size(size_t max) {
+        _max = max;
+        if (!full()) {
+            notify_not_full();
+        }
+    }
 
     // Destroy any items in the queue, and pass the provided exception to any
     // waiting readers or writers.
@@ -180,13 +190,13 @@ template <typename T>
 template <typename Func>
 inline
 bool queue<T>::consume(Func&& func) {
-    if (_q.size() == _max) {
-        notify_not_full();
-    }
     bool running = true;
     while (!_q.empty() && running) {
         running = func(std::move(_q.front()));
         _q.pop();
+    }
+    if (!full()) {
+        notify_not_full();
     }
     return running;
 }
@@ -200,7 +210,7 @@ bool queue<T>::empty() const {
 template <typename T>
 inline
 bool queue<T>::full() const {
-    return _q.size() == _max;
+    return _q.size() >= _max;
 }
 
 template <typename T>
