@@ -121,14 +121,16 @@ public:
     metric_groups_impl& add_group(group_name_type name, const std::vector<metric_definition>& l);
 };
 
+class impl;
 
 class registered_metric {
     data_type _type;
     description _d;
     bool _enabled;
     metric_function _f;
+    shared_ptr<impl> _impl;
 public:
-    registered_metric(data_type type, metric_function f, description d = description(), bool enabled=true) : _type(type), _d(d), _enabled(enabled), _f(f) {}
+    registered_metric(data_type type, metric_function f, description d = description(), bool enabled=true);
     virtual ~registered_metric() {}
     virtual metric_value operator()() const {
         return _f();
@@ -175,7 +177,7 @@ const value_map& get_value_map();
 
 values_copy get_values();
 
-impl& get_local_impl();
+shared_ptr<impl> get_local_impl();
 
 void unregister_metric(const metric_id & id);
 

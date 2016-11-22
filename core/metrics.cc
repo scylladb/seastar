@@ -26,6 +26,11 @@ namespace seastar {
 namespace metrics {
 
 namespace impl {
+
+registered_metric::registered_metric(data_type type, metric_function f, description d, bool enabled) :
+        _type(type), _d(d), _enabled(enabled), _f(f), _impl(get_local_impl()) {
+}
+
 metric_value metric_value::operator+(const metric_value& c) {
     metric_value res(*this);
     switch (_type) {
@@ -60,7 +65,7 @@ metric_groups_impl& metric_groups_impl::add_metric(group_name_type name, const m
     shared_ptr<registered_metric> rm =
             ::make_shared<registered_metric>(md.dt, md.f, md.d, md.enabled);
 
-    get_local_impl().add_registration(id, rm);
+    get_local_impl()->add_registration(id, rm);
 
     _registration.push_back(id);
     return *this;
@@ -100,14 +105,14 @@ bool metric_id::operator==(
 
 // Unfortunately, metrics_impl can not be shared because it
 // need to be available before the first users (reactor) will call it
-thread_local impl metrics_impl;
 
-impl& get_local_impl() {
-    return metrics_impl;
+shared_ptr<impl>  get_local_impl() {
+    static thread_local auto the_impl = make_shared<impl>();
+    return the_impl;
 }
 
 void unregister_metric(const metric_id & id) {
-    value_map& map = metrics_impl.get_value_map();
+    value_map& map = get_local_impl()->get_value_map();
     auto i = map.find(id);
     if (i != map.end()) {
         i->second = nullptr;
@@ -115,13 +120,13 @@ void unregister_metric(const metric_id & id) {
 }
 
 const value_map& get_value_map() {
-    return metrics_impl.get_value_map();
+    return get_local_impl()->get_value_map();
 }
 
 values_copy get_values() {
     values_copy res;
 
-    for (auto i : metrics_impl.get_value_map()) {
+    for (auto i : get_local_impl()->get_value_map()) {
         if (i.second.get() && i.second->is_enabled()) {
             res[i.first] = (*(i.second))();
         }

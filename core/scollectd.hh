@@ -785,7 +785,7 @@ static type_instance_id add_polled_metric(const type_instance_id & id, descripti
     namespace sm = seastar::metrics::impl;
     shared_ptr<sm::registered_metric> rm =
                 ::make_shared<sm::registered_metric>(arg.type, sm::make_function(arg.value, arg.type), d, enabled);
-    seastar::metrics::impl::get_local_impl().add_registration(to_metrics_id(id), rm);
+    seastar::metrics::impl::get_local_impl()->add_registration(to_metrics_id(id), rm);
     return id;
 }
 
