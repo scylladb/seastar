@@ -29,6 +29,7 @@
 #include "future.hh"
 #include "shared_ptr.hh"
 #include "do_with.hh"
+#include "timer.hh"
 #include <tuple>
 #include <iterator>
 #include <vector>
@@ -696,6 +697,52 @@ future<> now() {
 
 // Returns a future which is not ready but is scheduled to resolve soon.
 future<> later();
+
+class timed_out_error : public std::exception {
+public:
+    virtual const char* what() const noexcept {
+        return "timedout";
+    }
+};
+
+struct default_timeout_exception_factory {
+    static auto timeout() {
+        return timed_out_error();
+    }
+};
+
+/// Chains with a future with timeout.
+///
+/// Returns a future which will resolve witheither the future passed as argument
+/// or \ref timed_out_error if timeout is reached first.
+///
+/// Note that timing out doesn't cancel any tasks associated with the original future.
+/// It also doesn't cancel the callback registerred on it.
+///
+/// \param f future to wait for
+/// \param timeout time point after which the returned future should be failed
+///
+/// \return a future which will be either resolved with f or timed_out_error
+template<typename ExceptionFactory = default_timeout_exception_factory, typename Clock, typename Duration, typename... T>
+future<T...> with_timeout(std::chrono::time_point<Clock, Duration> timeout, future<T...> f) {
+    if (f.available()) {
+        return f;
+    }
+    auto pr = std::make_unique<promise<T...>>();
+    auto result = pr->get_future();
+    timer<Clock> timer([&pr = *pr] {
+        pr.set_exception(std::make_exception_ptr(ExceptionFactory::timeout()));
+    });
+    timer.arm(timeout);
+    f.then_wrapped([pr = std::move(pr), timer = std::move(timer)] (auto&& f) mutable {
+        if (timer.cancel()) {
+            f.forward_to(std::move(*pr));
+        } else {
+            f.ignore_ready_future();
+        }
+    });
+    return result;
+}
 
 /// @}
 

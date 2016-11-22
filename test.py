@@ -36,6 +36,7 @@ boost_tests = [
     'fstream_test',
     'foreign_ptr_test',
     'semaphore_test',
+    'expiring_fifo_test',
     'shared_ptr_test',
     'weak_ptr_test',
     'fileiotest',

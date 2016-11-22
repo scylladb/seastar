@@ -98,6 +98,7 @@ using namespace seastar;
 seastar::logger seastar_logger("seastar");
 
 std::atomic<lowres_clock::rep> lowres_clock::_now;
+std::atomic<manual_clock::rep> manual_clock::_now;
 constexpr std::chrono::milliseconds lowres_clock::_granularity;
 
 timespec to_timespec(steady_clock_type::time_point t) {
@@ -311,6 +312,7 @@ reactor::~reactor() {
     };
     eraser(_expired_timers);
     eraser(_expired_lowres_timers);
+    eraser(_expired_manual_timers);
 }
 
 void
@@ -1771,6 +1773,23 @@ void reactor::del_timer(timer<lowres_clock>* tmr) {
     }
 }
 
+void reactor::add_timer(timer<manual_clock>* tmr) {
+    queue_timer(tmr);
+}
+
+bool reactor::queue_timer(timer<manual_clock>* tmr) {
+    return _manual_timers.insert(*tmr);
+}
+
+void reactor::del_timer(timer<manual_clock>* tmr) {
+    if (tmr->_expired) {
+        _expired_manual_timers.erase(_expired_manual_timers.iterator_to(*tmr));
+        tmr->_expired = false;
+    } else {
+        _manual_timers.remove(*tmr);
+    }
+}
+
 void reactor::at_exit(std::function<future<> ()> func) {
     assert(!_stopping);
     _exit_funcs.push_back(std::move(func));
@@ -2008,6 +2027,25 @@ reactor::do_expire_lowres_timers() {
         return true;
     }
     return false;
+}
+
+void
+reactor::expire_manual_timers() {
+    complete_timers(_manual_timers, _expired_manual_timers, [] {});
+}
+
+void
+manual_clock::expire_timers() {
+    local_engine->expire_manual_timers();
+}
+
+void
+manual_clock::advance(manual_clock::duration d) {
+    _now.fetch_add(d.count());
+    if (local_engine) {
+        schedule_urgent(make_task(&manual_clock::expire_timers));
+        smp::invoke_on_all(&manual_clock::expire_timers);
+    }
 }
 
 bool
