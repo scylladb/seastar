@@ -214,6 +214,7 @@ tests = [
     'tests/scollectd_test',
     'tests/perf/perf_fstream',
     'tests/json_formatter_test',
+    'tests/dns_test',
     ]
 
 apps = [
@@ -274,6 +275,7 @@ libnet = [
     'net/dhcp.cc',
     'net/tls.cc',
     'net/inet_address.cc',
+    'net/dns.cc',
     ]
 
 core = [
@@ -436,6 +438,7 @@ deps = {
     'tests/scollectd_test': ['tests/scollectd_test.cc'] + core,
     'tests/perf/perf_fstream': ['tests/perf/perf_fstream.cc'] + core,
     'tests/json_formatter_test': ['tests/json_formatter_test.cc'] + core + http,
+    'tests/dns_test': ['tests/dns_test.cc'] + core + libnet,
 }
 
 boost_tests = [
@@ -456,6 +459,7 @@ boost_tests = [
     'tests/connect_test',
     'tests/scollectd_test',
     'tests/json_formatter_test',
+    'tests/dns_test',
     ]
 
 for bt in boost_tests:
@@ -706,6 +710,7 @@ with open(buildfile, 'w') as f:
             build {dpdk_deps} : dpdkmake {dpdk_sources}
             ''').format(**globals()))
     for mode in build_modes:
+        objdeps = {}
         modeval = modes[mode]
         if modeval['sanitize'] and not do_sanitize:
             print('Note: --static disables debug mode sanitizers')
@@ -744,6 +749,7 @@ with open(buildfile, 'w') as f:
               build $builddir/{mode}/{cares_src_lib} : caresmake_{mode} $builddir/{mode}/{cares_dir}/Makefile | {cares_sources}
               build $builddir/{mode}/lib{cares_lib}.a : copy_file $builddir/{mode}/{cares_src_lib}
             ''').format(srcdir = os.getcwd(), cares_opts=modeval['cares_opts'], **globals()))
+        objdeps['$builddir/' + mode + '/net/dns.o'] = ' $builddir/' + mode + '/' + cares_dir + '/ares_build.h'
         compiles = {}
         ragels = {}
         swaggers = {}
@@ -806,7 +812,7 @@ with open(buildfile, 'w') as f:
         for obj in compiles:
             src = compiles[obj]
             gen_headers = list(ragels.keys()) + list(swaggers.keys()) + list(protobufs.keys())
-            f.write('build {}: cxx.{} {} || {} \n'.format(obj, mode, src, ' '.join(gen_headers) + dpdk_deps))
+            f.write('build {}: cxx.{} {} || {} \n'.format(obj, mode, src, ' '.join(gen_headers) + dpdk_deps + objdeps.get(obj, '')))
         for hh in ragels:
             src = ragels[hh]
             f.write('build {}: ragel {}\n'.format(hh, src))
