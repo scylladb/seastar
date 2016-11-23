@@ -148,3 +148,12 @@ socket_address::socket_address(ipv4_addr addr)
     : socket_address(make_ipv4_address(addr))
 {}
 
+
+bool socket_address::operator==(const socket_address& a) const {
+    // TODO: handle ipv6
+    return std::tie(u.in.sin_family, u.in.sin_port, u.in.sin_addr.s_addr)
+                    == std::tie(a.u.in.sin_family, a.u.in.sin_port,
+                                    a.u.in.sin_addr.s_addr);
+}
+
+

@@ -19,6 +19,8 @@
  * Copyright (C) 2016 ScyllaDB.
  */
 #pragma once
+
+#include <iosfwd>
 #include <sys/socket.h>
 #include <netinet/ip.h>
 #include "net/byteorder.hh"
@@ -41,7 +43,11 @@ public:
     ::sockaddr_in& as_posix_sockaddr_in() { return u.in; }
     const ::sockaddr& as_posix_sockaddr() const { return u.sa; }
     const ::sockaddr_in& as_posix_sockaddr_in() const { return u.in; }
+
+    bool operator==(const socket_address&) const;
 };
+
+std::ostream& operator<<(std::ostream&, const socket_address&);
 
 namespace seastar {
 

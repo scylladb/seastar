@@ -23,6 +23,7 @@
 #include <arpa/inet.h>
 
 #include "inet_address.hh"
+#include "socket_defs.hh"
 
 seastar::net::inet_address::inet_address()
                 : inet_address(::in_addr{ 0, })
@@ -114,3 +115,8 @@ std::ostream& seastar::net::operator<<(std::ostream& os, const inet_address::fam
     return os;
 }
 
+std::ostream& operator<<(std::ostream& os, const socket_address& a) {
+    return os << seastar::net::inet_address(a.as_posix_sockaddr_in().sin_addr)
+        << ":" << a.u.in.sin_port
+        ;
+}
