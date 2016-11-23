@@ -389,7 +389,7 @@ inline
 packet::packet(Iterator begin, Iterator end, deleter del) {
     unsigned nr_frags = 0, len = 0;
     nr_frags = std::distance(begin, end);
-    std::for_each(begin, end, [&] (fragment& frag) { len += frag.size; });
+    std::for_each(begin, end, [&] (const fragment& frag) { len += frag.size; });
     _impl = impl::allocate(nr_frags);
     _impl->_deleter = std::move(del);
     _impl->_len = len;
