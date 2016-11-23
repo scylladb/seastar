@@ -27,6 +27,8 @@
 #include "core/metrics_registration.hh"
 #include <boost/lexical_cast.hpp>
 #include <map>
+#include "core/metrics_types.hh"
+#include <boost/variant.hpp>
 
 /*! \file metrics.hh
  *  \brief header for metrics creation.
@@ -246,6 +248,7 @@ enum class data_type : uint8_t {
     GAUGE, // double
     DERIVE, // signed int 64
     ABSOLUTE, // unsigned int 64
+    HISTOGRAM,
 };
 
 /*!
@@ -254,47 +257,37 @@ enum class data_type : uint8_t {
  * Do not use directly @see metrics_creation
  */
 struct metric_value {
-    union {
-        double _d;
-        uint64_t _ui;
-        int64_t _i;
-    } u;
+    boost::variant<double, histogram> u;
     data_type _type;
-
     data_type type() const {
         return _type;
     }
 
     double d() const {
-        return u._d;
+        return boost::get<double>(u);
     }
 
     uint64_t ui() const {
-        return u._ui;
+        return boost::get<double>(u);
     }
 
     int64_t i() const {
-        return u._i;
+        return boost::get<double>(u);
     }
 
     metric_value()
             : _type(data_type::GAUGE) {
     }
 
-    template<typename T>
-    metric_value(T i, data_type t)
-            : _type(t) {
-        switch (_type) {
-        case data_type::DERIVE:
-            u._i = i;
-            break;
-        case data_type::GAUGE:
-            u._d = i;
-            break;
-        default:
-            u._ui = i;
-            break;
-        }
+    metric_value(histogram&& h, data_type t = data_type::HISTOGRAM) :
+        u(std::move(h)), _type(t) {
+    }
+    metric_value(const histogram& h, data_type t = data_type::HISTOGRAM) :
+        u(h), _type(t) {
+    }
+
+    metric_value(double d, data_type t)
+            : u(d), _type(t) {
     }
 
     metric_value& operator=(const metric_value& c) = default;
@@ -305,6 +298,9 @@ struct metric_value {
     }
 
     metric_value operator+(const metric_value& c);
+    const histogram& get_histogram() const {
+        return boost::get<histogram>(u);
+    }
 };
 
 using metric_function = std::function<metric_value()>;
@@ -434,6 +430,19 @@ impl::metric_definition_impl make_absolute(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {}, bool enabled=true,
         instance_id_type instance = impl::shard(), metric_type_def iht = "absolute") {
     return {name, instance, {impl::data_type::ABSOLUTE, iht}, make_function(std::forward<T>(val), impl::data_type::ABSOLUTE), d, enabled, labels};
+}
+
+/*!
+ * \brief create a histogram metric.
+ *
+ * Histograms are a list o buckets with upper values and counter for the number
+ * of entries in each bucket.
+ */
+template<typename T>
+impl::metric_definition_impl make_histogram(metric_name_type name,
+        T&& val, description d=description(), std::vector<label_instance> labels = {}, bool enabled=true,
+        instance_id_type instance = impl::shard(), metric_type_def iht = "histogram") {
+    return  {name, instance, {impl::data_type::HISTOGRAM, iht}, make_function(std::forward<T>(val), impl::data_type::HISTOGRAM), d, enabled, labels};
 }
 
 /*!

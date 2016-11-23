@@ -91,14 +91,10 @@ registered_metric::registered_metric(data_type type, metric_function f, descript
 metric_value metric_value::operator+(const metric_value& c) {
     metric_value res(*this);
     switch (_type) {
-    case data_type::GAUGE:
-        res.u._d += c.u._d;
-        break;
-    case data_type::DERIVE:
-        res.u._i += c.u._i;
-        break;
+    case data_type::HISTOGRAM:
+        boost::get<histogram>(res.u) += boost::get<histogram>(c.u);
     default:
-        res.u._ui += c.u._ui;
+        boost::get<double>(res.u) += boost::get<double>(c.u);
         break;
     }
     return res;
