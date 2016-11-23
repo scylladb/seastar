@@ -1865,6 +1865,13 @@ void reactor::register_collectd_metrics() {
                             [this] () -> uint32_t { return (1 - _load) * 100; })
             ));
     _collectd_regs.push_back(
+            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+                    , scollectd::per_cpu_plugin_instance
+                    , "derive", "busy_ns")
+                    , scollectd::make_typed(scollectd::data_type::DERIVE,
+                            [this] () -> int64_t { return std::chrono::duration_cast<std::chrono::nanoseconds>(total_busy_time()).count(); })
+            ));
+    _collectd_regs.push_back(
             // total_operations value:DERIVE:0:U
             scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
                     , scollectd::per_cpu_plugin_instance
@@ -2399,12 +2406,13 @@ int reactor::run() {
 
     using namespace std::chrono_literals;
     timer<lowres_clock> load_timer;
-    steady_clock_type::rep idle_count = 0;
+    auto last_idle = _total_idle;
     auto idle_start = steady_clock_type::now(), idle_end = idle_start;
-    load_timer.set_callback([this, &idle_count, &idle_start, &idle_end] () mutable {
-        auto load = double(idle_count + (idle_end - idle_start).count()) / double(std::chrono::duration_cast<steady_clock_type::duration>(1s).count());
+    load_timer.set_callback([this, &last_idle, &idle_start, &idle_end] () mutable {
+        _total_idle += idle_end - idle_start;
+        auto load = double((_total_idle - last_idle).count()) / double(std::chrono::duration_cast<steady_clock_type::duration>(1s).count());
+        last_idle = _total_idle;
         load = std::min(load, 1.0);
-        idle_count = 0;
         idle_start = idle_end;
         _loads.push_front(load);
         if (_loads.size() > 5) {
@@ -2461,7 +2469,7 @@ int reactor::run() {
 
         if (check_for_work()) {
             if (idle) {
-                idle_count += (idle_end - idle_start).count();
+                _total_idle += idle_end - idle_start;
                 idle_start = idle_end;
                 idle = false;
             }
@@ -3816,4 +3824,13 @@ int _Unwind_RaiseException(void *h) {
     }
     return org(h);
 }
+
+steady_clock_type::duration reactor::total_idle_time() {
+    return _total_idle;
+}
+
+steady_clock_type::duration reactor::total_busy_time() {
+    return steady_clock_type::now() - _start_time - _total_idle;
+}
+
 #endif

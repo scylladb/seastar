@@ -716,6 +716,8 @@ private:
     const bool _reuseport;
     circular_buffer<double> _loads;
     double _load = 0;
+    steady_clock_type::duration _total_idle;
+    steady_clock_type::time_point _start_time = steady_clock_type::now();
     std::chrono::nanoseconds _max_poll_time = calculate_poll_time();
     circular_buffer<output_stream<char>* > _flush_batching;
     std::atomic<bool> _sleeping alignas(64);
@@ -873,6 +875,9 @@ public:
 
     void start_epoll();
     void sleep();
+
+    steady_clock_type::duration total_idle_time();
+    steady_clock_type::duration total_busy_time();
 
 #ifdef HAVE_OSV
     void timer_thread_func();
