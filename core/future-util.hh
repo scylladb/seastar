@@ -711,10 +711,10 @@ struct default_timeout_exception_factory {
     }
 };
 
-/// Chains with a future with timeout.
+/// \brief Wait for either a future, or a timeout, whichever comes first
 ///
-/// Returns a future which will resolve witheither the future passed as argument
-/// or \ref timed_out_error if timeout is reached first.
+/// When timeout is reached the returned future resolves with an exception
+/// produced by ExceptionFactory::timeout(). By default it is \ref timed_out_error exception.
 ///
 /// Note that timing out doesn't cancel any tasks associated with the original future.
 /// It also doesn't cancel the callback registerred on it.
@@ -722,7 +722,7 @@ struct default_timeout_exception_factory {
 /// \param f future to wait for
 /// \param timeout time point after which the returned future should be failed
 ///
-/// \return a future which will be either resolved with f or timed_out_error
+/// \return a future which will be either resolved with f or a timeout exception
 template<typename ExceptionFactory = default_timeout_exception_factory, typename Clock, typename Duration, typename... T>
 future<T...> with_timeout(std::chrono::time_point<Clock, Duration> timeout, future<T...> f) {
     if (f.available()) {
