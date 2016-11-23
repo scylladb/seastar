@@ -292,6 +292,7 @@ public:
             this->~semaphore_units();
             new (this) semaphore_units(std::move(o));
         }
+        return *this;
     }
     semaphore_units(const semaphore_units&) = delete;
     ~semaphore_units() noexcept {
