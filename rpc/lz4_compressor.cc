@@ -46,9 +46,12 @@ snd_buf lz4_compressor::compress(size_t head_space, snd_buf data) {
     head_space += 4;
     temporary_buffer<char> dst(head_space + LZ4_compressBound(data.size));
     temporary_buffer<char> src = linearize(data.bufs, data.size);
-    // Can't use LZ4_compress_default() since it's too new.
+#ifdef HAVE_LZ4_COMPRESS_DEFAULT
+    auto size = LZ4_compress_default(src.begin(), dst.get_write() + head_space, src.size(), LZ4_compressBound(src.size()));
+#else
     // Safe since output buffer is sized properly.
     auto size = LZ4_compress(src.begin(), dst.get_write() + head_space, src.size());
+#endif
     if (size == 0) {
         throw std::runtime_error("RPC frame LZ4 compression failure");
     }

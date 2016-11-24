@@ -586,6 +586,15 @@ if apply_tristate(args.hwloc, test = have_hwloc,
     defines.append('HAVE_HWLOC')
     defines.append('HAVE_NUMA')
 
+if try_compile(args.cxx, source = textwrap.dedent('''\
+        #include <lz4.h>
+
+        void m() {
+            LZ4_compress_default(static_cast<const char*>(0), static_cast<char*>(0), 0, 0);
+        }
+        ''')):
+    defines.append("HAVE_LZ4_COMPRESS_DEFAULT")
+
 if args.so:
     args.pie = '-shared'
     args.fpie = '-fpic'
