@@ -380,11 +380,8 @@ template <typename ExceptionFactory, typename Func>
 inline
 futurize_t<std::result_of_t<Func()>>
 with_semaphore(basic_semaphore<ExceptionFactory>& sem, size_t units, Func&& func) {
-    return sem.wait(units)
-            .then(std::forward<Func>(func))
-            .then_wrapped([&sem, units] (auto&& fut) {
-        sem.signal(units);
-        return std::move(fut);
+    return get_units(sem, units).then([func = std::forward<Func>(func)] (auto units) mutable {
+        return futurize_apply(std::forward<Func>(func)).finally([units = std::move(units)] {});
     });
 }
 
