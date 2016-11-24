@@ -37,6 +37,7 @@ public:
             this->~deferred_action();
             new (this) deferred_action(std::move(o));
         }
+        return *this;
     }
     deferred_action(const deferred_action&) = delete;
     ~deferred_action() { if (!_cancelled) { _func(); }; }
