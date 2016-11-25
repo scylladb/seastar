@@ -60,6 +60,14 @@ registration::~registration() {
     unregister();
 }
 
+registration::registration(const type_instance_id& id)
+: _id(id), _impl(seastar::metrics::impl::get_local_impl()) {
+}
+
+registration::registration(type_instance_id&& id)
+: _id(std::move(id)), _impl(seastar::metrics::impl::get_local_impl()) {
+}
+
 seastar::metrics::impl::metric_id to_metrics_id(const type_instance_id & id) {
     return std::move(seastar::metrics::impl::metric_id(id.plugin(), id.plugin_instance(), id.type(), id.type_instance()));
 }

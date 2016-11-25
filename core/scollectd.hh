@@ -376,12 +376,8 @@ class plugin_instance_metrics;
  */
 struct registration {
     registration() = default;
-    registration(const type_instance_id& id)
-    : _id(id) {
-    }
-    registration(type_instance_id&& id)
-    : _id(std::move(id)) {
-    }
+    registration(const type_instance_id& id);
+    registration(type_instance_id&& id);
     registration(const registration&) = delete;
     registration(registration&&) = default;
     ~registration();
@@ -394,8 +390,8 @@ struct registration {
     }
 private:
     friend class plugin_instance_metrics;
-
     type_instance_id _id;
+    shared_ptr<seastar::metrics::impl::impl> _impl;
 };
 
 /**
