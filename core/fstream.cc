@@ -215,7 +215,7 @@ private:
             // Also avoid reading beyond _remain.
             uint64_t align = _file.disk_read_dma_alignment();
             auto start = align_down(_pos, align);
-            auto end = align_up(std::min(start + _options.buffer_size, _pos + _remain), align);
+            auto end = align_up(std::min(start + _current_buffer_size, _pos + _remain), align);
             auto len = end - start;
             auto actual_size = std::min(end - _pos, _remain);
             _read_buffers.emplace_back(_pos, actual_size, futurize<future<temporary_buffer<char>>>::apply([&] {
