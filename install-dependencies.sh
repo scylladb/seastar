@@ -42,7 +42,7 @@ elif [ "$ID" = "centos" ] || [ "$ID" = "fedora" ]; then
     fi
     yum install -y libaio-devel hwloc-devel numactl-devel libpciaccess-devel cryptopp-devel libxml2-devel xfsprogs-devel gnutls-devel lksctp-tools-devel lz4-devel gcc make protobuf-devel protobuf-compiler libunwind-devel
     if [ "$ID" = "fedora" ]; then
-        dnf install -y gcc-c++ ninja-build ragel boost-devel xen-devel libubsan libasan
+        dnf install -y gcc-c++ ninja-build ragel boost-devel xen-devel libubsan libasan systemtap-sdt-devel
     else # centos
         yum install -y scylla-binutils scylla-gcc-c++ scylla-ninja-build scylla-ragel scylla-boost-devel scylla-libubsan scylla-libasan scylla-libstdc++-static python34
         echo "g++-5 is installed for Seastar. To build Seastar with g++-5, specify '--compiler=/opt/scylladb/bin/g++ --static-stdc++' on configure.py"
