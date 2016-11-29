@@ -73,6 +73,14 @@ public:
 
     operator const ::in_addr&() const;
     operator const ::in6_addr&() const;
+
+    future<sstring> hostname() const;
+    future<std::vector<sstring>> aliases() const;
+
+    static future<inet_address> find(const sstring&);
+    static future<inet_address> find(const sstring&, family);
+    static future<std::vector<inet_address>> find_all(const sstring&);
+    static future<std::vector<inet_address>> find_all(const sstring&, family);
 };
 
 std::ostream& operator<<(std::ostream&, const inet_address&);

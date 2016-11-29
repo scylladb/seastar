@@ -905,3 +905,38 @@ future<seastar::net::inet_address> seastar::net::dns::resolve_name(const sstring
 future<sstring> seastar::net::dns::resolve_addr(const inet_address& addr) {
     return resolver().resolve_addr(addr);
 }
+
+future<sstring> seastar::net::inet_address::hostname() const {
+    return dns::resolve_addr(*this);
+}
+
+future<std::vector<sstring>> seastar::net::inet_address::aliases() const {
+    return dns::get_host_by_addr(*this).then([](hostent e) {
+        return make_ready_future<std::vector<sstring>>(std::move(e.names));
+    });
+}
+
+future<seastar::net::inet_address> seastar::net::inet_address::find(
+                const sstring& name) {
+    return dns::resolve_name(name);
+}
+
+future<seastar::net::inet_address> seastar::net::inet_address::find(
+                const sstring& name, family f) {
+    return dns::resolve_name(name, f);
+}
+
+future<std::vector<seastar::net::inet_address>> seastar::net::inet_address::find_all(
+                const sstring& name) {
+    return dns::get_host_by_name(name).then([](hostent e) {
+        return make_ready_future<std::vector<seastar::net::inet_address>>(std::move(e.addr_list));
+    });
+}
+
+future<std::vector<seastar::net::inet_address>> seastar::net::inet_address::find_all(
+                const sstring& name, family f) {
+    return dns::get_host_by_name(name, f).then([](hostent e) {
+        return make_ready_future<std::vector<seastar::net::inet_address>>(std::move(e.addr_list));
+    });
+}
+

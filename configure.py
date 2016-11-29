@@ -274,7 +274,6 @@ libnet = [
     'net/tcp.cc',
     'net/dhcp.cc',
     'net/tls.cc',
-    'net/inet_address.cc',
     'net/dns.cc',
     ]
 
@@ -296,6 +295,7 @@ core = [
     'net/posix-stack.cc',
     'net/net.cc',
     'net/stack.cc',
+    'net/inet_address.cc',
     'rpc/rpc.cc',
     'rpc/lz4_compressor.cc',
     ]

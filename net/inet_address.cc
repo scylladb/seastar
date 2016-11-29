@@ -24,6 +24,7 @@
 
 #include "inet_address.hh"
 #include "socket_defs.hh"
+#include "dns.hh"
 
 seastar::net::inet_address::inet_address()
                 : inet_address(::in_addr{ 0, })
@@ -95,6 +96,7 @@ size_t seastar::net::inet_address::size() const {
 const void * seastar::net::inet_address::data() const {
     return &_in;
 }
+
 
 std::ostream& seastar::net::operator<<(std::ostream& os, const inet_address& addr) {
     char buffer[64];
