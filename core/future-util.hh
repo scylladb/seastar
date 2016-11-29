@@ -175,6 +175,16 @@ void do_until_continued(StopCondition&& stop_cond, AsyncAction&& action, promise
 
 enum class stop_iteration { no, yes };
 
+inline stop_iteration operator||(stop_iteration a, stop_iteration b)
+{
+    return stop_iteration(int(a) || int(b));
+}
+
+inline stop_iteration operator&&(stop_iteration a, stop_iteration b)
+{
+    return stop_iteration(int(a) && int(b));
+}
+
 /// Invokes given action until it fails or the function requests iteration to stop by returning
 /// \c stop_iteration::yes.
 ///
