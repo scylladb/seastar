@@ -3825,6 +3825,8 @@ int _Unwind_RaiseException(void *h) {
     return org(h);
 }
 
+#endif
+
 steady_clock_type::duration reactor::total_idle_time() {
     return _total_idle;
 }
@@ -3832,5 +3834,3 @@ steady_clock_type::duration reactor::total_idle_time() {
 steady_clock_type::duration reactor::total_busy_time() {
     return steady_clock_type::now() - _start_time - _total_idle;
 }
-
-#endif
