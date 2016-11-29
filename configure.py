@@ -273,6 +273,7 @@ libnet = [
     'net/tcp.cc',
     'net/dhcp.cc',
     'net/tls.cc',
+    'net/inet_address.cc',
     ]
 
 core = [
