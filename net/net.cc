@@ -26,6 +26,7 @@
 #include <utility>
 #include "toeplitz.hh"
 #include "core/metrics.hh"
+#include "inet_address.hh"
 
 using std::move;
 
@@ -44,6 +45,13 @@ ipv4_addr::ipv4_addr(const std::string &addr) {
 }
 
 ipv4_addr::ipv4_addr(const std::string &addr, uint16_t port_) : ip(boost::asio::ip::address_v4::from_string(addr).to_ulong()), port(port_) {}
+
+ipv4_addr::ipv4_addr(const seastar::net::inet_address& a, uint16_t port)
+    : ipv4_addr([&a] {
+  ::in_addr in = a;
+  return ::net::ntoh(in.s_addr);
+}(), port)
+{}
 
 namespace net {
 

@@ -56,6 +56,11 @@ enum class transport {
     SCTP = IPPROTO_SCTP
 };
 
+
+namespace net {
+class inet_address;
+}
+
 }
 
 struct listen_options {
@@ -75,6 +80,7 @@ struct ipv4_addr {
     ipv4_addr(uint16_t port) : ip(0), port(port) {}
     ipv4_addr(const std::string &addr);
     ipv4_addr(const std::string &addr, uint16_t port);
+    ipv4_addr(const seastar::net::inet_address&, uint16_t);
 
     ipv4_addr(const socket_address &sa) {
         ip = net::ntoh(sa.u.in.sin_addr.s_addr);
