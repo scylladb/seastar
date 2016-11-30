@@ -216,12 +216,12 @@ namespace seastar {
 /// A \c socket that allows a connection to be established between
 /// two endpoints.
 class socket {
-    std::unique_ptr<net::socket_impl> _si;
+    std::unique_ptr<::net::socket_impl> _si;
 public:
     ~socket();
 
     /// \cond internal
-    explicit socket(std::unique_ptr<net::socket_impl> si);
+    explicit socket(std::unique_ptr<::net::socket_impl> si);
     /// \endcond
     /// Moves a \c seastar::socket object.
     socket(socket&&) noexcept;
@@ -287,7 +287,7 @@ public:
         return socket().connect(sa, local, proto);
     }
     virtual seastar::socket socket() = 0;
-    virtual net::udp_channel make_udp_channel(ipv4_addr addr = {}) = 0;
+    virtual ::net::udp_channel make_udp_channel(ipv4_addr addr = {}) = 0;
     virtual future<> initialize() {
         return make_ready_future();
     }

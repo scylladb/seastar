@@ -546,7 +546,7 @@ namespace tls {
  * of these, since we handle handshake etc.
  *
  */
-class session: public net::connected_socket_impl {
+class session: public ::net::connected_socket_impl {
 public:
     enum class type
         : uint32_t {
@@ -554,7 +554,7 @@ public:
     };
 
     session(type t, ::shared_ptr<certificate_credentials> creds,
-            std::unique_ptr<net::connected_socket_impl> sock, sstring name = { })
+            std::unique_ptr<::net::connected_socket_impl> sock, sstring name = { })
             : _type(t), _sock(std::move(sock)), _creds(std::move(creds)), _hostname(
                     std::move(name)), _in(_sock->source()), _out(_sock->sink()), _output_pending(
                     make_ready_future<>()), _session([t] {
@@ -600,7 +600,7 @@ public:
     }
     session(type t, ::shared_ptr<certificate_credentials> creds,
             ::connected_socket sock, sstring name = { })
-            : session(t, std::move(creds), net::get_impl::get(std::move(sock)),
+            : session(t, std::move(creds), ::net::get_impl::get(std::move(sock)),
                     std::move(name)) {
     }
 
@@ -873,10 +873,10 @@ public:
     bool get_keepalive() const override {
         return _sock->get_keepalive();
     }
-    void set_keepalive_parameters(const net::keepalive_params& p) override {
+    void set_keepalive_parameters(const ::net::keepalive_params& p) override {
         _sock->set_keepalive_parameters(p);
     }
-    net::keepalive_params get_keepalive_parameters() const override {
+    ::net::keepalive_params get_keepalive_parameters() const override {
         return _sock->get_keepalive_parameters();
     }
 
@@ -890,7 +890,7 @@ private:
 
     type _type;
 
-    std::unique_ptr<net::connected_socket_impl> _sock;
+    std::unique_ptr<::net::connected_socket_impl> _sock;
     ::shared_ptr<certificate_credentials> _creds;
     const sstring _hostname;
     data_source _in;
@@ -972,9 +972,9 @@ public:
             : _session(s) {
     }
 private:
-    typedef net::fragment* frag_iter;
+    typedef ::net::fragment* frag_iter;
 
-    future<> put(net::packet p, frag_iter i, frag_iter e, size_t off = 0) {
+    future<> put(::net::packet p, frag_iter i, frag_iter e, size_t off = 0) {
         while (i != e) {
             auto ptr = i->base;
             auto size = i->size;
@@ -1009,7 +1009,7 @@ private:
     future<> flush() override {
         return _session.flush();
     }
-    future<> put(net::packet p) override {
+    future<> put(::net::packet p) override {
         auto i = p.fragments().begin();
         auto e = p.fragments().end();
         return put(std::move(p), i, e);
@@ -1024,7 +1024,7 @@ private:
     session& _session;
 };
 
-class server_session : public net::server_socket_impl {
+class server_session : public ::net::server_socket_impl {
 public:
     server_session(::shared_ptr<server_credentials> creds, ::server_socket sock)
             : _creds(std::move(creds)), _sock(std::move(sock)) {
@@ -1047,7 +1047,7 @@ private:
     ::server_socket _sock;
 };
 
-class tls_socket_impl : public net::socket_impl {
+class tls_socket_impl : public ::net::socket_impl {
     ::shared_ptr<certificate_credentials> _cred;
     sstring _name;
     seastar::socket _socket;

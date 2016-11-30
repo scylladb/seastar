@@ -109,7 +109,7 @@ seastar::socket::~socket()
 {}
 
 seastar::socket::socket(
-        std::unique_ptr<net::socket_impl> si)
+        std::unique_ptr<::net::socket_impl> si)
         : _si(std::move(si)) {
 }
 
