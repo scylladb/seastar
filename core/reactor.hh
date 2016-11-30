@@ -73,7 +73,7 @@
 #include "util/log.hh"
 #include "lowres_clock.hh"
 #include "manual_clock.hh"
-#include "metrics.hh"
+#include "core/metrics_registration.hh"
 
 #ifdef HAVE_OSV
 #include <osv/sched.hh>
@@ -86,7 +86,6 @@ extern "C" int _Unwind_RaiseException(void *h);
 
 using shard_id = unsigned;
 
-namespace scollectd { class registration; }
 
 class reactor;
 class pollable_fd;
@@ -304,7 +303,6 @@ class smp_message_queue {
     // this makes sure that they have at least one cache line
     // between them, so hw prefecther will not accidentally prefetch
     // cache line used by aother cpu.
-    std::vector<scollectd::registration> _collectd_regs;
     seastar::metrics::metric_groups _metrics;
     struct alignas(64) {
         size_t _received = 0;
@@ -530,7 +528,7 @@ private:
         uint64_t ops;
         uint32_t nr_queued;
         std::chrono::duration<double> queue_time;
-        std::vector<scollectd::registration> collectd_reg;
+        seastar::metrics::metric_groups _metric_groups;
         priority_class_data(sstring name, priority_class_ptr ptr);
     };
 
@@ -904,7 +902,7 @@ private:
     void register_poller(pollfn* p);
     void unregister_poller(pollfn* p);
     void replace_poller(pollfn* old, pollfn* neww);
-    void register_collectd_metrics();
+    void register_metrics();
     future<> write_all_part(pollable_fd_state& fd, const void* buffer, size_t size, size_t completed);
 
     bool process_io();
@@ -934,7 +932,6 @@ private:
     friend class poller;
     friend void add_to_flush_poller(output_stream<char>* os);
     friend int _Unwind_RaiseException(void *h);
-    std::vector<scollectd::registration> _collectd_regs;
     seastar::metrics::metric_groups _metric_groups;
 public:
     bool wait_and_process(int timeout = 0, const sigset_t* active_sigmask = nullptr) {
