@@ -238,6 +238,12 @@ public:
     /// Does not take into account any waiters.
     size_t current() const { return std::max(_count, ssize_t(0)); }
 
+    /// Returns the number of available units.
+    ///
+    /// Takes into account units consumed using \ref consume() and therefore
+    /// may return a negative value.
+    ssize_t available_units() const { return _count; }
+
     /// Returns the current number of waiters
     size_t waiters() const { return _wait_list.size(); }
 
