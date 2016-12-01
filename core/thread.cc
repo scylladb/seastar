@@ -143,7 +143,7 @@ thread_context::should_yield() const {
     if (!_attr.scheduling_group) {
         return need_preempt();
     }
-    return bool(_attr.scheduling_group->next_scheduling_point());
+    return need_preempt() || bool(_attr.scheduling_group->next_scheduling_point());
 }
 
 thread_local thread_context::preempted_thread_list thread_context::_preempted_threads;
@@ -162,6 +162,8 @@ thread_context::yield() {
             _sched_timer.arm(*when);
             fut.get();
             _sched_promise = stdx::nullopt;
+        } else if (need_preempt()) {
+            later().get();
         }
     }
 }
