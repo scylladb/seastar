@@ -181,6 +181,13 @@ shared_ptr<impl> get_local_impl();
 
 void unregister_metric(const metric_id & id);
 
+/*!
+ * \brief initialize metric group
+ *
+ * Create a metric_group_def.
+ * No need to use it directly.
+ */
+std::unique_ptr<metric_groups_def> create_metric_groups();
 
 }
 }

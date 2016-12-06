@@ -90,7 +90,6 @@ namespace metrics {
  * Instead use the make_counter, make_gauge, make_absolute and make_derived
  *
  */
-using group_name_type = sstring; /*!< A group of logically related metrics */
 using measurement_type = sstring; /*!<  What is being measured like: objects, latency, etc'*/
 using sub_measurement_type = sstring; /*!<  Sub measurement like (memory bytes) used, free, etc'*/
 using instance_id_type = sstring; /*!<  typically used for the shard id*/
@@ -199,9 +198,9 @@ struct metric_value {
 
 using metric_function = std::function<metric_value()>;
 
-struct metric_definition {
     measurement_type mt;
     sub_measurement_type smt;
+struct metric_definition_impl {
     instance_id_type id;
     data_type dt;
     metric_function f;

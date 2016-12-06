@@ -25,6 +25,20 @@
 namespace seastar {
 namespace metrics {
 
+metric_groups::metric_groups() : _impl(impl::create_metric_groups()) {
+}
+
+
+metric_groups& metric_groups::add_group(const group_name_type& name, const std::initializer_list<metric_definition>& l) {
+    _impl->add_group(name, l);
+    return *this;
+}
+
+
+metric_definition::metric_definition(impl::metric_definition_impl const& m) :
+    _impl(std::make_unique<impl::metric_definition_impl>(m)) {
+}
+
 namespace impl {
 
 registered_metric::registered_metric(data_type type, metric_function f, description d, bool enabled) :
@@ -73,7 +87,7 @@ metric_groups_impl& metric_groups_impl::add_metric(group_name_type name, const m
 
 metric_groups_impl& metric_groups_impl::add_group(group_name_type name, const std::vector<metric_definition>& l) {
     for (auto i = l.begin(); i != l.end(); ++i) {
-        add_metric(name, *i);
+        add_metric(name, *(i->get()));
     }
     return *this;
 }
@@ -145,11 +159,6 @@ void impl::add_registration(const metric_id& id, shared_ptr<registered_metric> r
 
 
 const bool metric_disabled = false;
-}
-
-metric_groups create_metric_groups() {
-    metric_groups res =  std::make_unique<impl::metric_groups_impl>();
-    return std::move(res);
 }
 
 }
