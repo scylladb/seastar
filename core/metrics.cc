@@ -61,9 +61,14 @@ metric_value metric_value::operator+(const metric_value& c) {
     return res;
 }
 
-std::unique_ptr<metric_id> get_id(group_name_type group, instance_id_type instance, measurement_type measurement,
-        metrics::sub_measurement_type sm) {
-    return std::make_unique<metric_id>(group, instance, measurement, sm);
+std::unique_ptr<metric_groups_def> create_metric_groups() {
+    return  std::make_unique<metric_groups_impl>();
+}
+
+
+std::unique_ptr<metric_id> get_id(group_name_type group, instance_id_type instance, metric_name_type name,
+        metric_type_def iht) {
+    return std::make_unique<metric_id>(group, instance, name, iht);
 }
 
 metric_groups_impl::~metric_groups_impl() {
@@ -74,10 +79,10 @@ metric_groups_impl::~metric_groups_impl() {
 
 metric_groups_impl& metric_groups_impl::add_metric(group_name_type name, const metric_definition& md)  {
 
-    metric_id id(name, md.id, md.mt, md.smt);
+    metric_id id(name, md._impl->id, md._impl->name, md._impl->type.type_name);
 
     shared_ptr<registered_metric> rm =
-            ::make_shared<registered_metric>(md.dt, md.f, md.d, md.enabled);
+            ::make_shared<registered_metric>(md._impl->type.base_type, md._impl->f, md._impl->d, md._impl->enabled);
 
     get_local_impl()->add_registration(id, rm);
 
@@ -87,7 +92,7 @@ metric_groups_impl& metric_groups_impl::add_metric(group_name_type name, const m
 
 metric_groups_impl& metric_groups_impl::add_group(group_name_type name, const std::vector<metric_definition>& l) {
     for (auto i = l.begin(); i != l.end(); ++i) {
-        add_metric(name, *(i->get()));
+        add_metric(name, *(i->_impl.get()));
     }
     return *this;
 }
@@ -102,19 +107,19 @@ metric_groups_impl& metric_groups_impl::add_group(group_name_type name, const st
 bool metric_id::operator<(
         const metric_id& id2) const {
     auto& id1 = *this;
-    return std::tie(id1.group_name(), id1.instance_id(), id1.measurement(),
-            id1.sub_measurement())
-            < std::tie(id2.group_name(), id2.instance_id(), id2.measurement(),
-                    id2.sub_measurement());
+    return std::tie(id1.group_name(), id1.instance_id(), id1.name(),
+            id1.inherit_type())
+            < std::tie(id2.group_name(), id2.instance_id(), id2.name(),
+                    id2.inherit_type());
 }
 
 bool metric_id::operator==(
         const metric_id & id2) const {
     auto& id1 = *this;
-    return std::tie(id1.group_name(), id1.instance_id(), id1.measurement(),
-            id1.sub_measurement())
-            == std::tie(id2.group_name(), id2.instance_id(), id2.measurement(),
-                    id2.sub_measurement());
+    return std::tie(id1.group_name(), id1.instance_id(), id1.name(),
+            id1.inherit_type())
+            == std::tie(id2.group_name(), id2.instance_id(), id2.name(),
+                    id2.inherit_type());
 }
 
 // Unfortunately, metrics_impl can not be shared because it

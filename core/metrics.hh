@@ -90,8 +90,8 @@ namespace metrics {
  * Instead use the make_counter, make_gauge, make_absolute and make_derived
  *
  */
-using measurement_type = sstring; /*!<  What is being measured like: objects, latency, etc'*/
-using sub_measurement_type = sstring; /*!<  Sub measurement like (memory bytes) used, free, etc'*/
+using metric_type_def = sstring; /*!< Used to hold an inherit type (like bytes)*/
+using metric_name_type = sstring; /*!<  The metric name'*/
 using instance_id_type = sstring; /*!<  typically used for the shard id*/
 
 /*!
@@ -104,7 +104,7 @@ using instance_id_type = sstring; /*!<  typically used for the shard id*/
  *
  * \code
  * _metrics->add_group("groupname", {
- *   sm::make_gauge("measurement", "subm-masurement", value, description("A documentation about the return value"))
+ *   sm::make_gauge("metric_name", value, description("A documentation about the return value"))
  * });
  * \endcode
  *
@@ -198,11 +198,15 @@ struct metric_value {
 
 using metric_function = std::function<metric_value()>;
 
-    measurement_type mt;
-    sub_measurement_type smt;
+struct metric_type {
+    data_type base_type;
+    metric_type_def type_name;
+};
+
 struct metric_definition_impl {
+    metric_name_type name;
     instance_id_type id;
-    data_type dt;
+    metric_type type;
     metric_function f;
     description d;
     bool enabled = true;
@@ -261,10 +265,10 @@ metric_function make_function(T& val, data_type dt) {
  * They can support floating point and can increase or decrease
  */
 template<typename T>
-impl::metric_definition make_gauge(measurement_type measurement,
-        sub_measurement_type sm, T val, description d=description(), bool enabled=true,
-        instance_id_type instance = impl::shard()) {
-    return {measurement, sm, instance, impl::data_type::GAUGE, make_function(val, impl::data_type::GAUGE), d, enabled};
+impl::metric_definition_impl make_gauge(metric_name_type name,
+        T val, description d=description(), bool enabled=true,
+        instance_id_type instance = impl::shard(), metric_type_def iht = "gauge") {
+    return {name, instance, {impl::data_type::GAUGE, iht}, make_function(val, impl::data_type::GAUGE), d, enabled};
 }
 
 /*!
@@ -276,10 +280,10 @@ impl::metric_definition make_gauge(measurement_type measurement,
  * It is OK to use it when counting things and if no wrap-around is expected (it shouldn't) it's prefer over counter metric.
  */
 template<typename T>
-impl::metric_definition make_derive(measurement_type measurement,
-        sub_measurement_type sm, T val, description d=description(), bool enabled=true,
-        instance_id_type instance = impl::shard()) {
-    return {measurement, sm, instance, impl::data_type::DERIVE, make_function(val, impl::data_type::DERIVE), d, enabled};
+impl::metric_definition_impl make_derive(metric_name_type name,
+        T val, description d=description(), bool enabled=true,
+        instance_id_type instance = impl::shard(), metric_type_def iht = "derive") {
+    return {name, instance, {impl::data_type::DERIVE, iht}, make_function(val, impl::data_type::DERIVE), d, enabled};
 }
 
 /*!
@@ -290,10 +294,10 @@ impl::metric_definition make_derive(measurement_type measurement,
  *
  */
 template<typename T>
-impl::metric_definition make_counter(measurement_type measurement,
-        sub_measurement_type sm, T val, description d=description(), bool enabled=true,
-        instance_id_type instance = impl::shard()) {
-    return {measurement, sm, instance, impl::data_type::COUNTER, make_function(val, impl::data_type::COUNTER), d, enabled};
+impl::metric_definition_impl make_counter(metric_name_type name,
+        T val, description d=description(), bool enabled=true,
+        instance_id_type instance = impl::shard(), metric_type_def iht = "counter") {
+    return {name, instance, {impl::data_type::COUNTER, iht}, make_function(val, impl::data_type::COUNTER), d, enabled};
 }
 
 /*!
@@ -303,10 +307,66 @@ impl::metric_definition make_counter(measurement_type measurement,
  * They are here for compatibility reasons and should general be avoided in most applications.
  */
 template<typename T>
-impl::metric_definition make_absolute(measurement_type measurement,
-        sub_measurement_type sm, T val, description d=description(), bool enabled=true,
+impl::metric_definition_impl make_absolute(metric_name_type name,
+        T val, description d=description(), bool enabled=true,
+        instance_id_type instance = impl::shard(), metric_type_def iht = "absolute") {
+    return {name, instance, {impl::data_type::ABSOLUTE, iht}, make_function(val, impl::data_type::ABSOLUTE), d, enabled};
+}
+
+/*!
+ * \brief create a total_bytes metric.
+ *
+ * total_bytes are used for an ever growing counters, like the total bytes
+ * passed on a network.
+ */
+
+template<typename T>
+impl::metric_definition_impl make_total_bytes(metric_name_type name,
+        T val, description d=description(), bool enabled=true,
         instance_id_type instance = impl::shard()) {
-    return {measurement, sm, instance, impl::data_type::ABSOLUTE, make_function(val, impl::data_type::ABSOLUTE), d, enabled};
+    return make_derive(name, val, d, enabled, instance, "total_bytes");
+}
+
+/*!
+ * \brief create a current_bytes metric.
+ *
+ * current_bytes are used to report on current status in bytes.
+ * For example the current free memory.
+ */
+
+template<typename T>
+impl::metric_definition_impl make_current_bytes(metric_name_type name,
+        T val, description d=description(), bool enabled=true,
+        instance_id_type instance = impl::shard()) {
+    return make_derive(name, val, d, enabled, instance, "bytes");
+}
+
+
+/*!
+ * \brief create a queue_length metric.
+ *
+ * queue_length are used to report on queue length
+ */
+
+template<typename T>
+impl::metric_definition_impl make_queue_length(metric_name_type name,
+        T val, description d=description(), bool enabled=true,
+        instance_id_type instance = impl::shard()) {
+    return make_gauge(name, val, d, enabled, instance, "queue_length");
+}
+
+
+/*!
+ * \brief create a total operation metric.
+ *
+ * total_operations are used for ever growing operation counter.
+ */
+
+template<typename T>
+impl::metric_definition_impl make_total_operations(metric_name_type name,
+        T val, description d=description(), bool enabled=true,
+        instance_id_type instance = impl::shard()) {
+    return make_derive(name, val, d, enabled, instance, "total_operations");
 }
 
 /*! @} */
