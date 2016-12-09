@@ -361,6 +361,25 @@ get_units(basic_semaphore<ExceptionFactory>& sem, size_t units, typename basic_s
     });
 }
 
+/// \brief Consume units from semaphore temporarily
+///
+/// Consume units from the semaphore and returns them when the \ref semaphore_units object goes out of scope.
+/// This provides a safe way to temporarily take units from a semaphore and ensure
+/// that they are eventually returned under all circumstances (exceptions, premature scope exits, etc).
+///
+/// Unlike get_units(), this calls the non-blocking consume() API.
+///
+/// Unlike with_semaphore(), the scope of unit holding is not limited to the scope of a single async lambda.
+///
+/// \param sem The semaphore to take units from
+/// \param units  Number of units to consume
+template<typename ExceptionFactory>
+semaphore_units<ExceptionFactory>
+consume_units(basic_semaphore<ExceptionFactory>& sem, size_t units) {
+    sem.consume(units);
+    return semaphore_units<ExceptionFactory>{ sem, units };
+}
+
 /// \brief Runs a function protected by a semaphore
 ///
 /// Acquires a \ref semaphore, runs a function, and releases
