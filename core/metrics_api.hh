@@ -37,21 +37,23 @@ namespace impl {
 /**
  * Metrics are collected in groups that belongs to some logical entity.
  * For example, different measurements of the cpu, will belong to group "cpu".
- * Measurement will be the thing that is being measured like 'load' or 'usage'
- * When applicable measurement can be split into sub measurement: 'disk' 'space'
- * can have 'free' and 'used' as sub measurement.
+ *
+ * Name is the metric name like used_objects or used_bytes
+ *
+ * Inherit type allows customizing one of the basic types (gauge, counter, derive).
+ *
  * Instance_id is used to differentiate multiple instance of the metrics.
- * In the seastar environment this it is typical to have a metric per shard.
+ * In the seastar environment it is typical to have a metric per shard.
  *
  */
 
 class metric_id {
 public:
     metric_id() = default;
-    metric_id(group_name_type group, instance_id_type instance, measurement_type measurement,
-                    metrics::sub_measurement_type sm = std::string())
-                    : _group(std::move(group)), _instance_id(std::move(instance)), _measurement(
-                                    std::move(measurement)), _sub_measurement_type(std::move(sm)) {
+    metric_id(group_name_type group, instance_id_type instance, metric_name_type name,
+                    metrics::metric_type_def iht = std::string())
+                    : _group(std::move(group)), _instance_id(std::move(instance)), _name(
+                                    std::move(name)), _inherit_type(std::move(iht)) {
     }
     metric_id(metric_id &&) = default;
     metric_id(const metric_id &) = default;
@@ -68,19 +70,19 @@ public:
     const instance_id_type & instance_id() const {
         return _instance_id;
     }
-    const measurement_type & measurement() const {
-        return _measurement;
+    const metric_name_type & name() const {
+        return _name;
     }
-    const metrics::sub_measurement_type & sub_measurement() const {
-        return _sub_measurement_type;
+    const metrics::metric_type_def & inherit_type() const {
+        return _inherit_type;
     }
     bool operator<(const metric_id&) const;
     bool operator==(const metric_id&) const;
 private:
     group_name_type _group;
     instance_id_type _instance_id;
-    measurement_type _measurement;
-    sub_measurement_type _sub_measurement_type;
+    metric_name_type _name;
+    metric_type_def _inherit_type;
 };
 }
 }
@@ -181,6 +183,13 @@ shared_ptr<impl> get_local_impl();
 
 void unregister_metric(const metric_id & id);
 
+/*!
+ * \brief initialize metric group
+ *
+ * Create a metric_group_def.
+ * No need to use it directly.
+ */
+std::unique_ptr<metric_groups_def> create_metric_groups();
 
 }
 }

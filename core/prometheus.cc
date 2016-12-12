@@ -69,7 +69,7 @@ static std::string safe_name(const sstring& name) {
 
 
 static sstring collectd_name(const metrics::impl::metric_id & id, uint32_t cpu) {
-    return safe_name(id.group_name());
+    return safe_name(id.group_name() + "_" + safe_name(id.name()));
 }
 
 static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::metric_id & id, uint32_t cpu) {
@@ -78,13 +78,8 @@ static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::metric_id & id
     label->set_value(std::to_string(cpu));
     label = mt->add_label();
     label->set_name("type");
-    label->set_value(id.measurement());
+    label->set_value(id.inherit_type());
 
-    if (id.sub_measurement() != "") {
-        label = mt->add_label();
-        label->set_name("metric");
-        label->set_value(id.sub_measurement());
-    }
     const sstring& host = scollectd::get_impl().host();
     if (host != "") {
         label = mt->add_label();

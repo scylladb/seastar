@@ -47,8 +47,22 @@ namespace metrics {
 
 namespace impl {
 class metric_groups_def;
+struct metric_definition_impl;
+class metric_groups_impl;
 }
 
+using group_name_type = sstring; /*!< A group of logically related metrics */
+class metric_groups;
+
+class metric_definition {
+    std::unique_ptr<impl::metric_definition_impl> _impl;
+public:
+    metric_definition(const impl::metric_definition_impl& impl);
+    metric_definition(metric_definition&& m) : _impl(std::move(m._impl)) {
+    }
+    friend metric_groups;
+    friend impl::metric_groups_impl;
+};
 
 /*!
  * metric_groups
@@ -56,15 +70,28 @@ class metric_groups_def;
  *
  * Use the add_group method to add a group of metrics @see metrics.hh for example and supported metrics
  */
-using metric_groups = std::unique_ptr<impl::metric_groups_def>;
-
-/*!
- * \brief create a metric_groups variable
- *
- * Use this function to initialize the metric_group.
- * This is typically done as a first thing in the method that create the metrics.
- */
-metric_groups create_metric_groups();
+class metric_groups {
+    std::unique_ptr<impl::metric_groups_def> _impl;
+public:
+    metric_groups();
+    /*!
+     * \brief add metrics belong to the same group.
+     *
+     * use the metrics creation functions to add metrics.
+     *
+     * for example:
+     *  _metrics.add_group("my_group", {
+     *      make_counter("my_counter_name1", counter, description("my counter description")),
+     *      make_counter("my_counter_name2", counter, description("my second counter description")),
+     *      make_gauge("my_gauge_name1", gauge, description("my gauge description")),
+     *  });
+     *
+     *  metric name should be unique inside the group.
+     *  you can change add_group calls like:
+     *  _metrics.add_group("my group1", {...}).add_group("my group2", {...});
+     */
+    metric_groups& add_group(const group_name_type& name, const std::initializer_list<metric_definition>& l);
+};
 
 
 }

@@ -289,8 +289,8 @@ static inline typed<T> make_typed(data_type type, T&& t) {
 
 using plugin_id = seastar::metrics::group_name_type;
 using plugin_instance_id = seastar::metrics::instance_id_type;
-using type_id = seastar::metrics::measurement_type;
-using type_instance = seastar::metrics::sub_measurement_type;
+using type_id = seastar::metrics::metric_type_def;
+using type_instance = seastar::metrics::metric_name_type;
 
 type_id type_id_for(known_type);
 
@@ -324,8 +324,8 @@ public:
         truncate(_type_instance, "type_instance");
     }
     type_instance_id(const seastar::metrics::impl::metric_id &id) : _plugin(id.group_name()),
-            _plugin_instance(id.instance_id()), _type(id.measurement()),
-            _type_instance(id.sub_measurement()) {
+            _plugin_instance(id.instance_id()), _type(id.inherit_type()),
+            _type_instance(id.name()) {
     }
     type_instance_id(type_instance_id &&) = default;
     type_instance_id(const type_instance_id &) = default;
