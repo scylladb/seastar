@@ -145,6 +145,14 @@ namespace tls {
         future<> set_system_trust();
 
         // TODO add methods for certificate verification
+
+        /**
+         * TLS handshake priority string. See gnutls docs and syntax at
+         * https://gnutls.org/manual/html_node/Priority-Strings.html
+         *
+         * Allows specifying order and allowance for handshake alg.
+         */
+        void set_priority_string(const sstring&);
     private:
         class impl;
         friend class session;
@@ -158,6 +166,10 @@ namespace tls {
     class verification_error : public std::runtime_error {
     public:
         using runtime_error::runtime_error;
+    };
+
+    enum class client_auth {
+        NONE, REQUEST, REQUIRE
     };
 
     /**
@@ -174,6 +186,8 @@ namespace tls {
 
         server_credentials(const server_credentials&) = delete;
         server_credentials& operator=(const server_credentials&) = delete;
+
+        void set_client_auth(client_auth);
     };
 
     /**
@@ -196,6 +210,8 @@ namespace tls {
         void set_simple_pkcs12(const blob&, x509_crt_format, const sstring& password) override;
 
         future<> set_system_trust();
+        void set_client_auth(client_auth);
+        void set_priority_string(const sstring&);
 
         void apply_to(certificate_credentials&) const;
 
@@ -204,6 +220,8 @@ namespace tls {
 
     private:
         std::multimap<sstring, boost::any> _blobs;
+        client_auth _client_auth;
+        sstring _priority;
     };
 
     /**
