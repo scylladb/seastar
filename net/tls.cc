@@ -587,7 +587,9 @@ public:
         // This would be nice, because we preferably want verification to
         // abort hand shake so peer immediately knows we bailed...
 #if GNUTLS_VERSION_NUMBER >= 0x030406
-        gnutls_session_set_verify_function(*this, &verify_wrapper);
+        if (_type == type::CLIENT) {
+            gnutls_session_set_verify_function(*this, &verify_wrapper);
+        }
 #endif
     }
     session(type t, ::shared_ptr<certificate_credentials> creds,
