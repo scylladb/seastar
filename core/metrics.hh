@@ -225,9 +225,6 @@ public:
 
 instance_id_type shard();
 
-extern const bool metric_disabled;
-
-
 template<typename T, typename En = std::true_type>
 struct is_callable;
 
@@ -253,6 +250,10 @@ metric_function make_function(T& val, data_type dt) {
     };
 }
 }
+
+extern const bool metric_disabled;
+
+
 /*
  * The metrics definition are defined to be compatible with collectd metrics defintion.
  * Typically you should used gauge or derived.

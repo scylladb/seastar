@@ -167,8 +167,10 @@ void impl::add_registration(const metric_id& id, shared_ptr<registered_metric> r
 }
 
 
-const bool metric_disabled = false;
 }
+
+const bool metric_disabled = false;
+
 
 }
 }
