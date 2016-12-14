@@ -37,6 +37,7 @@ class file_data_source_impl : public data_source_impl {
             : _pos(pos), _size(size), _ready(std::move(f)) { }
     };
 
+    reactor& _reactor = engine();
     file _file;
     file_input_stream_options _options;
     uint64_t _pos;
@@ -149,6 +150,12 @@ public:
         auto ret = std::move(_read_buffers.front());
         _read_buffers.pop_front();
         update_history_consumed(ret._size);
+        _reactor._fstream_reads += 1;
+        _reactor._fstream_read_bytes += ret._size;
+        if (!ret._ready.available()) {
+            _reactor._fstream_reads_blocked += 1;
+            _reactor._fstream_read_bytes_blocked += ret._size;
+        }
         return std::move(ret._ready);
     }
     virtual future<temporary_buffer<char>> skip(uint64_t n) override {
@@ -174,6 +181,8 @@ public:
                 _dropped_reads = _dropped_reads.then([f = std::move(f)] () mutable { return std::move(f); });
                 n -= front._size;
                 dropped += front._size;
+                _reactor._fstream_read_aheads_discarded += 1;
+                _reactor._fstream_read_ahead_discarded_bytes += front._size;
                 _read_buffers.pop_front();
             }
         }
@@ -188,6 +197,8 @@ public:
         return _done->get_future().then([this] {
             uint64_t dropped = 0;
             for (auto&& c : _read_buffers) {
+                _reactor._fstream_read_aheads_discarded += 1;
+                _reactor._fstream_read_ahead_discarded_bytes += c._size;
                 dropped += c._size;
                 c._ready.ignore_ready_future();
             }

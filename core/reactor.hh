@@ -73,6 +73,7 @@
 #include "util/log.hh"
 #include "lowres_clock.hh"
 #include "manual_clock.hh"
+#include "metrics.hh"
 
 #ifdef HAVE_OSV
 #include <osv/sched.hh>
@@ -304,6 +305,7 @@ class smp_message_queue {
     // between them, so hw prefecther will not accidentally prefetch
     // cache line used by aother cpu.
     std::vector<scollectd::registration> _collectd_regs;
+    seastar::metrics::metric_groups _metrics;
     struct alignas(64) {
         size_t _received = 0;
         size_t _last_rcv_batch = 0;
@@ -610,6 +612,7 @@ private:
     friend class manual_clock;
     friend class epoll_pollfn;
     friend class syscall_pollfn;
+    friend class file_data_source_impl; // for fstream statistics
 public:
     class poller {
         std::unique_ptr<pollfn> _pollfn;
@@ -695,6 +698,12 @@ private:
     uint64_t _aio_write_bytes = 0;
     uint64_t _fsyncs = 0;
     uint64_t _cxx_exceptions = 0;
+    uint64_t _fstream_reads = 0;
+    uint64_t _fstream_read_bytes = 0;
+    uint64_t _fstream_reads_blocked = 0;
+    uint64_t _fstream_read_bytes_blocked = 0;
+    uint64_t _fstream_read_aheads_discarded = 0;
+    uint64_t _fstream_read_ahead_discarded_bytes = 0;
     circular_buffer<std::unique_ptr<task>> _pending_tasks;
     circular_buffer<std::unique_ptr<task>> _at_destroy_tasks;
     std::chrono::duration<double> _task_quota;
@@ -926,6 +935,7 @@ private:
     friend void add_to_flush_poller(output_stream<char>* os);
     friend int _Unwind_RaiseException(void *h);
     std::vector<scollectd::registration> _collectd_regs;
+    seastar::metrics::metric_groups _metric_groups;
 public:
     bool wait_and_process(int timeout = 0, const sigset_t* active_sigmask = nullptr) {
         return _backend.wait_and_process(timeout, active_sigmask);
