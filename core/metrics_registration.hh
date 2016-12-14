@@ -57,9 +57,9 @@ class metric_groups;
 class metric_definition {
     std::unique_ptr<impl::metric_definition_impl> _impl;
 public:
-    metric_definition(const impl::metric_definition_impl& impl);
-    metric_definition(metric_definition&& m) : _impl(std::move(m._impl)) {
-    }
+    metric_definition(const impl::metric_definition_impl& impl) noexcept;
+    metric_definition(metric_definition&& m) noexcept;
+    ~metric_definition();
     friend metric_groups;
     friend impl::metric_groups_impl;
 };
@@ -74,6 +74,7 @@ class metric_groups {
     std::unique_ptr<impl::metric_groups_def> _impl;
 public:
     metric_groups();
+    ~metric_groups();
     /*!
      * \brief add metrics belong to the same group.
      *
