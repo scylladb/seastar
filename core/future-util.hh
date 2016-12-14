@@ -30,6 +30,7 @@
 #include "shared_ptr.hh"
 #include "do_with.hh"
 #include "timer.hh"
+#include "util/bool_class.hh"
 #include <tuple>
 #include <iterator>
 #include <vector>
@@ -173,17 +174,8 @@ void do_until_continued(StopCondition&& stop_cond, AsyncAction&& action, promise
 }
 /// \endcond
 
-enum class stop_iteration { no, yes };
-
-inline stop_iteration operator||(stop_iteration a, stop_iteration b)
-{
-    return stop_iteration(int(a) || int(b));
-}
-
-inline stop_iteration operator&&(stop_iteration a, stop_iteration b)
-{
-    return stop_iteration(int(a) && int(b));
-}
+struct stop_iteration_tag { };
+using stop_iteration = bool_class<stop_iteration_tag>;
 
 /// Invokes given action until it fails or the function requests iteration to stop by returning
 /// \c stop_iteration::yes.
