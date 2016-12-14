@@ -1993,7 +1993,7 @@ void reactor::register_collectd_metrics() {
                 description(
                         "Counts reads from disk file streams.  A high rate indicates high disk activity."
                         " Contrast with other fstream_read* counters to locate bottlenecks.")),
-        make_counter("fstream_read_bytes", _fstream_reads,
+        make_derive("fstream_read_bytes", _fstream_reads,
                 description(
                         "Counts bytes read from disk file streams.  A high rate indicates high disk activity."
                         " Divide by fstream_reads to determine average read size.")),
@@ -2001,7 +2001,7 @@ void reactor::register_collectd_metrics() {
                 description(
                         "Counts the number of times a disk read could not be satisfied from read-ahead buffers, and had to block."
                         " Indicates short streams, or incorrect read ahead configuration.")),
-        make_counter("fstream_read_bytes_blocked", _fstream_read_bytes_blocked,
+        make_derive("fstream_read_bytes_blocked", _fstream_read_bytes_blocked,
                 description(
                         "Counts the number of bytes read from disk that could not be satisfied from read-ahead buffers, and had to block."
                         " Indicates short streams, or incorrect read ahead configuration.")),
@@ -2009,7 +2009,7 @@ void reactor::register_collectd_metrics() {
                 description(
                         "Counts the number of times a buffer that was read ahead of time and was discarded because it was not needed, wasting disk bandwidth."
                         " Indicates over-eager read ahead configuration.")),
-        make_counter("fstream_reads_ahead_bytes_discarded", _fstream_read_ahead_discarded_bytes,
+        make_derive("fstream_reads_ahead_bytes_discarded", _fstream_read_ahead_discarded_bytes,
                 description(
                         "Counts the number of buffered bytes that were read ahead of time and were discarded because they were not needed, wasting disk bandwidth."
                         " Indicates over-eager read ahead configuration.")),
