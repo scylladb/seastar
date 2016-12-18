@@ -30,7 +30,7 @@
 #include <memory>
 #include <vector>
 #include <algorithm>
-#include "core/metrics_registration.hh"
+#include "core/scollectd.hh"
 #include "core/align.hh"
 #include "core/memory.hh"
 
@@ -278,7 +278,7 @@ class slab_allocator {
 private:
     std::vector<size_t> _slab_class_sizes;
     std::vector<slab_class<Item>> _slab_classes;
-    seastar::metrics::metric_groups _metrics;
+    std::vector<scollectd::registration> _registrations;
     // erase_func() is used to remove the item from the cache using slab.
     std::function<void (Item& item_ref)> _erase_func;
     std::vector<slab_page_desc*> _slab_pages_vector;
@@ -398,13 +398,18 @@ private:
         return &_slab_classes[slab_class_id];
     }
 
-    void register_metrics() {
-        namespace sm = seastar::metrics;
-        _metrics.add_group("slab", {
-            sm::make_derive("malloc_total_operations", _stats.allocs, sm::description("Total number of slab malloc operations") ),
-            sm::make_derive("free_total_operations", _stats.frees, sm::description("Total number of slab free operations")),
-            sm::make_gauge("malloc_objects", [this] { return _stats.allocs - _stats.frees; }, sm::description("Number of slab created objects currently in memory"))
-        });
+    void register_collectd_metrics() {
+        auto add = [this] (auto type_name, auto name, auto data_type, auto func) {
+            _registrations.push_back(
+                scollectd::add_polled_metric(scollectd::type_instance_id("slab",
+                    scollectd::per_cpu_plugin_instance,
+                    type_name, name),
+                    scollectd::make_typed(data_type, func)));
+        };
+
+        add("total_operations", "malloc", scollectd::data_type::DERIVE, [&] { return _stats.allocs; });
+        add("total_operations", "free", scollectd::data_type::DERIVE, [&] { return _stats.frees; });
+        add("objects", "malloc", scollectd::data_type::GAUGE, [&] { return _stats.allocs - _stats.frees; });
     }
 
     inline slab_page_desc& get_slab_page_desc(Item *item)
@@ -425,7 +430,7 @@ public:
         , _available_slab_pages(limit / max_object_size)
     {
         initialize_slab_allocator(growth_factor, limit);
-        register_metrics();
+        register_collectd_metrics();
     }
 
     slab_allocator(double growth_factor, uint64_t limit, uint64_t max_object_size,
@@ -435,7 +440,7 @@ public:
         , _available_slab_pages(limit / max_object_size)
     {
         initialize_slab_allocator(growth_factor, limit);
-        register_metrics();
+        register_collectd_metrics();
     }
 
     ~slab_allocator()
@@ -448,6 +453,7 @@ public:
             ::free(desc->slab_page());
             delete desc;
         }
+        _registrations.clear();
         delete _reclaimer;
     }
 
