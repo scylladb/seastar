@@ -213,6 +213,8 @@ public:
     packet(packet&& x, fragment frag, deleter d);
     // append temporary_buffer (zero-copy)
     packet(packet&& x, temporary_buffer<char> buf);
+    // create from temporary_buffer (zero-copy)
+    packet(temporary_buffer<char> buf);
     // append deleter
     packet(packet&& x, deleter d);
 
@@ -296,6 +298,12 @@ public:
             ret.push_back(std::move(frag));
         });
         return ret;
+    }
+    explicit operator bool() {
+        return bool(_impl);
+    }
+    static packet make_null_packet() {
+        return net::packet(nullptr);
     }
 private:
     void linearize(size_t at_frag, size_t desired_size);
@@ -465,6 +473,10 @@ inline
 packet::packet(packet&& x, temporary_buffer<char> buf)
     : packet(std::move(x), fragment{buf.get_write(), buf.size()}, buf.release()) {
 }
+
+inline
+packet::packet(temporary_buffer<char> buf)
+    : packet(fragment{buf.get_write(), buf.size()}, buf.release()) {}
 
 inline
 void packet::append(packet&& p) {

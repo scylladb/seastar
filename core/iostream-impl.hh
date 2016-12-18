@@ -68,26 +68,63 @@ future<> output_stream<CharType>::write(scattered_message<CharType> msg) {
 }
 
 template<typename CharType>
+future<>
+output_stream<CharType>::zero_copy_put(net::packet p) {
+    // if flush is scheduled, disable it, so it will not try to write in parallel
+    _flush = false;
+    if (_flushing) {
+        // flush in progress, wait for it to end before continuing
+        return _in_batch.value().get_future().then([this, p = std::move(p)] () mutable {
+            return _fd.put(std::move(p));
+        });
+    } else {
+        return _fd.put(std::move(p));
+    }
+}
+
+// Writes @p in chunks of _size length. The last chunk is buffered if smaller.
+template <typename CharType>
+future<>
+output_stream<CharType>::zero_copy_split_and_put(net::packet p) {
+    return repeat([this, p = std::move(p)] () mutable {
+        if (p.len() < _size) {
+            if (p.len()) {
+                _zc_bufs = std::move(p);
+            } else {
+                _zc_bufs = net::packet::make_null_packet();
+            }
+            return make_ready_future<stop_iteration>(stop_iteration::yes);
+        }
+        auto chunk = p.share(0, _size);
+        p.trim_front(_size);
+        return zero_copy_put(std::move(chunk)).then([] {
+            return stop_iteration::no;
+        });
+    });
+}
+
+template<typename CharType>
 future<> output_stream<CharType>::write(net::packet p) {
     static_assert(std::is_same<CharType, char>::value, "packet works on char");
 
-    if (p.len() == 0) {
-        return make_ready_future<>();
+    if (p.len() != 0) {
+        assert(!_end && "Mixing buffered writes and zero-copy writes not supported yet");
+
+        if (_zc_bufs) {
+            _zc_bufs.append(std::move(p));
+        } else {
+            _zc_bufs = std::move(p);
+        }
+
+        if (_zc_bufs.len() >= _size) {
+            if (_trim_to_size) {
+                return zero_copy_split_and_put(std::move(_zc_bufs));
+            } else {
+                return zero_copy_put(std::move(_zc_bufs));
+            }
+        }
     }
-
-    assert(!_end && "Mixing buffered writes and zero-copy writes not supported yet");
-
-    if (!_trim_to_size || p.len() <= _size) {
-        // TODO: aggregate buffers for later coalescing. Currently we flush right
-        // after appending the message anyway, so it doesn't matter.
-        return _fd.put(std::move(p));
-    }
-
-    auto head = p.share(0, _size);
-    p.trim_front(_size);
-    return _fd.put(std::move(head)).then([this, p = std::move(p)] () mutable {
-        return write(std::move(p));
-    });
+    return make_ready_future<>();
 }
 
 template<typename CharType>
@@ -96,15 +133,8 @@ future<> output_stream<CharType>::write(temporary_buffer<CharType> p) {
         return make_ready_future<>();
     }
     assert(!_end && "Mixing buffered writes and zero-copy writes not supported yet");
-    if (!_trim_to_size || p.size() <= _size) {
-        // TODO: aggregate buffers for later coalescing.
-        return _fd.put(std::move(p));
-    }
-    auto head = p.share(0, _size);
-    p.trim_front(_size);
-    return _fd.put(std::move(head)).then([this, p = std::move(p)] () mutable {
-        return write(std::move(p));
-    });
+
+    return write(net::packet(std::move(p)));
 }
 
 template <typename CharType>
@@ -287,6 +317,7 @@ output_stream<CharType>::split_and_put(temporary_buffer<CharType> buf) {
 template <typename CharType>
 future<>
 output_stream<CharType>::write(const char_type* buf, size_t n) {
+    assert(!_zc_bufs && "Mixing buffered writes and zero-copy writes not supported yet");
     auto bulk_threshold = _end ? (2 * _size - _end) : _size;
     if (n >= bulk_threshold) {
         if (_end) {
@@ -343,6 +374,10 @@ output_stream<CharType>::flush() {
             return put(std::move(_buf)).then([this] {
                 return _fd.flush();
             });
+        } else if (_zc_bufs) {
+            return zero_copy_put(std::move(_zc_bufs)).then([this] {
+                return _fd.flush();
+            });
         }
     } else {
         if (_ex) {
@@ -396,6 +431,8 @@ output_stream<CharType>::poll_flush() {
         _buf.trim(_end);
         _end = 0;
         f = _fd.put(std::move(_buf));
+    } else if(_zc_bufs) {
+        f = _fd.put(std::move(_zc_bufs));
     }
 
     f.then([this] {

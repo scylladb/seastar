@@ -182,6 +182,7 @@ class output_stream final {
     static_assert(sizeof(CharType) == 1, "must buffer stream of bytes");
     data_sink _fd;
     temporary_buffer<CharType> _buf;
+    net::packet _zc_bufs = net::packet::make_null_packet(); //zero copy buffers
     size_t _size = 0;
     size_t _begin = 0;
     size_t _end = 0;
@@ -197,6 +198,8 @@ private:
     future<> split_and_put(temporary_buffer<CharType> buf);
     future<> put(temporary_buffer<CharType> buf);
     void poll_flush();
+    future<> zero_copy_put(net::packet p);
+    future<> zero_copy_split_and_put(net::packet p);
 public:
     using char_type = CharType;
     output_stream() = default;
