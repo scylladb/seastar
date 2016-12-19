@@ -32,7 +32,7 @@
 #include "core/distributed.hh"
 #include "core/queue.hh"
 #include "core/future-util.hh"
-#include "core/scollectd.hh"
+#include "core/metrics_registration.hh"
 #include <iostream>
 #include <algorithm>
 #include <unordered_map>
@@ -53,7 +53,7 @@ class http_stats;
 using namespace std::chrono_literals;
 
 class http_stats {
-    scollectd::registrations _regs;
+    seastar::metrics::metric_groups _metric_groups;
 public:
     http_stats(http_server& server);
 };

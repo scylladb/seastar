@@ -26,7 +26,7 @@
 #include "core/distributed.hh"
 #include "core/queue.hh"
 #include "core/future-util.hh"
-#include "core/scollectd.hh"
+#include "core/metrics.hh"
 #include <iostream>
 #include <algorithm>
 #include <unordered_map>
@@ -41,22 +41,12 @@ using namespace std::chrono_literals;
 
 namespace httpd {
 http_stats::http_stats(http_server& server)
-    : _regs{
-        scollectd::add_polled_metric(
-            scollectd::type_instance_id("httpd", scollectd::per_cpu_plugin_instance,
-                    "connections", "http-connections"),
-            scollectd::make_typed(scollectd::data_type::DERIVE,
-                    [&server] { return server.total_connections(); })),
-        scollectd::add_polled_metric(
-            scollectd::type_instance_id("httpd", scollectd::per_cpu_plugin_instance,
-                    "current_connections", "current"),
-            scollectd::make_typed(scollectd::data_type::GAUGE,
-                    [&server] { return server.current_connections(); })),
-        scollectd::add_polled_metric(
-            scollectd::type_instance_id("httpd", scollectd::per_cpu_plugin_instance,
-                    "http_requests", "served"),
-            scollectd::make_typed(scollectd::data_type::DERIVE,
-                    [&server] { return server.requests_served(); })),
-    } {
+ {
+    namespace sm = seastar::metrics;
+    _metric_groups.add_group("httpd", {
+            sm::make_derive("connections_total", [&server] { return server.total_connections(); }, sm::description("The total number of connections opened")),
+            sm::make_gauge("connections_current", [&server] { return server.current_connections(); }, sm::description("The current number of open  connections")),
+            sm::make_derive("requests_served", [&server] { return server.requests_served(); }, sm::description("The total number of http requests served"))
+    });
 }
 }
