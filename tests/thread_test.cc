@@ -134,3 +134,37 @@ SEASTAR_TEST_CASE(test_thread_sched_group) {
 #endif
     });
 }
+
+#if defined(ASAN_ENABLED) && defined(HAVE_ASAN_FIBER_SUPPORT)
+volatile int force_write;
+volatile void* shut_up_gcc;
+
+[[gnu::noinline]]
+void throw_exception() {
+    volatile char buf[1024];
+    shut_up_gcc = &buf;
+    for (int i = 0; i < 1024; i++) {
+        buf[i] = force_write;
+    }
+    throw 1;
+}
+
+[[gnu::noinline]]
+void use_stack() {
+    volatile char buf[2 * 1024];
+    shut_up_gcc = &buf;
+    for (int i = 0; i < 2 * 1024; i++) {
+        buf[i] = force_write;
+    }
+}
+
+SEASTAR_TEST_CASE(test_asan_false_positive) {
+    return async([] {
+        try {
+            throw_exception();
+        } catch (...) {
+            use_stack();
+        }
+    });
+}
+#endif
