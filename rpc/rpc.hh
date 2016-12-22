@@ -320,15 +320,14 @@ public:
             ipv4_addr peer_address() const {
                 return ipv4_addr(_info.addr);
             }
-            future<> wait_for_resources(size_t memory_consumed,  std::experimental::optional<steady_clock_type::time_point> timeout) {
+            // Resources will be released when this goes out of scope
+            using resource_permit = semaphore_units<>;
+            future<resource_permit> wait_for_resources(size_t memory_consumed,  std::experimental::optional<steady_clock_type::time_point> timeout) {
                 if (timeout) {
-                    return _server._resources_available.wait(*timeout, memory_consumed);
+                    return get_units(_server._resources_available, memory_consumed, *timeout);
                 } else {
-                    return _server._resources_available.wait(memory_consumed);
+                    return get_units(_server._resources_available, memory_consumed);
                 }
-            }
-            void release_resources(size_t memory_consumed) {
-                _server._resources_available.signal(memory_consumed);
             }
             size_t estimate_request_size(size_t serialized_size) {
                 return rpc::estimate_request_size(_server._limits, serialized_size);

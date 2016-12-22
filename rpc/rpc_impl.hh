@@ -494,14 +494,12 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
                                                            rcv_buf data) mutable {
         auto memory_consumed = client->estimate_request_size(data.size);
         // note: apply is executed asynchronously with regards to networking so we cannot chain futures here by doing "return apply()"
-        auto f = client->wait_for_resources(memory_consumed, timeout).then([client, timeout, msg_id, memory_consumed, data = std::move(data), &func] () mutable {
+        auto f = client->wait_for_resources(memory_consumed, timeout).then([client, timeout, msg_id, data = std::move(data), &func] (auto permit) mutable {
             try {
-                seastar::with_gate(client->get_server().reply_gate(), [client, timeout, msg_id, memory_consumed, data = std::move(data), &func] () mutable {
+                seastar::with_gate(client->get_server().reply_gate(), [client, timeout, msg_id, data = std::move(data), permit = std::move(permit), &func] () mutable {
                     auto args = unmarshall<Serializer, InArgs...>(client->serializer(), std::move(data));
-                    return apply(func, client->info(), timeout, WantClientInfo(), WantTimePoint(), signature(), std::move(args)).then_wrapped([client, timeout, msg_id, memory_consumed] (futurize_t<Ret> ret) mutable {
-                        return reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, client, timeout).finally([client, memory_consumed] {
-                            client->release_resources(memory_consumed);
-                        });
+                    return apply(func, client->info(), timeout, WantClientInfo(), WantTimePoint(), signature(), std::move(args)).then_wrapped([client, timeout, msg_id, permit = std::move(permit)] (futurize_t<Ret> ret) mutable {
+                        return reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, client, timeout).then([permit = std::move(permit)] {});
                     });
                 });
             } catch (seastar::gate_closed_exception&) {/* ignore */ }
@@ -961,7 +959,7 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
                     if (it != _server._proto._handlers.end()) {
                         return it->second(this->shared_from_this(), timeout, msg_id, std::move(data.value()));
                     } else {
-                        return this->wait_for_resources(28, timeout).then([this, timeout, msg_id, type] {
+                        return this->wait_for_resources(28, timeout).then([this, timeout, msg_id, type] (auto permit) {
                             // send unknown_verb exception back
                             snd_buf data(28);
                             static_assert(snd_buf::chunk_size >= 28, "send buffer chunk size is too small");
@@ -970,10 +968,8 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
                             write_le<uint32_t>(p + 4, uint32_t(8));
                             write_le<uint64_t>(p + 8, uint64_t(type));
                             try {
-                                seastar::with_gate(this->_server._reply_gate, [this, timeout, msg_id, data = std::move(data)] () mutable {
-                                    return this->respond(-msg_id, std::move(data), timeout).finally([c = this->shared_from_this()] {
-                                        c->release_resources(28);
-                                    });
+                                seastar::with_gate(this->_server._reply_gate, [this, timeout, msg_id, data = std::move(data), permit = std::move(permit)] () mutable {
+                                    return this->respond(-msg_id, std::move(data), timeout).then([c = this->shared_from_this(), permit = std::move(permit)] {});
                                 });
                             } catch(seastar::gate_closed_exception&) {/* ignore */}
                         });
