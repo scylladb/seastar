@@ -30,6 +30,7 @@
 #include "core/seastar.hh"
 #include "test-utils.hh"
 #include "core/thread.hh"
+#include "core/sleep.hh"
 #include <random>
 #include <boost/range/adaptor/transformed.hpp>
 
@@ -249,5 +250,53 @@ SEASTAR_TEST_CASE(test_input_stream_esp_around_eof) {
             BOOST_REQUIRE(std::equal(readback.begin(), readback.end(), data.begin() + std::min(start, flen)));
         }
         f.close().get();
+    });
+}
+
+using namespace std::chrono_literals;
+
+SEASTAR_TEST_CASE(test_file_input_stream_auto_close) {
+    return seastar::async([] {
+        auto opt = file_input_stream_options();
+        opt.buffer_size = 512;
+        opt.read_ahead = 16;
+        sstring data(sstring::initialized_later(), opt.read_ahead * opt.buffer_size);
+
+        {
+            auto f = open_file_dma("file.tmp", open_flags::rw | open_flags::create | open_flags::truncate).get0();
+
+            auto out = make_file_output_stream(f);
+            out.write(reinterpret_cast<const char *>(data.data()), data.size()).get();
+            out.flush().get();
+            out.close().get();
+        }
+
+        {
+            auto f = open_file_dma("file.tmp", open_flags::ro).get0();
+            auto in = make_file_input_stream(f, 0, data.size(), opt);
+            in.read().get();
+        }
+
+        sleep(10ms).get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_file_output_stream_auto_close) {
+    return seastar::async([] {
+        {
+            auto f = open_file_dma("file.tmp", open_flags::rw | open_flags::create | open_flags::truncate).get0();
+
+            file_output_stream_options opt;
+            opt.buffer_size = 4096;
+            opt.write_behind = 10;
+            auto out = make_file_output_stream(f, opt);
+
+            sstring data(sstring::initialized_later(), 4096);
+            for (unsigned i = 0; i < opt.write_behind; ++i) {
+                out.write(reinterpret_cast<const char *>(data.data()), data.size()).get();
+            }
+        }
+
+        sleep(10ms).get();
     });
 }

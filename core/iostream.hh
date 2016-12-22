@@ -55,12 +55,13 @@ protected:
     data_source_impl* impl() const { return _dsi.get(); }
 public:
     data_source() = default;
+    ~data_source();
     explicit data_source(std::unique_ptr<data_source_impl> dsi) : _dsi(std::move(dsi)) {}
     data_source(data_source&& x) = default;
     data_source& operator=(data_source&& x) = default;
     future<temporary_buffer<char>> get() { return _dsi->get(); }
     future<temporary_buffer<char>> skip(uint64_t n) { return _dsi->skip(n); }
-    future<> close() { return _dsi->close(); }
+    future<> close();
 };
 
 class data_sink_impl {
@@ -91,6 +92,7 @@ class data_sink {
     std::unique_ptr<data_sink_impl> _dsi;
 public:
     data_sink() = default;
+    ~data_sink();
     explicit data_sink(std::unique_ptr<data_sink_impl> dsi) : _dsi(std::move(dsi)) {}
     data_sink(data_sink&& x) = default;
     data_sink& operator=(data_sink&& x) = default;
@@ -109,7 +111,7 @@ public:
     future<> flush() {
         return _dsi->flush();
     }
-    future<> close() { return _dsi->close(); }
+    future<> close();
 };
 
 template <typename CharType>
