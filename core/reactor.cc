@@ -90,7 +90,6 @@
 
 #include <xmmintrin.h>
 #include "util/defer.hh"
-#include "core/metrics.hh"
 
 using namespace std::chrono_literals;
 
@@ -741,26 +740,40 @@ io_queue::priority_class_data::priority_class_data(sstring name, priority_class_
     , ops(0)
     , nr_queued(0)
     , queue_time(1s)
-{
-    namespace sm = seastar::metrics;
+    , collectd_reg(scollectd::registrations({
+        scollectd::add_polled_metric(scollectd::type_instance_id("io_queue"
+            , scollectd::per_cpu_plugin_instance
+            , "derive", name)
+            , scollectd::make_typed(scollectd::data_type::DERIVE, bytes)
+        ),
+        scollectd::add_polled_metric(scollectd::type_instance_id("io_queue"
+            , scollectd::per_cpu_plugin_instance
+            , "total_operations", name)
+            , scollectd::make_typed(scollectd::data_type::DERIVE, ops)
+        ),
 
-    _metric_groups.add_group("io_queue", {
-            sm::make_derive(name + sstring("_total_bytes"), bytes, sm::description("Total bytes passed in the queue")),
-            sm::make_derive(name + sstring("_total_operations"), ops, sm::description("Total bytes passed in the queue")),
-            // Note: The counter below is not the same as reactor's queued-io-requests
-            // queued-io-requests shows us how many requests in total exist in this I/O Queue.
-            //
-            // This counter lives in the priority class, so it will count only queued requests
-            // that belong to that class.
-            //
-            // In other words: the new counter tells you how busy a class is, and the
-            // old counter tells you how busy the system is.
-
-            sm::make_queue_length(name + sstring("_queue_length"), nr_queued, sm::description("Number of requests in the queue")),
-            sm::make_gauge(name + sstring("delay"), [this] {
+        // Note: The counter below is not the same as reactor's queued-io-requests
+        // queued-io-requests shows us how many requests in total exist in this I/O Queue.
+        //
+        // This counter lives in the priority class, so it will count only queued requests
+        // that belong to that class.
+        //
+        // In other words: the new counter tells you how busy a class is, and the
+        // old counter tells you how busy the system is.
+        scollectd::add_polled_metric(scollectd::type_instance_id("io_queue"
+            , scollectd::per_cpu_plugin_instance
+            , "queue_length", name)
+            , scollectd::make_typed(scollectd::data_type::GAUGE, nr_queued)
+        ),
+        scollectd::add_polled_metric(scollectd::type_instance_id("io_queue"
+            , scollectd::per_cpu_plugin_instance
+            , "delay", name)
+            , scollectd::make_typed(scollectd::data_type::GAUGE, [this] {
                 return queue_time.count();
-            }, sm::description("total delay time in the queue"))
-    });
+            })
+        )
+    }))
+{
 }
 
 io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc, shard_id owner) {
@@ -1818,55 +1831,160 @@ void reactor::exit(int ret) {
     smp::submit_to(0, [this, ret] { _return = ret; stop(); });
 }
 
-void reactor::register_metrics() {
-
-    namespace sm = seastar::metrics;
-
-    _metric_groups.add_group("reactor", {
-            sm::make_gauge("tasks_pending", std::bind(&decltype(_pending_tasks)::size, &_pending_tasks), sm::description("Number of pending tasks in the queue")),
+void reactor::register_collectd_metrics() {
+    _collectd_regs.push_back(
+            // queue_length     value:GAUGE:0:U
+            // Absolute value of num tasks in queue.
+            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+                    , scollectd::per_cpu_plugin_instance
+                    , "queue_length", "tasks-pending")
+                    , scollectd::make_typed(scollectd::data_type::GAUGE
+                            , std::bind(&decltype(_pending_tasks)::size, &_pending_tasks))
+            ));
+    _collectd_regs.push_back(
             // total_operations value:DERIVE:0:U
-            sm::make_derive("tasks_processed", _tasks_processed, sm::description("Total tasks processed")),
-            sm::make_derive("timers_pending", std::bind(&decltype(_timers)::size, &_timers), sm::description("Number of tasks in the timer-pending queue")),
-            sm::make_gauge("idle_percent", [this] { return (1.0 - _load) * 100; }, sm::description("CPU idle percentage")),
-            sm::make_derive("cpu_busy_ns", [this] () -> int64_t { return std::chrono::duration_cast<std::chrono::nanoseconds>(total_busy_time()).count(); },
-                    sm::description("Total cpu busy time in nanoseconds")),
+            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+                    , scollectd::per_cpu_plugin_instance
+                    , "total_operations", "tasks-processed")
+                    , scollectd::make_typed(scollectd::data_type::DERIVE, _tasks_processed)
+            ));
+    _collectd_regs.push_back(
+            // queue_length     value:GAUGE:0:U
+            // Absolute value of num timers in queue.
+            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+                    , scollectd::per_cpu_plugin_instance
+                    , "queue_length", "timers-pending")
+                    , scollectd::make_typed(scollectd::data_type::GAUGE
+                            , std::bind(&decltype(_timers)::size, &_timers))
+            ));
+    _collectd_regs.push_back(
+            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+                    , scollectd::per_cpu_plugin_instance
+                    , "gauge", "load")
+                    , scollectd::make_typed(scollectd::data_type::GAUGE,
+                            [this] () -> uint32_t { return (1 - _load) * 100; })
+            ));
+    _collectd_regs.push_back(
+            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+                    , scollectd::per_cpu_plugin_instance
+                    , "derive", "busy_ns")
+                    , scollectd::make_typed(scollectd::data_type::DERIVE,
+                            [this] () -> int64_t { return std::chrono::duration_cast<std::chrono::nanoseconds>(total_busy_time()).count(); })
+            ));
+    _collectd_regs.push_back(
             // total_operations value:DERIVE:0:U
-            sm::make_derive("aio_reads", _aio_reads, sm::description("Total aio-reads operations")),
-
-            sm::make_total_bytes("aio_bytes_read", _aio_read_bytes, sm::description("Total aio-reads bytes")),
+            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+                    , scollectd::per_cpu_plugin_instance
+                    , "total_operations", "aio-reads")
+                    , scollectd::make_typed(scollectd::data_type::DERIVE, _aio_reads)
+            ));
+    _collectd_regs.push_back(
+            scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+                    , scollectd::per_cpu_plugin_instance
+                    , "derive", "aio-read-bytes")
+                    , scollectd::make_typed(scollectd::data_type::DERIVE, _aio_read_bytes)
+            ));
             // total_operations value:DERIVE:0:U
-            sm::make_derive("aio_writes", _aio_writes, sm::description("Total aio-writes operations")),
-            sm::make_total_bytes("aio_bytes_write", _aio_write_bytes, sm::description("Total aio-writes bytes")),
+    _collectd_regs.push_back(scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+                    , scollectd::per_cpu_plugin_instance
+                    , "total_operations", "aio-writes")
+                    , scollectd::make_typed(scollectd::data_type::DERIVE, _aio_writes)
+            ));
+    _collectd_regs.push_back(scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+                    , scollectd::per_cpu_plugin_instance
+                    , "derive", "aio-write-bytes")
+                    , scollectd::make_typed(scollectd::data_type::DERIVE, _aio_write_bytes)
+            ));
             // total_operations value:DERIVE:0:U
-            sm::make_derive("fsyncs", _fsyncs, sm::description("Total number of fsync operations")),
+    _collectd_regs.push_back(scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+                    , scollectd::per_cpu_plugin_instance
+                    , "total_operations", "fsyncs")
+                    , scollectd::make_typed(scollectd::data_type::DERIVE, _fsyncs)
+            ));
             // total_operations value:DERIVE:0:U
-            sm::make_derive("io_threaded_fallbacks", std::bind(&thread_pool::operation_count, &_thread_pool),
-                    sm::description("Total number of io-threaded-fallbacks operations")),
-
-    });
-
-    _metric_groups.add_group("memory", {
-            sm::make_derive("malloc_operations", [] { return memory::stats().mallocs(); },
-                    sm::description("Total number of malloc operations")),
-            sm::make_derive("free_operations", [] { return memory::stats().frees(); }, sm::description("Total number of free operations")),
-            sm::make_derive("cross_cpu_free_operations", [] { return memory::stats().cross_cpu_frees(); }, sm::description("Total number of cross cpu free")),
-            sm::make_gauge("malloc_live_objects", [] { return memory::stats().live_objects(); }, sm::description("Number of live objects")),
-            sm::make_current_bytes("free_memory", [] { return memory::stats().free_memory(); }, sm::description("Free memeory size in bytes")),
-            sm::make_current_bytes("total_memory", [] { return memory::stats().total_memory(); }, sm::description("Total memeory size in bytes")),
-            sm::make_current_bytes("allocated_memory", [] { return memory::stats().allocated_memory(); }, sm::description("Allocated memeory size in bytes")),
-            sm::make_derive("reclaims_operations", [] { return memory::stats().reclaims(); }, sm::description("Total reclaims operations"))
-    });
-
-    _metric_groups.add_group("reactor", {
-            sm::make_derive("logging_failures", [] { return logging_failures; }, sm::description("Total number of logging failures")),
+    _collectd_regs.push_back(scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+                    , scollectd::per_cpu_plugin_instance
+                    , "total_operations", "io-threaded-fallbacks")
+                    , scollectd::make_typed(scollectd::data_type::DERIVE,
+                            std::bind(&thread_pool::operation_count, &_thread_pool))
+            ));
+    _collectd_regs.push_back(scollectd::add_polled_metric(
+                scollectd::type_instance_id("memory",
+                    scollectd::per_cpu_plugin_instance,
+                    "total_operations", "malloc"),
+                scollectd::make_typed(scollectd::data_type::DERIVE,
+                        [] { return memory::stats().mallocs(); })
+            ));
+    _collectd_regs.push_back(scollectd::add_polled_metric(
+                scollectd::type_instance_id("memory",
+                    scollectd::per_cpu_plugin_instance,
+                    "total_operations", "free"),
+                scollectd::make_typed(scollectd::data_type::DERIVE,
+                        [] { return memory::stats().frees(); })
+            ));
+    _collectd_regs.push_back(scollectd::add_polled_metric(
+                scollectd::type_instance_id("memory",
+                    scollectd::per_cpu_plugin_instance,
+                    "total_operations", "cross_cpu_free"),
+                scollectd::make_typed(scollectd::data_type::DERIVE,
+                        [] { return memory::stats().cross_cpu_frees(); })
+            ));
+    _collectd_regs.push_back(scollectd::add_polled_metric(
+                scollectd::type_instance_id("memory",
+                    scollectd::per_cpu_plugin_instance,
+                    "objects", "malloc"),
+                scollectd::make_typed(scollectd::data_type::GAUGE,
+                        [] { return memory::stats().live_objects(); })
+            ));
+    _collectd_regs.push_back(scollectd::add_polled_metric(
+                scollectd::type_instance_id("memory",
+                    scollectd::per_cpu_plugin_instance,
+                    "memory", "free_memory"),
+                scollectd::make_typed(scollectd::data_type::GAUGE,
+                        [] { return memory::stats().free_memory(); })
+            ));
+    _collectd_regs.push_back(scollectd::add_polled_metric(
+                scollectd::type_instance_id("memory",
+                    scollectd::per_cpu_plugin_instance,
+                    "memory", "total_memory"),
+                scollectd::make_typed(scollectd::data_type::GAUGE,
+                        [] { return memory::stats().total_memory(); })
+            ));
+    _collectd_regs.push_back(scollectd::add_polled_metric(
+                scollectd::type_instance_id("memory",
+                    scollectd::per_cpu_plugin_instance,
+                    "memory", "allocated_memory"),
+                scollectd::make_typed(scollectd::data_type::GAUGE,
+                        [] { return memory::stats().allocated_memory(); })
+            ));
+    _collectd_regs.push_back(scollectd::add_polled_metric(
+                scollectd::type_instance_id("memory",
+                    scollectd::per_cpu_plugin_instance,
+                    "total_operations", "reclaims"),
+                scollectd::make_typed(scollectd::data_type::DERIVE,
+                        [] { return memory::stats().reclaims(); })
+            ));
+    _collectd_regs.push_back(scollectd::add_polled_metric(
+                scollectd::type_instance_id("reactor",
+                    scollectd::per_cpu_plugin_instance,
+                    "total_operations", "logging_failures"),
+                scollectd::make_typed(scollectd::data_type::DERIVE,
+                        [] { return logging_failures; })
+            ));
             // total_operations value:DERIVE:0:U
-            sm::make_derive("cpp_exceptions", _cxx_exceptions, sm::description("Total number of C++ exceptions")),
-    });
+    _collectd_regs.push_back(scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+                    , scollectd::per_cpu_plugin_instance
+                    , "total_operations", "c++exceptions")
+                    , scollectd::make_typed(scollectd::data_type::DERIVE, _cxx_exceptions)
+            ));
 
     if (my_io_queue) {
-        _metric_groups.add_group("reactor", {
-                sm::make_gauge("io_queue_requests", [this] { return my_io_queue->queued_requests(); } , sm::description("Number of requests in the io queue")),
-        });
+        _collectd_regs.push_back(scollectd::add_polled_metric(scollectd::type_instance_id("reactor"
+            , scollectd::per_cpu_plugin_instance
+            , "gauge", "queued-io-requests")
+            , scollectd::make_typed(scollectd::data_type::GAUGE,
+                [this] { return my_io_queue->queued_requests(); } )
+        ));
     }
 
     using namespace seastar::metrics;
@@ -2260,7 +2378,7 @@ static void print_backtrace_safe() noexcept {
 int reactor::run() {
     auto signal_stack = install_signal_handler_stack();
 
-    register_metrics();
+    register_collectd_metrics();
 
 #ifndef HAVE_OSV
     poller io_poller(std::make_unique<io_pollfn>(*this));
@@ -2749,22 +2867,49 @@ size_t smp_message_queue::process_incoming() {
 
 void smp_message_queue::start(unsigned cpuid) {
     _tx.init();
-    namespace sm = seastar::metrics;
     char instance[10];
     std::snprintf(instance, sizeof(instance), "%u-%u", engine().cpu_id(), cpuid);
-    _metrics.add_group("smp", {
+    _collectd_regs = scollectd::registrations({
             // queue_length     value:GAUGE:0:U
             // Absolute value of num packets in last tx batch.
-            sm::make_queue_length("send_batch_queue_length", _last_snt_batch, sm::description("Current send batch queue length"), sm::metric_disabled, instance),
-            sm::make_queue_length("receive_batch_queue_length", _last_rcv_batch, sm::description("Current receive batch queue length"), sm::metric_disabled, instance),
-            sm::make_queue_length("complete_batch_queue_length", _last_cmpl_batch, sm::description("Current complete batch queue length"), sm::metric_disabled, instance),
-            sm::make_queue_length("send_queue_length", _current_queue_length, sm::description("Current send queue length"), sm::metric_disabled, instance),
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
+                    , instance
+                    , "queue_length", "send-batch")
+            , scollectd::make_typed(scollectd::data_type::GAUGE, _last_snt_batch)
+            ),
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
+                    , instance
+                    , "queue_length", "receive-batch")
+            , scollectd::make_typed(scollectd::data_type::GAUGE, _last_rcv_batch)
+            ),
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
+                    , instance
+                    , "queue_length", "complete-batch")
+            , scollectd::make_typed(scollectd::data_type::GAUGE, _last_cmpl_batch)
+            ),
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
+                    , instance
+                    , "queue_length", "send-queue-length")
+            , scollectd::make_typed(scollectd::data_type::GAUGE, _current_queue_length)
+            ),
             // total_operations value:DERIVE:0:U
-            sm::make_derive("total_received_messages", _received, sm::description("Total number of received messages"), sm::metric_disabled, instance),
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
+                    , instance
+                    , "total_operations", "received-messages")
+            , scollectd::make_typed(scollectd::data_type::DERIVE, _received)
+            ),
             // total_operations value:DERIVE:0:U
-            sm::make_derive("total_sent_messages", _sent, sm::description("Total number of sent messages"), sm::metric_disabled, instance),
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
+                    , instance
+                    , "total_operations", "sent-messages")
+            , scollectd::make_typed(scollectd::data_type::DERIVE, _sent)
+            ),
             // total_operations value:DERIVE:0:U
-            sm::make_derive("total_completed_messages", _compl, sm::description("Total number of messages completed"), sm::metric_disabled, instance)
+            scollectd::add_disabled_polled_metric(scollectd::type_instance_id("smp"
+                    , instance
+                    , "total_operations", "completed-messages")
+            , scollectd::make_typed(scollectd::data_type::DERIVE, _compl)
+            ),
     });
 }
 
