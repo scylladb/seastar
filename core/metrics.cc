@@ -34,8 +34,13 @@ metric_groups& metric_groups::add_group(const group_name_type& name, const std::
     return *this;
 }
 
+metric_groups::~metric_groups() = default;
+metric_definition::metric_definition(metric_definition&& m) noexcept : _impl(std::move(m._impl)) {
+}
 
-metric_definition::metric_definition(impl::metric_definition_impl const& m) :
+metric_definition::~metric_definition()  = default;
+
+metric_definition::metric_definition(impl::metric_definition_impl const& m) noexcept :
     _impl(std::make_unique<impl::metric_definition_impl>(m)) {
 }
 
@@ -163,8 +168,10 @@ void impl::add_registration(const metric_id& id, shared_ptr<registered_metric> r
 }
 
 
-const bool metric_disabled = false;
 }
+
+const bool metric_disabled = false;
+
 
 }
 }
