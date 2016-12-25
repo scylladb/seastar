@@ -266,9 +266,9 @@ metric_function make_function(T& val, data_type dt) {
  */
 template<typename T>
 impl::metric_definition_impl make_gauge(metric_name_type name,
-        T val, description d=description(), bool enabled=true,
+        T&& val, description d=description(), bool enabled=true,
         instance_id_type instance = impl::shard(), metric_type_def iht = "gauge") {
-    return {name, instance, {impl::data_type::GAUGE, iht}, make_function(val, impl::data_type::GAUGE), d, enabled};
+    return {name, instance, {impl::data_type::GAUGE, iht}, make_function(std::forward<T>(val), impl::data_type::GAUGE), d, enabled};
 }
 
 /*!
@@ -281,9 +281,9 @@ impl::metric_definition_impl make_gauge(metric_name_type name,
  */
 template<typename T>
 impl::metric_definition_impl make_derive(metric_name_type name,
-        T val, description d=description(), bool enabled=true,
+        T&& val, description d=description(), bool enabled=true,
         instance_id_type instance = impl::shard(), metric_type_def iht = "derive") {
-    return {name, instance, {impl::data_type::DERIVE, iht}, make_function(val, impl::data_type::DERIVE), d, enabled};
+    return {name, instance, {impl::data_type::DERIVE, iht}, make_function(std::forward<T>(val), impl::data_type::DERIVE), d, enabled};
 }
 
 /*!
@@ -295,9 +295,9 @@ impl::metric_definition_impl make_derive(metric_name_type name,
  */
 template<typename T>
 impl::metric_definition_impl make_counter(metric_name_type name,
-        T val, description d=description(), bool enabled=true,
+        T&& val, description d=description(), bool enabled=true,
         instance_id_type instance = impl::shard(), metric_type_def iht = "counter") {
-    return {name, instance, {impl::data_type::COUNTER, iht}, make_function(val, impl::data_type::COUNTER), d, enabled};
+    return {name, instance, {impl::data_type::COUNTER, iht}, make_function(std::forward<T>(val), impl::data_type::COUNTER), d, enabled};
 }
 
 /*!
@@ -308,9 +308,9 @@ impl::metric_definition_impl make_counter(metric_name_type name,
  */
 template<typename T>
 impl::metric_definition_impl make_absolute(metric_name_type name,
-        T val, description d=description(), bool enabled=true,
+        T&& val, description d=description(), bool enabled=true,
         instance_id_type instance = impl::shard(), metric_type_def iht = "absolute") {
-    return {name, instance, {impl::data_type::ABSOLUTE, iht}, make_function(val, impl::data_type::ABSOLUTE), d, enabled};
+    return {name, instance, {impl::data_type::ABSOLUTE, iht}, make_function(std::forward<T>(val), impl::data_type::ABSOLUTE), d, enabled};
 }
 
 /*!
@@ -322,9 +322,9 @@ impl::metric_definition_impl make_absolute(metric_name_type name,
 
 template<typename T>
 impl::metric_definition_impl make_total_bytes(metric_name_type name,
-        T val, description d=description(), bool enabled=true,
+        T&& val, description d=description(), bool enabled=true,
         instance_id_type instance = impl::shard()) {
-    return make_derive(name, val, d, enabled, instance, "total_bytes");
+    return make_derive(name, std::forward<T>(val), d, enabled, instance, "total_bytes");
 }
 
 /*!
@@ -336,9 +336,9 @@ impl::metric_definition_impl make_total_bytes(metric_name_type name,
 
 template<typename T>
 impl::metric_definition_impl make_current_bytes(metric_name_type name,
-        T val, description d=description(), bool enabled=true,
+        T&& val, description d=description(), bool enabled=true,
         instance_id_type instance = impl::shard()) {
-    return make_derive(name, val, d, enabled, instance, "bytes");
+    return make_derive(name, std::forward<T>(val), d, enabled, instance, "bytes");
 }
 
 
@@ -350,9 +350,9 @@ impl::metric_definition_impl make_current_bytes(metric_name_type name,
 
 template<typename T>
 impl::metric_definition_impl make_queue_length(metric_name_type name,
-        T val, description d=description(), bool enabled=true,
+        T&& val, description d=description(), bool enabled=true,
         instance_id_type instance = impl::shard()) {
-    return make_gauge(name, val, d, enabled, instance, "queue_length");
+    return make_gauge(name, std::forward<T>(val), d, enabled, instance, "queue_length");
 }
 
 
@@ -364,9 +364,9 @@ impl::metric_definition_impl make_queue_length(metric_name_type name,
 
 template<typename T>
 impl::metric_definition_impl make_total_operations(metric_name_type name,
-        T val, description d=description(), bool enabled=true,
+        T&& val, description d=description(), bool enabled=true,
         instance_id_type instance = impl::shard()) {
-    return make_derive(name, val, d, enabled, instance, "total_operations");
+    return make_derive(name, std::forward<T>(val), d, enabled, instance, "total_operations");
 }
 
 /*! @} */
