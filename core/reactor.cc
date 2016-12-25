@@ -818,6 +818,10 @@ posix_file_impl::posix_file_impl(int fd, file_open_options options)
 }
 
 posix_file_impl::~posix_file_impl() {
+    if (_refcount && _refcount->fetch_add(-1, std::memory_order_relaxed) != 1) {
+        return;
+    }
+    delete _refcount;
     if (_fd != -1) {
         // Note: close() can be a blocking operation on NFS
         ::close(_fd);
@@ -1479,6 +1483,86 @@ reactor::touch_directory(sstring name) {
     });
 }
 
+namespace seastar {
+
+file_handle::file_handle(const file_handle& x)
+        : _impl(x._impl ? x._impl->clone() : std::unique_ptr<file_handle_impl>()) {
+}
+
+file_handle::file_handle(file_handle&& x) noexcept = default;
+
+file_handle&
+file_handle::operator=(const file_handle& x) {
+    return operator=(file_handle(x));
+}
+
+file_handle&
+file_handle::operator=(file_handle&&) noexcept = default;
+
+file
+file_handle::to_file() const & {
+    return file_handle(*this).to_file();
+}
+
+file
+file_handle::to_file() && {
+    return file(std::move(*_impl).to_file());
+}
+
+}
+
+file::file(seastar::file_handle&& handle)
+        : _file_impl(std::move(std::move(handle).to_file()._file_impl)) {
+}
+
+seastar::file_handle
+file::dup() {
+    return seastar::file_handle(_file_impl->dup());
+}
+
+std::unique_ptr<seastar::file_handle_impl>
+file_impl::dup() {
+    throw std::runtime_error("this file type cannot be duplicated");
+}
+
+std::unique_ptr<seastar::file_handle_impl>
+posix_file_impl::dup() {
+    if (!_refcount) {
+        _refcount = new std::atomic<unsigned>(1u);
+    }
+    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _refcount);
+    _refcount->fetch_add(1, std::memory_order_relaxed);
+    return ret;
+}
+
+posix_file_impl::posix_file_impl(int fd, std::atomic<unsigned>* refcount)
+        : _refcount(refcount), _fd(fd) {
+}
+
+posix_file_handle_impl::~posix_file_handle_impl() {
+    if (_refcount && _refcount->fetch_add(-1, std::memory_order_relaxed) == 1) {
+        ::close(_fd);
+        delete _refcount;
+    }
+}
+
+std::unique_ptr<seastar::file_handle_impl>
+posix_file_handle_impl::clone() const {
+    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _refcount);
+    if (_refcount) {
+        _refcount->fetch_add(1, std::memory_order_relaxed);
+    }
+    return ret;
+}
+
+shared_ptr<file_impl>
+posix_file_handle_impl::to_file() && {
+    auto ret = ::make_shared<posix_file_impl>(_fd, _refcount);
+    _fd = -1;
+    _refcount = nullptr;
+    return ret;
+}
+
 future<>
 posix_file_impl::flush(void) {
     ++engine()._fsyncs;
@@ -1590,6 +1674,11 @@ posix_file_impl::close() noexcept {
     }
     auto fd = _fd;
     _fd = -1;  // Prevent a concurrent close (which is illegal) from closing another file's fd
+    if (_refcount && _refcount->fetch_add(-1, std::memory_order_relaxed) != 1) {
+        return make_ready_future<>();
+    }
+    delete _refcount;
+    _refcount = nullptr;
     auto closed = [fd] () noexcept {
         try {
             return engine()._thread_pool.submit<syscall_result<int>>([fd] {

@@ -97,6 +97,22 @@ public:
 const io_priority_class& default_priority_class();
 
 class file;
+class file_impl;
+
+namespace seastar {
+
+class file_handle;
+
+// A handle that can be transported across shards and used to
+// create a dup(2)-like `file` object referring to the same underlying file
+class file_handle_impl {
+public:
+    virtual ~file_handle_impl() = default;
+    virtual std::unique_ptr<file_handle_impl> clone() const = 0;
+    virtual shared_ptr<file_impl> to_file() && = 0;
+};
+
+}
 
 class file_impl {
 protected:
@@ -119,6 +135,7 @@ public:
     virtual future<> allocate(uint64_t position, uint64_t length) = 0;
     virtual future<uint64_t> size(void) = 0;
     virtual future<> close() = 0;
+    virtual std::unique_ptr<seastar::file_handle_impl> dup();
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) = 0;
 
     friend class reactor;
@@ -154,6 +171,9 @@ public:
 
     file(shared_ptr<file_impl> impl)
             : _file_impl(std::move(impl)) {}
+
+    /// Constructs a file object from a \ref file_handle obtained from another shard
+    explicit file(seastar::file_handle&& handle);
 
     /// Checks whether the file object was initialized.
     ///
@@ -397,6 +417,15 @@ public:
     future<temporary_buffer<CharType>>
     dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc = default_priority_class());
 
+    /// \brief Creates a handle that can be transported across shards.
+    ///
+    /// Creates a handle that can be transported across shards, and then
+    /// used to create a new shard-local \ref file object that refers to
+    /// the same on-disk file.
+    ///
+    /// \note Use on read-only files.
+    ///
+    seastar::file_handle dup();
 private:
     template <typename CharType>
     struct read_state;
@@ -428,6 +457,38 @@ private:
     friend class reactor;
     friend class file_impl;
 };
+
+namespace seastar {
+
+/// \brief A shard-transportable handle to a file
+///
+/// If you need to access a file (for reads only) across multiple shards,
+/// you can use the file::dup() method to create a `file_handle`, transport
+/// this file handle to another shard, and use the handle to create \ref file
+/// object on that shard.  This is more efficient than calling open_file_dma()
+/// again.
+class file_handle {
+    std::unique_ptr<seastar::file_handle_impl> _impl;
+private:
+    explicit file_handle(std::unique_ptr<seastar::file_handle_impl> impl) : _impl(std::move(impl)) {}
+public:
+    /// Copies a file handle object
+    file_handle(const file_handle&);
+    /// Moves a file handle object
+    file_handle(file_handle&&) noexcept;
+    /// Assigns a file handle object
+    file_handle& operator=(const file_handle&);
+    /// Move-assigns a file handle object
+    file_handle& operator=(file_handle&&) noexcept;
+    /// Converts the file handle object to a \ref file.
+    file to_file() const &;
+    /// Converts the file handle object to a \ref file.
+    file to_file() &&;
+
+    friend class ::file;
+};
+
+}
 
 /// \cond internal
 

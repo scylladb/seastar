@@ -30,6 +30,7 @@
 #include "core/seastar.hh"
 #include "test-utils.hh"
 #include "core/thread.hh"
+#include "util/defer.hh"
 #include <random>
 #include <boost/range/adaptor/transformed.hpp>
 
@@ -248,6 +249,30 @@ SEASTAR_TEST_CASE(test_input_stream_esp_around_eof) {
             BOOST_REQUIRE_EQUAL(xlen, readback.size());
             BOOST_REQUIRE(std::equal(readback.begin(), readback.end(), data.begin() + std::min(start, flen)));
         }
+        f.close().get();
+    });
+}
+
+SEASTAR_TEST_CASE(file_handle_test) {
+    return seastar::async([] {
+        auto f = open_file_dma("testfile.tmp", open_flags::create | open_flags::truncate | open_flags::rw).get0();
+        auto buf = static_cast<char*>(aligned_alloc(4096, 4096));
+        auto del = defer([&] { ::free(buf); });
+        for (unsigned i = 0; i < 4096; ++i) {
+            buf[i] = i;
+        }
+        f.dma_write(0, buf, 4096).get();
+        smp::invoke_on_all([fh = f.dup()] {
+            return seastar::async([fh] {
+                auto f = fh.to_file();
+                auto buf = static_cast<char*>(aligned_alloc(4096, 4096));
+                auto del = defer([&] { ::free(buf); });
+                f.dma_read(0, buf, 4096).get();
+                for (unsigned i = 0; i < 4096; ++i) {
+                    BOOST_REQUIRE_EQUAL(buf[i], char(i));
+                }
+            });
+        }).get();
         f.close().get();
     });
 }

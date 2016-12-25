@@ -23,11 +23,28 @@
 
 #include "file.hh"
 #include <deque>
+#include <atomic>
+
+class posix_file_handle_impl : public seastar::file_handle_impl {
+    int _fd;
+    std::atomic<unsigned>* _refcount;
+public:
+    posix_file_handle_impl(int fd, std::atomic<unsigned>* refcount)
+            : _fd(fd), _refcount(refcount) {
+    }
+    virtual ~posix_file_handle_impl();
+    posix_file_handle_impl(const posix_file_handle_impl&) = delete;
+    posix_file_handle_impl(posix_file_handle_impl&&) = delete;
+    virtual shared_ptr<file_impl> to_file() && override;
+    virtual std::unique_ptr<seastar::file_handle_impl> clone() const override;
+};
 
 class posix_file_impl : public file_impl {
+    std::atomic<unsigned>* _refcount = nullptr;
 public:
     int _fd;
     posix_file_impl(int fd, file_open_options options);
+    posix_file_impl(int fd, std::atomic<unsigned>* refcount);
     virtual ~posix_file_impl() override;
     future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc);
     future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc);
@@ -40,6 +57,7 @@ public:
     virtual future<> allocate(uint64_t position, uint64_t length) override;
     future<uint64_t> size();
     virtual future<> close() noexcept override;
+    virtual std::unique_ptr<seastar::file_handle_impl> dup() override;
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) override;
 private:
     void query_dma_alignment();
