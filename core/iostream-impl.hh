@@ -27,38 +27,6 @@
 #include "net/packet.hh"
 #include "core/future-util.hh"
 
-inline
-data_source::~data_source() {
-    if (_dsi) {
-        auto& impl = *_dsi;
-        impl.close().then([dsi = std::move(_dsi)] {});
-    }
-}
-
-inline
-future<> data_source::close() {
-    return _dsi->close().then([this] {
-        _dsi = nullptr;
-    });
-    return _dsi->close();
-}
-
-inline
-data_sink::~data_sink() {
-    if (_dsi) {
-        auto& impl = *_dsi;
-        impl.close().then([dsi = std::move(_dsi)] {});
-    }
-}
-
-inline
-future<> data_sink::close() {
-    return _dsi->close().then([this] {
-        _dsi = nullptr;
-    });
-    return _dsi->close();
-}
-
 inline future<temporary_buffer<char>> data_source_impl::skip(uint64_t n)
 {
     return do_with(uint64_t(n), [this] (uint64_t& n) {
