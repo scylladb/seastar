@@ -184,8 +184,6 @@ struct port_stats {
     struct {
         struct {
             uint64_t mcast;        // number of received multicast packets
-            uint64_t pause_xon;    // number of received PAUSE XON frames
-            uint64_t pause_xoff;   // number of received PAUSE XOFF frames
         } good;
 
         struct {
@@ -197,11 +195,6 @@ struct port_stats {
     } rx;
 
     struct {
-        struct {
-            uint64_t pause_xon;   // number of sent PAUSE XON frames
-            uint64_t pause_xoff;  // number of sent PAUSE XOFF frames
-        } good;
-
         struct {
             uint64_t total;   // total number of failed transmitted packets
         } bad;
@@ -297,16 +290,9 @@ public:
             }
 
             _stats.rx.good.mcast      = rte_stats.imcasts;
-            _stats.rx.good.pause_xon  = rte_stats.rx_pause_xon;
-            _stats.rx.good.pause_xoff = rte_stats.rx_pause_xoff;
 
-            _stats.rx.bad.crc         = rte_stats.ibadcrc;
             _stats.rx.bad.dropped     = rte_stats.imissed;
-            _stats.rx.bad.len         = rte_stats.ibadlen;
             _stats.rx.bad.total       = rte_stats.ierrors;
-
-            _stats.tx.good.pause_xon  = rte_stats.tx_pause_xon;
-            _stats.tx.good.pause_xoff = rte_stats.tx_pause_xoff;
 
             _stats.tx.bad.total       = rte_stats.oerrors;
         });
@@ -327,48 +313,9 @@ public:
             scollectd::add_polled_metric(scollectd::type_instance_id(
                           _stats_plugin_name
                         , _stats_plugin_inst
-                        , "if_rx_errors", "Bad CRC")
-                        , scollectd::make_typed(scollectd::data_type::DERIVE
-                        , _stats.rx.bad.crc)
-        ));
-        _collectd_regs.push_back(
-            scollectd::add_polled_metric(scollectd::type_instance_id(
-                          _stats_plugin_name
-                        , _stats_plugin_inst
                         , "if_rx_errors", "Dropped")
                         , scollectd::make_typed(scollectd::data_type::DERIVE
                         , _stats.rx.bad.dropped)
-        ));
-        _collectd_regs.push_back(
-            scollectd::add_polled_metric(scollectd::type_instance_id(
-                          _stats_plugin_name
-                        , _stats_plugin_inst
-                        , "if_rx_errors", "Bad Length")
-                        , scollectd::make_typed(scollectd::data_type::DERIVE
-                        , _stats.rx.bad.len)
-        ));
-
-        // Coupled counters:
-        // Good
-        _collectd_regs.push_back(
-            scollectd::add_polled_metric(scollectd::type_instance_id(
-                          _stats_plugin_name
-                        , _stats_plugin_inst
-                        , "if_packets", _stats_plugin_inst + " Pause XON")
-                        , scollectd::make_typed(scollectd::data_type::DERIVE
-                        , _stats.rx.good.pause_xon)
-                        , scollectd::make_typed(scollectd::data_type::DERIVE
-                        , _stats.tx.good.pause_xon)
-        ));
-        _collectd_regs.push_back(
-            scollectd::add_polled_metric(scollectd::type_instance_id(
-                          _stats_plugin_name
-                        , _stats_plugin_inst
-                        , "if_packets", _stats_plugin_inst + " Pause XOFF")
-                        , scollectd::make_typed(scollectd::data_type::DERIVE
-                        , _stats.rx.good.pause_xoff)
-                        , scollectd::make_typed(scollectd::data_type::DERIVE
-                        , _stats.tx.good.pause_xoff)
         ));
 
         // Errors
