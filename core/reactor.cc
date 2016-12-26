@@ -2334,13 +2334,7 @@ int reactor::run() {
     });
     load_timer.arm_periodic(1s);
 
-    itimerspec its = {};
-    auto nsec = std::chrono::duration_cast<std::chrono::nanoseconds>(_task_quota).count();
-    auto tv_nsec = nsec % 1'000'000'000;
-    auto tv_sec = nsec / 1'000'000'000;
-    its.it_value.tv_nsec = tv_nsec;
-    its.it_value.tv_sec = tv_sec;
-    its.it_interval = its.it_value;
+    itimerspec its = seastar::posix::to_relative_itimerspec(_task_quota, _task_quota);
     auto r = timer_settime(_task_quota_timer, 0, &its, nullptr);
     assert(r == 0);
     auto& task_quote_itimerspec = its;
