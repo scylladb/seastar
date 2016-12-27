@@ -69,7 +69,7 @@ registration::registration(type_instance_id&& id)
 }
 
 seastar::metrics::impl::metric_id to_metrics_id(const type_instance_id & id) {
-    return std::move(seastar::metrics::impl::metric_id(id.plugin(), id.plugin_instance(), id.type(), id.type_instance()));
+    return std::move(seastar::metrics::impl::metric_id(id.plugin(), id.plugin_instance(), id.type() + "_" + id.type_instance(), id.type()));
 }
 
 
