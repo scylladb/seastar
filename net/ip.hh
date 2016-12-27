@@ -41,6 +41,7 @@
 #include "core/shared_ptr.hh"
 #include "toeplitz.hh"
 #include "net/udp.hh"
+#include "core/scollectd.hh"
 
 namespace net {
 

@@ -44,6 +44,8 @@
 #include "core/xen/xenstore.hh"
 #include "core/xen/evtchn.hh"
 
+#include "core/metrics.hh"
+
 #include "xenfront.hh"
 #include <unordered_set>
 
@@ -383,13 +385,12 @@ xenfront_qp::xenfront_qp(xenfront_device* dev, boost::program_options::variables
     }
 
     // Register Rx error statistics
-    _collectd_regs.push_back(
-        scollectd::add_polled_metric(scollectd::type_instance_id("network"
-                    , scollectd::per_cpu_plugin_instance
-                    , "requests", "rx-errors")
-                    , scollectd::make_typed(scollectd::data_type::GAUGE
-                    , _stats.rx.bad.total)
-    ));
+    namespace sm = seastar::metrics;
+
+    _metrics.add_group("network", {
+        sm::make_derive(_queue_name + "_rx_errors", _stats.rx.bad.total,
+                        sm::description("Counts a total number of Rx packets with errors."))
+    });
 
     keep_doing([this] {
         return alloc_rx_references();
