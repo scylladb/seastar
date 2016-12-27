@@ -28,6 +28,7 @@
 #include "core/stream.hh"
 #include "core/circular_buffer.hh"
 #include "core/align.hh"
+#include "core/metrics.hh"
 #include "util/function_input_iterator.hh"
 #include "util/transform_iterator.hh"
 #include <atomic>

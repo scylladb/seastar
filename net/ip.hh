@@ -41,6 +41,7 @@
 #include "core/shared_ptr.hh"
 #include "toeplitz.hh"
 #include "net/udp.hh"
+#include "core/metrics_registration.hh"
 
 namespace net {
 
@@ -362,7 +363,7 @@ private:
     timer<lowres_clock> _frag_timer;
     circular_buffer<l3_protocol::l3packet> _packetq;
     unsigned _pkt_provider_idx = 0;
-    scollectd::registrations _collectd_regs;
+    seastar::metrics::metric_groups _metrics;
 private:
     future<> handle_received_packet(packet p, ethernet_address from);
     bool forward(forward_hash& out_hash_data, packet& p, size_t off);

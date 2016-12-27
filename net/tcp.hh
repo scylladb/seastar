@@ -27,6 +27,7 @@
 #include "core/semaphore.hh"
 #include "core/print.hh"
 #include "core/byteorder.hh"
+#include "core/metrics.hh"
 #include "net.hh"
 #include "ip_checksum.hh"
 #include "ip.hh"
@@ -630,7 +631,7 @@ private:
     // queue for packets that do not belong to any tcb
     circular_buffer<ipv4_traits::l4packet> _packetq;
     semaphore _queue_space = {212992};
-    scollectd::registrations _collectd_regs;
+    seastar::metrics::metric_groups _metrics;
 public:
     class connection {
         lw_shared_ptr<tcb> _tcb;
@@ -729,19 +730,15 @@ private:
 template <typename InetTraits>
 tcp<InetTraits>::tcp(inet_type& inet)
     : _inet(inet)
-    , _e(_rd())
-    , _collectd_regs({
-        //
-        // Linearized events: DERIVE:0:u
-        //
-        scollectd::add_polled_metric(scollectd::type_instance_id(
-              "tcp"
-            , scollectd::per_cpu_plugin_instance
-            , "total_operations", "linearizations")
-            , scollectd::make_typed(scollectd::data_type::DERIVE
-            , [] { return tcp_packet_merger::linearizations(); })
-        ),
-    }) {
+    , _e(_rd()) {
+    namespace sm = seastar::metrics;
+
+    _metrics.add_group("tcp", {
+        sm::make_derive("linearizations", [] { return tcp_packet_merger::linearizations(); },
+                        sm::description("Counts a number of times a buffer linearization was invoked during the buffers merge process. "
+                                        "Divide it by a total TCP receive packet rate to get an everage number of lineraizations per TCP packet."))
+    });
+
     _inet.register_packet_provider([this, tcb_polled = 0u] () mutable {
         std::experimental::optional<typename InetTraits::l4packet> l4p;
         auto c = _poll_tcbs.size();

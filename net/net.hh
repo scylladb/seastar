@@ -26,7 +26,7 @@
 #include "core/deleter.hh"
 #include "core/queue.hh"
 #include "core/stream.hh"
-#include "core/scollectd.hh"
+#include "core/metrics_registration.hh"
 #include "net/toeplitz.hh"
 #include "ethernet.hh"
 #include "packet.hh"
@@ -221,7 +221,7 @@ class qp {
 protected:
     const std::string _stats_plugin_name;
     const std::string _queue_name;
-    scollectd::registrations _collectd_regs;
+    seastar::metrics::metric_groups _metrics;
     qp_stats _stats;
 
 public:
