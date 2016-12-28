@@ -28,6 +28,9 @@ namespace metrics {
 metric_groups::metric_groups() : _impl(impl::create_metric_groups()) {
 }
 
+void metric_groups::clear() {
+    _impl = impl::create_metric_groups();
+}
 
 metric_groups& metric_groups::add_group(const group_name_type& name, const std::initializer_list<metric_definition>& l) {
     _impl->add_group(name, l);

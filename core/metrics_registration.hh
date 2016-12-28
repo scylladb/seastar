@@ -92,6 +92,11 @@ public:
      *  _metrics.add_group("my group1", {...}).add_group("my group2", {...});
      */
     metric_groups& add_group(const group_name_type& name, const std::initializer_list<metric_definition>& l);
+
+    /*!
+     * \brief clear all metrics groups registrations.
+     */
+    void clear();
 };
 
 
