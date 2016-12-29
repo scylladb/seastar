@@ -25,17 +25,32 @@
 namespace seastar {
 namespace metrics {
 
-metric_groups::metric_groups() : _impl(impl::create_metric_groups()) {
+metric_groups::metric_groups() noexcept : _impl(impl::create_metric_groups()) {
 }
 
 void metric_groups::clear() {
     _impl = impl::create_metric_groups();
 }
 
+metric_groups::metric_groups(std::initializer_list<metric_group_definition> mg) : _impl(impl::create_metric_groups()) {
+    for (auto&& i : mg) {
+        add_group(i.name, i.metrics);
+    }
+}
 metric_groups& metric_groups::add_group(const group_name_type& name, const std::initializer_list<metric_definition>& l) {
     _impl->add_group(name, l);
     return *this;
 }
+metric_group::metric_group() noexcept = default;
+metric_group::~metric_group() = default;
+metric_group::metric_group(const group_name_type& name, std::initializer_list<metric_definition> l) {
+    add_group(name, l);
+}
+
+metric_group_definition::metric_group_definition(const group_name_type& name, std::initializer_list<metric_definition> l) : name(name), metrics(l) {
+}
+
+metric_group_definition::~metric_group_definition() = default;
 
 metric_groups::~metric_groups() = default;
 metric_definition::metric_definition(metric_definition&& m) noexcept : _impl(std::move(m._impl)) {

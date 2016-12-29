@@ -64,17 +64,35 @@ public:
     friend impl::metric_groups_impl;
 };
 
+class metric_group_definition {
+public:
+    group_name_type name;
+    std::initializer_list<metric_definition> metrics;
+    metric_group_definition(const group_name_type& name, std::initializer_list<metric_definition> l);
+    metric_group_definition(const metric_group_definition&) = delete;
+    ~metric_group_definition();
+};
+
 /*!
  * metric_groups
  * \brief holds the metric definition.
  *
- * Use the add_group method to add a group of metrics @see metrics.hh for example and supported metrics
+ * Add multiple metric groups definitions.
+ * Initialization can be done in the constructor or with a call to add_group
+ * @see metrics.hh for example and supported metrics
  */
 class metric_groups {
     std::unique_ptr<impl::metric_groups_def> _impl;
 public:
-    metric_groups();
-    ~metric_groups();
+    metric_groups() noexcept;
+    virtual ~metric_groups();
+    /*!
+     * \brief add metrics belong to the same group in the constructor.
+     *
+     * combine the constructor with the add_group functionality.
+     */
+    metric_groups(std::initializer_list<metric_group_definition> mg);
+
     /*!
      * \brief add metrics belong to the same group.
      *
@@ -97,6 +115,26 @@ public:
      * \brief clear all metrics groups registrations.
      */
     void clear();
+};
+
+
+/*!
+ * \brief hold a single metric group
+ * Initialization is done in the constructor or
+ * with a call to add_group
+ */
+class metric_group : public metric_groups {
+public:
+    metric_group() noexcept;
+    metric_group(const metric_group&) = delete;
+    virtual ~metric_group();
+
+    /*!
+     * \brief add metrics belong to the same group in the constructor.
+     *
+     *
+     */
+    metric_group(const group_name_type& name, std::initializer_list<metric_definition> l);
 };
 
 
