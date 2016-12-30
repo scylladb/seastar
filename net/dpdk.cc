@@ -37,6 +37,7 @@
 #include <vector>
 #include <queue>
 #include <experimental/optional>
+#include <boost/preprocessor.hpp>
 #include "ip.hh"
 #include "const.hh"
 #include "core/dpdk_rte.hh"
@@ -171,7 +172,7 @@ uint32_t qp_mempool_obj_size(bool hugetlbfs_membackend)
     return mp_size;
 }
 
-static constexpr const char* pktmbuf_pool_name   = "dpdk_net_pktmbuf_pool";
+static constexpr const char* pktmbuf_pool_name   = "dpdk_pktmbuf_pool";
 
 /*
  * When doing reads from the NIC queues, use this batch size
@@ -209,6 +210,94 @@ struct port_stats {
     } tx;
 };
 
+#define XSTATS_ID_LIST \
+        (rx_multicast_packets) \
+        (rx_xon_packets) \
+        (rx_xoff_packets) \
+        (rx_crc_errors) \
+        (rx_length_errors) \
+        (rx_undersize_errors) \
+        (rx_oversize_errors) \
+        (tx_xon_packets) \
+        (tx_xoff_packets)
+
+class dpdk_xstats {
+public:
+    dpdk_xstats(uint8_t port_id)
+        : _port_id(port_id)
+    {
+    }
+
+    ~dpdk_xstats()
+    {
+        if (_xstats)
+            delete _xstats;
+        if (_xstat_names)
+            delete _xstat_names;
+    }
+
+    enum xstat_id {
+        BOOST_PP_SEQ_ENUM(XSTATS_ID_LIST)
+    };
+
+
+    void start() {
+        _len = rte_eth_xstats_get_names(_port_id, NULL, 0);
+        _xstats = new rte_eth_xstat[_len];
+        _xstat_names = new rte_eth_xstat_name[_len];
+        update_xstats();
+        update_xstat_names();
+        update_offsets();
+    }
+
+    void update_xstats() {
+        auto len = rte_eth_xstats_get(_port_id, _xstats, _len);
+        assert(len == _len);
+    }
+
+    uint64_t get_value(const xstat_id id) {
+        auto off = _offsets[static_cast<int>(id)];
+        return _xstats[off].value;
+    }
+
+private:
+    uint8_t _port_id;
+    int _len;
+    struct rte_eth_xstat *_xstats = nullptr;
+    struct rte_eth_xstat_name *_xstat_names = nullptr;
+    int _offsets[BOOST_PP_SEQ_SIZE(XSTATS_ID_LIST)];
+
+    static const sstring id_to_str(const xstat_id id) {
+#define ENUM_TO_STR(r, data, elem) \
+        if (id == elem) \
+            return BOOST_PP_STRINGIZE(elem);
+
+        BOOST_PP_SEQ_FOR_EACH(ENUM_TO_STR, ~, XSTATS_ID_LIST)
+        return "";
+    }
+
+    int get_offset_by_name(const xstat_id id, const int len) {
+        for (int i = 0; i < len; i++) {
+            if (id_to_str(id) == _xstat_names[i].name)
+                return i;
+        }
+        return -1;
+    }
+
+    void update_xstat_names() {
+        auto len = rte_eth_xstats_get_names(_port_id, _xstat_names, _len);
+        assert(len == _len);
+    }
+
+    void update_offsets() {
+#define FIND_OFFSET(r, data, elem) \
+        _offsets[static_cast<int>(elem)] = \
+            get_offset_by_name(elem, _len);
+
+        BOOST_PP_SEQ_FOR_EACH(FIND_OFFSET, ~, XSTATS_ID_LIST)
+    }
+};
+
 class dpdk_device : public device {
     uint8_t _port_idx;
     uint16_t _num_queues;
@@ -226,6 +315,7 @@ class dpdk_device : public device {
     seastar::metrics::metric_groups _metrics;
     bool _is_i40e_device = false;
     bool _is_vmxnet3_device = false;
+    dpdk_xstats _xstats;
 
 public:
     rte_eth_dev_info _dev_info = {};
@@ -281,6 +371,7 @@ public:
         , _enable_fc(enable_fc)
         , _stats_plugin_name("network")
         , _stats_plugin_inst(std::string("port") + std::to_string(_port_idx))
+        , _xstats(port_idx)
     {
 
         /* now initialise the port we will use */
@@ -288,6 +379,10 @@ public:
         if (ret != 0) {
             rte_exit(EXIT_FAILURE, "Cannot initialise port %u\n", _port_idx);
         }
+
+        /* need to defer initialize xstats since NIC specific xstat entries
+           show up only after port initization */
+        _xstats.start();
 
         _stats_collector.set_callback([&] {
             rte_eth_stats rte_stats = {};
@@ -297,17 +392,25 @@ public:
                 printf("Failed to get port statistics: %s\n", strerror(rc));
             }
 
-            _stats.rx.good.mcast      = rte_stats.imcasts;
-            _stats.rx.good.pause_xon  = rte_stats.rx_pause_xon;
-            _stats.rx.good.pause_xoff = rte_stats.rx_pause_xoff;
+            _stats.rx.good.mcast      =
+                _xstats.get_value(dpdk_xstats::xstat_id::rx_multicast_packets);
+            _stats.rx.good.pause_xon  =
+                _xstats.get_value(dpdk_xstats::xstat_id::rx_xon_packets);
+            _stats.rx.good.pause_xoff =
+                _xstats.get_value(dpdk_xstats::xstat_id::rx_xoff_packets);
 
-            _stats.rx.bad.crc         = rte_stats.ibadcrc;
-            _stats.rx.bad.dropped     = rte_stats.imissed;
-            _stats.rx.bad.len         = rte_stats.ibadlen;
+            _stats.rx.bad.crc        =
+                _xstats.get_value(dpdk_xstats::xstat_id::rx_crc_errors);
+            _stats.rx.bad.len         =
+                _xstats.get_value(dpdk_xstats::xstat_id::rx_length_errors) +
+                _xstats.get_value(dpdk_xstats::xstat_id::rx_undersize_errors) +
+                _xstats.get_value(dpdk_xstats::xstat_id::rx_oversize_errors);
             _stats.rx.bad.total       = rte_stats.ierrors;
 
-            _stats.tx.good.pause_xon  = rte_stats.tx_pause_xon;
-            _stats.tx.good.pause_xoff = rte_stats.tx_pause_xoff;
+            _stats.tx.good.pause_xon  =
+                _xstats.get_value(dpdk_xstats::xstat_id::tx_xon_packets);
+            _stats.tx.good.pause_xoff =
+                _xstats.get_value(dpdk_xstats::xstat_id::tx_xoff_packets);
 
             _stats.tx.bad.total       = rte_stats.oerrors;
         });
