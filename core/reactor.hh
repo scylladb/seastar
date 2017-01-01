@@ -676,7 +676,7 @@ private:
     promise<std::unique_ptr<network_stack>> _network_stack_ready_promise;
     int _return = 0;
     timer_t _steady_clock_timer = {};
-    timer_t _task_quota_timer = {};
+    file_desc _task_quota_timer;
     promise<> _start_promise;
     semaphore _cpu_started;
     uint64_t _tasks_processed = 0;
@@ -730,6 +730,9 @@ private:
     std::atomic<bool> _sleeping alignas(64);
     pthread_t _thread_id alignas(64) = pthread_self();
     bool _strict_o_direct = true;
+    bool& _local_need_preempt{g_need_preempt}; // for access from the _task_quota_timer_thread
+    std::thread _task_quota_timer_thread;
+    std::atomic<bool> _dying{false};
 private:
     static std::chrono::nanoseconds calculate_poll_time();
     static void clear_task_quota(int);
@@ -782,6 +785,7 @@ private:
 
     void run_tasks(circular_buffer<std::unique_ptr<task>>& tasks);
     bool posix_reuseport_detect();
+    void task_quota_timer_thread_fn();
 public:
     static boost::program_options::options_description get_options_description();
     reactor();

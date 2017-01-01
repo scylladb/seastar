@@ -231,10 +231,6 @@ inline int alarm_signal() {
     return SIGRTMIN;
 }
 
-inline int task_quota_signal() {
-    return SIGRTMIN + 1;
-}
-
 // Installs signal handler stack for current thread.
 // The stack remains installed as long as the returned object is kept alive.
 // When it goes out of scope the previous handler is restored.
@@ -266,10 +262,12 @@ reactor::reactor()
         [&] { timer_thread_func(); }, sched::thread::attr().stack(4096).name("timer_thread").pin(sched::cpu::current()))
     , _engine_thread(sched::thread::current())
 #endif
+    , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
     , _cpu_started(0)
     , _io_context(0)
     , _io_context_available(max_aio)
-    , _reuseport(posix_reuseport_detect()) {
+    , _reuseport(posix_reuseport_detect())
+    , _task_quota_timer_thread(&reactor::task_quota_timer_thread_fn, this) {
 
     seastar::thread_impl::init();
     auto r = ::io_setup(max_aio, &_io_context);
@@ -288,11 +286,7 @@ reactor::reactor()
     sev.sigev_signo = alarm_signal();
     r = timer_create(CLOCK_MONOTONIC, &sev, &_steady_clock_timer);
     assert(r >= 0);
-    sev.sigev_signo = task_quota_signal();
-    r = timer_create(CLOCK_MONOTONIC, &sev, &_task_quota_timer);
-    assert(r >= 0);
     sigemptyset(&mask);
-    sigaddset(&mask, task_quota_signal());
     r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
     assert(r == 0);
 #endif
@@ -304,7 +298,8 @@ reactor::reactor()
 }
 
 reactor::~reactor() {
-    timer_delete(_task_quota_timer);
+    _dying.store(true, std::memory_order_relaxed);
+    _task_quota_timer_thread.join();
     timer_delete(_steady_clock_timer);
     auto eraser = [](auto& list) {
         while (!list.empty()) {
@@ -315,6 +310,18 @@ reactor::~reactor() {
     eraser(_expired_timers);
     eraser(_expired_lowres_timers);
     eraser(_expired_manual_timers);
+}
+
+void
+reactor::task_quota_timer_thread_fn() {
+    while (!_dying.load(std::memory_order_relaxed)) {
+        uint64_t events;
+        _task_quota_timer.read(&events, 8);
+        _local_need_preempt = true;
+        // We're in a different thread, but guaranteed to be on the same core, so even
+        // a signal fence is overdoing it
+        std::atomic_signal_fence(std::memory_order_seq_cst);
+    }
 }
 
 void
@@ -2423,22 +2430,9 @@ int reactor::run() {
     });
     load_timer.arm_periodic(1s);
 
-    itimerspec its = {};
-    auto nsec = std::chrono::duration_cast<std::chrono::nanoseconds>(_task_quota).count();
-    auto tv_nsec = nsec % 1'000'000'000;
-    auto tv_sec = nsec / 1'000'000'000;
-    its.it_value.tv_nsec = tv_nsec;
-    its.it_value.tv_sec = tv_sec;
-    its.it_interval = its.it_value;
-    auto r = timer_settime(_task_quota_timer, 0, &its, nullptr);
-    assert(r == 0);
+    itimerspec its = seastar::posix::to_relative_itimerspec(_task_quota, _task_quota);
+    _task_quota_timer.timerfd_settime(0, its);
     auto& task_quote_itimerspec = its;
-
-    struct sigaction sa_task_quota = {};
-    sa_task_quota.sa_handler = &reactor::clear_task_quota;
-    sa_task_quota.sa_flags = SA_RESTART;
-    r = sigaction(task_quota_signal(), &sa_task_quota, nullptr);
-    assert(r == 0);
 
     bool idle = false;
 
@@ -2493,11 +2487,11 @@ int reactor::run() {
                 if (idle_end - idle_start > _max_poll_time) {
                     // Turn off the task quota timer to avoid spurious wakeiups
                     struct itimerspec zero_itimerspec = {};
-                    timer_settime(_task_quota_timer, 0, &zero_itimerspec, nullptr);
+                    _task_quota_timer.timerfd_settime(0, zero_itimerspec);
                     sleep();
                     // We may have slept for a while, so freshen idle_end
                     idle_end = steady_clock_type::now();
-                    timer_settime(_task_quota_timer, 0, &task_quote_itimerspec, nullptr);
+                    _task_quota_timer.timerfd_settime(0, task_quote_itimerspec);
                 }
             } else {
                 // We previously ran pure_check_for_work(), might not actually have performed
