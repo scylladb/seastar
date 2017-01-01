@@ -1923,7 +1923,7 @@ void reactor::register_metrics() {
             // total_operations value:DERIVE:0:U
             sm::make_derive("tasks_processed", _tasks_processed, sm::description("Total tasks processed")),
             sm::make_derive("timers_pending", std::bind(&decltype(_timers)::size, &_timers), sm::description("Number of tasks in the timer-pending queue")),
-            sm::make_gauge("idle_percent", [this] { return (1.0 - _load) * 100; }, sm::description("CPU idle percentage")),
+            sm::make_gauge("load", [this] { return _load * 100; }, sm::description("CPU load percentage")),
             sm::make_derive("cpu_busy_ns", [this] () -> int64_t { return std::chrono::duration_cast<std::chrono::nanoseconds>(total_busy_time()).count(); },
                     sm::description("Total cpu busy time in nanoseconds")),
             // total_operations value:DERIVE:0:U
