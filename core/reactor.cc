@@ -775,6 +775,14 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
     if (it_pclass == _priority_classes.end()) {
         auto shares = _registered_shares.at(pc.id()).load(std::memory_order_acquire);
         auto name = _registered_names.at(pc.id());
+        // FIXME
+        // The following comment is correct, we want to differentiate based on owner,
+        // Currently the name will end up as the type_instance and be part of the name
+        // not a tag, this causes trouble in the dashboards, as you will not be able to
+        // sum over the different queues.
+        //
+        // As soon as we will add tag support the owner will be added as a tag
+        //
         // A note on naming:
         //
         // We could just add the owner as the instance id and have something like:
@@ -788,7 +796,7 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
         //
         // This conveys all the information we need and allows one to easily group all classes from
         // the same I/O queue (by filtering by instance ID)
-        auto ret = _priority_classes.emplace(pc.id(), make_lw_shared<priority_class_data>(sprint("%s-%d", name, owner), _fq.register_priority_class(shares)));
+        auto ret = _priority_classes.emplace(pc.id(), make_lw_shared<priority_class_data>(name, _fq.register_priority_class(shares)));
         it_pclass = ret.first;
     }
     return *(it_pclass->second);
