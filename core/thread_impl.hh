@@ -43,6 +43,11 @@ struct jmp_buf_link {
     jmp_buf_link* link;
     thread_context* thread;
     std::experimental::optional<std::chrono::time_point<thread_clock>> yield_at = {};
+public:
+    void initial_switch_in(ucontext_t* initial_context);
+    void switch_in();
+    void switch_out();
+    void final_switch_out();
 };
 
 extern thread_local jmp_buf_link* g_current_context;

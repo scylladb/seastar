@@ -32,6 +32,71 @@ namespace seastar {
 thread_local jmp_buf_link g_unthreaded_context;
 thread_local jmp_buf_link* g_current_context;
 
+#ifdef ASAN_ENABLED
+
+void jmp_buf_link::initial_switch_in(ucontext_t* initial_context)
+{
+    auto prev = std::exchange(g_current_context, this);
+    link = prev;
+    swapcontext(&prev->context, initial_context);
+
+}
+
+void jmp_buf_link::switch_in()
+{
+    auto prev = std::exchange(g_current_context, this);
+    link = prev;
+    swapcontext(&prev->context, &context);
+}
+
+void jmp_buf_link::switch_out()
+{
+    g_current_context = link;
+    swapcontext(&context, &g_current_context->context);
+}
+
+void jmp_buf_link::final_switch_out()
+{
+    g_current_context = link;
+    setcontext(&g_current_context->context);
+}
+
+#else
+
+inline void jmp_buf_link::initial_switch_in(ucontext_t* initial_context)
+{
+    auto prev = std::exchange(g_current_context, this);
+    link = prev;
+    if (setjmp(prev->jmpbuf) == 0) {
+        setcontext(initial_context);
+    }
+}
+
+inline void jmp_buf_link::switch_in()
+{
+    auto prev = std::exchange(g_current_context, this);
+    link = prev;
+    if (setjmp(prev->jmpbuf) == 0) {
+        longjmp(jmpbuf, 1);
+    }
+}
+
+inline void jmp_buf_link::switch_out()
+{
+    g_current_context = link;
+    if (setjmp(jmpbuf) == 0) {
+        longjmp(g_current_context->jmpbuf, 1);
+    }
+}
+
+inline void jmp_buf_link::final_switch_out()
+{
+    g_current_context = link;
+    longjmp(g_current_context->jmpbuf, 1);
+}
+
+#endif
+
 thread_context::thread_context(thread_attributes attr, std::function<void ()> func)
         : _attr(std::move(attr))
         , _func(std::move(func)) {
@@ -90,37 +155,19 @@ thread_context::setup() {
     initial_context.uc_stack.ss_size = _stack_size;
     initial_context.uc_link = nullptr;
     makecontext(&initial_context, main, 2, int(q), int(q >> 32));
-    auto prev = g_current_context;
-    _context.link = prev;
     _context.thread = this;
-    g_current_context = &_context;
-#ifdef ASAN_ENABLED
-    swapcontext(&prev->context, &initial_context);
-#else
-    if (setjmp(prev->jmpbuf) == 0) {
-        setcontext(&initial_context);
-    }
-#endif
+    _context.initial_switch_in(&initial_context);
 }
 
 void
 thread_context::switch_in() {
-    auto prev = g_current_context;
-    g_current_context = &_context;
-    _context.link = prev;
     if (_attr.scheduling_group) {
         _attr.scheduling_group->account_start();
         _context.yield_at = _attr.scheduling_group->_this_run_start + _attr.scheduling_group->_this_period_remain;
     } else {
         _context.yield_at = {};
     }
-#ifdef ASAN_ENABLED
-    swapcontext(&prev->context, &_context.context);
-#else
-    if (setjmp(prev->jmpbuf) == 0) {
-        longjmp(_context.jmpbuf, 1);
-    }
-#endif
+    _context.switch_in();
 }
 
 void
@@ -128,14 +175,7 @@ thread_context::switch_out() {
     if (_attr.scheduling_group) {
         _attr.scheduling_group->account_stop();
     }
-    g_current_context = _context.link;
-#ifdef ASAN_ENABLED
-    swapcontext(&_context.context, &g_current_context->context);
-#else
-    if (setjmp(_context.jmpbuf) == 0) {
-        longjmp(g_current_context->jmpbuf, 1);
-    }
-#endif
+    _context.switch_out();
 }
 
 bool
@@ -205,12 +245,7 @@ thread_context::main() {
     if (_attr.scheduling_group) {
         _attr.scheduling_group->account_stop();
     }
-    g_current_context = _context.link;
-#ifdef ASAN_ENABLED
-    setcontext(&g_current_context->context);
-#else
-    longjmp(g_current_context->jmpbuf, 1);
-#endif
+    _context.final_switch_out();
 }
 
 namespace thread_impl {
