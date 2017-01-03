@@ -145,6 +145,17 @@ struct cpwriter {
         _overflow |= av < sz;
         return *this;
     }
+
+    sstring get_type_instance(const seastar::metrics::impl::metric_id & id) {
+        if (id.labels().empty()) {
+            return id.name();
+        }
+        sstring res = id.name();
+        for (auto i : id.labels()) {
+            res += "-" + i.value();
+        }
+        return res;
+    }
     explicit operator bool() const {
         return !_overflow;
     }
@@ -258,7 +269,7 @@ struct cpwriter {
                         to_sstring(engine().cpu_id()) : id.instance_id());
         put_cached(part_type::Type, id.inherit_type());
         // Optional
-        put_cached(part_type::TypeInst, id.name());
+        put_cached(part_type::TypeInst, get_type_instance(id));
         return *this;
     }
     cpwriter & put(const sstring & host,
