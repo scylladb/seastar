@@ -21,6 +21,7 @@
 
 #include "metrics.hh"
 #include "metrics_api.hh"
+#include <boost/range/algorithm.hpp>
 
 namespace seastar {
 namespace metrics {
@@ -60,6 +61,23 @@ metric_definition::~metric_definition()  = default;
 
 metric_definition::metric_definition(impl::metric_definition_impl const& m) noexcept :
     _impl(std::make_unique<impl::metric_definition_impl>(m)) {
+}
+
+bool label_instance::operator<(const label_instance& id2) const {
+    auto& id1 = *this;
+    return std::tie(id1.key(), id1.value())
+                < std::tie(id2.key(), id2.value());
+}
+
+bool label_instance::operator==(const label_instance& id2) const {
+    auto& id1 = *this;
+    return std::tie(id1.key(), id1.value())
+                    == std::tie(id2.key(), id2.value());
+}
+
+bool label_instance::operator!=(const label_instance& id2) const {
+    auto& id1 = *this;
+    return !(id1 == id2);
 }
 
 namespace impl {
@@ -102,7 +120,7 @@ metric_groups_impl::~metric_groups_impl() {
 
 metric_groups_impl& metric_groups_impl::add_metric(group_name_type name, const metric_definition& md)  {
 
-    metric_id id(name, md._impl->id, md._impl->name, md._impl->type.type_name);
+    metric_id id(name, md._impl->id, md._impl->name, md._impl->type.type_name, md._impl->labels);
 
     shared_ptr<registered_metric> rm =
             ::make_shared<registered_metric>(md._impl->type.base_type, md._impl->f, md._impl->d, md._impl->enabled);
@@ -127,22 +145,18 @@ metric_groups_impl& metric_groups_impl::add_group(group_name_type name, const st
     return *this;
 }
 
+void metric_id::sort_labels() {
+    boost::sort(_labels);
+}
+
 bool metric_id::operator<(
         const metric_id& id2) const {
-    auto& id1 = *this;
-    return std::tie(id1.group_name(), id1.instance_id(), id1.name(),
-            id1.inherit_type())
-            < std::tie(id2.group_name(), id2.instance_id(), id2.name(),
-                    id2.inherit_type());
+    return as_tuple() < id2.as_tuple();
 }
 
 bool metric_id::operator==(
         const metric_id & id2) const {
-    auto& id1 = *this;
-    return std::tie(id1.group_name(), id1.instance_id(), id1.name(),
-            id1.inherit_type())
-            == std::tie(id2.group_name(), id2.instance_id(), id2.name(),
-                    id2.inherit_type());
+    return as_tuple() < id2.as_tuple();
 }
 
 // Unfortunately, metrics_impl can not be shared because it
