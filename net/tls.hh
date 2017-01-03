@@ -220,7 +220,7 @@ namespace tls {
 
     private:
         std::multimap<sstring, boost::any> _blobs;
-        client_auth _client_auth;
+        client_auth _client_auth = client_auth::NONE;
         sstring _priority;
     };
 

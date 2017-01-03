@@ -463,6 +463,10 @@ future<> seastar::tls::credentials_builder::set_system_trust() {
     return make_ready_future();
 }
 
+void seastar::tls::credentials_builder::set_client_auth(client_auth auth) {
+    _client_auth = auth;
+}
+
 void seastar::tls::credentials_builder::set_priority_string(const sstring& prio) {
     _priority = prio;
 }
@@ -510,6 +514,8 @@ void seastar::tls::credentials_builder::apply_to(certificate_credentials& creds)
     if (!_priority.empty()) {
         creds.set_priority_string(_priority);
     }
+
+    creds._impl->set_client_auth(_client_auth);
 }
 
 ::shared_ptr<seastar::tls::certificate_credentials> seastar::tls::credentials_builder::build_certificate_credentials() const {
