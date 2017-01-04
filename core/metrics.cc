@@ -154,9 +154,9 @@ shared_ptr<impl>  get_local_impl() {
 }
 
 void unregister_metric(const metric_id & id) {
-    value_map& map = get_local_impl()->get_value_map();
-    auto i = map.find(id);
-    if (i != map.end()) {
+    shared_ptr<impl> map = get_local_impl();
+    auto i = map->get_value_map().find(id);
+    if (i != map->get_value_map().end()) {
         i->second = nullptr;
     }
 }
