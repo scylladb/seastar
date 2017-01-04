@@ -3632,7 +3632,7 @@ std::ostream& operator<<(std::ostream& out, const saved_backtrace& b) {
 }
 
 void report_failed_future(std::exception_ptr eptr) {
-    seastar_logger.warn("Exceptional future ignored: {}", eptr);
+    seastar_logger.warn("Exceptional future ignored: {}, backtrace: {}", eptr, current_backtrace());
 }
 
 future<> check_direct_io_support(sstring path) {
