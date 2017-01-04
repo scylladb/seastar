@@ -3603,6 +3603,26 @@ void engine_exit(std::exception_ptr eptr) {
     engine().exit(1);
 }
 
+saved_backtrace current_backtrace() {
+    std::vector<unw_word_t> v;
+    backtrace([&] (uintptr_t addr) {
+        v.push_back(addr);
+    });
+    return saved_backtrace(std::move(v));
+}
+
+std::ostream& operator<<(std::ostream& out, const saved_backtrace& b) {
+    bool first = true;
+    for (auto addr : b._frames) {
+        if (!first) {
+            out << ", ";
+        }
+        out << sprint("0x%x", addr - 1);
+        first = false;
+    }
+    return out;
+}
+
 void report_failed_future(std::exception_ptr eptr) {
     seastar_logger.warn("Exceptional future ignored: {}", eptr);
 }
