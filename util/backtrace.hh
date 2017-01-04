@@ -44,6 +44,9 @@ void backtrace(Func&& func) noexcept(noexcept(func(0))) {
         if (unw_get_reg(&cursor, UNW_REG_IP, &ip) < 0) {
             break;
         }
+        if (!ip) {
+            break;
+        }
         func(ip);
     }
 }
