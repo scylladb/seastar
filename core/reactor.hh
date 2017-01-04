@@ -370,6 +370,7 @@ public:
     size_t process_queue(lf_queue& q, Func process);
     size_t process_incoming();
     size_t process_completions();
+    void stop();
 private:
     void work();
     void submit_item(work_item* wi);
@@ -1019,6 +1020,7 @@ public:
     static boost::program_options::options_description get_options_description();
     static void configure(boost::program_options::variables_map vm);
     static void cleanup();
+    static void cleanup_cpu();
     static void arrive_at_event_loop_end();
     static void join_all();
     static bool main_thread() { return std::this_thread::get_id() == _tmain; }

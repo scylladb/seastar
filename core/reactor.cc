@@ -1903,6 +1903,7 @@ void reactor::stop() {
             do_with(semaphore(0), [this] (semaphore& sem) {
                 for (unsigned i = 1; i < smp::count; i++) {
                     smp::submit_to<>(i, []() {
+                        smp::cleanup_cpu();
                         return engine().run_exit_tasks().then([] {
                                 engine()._stopped = true;
                         });
@@ -2711,6 +2712,9 @@ smp_message_queue::smp_message_queue(reactor* from, reactor* to)
 {
 }
 
+void smp_message_queue::stop() {
+    _metrics.clear();
+}
 void smp_message_queue::move_pending() {
     auto begin = _tx.a.pending_fifo.cbegin();
     auto end = _tx.a.pending_fifo.cend();
@@ -3124,6 +3128,16 @@ void smp::allocate_reactor() {
 void smp::cleanup() {
     smp::_threads = std::vector<posix_thread>();
     _thread_loops.clear();
+}
+
+void smp::cleanup_cpu() {
+    size_t cpuid = engine().cpu_id();
+
+    if (_qs) {
+        for(unsigned i = 0; i < smp::count; i++) {
+            _qs[i][cpuid].stop();
+        }
+    }
 }
 
 void smp::create_thread(std::function<void ()> thread_loop) {
