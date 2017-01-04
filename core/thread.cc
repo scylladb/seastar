@@ -32,6 +32,122 @@ namespace seastar {
 thread_local jmp_buf_link g_unthreaded_context;
 thread_local jmp_buf_link* g_current_context;
 
+#ifdef ASAN_ENABLED
+
+namespace {
+
+#ifdef HAVE_ASAN_FIBER_SUPPORT
+// ASan provides two functions as a means of informing it that user context
+// switch has happened. First __sanitizer_start_switch_fiber() needs to be
+// called with a place to store the fake stack pointer and the new stack
+// information as arguments. Then, ucontext switch may be performed after which
+// __sanitizer_finish_switch_fiber() needs to be called with a pointer to the
+// current context fake stack and a place to store stack information of the
+// previous ucontext.
+
+extern "C" {
+void __sanitizer_start_switch_fiber(void** fake_stack_save, const void* stack_bottom, size_t stack_size);
+void __sanitizer_finish_switch_fiber(void* fake_stack_save, const void** stack_bottom_old, size_t* stack_size_old);
+}
+#else
+static inline void __sanitizer_start_switch_fiber(...) { }
+static inline void __sanitizer_finish_switch_fiber(...) { }
+#endif
+
+thread_local jmp_buf_link* g_previous_context;
+
+}
+
+void jmp_buf_link::initial_switch_in(ucontext_t* initial_context, const void* stack_bottom, size_t stack_size)
+{
+    auto prev = std::exchange(g_current_context, this);
+    link = prev;
+    g_previous_context = prev;
+    __sanitizer_start_switch_fiber(&prev->fake_stack, stack_bottom, stack_size);
+    swapcontext(&prev->context, initial_context);
+    __sanitizer_finish_switch_fiber(g_current_context->fake_stack, &g_previous_context->stack_bottom,
+                                    &g_previous_context->stack_size);
+}
+
+void jmp_buf_link::switch_in()
+{
+    auto prev = std::exchange(g_current_context, this);
+    link = prev;
+    g_previous_context = prev;
+    __sanitizer_start_switch_fiber(&prev->fake_stack, stack_bottom, stack_size);
+    swapcontext(&prev->context, &context);
+    __sanitizer_finish_switch_fiber(g_current_context->fake_stack, &g_previous_context->stack_bottom,
+                                    &g_previous_context->stack_size);
+}
+
+void jmp_buf_link::switch_out()
+{
+    g_current_context = link;
+    g_previous_context = this;
+    __sanitizer_start_switch_fiber(&fake_stack, g_current_context->stack_bottom,
+                                   g_current_context->stack_size);
+    swapcontext(&context, &g_current_context->context);
+    __sanitizer_finish_switch_fiber(g_current_context->fake_stack, &g_previous_context->stack_bottom,
+                                    &g_previous_context->stack_size);
+}
+
+void jmp_buf_link::initial_switch_in_completed()
+{
+    // This is a new thread and it doesn't have the fake stack yet. ASan will
+    // create it lazily, for now just pass nullptr.
+    __sanitizer_finish_switch_fiber(nullptr, &g_previous_context->stack_bottom, &g_previous_context->stack_size);
+}
+
+void jmp_buf_link::final_switch_out()
+{
+    g_current_context = link;
+    g_previous_context = this;
+    // Since the thread is about to die we pass nullptr as fake_stack_save argument
+    // so that ASan knows it can destroy the fake stack if it exists.
+    __sanitizer_start_switch_fiber(nullptr, g_current_context->stack_bottom, g_current_context->stack_size);
+    setcontext(&g_current_context->context);
+}
+
+#else
+
+inline void jmp_buf_link::initial_switch_in(ucontext_t* initial_context, const void*, size_t)
+{
+    auto prev = std::exchange(g_current_context, this);
+    link = prev;
+    if (setjmp(prev->jmpbuf) == 0) {
+        setcontext(initial_context);
+    }
+}
+
+inline void jmp_buf_link::switch_in()
+{
+    auto prev = std::exchange(g_current_context, this);
+    link = prev;
+    if (setjmp(prev->jmpbuf) == 0) {
+        longjmp(jmpbuf, 1);
+    }
+}
+
+inline void jmp_buf_link::switch_out()
+{
+    g_current_context = link;
+    if (setjmp(jmpbuf) == 0) {
+        longjmp(g_current_context->jmpbuf, 1);
+    }
+}
+
+inline void jmp_buf_link::initial_switch_in_completed()
+{
+}
+
+inline void jmp_buf_link::final_switch_out()
+{
+    g_current_context = link;
+    longjmp(g_current_context->jmpbuf, 1);
+}
+
+#endif
+
 thread_context::thread_context(thread_attributes attr, std::function<void ()> func)
         : _attr(std::move(attr))
         , _func(std::move(func)) {
@@ -90,37 +206,19 @@ thread_context::setup() {
     initial_context.uc_stack.ss_size = _stack_size;
     initial_context.uc_link = nullptr;
     makecontext(&initial_context, main, 2, int(q), int(q >> 32));
-    auto prev = g_current_context;
-    _context.link = prev;
     _context.thread = this;
-    g_current_context = &_context;
-#ifdef ASAN_ENABLED
-    swapcontext(&prev->context, &initial_context);
-#else
-    if (setjmp(prev->jmpbuf) == 0) {
-        setcontext(&initial_context);
-    }
-#endif
+    _context.initial_switch_in(&initial_context, _stack.get(), _stack_size);
 }
 
 void
 thread_context::switch_in() {
-    auto prev = g_current_context;
-    g_current_context = &_context;
-    _context.link = prev;
     if (_attr.scheduling_group) {
         _attr.scheduling_group->account_start();
         _context.yield_at = _attr.scheduling_group->_this_run_start + _attr.scheduling_group->_this_period_remain;
     } else {
         _context.yield_at = {};
     }
-#ifdef ASAN_ENABLED
-    swapcontext(&prev->context, &_context.context);
-#else
-    if (setjmp(prev->jmpbuf) == 0) {
-        longjmp(_context.jmpbuf, 1);
-    }
-#endif
+    _context.switch_in();
 }
 
 void
@@ -128,14 +226,7 @@ thread_context::switch_out() {
     if (_attr.scheduling_group) {
         _attr.scheduling_group->account_stop();
     }
-    g_current_context = _context.link;
-#ifdef ASAN_ENABLED
-    swapcontext(&_context.context, &g_current_context->context);
-#else
-    if (setjmp(_context.jmpbuf) == 0) {
-        longjmp(g_current_context->jmpbuf, 1);
-    }
-#endif
+    _context.switch_out();
 }
 
 bool
@@ -193,6 +284,7 @@ thread_context::s_main(unsigned int lo, unsigned int hi) {
 
 void
 thread_context::main() {
+    _context.initial_switch_in_completed();
     if (_attr.scheduling_group) {
         _attr.scheduling_group->account_start();
     }
@@ -205,12 +297,8 @@ thread_context::main() {
     if (_attr.scheduling_group) {
         _attr.scheduling_group->account_stop();
     }
-    g_current_context = _context.link;
-#ifdef ASAN_ENABLED
-    setcontext(&g_current_context->context);
-#else
-    longjmp(g_current_context->jmpbuf, 1);
-#endif
+
+    _context.final_switch_out();
 }
 
 namespace thread_impl {

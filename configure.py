@@ -83,10 +83,13 @@ def dpdk_cflags (dpdk_target):
         return dpdk_cflags_str
 
 def try_compile(compiler, source = '', flags = []):
+    return try_compile_and_link(compiler, source, flags = flags + ['-c'])
+
+def try_compile_and_link(compiler, source = '', flags = []):
     with tempfile.NamedTemporaryFile() as sfile:
         sfile.file.write(bytes(source, 'utf-8'))
         sfile.file.flush()
-        return subprocess.call([compiler, '-x', 'c++', '-o', '/dev/null', '-c', sfile.name] + flags,
+        return subprocess.call([compiler, '-x', 'c++', '-o', '/dev/null', sfile.name] + flags,
                                stdout = subprocess.DEVNULL,
                                stderr = subprocess.DEVNULL) == 0
 
@@ -594,6 +597,21 @@ if try_compile(args.cxx, source = textwrap.dedent('''\
         }
         ''')):
     defines.append("HAVE_LZ4_COMPRESS_DEFAULT")
+
+if try_compile_and_link(args.cxx, flags=['-fsanitize=address'], source = textwrap.dedent('''\
+        #include <cstddef>
+
+        extern "C" {
+        void __sanitizer_start_switch_fiber(void**, const void*, size_t);
+        void __sanitizer_finish_switch_fiber(void*, const void**, size_t*);
+        }
+
+        int main() {
+            __sanitizer_start_switch_fiber(nullptr, nullptr, 0);
+            __sanitizer_finish_switch_fiber(nullptr, nullptr, nullptr);
+        }
+        ''')):
+    defines.append("HAVE_ASAN_FIBER_SUPPORT")
 
 if args.so:
     args.pie = '-shared'

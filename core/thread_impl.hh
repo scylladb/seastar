@@ -37,12 +37,21 @@ class thread_context;
 struct jmp_buf_link {
 #ifdef ASAN_ENABLED
     ucontext_t context;
+    void* fake_stack = nullptr;
+    const void* stack_bottom;
+    size_t stack_size;
 #else
     jmp_buf jmpbuf;
 #endif
     jmp_buf_link* link;
     thread_context* thread;
     std::experimental::optional<std::chrono::time_point<thread_clock>> yield_at = {};
+public:
+    void initial_switch_in(ucontext_t* initial_context, const void* stack_bottom, size_t stack_size);
+    void switch_in();
+    void switch_out();
+    void initial_switch_in_completed();
+    void final_switch_out();
 };
 
 extern thread_local jmp_buf_link* g_current_context;
