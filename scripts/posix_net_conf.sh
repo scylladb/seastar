@@ -5,15 +5,15 @@
 # !  Ban NIC IRQs from being moved by irqbalance.
 # !
 # !  -sq - set all IRQs of a given NIC to CPU0 and configure RPS
-# !  to spreads NAPIs' handling between other CPUs.
+# !        to spreads NAPIs' handling between other CPUs.
 # !
 # !  -mq - distribute NIC's IRQs among all CPUs instead of binding
-# !  them all to CPU0 and do not enable RPS.
+# !        them all to CPU0. In this mode RPS is always enabled to
+# !        spreads NAPIs' handling between all CPUs.
 # !
-# !  If neither -mq nor -sq is given script will use a default mode:
-# !     - If number of NIC's IRQs is greater than half of CPUs cores (not including hyperthreads) - use an '-mq' mode.
-# !     - Otherwise if number or NIC's IRQs is greater than 7 - use an '-mq' mode.
-# !     - Otherwise use an '-sq' mode.
+# !  If there isn't any mode given script will use a default mode:
+# !     - If number of physical CPU cores per Rx HW queue is greater than 4 - use the '-sq' mode.
+# !     - Otherwise use the '-mq' mode.
 # !
 # !  Enable XPS, increase the default values of somaxconn and tcp_max_syn_backlog.
 # !
@@ -253,7 +253,7 @@ distribute_irqs()
     local mask
     local i=0
 
-    for mask in `hwloc-distrib ${#irqs[*]}`
+    for mask in `hwloc-distrib ${#irqs[*]} --single`
     do
         set_one_mask "/proc/irq/${irqs[$i]}/smp_affinity" $mask
         i=$(( i + 1 ))
@@ -365,10 +365,10 @@ get_def_mq_mode()
     # If RPS is not enabled, use number of IRQs as an estimate for the Rx queues number.
     [[ "$rx_queues_count" -eq "0" ]] && rx_queues_count=$num_irqs
 
-    if [ "$rx_queues_count" -ge "$((num_cores / 2))" ] || [ "$rx_queues_count" -ge 8 ]; then
-        echo "mq"
-    else
+    if (( num_cores > 4 * rx_queues_count )); then
         echo "sq"
+    else
+        echo "mq"
     fi
 }
 
@@ -397,6 +397,7 @@ setup_one_hw_iface()
         setup_rps $iface --no-cpu0
     else # "$mq_mode == "mq"
         distribute_irqs $iface
+        setup_rps $iface
     fi
 
     # Setup XPS
