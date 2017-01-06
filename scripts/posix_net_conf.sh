@@ -44,14 +44,14 @@ setup_rps()
     # If we are in a single core environment - there is no point in configuring RPS
     [[ `hwloc-calc core:0.pu:all` -eq `hwloc-calc all` ]] && return
 
-    local rps_queues_count=`ls -1 /sys/class/net/$iface/queues/*/rps_cpus | wc -l`
+    local rps_cpus=( `get_rps_cpus $iface` )
     local mask
     local i=0
 
     # Distribute all cores except for CPU0 siblings
-    for mask in `hwloc-distrib --restrict $(hwloc-calc all ~core:0) $rps_queues_count`
+    for mask in `hwloc-distrib --restrict $(hwloc-calc all ~core:0) ${#rps_cpus[*]}`
     do
-        set_one_mask "/sys/class/net/$iface/queues/rx-$i/rps_cpus" $mask
+        set_one_mask "${rps_cpus[$i]}" $mask
         i=$(( i + 1 ))
     done
 }
@@ -145,6 +145,22 @@ get_irqs()
     else
         get_irqs_one $main_iface
     fi
+}
+
+#
+# get_rps_cpus <iface>
+#
+# Prints all rps_cpus files names for the given HW interface.
+#
+# There is a single rps_cpus file for each RPS queue and there is a single RPS
+# queue for each HW Rx queue. Each HW Rx queue should have an IRQ.
+# Therefore the number of these files is equal to the number of fast path Rx IRQs for this interface.
+#
+get_rps_cpus()
+{
+    local iface=$1
+
+    ls -1 /sys/class/net/$iface/queues/*/rps_cpus
 }
 
 distribute_irqs()
@@ -258,9 +274,13 @@ get_def_mq_mode()
 {
     local iface=$1
     local num_irqs=`get_irqs $iface | wc -l`
+    local rx_queues_count=`get_rps_cpus $iface | wc -l`
     local num_cores=`hwloc-calc --number-of core machine:0`
 
-    if [ "$num_irqs" -ge "$((num_cores / 2))" ] || [ "$num_irqs" -ge 8 ]; then
+    # If RPS is not enabled, use number of IRQs as an estimate for the Rx queues number.
+    [[ "$rx_queues_count" -eq "0" ]] && rx_queues_count=$num_irqs
+
+    if [ "$rx_queues_count" -ge "$((num_cores / 2))" ] || [ "$rx_queues_count" -ge 8 ]; then
         echo "mq"
     else
         echo "sq"
