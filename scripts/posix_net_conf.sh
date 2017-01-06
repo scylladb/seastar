@@ -116,6 +116,7 @@ get_irqs_one()
     else
         # No irq file detected
         local modalias=`cat /sys/class/net/$iface/device/modalias`
+        local i
         if [[ "$modalias" =~ ^virtio: ]]; then
             cd /sys/class/net/$iface/device/driver
             for i in `ls -d virtio*`; do
@@ -134,6 +135,7 @@ get_irqs_one()
 get_irqs()
 {
     local main_iface=$1
+    local iface
 
     if dev_is_bond_iface $main_iface; then
         for iface in `cat /sys/class/net/$main_iface/bonding/slaves`
@@ -244,6 +246,8 @@ parse_args()
         exit 1
     fi
 
+    local arg
+
     for arg in $@
     do
         case "$arg" in
@@ -296,6 +300,7 @@ setup_one_hw_iface()
 {
     local iface=$1
     local mq_mode=$2
+    local irq
 
     [[ -z $mq_mode ]] && mq_mode=`get_def_mq_mode $iface`
 
