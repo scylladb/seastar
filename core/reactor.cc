@@ -1690,6 +1690,7 @@ posix_file_impl::close() noexcept {
     auto fd = _fd;
     _fd = -1;  // Prevent a concurrent close (which is illegal) from closing another file's fd
     if (_refcount && _refcount->fetch_add(-1, std::memory_order_relaxed) != 1) {
+        _refcount = nullptr;
         return make_ready_future<>();
     }
     delete _refcount;
