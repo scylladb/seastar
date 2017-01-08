@@ -72,7 +72,7 @@ static sstring collectd_name(const metrics::impl::metric_id & id, uint32_t cpu) 
     return safe_name(id.group_name() + "_" + safe_name(id.name()));
 }
 
-static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::metric_id & id, uint32_t cpu) {
+static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::metric_id & id, uint32_t cpu, const config& ctx) {
     auto label = mt->add_label();
     label->set_name("shard");
     label->set_value(std::to_string(cpu));
@@ -80,36 +80,40 @@ static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::metric_id & id
     label->set_name("type");
     label->set_value(id.inherit_type());
 
-    const sstring& host = scollectd::get_impl().host();
-    if (host != "") {
-        label = mt->add_label();
-        label->set_name("instance");
-        label->set_value(host);
-    }
+    label = mt->add_label();
+    label->set_name("instance");
+    label->set_value(ctx.hostname);
     return mt;
 }
 
 static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value& c,
-        const metrics::impl::metric_id & id, uint32_t cpu) {
+        const metrics::impl::metric_id & id, uint32_t cpu, const config& ctx) {
     switch (c.type()) {
     case scollectd::data_type::DERIVE:
-        add_label(mf.add_metric(), id, cpu)->mutable_counter()->set_value(c.i());
+        add_label(mf.add_metric(), id, cpu, ctx)->mutable_counter()->set_value(c.i());
         mf.set_type(pm::MetricType::COUNTER);
         break;
     case scollectd::data_type::GAUGE:
-        add_label(mf.add_metric(), id, cpu)->mutable_gauge()->set_value(c.d());
+        add_label(mf.add_metric(), id, cpu, ctx)->mutable_gauge()->set_value(c.d());
         mf.set_type(pm::MetricType::GAUGE);
         break;
     default:
-        add_label(mf.add_metric(), id, cpu)->mutable_counter()->set_value(c.ui());
+        add_label(mf.add_metric(), id, cpu, ctx)->mutable_counter()->set_value(c.ui());
         mf.set_type(pm::MetricType::COUNTER);
         break;
     }
 }
 
-future<> start(httpd::http_server_control& http_server, const config& ctx) {
-    return http_server.set_routes([&ctx](httpd::routes& r) {
-        httpd::future_handler_function f = [&ctx](std::unique_ptr<request> req, std::unique_ptr<reply> rep) {
+future<> start(httpd::http_server_control& http_server, config ctx) {
+    if (ctx.hostname == "") {
+        char hostname[PATH_MAX];
+        gethostname(hostname, sizeof(hostname));
+        hostname[PATH_MAX-1] = '\0';
+        ctx.hostname = hostname;
+    }
+
+    return http_server.set_routes([ctx](httpd::routes& r) {
+        httpd::future_handler_function f = [ctx](std::unique_ptr<request> req, std::unique_ptr<reply> rep) {
             return do_with(std::vector<metrics::impl::values_copy>(), [rep = std::move(rep), &ctx] (auto& vec) mutable {
                 vec.resize(smp::count);
                 return parallel_for_each(boost::irange(0u, smp::count), [&vec] (auto cpu) {
@@ -127,7 +131,7 @@ future<> start(httpd::http_server_control& http_server, const config& ctx) {
                             google::protobuf::io::StringOutputStream os(&s);
                             mtf.set_name(ctx.prefix + "_" + collectd_name(i.first, cpu));
                             mtf.set_help(ctx.metric_help);
-                            fill_metric(mtf, i.second, i.first, cpu);
+                            fill_metric(mtf, i.second, i.first, cpu, ctx);
                             if (mtf.metric_size() > 0) {
                                 std::stringstream ss;
                                 if (!write_delimited_to(mtf, &os)) {
