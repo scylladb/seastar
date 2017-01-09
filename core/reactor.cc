@@ -1899,6 +1899,7 @@ future<> reactor::run_exit_tasks() {
 
 void reactor::stop() {
     assert(engine()._id == 0);
+    smp::cleanup_cpu();
     if (!_stopping) {
         run_exit_tasks().then([this] {
             do_with(semaphore(0), [this] (semaphore& sem) {
