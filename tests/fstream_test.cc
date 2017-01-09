@@ -33,6 +33,7 @@
 #include "util/defer.hh"
 #include <random>
 #include <boost/range/adaptor/transformed.hpp>
+#include <boost/algorithm/cxx11/any_of.hpp>
 
 struct writer {
     output_stream<char> out;
@@ -262,17 +263,19 @@ SEASTAR_TEST_CASE(file_handle_test) {
             buf[i] = i;
         }
         f.dma_write(0, buf, 4096).get();
-        smp::invoke_on_all([fh = f.dup()] {
-            return seastar::async([fh] {
+        auto bad = std::vector<unsigned>(smp::count); // std::vector<bool> is special and unsuitable because it uses bitfields
+        smp::invoke_on_all([fh = f.dup(), &bad] {
+            return seastar::async([fh, &bad] {
                 auto f = fh.to_file();
                 auto buf = static_cast<char*>(aligned_alloc(4096, 4096));
                 auto del = defer([&] { ::free(buf); });
                 f.dma_read(0, buf, 4096).get();
                 for (unsigned i = 0; i < 4096; ++i) {
-                    BOOST_REQUIRE_EQUAL(buf[i], char(i));
+                    bad[engine().cpu_id()] |= buf[i] != char(i);
                 }
             });
         }).get();
+        BOOST_REQUIRE(!boost::algorithm::any_of_equal(bad, 1u));
         f.close().get();
     });
 }
