@@ -19,8 +19,7 @@
  * under the License.
  */
 
-#include "core/sstring.hh"
-#include "core/posix.hh"
+#include "posix.hh"
 #include "util/defer.hh"
 #include <libaio.h>
 #include <sys/time.h>
@@ -30,6 +29,7 @@
 #include <unistd.h>
 #include <cstdlib>
 #include <type_traits>
+#include "fsqual.hh"
 
 // Runs func(), and also adds the number of context switches
 // that happened during func() to counter.
