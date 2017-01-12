@@ -17,6 +17,7 @@
  */
 #ifdef HAVE_DPDK
 
+#include <cinttypes>
 #include "net/dpdk.hh"
 #include "core/dpdk_rte.hh"
 #include "util/conversions.hh"

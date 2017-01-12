@@ -21,6 +21,7 @@
 
 #define __user /* empty */  // for xfs includes, below
 
+#include <cinttypes>
 #include <sys/syscall.h>
 #include <sys/vfs.h>
 #include <sys/statfs.h>

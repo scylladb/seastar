@@ -21,6 +21,7 @@
 
 #ifdef HAVE_DPDK
 
+#include <cinttypes>
 #include "core/posix.hh"
 #include "core/vla.hh"
 #include "virtio-interface.hh"
@@ -47,6 +48,7 @@
 #include <getopt.h>
 #include <malloc.h>
 
+#include <cinttypes>
 #include <rte_config.h>
 #include <rte_common.h>
 #include <rte_eal.h>
