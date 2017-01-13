@@ -101,13 +101,13 @@ class append_challenged_posix_file_impl : public posix_file_impl {
     // Fulfiled when _done and I/O is complete
     promise<> _completed;
 private:
-    void commit_size(uint64_t size);
-    bool size_changing(const op& candidate) const;
-    bool may_dispatch(const op& candidate) const;
-    void dispatch(op& candidate);
-    void optimize_queue();
-    void process_queue();
-    bool may_quit() const;
+    void commit_size(uint64_t size) noexcept;
+    bool size_changing(const op& candidate) const noexcept;
+    bool may_dispatch(const op& candidate) const noexcept;
+    void dispatch(op& candidate) noexcept;
+    void optimize_queue() noexcept;
+    void process_queue() noexcept;
+    bool may_quit() const noexcept;
     void enqueue(op&& op);
 public:
     append_challenged_posix_file_impl(int fd, file_open_options options, unsigned max_size_changing_ops);

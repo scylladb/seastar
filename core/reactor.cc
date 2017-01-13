@@ -926,14 +926,14 @@ append_challenged_posix_file_impl::~append_challenged_posix_file_impl() {
 }
 
 bool
-append_challenged_posix_file_impl::size_changing(const op& candidate) const {
+append_challenged_posix_file_impl::size_changing(const op& candidate) const noexcept {
     return (candidate.type == opcode::write && candidate.pos + candidate.len > _committed_size)
             || (candidate.type == opcode::truncate)
             || (_sloppy_size && candidate.type == opcode::flush);
 }
 
 bool
-append_challenged_posix_file_impl::may_dispatch(const op& candidate) const {
+append_challenged_posix_file_impl::may_dispatch(const op& candidate) const noexcept {
     if (size_changing(candidate)) {
         return !_current_size_changing_ops && !_current_non_size_changing_ops;
     } else {
@@ -942,7 +942,7 @@ append_challenged_posix_file_impl::may_dispatch(const op& candidate) const {
 }
 
 void
-append_challenged_posix_file_impl::dispatch(op& candidate) {
+append_challenged_posix_file_impl::dispatch(op& candidate) noexcept {
     unsigned* op_counter = size_changing(candidate)
             ? &_current_size_changing_ops : &_current_non_size_changing_ops;
     ++*op_counter;
@@ -956,7 +956,7 @@ append_challenged_posix_file_impl::dispatch(op& candidate) {
 // issue an ftruncate() extending the file size, so they can
 // be issued concurrently.
 void
-append_challenged_posix_file_impl::optimize_queue() {
+append_challenged_posix_file_impl::optimize_queue() noexcept {
     if (_current_non_size_changing_ops || _current_size_changing_ops) {
         // Can't issue an ftruncate() if something is going on
         return;
@@ -992,7 +992,7 @@ append_challenged_posix_file_impl::optimize_queue() {
 }
 
 void
-append_challenged_posix_file_impl::process_queue() {
+append_challenged_posix_file_impl::process_queue() noexcept {
     optimize_queue();
     while (!_q.empty() && may_dispatch(_q.front())) {
         dispatch(_q.front());
@@ -1010,12 +1010,12 @@ append_challenged_posix_file_impl::enqueue(op&& op) {
 }
 
 bool
-append_challenged_posix_file_impl::may_quit() const {
+append_challenged_posix_file_impl::may_quit() const noexcept {
     return _done && _q.empty() && !_current_non_size_changing_ops && !_current_size_changing_ops;
 }
 
 void
-append_challenged_posix_file_impl::commit_size(uint64_t size) {
+append_challenged_posix_file_impl::commit_size(uint64_t size) noexcept {
     _committed_size = std::max(size, _committed_size);
     _logical_size = std::max(size, _logical_size);
 }
@@ -1035,7 +1035,9 @@ append_challenged_posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t l
         pos,
         len,
         [this, pr, pos, buffer, len, &pc] {
-            return posix_file_impl::read_dma(pos, buffer, len, pc).then_wrapped([pr] (future<size_t> f) {
+            return futurize_apply([this, pos, buffer, len, &pc] () mutable {
+                return posix_file_impl::read_dma(pos, buffer, len, pc);
+            }).then_wrapped([pr] (future<size_t> f) {
                 f.forward_to(std::move(*pr));
             });
         }
@@ -1070,7 +1072,9 @@ append_challenged_posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov
         pos,
         len,
         [this, pr, pos, iov = std::move(iov), &pc] () mutable {
-            return posix_file_impl::read_dma(pos, std::move(iov), pc).then_wrapped([pr] (future<size_t> f) {
+            return futurize_apply([this, pos, iov = std::move(iov), &pc] () mutable {
+                return posix_file_impl::read_dma(pos, std::move(iov), pc);
+            }).then_wrapped([pr] (future<size_t> f) {
                 f.forward_to(std::move(*pr));
             });
         }
@@ -1086,7 +1090,9 @@ append_challenged_posix_file_impl::write_dma(uint64_t pos, const void* buffer, s
         pos,
         len,
         [this, pr, pos, buffer, len, &pc] {
-            return posix_file_impl::write_dma(pos, buffer, len, pc).then_wrapped([this, pos, pr] (future<size_t> f) {
+            return futurize_apply([this, pos, buffer, len, &pc] () mutable {
+                return posix_file_impl::write_dma(pos, buffer, len, pc);
+            }).then_wrapped([this, pos, pr] (future<size_t> f) {
                 if (!f.failed()) {
                     auto ret = f.get0();
                     commit_size(pos + ret);
@@ -1110,7 +1116,9 @@ append_challenged_posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> io
         pos,
         len,
         [this, pr, pos, iov = std::move(iov), &pc] () mutable {
-            return posix_file_impl::write_dma(pos, std::move(iov), pc).then_wrapped([this, pos, pr] (future<size_t> f) {
+            return futurize_apply([this, pos, iov = std::move(iov), &pc] () mutable {
+                return posix_file_impl::write_dma(pos, std::move(iov), pc);
+            }).then_wrapped([this, pos, pr] (future<size_t> f) {
                 if (!f.failed()) {
                     auto ret = f.get0();
                     commit_size(pos + ret);
@@ -1137,13 +1145,15 @@ append_challenged_posix_file_impl::flush() {
             0,
             0,
             [this, pr] () {
-                if (_logical_size != _committed_size) {
-                    // We're all alone, so can truncate in reactor thread
-                    auto r = ::ftruncate(_fd, _logical_size);
-                    throw_system_error_on(r == -1);
-                    _committed_size = _logical_size;
-                }
-                return posix_file_impl::flush().then_wrapped([this, pr] (future<> f) {
+                return futurize_apply([this] {
+                    if (_logical_size != _committed_size) {
+                        // We're all alone, so can truncate in reactor thread
+                        auto r = ::ftruncate(_fd, _logical_size);
+                        throw_system_error_on(r == -1);
+                        _committed_size = _logical_size;
+                    }
+                    return posix_file_impl::flush();
+                }).then_wrapped([this, pr] (future<> f) {
                     f.forward_to(std::move(*pr));
                 });
             }
@@ -1169,7 +1179,9 @@ append_challenged_posix_file_impl::truncate(uint64_t length) {
         length,
         0,
         [this, pr, length] () mutable {
-            return posix_file_impl::truncate(length).then_wrapped([this, pr, length] (future<> f) {
+            return futurize_apply([this, length] {
+                return posix_file_impl::truncate(length);
+            }).then_wrapped([this, pr, length] (future<> f) {
                 if (!f.failed()) {
                     _committed_size = _logical_size = length;
                 }
