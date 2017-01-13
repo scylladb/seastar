@@ -56,6 +56,8 @@ class saved_backtrace {
 public:
     saved_backtrace() = default;
     saved_backtrace(std::vector<unw_word_t> f) : _frames(std::move(f)) {}
+    size_t hash() const;
+
     friend std::ostream& operator<<(std::ostream& out, const saved_backtrace&);
 
     bool operator==(const saved_backtrace& o) const {
@@ -66,5 +68,16 @@ public:
         return !(*this == o);
     }
 };
+
+namespace std {
+
+template<>
+struct hash<::saved_backtrace> {
+    size_t operator()(const ::saved_backtrace& b) const {
+        return b.hash();
+    }
+};
+
+}
 
 saved_backtrace current_backtrace();

@@ -3611,6 +3611,14 @@ saved_backtrace current_backtrace() {
     return saved_backtrace(std::move(v));
 }
 
+size_t saved_backtrace::hash() const {
+    size_t h = 0;
+    for (auto addr : _frames) {
+        h = ((h << 5) - h) ^ addr;
+    }
+    return h;
+}
+
 std::ostream& operator<<(std::ostream& out, const saved_backtrace& b) {
     bool first = true;
     for (auto addr : b._frames) {
