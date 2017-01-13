@@ -360,9 +360,9 @@ public:
     smp_message_queue(reactor* from, reactor* to);
     template <typename Func>
     futurize_t<std::result_of_t<Func()>> submit(Func&& func) {
-        auto wi = new async_work_item<Func>(std::forward<Func>(func));
+        auto wi = std::make_unique<async_work_item<Func>>(std::forward<Func>(func));
         auto fut = wi->get_future();
-        submit_item(wi);
+        submit_item(std::move(wi));
         return fut;
     }
     void start(unsigned cpuid);
@@ -373,7 +373,7 @@ public:
     void stop();
 private:
     void work();
-    void submit_item(work_item* wi);
+    void submit_item(std::unique_ptr<work_item> wi);
     void respond(work_item* wi);
     void move_pending();
     void flush_request_batch();

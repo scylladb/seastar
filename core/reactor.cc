@@ -2751,8 +2751,9 @@ bool smp_message_queue::pure_poll_tx() const {
     return !const_cast<lf_queue&>(_completed).empty();
 }
 
-void smp_message_queue::submit_item(smp_message_queue::work_item* item) {
-    _tx.a.pending_fifo.push_back(item);
+void smp_message_queue::submit_item(std::unique_ptr<smp_message_queue::work_item> item) {
+    _tx.a.pending_fifo.push_back(item.get());
+    item.release();
     if (_tx.a.pending_fifo.size() >= batch_size) {
         move_pending();
     }
