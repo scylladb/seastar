@@ -168,7 +168,7 @@ get_rps_cpus()
 distribute_irqs()
 {
     local iface=$1
-    local irqs=( `get_irqs $iface` )
+    local irqs=( `get_irqs_one $iface` )
     local mask
     local i=0
 
@@ -306,7 +306,7 @@ setup_one_hw_iface()
 
     # bind all NIC IRQs to CPU0
     if [[ "$mq_mode" == "sq" ]]; then
-        for irq in `get_irqs $iface`
+        for irq in `get_irqs_one $iface`
         do
             echo "Binding IRQ $irq to CPU0"
             echo 1 > /proc/irq/$irq/smp_affinity
