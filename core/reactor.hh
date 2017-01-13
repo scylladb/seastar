@@ -256,9 +256,9 @@ public:
     syscall_work_queue();
     template <typename T, typename Func>
     future<T> submit(Func func) {
-        auto wi = new work_item_returning<T, Func>(std::move(func));
+        auto wi = std::make_unique<work_item_returning<T, Func>>(std::move(func));
         auto fut = wi->get_future();
-        submit_item(wi);
+        submit_item(std::move(wi));
         return fut;
     }
 private:
@@ -270,7 +270,7 @@ private:
     //
     // Returns the number of requests handled.
     unsigned complete();
-    void submit_item(work_item* wi);
+    void submit_item(std::unique_ptr<syscall_work_queue::work_item> wi);
 
     friend class thread_pool;
 };

@@ -2699,9 +2699,9 @@ syscall_work_queue::syscall_work_queue()
     , _start_eventfd(0) {
 }
 
-void syscall_work_queue::submit_item(syscall_work_queue::work_item* item) {
-    _queue_has_room.wait().then([this, item] {
-        _pending.push(item);
+void syscall_work_queue::submit_item(std::unique_ptr<syscall_work_queue::work_item> item) {
+    _queue_has_room.wait().then([this, item = std::move(item)] () mutable {
+        _pending.push(item.release());
         _start_eventfd.signal(1);
     });
 }
