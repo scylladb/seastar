@@ -96,7 +96,7 @@ struct allocation_site {
     mutable size_t count = 0; // number of live objects allocated at backtrace.
     mutable size_t size = 0; // amount of bytes in live objects allocated at backtrace.
     mutable const allocation_site* next = nullptr;
-    std::vector<uintptr_t> backtrace;
+    saved_backtrace backtrace;
 
     bool operator==(const allocation_site& o) const {
         return backtrace == o.backtrace;
@@ -112,11 +112,7 @@ namespace std {
 template<>
 struct hash<::allocation_site> {
     size_t operator()(const ::allocation_site& bi) const {
-        size_t h = 0;
-        for (auto addr : bi.backtrace) {
-            h = ((h << 5) - h) ^ addr;
-        }
-        return h;
+        return std::hash<saved_backtrace>()(bi.backtrace);
     }
 };
 
@@ -653,13 +649,9 @@ struct disable_backtrace_temporarily {
 #endif
 
 static
-std::vector<uintptr_t> get_backtrace() noexcept {
+saved_backtrace get_backtrace() noexcept {
     disable_backtrace_temporarily dbt;
-    std::vector<uintptr_t> result;
-    backtrace([&result] (uintptr_t addr) {
-        result.push_back(addr);
-    });
-    return result;
+    return current_backtrace();
 }
 
 static
