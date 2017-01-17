@@ -83,6 +83,11 @@ static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::metric_id & id
     label = mt->add_label();
     label->set_name("instance");
     label->set_value(ctx.hostname);
+    for (auto &&i : id.labels()) {
+        label = mt->add_label();
+        label->set_name(i.key());
+        label->set_value(i.value());
+    }
     return mt;
 }
 
@@ -124,8 +129,8 @@ future<> start(httpd::http_server_control& http_server, config ctx) {
                     });
                 }).then([rep = std::move(rep), &vec, &ctx]() mutable {
                     uint32_t cpu = 0;
-                    for (auto value: vec) {
-                        for (auto i : value) {
+                    for (auto _value: vec) {
+                        for (auto i : _value) {
                             pm::MetricFamily mtf;
                             std::string s;
                             google::protobuf::io::StringOutputStream os(&s);
