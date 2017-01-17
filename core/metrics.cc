@@ -192,7 +192,11 @@ values_copy get_values() {
 
 
 instance_id_type shard() {
-    return to_sstring(engine().cpu_id());
+    if (engine_is_ready()) {
+        return to_sstring(engine().cpu_id());
+    }
+
+    return sstring("0");
 }
 
 void impl::add_registration(const metric_id& id, shared_ptr<registered_metric> rm) {
