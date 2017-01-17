@@ -1003,6 +1003,10 @@ inline reactor& engine() {
     return *local_engine;
 }
 
+inline bool engine_is_ready() {
+    return local_engine != nullptr;
+}
+
 class smp {
     static std::vector<posix_thread> _threads;
     static std::vector<std::function<void ()>> _thread_loops; // for dpdk
