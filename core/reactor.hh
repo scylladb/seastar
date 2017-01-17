@@ -530,7 +530,7 @@ private:
         uint32_t nr_queued;
         std::chrono::duration<double> queue_time;
         seastar::metrics::metric_groups _metric_groups;
-        priority_class_data(sstring name, priority_class_ptr ptr);
+        priority_class_data(sstring name, priority_class_ptr ptr, shard_id owner);
     };
 
     std::unordered_map<unsigned, lw_shared_ptr<priority_class_data>> _priority_classes;
