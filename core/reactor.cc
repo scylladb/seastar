@@ -765,7 +765,7 @@ io_queue::priority_class_data::priority_class_data(sstring name, priority_class_
             // old counter tells you how busy the system is.
 
             sm::make_queue_length(name + sstring("_queue_length"), nr_queued, sm::description("Number of requests in the queue")),
-            sm::make_gauge(name + sstring("delay"), [this] {
+            sm::make_gauge(name + sstring("_delay"), [this] {
                 return queue_time.count();
             }, sm::description("total delay time in the queue"))
     });
