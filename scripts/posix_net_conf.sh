@@ -34,6 +34,39 @@ set_one_mask()
 }
 
 #
+# setup_rfs <iface>
+#
+setup_rfs()
+{
+    local iface=$1
+    local rfs_table_size=32768
+    local rfs_limits=( `ls -1 /sys/class/net/$iface/queues/*/rps_flow_cnt` )
+    local one_q_limit=$(( rfs_table_size / ${#rfs_limits[*]} ))
+    local rfs_limit_cnt
+
+    # If RFS feature is not present - get out
+    ! sysctl net.core.rps_sock_flow_entries &> /dev/null && return
+
+    # Enable RFS
+    sysctl -w net.core.rps_sock_flow_entries=$rfs_table_size
+
+    # Set each RPS queue limit
+    for rfs_limit_cnt in ${rfs_limits[@]}
+    do
+        echo "Setting limit $one_q_limit in $rfs_limit_cnt"
+        echo $one_q_limit > $rfs_limit_cnt
+    done
+
+    # Enable ntuple filtering HW offload on the NIC
+    echo -n "Trying to enable ntuple filtering HW offload for $iface..."
+    if ethtool -K $iface ntuple on &> /dev/null; then
+        echo "ok"
+    else
+        echo "not supported"
+    fi
+}
+
+#
 # setup_rps <iface> [--no-cpu0]
 #
 # Bind RPS queues to spcific CPUs. if '--no-cpu0' is given CPU0 and its hyper-threading siblings are excluded.
@@ -67,6 +100,8 @@ setup_rps()
     do
         set_one_mask "$one_rps_cpus" $mask
     done
+
+    setup_rfs $iface
 }
 
 #
