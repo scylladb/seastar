@@ -151,7 +151,7 @@ dev_is_bond_iface()
 #
 # Prints IRQ numbers for the given physical interface
 #
-get_irqs_one()
+get_all_irqs_one()
 {
     local iface=$1
 
@@ -175,6 +175,39 @@ get_irqs_one()
             grep $iface /proc/interrupts|awk '{ print $1 }'|sed -e 's/:$//'
         fi
     fi
+}
+
+#
+# Prints IRQ numbers for the given physical interface and tries to filter the slow path queue vectors out
+#
+get_irqs_one()
+{
+    local iface=$1
+
+    # Right now we know about Intel's and Broadcom's naming convention of the fast path queues vectors:
+    #   - Intel:    <bla-bla>-TxRx-<bla-bla>
+    #   - Broadcom: <bla-bla>-fp-<bla-bla>
+    #
+    # So, we will try to filter the etries in /proc/interrupts for IRQs we've got from get_all_irqs_one()
+    # according to the patterns above.
+    #
+    # If as a result all IRQs are filtered out (if there are no IRQs with the names from the patterns above) then
+    # this means that the given NIC uses a different IRQs naming pattern. In this case we won't filter any IRQ.
+    #
+    # Otherwise, we will use only IRQs which names fit one of the patterns above.
+    local irqs=( `get_all_irqs_one $iface` )
+    local found=""
+    local irq
+
+    for irq in ${irqs[@]}
+    do
+        if cat /proc/interrupts  | egrep ^"\s*$irq\:" | egrep "\-TxRx\-|\-fp\-" &> /dev/null; then
+            found="yes"
+            echo $irq
+        fi
+    done
+
+    [ -z "$found" ] && echo ${irqs[@]}
 }
 
 #
