@@ -34,25 +34,38 @@ set_one_mask()
 }
 
 #
-# Bind RPS queues to CPUs other than CPU0 and its hyper-threading siblings
+# setup_rps <iface> [--no-cpu0]
+#
+# Bind RPS queues to spcific CPUs. if '--no-cpu0' is given CPU0 and its hyper-threading siblings are excluded.
 #
 # Use hwloc-distrib for generating the appropriate CPU masks.
 #
 setup_rps()
 {
     local iface=$1
+    local no_cpu0=""
+
+    [[ "$2" == "--no-cpu0" ]] && no_cpu0="yes"
+
     # If we are in a single core environment - there is no point in configuring RPS
     [[ `hwloc-calc core:0.pu:all` -eq `hwloc-calc all` ]] && return
 
     local rps_cpus=( `get_rps_cpus $iface` )
     local mask
-    local i=0
 
-    # Distribute all cores except for CPU0 siblings
-    for mask in `hwloc-distrib --restrict $(hwloc-calc all ~core:0) ${#rps_cpus[*]}`
+    # Each RPS queue is a separate RSS state machine so let them spread steams
+    # between all available PUs
+    if [[ -n "$no_cpu0" ]]; then
+        mask=`hwloc-calc all ~core:0`
+    else
+        mask=`hwloc-calc all`
+    fi
+
+    local one_rps_cpus
+
+    for one_rps_cpus in ${rps_cpus[@]}
     do
-        set_one_mask "${rps_cpus[$i]}" $mask
-        i=$(( i + 1 ))
+        set_one_mask "$one_rps_cpus" $mask
     done
 }
 
@@ -313,7 +326,7 @@ setup_one_hw_iface()
         done
 
         # Setup RPS
-        setup_rps $iface
+        setup_rps $iface --no-cpu0
     else # "$mq_mode == "mq"
         distribute_irqs $iface
     fi
