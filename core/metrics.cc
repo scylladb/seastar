@@ -156,7 +156,7 @@ bool metric_id::operator<(
 
 bool metric_id::operator==(
         const metric_id & id2) const {
-    return as_tuple() < id2.as_tuple();
+    return as_tuple() == id2.as_tuple();
 }
 
 // Unfortunately, metrics_impl can not be shared because it
