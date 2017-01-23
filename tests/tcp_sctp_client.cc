@@ -235,7 +235,7 @@ namespace bpo = boost::program_options;
 int main(int ac, char ** av) {
     app_template app;
     app.add_options()
-        ("server", bpo::value<std::string>(), "Server address")
+        ("server", bpo::value<std::string>()->required(), "Server address")
         ("test", bpo::value<std::string>()->default_value("ping"), "test type(ping | rxrx | txtx)")
         ("conn", bpo::value<unsigned>()->default_value(16), "nr connections per cpu")
         ("proto", bpo::value<std::string>()->default_value("tcp"), "transport protocol tcp|sctp")
