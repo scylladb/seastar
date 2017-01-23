@@ -422,20 +422,20 @@ public:
         _metrics.add_group(_stats_plugin_name, {
             // Rx Good
             sm::make_derive("rx_multicast", _stats.rx.good.mcast,
-                            sm::description("Counts a number of received multicast packets."), true, _stats_plugin_inst),
+                            sm::description("Counts a number of received multicast packets."), {}, true, _stats_plugin_inst),
             // Rx Errors
             sm::make_derive("rx_crc_errors", _stats.rx.bad.crc,
                             sm::description("Counts a number of received packets with a bad CRC value. "
-                                            "A non-zero value of this metric usually indicates a HW problem, e.g. a bad cable."), true, _stats_plugin_inst),
+                                            "A non-zero value of this metric usually indicates a HW problem, e.g. a bad cable."), {}, true, _stats_plugin_inst),
 
             sm::make_derive("rx_dropped", _stats.rx.bad.dropped,
                             sm::description("Counts a number of dropped received packets. "
                                             "A non-zero value of this counter indicated the overflow of ingress HW buffers. "
-                                            "This usually happens because of a rate of a sender on the other side of the link is higher than we can process as a receiver."), true, _stats_plugin_inst),
+                                            "This usually happens because of a rate of a sender on the other side of the link is higher than we can process as a receiver."), {}, true, _stats_plugin_inst),
 
             sm::make_derive("rx_bad_length_errors", _stats.rx.bad.len,
                             sm::description("Counts a number of received packets with a bad length value. "
-                                            "A non-zero value of this metric usually indicates a HW issue: e.g. bad cable."), true, _stats_plugin_inst),
+                                            "A non-zero value of this metric usually indicates a HW issue: e.g. bad cable."), {}, true, _stats_plugin_inst),
             // Coupled counters:
             // Good
             sm::make_derive("rx_pause_xon", _stats.rx.good.pause_xon,
@@ -443,29 +443,29 @@ public:
                                             "When PAUSE XON frame is received our port may resume sending L2 frames. "
                                             "PAUSE XON frames are sent to resume sending that was previously paused with a PAUSE XOFF frame. If ingress "
                                             "buffer falls below the low watermark threshold before the timeout configured in the original PAUSE XOFF frame the receiver may decide to send PAUSE XON frame. "
-                                            "A non-zero value of this metric may mean that our sender is bursty and that the spikes overwhelm the receiver on the other side of the link."), true, _stats_plugin_inst),
+                                            "A non-zero value of this metric may mean that our sender is bursty and that the spikes overwhelm the receiver on the other side of the link."), {}, true, _stats_plugin_inst),
 
             sm::make_derive("tx_pause_xon", _stats.tx.good.pause_xon,
                             sm::description("Counts a number of sent PAUSE XON frames (L2 flow control frames). "
                                             "A non-zero value of this metric indicates that our ingress path doesn't keep up with the rate of a sender on the other side of the link. "
                                             "Note that if a sender port respects PAUSE frames this will prevent it from sending from ALL its egress queues because L2 flow control is defined "
-                                            "on a per-link resolution."), true, _stats_plugin_inst),
+                                            "on a per-link resolution."), {}, true, _stats_plugin_inst),
 
             sm::make_derive("rx_pause_xoff", _stats.rx.good.pause_xoff,
                             sm::description("Counts a number of received PAUSE XOFF frames. "
                                             "A non-zero value of this metric indicates that our egress overwhelms the receiver on the other side of the link and it has to send PAUSE frames to make us stop sending. "
-                                            "Note that if our port respects PAUSE frames a reception of a PAUSE XOFF frame will cause ALL egress queues of this port to stop sending."), true, _stats_plugin_inst),
+                                            "Note that if our port respects PAUSE frames a reception of a PAUSE XOFF frame will cause ALL egress queues of this port to stop sending."), {}, true, _stats_plugin_inst),
 
             sm::make_derive("tx_pause_xoff", _stats.tx.good.pause_xoff,
                             sm::description("Counts a number of sent PAUSE XOFF frames. "
                                             "A non-zero value of this metric indicates that our ingress path (SW and HW) doesn't keep up with the rate of a sender on the other side of the link and as a result "
-                                            "our ingress HW buffers overflow."), true, _stats_plugin_inst),
+                                            "our ingress HW buffers overflow."), {}, true, _stats_plugin_inst),
             // Errors
             sm::make_derive("rx_errors", _stats.rx.bad.total,
-                            sm::description("Counts the total number of ingress errors: CRC errors, bad length errors, etc."), true, _stats_plugin_inst),
+                            sm::description("Counts the total number of ingress errors: CRC errors, bad length errors, etc."), {}, true, _stats_plugin_inst),
 
             sm::make_derive("tx_errors", _stats.tx.bad.total,
-                            sm::description("Counts a total number of egress errors. A non-zero value usually indicated a problem with a HW or a SW driver."), true, _stats_plugin_inst),
+                            sm::description("Counts a total number of egress errors. A non-zero value usually indicated a problem with a HW or a SW driver."), {}, true, _stats_plugin_inst),
         });
     }
 
