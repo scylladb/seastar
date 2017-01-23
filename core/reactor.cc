@@ -1554,7 +1554,7 @@ posix_file_impl::dup() {
     }
     auto ret = std::make_unique<posix_file_handle_impl>(_fd, _refcount);
     _refcount->fetch_add(1, std::memory_order_relaxed);
-    return ret;
+    return std::move(ret);
 }
 
 posix_file_impl::posix_file_impl(int fd, std::atomic<unsigned>* refcount)
@@ -1574,7 +1574,7 @@ posix_file_handle_impl::clone() const {
     if (_refcount) {
         _refcount->fetch_add(1, std::memory_order_relaxed);
     }
-    return ret;
+    return std::move(ret);
 }
 
 shared_ptr<file_impl>
