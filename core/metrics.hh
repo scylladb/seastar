@@ -26,6 +26,7 @@
 #include "core/shared_ptr.hh"
 #include "core/metrics_registration.hh"
 #include <boost/lexical_cast.hpp>
+#include <map>
 
 /*! \file metrics.hh
  *  \brief header for metrics creation.
@@ -221,6 +222,13 @@ public:
     instance operator()(T value) const {
         return label_instance(key, std::forward<T>(value));
     }
+
+    /*!
+     * \brief returns the label name
+     */
+    const sstring& name() const {
+        return key;
+    }
 };
 
 /*!
@@ -313,7 +321,7 @@ struct metric_definition_impl {
     metric_function f;
     description d;
     bool enabled = true;
-    std::vector<label_instance> labels;
+    std::map<sstring, sstring> labels;
 
     metric_definition_impl(
         metric_name_type name,
@@ -322,9 +330,7 @@ struct metric_definition_impl {
         metric_function f,
         description d,
         bool enabled,
-        std::vector<label_instance> labels)
-        : name(name), id(id), type(type), f(f)
-        , d(d), enabled(enabled), labels(labels) {}
+        std::vector<label_instance> labels);
 };
 
 class metric_groups_def {
@@ -368,6 +374,7 @@ metric_function make_function(T& val, data_type dt) {
 
 extern const bool metric_disabled;
 
+extern label shard_label;
 
 /*
  * The metrics definition are defined to be compatible with collectd metrics defintion.

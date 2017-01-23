@@ -80,6 +80,8 @@ bool label_instance::operator!=(const label_instance& id2) const {
     return !(id1 == id2);
 }
 
+label shard_label("shard");
+
 namespace impl {
 
 registered_metric::registered_metric(data_type type, metric_function f, description d, bool enabled) :
@@ -100,6 +102,24 @@ metric_value metric_value::operator+(const metric_value& c) {
         break;
     }
     return res;
+}
+
+metric_definition_impl::metric_definition_impl(
+        metric_name_type name,
+        instance_id_type id,
+        metric_type type,
+        metric_function f,
+        description d,
+        bool enabled,
+        std::vector<label_instance> _labels)
+        : name(name), id(id), type(type), f(f)
+        , d(d), enabled(enabled) {
+    for (auto i: _labels) {
+        labels[i.key()] = i.value();
+    }
+    if (labels.find(shard_label.name()) == labels.end()) {
+        labels[shard_label.name()] = shard();
+    }
 }
 
 std::unique_ptr<metric_groups_def> create_metric_groups() {
@@ -143,10 +163,6 @@ metric_groups_impl& metric_groups_impl::add_group(group_name_type name, const st
         add_metric(name, *i);
     }
     return *this;
-}
-
-void metric_id::sort_labels() {
-    boost::sort(_labels);
 }
 
 bool metric_id::operator<(
