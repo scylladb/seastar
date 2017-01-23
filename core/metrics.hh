@@ -314,6 +314,17 @@ struct metric_definition_impl {
     description d;
     bool enabled = true;
     std::vector<label_instance> labels;
+
+    metric_definition_impl(
+        metric_name_type name,
+        instance_id_type id,
+        metric_type type,
+        metric_function f,
+        description d,
+        bool enabled,
+        std::vector<label_instance> labels)
+        : name(name), id(id), type(type), f(f)
+        , d(d), enabled(enabled), labels(labels) {}
 };
 
 class metric_groups_def {
