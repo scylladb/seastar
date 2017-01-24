@@ -743,7 +743,9 @@ io_priority_class io_queue::register_one_priority_class(sstring name, uint32_t s
     throw std::runtime_error("No more room for new I/O priority classes");
 }
 
-io_queue::priority_class_data::priority_class_data(sstring name, priority_class_ptr ptr)
+seastar::metrics::label io_queue_shard("ioshard");
+
+io_queue::priority_class_data::priority_class_data(sstring name, priority_class_ptr ptr, shard_id owner)
     : ptr(ptr)
     , bytes(0)
     , ops(0)
@@ -751,10 +753,10 @@ io_queue::priority_class_data::priority_class_data(sstring name, priority_class_
     , queue_time(1s)
 {
     namespace sm = seastar::metrics;
-
+    auto shard = sm::impl::shard();
     _metric_groups.add_group("io_queue", {
-            sm::make_derive(name + sstring("_total_bytes"), bytes, sm::description("Total bytes passed in the queue")),
-            sm::make_derive(name + sstring("_total_operations"), ops, sm::description("Total bytes passed in the queue")),
+            sm::make_derive(name + sstring("_total_bytes"), bytes, sm::description("Total bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner)}),
+            sm::make_derive(name + sstring("_total_operations"), ops, sm::description("Total bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner)}),
             // Note: The counter below is not the same as reactor's queued-io-requests
             // queued-io-requests shows us how many requests in total exist in this I/O Queue.
             //
@@ -764,10 +766,10 @@ io_queue::priority_class_data::priority_class_data(sstring name, priority_class_
             // In other words: the new counter tells you how busy a class is, and the
             // old counter tells you how busy the system is.
 
-            sm::make_queue_length(name + sstring("_queue_length"), nr_queued, sm::description("Number of requests in the queue")),
+            sm::make_queue_length(name + sstring("_queue_length"), nr_queued, sm::description("Number of requests in the queue"), {io_queue_shard(shard), sm::shard_label(owner)}),
             sm::make_gauge(name + sstring("_delay"), [this] {
                 return queue_time.count();
-            }, sm::description("total delay time in the queue"))
+            }, sm::description("total delay time in the queue"), {io_queue_shard(shard), sm::shard_label(owner)})
     });
 }
 
@@ -776,14 +778,6 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
     if (it_pclass == _priority_classes.end()) {
         auto shares = _registered_shares.at(pc.id()).load(std::memory_order_acquire);
         auto name = _registered_names.at(pc.id());
-        // FIXME
-        // The following comment is correct, we want to differentiate based on owner,
-        // Currently the name will end up as the type_instance and be part of the name
-        // not a tag, this causes trouble in the dashboards, as you will not be able to
-        // sum over the different queues.
-        //
-        // As soon as we will add tag support the owner will be added as a tag
-        //
         // A note on naming:
         //
         // We could just add the owner as the instance id and have something like:
@@ -793,11 +787,13 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
         // to know which shards are being served by the same queue. Therefore, a better name
         // scheme is:
         //
-        //  io_queue-<queue_owner>-<counter>-<class_name>-<class_owner>
+        //  io_queue-<queue_owner>-<counter>-<class_name>, shard=<class_owner>
+        //  using the shard label to hold the owner number
         //
         // This conveys all the information we need and allows one to easily group all classes from
-        // the same I/O queue (by filtering by instance ID)
-        auto ret = _priority_classes.emplace(pc.id(), make_lw_shared<priority_class_data>(name, _fq.register_priority_class(shares)));
+        // the same I/O queue (by filtering by shard)
+
+        auto ret = _priority_classes.emplace(pc.id(), make_lw_shared<priority_class_data>(name, _fq.register_priority_class(shares), owner));
         it_pclass = ret.first;
     }
     return *(it_pclass->second);

@@ -74,9 +74,6 @@ static sstring collectd_name(const metrics::impl::metric_id & id, uint32_t cpu) 
 
 static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::metric_id & id, uint32_t cpu, const config& ctx) {
     auto label = mt->add_label();
-    label->set_name("shard");
-    label->set_value(std::to_string(cpu));
-    label = mt->add_label();
     label->set_name("type");
     label->set_value(id.inherit_type());
 
@@ -85,8 +82,8 @@ static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::metric_id & id
     label->set_value(ctx.hostname);
     for (auto &&i : id.labels()) {
         label = mt->add_label();
-        label->set_name(i.key());
-        label->set_value(i.value());
+        label->set_name(i.first);
+        label->set_value(i.second);
     }
     return mt;
 }
