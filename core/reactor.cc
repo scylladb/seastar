@@ -1946,6 +1946,7 @@ void reactor::register_metrics() {
             sm::make_gauge("tasks_pending", std::bind(&decltype(_pending_tasks)::size, &_pending_tasks), sm::description("Number of pending tasks in the queue")),
             // total_operations value:DERIVE:0:U
             sm::make_derive("tasks_processed", _tasks_processed, sm::description("Total tasks processed")),
+            sm::make_derive("polls", _polls, sm::description("Number of times pollers were executed")),
             sm::make_derive("timers_pending", std::bind(&decltype(_timers)::size, &_timers), sm::description("Number of tasks in the timer-pending queue")),
             sm::make_gauge("utilization", [this] { return _load * 100; }, sm::description("CPU utilization")),
             sm::make_derive("cpu_busy_ns", [this] () -> int64_t { return std::chrono::duration_cast<std::chrono::nanoseconds>(total_busy_time()).count(); },
@@ -2483,6 +2484,8 @@ int reactor::run() {
             }
             break;
         }
+
+        ++_polls;
 
         if (check_for_work()) {
             if (idle) {
