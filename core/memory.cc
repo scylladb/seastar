@@ -588,7 +588,6 @@ cpu_pages::allocate_large_and_trim(unsigned n_pages, Trimmer trimmer) {
     }
     if (t.nr_pages < span_size) {
         free_span_no_merge(span_idx + t.nr_pages, span_size - t.nr_pages);
-        span_size = t.nr_pages;
     }
     auto span_end = &pages[span_idx + t.nr_pages - 1];
     span->free = span_end->free = false;
