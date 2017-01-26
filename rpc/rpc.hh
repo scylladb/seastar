@@ -254,6 +254,9 @@ class protocol {
         // and I am not smart enough to know how to define them as friends
         future<> send(snd_buf buf, std::experimental::optional<steady_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr) {
             if (!_error) {
+                if (timeout && *timeout >= steady_clock_type::now()) {
+                    return make_ready_future<>();
+                }
                 _outgoing_queue.emplace_back(std::move(buf));
                 auto deleter = [this, it = std::prev(_outgoing_queue.cend())] {
                     _outgoing_queue.erase(it);
