@@ -213,15 +213,15 @@ int main(int ac, char** av) {
             // delay a little for a time-sensitive test
             sleep(400ms).then([test12] () mutable {
                 // server is configured for 10MB max, throw 25MB worth of requests at it.
-                auto now = std::chrono::steady_clock::now();
+                auto now = rpc::rpc_clock_type::now();
                 return parallel_for_each(boost::irange(0, 25), [test12, now] (int idx) mutable {
                     return test12(*client, 100, sstring(sstring::initialized_later(), 1'000'000)).then([idx, now] {
-                        auto later = std::chrono::steady_clock::now();
+                        auto later = rpc::rpc_clock_type::now();
                         auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(later - now);
                         print("idx %d completed after %d ms\n", idx, delta.count());
                     });
                 }).then([now] {
-                    auto later = std::chrono::steady_clock::now();
+                    auto later = rpc::rpc_clock_type::now();
                     auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(later - now);
                     print("test12 completed after %d ms (should be ~300)\n", delta.count());
                 });

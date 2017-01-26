@@ -30,8 +30,11 @@
 #include <boost/variant.hpp>
 #include "core/timer.hh"
 #include "core/simple-stream.hh"
+#include "core/lowres_clock.hh"
 
 namespace rpc {
+
+using rpc_clock_type = lowres_clock;
 
 // used to tag a type for serializers
 template<typename T>
@@ -114,11 +117,11 @@ public:
      using std::experimental::optional<T>::optional;
 };
 
-class opt_time_point : public std::experimental::optional<steady_clock_type::time_point> {
+class opt_time_point : public std::experimental::optional<rpc_clock_type::time_point> {
 public:
-     using std::experimental::optional<steady_clock_type::time_point>::optional;
-     opt_time_point(std::experimental::optional<steady_clock_type::time_point> time_point) {
-         static_cast<std::experimental::optional<steady_clock_type::time_point>&>(*this) = time_point;
+     using std::experimental::optional<rpc_clock_type::time_point>::optional;
+     opt_time_point(std::experimental::optional<rpc_clock_type::time_point> time_point) {
+         static_cast<std::experimental::optional<rpc_clock_type::time_point>&>(*this) = time_point;
      }
 };
 

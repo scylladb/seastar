@@ -38,6 +38,9 @@ namespace rpc {
 
 using id_type = int64_t;
 
+using rpc_semaphore = basic_semaphore<semaphore_default_exception_factory, rpc_clock_type>;
+using resource_permit = semaphore_units<semaphore_default_exception_factory, rpc_clock_type>;
+
 struct SerializerConcept {
     // For each serializable type T, implement
     class T;
@@ -65,7 +68,7 @@ static constexpr char rpc_magic[] = "SSTARRPC";
 struct resource_limits {
     size_t basic_request_size = 0; ///< Minimum request footprint in memory
     unsigned bloat_factor = 1;     ///< Serialized size multiplied by this to estimate memory used by request
-    size_t max_memory = semaphore::max_counter(); ///< Maximum amount of memory that may be consumed by all requests
+    size_t max_memory = rpc_semaphore::max_counter(); ///< Maximum amount of memory that may be consumed by all requests
 };
 
 struct client_options {
@@ -118,7 +121,7 @@ class protocol {
         promise<> _stopped;
         stats _stats;
         struct outgoing_entry {
-            timer<> t;
+            timer<rpc_clock_type> t;
             snd_buf buf;
             std::experimental::optional<promise<>> p = promise<>();
             cancellable* pcancel = nullptr;
@@ -192,8 +195,8 @@ class protocol {
                         if (_timeout_negotiated) {
                             auto expire = d.t.get_timeout();
                             uint64_t left = 0;
-                            if (expire != typename timer<>::time_point()) {
-                                left = std::chrono::duration_cast<std::chrono::milliseconds>(expire - timer<>::clock::now()).count();
+                            if (expire != typename timer<rpc_clock_type>::time_point()) {
+                                left = std::chrono::duration_cast<std::chrono::milliseconds>(expire - timer<rpc_clock_type>::clock::now()).count();
                             }
                             write_le<uint64_t>(d.buf.front().get_write(), left);
                         } else {
@@ -252,9 +255,9 @@ class protocol {
         }
         // functions below are public because they are used by external heavily templated functions
         // and I am not smart enough to know how to define them as friends
-        future<> send(snd_buf buf, std::experimental::optional<steady_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr) {
+        future<> send(snd_buf buf, std::experimental::optional<rpc_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr) {
             if (!_error) {
-                if (timeout && *timeout >= steady_clock_type::now()) {
+                if (timeout && *timeout >= rpc_clock_type::now()) {
                     return make_ready_future<>();
                 }
                 _outgoing_queue.emplace_back(std::move(buf));
@@ -312,7 +315,7 @@ public:
         public:
             connection(server& s, connected_socket&& fd, socket_address&& addr, protocol& proto);
             future<> process();
-            future<> respond(int64_t msg_id, snd_buf&& data, std::experimental::optional<steady_clock_type::time_point> timeout);
+            future<> respond(int64_t msg_id, snd_buf&& data, std::experimental::optional<rpc_clock_type::time_point> timeout);
             client_info& info() { return _info; }
             const client_info& info() const { return _info; }
             stats get_stats() const {
@@ -328,8 +331,7 @@ public:
                 return ipv4_addr(_info.addr);
             }
             // Resources will be released when this goes out of scope
-            using resource_permit = semaphore_units<>;
-            future<resource_permit> wait_for_resources(size_t memory_consumed,  std::experimental::optional<steady_clock_type::time_point> timeout) {
+            future<resource_permit> wait_for_resources(size_t memory_consumed,  std::experimental::optional<rpc_clock_type::time_point> timeout) {
                 if (timeout) {
                     return get_units(_server._resources_available, memory_consumed, *timeout);
                 } else {
@@ -347,7 +349,7 @@ public:
         protocol& _proto;
         server_socket _ss;
         resource_limits _limits;
-        semaphore _resources_available;
+        rpc_semaphore _resources_available;
         std::unordered_set<lw_shared_ptr<connection>> _conns;
         promise<> _ss_stopped;
         seastar::gate _reply_gate;
@@ -385,7 +387,7 @@ public:
         ::seastar::socket _socket;
         id_type _message_id = 1;
         struct reply_handler_base {
-            timer<> t;
+            timer<rpc_clock_type> t;
             cancellable* pcancel = nullptr;
             virtual void operator()(client&, id_type, rcv_buf data) = 0;
             virtual void timeout() {}
@@ -462,7 +464,7 @@ public:
             return this->_stats;
         }
         auto next_message_id() { return _message_id++; }
-        void wait_for_reply(id_type id, std::unique_ptr<reply_handler_base>&& h, std::experimental::optional<steady_clock_type::time_point> timeout, cancellable* cancel) {
+        void wait_for_reply(id_type id, std::unique_ptr<reply_handler_base>&& h, std::experimental::optional<rpc_clock_type::time_point> timeout, cancellable* cancel) {
             if (timeout) {
                 h->t.set_callback(std::bind(std::mem_fn(&client::wait_timed_out), this, id));
                 h->t.arm(timeout.value());
@@ -496,7 +498,7 @@ public:
     };
     friend server;
 private:
-    using rpc_handler = std::function<future<> (lw_shared_ptr<typename server::connection>, std::experimental::optional<steady_clock_type::time_point> timeout, int64_t msgid,
+    using rpc_handler = std::function<future<> (lw_shared_ptr<typename server::connection>, std::experimental::optional<rpc_clock_type::time_point> timeout, int64_t msgid,
                                                 rcv_buf data)>;
     std::unordered_map<MsgType, rpc_handler> _handlers;
     Serializer _serializer;

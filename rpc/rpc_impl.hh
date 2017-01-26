@@ -332,7 +332,7 @@ template<typename Serializer, typename MsgType>
 struct rcv_reply<Serializer, MsgType, future<>> : rcv_reply<Serializer, MsgType, void> {};
 
 template <typename Serializer, typename MsgType, typename Ret, typename... InArgs>
-inline auto wait_for_reply(wait_type, std::experimental::optional<steady_clock_type::time_point> timeout, cancellable* cancel, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id,
+inline auto wait_for_reply(wait_type, std::experimental::optional<rpc_clock_type::time_point> timeout, cancellable* cancel, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id,
         signature<Ret (InArgs...)> sig) {
     using reply_type = rcv_reply<Serializer, MsgType, Ret>;
     auto lambda = [] (reply_type& r, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id, rcv_buf data) mutable {
@@ -353,13 +353,13 @@ inline auto wait_for_reply(wait_type, std::experimental::optional<steady_clock_t
 }
 
 template<typename Serializer, typename MsgType, typename... InArgs>
-inline auto wait_for_reply(no_wait_type, std::experimental::optional<steady_clock_type::time_point>, cancellable* cancel, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id,
+inline auto wait_for_reply(no_wait_type, std::experimental::optional<rpc_clock_type::time_point>, cancellable* cancel, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id,
         signature<no_wait_type (InArgs...)> sig) {  // no_wait overload
     return make_ready_future<>();
 }
 
 template<typename Serializer, typename MsgType, typename... InArgs>
-inline auto wait_for_reply(no_wait_type, std::experimental::optional<steady_clock_type::time_point>, cancellable* cancel, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id,
+inline auto wait_for_reply(no_wait_type, std::experimental::optional<rpc_clock_type::time_point>, cancellable* cancel, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id,
         signature<future<no_wait_type> (InArgs...)> sig) {  // future<no_wait> overload
     return make_ready_future<>();
 }
@@ -373,7 +373,7 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
     struct shelper {
         MsgType t;
         signature<Ret (InArgs...)> sig;
-        auto send(typename protocol<Serializer, MsgType>::client& dst, std::experimental::optional<steady_clock_type::time_point> timeout, cancellable* cancel, const InArgs&... args) {
+        auto send(typename protocol<Serializer, MsgType>::client& dst, std::experimental::optional<rpc_clock_type::time_point> timeout, cancellable* cancel, const InArgs&... args) {
             if (dst.error()) {
                 using cleaned_ret_type = typename wait_signature<Ret>::cleaned_type;
                 return futurize<cleaned_ret_type>::make_exception_future(closed_error());
@@ -397,11 +397,11 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
         auto operator()(typename protocol<Serializer, MsgType>::client& dst, const InArgs&... args) {
             return send(dst, {}, nullptr, args...);
         }
-        auto operator()(typename protocol<Serializer, MsgType>::client& dst, steady_clock_type::time_point timeout, const InArgs&... args) {
+        auto operator()(typename protocol<Serializer, MsgType>::client& dst, rpc_clock_type::time_point timeout, const InArgs&... args) {
             return send(dst, timeout, nullptr, args...);
         }
-        auto operator()(typename protocol<Serializer, MsgType>::client& dst, steady_clock_type::duration timeout, const InArgs&... args) {
-            return send(dst, steady_clock_type::now() + timeout, nullptr, args...);
+        auto operator()(typename protocol<Serializer, MsgType>::client& dst, rpc_clock_type::duration timeout, const InArgs&... args) {
+            return send(dst, rpc_clock_type::now() + timeout, nullptr, args...);
         }
         auto operator()(typename protocol<Serializer, MsgType>::client& dst, cancellable& cancel, const InArgs&... args) {
             return send(dst, {}, &cancel, args...);
@@ -414,7 +414,7 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
 template <typename Serializer, typename MsgType>
 inline
 future<>
-protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, snd_buf&& data, std::experimental::optional<steady_clock_type::time_point> timeout) {
+protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, snd_buf&& data, std::experimental::optional<rpc_clock_type::time_point> timeout) {
     static_assert(snd_buf::chunk_size >= 12, "send buffer chunk size is too small");
     auto p = data.front().get_write();
     write_le<int64_t>(p, msg_id);
@@ -424,7 +424,7 @@ protocol<Serializer, MsgType>::server::connection::respond(int64_t msg_id, snd_b
 
 template<typename Serializer, typename MsgType, typename... RetTypes>
 inline future<> reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client,
-        std::experimental::optional<steady_clock_type::time_point> timeout) {
+        std::experimental::optional<rpc_clock_type::time_point> timeout) {
     if (!client->error()) {
         snd_buf data;
         try {
@@ -452,7 +452,7 @@ inline future<> reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_s
 
 // specialization for no_wait_type which does not send a reply
 template<typename Serializer, typename MsgType>
-inline future<> reply(no_wait_type, future<no_wait_type>&& r, int64_t msgid, lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client, std::experimental::optional<steady_clock_type::time_point> timeout) {
+inline future<> reply(no_wait_type, future<no_wait_type>&& r, int64_t msgid, lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client, std::experimental::optional<rpc_clock_type::time_point> timeout) {
     try {
         r.get();
     } catch (std::exception& ex) {
@@ -489,7 +489,7 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
     using signature = decltype(sig);
     using wait_style = wait_signature_t<Ret>;
     return [func = lref_to_cref(std::forward<Func>(func))](lw_shared_ptr<typename protocol<Serializer, MsgType>::server::connection> client,
-                                                           std::experimental::optional<steady_clock_type::time_point> timeout,
+                                                           std::experimental::optional<rpc_clock_type::time_point> timeout,
                                                            int64_t msg_id,
                                                            rcv_buf data) mutable {
         auto memory_consumed = client->estimate_request_size(data.size);
@@ -951,9 +951,9 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
                     this->_error = true;
                     return make_ready_future<>();
                 } else {
-                    std::experimental::optional<steady_clock_type::time_point> timeout;
+                    std::experimental::optional<rpc_clock_type::time_point> timeout;
                     if (expire && *expire) {
-                        timeout = steady_clock_type::now() + std::chrono::milliseconds(*expire);
+                        timeout = rpc_clock_type::now() + std::chrono::milliseconds(*expire);
                     }
                     auto it = _server._proto._handlers.find(type);
                     if (it != _server._proto._handlers.end()) {
