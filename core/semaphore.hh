@@ -85,12 +85,12 @@ struct semaphore_default_exception_factory {
 /// customized exceptions on timeout/broken(). It has to provide two static functions
 /// ExceptionFactory::timeout() and ExceptionFactory::broken() which return corresponding
 /// exception object.
-template<typename ExceptionFactory>
+template<typename ExceptionFactory, typename Clock = typename timer<>::clock>
 class basic_semaphore {
 public:
-    using duration =  timer<>::duration;
-    using clock =  timer<>::clock;
-    using time_point =  timer<>::time_point;
+    using duration = typename timer<Clock>::duration;
+    using clock = typename timer<Clock>::clock;
+    using time_point = typename timer<Clock>::time_point;
 private:
     ssize_t _count;
     std::exception_ptr _ex;
@@ -271,10 +271,10 @@ public:
     }
 };
 
-template<typename ExceptionFactory>
+template<typename ExceptionFactory, typename Clock>
 inline
 void
-basic_semaphore<ExceptionFactory>::broken(std::exception_ptr xp) {
+basic_semaphore<ExceptionFactory, Clock>::broken(std::exception_ptr xp) {
     _ex = xp;
     _count = 0;
     while (!_wait_list.empty()) {
@@ -284,12 +284,12 @@ basic_semaphore<ExceptionFactory>::broken(std::exception_ptr xp) {
     }
 }
 
-template<typename ExceptionFactory = semaphore_default_exception_factory>
+template<typename ExceptionFactory = semaphore_default_exception_factory, typename Clock = typename timer<>::clock>
 class semaphore_units {
-    basic_semaphore<ExceptionFactory>& _sem;
+    basic_semaphore<ExceptionFactory, Clock>& _sem;
     size_t _n;
 public:
-    semaphore_units(basic_semaphore<ExceptionFactory>& sem, size_t n) noexcept : _sem(sem), _n(n) {}
+    semaphore_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t n) noexcept : _sem(sem), _n(n) {}
     semaphore_units(semaphore_units&& o) noexcept : _sem(o._sem), _n(o._n) {
         o._n = 0;
     }
@@ -331,11 +331,11 @@ public:
 ///      \ref seaphore_units object is alive.
 ///
 /// \related semaphore
-template<typename ExceptionFactory>
-future<semaphore_units<ExceptionFactory>>
-get_units(basic_semaphore<ExceptionFactory>& sem, size_t units) {
+template<typename ExceptionFactory, typename Clock = typename timer<>::clock>
+future<semaphore_units<ExceptionFactory, Clock>>
+get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units) {
     return sem.wait(units).then([&sem, units] {
-        return semaphore_units<ExceptionFactory>{ sem, units };
+        return semaphore_units<ExceptionFactory, Clock>{ sem, units };
     });
 }
 
@@ -353,11 +353,11 @@ get_units(basic_semaphore<ExceptionFactory>& sem, size_t units) {
 ///      \ref seaphore_units object is alive.
 ///
 /// \related semaphore
-template<typename ExceptionFactory>
-future<semaphore_units<ExceptionFactory>>
-get_units(basic_semaphore<ExceptionFactory>& sem, size_t units, typename basic_semaphore<ExceptionFactory>::time_point timeout) {
+template<typename ExceptionFactory, typename Clock = typename timer<>::clock>
+future<semaphore_units<ExceptionFactory, Clock>>
+get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, typename basic_semaphore<ExceptionFactory, Clock>::time_point timeout) {
     return sem.wait(timeout, units).then([&sem, units] {
-        return semaphore_units<ExceptionFactory>{ sem, units };
+        return semaphore_units<ExceptionFactory, Clock>{ sem, units };
     });
 }
 
@@ -373,11 +373,11 @@ get_units(basic_semaphore<ExceptionFactory>& sem, size_t units, typename basic_s
 ///
 /// \param sem The semaphore to take units from
 /// \param units  Number of units to consume
-template<typename ExceptionFactory>
-semaphore_units<ExceptionFactory>
-consume_units(basic_semaphore<ExceptionFactory>& sem, size_t units) {
+template<typename ExceptionFactory, typename Clock = typename timer<>::clock>
+semaphore_units<ExceptionFactory, Clock>
+consume_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units) {
     sem.consume(units);
-    return semaphore_units<ExceptionFactory>{ sem, units };
+    return semaphore_units<ExceptionFactory, Clock>{ sem, units };
 }
 
 /// \brief Runs a function protected by a semaphore
@@ -401,10 +401,10 @@ consume_units(basic_semaphore<ExceptionFactory>& sem, size_t units) {
 ///       the future returned by with_semaphore() resolves.
 ///
 /// \related semaphore
-template <typename ExceptionFactory, typename Func>
+template <typename ExceptionFactory, typename Func, typename Clock = typename timer<>::clock>
 inline
 futurize_t<std::result_of_t<Func()>>
-with_semaphore(basic_semaphore<ExceptionFactory>& sem, size_t units, Func&& func) {
+with_semaphore(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, Func&& func) {
     return get_units(sem, units).then([func = std::forward<Func>(func)] (auto units) mutable {
         return futurize_apply(std::forward<Func>(func)).finally([units = std::move(units)] {});
     });
