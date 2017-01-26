@@ -3230,7 +3230,7 @@ void smp::configure(boost::program_options::variables_map configuration)
     auto thread_affinity = configuration["thread-affinity"].as<bool>();
     if (configuration.count("overprovisioned")
            && configuration["thread-affinity"].defaulted()) {
-        thread_affinity = true;
+        thread_affinity = false;
     }
     if (!thread_affinity && _using_dpdk) {
         print("warning: --thread-affinity 0 ignored in dpdk mode\n");
