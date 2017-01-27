@@ -347,10 +347,8 @@ void reactor::complete_timers(T& timers, E& expired_timers, EnableFunc&& enable_
             }
             try {
                 t->_callback();
-            } catch (std::exception& e) {
-                std::cerr << "Timer callback failed: " << e.what() << std::endl;
             } catch (...) {
-                std::cerr << "Timer callback failed for unknown reason" << std::endl;
+                seastar_logger.error("Timer callback failed: {}", std::current_exception());
             }
         }
     }
