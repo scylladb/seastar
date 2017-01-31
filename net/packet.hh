@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <iosfwd>
 #include <experimental/optional>
+#include <functional>
 
 namespace net {
 
