@@ -680,8 +680,11 @@ private:
     file_desc _task_quota_timer;
     promise<> _start_promise;
     semaphore _cpu_started;
-    uint64_t _tasks_processed = 0;
-    uint64_t _polls = 0;
+    std::atomic<uint64_t> _tasks_processed = { 0 };
+    std::atomic<uint64_t> _polls = { 0 };
+    std::atomic<unsigned> _tasks_processed_stalled = { 0 };
+    unsigned _tasks_processed_report_threshold;
+
     unsigned _max_task_backlog = 1000;
     seastar::timer_set<timer<>, &timer<>::_link> _timers;
     seastar::timer_set<timer<>, &timer<>::_link>::timer_list_t _expired_timers;
@@ -737,6 +740,7 @@ private:
     std::atomic<bool> _dying{false};
 private:
     static std::chrono::nanoseconds calculate_poll_time();
+    static void block_notifier(int);
     void wakeup();
     bool flush_pending_aio();
     bool flush_tcp_batches();
