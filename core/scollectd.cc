@@ -420,6 +420,10 @@ void impl::run() {
         out.clear();
 
         while (i != vals->end()) {
+            if (i->second.type() == seastar::metrics::impl::data_type::HISTOGRAM) {
+                ++i;
+                continue;
+            }
             auto m = out.mark();
             out.put(_host, _period, i->first, i->second);
             if (!out) {

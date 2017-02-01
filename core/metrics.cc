@@ -91,14 +91,10 @@ registered_metric::registered_metric(data_type type, metric_function f, descript
 metric_value metric_value::operator+(const metric_value& c) {
     metric_value res(*this);
     switch (_type) {
-    case data_type::GAUGE:
-        res.u._d += c.u._d;
-        break;
-    case data_type::DERIVE:
-        res.u._i += c.u._i;
-        break;
+    case data_type::HISTOGRAM:
+        boost::get<histogram>(res.u) += boost::get<histogram>(c.u);
     default:
-        res.u._ui += c.u._ui;
+        boost::get<double>(res.u) += boost::get<double>(c.u);
         break;
     }
     return res;
@@ -224,6 +220,31 @@ void impl::add_registration(const metric_id& id, shared_ptr<registered_metric> r
 
 const bool metric_disabled = false;
 
+
+histogram& histogram::operator+=(const histogram& c) {
+    for (size_t i = 0; i < c.buckets.size(); i++) {
+        if (buckets.size() <= i) {
+            buckets.push_back(c.buckets[i]);
+        } else {
+            if (buckets[i].upper_bound != c.buckets[i].upper_bound) {
+                throw std::out_of_range("Trying to add histogram with different bucket limits");
+            }
+            buckets[i].count += c.buckets[i].count;
+        }
+    }
+    return *this;
+}
+
+histogram histogram::operator+(const histogram& c) const {
+    histogram res = *this;
+    res += c;
+    return res;
+}
+
+histogram histogram::operator+(histogram&& c) const {
+    c += *this;
+    return std::move(c);
+}
 
 }
 }
