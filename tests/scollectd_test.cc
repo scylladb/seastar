@@ -107,7 +107,7 @@ SEASTAR_TEST_CASE(test_bind_callable) {
             val = i;
             auto vals = get_collectd_value(id);
             for (auto v : vals) {
-                BOOST_CHECK_EQUAL(v.u._ui, i);
+                BOOST_CHECK_EQUAL(v.ui(), i);
             }
         }
     }
@@ -127,7 +127,7 @@ SEASTAR_TEST_CASE(test_bind_callable_raw) {
         val = i;
         auto vals = get_collectd_value(id);
         for (auto v : vals) {
-            BOOST_CHECK_EQUAL(v.u._ui, i);
+            BOOST_CHECK_EQUAL(v.ui(), i);
         }
     }
 
