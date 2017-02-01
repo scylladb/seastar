@@ -390,15 +390,30 @@ future<> do_for_each(Container& c, AsyncAction&& action) {
 }
 
 /// \cond internal
+namespace seastar {
+namespace internal {
+
 template<typename... Futures>
-class when_all_state : public enable_lw_shared_from_this<when_all_state<Futures...>> {
+struct identity_futures_tuple {
+    using future_type = future<std::tuple<Futures...>>;
+    using promise_type = typename future_type::promise_type;
+
+    static void set_promise(promise_type& p, std::tuple<Futures...> futures) {
+        p.set_value(std::move(futures));
+    }
+};
+
+template<typename ResolvedTupleTransform, typename... Futures>
+class when_all_state : public enable_lw_shared_from_this<when_all_state<ResolvedTupleTransform, Futures...>> {
     using type = std::tuple<Futures...>;
     type tuple;
-    promise<type> p;
+public:
+    typename ResolvedTupleTransform::promise_type p;
     when_all_state(Futures&&... t) : tuple(std::make_tuple(std::move(t)...)) {}
     ~when_all_state() {
-        p.set_value(std::move(tuple));
+        ResolvedTupleTransform::set_promise(p, std::move(tuple));
     }
+private:
     template<size_t Idx>
     int wait() {
         auto& f = std::get<Idx>(tuple);
@@ -410,16 +425,16 @@ class when_all_state : public enable_lw_shared_from_this<when_all_state<Futures.
         }
         return 0;
     }
+public:
     template <size_t... Idx>
-    future<type> wait_all(std::index_sequence<Idx...>) {
+    typename ResolvedTupleTransform::future_type wait_all(std::index_sequence<Idx...>) {
         [] (...) {} (this->template wait<Idx>()...);
         return p.get_future();
     }
-    template <typename... Futs>
-    friend future<std::tuple<Futs...>> when_all(Futs&&... futs);
-    template<typename U>
-    friend class lw_shared_ptr;
 };
+
+}
+}
 /// \endcond
 
 /// Wait for many futures to complete, capturing possible errors (variadic version).
@@ -435,11 +450,16 @@ template <typename... Futs>
 inline
 future<std::tuple<Futs...>>
 when_all(Futs&&... futs) {
-    auto s = make_lw_shared<when_all_state<Futs...>>(std::forward<Futs>(futs)...);
+    namespace si = seastar::internal;
+    using state = si::when_all_state<si::identity_futures_tuple<Futs...>, Futs...>;
+    auto s = make_lw_shared<state>(std::forward<Futs>(futs)...);
     return s->wait_all(std::make_index_sequence<sizeof...(Futs)>());
 }
 
 /// \cond internal
+namespace seastar {
+namespace internal {
+
 template <typename Iterator, typename IteratorCategory>
 inline
 size_t
@@ -456,10 +476,18 @@ when_all_estimate_vector_capacity(Iterator begin, Iterator end, std::forward_ite
     return std::distance(begin, end);
 }
 
+template<typename Future>
+struct identity_futures_vector {
+    using future_type = future<std::vector<Future>>;
+    static future_type run(std::vector<Future> futures) {
+        return make_ready_future<std::vector<Future>>(std::move(futures));
+    }
+};
+
 // Internal function for when_all().
-template <typename Future>
+template <typename ResolvedVectorTransform, typename Future>
 inline
-future<std::vector<Future>>
+typename ResolvedVectorTransform::future_type
 complete_when_all(std::vector<Future>&& futures, typename std::vector<Future>::iterator pos) {
     // If any futures are already ready, skip them.
     while (pos != futures.end() && pos->available()) {
@@ -467,13 +495,28 @@ complete_when_all(std::vector<Future>&& futures, typename std::vector<Future>::i
     }
     // Done?
     if (pos == futures.end()) {
-        return make_ready_future<std::vector<Future>>(std::move(futures));
+        return ResolvedVectorTransform::run(std::move(futures));
     }
     // Wait for unready future, store, and continue.
     return pos->then_wrapped([futures = std::move(futures), pos] (auto fut) mutable {
         *pos++ = std::move(fut);
-        return complete_when_all(std::move(futures), pos);
+        return complete_when_all<ResolvedVectorTransform>(std::move(futures), pos);
     });
+}
+
+template<typename ResolvedVectorTransform, typename FutureIterator>
+inline auto
+do_when_all(FutureIterator begin, FutureIterator end) {
+    using itraits = std::iterator_traits<FutureIterator>;
+    std::vector<typename itraits::value_type> ret;
+    ret.reserve(when_all_estimate_vector_capacity(begin, end, typename itraits::iterator_category()));
+    // Important to invoke the *begin here, in case it's a function iterator,
+    // so we launch all computation in parallel.
+    std::move(begin, end, std::back_inserter(ret));
+    return complete_when_all<ResolvedVectorTransform>(std::move(ret), ret.begin());
+}
+
+}
 }
 /// \endcond
 
@@ -491,13 +534,10 @@ template <typename FutureIterator>
 inline
 future<std::vector<typename std::iterator_traits<FutureIterator>::value_type>>
 when_all(FutureIterator begin, FutureIterator end) {
+    namespace si = seastar::internal;
     using itraits = std::iterator_traits<FutureIterator>;
-    std::vector<typename itraits::value_type> ret;
-    ret.reserve(when_all_estimate_vector_capacity(begin, end, typename itraits::iterator_category()));
-    // Important to invoke the *begin here, in case it's a function iterator,
-    // so we launch all computation in parallel.
-    std::move(begin, end, std::back_inserter(ret));
-    return complete_when_all(std::move(ret), ret.begin());
+    using result_transform = si::identity_futures_vector<typename itraits::value_type>;
+    return si::do_when_all<result_transform>(std::move(begin), std::move(end));
 }
 
 template <typename T, bool IsFuture>
