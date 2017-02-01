@@ -221,12 +221,12 @@ future<> native_network_stack::run_dhcp(bool is_renew, const dhcp::lease& res) {
         auto & ns = static_cast<native_network_stack&>(engine().net());
         ns.set_ipv4_packet_filter(f);
     }).then([this, d = std::move(d), is_renew, res]() mutable {
-        net::dhcp::result_type fut = is_renew ? d.renew(res) : d.discover();
+        ::net::dhcp::result_type fut = is_renew ? d.renew(res) : d.discover();
         return fut.then([this, is_renew](bool success, const dhcp::lease & res) {
             return smp::invoke_on_all([] {
                 auto & ns = static_cast<native_network_stack&>(engine().net());
                 ns.set_ipv4_packet_filter(nullptr);
-            }).then(std::bind(&net::native_network_stack::on_dhcp, this, success, res, is_renew));
+            }).then(std::bind(&::net::native_network_stack::on_dhcp, this, success, res, is_renew));
         }).finally([d = std::move(d)] {});
     });
 }

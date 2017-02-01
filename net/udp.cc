@@ -108,6 +108,7 @@ public:
     }
 
     virtual void close() override {
+        _state->_queue.abort(std::make_exception_ptr(std::system_error(EBADF, std::system_category())));
         _reg.unregister();
         _state->_queue.abort(std::make_exception_ptr(std::system_error(EPIPE, std::system_category())));
         _closed = true;

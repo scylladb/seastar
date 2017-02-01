@@ -81,7 +81,7 @@ struct hw_features {
     // Maximum Transmission Unit
     uint16_t mtu = 1500;
     // Maximun packet len when TCP/UDP offload is enabled
-    uint16_t max_packet_len = net::ip_packet_len_max - net::eth_hdr_len;
+    uint16_t max_packet_len = ip_packet_len_max - eth_hdr_len;
 };
 
 class l3_protocol {
@@ -115,14 +115,14 @@ class interface {
     std::shared_ptr<device> _dev;
     subscription<packet> _rx;
     ethernet_address _hw_address;
-    net::hw_features _hw_features;
+    ::net::hw_features _hw_features;
     std::vector<l3_protocol::packet_provider_type> _pkt_providers;
 private:
     future<> dispatch_packet(packet p);
 public:
     explicit interface(std::shared_ptr<device> dev);
     ethernet_address hw_address() { return _hw_address; }
-    const net::hw_features& hw_features() const { return _hw_features; }
+    const ::net::hw_features& hw_features() const { return _hw_features; }
     subscription<packet, ethernet_address> register_l3(eth_protocol_num proto_num,
             std::function<future<> (packet p, ethernet_address from)> next,
             std::function<bool (forward_hash&, packet&, size_t)> forward);
@@ -267,7 +267,7 @@ public:
     void l2receive(packet p) { _queues[engine().cpu_id()]->_rx_stream.produce(std::move(p)); }
     subscription<packet> receive(std::function<future<> (packet)> next_packet);
     virtual ethernet_address hw_address() = 0;
-    virtual net::hw_features hw_features() = 0;
+    virtual ::net::hw_features hw_features() = 0;
     virtual const rss_key_type& rss_key() const { return default_rsskey_40bytes; }
     virtual uint16_t hw_queues_count() { return 1; }
     virtual future<> link_ready() { return make_ready_future<>(); }

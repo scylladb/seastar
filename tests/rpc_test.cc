@@ -87,7 +87,7 @@ inline sstring read(serializer, Input& in, rpc::type<sstring>) {
 using test_rpc_proto = rpc::protocol<serializer>;
 using connect_fn = std::function<test_rpc_proto::client (ipv4_addr addr)>;
 
-class rpc_socket_impl : public net::socket_impl {
+class rpc_socket_impl : public ::net::socket_impl {
     promise<connected_socket> _p;
     bool _connect;
     loopback_socket_impl _socket;

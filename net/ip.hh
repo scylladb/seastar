@@ -135,7 +135,7 @@ struct ipv4_traits {
     static void udp_pseudo_header_checksum(checksummer& csum, ipv4_address src, ipv4_address dst, uint16_t len) {
         csum.sum_many(src.ip.raw, dst.ip.raw, uint8_t(0), uint8_t(ip_protocol_num::udp), len);
     }
-    static constexpr uint8_t ip_hdr_len_min = net::ipv4_hdr_len_min;
+    static constexpr uint8_t ip_hdr_len_min = ipv4_hdr_len_min;
 };
 
 template <ip_protocol_num ProtoNum>
@@ -400,8 +400,8 @@ public:
     tcp<ipv4_traits>& get_tcp() { return *_tcp._tcp; }
     ipv4_udp& get_udp() { return _udp; }
     void register_l4(proto_type id, ip_protocol* handler);
-    const net::hw_features& hw_features() const { return _netif->hw_features(); }
-    static bool needs_frag(packet& p, ip_protocol_num proto_num, net::hw_features hw_features);
+    const ::net::hw_features& hw_features() const { return _netif->hw_features(); }
+    static bool needs_frag(packet& p, ip_protocol_num proto_num, ::net::hw_features hw_features);
     void learn(ethernet_address l2, ipv4_address l3) {
         _arp.learn(l2, l3);
     }

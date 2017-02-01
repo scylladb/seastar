@@ -19,6 +19,8 @@
  * Copyright (C) 2016 ScyllaDB.
  */
 #pragma once
+
+#include <iosfwd>
 #include <sys/socket.h>
 #include <netinet/ip.h>
 #include "net/byteorder.hh"
@@ -41,7 +43,11 @@ public:
     ::sockaddr_in& as_posix_sockaddr_in() { return u.in; }
     const ::sockaddr& as_posix_sockaddr() const { return u.sa; }
     const ::sockaddr_in& as_posix_sockaddr_in() const { return u.in; }
+
+    bool operator==(const socket_address&) const;
 };
+
+std::ostream& operator<<(std::ostream&, const socket_address&);
 
 namespace seastar {
 
@@ -49,6 +55,11 @@ enum class transport {
     TCP = IPPROTO_TCP,
     SCTP = IPPROTO_SCTP
 };
+
+
+namespace net {
+class inet_address;
+}
 
 }
 
@@ -69,6 +80,7 @@ struct ipv4_addr {
     ipv4_addr(uint16_t port) : ip(0), port(port) {}
     ipv4_addr(const std::string &addr);
     ipv4_addr(const std::string &addr, uint16_t port);
+    ipv4_addr(const seastar::net::inet_address&, uint16_t);
 
     ipv4_addr(const socket_address &sa) {
         ip = net::ntoh(sa.u.in.sin_addr.s_addr);

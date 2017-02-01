@@ -158,12 +158,14 @@ modes = {
         'sanitize_libs': '-lasan -lubsan',
         'opt': '-O0 -DDEBUG -DDEBUG_SHARED_PTR -DDEFAULT_ALLOCATOR -DSEASTAR_THREAD_STACK_GUARDS',
         'libs': '',
+        'cares_opts': '--enable-debug',
     },
     'release': {
         'sanitize': '',
         'sanitize_libs': '',
         'opt': '-O2',
         'libs': '',
+        'cares_opts': '',
     },
 }
 
@@ -212,6 +214,7 @@ tests = [
     'tests/scollectd_test',
     'tests/perf/perf_fstream',
     'tests/json_formatter_test',
+    'tests/dns_test',
     ]
 
 apps = [
@@ -271,6 +274,7 @@ libnet = [
     'net/tcp.cc',
     'net/dhcp.cc',
     'net/tls.cc',
+    'net/dns.cc',
     ]
 
 core = [
@@ -292,6 +296,7 @@ core = [
     'net/posix-stack.cc',
     'net/net.cc',
     'net/stack.cc',
+    'net/inet_address.cc',
     'rpc/rpc.cc',
     'rpc/lz4_compressor.cc',
     ]
@@ -434,6 +439,7 @@ deps = {
     'tests/scollectd_test': ['tests/scollectd_test.cc'] + core,
     'tests/perf/perf_fstream': ['tests/perf/perf_fstream.cc'] + core,
     'tests/json_formatter_test': ['tests/json_formatter_test.cc'] + core + http,
+    'tests/dns_test': ['tests/dns_test.cc'] + core + libnet,
 }
 
 boost_tests = [
@@ -454,6 +460,7 @@ boost_tests = [
     'tests/connect_test',
     'tests/scollectd_test',
     'tests/json_formatter_test',
+    'tests/dns_test',
     ]
 
 for bt in boost_tests:
@@ -642,6 +649,25 @@ if args.dpdk:
                          if file.endswith('.h') or file.endswith('.c')]
 dpdk_sources = ' '.join(dpdk_sources)
 
+# both source and builddir location
+cares_dir = 'c-ares'
+cares_lib = 'cares-seastar'
+cares_src_lib = cares_dir + '/.libs/libcares.a'
+
+if not os.path.exists(cares_dir) or not os.listdir(cares_dir):
+    raise Exception(cares_dir + ' is empty. Run "git submodule update --init".')
+
+if not os.path.exists(cares_dir + '/configure'):
+    subprocess.check_call('sh -x buildconf', cwd=cares_dir, shell=True)
+
+cares_sources = []
+for root, dirs, files in os.walk('c-ares'):
+    cares_sources += [os.path.join(root, file)
+                      for file in files
+                      if file.endswith('.h') or file.endswith('.c')]
+cares_sources = ' '.join(cares_sources)
+libs += ' -l' + cares_lib
+
 outdir = 'build'
 buildfile = 'build.ninja'
 os.makedirs(outdir, exist_ok = True)
@@ -675,6 +701,8 @@ with open(buildfile, 'w') as f:
         rule protobuf
             command = protoc --cpp_out=$outdir $in
             description = PROTOC $out
+        rule copy_file
+            command = cp $in $out
         ''').format(**globals()))
     if args.dpdk:
         f.write(textwrap.dedent('''\
@@ -683,6 +711,7 @@ with open(buildfile, 'w') as f:
             build {dpdk_deps} : dpdkmake {dpdk_sources}
             ''').format(**globals()))
     for mode in build_modes:
+        objdeps = {}
         modeval = modes[mode]
         if modeval['sanitize'] and not do_sanitize:
             print('Note: --static disables debug mode sanitizers')
@@ -691,26 +720,37 @@ with open(buildfile, 'w') as f:
         elif modeval['sanitize']:
             modeval['sanitize'] += ' -DASAN_ENABLED'
         f.write(textwrap.dedent('''\
-            cxxflags_{mode} = {sanitize} {opt} -I $builddir/{mode}/gen
+            cxxflags_{mode} = {sanitize} {opt} -I $builddir/{mode}/gen -I $builddir/{mode}/c-ares
             libs_{mode} = {sanitize_libs} {libs}
             rule cxx.{mode}
               command = $cxx -MD -MT $out -MF $out.d $cxxflags_{mode} $cxxflags -c -o $out $in
               description = CXX $out
               depfile = $out.d
             rule link.{mode}
-              command = $cxx  $cxxflags_{mode} $ldflags -o $out $in $libs $libs_{mode} $extralibs
+              command = $cxx  $cxxflags_{mode} -L$builddir/{mode} $ldflags -o $out $in $libs $libs_{mode} $extralibs
               description = LINK $out
               pool = link_pool
             rule link_stripped.{mode}
-              command = $cxx  $cxxflags_{mode} -s $ldflags -o $out $in $libs $libs_{mode} $extralibs
+              command = $cxx  $cxxflags_{mode} -s -L$builddir/{mode} $ldflags -o $out $in $libs $libs_{mode} $extralibs
               description = LINK (stripped) $out
               pool = link_pool
             rule ar.{mode}
               command = rm -f $out; ar cr $out $in; ranlib $out
               description = AR $out
             ''').format(mode = mode, **modeval))
-        f.write('build {mode}: phony {artifacts}\n'.format(mode = mode,
+        f.write('build {mode}: phony $builddir/{mode}/lib{cares_lib}.a {artifacts}\n'.format(mode = mode, cares_lib=cares_lib,
             artifacts = str.join(' ', ('$builddir/' + mode + '/' + x for x in build_artifacts))))
+        f.write(textwrap.dedent('''\
+              rule caresmake_{mode}
+                command = make -C build/{mode}/{cares_dir}
+              rule caresconfigure_{mode}
+                command = mkdir -p $builddir/{mode}/{cares_dir} && cd $builddir/{mode}/{cares_dir} && {srcdir}/$in {cares_opts}
+              build $builddir/{mode}/{cares_dir}/Makefile : caresconfigure_{mode} {cares_dir}/configure
+              build $builddir/{mode}/{cares_dir}/ares_build.h : phony $builddir/{mode}/{cares_dir}/Makefile
+              build $builddir/{mode}/{cares_src_lib} : caresmake_{mode} $builddir/{mode}/{cares_dir}/Makefile | {cares_sources}
+              build $builddir/{mode}/lib{cares_lib}.a : copy_file $builddir/{mode}/{cares_src_lib}
+            ''').format(srcdir = os.getcwd(), cares_opts=modeval['cares_opts'], **globals()))
+        objdeps['$builddir/' + mode + '/net/dns.o'] = ' $builddir/' + mode + '/' + cares_dir + '/ares_build.h'
         compiles = {}
         ragels = {}
         swaggers = {}
@@ -752,7 +792,7 @@ with open(buildfile, 'w') as f:
                     f.write('build $builddir/{}/{}_g: link.{} {} | {}\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps))
                     f.write('  extralibs = {}\n'.format(' '.join(extralibs)))
                 else:
-                    f.write('build $builddir/{}/{}: link.{} {} | {}\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps))
+                    f.write('build $builddir/{}/{}: link.{} {} | {} $builddir/{}/lib{}.a\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps, mode, cares_lib))
 
             for src in srcs:
                 if src.endswith('.cc'):
@@ -773,7 +813,7 @@ with open(buildfile, 'w') as f:
         for obj in compiles:
             src = compiles[obj]
             gen_headers = list(ragels.keys()) + list(swaggers.keys()) + list(protobufs.keys())
-            f.write('build {}: cxx.{} {} || {} \n'.format(obj, mode, src, ' '.join(gen_headers) + dpdk_deps))
+            f.write('build {}: cxx.{} {} || {} \n'.format(obj, mode, src, ' '.join(gen_headers) + dpdk_deps + objdeps.get(obj, '')))
         for hh in ragels:
             src = ragels[hh]
             f.write('build {}: ragel {}\n'.format(hh, src))
@@ -790,7 +830,7 @@ with open(buildfile, 'w') as f:
         rule configure
           command = python3 configure.py $configure_args
           generator = 1
-        build build.ninja: configure | configure.py
+        build build.ninja: configure | configure.py {cares_dir}/configure
         rule cscope
             command = find -name '*.[chS]' -o -name "*.cc" -o -name "*.hh" | cscope -bq -i-
             description = CSCOPE
