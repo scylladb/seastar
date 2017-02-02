@@ -668,6 +668,14 @@ for root, dirs, files in os.walk('c-ares'):
 cares_sources = ' '.join(cares_sources)
 libs += ' -l' + cares_lib
 
+# "libs" contains mostly pre-existing libraries, but if we want to add to
+# it a library which we built here, we need to ensure that this library
+# gets built before actually using "libs". So let's make a list "built_libs"
+# of libraries which are targets built here. These libraries are all relative
+# to the current mode's build directory.
+built_libs = []
+built_libs += ['lib' + cares_lib + '.a']
+
 outdir = 'build'
 buildfile = 'build.ninja'
 os.makedirs(outdir, exist_ok = True)
@@ -778,6 +786,7 @@ with open(buildfile, 'w') as f:
             elif binary.endswith('.a'):
                 f.write('build $builddir/{}/{}: ar.{} {}\n'.format(mode, binary, mode, str.join(' ', objs)))
             else:
+                libdeps = str.join(' ', ('$builddir/{}/{}'.format(mode, i) for i in built_libs))
                 extralibs = []
                 if binary.startswith('tests/'):
                     if binary in boost_tests:
@@ -787,12 +796,12 @@ with open(buildfile, 'w') as f:
                     # So we strip the tests by default; The user can very
                     # quickly re-link the test unstripped by adding a "_g"
                     # to the test name, e.g., "ninja build/release/testname_g"
-                    f.write('build $builddir/{}/{}: {}.{} {} | {}\n'.format(mode, binary, tests_link_rule, mode, str.join(' ', objs), dpdk_deps))
+                    f.write('build $builddir/{}/{}: {}.{} {} | {} {}\n'.format(mode, binary, tests_link_rule, mode, str.join(' ', objs), dpdk_deps, libdeps))
                     f.write('  extralibs = {}\n'.format(' '.join(extralibs)))
-                    f.write('build $builddir/{}/{}_g: link.{} {} | {}\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps))
+                    f.write('build $builddir/{}/{}_g: link.{} {} | {} {}\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps, libdeps))
                     f.write('  extralibs = {}\n'.format(' '.join(extralibs)))
                 else:
-                    f.write('build $builddir/{}/{}: link.{} {} | {} $builddir/{}/lib{}.a\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps, mode, cares_lib))
+                    f.write('build $builddir/{}/{}: link.{} {} | {} {} $builddir/{}/lib{}.a\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps, libdeps, mode, cares_lib))
 
             for src in srcs:
                 if src.endswith('.cc'):
