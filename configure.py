@@ -747,7 +747,7 @@ with open(buildfile, 'w') as f:
                 command = mkdir -p $builddir/{mode}/{cares_dir} && cd $builddir/{mode}/{cares_dir} && {srcdir}/$in {cares_opts}
               build $builddir/{mode}/{cares_dir}/Makefile : caresconfigure_{mode} {cares_dir}/configure
               build $builddir/{mode}/{cares_dir}/ares_build.h : phony $builddir/{mode}/{cares_dir}/Makefile
-              build $builddir/{mode}/{cares_src_lib} : caresmake_{mode} $builddir/{mode}/{cares_dir}/Makefile | {cares_sources}
+              build $builddir/{mode}/{cares_src_lib} $builddir/{mode}/{cares_dir}/libcares.la : caresmake_{mode} $builddir/{mode}/{cares_dir}/Makefile | {cares_sources}
               build $builddir/{mode}/lib{cares_lib}.a : copy_file $builddir/{mode}/{cares_src_lib}
             ''').format(srcdir = os.getcwd(), cares_opts=modeval['cares_opts'], **globals()))
         objdeps['$builddir/' + mode + '/net/dns.o'] = ' $builddir/' + mode + '/' + cares_dir + '/ares_build.h'
