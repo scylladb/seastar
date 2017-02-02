@@ -808,3 +808,100 @@ SEASTAR_TEST_CASE(test_shared_future_with_timeout) {
         BOOST_REQUIRE_EQUAL(42, f3.get0());
     });
 }
+
+SEASTAR_TEST_CASE(test_when_all_succeed_tuples) {
+    return seastar::when_all_succeed(
+        make_ready_future<>(),
+        make_ready_future<sstring>("hello world"),
+        make_ready_future<int>(42),
+        make_ready_future<>(),
+        make_ready_future<int, sstring>(84, "hi"),
+        make_ready_future<bool>(true)
+    ).then([] (sstring msg, int v, std::tuple<int, sstring> t, bool b) {
+        BOOST_REQUIRE_EQUAL(msg, "hello world");
+        BOOST_REQUIRE_EQUAL(v, 42);
+        BOOST_REQUIRE_EQUAL(std::get<0>(t), 84);
+        BOOST_REQUIRE_EQUAL(std::get<1>(t), "hi");
+        BOOST_REQUIRE_EQUAL(b, true);
+
+        return seastar::when_all_succeed(
+                make_exception_future<>(42),
+                make_ready_future<sstring>("hello world"),
+                make_exception_future<int>(43),
+                make_ready_future<>()
+        ).then([] (sstring, int) {
+            BOOST_FAIL("shouldn't reach");
+            return false;
+        }).handle_exception([] (auto excp) {
+            try {
+                std::rethrow_exception(excp);
+            } catch (int v) {
+                BOOST_REQUIRE(v == 42 || v == 43);
+                return true;
+            } catch (...) { }
+            return false;
+        }).then([] (auto ret) {
+            BOOST_REQUIRE(ret);
+        });
+    });
+}
+
+SEASTAR_TEST_CASE(test_when_all_succeed_vector) {
+    std::vector<future<>> vecs;
+    vecs.emplace_back(make_ready_future<>());
+    vecs.emplace_back(make_ready_future<>());
+    vecs.emplace_back(make_ready_future<>());
+    vecs.emplace_back(make_ready_future<>());
+    return seastar::when_all_succeed(vecs.begin(), vecs.end()).then([] {
+        std::vector<future<>> vecs;
+        vecs.emplace_back(make_ready_future<>());
+        vecs.emplace_back(make_ready_future<>());
+        vecs.emplace_back(make_exception_future<>(42));
+        vecs.emplace_back(make_exception_future<>(43));
+        return seastar::when_all_succeed(vecs.begin(), vecs.end());
+    }).then([] {
+        BOOST_FAIL("shouldn't reach");
+        return false;
+    }).handle_exception([] (auto excp) {
+        try {
+            std::rethrow_exception(excp);
+        } catch (int v) {
+            BOOST_REQUIRE(v == 42 || v == 43);
+            return true;
+        } catch (...) { }
+        return false;
+    }).then([] (auto ret) {
+        BOOST_REQUIRE(ret);
+
+        std::vector<future<int>> vecs;
+        vecs.emplace_back(make_ready_future<int>(1));
+        vecs.emplace_back(make_ready_future<int>(2));
+        vecs.emplace_back(make_ready_future<int>(3));
+        return seastar::when_all_succeed(vecs.begin(), vecs.end());
+    }).then([] (std::vector<int> vals) {
+        BOOST_REQUIRE_EQUAL(vals.size(), 3);
+        BOOST_REQUIRE_EQUAL(vals[0], 1);
+        BOOST_REQUIRE_EQUAL(vals[1], 2);
+        BOOST_REQUIRE_EQUAL(vals[2], 3);
+
+        std::vector<future<int>> vecs;
+        vecs.emplace_back(make_ready_future<int>(1));
+        vecs.emplace_back(make_ready_future<int>(2));
+        vecs.emplace_back(make_exception_future<int>(42));
+        vecs.emplace_back(make_exception_future<int>(43));
+        return seastar::when_all_succeed(vecs.begin(), vecs.end());
+    }).then([] (std::vector<int>) {
+        BOOST_FAIL("shouldn't reach");
+        return false;
+    }).handle_exception([] (auto excp) {
+        try {
+            std::rethrow_exception(excp);
+        } catch (int v) {
+            BOOST_REQUIRE(v == 42 || v == 43);
+            return true;
+        } catch (...) { }
+        return false;
+    }).then([] (auto ret) {
+        BOOST_REQUIRE(ret);
+    });
+}
