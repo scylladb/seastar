@@ -433,9 +433,87 @@ Usually, aborting the current chain of operations and returning an exception is 
 1. `.then_wrapped()`: instead of passing the values carried by the future into the continuation, `.then_wrapped()` passes the input future to the continuation. The future is guaranteed to be in ready state, so the continuation can examine whether it contains a value or an exception, and take appropriate action.
 2. `.finally()`: similar to a Java finally block, a `.finally()` continuation is executed whether or not its input future carries an exception or not. The result of the finally continuation is its input future, so `.finally()` can be used to insert code in a flow that is executed unconditionally, but otherwise does not alter the flow.
 
-TODO: give example code for the above. Also mention handle_exception - although
-perhaps delay that to a later chapter?
+TODO: give example code for the above. Also mention handle_exception - although perhaps delay that to a later chapter?
 
+## Exceptions vs. exceptional futures
+An asynchronous function can fail in one of two ways: It can fail immediately, by throwing an exception, or it can return a future which will eventually fail (resolve to an exception). These two modes of failure appear similar to the uninitiated, but behave differently when attempting to handle exceptions using `finally()`, `handle_exception()`, or `then_wrapped()`. For example, consider the code:
+
+```cpp
+#include "core/future.hh"
+#include <iostream>
+#include <exception>
+
+class my_exception : public std::exception {
+    virtual const char* what() const noexcept override { return "my exception"; }
+};
+
+future<> fail() {
+    return make_exception_future<>(my_exception());
+}
+
+future<> f() {
+    return fail().finally([] {
+        std::cout << "cleaning up\n";
+    });
+}
+```
+
+This code will, as expected, print the "cleaning up" message - the asynchronous function `fail()` returns a future which resolves to a failure, and the `finally()` continuation is run despite this failure, as expected.
+
+Now consider that in the above example we had a different definition for `fail()`:
+
+```cpp
+future<> fail() {
+    throw my_exception();
+}
+````
+
+Here, `fail()` does not return a failing future. Rather, it fails to return a future at all! The exception it throws stops the entire function `f()`, and the `finally()` continuation does not not get attached to the future (which was never returned), and will never run. The "cleaning up" message is not printed now.
+
+We recommend that to reduce the chance for such errors, asynchronous functions should always return a failed future rather than throw an actual exception. If the asynchronous function calls another function _before_ returning a future, and that second function might throw, it should use `try`/`catch` to catch the exception and convert it into a failed future:
+
+```cpp
+void inner() {
+    throw my_exception();
+}
+future<> fail() {
+    try {
+        inner();
+    } catch(...) {
+        return make_exception_future(std::current_exception());
+    }
+    return make_ready_future<>();
+}
+```
+
+Here, `fail()` catches the exception thrown by `inner()`, whatever it might be, and returns a failed future with that failure. Written this way, the `finally()` continuation will be reached, and the "cleaning up" message printed.
+
+Seastar has a convenient generic function, `futurize_apply()`, which can be useful here. `futurize_apply(func, args...)` runs a function which may return either a future value or an immediate value, and in both cases convert the result into a future value. `futurize_apply()` also converts an immediate exception thrown by the function, if any, into a failed future, just like we did above. So using `futurize_apply()` we can make the above example work even if `fail()` did throw exceptions:
+
+```cpp
+future<> fail() {
+    throw my_exception();
+}
+future<> f() {
+    return futurize_apply(fail).finally([] {
+        std::cout << "cleaning up\n";
+    });
+}
+```
+
+Note that most of this discussion becomes moot if the risk of exception is inside a _continuation_. Consider the following code:
+
+```cpp
+future<> f() {
+    return sleep(1s).then([] {
+        throw my_exception();
+    }).finally([] {
+        std::cout << "cleaning up\n";
+    });
+}
+```
+
+Here, the lambda function of the first continuation does throw an exception instead of returning a failed future. However, we do _not_ have the same problem as before, which only happened because an asynchronous function threw an exception _before_ returning a valid future. Here, `f()` does return a valid future immediately - the failure will only be known later, after `sleep()` resolves. The message in `finally()` will be printed. Under the hood, the methods which attach continuations (such as `then()` and `finally()`) run the continuation functions using `futurize_apply()`, so continuation functions may return immediate values or, in this case, throw an immediate exception, and still work properly.
 ## Futures are single use
 TODO: Talk about if we have a future<int> variable, as soon as we get() or then() it, it becomes invalid - we need to store the value somewhere else. Think if there's an alternative we can suggest
 
