@@ -74,10 +74,6 @@ static sstring collectd_name(const metrics::impl::metric_id & id, uint32_t cpu) 
 
 static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::metric_id & id, uint32_t cpu, const config& ctx) {
     auto label = mt->add_label();
-    label->set_name("type");
-    label->set_value(id.inherit_type());
-
-    label = mt->add_label();
     label->set_name("instance");
     label->set_value(ctx.hostname);
     for (auto &&i : id.labels()) {

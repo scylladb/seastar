@@ -1937,7 +1937,7 @@ void reactor::register_metrics() {
     namespace sm = seastar::metrics;
 
     _metric_groups.add_group("reactor", {
-            sm::make_gauge("tasks_pending", std::bind(&decltype(_pending_tasks)::size, &_pending_tasks), sm::description("Number of pending tasks in the queue")),
+            sm::make_gauge("tasks_pending", sm::description("Number of pending tasks in the queue"), std::bind(&decltype(_pending_tasks)::size, &_pending_tasks)),
             // total_operations value:DERIVE:0:U
             sm::make_derive("tasks_processed", _tasks_processed, sm::description("Total tasks processed")),
             sm::make_derive("polls", _polls, sm::description("Number of times pollers were executed")),
@@ -2863,16 +2863,16 @@ void smp_message_queue::start(unsigned cpuid) {
     _metrics.add_group("smp", {
             // queue_length     value:GAUGE:0:U
             // Absolute value of num packets in last tx batch.
-            sm::make_queue_length("send_batch_queue_length", _last_snt_batch, sm::description("Current send batch queue length"), {}, sm::metric_disabled, instance),
-            sm::make_queue_length("receive_batch_queue_length", _last_rcv_batch, sm::description("Current receive batch queue length"), {}, sm::metric_disabled, instance),
-            sm::make_queue_length("complete_batch_queue_length", _last_cmpl_batch, sm::description("Current complete batch queue length"), {}, sm::metric_disabled, instance),
-            sm::make_queue_length("send_queue_length", _current_queue_length, sm::description("Current send queue length"), {}, sm::metric_disabled, instance),
+            sm::make_queue_length("send_batch_queue_length", _last_snt_batch, sm::description("Current send batch queue length"), {sm::shard_label(instance)})(sm::metric_disabled),
+            sm::make_queue_length("receive_batch_queue_length", _last_rcv_batch, sm::description("Current receive batch queue length"), {sm::shard_label(instance)})(sm::metric_disabled),
+            sm::make_queue_length("complete_batch_queue_length", _last_cmpl_batch, sm::description("Current complete batch queue length"), {sm::shard_label(instance)})(sm::metric_disabled),
+            sm::make_queue_length("send_queue_length", _current_queue_length, sm::description("Current send queue length"), {sm::shard_label(instance)})(sm::metric_disabled),
             // total_operations value:DERIVE:0:U
-            sm::make_derive("total_received_messages", _received, sm::description("Total number of received messages"), {}, sm::metric_disabled, instance),
+            sm::make_derive("total_received_messages", _received, sm::description("Total number of received messages"), {sm::shard_label(instance)})(sm::metric_disabled),
             // total_operations value:DERIVE:0:U
-            sm::make_derive("total_sent_messages", _sent, sm::description("Total number of sent messages"), {}, sm::metric_disabled, instance),
+            sm::make_derive("total_sent_messages", _sent, sm::description("Total number of sent messages"), {sm::shard_label(instance)})(sm::metric_disabled),
             // total_operations value:DERIVE:0:U
-            sm::make_derive("total_completed_messages", _compl, sm::description("Total number of messages completed"), {}, sm::metric_disabled, instance)
+            sm::make_derive("total_completed_messages", _compl, sm::description("Total number of messages completed"), {sm::shard_label(instance)})(sm::metric_disabled)
     });
 }
 

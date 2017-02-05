@@ -81,7 +81,7 @@ bool label_instance::operator!=(const label_instance& id2) const {
 }
 
 label shard_label("shard");
-
+label type_label("type");
 namespace impl {
 
 registered_metric::registered_metric(data_type type, metric_function f, description d, bool enabled) :
@@ -102,30 +102,35 @@ metric_value metric_value::operator+(const metric_value& c) {
 
 metric_definition_impl::metric_definition_impl(
         metric_name_type name,
-        instance_id_type id,
         metric_type type,
         metric_function f,
         description d,
-        bool enabled,
         std::vector<label_instance> _labels)
-        : name(name), id(id), type(type), f(f)
-        , d(d), enabled(enabled) {
+        : name(name), type(type), f(f)
+        , d(d), enabled(true) {
     for (auto i: _labels) {
         labels[i.key()] = i.value();
     }
     if (labels.find(shard_label.name()) == labels.end()) {
         labels[shard_label.name()] = shard();
     }
+    if (labels.find(type_label.name()) == labels.end()) {
+        labels[type_label.name()] = type.type_name;
+    }
+}
+
+metric_definition_impl& metric_definition_impl::operator ()(bool _enabled) {
+    enabled = _enabled;
+    return *this;
+}
+
+metric_definition_impl& metric_definition_impl::operator ()(const label_instance& label) {
+    labels[label.key()] = label.value();
+    return *this;
 }
 
 std::unique_ptr<metric_groups_def> create_metric_groups() {
     return  std::make_unique<metric_groups_impl>();
-}
-
-
-std::unique_ptr<metric_id> get_id(group_name_type group, instance_id_type instance, metric_name_type name,
-        metric_type_def iht) {
-    return std::make_unique<metric_id>(group, instance, name, iht);
 }
 
 metric_groups_impl::~metric_groups_impl() {
@@ -136,7 +141,7 @@ metric_groups_impl::~metric_groups_impl() {
 
 metric_groups_impl& metric_groups_impl::add_metric(group_name_type name, const metric_definition& md)  {
 
-    metric_id id(name, md._impl->id, md._impl->name, md._impl->type.type_name, md._impl->labels);
+    metric_id id(name, md._impl->name, md._impl->labels);
 
     shared_ptr<registered_metric> rm =
             ::make_shared<registered_metric>(md._impl->type.base_type, md._impl->f, md._impl->d, md._impl->enabled);

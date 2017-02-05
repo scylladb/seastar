@@ -312,20 +312,18 @@ struct metric_type {
 
 struct metric_definition_impl {
     metric_name_type name;
-    instance_id_type id;
     metric_type type;
     metric_function f;
     description d;
     bool enabled = true;
     std::map<sstring, sstring> labels;
-
+    metric_definition_impl& operator ()(bool enabled);
+    metric_definition_impl& operator ()(const label_instance& label);
     metric_definition_impl(
         metric_name_type name,
-        instance_id_type id,
         metric_type type,
         metric_function f,
         description d,
-        bool enabled,
         std::vector<label_instance> labels);
 };
 
@@ -371,6 +369,7 @@ metric_function make_function(T& val, data_type dt) {
 extern const bool metric_disabled;
 
 extern label shard_label;
+extern label type_label;
 
 /*
  * The metrics definition are defined to be compatible with collectd metrics defintion.
@@ -385,10 +384,21 @@ extern label shard_label;
  */
 template<typename T>
 impl::metric_definition_impl make_gauge(metric_name_type name,
-        T&& val, description d=description(), std::vector<label_instance> labels = {}, bool enabled=true,
-        instance_id_type instance = impl::shard(), metric_type_def iht = "gauge") {
-    return {name, instance, {impl::data_type::GAUGE, iht}, make_function(std::forward<T>(val), impl::data_type::GAUGE), d, enabled, labels};
+        T&& val, description d=description(), std::vector<label_instance> labels = {}) {
+    return {name, {impl::data_type::GAUGE, "gauge"}, make_function(std::forward<T>(val), impl::data_type::GAUGE), d, labels};
 }
+
+/*!
+ * \brief Gauge are a general purpose metric.
+ *
+ * They can support floating point and can increase or decrease
+ */
+template<typename T>
+impl::metric_definition_impl make_gauge(metric_name_type name,
+        description d, T&& val) {
+    return {name, {impl::data_type::GAUGE, "gauge"}, make_function(std::forward<T>(val), impl::data_type::GAUGE), d, {}};
+}
+
 
 /*!
  * \brief Derive are used when a rate is more interesting than the value.
@@ -400,10 +410,25 @@ impl::metric_definition_impl make_gauge(metric_name_type name,
  */
 template<typename T>
 impl::metric_definition_impl make_derive(metric_name_type name,
-        T&& val, description d=description(), std::vector<label_instance> labels = {}, bool enabled=true,
-        instance_id_type instance = impl::shard(), metric_type_def iht = "derive") {
-    return {name, instance, {impl::data_type::DERIVE, iht}, make_function(std::forward<T>(val), impl::data_type::DERIVE), d, enabled, labels};
+        T&& val, description d=description(), std::vector<label_instance> labels = {}) {
+    return {name, {impl::data_type::DERIVE, "derive"}, make_function(std::forward<T>(val), impl::data_type::DERIVE), d, labels};
 }
+
+
+/*!
+ * \brief Derive are used when a rate is more interesting than the value.
+ *
+ * Derive is an integer value that can increase or decrease, typically it is used when looking at the
+ * derivation of the value.
+ *
+ * It is OK to use it when counting things and if no wrap-around is expected (it shouldn't) it's prefer over counter metric.
+ */
+template<typename T>
+impl::metric_definition_impl make_derive(metric_name_type name, description d,
+        T&& val) {
+    return {name, {impl::data_type::DERIVE, "derive"}, make_function(std::forward<T>(val), impl::data_type::DERIVE), d, {}};
+}
+
 
 /*!
  * \brief create a counter metric
@@ -414,9 +439,8 @@ impl::metric_definition_impl make_derive(metric_name_type name,
  */
 template<typename T>
 impl::metric_definition_impl make_counter(metric_name_type name,
-        T&& val, description d=description(), std::vector<label_instance> labels = {}, bool enabled=true,
-        instance_id_type instance = impl::shard(), metric_type_def iht = "counter") {
-    return {name, instance, {impl::data_type::COUNTER, iht}, make_function(std::forward<T>(val), impl::data_type::COUNTER), d, enabled, labels};
+        T&& val, description d=description(), std::vector<label_instance> labels = {}) {
+    return {name, {impl::data_type::COUNTER, "counter"}, make_function(std::forward<T>(val), impl::data_type::COUNTER), d, labels};
 }
 
 /*!
@@ -427,9 +451,8 @@ impl::metric_definition_impl make_counter(metric_name_type name,
  */
 template<typename T>
 impl::metric_definition_impl make_absolute(metric_name_type name,
-        T&& val, description d=description(), std::vector<label_instance> labels = {}, bool enabled=true,
-        instance_id_type instance = impl::shard(), metric_type_def iht = "absolute") {
-    return {name, instance, {impl::data_type::ABSOLUTE, iht}, make_function(std::forward<T>(val), impl::data_type::ABSOLUTE), d, enabled, labels};
+        T&& val, description d=description(), std::vector<label_instance> labels = {}) {
+    return {name, {impl::data_type::ABSOLUTE, "absolute"}, make_function(std::forward<T>(val), impl::data_type::ABSOLUTE), d, labels};
 }
 
 /*!
@@ -440,10 +463,22 @@ impl::metric_definition_impl make_absolute(metric_name_type name,
  */
 template<typename T>
 impl::metric_definition_impl make_histogram(metric_name_type name,
-        T&& val, description d=description(), std::vector<label_instance> labels = {}, bool enabled=true,
-        instance_id_type instance = impl::shard(), metric_type_def iht = "histogram") {
-    return  {name, instance, {impl::data_type::HISTOGRAM, iht}, make_function(std::forward<T>(val), impl::data_type::HISTOGRAM), d, enabled, labels};
+        T&& val, description d=description(), std::vector<label_instance> labels = {}) {
+    return  {name, {impl::data_type::HISTOGRAM, "histogram"}, make_function(std::forward<T>(val), impl::data_type::HISTOGRAM), d, labels};
 }
+
+/*!
+ * \brief create a histogram metric.
+ *
+ * Histograms are a list o buckets with upper values and counter for the number
+ * of entries in each bucket.
+ */
+template<typename T>
+impl::metric_definition_impl make_histogram(metric_name_type name,
+        description d, T&& val) {
+    return  {name, {impl::data_type::HISTOGRAM, "histogram"}, make_function(std::forward<T>(val), impl::data_type::HISTOGRAM), d, {}};
+}
+
 
 /*!
  * \brief create a total_bytes metric.
@@ -454,9 +489,9 @@ impl::metric_definition_impl make_histogram(metric_name_type name,
 
 template<typename T>
 impl::metric_definition_impl make_total_bytes(metric_name_type name,
-        T&& val, description d=description(), bool enabled=true, std::vector<label_instance> labels = {},
+        T&& val, description d=description(), std::vector<label_instance> labels = {},
         instance_id_type instance = impl::shard()) {
-    return make_derive(name, std::forward<T>(val), d, labels, enabled, instance, "total_bytes");
+    return make_derive(name, std::forward<T>(val), d, labels)(type_label("total_bytes"));
 }
 
 /*!
@@ -468,9 +503,9 @@ impl::metric_definition_impl make_total_bytes(metric_name_type name,
 
 template<typename T>
 impl::metric_definition_impl make_current_bytes(metric_name_type name,
-        T&& val, description d=description(), std::vector<label_instance> labels = {}, bool enabled=true,
+        T&& val, description d=description(), std::vector<label_instance> labels = {},
         instance_id_type instance = impl::shard()) {
-    return make_derive(name, std::forward<T>(val), d, labels, enabled, instance, "bytes");
+    return make_derive(name, std::forward<T>(val), d, labels)(type_label("bytes"));
 }
 
 
@@ -482,9 +517,9 @@ impl::metric_definition_impl make_current_bytes(metric_name_type name,
 
 template<typename T>
 impl::metric_definition_impl make_queue_length(metric_name_type name,
-        T&& val, description d=description(), std::vector<label_instance> labels = {}, bool enabled=true,
+        T&& val, description d=description(), std::vector<label_instance> labels = {},
         instance_id_type instance = impl::shard()) {
-    return make_gauge(name, std::forward<T>(val), d, labels, enabled, instance, "queue_length");
+    return make_gauge(name, std::forward<T>(val), d, labels)(type_label("queue_length"));
 }
 
 
@@ -496,9 +531,9 @@ impl::metric_definition_impl make_queue_length(metric_name_type name,
 
 template<typename T>
 impl::metric_definition_impl make_total_operations(metric_name_type name,
-        T&& val, description d=description(), std::vector<label_instance> labels = {}, bool enabled=true,
+        T&& val, description d=description(), std::vector<label_instance> labels = {},
         instance_id_type instance = impl::shard()) {
-    return make_derive(name, std::forward<T>(val), d, labels, enabled, instance, "total_operations");
+    return make_derive(name, std::forward<T>(val), d, labels)(type_label("total_operations"));
 }
 
 /*! @} */

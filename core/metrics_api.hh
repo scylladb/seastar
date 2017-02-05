@@ -50,13 +50,10 @@ namespace impl {
 class metric_id {
 public:
     metric_id() = default;
-    metric_id(group_name_type group, instance_id_type instance, metric_name_type name,
-                    metrics::metric_type_def iht = std::string(), std::map<sstring, sstring> labels = {})
-                    : _group(std::move(group)), _instance_id(std::move(instance)), _name(
-                                    std::move(name)), _inherit_type(std::move(iht)), _labels(labels) {
-    }
-    metric_id(group_name_type group, instance_id_type instance, metric_name_type name,
-            std::map<sstring, sstring> labels) : metric_id(std::move(group), std::move(instance), std::move(name), std::string(), std::move(labels)) {
+    metric_id(group_name_type group, metric_name_type name,
+                    std::map<sstring, sstring> labels = {})
+                    : _group(std::move(group)), _name(
+                                    std::move(name)), _labels(labels) {
     }
     metric_id(metric_id &&) = default;
     metric_id(const metric_id &) = default;
@@ -77,7 +74,7 @@ public:
         return _name;
     }
     const metrics::metric_type_def & inherit_type() const {
-        return _inherit_type;
+        return _labels.at(type_label.name());
     }
     const std::map<sstring, sstring>& labels() const {
         return _labels;
@@ -90,9 +87,7 @@ private:
                     inherit_type(), labels());
     }
     group_name_type _group;
-    instance_id_type _instance_id;
     metric_name_type _name;
-    metric_type_def _inherit_type;
     std::map<sstring, sstring> _labels;
 };
 }
