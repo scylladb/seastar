@@ -547,7 +547,7 @@ namespace tls {
  * of these, since we handle handshake etc.
  *
  */
-class session: public ::net::connected_socket_impl {
+class session {
 public:
     enum class type
         : uint32_t {
@@ -837,9 +837,6 @@ public:
         return _session.get();
     }
 
-    data_source source() override;
-    data_sink sink() override;
-
     future<>
     handle_error(int res) {
         return make_exception_future(std::system_error(res, glts_errorc));
@@ -886,44 +883,27 @@ public:
         return finish_handshake_op(gnutls_bye(*this, how),
                 std::bind(&session::shutdown, this, how), true);
     }
-    future<> shutdown_input() override {
+    future<> shutdown_input() {
         return shutdown(GNUTLS_SHUT_RDWR).finally([this] {
             _eof = true;
-            return _sock->shutdown_input();
+            return _in.close();
         });
     }
-    future<> shutdown_output() override {
+    future<> shutdown_output() {
         return shutdown(GNUTLS_SHUT_WR).finally([this] {
-            return _sock->shutdown_output();
+            return _out.close();
         });
-    }
-    void set_nodelay(bool nodelay) override {
-        _sock->set_nodelay(nodelay);
-    }
-    bool get_nodelay() const override {
-        return _sock->get_nodelay();
-    }
-    void set_keepalive(bool keepalive) override {
-        _sock->set_keepalive(keepalive);
-    }
-    bool get_keepalive() const override {
-        return _sock->get_keepalive();
-    }
-    void set_keepalive_parameters(const ::net::keepalive_params& p) override {
-        _sock->set_keepalive_parameters(p);
-    }
-    ::net::keepalive_params get_keepalive_parameters() const override {
-        return _sock->get_keepalive_parameters();
     }
 
     // helper for sink
     future<> flush() {
         return _out.flush();
     }
-private:
-    class source_impl;
-    class sink_impl;
 
+    ::net::connected_socket_impl & socket() const {
+        return *_sock;
+    }
+private:
     type _type;
 
     std::unique_ptr<::net::connected_socket_impl> _sock;
@@ -945,25 +925,67 @@ private:
     std::unique_ptr<std::remove_pointer_t<gnutls_session_t>, void(*)(gnutls_session_t)> _session;
 };
 
-
-class session::source_impl: public ::data_source_impl {
+class tls_connected_socket_impl : public ::net::connected_socket_impl {
 public:
-    source_impl(session& s)
-            : _session(s) {
+    tls_connected_socket_impl(lw_shared_ptr<session> session)
+                    : _session(std::move(session)) {
+    }
+
+    class source_impl;
+    class sink_impl;
+
+    data_source source() override;
+    data_sink sink() override;
+
+    future<> shutdown_input() override {
+        return _session->shutdown_input();
+    }
+    future<> shutdown_output() override {
+        return _session->shutdown_output();
+    }
+    void set_nodelay(bool nodelay) override {
+        _session->socket().set_nodelay(nodelay);
+    }
+    bool get_nodelay() const override {
+        return _session->socket().get_nodelay();
+    }
+    void set_keepalive(bool keepalive) override {
+        _session->socket().set_keepalive(keepalive);
+    }
+    bool get_keepalive() const override {
+        return _session->socket().get_keepalive();
+    }
+    void set_keepalive_parameters(const ::net::keepalive_params& p) override {
+        _session->socket().set_keepalive_parameters(p);
+    }
+    ::net::keepalive_params get_keepalive_parameters() const override {
+        return _session->socket().get_keepalive_parameters();
+    }
+
+
+private:
+    lw_shared_ptr<session> _session;
+};
+
+
+class tls_connected_socket_impl::source_impl: public ::data_source_impl {
+public:
+    source_impl(lw_shared_ptr<session> s)
+            : _session(std::move(s)) {
     }
 private:
     future<temporary_buffer<char>> get() override {
         // gnutls might have stuff in its buffers.
-        auto avail = gnutls_record_check_pending(_session);
+        auto avail = gnutls_record_check_pending(*_session);
         if (avail == 0) {
             // or we might...
-            avail = _session.in_avail();
+            avail = _session->in_avail();
         }
         if (avail != 0) {
             // typically, unencrypted data can get smaller (padding),
             // but not larger.
             temporary_buffer<char> output(avail);
-            auto n = gnutls_record_recv(_session, output.get_write(),
+            auto n = gnutls_record_recv(*_session, output.get_write(),
                     output.size());
             if (n < 0) {
                 switch (n) {
@@ -973,7 +995,7 @@ private:
                     // Our input buffer should be empty now, so just go again
                     return get();
                 case GNUTLS_E_REHANDSHAKE:
-                    return _session.maybe_rehandshake().then([this] {
+                    return _session->maybe_rehandshake().then([this] {
                        return get();
                     });
                 default:
@@ -983,31 +1005,29 @@ private:
             output.trim(n);
             return make_ready_future<temporary_buffer<char>>(std::move(output));
         }
-        if (_session.eof()) {
+        if (_session->eof()) {
             return make_ready_future<temporary_buffer<char>>();
         }
         // No input? wait for out buffers to fill...
-        return _session.wait_for_input().then([this] {
+        return _session->wait_for_input().then([this] {
             return get();
         });
     }
     future<> close() override {
-        return _session.shutdown_input().then([this] {
-            return _session._in.close();
-        });
+        return _session->shutdown_input();
     }
 
-    session& _session;
+    lw_shared_ptr<session> _session;
 };
 
 // Note: source/sink, and by extension, the in/out streams
 // produced, cannot exist outside the direct life span of
 // the connected_socket itself. This is consistent with
 // other sockets in seastar, though I am than less fond of it...
-class session::sink_impl: public ::data_sink_impl {
+class tls_connected_socket_impl::sink_impl: public ::data_sink_impl {
 public:
-    sink_impl(session& s)
-            : _session(s) {
+    sink_impl(lw_shared_ptr<session> s)
+            : _session(std::move(s)) {
     }
 private:
     typedef ::net::fragment* frag_iter;
@@ -1018,7 +1038,7 @@ private:
             auto size = i->size;
             while (off < size) {
                 // gnutls does not have a sendv. Why?...
-                auto res = gnutls_record_send(_session, ptr + off, size - off);
+                auto res = gnutls_record_send(*_session, ptr + off, size - off);
 
                 if (res < 0) {
                     switch (res) {
@@ -1026,14 +1046,14 @@ private:
                         // See the session::put comments.
                         // If underlying says EAGAIN, we've actually issued
                         // a send, but must wait for completion.
-                        return _session.wait_for_output().then(
+                        return _session->wait_for_output().then(
                                 [this, p = std::move(p), size, i, e, off]() mutable {
                                     // re-send same buffers (gnutls internal)
-                                    auto check = gnutls_record_send(_session, nullptr, 0);
+                                    auto check = gnutls_record_send(*_session, nullptr, 0);
                                     return this->put(std::move(p), i, e, off + check);
                                 });
                     default:
-                        return _session.handle_output_error(res);
+                        return _session->handle_output_error(res);
                     }
                 }
                 off += res;
@@ -1045,7 +1065,7 @@ private:
     }
 
     future<> flush() override {
-        return _session.flush();
+        return _session->flush();
     }
     future<> put(::net::packet p) override {
         auto i = p.fragments().begin();
@@ -1054,12 +1074,10 @@ private:
     }
 
     future<> close() override {
-        return _session.shutdown_output().then([this] {
-            return _session._out.close();
-        });
+        return _session->shutdown_output();
     }
 
-    session& _session;
+    lw_shared_ptr<session> _session;
 };
 
 class server_session : public ::net::server_socket_impl {
@@ -1106,12 +1124,12 @@ public:
 }
 }
 
-data_source seastar::tls::session::source() {
-    return data_source(std::make_unique<source_impl>(*this));
+data_source seastar::tls::tls_connected_socket_impl::source() {
+    return data_source(std::make_unique<source_impl>(_session));
 }
 
-data_sink seastar::tls::session::sink() {
-    return data_sink(std::make_unique<sink_impl>(*this));
+data_sink seastar::tls::tls_connected_socket_impl::sink() {
+    return data_sink(std::make_unique<sink_impl>(_session));
 }
 
 
@@ -1132,19 +1150,19 @@ seastar::socket seastar::tls::socket(::shared_ptr<certificate_credentials> cred,
 }
 
 future<::connected_socket> seastar::tls::wrap_client(::shared_ptr<certificate_credentials> cred, ::connected_socket&& s, sstring name) {
-    auto sess = std::make_unique<session>(session::type::CLIENT, std::move(cred), std::move(s), std::move(name));
+    auto sess = make_lw_shared<session>(session::type::CLIENT, std::move(cred), std::move(s), std::move(name));
     auto f = sess->handshake();
     return f.then([sess = std::move(sess)]() mutable {
-        ::connected_socket ssls(std::move(sess));
+        ::connected_socket ssls(std::make_unique<tls_connected_socket_impl>(std::move(sess)));
         return make_ready_future<::connected_socket>(std::move(ssls));
     });
 }
 
 future<::connected_socket> seastar::tls::wrap_server(::shared_ptr<server_credentials> cred, ::connected_socket&& s) {
-    auto sess = std::make_unique<session>(session::type::SERVER, std::move(cred), std::move(s));
+    auto sess = make_lw_shared<session>(session::type::SERVER, std::move(cred), std::move(s));
     auto f = sess->handshake();
     return f.then([sess = std::move(sess)]() mutable {
-        ::connected_socket ssls(std::move(sess));
+        ::connected_socket ssls(std::make_unique<tls_connected_socket_impl>(std::move(sess)));
         return make_ready_future<::connected_socket>(std::move(ssls));
     });
 }
