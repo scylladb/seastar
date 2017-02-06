@@ -107,8 +107,12 @@ class posix_connected_socket_impl final : public connected_socket_impl, posix_co
 private:
     explicit posix_connected_socket_impl(lw_shared_ptr<pollable_fd> fd) : _fd(std::move(fd)) {}
 public:
-    virtual data_source source() override { return posix_data_source(*_fd); }
-    virtual data_sink sink() override { return posix_data_sink(*_fd); }
+    virtual data_source source() override {
+        return data_source(std::make_unique< posix_data_source_impl>(_fd));
+    }
+    virtual data_sink sink() override {
+        return data_sink(std::make_unique< posix_data_sink_impl>(_fd));
+    }
     virtual future<> shutdown_input() override {
         _fd->shutdown(SHUT_RD);
         return make_ready_future<>();
@@ -271,13 +275,9 @@ void  posix_ap_server_socket_impl<Transport>::move_connected_socket(socket_addre
     }
 }
 
-data_source posix_data_source(pollable_fd& fd) {
-    return data_source(std::make_unique<posix_data_source_impl>(fd));
-}
-
 future<temporary_buffer<char>>
 posix_data_source_impl::get() {
-    return _fd.read_some(_buf.get_write(), _buf_size).then([this] (size_t size) {
+    return _fd->read_some(_buf.get_write(), _buf_size).then([this] (size_t size) {
         _buf.trim(size);
         auto ret = std::move(_buf);
         _buf = temporary_buffer<char>(_buf_size);
@@ -285,8 +285,9 @@ posix_data_source_impl::get() {
     });
 }
 
-data_sink posix_data_sink(pollable_fd& fd) {
-    return data_sink(std::make_unique<posix_data_sink_impl>(fd));
+future<> posix_data_source_impl::close() {
+    _fd->shutdown(SHUT_RD);
+    return make_ready_future<>();
 }
 
 std::vector<struct iovec> to_iovec(const packet& p) {
@@ -309,13 +310,19 @@ std::vector<iovec> to_iovec(std::vector<temporary_buffer<char>>& buf_vec) {
 
 future<>
 posix_data_sink_impl::put(temporary_buffer<char> buf) {
-    return _fd.write_all(buf.get(), buf.size()).then([d = buf.release()] {});
+    return _fd->write_all(buf.get(), buf.size()).then([d = buf.release()] {});
 }
 
 future<>
 posix_data_sink_impl::put(packet p) {
     _p = std::move(p);
-    return _fd.write_all(_p).then([this] { _p.reset(); });
+    return _fd->write_all(_p).then([this] { _p.reset(); });
+}
+
+future<>
+posix_data_sink_impl::close() {
+    _fd->shutdown(SHUT_WR);
+    return make_ready_future<>();
 }
 
 server_socket
