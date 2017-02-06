@@ -121,13 +121,14 @@ public:
 template <typename Protocol>
 class native_connected_socket_impl<Protocol>::native_data_source_impl final
     : public data_source_impl {
-    typename Protocol::connection& _conn;
+    typedef typename Protocol::connection connection_type;
+    lw_shared_ptr<connection_type> _conn;
     size_t _cur_frag = 0;
     bool _eof = false;
     packet _buf;
 public:
-    explicit native_data_source_impl(typename Protocol::connection& conn)
-        : _conn(conn) {}
+    explicit native_data_source_impl(lw_shared_ptr<connection_type> conn)
+        : _conn(std::move(conn)) {}
     virtual future<temporary_buffer<char>> get() override {
         if (_eof) {
             return make_ready_future<temporary_buffer<char>>(temporary_buffer<char>(0));
@@ -138,39 +139,44 @@ public:
                     temporary_buffer<char>(f.base, f.size,
                             make_deleter(deleter(), [p = _buf.share()] () mutable {})));
         }
-        return _conn.wait_for_data().then([this] {
-            _buf = _conn.read();
+        return _conn->wait_for_data().then([this] {
+            _buf = _conn->read();
             _cur_frag = 0;
             _eof = !_buf.len();
             return get();
         });
+    }
+    future<> close() override {
+        _conn->close_write();
+        return make_ready_future<>();
     }
 };
 
 template <typename Protocol>
 class native_connected_socket_impl<Protocol>::native_data_sink_impl final
     : public data_sink_impl {
-    typename Protocol::connection& _conn;
+    typedef typename Protocol::connection connection_type;
+    lw_shared_ptr<connection_type> _conn;
 public:
-    explicit native_data_sink_impl(typename Protocol::connection& conn)
-        : _conn(conn) {}
+    explicit native_data_sink_impl(lw_shared_ptr<connection_type> conn)
+        : _conn(std::move(conn)) {}
     virtual future<> put(packet p) override {
-        return _conn.send(std::move(p));
+        return _conn->send(std::move(p));
     }
     virtual future<> close() override {
-        _conn.close_write();
+        _conn->close_write();
         return make_ready_future<>();
     }
 };
 
 template <typename Protocol>
 data_source native_connected_socket_impl<Protocol>::source() {
-    return data_source(std::make_unique<native_data_source_impl>(*_conn));
+    return data_source(std::make_unique<native_data_source_impl>(_conn));
 }
 
 template <typename Protocol>
 data_sink native_connected_socket_impl<Protocol>::sink() {
-    return data_sink(std::make_unique<native_data_sink_impl>(*_conn));
+    return data_sink(std::make_unique<native_data_sink_impl>(_conn));
 }
 
 template <typename Protocol>
