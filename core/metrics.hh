@@ -399,6 +399,17 @@ impl::metric_definition_impl make_gauge(metric_name_type name,
     return {name, {impl::data_type::GAUGE, "gauge"}, make_function(std::forward<T>(val), impl::data_type::GAUGE), d, {}};
 }
 
+/*!
+ * \brief Gauge are a general purpose metric.
+ *
+ * They can support floating point and can increase or decrease
+ */
+template<typename T>
+impl::metric_definition_impl make_gauge(metric_name_type name,
+        description d, std::vector<label_instance> labels, T&& val) {
+    return {name, {impl::data_type::GAUGE, "gauge"}, make_function(std::forward<T>(val), impl::data_type::GAUGE), d, labels};
+}
+
 
 /*!
  * \brief Derive are used when a rate is more interesting than the value.
@@ -427,6 +438,21 @@ template<typename T>
 impl::metric_definition_impl make_derive(metric_name_type name, description d,
         T&& val) {
     return {name, {impl::data_type::DERIVE, "derive"}, make_function(std::forward<T>(val), impl::data_type::DERIVE), d, {}};
+}
+
+
+/*!
+ * \brief Derive are used when a rate is more interesting than the value.
+ *
+ * Derive is an integer value that can increase or decrease, typically it is used when looking at the
+ * derivation of the value.
+ *
+ * It is OK to use it when counting things and if no wrap-around is expected (it shouldn't) it's prefer over counter metric.
+ */
+template<typename T>
+impl::metric_definition_impl make_derive(metric_name_type name, description d, std::vector<label_instance> labels,
+        T&& val) {
+    return {name, {impl::data_type::DERIVE, "derive"}, make_function(std::forward<T>(val), impl::data_type::DERIVE), d, labels};
 }
 
 
@@ -466,6 +492,19 @@ impl::metric_definition_impl make_histogram(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {}) {
     return  {name, {impl::data_type::HISTOGRAM, "histogram"}, make_function(std::forward<T>(val), impl::data_type::HISTOGRAM), d, labels};
 }
+
+/*!
+ * \brief create a histogram metric.
+ *
+ * Histograms are a list o buckets with upper values and counter for the number
+ * of entries in each bucket.
+ */
+template<typename T>
+impl::metric_definition_impl make_histogram(metric_name_type name,
+        description d, std::vector<label_instance> labels, T&& val) {
+    return  {name, {impl::data_type::HISTOGRAM, "histogram"}, make_function(std::forward<T>(val), impl::data_type::HISTOGRAM), d, labels};
+}
+
 
 /*!
  * \brief create a histogram metric.
