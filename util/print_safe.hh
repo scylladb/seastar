@@ -55,6 +55,19 @@ void print_safe(const char *str) noexcept {
     print_safe(str, strlen(str));
 }
 
+// Fills a buffer with a zero-padded hexadecimal representation of an integer.
+// For example, convert_zero_padded_hex_safe(buf, 4, uint16_t(12)) fills the buffer with "000c".
+template<typename Integral>
+void convert_zero_padded_hex_safe(char *buf, size_t bufsz, Integral n) noexcept {
+    const char *digits = "0123456789abcdef";
+    memset(buf, '0', bufsz);
+    unsigned i = bufsz;
+    while (n) {
+        buf[--i] = digits[n & 0xf];
+        n >>= 4;
+    }
+}
+
 // Prints zero-padded hexadecimal representation of an integer to stderr.
 // For example, print_zero_padded_hex_safe(uint16_t(12)) prints "000c".
 // Async-signal safe.
@@ -62,15 +75,26 @@ template<typename Integral>
 void print_zero_padded_hex_safe(Integral n) noexcept {
     static_assert(std::is_integral<Integral>::value && !std::is_signed<Integral>::value, "Requires unsigned integrals");
 
-    const char *digits = "0123456789abcdef";
     char buf[sizeof(n) * 2];
-    memset(buf, '0', sizeof(buf));
-    unsigned i = sizeof(buf);
-    while (n) {
-        buf[--i] = digits[n & 0xf];
-        n >>= 4;
-    }
+    convert_zero_padded_hex_safe(buf, sizeof(buf), n);
     print_safe(buf, sizeof(buf));
+}
+
+// Fills a buffer with a decimal representation of an integer.
+// The argument bufsz is the maximum size of the buffer.
+// For example, print_decimal_safe(buf, 16, 12) prints "12".
+template<typename Integral>
+size_t convert_decimal_safe(char *buf, size_t bufsz, Integral n) noexcept {
+    static_assert(std::is_integral<Integral>::value && !std::is_signed<Integral>::value, "Requires unsigned integrals");
+
+    char tmp[sizeof(n) * 3];
+    unsigned i = bufsz;
+    do {
+        tmp[--i] = '0' + n % 10;
+        n /= 10;
+    } while (n);
+    memcpy(buf, tmp + i, sizeof(tmp) - i);
+    return sizeof(tmp) - i;
 }
 
 // Prints decimal representation of an integer to stderr.
@@ -78,13 +102,8 @@ void print_zero_padded_hex_safe(Integral n) noexcept {
 // Async-signal safe.
 template<typename Integral>
 void print_decimal_safe(Integral n) noexcept {
-    static_assert(std::is_integral<Integral>::value && !std::is_signed<Integral>::value, "Requires unsigned integrals");
-
     char buf[sizeof(n) * 3];
     unsigned i = sizeof(buf);
-    do {
-        buf[--i] = '0' + n % 10;
-        n /= 10;
-    } while (n);
-    print_safe(buf + i, sizeof(buf) - i);
+    auto len = convert_decimal_safe(buf, i, n);
+    print_safe(buf, len);
 }
