@@ -29,6 +29,7 @@
 #include "core/thread.hh"
 #include "core/sstring.hh"
 #include "core/semaphore.hh"
+#include "core/timer.hh"
 #include "tls.hh"
 #include "stack.hh"
 
@@ -547,7 +548,7 @@ namespace tls {
  * of these, since we handle handshake etc.
  *
  */
-class session {
+class session : public enable_lw_shared_from_this<session> {
 public:
     enum class type
         : uint32_t {
@@ -607,6 +608,10 @@ public:
     }
 
     ~session() {}
+
+    void close() {
+        shutdown_input();
+    }
 
     typedef temporary_buffer<char> buf_type;
 
@@ -883,16 +888,26 @@ public:
         return finish_handshake_op(gnutls_bye(*this, how),
                 std::bind(&session::shutdown, this, how), true);
     }
+
+    template<typename Func>
+    void shutdown_with_timer(gnutls_close_request_t how, Func && func);
+
     future<> shutdown_input() {
-        return shutdown(GNUTLS_SHUT_RDWR).finally([this] {
-            _eof = true;
-            return _in.close();
-        });
+        if (!std::exchange(_shutdown_rw, true)) {
+            shutdown_with_timer(GNUTLS_SHUT_RDWR, [](session & s) {
+               s._eof = true;
+               s._in.close();
+            });
+        }
+        return make_ready_future<>();
     }
     future<> shutdown_output() {
-        return shutdown(GNUTLS_SHUT_WR).finally([this] {
-            return _out.close();
-        });
+        if (!std::exchange(_shutdown_wr, true)) {
+            shutdown_with_timer(GNUTLS_SHUT_WR, [](session & s) {
+               s._out.close();
+            });
+        }
+        return make_ready_future<>();
     }
 
     // helper for sink
@@ -903,6 +918,8 @@ public:
     ::net::connected_socket_impl & socket() const {
         return *_sock;
     }
+
+    struct session_ref;
 private:
     type _type;
 
@@ -915,6 +932,8 @@ private:
     semaphore _in_sem, _out_sem;
 
     bool _eof = false;
+    bool _shutdown_wr = false;
+    bool _shutdown_rw = false;
 
     std::experimental::optional<future<>> _output_pending;
     std::exception_ptr _output_exception;
@@ -925,11 +944,43 @@ private:
     std::unique_ptr<std::remove_pointer_t<gnutls_session_t>, void(*)(gnutls_session_t)> _session;
 };
 
-class tls_connected_socket_impl : public ::net::connected_socket_impl {
-public:
-    tls_connected_socket_impl(lw_shared_ptr<session> session)
+struct session::session_ref {
+    session_ref(lw_shared_ptr<session> session)
                     : _session(std::move(session)) {
     }
+    ~session_ref() {
+        // This is not super pretty. But we take some care to only own sessions
+        // through session_ref, and we need to initiate shutdown on "last owner",
+        // since we cannot revive the session in destructor.
+        if (_session.use_count() == 1) {
+            _session->close();
+        }
+    }
+
+    lw_shared_ptr<session> _session;
+};
+
+template<typename Func>
+void session::shutdown_with_timer(gnutls_close_request_t how, Func && func) {
+    auto f = shutdown(how);
+    if (!f.available()) {
+        auto me = shared_from_this();
+        session_ref sr(std::move(me));
+
+        timer<> t([sr, func] {
+            func(*sr._session);
+        });
+        t.arm(timer<>::clock::now() + std::chrono::seconds(10));
+        f.then_wrapped([sr, t = std::move(t), func](auto f) {
+           f.ignore_ready_future();
+           func(*sr._session);
+        });
+    }
+}
+
+class tls_connected_socket_impl : public ::net::connected_socket_impl, public session::session_ref {
+public:
+    using session_ref::session_ref;
 
     class source_impl;
     class sink_impl;
@@ -961,18 +1012,12 @@ public:
     ::net::keepalive_params get_keepalive_parameters() const override {
         return _session->socket().get_keepalive_parameters();
     }
-
-
-private:
-    lw_shared_ptr<session> _session;
 };
 
 
-class tls_connected_socket_impl::source_impl: public ::data_source_impl {
+class tls_connected_socket_impl::source_impl: public ::data_source_impl, public session::session_ref {
 public:
-    source_impl(lw_shared_ptr<session> s)
-            : _session(std::move(s)) {
-    }
+    using session_ref::session_ref;
 private:
     future<temporary_buffer<char>> get() override {
         // gnutls might have stuff in its buffers.
@@ -1016,19 +1061,15 @@ private:
     future<> close() override {
         return _session->shutdown_input();
     }
-
-    lw_shared_ptr<session> _session;
 };
 
 // Note: source/sink, and by extension, the in/out streams
 // produced, cannot exist outside the direct life span of
 // the connected_socket itself. This is consistent with
 // other sockets in seastar, though I am than less fond of it...
-class tls_connected_socket_impl::sink_impl: public ::data_sink_impl {
+class tls_connected_socket_impl::sink_impl: public ::data_sink_impl, public session::session_ref {
 public:
-    sink_impl(lw_shared_ptr<session> s)
-            : _session(std::move(s)) {
-    }
+    using session_ref::session_ref;
 private:
     typedef ::net::fragment* frag_iter;
 
@@ -1076,8 +1117,6 @@ private:
     future<> close() override {
         return _session->shutdown_output();
     }
-
-    lw_shared_ptr<session> _session;
 };
 
 class server_session : public ::net::server_socket_impl {
