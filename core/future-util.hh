@@ -149,7 +149,7 @@ void do_until_continued(StopCondition&& stop_cond, AsyncAction&& action, promise
     while (!stop_cond()) {
         try {
             auto&& f = action();
-            if (!f.available()) {
+            if (!f.available() || need_preempt()) {
                 f.then_wrapped([action = std::forward<AsyncAction>(action),
                     stop_cond = std::forward<StopCondition>(stop_cond), p = std::move(p)](std::result_of_t<AsyncAction()> fut) mutable {
                     if (!fut.failed()) {
