@@ -325,11 +325,6 @@ reactor::task_quota_timer_thread_fn() {
     }
 }
 
-void
-reactor::clear_task_quota(int) {
-    g_need_preempt = true;
-}
-
 template <typename T, typename E, typename EnableFunc>
 void reactor::complete_timers(T& timers, E& expired_timers, EnableFunc&& enable_fn) {
     expired_timers = timers.expire(timers.now());

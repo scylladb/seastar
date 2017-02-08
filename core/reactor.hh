@@ -737,7 +737,6 @@ private:
     std::atomic<bool> _dying{false};
 private:
     static std::chrono::nanoseconds calculate_poll_time();
-    static void clear_task_quota(int);
     void wakeup();
     bool flush_pending_aio();
     bool flush_tcp_batches();
