@@ -260,6 +260,8 @@ arg_parser.add_argument('--static-boost', dest = 'staticboost', action = 'store_
                         help = 'Link with boost statically')
 add_tristate(arg_parser, name = 'hwloc', dest = 'hwloc', help = 'hwloc support')
 add_tristate(arg_parser, name = 'xen', dest = 'xen', help = 'Xen support')
+arg_parser.add_argument('--enable-gcc6-concepts', dest='gcc6_concepts', action='store_true', default=False,
+                        help='enable experimental support for C++ Concepts as implemented in GCC 6')
 args = arg_parser.parse_args()
 
 libnet = [
@@ -376,6 +378,10 @@ if apply_tristate(args.xen, test = have_xen,
 if xen_used and args.dpdk_target:
     print("Error: only xen or dpdk can be used, not both.")
     sys.exit(1)
+
+if args.gcc6_concepts:
+    defines.append('HAVE_GCC6_CONCEPTS')
+    args.user_cflags += ' -fconcepts'
 
 if args.staticcxx:
     libs = libs.replace('-lstdc++', '')
