@@ -191,9 +191,13 @@ struct cpwriter {
     }
     void write_value(const seastar::metrics::impl::metric_value& v) {
         switch (v.type()) {
-            case data_type::GAUGE:
-                write_le(v.ui());
+            case data_type::GAUGE: {
+                double tmpd = v.d();
+                uint64_t tmpi;
+                std::copy_n(reinterpret_cast<const char*>(&tmpd), 8, reinterpret_cast<char*>(&tmpi));
+                write_le(tmpi);
                 break;
+            }
             case data_type::COUNTER:
             case data_type::DERIVE:
             case data_type::ABSOLUTE:
