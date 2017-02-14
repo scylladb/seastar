@@ -736,14 +736,15 @@ int main(int ac, char** av) {
     bpo::variables_map configuration;
     try {
         bpo::store(bpo::parse_command_line(ac, av, desc), configuration);
+        if (configuration.count("help")) {
+            std::cout << desc << "\n";
+            return 1;
+        }
+
         bpo::notify(configuration);
     } catch (bpo::error& e) {
         print("error: %s\n\nTry --help.\n", e.what());
         return 2;
-    }
-    if (configuration.count("help")) {
-        std::cout << desc << "\n";
-        return 1;
     }
     auto format = configuration["format"].as<sstring>();
     if (format != "seastar" && format != "envfile") {
