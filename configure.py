@@ -158,14 +158,14 @@ modes = {
         'sanitize_libs': '-lasan -lubsan',
         'opt': '-O0 -DDEBUG -DDEBUG_SHARED_PTR -DDEFAULT_ALLOCATOR -DSEASTAR_THREAD_STACK_GUARDS',
         'libs': '',
-        'cares_opts': '--enable-debug',
+        'cares_opts': '-DCARES_STATIC=ON -DCARES_SHARED=OFF -DCMAKE_BUILD_TYPE=Debug',
     },
     'release': {
         'sanitize': '',
         'sanitize_libs': '',
         'opt': '-O2',
         'libs': '',
-        'cares_opts': '',
+        'cares_opts': '-DCARES_STATIC=ON -DCARES_SHARED=OFF -DCMAKE_BUILD_TYPE=Release',
     },
 }
 
@@ -654,13 +654,10 @@ dpdk_sources = ' '.join(dpdk_sources)
 # both source and builddir location
 cares_dir = 'c-ares'
 cares_lib = 'cares-seastar'
-cares_src_lib = cares_dir + '/.libs/libcares.a'
+cares_src_lib = cares_dir + '/lib/libcares.a'
 
 if not os.path.exists(cares_dir) or not os.listdir(cares_dir):
     raise Exception(cares_dir + ' is empty. Run "git submodule update --init".')
-
-if not os.path.exists(cares_dir + '/configure'):
-    subprocess.check_call('sh -x buildconf', cwd=cares_dir, shell=True)
 
 cares_sources = []
 for root, dirs, files in os.walk('c-ares'):
@@ -753,13 +750,13 @@ with open(buildfile, 'w') as f:
         f.write(textwrap.dedent('''\
               rule caresmake_{mode}
                 command = make -C build/{mode}/{cares_dir}
-              rule caresconfigure_{mode}
-                command = mkdir -p $builddir/{mode}/{cares_dir} && cd $builddir/{mode}/{cares_dir} && {srcdir}/$in {cares_opts}
-              build $builddir/{mode}/{cares_dir}/Makefile : caresconfigure_{mode} {cares_dir}/configure
+              rule carescmake_{mode}
+                command = mkdir -p $builddir/{mode}/{cares_dir} && cd $builddir/{mode}/{cares_dir} && cmake {cares_opts} {srcdir}/$in
+              build $builddir/{mode}/{cares_dir}/Makefile : carescmake_{mode} {cares_dir}
               build $builddir/{mode}/{cares_dir}/ares_build.h : phony $builddir/{mode}/{cares_dir}/Makefile
-              build $builddir/{mode}/{cares_src_lib} $builddir/{mode}/{cares_dir}/libcares.la : caresmake_{mode} $builddir/{mode}/{cares_dir}/Makefile | {cares_sources}
+              build $builddir/{mode}/{cares_src_lib} : caresmake_{mode} $builddir/{mode}/{cares_dir}/Makefile | {cares_sources}
               build $builddir/{mode}/lib{cares_lib}.a : copy_file $builddir/{mode}/{cares_src_lib}
-            ''').format(srcdir = os.getcwd(), cares_opts=('--disable-shared ' + modeval['cares_opts']), **globals()))
+            ''').format(srcdir = os.getcwd(), cares_opts=(modeval['cares_opts']), **globals()))
         objdeps['$builddir/' + mode + '/net/dns.o'] = ' $builddir/' + mode + '/' + cares_dir + '/ares_build.h'
         compiles = {}
         ragels = {}
@@ -841,7 +838,7 @@ with open(buildfile, 'w') as f:
         rule configure
           command = python3 configure.py $configure_args
           generator = 1
-        build build.ninja: configure | configure.py {cares_dir}/configure
+        build build.ninja: configure | configure.py
         rule cscope
             command = find -name '*.[chS]' -o -name "*.cc" -o -name "*.hh" | cscope -bq -i-
             description = CSCOPE
