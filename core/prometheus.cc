@@ -68,11 +68,11 @@ static std::string safe_name(const sstring& name) {
 }
 
 
-static sstring collectd_name(const metrics::impl::metric_id & id, uint32_t cpu) {
+static sstring collectd_name(const metrics::impl::metric_id & id) {
     return safe_name(id.group_name() + "_" + safe_name(id.name()));
 }
 
-static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::metric_id & id, uint32_t cpu, const config& ctx) {
+static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::metric_id & id, const config& ctx) {
     auto label = mt->add_label();
     label->set_name("instance");
     label->set_value(ctx.hostname);
@@ -85,20 +85,20 @@ static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::metric_id & id
 }
 
 static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value& c,
-        const metrics::impl::metric_id & id, uint32_t cpu, const config& ctx) {
+        const metrics::impl::metric_id & id, const config& ctx) {
     switch (c.type()) {
     case scollectd::data_type::DERIVE:
-        add_label(mf.add_metric(), id, cpu, ctx)->mutable_counter()->set_value(c.i());
+        add_label(mf.add_metric(), id, ctx)->mutable_counter()->set_value(c.i());
         mf.set_type(pm::MetricType::COUNTER);
         break;
     case scollectd::data_type::GAUGE:
-        add_label(mf.add_metric(), id, cpu, ctx)->mutable_gauge()->set_value(c.d());
+        add_label(mf.add_metric(), id, ctx)->mutable_gauge()->set_value(c.d());
         mf.set_type(pm::MetricType::GAUGE);
         break;
     case scollectd::data_type::HISTOGRAM:
     {
         auto h = c.get_histogram();
-        auto mh = add_label(mf.add_metric(), id, cpu, ctx)->mutable_histogram();
+        auto mh = add_label(mf.add_metric(), id,ctx)->mutable_histogram();
         mh->set_sample_count(h.sample_count);
         mh->set_sample_sum(h.sample_sum);
         for (auto b : h.buckets) {
@@ -110,7 +110,7 @@ static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value&
         break;
     }
     default:
-        add_label(mf.add_metric(), id, cpu, ctx)->mutable_counter()->set_value(c.ui());
+        add_label(mf.add_metric(), id, ctx)->mutable_counter()->set_value(c.ui());
         mf.set_type(pm::MetricType::COUNTER);
         break;
     }
@@ -149,11 +149,10 @@ future<> start(httpd::http_server_control& http_server, config ctx) {
                         auto&& metrics = name_metrics.second;
                         pm::MetricFamily mtf;
                         mtf.set_name(name);
-                        mtf.set_help("where did the description disappear?");
                         for (auto pmetric : metrics) {
                             auto&& id = pmetric->first;
                             auto&& value = pmetric->second;
-                            fill_metric(mtf, value, id, -417 /*unused */, ctx);
+                            fill_metric(mtf, value, id, ctx);
                         }
                         if (!write_delimited_to(mtf, &os)) {
                             seastar_logger.warn("Failed to write protobuf metrics");
