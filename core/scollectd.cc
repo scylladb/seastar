@@ -153,7 +153,7 @@ struct cpwriter {
         }
         sstring res = id.name();
         for (auto i : id.labels()) {
-            if (i.first != seastar::metrics::shard_label.name()) {
+            if (i.first != seastar::metrics::shard_label.name() && i.first != seastar::metrics::type_label.name()) {
                 res += "-" + i.second;
             }
         }
