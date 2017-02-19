@@ -1155,11 +1155,13 @@ void
 append_challenged_posix_file_impl::process_queue() noexcept {
     optimize_queue();
     while (!_q.empty() && may_dispatch(_q.front())) {
-        dispatch(_q.front());
+        op candidate = std::move(_q.front());
         _q.pop_front();
+        dispatch(candidate);
     }
     if (may_quit()) {
         _completed.set_value();
+        _done = false; // prevents _completed to be signaled again in case of recursion
     }
 }
 
