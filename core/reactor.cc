@@ -2110,7 +2110,7 @@ void reactor::register_metrics() {
             sm::make_derive("tasks_processed", [this] { return _tasks_processed.load(std::memory_order_relaxed); }, sm::description("Total tasks processed")),
             sm::make_derive("polls", [this] { return _polls.load(std::memory_order_relaxed); }, sm::description("Number of times pollers were executed")),
             sm::make_derive("timers_pending", std::bind(&decltype(_timers)::size, &_timers), sm::description("Number of tasks in the timer-pending queue")),
-            sm::make_gauge("utilization", [this] { return _load * 100; }, sm::description("CPU utilization")),
+            sm::make_gauge("utilization", [this] { return (1-_load)  * 100; }, sm::description("CPU utilization")),
             sm::make_derive("cpu_busy_ns", [this] () -> int64_t { return std::chrono::duration_cast<std::chrono::nanoseconds>(total_busy_time()).count(); },
                     sm::description("Total cpu busy time in nanoseconds")),
             // total_operations value:DERIVE:0:U
