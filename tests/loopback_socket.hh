@@ -112,13 +112,11 @@ public:
     data_sink sink() override {
         return data_sink(std::make_unique<loopback_data_sink_impl>(_tx));
     }
-    future<> shutdown_input() override {
+    void shutdown_input() override {
         _rx->shutdown();
-        return make_ready_future<>();
     }
-    future<> shutdown_output() override {
+    void shutdown_output() override {
         _tx->shutdown();
-        return make_ready_future<>();
     }
     void set_nodelay(bool nodelay) override {
     }

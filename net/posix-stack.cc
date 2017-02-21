@@ -113,13 +113,11 @@ public:
     virtual data_sink sink() override {
         return data_sink(std::make_unique< posix_data_sink_impl>(_fd));
     }
-    virtual future<> shutdown_input() override {
+    virtual void shutdown_input() override {
         _fd->shutdown(SHUT_RD);
-        return make_ready_future<>();
     }
-    virtual future<> shutdown_output() override {
+    virtual void shutdown_output() override {
         _fd->shutdown(SHUT_WR);
-        return make_ready_future<>();
     }
     virtual void set_nodelay(bool nodelay) override {
         return _ops::set_nodelay(_fd->get_file_desc(), nodelay);

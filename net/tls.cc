@@ -888,28 +888,24 @@ public:
         return finish_handshake_op(gnutls_bye(*this, how),
                 std::bind(&session::shutdown, this, how), true);
     }
-
     template<typename Func>
     void shutdown_with_timer(gnutls_close_request_t how, Func && func);
 
-    future<> shutdown_input() {
+    void shutdown_input() {
         if (!std::exchange(_shutdown_rw, true)) {
             shutdown_with_timer(GNUTLS_SHUT_RDWR, [](session & s) {
                s._eof = true;
                s._in.close();
             });
         }
-        return make_ready_future<>();
     }
-    future<> shutdown_output() {
+    void shutdown_output() {
         if (!std::exchange(_shutdown_wr, true)) {
             shutdown_with_timer(GNUTLS_SHUT_WR, [](session & s) {
                s._out.close();
             });
         }
-        return make_ready_future<>();
     }
-
     // helper for sink
     future<> flush() {
         return _out.flush();
@@ -988,11 +984,11 @@ public:
     data_source source() override;
     data_sink sink() override;
 
-    future<> shutdown_input() override {
-        return _session->shutdown_input();
+    void shutdown_input() override {
+        _session->shutdown_input();
     }
-    future<> shutdown_output() override {
-        return _session->shutdown_output();
+    void shutdown_output() override {
+        _session->shutdown_output();
     }
     void set_nodelay(bool nodelay) override {
         _session->socket().set_nodelay(nodelay);
@@ -1059,7 +1055,8 @@ private:
         });
     }
     future<> close() override {
-        return _session->shutdown_input();
+        _session->shutdown_input();
+        return make_ready_future<>();
     }
 };
 
@@ -1115,7 +1112,8 @@ private:
     }
 
     future<> close() override {
-        return _session->shutdown_output();
+        _session->shutdown_output();
+        return make_ready_future<>();
     }
 };
 

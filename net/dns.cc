@@ -441,9 +441,8 @@ private:
             dns_log.trace("Close tcp socket {}, {} pending", fd, e.pending);
             future<> f = make_ready_future();
             if (e.tcp.in) {
-                f = e.tcp.socket.shutdown_input().then([fd] {
-                    dns_log.trace("Closed tcp socket {} input", fd);
-                });
+                e.tcp.socket.shutdown_input();
+                dns_log.trace("Closed tcp socket {} input", fd);
             }
             if (e.tcp.out) {
                 f = f.then([&e] {

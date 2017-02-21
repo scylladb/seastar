@@ -222,16 +222,12 @@ class protocol {
         future<> stop_send_loop() {
             _error = true;
             // We must not call shutdown_output() concurrently with or after _write_buf.close()
-            future<> f = make_ready_future();
             if (_connected && !_write_side_closed) {
                 _outgoing_queue_cond.broken();
-                f = _fd.shutdown_output();
+                _fd.shutdown_output();
             }
-            return f.then_wrapped([this](auto f) {
-                f.ignore_ready_future();
-                return _send_loop_stopped.finally([this] {
-                    _outgoing_queue.clear();
-                });
+            return _send_loop_stopped.finally([this] {
+                _outgoing_queue.clear();
             });
         }
 
@@ -286,10 +282,7 @@ class protocol {
         future<> stop() {
             if (!_error) {
                 _error = true;
-                return _fd.shutdown_input().then_wrapped([this](auto f) {
-                   f.ignore_ready_future();
-                   return _stopped.get_future();
-                });
+                _fd.shutdown_input();
             }
             return _stopped.get_future();
         }

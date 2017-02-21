@@ -97,12 +97,12 @@ net::keepalive_params connected_socket::get_keepalive_parameters() const {
     return _csi->get_keepalive_parameters();
 }
 
-future<> connected_socket::shutdown_output() {
-    return _csi->shutdown_output();
+void connected_socket::shutdown_output() {
+    _csi->shutdown_output();
 }
 
-future<> connected_socket::shutdown_input() {
-    return _csi->shutdown_input();
+void connected_socket::shutdown_input() {
+    _csi->shutdown_input();
 }
 
 seastar::socket::~socket()

@@ -31,8 +31,8 @@ public:
     virtual ~connected_socket_impl() {}
     virtual data_source source() = 0;
     virtual data_sink sink() = 0;
-    virtual future<> shutdown_input() = 0;
-    virtual future<> shutdown_output() = 0;
+    virtual void shutdown_input() = 0;
+    virtual void shutdown_output() = 0;
     virtual void set_nodelay(bool nodelay) = 0;
     virtual bool get_nodelay() const = 0;
     virtual void set_keepalive(bool keepalive) = 0;

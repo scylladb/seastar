@@ -79,8 +79,8 @@ public:
         : _conn(std::move(conn)) {}
     virtual data_source source() override;
     virtual data_sink sink() override;
-    virtual future<> shutdown_input() override;
-    virtual future<> shutdown_output() override;
+    virtual void shutdown_input() override;
+    virtual void shutdown_output() override;
     virtual void set_nodelay(bool nodelay) override;
     virtual bool get_nodelay() const override;
     void set_keepalive(bool keepalive) override;
@@ -180,17 +180,15 @@ data_sink native_connected_socket_impl<Protocol>::sink() {
 }
 
 template <typename Protocol>
-future<>
+void
 native_connected_socket_impl<Protocol>::shutdown_input() {
     _conn->close_read();
-    return make_ready_future<>();
 }
 
 template <typename Protocol>
-future<>
+void
 native_connected_socket_impl<Protocol>::shutdown_output() {
     _conn->close_write();
-    return make_ready_future<>();
 }
 
 template <typename Protocol>

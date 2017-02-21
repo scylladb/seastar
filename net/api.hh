@@ -193,13 +193,13 @@ public:
     /// will immediately fail with an error.  This is useful to abort
     /// operations on a socket that is not making progress due to a
     /// peer failure.
-    future<> shutdown_output();
+    void shutdown_output();
     /// Disables input from the socket.
     ///
     /// Current or future reads will immediately fail with an error.
     /// This is useful to abort operations on a socket that is not making
     /// progress due to a peer failure.
-    future<> shutdown_input();
+    void shutdown_input();
     /// Disables socket input and output.
     ///
     /// Equivalent to \ref shutdown_input() and \ref shutdown_output().
