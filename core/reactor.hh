@@ -601,6 +601,7 @@ private:
     class manual_timer_pollfn;
     class epoll_pollfn;
     class syscall_pollfn;
+    class execution_stage_pollfn;
     friend io_pollfn;
     friend signal_pollfn;
     friend aio_batch_submit_pollfn;
@@ -611,6 +612,7 @@ private:
     friend class manual_clock;
     friend class epoll_pollfn;
     friend class syscall_pollfn;
+    friend class execution_stage_pollfn;
     friend class file_data_source_impl; // for fstream statistics
 public:
     class poller {
