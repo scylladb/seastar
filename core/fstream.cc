@@ -226,7 +226,7 @@ private:
             // Also avoid reading beyond _remain.
             uint64_t align = _file.disk_read_dma_alignment();
             auto start = align_down(_pos, align);
-            auto end = align_up(std::min(start + _current_buffer_size, _pos + _remain), align);
+            auto end = std::min(align_up(start + _current_buffer_size, align), _pos + _remain);
             auto len = end - start;
             auto actual_size = std::min(end - _pos, _remain);
             _read_buffers.emplace_back(_pos, actual_size, futurize<future<temporary_buffer<char>>>::apply([&] {
@@ -237,7 +237,7 @@ private:
                 if (_done && !_reads_in_progress) {
                     _done->set_value();
                 }
-                if ((pos == start && end <= pos + remain) || ret.failed()) {
+                if (ret.failed()) {
                     // no games needed
                     return ret;
                 } else {
@@ -256,9 +256,8 @@ private:
                     return make_ready_future<temporary_buffer<char>>(std::move(tmp));
                 }
             }));
-            auto old_pos = _pos;
+            _remain -= end - _pos;
             _pos = end;
-            _remain = std::max(_pos, old_pos + _remain) - _pos;
         };
     }
 };
