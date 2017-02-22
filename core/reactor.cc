@@ -833,16 +833,16 @@ const io_priority_class& default_priority_class() {
 template <typename Func>
 future<io_event>
 reactor::submit_io_read(const io_priority_class& pc, size_t len, Func prepare_io) {
-    ++_aio_reads;
-    _aio_read_bytes += len;
+    ++_io_stats.aio_reads;
+    _io_stats.aio_read_bytes += len;
     return io_queue::queue_request(_io_coordinator, pc, len, std::move(prepare_io));
 }
 
 template <typename Func>
 future<io_event>
 reactor::submit_io_write(const io_priority_class& pc, size_t len, Func prepare_io) {
-    ++_aio_writes;
-    _aio_write_bytes += len;
+    ++_io_stats.aio_writes;
+    _io_stats.aio_write_bytes += len;
     return io_queue::queue_request(_io_coordinator, pc, len, std::move(prepare_io));
 }
 
@@ -2114,12 +2114,12 @@ void reactor::register_metrics() {
             sm::make_derive("cpu_busy_ns", [this] () -> int64_t { return std::chrono::duration_cast<std::chrono::nanoseconds>(total_busy_time()).count(); },
                     sm::description("Total cpu busy time in nanoseconds")),
             // total_operations value:DERIVE:0:U
-            sm::make_derive("aio_reads", _aio_reads, sm::description("Total aio-reads operations")),
+            sm::make_derive("aio_reads", _io_stats.aio_reads, sm::description("Total aio-reads operations")),
 
-            sm::make_total_bytes("aio_bytes_read", _aio_read_bytes, sm::description("Total aio-reads bytes")),
+            sm::make_total_bytes("aio_bytes_read", _io_stats.aio_read_bytes, sm::description("Total aio-reads bytes")),
             // total_operations value:DERIVE:0:U
-            sm::make_derive("aio_writes", _aio_writes, sm::description("Total aio-writes operations")),
-            sm::make_total_bytes("aio_bytes_write", _aio_write_bytes, sm::description("Total aio-writes bytes")),
+            sm::make_derive("aio_writes", _io_stats.aio_writes, sm::description("Total aio-writes operations")),
+            sm::make_total_bytes("aio_bytes_write", _io_stats.aio_write_bytes, sm::description("Total aio-writes bytes")),
             // total_operations value:DERIVE:0:U
             sm::make_derive("fsyncs", _fsyncs, sm::description("Total number of fsync operations")),
             // total_operations value:DERIVE:0:U
@@ -2154,27 +2154,27 @@ void reactor::register_metrics() {
 
     using namespace seastar::metrics;
     _metric_groups.add_group("reactor", {
-        make_counter("fstream_reads", _fstream_reads,
+        make_counter("fstream_reads", _io_stats.fstream_reads,
                 description(
                         "Counts reads from disk file streams.  A high rate indicates high disk activity."
                         " Contrast with other fstream_read* counters to locate bottlenecks.")),
-        make_derive("fstream_read_bytes", _fstream_reads,
+        make_derive("fstream_read_bytes", _io_stats.fstream_reads,
                 description(
                         "Counts bytes read from disk file streams.  A high rate indicates high disk activity."
                         " Divide by fstream_reads to determine average read size.")),
-        make_counter("fstream_reads_blocked", _fstream_read_bytes,
+        make_counter("fstream_reads_blocked", _io_stats.fstream_read_bytes,
                 description(
                         "Counts the number of times a disk read could not be satisfied from read-ahead buffers, and had to block."
                         " Indicates short streams, or incorrect read ahead configuration.")),
-        make_derive("fstream_read_bytes_blocked", _fstream_read_bytes_blocked,
+        make_derive("fstream_read_bytes_blocked", _io_stats.fstream_read_bytes_blocked,
                 description(
                         "Counts the number of bytes read from disk that could not be satisfied from read-ahead buffers, and had to block."
                         " Indicates short streams, or incorrect read ahead configuration.")),
-        make_counter("fstream_reads_aheads_discarded", _fstream_read_aheads_discarded,
+        make_counter("fstream_reads_aheads_discarded", _io_stats.fstream_read_aheads_discarded,
                 description(
                         "Counts the number of times a buffer that was read ahead of time and was discarded because it was not needed, wasting disk bandwidth."
                         " Indicates over-eager read ahead configuration.")),
-        make_derive("fstream_reads_ahead_bytes_discarded", _fstream_read_ahead_discarded_bytes,
+        make_derive("fstream_reads_ahead_bytes_discarded", _io_stats.fstream_read_ahead_discarded_bytes,
                 description(
                         "Counts the number of buffered bytes that were read ahead of time and were discarded because they were not needed, wasting disk bandwidth."
                         " Indicates over-eager read ahead configuration.")),

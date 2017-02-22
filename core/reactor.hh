@@ -640,6 +640,18 @@ public:
     using work_waiting_on_reactor = const std::function<bool()>&;
     using idle_cpu_handler = std::function<idle_cpu_handler_result(work_waiting_on_reactor)>;
 
+    struct io_stats {
+        uint64_t aio_reads = 0;
+        uint64_t aio_read_bytes = 0;
+        uint64_t aio_writes = 0;
+        uint64_t aio_write_bytes = 0;
+        uint64_t fstream_reads = 0;
+        uint64_t fstream_read_bytes = 0;
+        uint64_t fstream_reads_blocked = 0;
+        uint64_t fstream_read_bytes_blocked = 0;
+        uint64_t fstream_read_aheads_discarded = 0;
+        uint64_t fstream_read_ahead_discarded_bytes = 0;
+    };
 private:
     // FIXME: make _backend a unique_ptr<reactor_backend>, not a compile-time #ifdef.
 #ifdef HAVE_OSV
@@ -695,18 +707,9 @@ private:
     io_context_t _io_context;
     std::vector<struct ::iocb> _pending_aio;
     semaphore _io_context_available;
-    uint64_t _aio_reads = 0;
-    uint64_t _aio_read_bytes = 0;
-    uint64_t _aio_writes = 0;
-    uint64_t _aio_write_bytes = 0;
+    io_stats _io_stats;
     uint64_t _fsyncs = 0;
     uint64_t _cxx_exceptions = 0;
-    uint64_t _fstream_reads = 0;
-    uint64_t _fstream_read_bytes = 0;
-    uint64_t _fstream_reads_blocked = 0;
-    uint64_t _fstream_read_bytes_blocked = 0;
-    uint64_t _fstream_read_aheads_discarded = 0;
-    uint64_t _fstream_read_ahead_discarded_bytes = 0;
     circular_buffer<std::unique_ptr<task>> _pending_tasks;
     circular_buffer<std::unique_ptr<task>> _at_destroy_tasks;
     std::chrono::duration<double> _task_quota;
@@ -895,6 +898,7 @@ public:
     steady_clock_type::duration total_idle_time();
     steady_clock_type::duration total_busy_time();
 
+    const io_stats& get_io_stats() const { return _io_stats; }
 #ifdef HAVE_OSV
     void timer_thread_func();
     void set_timer(sched::timer &tmr, s64 t);
