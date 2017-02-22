@@ -247,7 +247,9 @@ SEASTAR_TEST_CASE(test_input_stream_esp_around_eof) {
             }
             //in.close().get();
             auto xlen = std::min(end, flen) - std::min(flen, start);
-            BOOST_REQUIRE_EQUAL(xlen, readback.size());
+            if (xlen != readback.size()) {
+                BOOST_FAIL(sprint("Expected %d bytes but got %d, start=%d, end=%d", xlen, readback.size(), start, end));
+            }
             BOOST_REQUIRE(std::equal(readback.begin(), readback.end(), data.begin() + std::min(start, flen)));
         }
         f.close().get();
