@@ -629,7 +629,9 @@ file::read_maybe_eof(uint64_t pos, size_t len, const io_priority_class& pc) {
                memory_dma_alignment(), align_up(len, disk_read_dma_alignment()));
 
     // try to read a single bulk from the given position
-    return dma_read(pos, buf.get_write(), buf.size(), pc).then_wrapped(
+    auto dst = buf.get_write();
+    auto buf_size = buf.size();
+    return dma_read(pos, dst, buf_size, pc).then_wrapped(
             [buf = std::move(buf)](future<size_t> f) mutable {
         try {
             size_t size = std::get<0>(f.get());
