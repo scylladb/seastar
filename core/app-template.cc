@@ -22,6 +22,8 @@
 #include "app-template.hh"
 #include "core/reactor.hh"
 #include "core/scollectd.hh"
+#include "core/metrics_api.hh"
+#include <boost/program_options.hpp>
 #include "core/print.hh"
 #include <boost/program_options.hpp>
 #include <boost/make_shared.hpp>
@@ -36,6 +38,7 @@ app_template::app_template()
             ("help,h", "show help message")
             ;
     _opts.add(reactor::get_options_description());
+    _opts.add(seastar::metrics::get_options_description());
     _opts.add(smp::get_options_description());
     _opts.add(scollectd::get_options_description());
 }
@@ -117,7 +120,11 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
     smp::configure(configuration);
     _configuration = {std::move(configuration)};
     engine().when_started().then([this] {
-        scollectd::configure( this->configuration());
+        seastar::metrics::configure(this->configuration()).then([this] {
+            // set scollectd use the metrics configuration, so the later
+            // need to be set first
+            scollectd::configure( this->configuration());
+        });
     }).then(
         std::move(func)
     ).then_wrapped([] (auto&& f) {

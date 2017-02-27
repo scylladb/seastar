@@ -118,10 +118,7 @@ static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value&
 
 future<> start(httpd::http_server_control& http_server, config ctx) {
     if (ctx.hostname == "") {
-        char hostname[PATH_MAX];
-        gethostname(hostname, sizeof(hostname));
-        hostname[PATH_MAX-1] = '\0';
-        ctx.hostname = hostname;
+        ctx.hostname = metrics::impl::get_local_impl()->get_config().hostname;
     }
 
     return http_server.set_routes([ctx](httpd::routes& r) {

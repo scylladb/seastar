@@ -163,8 +163,13 @@ public:
 typedef std::unordered_map<metric_id, shared_ptr<registered_metric> > value_map;
 typedef std::unordered_map<metric_id, metric_value> values_copy;
 
+struct config {
+    sstring hostname;
+};
+
 class impl {
     value_map _value_map;
+    config _config;
 public:
     value_map& get_value_map() {
         return _value_map;
@@ -178,6 +183,12 @@ public:
 
     future<> stop() {
         return make_ready_future<>();
+    }
+    const config& get_config() const {
+        return _config;
+    }
+    void set_config(const config& c) {
+        _config = c;
     }
 };
 
@@ -198,5 +209,16 @@ void unregister_metric(const metric_id & id);
 std::unique_ptr<metric_groups_def> create_metric_groups();
 
 }
+/*!
+ * \brief set the metrics configuration
+ */
+future<> configure(const boost::program_options::variables_map & opts);
+
+/*!
+ * \brief get the metrics configuration desciprtion
+ */
+
+boost::program_options::options_description get_options_description();
+
 }
 }
