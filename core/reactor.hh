@@ -395,7 +395,7 @@ class thread_pool {
     std::atomic<bool> _main_thread_idle = { false };
     pthread_t _notify;
 public:
-    thread_pool();
+    explicit thread_pool(sstring thread_name);
     ~thread_pool();
     template <typename T, typename Func>
     future<T> submit(Func func) {
@@ -423,7 +423,7 @@ public:
     future<T> submit(Func func) { std::cout << "thread_pool not yet implemented on osv\n"; abort(); }
 #endif
 private:
-    void work();
+    void work(sstring thread_name);
 };
 
 // The "reactor_backend" interface provides a method of waiting for various
@@ -796,7 +796,7 @@ private:
     void task_quota_timer_thread_fn();
 public:
     static boost::program_options::options_description get_options_description();
-    reactor();
+    explicit reactor(unsigned id);
     reactor(const reactor&) = delete;
     ~reactor();
     void operator=(const reactor&) = delete;
@@ -1090,7 +1090,7 @@ public:
 private:
     static void start_all_queues();
     static void pin(unsigned cpu_id);
-    static void allocate_reactor();
+    static void allocate_reactor(unsigned id);
     static void create_thread(std::function<void ()> thread_loop);
 public:
     static unsigned count;

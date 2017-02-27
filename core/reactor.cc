@@ -322,8 +322,9 @@ static decltype(auto) install_signal_handler_stack() {
     });
 }
 
-reactor::reactor()
+reactor::reactor(unsigned id)
     : _backend()
+    , _id(id)
 #ifdef HAVE_OSV
     , _timer_thread(
         [&] { timer_thread_func(); }, sched::thread::attr().stack(4096).name("timer_thread").pin(sched::cpu::current()))
@@ -334,7 +335,8 @@ reactor::reactor()
     , _io_context(0)
     , _io_context_available(max_aio)
     , _reuseport(posix_reuseport_detect())
-    , _task_quota_timer_thread(&reactor::task_quota_timer_thread_fn, this) {
+    , _task_quota_timer_thread(&reactor::task_quota_timer_thread_fn, this)
+    , _thread_pool(seastar::format("syscall-{}", id)) {
 
     seastar::thread_impl::init();
     auto r = ::io_setup(max_aio, &_io_context);
@@ -397,6 +399,9 @@ inline Integral increment_nonatomically(std::atomic<Integral>& value) {
 
 void
 reactor::task_quota_timer_thread_fn() {
+    auto thread_name = seastar::format("timer-{}", _id);
+    pthread_setname_np(pthread_self(), thread_name.c_str());
+
     unsigned report_at = _tasks_processed_report_threshold;
     uint64_t last_tasks_processed_seen = 0;
     uint64_t last_polls_seen = 0;
@@ -3042,11 +3047,12 @@ void smp_message_queue::start(unsigned cpuid) {
 
 /* not yet implemented for OSv. TODO: do the notification like we do class smp. */
 #ifndef HAVE_OSV
-thread_pool::thread_pool() : _worker_thread([this] { work(); }), _notify(pthread_self()) {
+thread_pool::thread_pool(sstring name) : _worker_thread([this, name] { work(name); }), _notify(pthread_self()) {
     engine()._signals.handle_signal(SIGUSR1, [this] { inter_thread_wq.complete(); });
 }
 
-void thread_pool::work() {
+void thread_pool::work(sstring name) {
+    pthread_setname_np(pthread_self(), name.c_str());
     sigset_t mask;
     sigfillset(&mask);
     auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
@@ -3290,7 +3296,7 @@ void smp::arrive_at_event_loop_end() {
     }
 }
 
-void smp::allocate_reactor() {
+void smp::allocate_reactor(unsigned id) {
     assert(!reactor_holder);
 
     // we cannot just write "local_engin = new reactor" since reactor's constructor
@@ -3299,7 +3305,7 @@ void smp::allocate_reactor() {
     int r = posix_memalign(&buf, 64, sizeof(reactor));
     assert(r == 0);
     local_engine = reinterpret_cast<reactor*>(buf);
-    new (buf) reactor;
+    new (buf) reactor(id);
     reactor_holder.reset(local_engine);
 }
 
@@ -3524,6 +3530,8 @@ void smp::configure(boost::program_options::variables_map configuration)
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
         create_thread([configuration, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity, heapprof_enabled] {
+            auto thread_name = seastar::format("reactor-{}", i);
+            pthread_setname_np(pthread_self(), thread_name.c_str());
             if (thread_affinity) {
                 smp::pin(allocation.cpu_id);
             }
@@ -3536,8 +3544,7 @@ void smp::configure(boost::program_options::variables_map configuration)
             }
             auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
             throw_pthread_error(r);
-            allocate_reactor();
-            engine()._id = i;
+            allocate_reactor(i);
             _reactors[i] = &engine();
             auto queue_idx = alloc_io_queue(i);
             reactors_registered.wait();
@@ -3550,7 +3557,7 @@ void smp::configure(boost::program_options::variables_map configuration)
         });
     }
 
-    allocate_reactor();
+    allocate_reactor(0);
     _reactors[0] = &engine();
     auto queue_idx = alloc_io_queue(0);
 
