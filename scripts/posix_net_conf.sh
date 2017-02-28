@@ -5,15 +5,15 @@
 # !  Ban NIC IRQs from being moved by irqbalance.
 # !
 # !  -sq - set all IRQs of a given NIC to CPU0 and configure RPS
-# !  to spreads NAPIs' handling between other CPUs.
+# !        to spreads NAPIs' handling between other CPUs.
 # !
 # !  -mq - distribute NIC's IRQs among all CPUs instead of binding
-# !  them all to CPU0 and do not enable RPS.
+# !        them all to CPU0. In this mode RPS is always enabled to
+# !        spreads NAPIs' handling between all CPUs.
 # !
-# !  If neither -mq nor -sq is given script will use a default mode:
-# !     - If number of NIC's IRQs is greater than half of CPUs cores (not including hyperthreads) - use an '-mq' mode.
-# !     - Otherwise if number or NIC's IRQs is greater than 7 - use an '-mq' mode.
-# !     - Otherwise use an '-sq' mode.
+# !  If there isn't any mode given script will use a default mode:
+# !     - If number of physical CPU cores per Rx HW queue is greater than 4 - use the '-sq' mode.
+# !     - Otherwise use the '-mq' mode.
 # !
 # !  Enable XPS, increase the default values of somaxconn and tcp_max_syn_backlog.
 # !
@@ -34,26 +34,74 @@ set_one_mask()
 }
 
 #
-# Bind RPS queues to CPUs other than CPU0 and its hyper-threading siblings
+# setup_rfs <iface>
+#
+setup_rfs()
+{
+    local iface=$1
+    local rfs_table_size=32768
+    local rfs_limits=( `ls -1 /sys/class/net/$iface/queues/*/rps_flow_cnt` )
+    local one_q_limit=$(( rfs_table_size / ${#rfs_limits[*]} ))
+    local rfs_limit_cnt
+
+    # If RFS feature is not present - get out
+    ! sysctl net.core.rps_sock_flow_entries &> /dev/null && return
+
+    # Enable RFS
+    sysctl -w net.core.rps_sock_flow_entries=$rfs_table_size
+
+    # Set each RPS queue limit
+    for rfs_limit_cnt in ${rfs_limits[@]}
+    do
+        echo "Setting limit $one_q_limit in $rfs_limit_cnt"
+        echo $one_q_limit > $rfs_limit_cnt
+    done
+
+    # Enable ntuple filtering HW offload on the NIC
+    echo -n "Trying to enable ntuple filtering HW offload for $iface..."
+    if ethtool -K $iface ntuple on &> /dev/null; then
+        echo "ok"
+    else
+        echo "not supported"
+    fi
+}
+
+#
+# setup_rps <iface> [--no-cpu0]
+#
+# Bind RPS queues to spcific CPUs. if '--no-cpu0' is given CPU0 and its hyper-threading siblings are excluded.
 #
 # Use hwloc-distrib for generating the appropriate CPU masks.
 #
 setup_rps()
 {
     local iface=$1
+    local no_cpu0=""
+
+    [[ "$2" == "--no-cpu0" ]] && no_cpu0="yes"
+
     # If we are in a single core environment - there is no point in configuring RPS
     [[ `hwloc-calc core:0.pu:all` -eq `hwloc-calc all` ]] && return
 
-    local rps_queues_count=`ls -1 /sys/class/net/$iface/queues/*/rps_cpus | wc -l`
+    local rps_cpus=( `get_rps_cpus $iface` )
     local mask
-    local i=0
 
-    # Distribute all cores except for CPU0 siblings
-    for mask in `hwloc-distrib --restrict $(hwloc-calc all ~core:0) $rps_queues_count`
+    # Each RPS queue is a separate RSS state machine so let them spread steams
+    # between all available PUs
+    if [[ -n "$no_cpu0" ]]; then
+        mask=`hwloc-calc all ~core:0`
+    else
+        mask=`hwloc-calc all`
+    fi
+
+    local one_rps_cpus
+
+    for one_rps_cpus in ${rps_cpus[@]}
     do
-        set_one_mask "/sys/class/net/$iface/queues/rx-$i/rps_cpus" $mask
-        i=$(( i + 1 ))
+        set_one_mask "$one_rps_cpus" $mask
     done
+
+    setup_rfs $iface
 }
 
 #
@@ -103,7 +151,7 @@ dev_is_bond_iface()
 #
 # Prints IRQ numbers for the given physical interface
 #
-get_irqs_one()
+get_all_irqs_one()
 {
     local iface=$1
 
@@ -116,6 +164,7 @@ get_irqs_one()
     else
         # No irq file detected
         local modalias=`cat /sys/class/net/$iface/device/modalias`
+        local i
         if [[ "$modalias" =~ ^virtio: ]]; then
             cd /sys/class/net/$iface/device/driver
             for i in `ls -d virtio*`; do
@@ -129,11 +178,45 @@ get_irqs_one()
 }
 
 #
+# Prints IRQ numbers for the given physical interface and tries to filter the slow path queue vectors out
+#
+get_irqs_one()
+{
+    local iface=$1
+
+    # Right now we know about Intel's and Broadcom's naming convention of the fast path queues vectors:
+    #   - Intel:    <bla-bla>-TxRx-<bla-bla>
+    #   - Broadcom: <bla-bla>-fp-<bla-bla>
+    #
+    # So, we will try to filter the etries in /proc/interrupts for IRQs we've got from get_all_irqs_one()
+    # according to the patterns above.
+    #
+    # If as a result all IRQs are filtered out (if there are no IRQs with the names from the patterns above) then
+    # this means that the given NIC uses a different IRQs naming pattern. In this case we won't filter any IRQ.
+    #
+    # Otherwise, we will use only IRQs which names fit one of the patterns above.
+    local irqs=( `get_all_irqs_one $iface` )
+    local found=""
+    local irq
+
+    for irq in ${irqs[@]}
+    do
+        if cat /proc/interrupts  | egrep ^"\s*$irq\:" | egrep "\-TxRx\-|\-fp\-" &> /dev/null; then
+            found="yes"
+            echo $irq
+        fi
+    done
+
+    [ -z "$found" ] && echo ${irqs[@]}
+}
+
+#
 #   get_irqs <iface>
 #
 get_irqs()
 {
     local main_iface=$1
+    local iface
 
     if dev_is_bond_iface $main_iface; then
         for iface in `cat /sys/class/net/$main_iface/bonding/slaves`
@@ -147,14 +230,30 @@ get_irqs()
     fi
 }
 
+#
+# get_rps_cpus <iface>
+#
+# Prints all rps_cpus files names for the given HW interface.
+#
+# There is a single rps_cpus file for each RPS queue and there is a single RPS
+# queue for each HW Rx queue. Each HW Rx queue should have an IRQ.
+# Therefore the number of these files is equal to the number of fast path Rx IRQs for this interface.
+#
+get_rps_cpus()
+{
+    local iface=$1
+
+    ls -1 /sys/class/net/$iface/queues/*/rps_cpus
+}
+
 distribute_irqs()
 {
     local iface=$1
-    local irqs=( `get_irqs $iface` )
+    local irqs=( `get_irqs_one $iface` )
     local mask
     local i=0
 
-    for mask in `hwloc-distrib ${#irqs[*]}`
+    for mask in `hwloc-distrib ${#irqs[*]} --single`
     do
         set_one_mask "/proc/irq/${irqs[$i]}/smp_affinity" $mask
         i=$(( i + 1 ))
@@ -228,6 +327,8 @@ parse_args()
         exit 1
     fi
 
+    local arg
+
     for arg in $@
     do
         case "$arg" in
@@ -258,12 +359,16 @@ get_def_mq_mode()
 {
     local iface=$1
     local num_irqs=`get_irqs $iface | wc -l`
+    local rx_queues_count=`get_rps_cpus $iface | wc -l`
     local num_cores=`hwloc-calc --number-of core machine:0`
 
-    if [ "$num_irqs" -ge "$((num_cores / 2))" ] || [ "$num_irqs" -ge 8 ]; then
-        echo "mq"
-    else
+    # If RPS is not enabled, use number of IRQs as an estimate for the Rx queues number.
+    [[ "$rx_queues_count" -eq "0" ]] && rx_queues_count=$num_irqs
+
+    if (( num_cores > 4 * rx_queues_count )); then
         echo "sq"
+    else
+        echo "mq"
     fi
 }
 
@@ -276,21 +381,23 @@ setup_one_hw_iface()
 {
     local iface=$1
     local mq_mode=$2
+    local irq
 
     [[ -z $mq_mode ]] && mq_mode=`get_def_mq_mode $iface`
 
     # bind all NIC IRQs to CPU0
     if [[ "$mq_mode" == "sq" ]]; then
-        for irq in `get_irqs $iface`
+        for irq in `get_irqs_one $iface`
         do
             echo "Binding IRQ $irq to CPU0"
             echo 1 > /proc/irq/$irq/smp_affinity
         done
 
         # Setup RPS
-        setup_rps $iface
+        setup_rps $iface --no-cpu0
     else # "$mq_mode == "mq"
         distribute_irqs $iface
+        setup_rps $iface
     fi
 
     # Setup XPS
