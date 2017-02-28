@@ -244,6 +244,8 @@ arg_parser.add_argument('--ldflags', action = 'store', dest = 'user_ldflags', de
                         help = 'Extra flags for the linker')
 arg_parser.add_argument('--compiler', action = 'store', dest = 'cxx', default = 'g++',
                         help = 'C++ compiler path')
+arg_parser.add_argument('--c-compiler', action='store', dest='cc', default='gcc',
+                        help = 'C compiler path (for bundled libraries such as dpdk and c-ares)')
 arg_parser.add_argument('--with-osv', action = 'store', dest = 'with_osv', default = '',
                         help = 'Shortcut for compile for OSv')
 arg_parser.add_argument('--enable-dpdk', action = 'store_true', dest = 'dpdk', default = False,
@@ -720,7 +722,7 @@ with open(buildfile, 'w') as f:
     if args.dpdk:
         f.write(textwrap.dedent('''\
             rule dpdkmake
-                command = make -C build/dpdk
+                command = make -C build/dpdk CC={args.cc}
             build {dpdk_deps} : dpdkmake {dpdk_sources}
             ''').format(**globals()))
     for mode in build_modes:
@@ -755,9 +757,9 @@ with open(buildfile, 'w') as f:
             artifacts = str.join(' ', ('$builddir/' + mode + '/' + x for x in build_artifacts))))
         f.write(textwrap.dedent('''\
               rule caresmake_{mode}
-                command = make -C build/{mode}/{cares_dir}
+                command = make -C build/{mode}/{cares_dir} CC={args.cc}
               rule carescmake_{mode}
-                command = mkdir -p $builddir/{mode}/{cares_dir} && cd $builddir/{mode}/{cares_dir} && cmake {cares_opts} {srcdir}/$in
+                command = mkdir -p $builddir/{mode}/{cares_dir} && cd $builddir/{mode}/{cares_dir} && CC={args.cc} cmake {cares_opts} {srcdir}/$in
               build $builddir/{mode}/{cares_dir}/Makefile : carescmake_{mode} {cares_dir}
               build $builddir/{mode}/{cares_dir}/ares_build.h : phony $builddir/{mode}/{cares_dir}/Makefile
               build $builddir/{mode}/{cares_src_lib} : caresmake_{mode} $builddir/{mode}/{cares_dir}/Makefile | {cares_sources}
