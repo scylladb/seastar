@@ -985,7 +985,7 @@ public:
      * nested will be propagated.
      */
     template <typename Func>
-    GCC6_CONCEPT( requires seastar::ApplyReturns<Func, void> || seastar::ApplyReturnsAnyFuture<Func> )
+    GCC6_CONCEPT( requires seastar::CanApply<Func> )
     future<T...> finally(Func&& func) noexcept {
         return then_wrapped(finally_body<Func, is_future<std::result_of_t<Func()>>::value>(std::forward<Func>(func)));
     }
