@@ -693,6 +693,13 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
 ///
 /// \return equivalent to \c reduce(reduce(initial, mapper(obj0)), mapper(obj1)) ...
 template <typename Iterator, typename Mapper, typename Initial, typename Reduce>
+GCC6_CONCEPT( requires requires (Iterator i, Mapper mapper, Initial initial, Reduce reduce) {
+     *i++;
+     { i != i} -> bool;
+     mapper(*i);
+     requires is_future<decltype(mapper(*i))>::value;
+     { reduce(initial, mapper(*i).get0()) } -> Initial;
+} )
 inline
 future<Initial>
 map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Initial initial, Reduce reduce) {
@@ -757,6 +764,13 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Initial initial, Reduc
 ///
 /// \return equivalent to \c reduce(reduce(initial, mapper(obj0)), mapper(obj1)) ...
 template <typename Range, typename Mapper, typename Initial, typename Reduce>
+GCC6_CONCEPT( requires requires (Range range, Mapper mapper, Initial initial, Reduce reduce) {
+     std::begin(range);
+     std::end(range);
+     mapper(*std::begin(range));
+     requires is_future<std::remove_reference_t<decltype(mapper(*std::begin(range)))>>::value;
+     { reduce(initial, mapper(*std::begin(range)).get0()) } -> Initial;
+} )
 inline
 future<Initial>
 map_reduce(Range&& range, Mapper&& mapper, Initial initial, Reduce reduce) {
@@ -966,6 +980,7 @@ struct extract_values_from_futures_vector<future<>> {
 /// \param futures futures to wait for
 /// \return future containing values of input futures
 template<typename... Futures>
+GCC6_CONCEPT( requires seastar::AllAreFutures<Futures...> )
 inline auto when_all_succeed(Futures&&... futures) {
     using state = internal::when_all_state<internal::extract_values_from_futures_tuple<Futures...>, Futures...>;
     auto s = make_lw_shared<state>(std::forward<Futures>(futures)...);
@@ -983,6 +998,11 @@ inline auto when_all_succeed(Futures&&... futures) {
 /// \param end an \c InputIterator designating the end of the range of futures
 /// \return an \c std::vector<> of all the valus in the input
 template <typename FutureIterator, typename = typename std::iterator_traits<FutureIterator>::value_type>
+GCC6_CONCEPT( requires requires (FutureIterator i) {
+     *i++;
+     { i != i } -> bool;
+     requires is_future<std::remove_reference_t<decltype(*i)>>::value;
+} )
 inline auto
 when_all_succeed(FutureIterator begin, FutureIterator end) {
     using itraits = std::iterator_traits<FutureIterator>;
