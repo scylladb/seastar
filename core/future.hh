@@ -665,6 +665,11 @@ concept bool ApplyReturns = requires (Func f, T... args) {
     { f(std::forward<T>(args)...) } -> Return;
 };
 
+template <typename Func, typename... T>
+concept bool ApplyReturnsAnyFuture = requires (Func f, T... args) {
+    requires is_future<decltype(f(std::forward<T>(args)...))>::value;
+};
+
 )
 
 }
@@ -980,7 +985,7 @@ public:
      * nested will be propagated.
      */
     template <typename Func>
-    GCC6_CONCEPT( requires seastar::ApplyReturns<Func, void> || seastar::ApplyReturns<Func, future<>> )
+    GCC6_CONCEPT( requires seastar::ApplyReturns<Func, void> || seastar::ApplyReturnsAnyFuture<Func> )
     future<T...> finally(Func&& func) noexcept {
         return then_wrapped(finally_body<Func, is_future<std::result_of_t<Func()>>::value>(std::forward<Func>(func)));
     }
