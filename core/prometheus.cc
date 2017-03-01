@@ -138,7 +138,7 @@ future<> start(httpd::http_server_control& http_server, config ctx) {
                     std::unordered_map<sstring, std::vector<metrics::impl::values_copy::value_type*>> families;
                     for (auto&& shard : vec) {
                         for (auto&& metric : shard) {
-                            auto name = ctx.prefix + "_" + collectd_name(metric.first, &shard - vec.data());
+                            auto name = ctx.prefix + "_" + collectd_name(metric.first);
                             families[name].push_back(&metric);
                         }
                     }
