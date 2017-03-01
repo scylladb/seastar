@@ -1,6 +1,6 @@
 #!/bin/bash
 # !
-# !  Usage: posix_net_conf.sh [iface name, eth0 by default] [-mq|-sq] [--cpu-mask] [-h|--help]
+# !  Usage: posix_net_conf.sh [iface name, eth0 by default] [-mq|-sq] [--cpu-mask] [-h|--help] [--use-cpu-mask <mask>]
 # !
 # !  Ban NIC IRQs from being moved by irqbalance.
 # !
@@ -15,11 +15,13 @@
 # !     - If number of physical CPU cores per Rx HW queue is greater than 4 - use the '-sq' mode.
 # !     - Otherwise use the '-mq' mode.
 # !
-# !  Enable XPS, increase the default values of somaxconn and tcp_max_syn_backlog.
+# !  --use-cpu-mask <mask> - mask of cores to use, by default use all available cores
 # !
 # !  --cpu-mask - Print out RPS CPU assignments. On MQ NIC, just print all cpus.
 # !
 # !  -h|--help - print this help information
+# !
+# !  Enable XPS, increase the default values of somaxconn and tcp_max_syn_backlog.
 # !
 
 #
@@ -89,9 +91,9 @@ setup_rps()
     # Each RPS queue is a separate RSS state machine so let them spread steams
     # between all available PUs
     if [[ -n "$no_cpu0" ]]; then
-        mask=`hwloc-calc all ~core:0`
+        mask=`hwloc-calc $CPU_FILTER_MASK ~core:0`
     else
-        mask=`hwloc-calc all`
+        mask=`hwloc-calc $CPU_FILTER_MASK`
     fi
 
     local one_rps_cpus
@@ -105,7 +107,7 @@ setup_rps()
 }
 
 #
-# Spread all XPS queues to over the full cpuset. Don't bother to exclude CPU0
+# Spread all XPS queues over the full cpuset. Don't bother to exclude CPU0
 # (and friends) - scylla will just not send from it if its cpuset is properly set.
 #
 setup_xps()
@@ -253,7 +255,7 @@ distribute_irqs()
     local mask
     local i=0
 
-    for mask in `hwloc-distrib ${#irqs[*]} --single`
+    for mask in `hwloc-distrib ${#irqs[*]} --single --restrict $CPU_FILTER_MASK`
     do
         set_one_mask "/proc/irq/${irqs[$i]}/smp_affinity" $mask
         i=$(( i + 1 ))
@@ -322,15 +324,12 @@ usage()
 
 parse_args()
 {
-    if [[ $# -gt 2 ]]; then
-        usage
-        exit 1
-    fi
-
+    local i
     local arg
 
-    for arg in $@
+    until [ -z "$1" ]
     do
+        arg=$1
         case "$arg" in
             "-mq")
                 MQ_MODE="mq"
@@ -341,6 +340,10 @@ parse_args()
             "--cpu-mask")
                 CPU_MASK=1
                 ;;
+            "--use-cpu-mask")
+                CPU_FILTER_MASK=$2
+                shift
+                ;;
             "-h"|"--help")
                 usage
                 exit 0
@@ -349,6 +352,7 @@ parse_args()
                 IFACE=$arg
                 ;;
             esac
+            shift
     done
 }
 
@@ -360,7 +364,7 @@ get_def_mq_mode()
     local iface=$1
     local num_irqs=`get_irqs $iface | wc -l`
     local rx_queues_count=`get_rps_cpus $iface | wc -l`
-    local num_cores=`hwloc-calc --number-of core machine:0`
+    local num_cores=`hwloc-calc --number-of core machine:0 --restrict $CPU_FILTER_MASK`
 
     # If RPS is not enabled, use number of IRQs as an estimate for the Rx queues number.
     [[ "$rx_queues_count" -eq "0" ]] && rx_queues_count=$num_irqs
@@ -431,9 +435,9 @@ gen_cpumask_one_hw_iface()
 
     # bind all NIC IRQs to CPU0
     if [[ "$mq_mode" == "sq" ]]; then
-        hwloc-distrib --restrict $(hwloc-calc all ~core:0) 1 
+        hwloc-calc $CPU_FILTER_MASK ~core:0
     else # "$mq_mode == "mq"
-        hwloc-calc all
+        hwloc-calc $CPU_FILTER_MASK
     fi
 }
 
@@ -454,17 +458,21 @@ gen_cpumask_bonding_iface()
         fi
     done
     if found_mq; then
-        hwloc-calc all
+        hwloc-calc $CPU_FILTER_MASK
     else
-        hwloc-distrib --restrict $(hwloc-calc all ~core:0) 1 
+        hwloc-calc $CPU_FILTER_MASK ~core:0
     fi 
 }
 
 IFACE="eth0"
 MQ_MODE=""
+CPU_FILTER_MASK=`hwloc-calc all`
 CPU_MASK=
 
 parse_args $@
+
+# Don't let the CPU_FILTER_MASK have bits outside the CPU set of this machine
+CPU_FILTER_MASK=`hwloc-calc --restrict $CPU_FILTER_MASK all`
 
 if [[ $CPU_MASK ]]; then
     if dev_is_hw_iface $IFACE; then
