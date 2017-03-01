@@ -1091,10 +1091,16 @@ append_challenged_posix_file_impl::~append_challenged_posix_file_impl() {
 }
 
 bool
+append_challenged_posix_file_impl::must_run_alone(const op& candidate) const noexcept {
+    // checks if candidate is a non-write, size-changing operation.
+    return (candidate.type == opcode::truncate)
+            || (_sloppy_size && candidate.type == opcode::flush);
+}
+
+bool
 append_challenged_posix_file_impl::size_changing(const op& candidate) const noexcept {
     return (candidate.type == opcode::write && candidate.pos + candidate.len > _committed_size)
-            || (candidate.type == opcode::truncate)
-            || (_sloppy_size && candidate.type == opcode::flush);
+            || must_run_alone(candidate);
 }
 
 bool
@@ -1129,7 +1135,9 @@ append_challenged_posix_file_impl::optimize_queue() noexcept {
     auto speculative_size = _committed_size;
     unsigned n_appending_writes = 0;
     for (const auto& op : _q) {
-        if (op.type == opcode::truncate) {
+        // stop calculating speculative size after a non-write, size-changing
+        // operation is found to prevent an useless truncate from being issued.
+        if (must_run_alone(op)) {
             break;
         }
         if (op.type == opcode::write && op.pos + op.len > _committed_size) {

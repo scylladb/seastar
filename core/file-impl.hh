@@ -102,6 +102,7 @@ class append_challenged_posix_file_impl : public posix_file_impl {
     promise<> _completed;
 private:
     void commit_size(uint64_t size) noexcept;
+    bool must_run_alone(const op& candidate) const noexcept;
     bool size_changing(const op& candidate) const noexcept;
     bool may_dispatch(const op& candidate) const noexcept;
     void dispatch(op& candidate) noexcept;
