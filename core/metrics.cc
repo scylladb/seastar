@@ -75,6 +75,34 @@ bool label_instance::operator==(const label_instance& id2) const {
                     == std::tie(id2.key(), id2.value());
 }
 
+
+static std::string get_hostname() {
+    char hostname[PATH_MAX];
+    gethostname(hostname, sizeof(hostname));
+    hostname[PATH_MAX-1] = '\0';
+    return hostname;
+}
+
+
+boost::program_options::options_description get_options_description() {
+    namespace bpo = boost::program_options;
+    bpo::options_description opts("Metrics options");
+    opts.add_options()(
+            "metrics-hostname",
+            bpo::value<std::string>()->default_value(get_hostname()),
+            "set the hostname used by the metrics, if not set, the local hostname will be used");
+    return opts;
+}
+
+future<> configure(const boost::program_options::variables_map & opts) {
+    impl::config c;
+    c.hostname = opts["metrics-hostname"].as<std::string>();
+    return smp::invoke_on_all([c] {
+        impl::get_local_impl()->set_config(c);
+    });
+}
+
+
 bool label_instance::operator!=(const label_instance& id2) const {
     auto& id1 = *this;
     return !(id1 == id2);
