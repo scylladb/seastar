@@ -55,16 +55,18 @@ using namespace std::chrono_literals;
 class http_stats {
     seastar::metrics::metric_groups _metric_groups;
 public:
-    http_stats(http_server& server);
+    http_stats(http_server& server, const sstring& name);
 };
 
 class http_server {
     std::vector<server_socket> _listeners;
-    http_stats _stats { *this };
+    http_stats _stats;
     uint64_t _total_connections = 0;
     uint64_t _current_connections = 0;
     uint64_t _requests_served = 0;
     uint64_t _connections_being_accepted = 0;
+    uint64_t _read_errors = 0;
+    uint64_t _respond_errors = 0;
     sstring _date = http_date();
     timer<> _date_format_timer { [this] {_date = http_date();} };
     bool _stopping = false;
@@ -79,7 +81,7 @@ private:
 public:
     routes _routes;
 
-    http_server() {
+    explicit http_server(const sstring& name) : _stats(*this, name) {
         _date_format_timer.arm_periodic(1s);
     }
     future<> listen(ipv4_addr addr) {
@@ -170,8 +172,11 @@ public:
                 return read_one();
             }).then_wrapped([this] (future<> f) {
                 // swallow error
-                // FIXME: count it?
-                    return _replies.push_eventually( {});
+                if (f.failed()) {
+                    _server._read_errors++;
+                }
+                f.ignore_ready_future();
+                return _replies.push_eventually( {});
             }).finally([this] {
                 return _read_buf.close();
             });
@@ -194,7 +199,12 @@ public:
             });
         }
         future<> respond() {
-            return do_response_loop().finally([this] {
+            return do_response_loop().then_wrapped([this] (future<> f) {
+                // swallow error
+                if (f.failed()) {
+                    _server._respond_errors++;
+                }
+                f.ignore_ready_future();
                 return _write_buf.close();
             });
         }
@@ -381,6 +391,12 @@ public:
     uint64_t requests_served() const {
         return _requests_served;
     }
+    uint64_t read_errors() const {
+        return _read_errors;
+    }
+    uint64_t reply_errors() const {
+        return _respond_errors;
+    }
     static sstring http_date() {
         auto t = ::time(nullptr);
         struct tm tm;
@@ -408,12 +424,15 @@ private:
  */
 class http_server_control {
     distributed<http_server>* _server_dist;
+private:
+    static sstring generate_server_name();
 public:
     http_server_control() : _server_dist(new distributed<http_server>) {
     }
 
-    future<> start() {
-        return _server_dist->start();
+
+    future<> start(const sstring& name = generate_server_name()) {
+        return _server_dist->start(name);
     }
 
     future<> stop() {
