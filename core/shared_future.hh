@@ -22,7 +22,6 @@
 
 #pragma once
 
-#include <deque>
 #include "future.hh"
 #include "expiring_fifo.hh"
 
