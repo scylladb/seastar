@@ -23,6 +23,7 @@
 #include <google/protobuf/io/coded_stream.h>
 #include <google/protobuf/io/zero_copy_stream_impl_lite.h>
 #include "proto/metrics2.pb.h"
+#include <sstream>
 
 #include "scollectd_api.hh"
 #include "scollectd-impl.hh"
@@ -116,51 +117,187 @@ static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value&
     }
 }
 
+using metrics_families = std::unordered_map<sstring, std::vector<const metrics::impl::values_copy::value_type*>>;
+
+static future<metrics_families> get_map_value(std::vector<metrics::impl::values_copy>& vec, const sstring& prefix) {
+    vec.resize(smp::count);
+    return parallel_for_each(boost::irange(0u, smp::count), [&vec] (auto cpu) {
+        return smp::submit_to(cpu, [] {
+            return metrics::impl::get_values();
+        }).then([&vec, cpu] (auto res) {
+            vec[cpu] = res;
+        });
+    }).then([&vec, prefix]() mutable {
+        metrics_families families;
+        for (auto&& shard : vec) {
+            for (auto&& metric : shard) {
+                auto name = prefix + "_" + collectd_name(metric.first);
+                families[name].push_back(&metric);
+            }
+        }
+        return families;
+    });
+}
+
+static std::string to_str(seastar::metrics::impl::data_type dt) {
+    switch (dt) {
+    case seastar::metrics::impl::data_type::GAUGE:
+        return "gauge";
+    case seastar::metrics::impl::data_type::COUNTER:
+        return "counter";
+    case seastar::metrics::impl::data_type::HISTOGRAM:
+        return "histogram";
+    case seastar::metrics::impl::data_type::DERIVE:
+        // Prometheus server does not respect derive parameters
+        // So we report them as counter
+        return "counter";
+    default:
+        break;
+    }
+    return "untyped";
+}
+
+static std::string to_str(const seastar::metrics::impl::metric_value& v) {
+    switch (v.type()) {
+    case seastar::metrics::impl::data_type::GAUGE:
+        return std::to_string(v.d());
+    case seastar::metrics::impl::data_type::COUNTER:
+        return std::to_string(v.i());
+    case seastar::metrics::impl::data_type::DERIVE:
+        return std::to_string(v.ui());
+    default:
+        break;
+    }
+    return ""; // we should never get here but it makes the compiler happy
+}
+
+static void add_name(std::ostream& s, const sstring& name, const std::map<sstring, sstring>& labels, const config& ctx) {
+    s << name << "{instance=\"" << ctx.hostname << '"';
+    if (!labels.empty()) {
+        for (auto l : labels) {
+            s << "," << l.first  << "=\"" << l.second << '"';
+        }
+    }
+    s << "} ";
+
+}
+
+std::string get_text_representation(const metrics_families& families, const config& ctx) {
+    std::stringstream s;
+    for (auto name_metrics : families) {
+        auto&& name = name_metrics.first;
+        auto&& metrics = name_metrics.second;
+        auto local = seastar::metrics::impl::get_local_impl();
+        if (metrics.size() > 0) {
+            auto&& tmp_id = metrics[0]->first;
+            auto &&reg_metrics = seastar::metrics::impl::get_local_impl()->get_value_map()[tmp_id];
+            if (reg_metrics && reg_metrics->get_description().str() != "") {
+                s << "# HELP " << name << " " <<  reg_metrics->get_description().str() << "\n";
+            }
+        }
+        s << "# TYPE " << name << " " << to_str(metrics[0]->second.type()) << "\n";
+        for (auto* pmetric : metrics) {
+            auto&& id = pmetric->first;
+            auto&& value = pmetric->second;
+
+            if (value.type() == seastar::metrics::impl::data_type::HISTOGRAM) {
+                auto&& h = value.get_histogram();
+                std::map<sstring, sstring> labels = id.labels();
+                auto& le = labels["le"];
+                uint64_t count = 0;
+                auto bucket = name + "_bucket";
+                for (auto  i : h.buckets) {
+                     le = std::to_string(i.upper_bound);
+                    count += i.count;
+                    add_name(s, bucket, labels, ctx);
+                    s << count;
+                    s << "\n";
+                }
+                labels["le"] = "+Inf";
+                add_name(s, bucket, labels, ctx);
+                s << h.sample_count;
+                s << "\n";
+
+                add_name(s, name + "_sum", {}, ctx);
+                s << h.sample_sum;
+                s << "\n";
+                add_name(s, name + "_count", {}, ctx);
+                s << h.sample_count;
+                s << "\n";
+
+            } else {
+                add_name(s, name, id.labels(), ctx);
+                s << to_str(value);
+                s << "\n";
+            }
+        }
+
+    }
+    return s.str();
+}
+
+std::string get_protobuf_representation(const metrics_families& families, const config& ctx) {
+    std::string s;
+    google::protobuf::io::StringOutputStream os(&s);
+    for (auto name_metrics : families) {
+        auto&& name = name_metrics.first;
+        auto&& metrics = name_metrics.second;
+        pm::MetricFamily mtf;
+        mtf.set_name(name);
+        for (auto pmetric : metrics) {
+            auto&& id = pmetric->first;
+            auto&& value = pmetric->second;
+            fill_metric(mtf, value, id, ctx);
+        }
+        if (!write_delimited_to(mtf, &os)) {
+            seastar_logger.warn("Failed to write protobuf metrics");
+        }
+    }
+    return s;
+}
+
+bool is_accept_text(const std::string& accept) {
+    std::vector<std::string> strs;
+    boost::split(strs, accept, boost::is_any_of(","));
+    for (auto i : strs) {
+        boost::trim(i);
+        if (boost::starts_with(i, "application/vnd.google.protobuf;")) {
+            return false;
+        }
+    }
+    return true;
+}
+
+class metrics_handler : public handler_base  {
+    sstring _prefix;
+    config _ctx;
+
+public:
+    metrics_handler(config ctx) : _ctx(ctx) {}
+
+    future<std::unique_ptr<httpd::reply>> handle(const sstring& path,
+        std::unique_ptr<httpd::request> req, std::unique_ptr<httpd::reply> rep) override {
+        return do_with(std::vector<metrics::impl::values_copy>(), [rep = std::move(rep), this, req=std::move(req)] (auto& vec) mutable {
+            return get_map_value(vec, _ctx.prefix).then([rep = std::move(rep), this, req=std::move(req)] (metrics_families families) mutable {
+                auto text = is_accept_text(req->get_header("Accept"));
+                std::string s = (text) ? get_text_representation(families, _ctx) :
+                        get_protobuf_representation(families, _ctx);
+                rep->_content = std::move(s);
+                rep->set_content_type((text) ? "txt" : "proto");
+                return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
+            });
+        });
+    }
+};
+
+
 future<> start(httpd::http_server_control& http_server, config ctx) {
     if (ctx.hostname == "") {
         ctx.hostname = metrics::impl::get_local_impl()->get_config().hostname;
     }
 
     return http_server.set_routes([ctx](httpd::routes& r) {
-        httpd::future_handler_function f = [ctx](std::unique_ptr<request> req, std::unique_ptr<reply> rep) {
-            return do_with(std::vector<metrics::impl::values_copy>(), [rep = std::move(rep), &ctx] (auto& vec) mutable {
-                vec.resize(smp::count);
-                return parallel_for_each(boost::irange(0u, smp::count), [&vec] (auto cpu) {
-                    return smp::submit_to(cpu, [] {
-                        return metrics::impl::get_values();
-                    }).then([&vec, cpu] (auto res) {
-                        vec[cpu] = res;
-                    });
-                }).then([rep = std::move(rep), &vec, &ctx]() mutable {
-                    std::unordered_map<sstring, std::vector<metrics::impl::values_copy::value_type*>> families;
-                    for (auto&& shard : vec) {
-                        for (auto&& metric : shard) {
-                            auto name = ctx.prefix + "_" + collectd_name(metric.first);
-                            families[name].push_back(&metric);
-                        }
-                    }
-                    std::string s;
-                    google::protobuf::io::StringOutputStream os(&s);
-                    for (auto name_metrics : families) {
-                        auto&& name = name_metrics.first;
-                        auto&& metrics = name_metrics.second;
-                        pm::MetricFamily mtf;
-                        mtf.set_name(name);
-                        for (auto pmetric : metrics) {
-                            auto&& id = pmetric->first;
-                            auto&& value = pmetric->second;
-                            fill_metric(mtf, value, id, ctx);
-                        }
-                        if (!write_delimited_to(mtf, &os)) {
-                            seastar_logger.warn("Failed to write protobuf metrics");
-                        }
-                    }
-                    rep->_content = s;
-                    return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
-                });
-            });
-        };
-        r.put(GET, "/metrics", new httpd::function_handler(f, "proto"));
+        r.put(GET, "/metrics", new metrics_handler(ctx));
     });
 }
 
