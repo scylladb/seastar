@@ -216,6 +216,7 @@ tests = [
     'tests/perf/perf_fstream',
     'tests/json_formatter_test',
     'tests/dns_test',
+    'tests/execution_stage_test',
     ]
 
 apps = [
@@ -450,6 +451,7 @@ deps = {
     'tests/perf/perf_fstream': ['tests/perf/perf_fstream.cc'] + core,
     'tests/json_formatter_test': ['tests/json_formatter_test.cc'] + core + http,
     'tests/dns_test': ['tests/dns_test.cc'] + core + libnet,
+    'tests/execution_stage_test': ['tests/execution_stage_test.cc'] + core,
 }
 
 boost_tests = [
@@ -471,6 +473,7 @@ boost_tests = [
     'tests/scollectd_test',
     'tests/json_formatter_test',
     'tests/dns_test',
+    'tests/execution_stage_test',
     ]
 
 for bt in boost_tests:

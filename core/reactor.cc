@@ -92,6 +92,7 @@
 #include <xmmintrin.h>
 #include "util/defer.hh"
 #include "core/metrics.hh"
+#include "execution_stage.hh"
 
 using namespace std::chrono_literals;
 
@@ -2467,6 +2468,25 @@ public:
     }
 };
 
+class reactor::execution_stage_pollfn final : public reactor::pollfn {
+    internal::execution_stage_manager& _esm;
+public:
+    execution_stage_pollfn() : _esm(internal::execution_stage_manager::get()) { }
+
+    virtual bool poll() override {
+        return _esm.flush();
+    }
+    virtual bool pure_poll() override {
+        return _esm.poll();
+    }
+    virtual bool try_enter_interrupt_mode() override {
+        // This is a passive poller, so if a previous poll
+        // returned false (idle), there's no more work to do.
+        return true;
+    }
+    virtual void exit_interrupt_mode() override { }
+};
+
 class reactor::syscall_pollfn final : public reactor::pollfn {
     reactor& _r;
 public:
@@ -2555,6 +2575,7 @@ int reactor::run() {
     poller sig_poller(std::make_unique<signal_pollfn>(*this));
     poller aio_poller(std::make_unique<aio_batch_submit_pollfn>(*this));
     poller batch_flush_poller(std::make_unique<batch_flush_pollfn>(*this));
+    poller execution_stage_poller(std::make_unique<execution_stage_pollfn>());
 
     start_aio_eventfd_loop();
 

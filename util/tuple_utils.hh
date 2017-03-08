@@ -83,6 +83,27 @@ auto tuple_filter_helper(Tuple&& t, std::index_sequence<I...>&&) {
 /// \addtogroup utilities
 /// @{
 
+/// Applies type transformation to all types in tuple
+///
+/// Member type `type` is set to a tuple type which is a result of applying
+/// transformation `MapClass<T>::type` to each element `T` of the input tuple
+/// type.
+///
+/// \tparam MapClass class template defining type transformation
+/// \tparam Tuple input tuple type
+template<template<typename> class MapClass, typename Tuple>
+struct tuple_map_types;
+
+/// @}
+
+template<template<typename> class MapClass, typename... Elements>
+struct tuple_map_types<MapClass, std::tuple<Elements...>> {
+    using type = std::tuple<typename MapClass<Elements>::type...>;
+};
+
+/// \addtogroup utilities
+/// @{
+
 /// Filters elements in tuple by their type
 ///
 /// Returns a tuple containing only those elements which type `T` caused
