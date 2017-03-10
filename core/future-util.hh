@@ -698,7 +698,7 @@ GCC6_CONCEPT( requires requires (Iterator i, Mapper mapper, Initial initial, Red
      { i != i} -> bool;
      mapper(*i);
      requires is_future<decltype(mapper(*i))>::value;
-     { reduce(initial, mapper(*i).get0()) } -> Initial;
+     { reduce(std::move(initial), mapper(*i).get0()) } -> Initial;
 } )
 inline
 future<Initial>
@@ -769,7 +769,7 @@ GCC6_CONCEPT( requires requires (Range range, Mapper mapper, Initial initial, Re
      std::end(range);
      mapper(*std::begin(range));
      requires is_future<std::remove_reference_t<decltype(mapper(*std::begin(range)))>>::value;
-     { reduce(initial, mapper(*std::begin(range)).get0()) } -> Initial;
+     { reduce(std::move(initial), mapper(*std::begin(range)).get0()) } -> Initial;
 } )
 inline
 future<Initial>
