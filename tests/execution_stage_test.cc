@@ -31,7 +31,7 @@ static std::random_device rd;
 
 template<typename Function, typename Verify>
 void test_simple_execution_stage(Function&& func, Verify&& verify) {
-    auto stage = seastar::make_execution_stage(std::forward<Function>(func));
+    auto stage = seastar::make_execution_stage("test", std::forward<Function>(func));
 
     std::vector<int> vs;
     std::default_random_engine gen(rd());
@@ -86,7 +86,7 @@ SEASTAR_TEST_CASE(test_simple_stage_returning_future_int) {
 
 template<typename T>
 void test_execution_stage_avoids_copy() {
-    auto stage = seastar::make_execution_stage([] (T obj) {
+    auto stage = seastar::make_execution_stage("test", [] (T obj) {
         return std::move(obj);
     });
 
@@ -123,7 +123,7 @@ SEASTAR_TEST_CASE(test_stage_prefers_move_to_copy) {
 
 SEASTAR_TEST_CASE(test_rref_decays_to_value) {
     return seastar::async([] {
-        auto stage = seastar::make_execution_stage([] (std::vector<int>&& vec) {
+        auto stage = seastar::make_execution_stage("test", [] (std::vector<int>&& vec) {
             return vec.size();
         });
 
@@ -143,7 +143,7 @@ SEASTAR_TEST_CASE(test_rref_decays_to_value) {
 
 SEASTAR_TEST_CASE(test_lref_does_not_decay) {
     return seastar::async([] {
-        auto stage = seastar::make_execution_stage([] (int& v) {
+        auto stage = seastar::make_execution_stage("test", [] (int& v) {
             v++;
         });
 
@@ -163,7 +163,7 @@ SEASTAR_TEST_CASE(test_lref_does_not_decay) {
 
 SEASTAR_TEST_CASE(test_explicit_reference_wrapper_is_not_unwrapped) {
     return seastar::async([] {
-        auto stage = seastar::make_execution_stage([] (seastar::reference_wrapper<int> v) {
+        auto stage = seastar::make_execution_stage("test", [] (seastar::reference_wrapper<int> v) {
             v.get()++;
         });
 
@@ -190,7 +190,7 @@ SEASTAR_TEST_CASE(test_function_is_class_member) {
             }
         };
 
-        auto stage = seastar::make_execution_stage(&foo::member);
+        auto stage = seastar::make_execution_stage("test", &foo::member);
 
         foo object;
         std::vector<future<int>> fs;
@@ -213,7 +213,7 @@ SEASTAR_TEST_CASE(test_function_is_const_class_member) {
                 return value;
             }
         };
-        auto stage = seastar::make_execution_stage(&foo::member);
+        auto stage = seastar::make_execution_stage("test", &foo::member);
 
         const foo object;
         BOOST_REQUIRE_EQUAL(stage(&object).get0(), 999);
