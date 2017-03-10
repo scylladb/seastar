@@ -281,6 +281,7 @@ public:
     /// \param args arguments passed to the stage's function
     /// \return future containing the result of the call to the stage's function
     template<typename... Args>
+    GCC6_CONCEPT(requires std::is_constructible<input_type, Args...>::value)
     return_type operator()(Args&&... args) {
         _queue.emplace_back(std::forward<Args>(args)...);
         _empty = false;
