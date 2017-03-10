@@ -119,9 +119,9 @@ public:
     /// Gets the buffer size.
     size_t size() const { return _size; }
     /// Gets a pointer to the beginning of the buffer.
-    const CharType* begin() { return _buffer; }
+    const CharType* begin() const { return _buffer; }
     /// Gets a pointer to the end of the buffer.
-    const CharType* end() { return _buffer + _size; }
+    const CharType* end() const { return _buffer + _size; }
     /// Returns the buffer, but with a reduced size.  The original
     /// buffer is consumed by this call and can no longer be used.
     ///
@@ -201,6 +201,22 @@ public:
             throw std::bad_alloc();
         }
         return temporary_buffer(buf, size, make_free_deleter(buf));
+    }
+
+    /// Compare contents of this buffer with another buffer for equality
+    ///
+    /// \param o buffer to compare with
+    /// \return true if and only if contents are the same
+    bool operator==(const temporary_buffer<char>& o) const {
+        return size() == o.size() && std::equal(begin(), end(), o.begin());
+    }
+
+    /// Compare contents of this buffer with another buffer for inequality
+    ///
+    /// \param o buffer to compare with
+    /// \return true if and only if contents are not the same
+    bool operator!=(const temporary_buffer<char>& o) const {
+        return !(*this == o);
     }
 };
 
