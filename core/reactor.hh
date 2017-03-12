@@ -1061,7 +1061,7 @@ public:
                     return futurize<ret_type>::apply(func);
                 } else {
                     // Deferring call on rvalue function, make sure to preserve it across call
-                    auto w = std::make_unique<Func>(std::move(func));
+                    auto w = std::make_unique<std::decay_t<Func>>(std::move(func));
                     auto ret = futurize<ret_type>::apply(*w);
                     return ret.finally([w = std::move(w)] {});
                 }
