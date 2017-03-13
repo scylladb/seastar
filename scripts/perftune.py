@@ -164,8 +164,11 @@ class NetPerfTuner:
             rx_queues_count = num_irqs
 
         num_cores = int(run_hwloc_calc(['--number-of', 'core', 'machine:0', '--restrict', self.__args.cpu_mask]))
+        num_PUs = int(run_hwloc_calc(['--number-of', 'PU', 'machine:0', '--restrict', self.__args.cpu_mask]))
 
         if num_cores > 4 * rx_queues_count:
+            return 'sq-split'
+        elif num_PUs > 4 * rx_queues_count:
             return 'sq'
         else:
             return 'mq'
@@ -211,12 +214,7 @@ class NetPerfTuner:
         except:
             print("not supported")
 
-    def __setup_rps(self, iface, no_cpu0):
-        if no_cpu0:
-            mask = run_hwloc_calc([self.__args.cpu_mask, '~core:0'])
-        else:
-            mask = self.__args.cpu_mask
-
+    def __setup_rps(self, iface, mask):
         for one_rps_cpus in self.__get_rps_cpus(iface):
             set_one_mask(one_rps_cpus, mask)
 
@@ -357,15 +355,19 @@ class NetPerfTuner:
         else:
             mq_mode = self.get_def_mq_mode(iface)
 
+        # Bind the NIC's IRQs according to the configuration mode
         if mq_mode == 'sq':
-            for irq in self.__nic2irqs[iface]:
-                set_one_mask("/proc/irq/{}/smp_affinity".format(irq), '1')
-
-            self.__setup_rps(iface, True)
+            # all to CPU0
+            irqs_mask = run_hwloc_calc(['PU:0'])
+        elif mq_mode == 'sq-split':
+            # distribute equally between the CPU0 and its HT siblings
+            irqs_mask =  run_hwloc_calc(['core:0'])
         else: # mode == 'mq'
-            distribute_irqs(self.__nic2irqs[iface], self.__args.cpu_mask)
-            self.__setup_rps(iface, False)
+            # distribute equally between all available cores
+            irqs_mask = self.__args.cpu_mask
 
+        distribute_irqs(self.__get_irqs_one(iface), irqs_mask)
+        self.__setup_rps(iface, self.__gen_cpumask_one_hw_iface(iface))
         self.__setup_xps(iface)
 
     def __setup_bonding_iface(self):
@@ -378,6 +380,8 @@ class NetPerfTuner:
 
     def __gen_mode_cpu_mask(self, mq_mode):
         if mq_mode == 'sq':
+            return run_hwloc_calc([self.__args.cpu_mask, '~PU:0'])
+        elif mq_mode == 'sq-split':
             return run_hwloc_calc([self.__args.cpu_mask, '~core:0'])
         else:
             return self.__args.cpu_mask
@@ -394,8 +398,22 @@ class NetPerfTuner:
         if self.__args.mode:
             return self.__gen_mode_cpu_mask(self.__args.mode)
 
-        found_sq = any([self.__dev_is_hw_iface(slave) and self.get_def_mq_mode(slave) == 'sq' for slave in self.__get_slaves()])
-        if found_sq:
+        found_sq = False
+        found_sq_split = False
+        for slave in self.__get_slaves():
+            if self.__dev_is_hw_iface(slave):
+                def_mq_mode = self.get_def_mq_mode(slave)
+                if def_mq_mode == 'sq':
+                    found_sq = True
+                elif def_mq_mode == 'sq-split':
+                    found_sq_split = True
+
+                if found_sq and found_sq_split:
+                    break
+
+        if found_sq_split:
+            return self.__gen_mode_cpu_mask('sq-split')
+        elif found_sq:
             return self.__gen_mode_cpu_mask('sq')
         else:
             return self.__gen_mode_cpu_mask('mq')
@@ -419,12 +437,16 @@ Modes description:
  sq - set all IRQs of a given NIC to CPU0 and configure RPS
       to spreads NAPIs' handling between other CPUs.
 
+ sq-split - divide all IRQs of a given NIC between CPU0 and its HT siblings and configure RPS
+      to spreads NAPIs' handling between other CPUs.
+
  mq - distribute NIC's IRQs among all CPUs instead of binding
       them all to CPU0. In this mode RPS is always enabled to
       spreads NAPIs' handling between all CPUs.
 
  If there isn't any mode given script will use a default mode:
-    - If number of physical CPU cores per Rx HW queue is greater than 4 - use the 'sq' mode.
+    - If number of physical CPU cores per Rx HW queue is greater than 4 - use the 'sq-split' mode.
+    - Otherwise, if number of hyperthreads per Rx HW queue is greater than 4 - use the 'sq' mode.
     - Otherwise use the 'mq' mode.
 
 Default values:
@@ -432,7 +454,7 @@ Default values:
  --nic NIC       - default: eth0
  --cpu-mask MASK - default: all available cores mask
 ''')
-argp.add_argument('--mode', choices=['mq', 'sq'], help='configuration mode')
+argp.add_argument('--mode', choices=['mq', 'sq', 'sq-split'], help='configuration mode')
 argp.add_argument('--nic', help='network interface name', default='eth0')
 argp.add_argument('--get-cpu-mask', action='store_true', help="print the CPU mask to be used for compute")
 argp.add_argument('--cpu-mask', help="mask of cores to use, by default use all available cores", default=run_hwloc_calc(['all']), metavar='MASK')
