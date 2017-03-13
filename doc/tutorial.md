@@ -951,7 +951,9 @@ future<> handle_connection(connected_socket s, socket_address a) {
             return repeat([&out, &in] {
                 return in.read().then([&out] (auto buf) {
                     if (buf) {
-                        return out.write(std::move(buf)).then([] {
+                        return out.write(std::move(buf)).then([&out] {
+                            return out.flush();
+                        }).then([] {
                             return stop_iteration::no;
                         });
                     } else {
