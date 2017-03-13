@@ -394,11 +394,11 @@ class NetPerfTuner:
         if self.__args.mode:
             return self.__gen_mode_cpu_mask(self.__args.mode)
 
-        found_mq = any([self.__dev_is_hw_iface(slave) and self.get_def_mq_mode(slave) == 'mq' for slave in self.__get_slaves()])
-        if found_mq:
-            return self.__gen_mode_cpu_mask('mq')
-        else:
+        found_sq = any([self.__dev_is_hw_iface(slave) and self.get_def_mq_mode(slave) == 'sq' for slave in self.__get_slaves()])
+        if found_sq:
             return self.__gen_mode_cpu_mask('sq')
+        else:
+            return self.__gen_mode_cpu_mask('mq')
 
 ################################################################################
 
