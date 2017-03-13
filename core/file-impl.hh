@@ -59,8 +59,32 @@ public:
     virtual future<> close() noexcept override;
     virtual std::unique_ptr<seastar::file_handle_impl> dup() override;
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) override;
+    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc);
 private:
     void query_dma_alignment();
+
+    /**
+     * Try to read from the given position where the previous short read has
+     * stopped. Check the EOF condition.
+     *
+     * The below code assumes the following: short reads due to I/O errors
+     * always end at address aligned to HW block boundary. Therefore if we issue
+     * a new read operation from the next position we are promised to get an
+     * error (different from EINVAL). If we've got a short read because we have
+     * reached EOF then the above read would either return a zero-length success
+     * (if the file size is aligned to HW block size) or an EINVAL error (if
+     * file length is not aligned to HW block size).
+     *
+     * @param pos offset to read from
+     * @param len number of bytes to read
+     * @param pc the IO priority class under which to queue this operation
+     *
+     * @return temporary buffer with read data or zero-sized temporary buffer if
+     *         pos is at or beyond EOF.
+     * @throw appropriate exception in case of I/O error.
+     */
+    future<temporary_buffer<uint8_t>>
+    read_maybe_eof(uint64_t pos, size_t len, const io_priority_class& pc);
 };
 
 // The Linux XFS implementation is challenged wrt. append: a write that changes

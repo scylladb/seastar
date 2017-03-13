@@ -1071,6 +1071,105 @@ posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priorit
     });
 }
 
+future<temporary_buffer<uint8_t>>
+posix_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc) {
+    using tmp_buf_type = typename file::read_state<uint8_t>::tmp_buf_type;
+
+    auto front = offset & (_disk_read_dma_alignment - 1);
+    offset -= front;
+    range_size += front;
+
+    auto rstate = make_lw_shared<file::read_state<uint8_t>>(offset, front,
+                                                       range_size,
+                                                       _memory_dma_alignment,
+                                                       _disk_read_dma_alignment);
+
+    //
+    // First, try to read directly into the buffer. Most of the reads will
+    // end here.
+    //
+    auto read = read_dma(offset, rstate->buf.get_write(),
+                         rstate->buf.size(), pc);
+
+    return read.then([rstate, this, &pc] (size_t size) mutable {
+        rstate->pos = size;
+
+        //
+        // If we haven't read all required data at once -
+        // start read-copy sequence. We can't continue with direct reads
+        // into the previously allocated buffer here since we have to ensure
+        // the aligned read length and thus the aligned destination buffer
+        // size.
+        //
+        // The copying will actually take place only if there was a HW glitch.
+        // In EOF case or in case of a persistent I/O error the only overhead is
+        // an extra allocation.
+        //
+        return do_until(
+            [rstate] { return rstate->done(); },
+            [rstate, this, &pc] () mutable {
+            return read_maybe_eof(
+                rstate->cur_offset(), rstate->left_to_read(), pc).then(
+                    [rstate] (auto buf1) mutable {
+                if (buf1.size()) {
+                    rstate->append_new_data(buf1);
+                } else {
+                    rstate->eof = true;
+                }
+
+                return make_ready_future<>();
+            });
+        }).then([rstate] () mutable {
+            //
+            // If we are here we are promised to have read some bytes beyond
+            // "front" so we may trim straight away.
+            //
+            rstate->trim_buf_before_ret();
+            return make_ready_future<tmp_buf_type>(std::move(rstate->buf));
+        });
+    });
+}
+
+future<temporary_buffer<uint8_t>>
+posix_file_impl::read_maybe_eof(uint64_t pos, size_t len, const io_priority_class& pc) {
+    //
+    // We have to allocate a new aligned buffer to make sure we don't get
+    // an EINVAL error due to unaligned destination buffer.
+    //
+    temporary_buffer<uint8_t> buf = temporary_buffer<uint8_t>::aligned(
+               _memory_dma_alignment, align_up(len, size_t(_disk_read_dma_alignment)));
+
+    // try to read a single bulk from the given position
+    auto dst = buf.get_write();
+    auto buf_size = buf.size();
+    return read_dma(pos, dst, buf_size, pc).then_wrapped(
+            [buf = std::move(buf)](future<size_t> f) mutable {
+        try {
+            size_t size = std::get<0>(f.get());
+
+            buf.trim(size);
+
+            return std::move(buf);
+        } catch (std::system_error& e) {
+            //
+            // TODO: implement a non-trowing file_impl::dma_read() interface to
+            //       avoid the exceptions throwing in a good flow completely.
+            //       Otherwise for users that don't want to care about the
+            //       underlying file size and preventing the attempts to read
+            //       bytes beyond EOF there will always be at least one
+            //       exception throwing at the file end for files with unaligned
+            //       length.
+            //
+            if (e.code().value() == EINVAL) {
+                buf.trim(0);
+                return std::move(buf);
+            } else {
+                throw;
+            }
+        }
+    });
+}
+
 append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, file_open_options options,
         unsigned max_size_changing_ops)
         : posix_file_impl(fd, options), _max_size_changing_ops(max_size_changing_ops) {
