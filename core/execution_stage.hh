@@ -366,7 +366,7 @@ public:
 template<typename Function>
 auto make_execution_stage(const sstring& name, Function&& fn) {
     using traits = function_traits<Function>;
-    return concrete_execution_stage<Function, typename traits::return_type,
+    return concrete_execution_stage<std::decay_t<Function>, typename traits::return_type,
                                     typename traits::args_as_tuple>(name, std::forward<Function>(fn));
 }
 
