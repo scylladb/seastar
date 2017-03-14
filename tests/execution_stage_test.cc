@@ -29,6 +29,34 @@
 
 static std::random_device rd;
 
+SEASTAR_TEST_CASE(test_create_stage_from_lvalue_function_object) {
+    return seastar::async([] {
+        auto dont_move = [obj = make_shared<int>(53)] { return *obj; };
+        auto stage = seastar::make_execution_stage("test", dont_move);
+        BOOST_REQUIRE_EQUAL(stage().get0(), 53);
+        BOOST_REQUIRE_EQUAL(dont_move(), 53);
+    });
+}
+
+SEASTAR_TEST_CASE(test_create_stage_from_rvalue_function_object) {
+    return seastar::async([] {
+        auto dont_copy = [obj = std::make_unique<int>(42)] { return *obj; };
+        auto stage = seastar::make_execution_stage("test", std::move(dont_copy));
+        BOOST_REQUIRE_EQUAL(stage().get0(), 42);
+    });
+}
+
+int func() {
+    return 64;
+}
+
+SEASTAR_TEST_CASE(test_create_stage_from_function) {
+    return seastar::async([] {
+        auto stage = seastar::make_execution_stage("test", func);
+        BOOST_REQUIRE_EQUAL(stage().get0(), 64);
+    });
+}
+
 template<typename Function, typename Verify>
 void test_simple_execution_stage(Function&& func, Verify&& verify) {
     auto stage = seastar::make_execution_stage("test", std::forward<Function>(func));
