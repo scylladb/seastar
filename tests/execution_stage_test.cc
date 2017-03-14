@@ -271,3 +271,16 @@ SEASTAR_TEST_CASE(test_stage_stats) {
         BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_executed, call_count);
     });
 }
+
+SEASTAR_TEST_CASE(test_unique_stage_names_are_enforced) {
+    return seastar::async([] {
+        {
+            auto stage = seastar::make_execution_stage("test", [] {});
+            BOOST_REQUIRE_THROW(seastar::make_execution_stage("test", [] {}), std::invalid_argument);
+            stage().get();
+        }
+
+        auto stage = seastar::make_execution_stage("test", [] {});
+        stage().get();
+    });
+}
