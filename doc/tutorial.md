@@ -833,6 +833,23 @@ Talk about polling that we currently do, and how today even sleep() or waiting f
 
 TODO: Mention the two modes of operation: Posix and native (i.e., take a L2 (Ethernet) interface (vhost or dpdk) and on top of it we built (in Seastar itself) an L3 interface (TCP/IP)).
 
+For optimal performance, Seastar's network stack is sharded just like Seastar applications are: each shard (thread) takes responsibility for a different subset of the connections. Each incoming connection is directed to one of the threads, and after a connection is established, it continues to be handled on the same thread.
+
+In the examples we saw earlier, `main()` ran our function `f()` only once, on the first thread. Unless the server is run with the `"-c1"` option (one thread only), this will mean that any connection arriving to a different thread will not be handled. So in all the examples below, we will need to run the same service loop on all cores. We can easily do this with the `smp::submit_to` function:
+
+```cpp
+future<> service_loop();
+
+future<> f() {
+    return parallel_for_each(boost::irange<unsigned>(0, smp::count),
+            [] (unsigned c) {
+        return smp::submit_to(c, service_loop);
+    });
+}
+```
+
+Here we ask each of Seastar cores (from 0 to `smp::count`-1) to run the same function `service_loop()`. Each of these invocations returns a future, and `f()` will return when all of them have returned (in the examples below, they will never return - we will discuss shutting down services in later sections).
+
 We begin with a simple example of a TCP network server written in Seastar. This server repeatedly accepts connections on TCP port 1234, and returns an empty response:
 
 ```cpp
@@ -841,7 +858,7 @@ We begin with a simple example of a TCP network server written in Seastar. This 
 #include "core/future-util.hh"
 #include <iostream>
 
-future<> f() {
+future<> service_loop() {
     return do_with(listen(make_ipv4_address({1234})), [] (auto& listener) {
         return keep_doing([&listener] () {
             return listener.accept().then(
@@ -862,20 +879,16 @@ This code works as follows:
 Output from this server looks like the following example:
 
 ```
-$ ./a.out -c1
+$ ./a.out
 Accepted connection from 127.0.0.1:47578
 Accepted connection from 127.0.0.1:47582
 ...
 ```
 
-Note how we ran this Seastar application on a single thread, using the ```-c1``` option. Unintuitively, this options is actually necessary for running this program, as it will *not* work correctly if started on multiple threads. To understand why, we need to understand how Seastar's network stack works on multiple threads:
-
-For optimum performance, Seastar's network stack is sharded just like Seastar applications are: each shard (thread) takes responsibility for a different subset of the connections. In other words, each incoming connection is directed to one of the threads, and after a connection is established, it continues to be handled on the same thread. But in our example, our server code only runs on the first thread, and the result is that only some of the connections (those which are randomly directed to thread 0) will get serviced properly, and other connections attempts will be ignored.
-
 If you run the above example server immediately after killing the previous server, it often fails to start again, complaining that:
 
 ```
-$ ./a.out -c1
+$ ./a.out
 program failed with uncaught exception: bind: Address already in use
 ```
 
@@ -899,7 +912,7 @@ Let's advance our example server by outputting some canned response to each conn
 
 const char* canned_response = "Seastar is the future!\n";
 
-future<> f() {
+future<> service_loop() {
     listen_options lo;
     lo.reuse_address = true;
     return do_with(listen(make_ipv4_address({1234}), lo), [] (auto& listener) {
@@ -966,7 +979,7 @@ future<> handle_connection(connected_socket s, socket_address a) {
         });
 }
 
-future<> f() {
+future<> service_loop() {
     listen_options lo;
     lo.reuse_address = true;
     return do_with(listen(make_ipv4_address({1234}), lo), [] (auto& listener) {
@@ -984,7 +997,7 @@ future<> f() {
 
 ```
 
-The main function ```f()``` loops accepting new connections, and for each connection calls ```handle_connection()``` to handle this connection. Our ```handle_connection()``` returns a future saying when handling this connection completed, but importantly, we do ***not*** wait for this future: Remember that ```keep_doing``` will only start the next iteration when the future returned by the previous iteration is resolved. Because we want to allow parallel ongoing connections, we don't want the next ```accept()``` to wait until the previously accepted connection was closed. So we call ```handle_connection()``` to start the handling of the connection, but return nothing from the continuation, which resolves that future immediately, so ```keep_doing``` will continue to the next ```accept()```.
+The main function ```service_loop()``` loops accepting new connections, and for each connection calls ```handle_connection()``` to handle this connection. Our ```handle_connection()``` returns a future saying when handling this connection completed, but importantly, we do ***not*** wait for this future: Remember that ```keep_doing``` will only start the next iteration when the future returned by the previous iteration is resolved. Because we want to allow parallel ongoing connections, we don't want the next ```accept()``` to wait until the previously accepted connection was closed. So we call ```handle_connection()``` to start the handling of the connection, but return nothing from the continuation, which resolves that future immediately, so ```keep_doing``` will continue to the next ```accept()```.
 
 This demonstrates how easy it is to run parallel _fibers_ (chains of continuations) in Seastar - When a continuation runs an asynchronous function but ignores the future it returns, the asynchronous operation continues in parallel, but never waited for.
 
@@ -994,7 +1007,7 @@ The ```handle_connection()``` function itself is straightforward --- it repeated
 
 # Sharded servers
 
-TODO: show how to fix the network server to work on multiple threads
+Discuss `sharded<>`, its benefits over directly using smp::submit_to() as above, etc.
 
 # Shutting down cleanly
 
