@@ -219,3 +219,27 @@ SEASTAR_TEST_CASE(test_function_is_const_class_member) {
         BOOST_REQUIRE_EQUAL(stage(&object).get0(), 999);
     });
 }
+
+SEASTAR_TEST_CASE(test_stage_stats) {
+    return seastar::async([] {
+        auto stage = seastar::make_execution_stage("test", [] { });
+
+        BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_enqueued, 0);
+        BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_executed, 0);
+
+        auto fs = std::vector<future<>>();
+        static constexpr auto call_count = 53;
+        for (auto i = 0; i < call_count; i++) {
+            fs.emplace_back(stage());
+        }
+
+        BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_enqueued, call_count);
+
+        for (auto i = 0; i < call_count; i++) {
+            fs[i].get();
+            BOOST_REQUIRE_GE(stage.get_stats().tasks_scheduled, 1);
+            BOOST_REQUIRE_GE(stage.get_stats().function_calls_executed, i);
+        }
+        BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_executed, call_count);
+    });
+}
