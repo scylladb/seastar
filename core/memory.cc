@@ -366,7 +366,7 @@ struct cross_cpu_free_item {
 };
 
 struct cpu_pages {
-    static constexpr unsigned min_free_pages = 20000000 / page_size;
+    uint32_t min_free_pages = 20000000 / page_size;
     char* memory;
     page* pages;
     uint32_t nr_pages;
@@ -410,6 +410,7 @@ struct cpu_pages {
         unsigned offset;
         unsigned nr_pages;
     };
+    void maybe_reclaim();
     template <typename Trimmer>
     void* allocate_large_and_trim(unsigned nr_pages, Trimmer trimmer);
     void* allocate_large(unsigned nr_pages);
@@ -436,6 +437,7 @@ struct cpu_pages {
     reclaiming_result run_reclaimers(reclaimer_scope);
     void schedule_reclaim();
     void set_reclaim_hook(std::function<void (std::function<void ()>)> hook);
+    void set_min_free_pages(size_t pages);
     void resize(size_t new_size, allocate_system_memory_fn alloc_sys_mem);
     void do_resize(size_t new_size, allocate_system_memory_fn alloc_sys_mem);
     void replace_memory_backing(allocate_system_memory_fn alloc_sys_mem);
@@ -445,7 +447,6 @@ struct cpu_pages {
     ~cpu_pages();
 };
 
-constexpr unsigned cpu_pages::min_free_pages;
 static thread_local cpu_pages cpu_mem;
 std::atomic<unsigned> cpu_pages::cpu_id_gen;
 cpu_pages* cpu_pages::all_cpus[max_cpus];
@@ -563,6 +564,16 @@ cpu_pages::find_and_unlink_span_reclaiming(unsigned n_pages) {
     }
 }
 
+void cpu_pages::maybe_reclaim() {
+    if (nr_free_pages < current_min_free_pages) {
+        drain_cross_cpu_freelist();
+        run_reclaimers(reclaimer_scope::sync);
+        if (nr_free_pages < current_min_free_pages) {
+            schedule_reclaim();
+        }
+    }
+}
+
 template <typename Trimmer>
 void*
 cpu_pages::allocate_large_and_trim(unsigned n_pages, Trimmer trimmer) {
@@ -601,13 +612,7 @@ cpu_pages::allocate_large_and_trim(unsigned n_pages, Trimmer trimmer) {
         alloc_site->size += span->span_size * page_size;
     }
 #endif
-    if (nr_free_pages < current_min_free_pages) {
-        drain_cross_cpu_freelist();
-        run_reclaimers(reclaimer_scope::sync);
-        if (nr_free_pages < current_min_free_pages) {
-            schedule_reclaim();
-        }
-    }
+    maybe_reclaim();
     return mem() + span_idx * page_size;
 }
 
@@ -1037,6 +1042,14 @@ void cpu_pages::set_reclaim_hook(std::function<void (std::function<void ()>)> ho
     current_min_free_pages = min_free_pages;
 }
 
+void cpu_pages::set_min_free_pages(size_t pages) {
+    if (pages > std::numeric_limits<decltype(min_free_pages)>::max()) {
+        throw std::runtime_error("Number of pages too large");
+    }
+    min_free_pages = pages;
+    maybe_reclaim();
+}
+
 small_pool::small_pool(unsigned object_size) noexcept
     : _object_size(object_size), _span_size(1) {
     while (_object_size > span_bytes()
@@ -1320,6 +1333,14 @@ translate(const void* addr, size_t size) {
 
 memory_layout get_memory_layout() {
     return cpu_mem.memory_layout();
+}
+
+size_t min_free_memory() {
+    return cpu_mem.min_free_pages * page_size;
+}
+
+void set_min_free_pages(size_t pages) {
+    cpu_mem.set_min_free_pages(pages);
 }
 
 }
@@ -1636,6 +1657,14 @@ translate(const void* addr, size_t size) {
 
 memory_layout get_memory_layout() {
     throw std::runtime_error("get_memory_layout() not supported");
+}
+
+size_t min_free_memory() {
+    return 0;
+}
+
+void set_min_free_pages(size_t pages) {
+    // Ignore, reclaiming not supported for default allocator.
 }
 
 }
