@@ -750,6 +750,14 @@ class DiskPerfTuner(PerfTunerBase):
             self.__tune_disk(disk)
 
 ################################################################################
+class TuneModes(enum.Enum):
+    disks = 0
+    net = 1
+
+    @staticmethod
+    def names():
+        return list(TuneModes.__members__.keys())
+
 argp = argparse.ArgumentParser(description = 'Configure various system parameters in order to improve the seastar application performance.', formatter_class=argparse.RawDescriptionHelpFormatter,
                                epilog=
 '''
@@ -787,6 +795,7 @@ Default values:
 argp.add_argument('--mode', choices=PerfTunerBase.SupportedModes.names(), help='configuration mode')
 argp.add_argument('--nic', help='network interface name', default='eth0')
 argp.add_argument('--get-cpu-mask', action='store_true', help="print the CPU mask to be used for compute")
+argp.add_argument('--tune', choices=TuneModes.names(), help="components to configure (may be given more than once)", action='append')
 argp.add_argument('--cpu-mask', help="mask of cores to use, by default use all available cores", default=run_hwloc_calc(['all']), metavar='MASK')
 argp.add_argument('--dir', help="directory to optimize (may appear more than once)", action='append', dest='dirs', default=[])
 argp.add_argument('--dev', help="device to optimize (may appear more than once), e.g. sda1", action='append', dest='devs', default=[])
@@ -794,18 +803,33 @@ argp.add_argument('--dev', help="device to optimize (may appear more than once),
 
 args = argp.parse_args()
 
+# if nothing needs to be configured - quit
+if args.tune is None:
+    sys.exit(0)
+
 try:
-    net_perf_tuner = NetPerfTuner(args)
+    tuners = []
+
+    if TuneModes.disks.name in args.tune:
+        tuners.append(DiskPerfTuner(args))
+
+    if TuneModes.net.name in args.tune:
+        tuners.append(NetPerfTuner(args))
+
+    # Set the minimum mode among all tuners
+    mode = min([ tuner.mode for tuner in tuners ])
+    for tuner in tuners:
+        tuner.mode = mode
 
     if args.get_cpu_mask:
-        print(net_perf_tuner.compute_cpu_mask)
+        # Print the compute mask from the first tuner - it's going to be the same in all of them
+        print(tuners[0].compute_cpu_mask)
     else:
-        # Ban irqbalance from moving NICs IRQs
-        restart_irqbalance(net_perf_tuner.irqs)
+        # Tune the system
+        restart_irqbalance(itertools.chain.from_iterable([ tuner.irqs for tuner in tuners ]))
 
-        # Tune the networking
-        net_perf_tuner.tune()
+        for tuner in tuners:
+            tuner.tune()
 except Exception as e:
     sys.exit("ERROR: {}. Your system can't be tuned until the issue is fixed.".format(e))
-
 
