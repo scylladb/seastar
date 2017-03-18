@@ -56,6 +56,11 @@ def restart_irqbalance(banned_irqs):
     config_file = '/etc/default/irqbalance'
     options_key = 'OPTIONS'
     systemd = False
+    banned_irqs_list = list(banned_irqs)
+
+    # If there is nothing to ban - quit
+    if len(banned_irqs_list) == 0:
+        return
 
     # return early if irqbalance is not running
     if not is_process_running('irqbalance'):
@@ -69,34 +74,45 @@ def restart_irqbalance(banned_irqs):
             systemd = True
         else:
             print("Unknown system configuration - not restarting irqbalance!")
-            print("You have to prevent it from moving IRQs {} manually!".format(banned_irqs))
+            print("You have to prevent it from moving IRQs {} manually!".format(banned_irqs_list))
             return
 
     orig_file = "{}.scylla.orig".format(config_file)
 
     # Save the original file
     if not os.path.exists(orig_file):
+        print("Saving the original irqbalance configuration is in {}".format(orig_file))
         shutil.copyfile(config_file, orig_file)
+    else:
+        print("File {} already exists - not overwriting.".format(orig_file))
 
     # Read the config file lines
     cfile_lines = open(config_file, 'r').readlines()
 
     # Build the new config_file contents with the new options configuration
-    print("Restarting irqbalance: going to ban the following IRQ numbers: ", end='')
+    print("Restarting irqbalance: going to ban the following IRQ numbers: {} ...".format(", ".join(banned_irqs_list)))
 
-    new_options = "{}=\"".format(options_key)
-    for irq in banned_irqs:
-        new_options += " --banirq={}".format(irq)
-        print("{}".format(irq), end='')
+    # Search for the original options line
+    opt_lines = list(filter(lambda line : re.search("^\s*{}".format(options_key), line), cfile_lines))
+    if len(opt_lines) == 0:
+        new_options = "{}=\"".format(options_key)
+    elif len(opt_lines) == 1:
+        # cut the last "
+        new_options = re.sub("\"\s*$", "", opt_lines[0].rstrip())
+    else:
+        raise Exception("Invalid format in {}: more than one lines with {} key".format(config_file, options_key))
+
+    for irq in banned_irqs_list:
+        # prevent duplicate "ban" entries for the same IRQ
+        patt_str = "\-\-banirq\={}\Z|\-\-banirq\={}\s".format(irq, irq)
+        if not re.search(patt_str, new_options):
+            new_options += " --banirq={}".format(irq)
 
     new_options += "\""
 
-    print('...')
-    print("Original irqbalance configuration is in {}".format(orig_file))
-
     with open(config_file, 'w') as cfile:
         for line in cfile_lines:
-            if not re.search(options_key, line):
+            if not re.search("^\s*{}".format(options_key), line):
                 cfile.write(line)
 
         cfile.write(new_options + "\n")
@@ -471,7 +487,11 @@ if args.get_cpu_mask:
     print(net_perf_tuner.get_cpu_mask())
 else:
     # Ban irqbalance from moving NICs IRQs
-    restart_irqbalance(net_perf_tuner.get_irqs())
+    try:
+        restart_irqbalance(net_perf_tuner.get_irqs())
+    except Exception as e:
+        sys.exit("ERROR: irqbalance wasn't configured: {}. Your system can't be tuned until the issue is fixed.".format(e))
+
     # Tune the networking
     net_perf_tuner.tune()
 
