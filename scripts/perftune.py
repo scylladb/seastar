@@ -1,6 +1,9 @@
 #!/usr/bin/python3
 
+import abc
 import argparse
+import enum
+import functools
 import glob
 import itertools
 import os
@@ -123,33 +126,208 @@ def restart_irqbalance(banned_irqs):
     else:
         print("Restarting irqbalance directly (init.d)...")
         run_one_command(['/etc/init.d/irqbalance', 'restart'])
+
+def learn_irqs_from_proc_interrupts(pattern, irq2procline):
+    return [ irq for irq, proc_line in filter(lambda irq_proc_line_pair : re.search(pattern, irq_proc_line_pair[1]), irq2procline.items()) ]
+
+def learn_all_irqs_one(irq_conf_dir, irq2procline, xen_dev_name):
+    """
+    Returns a list of IRQs of a single device.
+
+    irq_conf_dir: a /sys/... directory with the IRQ information for the given device
+    irq2procline: a map of IRQs to the corresponding lines in the /proc/interrupts
+    xen_dev_name: a device name pattern as it appears in the /proc/interrupts on Xen systems
+    """
+    msi_irqs_dir_name = os.path.join(irq_conf_dir, 'msi_irqs')
+    # Device uses MSI IRQs
+    if os.path.exists(msi_irqs_dir_name):
+        return os.listdir(msi_irqs_dir_name)
+
+    irq_file_name = os.path.join(irq_conf_dir, 'irq')
+    # Device uses INT#x
+    if os.path.exists(irq_file_name):
+        return [ line.lstrip().rstrip() for line in open(irq_file_name, 'r').readlines() ]
+
+    # No irq file detected
+    modalias = open(os.path.join(irq_conf_dir, 'modalias'), 'r').readline()
+
+    # virtio case
+    if re.search("^virtio", modalias):
+        return list(itertools.chain.from_iterable(
+            map(lambda dirname : learn_irqs_from_proc_interrupts(dirname, irq2procline),
+                filter(lambda dirname : re.search('virtio', dirname),
+                       itertools.chain.from_iterable([ dirnames for dirpath, dirnames, filenames in os.walk(os.path.join(irq_conf_dir, 'driver')) ])))))
+
+    # xen case
+    if re.search("^xen:", modalias):
+        return learn_irqs_from_proc_interrupts(xen_dev_name, irq2procline)
+
+def get_irqs2procline_map():
+    return { line.split(':')[0].lstrip().rstrip() : line for line in open('/proc/interrupts', 'r').readlines() }
+
 ################################################################################
-class NetPerfTuner:
+class PerfTunerBase(metaclass=abc.ABCMeta):
     def __init__(self, args):
         self.__args = args
-        self.__rfs_table_size = 32768
+        self.__args.cpu_mask = run_hwloc_calc(['--restrict', self.__args.cpu_mask, 'all'])
+        self.__mode = None
+        self.__compute_cpu_mask = None
+        self.__irq_cpu_mask = None
+
+#### Public methods ##########################
+    class SupportedModes(enum.IntEnum):
+        """
+        Modes are ordered from the one that cuts the biggest number of CPUs
+        from the compute CPUs' set to the one that takes the smallest ('mq' doesn't
+        cut any CPU from the compute set).
+
+        This fact is used when we calculate the 'common quotient' mode out of a
+        given set of modes (e.g. default modes of different Tuners) - this would
+        be the smallest among the given modes.
+        """
+        sq_split = 0
+        sq = 1
+        mq = 2
+
+        @staticmethod
+        def names():
+            return PerfTunerBase.SupportedModes.__members__.keys()
+
+    @staticmethod
+    def compute_cpu_mask_for_mode(mq_mode, cpu_mask):
+        mq_mode = PerfTunerBase.SupportedModes(mq_mode)
+
+        if mq_mode == PerfTunerBase.SupportedModes.sq:
+            # all but CPU0
+            return run_hwloc_calc([cpu_mask, '~PU:0'])
+        elif mq_mode == PerfTunerBase.SupportedModes.sq_split:
+            # all but CPU0 and its HT siblings
+            return run_hwloc_calc([cpu_mask, '~core:0'])
+        elif mq_mode == PerfTunerBase.SupportedModes.mq:
+            # all available cores
+            return cpu_mask
+        else:
+            raise Exception("Unsupported mode: {}".format(mq_mode))
+
+    @staticmethod
+    def irqs_cpu_mask_for_mode(mq_mode, cpu_mask):
+        mq_mode = PerfTunerBase.SupportedModes(mq_mode)
+
+        if mq_mode != PerfTunerBase.SupportedModes.mq:
+            return run_hwloc_calc([cpu_mask, "~{}".format(PerfTunerBase.compute_cpu_mask_for_mode(mq_mode, cpu_mask))])
+        else: # mq_mode == PerfTunerBase.SupportedModes.mq
+            # distribute equally between all available cores
+            return cpu_mask
+
+    @property
+    def mode(self):
+        """
+        Return the configuration mode
+        """
+        # Make sure the configuration mode is set (see the __set_mode_and_masks() description).
+        if self.__mode is None:
+            self.__set_mode_and_masks()
+
+        return self.__mode
+
+    @mode.setter
+    def mode(self, new_mode):
+        """
+        Set the new configuration mode and recalculate the corresponding masks.
+        """
+        # Make sure the new_mode is of PerfTunerBase.AllowedModes type
+        self.__mode = PerfTunerBase.SupportedModes(new_mode)
+        self.__compute_cpu_mask = PerfTunerBase.compute_cpu_mask_for_mode(self.__mode, self.__args.cpu_mask)
+        self.__irq_cpu_mask = PerfTunerBase.irqs_cpu_mask_for_mode(self.__mode, self.__args.cpu_mask)
+
+    @property
+    def compute_cpu_mask(self):
+        """
+        Return the CPU mask to use for seastar application binding.
+        """
+        # see the __set_mode_and_masks() description
+        if self.__compute_cpu_mask is None:
+            self.__set_mode_and_masks()
+
+        return self.__compute_cpu_mask
+
+    @property
+    def irqs_cpu_mask(self):
+        """
+        Return the mask of CPUs used for IRQs distribution.
+        """
+        # see the __set_mode_and_masks() description
+        if self.__irq_cpu_mask is None:
+            self.__set_mode_and_masks()
+
+        return self.__irq_cpu_mask
+
+    @property
+    def args(self):
+        return self.__args
+
+    @property
+    def irqs(self):
+        return self._get_irqs()
+
+#### "Protected"/Public (pure virtual) methods ###########
+    @abc.abstractmethod
+    def tune(self):
+        pass
+
+    @abc.abstractmethod
+    def _get_def_mode(self):
+        """
+        Return a default configuration mode.
+        """
+        pass
+
+    @abc.abstractmethod
+    def _get_irqs(self):
+        """
+        Return the iteratable value with all IRQs to be configured.
+        """
+        pass
+
+#### Private methods ############################
+    def __set_mode_and_masks(self):
+        """
+        Sets the configuration mode and the corresponding CPU masks. We can't
+        initialize them in the constructor because the default mode may depend
+        on the child-specific values that are set in its constructor.
+
+        That's why we postpone the mode's and the corresponding masks'
+        initialization till after the child instance creation.
+        """
+        if self.__args.mode:
+            self.mode = PerfTunerBase.SupportedModes[self.__args.mode]
+        else:
+            self.mode = self._get_def_mode()
+
+#################################################
+class NetPerfTuner(PerfTunerBase):
+    def __init__(self, args):
+        super().__init__(args)
+
         self.__nic_is_bond_iface = self.__check_dev_is_bond_iface()
         self.__slaves = self.__learn_slaves()
-        self.__irq2procline = {}
-        for line in open('/proc/interrupts', 'r').readlines():
-            self.__irq2procline[line.split(':')[0].lstrip().rstrip()] = line
 
-        self.__nic2irqs = {}
-        self.__learn_irqs()
+        # check that self.nic is either a HW device or a bonding interface
+        self.__check_nic()
+
+        self.__nic2irqs = self.__learn_irqs()
 
 #### Public methods ############################
     def tune(self):
         """
         Tune the networking server configuration.
         """
-        if self.__dev_is_hw_iface(self.__args.nic):
-            print("Setting a physical interface {}...".format(self.__args.nic))
-            self.__setup_one_hw_iface(self.__args.nic)
-        elif self.__dev_is_bond_iface():
-            print("Setting {} bonding interface...".format(self.__args.nic))
-            self.__setup_bonding_iface()
+        if self.nic_is_hw_iface:
+            print("Setting a physical interface {}...".format(self.nic))
+            self.__setup_one_hw_iface(self.nic)
         else:
-            sys.exit("Not supported virtual device {}".format(self.__args.nic))
+            print("Setting {} bonding interface...".format(self.nic))
+            self.__setup_bonding_iface()
 
         # Increase the socket listen() backlog
         fwriteln_and_log('/proc/sys/net/core/somaxconn', '4096')
@@ -158,38 +336,35 @@ class NetPerfTuner:
         # did not receive an acknowledgment from connecting client.
         fwriteln_and_log('/proc/sys/net/ipv4/tcp_max_syn_backlog', '4096')
 
-    def get_cpu_mask(self):
+    @property
+    def nic_is_bond_iface(self):
+        return self.__nic_is_bond_iface
+
+    @property
+    def nic(self):
+        return self.args.nic
+
+    @property
+    def nic_is_hw_iface(self):
+        return self.__dev_is_hw_iface(self.nic)
+
+    @property
+    def slaves(self):
         """
-        Return the CPU mask to use for seastar application binding.
+        Returns an iterator for all slaves of the args.nic.
+        If agrs.nic is not a bonding interface an attempt to use the returned iterator
+        will immediately raise a StopIteration exception - use __dev_is_bond_iface() check to avoid this.
         """
-        if self.__dev_is_bond_iface():
-            return self.__gen_cpumask_bonding_iface()
-        elif self.__dev_is_hw_iface(self.__args.nic):
-            return self.__gen_cpumask_one_hw_iface(self.__args.nic)
+        return iter(self.__slaves)
+
+#### Protected methods ##########################
+    def _get_def_mode(self):
+        if self.nic_is_bond_iface:
+            return min(map(self.__get_hw_iface_def_mode, filter(self.__dev_is_hw_iface, self.slaves)))
         else:
-            sys.exit("Not supported virtual device {}".format(self.__args.nic))
+            return self.__get_hw_iface_def_mode(self.nic)
 
-    def get_def_mq_mode(self, iface):
-        """
-        Returns the default configuration mode for the given interface.
-        """
-        num_irqs = len(self.__get_irqs_one(iface))
-        rx_queues_count = len(self.__get_rps_cpus(iface))
-
-        if rx_queues_count == 0:
-            rx_queues_count = num_irqs
-
-        num_cores = int(run_hwloc_calc(['--number-of', 'core', 'machine:0', '--restrict', self.__args.cpu_mask]))
-        num_PUs = int(run_hwloc_calc(['--number-of', 'PU', 'machine:0', '--restrict', self.__args.cpu_mask]))
-
-        if num_cores > 4 * rx_queues_count:
-            return 'sq-split'
-        elif num_PUs > 4 * rx_queues_count:
-            return 'sq'
-        else:
-            return 'mq'
-
-    def get_irqs(self):
+    def _get_irqs(self):
         """
         Returns the iterator for all IRQs that are going to be configured (according to args.nic parameter).
         For instance, for a bonding interface that's going to include IRQs of all its slaves.
@@ -197,6 +372,17 @@ class NetPerfTuner:
         return itertools.chain.from_iterable(self.__nic2irqs.values())
 
 #### Private methods ############################
+    @property
+    def __rfs_table_size(self):
+        return 32768
+
+    def __check_nic(self):
+        """
+        Checks that self.nic is a supported interface
+        """
+        if not self.nic_is_hw_iface and not self.nic_is_bond_iface:
+            raise Exception("Not supported virtual device {}".format(self.nic))
+
     def __get_irqs_one(self, iface):
         """
         Returns the list of IRQ numbers for the given interface.
@@ -250,66 +436,13 @@ class NetPerfTuner:
         if not os.path.exists('/sys/class/net/bonding_masters'):
             return False
 
-        return any([re.search(self.__args.nic, line) for line in open('/sys/class/net/bonding_masters', 'r').readlines()])
-
-    def __dev_is_bond_iface(self):
-        return self.__nic_is_bond_iface
+        return any([re.search(self.nic, line) for line in open('/sys/class/net/bonding_masters', 'r').readlines()])
 
     def __learn_slaves(self):
-        slaves = []
-        if self.__dev_is_bond_iface():
-            for line in open("/sys/class/net/{}/bonding/slaves".format(self.__args.nic), 'r').readlines():
-                slaves.extend(line.split())
+        if self.nic_is_bond_iface:
+            return list(itertools.chain.from_iterable([ line.split() for line in open("/sys/class/net/{}/bonding/slaves".format(self.nic), 'r').readlines() ]))
 
-        return slaves
-
-    def __get_slaves(self):
-        """
-        Returns an iterator for all slaves of the args.nic.
-        If agrs.nic is not a bonding interface an attempt to use the returned iterator
-        will immediately raise a StopIteration exception - use __dev_is_bond_iface() check to avoid this.
-        """
-        return iter(self.__slaves)
-
-    def __learn_irqs_from_proc_interrupts(self, pattern):
-        irqs = []
-        for irq, proc_line in self.__irq2procline.items():
-            if re.search(pattern, proc_line):
-                irqs.append(irq)
-
-        return irqs
-
-    def __learn_all_irqs_one(self, iface):
-        msi_irqs_dir_name = "/sys/class/net/{}/device/msi_irqs".format(iface)
-        # Device uses MSI IRQs
-        if os.path.exists(msi_irqs_dir_name):
-            return os.listdir(msi_irqs_dir_name)
-
-        irqs = []
-        irq_file_name = "/sys/class/net/{}/device/irq".format(iface)
-        # Device uses INT#x
-        if os.path.exists(irq_file_name):
-            with open(irq_file_name, 'r') as irq_file:
-                for line in irq_file:
-                    irqs.append(line.lstrip().rstrip())
-
-            return irqs
-
-        # No irq file detected
-        modalias = open("/sys/class/net/{}/device/modalias".format(iface), 'r').readline()
-
-        # virtio case
-        if re.search("^virtio", modalias):
-            for (dirpath, dirnames, filenames) in os.walk("/sys/class/net/{}/device/driver".format(iface)):
-                for dirname in dirnames:
-                    if re.search('virtio', dirname):
-                        irqs.extend(self.__learn_irqs_from_proc_interrupts(dirname))
-
-            return irqs
-
-        # xen case
-        if re.search("^xen:vif", modalias):
-            return self.__learn_irqs_from_proc_interrupts(iface)
+        return []
 
     def __learn_irqs_one(self, iface):
         """
@@ -331,13 +464,10 @@ class NetPerfTuner:
 
         Otherwise, we will use only IRQs which names fit one of the patterns above.
         """
-        all_irqs = self.__learn_all_irqs_one(iface)
+        irqs2procline = get_irqs2procline_map()
+        all_irqs = learn_all_irqs_one("/sys/class/net/{}/device".format(iface), irqs2procline, iface)
         fp_irqs_re = re.compile("\-TxRx\-|\-fp\-|\-Tx\-Rx\-")
-        irqs = []
-        for irq in all_irqs:
-            if fp_irqs_re.search(self.__irq2procline[irq]):
-                irqs.append(irq)
-
+        irqs = list(filter(lambda irq : fp_irqs_re.search(irqs2procline[irq]), all_irqs))
         if len(irqs) > 0:
             return irqs
         else:
@@ -348,12 +478,10 @@ class NetPerfTuner:
         This is a slow method that is going to read from the system files. Never
         use it outside the initialization code.
         """
-        if self.__dev_is_bond_iface():
-            for slave in self.__get_slaves():
-                if self.__dev_is_hw_iface(slave):
-                    self.__nic2irqs[slave] = self.__learn_irqs_one(slave)
+        if self.nic_is_bond_iface:
+            return { slave : self.__learn_irqs_one(slave) for slave in filter(self.__dev_is_hw_iface, self.slaves) }
         else:
-            self.__nic2irqs[self.__args.nic] = self.__learn_irqs_one(self.__args.nic)
+            return { self.nic : self.__learn_irqs_one(self.nic) }
 
     def __get_rps_cpus(self, iface):
         """
@@ -366,73 +494,39 @@ class NetPerfTuner:
         return glob.glob("/sys/class/net/{}/queues/*/rps_cpus".format(iface))
 
     def __setup_one_hw_iface(self, iface):
-        if self.__args.mode:
-            mq_mode = self.__args.mode
-        else:
-            mq_mode = self.get_def_mq_mode(iface)
-
         # Bind the NIC's IRQs according to the configuration mode
-        if mq_mode == 'sq':
-            # all to CPU0
-            irqs_mask = run_hwloc_calc(['PU:0'])
-        elif mq_mode == 'sq-split':
-            # distribute equally between the CPU0 and its HT siblings
-            irqs_mask =  run_hwloc_calc(['core:0'])
-        else: # mode == 'mq'
-            # distribute equally between all available cores
-            irqs_mask = self.__args.cpu_mask
+        distribute_irqs(self.__get_irqs_one(iface), self.irqs_cpu_mask)
 
-        distribute_irqs(self.__get_irqs_one(iface), irqs_mask)
-        self.__setup_rps(iface, self.__gen_cpumask_one_hw_iface(iface))
+        self.__setup_rps(iface, self.compute_cpu_mask)
         self.__setup_xps(iface)
 
     def __setup_bonding_iface(self):
-        for slave in self.__get_slaves():
+        for slave in self.slaves:
             if self.__dev_is_hw_iface(slave):
                 print("Setting up {}...".format(slave))
                 self.__setup_one_hw_iface(slave)
             else:
                 print("Skipping {} (not a physical slave device?)".format(slave))
 
-    def __gen_mode_cpu_mask(self, mq_mode):
-        if mq_mode == 'sq':
-            return run_hwloc_calc([self.__args.cpu_mask, '~PU:0'])
-        elif mq_mode == 'sq-split':
-            return run_hwloc_calc([self.__args.cpu_mask, '~core:0'])
+    def __get_hw_iface_def_mode(self, iface):
+        """
+        Returns the default configuration mode for the given interface.
+        """
+        num_irqs = len(self.__get_irqs_one(iface))
+        rx_queues_count = len(self.__get_rps_cpus(iface))
+
+        if rx_queues_count == 0:
+            rx_queues_count = num_irqs
+
+        num_cores = int(run_hwloc_calc(['--number-of', 'core', 'machine:0', '--restrict', self.args.cpu_mask]))
+        num_PUs = int(run_hwloc_calc(['--number-of', 'PU', 'machine:0', '--restrict', self.args.cpu_mask]))
+
+        if num_cores > 4 * rx_queues_count:
+            return PerfTunerBase.SupportedModes.sq_split
+        elif num_PUs > 4 * rx_queues_count:
+            return PerfTunerBase.SupportedModes.sq
         else:
-            return self.__args.cpu_mask
-
-    def __gen_cpumask_one_hw_iface(self, iface):
-        if self.__args.mode:
-            mq_mode = self.__args.mode
-        else:
-            mq_mode = self.get_def_mq_mode(iface)
-
-        return self.__gen_mode_cpu_mask(mq_mode)
-
-    def __gen_cpumask_bonding_iface(self):
-        if self.__args.mode:
-            return self.__gen_mode_cpu_mask(self.__args.mode)
-
-        found_sq = False
-        found_sq_split = False
-        for slave in self.__get_slaves():
-            if self.__dev_is_hw_iface(slave):
-                def_mq_mode = self.get_def_mq_mode(slave)
-                if def_mq_mode == 'sq':
-                    found_sq = True
-                elif def_mq_mode == 'sq-split':
-                    found_sq_split = True
-
-                if found_sq and found_sq_split:
-                    break
-
-        if found_sq_split:
-            return self.__gen_mode_cpu_mask('sq-split')
-        elif found_sq:
-            return self.__gen_mode_cpu_mask('sq')
-        else:
-            return self.__gen_mode_cpu_mask('mq')
+            return PerfTunerBase.SupportedModes.mq
 
 ################################################################################
 
@@ -453,7 +547,7 @@ Modes description:
  sq - set all IRQs of a given NIC to CPU0 and configure RPS
       to spreads NAPIs' handling between other CPUs.
 
- sq-split - divide all IRQs of a given NIC between CPU0 and its HT siblings and configure RPS
+ sq_split - divide all IRQs of a given NIC between CPU0 and its HT siblings and configure RPS
       to spreads NAPIs' handling between other CPUs.
 
  mq - distribute NIC's IRQs among all CPUs instead of binding
@@ -470,7 +564,7 @@ Default values:
  --nic NIC       - default: eth0
  --cpu-mask MASK - default: all available cores mask
 ''')
-argp.add_argument('--mode', choices=['mq', 'sq', 'sq-split'], help='configuration mode')
+argp.add_argument('--mode', choices=PerfTunerBase.SupportedModes.names(), help='configuration mode')
 argp.add_argument('--nic', help='network interface name', default='eth0')
 argp.add_argument('--get-cpu-mask', action='store_true', help="print the CPU mask to be used for compute")
 argp.add_argument('--cpu-mask', help="mask of cores to use, by default use all available cores", default=run_hwloc_calc(['all']), metavar='MASK')
@@ -478,22 +572,18 @@ argp.add_argument('--cpu-mask', help="mask of cores to use, by default use all a
 
 args = argp.parse_args()
 
-# Don't let the cpu_mask have bits outside the CPU set of this machine
-args.cpu_mask = run_hwloc_calc(['--restrict', args.cpu_mask, 'all'])
+try:
+    net_perf_tuner = NetPerfTuner(args)
 
-net_perf_tuner = NetPerfTuner(args)
+    if args.get_cpu_mask:
+        print(net_perf_tuner.compute_cpu_mask)
+    else:
+        # Ban irqbalance from moving NICs IRQs
+        restart_irqbalance(net_perf_tuner.irqs)
 
-if args.get_cpu_mask:
-    print(net_perf_tuner.get_cpu_mask())
-else:
-    # Ban irqbalance from moving NICs IRQs
-    try:
-        restart_irqbalance(net_perf_tuner.get_irqs())
-    except Exception as e:
-        sys.exit("ERROR: irqbalance wasn't configured: {}. Your system can't be tuned until the issue is fixed.".format(e))
-
-    # Tune the networking
-    net_perf_tuner.tune()
-
+        # Tune the networking
+        net_perf_tuner.tune()
+except Exception as e:
+    sys.exit("ERROR: {}. Your system can't be tuned until the issue is fixed.".format(e))
 
 
