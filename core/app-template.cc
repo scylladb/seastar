@@ -111,11 +111,12 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
         print("error: %s\n\nTry --help.\n", e.what());
         return 2;
     }
-    bpo::notify(configuration);
     if (configuration.count("help")) {
         std::cout << _opts << "\n";
         return 1;
     }
+
+    bpo::notify(configuration);
     configuration.emplace("argv0", boost::program_options::variable_value(std::string(av[0]), false));
     smp::configure(configuration);
     _configuration = {std::move(configuration)};
