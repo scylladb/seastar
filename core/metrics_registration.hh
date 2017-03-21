@@ -85,6 +85,7 @@ class metric_groups {
     std::unique_ptr<impl::metric_groups_def> _impl;
 public:
     metric_groups() noexcept;
+    metric_groups(metric_groups&&) = default;
     virtual ~metric_groups();
     /*!
      * \brief add metrics belong to the same group in the constructor.
@@ -127,6 +128,7 @@ class metric_group : public metric_groups {
 public:
     metric_group() noexcept;
     metric_group(const metric_group&) = delete;
+    metric_group(metric_group&&) = default;
     virtual ~metric_group();
 
     /*!
