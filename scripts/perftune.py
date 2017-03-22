@@ -26,8 +26,11 @@ def run_hwloc_calc(prog_args):
     return run_one_command(['hwloc-calc'] + prog_args).rstrip()
 
 def fwriteln(fname, line):
-    with open(fname, 'w') as f:
-        f.write(line)
+    try:
+        with open(fname, 'w') as f:
+            f.write(line)
+    except:
+        print("Failed to write into {}: {}".format(fname, sys.exc_info()))
 
 def fwriteln_and_log(fname, line):
     print("Writing '{}' to {}".format(line, fname))
