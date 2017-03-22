@@ -345,41 +345,22 @@ void impl::start(const sstring & host, const ipv4_addr & addr, const duration pe
     _timer.set_callback(std::bind(&impl::run, this));
 
     // dogfood ourselves
-    _regs = {
+    namespace sm = seastar::metrics;
+
+    _metrics.add_group("scollectd", {
         // total_bytes      value:DERIVE:0:U
-        add_polled_metric(
-                type_instance_id("scollectd", per_cpu_plugin_instance,
-                        "total_bytes", "sent"),
-                make_typed(data_type::DERIVE, _bytes)),
+        sm::make_derive("total_bytes_sent", sm::description("total bytes sent"), _bytes),
         // total_requests      value:DERIVE:0:U
-        add_polled_metric(
-                type_instance_id("scollectd", per_cpu_plugin_instance,
-                        "total_requests"),
-                make_typed(data_type::DERIVE, _num_packets)
-        ),
+        sm::make_derive("total_requests", sm::description("total requests"), _num_packets),
         // latency          value:GAUGE:0:U
-        add_polled_metric(
-                type_instance_id("scollectd", per_cpu_plugin_instance,
-                        "latency"), make_typed(data_type::GAUGE, _avg)),
+        sm::make_gauge("latency", sm::description("avrage latency"), _avg),
         // total_time_in_ms    value:DERIVE:0:U
-        add_polled_metric(
-                type_instance_id("scollectd", per_cpu_plugin_instance,
-                        "total_time_in_ms"),
-                make_typed(data_type::DERIVE, _millis)
-        ),
+        sm::make_derive("total_time_in_ms", sm::description("total time in milliseconds"), _millis),
         // total_values     value:DERIVE:0:U
-        add_polled_metric(
-                type_instance_id("scollectd", per_cpu_plugin_instance,
-                        "total_values"),
-                make_typed(data_type::DERIVE, [this] {return values().size();})
-        ),
+        sm::make_gauge("total_values", sm::description("current number of values reported"), [this] {return values().size();}),
         // records          value:GAUGE:0:U
-        add_polled_metric(
-                type_instance_id("scollectd", per_cpu_plugin_instance,
-                        "records"),
-                make_typed(data_type::GAUGE, [this] {return values().size();})
-        ),
-    };
+        sm::make_gauge("records", sm::description("number of records reported"), [this] {return values().size();}),
+    });
 
     send_notification(
             type_instance_id("scollectd", per_cpu_plugin_instance,
@@ -389,7 +370,7 @@ void impl::start(const sstring & host, const ipv4_addr & addr, const duration pe
 
 void impl::stop() {
     _timer.cancel();
-    _regs.clear();
+    _metrics.clear();
 }
 
 
