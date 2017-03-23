@@ -7,7 +7,9 @@ import functools
 import glob
 import itertools
 import os
+import pathlib
 import psutil
+import pyudev
 import re
 import shutil
 import subprocess
@@ -528,8 +530,226 @@ class NetPerfTuner(PerfTunerBase):
         else:
             return PerfTunerBase.SupportedModes.mq
 
-################################################################################
+#################################################
+class DiskPerfTuner(PerfTunerBase):
+    class SupportedDiskTypes(enum.IntEnum):
+        nvme = 0
+        non_nvme = 1
 
+    def __init__(self, args):
+        super().__init__(args)
+
+        self.__pyudev_ctx = pyudev.Context()
+        self.__dir2disks = self.__learn_directories()
+        self.__disk2irqs = self.__learn_irqs()
+        self.__type2diskinfo = self.__group_disks_info_by_type()
+
+        # sets of devices that have already been tuned
+        self.__io_scheduler_tuned_devs = set()
+        self.__nomerges_tuned_devs = set()
+
+#### Public methods #############################
+    def tune(self):
+        """
+        Distribute IRQs according to the requested mode (args.mode):
+           - Distribute NVMe disks' IRQs equally among all available CPUs.
+           - Distribute non-NVMe disks' IRQs equally among designated CPUs or among
+             all available CPUs in the 'mq' mode.
+        """
+        mode_cpu_mask = PerfTunerBase.irqs_cpu_mask_for_mode(self.mode, self.args.cpu_mask)
+
+        non_nvme_disks, non_nvme_irqs = self.__disks_info_by_type(DiskPerfTuner.SupportedDiskTypes.non_nvme)
+        if len(non_nvme_disks) > 0:
+            print("Setting non-NVMe disks: {}...".format(", ".join(non_nvme_disks)))
+            distribute_irqs(non_nvme_irqs, mode_cpu_mask)
+            self.__tune_disks(non_nvme_disks)
+        else:
+            print("No non-NVMe disks to tune")
+
+        nvme_disks, nvme_irqs = self.__disks_info_by_type(DiskPerfTuner.SupportedDiskTypes.nvme)
+        if len(nvme_disks) > 0:
+            print("Setting NVMe disks: {}...".format(", ".join(nvme_disks)))
+            distribute_irqs(nvme_irqs, self.args.cpu_mask)
+            self.__tune_disks(nvme_disks)
+        else:
+            print("No NVMe disks to tune")
+
+#### Protected methods ##########################
+    def _get_def_mode(self):
+        """
+        Return a default configuration mode.
+        """
+        num_cores = int(run_hwloc_calc(['--number-of', 'core', 'machine:0', '--restrict', self.args.cpu_mask]))
+        num_PUs = int(run_hwloc_calc(['--number-of', 'PU', 'machine:0', '--restrict', self.args.cpu_mask]))
+        if num_PUs <= 4:
+            return PerfTunerBase.SupportedModes.mq
+        elif num_cores <= 4:
+            return PerfTunerBase.SupportedModes.sq
+        else:
+            return PerfTunerBase.SupportedModes.sq_split
+
+    def _get_irqs(self):
+        return itertools.chain.from_iterable(irqs for disks, irqs in self.__type2diskinfo.values())
+
+#### Private methods ############################
+    @property
+    def __io_scheduler(self):
+        return 'noop'
+
+    @property
+    def __nomerges(self):
+        return '2'
+
+    def __disks_info_by_type(self, disks_type):
+        """
+        Returns a tuple ( [<disks>], [<irqs>] ) for the given disks type.
+        IRQs numbers in the second list are promised to be unique.
+        """
+        return self.__type2diskinfo[DiskPerfTuner.SupportedDiskTypes(disks_type)]
+
+    def __group_disks_info_by_type(self):
+        """
+        Return a map of tuples ( [<disks>], [<irqs>] ), where "disks" are all disks of the specific type
+        and "irqs" are the corresponding IRQs.
+
+        It's promised that every element is "disks" and "irqs" is unique.
+
+        The disk types are 'nvme' and 'non-nvme'
+        """
+        disks_info_by_type = {}
+        nvme_disks = set()
+        nvme_irqs = set()
+        non_nvme_disks = set()
+        non_nvme_irqs = set()
+        nvme_disk_name_pattern = re.compile('^nvme')
+
+        for disk, irqs in self.__disk2irqs.items():
+            if nvme_disk_name_pattern.search(disk):
+                nvme_disks.add(disk)
+                for irq in irqs:
+                    nvme_irqs.add(irq)
+            else:
+                non_nvme_disks.add(disk)
+                for irq in irqs:
+                    non_nvme_irqs.add(irq)
+
+        disks_info_by_type[DiskPerfTuner.SupportedDiskTypes.nvme] = ( list(nvme_disks), list(nvme_irqs) )
+        disks_info_by_type[DiskPerfTuner.SupportedDiskTypes.non_nvme] = ( list(non_nvme_disks), list(non_nvme_irqs) )
+
+        return disks_info_by_type
+
+    def __learn_directories(self):
+        return { directory : self.__learn_directory(directory) for directory in self.args.dirs }
+
+    def __learn_directory(self, directory, recur=False):
+        """
+        Returns a list of disks the given directory is mounted on (there will be more than one if
+        the mount point is on the RAID volume)
+        """
+        if not os.path.exists(directory):
+            if not recur:
+                print("{} doesn't exist - skipping".format(directory))
+
+            return []
+
+        try:
+            udev_obj = pyudev.Devices().from_device_number(self.__pyudev_ctx, 'block', os.stat(directory).st_dev)
+            return self.__get_phys_devices(udev_obj)
+        except:
+            # handle cases like ecryptfs where the directory is mounted to another directory and not to some block device
+            filesystem = run_one_command(['df', '-P', directory]).splitlines()[-1].split()[0].strip()
+            if not re.search(r'^/dev/', filesystem):
+                devs = self.__learn_directory(filesystem, True)
+
+            # log error only for the original directory
+            if not recur and len(devs) == 0:
+                print("Can't get a block device for {} - skipping".format(directory))
+
+            return devs
+
+    def __get_phys_devices(self, udev_obj):
+        # if device is a virtual device - the underlying physical devices are going to be its slaves
+        if re.search(r'virtual', udev_obj.sys_path):
+            return list(itertools.chain.from_iterable([ self.__get_phys_devices(pyudev.Devices.from_device_file(self.__pyudev_ctx, "/dev/{}".format(slave))) for slave in os.listdir(os.path.join(udev_obj.sys_path, 'slaves')) ]))
+        else:
+            # device node is something like /dev/sda1 - we need only the part without /dev/
+            return [ re.match(r'/dev/(\S+\d*)', udev_obj.device_node).group(1) ]
+
+    def __learn_irqs(self):
+        disk2irqs = {}
+        irqs2procline = get_irqs2procline_map()
+
+        for devices in list(self.__dir2disks.values()) + [ self.args.devs ]:
+            for device in devices:
+                # There could be that some of the given directories are on the same disk.
+                # There is no need to rediscover IRQs of the disk we've already handled.
+                if device in disk2irqs.keys():
+                    continue
+
+                udev_obj = pyudev.Devices.from_device_file(self.__pyudev_ctx, "/dev/{}".format(device))
+                dev_sys_path = udev_obj.sys_path
+                split_sys_path = list(pathlib.PurePath(dev_sys_path).parts)
+
+                # first part is always /sys/devices/pciXXX ...
+                controller_path_parts = split_sys_path[0:4]
+
+                # ...then there is a chain of one or more "domain:bus:device.function" followed by the storage device enumeration crap
+                # e.g. /sys/devices/pci0000:00/0000:00:1f.2/ata2/host1/target1:0:0/1:0:0:0/block/sda/sda3 or
+                #      /sys/devices/pci0000:00/0000:00:02.0/0000:02:00.0/host6/target6:2:0/6:2:0:0/block/sda/sda1
+                # We want only the path till the last BDF including - it contains the IRQs information.
+
+                patt = re.compile("^[0-9ABCDEFabcdef]{4}\:[0-9ABCDEFabcdef]{2}\:[0-9ABCDEFabcdef]{2}\.[0-9ABCDEFabcdef]$")
+                for split_sys_path_branch in split_sys_path[4:]:
+                    if patt.search(split_sys_path_branch):
+                        controller_path_parts.append(split_sys_path_branch)
+                    else:
+                        break
+
+                controler_path_str = functools.reduce(lambda x, y : os.path.join(x, y), controller_path_parts)
+                disk2irqs[device] = learn_all_irqs_one(controler_path_str, irqs2procline, 'blkif')
+
+        return disk2irqs
+
+    def __tune_one_feature(self, dev_node, path_creator, value, tuned_devs_set):
+        """
+        Find the closest ancestor that has the given feature, configure it and
+        return True.
+
+        If there isn't such ancestor - return False.
+        """
+        udev = pyudev.Devices.from_device_file(pyudev.Context(), dev_node)
+        feature_file = path_creator(udev.sys_path)
+        if os.path.exists(feature_file):
+            if not dev_node in tuned_devs_set:
+                fwriteln_and_log(feature_file, value)
+                tuned_devs_set.add(dev_node)
+
+            return True
+        elif not udev.parent is None:
+            return self.__tune_one_feature(udev.parent.device_node, path_creator, value, tuned_devs_set)
+        else:
+            return False
+
+    def __tune_io_scheduler(self, dev_node):
+        return self.__tune_one_feature(dev_node, lambda p : os.path.join(p, 'queue', 'scheduler'), self.__io_scheduler, self.__io_scheduler_tuned_devs)
+
+    def __tune_nomerges(self, dev_node):
+        return self.__tune_one_feature(dev_node, lambda p : os.path.join(p, 'queue', 'nomerges'), self.__nomerges, self.__nomerges_tuned_devs)
+
+    def __tune_disk(self, device):
+        dev_node = "/dev/{}".format(device)
+
+        if not self.__tune_io_scheduler(dev_node):
+            print("Not setting I/O Scheduler for {} - feature not present".format(device))
+
+        if not self.__tune_nomerges(dev_node):
+            print("Not setting 'nomerges' for {} - feature not present".format(device))
+
+    def __tune_disks(self, disks):
+        for disk in disks:
+            self.__tune_disk(disk)
+
+################################################################################
 argp = argparse.ArgumentParser(description = 'Configure various system parameters in order to improve the seastar application performance.', formatter_class=argparse.RawDescriptionHelpFormatter,
                                epilog=
 '''
@@ -568,6 +788,8 @@ argp.add_argument('--mode', choices=PerfTunerBase.SupportedModes.names(), help='
 argp.add_argument('--nic', help='network interface name', default='eth0')
 argp.add_argument('--get-cpu-mask', action='store_true', help="print the CPU mask to be used for compute")
 argp.add_argument('--cpu-mask', help="mask of cores to use, by default use all available cores", default=run_hwloc_calc(['all']), metavar='MASK')
+argp.add_argument('--dir', help="directory to optimize (may appear more than once)", action='append', dest='dirs', default=[])
+argp.add_argument('--dev', help="device to optimize (may appear more than once), e.g. sda1", action='append', dest='devs', default=[])
 ################################################################################
 
 args = argp.parse_args()
