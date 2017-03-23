@@ -25,9 +25,15 @@
 #include <boost/optional.hpp>
 #include <functional>
 #include <core/future.hh>
+#include <core/sstring.hh>
 
 class app_template {
+public:
+    struct config {
+        sstring name;
+    };
 private:
+    config _cfg;
     boost::program_options::options_description _opts;
     boost::program_options::positional_options_description _pos_opts;
     boost::optional<boost::program_options::variables_map> _configuration;
@@ -39,7 +45,8 @@ public:
         int max_count;
     };
 public:
-    app_template();
+    explicit app_template(config cfg = config{"App"});
+
     boost::program_options::options_description_easy_init add_options();
     void add_positional_options(std::initializer_list<positional_option> options);
     boost::program_options::variables_map& configuration();

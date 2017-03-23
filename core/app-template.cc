@@ -32,15 +32,16 @@
 
 namespace bpo = boost::program_options;
 
-app_template::app_template()
-        : _opts("App options") {
-    _opts.add_options()
-            ("help,h", "show help message")
-            ;
-    _opts.add(reactor::get_options_description());
-    _opts.add(seastar::metrics::get_options_description());
-    _opts.add(smp::get_options_description());
-    _opts.add(scollectd::get_options_description());
+app_template::app_template(app_template::config cfg)
+    : _cfg(std::move(cfg))
+    , _opts(_cfg.name + " options") {
+        _opts.add_options()
+                ("help,h", "show help message")
+                ;
+        _opts.add(reactor::get_options_description());
+        _opts.add(seastar::metrics::get_options_description());
+        _opts.add(smp::get_options_description());
+        _opts.add(scollectd::get_options_description());
 }
 
 boost::program_options::options_description_easy_init
