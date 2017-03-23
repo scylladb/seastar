@@ -503,7 +503,9 @@ struct typed_value_impl: public typed_value {
     {}
 };
 
-/**
+/*!
+ * \deprecated metrics registration should be done using the metrics layer
+ *
  * Some typedefs for common used types. Feel free to add.
  */
 typedef typed_value_impl<known_type::total_bytes> total_bytes;
@@ -741,15 +743,23 @@ static auto make_type_instance(description d, _Args && ... args) -> values_impl 
     return values_impl<decltype(value<_Args>(std::forward<_Args>(args)))...>(
                     std::move(d), value<_Args>(std::forward<_Args>(args))...);
 }
+/*!
+ * \deprecated metrics registration should be done using the metrics layer
+ *
+ */
 template<typename ... _Args>
-static type_instance_id add_polled_metric(const plugin_id & plugin,
+[[deprecated("Use the metrics layer")]] static type_instance_id add_polled_metric(const plugin_id & plugin,
         const plugin_instance_id & plugin_instance, const type_id & type,
         const scollectd::type_instance & type_instance, _Args&& ... args) {
     return add_polled_metric(plugin, plugin_instance, type, type_instance, description(),
             std::forward<_Args>(args)...);
 }
+/*!
+ * \deprecated metrics registration should be done using the metrics layer
+ *
+ */
 template<typename ... _Args>
-static type_instance_id add_polled_metric(const plugin_id & plugin,
+[[deprecated("Use the metrics layer")]] static type_instance_id add_polled_metric(const plugin_id & plugin,
         const plugin_instance_id & plugin_instance, const type_id & type,
         const scollectd::type_instance & type_instance, description d, _Args&& ... args) {
     return add_polled_metric(
@@ -774,9 +784,12 @@ static notify_function create_explicit_metric(const plugin_id & plugin,
 }
 
 seastar::metrics::impl::metric_id to_metrics_id(const type_instance_id & id);
-
+/*!
+ * \deprecated metrics registration should be done using the metrics layer
+ *
+ */
 template<typename Arg>
-static type_instance_id add_polled_metric(const type_instance_id & id, description d,
+[[deprecated("Use the metrics layer")]] static type_instance_id add_polled_metric(const type_instance_id & id, description d,
         Arg&& arg, bool enabled = true) {
     namespace sm = seastar::metrics::impl;
     shared_ptr<sm::registered_metric> rm =
@@ -784,16 +797,22 @@ static type_instance_id add_polled_metric(const type_instance_id & id, descripti
     seastar::metrics::impl::get_local_impl()->add_registration(to_metrics_id(id), rm);
     return id;
 }
-
+/*!
+ * \deprecated metrics registration should be done using the metrics layer
+ *
+ */
 template<typename Arg>
-static type_instance_id add_polled_metric(const type_instance_id & id,
+[[deprecated("Use the metrics layer")]] static type_instance_id add_polled_metric(const type_instance_id & id,
         Arg&& arg) {
     return std::move(add_polled_metric(id, description(), std::forward<Arg>(arg)));
 }
 
-
+/*!
+ * \deprecated metrics registration should be done using the metrics layer
+ *
+ */
 template<typename Args>
-static type_instance_id add_disabled_polled_metric(const type_instance_id & id, description d,
+[[deprecated("Use the metrics layer")]] static type_instance_id add_disabled_polled_metric(const type_instance_id & id, description d,
         Args&& arg) {
     return add_polled_metric(id, d, std::forward<Args>(arg), false);
 }
