@@ -55,8 +55,8 @@ template<typename Tag>
 class bool_class {
     bool _value;
 public:
-    static constexpr bool_class yes { true };
-    static constexpr bool_class no { false };
+    static const bool_class yes;
+    static const bool_class no;
 
     /// Constructs a bool_class object initialised to \c false.
     constexpr bool_class() noexcept : _value(false) { }
@@ -99,8 +99,8 @@ public:
 };
 
 template<typename Tag>
-constexpr bool_class<Tag> bool_class<Tag>::yes;
+const bool_class<Tag> bool_class<Tag>::yes { true };
 template<typename Tag>
-constexpr bool_class<Tag> bool_class<Tag>::no;
+const bool_class<Tag> bool_class<Tag>::no { false };
 
 /// @}
