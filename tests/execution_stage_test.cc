@@ -29,9 +29,37 @@
 
 static std::random_device rd;
 
+SEASTAR_TEST_CASE(test_create_stage_from_lvalue_function_object) {
+    return seastar::async([] {
+        auto dont_move = [obj = make_shared<int>(53)] { return *obj; };
+        auto stage = seastar::make_execution_stage("test", dont_move);
+        BOOST_REQUIRE_EQUAL(stage().get0(), 53);
+        BOOST_REQUIRE_EQUAL(dont_move(), 53);
+    });
+}
+
+SEASTAR_TEST_CASE(test_create_stage_from_rvalue_function_object) {
+    return seastar::async([] {
+        auto dont_copy = [obj = std::make_unique<int>(42)] { return *obj; };
+        auto stage = seastar::make_execution_stage("test", std::move(dont_copy));
+        BOOST_REQUIRE_EQUAL(stage().get0(), 42);
+    });
+}
+
+int func() {
+    return 64;
+}
+
+SEASTAR_TEST_CASE(test_create_stage_from_function) {
+    return seastar::async([] {
+        auto stage = seastar::make_execution_stage("test", func);
+        BOOST_REQUIRE_EQUAL(stage().get0(), 64);
+    });
+}
+
 template<typename Function, typename Verify>
 void test_simple_execution_stage(Function&& func, Verify&& verify) {
-    auto stage = seastar::make_execution_stage(std::forward<Function>(func));
+    auto stage = seastar::make_execution_stage("test", std::forward<Function>(func));
 
     std::vector<int> vs;
     std::default_random_engine gen(rd());
@@ -86,7 +114,7 @@ SEASTAR_TEST_CASE(test_simple_stage_returning_future_int) {
 
 template<typename T>
 void test_execution_stage_avoids_copy() {
-    auto stage = seastar::make_execution_stage([] (T obj) {
+    auto stage = seastar::make_execution_stage("test", [] (T obj) {
         return std::move(obj);
     });
 
@@ -123,7 +151,7 @@ SEASTAR_TEST_CASE(test_stage_prefers_move_to_copy) {
 
 SEASTAR_TEST_CASE(test_rref_decays_to_value) {
     return seastar::async([] {
-        auto stage = seastar::make_execution_stage([] (std::vector<int>&& vec) {
+        auto stage = seastar::make_execution_stage("test", [] (std::vector<int>&& vec) {
             return vec.size();
         });
 
@@ -143,7 +171,7 @@ SEASTAR_TEST_CASE(test_rref_decays_to_value) {
 
 SEASTAR_TEST_CASE(test_lref_does_not_decay) {
     return seastar::async([] {
-        auto stage = seastar::make_execution_stage([] (int& v) {
+        auto stage = seastar::make_execution_stage("test", [] (int& v) {
             v++;
         });
 
@@ -163,7 +191,7 @@ SEASTAR_TEST_CASE(test_lref_does_not_decay) {
 
 SEASTAR_TEST_CASE(test_explicit_reference_wrapper_is_not_unwrapped) {
     return seastar::async([] {
-        auto stage = seastar::make_execution_stage([] (seastar::reference_wrapper<int> v) {
+        auto stage = seastar::make_execution_stage("test", [] (seastar::reference_wrapper<int> v) {
             v.get()++;
         });
 
@@ -190,7 +218,7 @@ SEASTAR_TEST_CASE(test_function_is_class_member) {
             }
         };
 
-        auto stage = seastar::make_execution_stage(&foo::member);
+        auto stage = seastar::make_execution_stage("test", &foo::member);
 
         foo object;
         std::vector<future<int>> fs;
@@ -213,9 +241,46 @@ SEASTAR_TEST_CASE(test_function_is_const_class_member) {
                 return value;
             }
         };
-        auto stage = seastar::make_execution_stage(&foo::member);
+        auto stage = seastar::make_execution_stage("test", &foo::member);
 
         const foo object;
         BOOST_REQUIRE_EQUAL(stage(&object).get0(), 999);
+    });
+}
+
+SEASTAR_TEST_CASE(test_stage_stats) {
+    return seastar::async([] {
+        auto stage = seastar::make_execution_stage("test", [] { });
+
+        BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_enqueued, 0);
+        BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_executed, 0);
+
+        auto fs = std::vector<future<>>();
+        static constexpr auto call_count = 53;
+        for (auto i = 0; i < call_count; i++) {
+            fs.emplace_back(stage());
+        }
+
+        BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_enqueued, call_count);
+
+        for (auto i = 0; i < call_count; i++) {
+            fs[i].get();
+            BOOST_REQUIRE_GE(stage.get_stats().tasks_scheduled, 1);
+            BOOST_REQUIRE_GE(stage.get_stats().function_calls_executed, i);
+        }
+        BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_executed, call_count);
+    });
+}
+
+SEASTAR_TEST_CASE(test_unique_stage_names_are_enforced) {
+    return seastar::async([] {
+        {
+            auto stage = seastar::make_execution_stage("test", [] {});
+            BOOST_REQUIRE_THROW(seastar::make_execution_stage("test", [] {}), std::invalid_argument);
+            stage().get();
+        }
+
+        auto stage = seastar::make_execution_stage("test", [] {});
+        stage().get();
     });
 }

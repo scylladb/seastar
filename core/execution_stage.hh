@@ -24,6 +24,8 @@
 #include "future.hh"
 #include "chunked_fifo.hh"
 #include "function_traits.hh"
+#include "sstring.hh"
+#include "metrics.hh"
 #include "util/reference_wrapper.hh"
 #include "util/gcc6-concepts.hh"
 
@@ -107,13 +109,23 @@ std::reference_wrapper<T> unwrap_for_es(reference_wrapper_for_es<T> ref) {
 
 /// Base execution stage class
 class execution_stage {
+public:
+    struct stats {
+        uint64_t tasks_scheduled = 0;
+        uint64_t tasks_preempted = 0;
+        uint64_t function_calls_enqueued = 0;
+        uint64_t function_calls_executed = 0;
+    };
 protected:
     bool _empty = true;
     bool _flush_scheduled = false;
+    stats _stats;
+    sstring _name;
+    metrics::metric_group _metric_group;
 protected:
     virtual void do_flush() noexcept = 0;
 public:
-    execution_stage();
+    explicit execution_stage(const sstring& name);
     virtual ~execution_stage();
 
     execution_stage(const execution_stage&) = delete;
@@ -126,6 +138,12 @@ public:
     /// optimisation which is required by make_execution_stage().
     execution_stage(execution_stage&&);
 
+    /// Returns execution stage name
+    const sstring& name() const noexcept { return _name; }
+
+    /// Returns execution stage usage statistics
+    const stats& get_stats() const noexcept { return _stats; }
+
     /// Flushes execution stage
     ///
     /// Ensures that a task which would execute all queued operations is
@@ -137,6 +155,7 @@ public:
         if (_empty || _flush_scheduled) {
             return false;
         }
+        _stats.tasks_scheduled++;
         schedule(make_task([this] {
             do_flush();
             _flush_scheduled = false;
@@ -158,21 +177,37 @@ namespace internal {
 
 class execution_stage_manager {
     std::vector<execution_stage*> _execution_stages;
+    std::unordered_map<sstring, execution_stage*> _stages_by_name;
 private:
     execution_stage_manager() = default;
     execution_stage_manager(const execution_stage_manager&) = delete;
     execution_stage_manager(execution_stage_manager&&) = delete;
 public:
     void register_execution_stage(execution_stage& stage) {
-        _execution_stages.push_back(&stage);
+        auto ret = _stages_by_name.emplace(stage.name(), &stage);
+        if (!ret.second) {
+            throw std::invalid_argument(sprint("Execution stage %s already exists.", stage.name()));
+        }
+        try {
+            _execution_stages.push_back(&stage);
+        } catch (...) {
+            _stages_by_name.erase(stage.name());
+            throw;
+        }
     }
     void unregister_execution_stage(execution_stage& stage) noexcept {
         auto it = std::find(_execution_stages.begin(), _execution_stages.end(), &stage);
         _execution_stages.erase(it);
+        _stages_by_name.erase(stage.name());
     }
     void update_execution_stage_registration(execution_stage& old_es, execution_stage& new_es) noexcept {
         auto it = std::find(_execution_stages.begin(), _execution_stages.end(), &old_es);
         *it = &new_es;
+        _stages_by_name.find(new_es.name())->second = &new_es;
+    }
+
+    execution_stage* get_stage(const sstring& name) {
+        return _stages_by_name[name];
     }
 
     bool flush() noexcept {
@@ -247,15 +282,20 @@ private:
             auto& wi = _queue.front();
             futurize<ReturnType>::apply(_function, unwrap(std::move(wi._in))).forward_to(std::move(wi._ready));
             _queue.pop_front();
+            _stats.function_calls_executed++;
 
             if (need_preempt()) {
+                _stats.tasks_preempted++;
                 break;
             }
         }
         _empty = _queue.empty();
     }
 public:
-    explicit concrete_execution_stage(Function f) : _function(std::move(f)) {
+    explicit concrete_execution_stage(const sstring& name, Function f)
+        : execution_stage(name)
+        , _function(std::move(f))
+    {
         _queue.reserve(flush_threshold);
     }
 
@@ -285,6 +325,7 @@ public:
     return_type operator()(Args&&... args) {
         _queue.emplace_back(std::forward<Args>(args)...);
         _empty = false;
+        _stats.function_calls_enqueued++;
         auto f = _queue.back()._ready.get_future();
         if (_queue.size() > flush_threshold) {
             flush();
@@ -319,13 +360,14 @@ public:
 /// }
 /// ```
 ///
+/// \param name unique name of the execution stage
 /// \param fn function to be executed by the stage
 /// \return concrete_execution_stage
 template<typename Function>
-auto make_execution_stage(Function&& fn) {
+auto make_execution_stage(const sstring& name, Function&& fn) {
     using traits = function_traits<Function>;
-    return concrete_execution_stage<Function, typename traits::return_type,
-                                    typename traits::args_as_tuple>(std::forward<Function>(fn));
+    return concrete_execution_stage<std::decay_t<Function>, typename traits::return_type,
+                                    typename traits::args_as_tuple>(name, std::forward<Function>(fn));
 }
 
 /// Creates a new execution stage from a member function
@@ -348,21 +390,49 @@ auto make_execution_stage(Function&& fn) {
 /// ```
 ///
 /// \see make_execution_stage(Function&&)
+/// \param name unique name of the execution stage
 /// \param fn member function to be executed by the stage
 /// \return concrete_execution_stage
 template<typename Ret, typename Object, typename... Args>
-auto make_execution_stage(Ret (Object::*fn)(Args...)) {
-    return concrete_execution_stage<decltype(std::mem_fn(fn)), Ret, std::tuple<Object*, Args...>>(std::mem_fn(fn));
+auto make_execution_stage(const sstring& name, Ret (Object::*fn)(Args...)) {
+    return concrete_execution_stage<decltype(std::mem_fn(fn)), Ret, std::tuple<Object*, Args...>>(name, std::mem_fn(fn));
 }
 
 template<typename Ret, typename Object, typename... Args>
-auto make_execution_stage(Ret (Object::*fn)(Args...) const) {
-    return concrete_execution_stage<decltype(std::mem_fn(fn)), Ret, std::tuple<const Object*, Args...>>(std::mem_fn(fn));
+auto make_execution_stage(const sstring& name, Ret (Object::*fn)(Args...) const) {
+    return concrete_execution_stage<decltype(std::mem_fn(fn)), Ret, std::tuple<const Object*, Args...>>(name, std::mem_fn(fn));
 }
 
 /// @}
 
-inline execution_stage::execution_stage()
+inline execution_stage::execution_stage(const sstring& name)
+    : _name(name)
+    , _metric_group("execution_stages", {
+        metrics::make_derive("tasks_scheduled",
+                             metrics::description("Counts tasks scheduled by execution stages"),
+                             { metrics::label_instance("execution_stage", name), },
+                             [name, &esm = internal::execution_stage_manager::get()] {
+                                 return esm.get_stage(name)->get_stats().tasks_scheduled;
+                             }),
+        metrics::make_derive("tasks_preempted",
+                             metrics::description("Counts tasks which were preempted before execution all queued operations"),
+                             { metrics::label_instance("execution_stage", name), },
+                             [name, &esm = internal::execution_stage_manager::get()] {
+                                 return esm.get_stage(name)->get_stats().tasks_preempted;
+                             }),
+        metrics::make_derive("function_calls_enqueued",
+                             metrics::description("Counts function calls added to execution stages queues"),
+                             { metrics::label_instance("execution_stage", name), },
+                             [name, &esm = internal::execution_stage_manager::get()] {
+                                 return esm.get_stage(name)->get_stats().function_calls_enqueued;
+                             }),
+        metrics::make_derive("function_calls_executed",
+                             metrics::description("Counts function calls executed by execution stages"),
+                             { metrics::label_instance("execution_stage", name), },
+                             [name, &esm = internal::execution_stage_manager::get()] {
+                                 return esm.get_stage(name)->get_stats().function_calls_executed;
+                             }),
+      })
 {
     internal::execution_stage_manager::get().register_execution_stage(*this);
 }
@@ -373,6 +443,9 @@ inline execution_stage::~execution_stage()
 }
 
 inline execution_stage::execution_stage(execution_stage&& other)
+    : _stats(other._stats)
+    , _name(std::move(other._name))
+    , _metric_group(std::move(other._metric_group))
 {
     internal::execution_stage_manager::get().update_execution_stage_registration(other, *this);
 }
