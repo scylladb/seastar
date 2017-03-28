@@ -62,17 +62,6 @@ static bool write_delimited_to(const google::protobuf::MessageLite& message,
     return true;
 }
 
-static std::string safe_name(const sstring& name) {
-    auto rep = boost::replace_all_copy(boost::replace_all_copy(name, "-", "_"), " ", "_");
-    boost::remove_erase_if(rep, boost::is_any_of("+()"));
-    return rep;
-}
-
-
-static sstring collectd_name(const metrics::impl::metric_id & id) {
-    return safe_name(id.group_name() + "_" + safe_name(id.name()));
-}
-
 static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::metric_id & id, const config& ctx) {
     auto label = mt->add_label();
     label->set_name("instance");
@@ -117,7 +106,7 @@ static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value&
     }
 }
 
-using metrics_families = std::unordered_map<sstring, std::vector<const metrics::impl::values_copy::value_type*>>;
+using metrics_families = seastar::metrics::impl::values_copy;
 
 static future<metrics_families> get_map_value(std::vector<metrics::impl::values_copy>& vec, const sstring& prefix) {
     vec.resize(smp::count);
@@ -131,8 +120,7 @@ static future<metrics_families> get_map_value(std::vector<metrics::impl::values_
         metrics_families families;
         for (auto&& shard : vec) {
             for (auto&& metric : shard) {
-                auto name = prefix + "_" + collectd_name(metric.first);
-                families[name].push_back(&metric);
+                families[metric.first].insert(families[metric.first].end(), metric.second.begin(), metric.second.end());
             }
         }
         return families;
@@ -187,18 +175,19 @@ std::string get_text_representation(const metrics_families& families, const conf
     for (auto name_metrics : families) {
         auto&& name = name_metrics.first;
         auto&& metrics = name_metrics.second;
-        auto local = seastar::metrics::impl::get_local_impl();
-        if (metrics.size() > 0) {
-            auto&& tmp_id = metrics[0]->first;
-            auto &&reg_metrics = seastar::metrics::impl::get_local_impl()->get_value_map()[tmp_id];
-            if (reg_metrics && reg_metrics->get_description().str() != "") {
-                s << "# HELP " << name << " " <<  reg_metrics->get_description().str() << "\n";
-            }
+        if (metrics.size() == 0) {
+            continue;
         }
-        s << "# TYPE " << name << " " << to_str(metrics[0]->second.type()) << "\n";
-        for (auto* pmetric : metrics) {
-            auto&& id = pmetric->first;
-            auto&& value = pmetric->second;
+        const seastar::metrics::impl::registered_metric& reg_metrics = *std::get<seastar::metrics::impl::register_ref>(metrics[0]);
+
+        if (reg_metrics.get_description().str() != "") {
+            s << "# HELP " << name << " " <<  reg_metrics.get_description().str() << "\n";
+        }
+        s << "# TYPE " << name << " " << to_str(reg_metrics.get_type()) << "\n";
+        for (auto&& pmetric : metrics) {
+            const seastar::metrics::impl::registered_metric& reg = *std::get<seastar::metrics::impl::register_ref>(pmetric) ;
+            auto&& id = reg.get_id();
+            auto&& value = std::get<seastar::metrics::impl::metric_value>(pmetric);
 
             if (value.type() == seastar::metrics::impl::data_type::HISTOGRAM) {
                 auto&& h = value.get_histogram();
@@ -245,8 +234,9 @@ std::string get_protobuf_representation(const metrics_families& families, const 
         pm::MetricFamily mtf;
         mtf.set_name(name);
         for (auto pmetric : metrics) {
-            auto&& id = pmetric->first;
-            auto&& value = pmetric->second;
+            const seastar::metrics::impl::registered_metric& reg = *std::get<seastar::metrics::impl::register_ref>(pmetric);
+            auto&& id = reg.get_id();
+            auto&& value = std::get<seastar::metrics::impl::metric_value>(pmetric);
             fill_metric(mtf, value, id, ctx);
         }
         if (!write_delimited_to(mtf, &os)) {

@@ -78,7 +78,7 @@ private:
     const value_list_map& values() const {
         return seastar::metrics::impl::get_value_map();
     }
-    registrations _regs;
+    seastar::metrics::metric_groups _metrics;
 };
 
 impl & get_impl();
