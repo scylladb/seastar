@@ -86,6 +86,9 @@ private:
             h.current_window = { };
         }
     }
+    static bool below_target(uint64_t unused, uint64_t total) {
+        return unused * unused_ratio_target::den < total * unused_ratio_target::num;
+    }
     void update_history_consumed(uint64_t bytes) {
         if (!_options.dynamic_adjustments) {
             return;
@@ -101,18 +104,28 @@ private:
         // Check whether we can safely increase the buffer size to new_size
         // and still be below unused_ratio_target even if it is entirely
         // dropped.
-        if (unused * unused_ratio_target::den < total * unused_ratio_target::num) {
+        if (below_target(unused, total)) {
             _current_buffer_size = new_size;
             _in_slow_start = _current_buffer_size < _options.buffer_size;
         }
     }
-    void set_new_buffer_size() {
+
+    using after_skip = bool_class<class after_skip_tag>;
+    void set_new_buffer_size(after_skip skip) {
         if (!_options.dynamic_adjustments) {
             return;
         }
         auto& h = *_options.dynamic_adjustments;
         int64_t total = h.current_window.total_read + h.previous_window.total_read;
         int64_t unused = h.current_window.unused_read + h.previous_window.unused_read;
+        if (skip == after_skip::yes && below_target(unused, total)) {
+            // Do not attempt to shrink buffer size if we are still below the
+            // target. Otherwise, we could get a bad interaction with
+            // update_history_consumed() which tries to increase the buffer
+            // size as much as possible so that after a single drop we are
+            // still below the target.
+            return;
+        }
         // Calculate the maximum buffer size that would guarantee that we are
         // still below unused_ratio_target even if the subsequent reads are
         // dropped. If it is larger than or equal to the current buffer size do
@@ -132,14 +145,14 @@ private:
             return;
         }
         update_history(bytes, bytes);
-        set_new_buffer_size();
+        set_new_buffer_size(after_skip::yes);
     }
 public:
     file_data_source_impl(file f, uint64_t offset, uint64_t len, file_input_stream_options options)
             : _file(std::move(f)), _options(options), _pos(offset), _remain(len), _current_read_ahead(get_initial_read_ahead())
             , _current_buffer_size(_options.buffer_size) {
         // prevent wraparounds
-        set_new_buffer_size();
+        set_new_buffer_size(after_skip::no);
         _remain = std::min(std::numeric_limits<uint64_t>::max() - _pos, _remain);
     }
     virtual future<temporary_buffer<char>> get() override {
