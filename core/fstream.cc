@@ -101,7 +101,7 @@ private:
         // Check whether we can safely increase the buffer size to new_size
         // and still be below unused_ratio_target even if it is entirely
         // dropped.
-        if (unused * unused_ratio_target::num < total * unused_ratio_target::den) {
+        if (unused * unused_ratio_target::den < total * unused_ratio_target::num) {
             _current_buffer_size = new_size;
             _in_slow_start = _current_buffer_size < _options.buffer_size;
         }
