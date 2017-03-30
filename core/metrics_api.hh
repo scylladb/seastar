@@ -107,9 +107,8 @@ public:
     const labels_type& labels() const {
         return _labels;
     }
-    sstring full_name() const {
-        return _group + "_" + _name;
-    }
+    sstring full_name() const;
+
     bool operator<(const metric_id&) const;
     bool operator==(const metric_id&) const;
 private:

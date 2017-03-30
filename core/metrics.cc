@@ -22,6 +22,9 @@
 #include "metrics.hh"
 #include "metrics_api.hh"
 #include <boost/range/algorithm.hpp>
+#include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/replace.hpp>
+#include <boost/range/algorithm_ext/erase.hpp>
 
 namespace seastar {
 namespace metrics {
@@ -197,6 +200,16 @@ metric_groups_impl& metric_groups_impl::add_group(group_name_type name, const st
 bool metric_id::operator<(
         const metric_id& id2) const {
     return as_tuple() < id2.as_tuple();
+}
+
+static std::string safe_name(const sstring& name) {
+    auto rep = boost::replace_all_copy(boost::replace_all_copy(name, "-", "_"), " ", "_");
+    boost::remove_erase_if(rep, boost::is_any_of("+()"));
+    return rep;
+}
+
+sstring metric_id::full_name() const {
+    return safe_name(_group + "_" + _name);
 }
 
 bool metric_id::operator==(
