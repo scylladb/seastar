@@ -114,9 +114,9 @@ private:
         int64_t total = h.current_window.total_read + h.previous_window.total_read;
         int64_t unused = h.current_window.unused_read + h.previous_window.unused_read;
         // Calculate the maximum buffer size that would guarantee that we are
-        // still below unused_ratio_target. If it is larger than or equal to the
-        // current buffer size do nothing. If it is smaller then we are back in
-        // the slow start phase.
+        // still below unused_ratio_target even if the subsequent reads are
+        // dropped. If it is larger than or equal to the current buffer size do
+        // nothing. If it is smaller then we are back in the slow start phase.
         auto new_target = (unused_ratio_target::num * total - unused_ratio_target::den * unused) / (unused_ratio_target::den - unused_ratio_target::num);
         uint64_t new_size = std::max(new_target, int64_t(minimal_buffer_size()));
         new_size = std::max(uint64_t(1) << log2floor(new_size), uint64_t(minimal_buffer_size()));
