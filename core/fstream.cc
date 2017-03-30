@@ -94,7 +94,7 @@ private:
         if (!_in_slow_start) {
             return;
         }
-        unsigned new_size = std::max(_current_buffer_size * 2, _options.buffer_size);
+        unsigned new_size = std::min(_current_buffer_size * 2, _options.buffer_size);
         auto& h = *_options.dynamic_adjustments;
         auto total = h.current_window.total_read + h.previous_window.total_read + new_size;
         auto unused = h.current_window.unused_read + h.previous_window.unused_read + new_size;
