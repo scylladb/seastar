@@ -34,6 +34,7 @@
 #include <random>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/algorithm/cxx11/any_of.hpp>
+#include "mock_file.hh"
 
 struct writer {
     output_stream<char> out;
@@ -279,5 +280,146 @@ SEASTAR_TEST_CASE(file_handle_test) {
         }).get();
         BOOST_REQUIRE(!boost::algorithm::any_of_equal(bad, 1u));
         f.close().get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_fstream_slow_start) {
+    return seastar::async([] {
+        static constexpr size_t file_size = 128 * 1024 * 1024;
+        static constexpr size_t buffer_size = 260 * 1024;
+        static constexpr size_t read_ahead = 1;
+
+        auto mock_file = make_shared<mock_read_only_file>(file_size);
+
+        auto history = make_lw_shared<file_input_stream_history>();
+
+        file_input_stream_options options{};
+        options.buffer_size = buffer_size;
+        options.read_ahead = read_ahead;
+        options.dynamic_adjustments = history;
+
+        static constexpr size_t requests_at_slow_start = 2; // 1 request + 1 read-ahead
+        static constexpr size_t requests_at_full_speed = read_ahead + 1; // 1 request + read_ahead
+
+        std::experimental::optional<size_t> initial_read_size;
+
+        auto read_whole_file_with_slow_start = [&] (auto fstr) {
+            uint64_t total_read = 0;
+            size_t previous_buffer_length = 0;
+
+            // We don't want to assume too much about fstream internals, but with
+            // no history we should start with a buffer sizes somewhere in
+            // (0, buffer_size) range.
+            mock_file->set_read_size_verifier([&] (size_t length) {
+                BOOST_CHECK_LE(length, initial_read_size.value_or(buffer_size - 1));
+                BOOST_CHECK_GE(length, initial_read_size.value_or(1));
+                previous_buffer_length = length;
+                if (!initial_read_size) {
+                    initial_read_size = length;
+                }
+            });
+
+            // Slow start phase
+            while (true) {
+                // We should leave slow start before reading the whole file.
+                BOOST_CHECK_LT(total_read, file_size);
+
+                mock_file->set_allowed_read_requests(requests_at_slow_start);
+                auto buf = fstr.read().get0();
+                BOOST_CHECK_GT(buf.size(), 0);
+
+                mock_file->set_read_size_verifier([&] (size_t length) {
+                    // There is no reason to reduce buffer size.
+                    BOOST_CHECK_LE(length, std::min(previous_buffer_length * 2, buffer_size));
+                    BOOST_CHECK_GE(length, previous_buffer_length);
+                    previous_buffer_length = length;
+                });
+
+                BOOST_TEST_MESSAGE(sprint("Size %u", buf.size()));
+                total_read += buf.size();
+                if (buf.size() == buffer_size) {
+                    BOOST_TEST_MESSAGE("Leaving slow start phase.");
+                    break;
+                }
+            }
+
+            // Reading at full speed now
+            mock_file->set_expected_read_size(buffer_size);
+            while (total_read != file_size) {
+                mock_file->set_allowed_read_requests(requests_at_full_speed);
+                auto buf = fstr.read().get0();
+                total_read += buf.size();
+            }
+
+            mock_file->set_allowed_read_requests(requests_at_full_speed);
+            auto buf = fstr.read().get0();
+            BOOST_CHECK_EQUAL(buf.size(), 0);
+            assert(buf.size() == 0);
+        };
+
+        auto read_while_file_at_full_speed = [&] (auto fstr) {
+            uint64_t total_read = 0;
+
+            mock_file->set_expected_read_size(buffer_size);
+            while (total_read != file_size) {
+                mock_file->set_allowed_read_requests(requests_at_full_speed);
+                auto buf = fstr.read().get0();
+                total_read += buf.size();
+            }
+
+            mock_file->set_allowed_read_requests(requests_at_full_speed);
+            auto buf = fstr.read().get0();
+            BOOST_CHECK_EQUAL(buf.size(), 0);
+        };
+
+        auto read_and_skip_a_lot = [&] (auto fstr) {
+            uint64_t total_read = 0;
+            size_t previous_buffer_size = buffer_size;
+
+            mock_file->set_allowed_read_requests(std::numeric_limits<size_t>::max());
+            mock_file->set_read_size_verifier([&] (size_t length) {
+                // There is no reason to reduce buffer size.
+                BOOST_CHECK_LE(length, previous_buffer_size);
+                BOOST_CHECK_GE(length, initial_read_size.value_or(1));
+                previous_buffer_size = length;
+            });
+            while (total_read != file_size) {
+                auto buf = fstr.read().get0();
+                total_read += buf.size();
+
+                buf = fstr.read().get0();
+                total_read += buf.size();
+
+                auto skip_by = std::min(file_size - total_read, buffer_size * 2);
+                fstr.skip(skip_by).get();
+                total_read += skip_by;
+            }
+
+            // We should be back at slow start at this stage.
+            BOOST_CHECK_LT(previous_buffer_size, buffer_size);
+            if (initial_read_size) {
+                BOOST_CHECK_EQUAL(previous_buffer_size, *initial_read_size);
+            }
+
+            mock_file->set_allowed_read_requests(requests_at_full_speed);
+            auto buf = fstr.read().get0();
+            BOOST_CHECK_EQUAL(buf.size(), 0);
+
+        };
+
+        auto make_fstream = [&] {
+            return make_file_input_stream(file(mock_file), 0, file_size, options);
+        };
+
+        BOOST_TEST_MESSAGE("Reading file, no history, expectiong a slow start");
+        read_whole_file_with_slow_start(make_fstream());
+        BOOST_TEST_MESSAGE("Reading file again, everything good so far, read at full speed");
+        read_while_file_at_full_speed(make_fstream());
+        BOOST_TEST_MESSAGE("Reading and skipping a lot");
+        read_and_skip_a_lot(make_fstream());
+        BOOST_TEST_MESSAGE("Reading file, bad history, we are back at slow start...");
+        read_whole_file_with_slow_start(make_fstream());
+        BOOST_TEST_MESSAGE("Reading file yet again, should've recovered by now");
+        read_while_file_at_full_speed(make_fstream());
     });
 }
