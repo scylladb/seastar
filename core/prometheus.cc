@@ -173,7 +173,7 @@ static void add_name(std::ostream& s, const sstring& name, const std::map<sstrin
 std::string get_text_representation(const metrics_families& families, const config& ctx) {
     std::stringstream s;
     for (auto name_metrics : families) {
-        auto&& name = name_metrics.first;
+        auto&& name = ctx.prefix + "_" + name_metrics.first;
         auto&& metrics = name_metrics.second;
         if (metrics.size() == 0) {
             continue;
@@ -232,7 +232,7 @@ std::string get_protobuf_representation(const metrics_families& families, const 
         auto&& name = name_metrics.first;
         auto&& metrics = name_metrics.second;
         pm::MetricFamily mtf;
-        mtf.set_name(name);
+        mtf.set_name(ctx.prefix + "_" + name);
         for (auto pmetric : metrics) {
             const seastar::metrics::impl::registered_metric& reg = *std::get<seastar::metrics::impl::register_ref>(pmetric);
             auto&& id = reg.get_id();
