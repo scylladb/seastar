@@ -71,4 +71,4 @@ MY_DIR=`dirname $0`
 
 parse_args $@
 
-$MY_DIR/perftune.py --nic $IFACE $MQ_MODE $CPU_FILTER_MASK $CPU_MASK
+$MY_DIR/perftune.py --nic $IFACE $MQ_MODE $CPU_FILTER_MASK $CPU_MASK --tune net
