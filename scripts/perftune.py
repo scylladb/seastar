@@ -591,6 +591,11 @@ class DiskPerfTuner(PerfTunerBase):
         """
         Return a default configuration mode.
         """
+        # if the only disks we are tuning are NVMe disks - return the MQ mode
+        non_nvme_disks, non_nvme_irqs = self.__disks_info_by_type(DiskPerfTuner.SupportedDiskTypes.non_nvme)
+        if not non_nvme_disks:
+            return PerfTunerBase.SupportedModes.mq
+
         num_cores = int(run_hwloc_calc(['--number-of', 'core', 'machine:0', '--restrict', self.args.cpu_mask]))
         num_PUs = int(run_hwloc_calc(['--number-of', 'PU', 'machine:0', '--restrict', self.args.cpu_mask]))
         if num_PUs <= 4:
