@@ -251,7 +251,7 @@ values_copy get_values() {
         std::vector<std::tuple<shared_ptr<registered_metric>, metric_value>> values;
         for (auto&& v : i.second) {
             if (v.second.get() && v.second->is_enabled()) {
-                values.push_back({v.second, (*(v.second))()});
+                values.emplace_back(v.second, (*(v.second))());
             }
         }
         if (values.size() > 0) {
