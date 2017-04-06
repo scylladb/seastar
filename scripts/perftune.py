@@ -548,6 +548,9 @@ class DiskPerfTuner(PerfTunerBase):
     def __init__(self, args):
         super().__init__(args)
 
+        if not (self.args.dirs or self.args.devs):
+            raise Exception("'disks' tuning was requested but neither directories nor storage devices were given")
+
         self.__pyudev_ctx = pyudev.Context()
         self.__dir2disks = self.__learn_directories()
         self.__disk2irqs = self.__learn_irqs()
@@ -641,6 +644,9 @@ class DiskPerfTuner(PerfTunerBase):
                 non_nvme_disks.add(disk)
                 for irq in irqs:
                     non_nvme_irqs.add(irq)
+
+        if not (nvme_disks or non_nvme_disks):
+            raise Exception("'disks' tuning was requested but no disks were found")
 
         disks_info_by_type[DiskPerfTuner.SupportedDiskTypes.nvme] = ( list(nvme_disks), list(nvme_irqs) )
         disks_info_by_type[DiskPerfTuner.SupportedDiskTypes.non_nvme] = ( list(non_nvme_disks), list(non_nvme_irqs) )
@@ -816,7 +822,7 @@ args = argp.parse_args()
 
 # if nothing needs to be configured - quit
 if args.tune is None:
-    sys.exit(0)
+    sys.exit("ERROR: At least one tune mode MUST be given.")
 
 try:
     tuners = []
