@@ -8,12 +8,21 @@ import glob
 import itertools
 import os
 import pathlib
-import psutil
 import pyudev
 import re
 import shutil
 import subprocess
 import sys
+
+_pid_dir = re.compile(r"\d+")
+def _is_pid_dir(candidate):
+    return _pid_dir.match(candidate) and os.path.isdir(os.path.join("/proc", candidate))
+
+def pids():
+    return [ int(x) for x in os.listdir("/proc") if _is_pid_dir(x) ]
+
+def pid_name(pidno):
+    return open(os.path.join("/proc", str(pidno), "comm"), "r").read().strip()
 
 def run_one_command(prog_args, my_stderr=None):
     return str(subprocess.check_output(prog_args, stderr=my_stderr), 'utf-8')
@@ -51,7 +60,7 @@ def distribute_irqs(irqs, cpu_mask):
         set_one_mask("/proc/irq/{}/smp_affinity".format(irqs[i]), mask)
 
 def is_process_running(name):
-    return any([psutil.Process(pid).name() == name for pid in psutil.pids()])
+    return any([pid_name(pid) == name for pid in pids()])
 
 def restart_irqbalance(banned_irqs):
     """
