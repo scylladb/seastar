@@ -34,6 +34,7 @@ private:
     weak_ptr(T* p) : _ptr(p) {}
 public:
     weak_ptr() = default;
+    weak_ptr(std::nullptr_t) : weak_ptr() {}
     weak_ptr(weak_ptr&& o) noexcept
         : _ptr(o._ptr)
     {
