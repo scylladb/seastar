@@ -14,18 +14,15 @@ import shutil
 import subprocess
 import sys
 
-_pid_dir = re.compile(r"\d+")
-def _is_pid_dir(candidate):
-    return _pid_dir.match(candidate) and os.path.isdir(os.path.join("/proc", candidate))
+def run_one_command(prog_args, my_stderr=None, check=True):
+    proc = subprocess.Popen(prog_args, stdout = subprocess.PIPE, stderr = my_stderr)
+    outs, errs = proc.communicate()
+    outs = str(outs, 'utf-8')
 
-def pids():
-    return [ int(x) for x in os.listdir("/proc") if _is_pid_dir(x) ]
+    if check and proc.returncode != 0:
+        raise subprocess.CalledProcessError(returncode=proc.returncode, cmd=" ".join(prog_args), output=outs, stderr=errs)
 
-def pid_name(pidno):
-    return open(os.path.join("/proc", str(pidno), "comm"), "r").read().strip()
-
-def run_one_command(prog_args, my_stderr=None):
-    return str(subprocess.check_output(prog_args, stderr=my_stderr), 'utf-8')
+    return outs
 
 def run_hwloc_distrib(prog_args):
     """
@@ -60,7 +57,7 @@ def distribute_irqs(irqs, cpu_mask):
         set_one_mask("/proc/irq/{}/smp_affinity".format(irqs[i]), mask)
 
 def is_process_running(name):
-    return any([pid_name(pid) == name for pid in pids()])
+    return len(list(filter(lambda ps_line : not re.search('<defunct>', ps_line), run_one_command(['ps', '--no-headers', '-C', name], check=False).splitlines()))) > 0
 
 def restart_irqbalance(banned_irqs):
     """
