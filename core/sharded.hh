@@ -514,6 +514,13 @@ public:
             });
         }
     }
+    /// Creates a copy of this foreign ptr. Only works if the stored ptr is copyable.
+    future<foreign_ptr> copy() const {
+        return smp::submit_to(_cpu, [this] () mutable {
+            auto v = _value;
+            return make_foreign(std::move(v));
+        });
+    }
     /// Accesses the wrapped object.
     element_type& operator*() const { return *_value; }
     /// Accesses the wrapped object.

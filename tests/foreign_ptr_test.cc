@@ -23,6 +23,7 @@
 
 #include "core/distributed.hh"
 #include "core/shared_ptr.hh"
+#include "core/thread.hh"
 
 SEASTAR_TEST_CASE(make_foreign_ptr_from_lw_shared_ptr) {
     auto p = make_foreign(make_lw_shared<sstring>("foo"));
@@ -34,4 +35,14 @@ SEASTAR_TEST_CASE(make_foreign_ptr_from_shared_ptr) {
     auto p = make_foreign(make_shared<sstring>("foo"));
     BOOST_REQUIRE(p->size() == 3);
     return make_ready_future<>();
+}
+
+
+SEASTAR_TEST_CASE(foreign_ptr_copy_test) {
+    return seastar::async([] {
+        auto ptr = make_foreign(make_shared<sstring>("foo"));
+        BOOST_REQUIRE(ptr->size() == 3);
+        auto ptr2 = ptr.copy().get0();
+        BOOST_REQUIRE(ptr2->size() == 3);
+    });
 }
