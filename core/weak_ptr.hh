@@ -54,8 +54,8 @@ public:
     T& operator*() noexcept { return *_ptr; }
     const T& operator*() const noexcept { return *_ptr; }
     T* get() const noexcept { return _ptr; }
-    bool operator==(weak_ptr& o) const { return _ptr == o._ptr; }
-    bool operator!=(weak_ptr& o) const { return _ptr != o._ptr; }
+    bool operator==(const weak_ptr& o) const { return _ptr == o._ptr; }
+    bool operator!=(const weak_ptr& o) const { return _ptr != o._ptr; }
 };
 
 /// Allows obtaining a non-owning reference (weak_ptr<>) to the object.
