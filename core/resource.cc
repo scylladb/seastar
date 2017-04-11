@@ -66,7 +66,7 @@ void validate(boost::any& v,
 namespace resource {
 
 size_t calculate_memory(configuration c, size_t available_memory, float panic_factor = 1) {
-    size_t default_reserve_memory = std::max<size_t>(1 << 30, 0.05 * available_memory) * panic_factor;
+    size_t default_reserve_memory = std::max<size_t>(1536 * 1024 * 1024, 0.07 * available_memory) * panic_factor;
     auto reserve = c.reserve_memory.value_or(default_reserve_memory);
     size_t min_memory = 500'000'000;
     if (available_memory >= reserve + min_memory) {
@@ -265,8 +265,7 @@ resources allocate(configuration c) {
     assert(hwloc_get_nbobjs_by_depth(topology, machine_depth) == 1);
     auto machine = hwloc_get_obj_by_depth(topology, machine_depth, 0);
     auto available_memory = machine->memory.total_memory;
-    // hwloc doesn't account for kernel reserved memory, so set panic_factor = 2
-    size_t mem = calculate_memory(c, available_memory, 2);
+    size_t mem = calculate_memory(c, available_memory);
     unsigned available_procs = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
     unsigned procs = c.cpus.value_or(available_procs);
     if (procs > available_procs) {
