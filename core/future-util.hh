@@ -372,7 +372,7 @@ future<> do_for_each(Iterator begin, Iterator end, AsyncAction&& action) {
         if (begin == end) {
             return f;
         }
-        if (!f.available()) {
+        if (!f.available() || need_preempt()) {
             return std::move(f).then([action = std::forward<AsyncAction>(action),
                     begin = std::move(begin), end = std::move(end)] () mutable {
                 return do_for_each(std::move(begin), std::move(end), std::forward<AsyncAction>(action));
