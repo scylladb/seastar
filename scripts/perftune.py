@@ -73,7 +73,7 @@ def restart_irqbalance(banned_irqs):
     banned_irqs_list = list(banned_irqs)
 
     # If there is nothing to ban - quit
-    if len(banned_irqs_list) == 0:
+    if not banned_irqs_list:
         return
 
     # return early if irqbalance is not running
@@ -108,7 +108,7 @@ def restart_irqbalance(banned_irqs):
 
     # Search for the original options line
     opt_lines = list(filter(lambda line : re.search("^\s*{}".format(options_key), line), cfile_lines))
-    if len(opt_lines) == 0:
+    if not opt_lines:
         new_options = "{}=\"".format(options_key)
     elif len(opt_lines) == 1:
         # cut the last "
@@ -479,7 +479,7 @@ class NetPerfTuner(PerfTunerBase):
         all_irqs = learn_all_irqs_one("/sys/class/net/{}/device".format(iface), irqs2procline, iface)
         fp_irqs_re = re.compile("\-TxRx\-|\-fp\-|\-Tx\-Rx\-")
         irqs = list(filter(lambda irq : fp_irqs_re.search(irqs2procline[irq]), all_irqs))
-        if len(irqs) > 0:
+        if irqs:
             return irqs
         else:
             return all_irqs
@@ -568,7 +568,7 @@ class DiskPerfTuner(PerfTunerBase):
         mode_cpu_mask = PerfTunerBase.irqs_cpu_mask_for_mode(self.mode, self.args.cpu_mask)
 
         non_nvme_disks, non_nvme_irqs = self.__disks_info_by_type(DiskPerfTuner.SupportedDiskTypes.non_nvme)
-        if len(non_nvme_disks) > 0:
+        if non_nvme_disks:
             print("Setting non-NVMe disks: {}...".format(", ".join(non_nvme_disks)))
             distribute_irqs(non_nvme_irqs, mode_cpu_mask)
             self.__tune_disks(non_nvme_disks)
@@ -576,7 +576,7 @@ class DiskPerfTuner(PerfTunerBase):
             print("No non-NVMe disks to tune")
 
         nvme_disks, nvme_irqs = self.__disks_info_by_type(DiskPerfTuner.SupportedDiskTypes.nvme)
-        if len(nvme_disks) > 0:
+        if nvme_disks:
             print("Setting NVMe disks: {}...".format(", ".join(nvme_disks)))
             distribute_irqs(nvme_irqs, self.args.cpu_mask)
             self.__tune_disks(nvme_disks)
@@ -671,7 +671,7 @@ class DiskPerfTuner(PerfTunerBase):
                 devs = self.__learn_directory(filesystem, True)
 
             # log error only for the original directory
-            if not recur and len(devs) == 0:
+            if not recur and not devs:
                 print("Can't get a block device for {} - skipping".format(directory))
 
             return devs
