@@ -662,13 +662,15 @@ class DiskPerfTuner(PerfTunerBase):
             return []
 
         try:
-            udev_obj = pyudev.Devices().from_device_number(self.__pyudev_ctx, 'block', os.stat(directory).st_dev)
+            udev_obj = pyudev.Device.from_device_number(self.__pyudev_ctx, 'block', os.stat(directory).st_dev)
             return self.__get_phys_devices(udev_obj)
         except:
             # handle cases like ecryptfs where the directory is mounted to another directory and not to some block device
             filesystem = run_one_command(['df', '-P', directory]).splitlines()[-1].split()[0].strip()
             if not re.search(r'^/dev/', filesystem):
                 devs = self.__learn_directory(filesystem, True)
+            else:
+                raise Exception("Logic error: failed to create a udev device while 'df -P' {} returns a {}".format(directory, filesystem))
 
             # log error only for the original directory
             if not recur and not devs:
@@ -679,7 +681,7 @@ class DiskPerfTuner(PerfTunerBase):
     def __get_phys_devices(self, udev_obj):
         # if device is a virtual device - the underlying physical devices are going to be its slaves
         if re.search(r'virtual', udev_obj.sys_path):
-            return list(itertools.chain.from_iterable([ self.__get_phys_devices(pyudev.Devices.from_device_file(self.__pyudev_ctx, "/dev/{}".format(slave))) for slave in os.listdir(os.path.join(udev_obj.sys_path, 'slaves')) ]))
+            return list(itertools.chain.from_iterable([ self.__get_phys_devices(pyudev.Device.from_device_file(self.__pyudev_ctx, "/dev/{}".format(slave))) for slave in os.listdir(os.path.join(udev_obj.sys_path, 'slaves')) ]))
         else:
             # device node is something like /dev/sda1 - we need only the part without /dev/
             return [ re.match(r'/dev/(\S+\d*)', udev_obj.device_node).group(1) ]
@@ -695,7 +697,7 @@ class DiskPerfTuner(PerfTunerBase):
                 if device in disk2irqs.keys():
                     continue
 
-                udev_obj = pyudev.Devices.from_device_file(self.__pyudev_ctx, "/dev/{}".format(device))
+                udev_obj = pyudev.Device.from_device_file(self.__pyudev_ctx, "/dev/{}".format(device))
                 dev_sys_path = udev_obj.sys_path
                 split_sys_path = list(pathlib.PurePath(dev_sys_path).parts)
 
@@ -726,7 +728,7 @@ class DiskPerfTuner(PerfTunerBase):
 
         If there isn't such ancestor - return False.
         """
-        udev = pyudev.Devices.from_device_file(pyudev.Context(), dev_node)
+        udev = pyudev.Device.from_device_file(pyudev.Context(), dev_node)
         feature_file = path_creator(udev.sys_path)
         if os.path.exists(feature_file):
             if not dev_node in tuned_devs_set:
