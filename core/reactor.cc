@@ -2271,11 +2271,11 @@ void reactor::register_metrics() {
                 description(
                         "Counts reads from disk file streams.  A high rate indicates high disk activity."
                         " Contrast with other fstream_read* counters to locate bottlenecks.")),
-        make_derive("fstream_read_bytes", _io_stats.fstream_reads,
+        make_derive("fstream_read_bytes", _io_stats.fstream_read_bytes,
                 description(
                         "Counts bytes read from disk file streams.  A high rate indicates high disk activity."
                         " Divide by fstream_reads to determine average read size.")),
-        make_counter("fstream_reads_blocked", _io_stats.fstream_read_bytes,
+        make_counter("fstream_reads_blocked", _io_stats.fstream_reads_blocked,
                 description(
                         "Counts the number of times a disk read could not be satisfied from read-ahead buffers, and had to block."
                         " Indicates short streams, or incorrect read ahead configuration.")),
