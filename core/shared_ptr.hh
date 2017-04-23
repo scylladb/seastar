@@ -211,7 +211,13 @@ public:
 
     T& operator*() const noexcept { return *_p->to_value(); }
     T* operator->() const noexcept { return _p->to_value(); }
-    T* get() const noexcept { return _p->to_value(); }
+    T* get() const noexcept {
+        if (_p) {
+            return _p->to_value();
+        } else {
+            return nullptr;
+        }
+    }
 
     long int use_count() const noexcept {
         if (_p) {
