@@ -87,6 +87,7 @@ public:
     metric_groups() noexcept;
     metric_groups(metric_groups&&) = default;
     virtual ~metric_groups();
+    metric_groups& operator=(metric_groups&&) = default;
     /*!
      * \brief add metrics belong to the same group in the constructor.
      *
@@ -130,6 +131,7 @@ public:
     metric_group(const metric_group&) = delete;
     metric_group(metric_group&&) = default;
     virtual ~metric_group();
+    metric_group& operator=(metric_group&&) = default;
 
     /*!
      * \brief add metrics belong to the same group in the constructor.
