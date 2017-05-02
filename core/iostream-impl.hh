@@ -195,7 +195,7 @@ future<>
 input_stream<CharType>::consume(Consumer& consumer) {
     return repeat([&consumer, this] {
         if (_buf.empty() && !_eof) {
-            return _fd.get().then([this, &consumer] (tmp_buf buf) {
+            return _fd.get().then([this] (tmp_buf buf) {
                 _buf = std::move(buf);
                 _eof = _buf.empty();
                 return make_ready_future<stop_iteration>(stop_iteration::no);
@@ -221,7 +221,7 @@ input_stream<CharType>::consume(Consumer& consumer) {
             // TODO: here we wait for the consumer to finish the previous
             // buffer (fulfilling "unconsumed") before starting to read the
             // next one. Consider reading ahead.
-            return unconsumed.then([this, &consumer] (unconsumed_remainder u) {
+            return unconsumed.then([this] (unconsumed_remainder u) {
                 if (u) {
                     // consumer is done
                     _buf = std::move(u.value());

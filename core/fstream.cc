@@ -245,7 +245,7 @@ private:
             _read_buffers.emplace_back(_pos, actual_size, futurize<future<temporary_buffer<char>>>::apply([&] {
                     return _file.dma_read_bulk<char>(start, len, _options.io_priority_class);
             }).then_wrapped(
-                    [this, start, end, pos = _pos, remain = _remain] (future<temporary_buffer<char>> ret) {
+                    [this, start, pos = _pos, remain = _remain] (future<temporary_buffer<char>> ret) {
                 --_reads_in_progress;
                 if (_done && !_reads_in_progress) {
                     _done->set_value();

@@ -665,7 +665,7 @@ qp::rxq::prepare_buffers() {
         if (available.try_wait(opportunistic)) {
             count += opportunistic;
         }
-        auto make_buffer_chain = [this] {
+        auto make_buffer_chain = [] {
             single_buffer bc;
             std::unique_ptr<char[], free_deleter> buf(reinterpret_cast<char*>(malloc(4096)));
             buffer_and_virt& b = bc[0];

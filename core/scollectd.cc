@@ -396,7 +396,7 @@ void impl::run() {
         std::get<value_iterator>(*ctxt) = std::get<iterator>(*ctxt)->second.begin();
     }
 
-    auto stop_when = [this, ctxt, vals]() {
+    auto stop_when = [ctxt, vals]() {
         auto done = std::get<iterator>(*ctxt) == vals->end();
         return done;
     };

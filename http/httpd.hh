@@ -112,7 +112,7 @@ public:
                     }
                     auto cs_sa = f_cs_sa.get();
                     auto conn = new connection(*this, std::get<0>(std::move(cs_sa)), std::get<1>(std::move(cs_sa)));
-                    conn->process().then_wrapped([this, conn] (auto&& f) {
+                    conn->process().then_wrapped([conn] (auto&& f) {
                                 delete conn;
                                 try {
                                     f.get();

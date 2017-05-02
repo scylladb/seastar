@@ -1117,7 +1117,7 @@ size_t iovec_len(const iovec* begin, size_t len)
 inline
 future<pollable_fd, socket_address>
 reactor::accept(pollable_fd_state& listenfd) {
-    return readable(listenfd).then([this, &listenfd] () mutable {
+    return readable(listenfd).then([&listenfd] () mutable {
         socket_address sa;
         socklen_t sl = sizeof(&sa.u.sas);
         file_desc fd = listenfd.fd.accept(sa.u.sa, sl, SOCK_NONBLOCK | SOCK_CLOEXEC);

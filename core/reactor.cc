@@ -113,7 +113,7 @@ timespec to_timespec(steady_clock_type::time_point t) {
 
 lowres_clock::lowres_clock() {
     update();
-    _timer.set_callback([this] { update(); });
+    _timer.set_callback(&lowres_clock::update);
     _timer.arm_periodic(_granularity);
 }
 
@@ -1428,7 +1428,7 @@ append_challenged_posix_file_impl::flush() {
                         _committed_size = _logical_size;
                     }
                     return posix_file_impl::flush();
-                }).then_wrapped([this, pr] (future<> f) {
+                }).then_wrapped([pr] (future<> f) {
                     f.forward_to(std::move(*pr));
                 });
             }
@@ -1635,7 +1635,7 @@ reactor::open_file_dma(sstring name, open_flags flags, file_open_options options
 
 future<>
 reactor::remove_file(sstring pathname) {
-    return engine()._thread_pool.submit<syscall_result<int>>([this, pathname] {
+    return engine()._thread_pool.submit<syscall_result<int>>([pathname] {
         return wrap_syscall<int>(::remove(pathname.c_str()));
     }).then([] (syscall_result<int> sr) {
         sr.throw_if_error();
@@ -1645,7 +1645,7 @@ reactor::remove_file(sstring pathname) {
 
 future<>
 reactor::rename_file(sstring old_pathname, sstring new_pathname) {
-    return engine()._thread_pool.submit<syscall_result<int>>([this, old_pathname, new_pathname] {
+    return engine()._thread_pool.submit<syscall_result<int>>([old_pathname, new_pathname] {
         return wrap_syscall<int>(::rename(old_pathname.c_str(), new_pathname.c_str()));
     }).then([] (syscall_result<int> sr) {
         sr.throw_if_error();
@@ -1655,7 +1655,7 @@ reactor::rename_file(sstring old_pathname, sstring new_pathname) {
 
 future<>
 reactor::link_file(sstring oldpath, sstring newpath) {
-    return engine()._thread_pool.submit<syscall_result<int>>([this, oldpath = std::move(oldpath), newpath = std::move(newpath)] {
+    return engine()._thread_pool.submit<syscall_result<int>>([oldpath = std::move(oldpath), newpath = std::move(newpath)] {
         return wrap_syscall<int>(::link(oldpath.c_str(), newpath.c_str()));
     }).then([] (syscall_result<int> sr) {
         sr.throw_if_error();
@@ -1993,7 +1993,7 @@ posix_file_impl::close() noexcept {
             return make_ready_future<syscall_result<int>>(wrap_syscall<int>(::close(fd)));
         }
     }();
-    return closed.then([this] (syscall_result<int> sr) {
+    return closed.then([] (syscall_result<int> sr) {
         sr.throw_if_error();
     });
 }
@@ -3760,7 +3760,7 @@ public:
     }
     virtual future<> wait() override {
         // convert _read.wait(), a future<size_t>, to a future<>:
-        return _read.wait().then([this] (size_t ignore) {
+        return _read.wait().then([] (size_t ignore) {
             return make_ready_future<>();
         });
     }

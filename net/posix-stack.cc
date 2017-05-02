@@ -243,7 +243,7 @@ posix_ap_server_socket_impl<Transport>::abort_accept() {
 template <transport Transport>
 future<connected_socket, socket_address>
 posix_reuseport_server_socket_impl<Transport>::accept() {
-    return _lfd.accept().then([this] (pollable_fd fd, socket_address sa) {
+    return _lfd.accept().then([] (pollable_fd fd, socket_address sa) {
         std::unique_ptr<connected_socket_impl> csi(
                 new posix_connected_socket_impl<Transport>(make_lw_shared(std::move(fd))));
         return make_ready_future<connected_socket, socket_address>(
