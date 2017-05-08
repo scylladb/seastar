@@ -63,6 +63,7 @@ static bool write_delimited_to(const google::protobuf::MessageLite& message,
 }
 
 static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::metric_id & id, const config& ctx) {
+    mt->mutable_label()->Reserve(id.labels().size() + 1);
     auto label = mt->add_label();
     label->set_name("instance");
     label->set_value(ctx.hostname);
@@ -233,6 +234,7 @@ std::string get_protobuf_representation(const metrics_families& families, const 
         auto&& metrics = name_metrics.second;
         pm::MetricFamily mtf;
         mtf.set_name(ctx.prefix + "_" + name);
+        mtf.mutable_metric()->Reserve(metrics.size());
         for (auto pmetric : metrics) {
             const seastar::metrics::impl::registered_metric& reg = *std::get<seastar::metrics::impl::register_ref>(pmetric);
             auto&& id = reg.get_id();
