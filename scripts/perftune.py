@@ -476,7 +476,8 @@ class NetPerfTuner(PerfTunerBase):
         Otherwise, we will use only IRQs which names fit one of the patterns above.
         """
         irqs2procline = get_irqs2procline_map()
-        all_irqs = learn_all_irqs_one("/sys/class/net/{}/device".format(iface), irqs2procline, iface)
+        # filter 'all_irqs' to only reference valid keys from 'irqs2procline' and avoid an IndexError on the 'irqs' search below
+        all_irqs = set(learn_all_irqs_one("/sys/class/net/{}/device".format(iface), irqs2procline, iface)).intersection(irqs2procline.keys())
         fp_irqs_re = re.compile("\-TxRx\-|\-fp\-|\-Tx\-Rx\-")
         irqs = list(filter(lambda irq : fp_irqs_re.search(irqs2procline[irq]), all_irqs))
         if len(irqs) > 0:
