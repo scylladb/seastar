@@ -86,6 +86,11 @@ def restart_irqbalance(banned_irqs):
             config_file = '/etc/sysconfig/irqbalance'
             options_key = 'IRQBALANCE_ARGS'
             systemd = True
+        elif os.path.exists('/etc/conf.d/irqbalance'):
+            config_file = '/etc/conf.d/irqbalance'
+            options_key = 'IRQBALANCE_OPTS'
+            with open('/proc/1/comm', 'r') as comm:
+                systemd = 'systemd' in comm.read()
         else:
             print("Unknown system configuration - not restarting irqbalance!")
             print("You have to prevent it from moving IRQs {} manually!".format(banned_irqs_list))
