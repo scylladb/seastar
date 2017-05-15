@@ -174,6 +174,10 @@ logger::set_syslog_enabled(bool enabled) {
     _syslog.store(enabled, std::memory_order_relaxed);
 }
 
+bool logger::is_shard_zero() {
+    return engine().cpu_id() == 0;
+}
+
 void
 log_registry::set_all_loggers_level(log_level level) {
     std::lock_guard<std::mutex> g(_mutex);

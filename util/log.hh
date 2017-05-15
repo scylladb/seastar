@@ -103,6 +103,8 @@ public:
     logger(logger&& x);
     ~logger();
 
+    bool is_shard_zero();
+
     /// Test if desired log level is enabled
     ///
     /// \param level - enum level value (info|error...)
@@ -156,6 +158,18 @@ public:
     template <typename... Args>
     void info(const char* fmt, Args&&... args) {
         log(log_level::info, fmt, std::forward<Args>(args)...);
+    }
+    /// Log with info tag on shard zero only:
+    /// INFO  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
+    ///
+    /// \param fmt - printf style format
+    /// \param args - args to print string
+    ///
+    template <typename... Args>
+    void info0(const char* fmt, Args&&... args) {
+        if (is_shard_zero()) {
+            log(log_level::info, fmt, std::forward<Args>(args)...);
+        }
     }
     /// Log with info tag:
     /// DEBUG  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
