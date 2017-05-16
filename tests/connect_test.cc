@@ -2,6 +2,8 @@
 
 #include "net/ip.hh"
 
+#include <random>
+
 using namespace net;
 
 SEASTAR_TEST_CASE(test_connection_attempt_is_shutdown) {
@@ -20,7 +22,11 @@ SEASTAR_TEST_CASE(test_connection_attempt_is_shutdown) {
 }
 
 SEASTAR_TEST_CASE(test_unconnected_socket_shutsdown_established_connection) {
-    auto sa = make_ipv4_address({"127.0.0.1", 10001});
+    // Use a random port to reduce chance of conflict.
+    // TODO: retry a few times on failure.
+    std::random_device rnd;
+    auto distr = std::uniform_int_distribution<uint16_t>(12000, 65000);
+    auto sa = make_ipv4_address({"127.0.0.1", distr(rnd)});
     return do_with(engine().net().listen(sa, listen_options()), [sa] (auto& listener) {
         listener.accept();
         auto unconn = engine().net().socket();
