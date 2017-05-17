@@ -1269,7 +1269,7 @@ reclaimer::~reclaimer() {
     r.erase(std::find(r.begin(), r.end(), this));
 }
 
-void configure(std::vector<resource::memory> m,
+void configure(std::vector<resource::memory> m, bool mbind,
         optional<std::string> hugetlbfs_path) {
     size_t total = 0;
     for (auto&& x : m) {
@@ -1290,16 +1290,18 @@ void configure(std::vector<resource::memory> m,
     for (auto&& x : m) {
 #ifdef HAVE_NUMA
         unsigned long nodemask = 1UL << x.nodeid;
-        auto r = ::mbind(cpu_mem.mem() + pos, x.bytes,
-                        MPOL_PREFERRED,
-                        &nodemask, std::numeric_limits<unsigned long>::digits,
-                        MPOL_MF_MOVE);
+        if (mbind) {
+            auto r = ::mbind(cpu_mem.mem() + pos, x.bytes,
+                            MPOL_PREFERRED,
+                            &nodemask, std::numeric_limits<unsigned long>::digits,
+                            MPOL_MF_MOVE);
 
-        if (r == -1) {
-            char err[1000] = {};
-            strerror_r(errno, err, sizeof(err));
-            std::cerr << "WARNING: unable to mbind shard memory; performance may suffer: "
-                    << err << std::endl;
+            if (r == -1) {
+                char err[1000] = {};
+                strerror_r(errno, err, sizeof(err));
+                std::cerr << "WARNING: unable to mbind shard memory; performance may suffer: "
+                        << err << std::endl;
+            }
         }
 #endif
         pos += x.bytes;
@@ -1639,7 +1641,7 @@ reclaimer::~reclaimer() {
 void set_reclaim_hook(std::function<void (std::function<void ()>)> hook) {
 }
 
-void configure(std::vector<resource::memory> m, std::experimental::optional<std::string> hugepages_path) {
+void configure(std::vector<resource::memory> m, bool mbind, std::experimental::optional<std::string> hugepages_path) {
 }
 
 statistics stats() {

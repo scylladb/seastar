@@ -3350,6 +3350,7 @@ smp::get_options_description()
 #else
         ("max-io-requests", bpo::value<unsigned>(), "Maximum amount of concurrent requests to be sent to the disk. Defaults to 128 times the number of processors")
 #endif
+        ("mbind", bpo::value<bool>()->default_value(true), "enable mbind")
         ;
     return opts;
 }
@@ -3522,6 +3523,10 @@ void smp::configure(boost::program_options::variables_map configuration)
     if (!thread_affinity && _using_dpdk) {
         print("warning: --thread-affinity 0 ignored in dpdk mode\n");
     }
+    auto mbind = configuration["mbind"].as<bool>();
+    if (!thread_affinity) {
+        mbind = false;
+    }
 
     smp::count = 1;
     smp::_tmain = std::this_thread::get_id();
@@ -3597,7 +3602,7 @@ void smp::configure(boost::program_options::variables_map configuration)
     if (thread_affinity) {
         smp::pin(allocations[0].cpu_id);
     }
-    memory::configure(allocations[0].mem, hugepages_path);
+    memory::configure(allocations[0].mem, mbind, hugepages_path);
 
     if (configuration.count("abort-on-seastar-bad-alloc")) {
         memory::enable_abort_on_allocation_failure();
@@ -3657,13 +3662,13 @@ void smp::configure(boost::program_options::variables_map configuration)
     unsigned i;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        create_thread([configuration, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity, heapprof_enabled] {
+        create_thread([configuration, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity, heapprof_enabled, mbind] {
             auto thread_name = seastar::format("reactor-{}", i);
             pthread_setname_np(pthread_self(), thread_name.c_str());
             if (thread_affinity) {
                 smp::pin(allocation.cpu_id);
             }
-            memory::configure(allocation.mem, hugepages_path);
+            memory::configure(allocation.mem, mbind, hugepages_path);
             memory::set_heap_profiling_enabled(heapprof_enabled);
             sigset_t mask;
             sigfillset(&mask);
