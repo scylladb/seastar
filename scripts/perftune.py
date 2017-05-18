@@ -488,7 +488,7 @@ class NetPerfTuner(PerfTunerBase):
         if len(irqs) > 0:
             return irqs
         else:
-            return all_irqs
+            return list(all_irqs)
 
     def __learn_irqs(self):
         """
