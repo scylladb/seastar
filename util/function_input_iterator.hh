@@ -22,6 +22,8 @@
 #ifndef UTIL_FUNCTION_INPUT_ITERATOR_HH_
 #define UTIL_FUNCTION_INPUT_ITERATOR_HH_
 
+namespace seastar {
+
 template <typename Function, typename State>
 struct function_input_iterator {
     Function _func;
@@ -66,6 +68,8 @@ inline
 function_input_iterator<Function, State>
 make_function_input_iterator(Function&& func) {
     return function_input_iterator<Function, State>(func, State{});
+}
+
 }
 
 #endif /* UTIL_FUNCTION_INPUT_ITERATOR_HH_ */

@@ -22,6 +22,8 @@
 
 namespace memcache {
 
+using namespace seastar;
+
 class item;
 class cache;
 

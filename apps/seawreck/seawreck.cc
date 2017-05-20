@@ -29,6 +29,8 @@
 #include "core/future-util.hh"
 #include <chrono>
 
+using namespace seastar;
+
 template <typename... Args>
 void http_debug(const char* fmt, Args&&... args) {
 #if HTTP_DEBUG

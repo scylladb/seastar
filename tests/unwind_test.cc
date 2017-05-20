@@ -27,6 +27,8 @@
 #include "core/posix.hh"
 #include "util/backtrace.hh"
 
+using namespace seastar;
+
 void foo() {
     throw std::runtime_error("foo");
 }

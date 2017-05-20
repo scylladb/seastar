@@ -33,6 +33,8 @@
 #include "core/app-template.hh"
 #include <boost/test/included/unit_test.hpp>
 
+namespace seastar {
+
 void seastar_test::run() {
     // HACK: please see https://github.com/cloudius-systems/seastar/issues/10
     BOOST_REQUIRE(true);
@@ -76,6 +78,8 @@ bool init_unit_test_suite() {
     return true;
 }
 
+}
+
 int main(int ac, char** av) {
-    return ::boost::unit_test::unit_test_main(&init_unit_test_suite, ac, av);
+    return ::boost::unit_test::unit_test_main(&seastar::init_unit_test_suite, ac, av);
 }

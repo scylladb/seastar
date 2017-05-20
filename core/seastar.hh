@@ -44,6 +44,8 @@
 #include "sstring.hh"
 #include "future.hh"
 
+namespace seastar {
+
 // iostream.hh
 template <class CharType> class input_stream;
 template <class CharType> class output_stream;
@@ -53,9 +55,7 @@ class server_socket;
 class connected_socket;
 class socket_address;
 class listen_options;
-namespace seastar {
 enum class transport;
-}
 
 // file.hh
 class file;
@@ -121,7 +121,7 @@ future<connected_socket> connect(socket_address sa);
 /// \param proto transport protocol (TCP or SCTP)
 ///
 /// \return a \ref connected_socket object, or an exception
-future<connected_socket> connect(socket_address sa, socket_address local, seastar::transport proto);
+future<connected_socket> connect(socket_address sa, socket_address local, transport proto);
 
 /// @}
 
@@ -281,3 +281,5 @@ future<> link_file(sstring oldpath, sstring newpath);
 future<fs_type> file_system_at(sstring name);
 
 /// @}
+
+}

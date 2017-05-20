@@ -26,6 +26,8 @@
 #include <unordered_map>
 #include "http/request.hh"
 
+namespace seastar {
+
 using namespace httpd;
 
 %% machine request;
@@ -137,3 +139,5 @@ public:
         return _state == state::eof;
     }
 };
+
+}

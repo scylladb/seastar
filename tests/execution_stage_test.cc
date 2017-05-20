@@ -27,6 +27,8 @@
 #include "test-utils.hh"
 #include "core/execution_stage.hh"
 
+using namespace seastar;
+
 static std::random_device rd;
 
 SEASTAR_TEST_CASE(test_create_stage_from_lvalue_function_object) {

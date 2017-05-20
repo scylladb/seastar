@@ -28,6 +28,8 @@
 /// \addtogroup future-module
 /// @{
 
+namespace seastar {
+
 /// Changes the clock used by shared_future<> and shared_promise<> when passed as the first template parameter.
 template<typename Clock>
 struct with_clock {};
@@ -248,3 +250,5 @@ public:
 };
 
 /// @}
+
+}

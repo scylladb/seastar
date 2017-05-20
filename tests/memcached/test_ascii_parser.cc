@@ -27,6 +27,7 @@
 #include "apps/memcached/ascii.hh"
 #include "core/future-util.hh"
 
+using namespace seastar;
 using namespace net;
 using namespace memcache;
 

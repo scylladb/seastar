@@ -29,6 +29,8 @@
 #include "timer.hh"
 #include "expiring_fifo.hh"
 
+namespace seastar {
+
 /// \addtogroup fiber-module
 /// @{
 
@@ -415,5 +417,7 @@ with_semaphore(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, Func
 using semaphore = basic_semaphore<semaphore_default_exception_factory>;
 
 /// @}
+
+}
 
 #endif /* CORE_SEMAPHORE_HH_ */

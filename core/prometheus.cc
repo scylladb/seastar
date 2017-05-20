@@ -33,7 +33,7 @@
 #include <boost/range/algorithm_ext/erase.hpp>
 #include <boost/algorithm/string.hpp>
 
-using namespace seastar;
+namespace seastar {
 
 namespace prometheus {
 namespace pm = io::prometheus::client;
@@ -293,4 +293,5 @@ future<> start(httpd::http_server_control& http_server, config ctx) {
     });
 }
 
+}
 }

@@ -23,6 +23,8 @@
 #include "core/app-template.hh"
 #include "core/print.hh"
 
+using namespace seastar;
+
 future<bool> test_smp_call() {
     return smp::submit_to(1, [] {
         return make_ready_future<int>(3);

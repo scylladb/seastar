@@ -23,4 +23,9 @@
 
 #include <experimental/string_view>
 
+namespace seastar {
+
 void report_exception(std::experimental::string_view message, std::exception_ptr) noexcept;
+
+}
+

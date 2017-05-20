@@ -23,6 +23,8 @@
 
 #include <boost/intrusive/list.hpp>
 
+namespace seastar {
+
 template<typename T>
 class weak_ptr {
     template<typename U>
@@ -94,3 +96,6 @@ public:
         return ptr;
     }
 };
+
+}
+

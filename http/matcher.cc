@@ -23,6 +23,8 @@
 
 #include <iostream>
 
+namespace seastar {
+
 namespace httpd {
 
 using namespace std;
@@ -65,6 +67,8 @@ size_t str_matcher::match(const sstring& url, size_t ind, parameters& param) {
         return _len + ind;
     }
     return sstring::npos;
+}
+
 }
 
 }

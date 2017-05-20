@@ -37,6 +37,8 @@
 #include <type_traits>
 #include <utility>
 
+namespace seastar {
+
 template <typename T, typename Alloc>
 inline
 void
@@ -67,6 +69,8 @@ void
 transfer_pass2(Alloc& a, T* from, T* to,
         typename std::enable_if<!std::is_nothrow_move_constructible<T>::value>::type* = nullptr) {
     a.destroy(from);
+}
+
 }
 
 #endif /* TRANSFER_HH_ */

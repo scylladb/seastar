@@ -24,6 +24,8 @@
 #include <boost/test/included/unit_test.hpp>
 #include "util/defer.hh"
 
+using namespace seastar;
+
 BOOST_AUTO_TEST_CASE(test_defer_does_not_run_when_canceled) {
     bool ran = false;
     {

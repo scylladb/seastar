@@ -25,6 +25,8 @@
 #include "core/file.hh"
 #include "core/reactor.hh"
 
+using namespace seastar;
+
 namespace bpo = boost::program_options;
 
 struct file_test {

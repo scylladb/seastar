@@ -27,6 +27,8 @@
 #include "net/packet.hh"
 #include "core/future-util.hh"
 
+namespace seastar {
+
 inline future<temporary_buffer<char>> data_source_impl::skip(uint64_t n)
 {
     return do_with(uint64_t(n), [this] (uint64_t& n) {
@@ -465,4 +467,6 @@ output_stream<CharType>::close() {
     }).finally([this] {
         return _fd.close();
     });
+}
+
 }

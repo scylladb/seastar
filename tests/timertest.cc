@@ -24,6 +24,7 @@
 #include "core/print.hh"
 #include <chrono>
 
+using namespace seastar;
 using namespace std::chrono_literals;
 
 #define BUG() do { \

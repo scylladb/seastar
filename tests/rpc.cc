@@ -25,6 +25,8 @@
 #include "core/sleep.hh"
 #include "rpc/lz4_compressor.hh"
 
+using namespace seastar;
+
 struct serializer {
 };
 

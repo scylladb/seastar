@@ -26,6 +26,8 @@
 #include <iosfwd>
 #include <vector>
 
+namespace seastar {
+
 // Invokes func for each frame passing return address as argument.
 template<typename Func>
 void backtrace(Func&& func) noexcept(noexcept(func(0))) {
@@ -69,15 +71,21 @@ public:
     }
 };
 
+}
+
 namespace std {
 
 template<>
-struct hash<::saved_backtrace> {
-    size_t operator()(const ::saved_backtrace& b) const {
+struct hash<seastar::saved_backtrace> {
+    size_t operator()(const seastar::saved_backtrace& b) const {
         return b.hash();
     }
 };
 
 }
 
+namespace seastar {
+
 saved_backtrace current_backtrace();
+
+}

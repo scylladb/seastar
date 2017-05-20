@@ -28,6 +28,8 @@
 #include "net.hh"
 #include "core/sstring.hh"
 
+namespace seastar {
+
 std::unique_ptr<net::device> create_dpdk_net_device(
                                     uint8_t port_idx = 0,
                                     uint8_t num_queues = 1,
@@ -41,6 +43,8 @@ namespace dpdk {
  * @return Number of bytes needed for mempool objects of each QP.
  */
 uint32_t qp_mempool_obj_size(bool hugetlbfs_membackend);
+}
+
 }
 
 #endif // _SEASTAR_DPDK_DEV_H

@@ -25,6 +25,8 @@
 #include <deque>
 #include <atomic>
 
+namespace seastar {
+
 class posix_file_handle_impl : public seastar::file_handle_impl {
     int _fd;
     std::atomic<unsigned>* _refcount;
@@ -157,3 +159,4 @@ public:
     virtual future<> allocate(uint64_t position, uint64_t length) override;
 };
 
+}

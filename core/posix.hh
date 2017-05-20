@@ -44,6 +44,8 @@
 #include <chrono>
 #include "net/socket_defs.hh"
 
+namespace seastar {
+
 /// \file
 /// \defgroup posix-support POSIX Support
 ///
@@ -317,8 +319,6 @@ private:
  };
 
 
-namespace seastar {
-
 namespace posix {
 
 /// Converts a duration value to a `timespec`
@@ -359,8 +359,6 @@ template <typename Clock, class Duration, class Rep, class Period>
 struct itimerspec
 to_absolute_itimerspec(std::chrono::time_point<Clock, Duration> base, std::chrono::duration<Rep, Period> interval) {
     return to_relative_itimerspec(base.time_since_epoch(), interval);
-}
-
 }
 
 }
@@ -461,5 +459,7 @@ void pin_this_thread(unsigned cpu_id) {
 }
 
 /// @}
+
+}
 
 #endif /* FILE_DESC_HH_ */

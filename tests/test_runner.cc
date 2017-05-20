@@ -26,6 +26,8 @@
 #include "core/reactor.hh"
 #include "test_runner.hh"
 
+namespace seastar {
+
 static test_runner instance;
 
 struct stop_execution : public std::exception {};
@@ -92,4 +94,6 @@ test_runner::run_sync(std::function<future<>()> task) {
 
 test_runner& global_test_runner() {
     return instance;
+}
+
 }

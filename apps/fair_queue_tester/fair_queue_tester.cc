@@ -33,6 +33,7 @@
 #include <iomanip>
 #include <random>
 
+using namespace seastar;
 using namespace std::chrono_literals;
 
 static auto random_seed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();

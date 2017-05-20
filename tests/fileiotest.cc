@@ -25,6 +25,8 @@
 #include "core/file.hh"
 #include "core/reactor.hh"
 
+using namespace seastar;
+
 struct file_test {
     file_test(file&& f) : f(std::move(f)) {}
     file f;

@@ -23,6 +23,8 @@
 #include <chrono>
 #include "api.hh"
 
+namespace seastar {
+
 namespace net {
 
 /// \cond internal
@@ -44,7 +46,7 @@ public:
 class socket_impl {
 public:
     virtual ~socket_impl() {}
-    virtual future<connected_socket> connect(socket_address sa, socket_address local, seastar::transport proto = seastar::transport::TCP) = 0;
+    virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) = 0;
     virtual void shutdown() = 0;
 };
 
@@ -69,3 +71,4 @@ public:
 
 }
 
+}

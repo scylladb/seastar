@@ -32,6 +32,8 @@
 #include <vector>
 #include "core/future-util.hh"
 
+namespace seastar {
+
 namespace httpd {
 
 /**
@@ -201,6 +203,8 @@ public:
  * @param param the parameter to look for
  */
 void verify_param(const httpd::request& req, const sstring& param);
+
+}
 
 }
 

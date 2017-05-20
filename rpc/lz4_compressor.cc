@@ -22,6 +22,8 @@
 #include "lz4_compressor.hh"
 #include "core/byteorder.hh"
 
+namespace seastar {
+
 namespace rpc {
 
 const sstring lz4_compressor::factory::_name = "LZ4";
@@ -84,6 +86,8 @@ rcv_buf lz4_compressor::decompress(rcv_buf data) {
             return std::move(data);
         }
     }
+}
+
 }
 
 }

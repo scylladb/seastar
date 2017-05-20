@@ -22,6 +22,8 @@
 #ifndef UTIL_TRANSFORM_ITERATOR_HH_
 #define UTIL_TRANSFORM_ITERATOR_HH_
 
+namespace seastar {
+
 template <typename Iterator, typename Func>
 class transform_iterator {
     Iterator _i;
@@ -51,6 +53,8 @@ inline
 transform_iterator<Iterator, Func>
 make_transform_iterator(Iterator i, Func f) {
     return transform_iterator<Iterator, Func>(i, f);
+}
+
 }
 
 #endif /* UTIL_TRANSFORM_ITERATOR_HH_ */

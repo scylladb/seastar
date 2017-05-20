@@ -25,6 +25,8 @@
 #include <boost/test/included/unit_test.hpp>
 #include "core/weak_ptr.hh"
 
+using namespace seastar;
+
 class myclass : public weakly_referencable<myclass> {};
 
 BOOST_AUTO_TEST_CASE(test_weak_ptr_is_empty_when_default_initialized) {

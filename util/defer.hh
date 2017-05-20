@@ -22,6 +22,8 @@
 #ifndef UTIL_DEFER_HH_
 #define UTIL_DEFER_HH_
 
+namespace seastar {
+
 template <typename Func>
 class deferred_action {
     Func _func;
@@ -49,6 +51,8 @@ inline
 deferred_action<Func>
 defer(Func&& func) {
     return deferred_action<Func>(std::forward<Func>(func));
+}
+
 }
 
 #endif /* UTIL_DEFER_HH_ */

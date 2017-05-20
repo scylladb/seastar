@@ -10,6 +10,8 @@
 
 #include "mime_types.hh"
 
+namespace seastar {
+
 namespace httpd {
 namespace mime_types {
 
@@ -43,3 +45,5 @@ const char* extension_to_type(const sstring& extension)
 } // namespace mime_types
 
 } // httpd
+
+}

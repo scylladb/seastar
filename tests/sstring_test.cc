@@ -25,6 +25,8 @@
 #include "core/sstring.hh"
 #include <list>
 
+using namespace seastar;
+
 BOOST_AUTO_TEST_CASE(test_equality) {
     BOOST_REQUIRE_EQUAL(sstring("aaa"), sstring("aaa"));
 }

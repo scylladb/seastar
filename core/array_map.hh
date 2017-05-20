@@ -24,6 +24,8 @@
 
 #include <array>
 
+namespace seastar {
+
 // unordered_map implemented as a simple array
 
 template <typename Value, size_t Max>
@@ -46,6 +48,6 @@ public:
     }
 };
 
-
+}
 
 #endif /* ARRAY_MAP_HH_ */

@@ -29,6 +29,7 @@
 #include "core/reactor.hh"
 #include "core/future.hh"
 
+namespace seastar {
 
 /// \file
 
@@ -77,4 +78,6 @@ future<> sleep_abortable(std::chrono::duration<Rep, Period> dur) {
             std::rethrow_exception(ep);
         } catch(condition_variable_timed_out&) {};
     });
+}
+
 }

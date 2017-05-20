@@ -25,6 +25,8 @@
 #include "handlers.hh"
 #include "file_handler.hh"
 
+namespace seastar {
+
 namespace httpd {
 
 /**
@@ -54,4 +56,7 @@ private:
 };
 
 }
+
+}
+
 #endif /* TRANSFORMERS_HH_ */

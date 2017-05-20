@@ -21,6 +21,9 @@
 
 #ifndef CONST_HH_
 #define CONST_HH_
+
+namespace seastar {
+
 namespace net {
 
 enum class ip_protocol_num : uint8_t {
@@ -38,4 +41,7 @@ const uint8_t ipv6_hdr_len_min = 40;
 const uint16_t ip_packet_len_max = 65535;
 
 }
+
+}
+
 #endif

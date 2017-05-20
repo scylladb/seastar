@@ -25,6 +25,8 @@
 #include <cstdint>
 #include <cstdlib>
 
+namespace seastar {
+
 template <typename T>
 inline constexpr
 T align_up(T v, T align) {
@@ -49,6 +51,8 @@ inline constexpr
 T* align_down(T* v, size_t align) {
     static_assert(sizeof(T) == 1, "align byte pointers only");
     return reinterpret_cast<T*>(align_down(reinterpret_cast<uintptr_t>(v), align));
+}
+
 }
 
 #endif /* ALIGN_HH_ */

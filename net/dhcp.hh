@@ -25,6 +25,8 @@
 #include "ip.hh"
 #include "core/reactor.hh"
 
+namespace seastar {
+
 namespace net {
 
 /*
@@ -77,6 +79,8 @@ private:
     class impl;
     std::unique_ptr<impl> _impl;
 };
+
+}
 
 }
 

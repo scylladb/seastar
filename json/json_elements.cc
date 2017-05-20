@@ -25,6 +25,8 @@
 #include <vector>
 #include <sstream>
 
+namespace seastar {
+
 using namespace std;
 
 namespace json {
@@ -108,6 +110,8 @@ bool json_base::is_verify() const {
         }
     }
     return true;
+}
+
 }
 
 }

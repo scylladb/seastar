@@ -4,6 +4,7 @@
 
 #include <random>
 
+using namespace seastar;
 using namespace net;
 
 SEASTAR_TEST_CASE(test_connection_attempt_is_shutdown) {

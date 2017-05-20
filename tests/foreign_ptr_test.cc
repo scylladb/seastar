@@ -25,6 +25,8 @@
 #include "core/shared_ptr.hh"
 #include "core/thread.hh"
 
+using namespace seastar;
+
 SEASTAR_TEST_CASE(make_foreign_ptr_from_lw_shared_ptr) {
     auto p = make_foreign(make_lw_shared<sstring>("foo"));
     BOOST_REQUIRE(p->size() == 3);

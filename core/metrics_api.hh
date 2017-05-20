@@ -50,7 +50,7 @@ struct hash<seastar::metrics::impl::labels_type> {
     result_type operator()(argument_type const& s) const {
         result_type h = 0;
         for (auto&& i : s) {
-            boost::hash_combine(h, std::hash<sstring>{}(i.second));
+            boost::hash_combine(h, std::hash<seastar::sstring>{}(i.second));
         }
         return h;
     }
@@ -133,8 +133,8 @@ struct hash<seastar::metrics::impl::metric_id>
     typedef ::std::size_t result_type;
     result_type operator()(argument_type const& s) const
     {
-        result_type const h1 ( std::hash<sstring>{}(s.group_name()) );
-        result_type const h2 ( std::hash<sstring>{}(s.instance_id()) );
+        result_type const h1 ( std::hash<seastar::sstring>{}(s.group_name()) );
+        result_type const h2 ( std::hash<seastar::sstring>{}(s.instance_id()) );
         return h1 ^ (h2 << 1); // or use boost::hash_combine
     }
 };

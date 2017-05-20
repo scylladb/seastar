@@ -28,6 +28,8 @@
 #include "core/future.hh"
 #include "test_runner.hh"
 
+namespace seastar {
+
 class seastar_test {
 public:
     seastar_test();
@@ -47,3 +49,5 @@ public:
     static name name ## _instance; \
     future<> name::run_test_case()
 
+
+}

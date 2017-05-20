@@ -83,6 +83,8 @@ typedef void    *MARKER[0];   /**< generic marker for a point in a structure */
 
 using namespace net;
 
+namespace seastar {
+
 namespace dpdk {
 
 /******************* Net device related constatns *****************************/
@@ -2301,6 +2303,8 @@ get_dpdk_net_options_description()
         ;
 #endif
     return opts;
+}
+
 }
 
 #endif // HAVE_DPDK

@@ -30,6 +30,8 @@
 #include <sstream>
 #include "core/sstring.hh"
 
+namespace seastar {
+
 namespace json {
 
 struct jsonable;
@@ -172,6 +174,8 @@ private:
     static constexpr const char* TIME_FORMAT = "%a %b %d %I:%M:%S %Z %Y";
 
 };
+
+}
 
 }
 #endif /* FORMATTER_HH_ */

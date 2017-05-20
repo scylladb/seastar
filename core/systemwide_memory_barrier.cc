@@ -24,6 +24,8 @@
 #include <unistd.h>
 #include <cassert>
 
+namespace seastar {
+
 // cause all threads to invoke a full memory barrier
 void
 systemwide_memory_barrier() {
@@ -47,3 +49,6 @@ systemwide_memory_barrier() {
     int r2 = mprotect(mem, getpagesize(), PROT_READ);
     assert(r2 == 0);
 }
+
+}
+

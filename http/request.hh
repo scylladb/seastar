@@ -37,6 +37,8 @@
 #include <strings.h>
 #include "common.hh"
 
+namespace seastar {
+
 namespace httpd {
 class connection;
 
@@ -115,5 +117,7 @@ struct request {
 };
 
 } // namespace httpd
+
+}
 
 #endif // HTTP_REQUEST_HPP

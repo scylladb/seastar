@@ -27,6 +27,7 @@
 #include <functional>
 #include <vector>
 
+namespace seastar {
 
 /// \defgroup memory-module Memory management
 ///
@@ -207,9 +208,11 @@ public:
     size_t alignment() const { return _align; }
 };
 
-void* operator new(size_t size, with_alignment wa);
-void* operator new[](size_t size, with_alignment wa);
-void operator delete(void* ptr, with_alignment wa);
-void operator delete[](void* ptr, with_alignment wa);
+}
+
+void* operator new(size_t size, seastar::with_alignment wa);
+void* operator new[](size_t size, seastar::with_alignment wa);
+void operator delete(void* ptr, seastar::with_alignment wa);
+void operator delete[](void* ptr, seastar::with_alignment wa);
 
 #endif /* MEMORY_HH_ */

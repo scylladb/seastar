@@ -45,6 +45,8 @@
 #include "reply.hh"
 #include "http/routes.hh"
 
+namespace seastar {
+
 namespace httpd {
 
 class http_server;
@@ -53,7 +55,7 @@ class http_stats;
 using namespace std::chrono_literals;
 
 class http_stats {
-    seastar::metrics::metric_groups _metric_groups;
+    metrics::metric_groups _metric_groups;
 public:
     http_stats(http_server& server, const sstring& name);
 };
@@ -453,6 +455,8 @@ public:
         return *_server_dist;
     }
 };
+
+}
 
 }
 

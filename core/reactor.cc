@@ -94,10 +94,11 @@
 #include "core/metrics.hh"
 #include "execution_stage.hh"
 
+namespace seastar {
+
 using namespace std::chrono_literals;
 
 using namespace net;
-using namespace seastar;
 
 seastar::logger seastar_logger("seastar");
 
@@ -1786,8 +1787,6 @@ reactor::touch_directory(sstring name) {
     });
 }
 
-namespace seastar {
-
 file_handle::file_handle(const file_handle& x)
         : _impl(x._impl ? x._impl->clone() : std::unique_ptr<file_handle_impl>()) {
 }
@@ -1810,8 +1809,6 @@ file_handle::to_file() const & {
 file
 file_handle::to_file() && {
     return file(std::move(*_impl).to_file());
-}
-
 }
 
 file::file(seastar::file_handle&& handle)
@@ -1860,7 +1857,7 @@ posix_file_handle_impl::clone() const {
 
 shared_ptr<file_impl>
 posix_file_handle_impl::to_file() && {
-    auto ret = ::make_shared<posix_file_impl>(_fd, _refcount);
+    auto ret = ::seastar::make_shared<posix_file_impl>(_fd, _refcount);
     _fd = -1;
     _refcount = nullptr;
     return ret;
@@ -3256,9 +3253,13 @@ void schedule_urgent(std::unique_ptr<task> t) {
     engine().add_urgent_task(std::move(t));
 }
 
+}
+
 bool operator==(const ::sockaddr_in a, const ::sockaddr_in b) {
     return (a.sin_addr.s_addr == b.sin_addr.s_addr) && (a.sin_port == b.sin_port);
 }
+
+namespace seastar {
 
 void network_stack_registry::register_stack(sstring name,
         boost::program_options::options_description opts,
@@ -4131,6 +4132,9 @@ network_stack_registrator nsr_posix{"posix",
 };
 
 #ifndef NO_EXCEPTION_INTERCEPT
+
+}
+
 #include <dlfcn.h>
 
 extern "C"
@@ -4143,11 +4147,13 @@ int _Unwind_RaiseException(void *h) {
     if (!org) {
         org = (throw_fn)dlsym (RTLD_NEXT, "_Unwind_RaiseException");
     }
-    if (local_engine) {
-        engine()._cxx_exceptions++;
+    if (seastar::local_engine) {
+        seastar::engine()._cxx_exceptions++;
     }
     return org(h);
 }
+
+namespace seastar {
 
 #endif
 
@@ -4157,4 +4163,6 @@ steady_clock_type::duration reactor::total_idle_time() {
 
 steady_clock_type::duration reactor::total_busy_time() {
     return steady_clock_type::now() - _start_time - _total_idle;
+}
+
 }

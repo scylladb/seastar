@@ -1,5 +1,7 @@
 #include "rpc.hh"
 
+namespace seastar {
+
 namespace rpc {
   no_wait_type no_wait;
 
@@ -27,4 +29,6 @@ namespace rpc {
           return boost::get<std::vector<temporary_buffer<char>>>(bufs).front();
       }
   }
+}
+
 }

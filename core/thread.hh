@@ -193,10 +193,10 @@ public:
     static bool should_yield();
 
     static bool running_in_thread() {
-        return seastar::thread_impl::get() != nullptr;
+        return thread_impl::get() != nullptr;
     }
 private:
-    friend class ::reactor;
+    friend class reactor;
     // To be used by seastar reactor only.
     static bool try_run_one_yielded_thread();
 };

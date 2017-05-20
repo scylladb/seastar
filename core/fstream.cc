@@ -27,6 +27,8 @@
 #include <malloc.h>
 #include <string.h>
 
+namespace seastar {
+
 class file_data_source_impl : public data_source_impl {
     struct issued_read {
         uint64_t _pos;
@@ -424,5 +426,7 @@ output_stream<char> make_file_output_stream(file f, size_t buffer_size) {
 
 output_stream<char> make_file_output_stream(file f, file_output_stream_options options) {
     return output_stream<char>(file_data_sink(std::move(f), options), options.buffer_size, true);
+}
+
 }
 

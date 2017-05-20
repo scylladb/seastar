@@ -31,6 +31,8 @@
 #include <type_traits>
 #include "fsqual.hh"
 
+namespace seastar {
+
 // Runs func(), and also adds the number of context switches
 // that happened during func() to counter.
 template <typename Counter, typename Func>
@@ -91,4 +93,6 @@ bool filesystem_has_good_aio_support(sstring directory, bool verbose) {
                   << " (" << verdict << ")\n";
     }
     return ok;
+}
+
 }

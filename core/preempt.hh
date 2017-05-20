@@ -22,6 +22,8 @@
 #pragma once
 #include <atomic>
 
+namespace seastar {
+
 extern __thread bool g_need_preempt;
 
 inline bool need_preempt() {
@@ -34,4 +36,4 @@ inline bool need_preempt() {
 #endif
 }
 
-
+}

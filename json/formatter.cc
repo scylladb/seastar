@@ -23,6 +23,8 @@
 #include "json_elements.hh"
 #include <cmath>
 
+namespace seastar {
+
 using namespace std;
 
 namespace json {
@@ -99,6 +101,8 @@ sstring formatter::to_json(const jsonable& obj) {
 
 sstring formatter::to_json(unsigned long l) {
     return to_string(l);
+}
+
 }
 
 }

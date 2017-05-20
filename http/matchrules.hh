@@ -29,6 +29,8 @@
 #include "core/sstring.hh"
 #include <vector>
 
+namespace seastar {
+
 namespace httpd {
 
 /**
@@ -112,6 +114,8 @@ private:
     std::vector<matcher*> _match_list;
     handler_base* _handler;
 };
+
+}
 
 }
 

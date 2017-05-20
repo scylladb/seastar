@@ -175,7 +175,7 @@ metric_groups_impl& metric_groups_impl::add_metric(group_name_type name, const m
     metric_id id(name, md._impl->name, md._impl->labels);
 
     shared_ptr<registered_metric> rm =
-            ::make_shared<registered_metric>(id, md._impl->type.base_type, md._impl->f, md._impl->d, md._impl->enabled);
+            ::seastar::make_shared<registered_metric>(id, md._impl->type.base_type, md._impl->f, md._impl->d, md._impl->enabled);
 
     get_local_impl()->add_registration(id, rm);
 

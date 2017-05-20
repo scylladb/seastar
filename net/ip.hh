@@ -43,6 +43,8 @@
 #include "net/udp.hh"
 #include "core/metrics_registration.hh"
 
+namespace seastar {
+
 namespace net {
 
 class ipv4;
@@ -108,14 +110,18 @@ std::ostream& operator<<(std::ostream& os, ipv4_address a);
 
 }
 
+}
+
 namespace std {
 
 template <>
-struct hash<net::ipv4_address> {
-    size_t operator()(net::ipv4_address a) const { return a.ip; }
+struct hash<seastar::net::ipv4_address> {
+    size_t operator()(seastar::net::ipv4_address a) const { return a.ip; }
 };
 
 }
+
+namespace seastar {
 
 namespace net {
 
@@ -363,7 +369,7 @@ private:
     timer<lowres_clock> _frag_timer;
     circular_buffer<l3_protocol::l3packet> _packetq;
     unsigned _pkt_provider_idx = 0;
-    seastar::metrics::metric_groups _metrics;
+    metrics::metric_groups _metrics;
 private:
     future<> handle_received_packet(packet p, ethernet_address from);
     bool forward(forward_hash& out_hash_data, packet& p, size_t off);
@@ -400,8 +406,8 @@ public:
     tcp<ipv4_traits>& get_tcp() { return *_tcp._tcp; }
     ipv4_udp& get_udp() { return _udp; }
     void register_l4(proto_type id, ip_protocol* handler);
-    const ::net::hw_features& hw_features() const { return _netif->hw_features(); }
-    static bool needs_frag(packet& p, ip_protocol_num proto_num, ::net::hw_features hw_features);
+    const net::hw_features& hw_features() const { return _netif->hw_features(); }
+    static bool needs_frag(packet& p, ip_protocol_num proto_num, net::hw_features hw_features);
     void learn(ethernet_address l2, ipv4_address l3) {
         _arp.learn(l2, l3);
     }
@@ -466,6 +472,8 @@ struct l4connid<InetTraits>::connid_hash : private std::hash<ipaddr>, private st
 };
 
 void arp_learn(ethernet_address l2, ipv4_address l3);
+
+}
 
 }
 

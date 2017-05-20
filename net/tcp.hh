@@ -46,6 +46,8 @@
 #define CRYPTOPP_ENABLE_NAMESPACE_WEAK 1
 #include <cryptopp/md5.h>
 
+namespace seastar {
+
 using namespace std::chrono_literals;
 
 namespace net {
@@ -520,7 +522,7 @@ private:
             return size;
         }
         uint16_t local_mss() {
-            return _tcp.hw_features().mtu - ::net::tcp_hdr_len_min - InetTraits::ip_hdr_len_min;
+            return _tcp.hw_features().mtu - net::tcp_hdr_len_min - InetTraits::ip_hdr_len_min;
         }
         void queue_packet(packet p) {
             _packetq.emplace_back(typename InetTraits::l4packet{_foreign_ip, std::move(p)});
@@ -631,7 +633,7 @@ private:
     // queue for packets that do not belong to any tcb
     circular_buffer<ipv4_traits::l4packet> _packetq;
     semaphore _queue_space = {212992};
-    seastar::metrics::metric_groups _metrics;
+    metrics::metric_groups _metrics;
 public:
     class connection {
         lw_shared_ptr<tcb> _tcb;
@@ -712,7 +714,7 @@ public:
     bool forward(forward_hash& out_hash_data, packet& p, size_t off);
     listener listen(uint16_t port, size_t queue_length = 100);
     connection connect(socket_address sa);
-    const ::net::hw_features& hw_features() const { return _inet._inet.hw_features(); }
+    const net::hw_features& hw_features() const { return _inet._inet.hw_features(); }
     future<> poll_tcb(ipaddr to, lw_shared_ptr<tcb> tcb);
     void add_connected_tcb(lw_shared_ptr<tcb> tcbp, uint16_t local_port) {
         auto it = _listening.find(local_port);
@@ -731,7 +733,7 @@ template <typename InetTraits>
 tcp<InetTraits>::tcp(inet_type& inet)
     : _inet(inet)
     , _e(_rd()) {
-    namespace sm = seastar::metrics;
+    namespace sm = metrics;
 
     _metrics.add_group("tcp", {
         sm::make_derive("linearizations", [] { return tcp_packet_merger::linearizations(); },
@@ -782,7 +784,7 @@ auto tcp<InetTraits>::connect(socket_address sa) -> connection {
     connid id;
     auto src_ip = _inet._inet.host_address();
     auto dst_ip = ipv4_address(sa);
-    auto dst_port = ::net::ntoh(sa.u.in.sin_port);
+    auto dst_port = net::ntoh(sa.u.in.sin_port);
 
     do {
         src_port = _port_dist(_e);
@@ -1524,9 +1526,9 @@ packet tcp<InetTraits>::tcb::get_transmit_packet() {
     uint32_t len;
     if (_tcp.hw_features().tx_tso) {
         // FIXME: Info tap device the size of the splitted packet
-        len = _tcp.hw_features().max_packet_len - ::net::tcp_hdr_len_min - InetTraits::ip_hdr_len_min;
+        len = _tcp.hw_features().max_packet_len - net::tcp_hdr_len_min - InetTraits::ip_hdr_len_min;
     } else {
-        len = std::min(uint16_t(_tcp.hw_features().mtu - ::net::tcp_hdr_len_min - InetTraits::ip_hdr_len_min), _snd.mss);
+        len = std::min(uint16_t(_tcp.hw_features().mtu - net::tcp_hdr_len_min - InetTraits::ip_hdr_len_min), _snd.mss);
     }
     can_send = std::min(can_send, len);
     // easy case: one small packet
@@ -2077,6 +2079,6 @@ typename tcp<InetTraits>::tcb::isn_secret tcp<InetTraits>::tcb::_isn_secret;
 
 }
 
-
+}
 
 #endif /* TCP_HH_ */

@@ -29,6 +29,8 @@
 #include "future-util.hh"
 #include "lowres_clock.hh"
 
+namespace seastar {
+
 template<typename T>
 struct dummy_expiry {
     void operator()(T&) noexcept {};
@@ -165,3 +167,5 @@ public:
         drop_expired_front();
     }
 };
+
+}

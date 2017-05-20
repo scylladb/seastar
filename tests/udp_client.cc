@@ -24,6 +24,7 @@
 #include "core/reactor.hh"
 #include "net/api.hh"
 
+using namespace seastar;
 using namespace net;
 using namespace std::chrono_literals;
 

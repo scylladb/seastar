@@ -28,6 +28,7 @@
 #include <utility>
 #include <algorithm>
 
+using namespace seastar;
 using namespace net;
 
 void dump_packet(const packet& p) {

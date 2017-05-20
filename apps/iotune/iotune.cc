@@ -44,9 +44,13 @@
 #include "core/aligned_buffer.hh"
 #include "util/defer.hh"
 
+using namespace seastar;
 using namespace std::chrono_literals;
 
+namespace seastar {
 bool filesystem_has_good_aio_support(sstring directory, bool verbose);
+}
+
 class iotune_manager;
 
 class iotune_timeout_exception : public std::exception {

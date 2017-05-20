@@ -25,6 +25,8 @@
 #include <functional>
 #include "json/json_elements.hh"
 
+namespace seastar {
+
 namespace httpd {
 
 /**
@@ -118,5 +120,7 @@ protected:
     future_handler_function _f_handle;
     sstring _type;
 };
+
+}
 
 }

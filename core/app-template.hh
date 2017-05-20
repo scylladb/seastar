@@ -27,6 +27,8 @@
 #include <core/future.hh>
 #include <core/sstring.hh>
 
+namespace seastar {
+
 class app_template {
 public:
     struct config {
@@ -62,5 +64,7 @@ public:
     // successfully.
     int run(int ac, char ** av, std::function<future<> ()>&& func);
 };
+
+}
 
 #endif

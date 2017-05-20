@@ -22,6 +22,8 @@
 #include "stack.hh"
 #include "core/reactor.hh"
 
+namespace seastar {
+
 net::udp_channel::udp_channel()
 {}
 
@@ -105,22 +107,22 @@ void connected_socket::shutdown_input() {
     _csi->shutdown_input();
 }
 
-seastar::socket::~socket()
+socket::~socket()
 {}
 
-seastar::socket::socket(
-        std::unique_ptr<::net::socket_impl> si)
+socket::socket(
+        std::unique_ptr<net::socket_impl> si)
         : _si(std::move(si)) {
 }
 
-seastar::socket::socket(seastar::socket&&) noexcept = default;
-seastar::socket& seastar::socket::operator=(seastar::socket&&) noexcept = default;
+socket::socket(socket&&) noexcept = default;
+socket& socket::operator=(socket&&) noexcept = default;
 
-future<connected_socket> seastar::socket::connect(socket_address sa, socket_address local, transport proto) {
+future<connected_socket> socket::connect(socket_address sa, socket_address local, transport proto) {
     return _si->connect(sa, local, proto);
 }
 
-void seastar::socket::shutdown() {
+void socket::shutdown() {
     _si->shutdown();
 }
 
@@ -156,4 +158,4 @@ bool socket_address::operator==(const socket_address& a) const {
                                     a.u.in.sin_addr.s_addr);
 }
 
-
+}

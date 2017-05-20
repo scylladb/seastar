@@ -25,6 +25,8 @@
 #include <atomic>
 #include "timer.hh"
 
+namespace seastar {
+
 class lowres_clock {
 public:
     typedef int64_t rep;
@@ -49,3 +51,6 @@ private:
     // High resolution timer expires every 10 milliseconds
     static constexpr std::chrono::milliseconds _granularity{10};
 };
+
+}
+

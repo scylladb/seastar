@@ -27,6 +27,8 @@
 #include <cstddef>
 #include <arpa/inet.h>
 
+namespace seastar {
+
 namespace net {
 
 uint16_t ip_checksum(const void* data, size_t len);
@@ -68,6 +70,8 @@ struct checksummer {
     }
     uint16_t get() const;
 };
+
+}
 
 }
 

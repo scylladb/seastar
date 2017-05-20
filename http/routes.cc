@@ -23,6 +23,8 @@
 #include "reply.hh"
 #include "exception.hh"
 
+namespace seastar {
+
 namespace httpd {
 
 using namespace std;
@@ -139,6 +141,8 @@ routes& routes::add(operation_type type, const url& url,
         rule->add_param(url._param, true);
     }
     return add(rule, type);
+}
+
 }
 
 }

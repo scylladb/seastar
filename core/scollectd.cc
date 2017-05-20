@@ -34,6 +34,8 @@
 #include "core/metrics_api.hh"
 #include "core/byteorder.hh"
 
+namespace seastar {
+
 bool scollectd::type_instance_id::operator<(
         const scollectd::type_instance_id& id2) const {
     auto& id1 = *this;
@@ -53,7 +55,7 @@ bool scollectd::type_instance_id::operator==(
 
 namespace scollectd {
 
-seastar::logger logger("scollectd");
+::seastar::logger logger("scollectd");
 thread_local unsigned type_instance_id::_next_truncated_idx = 0;
 
 registration::~registration() {
@@ -945,8 +947,10 @@ type_id type_id_for(known_type t) {
     }
 }
 
-seastar::metrics::impl::value_map get_value_map() {
-    return seastar::metrics::impl::get_value_map();
+metrics::impl::value_map get_value_map() {
+    return metrics::impl::get_value_map();
+}
+
 }
 
 }

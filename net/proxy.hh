@@ -22,9 +22,14 @@
 #include "net.hh"
 #include "packet.hh"
 
+namespace seastar {
+
 namespace net {
 
 std::unique_ptr<qp> create_proxy_net_device(unsigned master_cpu, device* dev);
 
 }
+
+}
+
 #endif

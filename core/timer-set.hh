@@ -21,9 +21,10 @@
 #include <boost/intrusive/list.hpp>
 #include "bitset-iter.hh"
 
+namespace seastar {
+
 namespace bi = boost::intrusive;
 
-namespace seastar {
 /**
  * A data structure designed for holding and expiring timers. It's
  * optimized for timer non-delivery by deferring sorting cost until

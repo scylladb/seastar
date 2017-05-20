@@ -34,6 +34,8 @@
 #include "rpc/rpc_types.hh"
 #include "core/byteorder.hh"
 
+namespace seastar {
+
 namespace rpc {
 
 using id_type = int64_t;
@@ -345,7 +347,7 @@ public:
         rpc_semaphore _resources_available;
         std::unordered_set<lw_shared_ptr<connection>> _conns;
         promise<> _ss_stopped;
-        seastar::gate _reply_gate;
+        gate _reply_gate;
         server_options _options;
     public:
         server(protocol& proto, ipv4_addr addr, resource_limits memory_limit = resource_limits());
@@ -370,14 +372,14 @@ public:
                 f(*c);
             }
         }
-        seastar::gate& reply_gate() {
+        gate& reply_gate() {
             return _reply_gate;
         }
         friend connection;
     };
 
     class client : public protocol::connection {
-        ::seastar::socket _socket;
+        socket _socket;
         id_type _message_id = 1;
         struct reply_handler_base {
             timer<rpc_clock_type> t;
@@ -443,8 +445,8 @@ public:
          * @param local the local address of this client
          * @param socket the socket object use to connect to the remote address
          */
-        client(protocol& proto, seastar::socket socket, ipv4_addr addr, ipv4_addr local = ipv4_addr());
-        client(protocol& proto, client_options options, seastar::socket socket, ipv4_addr addr, ipv4_addr local = ipv4_addr());
+        client(protocol& proto, socket socket, ipv4_addr addr, ipv4_addr local = ipv4_addr());
+        client(protocol& proto, client_options options, socket socket, ipv4_addr addr, ipv4_addr local = ipv4_addr());
 
         stats get_stats() const {
             stats res = this->_stats;
@@ -545,6 +547,8 @@ private:
     template <typename FrameType, typename Info>
     typename FrameType::return_type read_frame_compressed(const Info& info, std::unique_ptr<compressor>& compressor, input_stream<char>& in);
 };
+}
+
 }
 
 #include "rpc_impl.hh"

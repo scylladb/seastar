@@ -8,6 +8,8 @@
 #include "core/scollectd.hh"
 #include "core/metrics_api.hh"
 
+namespace seastar {
+
 namespace scollectd {
 
 using collectd_value  = seastar::metrics::impl::metric_value;
@@ -28,7 +30,9 @@ bool is_enabled(const scollectd::type_instance_id& id);
 void enable(const scollectd::type_instance_id& id, bool enable);
 
 
-seastar::metrics::impl::value_map get_value_map();
+metrics::impl::value_map get_value_map();
+}
+
 }
 
 #endif /* CORE_SCOLLECTD_API_HH_ */

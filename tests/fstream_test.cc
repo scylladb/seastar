@@ -36,6 +36,8 @@
 #include <boost/algorithm/cxx11/any_of.hpp>
 #include "mock_file.hh"
 
+using namespace seastar;
+
 struct writer {
     output_stream<char> out;
     writer(file f) : out(make_file_output_stream(std::move(f))) {}

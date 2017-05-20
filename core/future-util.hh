@@ -37,6 +37,8 @@
 #include <experimental/optional>
 #include "util/tuple_utils.hh"
 
+namespace seastar {
+
 /// \cond internal
 extern __thread size_t task_quota;
 /// \endcond
@@ -403,7 +405,6 @@ future<> do_for_each(Container& c, AsyncAction&& action) {
 }
 
 /// \cond internal
-namespace seastar {
 namespace internal {
 
 template<typename... Futures>
@@ -447,10 +448,7 @@ public:
 };
 
 }
-}
 /// \endcond
-
-namespace seastar {
 
 GCC6_CONCEPT(
 
@@ -480,8 +478,6 @@ concept bool AllAreFutures = impl::is_tuple_of_futures<std::tuple<Futs...>>::val
 
 )
 
-}
-
 
 /// Wait for many futures to complete, capturing possible errors (variadic version).
 ///
@@ -497,14 +493,13 @@ GCC6_CONCEPT( requires seastar::AllAreFutures<Futs...> )
 inline
 future<std::tuple<Futs...>>
 when_all(Futs&&... futs) {
-    namespace si = seastar::internal;
+    namespace si = internal;
     using state = si::when_all_state<si::identity_futures_tuple<Futs...>, Futs...>;
     auto s = make_lw_shared<state>(std::forward<Futs>(futs)...);
     return s->wait_all(std::make_index_sequence<sizeof...(Futs)>());
 }
 
 /// \cond internal
-namespace seastar {
 namespace internal {
 
 template <typename Iterator, typename IteratorCategory>
@@ -564,7 +559,6 @@ do_when_all(FutureIterator begin, FutureIterator end) {
 }
 
 }
-}
 /// \endcond
 
 /// Wait for many futures to complete, capturing possible errors (iterator version).
@@ -582,7 +576,7 @@ GCC6_CONCEPT( requires requires (FutureIterator i) { { *i++ }; requires is_futur
 inline
 future<std::vector<typename std::iterator_traits<FutureIterator>::value_type>>
 when_all(FutureIterator begin, FutureIterator end) {
-    namespace si = seastar::internal;
+    namespace si = internal;
     using itraits = std::iterator_traits<FutureIterator>;
     using result_transform = si::identity_futures_vector<typename itraits::value_type>;
     return si::do_when_all<result_transform>(std::move(begin), std::move(end));
@@ -847,8 +841,6 @@ future<T...> with_timeout(std::chrono::time_point<Clock, Duration> timeout, futu
     });
     return result;
 }
-
-namespace seastar {
 
 namespace internal {
 

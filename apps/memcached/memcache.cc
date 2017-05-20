@@ -48,11 +48,12 @@
 #define VERSION "v1.0"
 #define VERSION_STRING PLATFORM " " VERSION
 
+using namespace seastar;
 using namespace net;
 
-namespace bi = boost::intrusive;
-
 namespace memcache {
+
+namespace bi = boost::intrusive;
 
 static constexpr double default_slab_growth_factor = 1.25;
 static constexpr uint64_t default_slab_page_size = 1UL*MB;

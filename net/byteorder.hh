@@ -28,6 +28,8 @@
 
 #include "core/unaligned.hh"
 
+namespace seastar {
+
 inline uint64_t ntohq(uint64_t v) {
     return __builtin_bswap64(v);
 }
@@ -113,6 +115,8 @@ T hton(const T& x) {
     T tmp = x;
     tmp.adjust_endianness([] (auto&&... what) { hton_inplace(std::forward<decltype(what)&>(what)...); });
     return tmp;
+}
+
 }
 
 }

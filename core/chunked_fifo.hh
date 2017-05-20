@@ -21,6 +21,8 @@
 
 #pragma once
 
+namespace seastar {
+
 // An unbounded FIFO queue of objects of type T.
 //
 // It provides operations to push items in one end of the queue, and pop them
@@ -461,4 +463,6 @@ void chunked_fifo<T, items_per_chunk>::reserve(size_t n) {
         _free_chunks = c;
         ++_nfree_chunks;
     }
+}
+
 }

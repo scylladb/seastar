@@ -23,6 +23,8 @@
 #include "net.hh"
 #include <arpa/inet.h>
 
+namespace seastar {
+
 namespace net {
 
 void checksummer::sum(const char* data, size_t len) {
@@ -70,5 +72,7 @@ uint16_t ip_checksum(const void* data, size_t len) {
     return cksum.get();
 }
 
+
+}
 
 }

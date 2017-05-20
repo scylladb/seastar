@@ -26,6 +26,8 @@
 #include <netinet/tcp.h>
 #include <netinet/sctp.h>
 
+namespace seastar {
+
 namespace net {
 
 using namespace seastar;
@@ -487,6 +489,8 @@ posix_udp_channel::receive() {
         delete[] p;
         return make_exception_future<udp_datagram>(std::move(ep));
     });
+}
+
 }
 
 }

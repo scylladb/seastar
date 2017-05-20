@@ -33,6 +33,8 @@
 #include <unordered_set>
 #include <cmath>
 
+namespace seastar {
+
 /// \addtogroup io-module
 /// @{
 
@@ -227,3 +229,5 @@ public:
     }
 };
 /// @}
+
+}

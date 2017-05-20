@@ -29,6 +29,7 @@
 #include "core/thread.hh"
 #include <boost/iterator/counting_iterator.hpp>
 
+using namespace seastar;
 using namespace std::chrono_literals;
 
 class expected_exception : std::runtime_error {

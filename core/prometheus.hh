@@ -23,6 +23,8 @@
 
 #include "http/httpd.hh"
 
+namespace seastar {
+
 namespace prometheus {
 
 /*!
@@ -35,4 +37,6 @@ struct config {
 };
 
 future<> start(httpd::http_server_control& http_server, config ctx);
+}
+
 }

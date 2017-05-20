@@ -24,6 +24,8 @@
 #include <atomic>
 #include <xmmintrin.h>
 
+namespace seastar {
+
 namespace util {
 
 // Spin lock implementation.
@@ -45,5 +47,7 @@ public:
         _busy.store(false, std::memory_order_release);
     }
 };
+
+}
 
 }

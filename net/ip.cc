@@ -27,6 +27,8 @@
 #include "toeplitz.hh"
 #include "core/metrics.hh"
 
+namespace seastar {
+
 namespace net {
 
 std::ostream& operator<<(std::ostream& os, ipv4_address a) {
@@ -471,6 +473,8 @@ void icmp::received(packet p, ipaddr from, ipaddr to) {
             _packetq.emplace_back(ipv4_traits::l4packet{from, std::move(p), e_dst, ip_protocol_num::icmp});
         });
     }
+}
+
 }
 
 }

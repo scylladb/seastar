@@ -84,6 +84,8 @@
 
 extern "C" int _Unwind_RaiseException(void *h);
 
+namespace seastar {
+
 using shard_id = unsigned;
 
 
@@ -158,6 +160,7 @@ private:
     std::unique_ptr<pollable_fd_state> _s;
 };
 
+}
 
 namespace std {
 
@@ -171,6 +174,8 @@ struct hash<::sockaddr_in> {
 }
 
 bool operator==(const ::sockaddr_in a, const ::sockaddr_in b);
+
+namespace seastar {
 
 class network_stack_registrator {
 public:
@@ -303,7 +308,7 @@ class smp_message_queue {
     // this makes sure that they have at least one cache line
     // between them, so hw prefecther will not accidentally prefetch
     // cache line used by aother cpu.
-    seastar::metrics::metric_groups _metrics;
+    metrics::metric_groups _metrics;
     struct alignas(64) {
         size_t _received = 0;
         size_t _last_rcv_batch = 0;
@@ -529,7 +534,7 @@ private:
         uint64_t ops;
         uint32_t nr_queued;
         std::chrono::duration<double> queue_time;
-        seastar::metrics::metric_groups _metric_groups;
+        metrics::metric_groups _metric_groups;
         priority_class_data(sstring name, priority_class_ptr ptr, shard_id owner);
     };
 
@@ -700,12 +705,12 @@ private:
     unsigned _tasks_processed_report_threshold;
 
     unsigned _max_task_backlog = 1000;
-    seastar::timer_set<timer<>, &timer<>::_link> _timers;
-    seastar::timer_set<timer<>, &timer<>::_link>::timer_list_t _expired_timers;
-    seastar::timer_set<timer<lowres_clock>, &timer<lowres_clock>::_link> _lowres_timers;
-    seastar::timer_set<timer<lowres_clock>, &timer<lowres_clock>::_link>::timer_list_t _expired_lowres_timers;
-    seastar::timer_set<timer<manual_clock>, &timer<manual_clock>::_link> _manual_timers;
-    seastar::timer_set<timer<manual_clock>, &timer<manual_clock>::_link>::timer_list_t _expired_manual_timers;
+    timer_set<timer<>, &timer<>::_link> _timers;
+    timer_set<timer<>, &timer<>::_link>::timer_list_t _expired_timers;
+    timer_set<timer<lowres_clock>, &timer<lowres_clock>::_link> _lowres_timers;
+    timer_set<timer<lowres_clock>, &timer<lowres_clock>::_link>::timer_list_t _expired_lowres_timers;
+    timer_set<timer<manual_clock>, &timer<manual_clock>::_link> _manual_timers;
+    timer_set<timer<manual_clock>, &timer<manual_clock>::_link>::timer_list_t _expired_manual_timers;
     io_context_t _io_context;
     std::vector<struct ::iocb> _pending_aio;
     semaphore _io_context_available;
@@ -816,13 +821,13 @@ public:
     server_socket listen(socket_address sa, listen_options opts = {});
 
     future<connected_socket> connect(socket_address sa);
-    future<connected_socket> connect(socket_address, socket_address, seastar::transport proto = seastar::transport::TCP);
+    future<connected_socket> connect(socket_address, socket_address, transport proto = transport::TCP);
 
     pollable_fd posix_listen(socket_address sa, listen_options opts = {});
 
     bool posix_reuseport_available() const { return _reuseport; }
 
-    lw_shared_ptr<pollable_fd> make_pollable_fd(socket_address sa, seastar::transport proto = seastar::transport::TCP);
+    lw_shared_ptr<pollable_fd> make_pollable_fd(socket_address sa, transport proto = transport::TCP);
     future<> posix_connect(lw_shared_ptr<pollable_fd> pfd, socket_address sa, socket_address local);
 
     future<pollable_fd, socket_address> accept(pollable_fd_state& listen_fd);
@@ -946,8 +951,8 @@ private:
     friend class smp_message_queue;
     friend class poller;
     friend void add_to_flush_poller(output_stream<char>* os);
-    friend int _Unwind_RaiseException(void *h);
-    seastar::metrics::metric_groups _metric_groups;
+    friend int ::_Unwind_RaiseException(void *h);
+    metrics::metric_groups _metric_groups;
 public:
     bool wait_and_process(int timeout = 0, const sigset_t* active_sigmask = nullptr) {
         return _backend.wait_and_process(timeout, active_sigmask);
@@ -1419,6 +1424,8 @@ typename timer<Clock>::time_point timer<Clock>::get_timeout() {
     return _expiry;
 }
 
-extern seastar::logger seastar_logger;
+extern logger seastar_logger;
+
+}
 
 #endif /* REACTOR_HH_ */

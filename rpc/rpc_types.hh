@@ -32,6 +32,8 @@
 #include "core/simple-stream.hh"
 #include "core/lowres_clock.hh"
 
+namespace seastar {
+
 namespace rpc {
 
 using rpc_clock_type = lowres_clock;
@@ -180,13 +182,13 @@ struct snd_buf {
     temporary_buffer<char>& front();
 };
 
-static inline seastar::memory_input_stream<rcv_buf::iterator> make_deserializer_stream(rcv_buf& input) {
+static inline memory_input_stream<rcv_buf::iterator> make_deserializer_stream(rcv_buf& input) {
     auto* b = boost::get<temporary_buffer<char>>(&input.bufs);
     if (b) {
-        return seastar::memory_input_stream<rcv_buf::iterator>(seastar::memory_input_stream<rcv_buf::iterator>::simple(b->begin(), b->size()));
+        return memory_input_stream<rcv_buf::iterator>(memory_input_stream<rcv_buf::iterator>::simple(b->begin(), b->size()));
     } else {
         auto& ar = boost::get<std::vector<temporary_buffer<char>>>(input.bufs);
-        return seastar::memory_input_stream<rcv_buf::iterator>(seastar::memory_input_stream<rcv_buf::iterator>::fragmented(ar.begin(), input.size));
+        return memory_input_stream<rcv_buf::iterator>(memory_input_stream<rcv_buf::iterator>::fragmented(ar.begin(), input.size));
     }
 }
 
@@ -210,3 +212,6 @@ public:
 };
 
 } // namespace rpc
+
+}
+

@@ -32,6 +32,8 @@
 #include <experimental/optional>
 #include <functional>
 
+namespace seastar {
+
 namespace net {
 
 struct fragment {
@@ -613,6 +615,8 @@ packet packet::share(size_t offset, size_t len) {
     assert(!n._impl->_deleter);
     n._impl->_deleter = _impl->_deleter.share();
     return n;
+}
+
 }
 
 }

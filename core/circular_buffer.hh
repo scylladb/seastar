@@ -37,6 +37,8 @@
 #include <memory>
 #include <algorithm>
 
+namespace seastar {
+
 template <typename T, typename Alloc = std::allocator<T>>
 class circular_buffer {
     struct impl : Alloc {
@@ -438,6 +440,8 @@ circular_buffer<T, Alloc>::erase(iterator first, iterator last) {
         _impl.end = new_end.idx;
         return first;
     }
+}
+
 }
 
 #endif /* CIRCULAR_BUFFER_HH_ */

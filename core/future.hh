@@ -35,6 +35,8 @@
 #include "function_traits.hh"
 #include "../util/gcc6-concepts.hh"
 
+namespace seastar {
+
 /// \defgroup future-module Futures and Promises
 ///
 /// \brief
@@ -73,6 +75,9 @@ class promise;
 
 template <class... T>
 class future;
+
+template <typename... T>
+class shared_future;
 
 /// \brief Creates a \ref future in an available, value state.
 ///
@@ -648,8 +653,6 @@ using futurize_t = typename futurize<T>::type;
 
 /// @}
 
-namespace seastar {
-
 GCC6_CONCEPT(
 
 template <typename T>
@@ -671,8 +674,6 @@ concept bool ApplyReturnsAnyFuture = requires (Func f, T... args) {
 };
 
 )
-
-}
 
 /// \addtogroup future-module
 /// @{
@@ -721,7 +722,7 @@ private:
     template <typename Func>
     void schedule(Func&& func) {
         if (state()->available()) {
-            ::schedule(std::make_unique<continuation<Func, T...>>(std::move(func), std::move(*state())));
+            ::seastar::schedule(std::make_unique<continuation<Func, T...>>(std::move(func), std::move(*state())));
         } else {
             assert(_promise);
             _promise->schedule(std::move(func));
@@ -811,8 +812,8 @@ public:
     std::tuple<T...> get() {
         if (!state()->available()) {
             wait();
-        } else if (seastar::thread_impl::get() && seastar::thread_impl::should_yield()) {
-            seastar::thread_impl::yield();
+        } else if (thread_impl::get() && thread_impl::should_yield()) {
+            thread_impl::yield();
         }
         return get_available_state().get();
     }
@@ -836,13 +837,13 @@ public:
 
     /// \cond internal
     void wait() {
-        auto thread = seastar::thread_impl::get();
+        auto thread = thread_impl::get();
         assert(thread);
         schedule([this, thread] (future_state<T...>&& new_state) {
             *state() = std::move(new_state);
-            seastar::thread_impl::switch_in(thread);
+            thread_impl::switch_in(thread);
         });
-        seastar::thread_impl::switch_out(thread);
+        thread_impl::switch_out(thread);
     }
     /// \endcond
 
@@ -878,7 +879,7 @@ public:
     /// \return a \c future representing the return value of \c func, applied
     ///         to the eventual value of this future.
     template <typename Func, typename Result = futurize_t<std::result_of_t<Func(T&&...)>>>
-    GCC6_CONCEPT( requires seastar::CanApply<Func, T...> )
+    GCC6_CONCEPT( requires ::seastar::CanApply<Func, T...> )
     Result
     then(Func&& func) noexcept {
         using futurator = futurize<std::result_of_t<Func(T&&...)>>;
@@ -925,7 +926,7 @@ public:
     /// \return a \c future representing the return value of \c func, applied
     ///         to the eventual value of this future.
     template <typename Func, typename Result = futurize_t<std::result_of_t<Func(future)>>>
-    GCC6_CONCEPT( requires seastar::CanApply<Func, future> )
+    GCC6_CONCEPT( requires ::seastar::CanApply<Func, future> )
     Result
     then_wrapped(Func&& func) noexcept {
         using futurator = futurize<std::result_of_t<Func(future)>>;
@@ -985,7 +986,7 @@ public:
      * nested will be propagated.
      */
     template <typename Func>
-    GCC6_CONCEPT( requires seastar::CanApply<Func> )
+    GCC6_CONCEPT( requires ::seastar::CanApply<Func> )
     future<T...> finally(Func&& func) noexcept {
         return then_wrapped(finally_body<Func, is_future<std::result_of_t<Func()>>::value>(std::forward<Func>(func)));
     }
@@ -1072,9 +1073,9 @@ public:
     /// future<>, the handler function does not need to return anything.
     template <typename Func>
     /* Broken?
-    GCC6_CONCEPT( requires seastar::ApplyReturns<Func, future<T...>, std::exception_ptr>
-                    || (sizeof...(T) == 0 && seastar::ApplyReturns<Func, void, std::exception_ptr>)
-                    || (sizeof...(T) == 1 && seastar::ApplyReturns<Func, T..., std::exception_ptr>)
+    GCC6_CONCEPT( requires ::seastar::ApplyReturns<Func, future<T...>, std::exception_ptr>
+                    || (sizeof...(T) == 0 && ::seastar::ApplyReturns<Func, void, std::exception_ptr>)
+                    || (sizeof...(T) == 1 && ::seastar::ApplyReturns<Func, T..., std::exception_ptr>)
     ) */
     future<T...> handle_exception(Func&& func) noexcept {
         using func_ret = std::result_of_t<Func(std::exception_ptr)>;
@@ -1162,9 +1163,9 @@ void promise<T...>::make_ready() noexcept {
     if (_task) {
         _state = nullptr;
         if (Urgent == urgent::yes && !need_preempt()) {
-            ::schedule_urgent(std::move(_task));
+            ::seastar::schedule_urgent(std::move(_task));
         } else {
-            ::schedule(std::move(_task));
+            ::seastar::schedule(std::move(_task));
         }
     }
 }
@@ -1222,7 +1223,7 @@ template<typename T>
 template<typename Func, typename... FuncArgs>
 typename futurize<T>::type futurize<T>::apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
     try {
-        return convert(::apply(std::forward<Func>(func), std::move(args)));
+        return convert(::seastar::apply(std::forward<Func>(func), std::move(args)));
     } catch (...) {
         return make_exception_future(std::current_exception());
     }
@@ -1266,7 +1267,7 @@ inline
 std::enable_if_t<!is_future<std::result_of_t<Func(FuncArgs&&...)>>::value, future<>>
 do_void_futurize_apply_tuple(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
     try {
-        ::apply(std::forward<Func>(func), std::move(args));
+        ::seastar::apply(std::forward<Func>(func), std::move(args));
         return make_ready_future<>();
     } catch (...) {
         return make_exception_future(std::current_exception());
@@ -1278,7 +1279,7 @@ inline
 std::enable_if_t<is_future<std::result_of_t<Func(FuncArgs&&...)>>::value, future<>>
 do_void_futurize_apply_tuple(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
     try {
-        return ::apply(std::forward<Func>(func), std::move(args));
+        return ::seastar::apply(std::forward<Func>(func), std::move(args));
     } catch (...) {
         return make_exception_future(std::current_exception());
     }
@@ -1298,7 +1299,7 @@ template<typename... Args>
 template<typename Func, typename... FuncArgs>
 typename futurize<future<Args...>>::type futurize<future<Args...>>::apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
     try {
-        return ::apply(std::forward<Func>(func), std::move(args));
+        return ::seastar::apply(std::forward<Func>(func), std::move(args));
     } catch (...) {
         return make_exception_future(std::current_exception());
     }
@@ -1319,7 +1320,7 @@ template <typename Arg>
 inline
 future<T>
 futurize<T>::make_exception_future(Arg&& arg) {
-    return ::make_exception_future<T>(std::forward<Arg>(arg));
+    return ::seastar::make_exception_future<T>(std::forward<Arg>(arg));
 }
 
 template <typename... T>
@@ -1327,14 +1328,14 @@ template <typename Arg>
 inline
 future<T...>
 futurize<future<T...>>::make_exception_future(Arg&& arg) {
-    return ::make_exception_future<T...>(std::forward<Arg>(arg));
+    return ::seastar::make_exception_future<T...>(std::forward<Arg>(arg));
 }
 
 template <typename Arg>
 inline
 future<>
 futurize<void>::make_exception_future(Arg&& arg) {
-    return ::make_exception_future<>(std::forward<Arg>(arg));
+    return ::seastar::make_exception_future<>(std::forward<Arg>(arg));
 }
 
 template <typename T>
@@ -1370,5 +1371,7 @@ auto futurize_apply(Func&& func, Args&&... args) {
 }
 
 /// \endcond
+
+}
 
 #endif /* FUTURE_HH_ */

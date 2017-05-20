@@ -43,6 +43,8 @@
 
 #include "core/metrics_api.hh"
 
+namespace seastar {
+
 /**
  * Implementation of rudimentary collectd data gathering.
  *
@@ -449,7 +451,7 @@ struct typed_value {
 private:
     type_id _type_id;
     scollectd::type_instance _type_instance;
-    ::shared_ptr<value_list> _values;
+    shared_ptr<value_list> _values;
 };
 
 class plugin_instance_metrics {
@@ -793,7 +795,7 @@ template<typename Arg>
         Arg&& arg, bool enabled = true) {
     namespace sm = seastar::metrics::impl;
     shared_ptr<sm::registered_metric> rm =
-                ::make_shared<sm::registered_metric>(arg.type, sm::make_function(arg.value, arg.type), d, enabled);
+                make_shared<sm::registered_metric>(arg.type, sm::make_function(arg.value, arg.type), d, enabled);
     seastar::metrics::impl::get_local_impl()->add_registration(to_metrics_id(id), rm);
     return id;
 }
@@ -843,11 +845,13 @@ template<typename... Args>
 typed_value::typed_value(const type_id& tid, const scollectd::type_instance& ti, description d, Args&&... args)
     : _type_id(tid)
     , _type_instance(ti)
-    , _values(::make_shared<decltype(make_type_instance(std::move(d), std::forward<Args>(args)...))>(make_type_instance(std::move(d), std::forward<Args>(args)...)))
+    , _values(::seastar::make_shared<decltype(make_type_instance(std::move(d), std::forward<Args>(args)...))>(make_type_instance(std::move(d), std::forward<Args>(args)...)))
 {}
 
 // Send a message packet (string)
 future<> send_notification(const type_instance_id & id, const sstring & msg);
 };
+
+}
 
 #endif /* SCOLLECTD_HH_ */

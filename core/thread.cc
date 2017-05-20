@@ -260,10 +260,10 @@ thread_context::yield() {
 }
 
 bool thread::try_run_one_yielded_thread() {
-    if (seastar::thread_context::_preempted_threads.empty()) {
+    if (thread_context::_preempted_threads.empty()) {
         return false;
     }
-    auto&& t = seastar::thread_context::_preempted_threads.front();
+    auto&& t = thread_context::_preempted_threads.front();
     t._sched_timer.cancel();
     t._sched_promise->set_value();
     thread_context::_preempted_threads.pop_front();

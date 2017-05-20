@@ -28,6 +28,8 @@
 #include "core/posix.hh"
 #include "exchanger.hh"
 
+namespace seastar {
+
 class posix_thread;
 
 class test_runner {
@@ -43,3 +45,5 @@ public:
 };
 
 test_runner& global_test_runner();
+
+}

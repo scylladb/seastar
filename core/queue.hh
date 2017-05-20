@@ -27,6 +27,8 @@
 #include <queue>
 #include <experimental/optional>
 
+namespace seastar {
+
 template <typename T>
 class queue {
     std::queue<T, circular_buffer<T>> _q;
@@ -233,6 +235,8 @@ future<> queue<T>::not_full() {
         _not_full = promise<>();
         return _not_full->get_future();
     }
+}
+
 }
 
 #endif /* QUEUE_HH_ */

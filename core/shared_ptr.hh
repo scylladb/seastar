@@ -30,6 +30,8 @@
 #include "util/is_smart_ptr.hh"
 #include "util/indirect.hh"
 
+namespace seastar {
+
 // This header defines two shared pointer facilities, lw_shared_ptr<> and
 // shared_ptr<>, both modeled after std::shared_ptr<>.
 //
@@ -704,28 +706,34 @@ using shared_ptr_equal_by_value = indirect_equal_to<shared_ptr<T>>;
 template<typename T>
 using shared_ptr_value_hash = indirect_hash<shared_ptr<T>>;
 
+}
+
 namespace std {
 
 template <typename T>
-struct hash<lw_shared_ptr<T>> : private hash<T*> {
-    size_t operator()(const lw_shared_ptr<T>& p) const {
+struct hash<seastar::lw_shared_ptr<T>> : private hash<T*> {
+    size_t operator()(const seastar::lw_shared_ptr<T>& p) const {
         return hash<T*>::operator()(p.get());
     }
 };
 
 template <typename T>
-struct hash<::shared_ptr<T>> : private hash<T*> {
-    size_t operator()(const ::shared_ptr<T>& p) const {
+struct hash<seastar::shared_ptr<T>> : private hash<T*> {
+    size_t operator()(const seastar::shared_ptr<T>& p) const {
         return hash<T*>::operator()(p.get());
     }
 };
 
 }
 
-template<typename T>
-struct is_smart_ptr<::shared_ptr<T>> : std::true_type {};
+namespace seastar {
 
 template<typename T>
-struct is_smart_ptr<::lw_shared_ptr<T>> : std::true_type {};
+struct is_smart_ptr<shared_ptr<T>> : std::true_type {};
+
+template<typename T>
+struct is_smart_ptr<lw_shared_ptr<T>> : std::true_type {};
+
+}
 
 #endif /* SHARED_PTR_HH_ */

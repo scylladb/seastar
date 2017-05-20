@@ -23,6 +23,8 @@
 #include <memory>
 #include <unordered_map>
 
+namespace seastar {
+
 struct http_response {
     sstring _version;
     std::unordered_map<sstring, sstring> _headers;
@@ -127,3 +129,5 @@ public:
         return _state == state::eof;
     }
 };
+
+}

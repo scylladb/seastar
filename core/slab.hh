@@ -34,6 +34,8 @@
 #include "core/align.hh"
 #include "core/memory.hh"
 
+namespace seastar {
+
 static constexpr uint16_t SLAB_MAGIC_NUMBER = 0x51AB; // meant to be 'SLAB' :-)
 
 namespace bi = boost::intrusive;
@@ -564,5 +566,7 @@ public:
         return (slab_class) ? slab_class->size() : 0;
     }
 };
+
+}
 
 #endif /* __SLAB_ALLOCATOR__ */

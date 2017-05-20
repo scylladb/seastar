@@ -24,6 +24,8 @@
 #include "core/future-util.hh"
 #include "core/semaphore.hh"
 
+namespace seastar {
+
 /// \addtogroup fiber-module
 /// @{
 
@@ -174,3 +176,5 @@ public:
 };
 
 /// @}
+
+}

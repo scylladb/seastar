@@ -23,6 +23,7 @@
 #include "core/reactor.hh"
 #include "net/virtio.hh"
 
+using namespace seastar;
 using namespace net;
 
 void dump_arp_packets(l3_protocol& proto) {

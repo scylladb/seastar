@@ -26,6 +26,8 @@
 #include "socket_defs.hh"
 #include "dns.hh"
 
+namespace seastar {
+
 seastar::net::inet_address::inet_address()
                 : inet_address(::in_addr{ 0, })
 {}
@@ -122,3 +124,6 @@ std::ostream& operator<<(std::ostream& os, const socket_address& a) {
         << ":" << a.u.in.sin_port
         ;
 }
+
+}
+

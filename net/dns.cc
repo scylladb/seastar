@@ -33,7 +33,9 @@
 #include "core/gate.hh"
 #include "util/log.hh"
 
-static seastar::logger dns_log("dns_resolver");
+namespace seastar {
+
+static logger dns_log("dns_resolver");
 
 class ares_error_category : public std::error_category {
 public:
@@ -103,11 +105,11 @@ struct ares_initializer {
     }
 };
 
-class seastar::net::dns_resolver::impl
+class net::dns_resolver::impl
     : public enable_shared_from_this<impl>
 {
 public:
-    impl(::network_stack& stack, const options& opts)
+    impl(network_stack& stack, const options& opts)
         : _stack(stack)
         , _timeout(opts.timeout ? *opts.timeout : std::chrono::milliseconds(5000) /* from ares private */)
         , _timer(std::bind(&impl::poll_sockets, this))
@@ -188,7 +190,7 @@ public:
         ares_set_socket_functions(_channel, &callbacks, this);
 
         // just in case you need printf-debug.
-        // dns_log.set_level(seastar::log_level::trace);
+        // dns_log.set_level(log_level::trace);
     }
     ~impl() {
         _timer.cancel();
@@ -619,7 +621,7 @@ private:
                         e.avail &= ~POLLIN;
                         use(fd);
                         dns_log.trace("Read {}: data unavailable", fd);
-                        f.then_wrapped([me = shared_from_this(), &e, fd](future<::net::udp_datagram> f) {
+                        f.then_wrapped([me = shared_from_this(), &e, fd](future<net::udp_datagram> f) {
                             try {
                                 auto d = f.get0();
                                 dns_log.trace("Read {} -> {} bytes", fd, d.get_data().len());
@@ -687,10 +689,10 @@ private:
                     return -1;
                 }
 
-                ::net::packet p;
+                net::packet p;
                 p.reserve(len);
                 for (int i = 0; i < len; ++i) {
-                    p = ::net::packet(std::move(p), ::net::fragment{reinterpret_cast<char *>(vec[i].iov_base), vec[i].iov_len});
+                    p = net::packet(std::move(p), net::fragment{reinterpret_cast<char *>(vec[i].iov_base), vec[i].iov_len});
                 }
 
                 auto bytes = p.len();
@@ -771,11 +773,11 @@ private:
         temporary_buffer<char> indata;
     };
     struct udp_entry {
-        udp_entry(::net::udp_channel c)
+        udp_entry(net::udp_channel c)
                         : channel(std::move(c)) {
         }
-        ::net::udp_channel channel;
-        std::experimental::optional<::net::udp_datagram> in;;
+        net::udp_channel channel;
+        std::experimental::optional<net::udp_datagram> in;;
         socket_address dst;
     };
     struct sock_entry {
@@ -808,7 +810,7 @@ private:
             : tcp(tcp_entry{std::move(s)})
             , typ(type::tcp)
         {}
-        sock_entry(::net::udp_channel c)
+        sock_entry(net::udp_channel c)
             : udp(udp_entry{std::move(c)})
             , typ(type::udp)
         {}
@@ -835,7 +837,7 @@ private:
     friend struct dns_call;
 
     socket_map _sockets;
-    ::network_stack & _stack;
+    network_stack & _stack;
 
     ares_channel _channel = {};
     uint64_t _ops = 0, _calls = 0;
@@ -845,97 +847,99 @@ private:
     bool _closed = false;
 };
 
-seastar::net::dns_resolver::dns_resolver()
+net::dns_resolver::dns_resolver()
     : dns_resolver(options())
 {}
 
-seastar::net::dns_resolver::dns_resolver(const options& opts)
+net::dns_resolver::dns_resolver(const options& opts)
     : dns_resolver(engine().net(), opts)
 {}
 
-seastar::net::dns_resolver::dns_resolver(network_stack& stack, const options& opts)
-    : _impl(::make_shared<impl>(stack, opts))
+net::dns_resolver::dns_resolver(network_stack& stack, const options& opts)
+    : _impl(make_shared<impl>(stack, opts))
 {}
 
-seastar::net::dns_resolver::~dns_resolver()
+net::dns_resolver::~dns_resolver()
 {}
 
-seastar::net::dns_resolver::dns_resolver(dns_resolver&&) noexcept = default;
-seastar::net::dns_resolver& seastar::net::dns_resolver::operator=(dns_resolver&&) noexcept = default;
+net::dns_resolver::dns_resolver(dns_resolver&&) noexcept = default;
+net::dns_resolver& net::dns_resolver::operator=(dns_resolver&&) noexcept = default;
 
-future<seastar::net::hostent> seastar::net::dns_resolver::get_host_by_name(const sstring& name, opt_family family) {
+future<net::hostent> net::dns_resolver::get_host_by_name(const sstring& name, opt_family family) {
     return _impl->get_host_by_name(name, family.value_or(inet_address::family::INET));
 }
 
-future<seastar::net::hostent> seastar::net::dns_resolver::get_host_by_addr(const inet_address& addr) {
+future<net::hostent> net::dns_resolver::get_host_by_addr(const inet_address& addr) {
     return _impl->get_host_by_addr(addr);
 }
 
-future<seastar::net::inet_address> seastar::net::dns_resolver::resolve_name(const sstring& name, opt_family family) {
+future<net::inet_address> net::dns_resolver::resolve_name(const sstring& name, opt_family family) {
     return _impl->resolve_name(name, family.value_or(inet_address::family::INET));
 }
 
-future<sstring> seastar::net::dns_resolver::resolve_addr(const inet_address& addr) {
+future<sstring> net::dns_resolver::resolve_addr(const inet_address& addr) {
     return _impl->resolve_addr(addr);
 }
 
-future<> seastar::net::dns_resolver::close() {
+future<> net::dns_resolver::close() {
     return _impl->close();
 }
 
-static seastar::net::dns_resolver& resolver() {
-    static thread_local seastar::net::dns_resolver resolver;
+static net::dns_resolver& resolver() {
+    static thread_local net::dns_resolver resolver;
     return resolver;
 }
 
 
-future<seastar::net::hostent> seastar::net::dns::get_host_by_name(const sstring& name, opt_family family) {
+future<net::hostent> net::dns::get_host_by_name(const sstring& name, opt_family family) {
     return resolver().get_host_by_name(name, family.value_or(inet_address::family::INET));
 }
 
-future<seastar::net::hostent> seastar::net::dns::get_host_by_addr(const inet_address& addr) {
+future<net::hostent> net::dns::get_host_by_addr(const inet_address& addr) {
     return resolver().get_host_by_addr(addr);
 }
 
-future<seastar::net::inet_address> seastar::net::dns::resolve_name(const sstring& name, opt_family family) {
+future<net::inet_address> net::dns::resolve_name(const sstring& name, opt_family family) {
     return resolver().resolve_name(name, family.value_or(inet_address::family::INET));
 }
 
-future<sstring> seastar::net::dns::resolve_addr(const inet_address& addr) {
+future<sstring> net::dns::resolve_addr(const inet_address& addr) {
     return resolver().resolve_addr(addr);
 }
 
-future<sstring> seastar::net::inet_address::hostname() const {
+future<sstring> net::inet_address::hostname() const {
     return dns::resolve_addr(*this);
 }
 
-future<std::vector<sstring>> seastar::net::inet_address::aliases() const {
+future<std::vector<sstring>> net::inet_address::aliases() const {
     return dns::get_host_by_addr(*this).then([](hostent e) {
         return make_ready_future<std::vector<sstring>>(std::move(e.names));
     });
 }
 
-future<seastar::net::inet_address> seastar::net::inet_address::find(
+future<net::inet_address> net::inet_address::find(
                 const sstring& name) {
     return dns::resolve_name(name);
 }
 
-future<seastar::net::inet_address> seastar::net::inet_address::find(
+future<net::inet_address> net::inet_address::find(
                 const sstring& name, family f) {
     return dns::resolve_name(name, f);
 }
 
-future<std::vector<seastar::net::inet_address>> seastar::net::inet_address::find_all(
+future<std::vector<net::inet_address>> net::inet_address::find_all(
                 const sstring& name) {
     return dns::get_host_by_name(name).then([](hostent e) {
-        return make_ready_future<std::vector<seastar::net::inet_address>>(std::move(e.addr_list));
+        return make_ready_future<std::vector<net::inet_address>>(std::move(e.addr_list));
     });
 }
 
-future<std::vector<seastar::net::inet_address>> seastar::net::inet_address::find_all(
+future<std::vector<net::inet_address>> net::inet_address::find_all(
                 const sstring& name, family f) {
     return dns::get_host_by_name(name, f).then([](hostent e) {
-        return make_ready_future<std::vector<seastar::net::inet_address>>(std::move(e.addr_list));
+        return make_ready_future<std::vector<net::inet_address>>(std::move(e.addr_list));
     });
+}
+
 }
 
