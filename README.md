@@ -32,8 +32,8 @@ Recommended hardware configuration for SeaStar
 
 * CPUs - As much as you need. SeaStar is highly friendly for multi-core and NUMA
 * NICs - As fast as possible, we recommend 10G or 40G cards. It's possible to use
-       1G to but you may be limited by their capacity.
-       In addition, the more hardware queue per cpu the better for SeaStar. 
+       1G too but you may be limited by their capacity.
+       In addition, the more hardware queue per cpu the better for SeaStar.
        Otherwise we have to emulate that in software.
 * Disks - Fast SSDs with high number of IOPS.
 * Client machines - Usually a single client machine can't load our servers.
