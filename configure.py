@@ -262,7 +262,6 @@ arg_parser.add_argument('--static-stdc++', dest = 'staticcxx', action = 'store_t
 arg_parser.add_argument('--static-boost', dest = 'staticboost', action = 'store_true',
                         help = 'Link with boost statically')
 add_tristate(arg_parser, name = 'hwloc', dest = 'hwloc', help = 'hwloc support')
-add_tristate(arg_parser, name = 'xen', dest = 'xen', help = 'Xen support')
 arg_parser.add_argument('--enable-gcc6-concepts', dest='gcc6_concepts', action='store_true', default=False,
                         help='enable experimental support for C++ Concepts as implemented in GCC 6')
 args = arg_parser.parse_args()
@@ -355,32 +354,6 @@ boost_unit_test_lib = maybe_static(args.staticboost, '-lboost_unit_test_framewor
 
 
 hwloc_libs = '-lhwloc -lnuma -lpciaccess -lxml2 -lz'
-xen_used = False
-def have_xen():
-    source  = '#include <stdint.h>\n'
-    source += '#include <xen/xen.h>\n'
-    source += '#include <xen/sys/evtchn.h>\n'
-    source += '#include <xen/sys/gntdev.h>\n'
-    source += '#include <xen/sys/gntalloc.h>\n'
-
-    return try_compile(compiler = args.cxx, source = source)
-
-if apply_tristate(args.xen, test = have_xen,
-                  note = 'Note: xen-devel not installed.  No Xen support.',
-                  missing = 'Error: required package xen-devel not installed.'):
-    libs += ' -lxenstore'
-    defines.append("HAVE_XEN")
-    libnet += [ 'net/xenfront.cc' ]
-    core += [
-                'core/xen/xenstore.cc',
-                'core/xen/gntalloc.cc',
-                'core/xen/evtchn.cc',
-            ]
-    xen_used=True
-
-if xen_used and args.dpdk_target:
-    print("Error: only xen or dpdk can be used, not both.")
-    sys.exit(1)
 
 if args.gcc6_concepts:
     defines.append('HAVE_GCC6_CONCEPTS')

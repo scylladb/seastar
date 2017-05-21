@@ -28,7 +28,6 @@
 #include "udp.hh"
 #include "virtio.hh"
 #include "dpdk.hh"
-#include "xenfront.hh"
 #include "proxy.hh"
 #include "dhcp.hh"
 #include <memory>
@@ -47,44 +46,8 @@ namespace net {
 
 using namespace seastar;
 
-enum class xen_info {
-    nonxen = 0,
-    userspace = 1,
-    osv = 2,
-};
-
-#ifdef HAVE_XEN
-static xen_info is_xen()
-{
-    struct stat buf;
-    if (!stat("/proc/xen", &buf) || !stat("/dev/xen", &buf)) {
-        return xen_info::userspace;
-    }
-
-#ifdef HAVE_OSV
-    const char *str = gnu_get_libc_release();
-    if (std::string("OSv") != str) {
-        return xen_info::nonxen;
-    }
-    auto firmware = osv::firmware_vendor();
-    if (firmware == "Xen") {
-        return xen_info::osv;
-    }
-#endif
-
-    return xen_info::nonxen;
-}
-#endif
-
 void create_native_net_device(boost::program_options::variables_map opts) {
     std::unique_ptr<device> dev;
-
-#ifdef HAVE_XEN
-    auto xen = is_xen();
-    if (xen != xen_info::nonxen) {
-        dev = xen::create_xenfront_net_device(opts, xen == xen_info::userspace);
-    } else
-#endif
 
 #ifdef HAVE_DPDK
     if (opts.count("dpdk-pmd")) {
@@ -175,14 +138,6 @@ native_network_stack::make_udp_channel(ipv4_addr addr) {
 
 void
 add_native_net_options_description(boost::program_options::options_description &opts) {
-
-#ifdef HAVE_XEN
-    auto xen = is_xen();
-    if (xen != xen_info::nonxen) {
-        opts.add(xen::get_xenfront_net_options_description());
-        return;
-    }
-#endif
     opts.add(get_virtio_net_options_description());
 #ifdef HAVE_DPDK
     opts.add(get_dpdk_net_options_description());

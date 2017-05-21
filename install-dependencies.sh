@@ -28,7 +28,7 @@ if [ "$ID" = "ubuntu" ] || [ "$ID" = "debian" ]; then
         add-apt-repository -y ppa:ubuntu-toolchain-r/test
         apt-get -y update
     fi
-    apt-get install -y libaio-dev ninja-build ragel libhwloc-dev libnuma-dev libpciaccess-dev libcrypto++-dev libboost-all-dev libxen-dev libxml2-dev xfslibs-dev libgnutls28-dev liblz4-dev libsctp-dev gcc make libprotobuf-dev protobuf-compiler python3 libunwind8-dev systemtap-sdt-dev libtool
+    apt-get install -y libaio-dev ninja-build ragel libhwloc-dev libnuma-dev libpciaccess-dev libcrypto++-dev libboost-all-dev libxml2-dev xfslibs-dev libgnutls28-dev liblz4-dev libsctp-dev gcc make libprotobuf-dev protobuf-compiler python3 libunwind8-dev systemtap-sdt-dev libtool
     if [ "$ID" = "ubuntu" ]; then
         apt-get install -y g++-5
         echo "g++-5 is installed for Seastar. To build Seastar with g++-5, specify '--compiler=g++-5' on configure.py"
@@ -42,7 +42,7 @@ elif [ "$ID" = "centos" ] || [ "$ID" = "fedora" ]; then
     fi
     yum install -y libaio-devel hwloc-devel numactl-devel libpciaccess-devel cryptopp-devel libxml2-devel xfsprogs-devel gnutls-devel lksctp-tools-devel lz4-devel gcc make protobuf-devel protobuf-compiler libunwind-devel systemtap-sdt-devel libtool
     if [ "$ID" = "fedora" ]; then
-        dnf install -y gcc-c++ ninja-build ragel boost-devel xen-devel libubsan libasan
+        dnf install -y gcc-c++ ninja-build ragel boost-devel libubsan libasan
     else # centos
         yum install -y scylla-binutils scylla-gcc-c++ scylla-ninja-build scylla-ragel scylla-boost-devel scylla-libubsan scylla-libasan scylla-libstdc++-static python34
         echo "g++-5 is installed for Seastar. To build Seastar with g++-5, specify '--compiler=/opt/scylladb/bin/g++ --static-stdc++' on configure.py"
