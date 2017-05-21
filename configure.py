@@ -837,7 +837,7 @@ with open(buildfile, 'w') as f:
             f.write('build {}: ragel {}\n'.format(hh, src))
         for hh in swaggers:
             src = swaggers[hh]
-            f.write('build {}: swagger {}\n'.format(hh,src))
+            f.write('build {}: swagger {} | json/json2code.py\n'.format(hh,src))
         for pb in protobufs:
             src = protobufs[pb]
             c_pb = pb.replace('.h','.cc')
