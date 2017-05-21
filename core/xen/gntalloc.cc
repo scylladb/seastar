@@ -25,6 +25,8 @@
 #include "osv_xen.hh"
 #include "gntalloc.hh"
 
+namespace seastar {
+
 namespace xen {
 
 gntref invalid_ref;
@@ -234,6 +236,8 @@ gntalloc *gntalloc::instance() {
         throw std::runtime_error("Acquiring grant instance without specifying otherend: invalid context");
     }
     return _instance;
+}
+
 }
 
 }
