@@ -413,7 +413,7 @@ void impl::run() {
 
         while (m_itartor != vals->end()) {
             while (i != m_itartor->second.end()) {
-                if (std::get<seastar::metrics::impl::register_ref>(*i)->get_type() == seastar::metrics::impl::data_type::HISTOGRAM) {
+                if (i->type() == seastar::metrics::impl::data_type::HISTOGRAM) {
                     ++i;
                     continue;
                 }
@@ -539,24 +539,8 @@ std::vector<collectd_value> get_collectd_value(
     return vals;
 }
 
-std::vector<data_type> get_collectd_types(
-        const scollectd::type_instance_id& id) {
-    auto res = get_register(id);
-    if (res == nullptr) {
-        return std::vector<data_type>();
-    }
-    std::vector<data_type> vals;
-    vals.push_back(res->get_type());
-    return vals;
-}
-
 std::vector<scollectd::type_instance_id> get_collectd_ids() {
     return get_impl().get_instance_ids();
-}
-
-sstring get_collectd_description_str(const scollectd::type_instance_id& id) {
-    auto v = get_register(id);
-    return v != nullptr ? v->get_description().str() : sstring();
 }
 
 bool is_enabled(const scollectd::type_instance_id& id) {

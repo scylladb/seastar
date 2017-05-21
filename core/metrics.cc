@@ -115,8 +115,10 @@ label shard_label("shard");
 label type_label("type");
 namespace impl {
 
-registered_metric::registered_metric(metric_id id, data_type type, metric_function f, description d, bool enabled) :
-        _type(type), _d(d), _enabled(enabled), _f(f), _impl(get_local_impl()), _id(id) {
+registered_metric::registered_metric(metric_id id, metric_function f, bool enabled) :
+        _f(f), _impl(get_local_impl()) {
+    _info.enabled = enabled;
+    _info.id = id;
 }
 
 metric_value metric_value::operator+(const metric_value& c) {
@@ -174,10 +176,7 @@ metric_groups_impl& metric_groups_impl::add_metric(group_name_type name, const m
 
     metric_id id(name, md._impl->name, md._impl->labels);
 
-    shared_ptr<registered_metric> rm =
-            ::seastar::make_shared<registered_metric>(id, md._impl->type.base_type, md._impl->f, md._impl->d, md._impl->enabled);
-
-    get_local_impl()->add_registration(id, rm);
+    get_local_impl()->add_registration(id, md._impl->type.base_type, md._impl->f, md._impl->d, md._impl->enabled);
 
     _registration.push_back(id);
     return *this;
@@ -270,19 +269,22 @@ instance_id_type shard() {
     return sstring("0");
 }
 
-void impl::add_registration(const metric_id& id, shared_ptr<registered_metric> rm) {
+void impl::add_registration(const metric_id& id, data_type type, metric_function f, const description& d, bool enabled) {
+    auto rm = ::seastar::make_shared<registered_metric>(id, f, enabled);
     sstring name = id.full_name();
     if (_value_map.find(name) != _value_map.end()) {
         auto& metric = _value_map[name];
         if (metric.find(id.labels()) != metric.end()) {
             throw std::runtime_error("registering metrics twice for metrics: " + name);
         }
-        if (metric.begin()->second->get_type() != rm->get_type()) {
+        if (metric.info().type != type) {
             throw std::runtime_error("registering metrics " + name + " registered with different type.");
         }
         metric[id.labels()] = rm;
     } else {
-        _value_map[name].info().type = rm->get_type();
+        _value_map[name].info().type = type;
+        _value_map[name].info().d = d;
+        _value_map[name].info().name = id.full_name();
         _value_map[name][id.labels()] = rm;
     }
 }

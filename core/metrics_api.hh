@@ -145,6 +145,28 @@ namespace seastar {
 namespace metrics {
 namespace impl {
 
+/*!
+ * \brief holds metadata information of a metric family
+ *
+ * Holds the information that is shared between all metrics
+ * that belongs to the same metric_family
+ */
+struct metric_family_info {
+    data_type type;
+    description d;
+    sstring name;
+};
+
+
+/*!
+ * \brief holds metric metadata
+ */
+struct metric_info {
+    metric_id id;
+    bool enabled;
+};
+
+
 using metrics_registration = std::vector<metric_id>;
 
 class metric_groups_impl : public metric_groups_def {
@@ -162,44 +184,31 @@ public:
 class impl;
 
 class registered_metric {
-    data_type _type;
-    description _d;
-    bool _enabled;
+    metric_info _info;
     metric_function _f;
     shared_ptr<impl> _impl;
-    metric_id _id;
 public:
-    registered_metric(metric_id id, data_type type, metric_function f, description d = description(), bool enabled=true);
+    registered_metric(metric_id id, metric_function f, bool enabled=true);
     virtual ~registered_metric() {}
     virtual metric_value operator()() const {
         return _f();
     }
-    data_type get_type() const {
-        return _type;
-    }
 
     bool is_enabled() const {
-        return _enabled;
+        return _info.enabled;
     }
 
     void set_enabled(bool b) {
-        _enabled = b;
-    }
-
-    const description& get_description() const {
-        return _d;
+        _info.enabled = b;
     }
 
     const metric_id& get_id() const {
-        return _id;
+        return _info.id;
     }
-};
 
-/*!
- * \brief holds information that relevant to all metric instances
- */
-struct metric_info {
-    data_type type;
+    const metric_info& info() const {
+        return _info;
+    }
 };
 
 
@@ -209,7 +218,7 @@ using metric_instances = std::unordered_map<labels_type, register_ref>;
 
 class metric_family {
     metric_instances _instances;
-    metric_info _info;
+    metric_family_info _info;
 public:
     using iterator = metric_instances::iterator;
     using const_iterator = metric_instances::const_iterator;
@@ -218,9 +227,9 @@ public:
     metric_family(const metric_family&) = default;
     metric_family(const metric_instances& instances) : _instances(instances) {
     }
-    metric_family(const metric_instances& instances, const metric_info& info) : _instances(instances), _info(info) {
+    metric_family(const metric_instances& instances, const metric_family_info& info) : _instances(instances), _info(info) {
     }
-    metric_family(metric_instances&& instances, metric_info&& info) : _instances(std::move(instances)), _info(std::move(info)) {
+    metric_family(metric_instances&& instances, metric_family_info&& info) : _instances(std::move(instances)), _info(std::move(info)) {
     }
     metric_family(metric_instances&& instances) : _instances(std::move(instances)) {
     }
@@ -233,11 +242,11 @@ public:
         return _instances.at(l);
     }
 
-    metric_info& info() {
+    metric_family_info& info() {
         return _info;
     }
 
-    const metric_info& info() const {
+    const metric_family_info& info() const {
         return _info;
     }
 
@@ -296,8 +305,7 @@ public:
         return _value_map;
     }
 
-    void add_registration(const metric_id& id, shared_ptr<registered_metric> rm);
-
+    void add_registration(const metric_id& id, data_type type, metric_function f, const description& d, bool enabled);
     future<> stop() {
         return make_ready_future<>();
     }
