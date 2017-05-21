@@ -27,6 +27,8 @@
 
 using namespace seastar;
 
+namespace bi = boost::intrusive;
+
 static constexpr size_t max_object_size = 1024*1024;
 
 class item : public slab_item_base {
