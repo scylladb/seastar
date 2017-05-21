@@ -21,6 +21,9 @@
 
 #pragma once
 
+#include <memory>
+#include <algorithm>
+
 namespace seastar {
 
 // An unbounded FIFO queue of objects of type T.
@@ -76,9 +79,6 @@ namespace seastar {
 // chunked_fifo uses uninitialized storage for unoccupied elements, and thus
 // uses move/copy constructors instead of move/copy assignments, which are
 // less efficient.
-
-#include <memory>
-#include <algorithm>
 
 template <typename T, size_t items_per_chunk = 128>
 class chunked_fifo {
