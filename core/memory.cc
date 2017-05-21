@@ -1636,6 +1636,8 @@ namespace seastar {
 
 #else
 
+namespace seastar {
+
 namespace memory {
 
 void set_heap_profiling_enabled(bool enabled) {
@@ -1687,7 +1689,7 @@ void set_min_free_pages(size_t pages) {
 
 }
 
-void* operator new(size_t size, with_alignment wa) {
+void* operator new(size_t size, seastar::with_alignment wa) {
     void* ret;
     if (posix_memalign(&ret, wa.alignment(), size) != 0) {
         throw std::bad_alloc();
@@ -1695,7 +1697,7 @@ void* operator new(size_t size, with_alignment wa) {
     return ret;
 }
 
-void* operator new[](size_t size, with_alignment wa) {
+void* operator new[](size_t size, seastar::with_alignment wa) {
     void* ret;
     if (posix_memalign(&ret, wa.alignment(), size) != 0) {
         throw std::bad_alloc();
@@ -1703,11 +1705,11 @@ void* operator new[](size_t size, with_alignment wa) {
     return ret;
 }
 
-void operator delete(void* ptr, with_alignment wa) {
+void operator delete(void* ptr, seastar::with_alignment wa) {
     return ::free(ptr);
 }
 
-void operator delete[](void* ptr, with_alignment wa) {
+void operator delete[](void* ptr, seastar::with_alignment wa) {
     return ::free(ptr);
 }
 
