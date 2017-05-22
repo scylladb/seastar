@@ -220,44 +220,48 @@ bool metric_id::operator==(
 // need to be available before the first users (reactor) will call it
 
 shared_ptr<impl>  get_local_impl() {
-    static thread_local auto the_impl = make_shared<impl>();
+    static thread_local auto the_impl = ::seastar::make_shared<impl>();
     return the_impl;
 }
-
-void unregister_metric(const metric_id & id) {
-    shared_ptr<impl> map = get_local_impl();
-    auto i = map->get_value_map().find(id.full_name());
-    if (i != map->get_value_map().end()) {
+void impl::remove_registration(const metric_id& id) {
+    auto i = get_value_map().find(id.full_name());
+    if (i != get_value_map().end()) {
         auto j = i->second.find(id.labels());
         if (j != i->second.end()) {
             j->second = nullptr;
             i->second.erase(j);
         }
         if (i->second.empty()) {
-            map->get_value_map().erase(i);
+            get_value_map().erase(i);
         }
+        dirty();
     }
+}
+
+void unregister_metric(const metric_id & id) {
+    get_local_impl()->remove_registration(id);
 }
 
 const value_map& get_value_map() {
     return get_local_impl()->get_value_map();
 }
 
-values_copy get_values() {
-    values_copy res;
-
-    for (auto i : get_local_impl()->get_value_map()) {
-        std::vector<std::tuple<shared_ptr<registered_metric>, metric_value>> values;
-        for (auto&& v : i.second) {
-            if (v.second.get() && v.second->is_enabled()) {
-                values.emplace_back(v.second, (*(v.second))());
-            }
+foreign_ptr<values_reference> get_values() {
+    shared_ptr<values_copy> res_ref = ::seastar::make_shared<values_copy>();
+    auto& res = *(res_ref.get());
+    auto& mv = res.values;
+    res.metadata = get_local_impl()->metadata();
+    auto & functions = get_local_impl()->functions();
+    mv.reserve(functions.size());
+    for (auto&& i : functions) {
+        value_vector values;
+        values.reserve(i.size());
+        for (auto&& v : i) {
+            values.emplace_back(v());
         }
-        if (values.size() > 0) {
-            res[i.first] = std::move(values);
-        }
+        mv.emplace_back(std::move(values));
     }
-    return std::move(res);
+    return res_ref;
 }
 
 
@@ -267,6 +271,50 @@ instance_id_type shard() {
     }
 
     return sstring("0");
+}
+
+void impl::update_metrics_if_needed() {
+    if (_dirty) {
+        // Forcing the metadata to an empty initialization
+        // Will prevent using corrupted data if an exception is thrown
+        _metadata = ::seastar::make_shared<metric_metadata>();
+
+        auto mt_ref = ::seastar::make_shared<metric_metadata>();
+        auto &mt = *(mt_ref.get());
+        mt.reserve(_value_map.size());
+        _current_metrics.resize(_value_map.size());
+        size_t i = 0;
+        for (auto&& mf : _value_map) {
+            metric_metadata_vector metrics;
+            _current_metrics[i].clear();
+            for (auto&& m : mf.second) {
+                if (m.second && m.second->is_enabled()) {
+                    metrics.emplace_back(m.second->info());
+                    _current_metrics[i].emplace_back(m.second->get_function());
+                }
+            }
+            if (!metrics.empty()) {
+                // If nothing was added, no need to add the metric_family
+                // and no need to progress
+                mt.emplace_back(metric_family_metadata{mf.second.info(), std::move(metrics)});
+                i++;
+            }
+        }
+        // Maybe we didn't use all the original size
+        _current_metrics.resize(i);
+        _metadata = mt_ref;
+        _dirty = false;
+    }
+}
+
+shared_ptr<metric_metadata> impl::metadata() {
+    update_metrics_if_needed();
+    return _metadata;
+}
+
+std::vector<std::vector<metric_function>>& impl::functions() {
+    update_metrics_if_needed();
+    return _current_metrics;
 }
 
 void impl::add_registration(const metric_id& id, data_type type, metric_function f, const description& d, bool enabled) {
@@ -287,6 +335,7 @@ void impl::add_registration(const metric_id& id, data_type type, metric_function
         _value_map[name].info().name = id.full_name();
         _value_map[name][id.labels()] = rm;
     }
+    dirty();
 }
 
 }

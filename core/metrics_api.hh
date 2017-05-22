@@ -209,12 +209,13 @@ public:
     const metric_info& info() const {
         return _info;
     }
+    metric_function& get_function() {
+        return _f;
+    }
 };
 
-
-
 using register_ref = shared_ptr<registered_metric>;
-using metric_instances = std::unordered_map<labels_type, register_ref>;
+using metric_instances = std::map<labels_type, register_ref>;
 
 class metric_family {
     metric_instances _instances;
@@ -282,12 +283,36 @@ public:
         return _instances.cend();
     }
 
+    uint32_t size() const {
+        return _instances.size();
+    }
+
 };
 
-using value_map = std::unordered_map<sstring, metric_family>;
-using value_holder = std::tuple<register_ref, metric_value>;
-using value_vector = std::vector<value_holder>;
-using values_copy = std::unordered_map<sstring, value_vector>;
+using value_map = std::map<sstring, metric_family>;
+
+using metric_metadata_vector = std::vector<metric_info>;
+
+/*!
+ * \brief holds a metric family metadata
+ *
+ * The meta data of a metric family compose of the
+ * metadata of the family, and a vector of the metadata for
+ * each of the metric.
+ */
+struct metric_family_metadata {
+    metric_family_info mf;
+    metric_metadata_vector metrics;
+};
+
+using value_vector = std::vector<metric_value>;
+using metric_metadata = std::vector<metric_family_metadata>;
+using metric_values = std::vector<value_vector>;
+
+struct values_copy {
+    shared_ptr<metric_metadata> metadata;
+    metric_values values;
+};
 
 struct config {
     sstring hostname;
@@ -296,6 +321,9 @@ struct config {
 class impl {
     value_map _value_map;
     config _config;
+    bool _dirty = true;
+    shared_ptr<metric_metadata> _metadata;
+    std::vector<std::vector<metric_function>> _current_metrics;
 public:
     value_map& get_value_map() {
         return _value_map;
@@ -306,6 +334,7 @@ public:
     }
 
     void add_registration(const metric_id& id, data_type type, metric_function f, const description& d, bool enabled);
+    void remove_registration(const metric_id& id);
     future<> stop() {
         return make_ready_future<>();
     }
@@ -315,11 +344,22 @@ public:
     void set_config(const config& c) {
         _config = c;
     }
+
+    shared_ptr<metric_metadata> metadata();
+
+    std::vector<std::vector<metric_function>>& functions();
+
+    void update_metrics_if_needed();
+
+    void dirty() {
+        _dirty = true;
+    }
 };
 
 const value_map& get_value_map();
+using values_reference = shared_ptr<values_copy>;
 
-values_copy get_values();
+foreign_ptr<values_reference> get_values();
 
 shared_ptr<impl> get_local_impl();
 
