@@ -81,7 +81,7 @@ void* as_cookie(struct rte_pktmbuf_pool_private& p) {
 typedef void    *MARKER[0];   /**< generic marker for a point in a structure */
 #endif
 
-using namespace net;
+using namespace seastar::net;
 
 namespace seastar {
 
