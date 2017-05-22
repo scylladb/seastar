@@ -411,7 +411,8 @@ void impl::run() {
 
         out.clear();
 
-        while (m_itartor != vals->end()) {
+        bool out_of_space = false;
+        while (!out_of_space && m_itartor != vals->end()) {
             while (i != m_itartor->second.end()) {
                 if (i->type() == seastar::metrics::impl::data_type::HISTOGRAM) {
                     ++i;
@@ -421,9 +422,13 @@ void impl::run() {
                 out.put(_host, _period, std::get<seastar::metrics::impl::register_ref>(*i)->get_id(), std::get<seastar::metrics::impl::metric_value>(*i));
                 if (!out) {
                     out.reset(m);
+                    out_of_space = true;
                     break;
                 }
                 ++i;
+            }
+            if (out_of_space) {
+                break;
             }
             ++m_itartor;
             if (m_itartor != vals->end()) {
