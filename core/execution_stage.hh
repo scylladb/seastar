@@ -309,7 +309,7 @@ public:
     /// Usage example:
     /// ```
     /// void do_something(int&, int, std::vector<int>&&);
-    /// thread_local auto stage = seastar::make_execution_stage(do_something);
+    /// thread_local auto stage = seastar::make_execution_stage("execution-stage", do_something);
     ///
     /// int global_value;
     ///
@@ -347,14 +347,14 @@ public:
 /// Usage example:
 /// ```
 /// double do_something(int);
-/// thread_local auto stage1 = seastar::make_execution_stage(do_something);
+/// thread_local auto stage1 = seastar::make_execution_stage("execution-stage1", do_something);
 ///
 /// future<double> func1(int val) {
 ///     return stage1(val);
 /// }
 ///
 /// future<double> do_some_io(int);
-/// thread_local auto stage2 = seastar::make_execution_stage(do_some_io);
+/// thread_local auto stage2 = seastar::make_execution_stage("execution-stage2", do_some_io);
 ///
 /// future<double> func2(int val) {
 ///     return stage2(val);
@@ -383,14 +383,14 @@ auto make_execution_stage(const sstring& name, Function&& fn) {
 ///     void do_something(int);
 /// };
 ///
-/// thread_local auto stage = seastar::make_execution_stage(&foo::do_something);
+/// thread_local auto stage = seastar::make_execution_stage("execution-stage", &foo::do_something);
 ///
 /// future<> func(foo& obj, int val) {
 ///     return stage(&obj, val);
 /// }
 /// ```
 ///
-/// \see make_execution_stage(Function&&)
+/// \see make_execution_stage(const sstring&, Function&&)
 /// \param name unique name of the execution stage
 /// \param fn member function to be executed by the stage
 /// \return concrete_execution_stage
