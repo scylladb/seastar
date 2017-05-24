@@ -612,9 +612,9 @@ future<> g() {
 Because semaphores support waiting for any number of units, not just 1, we can use them for more than simple limiting of the *number* of parallel invocation. For example, consider we have an asynchronous function ```using_lots_of_memory(size_t bytes)```, which uses ```bytes``` bytes of memory, and we want to ensure that not more than 1 MB of memory is used by all parallel invocations of this function --- and that additional calls are delayed until previous calls have finished. We can do this with a semaphore:
 
 ```c++
-future<> using_lots_of_memory(size_t bytes) {
-    static thread_local semaphore limit(1000000); // limit to 1MB
-    return with_semaphore(limit, bytes, [bytes] {
+seastar::future<> using_lots_of_memory(size_t bytes) {
+    static thread_local seastar::semaphore limit(1000000); // limit to 1MB
+    return seastar::with_semaphore(limit, bytes, [bytes] {
         // do something allocating 'bytes' bytes of memory
     });
 }
@@ -628,13 +628,13 @@ Consider the following simple loop:
 
 ```cpp
 #include "core/sleep.hh"
-future<> slow() {
+seastar::future<> slow() {
     std::cerr << ".";
-    return sleep(std::chrono::seconds(1));
+    return seastar::sleep(std::chrono::seconds(1));
 }
-future<> f() {
-    return repeat([] {
-        return slow().then([] { return stop_iteration::no; });
+seastar::future<> f() {
+    return seastar::repeat([] {
+        return slow().then([] { return seastar::stop_iteration::no; });
     });
 }
 ```
@@ -643,27 +643,27 @@ This loop runs the ```slow()``` function (taking one second to complete) without
 
 Naively, we could achieve more parallelism, by starting the next call to ```slow()``` right after the previous call --- ignoring the future returned by the previous call to ```slow()``` and not waiting for it to resolve:
 ```cpp
-future<> f() {
-    return repeat([] {
+seastar::future<> f() {
+    return seastar::repeat([] {
         slow();
-        return stop_iteration::no;
+        return seastar::stop_iteration::no;
     });
 }
 ```
 
-But in this loop, there is no limit to the amount of parallelism --- millions of ```sleep()``` calls might be active in parallel, before the first one ever returned. Eventually, this loop will consume all available memory and crash.
+But in this loop, there is no limit to the amount of parallelism --- millions of ```sleep()``` calls might be active in parallel, before the first one ever returned. Eventually, this loop may consume all available memory and crash.
 
 Using a semaphore allows us to run many instances of ```slow()``` in parallel, but limit the number of these parallel instances to, in the following example, 100:
 
 ```cpp
-future<> f() {
-    return do_with(semaphore(100), [] (auto& limit) {
-        return repeat([&limit] {
+seastar::future<> f() {
+    return seastar::do_with(seastar::semaphore(100), [] (auto& limit) {
+        return seastar::repeat([&limit] {
             return limit.wait(1).then([&limit] {
                 slow().finally([&limit] {
                     limit.signal(1); 
                 });
-                return stop_iteration::no;
+                return seastar::stop_iteration::no;
             });
         });
     });
@@ -675,9 +675,9 @@ Note how in this code we do not wait for `slow()` to complete before continuing 
 The above example is incomplete, because it has a never-ending loop and the future returned by `f()` will never resolve. In more realistic cases, the loop has an end, and at the end of the loop we need to wait for all the background operations which the loop started. We can do this by ```wait()```ing on the original count of the semaphore: When the full count is finally available, it means that *all* the operations have completed. For example, the following loop ends after 456 iterations:
 
 ```cpp
-future<> f() {
-    return do_with(semaphore(100), [] (auto& limit) {
-        return do_for_each(boost::irange(0, 456), [&limit] (int i) {
+seastar::future<> f() {
+    return seastar::do_with(seastar::semaphore(100), [] (auto& limit) {
+        return seastar::do_for_each(boost::irange(0, 456), [&limit] (int i) {
             return limit.wait(1).then([&limit] {
                 slow().finally([&limit] { limit.signal(1); });
 	        });
@@ -693,10 +693,10 @@ The last `finally` is what ensures we wait for the last operations to complete: 
 In the idiom we saw in the above example, the same semaphore is used both for limiting the number of background operations, and later to wait for all of them to complete. Sometimes, we want several different loops to use the same semaphore to limit their total parallelism. In that case we must use a separate mechanism for waiting for the completion of the background operations started by the loop. The most convenient way to wait for ongoing operations is using a gate, which we will describe in detail later. A typical example of a loop whose parallelism is limited by an external semaphore:
 
 ```cpp
-thread_local semaphore limit(100);
-future<> f() {
-    return do_with(seastar::gate(), [] (auto& gate) {
-        return do_for_each(boost::irange(0, 456), [&gate] (int i) {
+thread_local seastar::semaphore limit(100);
+seastar::future<> f() {
+    return seastar::do_with(seastar::gate(), [] (auto& gate) {
+        return seastar::do_for_each(boost::irange(0, 456), [&gate] (int i) {
             return limit.wait(1).then([&gate] {
                 gate.enter();
                 slow().finally([&gate] {
@@ -752,25 +752,23 @@ Here is a typical example of using a gate:
 #include "core/gate.hh"
 #include <boost/iterator/counting_iterator.hpp>
 
-future<> slow(int i) {
+seastar::future<> slow(int i) {
     std::cerr << "starting " << i << "\n";
-    return sleep(std::chrono::seconds(10)).then([i] {
+    return seastar::sleep(std::chrono::seconds(10)).then([i] {
         std::cerr << "done " << i << "\n";
     });
 }
-
-future<> f() {
-    return do_with(seastar::gate(), [] (auto& g) {
-        return do_for_each(boost::counting_iterator<int>(1),
+seastar::future<> f() {
+    return seastar::do_with(seastar::gate(), [] (auto& g) {
+        return seastar::do_for_each(boost::counting_iterator<int>(1),
                 boost::counting_iterator<int>(6),
                 [&g] (int i) {
             seastar::with_gate(g, [i] { return slow(i); });
             // wait one second before starting the next iteration
-            return sleep(std::chrono::seconds(1));
+            return seastar::sleep(std::chrono::seconds(1));
 		}).then([&g] {
-            sleep(std::chrono::seconds(1)).then([&g] {
+            seastar::sleep(std::chrono::seconds(1)).then([&g] {
                 // This will fail, because it will be after the close()
-                g.enter();
                 seastar::with_gate(g, [] { return slow(6); });
             });
             return g.close();
@@ -803,13 +801,13 @@ As explained so far, a gate can prevent new invocations of an operation, and wai
 In the previous example code, we had an un-interruptible operation `slow()` which slept for 10 seconds. Let's replace it by a loop of 10 one-second sleeps, calling `g.check()` each second:
 
 ```cpp
-future<> slow(int i, seastar::gate &g) {
+seastar::future<> slow(int i, seastar::gate &g) {
     std::cerr << "starting " << i << "\n";
-    return do_for_each(boost::counting_iterator<int>(0),
-                       boost::counting_iterator<int>(10),
+    return seastar::do_for_each(boost::counting_iterator<int>(0),
+                                boost::counting_iterator<int>(10),
             [&g] (int) {
         g.check();
-        return sleep(std::chrono::seconds(1));
+        return seastar::sleep(std::chrono::seconds(1));
     }).finally([i] {
         std::cerr << "done " << i << "\n";
     });
@@ -839,12 +837,12 @@ For optimal performance, Seastar's network stack is sharded just like Seastar ap
 In the examples we saw earlier, `main()` ran our function `f()` only once, on the first thread. Unless the server is run with the `"-c1"` option (one thread only), this will mean that any connection arriving to a different thread will not be handled. So in all the examples below, we will need to run the same service loop on all cores. We can easily do this with the `smp::submit_to` function:
 
 ```cpp
-future<> service_loop();
+seastar::future<> service_loop();
 
-future<> f() {
-    return parallel_for_each(boost::irange<unsigned>(0, smp::count),
+seastar::future<> f() {
+    return seastar::parallel_for_each(boost::irange<unsigned>(0, seastar::smp::count),
             [] (unsigned c) {
-        return smp::submit_to(c, service_loop);
+        return seastar::smp::submit_to(c, service_loop);
     });
 }
 ```
@@ -860,10 +858,11 @@ We begin with a simple example of a TCP network server written in Seastar. This 
 #include <iostream>
 
 future<> service_loop() {
-    return do_with(listen(make_ipv4_address({1234})), [] (auto& listener) {
-        return keep_doing([&listener] () {
+    return seastar::do_with(seastar::listen(seastar::make_ipv4_address({1234})),
+            [] (auto& listener) {
+        return seastar::keep_doing([&listener] () {
             return listener.accept().then(
-                [] (connected_socket s, socket_address a) {
+                [] (seastar::connected_socket s, seastar::socket_address a) {
                     std::cout << "Accepted connection from " << a << "\n";
                 });
         });
@@ -873,9 +872,9 @@ future<> service_loop() {
 
 This code works as follows:
 1. The ```listen()``` call creates a ```server_socket``` object, ```listener```, which listens on TCP port 1234 (on any network interface).
-2. To handle one connection, we call ```listener```'s  ```accept()``` method. This method returns a ```future<connected_socket, socket_address>```, i.e., is eventually resolved with an incoming TCP connection from a client (```connected_socket```) and the client's IP address and port (```socket_address```).
-3. To repeatedly accept new connections, we use the ```keep_doing()``` loop idiom. ```keep_doing()``` runs its lambda parameter over and over, starting the next iteration as soon as the future returned by the previous iteration completes. The iterations only stop if an exception is encountered. The future returned by ```keep_doing()``` itself completes only when the iteration stops (i.e., only on exception).
-4. We use ```do_with()``` to ensure that the listener socket lives throughout the loop.
+2. We use ```do_with()``` to ensure that the listener socket lives throughout the loop.
+3. To handle one connection, we call ```listener```'s  ```accept()``` method. This method returns a ```future<connected_socket, socket_address>```, i.e., is eventually resolved with an incoming TCP connection from a client (```connected_socket```) and the client's IP address and port (```socket_address```).
+4. To repeatedly accept new connections, we use the ```keep_doing()``` loop idiom. ```keep_doing()``` runs its lambda parameter over and over, starting the next iteration as soon as the future returned by the previous iteration completes. The iterations only stop if an exception is encountered. The future returned by ```keep_doing()``` itself completes only when the iteration stops (i.e., only on exception).
 
 Output from this server looks like the following example:
 
@@ -896,9 +895,9 @@ program failed with uncaught exception: bind: Address already in use
 This happens because by default, Seastar refuses to reuse the local port if there are any vestiges of old connections using that port. In our silly server, because the server is the side which first closes the connection, each connection lingers for a while in the "```TIME_WAIT```" state after being closed, and these prevent ```listen()``` on the same port from succeeding. Luckily, we can give listen an option to work despite these remaining ```TIME_WAIT```. This option is analogous to ```socket(7)```'s ```SO_REUSEADDR``` option:
 
 ```cpp
-    listen_options lo;
+    seastar::listen_options lo;
     lo.reuse_address = true;
-    return do_with(listen(make_ipv4_address({1234}), lo), [] (auto& listener) {
+    return seastar::do_with(seastar::listen(seastar::make_ipv4_address({1234}), lo),
 ```
 
 Most servers will always turn on this ```reuse_address``` listen option. Stevens' book "Unix Network Programming" even says that "All TCP servers should specify this socket option to allow the server to be restarted". Therefore in the future Seastar should probably default to this option being on --- even if for historic reasons this is not the default in Linux's socket API.
@@ -913,15 +912,16 @@ Let's advance our example server by outputting some canned response to each conn
 
 const char* canned_response = "Seastar is the future!\n";
 
-future<> service_loop() {
-    listen_options lo;
+seastar::future<> service_loop() {
+    seastar::listen_options lo;
     lo.reuse_address = true;
-    return do_with(listen(make_ipv4_address({1234}), lo), [] (auto& listener) {
-        return keep_doing([&listener] () {
+    return seastar::do_with(seastar::listen(seastar::make_ipv4_address({1234}), lo),
+            [] (auto& listener) {
+        return seastar::keep_doing([&listener] () {
             return listener.accept().then(
-                [] (connected_socket s, socket_address a) {
+                [] (seastar::connected_socket s, seastar::socket_address a) {
                     auto out = s.output();
-                    return do_with(std::move(s), std::move(out),
+                    return seastar::do_with(std::move(s), std::move(out),
                         [] (auto& s, auto& out) {
                             return out.write(canned_response).then([&out] {
                                 return out.close();
@@ -933,7 +933,7 @@ future<> service_loop() {
 }
 ```
 
-The new part of this code begins by taking the ```connected_socket```'s ```output()```, which returns an ```output_stream<char>``` object. On this output stream ```out``` we can write our response using the ```write()``` method. The simple-looking ```write()``` operation is in fact a complex asynchronous operation behind the scenes,  possibly causing multiple packets to be sent, retransmitted, etc., as needed. ```write()``` returns a future saying when it is ok to ```write()``` again to this output stream; This does not necessarily guarantee that the remote peer received all the data we sent it, but it guarantees that the output stream has enough buffer space to allow another write to begin.
+The new part of this code begins by taking the ```connected_socket```'s ```output()```, which returns an ```output_stream<char>``` object. On this output stream ```out``` we can write our response using the ```write()``` method. The simple-looking ```write()``` operation is in fact a complex asynchronous operation behind the scenes,  possibly causing multiple packets to be sent, retransmitted, etc., as needed. ```write()``` returns a future saying when it is ok to ```write()``` again to this output stream; This does not necessarily guarantee that the remote peer received all the data we sent it, but it guarantees that the output stream has enough buffer space (or in the TCP case, there is enough room in the TCP congestion window) to allow another write to begin.
 
 After ```write()```ing the response to ```out```, the example code calls ```out.close()``` and waits for the future it returns. This is necessary, because ```write()``` attempts to batch writes so might not have yet written anything to the TCP stack at this point, and only when close() concludes can we be sure that all the data we wrote to the output stream has actually reached the TCP stack --- and only at this point we may finally dispose of the ```out``` and ```s``` objects.
 
@@ -957,12 +957,13 @@ Let's look at a simple example server involving both reads an writes. This is a 
 #include "core/reactor.hh"
 #include "core/future-util.hh"
 
-future<> handle_connection(connected_socket s, socket_address a) {
+seastar::future<> handle_connection(seastar::connected_socket s,
+                                    seastar::socket_address a) {
     auto out = s.output();
     auto in = s.input();
     return do_with(std::move(s), std::move(out), std::move(in),
         [] (auto& s, auto& out, auto& in) {
-            return repeat([&out, &in] {
+            return seastar::repeat([&out, &in] {
                 return in.read().then([&out] (auto buf) {
                     if (buf) {
                         return out.write(std::move(buf)).then([&out] {
@@ -971,7 +972,8 @@ future<> handle_connection(connected_socket s, socket_address a) {
                             return stop_iteration::no;
                         });
                     } else {
-                        return make_ready_future<stop_iteration>(stop_iteration::yes);
+                        return seastar::make_ready_future<seastar::stop_iteration>(
+                            seastar::stop_iteration::yes);
                     }
                 });
             }).then([&out] {
@@ -980,13 +982,14 @@ future<> handle_connection(connected_socket s, socket_address a) {
         });
 }
 
-future<> service_loop() {
-    listen_options lo;
+seastar::future<> service_loop() {
+    seastar::listen_options lo;
     lo.reuse_address = true;
-    return do_with(listen(make_ipv4_address({1234}), lo), [] (auto& listener) {
-        return keep_doing([&listener] () {
+    return seastar::do_with(seastar::listen(seastar::make_ipv4_address({1234}), lo),
+            [] (auto& listener) {
+        return seastar::keep_doing([&listener] () {
             return listener.accept().then(
-                [] (connected_socket s, socket_address a) {
+                [] (seastar::connected_socket s, seastar::socket_address a) {
                     // Note we ignore, not return, the future returned by
                     // handle_connection(), so we do not wait for one
                     // connection to be handled before accepting the next one.
@@ -1033,14 +1036,14 @@ Rather, applications which want to have command-line options of their own should
 #include <core/app-template.hh>
 #include <core/reactor.hh>
 int main(int argc, char** argv) {
-    app_template app;
+    seastar::app_template app;
     namespace bpo = boost::program_options;
     app.add_options()
         ("flag", "some optional flag")
         ("size,s", bpo::value<int>()->default_value(100), "size")
         ;
     app.add_positional_options({
-       { "filename", bpo::value<std::vector<sstring>>()->default_value({}),
+       { "filename", bpo::value<std::vector<seastar::sstring>>()->default_value({}),
          "sstable files to verify", -1}
     });
     app.run(argc, argv, [&app] {
@@ -1049,11 +1052,11 @@ int main(int argc, char** argv) {
             std::cout << "Flag is on\n";
         }
         std::cout << "Size is " << args["size"].as<int>() << "\n";
-        auto& filenames = args["filename"].as<std::vector<sstring>>();
+        auto& filenames = args["filename"].as<std::vector<seastar::sstring>>();
         for (auto&& fn : filenames) {
             std::cout << fn << "\n";
         }
-        return make_ready_future<>();
+        return seastar::make_ready_future<>();
     });
     return 0;
 }
@@ -1091,9 +1094,9 @@ handle SIGALRM pass noprint
 As we already defined above, An **asynchronous function**, also called a **promise**, is a function which returns a future and arranges for this future to be eventually resolved. As we already saw, an asynchronous function is usually written in terms of other asynchronous functions, for example we saw the function `slow()` which waits for the existing asynchronous function `sleep()` to complete, and then returns 3:
 
 ```cpp
-future<int> slow() {
+seastar::future<int> slow() {
     using namespace std::chrono_literals;
-    return sleep(100ms).then([] { return 3; });
+    return seastar::sleep(100ms).then([] { return 3; });
 }
 ```
 
