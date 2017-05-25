@@ -14,18 +14,15 @@ import shutil
 import subprocess
 import sys
 
-_pid_dir = re.compile(r"\d+")
-def _is_pid_dir(candidate):
-    return _pid_dir.match(candidate) and os.path.isdir(os.path.join("/proc", candidate))
+def run_one_command(prog_args, my_stderr=None, check=True):
+    proc = subprocess.Popen(prog_args, stdout = subprocess.PIPE, stderr = my_stderr)
+    outs, errs = proc.communicate()
+    outs = str(outs, 'utf-8')
 
-def pids():
-    return [ int(x) for x in os.listdir("/proc") if _is_pid_dir(x) ]
+    if check and proc.returncode != 0:
+        raise subprocess.CalledProcessError(returncode=proc.returncode, cmd=" ".join(prog_args), output=outs, stderr=errs)
 
-def pid_name(pidno):
-    return open(os.path.join("/proc", str(pidno), "comm"), "r").read().strip()
-
-def run_one_command(prog_args, my_stderr=None):
-    return str(subprocess.check_output(prog_args, stderr=my_stderr), 'utf-8')
+    return outs
 
 def run_hwloc_distrib(prog_args):
     """
@@ -60,7 +57,7 @@ def distribute_irqs(irqs, cpu_mask):
         set_one_mask("/proc/irq/{}/smp_affinity".format(irqs[i]), mask)
 
 def is_process_running(name):
-    return any([pid_name(pid) == name for pid in pids()])
+    return len(list(filter(lambda ps_line : not re.search('<defunct>', ps_line), run_one_command(['ps', '--no-headers', '-C', name], check=False).splitlines()))) > 0
 
 def restart_irqbalance(banned_irqs):
     """
@@ -73,7 +70,7 @@ def restart_irqbalance(banned_irqs):
     banned_irqs_list = list(banned_irqs)
 
     # If there is nothing to ban - quit
-    if len(banned_irqs_list) == 0:
+    if not banned_irqs_list:
         return
 
     # return early if irqbalance is not running
@@ -113,7 +110,7 @@ def restart_irqbalance(banned_irqs):
 
     # Search for the original options line
     opt_lines = list(filter(lambda line : re.search("^\s*{}".format(options_key), line), cfile_lines))
-    if len(opt_lines) == 0:
+    if not opt_lines:
         new_options = "{}=\"".format(options_key)
     elif len(opt_lines) == 1:
         # cut the last "
@@ -485,7 +482,7 @@ class NetPerfTuner(PerfTunerBase):
         all_irqs = set(learn_all_irqs_one("/sys/class/net/{}/device".format(iface), irqs2procline, iface)).intersection(irqs2procline.keys())
         fp_irqs_re = re.compile("\-TxRx\-|\-fp\-|\-Tx\-Rx\-")
         irqs = list(filter(lambda irq : fp_irqs_re.search(irqs2procline[irq]), all_irqs))
-        if len(irqs) > 0:
+        if irqs:
             return irqs
         else:
             return list(all_irqs)
@@ -554,6 +551,9 @@ class DiskPerfTuner(PerfTunerBase):
     def __init__(self, args):
         super().__init__(args)
 
+        if not (self.args.dirs or self.args.devs):
+            raise Exception("'disks' tuning was requested but neither directories nor storage devices were given")
+
         self.__pyudev_ctx = pyudev.Context()
         self.__dir2disks = self.__learn_directories()
         self.__disk2irqs = self.__learn_irqs()
@@ -574,7 +574,7 @@ class DiskPerfTuner(PerfTunerBase):
         mode_cpu_mask = PerfTunerBase.irqs_cpu_mask_for_mode(self.mode, self.args.cpu_mask)
 
         non_nvme_disks, non_nvme_irqs = self.__disks_info_by_type(DiskPerfTuner.SupportedDiskTypes.non_nvme)
-        if len(non_nvme_disks) > 0:
+        if non_nvme_disks:
             print("Setting non-NVMe disks: {}...".format(", ".join(non_nvme_disks)))
             distribute_irqs(non_nvme_irqs, mode_cpu_mask)
             self.__tune_disks(non_nvme_disks)
@@ -582,7 +582,7 @@ class DiskPerfTuner(PerfTunerBase):
             print("No non-NVMe disks to tune")
 
         nvme_disks, nvme_irqs = self.__disks_info_by_type(DiskPerfTuner.SupportedDiskTypes.nvme)
-        if len(nvme_disks) > 0:
+        if nvme_disks:
             print("Setting NVMe disks: {}...".format(", ".join(nvme_disks)))
             distribute_irqs(nvme_irqs, self.args.cpu_mask)
             self.__tune_disks(nvme_disks)
@@ -594,6 +594,11 @@ class DiskPerfTuner(PerfTunerBase):
         """
         Return a default configuration mode.
         """
+        # if the only disks we are tuning are NVMe disks - return the MQ mode
+        non_nvme_disks, non_nvme_irqs = self.__disks_info_by_type(DiskPerfTuner.SupportedDiskTypes.non_nvme)
+        if not non_nvme_disks:
+            return PerfTunerBase.SupportedModes.mq
+
         num_cores = int(run_hwloc_calc(['--number-of', 'core', 'machine:0', '--restrict', self.args.cpu_mask]))
         num_PUs = int(run_hwloc_calc(['--number-of', 'PU', 'machine:0', '--restrict', self.args.cpu_mask]))
         if num_PUs <= 4:
@@ -648,6 +653,9 @@ class DiskPerfTuner(PerfTunerBase):
                 for irq in irqs:
                     non_nvme_irqs.add(irq)
 
+        if not (nvme_disks or non_nvme_disks):
+            raise Exception("'disks' tuning was requested but no disks were found")
+
         disks_info_by_type[DiskPerfTuner.SupportedDiskTypes.nvme] = ( list(nvme_disks), list(nvme_irqs) )
         disks_info_by_type[DiskPerfTuner.SupportedDiskTypes.non_nvme] = ( list(non_nvme_disks), list(non_nvme_irqs) )
 
@@ -668,16 +676,18 @@ class DiskPerfTuner(PerfTunerBase):
             return []
 
         try:
-            udev_obj = pyudev.Devices().from_device_number(self.__pyudev_ctx, 'block', os.stat(directory).st_dev)
+            udev_obj = pyudev.Device.from_device_number(self.__pyudev_ctx, 'block', os.stat(directory).st_dev)
             return self.__get_phys_devices(udev_obj)
         except:
             # handle cases like ecryptfs where the directory is mounted to another directory and not to some block device
             filesystem = run_one_command(['df', '-P', directory]).splitlines()[-1].split()[0].strip()
             if not re.search(r'^/dev/', filesystem):
                 devs = self.__learn_directory(filesystem, True)
+            else:
+                raise Exception("Logic error: failed to create a udev device while 'df -P' {} returns a {}".format(directory, filesystem))
 
             # log error only for the original directory
-            if not recur and len(devs) == 0:
+            if not recur and not devs:
                 print("Can't get a block device for {} - skipping".format(directory))
 
             return devs
@@ -685,7 +695,7 @@ class DiskPerfTuner(PerfTunerBase):
     def __get_phys_devices(self, udev_obj):
         # if device is a virtual device - the underlying physical devices are going to be its slaves
         if re.search(r'virtual', udev_obj.sys_path):
-            return list(itertools.chain.from_iterable([ self.__get_phys_devices(pyudev.Devices.from_device_file(self.__pyudev_ctx, "/dev/{}".format(slave))) for slave in os.listdir(os.path.join(udev_obj.sys_path, 'slaves')) ]))
+            return list(itertools.chain.from_iterable([ self.__get_phys_devices(pyudev.Device.from_device_file(self.__pyudev_ctx, "/dev/{}".format(slave))) for slave in os.listdir(os.path.join(udev_obj.sys_path, 'slaves')) ]))
         else:
             # device node is something like /dev/sda1 - we need only the part without /dev/
             return [ re.match(r'/dev/(\S+\d*)', udev_obj.device_node).group(1) ]
@@ -701,7 +711,7 @@ class DiskPerfTuner(PerfTunerBase):
                 if device in disk2irqs.keys():
                     continue
 
-                udev_obj = pyudev.Devices.from_device_file(self.__pyudev_ctx, "/dev/{}".format(device))
+                udev_obj = pyudev.Device.from_device_file(self.__pyudev_ctx, "/dev/{}".format(device))
                 dev_sys_path = udev_obj.sys_path
                 split_sys_path = list(pathlib.PurePath(dev_sys_path).parts)
 
@@ -732,7 +742,7 @@ class DiskPerfTuner(PerfTunerBase):
 
         If there isn't such ancestor - return False.
         """
-        udev = pyudev.Devices.from_device_file(pyudev.Context(), dev_node)
+        udev = pyudev.Device.from_device_file(pyudev.Context(), dev_node)
         feature_file = path_creator(udev.sys_path)
         if os.path.exists(feature_file):
             if not dev_node in tuned_devs_set:
@@ -820,7 +830,7 @@ args = argp.parse_args()
 
 # if nothing needs to be configured - quit
 if args.tune is None:
-    sys.exit(0)
+    sys.exit("ERROR: At least one tune mode MUST be given.")
 
 try:
     tuners = []
