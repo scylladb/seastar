@@ -132,21 +132,11 @@ using allocation_site_ptr = const allocation_site*;
 
 namespace memory {
 
+seastar::logger seastar_memory_logger("seastar_memory");
+
 static allocation_site_ptr get_allocation_site() __attribute__((unused));
 
-static std::atomic<bool> abort_on_allocation_failure{false};
-
-void enable_abort_on_allocation_failure() {
-    abort_on_allocation_failure.store(true, std::memory_order_seq_cst);
-}
-
-static void on_allocation_failure(size_t size) {
-    if (!abort_on_alloc_failure_suppressed
-            && abort_on_allocation_failure.load(std::memory_order_relaxed)) {
-        seastar_logger.error("Failed to allocate {} bytes", size);
-        abort();
-    }
-}
+static void on_allocation_failure(size_t size);
 
 static constexpr unsigned cpu_id_shift = 36; // FIXME: make dynamic
 static constexpr unsigned max_cpus = 256;
@@ -180,6 +170,7 @@ class page_list_link {
     uint32_t _prev;
     uint32_t _next;
     friend class page_list;
+    friend void on_allocation_failure(size_t);
 };
 
 static char* mem_base() {
@@ -278,6 +269,7 @@ public:
         }
         return &ary[n];
     }
+    friend void on_allocation_failure(size_t);
 };
 
 class small_pool {
@@ -306,6 +298,7 @@ private:
     void add_more_objects();
     void trim_free_list();
     float waste();
+    friend void on_allocation_failure(size_t);
 };
 
 // index 0b0001'1100 -> size (1 << 4) + 0b11 << (4 - 2)
@@ -1353,6 +1346,65 @@ size_t min_free_memory() {
 
 void set_min_free_pages(size_t pages) {
     cpu_mem.set_min_free_pages(pages);
+}
+
+static thread_local int report_on_alloc_failure_suppressed = 0;
+
+class disable_report_on_alloc_failure_temporarily {
+public:
+    disable_report_on_alloc_failure_temporarily() {
+        ++report_on_alloc_failure_suppressed;
+    };
+    ~disable_report_on_alloc_failure_temporarily() noexcept {
+        --report_on_alloc_failure_suppressed;
+    }
+};
+
+static std::atomic<bool> abort_on_allocation_failure{false};
+
+void enable_abort_on_allocation_failure() {
+    abort_on_allocation_failure.store(true, std::memory_order_seq_cst);
+}
+
+void on_allocation_failure(size_t size) {
+    if (!report_on_alloc_failure_suppressed &&
+            // report even suppressed failures if trace level is enabled
+            (seastar_memory_logger.is_enabled(seastar::log_level::trace) ||
+                    (seastar_memory_logger.is_enabled(seastar::log_level::debug) && !abort_on_alloc_failure_suppressed))) {
+        disable_report_on_alloc_failure_temporarily guard;
+        seastar_memory_logger.debug("Failed to allocate {} bytes at {}", size, current_backtrace());
+        auto free_mem = cpu_mem.nr_free_pages * page_size;
+        auto total_mem = cpu_mem.nr_pages * page_size;
+        seastar_memory_logger.debug("Used memory: {} Free memory: {} Total memory: {}", total_mem - free_mem, free_mem, total_mem);
+        seastar_memory_logger.debug("Small pools:");
+        seastar_memory_logger.debug("objsz spansz usedobj   memory       wst%");
+        for (unsigned i = 0; i < cpu_mem.small_pools.nr_small_pools; i++) {
+            auto& sp = cpu_mem.small_pools[i];
+            auto memory = sp._spans_in_use * sp.span_bytes();
+            auto use_count = sp._spans_in_use * sp.span_bytes() / sp.object_size() - sp._free_count;
+            auto wasted_percent = memory ? sp._free_count * sp.object_size() * 100.0 / memory : 0;
+            seastar_memory_logger.debug("{} {} {} {} {}", sp.object_size(), sp.span_bytes(), use_count, memory, wasted_percent);
+        }
+        seastar_memory_logger.debug("Page spans:");
+        seastar_memory_logger.debug("index size [B]     free [B]");
+        for (unsigned i = 0; i< cpu_mem.nr_span_lists; i++) {
+            auto& span_list = cpu_mem.fsu.free_spans[i];
+            auto front = span_list._front;
+            uint32_t total = 0;
+            while(front) {
+                auto& span = cpu_mem.pages[front];
+                total += span.span_size;
+                front = span.link._next;
+            }
+            seastar_memory_logger.debug("{} {} {}", i, (1<<i) * page_size, total * page_size);
+        }
+    }
+
+    if (!abort_on_alloc_failure_suppressed
+            && abort_on_allocation_failure.load(std::memory_order_relaxed)) {
+        seastar_logger.error("Failed to allocate {} bytes", size);
+        abort();
+    }
 }
 
 }

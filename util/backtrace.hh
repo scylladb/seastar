@@ -87,5 +87,6 @@ struct hash<seastar::saved_backtrace> {
 namespace seastar {
 
 saved_backtrace current_backtrace();
+std::ostream& operator<<(std::ostream& out, const saved_backtrace& b);
 
 }
