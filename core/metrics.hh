@@ -44,7 +44,7 @@
 namespace seastar {
 
 /*!
- * \namespace metrics
+ * \namespace seastar::metrics
  * \brief metrics creation and registration
  *
  * the metrics namespace holds the relevant method and classes to generate metrics.
