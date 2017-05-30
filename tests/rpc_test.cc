@@ -259,3 +259,24 @@ SEASTAR_TEST_CASE(test_rpc_cancel) {
         });
     });
 }
+
+SEASTAR_TEST_CASE(test_message_to_big) {
+    return with_rpc_env({0, 1, 100}, {}, {}, true, [] (test_rpc_proto& proto, test_rpc_proto::server& s, connect_fn connect) {
+        return seastar::async([&proto, &s, connect] {
+            auto c = connect(ipv4_addr());
+            bool good = true;
+            auto call = proto.register_handler(1, [&] (sstring payload) mutable {
+                good = false;
+            });
+            try {
+                call(c, sstring(sstring::initialized_later(), 101)).get();
+                good = false;
+            } catch(std::runtime_error& err) {
+            } catch(...) {
+                good = false;
+            }
+            c.stop().get();
+            BOOST_REQUIRE_EQUAL(good, true);
+        });
+    });
+}

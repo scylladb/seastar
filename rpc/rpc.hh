@@ -336,6 +336,9 @@ public:
             size_t estimate_request_size(size_t serialized_size) {
                 return rpc::estimate_request_size(_server._limits, serialized_size);
             }
+            size_t max_request_size() const {
+                return _server._limits.max_memory;
+            }
             server& get_server() {
                 return _server;
             }
