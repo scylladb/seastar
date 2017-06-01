@@ -200,9 +200,6 @@ public:
     /// This is useful to abort operations on a socket that is not making
     /// progress due to a peer failure.
     void shutdown_input();
-    /// Disables socket input and output.
-    ///
-    /// Equivalent to \ref shutdown_input() and \ref shutdown_output().
 };
 /// @}
 
