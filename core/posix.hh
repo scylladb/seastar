@@ -42,6 +42,8 @@
 #include <signal.h>
 #include <memory>
 #include <chrono>
+#include <sys/uio.h>
+
 #include "net/socket_defs.hh"
 
 namespace seastar {
