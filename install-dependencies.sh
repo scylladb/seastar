@@ -28,7 +28,7 @@ if [ "$ID" = "ubuntu" ] || [ "$ID" = "debian" ]; then
         add-apt-repository -y ppa:ubuntu-toolchain-r/test
         apt-get -y update
     fi
-    apt-get install -y libaio-dev ninja-build ragel libhwloc-dev libnuma-dev libpciaccess-dev libcrypto++-dev libboost-all-dev libxml2-dev xfslibs-dev libgnutls28-dev liblz4-dev libsctp-dev gcc make libprotobuf-dev protobuf-compiler python3 libunwind8-dev systemtap-sdt-dev libtool
+    apt-get install -y libaio-dev ninja-build ragel libhwloc-dev libnuma-dev libpciaccess-dev libcrypto++-dev libboost-all-dev libxml2-dev xfslibs-dev libgnutls28-dev liblz4-dev libsctp-dev gcc make libprotobuf-dev protobuf-compiler python3 libunwind8-dev systemtap-sdt-dev libtool cmake
     if [ "$ID" = "ubuntu" ]; then
         apt-get install -y g++-5
         echo "g++-5 is installed for Seastar. To build Seastar with g++-5, specify '--compiler=g++-5' on configure.py"
@@ -40,7 +40,7 @@ elif [ "$ID" = "centos" ] || [ "$ID" = "fedora" ]; then
         yum install -y epel-release
         curl -o /etc/yum.repos.d/scylla-1.2.repo http://downloads.scylladb.com/rpm/centos/scylla-1.2.repo
     fi
-    yum install -y libaio-devel hwloc-devel numactl-devel libpciaccess-devel cryptopp-devel libxml2-devel xfsprogs-devel gnutls-devel lksctp-tools-devel lz4-devel gcc make protobuf-devel protobuf-compiler libunwind-devel systemtap-sdt-devel libtool
+    yum install -y libaio-devel hwloc-devel numactl-devel libpciaccess-devel cryptopp-devel libxml2-devel xfsprogs-devel gnutls-devel lksctp-tools-devel lz4-devel gcc make protobuf-devel protobuf-compiler libunwind-devel systemtap-sdt-devel libtool cmake
     if [ "$ID" = "fedora" ]; then
         dnf install -y gcc-c++ ninja-build ragel boost-devel libubsan libasan
     else # centos
