@@ -861,7 +861,7 @@ protocol<Serializer, MsgType>::server::connection::negotiate(feature_map request
 template<typename Serializer, typename MsgType>
 future<>
 protocol<Serializer, MsgType>::server::connection::negotiate_protocol(input_stream<char>& in) {
-    return receive_negotiation_frame(*this, in).then([this, &in] (feature_map requested_features) {
+    return receive_negotiation_frame(*this, in).then([this] (feature_map requested_features) {
         auto returned_features = negotiate(std::move(requested_features));
         return send_negotiation_frame(*this, std::move(returned_features));
     });
@@ -1005,7 +1005,7 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
 template<typename Serializer, typename MsgType>
 future<>
 protocol<Serializer, MsgType>::client::negotiate_protocol(input_stream<char>& in) {
-    return receive_negotiation_frame(*this, in).then([this, &in] (feature_map features) {
+    return receive_negotiation_frame(*this, in).then([this] (feature_map features) {
         return negotiate(features);
     });
 }

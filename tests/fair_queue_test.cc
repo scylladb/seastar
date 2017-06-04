@@ -280,7 +280,7 @@ SEASTAR_TEST_CASE(test_fair_queue_longer_run) {
         env->do_op(a, 1);
         env->do_op(b, 1);
     }
-    return sleep(1s).then([env, a, b] {
+    return sleep(1s).then([env] {
        return env->verify("longer_run", {1, 1}, 2);
     }).then([env] {});
 }
@@ -297,7 +297,7 @@ SEASTAR_TEST_CASE(test_fair_queue_longer_run_different_shares) {
         env->do_op(a, 1);
         env->do_op(b, 1);
     }
-    return sleep(1s).then([env, a, b] {
+    return sleep(1s).then([env] {
        return env->verify("longer_run_different_shares", {1, 2}, 2);
     }).then([env] {});
 }
@@ -323,7 +323,7 @@ SEASTAR_TEST_CASE(test_fair_queue_random_run) {
         env->do_op(b, 1);
     }
 
-    return sleep(reqs * 100us).then([env, a, b, reqs] {
+    return sleep(reqs * 100us).then([env, reqs] {
         // Accept 5 % error.
         auto expected_error = std::max(1, int(round(reqs * 0.05)));
        return env->verify(sprint("random_run (%d msec)", reqs / 10), {1, 1}, expected_error);

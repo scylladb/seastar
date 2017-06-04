@@ -79,7 +79,7 @@ public:
             if (!_lb) {
                 return;
             }
-            smp::submit_to(_host_cpu, [this, cpu = _target_cpu, lb = std::move(_lb)] {
+            smp::submit_to(_host_cpu, [cpu = _target_cpu, lb = std::move(_lb)] {
                 lb->closed_cpu(cpu);
             });
         }

@@ -691,7 +691,7 @@ static String make_sstring(Args&&... args)
     return ret;
 }
 
-template <typename string_type = sstring, typename T>
+template <typename string_type, typename T>
 inline string_type to_sstring(T value) {
     return sstring::to_sstring<string_type>(value);
 }
