@@ -160,7 +160,7 @@ SEASTAR_TEST_CASE(test_rpc_connect) {
             }
             co.send_timeout_data = j & 2;
             auto f = with_rpc_env({}, co, so, true, [] (test_rpc_proto& proto, test_rpc_proto::server& s, connect_fn connect) {
-                return seastar::async([&proto, &s, connect] {
+                return seastar::async([&proto, connect] {
                     auto c1 = connect(ipv4_addr());
                     auto sum = proto.register_handler(1, [](int a, int b) {
                         return make_ready_future<int>(a+b);
@@ -194,7 +194,7 @@ SEASTAR_TEST_CASE(test_rpc_connect_multi_compression_algo) {
     so.compressor_factory = &server;
     co.compressor_factory = &client;
     return with_rpc_env({}, co, so, true, [] (test_rpc_proto& proto, test_rpc_proto::server& s, connect_fn connect) {
-        return seastar::async([&proto, &s, connect] {
+        return seastar::async([&proto, connect] {
             auto c1 = connect(ipv4_addr());
             auto sum = proto.register_handler(1, [](int a, int b) {
                 return make_ready_future<int>(a+b);
@@ -211,7 +211,7 @@ SEASTAR_TEST_CASE(test_rpc_connect_multi_compression_algo) {
 
 SEASTAR_TEST_CASE(test_rpc_connect_abort) {
     return with_rpc_env({}, {}, {}, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, connect_fn connect) {
-        return seastar::async([&proto, &s, connect] {
+        return seastar::async([&proto, connect] {
             auto c1 = connect(ipv4_addr());
             auto f = proto.register_handler(1, []() { return make_ready_future<>(); });
             c1.stop().get0();
@@ -226,7 +226,7 @@ SEASTAR_TEST_CASE(test_rpc_connect_abort) {
 SEASTAR_TEST_CASE(test_rpc_cancel) {
     using namespace std::chrono_literals;
     return with_rpc_env({}, {}, {}, true, [] (test_rpc_proto& proto, test_rpc_proto::server& s, connect_fn connect) {
-        return seastar::async([&proto, &s, connect] {
+        return seastar::async([&proto, connect] {
             auto c1 = connect(ipv4_addr());
             bool rpc_executed = false;
             int good = 0;
@@ -262,7 +262,7 @@ SEASTAR_TEST_CASE(test_rpc_cancel) {
 
 SEASTAR_TEST_CASE(test_message_to_big) {
     return with_rpc_env({0, 1, 100}, {}, {}, true, [] (test_rpc_proto& proto, test_rpc_proto::server& s, connect_fn connect) {
-        return seastar::async([&proto, &s, connect] {
+        return seastar::async([&proto, connect] {
             auto c = connect(ipv4_addr());
             bool good = true;
             auto call = proto.register_handler(1, [&] (sstring payload) mutable {

@@ -41,7 +41,7 @@ static future<> connect_to_ssl_google(::shared_ptr<tls::certificate_credentials>
                 auto f = os.write(msg);
                 return f.then([&s, &os]() mutable {
                     auto f = os.flush();
-                    return f.then([&s, &os]() mutable {
+                    return f.then([&s]() mutable {
                         return do_with(s.input(), [](auto& in) {
                             auto f = in.read();
                             return f.then([](temporary_buffer<char> buf) {
