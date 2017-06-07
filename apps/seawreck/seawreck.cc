@@ -28,6 +28,16 @@
 #include "core/semaphore.hh"
 #include "core/future-util.hh"
 #include <chrono>
+#include <signal.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
+
+void my_handler(int s){
+           printf("Caught signal %d\n",s);
+           exit(1);
+
+}
 
 using namespace seastar;
 
@@ -169,6 +179,18 @@ public:
 namespace bpo = boost::program_options;
 
 int main(int ac, char** av) {
+
+    // Signal Handler for window console
+    struct sigaction sigIntHandler;
+
+    sigIntHandler.sa_handler = my_handler;
+    sigemptyset(&sigIntHandler.sa_mask);
+    sigIntHandler.sa_flags = 0;
+
+    sigaction(SIGINT, &sigIntHandler, NULL);
+    pause();
+    return 0;
+
     app_template app;
     app.add_options()
         ("server,s", bpo::value<std::string>()->default_value("192.168.66.100:10000"), "Server address")
