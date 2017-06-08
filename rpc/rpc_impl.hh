@@ -263,7 +263,7 @@ inline std::tuple<T...> unmarshall(Serializer& serializer, rcv_buf input) {
     return do_unmarshall<Serializer, decltype(in), T...>(serializer, in);
 }
 
-static std::exception_ptr unmarshal_exception(rcv_buf& d) {
+inline std::exception_ptr unmarshal_exception(rcv_buf& d) {
     std::exception_ptr ex;
     auto data = make_deserializer_stream(d);
 
