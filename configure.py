@@ -681,7 +681,9 @@ with open(buildfile, 'w') as f:
         pool link_pool
             depth = {link_pool_depth}
         rule ragel
-            command = ragel -G2 -o $out $in
+            # sed away a bug in ragel 7 that emits some extraneous _nfa* variables
+            # (the $$ is collapsed to a single one by ninja)
+            command = ragel -G2 -o $out $in && sed -i -e '1h;2,$$H;$$!d;g' -re 's/static const char _nfa[^;]*;//g' $out
             description = RAGEL $out
         rule gen
             command = /bin/echo -e $text > $out
