@@ -1080,7 +1080,7 @@ public:
     future<T...> handle_exception(Func&& func) noexcept {
         using func_ret = std::result_of_t<Func(std::exception_ptr)>;
         return then_wrapped([func = std::forward<Func>(func)]
-                             (auto&& fut) -> future<T...> {
+                             (auto&& fut) mutable -> future<T...> {
             if (!fut.failed()) {
                 return make_ready_future<T...>(fut.get());
             } else {
@@ -1106,7 +1106,7 @@ public:
         using ex_type = typename trait::template arg<0>::type;
         using func_ret = typename trait::return_type;
         return then_wrapped([func = std::forward<Func>(func)]
-                             (auto&& fut) -> future<T...> {
+                             (auto&& fut) mutable -> future<T...> {
             try {
                 return make_ready_future<T...>(fut.get());
             } catch(ex_type& ex) {
