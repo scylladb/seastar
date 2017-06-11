@@ -152,6 +152,32 @@ def sanitize_vptr_flag(compiler):
         print('Notice: -fsanitize=vptr is broken, disabling; some debug mode tests are bypassed.')
         return '-fno-sanitize=vptr'
 
+
+def adjust_visibility_flags(compiler):
+    # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
+    flags = ['-fvisibility=hidden', '-std=gnu++1y', '-Werror=attributes']
+    if not try_compile(compiler, flags=flags, source=textwrap.dedent('''
+            template <class T>
+            class MyClass  {
+            public:
+                MyClass() {
+                    auto outer = [this] ()
+                        {
+                            auto fn = [this]   {  };
+                            //use fn for something here
+                        };
+                }
+            };
+
+            int main() {
+                 MyClass<int> r;
+            }
+            ''')):
+        print('Notice: disabling -Wattributes due to https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947')
+        return '-Wno-attributes'
+    else:
+        return ''
+
 modes = {
     'debug': {
         'sanitize': '-fsanitize=address -fsanitize=leak -fsanitize=undefined',
@@ -559,6 +585,8 @@ tests_link_rule = 'link' if args.tests_debuginfo else 'link_stripped'
 
 sanitize_flags = sanitize_vptr_flag(args.cxx)
 
+visibility_flags = adjust_visibility_flags(args.cxx)
+
 if not try_compile(args.cxx, '#include <gnutls/gnutls.h>'):
     print('Seastar requires gnutls.  Install gnutls-devel/libgnutls-dev')
     sys.exit(1)
@@ -675,8 +703,8 @@ with open(buildfile, 'w') as f:
         builddir = {outdir}
         cxx = {cxx}
         # we disable _FORTIFY_SOURCE because it generates false positives with longjmp() (core/thread.cc)
-        cxxflags = -std=gnu++1y {dbgflag} {fpie} -Wall -Werror -Wno-error=deprecated-declarations -fvisibility=hidden -pthread -I. -U_FORTIFY_SOURCE {user_cflags} {warnings} {defines}
-        ldflags = {dbgflag} -Wl,--no-as-needed {static} {pie} -fvisibility=hidden -pthread {user_ldflags}
+        cxxflags = -std=gnu++1y {dbgflag} {fpie} -Wall -Werror -Wno-error=deprecated-declarations -fvisibility=hidden {visibility_flags} -pthread -I. -U_FORTIFY_SOURCE {user_cflags} {warnings} {defines}
+        ldflags = {dbgflag} -Wl,--no-as-needed {static} {pie} -fvisibility=hidden {visibility_flags} -pthread {user_ldflags}
         libs = {libs}
         pool link_pool
             depth = {link_pool_depth}
@@ -764,7 +792,7 @@ with open(buildfile, 'w') as f:
                         URL: http://seastar-project.org/
                         Description: Advanced C++ framework for high-performance server applications on modern hardware.
                         Version: 1.0
-                        Libs: -L{srcdir}/{builddir} -Wl,--whole-archive,-lseastar,--no-whole-archive {dbgflag} -Wl,--no-as-needed {static} {pie} -fvisibility=hidden -pthread {user_ldflags} {sanitize_libs} {libs}
+                        Libs: -L{srcdir}/{builddir} -Wl,--whole-archive,-lseastar,--no-whole-archive {dbgflag} -Wl,--no-as-needed {static} {pie} -fvisibility=hidden {visibility_flags} -pthread {user_ldflags} {sanitize_libs} {libs}
                         Cflags: -std=gnu++1y {dbgflag} {fpie} -Wall -Werror -fvisibility=hidden -pthread -I{srcdir} -I{srcdir}/fmt -I{srcdir}/{builddir}/gen {user_cflags} {warnings} {defines} {sanitize} {opt}
                         ''').format(builddir = 'build/' + mode, srcdir = os.getcwd(), **vars)
                 f.write('build $builddir/{}/{}: gen\n  text = {}\n'.format(mode, binary, repr(pc)))
