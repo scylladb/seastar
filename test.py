@@ -46,6 +46,7 @@ boost_tests = [
     'connect_test',
     'json_formatter_test',
     'execution_stage_test',
+    'lowres_clock_test',
 ]
 
 other_tests = [
