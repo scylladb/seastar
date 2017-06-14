@@ -59,7 +59,7 @@ private:
     static void update();
     // _now is updated by cpu0 and read by other cpus. Make _now on its own
     // cache line to avoid false sharing.
-    static std::atomic<rep> _now [[gnu::aligned(64)]];
+    alignas(64) static std::atomic<rep> _now;
     // High resolution timer to drive this low resolution clock
     timer<> _timer;
     // High resolution timer expires every 10 milliseconds
