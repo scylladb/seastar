@@ -438,14 +438,23 @@ public:
 };
 
 
-future<> start(httpd::http_server_control& http_server, config ctx) {
+
+future<> add_prometheus_routes(http_server& server, config ctx) {
     if (ctx.hostname == "") {
         ctx.hostname = metrics::impl::get_local_impl()->get_config().hostname;
     }
+    server._routes.put(GET, "/metrics", new metrics_handler(ctx));
+    return make_ready_future<>();
+}
 
-    return http_server.set_routes([ctx](httpd::routes& r) {
-        r.put(GET, "/metrics", new metrics_handler(ctx));
+future<> add_prometheus_routes(distributed<http_server>& server, config ctx) {
+    return server.invoke_on_all([ctx](http_server& s) {
+        return add_prometheus_routes(s, ctx);
     });
+}
+
+future<> start(httpd::http_server_control& http_server, config ctx) {
+    return add_prometheus_routes(http_server.server(), ctx);
 }
 
 }
