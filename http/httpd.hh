@@ -425,7 +425,7 @@ private:
  *              });
  */
 class http_server_control {
-    distributed<http_server>* _server_dist;
+    std::unique_ptr<distributed<http_server>> _server_dist;
 private:
     static sstring generate_server_name();
 public:
