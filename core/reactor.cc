@@ -390,13 +390,19 @@ reactor::~reactor() {
     eraser(_expired_manual_timers);
 }
 
+// Add to an atomic integral non-atomically and returns the previous value
+template <typename Integral>
+inline Integral add_nonatomically(std::atomic<Integral>& value, Integral inc) {
+    auto tmp = value.load(std::memory_order_relaxed);
+    value.store(tmp + inc, std::memory_order_relaxed);
+    return tmp;
+}
+
 // Increments an atomic integral non-atomically and returns the previous value
 // Akin to value++;
 template <typename Integral>
 inline Integral increment_nonatomically(std::atomic<Integral>& value) {
-    auto tmp = value.load(std::memory_order_relaxed);
-    value.store(tmp + 1, std::memory_order_relaxed);
-    return tmp;
+    return add_nonatomically(value, Integral(1));
 }
 
 void
@@ -421,13 +427,13 @@ reactor::task_quota_timer_thread_fn() {
                 pthread_kill(who, sig);
             }
         }
-        // We use a tick at every timer firing so we can report supressed backtraces.
+        // We use a tick at every timer firing so we can report suppressed backtraces.
         // Best case it's a correctly predicted branch. If a backtrace had happened in
         // the near past it's an increment and two branches.
         //
-        // We can do it a cheaper if we don't report supressed backtraces.
-        void tick() {
-            if (_reported && (_ticks++ >= _ticks_per_minute)) {
+        // We can do it a cheaper if we don't report suppressed backtraces.
+        void tick(unsigned ticks = 1) {
+            if (_reported && (_ticks + ticks >= _ticks_per_minute)) {
                 if (_reported > _max_reports_per_minute) {
                     auto supressed = _reported - _max_reports_per_minute;
                     backtrace_buffer buf;
@@ -460,13 +466,17 @@ reactor::task_quota_timer_thread_fn() {
         _local_need_preempt = true;
     }
     block_notifier_rate_limiter rate_limit(unsigned(60s / _task_quota), 5, _id);
+    uint64_t saved_missed_ticks = 0;
 
     while (!_dying.load(std::memory_order_relaxed)) {
         uint64_t events;
         _task_quota_timer.read(&events, 8);
         _local_need_preempt = true;
 
-        rate_limit.tick();
+        auto missed_ticks = _stall_detector_missed_ticks.load(std::memory_order_relaxed);
+        rate_limit.tick(std::max(uint64_t(1), missed_ticks - saved_missed_ticks));
+        saved_missed_ticks = missed_ticks;
+
         auto tp = _tasks_processed.load(std::memory_order_relaxed);
         auto p = _polls.load(std::memory_order_relaxed);
         if ((tp == last_tasks_processed_seen) && (p == last_polls_seen)) {
@@ -2800,12 +2810,14 @@ int reactor::run() {
             if (go_to_sleep) {
                 _mm_pause();
                 if (idle_end - idle_start > _max_poll_time) {
-                    // Turn off the task quota timer to avoid spurious wakeiups
+                    // Turn off the task quota timer to avoid spurious wakeups
                     struct itimerspec zero_itimerspec = {};
                     _task_quota_timer.timerfd_settime(0, zero_itimerspec);
+                    auto start_sleep = steady_clock_type::now();
                     sleep();
                     // We may have slept for a while, so freshen idle_end
                     idle_end = steady_clock_type::now();
+                    add_nonatomically(_stall_detector_missed_ticks, uint64_t((start_sleep - idle_end)/_task_quota));
                     _task_quota_timer.timerfd_settime(0, task_quote_itimerspec);
                 }
             } else {

@@ -703,6 +703,7 @@ private:
     std::atomic<uint64_t> _polls = { 0 };
     std::atomic<unsigned> _tasks_processed_stalled = { 0 };
     unsigned _tasks_processed_report_threshold;
+    std::atomic<uint64_t> _stall_detector_missed_ticks = { 0 };
 
     unsigned _max_task_backlog = 1000;
     timer_set<timer<>, &timer<>::_link> _timers;
