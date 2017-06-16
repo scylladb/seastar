@@ -27,7 +27,7 @@
 
 namespace seastar {
 
-class lowres_clock {
+class lowres_clock final {
 public:
     typedef int64_t rep;
     // The lowres_clock's resolution is 10ms. However, to make it is easier to
