@@ -34,15 +34,15 @@ class lowres_clock;
 
 class lowres_clock_impl final {
 public:
-    typedef std::chrono::steady_clock base_clock;
+    using base_clock = std::chrono::steady_clock;
 
-    typedef base_clock::rep rep;
+    using rep = base_clock::rep;
     // The lowres_clock's resolution is 10ms. However, to make it is easier to
     // do calcuations with std::chrono::milliseconds, we make the clock's
     // period to 1ms instead of 10ms.
-    typedef std::ratio<1, 1000> period;
-    typedef std::chrono::duration<rep, period> duration;
-    typedef std::chrono::time_point<lowres_clock, duration> time_point;
+    using period = std::ratio<1, 1000>;
+    using duration = std::chrono::duration<rep, period>;
+    using time_point = std::chrono::time_point<lowres_clock, duration>;
 
     static time_point now() {
         auto nr = _now.load(std::memory_order_relaxed);
@@ -59,7 +59,7 @@ private:
     static constexpr std::chrono::milliseconds _granularity{10};
 
     // High resolution timer to drive this low resolution clock
-    timer<> _timer;
+    timer<> _timer{};
 
     static void update();
 };
