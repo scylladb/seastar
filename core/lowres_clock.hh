@@ -27,6 +27,15 @@
 
 namespace seastar {
 
+///
+/// \brief Low-resolution and efficient steady clock.
+///
+/// This is a monotonic clock with a granularity of 10 ms. Time points from this clock do not correspond to system
+/// time.
+///
+/// The primary benefit of this clock is that invoking \c now() is inexpensive compared to
+/// \c std::chrono::steady_clock::now().
+///
 class lowres_clock final {
 public:
     typedef std::chrono::steady_clock base_clock;
@@ -39,6 +48,9 @@ public:
     typedef std::chrono::time_point<lowres_clock, duration> time_point;
     static constexpr bool is_steady = true;
     lowres_clock();
+    ///
+    /// \note Outside of a Seastar application, the result is undefined.
+    ///
     static time_point now() {
         auto nr = _now.load(std::memory_order_relaxed);
         return time_point(duration(nr));
