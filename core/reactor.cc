@@ -3730,7 +3730,8 @@ void smp::configure(boost::program_options::variables_map configuration)
     inited.wait();
 
     engine().configure(configuration);
-    engine()._lowres_clock_impl = std::make_unique<lowres_clock_impl>();
+    // The raw `new` is necessary because of the private constructor of `lowres_clock_impl`.
+    engine()._lowres_clock_impl = std::unique_ptr<lowres_clock_impl>(new lowres_clock_impl);
 }
 
 bool smp::poll_queues() {

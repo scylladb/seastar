@@ -52,7 +52,8 @@ public:
         return time_point(duration(nr));
     }
 
-    lowres_clock_impl();
+    // For construction.
+    friend class smp;
 private:
     // _now is updated by cpu0 and read by other cpus. Make _now on its own
     // cache line to avoid false sharing.
@@ -65,6 +66,9 @@ private:
     timer<> _timer{};
 
     static void update();
+
+    // Private to ensure that static variables are only initialized once.
+    lowres_clock_impl();
 };
 
 /// \endcond
