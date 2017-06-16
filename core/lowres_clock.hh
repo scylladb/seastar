@@ -27,16 +27,12 @@
 
 namespace seastar {
 
-///
-/// \brief Low-resolution and efficient steady clock.
-///
-/// This is a monotonic clock with a granularity of 10 ms. Time points from this clock do not correspond to system
-/// time.
-///
-/// The primary benefit of this clock is that invoking \c now() is inexpensive compared to
-/// \c std::chrono::steady_clock::now().
-///
-class lowres_clock final {
+// Forward declaration.
+class lowres_clock;
+
+/// \cond internal
+
+class lowres_clock_impl final {
 public:
     typedef std::chrono::steady_clock base_clock;
     typedef base_clock::rep rep;
@@ -46,11 +42,7 @@ public:
     typedef std::ratio<1, 1000> period;
     typedef std::chrono::duration<rep, period> duration;
     typedef std::chrono::time_point<lowres_clock, duration> time_point;
-    static constexpr bool is_steady = true;
-    lowres_clock();
-    ///
-    /// \note Outside of a Seastar application, the result is undefined.
-    ///
+    lowres_clock_impl();
     static time_point now() {
         auto nr = _now.load(std::memory_order_relaxed);
         return time_point(duration(nr));
@@ -64,6 +56,34 @@ private:
     timer<> _timer;
     // High resolution timer expires every 10 milliseconds
     static constexpr std::chrono::milliseconds _granularity{10};
+};
+
+/// \endcond
+
+//
+/// \brief Low-resolution and efficient steady clock.
+///
+/// This is a monotonic clock with a granularity of 10 ms. Time points from this clock do not correspond to system
+/// time.
+///
+/// The primary benefit of this clock is that invoking \c now() is inexpensive compared to
+/// \c std::chrono::steady_clock::now().
+///
+class lowres_clock final {
+public:
+    using rep = lowres_clock_impl::rep;
+    using period = lowres_clock_impl::period;
+    using duration = lowres_clock_impl::duration;
+    using time_point = lowres_clock_impl::time_point;
+
+    static constexpr bool is_steady = true;
+
+    ///
+    /// \note Outside of a Seastar application, the result is undefined.
+    ///
+    static time_point now() {
+        return lowres_clock_impl::now();
+    }
 };
 
 }
