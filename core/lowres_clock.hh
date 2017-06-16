@@ -36,6 +36,7 @@ public:
     typedef std::ratio<1, 1000> period;
     typedef std::chrono::duration<rep, period> duration;
     typedef std::chrono::time_point<lowres_clock, duration> time_point;
+    static constexpr bool is_steady = true;
     lowres_clock();
     static time_point now() {
         auto nr = _now.load(std::memory_order_relaxed);
