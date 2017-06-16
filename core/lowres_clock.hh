@@ -35,6 +35,7 @@ class lowres_clock;
 class lowres_clock_impl final {
 public:
     typedef std::chrono::steady_clock base_clock;
+
     typedef base_clock::rep rep;
     // The lowres_clock's resolution is 10ms. However, to make it is easier to
     // do calcuations with std::chrono::milliseconds, we make the clock's
@@ -42,20 +43,25 @@ public:
     typedef std::ratio<1, 1000> period;
     typedef std::chrono::duration<rep, period> duration;
     typedef std::chrono::time_point<lowres_clock, duration> time_point;
-    lowres_clock_impl();
+
     static time_point now() {
         auto nr = _now.load(std::memory_order_relaxed);
         return time_point(duration(nr));
     }
+
+    lowres_clock_impl();
 private:
-    static void update();
     // _now is updated by cpu0 and read by other cpus. Make _now on its own
     // cache line to avoid false sharing.
     alignas(64) static std::atomic<rep> _now;
-    // High resolution timer to drive this low resolution clock
-    timer<> _timer;
+
     // High resolution timer expires every 10 milliseconds
     static constexpr std::chrono::milliseconds _granularity{10};
+
+    // High resolution timer to drive this low resolution clock
+    timer<> _timer;
+
+    static void update();
 };
 
 /// \endcond
