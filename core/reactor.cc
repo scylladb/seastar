@@ -102,7 +102,8 @@ using namespace net;
 
 seastar::logger seastar_logger("seastar");
 
-std::atomic<lowres_clock::rep> lowres_clock_impl::_now;
+std::atomic<lowres_clock_impl::steady_rep> lowres_clock_impl::counters::_steady_now;
+std::atomic<lowres_clock_impl::system_rep> lowres_clock_impl::counters::_system_now;
 std::atomic<manual_clock::rep> manual_clock::_now;
 constexpr std::chrono::milliseconds lowres_clock_impl::_granularity;
 
@@ -119,10 +120,14 @@ lowres_clock_impl::lowres_clock_impl() {
 }
 
 void lowres_clock_impl::update() {
-    using namespace std::chrono;
-    auto now = base_clock::now();
-    auto ticks = duration_cast<duration>(now.time_since_epoch()).count();
-    _now.store(ticks, std::memory_order_relaxed);
+    auto const steady_count =
+            std::chrono::duration_cast<steady_duration>(base_steady_clock::now().time_since_epoch()).count();
+
+    auto const system_count =
+            std::chrono::duration_cast<system_duration>(base_system_clock::now().time_since_epoch()).count();
+
+    counters::_steady_now.store(steady_count, std::memory_order_relaxed);
+    counters::_system_now.store(system_count, std::memory_order_relaxed);
 }
 
 template <typename T>
