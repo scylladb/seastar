@@ -29,7 +29,8 @@ namespace seastar {
 
 class lowres_clock final {
 public:
-    typedef int64_t rep;
+    typedef std::chrono::steady_clock base_clock;
+    typedef base_clock::rep rep;
     // The lowres_clock's resolution is 10ms. However, to make it is easier to
     // do calcuations with std::chrono::milliseconds, we make the clock's
     // period to 1ms instead of 10ms.

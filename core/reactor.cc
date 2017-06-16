@@ -120,8 +120,8 @@ lowres_clock::lowres_clock() {
 
 void lowres_clock::update() {
     using namespace std::chrono;
-    auto now = steady_clock_type::now();
-    auto ticks = duration_cast<milliseconds>(now.time_since_epoch()).count();
+    auto now = base_clock::now();
+    auto ticks = duration_cast<duration>(now.time_since_epoch()).count();
     _now.store(ticks, std::memory_order_relaxed);
 }
 
