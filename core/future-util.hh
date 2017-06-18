@@ -148,7 +148,7 @@ parallel_for_each(Range&& range, Func&& func) {
 
 /// \cond internal
 template<typename AsyncAction, typename StopCondition>
-static inline
+inline
 void do_until_continued(StopCondition&& stop_cond, AsyncAction&& action, promise<> p) {
     while (!stop_cond()) {
         try {
@@ -193,7 +193,7 @@ using stop_iteration = bool_class<stop_iteration_tag>;
 ///         a call to to \c action failed.
 template<typename AsyncAction>
 GCC6_CONCEPT( requires seastar::ApplyReturns<AsyncAction, stop_iteration> || seastar::ApplyReturns<AsyncAction, future<stop_iteration>> )
-static inline
+inline
 future<> repeat(AsyncAction&& action) {
     using futurator = futurize<std::result_of_t<AsyncAction()>>;
     static_assert(std::is_same<future<stop_iteration>, typename futurator::type>::value, "bad AsyncAction signature");
@@ -323,7 +323,7 @@ repeat_until_value(AsyncAction&& action) {
 ///         a call to to \c action failed.
 template<typename AsyncAction, typename StopCondition>
 GCC6_CONCEPT( requires seastar::ApplyReturns<StopCondition, bool> && seastar::ApplyReturns<AsyncAction, future<>> )
-static inline
+inline
 future<> do_until(StopCondition&& stop_cond, AsyncAction&& action) {
     promise<> p;
     auto f = p.get_future();
@@ -341,7 +341,7 @@ future<> do_until(StopCondition&& stop_cond, AsyncAction&& action) {
 /// \return a future<> that will resolve to the first failure of \c action
 template<typename AsyncAction>
 GCC6_CONCEPT( requires seastar::ApplyReturns<AsyncAction, future<>> )
-static inline
+inline
 future<> keep_doing(AsyncAction&& action) {
     return repeat([action = std::forward<AsyncAction>(action)] () mutable {
         return action().then([] {
@@ -364,7 +364,7 @@ future<> keep_doing(AsyncAction&& action) {
 ///         \c action failed.
 template<typename Iterator, typename AsyncAction>
 GCC6_CONCEPT( requires requires (Iterator i, AsyncAction aa) { { aa(*i) } -> future<> } )
-static inline
+inline
 future<> do_for_each(Iterator begin, Iterator end, AsyncAction&& action) {
     if (begin == end) {
         return make_ready_future<>();
@@ -399,7 +399,7 @@ future<> do_for_each(Iterator begin, Iterator end, AsyncAction&& action) {
 ///         \c action failed.
 template<typename Container, typename AsyncAction>
 GCC6_CONCEPT( requires requires (Container c, AsyncAction aa) { { aa(*c.begin()) } -> future<> } )
-static inline
+inline
 future<> do_for_each(Container& c, AsyncAction&& action) {
     return do_for_each(std::begin(c), std::end(c), std::forward<AsyncAction>(action));
 }
@@ -788,7 +788,7 @@ public:
     }
 };
 
-static inline
+inline
 future<> now() {
     return make_ready_future<>();
 }
