@@ -102,9 +102,10 @@ using namespace net;
 
 seastar::logger seastar_logger("seastar");
 
-std::atomic<lowres_clock::rep> lowres_clock::_now;
+std::atomic<lowres_clock_impl::steady_rep> lowres_clock_impl::counters::_steady_now;
+std::atomic<lowres_clock_impl::system_rep> lowres_clock_impl::counters::_system_now;
 std::atomic<manual_clock::rep> manual_clock::_now;
-constexpr std::chrono::milliseconds lowres_clock::_granularity;
+constexpr std::chrono::milliseconds lowres_clock_impl::_granularity;
 
 timespec to_timespec(steady_clock_type::time_point t) {
     using ns = std::chrono::nanoseconds;
@@ -112,17 +113,21 @@ timespec to_timespec(steady_clock_type::time_point t) {
     return { n / 1'000'000'000, n % 1'000'000'000 };
 }
 
-lowres_clock::lowres_clock() {
+lowres_clock_impl::lowres_clock_impl() {
     update();
-    _timer.set_callback(&lowres_clock::update);
+    _timer.set_callback(&lowres_clock_impl::update);
     _timer.arm_periodic(_granularity);
 }
 
-void lowres_clock::update() {
-    using namespace std::chrono;
-    auto now = steady_clock_type::now();
-    auto ticks = duration_cast<milliseconds>(now.time_since_epoch()).count();
-    _now.store(ticks, std::memory_order_relaxed);
+void lowres_clock_impl::update() {
+    auto const steady_count =
+            std::chrono::duration_cast<steady_duration>(base_steady_clock::now().time_since_epoch()).count();
+
+    auto const system_count =
+            std::chrono::duration_cast<system_duration>(base_system_clock::now().time_since_epoch()).count();
+
+    counters::_steady_now.store(steady_count, std::memory_order_relaxed);
+    counters::_system_now.store(system_count, std::memory_order_relaxed);
 }
 
 template <typename T>
@@ -3730,7 +3735,8 @@ void smp::configure(boost::program_options::variables_map configuration)
     inited.wait();
 
     engine().configure(configuration);
-    engine()._lowres_clock = std::make_unique<lowres_clock>();
+    // The raw `new` is necessary because of the private constructor of `lowres_clock_impl`.
+    engine()._lowres_clock_impl = std::unique_ptr<lowres_clock_impl>(new lowres_clock_impl);
 }
 
 bool smp::poll_queues() {

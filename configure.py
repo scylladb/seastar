@@ -243,6 +243,7 @@ tests = [
     'tests/json_formatter_test',
     'tests/dns_test',
     'tests/execution_stage_test',
+    'tests/lowres_clock_test',
     ]
 
 apps = [
@@ -451,6 +452,7 @@ deps = {
     'tests/json_formatter_test': ['tests/json_formatter_test.cc'] + core + http,
     'tests/dns_test': ['tests/dns_test.cc'] + core + libnet,
     'tests/execution_stage_test': ['tests/execution_stage_test.cc'] + core,
+    'tests/lowres_clock_test': ['tests/lowres_clock_test.cc'] + core,
 }
 
 boost_tests = [
@@ -472,6 +474,7 @@ boost_tests = [
     'tests/json_formatter_test',
     'tests/dns_test',
     'tests/execution_stage_test',
+    'tests/lowres_clock_test',
     ]
 
 for bt in boost_tests:
