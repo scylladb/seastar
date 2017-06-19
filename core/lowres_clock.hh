@@ -44,9 +44,8 @@ public:
     using base_steady_clock = std::chrono::steady_clock;
     using base_system_clock = std::chrono::system_clock;
 
-    // The clocks' resolutions are 10ms. However, to make it is easier to
-    // do calcuations with std::chrono::milliseconds, we make the clock
-    // period to 1ms instead of 10ms.
+    // The clocks' resolutions are 10 ms. However, to make it is easier to do calculations with
+    // `std::chrono::milliseconds`, we make the clock period 1 ms instead of 10 ms.
     using period = std::ratio<1, 1000>;
 
     using steady_rep = base_steady_clock::rep;
@@ -70,14 +69,14 @@ public:
     // For construction.
     friend class smp;
 private:
-    // Both counters are updated by cpu0 and read by other cpus. Place them on their own
-    // cache line to avoid false sharing.
+    // Both counters are updated by cpu0 and read by other cpus. Place them on their own cache line to avoid false
+    // sharing.
     struct alignas(64) counters final {
         static std::atomic<steady_rep> _steady_now;
         static std::atomic<system_rep> _system_now;
     };
 
-    // High resolution timer expires every 10 milliseconds
+    // The timer expires every 10 ms.
     static constexpr std::chrono::milliseconds _granularity{10};
 
     // High-resolution timer to drive these low-resolution clocks.
