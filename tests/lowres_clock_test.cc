@@ -44,7 +44,7 @@ SEASTAR_TEST_CASE(steady_clock_sanity) {
             auto const elapsed = lowres_clock::now() - t1;
             auto const minimum_elapsed = 0.9 * sleep_duration;
 
-            BOOST_REQUIRE(elapsed >= (0.9 * sleep_duration));
+            BOOST_REQUIRE(elapsed >= minimum_elapsed);
 
             return make_ready_future<>();
         });
@@ -83,14 +83,14 @@ SEASTAR_TEST_CASE(system_clock_sanity) {
     // make the low-resolution clock and the high-resolution clock disagree on the current second.
     //
 
-    return do_with(0ul, 0ul, [](std::size_t& index, std::size_t& success_count) {
-        return repeat([&index, &success_count] {
+    return do_with(0ul, 0ul, [check_matching] (std::size_t& index, std::size_t& success_count) {
+        return repeat([&index, &success_count, check_matching] {
             if (index >= 3) {
                 BOOST_TEST(success_count >= 2);
                 return make_ready_future<stop_iteration>(stop_iteration::yes);
             }
 
-            return ::seastar::sleep(std::chrono::milliseconds(10)).then([&index, &success_count] {
+            return ::seastar::sleep(std::chrono::milliseconds(10)).then([&index, &success_count, check_matching] {
                 if (check_matching()) {
                     ++success_count;
                 }
