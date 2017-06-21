@@ -86,7 +86,7 @@ SEASTAR_TEST_CASE(system_clock_sanity) {
     return do_with(0ul, 0ul, [check_matching] (std::size_t& index, std::size_t& success_count) {
         return repeat([&index, &success_count, check_matching] {
             if (index >= 3) {
-                BOOST_TEST(success_count >= 2);
+                BOOST_REQUIRE_GE(success_count, 2);
                 return make_ready_future<stop_iteration>(stop_iteration::yes);
             }
 
@@ -109,7 +109,7 @@ SEASTAR_TEST_CASE(system_clock_dynamic) {
     return do_with(lowres_system_clock::now(), [](auto &&t1) {
         return seastar::sleep(std::chrono::milliseconds(100)).then([&t1] {
             auto const t2 = lowres_system_clock::now();
-            BOOST_TEST(t1.time_since_epoch().count() != t2.time_since_epoch().count());
+            BOOST_REQUIRE_NE(t1.time_since_epoch().count(), t2.time_since_epoch().count());
 
             return make_ready_future<>();
         });
