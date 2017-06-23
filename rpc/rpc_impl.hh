@@ -615,7 +615,7 @@ template<typename Serializer, typename MsgType>
 void protocol<Serializer, MsgType>::server::accept() {
     keep_doing([this] () mutable {
         return _ss.accept().then([this] (connected_socket fd, socket_address addr) mutable {
-            fd.set_nodelay(true);
+            fd.set_nodelay(_options.tcp_nodelay);
             auto conn = make_lw_shared<connection>(*this, std::move(fd), std::move(addr), _proto);
             _conns.insert(conn);
             conn->process();
@@ -1055,7 +1055,7 @@ template<typename Serializer, typename MsgType>
 protocol<Serializer, MsgType>::client::client(protocol& proto, client_options ops, socket socket, ipv4_addr addr, ipv4_addr local)
         : protocol<Serializer, MsgType>::connection(proto), _socket(std::move(socket)), _server_addr(addr), _options(ops) {
     _socket.connect(addr, local).then([this, ops = std::move(ops)] (connected_socket fd) {
-        fd.set_nodelay(true);
+        fd.set_nodelay(ops.tcp_nodelay);
         if (ops.keepalive) {
             fd.set_keepalive(true);
             fd.set_keepalive_parameters(ops.keepalive.value());

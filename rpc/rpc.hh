@@ -75,12 +75,14 @@ struct resource_limits {
 
 struct client_options {
     std::experimental::optional<net::tcp_keepalive_params> keepalive;
+    bool tcp_nodelay = true;
     compressor::factory* compressor_factory = nullptr;
     bool send_timeout_data = true;
 };
 
 struct server_options {
     compressor::factory* compressor_factory = nullptr;
+    bool tcp_nodelay = true;
 };
 
 inline
