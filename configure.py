@@ -20,6 +20,8 @@ import os, os.path, textwrap, argparse, sys, shlex, subprocess, tempfile, re
 
 configure_args = str.join(' ', [shlex.quote(x) for x in sys.argv[1:]])
 
+TMP_DIR = "./build/tmp"
+
 def get_flags():
     with open('/proc/cpuinfo') as f:
         for line in f:
@@ -94,8 +96,10 @@ def try_compile_and_link(compiler, source = '', flags = []):
                                stderr = subprocess.DEVNULL) == 0
 
 def try_compile_and_run(compiler, flags, source, env = {}):
+    if not os.path.exists(TMP_DIR):
+        os.makedirs(TMP_DIR)
     mktemp = tempfile.NamedTemporaryFile
-    with mktemp() as sfile, mktemp(mode='rb') as xfile:
+    with mktemp() as sfile, mktemp(mode='rb', dir=TMP_DIR) as xfile:
         sfile.file.write(bytes(source, 'utf-8'))
         sfile.file.flush()
         xfile.file.close()
