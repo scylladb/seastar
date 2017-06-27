@@ -301,8 +301,18 @@ public:
         return *this;
     }
 
+    metric_family_iterator operator++(int) {
+        metric_family_iterator previous(*this);
+        _family._current_family++;
+        return previous;
+    }
+
     bool operator!=(const metric_family_iterator& o) const {
         return _family._current_family != o._family._current_family;
+    }
+
+    bool operator==(const metric_family_iterator& o) const {
+        return _family._current_family == o._family._current_family;
     }
 
     metric_family& operator*() {
