@@ -342,14 +342,15 @@ public:
     }
 };
 
-std::string get_text_representation(const metrics_families_per_shard& families, const config& ctx) {
-    std::stringstream s;
-    bool found;
-    metric_family_range m(families);
-    for (auto&& metric_family : m) {
+future<> write_text_representation(output_stream<char>& out, const metrics_families_per_shard& families, const config& ctx) {
+    return do_with(metric_family_range(families), false,
+            [&ctx, &out](auto& m, auto& found) mutable {
+      return do_for_each(m, [&out, &found, &ctx] (metric_family& metric_family) mutable {
+        std::stringstream s;
         auto name = ctx.prefix + "_" + metric_family.name();
         found = false;
-        metric_family.foreach_metric([&s, &ctx, &found, &name, &metric_family](auto value, auto value_info) {
+        metric_family.foreach_metric([&s, &ctx, &found, &name, &metric_family](const seastar::metrics::impl::metric_value& value,
+                const seastar::metrics::impl::metric_info& value_info) mutable {
             if (!found) {
                 if (metric_family.metadata().d.str() != "") {
                     s << "# HELP " << name << " " <<  metric_family.metadata().d.str() << "\n";
@@ -388,29 +389,33 @@ std::string get_text_representation(const metrics_families_per_shard& families, 
                 s << "\n";
             }
         });
-    }
-    return s.str();
+      return out.write(s.str());
+      });
+    });
 }
 
+future<> write_protobuf_representation(output_stream<char>& out, const metrics_families_per_shard& families, const config& ctx) {
+    return do_with(metric_family_range(families),
+            [&ctx, &out](auto& m) mutable {
+      return do_for_each(m, [&ctx, &out](metric_family& metric_family) mutable {
+        std::string s;
+        google::protobuf::io::StringOutputStream os(&s);
 
-std::string get_protobuf_representation(const metrics_families_per_shard& families, const config& ctx) {
-    std::string s;
-    google::protobuf::io::StringOutputStream os(&s);
-    metric_family_range m(families);
-    for (auto&& metric_family : m) {
         auto& name = metric_family.name();
         pm::MetricFamily mtf;
 
         mtf.set_name(ctx.prefix + "_" + name);
         mtf.mutable_metric()->Reserve(metric_family.size());
-        metric_family.foreach_metric([&mtf, &ctx](auto value, auto value_info) {
+        metric_family.foreach_metric([&mtf, &ctx](const seastar::metrics::impl::metric_value& value,
+                const seastar::metrics::impl::metric_info& value_info) {
             fill_metric(mtf, value, value_info.id, ctx);
         });
         if (!write_delimited_to(mtf, &os)) {
             seastar_logger.warn("Failed to write protobuf metrics");
         }
-    }
-    return s;
+      return out.write(s);
+      });
+    });
 }
 
 bool is_accept_text(const std::string& accept) {
@@ -434,16 +439,19 @@ public:
 
     future<std::unique_ptr<httpd::reply>> handle(const sstring& path,
         std::unique_ptr<httpd::request> req, std::unique_ptr<httpd::reply> rep) override {
-        return do_with(metrics_families_per_shard(), [rep = std::move(rep), this, req=std::move(req)] (auto& families) mutable {
-            return get_map_value(families).then([&families, rep = std::move(rep), this, req=std::move(req)] () mutable {
-                auto text = is_accept_text(req->get_header("Accept"));
-                std::string s = (text) ? get_text_representation(families, _ctx) :
-                        get_protobuf_representation(families, _ctx);
-                rep->_content = std::move(s);
-                rep->set_content_type((text) ? "txt" : "proto");
-                return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
+        auto text = is_accept_text(req->get_header("Accept"));
+        rep->write_body((text) ? "txt" : "proto", [this, text] (output_stream<char>&& s) {
+            return do_with(metrics_families_per_shard(), output_stream<char>(std::move(s)),
+                    [this, text] (metrics_families_per_shard& families, output_stream<char>& s) mutable {
+                return get_map_value(families).then([&s, &families, this, text]() mutable {
+                    return (text) ? write_text_representation(s, families, _ctx) :
+                            write_protobuf_representation(s, families, _ctx);
+                }).finally([&s] () mutable {
+                    return s.close();
+                });
             });
         });
+        return make_ready_future<std::unique_ptr<httpd::reply>>(std::move(rep));
     }
 };
 
