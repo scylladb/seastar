@@ -204,6 +204,10 @@ public:
     future<bool> generate_reply(std::unique_ptr<request> req);
 
     future<> write_body();
+
+    output_stream<char>& out() {
+        return _write_buf;
+    }
 };
 
 class http_server {
