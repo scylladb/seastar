@@ -63,7 +63,14 @@ namespace memory {
 
 static constexpr size_t page_size = SEASTAR_INTERNAL_ALLOCATOR_PAGE_SIZE;
 static constexpr size_t page_bits = log2ceil(page_size);
-static constexpr size_t huge_page_size = 1 << 21; // 2M
+static constexpr size_t huge_page_size =
+#if defined(__x86_64__) || defined(__i386__) || defined(__s390x__) || defined(__zarch__)
+    1 << 21; // 2M
+#elif defined(__PPC__)
+    1 << 24; // 16M
+#else
+#error "Huge page size is not defined for this architecture"
+#endif
 
 void configure(std::vector<resource::memory> m, bool mbind,
         std::experimental::optional<std::string> hugetlbfs_path = {});
