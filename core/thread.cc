@@ -284,6 +284,14 @@ thread_context::s_main(unsigned int lo, unsigned int hi) {
 
 void
 thread_context::main() {
+#ifdef __x86_64__
+    // There is no caller of main() in this context. We need to annotate this frame like this so that
+    // unwinders don't try to trace back past this frame.
+    // See https://github.com/scylladb/scylla/issues/1909.
+    asm(".cfi_undefined rip");
+#else
+    #warning "Backtracing from seastar threads may be broken"
+#endif
     _context.initial_switch_in_completed();
     if (_attr.scheduling_group) {
         _attr.scheduling_group->account_start();
