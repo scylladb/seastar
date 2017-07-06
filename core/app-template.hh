@@ -26,13 +26,16 @@
 #include <functional>
 #include <core/future.hh>
 #include <core/sstring.hh>
+#include <chrono>
 
 namespace seastar {
 
 class app_template {
 public:
     struct config {
-        sstring name;
+        sstring name = "App";
+        std::chrono::duration<double> default_task_quota = std::chrono::milliseconds(2);
+        config() {}
     };
 private:
     config _cfg;
@@ -47,7 +50,7 @@ public:
         int max_count;
     };
 public:
-    explicit app_template(config cfg = config{"App"});
+    explicit app_template(config cfg = config());
 
     boost::program_options::options_description_easy_init add_options();
     void add_positional_options(std::initializer_list<positional_option> options);

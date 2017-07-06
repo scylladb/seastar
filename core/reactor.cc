@@ -3321,7 +3321,7 @@ network_stack_registrator::network_stack_registrator(sstring name,
 }
 
 boost::program_options::options_description
-reactor::get_options_description() {
+reactor::get_options_description(std::chrono::duration<double> default_task_quota) {
     namespace bpo = boost::program_options;
     bpo::options_description opts("Core options");
     auto net_stack_names = network_stack_registry::list();
@@ -3335,7 +3335,7 @@ reactor::get_options_description() {
                 "idle polling time in microseconds (reduce for overprovisioned environments or laptops)")
         ("poll-aio", bpo::value<bool>()->default_value(true),
                 "busy-poll for disk I/O (reduces latency and increases throughput)")
-        ("task-quota-ms", bpo::value<double>()->default_value(2.0), "Max time (ms) between polls")
+        ("task-quota-ms", bpo::value<double>()->default_value(default_task_quota / 1ms), "Max time (ms) between polls")
         ("max-task-backlog", bpo::value<unsigned>()->default_value(1000), "Maximum number of task backlog to allow; above this we ignore I/O")
         ("blocked-reactor-notify-ms", bpo::value<unsigned>()->default_value(2000), "threshold in miliseconds over which the reactor is considered blocked if no progress is made")
         ("relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
