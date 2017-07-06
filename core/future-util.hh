@@ -370,7 +370,7 @@ future<> do_for_each(Iterator begin, Iterator end, AsyncAction&& action) {
         return make_ready_future<>();
     }
     while (true) {
-        auto f = action(*begin++);
+        auto f = futurize<void>::apply(action, *begin++);
         if (begin == end) {
             return f;
         }
