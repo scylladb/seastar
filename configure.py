@@ -608,6 +608,14 @@ if not try_compile(args.cxx, '#include <experimental/string_view>', ['-std=gnu++
     print('Seastar requires g++ >= 4.9.  Install g++-4.9 or later (use --compiler option).')
     sys.exit(1)
 
+if not try_compile(args.cxx, '''#include <boost/version.hpp>\n\
+        #if BOOST_VERSION < 105500\n\
+        #error "Invalid boost version"\n\
+        #endif'''):
+    print("Seastar requires boost >= 1.55")
+    sys.exit(1)
+
+
 modes['debug']['sanitize'] += ' ' + sanitize_flags
 
 def have_hwloc():
