@@ -37,9 +37,9 @@ using namespace seastar;
 // Sanity check the accuracy of the steady low-resolution clock.
 //
 SEASTAR_TEST_CASE(steady_clock_sanity) {
-    static constexpr auto sleep_duration = std::chrono::milliseconds(100);
-
     return do_with(lowres_clock::now(), [](auto &&t1) {
+        static constexpr auto sleep_duration = std::chrono::milliseconds(100);
+
         return ::seastar::sleep(sleep_duration).then([&t1] {
             auto const elapsed = lowres_clock::now() - t1;
             auto const minimum_elapsed = 0.9 * sleep_duration;
