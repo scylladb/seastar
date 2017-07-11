@@ -208,7 +208,8 @@ static future<> run_echo_test(sstring message,
                 sstring key = "tests/test.key",
                 tls::client_auth ca = tls::client_auth::NONE,
                 sstring client_crt = {},
-                sstring client_key = {}
+                sstring client_key = {},
+                bool do_read = true
 )
 {
     static const auto port = 4711;
@@ -217,6 +218,8 @@ static future<> run_echo_test(sstring message,
     auto certs = ::make_shared<tls::certificate_credentials>();
     auto server = ::make_shared<seastar::sharded<echoserver>>();
     auto addr = ::make_ipv4_address( {0x7f000001, port});
+
+    assert(do_read || loops == 1);
 
     future<> f = make_ready_future();
 
@@ -230,11 +233,17 @@ static future<> run_echo_test(sstring message,
         return server->start(msg->size()).then([=]() {
             return server->invoke_on_all(&echoserver::listen, addr, crt, key, ca);
         }).then([=] {
-            return tls::connect(certs, addr, name).then([loops, msg](::connected_socket s) {
+            return tls::connect(certs, addr, name).then([loops, msg, do_read](::connected_socket s) {
                 auto strms = ::make_lw_shared<streams>(std::move(s));
                 auto range = boost::irange(0, loops);
-                return do_for_each(range, [strms, msg](auto) {
-                    return strms->out.write(*msg).then([strms, msg]() {
+                return do_for_each(range, [strms, msg, do_read](auto) {
+                    auto f = strms->out.write(*msg);
+                    if (!do_read) {
+                        return strms->out.close().then([f = std::move(f)]() mutable {
+                            return std::move(f);
+                        });
+                    }
+                    return f.then([strms, msg]() {
                         return strms->out.flush().then([strms, msg] {
                             return strms->in.read_exactly(msg->size()).then([msg](temporary_buffer<char> buf) {
                                 sstring tmp(buf.begin(), buf.end());
@@ -242,8 +251,8 @@ static future<> run_echo_test(sstring message,
                             });
                         });
                     });
-                }).then([strms]{
-                    return strms->out.close();
+                }).then([strms, do_read]{
+                    return do_read ? strms->out.close() : make_ready_future<>();
                 }).finally([strms]{});
             });
         }).finally([server] {
@@ -341,3 +350,22 @@ SEASTAR_TEST_CASE(test_simple_x509_client_server_client_auth) {
     // Server will require certificate auth. We supply one, so should succeed with connection
     return run_echo_test(message, 20, "tests/catest.pem", "test.scylladb.org", "tests/test.crt", "tests/test.key", tls::client_auth::REQUIRE, "tests/test.crt", "tests/test.key");
 }
+
+SEASTAR_TEST_CASE(test_many_large_message_x509_client_server) {
+    // Make sure we load our own auth trust pem file, otherwise our certs
+    // will not validate
+    // Must match expected name with cert CA or give empty name to ignore
+    // server name
+    sstring msg(sstring::initialized_later(), 4 * 1024 * 1024);
+    for (size_t i = 0; i < msg.size(); ++i) {
+        msg[i] = '0' + char(i % 30);
+    }
+    // Sending a huge-ish message a and immediately closing the session (see params)
+    // provokes case where tls::vec_push entered race and asserted on broken IO state
+    // machine.
+    auto range = boost::irange(0, 20);
+    return do_for_each(range, [msg = std::move(msg)](auto) {
+        return run_echo_test(std::move(msg), 1, "tests/catest.pem", "test.scylladb.org", "tests/test.crt", "tests/test.key", tls::client_auth::NONE, {}, {}, false);
+    });
+}
+
