@@ -56,7 +56,7 @@ SEASTAR_TEST_CASE(steady_clock_sanity) {
 // high-resolution system clock.
 //
 SEASTAR_TEST_CASE(system_clock_sanity) {
-    constexpr auto check_matching = [] {
+    static constexpr auto check_matching = [] {
         auto const system_time = std::chrono::system_clock::now();
         auto const lowres_time = lowres_system_clock::now();
 
@@ -83,14 +83,14 @@ SEASTAR_TEST_CASE(system_clock_sanity) {
     // make the low-resolution clock and the high-resolution clock disagree on the current second.
     //
 
-    return do_with(0ul, 0ul, [check_matching] (std::size_t& index, std::size_t& success_count) {
-        return repeat([&index, &success_count, check_matching] {
+    return do_with(0ul, 0ul, [](std::size_t& index, std::size_t& success_count) {
+        return repeat([&index, &success_count] {
             if (index >= 3) {
                 BOOST_REQUIRE_GE(success_count, 2);
                 return make_ready_future<stop_iteration>(stop_iteration::yes);
             }
 
-            return ::seastar::sleep(std::chrono::milliseconds(10)).then([&index, &success_count, check_matching] {
+            return ::seastar::sleep(std::chrono::milliseconds(10)).then([&index, &success_count] {
                 if (check_matching()) {
                     ++success_count;
                 }
