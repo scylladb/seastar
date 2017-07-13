@@ -78,13 +78,49 @@ future<> connection::do_response_loop() {
 }
 
 future<> connection::start_response() {
-    _resp->_headers["Server"] = "Seastar httpd";
-    _resp->_headers["Date"] = _server._date;
+    if (_resp->_body_writer) {
+        return _resp->write_reply_to_connection(*this).then_wrapped([this] (auto f) {
+            if (f.failed()) {
+                // In case of an error during the write close the connection
+                _server._respond_errors++;
+                _done = true;
+                _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
+                _replies.push(std::unique_ptr<reply>());
+                f.ignore_ready_future();
+                return make_ready_future<>();
+            }
+            return _write_buf.write("0\r\n\r\n", 5);
+        }).then_wrapped([this ] (auto f) {
+            if (f.failed()) {
+                // We could not write the closing sequence
+                // Something is probably wrong with the connection,
+                // we should close it, so the client will disconnect
+                _done = true;
+                _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
+                _replies.push(std::unique_ptr<reply>());
+                f.ignore_ready_future();
+                return make_ready_future<>();
+            } else {
+                return _write_buf.flush();
+            }
+        }).then_wrapped([this] (auto f) {
+            if (f.failed()) {
+                // flush failed. just close the connection
+                _done = true;
+                _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
+                _replies.push(std::unique_ptr<reply>());
+                f.ignore_ready_future();
+            }
+            _resp.reset();
+            return make_ready_future<>();
+        });
+    }
+    set_headers(*_resp);
     _resp->_headers["Content-Length"] = to_sstring(
             _resp->_content.size());
     return _write_buf.write(_resp->_response_line.begin(),
             _resp->_response_line.size()).then([this] {
-        return write_reply_headers(_resp->_headers.begin());
+        return _resp->write_reply_headers(*this);
     }).then([this] {
         return _write_buf.write("\r\n", 2);
     }).then([this] {
@@ -156,6 +192,11 @@ future<> connection::write_body() {
             _resp->_content.size());
 }
 
+void connection::set_headers(reply& resp) {
+    resp._headers["Server"] = "Seastar httpd";
+    resp._headers["Date"] = _server._date;
+}
+
 future<bool> connection::generate_reply(std::unique_ptr<request> req) {
     auto resp = std::make_unique<reply>();
     bool conn_keep_alive = false;
@@ -185,6 +226,8 @@ future<bool> connection::generate_reply(std::unique_ptr<request> req) {
     }
     sstring url = set_query_param(*req.get());
     sstring version = req->_version;
+    set_headers(*resp);
+    resp->set_version(version);
     return _server._routes.handle(url, std::move(req), std::move(resp)).
     // Caller guarantees enough room
     then([this, should_close, version = std::move(version)](std::unique_ptr<reply> rep) {
