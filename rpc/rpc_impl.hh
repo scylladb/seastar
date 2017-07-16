@@ -953,8 +953,8 @@ protocol<Serializer, MsgType>::client::negotiate(feature_map provided) {
 
 template<typename Serializer, typename MsgType>
 future<> protocol<Serializer, MsgType>::server::connection::process() {
-    send_loop();
     return this->negotiate_protocol(this->_read_buf).then([this] () mutable {
+        send_loop();
         return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
             return this->read_request_frame_compressed(this->_read_buf).then([this] (std::experimental::optional<uint64_t> expire, MsgType type, int64_t msg_id, std::experimental::optional<rcv_buf> data) {
                 if (!data) {
