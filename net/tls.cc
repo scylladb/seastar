@@ -791,7 +791,7 @@ public:
                         // If underlying says EAGAIN, we've actually issued
                         // a send, but must wait for completion.
                         return wait_for_output().then(
-                                [this, p = std::move(p), size, i, e, off]() mutable {
+                                [this, p = std::move(p), i, e, off]() mutable {
                                     // re-send same buffers (gnutls internal)
                                     auto check = gnutls_record_send(*this, nullptr, 0);
                                     return do_put(std::move(p), i, e, off + check);
@@ -924,11 +924,11 @@ public:
                 // Could not send/recv data immediately.
                 // Ask gnutls which direction we are waiting for.
                 if (gnutls_record_get_direction(*this) == 0) {
-                    return wait_for_input().then([this, f = std::forward<Func>(f)] {
+                    return wait_for_input().then([f = std::forward<Func>(f)] {
                         return f();
                     });
                 } else {
-                    return wait_for_output().then([this, f = std::forward<Func>(f)] {
+                    return wait_for_output().then([f = std::forward<Func>(f)] {
                         return f();
                     });
                 }
