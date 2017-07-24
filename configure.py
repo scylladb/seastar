@@ -266,6 +266,7 @@ tests = [
     'tests/tuple_utils_test',
     'tests/tls_echo_server',
     'tests/tls_simple_client',
+    'tests/circular_buffer_fixed_capacity_test',
     ]
 
 apps = [
@@ -489,6 +490,7 @@ deps = {
     'tests/tuple_utils_test': ['tests/tuple_utils_test.cc'],
     'tests/tls_echo_server': ['tests/tls_echo_server.cc'] + core + libnet,
     'tests/tls_simple_client': ['tests/tls_simple_client.cc'] + core + libnet,
+    'tests/circular_buffer_fixed_capacity_test': ['tests/circular_buffer_fixed_capacity_test.cc'],
 }
 
 boost_tests = [
