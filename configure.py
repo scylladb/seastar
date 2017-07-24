@@ -93,7 +93,7 @@ def try_compile_and_link(compiler, source = '', flags = []):
     with tempfile.NamedTemporaryFile() as sfile:
         sfile.file.write(bytes(source, 'utf-8'))
         sfile.file.flush()
-        return subprocess.call([compiler, '-x', 'c++', '-o', '/dev/null', sfile.name] + flags,
+        return subprocess.call([compiler, '-x', 'c++', '-o', '/dev/null', sfile.name] + args.user_cflags.split() + flags,
                                stdout = subprocess.DEVNULL,
                                stderr = subprocess.DEVNULL) == 0
 
@@ -105,7 +105,7 @@ def try_compile_and_run(compiler, flags, source, env = {}):
         sfile.file.write(bytes(source, 'utf-8'))
         sfile.file.flush()
         xfile.file.close()
-        if subprocess.call([compiler, '-x', 'c++', '-o', xfile.name, sfile.name] + flags,
+        if subprocess.call([compiler, '-x', 'c++', '-o', xfile.name, sfile.name] + args.user_cflags.split() + flags,
                             stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL) != 0:
             # The compiler may delete the target on failure, and lead to
             # NamedTemporaryFile's destructor throwing an exception.
