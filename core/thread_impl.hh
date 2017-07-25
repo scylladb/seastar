@@ -33,6 +33,7 @@ using thread_clock = std::chrono::steady_clock;
 
 /// \cond internal
 class thread_context;
+class scheduling_group;
 
 struct jmp_buf_link {
 #ifdef ASAN_ENABLED
@@ -71,6 +72,8 @@ inline bool should_yield() {
         return false;
     }
 }
+
+scheduling_group sched_group(const thread_context*);
 
 void yield();
 void switch_in(thread_context* to);
