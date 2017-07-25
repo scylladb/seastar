@@ -26,6 +26,7 @@
 #include "iostream.hh"
 #include "aligned_buffer.hh"
 #include "cacheline.hh"
+#include "circular_buffer_fixed_capacity.hh"
 #include <memory>
 #include <type_traits>
 #include <libaio.h>
@@ -52,6 +53,7 @@
 #include <boost/optional.hpp>
 #include <boost/program_options.hpp>
 #include <boost/thread/barrier.hpp>
+#include <boost/container/static_vector.hpp>
 #include <set>
 #include "util/eclipse.hh"
 #include "future.hh"
@@ -75,6 +77,7 @@
 #include "lowres_clock.hh"
 #include "manual_clock.hh"
 #include "core/metrics_registration.hh"
+#include "scheduling.hh"
 
 #ifdef HAVE_OSV
 #include <osv/sched.hh>
@@ -577,7 +580,10 @@ public:
     friend class reactor;
 };
 
+constexpr unsigned max_scheduling_groups() { return 16; }
+
 class reactor {
+    using sched_clock = std::chrono::steady_clock;
 private:
     struct pollfn {
         virtual ~pollfn() {}
@@ -596,6 +602,8 @@ private:
         virtual bool try_enter_interrupt_mode() { return false; }
         virtual void exit_interrupt_mode() {}
     };
+    struct task_queue;
+    using task_queue_list = circular_buffer_fixed_capacity<task_queue*, max_scheduling_groups()>;
 
     class io_pollfn;
     class signal_pollfn;
@@ -720,9 +728,29 @@ private:
     io_stats _io_stats;
     uint64_t _fsyncs = 0;
     uint64_t _cxx_exceptions = 0;
-    circular_buffer<std::unique_ptr<task>> _pending_tasks;
-    circular_buffer<std::unique_ptr<task>> _at_destroy_tasks;
-    std::chrono::duration<double> _task_quota;
+    struct task_queue {
+        explicit task_queue(unsigned id, sstring name, float shares);
+        int64_t _vruntime = 0;
+        float _shares;
+        unsigned _reciprocal_shares_times_2_power_32;
+        bool _current = false;
+        bool _active = false;
+        uint8_t _id;
+        sched_clock::duration _runtime = {};
+        uint64_t _tasks_processed = 0;
+        circular_buffer<std::unique_ptr<task>> _q;
+        sstring _name;
+        int64_t to_vruntime(sched_clock::duration runtime) const;
+        void set_shares(float shares);
+        struct indirect_compare;
+        seastar::metrics::metric_groups _metrics;
+    };
+    boost::container::static_vector<std::unique_ptr<task_queue>, max_scheduling_groups()> _task_queues;
+    int64_t _last_vruntime = 0;
+    task_queue_list _active_task_queues;
+    task_queue_list _activating_task_queues;
+    task_queue* _at_destroy_tasks;
+    sched_clock::duration _task_quota;
     /// Handler that will be called when there is no task to execute on cpu.
     /// It represents a low priority work.
     /// 
@@ -741,8 +769,8 @@ private:
     const bool _reuseport;
     circular_buffer<double> _loads;
     double _load = 0;
-    steady_clock_type::duration _total_idle;
-    steady_clock_type::time_point _start_time = steady_clock_type::now();
+    sched_clock::duration _total_idle;
+    sched_clock::time_point _start_time = sched_clock::now();
     std::chrono::nanoseconds _max_poll_time = calculate_poll_time();
     circular_buffer<output_stream<char>* > _flush_batching;
     std::atomic<bool> _sleeping alignas(seastar::cache_line_size);
@@ -802,9 +830,20 @@ private:
     thread_pool _thread_pool;
     friend class thread_pool;
 
-    void run_tasks(circular_buffer<std::unique_ptr<task>>& tasks);
+    uint64_t pending_task_count() const;
+    void run_tasks(task_queue& tq);
+    bool have_more_tasks() const;
     bool posix_reuseport_detect();
     void task_quota_timer_thread_fn();
+    void run_some_tasks(sched_clock::time_point& t_run_completed);
+    void activate(task_queue& tq);
+    void insert_active_task_queue(task_queue* tq);
+    void insert_activating_task_queues();
+    void account_runtime(task_queue& tq, sched_clock::duration runtime);
+    void account_idle(sched_clock::duration idletime);
+    void init_scheduling_group(scheduling_group sg, sstring name, float shares);
+    uint64_t tasks_processed() const;
+    uint64_t min_vruntime() const;
 public:
     static boost::program_options::options_description get_options_description(std::chrono::duration<double> default_task_quota);
     explicit reactor(unsigned id);
@@ -879,11 +918,27 @@ public:
 
     template <typename Func>
     void at_destroy(Func&& func) {
-        _at_destroy_tasks.push_back(make_task(std::forward<Func>(func)));
+        _at_destroy_tasks->_q.push_back(make_task(default_scheduling_group(), std::forward<Func>(func)));
     }
 
-    void add_task(std::unique_ptr<task>&& t) { _pending_tasks.push_back(std::move(t)); }
-    void add_urgent_task(std::unique_ptr<task>&& t) { _pending_tasks.push_front(std::move(t)); }
+    void add_task(std::unique_ptr<task>&& t) {
+        auto sg = t->group();
+        auto* q = _task_queues[sg._id].get();
+        bool was_empty = q->_q.empty();
+        q->_q.push_back(std::move(t));
+        if (was_empty) {
+            activate(*q);
+        }
+    }
+    void add_urgent_task(std::unique_ptr<task>&& t) {
+        auto sg = t->group();
+        auto* q = _task_queues[sg._id].get();
+        bool was_empty = q->_q.empty();
+        q->_q.push_front(std::move(t));
+        if (was_empty) {
+            activate(*q);
+        }
+    }
 
     /// Set a handler that will be called when there is no task to execute on cpu.
     /// Handler should do a low priority work.
@@ -954,9 +1009,11 @@ private:
     friend class smp;
     friend class smp_message_queue;
     friend class poller;
+    friend class scheduling_group;
     friend void add_to_flush_poller(output_stream<char>* os);
     friend int ::_Unwind_RaiseException(void *h);
     metrics::metric_groups _metric_groups;
+    friend future<scheduling_group> create_scheduling_group(sstring name, float shares);
 public:
     bool wait_and_process(int timeout = 0, const sigset_t* active_sigmask = nullptr) {
         return _backend.wait_and_process(timeout, active_sigmask);
