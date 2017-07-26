@@ -29,6 +29,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 #include "reply.hh"
+#include "core/print.hh"
+#include "httpd.hh"
 
 namespace seastar {
 
@@ -97,6 +99,74 @@ sstring reply::response_line() {
     return "HTTP/" + _version + status_strings::to_string(_status);
 }
 
-} // namespace server
+class http_chunked_data_sink_impl : public data_sink_impl {
+    output_stream<char>& _out;
+
+    future<> write_size(size_t s) {
+        auto req = sprint("%x\r\n", s);
+        return _out.write(req);
+    }
+public:
+    http_chunked_data_sink_impl(output_stream<char>& out) : _out(out) {
+    }
+    virtual future<> put(net::packet data)  override { abort(); }
+    virtual future<> put(temporary_buffer<char> buf) override {
+        if (buf.size() == 0) {
+            // size 0 buffer should be ignored, some server
+            // may consider it an end of message
+            return make_ready_future<>();
+        }
+        auto size = buf.size();
+        return write_size(size).then([this, buf = std::move(buf)] () mutable {
+            return _out.write(buf.get(), buf.size());
+        }).then([this] () mutable {
+            return _out.write("\r\n", 2);
+        });
+    }
+    virtual future<> close() {
+        return  make_ready_future<>();
+    }
+};
+
+class http_chunked_data_sink : public data_sink {
+public:
+    http_chunked_data_sink(output_stream<char>& out)
+        : data_sink(std::make_unique<http_chunked_data_sink_impl>(
+                out)) {}
+};
+
+static output_stream<char> make_http_chunked_output_stream(output_stream<char>& out) {
+    return output_stream<char>(http_chunked_data_sink(out), 32000, true);
+}
+
+
+void reply::write_body(const sstring& content_type, std::function<future<>(output_stream<char>&&)>&& body_writer) {
+    set_content_type(content_type);
+    _body_writer  = std::move(body_writer);
+}
+
+void reply::write_body(const sstring& content_type, const sstring& content) {
+    _content = content;
+    done(content_type);
+}
+
+future<> reply::write_reply_to_connection(connection& con) {
+    add_header("Transfer-Encoding", "chunked");
+    return con.out().write(response_line()).then([this, &con] () mutable {
+        return write_reply_headers(con);
+    }).then([this, &con] () mutable {
+        return con.out().write("\r\n", 2);
+    }).then([this, &con] () mutable {
+        return _body_writer(make_http_chunked_output_stream(con.out()));
+    });
 
 }
+
+future<> reply::write_reply_headers(connection& con) {
+    return do_for_each(_headers, [this, &con](auto& h) {
+        return con.out().write(h.first + ": " + h.second + "\r\n");
+    });
+}
+
+}
+} // namespace server
