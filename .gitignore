@@ -4,3 +4,7 @@
 build
 build.ninja
 cscope.*
+.cache
+.tox
+*.egg-info
+__pycache__
