@@ -345,76 +345,74 @@ public:
 future<> write_text_representation(output_stream<char>& out, const metrics_families_per_shard& families, const config& ctx) {
     return do_with(metric_family_range(families), false,
             [&ctx, &out](auto& m, auto& found) mutable {
-      return do_for_each(m, [&out, &found, &ctx] (metric_family& metric_family) mutable {
-        std::stringstream s;
-        auto name = ctx.prefix + "_" + metric_family.name();
-        found = false;
-        metric_family.foreach_metric([&s, &ctx, &found, &name, &metric_family](const seastar::metrics::impl::metric_value& value,
-                const seastar::metrics::impl::metric_info& value_info) mutable {
-            if (!found) {
-                if (metric_family.metadata().d.str() != "") {
-                    s << "# HELP " << name << " " <<  metric_family.metadata().d.str() << "\n";
+        return do_for_each(m, [&out, &found, &ctx] (metric_family& metric_family) mutable {
+            std::stringstream s;
+            auto name = ctx.prefix + "_" + metric_family.name();
+            found = false;
+            metric_family.foreach_metric([&s, &ctx, &found, &name, &metric_family](auto value, auto value_info) mutable {
+                if (!found) {
+                    if (metric_family.metadata().d.str() != "") {
+                        s << "# HELP " << name << " " <<  metric_family.metadata().d.str() << "\n";
+                    }
+                    s << "# TYPE " << name << " " << to_str(metric_family.metadata().type) << "\n";
+                    found = true;
                 }
-                s << "# TYPE " << name << " " << to_str(metric_family.metadata().type) << "\n";
-                found = true;
-            }
-            if (value.type() == mi::data_type::HISTOGRAM) {
-                auto&& h = value.get_histogram();
-                std::map<sstring, sstring> labels = value_info.id.labels();
-                auto& le = labels["le"];
-                uint64_t count = 0;
-                auto bucket = name + "_bucket";
-                for (auto  i : h.buckets) {
-                     le = std::to_string(i.upper_bound);
-                    count += i.count;
+                if (value.type() == mi::data_type::HISTOGRAM) {
+                    auto&& h = value.get_histogram();
+                    std::map<sstring, sstring> labels = value_info.id.labels();
+                    auto& le = labels["le"];
+                    uint64_t count = 0;
+                    auto bucket = name + "_bucket";
+                    for (auto  i : h.buckets) {
+                         le = std::to_string(i.upper_bound);
+                        count += i.count;
+                        add_name(s, bucket, labels, ctx);
+                        s << count;
+                        s << "\n";
+                    }
+                    labels["le"] = "+Inf";
                     add_name(s, bucket, labels, ctx);
-                    s << count;
+                    s << h.sample_count;
+                    s << "\n";
+
+                    add_name(s, name + "_sum", {}, ctx);
+                    s << h.sample_sum;
+                    s << "\n";
+                    add_name(s, name + "_count", {}, ctx);
+                    s << h.sample_count;
+                    s << "\n";
+
+                } else {
+                    add_name(s, name, value_info.id.labels(), ctx);
+                    s << to_str(value);
                     s << "\n";
                 }
-                labels["le"] = "+Inf";
-                add_name(s, bucket, labels, ctx);
-                s << h.sample_count;
-                s << "\n";
-
-                add_name(s, name + "_sum", {}, ctx);
-                s << h.sample_sum;
-                s << "\n";
-                add_name(s, name + "_count", {}, ctx);
-                s << h.sample_count;
-                s << "\n";
-
-            } else {
-                add_name(s, name, value_info.id.labels(), ctx);
-                s << to_str(value);
-                s << "\n";
-            }
+            });
+            return out.write(s.str());
         });
-      return out.write(s.str());
-      });
     });
 }
 
 future<> write_protobuf_representation(output_stream<char>& out, const metrics_families_per_shard& families, const config& ctx) {
     return do_with(metric_family_range(families),
             [&ctx, &out](auto& m) mutable {
-      return do_for_each(m, [&ctx, &out](metric_family& metric_family) mutable {
-        std::string s;
-        google::protobuf::io::StringOutputStream os(&s);
+        return do_for_each(m, [&ctx, &out](metric_family& metric_family) mutable {
+            std::string s;
+            google::protobuf::io::StringOutputStream os(&s);
 
-        auto& name = metric_family.name();
-        pm::MetricFamily mtf;
+            auto& name = metric_family.name();
+            pm::MetricFamily mtf;
 
-        mtf.set_name(ctx.prefix + "_" + name);
-        mtf.mutable_metric()->Reserve(metric_family.size());
-        metric_family.foreach_metric([&mtf, &ctx](const seastar::metrics::impl::metric_value& value,
-                const seastar::metrics::impl::metric_info& value_info) {
-            fill_metric(mtf, value, value_info.id, ctx);
+            mtf.set_name(ctx.prefix + "_" + name);
+            mtf.mutable_metric()->Reserve(metric_family.size());
+            metric_family.foreach_metric([&mtf, &ctx](auto value, auto value_info) {
+                fill_metric(mtf, value, value_info.id, ctx);
+            });
+            if (!write_delimited_to(mtf, &os)) {
+                seastar_logger.warn("Failed to write protobuf metrics");
+            }
+            return out.write(s);
         });
-        if (!write_delimited_to(mtf, &os)) {
-            seastar_logger.warn("Failed to write protobuf metrics");
-        }
-      return out.write(s);
-      });
     });
 }
 
