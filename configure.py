@@ -20,7 +20,7 @@ import os, os.path, textwrap, argparse, sys, shlex, subprocess, tempfile, re
 
 configure_args = str.join(' ', [shlex.quote(x) for x in sys.argv[1:]])
 
-TMP_DIR = "./build/tmp"
+tempfile.tempdir = "./build/tmp"
 
 srcdir = os.getcwd()
 
@@ -90,20 +90,25 @@ def try_compile(compiler, source = '', flags = []):
     return try_compile_and_link(compiler, source, flags = flags + ['-c'])
 
 def try_compile_and_link(compiler, source = '', flags = []):
-    with tempfile.NamedTemporaryFile() as sfile, tempfile.NamedTemporaryFile() as ofile:
-        sfile.file.write(bytes(source, 'utf-8'))
-        sfile.file.flush()
-        # We can't write to /dev/null, since in some cases (-ftest-coverage) gcc will create an auxiliary
-        # output file based on the name of the output file, and "/dev/null.gcsa" is not a good name
-        return subprocess.call([compiler, '-x', 'c++', '-o', ofile.name, sfile.name] + args.user_cflags.split() + flags,
-                               stdout = subprocess.DEVNULL,
-                               stderr = subprocess.DEVNULL) == 0
+    with tempfile.NamedTemporaryFile() as sfile:
+        ofile = tempfile.mktemp()
+        try:
+            sfile.file.write(bytes(source, 'utf-8'))
+            sfile.file.flush()
+            # We can't write to /dev/null, since in some cases (-ftest-coverage) gcc will create an auxiliary
+            # output file based on the name of the output file, and "/dev/null.gcsa" is not a good name
+            return subprocess.call([compiler, '-x', 'c++', '-o', ofile, sfile.name] + args.user_cflags.split() + flags,
+                                   stdout = subprocess.DEVNULL,
+                                   stderr = subprocess.DEVNULL) == 0
+        finally:
+            if os.path.exists(ofile):
+                os.unlink(ofile)
 
 def try_compile_and_run(compiler, flags, source, env = {}):
-    if not os.path.exists(TMP_DIR):
-        os.makedirs(TMP_DIR)
+    if not os.path.exists(tempfile.tempdir):
+        os.makedirs(tempfile.tempdir)
     mktemp = tempfile.NamedTemporaryFile
-    with mktemp() as sfile, mktemp(mode='rb', dir=TMP_DIR) as xfile:
+    with mktemp() as sfile, mktemp(mode='rb') as xfile:
         sfile.file.write(bytes(source, 'utf-8'))
         sfile.file.flush()
         xfile.file.close()
