@@ -328,8 +328,11 @@ public:
                     when_all(server->do_accepts(0), handler->wait_for_message()).get();
                 });
                 return when_all(std::move(client), std::move(writer));
+            }).discard_result().then_wrapped([&server] (auto f) {
+                f.ignore_ready_future();
+                return server->stop();
             });
-        }).discard_result();
+        });
     }
 
     static std::function<future<>(output_stream<char>&& o_stream)> make_writer(size_t len, bool success) {
