@@ -90,10 +90,12 @@ def try_compile(compiler, source = '', flags = []):
     return try_compile_and_link(compiler, source, flags = flags + ['-c'])
 
 def try_compile_and_link(compiler, source = '', flags = []):
-    with tempfile.NamedTemporaryFile() as sfile:
+    with tempfile.NamedTemporaryFile() as sfile, tempfile.NamedTemporaryFile() as ofile:
         sfile.file.write(bytes(source, 'utf-8'))
         sfile.file.flush()
-        return subprocess.call([compiler, '-x', 'c++', '-o', '/dev/null', sfile.name] + args.user_cflags.split() + flags,
+        # We can't write to /dev/null, since in some cases (-ftest-coverage) gcc will create an auxiliary
+        # output file based on the name of the output file, and "/dev/null.gcsa" is not a good name
+        return subprocess.call([compiler, '-x', 'c++', '-o', ofile.name, sfile.name] + args.user_cflags.split() + flags,
                                stdout = subprocess.DEVNULL,
                                stderr = subprocess.DEVNULL) == 0
 
