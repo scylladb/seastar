@@ -177,7 +177,7 @@ public:
     /// Gets the hash value for the underlying pointer object.
     /// \return The hash value for the underlying pointer object
     size_t hash() const {
-        return std::hash<Ptr>(_ptr);
+        return std::hash<Ptr>()(_ptr);
     }
     ///@}
 };
