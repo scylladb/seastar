@@ -89,7 +89,12 @@ def dpdk_cflags (dpdk_target):
 def try_compile(compiler, source = '', flags = []):
     return try_compile_and_link(compiler, source, flags = flags + ['-c'])
 
+def ensure_tmp_dir_exists():
+    if not os.path.exists(tempfile.tempdir):
+        os.makedirs(tempfile.tempdir)
+
 def try_compile_and_link(compiler, source = '', flags = []):
+    ensure_tmp_dir_exists()
     with tempfile.NamedTemporaryFile() as sfile:
         ofile = tempfile.mktemp()
         try:
@@ -105,8 +110,7 @@ def try_compile_and_link(compiler, source = '', flags = []):
                 os.unlink(ofile)
 
 def try_compile_and_run(compiler, flags, source, env = {}):
-    if not os.path.exists(tempfile.tempdir):
-        os.makedirs(tempfile.tempdir)
+    ensure_tmp_dir_exists()
     mktemp = tempfile.NamedTemporaryFile
     with mktemp() as sfile, mktemp(mode='rb') as xfile:
         sfile.file.write(bytes(source, 'utf-8'))
