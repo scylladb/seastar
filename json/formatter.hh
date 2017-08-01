@@ -29,6 +29,7 @@
 #include <time.h>
 #include <sstream>
 #include "core/sstring.hh"
+#include "core/iostream.hh"
 
 namespace seastar {
 
@@ -77,6 +78,45 @@ class formatter {
     static sstring to_json(state, const T& t) {
         return to_json(t);
     }
+
+    template<typename K, typename V>
+    static future<> write(output_stream<char>& stream, state s, const std::pair<K, V>& p) {
+        if (s == state::array) {
+            return stream.write("{").then([&stream, &p] {
+                return write(stream, state::none, p).then([&stream] {
+                   return stream.write("}");
+                });
+            });
+        } else {
+            return stream.write(to_json(p.first) + ":").then([&p, &stream] {
+                write(stream, p.second);
+            });
+        }
+    }
+
+    template<typename Iter>
+    static future<> write(output_stream<char>& stream, state s, Iter i, Iter e) {
+        return do_with(true, [&stream, s, i, e] (bool& first) {
+            return stream.write(begin(s)).then([&first, &stream, s, i, e] {
+                return do_for_each(i, e, [&first, &stream, s] (auto& m) {
+                    auto f = (first) ? make_ready_future<>() : stream.write(",");
+                    first = false;
+                    return f.then([&m, &stream] {
+                        return write(stream, m);
+                    });
+                }).then([&stream, s] {
+                   stream.write(end(s));
+                });
+            });
+        });
+    }
+
+    // fallback template
+    template<typename T>
+    static future<> write(output_stream<char>& stream, state, const T& t) {
+        return stream.write(to_json(t));
+    }
+
 public:
 
     /**
@@ -175,6 +215,119 @@ public:
      * @return the given unsigned long in a json format
      */
     static sstring to_json(unsigned long l);
+
+
+
+    /**
+     * return a json formated string
+     * @param str the string to format
+     * @return the given string in a json format
+     */
+    static future<> write(output_stream<char>& s, const sstring& str) {
+        return s.write(to_json(str));
+    }
+
+    /**
+     * return a json formated int
+     * @param n the int to format
+     * @return the given int in a json format
+     */
+    static future<> write(output_stream<char>& s, int n) {
+        return s.write(to_json(n));
+    }
+
+    /**
+     * return a json formated long
+     * @param n the long to format
+     * @return the given long in a json format
+     */
+    static future<> write(output_stream<char>& s, long n) {
+        return s.write(to_json(n));
+    }
+
+    /**
+     * return a json formated float
+     * @param n the float to format
+     * @return the given float in a json format
+     */
+    static future<> write(output_stream<char>& s, float f) {
+        return s.write(to_json(f));
+    }
+
+    /**
+     * return a json formated double
+     * @param d the double to format
+     * @return the given double in a json format
+     */
+    static future<> write(output_stream<char>& s, double d) {
+        return s.write(to_json(d));
+    }
+
+    /**
+     * return a json formated char* (treated as string)
+     * @param str the char* to foramt
+     * @return the given char* in a json foramt
+     */
+    static future<> write(output_stream<char>& s, const char* str) {
+        return s.write(to_json(str));
+    }
+
+    /**
+     * return a json formated bool
+     * @param d the bool to format
+     * @return the given bool in a json format
+     */
+    static future<> write(output_stream<char>& s, bool d) {
+        return s.write(to_json(d));
+    }
+
+    /**
+     * return a json formated list of a given vector of params
+     * @param vec the vector to format
+     * @return the given vector in a json format
+     */
+    template<typename... Args>
+    static future<> write(output_stream<char>& s, const std::vector<Args...>& vec) {
+        return write(s, state::array, vec.begin(), vec.end());
+    }
+
+    template<typename... Args>
+    static future<> write(output_stream<char>& s, const std::map<Args...>& map) {
+        return write(s, state::map, map.begin(), map.end());
+    }
+
+    template<typename... Args>
+    static future<> write(output_stream<char>& s, const std::unordered_map<Args...>& map) {
+        return write(s, state::map, map.begin(), map.end());
+    }
+
+    /**
+     * return a json formated date_time
+     * @param d the date_time to format
+     * @return the given date_time in a json format
+     */
+    static future<> write(output_stream<char>& s, const date_time& d) {
+      return s.write(to_json(d));
+     }
+
+    /**
+     * return a json formated json object
+     * @param obj the date_time to format
+     * @return the given json object in a json format
+     */
+    static future<> write(output_stream<char>& s, const jsonable& obj) {
+      return s.write(to_json(obj));
+     }
+
+    /**
+     * return a json formated unsigned long
+     * @param l unsigned long to format
+     * @return the given unsigned long in a json format
+     */
+    static future<> write(output_stream<char>& s, unsigned long l) {
+      return s.write(to_json(l));
+     }
+
 
 private:
 
