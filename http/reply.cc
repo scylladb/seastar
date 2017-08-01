@@ -154,7 +154,7 @@ future<> reply::write_reply_to_connection(connection& con) {
     add_header("Transfer-Encoding", "chunked");
     return con.out().write(response_line()).then([this, &con] () mutable {
         return write_reply_headers(con);
-    }).then([this, &con] () mutable {
+    }).then([&con] () mutable {
         return con.out().write("\r\n", 2);
     }).then([this, &con] () mutable {
         return _body_writer(make_http_chunked_output_stream(con.out()));
@@ -163,7 +163,7 @@ future<> reply::write_reply_to_connection(connection& con) {
 }
 
 future<> reply::write_reply_headers(connection& con) {
-    return do_for_each(_headers, [this, &con](auto& h) {
+    return do_for_each(_headers, [&con](auto& h) {
         return con.out().write(h.first + ": " + h.second + "\r\n");
     });
 }
