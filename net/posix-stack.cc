@@ -195,8 +195,8 @@ posix_server_socket_impl<Transport>::accept() {
             return make_ready_future<connected_socket, socket_address>(
                     connected_socket(std::move(csi)), sa);
         } else {
-            smp::submit_to(cpu, [this, fd = std::move(fd.get_file_desc()), sa, cth = std::move(cth)] () mutable {
-                posix_ap_server_socket_impl<Transport>::move_connected_socket(_sa, pollable_fd(std::move(fd)), sa, std::move(cth));
+            smp::submit_to(cpu, [ssa = _sa, fd = std::move(fd.get_file_desc()), sa, cth = std::move(cth)] () mutable {
+                posix_ap_server_socket_impl<Transport>::move_connected_socket(ssa, pollable_fd(std::move(fd)), sa, std::move(cth));
             });
             return accept();
         }
