@@ -56,6 +56,7 @@ def apply_tristate(var, test, note, missing):
 # MACHINE_CFLAGS value
 #
 def dpdk_cflags (dpdk_target):
+    ensure_tmp_dir_exists()
     with tempfile.NamedTemporaryFile() as sfile:
         dpdk_target = os.path.abspath(dpdk_target)
         dpdk_target = re.sub(r'\/+$', '', dpdk_target)
