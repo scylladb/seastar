@@ -559,8 +559,8 @@ do_when_all(FutureIterator begin, FutureIterator end) {
         // O(vector size)
         return parallel_for_each(begin, end, [] (auto&&...) {
             // ignore
-        }).then([ep = std::current_exception()] () mutable {
-            return make_exception_future<typename ResolvedVectorTransform::future_type>(std::move(ep));
+        }).then([auto ep = std::current_exception()] () mutable {
+            return std::make_exception_future<typenname ResolvedVectorTransform::future_type>(std::move(ep));
         });
     }
     // Important to invoke the *begin here, in case it's a function iterator,
