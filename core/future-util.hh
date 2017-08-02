@@ -552,17 +552,7 @@ inline auto
 do_when_all(FutureIterator begin, FutureIterator end) {
     using itraits = std::iterator_traits<FutureIterator>;
     std::vector<typename itraits::value_type> ret;
-    try {
-        ret.reserve(when_all_estimate_vector_capacity(begin, end, typename itraits::iterator_category()));
-    } catch (...) {
-        // parallel_for_each has a greater chance of succeeding, since it doesn't need to allocate
-        // O(vector size)
-        return parallel_for_each(begin, end, [] (auto&&...) {
-            // ignore
-        }).then([auto ep = std::current_exception()] () mutable {
-            return std::make_exception_future<typenname ResolvedVectorTransform::future_type>(std::move(ep));
-        });
-    }
+    ret.reserve(when_all_estimate_vector_capacity(begin, end, typename itraits::iterator_category()));
     // Important to invoke the *begin here, in case it's a function iterator,
     // so we launch all computation in parallel.
     std::move(begin, end, std::back_inserter(ret));
