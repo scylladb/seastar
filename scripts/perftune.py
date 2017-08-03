@@ -47,8 +47,14 @@ def fwriteln_and_log(fname, line):
     print("Writing '{}' to {}".format(line, fname))
     fwriteln(fname, line)
 
+double_commas_pattern = re.compile(',,')
+
 def set_one_mask(conf_file, mask):
     mask = re.sub('0x', '', mask)
+
+    while double_commas_pattern.search(mask):
+        mask = double_commas_pattern.sub(',0,', mask)
+
     print("Setting mask {} in {}".format(mask, conf_file))
     fwriteln(conf_file, mask)
 
