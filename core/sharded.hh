@@ -29,6 +29,9 @@
 
 namespace seastar {
 
+template <typename T>
+class sharded;
+
 /// if sharded service inherits from this class sharded::stop() will wait
 /// untill all references to a service on each shard will dissapper before
 /// returning. It is still service's own responcibility to track its references
@@ -45,6 +48,24 @@ protected:
     }
     template <typename Service> friend class sharded;
 };
+
+
+/// \brief Provide a sharded service with access to its peers
+///
+/// If a service class inherits from this, it will gain a \code container()
+/// method that provides access to the \ref sharded object, with which it
+/// can call its peers.
+template <typename Service>
+class peering_sharded_service {
+    sharded<Service>* _container;
+private:
+    template <typename T> friend class sharded;
+    void set_container(sharded<Service>* container) { _container = container; }
+public:
+    sharded<Service>& container() { return *_container; }
+    const sharded<Service>& container() const { return *_container; }
+};
+
 
 /// Exception thrown when a \ref sharded object does not exist
 class no_sharded_instance_exception : public std::exception {
@@ -90,6 +111,16 @@ private:
     template <typename U, bool async>
     friend struct shared_ptr_make_helper;
 
+    template <typename T>
+    std::enable_if_t<std::is_base_of<peering_sharded_service<T>, T>::value>
+    set_container(T& service) {
+        service.set_container(this);
+    }
+
+    template <typename T>
+    std::enable_if_t<!std::is_base_of<peering_sharded_service<T>, T>::value>
+    set_container(T& service) {
+    }
 public:
     /// Constructs an empty \c sharded object.  No instances of the service are
     /// created.
@@ -309,6 +340,7 @@ private:
     template <typename... Args>
     shared_ptr<Service> create_local_service(Args&&... args) {
         auto s = ::seastar::make_shared<Service>(std::forward<Args>(args)...);
+        set_container(*s);
         track_deletion(s, std::is_base_of<async_sharded_service<Service>, Service>());
         return s;
     }
