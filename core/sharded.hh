@@ -359,6 +359,32 @@ sharded<Service>::~sharded() {
 	assert(_instances.empty());
 }
 
+namespace internal {
+
+template <typename Service>
+class either_sharded_or_local {
+    sharded<Service>& _sharded;
+public:
+    either_sharded_or_local(sharded<Service>& s) : _sharded(s) {}
+    operator sharded<Service>& () { return _sharded; }
+    operator Service& () { return _sharded.local(); }
+};
+
+template <typename T>
+inline
+T&&
+unwrap_sharded_arg(T&& arg) {
+    return std::forward<T>(arg);
+}
+
+template <typename Service>
+either_sharded_or_local<Service>
+unwrap_sharded_arg(std::reference_wrapper<sharded<Service>> arg) {
+    return either_sharded_or_local<Service>(arg);
+}
+
+}
+
 template <typename Service>
 template <typename... Args>
 future<>
@@ -368,7 +394,7 @@ sharded<Service>::start(Args&&... args) {
         [this, args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) mutable {
             return smp::submit_to(c, [this, args] () mutable {
                 _instances[engine().cpu_id()].service = apply([this] (Args... args) {
-                    return create_local_service(std::forward<Args>(args)...);
+                    return create_local_service(internal::unwrap_sharded_arg(std::forward<Args>(args))...);
                 }, args);
             });
     }).then_wrapped([this] (future<> f) {
@@ -391,7 +417,7 @@ sharded<Service>::start_single(Args&&... args) {
     _instances.resize(1);
     return smp::submit_to(0, [this, args = std::make_tuple(std::forward<Args>(args)...)] () mutable {
         _instances[0].service = apply([this] (Args... args) {
-            return create_local_service(std::forward<Args>(args)...);
+            return create_local_service(internal::unwrap_sharded_arg(std::forward<Args>(args))...);
         }, args);
     }).then_wrapped([this] (future<> f) {
         try {
