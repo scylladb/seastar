@@ -121,9 +121,13 @@ public:
     void skip(size_t size) {
         for_each_fragment(size, [] (auto) { });
     }
-    fragmented_memory_output_stream write_substream(size_t size) {
+    memory_output_stream<Iterator> write_substream(size_t size) {
         if (size > _size) {
             throw std::out_of_range("serialization buffer overflow");
+        }
+        if (_current.size() >= size) {
+            _size -= size;
+            return _current.write_substream(size);
         }
         fragmented_memory_output_stream substream(_it, _current, size);
         skip(size);
