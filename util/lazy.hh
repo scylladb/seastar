@@ -77,6 +77,38 @@ template <typename Func>
 inline lazy_eval<Func> value_of(Func&& func) {
     return lazy_eval<Func>(std::forward<Func>(func));
 }
+
+/// \brief This struct is a wrapper for lazy dereferencing a pointer.
+///
+/// In particular this is to be used in situations where the value of a
+/// pointer has to be converted to string in a lazy manner. Since
+/// pointers can be null adding a check at the point of calling the
+/// log function for example, will introduce an unnecessary branch in
+/// potentially useless code. Using lazy_deref this check can be
+/// deferred to the point where the code is actually evaluated.
+template <typename T>
+struct lazy_deref_wrapper {
+    const T& p;
+
+    constexpr lazy_deref_wrapper(const T& p) : p(p) {
+    }
+};
+
+/// Create a seastar::lazy_deref_wrapper object.
+///
+/// The actual dereferencing will happen when the object is inserted
+/// into a stream. The pointer is not copied, only a reference is saved
+/// to it. Smart pointers are supported as well.
+///
+/// \param p a raw pointer or a smart pointer
+///
+/// \return a lazy_deref_wrapper object
+template <typename T>
+lazy_deref_wrapper<T>
+lazy_deref(const T& p) {
+    return lazy_deref_wrapper<T>(p);
+}
+
 }
 
 namespace std {
@@ -108,6 +140,15 @@ ostream& operator<<(ostream& os, seastar::lazy_eval<Func>& lf) {
 template <typename Func>
 ostream& operator<<(ostream& os, seastar::lazy_eval<Func>&& lf) {
     return os << lf();
+}
+
+template <typename T>
+ostream& operator<<(ostream& os, seastar::lazy_deref_wrapper<T> ld) {
+    if (ld.p) {
+        return os << *ld.p;
+    }
+
+    return os << "null";
 }
 }
 /// @}
