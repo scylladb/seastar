@@ -127,7 +127,7 @@ public:
     sharded() {}
     sharded(const sharded& other) = delete;
     /// Moves a \c sharded object.
-    sharded(sharded&& other) = default;
+    sharded(sharded&& other) noexcept;
     sharded& operator=(const sharded& other) = delete;
     /// Moves a \c sharded object.
     sharded& operator=(sharded&& other) = default;
@@ -383,6 +383,13 @@ unwrap_sharded_arg(std::reference_wrapper<sharded<Service>> arg) {
     return either_sharded_or_local<Service>(arg);
 }
 
+}
+
+template <typename Service>
+sharded<Service>::sharded(sharded&& x) noexcept : _instances(std::move(x._instances)) {
+    for (auto&& e : _instances) {
+        set_container(e);
+    }
 }
 
 template <typename Service>
