@@ -57,11 +57,15 @@ protected:
 /// can call its peers.
 template <typename Service>
 class peering_sharded_service {
-    sharded<Service>* _container;
+    sharded<Service>* _container = nullptr;
 private:
     template <typename T> friend class sharded;
     void set_container(sharded<Service>* container) { _container = container; }
 public:
+    peering_sharded_service() = default;
+    peering_sharded_service(peering_sharded_service<Service>&&) = default;
+    peering_sharded_service(const peering_sharded_service<Service>&) = delete;
+    peering_sharded_service& operator=(const peering_sharded_service<Service>&) = delete;
     sharded<Service>& container() { return *_container; }
     const sharded<Service>& container() const { return *_container; }
 };
