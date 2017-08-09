@@ -22,6 +22,8 @@ Getting started
 
 There is a [mini tutorial](doc/mini-tutorial.md) and a [more comprehensive one](doc/tutorial.md).
 
+The documentation is available on the [web](http://docs.seastar-project.org/).
+
 The Native TCP/IP Stack
 -----------------------
 
