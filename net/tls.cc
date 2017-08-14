@@ -950,13 +950,16 @@ public:
         // read/writes, so must do "async" handshake. See wait_for_input
         // for explanation.
         if (how == GNUTLS_SHUT_RDWR) {
+            auto f = make_ready_future<>();
             if (!_in_sem.current()) {
-                return shutdown(GNUTLS_SHUT_WR).then(std::bind(&session::shutdown, this, GNUTLS_SHUT_RDWR));
+                f = shutdown(GNUTLS_SHUT_WR);
             }
-            return with_semaphore(_in_sem, 1, [this] {
-               return with_semaphore(_out_sem, 1, [this] {
-                   return do_shutdown(GNUTLS_SHUT_RDWR);
-               });
+            return f.then([this] {
+                return with_semaphore(_in_sem, 1, [this] {
+                    return with_semaphore(_out_sem, 1, [this] {
+                        return do_shutdown(GNUTLS_SHUT_RDWR);
+                    });
+                });
             });
         }
         assert(how == GNUTLS_SHUT_WR);
