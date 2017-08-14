@@ -362,7 +362,6 @@ public:
         void accept();
         future<> stop() {
             _ss.abort_accept();
-            _ss = server_socket();
             _resources_available.broken();
             return when_all(_ss_stopped.get_future(),
                 parallel_for_each(_conns, [] (lw_shared_ptr<connection> conn) {
