@@ -139,11 +139,15 @@ server_socket::~server_socket() {
 }
 
 future<connected_socket, socket_address> server_socket::accept() {
+    if (!_ssi) {
+        return make_exception_future<connected_socket, socket_address>(std::system_error(ECONNABORTED, std::system_category()));
+    }
     return _ssi->accept();
 }
 
 void server_socket::abort_accept() {
     _ssi->abort_accept();
+    _ssi = nullptr;
 }
 
 socket_address::socket_address(ipv4_addr addr)
