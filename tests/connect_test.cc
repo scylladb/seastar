@@ -47,3 +47,25 @@ SEASTAR_TEST_CASE(test_unconnected_socket_shutsdown_established_connection) {
         });
     });
 }
+
+SEASTAR_TEST_CASE(test_accept_after_abort) {
+    std::random_device rnd;
+    auto distr = std::uniform_int_distribution<uint16_t>(12000, 65000);
+    auto sa = make_ipv4_address({"127.0.0.1", distr(rnd)});
+    return do_with(engine().net().listen(sa, listen_options()), [] (auto& listener) {
+        using ftype = future<connected_socket, socket_address>;
+        promise<ftype> p;
+        future<ftype> done = p.get_future();
+        auto f = listener.accept().then_wrapped([&listener, p = std::move(p)] (auto f) mutable {
+            f.ignore_ready_future();
+            p.set_value(listener.accept());
+        });
+        listener.abort_accept();
+        return done.then([] (ftype f) {
+            BOOST_REQUIRE(f.failed());
+            if (f.available()) {
+                f.ignore_ready_future();
+            }
+        });
+    });
+}
