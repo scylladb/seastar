@@ -49,6 +49,10 @@ app_template::app_template(app_template::config cfg)
         _opts.add(log_cli::get_options_description());
 }
 
+boost::program_options::options_description& app_template::get_options_description() {
+    return _opts;
+}
+
 boost::program_options::options_description_easy_init
 app_template::add_options() {
     return _opts.add_options();
