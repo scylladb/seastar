@@ -88,6 +88,8 @@ public:
         return when_all(read(), respond()).then(
                 [] (std::tuple<future<>, future<>> joined) {
                     // FIXME: notify any exceptions in joined?
+                    std::get<0>(joined).ignore_ready_future();
+                    std::get<1>(joined).ignore_ready_future();
                     return make_ready_future<>();
                 });
     }
@@ -263,7 +265,8 @@ public:
         return _listeners[which].accept().then_wrapped(
                 [this, which] (future<connected_socket, socket_address> f_cs_sa) mutable {
                     --_connections_being_accepted;
-                    if (_stopping) {
+                    if (_stopping || f_cs_sa.failed()) {
+                        f_cs_sa.ignore_ready_future();
                         maybe_idle();
                         return;
                     }
