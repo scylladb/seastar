@@ -87,11 +87,11 @@ public:
         // Launch read and write "threads" simultaneously:
         return when_all(read(), respond()).then(
                 [] (std::tuple<future<>, future<>> joined) {
-                    // FIXME: notify any exceptions in joined?
-                    std::get<0>(joined).ignore_ready_future();
-                    std::get<1>(joined).ignore_ready_future();
-                    return make_ready_future<>();
-                });
+            // FIXME: notify any exceptions in joined?
+            std::get<0>(joined).ignore_ready_future();
+            std::get<1>(joined).ignore_ready_future();
+            return make_ready_future<>();
+        });
     }
     void shutdown() {
         _fd.shutdown_input();
@@ -260,28 +260,29 @@ public:
         }
         return std::move(_stopped);
     }
+
     future<> do_accepts(int which) {
         ++_connections_being_accepted;
         return _listeners[which].accept().then_wrapped(
                 [this, which] (future<connected_socket, socket_address> f_cs_sa) mutable {
-                    --_connections_being_accepted;
-                    if (_stopping || f_cs_sa.failed()) {
-                        f_cs_sa.ignore_ready_future();
-                        maybe_idle();
-                        return;
-                    }
-                    auto cs_sa = f_cs_sa.get();
-                    auto conn = new connection(*this, std::get<0>(std::move(cs_sa)), std::get<1>(std::move(cs_sa)));
-                    conn->process().then_wrapped([conn] (auto&& f) {
-                                delete conn;
-                                try {
-                                    f.get();
-                                } catch (std::exception& ex) {
-                                    std::cerr << "request error " << ex.what() << std::endl;
-                                }
-                            });
-                    do_accepts(which);
-                }).then_wrapped([] (auto f) {
+            --_connections_being_accepted;
+            if (_stopping || f_cs_sa.failed()) {
+                f_cs_sa.ignore_ready_future();
+                maybe_idle();
+                return;
+            }
+            auto cs_sa = f_cs_sa.get();
+            auto conn = new connection(*this, std::get<0>(std::move(cs_sa)), std::get<1>(std::move(cs_sa)));
+            conn->process().then_wrapped([conn] (auto&& f) {
+                delete conn;
+                try {
+                    f.get();
+                } catch (std::exception& ex) {
+                    std::cerr << "request error " << ex.what() << std::endl;
+                }
+            });
+            do_accepts(which);
+        }).then_wrapped([] (auto f) {
             try {
                 f.get();
             } catch (std::exception& ex) {
