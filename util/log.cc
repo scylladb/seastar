@@ -18,14 +18,18 @@
 /*
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
+
 #include "log.hh"
+
 #include "core/array_map.hh"
 #include "core/reactor.hh"
-#include <cxxabi.h>
-#include <system_error>
+
 #include <boost/range/adaptor/map.hpp>
-#include <map>
+#include <cxxabi.h>
 #include <syslog.h>
+
+#include <map>
+#include <system_error>
 
 namespace seastar {
 
