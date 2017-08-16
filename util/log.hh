@@ -273,6 +273,17 @@ public:
 
 logger_registry& global_logger_registry();
 
+struct logging_settings final {
+    std::unordered_map<sstring, log_level> logger_levels;
+    log_level default_level;
+    bool stdout_enabled;
+    bool syslog_enabled;
+};
+
+/// Shortcut for configuring the logging system all at once.
+///
+void apply_logging_settings(const logging_settings&);
+
 /// \cond internal
 
 extern thread_local uint64_t logging_failures;

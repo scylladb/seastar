@@ -221,6 +221,23 @@ logger_registry::moved(logger* from, logger* to) {
     _loggers[from->name()] = to;
 }
 
+void apply_logging_settings(const logging_settings& s) {
+    global_logger_registry().set_all_loggers_level(s.default_level);
+
+    for (const auto& pair : s.logger_levels) {
+        try {
+            global_logger_registry().set_logger_level(pair.first, pair.second);
+        } catch (const std::out_of_range&) {
+            throw std::runtime_error(
+                        seastar::sprint("Unknown logger '%s'. Use --help-loggers to list available loggers.",
+                                        pair.first));
+        }
+    }
+
+    logger::set_stdout_enabled(s.stdout_enabled);
+    logger::set_syslog_enabled(s.syslog_enabled);
+}
+
 sstring pretty_type_name(const std::type_info& ti) {
     int status;
     std::unique_ptr<char[], void (*)(void*)> result(
