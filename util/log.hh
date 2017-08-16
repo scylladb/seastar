@@ -64,7 +64,7 @@ seastar::log_level lexical_cast(const std::string& source);
 namespace seastar {
 
 class logger;
-class log_registry;
+class logger_registry;
 
 /// \brief Logger class for stdout or syslog.
 ///
@@ -229,7 +229,7 @@ public:
 /// this class is used to wrap around the static map
 /// that holds pointers to all logs
 ///
-class log_registry {
+class logger_registry {
     mutable std::mutex _mutex;
     std::unordered_map<sstring, logger*> _loggers;
 public:
@@ -272,6 +272,8 @@ public:
     void moved(logger* from, logger* to);
 };
 
+logger_registry& global_logger_registry();
+
 /// \cond internal
 
 extern thread_local uint64_t logging_failures;
@@ -279,8 +281,6 @@ extern thread_local uint64_t logging_failures;
 sstring pretty_type_name(const std::type_info&);
 
 sstring level_name(log_level level);
-
-log_registry& logger_registry();
 
 template <typename T>
 class logger_for : public logger {

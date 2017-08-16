@@ -28,7 +28,6 @@
 #include <syslog.h>
 
 namespace seastar {
-log_registry& logger_registry();
 
 thread_local uint64_t logging_failures = 0;
 
@@ -69,15 +68,15 @@ std::atomic<bool> logger::_stdout = { true };
 std::atomic<bool> logger::_syslog = { false };
 
 logger::logger(sstring name) : _name(std::move(name)) {
-    logger_registry().register_logger(this);
+    global_logger_registry().register_logger(this);
 }
 
 logger::logger(logger&& x) : _name(std::move(x._name)), _level(x._level.load(std::memory_order_relaxed)) {
-    logger_registry().moved(&x, this);
+    global_logger_registry().moved(&x, this);
 }
 
 logger::~logger() {
-    logger_registry().unregister_logger(this);
+    global_logger_registry().unregister_logger(this);
 }
 
 void
@@ -179,7 +178,7 @@ bool logger::is_shard_zero() {
 }
 
 void
-log_registry::set_all_loggers_level(log_level level) {
+logger_registry::set_all_loggers_level(log_level level) {
     std::lock_guard<std::mutex> g(_mutex);
     for (auto&& l : _loggers | boost::adaptors::map_values) {
         l->set_level(level);
@@ -187,38 +186,38 @@ log_registry::set_all_loggers_level(log_level level) {
 }
 
 log_level
-log_registry::get_logger_level(sstring name) const {
+logger_registry::get_logger_level(sstring name) const {
     std::lock_guard<std::mutex> g(_mutex);
     return _loggers.at(name)->level();
 }
 
 void
-log_registry::set_logger_level(sstring name, log_level level) {
+logger_registry::set_logger_level(sstring name, log_level level) {
     std::lock_guard<std::mutex> g(_mutex);
     _loggers.at(name)->set_level(level);
 }
 
 std::vector<sstring>
-log_registry::get_all_logger_names() {
+logger_registry::get_all_logger_names() {
     std::lock_guard<std::mutex> g(_mutex);
     auto ret = _loggers | boost::adaptors::map_keys;
     return std::vector<sstring>(ret.begin(), ret.end());
 }
 
 void
-log_registry::register_logger(logger* l) {
+logger_registry::register_logger(logger* l) {
     std::lock_guard<std::mutex> g(_mutex);
     _loggers[l->name()] = l;
 }
 
 void
-log_registry::unregister_logger(logger* l) {
+logger_registry::unregister_logger(logger* l) {
     std::lock_guard<std::mutex> g(_mutex);
     _loggers.erase(l->name());
 }
 
 void
-log_registry::moved(logger* from, logger* to) {
+logger_registry::moved(logger* from, logger* to) {
     std::lock_guard<std::mutex> g(_mutex);
     _loggers[from->name()] = to;
 }
@@ -230,8 +229,8 @@ sstring pretty_type_name(const std::type_info& ti) {
     return result.get() ? result.get() : ti.name();
 }
 
-log_registry& logger_registry() {
-    static log_registry g_registry;
+logger_registry& global_logger_registry() {
+    static logger_registry g_registry;
     return g_registry;
 }
 
