@@ -149,6 +149,15 @@ private:
         update_history(bytes, bytes);
         set_new_buffer_size(after_skip::yes);
     }
+    // Safely ignores read future even if it is not resolved yet.
+    void ignore_read_future(future<temporary_buffer<char>> read_future) {
+        if (read_future.available()) {
+            read_future.ignore_ready_future();
+            return;
+        }
+        auto f = read_future.then_wrapped([] (auto f) { f.ignore_ready_future(); });
+        _dropped_reads = _dropped_reads.then([f = std::move(f)] () mutable { return std::move(f); });
+    }
 public:
     file_data_source_impl(file f, uint64_t offset, uint64_t len, file_input_stream_options options)
             : _file(std::move(f)), _options(options), _pos(offset), _remain(len), _current_read_ahead(get_initial_read_ahead())
@@ -192,8 +201,7 @@ public:
                 });
                 break;
             } else {
-                auto f = front._ready.then_wrapped([] (auto f) { f.ignore_ready_future(); });
-                _dropped_reads = _dropped_reads.then([f = std::move(f)] () mutable { return std::move(f); });
+                ignore_read_future(std::move(front._ready));
                 n -= front._size;
                 dropped += front._size;
                 _reactor._io_stats.fstream_read_aheads_discarded += 1;
@@ -215,7 +223,7 @@ public:
                 _reactor._io_stats.fstream_read_aheads_discarded += 1;
                 _reactor._io_stats.fstream_read_ahead_discarded_bytes += c._size;
                 dropped += c._size;
-                c._ready.ignore_ready_future();
+                ignore_read_future(std::move(c._ready));
             }
             update_history_unused(dropped);
             return std::move(_dropped_reads);
