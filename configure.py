@@ -262,6 +262,7 @@ tests = [
     'tests/dns_test',
     'tests/execution_stage_test',
     'tests/lowres_clock_test',
+    'tests/program_options_test',
     ]
 
 apps = [
@@ -343,6 +344,7 @@ core = [
     'core/dpdk_rte.cc',
     'core/fsqual.cc',
     'util/conversions.cc',
+    'util/program-options.cc',
     'util/log.cc',
     'net/packet.cc',
     'net/posix-stack.cc',
@@ -479,6 +481,7 @@ deps = {
     'tests/dns_test': ['tests/dns_test.cc'] + core + libnet,
     'tests/execution_stage_test': ['tests/execution_stage_test.cc'] + core,
     'tests/lowres_clock_test': ['tests/lowres_clock_test.cc'] + core,
+    'tests/program_options_test': ['tests/program_options_test.cc'] + core,
 }
 
 boost_tests = [
