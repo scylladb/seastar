@@ -42,9 +42,6 @@ const std::map<log_level, sstring> log_level_names = {
         { log_level::warn, "warn" },
         { log_level::error, "error" },
 };
-}
-
-using namespace seastar;
 
 std::ostream& operator<<(std::ostream& out, log_level level) {
     return out << log_level_names.at(level);
@@ -65,8 +62,6 @@ std::istream& operator>>(std::istream& in, log_level& level) {
     in.setstate(std::ios::failbit);
     return in;
 }
-
-namespace seastar {
 
 std::atomic<bool> logger::_stdout = { true };
 std::atomic<bool> logger::_syslog = { false };
@@ -248,8 +243,7 @@ template<>
 seastar::log_level lexical_cast(const std::string& source) {
     std::istringstream in(source);
     seastar::log_level level;
-    // Using the operator normall fails.
-    if (!::operator>>(in, level)) {
+    if (!(in >> level)) {
         throw boost::bad_lexical_cast();
     }
     return level;

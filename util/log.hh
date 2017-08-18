@@ -47,11 +47,10 @@ enum class log_level {
     debug,
     trace,
 };
-}
 
-// Must exist logging namespace, or ADL gets confused in logger::stringer
-std::ostream& operator<<(std::ostream& out, seastar::log_level level);
-std::istream& operator>>(std::istream& in, seastar::log_level& level);
+std::ostream& operator<<(std::ostream& out, log_level level);
+std::istream& operator>>(std::istream& in, log_level& level);
+}
 
 // Boost doesn't auto-deduce the existence of the streaming operators for some reason
 
