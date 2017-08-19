@@ -199,6 +199,57 @@ size_t min_free_memory();
 /// Sets the value of free memory low water mark in memory::page_size units.
 void set_min_free_pages(size_t pages);
 
+/// Enable the large allocation warning threshold.
+///
+/// Warn when allocation above a given threshold are performed.
+///
+/// \param threshold size (in bytes) above which an allocation will be logged
+void set_large_allocation_warning_threshold(size_t threshold);
+
+/// Gets the current large allocation warning threshold.
+size_t get_large_allocation_warning_threshold();
+
+/// Disable large allocation warnings.
+void disable_large_allocation_warning();
+
+/// Set a different large allocation warning threshold for a scope.
+class scoped_large_allocation_warning_threshold {
+    size_t _old_threshold;
+public:
+    explicit scoped_large_allocation_warning_threshold(size_t threshold)
+            : _old_threshold(get_large_allocation_warning_threshold()) {
+        set_large_allocation_warning_threshold(threshold);
+    }
+    scoped_large_allocation_warning_threshold(const scoped_large_allocation_warning_threshold&) = delete;
+    scoped_large_allocation_warning_threshold(scoped_large_allocation_warning_threshold&& x) = delete;
+    ~scoped_large_allocation_warning_threshold() {
+        if (_old_threshold) {
+            set_large_allocation_warning_threshold(_old_threshold);
+        }
+    }
+    void operator=(const scoped_large_allocation_warning_threshold&) const = delete;
+    void operator=(scoped_large_allocation_warning_threshold&&) = delete;
+};
+
+/// Disable large allocation warnings for a scope.
+class scoped_large_allocation_warning_disable {
+    size_t _old_threshold;
+public:
+    scoped_large_allocation_warning_disable()
+            : _old_threshold(get_large_allocation_warning_threshold()) {
+        disable_large_allocation_warning();
+    }
+    scoped_large_allocation_warning_disable(const scoped_large_allocation_warning_disable&) = delete;
+    scoped_large_allocation_warning_disable(scoped_large_allocation_warning_disable&& x) = delete;
+    ~scoped_large_allocation_warning_disable() {
+        if (_old_threshold) {
+            set_large_allocation_warning_threshold(_old_threshold);
+        }
+    }
+    void operator=(const scoped_large_allocation_warning_disable&) const = delete;
+    void operator=(scoped_large_allocation_warning_disable&&) = delete;
+};
+
 }
 
 class with_alignment {

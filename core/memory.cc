@@ -375,6 +375,7 @@ struct cpu_pages {
     uint32_t nr_pages;
     uint32_t nr_free_pages;
     uint32_t current_min_free_pages = 0;
+    size_t large_allocation_warning_threshold = std::numeric_limits<size_t>::max();
     unsigned cpu_id = -1U;
     std::function<void (std::function<void ()>)> reclaim_hook;
     std::vector<reclaimer*> reclaimers;
@@ -445,6 +446,8 @@ struct cpu_pages {
     void do_resize(size_t new_size, allocate_system_memory_fn alloc_sys_mem);
     void replace_memory_backing(allocate_system_memory_fn alloc_sys_mem);
     void init_virt_to_phys_map();
+    void check_large_allocation(size_t size);
+    void warn_large_allocation(size_t size);
     memory::memory_layout memory_layout();
     translation translate(const void* addr, size_t size);
     ~cpu_pages();
@@ -619,8 +622,23 @@ cpu_pages::allocate_large_and_trim(unsigned n_pages, Trimmer trimmer) {
     return mem() + span_idx * page_size;
 }
 
+void
+cpu_pages::warn_large_allocation(size_t size) {
+    seastar_memory_logger.warn("oversized allocation: {} bytes, please report: at {}", size, current_backtrace());
+    large_allocation_warning_threshold *= 1.618; // prevent spam
+}
+
+void
+inline
+cpu_pages::check_large_allocation(size_t size) {
+    if (size > large_allocation_warning_threshold) {
+        warn_large_allocation(size);
+    }
+}
+
 void*
 cpu_pages::allocate_large(unsigned n_pages) {
+    check_large_allocation(n_pages * page_size);
     return allocate_large_and_trim(n_pages, [n_pages] (unsigned idx, unsigned n) {
         return trim{0, std::min(n, n_pages)};
     });
@@ -628,6 +646,7 @@ cpu_pages::allocate_large(unsigned n_pages) {
 
 void*
 cpu_pages::allocate_large_aligned(unsigned align_pages, unsigned n_pages) {
+    check_large_allocation(n_pages * page_size);
     return allocate_large_and_trim(n_pages + align_pages - 1, [=] (unsigned idx, unsigned n) {
         return trim{align_up(idx, align_pages) - idx, n_pages};
     });
@@ -1270,6 +1289,18 @@ reclaimer::reclaimer(reclaim_fn reclaim, reclaimer_scope scope)
 reclaimer::~reclaimer() {
     auto& r = cpu_mem.reclaimers;
     r.erase(std::find(r.begin(), r.end(), this));
+}
+
+void set_large_allocation_warning_threshold(size_t threshold) {
+    cpu_mem.large_allocation_warning_threshold = threshold;
+}
+
+size_t get_large_allocation_warning_threshold() {
+    return cpu_mem.large_allocation_warning_threshold;
+}
+
+void disable_large_allocation_warning() {
+    cpu_mem.large_allocation_warning_threshold = std::numeric_limits<size_t>::max();
 }
 
 void configure(std::vector<resource::memory> m, bool mbind,
