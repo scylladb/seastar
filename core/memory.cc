@@ -1057,8 +1057,8 @@ small_pool::small_pool(unsigned object_size) noexcept
     : _object_size(object_size), _span_size(1) {
     while (_object_size > span_bytes()
             || (_span_size < 32 && waste() > 0.05)
-            || (span_bytes() / object_size < 32)) {
-        _span_size *= 2;
+            || (span_bytes() / object_size < 4)) {
+        ++_span_size;
     }
     _max_free = std::max<unsigned>(100, span_bytes() * 2 / _object_size);
     _min_free = _max_free / 2;
