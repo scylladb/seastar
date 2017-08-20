@@ -20,15 +20,21 @@
  */
 
 #include "log.hh"
+#include "log-cli.hh"
 
 #include "core/array_map.hh"
 #include "core/reactor.hh"
 
+#include <boost/any.hpp>
+#include <boost/lexical_cast.hpp>
 #include <boost/range/adaptor/map.hpp>
 #include <cxxabi.h>
 #include <syslog.h>
 
+#include <iostream>
 #include <map>
+#include <regex>
+#include <string>
 #include <system_error>
 
 namespace seastar {
@@ -252,6 +258,68 @@ logger_registry& global_logger_registry() {
 
 sstring level_name(log_level level) {
     return  log_level_names.at(level);
+}
+
+namespace log_cli {
+
+namespace bpo = boost::program_options;
+
+log_level parse_log_level(const sstring& s) {
+    try {
+        return boost::lexical_cast<log_level>(s.c_str());
+    } catch (const boost::bad_lexical_cast&) {
+        throw std::runtime_error(sprint("Unknown log level '%s'", s));
+    }
+}
+
+bpo::options_description get_options_description() {
+    bpo::options_description opts("Logging options");
+
+    opts.add_options()
+            ("default-log-level",
+             bpo::value<sstring>()->default_value("info"),
+             "Default log level for log messages. Valid values are trace, debug, info, warn, error."
+            )
+            ("logger-log-level",
+             bpo::value<program_options::string_map>()->default_value({}),
+             "Map of logger name to log level. The format is \"NAME0=LEVEL0[:NAME1=LEVEL1:...]\". "
+             "Valid logger names can be queried with --help-logging. "
+             "Valid values for levels are trace, debug, info, warn, error. "
+             "This option can be specified multiple times."
+            )
+            ("log-to-stdout", bpo::value<bool>()->default_value(true), "Send log output to stdout.")
+            ("log-to-syslog", bpo::value<bool>()->default_value(false), "Send log output to syslog.")
+            ("help-loggers", bpo::bool_switch(), "Print a list of logger names and exit.");
+
+    return opts;
+}
+
+void print_available_loggers(std::ostream& os) {
+    auto names = global_logger_registry().get_all_logger_names();
+    // For quick searching by humans.
+    std::sort(names.begin(), names.end());
+
+    os << "Available loggers:\n";
+
+    for (auto&& name : names) {
+        os << "    " << name << '\n';
+    }
+}
+
+logging_settings extract_settings(const boost::program_options::variables_map& vars) {
+    const auto& raw_levels = vars["logger-log-level"].as<program_options::string_map>();
+
+    std::unordered_map<sstring, log_level> levels;
+    parse_logger_levels(raw_levels, std::inserter(levels, levels.begin()));
+
+    return logging_settings{
+        std::move(levels),
+        parse_log_level(vars["default-log-level"].as<sstring>()),
+        vars["log-to-stdout"].as<bool>(),
+        vars["log-to-syslog"].as<bool>()
+    };
+}
+
 }
 
 }
