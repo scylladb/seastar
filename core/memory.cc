@@ -1768,6 +1768,19 @@ void set_min_free_pages(size_t pages) {
     // Ignore, reclaiming not supported for default allocator.
 }
 
+void set_large_allocation_warning_threshold(size_t) {
+    // Ignore, not supported for default allocator.
+}
+
+size_t get_large_allocation_warning_threshold() {
+    // Ignore, not supported for default allocator.
+    return std::numeric_limits<size_t>::max();
+}
+
+void disable_large_allocation_warning() {
+    // Ignore, not supported for default allocator.
+}
+
 }
 
 }
