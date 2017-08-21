@@ -541,7 +541,7 @@ class NetPerfTuner(PerfTunerBase):
         num_cores = int(run_hwloc_calc(['--number-of', 'core', 'machine:0', '--restrict', self.args.cpu_mask]))
         num_PUs = int(run_hwloc_calc(['--number-of', 'PU', 'machine:0', '--restrict', self.args.cpu_mask]))
 
-        if num_PUs <= 4 or num_cores == num_PUs:
+        if num_PUs <= 4 or rx_queues_count == num_PUs:
             return PerfTunerBase.SupportedModes.mq
         elif num_cores <= 4:
             return PerfTunerBase.SupportedModes.sq
