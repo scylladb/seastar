@@ -439,7 +439,11 @@ reactor::task_quota_timer_thread_fn() {
         //
         // We can do it a cheaper if we don't report suppressed backtraces.
         void tick(unsigned ticks = 1) {
-            if (_reported && (_ticks + ticks >= _ticks_per_minute)) {
+            if (!_reported) {
+                return;
+            }
+            _ticks += ticks;
+            if (_ticks >= _ticks_per_minute) {
                 if (_reported > _max_reports_per_minute) {
                     auto supressed = _reported - _max_reports_per_minute;
                     backtrace_buffer buf;
