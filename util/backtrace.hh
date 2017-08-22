@@ -25,6 +25,7 @@
 #include <libunwind.h>
 #include <iosfwd>
 #include <vector>
+#include <boost/container/static_vector.hpp>
 
 namespace seastar {
 
@@ -54,10 +55,13 @@ void backtrace(Func&& func) noexcept(noexcept(func(0))) {
 }
 
 class saved_backtrace {
-    std::vector<unw_word_t> _frames;
+public:
+    using vector_type = boost::container::static_vector<unw_word_t, 64>;
+private:
+    vector_type _frames;
 public:
     saved_backtrace() = default;
-    saved_backtrace(std::vector<unw_word_t> f) : _frames(std::move(f)) {}
+    saved_backtrace(vector_type f) : _frames(std::move(f)) {}
     size_t hash() const;
 
     friend std::ostream& operator<<(std::ostream& out, const saved_backtrace&);
@@ -86,7 +90,7 @@ struct hash<seastar::saved_backtrace> {
 
 namespace seastar {
 
-saved_backtrace current_backtrace();
+saved_backtrace current_backtrace() noexcept;
 std::ostream& operator<<(std::ostream& out, const saved_backtrace& b);
 
 }

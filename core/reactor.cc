@@ -3938,10 +3938,12 @@ void engine_exit(std::exception_ptr eptr) {
     engine().exit(1);
 }
 
-saved_backtrace current_backtrace() {
-    std::vector<unw_word_t> v;
+saved_backtrace current_backtrace() noexcept {
+    saved_backtrace::vector_type v;
     backtrace([&] (uintptr_t addr) {
-        v.push_back(addr);
+        if (v.size() < v.capacity()) {
+            v.push_back(addr);
+        }
     });
     return saved_backtrace(std::move(v));
 }
