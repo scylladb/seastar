@@ -475,7 +475,7 @@ reactor::task_quota_timer_thread_fn() {
         _task_quota_timer.read(&events, 8);
         _local_need_preempt = true;
     }
-    block_notifier_rate_limiter rate_limit(unsigned(60s / _task_quota), 5, _id);
+    block_notifier_rate_limiter rate_limit(unsigned(60s / _task_quota), _stall_detector_reports_per_minute, _id);
     uint64_t saved_missed_ticks = 0;
 
     while (!_dying.load(std::memory_order_relaxed)) {
@@ -621,6 +621,7 @@ void reactor::configure(boost::program_options::variables_map vm) {
 
     auto blocked_time = vm["blocked-reactor-notify-ms"].as<unsigned>() * 1ms;
     _tasks_processed_report_threshold = unsigned(blocked_time / _task_quota);
+    _stall_detector_reports_per_minute = vm["blocked-reactor-reports-per-minute"].as<unsigned>();
 
     _max_task_backlog = vm["max-task-backlog"].as<unsigned>();
     _max_poll_time = vm["idle-poll-time-us"].as<unsigned>() * 1us;
@@ -3343,6 +3344,7 @@ reactor::get_options_description(std::chrono::duration<double> default_task_quot
         ("task-quota-ms", bpo::value<double>()->default_value(default_task_quota / 1ms), "Max time (ms) between polls")
         ("max-task-backlog", bpo::value<unsigned>()->default_value(1000), "Maximum number of task backlog to allow; above this we ignore I/O")
         ("blocked-reactor-notify-ms", bpo::value<unsigned>()->default_value(2000), "threshold in miliseconds over which the reactor is considered blocked if no progress is made")
+        ("blocked-reactor-reports-per-minute", bpo::value<unsigned>()->default_value(5), "Maximum number of backtraces reported by stall detector per minute")
         ("relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
         ("overprovisioned", "run in an overprovisioned environment (such as docker or a laptop); equivalent to --idle-poll-time-us 0 --thread-affinity 0 --poll-aio 0")
         ("abort-on-seastar-bad-alloc", "abort when seastar allocator cannot allocate memory")
