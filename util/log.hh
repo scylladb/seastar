@@ -47,11 +47,10 @@ enum class log_level {
     debug,
     trace,
 };
-}
 
-// Must exist logging namespace, or ADL gets confused in logger::stringer
-std::ostream& operator<<(std::ostream& out, seastar::log_level level);
-std::istream& operator>>(std::istream& in, seastar::log_level& level);
+std::ostream& operator<<(std::ostream& out, log_level level);
+std::istream& operator>>(std::istream& in, log_level& level);
+}
 
 // Boost doesn't auto-deduce the existence of the streaming operators for some reason
 
@@ -64,7 +63,7 @@ seastar::log_level lexical_cast(const std::string& source);
 namespace seastar {
 
 class logger;
-class log_registry;
+class logger_registry;
 
 /// \brief Logger class for stdout or syslog.
 ///
@@ -229,7 +228,7 @@ public:
 /// this class is used to wrap around the static map
 /// that holds pointers to all logs
 ///
-class log_registry {
+class logger_registry {
     mutable std::mutex _mutex;
     std::unordered_map<sstring, logger*> _loggers;
 public:
@@ -272,6 +271,19 @@ public:
     void moved(logger* from, logger* to);
 };
 
+logger_registry& global_logger_registry();
+
+struct logging_settings final {
+    std::unordered_map<sstring, log_level> logger_levels;
+    log_level default_level;
+    bool stdout_enabled;
+    bool syslog_enabled;
+};
+
+/// Shortcut for configuring the logging system all at once.
+///
+void apply_logging_settings(const logging_settings&);
+
 /// \cond internal
 
 extern thread_local uint64_t logging_failures;
@@ -279,8 +291,6 @@ extern thread_local uint64_t logging_failures;
 sstring pretty_type_name(const std::type_info&);
 
 sstring level_name(log_level level);
-
-log_registry& logger_registry();
 
 template <typename T>
 class logger_for : public logger {

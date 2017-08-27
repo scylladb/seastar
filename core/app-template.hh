@@ -52,6 +52,7 @@ public:
 public:
     explicit app_template(config cfg = config());
 
+    boost::program_options::options_description& get_options_description();
     boost::program_options::options_description_easy_init add_options();
     void add_positional_options(std::initializer_list<positional_option> options);
     boost::program_options::variables_map& configuration();

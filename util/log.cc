@@ -18,17 +18,26 @@
 /*
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
+
 #include "log.hh"
+#include "log-cli.hh"
+
 #include "core/array_map.hh"
 #include "core/reactor.hh"
-#include <cxxabi.h>
-#include <system_error>
+
+#include <boost/any.hpp>
+#include <boost/lexical_cast.hpp>
 #include <boost/range/adaptor/map.hpp>
-#include <map>
+#include <cxxabi.h>
 #include <syslog.h>
 
+#include <iostream>
+#include <map>
+#include <regex>
+#include <string>
+#include <system_error>
+
 namespace seastar {
-log_registry& logger_registry();
 
 thread_local uint64_t logging_failures = 0;
 
@@ -39,9 +48,6 @@ const std::map<log_level, sstring> log_level_names = {
         { log_level::warn, "warn" },
         { log_level::error, "error" },
 };
-}
-
-using namespace seastar;
 
 std::ostream& operator<<(std::ostream& out, log_level level) {
     return out << log_level_names.at(level);
@@ -63,21 +69,19 @@ std::istream& operator>>(std::istream& in, log_level& level) {
     return in;
 }
 
-namespace seastar {
-
 std::atomic<bool> logger::_stdout = { true };
 std::atomic<bool> logger::_syslog = { false };
 
 logger::logger(sstring name) : _name(std::move(name)) {
-    logger_registry().register_logger(this);
+    global_logger_registry().register_logger(this);
 }
 
 logger::logger(logger&& x) : _name(std::move(x._name)), _level(x._level.load(std::memory_order_relaxed)) {
-    logger_registry().moved(&x, this);
+    global_logger_registry().moved(&x, this);
 }
 
 logger::~logger() {
-    logger_registry().unregister_logger(this);
+    global_logger_registry().unregister_logger(this);
 }
 
 void
@@ -179,7 +183,7 @@ bool logger::is_shard_zero() {
 }
 
 void
-log_registry::set_all_loggers_level(log_level level) {
+logger_registry::set_all_loggers_level(log_level level) {
     std::lock_guard<std::mutex> g(_mutex);
     for (auto&& l : _loggers | boost::adaptors::map_values) {
         l->set_level(level);
@@ -187,40 +191,57 @@ log_registry::set_all_loggers_level(log_level level) {
 }
 
 log_level
-log_registry::get_logger_level(sstring name) const {
+logger_registry::get_logger_level(sstring name) const {
     std::lock_guard<std::mutex> g(_mutex);
     return _loggers.at(name)->level();
 }
 
 void
-log_registry::set_logger_level(sstring name, log_level level) {
+logger_registry::set_logger_level(sstring name, log_level level) {
     std::lock_guard<std::mutex> g(_mutex);
     _loggers.at(name)->set_level(level);
 }
 
 std::vector<sstring>
-log_registry::get_all_logger_names() {
+logger_registry::get_all_logger_names() {
     std::lock_guard<std::mutex> g(_mutex);
     auto ret = _loggers | boost::adaptors::map_keys;
     return std::vector<sstring>(ret.begin(), ret.end());
 }
 
 void
-log_registry::register_logger(logger* l) {
+logger_registry::register_logger(logger* l) {
     std::lock_guard<std::mutex> g(_mutex);
     _loggers[l->name()] = l;
 }
 
 void
-log_registry::unregister_logger(logger* l) {
+logger_registry::unregister_logger(logger* l) {
     std::lock_guard<std::mutex> g(_mutex);
     _loggers.erase(l->name());
 }
 
 void
-log_registry::moved(logger* from, logger* to) {
+logger_registry::moved(logger* from, logger* to) {
     std::lock_guard<std::mutex> g(_mutex);
     _loggers[from->name()] = to;
+}
+
+void apply_logging_settings(const logging_settings& s) {
+    global_logger_registry().set_all_loggers_level(s.default_level);
+
+    for (const auto& pair : s.logger_levels) {
+        try {
+            global_logger_registry().set_logger_level(pair.first, pair.second);
+        } catch (const std::out_of_range&) {
+            throw std::runtime_error(
+                        seastar::sprint("Unknown logger '%s'. Use --help-loggers to list available loggers.",
+                                        pair.first));
+        }
+    }
+
+    logger::set_stdout_enabled(s.stdout_enabled);
+    logger::set_syslog_enabled(s.syslog_enabled);
 }
 
 sstring pretty_type_name(const std::type_info& ti) {
@@ -230,13 +251,75 @@ sstring pretty_type_name(const std::type_info& ti) {
     return result.get() ? result.get() : ti.name();
 }
 
-log_registry& logger_registry() {
-    static log_registry g_registry;
+logger_registry& global_logger_registry() {
+    static logger_registry g_registry;
     return g_registry;
 }
 
 sstring level_name(log_level level) {
     return  log_level_names.at(level);
+}
+
+namespace log_cli {
+
+namespace bpo = boost::program_options;
+
+log_level parse_log_level(const sstring& s) {
+    try {
+        return boost::lexical_cast<log_level>(s.c_str());
+    } catch (const boost::bad_lexical_cast&) {
+        throw std::runtime_error(sprint("Unknown log level '%s'", s));
+    }
+}
+
+bpo::options_description get_options_description() {
+    bpo::options_description opts("Logging options");
+
+    opts.add_options()
+            ("default-log-level",
+             bpo::value<sstring>()->default_value("info"),
+             "Default log level for log messages. Valid values are trace, debug, info, warn, error."
+            )
+            ("logger-log-level",
+             bpo::value<program_options::string_map>()->default_value({}),
+             "Map of logger name to log level. The format is \"NAME0=LEVEL0[:NAME1=LEVEL1:...]\". "
+             "Valid logger names can be queried with --help-logging. "
+             "Valid values for levels are trace, debug, info, warn, error. "
+             "This option can be specified multiple times."
+            )
+            ("log-to-stdout", bpo::value<bool>()->default_value(true), "Send log output to stdout.")
+            ("log-to-syslog", bpo::value<bool>()->default_value(false), "Send log output to syslog.")
+            ("help-loggers", bpo::bool_switch(), "Print a list of logger names and exit.");
+
+    return opts;
+}
+
+void print_available_loggers(std::ostream& os) {
+    auto names = global_logger_registry().get_all_logger_names();
+    // For quick searching by humans.
+    std::sort(names.begin(), names.end());
+
+    os << "Available loggers:\n";
+
+    for (auto&& name : names) {
+        os << "    " << name << '\n';
+    }
+}
+
+logging_settings extract_settings(const boost::program_options::variables_map& vars) {
+    const auto& raw_levels = vars["logger-log-level"].as<program_options::string_map>();
+
+    std::unordered_map<sstring, log_level> levels;
+    parse_logger_levels(raw_levels, std::inserter(levels, levels.begin()));
+
+    return logging_settings{
+        std::move(levels),
+        parse_log_level(vars["default-log-level"].as<sstring>()),
+        vars["log-to-stdout"].as<bool>(),
+        vars["log-to-syslog"].as<bool>()
+    };
+}
+
 }
 
 }
@@ -245,8 +328,7 @@ template<>
 seastar::log_level lexical_cast(const std::string& source) {
     std::istringstream in(source);
     seastar::log_level level;
-    // Using the operator normall fails.
-    if (!::operator>>(in, level)) {
+    if (!(in >> level)) {
         throw boost::bad_lexical_cast();
     }
     return level;
