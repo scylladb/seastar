@@ -166,17 +166,6 @@ static void add_name(std::ostream& s, const sstring& name, const std::map<sstrin
 
 }
 
-std::map<sstring, std::tuple<uint32_t, const mi::metric_family_info*>> get_metric_per_family(const metrics_families_per_shard& families) {
-    std::map<sstring, std::tuple<uint32_t, const mi::metric_family_info*>> res;
-    for (auto&& shard : families) {
-        for (auto&& m : *(shard->metadata.get())) {
-            std::get<uint32_t>(res[m.mf.name]) += m.metrics.size();
-            std::get<const mi::metric_family_info*>(res[m.mf.name]) = &m.mf;
-        }
-    }
-    return res;
-}
-
 /*!
  * \brief iterator for metric family
  *
@@ -228,117 +217,189 @@ std::map<sstring, std::tuple<uint32_t, const mi::metric_family_info*>> get_metri
  */
 class metric_family_iterator;
 
-
 /*!
- * \brief holds the information related to a metric_family
- *
- * The metric family is the object that return by the metric_family iterator
- *
+ * \brief a facade class for metric family
  */
 class metric_family {
-    const metrics_families_per_shard& _families;
-    std::vector<size_t> _positions;
-    std::map<sstring, std::tuple<uint32_t, const mi::metric_family_info*>>::const_iterator _current_family;
-public:
-    metric_family() = delete;
-    metric_family(const metrics_families_per_shard& families,
-            const std::map<sstring, std::tuple<uint32_t, const mi::metric_family_info*>>::const_iterator& current_family,
-            unsigned shards)
-        : _families(families), _positions(shards, 0), _current_family(current_family) {
+    const sstring* _name = nullptr;
+    uint32_t _size = 0;
+    const mi::metric_family_info* _family_info = nullptr;
+    metric_family_iterator& _iterator_state;
+    metric_family(metric_family_iterator& state) : _iterator_state(state) {
     }
-    const sstring name() const {
-        return _current_family->first;
+    metric_family(const sstring* name , uint32_t size, const mi::metric_family_info* family_info, metric_family_iterator& state) :
+        _name(name), _size(size), _family_info(family_info), _iterator_state(state) {
+    }
+    metric_family(const metric_family& info, metric_family_iterator& state) :
+        metric_family(info._name, info._size, info._family_info, state) {
+    }
+public:
+    metric_family(const metric_family&) = delete;
+    metric_family(metric_family&&) = delete;
+
+    const sstring& name() const {
+        return *_name;
     }
 
     const uint32_t size() const {
-        return std::get<uint32_t>(_current_family->second);
+        return _size;
     }
 
     const mi::metric_family_info& metadata() const {
-        return *(std::get<const mi::metric_family_info*>(_current_family->second));
+        return *_family_info;
     }
 
-    void foreach_metric(std::function<void(const mi::metric_value&, const mi::metric_info&)> f) {
-        // iterating over the shard vector and the position vector
+    void foreach_metric(std::function<void(const mi::metric_value&, const mi::metric_info&)>&& f);
+
+    bool end() const {
+        return !_name || !_family_info;
+    }
+    friend class metric_family_iterator;
+};
+
+class metric_family_iterator {
+    const metrics_families_per_shard& _families;
+    std::vector<size_t> _positions;
+    metric_family _info;
+
+    void next() {
+        if (_positions.empty()) {
+            return;
+        }
+        const sstring *new_name = nullptr;
+        const mi::metric_family_info* new_family_info = nullptr;
+        _info._size = 0;
         for (auto&& i : boost::combine(_positions, _families)) {
-            auto& pos_in_metric_per_shared = boost::get<0>(i);
+            auto& pos_in_metric_per_shard = boost::get<0>(i);
             auto& metric_family = boost::get<1>(i);
-            if (pos_in_metric_per_shared >= metric_family->metadata->size()) {
+            if (pos_in_metric_per_shard >= metric_family->metadata->size()) {
                 // no more metric family in this shard
                 continue;
             }
-            auto& metadata = metric_family->metadata->at(pos_in_metric_per_shared);
+            auto& metadata = metric_family->metadata->at(pos_in_metric_per_shard);
+            int cmp = (!new_name) ? -1 : metadata.mf.name.compare(*new_name);
+            if (cmp < 0) {
+                new_name = &metadata.mf.name;
+                new_family_info = &metadata.mf;
+                _info._size = 0;
+            }
+            if (cmp <= 0) {
+                _info._size += metadata.metrics.size();
+            }
+        }
+        _info._name = new_name;
+        _info._family_info = new_family_info;
+    }
+
+public:
+    metric_family_iterator() = delete;
+    metric_family_iterator(const metric_family_iterator& o) : _families(o._families), _positions(o._positions), _info(o._info, *this) {
+        next();
+    }
+
+    metric_family_iterator(metric_family_iterator&& o) : _families(o._families), _positions(std::move(o._positions)),
+            _info(o._info, *this) {
+        next();
+    }
+
+    metric_family_iterator(const metrics_families_per_shard& families,
+            unsigned shards)
+        : _families(families), _positions(shards, 0), _info(*this) {
+        next();
+    }
+
+    metric_family_iterator& operator++() {
+        next();
+        return *this;
+    }
+
+    metric_family_iterator operator++(int) {
+        metric_family_iterator previous(*this);
+        next();
+        return previous;
+    }
+
+    bool operator!=(const metric_family_iterator& o) const {
+        return !(*this == o);
+    }
+
+    bool operator==(const metric_family_iterator& o) const {
+        if (end()) {
+            return o.end();
+        }
+        if (o.end()) {
+            return false;
+        }
+        return name() == o.name();
+    }
+
+    metric_family& operator*() {
+        return _info;
+    }
+
+    metric_family* operator->() {
+        return &_info;
+    }
+    const sstring& name() const {
+        return *_info._name;
+    }
+
+    const uint32_t size() const {
+        return _info._size;
+    }
+
+    const mi::metric_family_info& metadata() const {
+        return *_info._family_info;
+    }
+
+    bool end() const {
+        return _positions.empty() || _info.end();
+    }
+
+    void foreach_metric(std::function<void(const mi::metric_value&, const mi::metric_info&)>&& f) {
+        // iterating over the shard vector and the position vector
+        for (auto&& i : boost::combine(_positions, _families)) {
+            auto& pos_in_metric_per_shard = boost::get<0>(i);
+            auto& metric_family = boost::get<1>(i);
+            if (pos_in_metric_per_shard >= metric_family->metadata->size()) {
+                // no more metric family in this shard
+                continue;
+            }
+            auto& metadata = metric_family->metadata->at(pos_in_metric_per_shard);
             // the the name is different, that means that on this shard, the metric family
             // does not exist, because everything is sorted by metric family name, this is fine.
             if (metadata.mf.name == name()) {
-                const mi::value_vector& values = metric_family->values[pos_in_metric_per_shared];
+                const mi::value_vector& values = metric_family->values[pos_in_metric_per_shard];
                 const mi::metric_metadata_vector& metrics_metadata = metadata.metrics;
                 for (auto&& vm : boost::combine(values, metrics_metadata)) {
                     auto& value = boost::get<0>(vm);
                     auto& metric_metadata = boost::get<1>(vm);
                     f(value, metric_metadata);
                 }
-                pos_in_metric_per_shared++;
+                pos_in_metric_per_shard++;
             }
         }
     }
 
-    friend class metric_family_iterator;
 };
 
-class metric_family_iterator {
-    metric_family _family;
-public:
-    metric_family_iterator() = delete;
-    metric_family_iterator(const metrics_families_per_shard& families,
-            const std::map<sstring, std::tuple<uint32_t, const mi::metric_family_info*>>::const_iterator& current_family,
-            unsigned shards)
-        : _family(families, current_family, shards) {
-    }
-
-    metric_family_iterator& operator++() {
-        _family._current_family++;
-        return *this;
-    }
-
-    metric_family_iterator operator++(int) {
-        metric_family_iterator previous(*this);
-        _family._current_family++;
-        return previous;
-    }
-
-    bool operator!=(const metric_family_iterator& o) const {
-        return _family._current_family != o._family._current_family;
-    }
-
-    bool operator==(const metric_family_iterator& o) const {
-        return _family._current_family == o._family._current_family;
-    }
-
-    metric_family& operator*() {
-        return _family;
-    }
-
-    metric_family* operator->() {
-        return &_family;
-    }
-};
+void metric_family::foreach_metric(std::function<void(const mi::metric_value&, const mi::metric_info&)>&& f) {
+    _iterator_state.foreach_metric(std::move(f));
+}
 
 class metric_family_range {
     const metrics_families_per_shard& _families;
-    std::map<sstring, std::tuple<uint32_t, const mi::metric_family_info*>> _metric_families_info;
 public:
-    metric_family_range(const metrics_families_per_shard& families) : _families(families),
-    _metric_families_info(get_metric_per_family(families)) {
-
+    metric_family_range(const metrics_families_per_shard& families) : _families(families) {
     }
+
     metric_family_iterator begin () const {
-        return metric_family_iterator(_families, _metric_families_info.begin(), smp::count);
+        return metric_family_iterator(_families, smp::count);
     }
 
 
     metric_family_iterator end() const {
-        return metric_family_iterator(_families, _metric_families_info.end(), 0);
+        return metric_family_iterator(_families, 0);
     }
 };
 
