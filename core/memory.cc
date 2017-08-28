@@ -273,17 +273,19 @@ public:
 };
 
 class small_pool {
+    struct span_sizes {
+        uint8_t preferred;
+        uint8_t fallback;
+    };
     unsigned _object_size;
-    unsigned _span_size;
+    span_sizes _span_sizes;
     free_object* _free = nullptr;
     size_t _free_count = 0;
     unsigned _min_free;
     unsigned _max_free;
-    unsigned _spans_in_use = 0;
+    unsigned _pages_in_use = 0;
     page_list _span_list;
     static constexpr unsigned idx_frac_bits = 2;
-private:
-    size_t span_bytes() const { return _span_size * page_size; }
 public:
     explicit small_pool(unsigned object_size) noexcept;
     ~small_pool();
@@ -297,7 +299,6 @@ public:
 private:
     void add_more_objects();
     void trim_free_list();
-    float waste();
     friend void on_allocation_failure(size_t);
 };
 
@@ -1073,12 +1074,21 @@ void cpu_pages::set_min_free_pages(size_t pages) {
 }
 
 small_pool::small_pool(unsigned object_size) noexcept
-    : _object_size(object_size), _span_size(1) {
-    while (_object_size > span_bytes()
-            || (_span_size < 32 && waste() > 0.05)
-            || (span_bytes() / object_size < 4)) {
-        ++_span_size;
+    : _object_size(object_size) {
+    unsigned span_size = 1;
+    auto span_bytes = [&] { return span_size * page_size; };
+    auto waste = [&] { return (span_bytes() % _object_size) / (1.0 * span_bytes()); };
+    while (object_size > span_bytes()) {
+        ++span_size;
     }
+    _span_sizes.fallback = span_size;
+    span_size = 1;
+    while (_object_size > span_bytes()
+            || (span_size < 32 && waste() > 0.05)
+            || (span_bytes() / object_size < 4)) {
+        ++span_size;
+    }
+    _span_sizes.preferred = span_size;
     _max_free = std::max<unsigned>(100, span_bytes() * 2 / _object_size);
     _min_free = _max_free / 2;
 }
@@ -1133,19 +1143,24 @@ small_pool::add_more_objects() {
     }
     while (_free_count < goal) {
         disable_backtrace_temporarily dbt;
-        auto data = reinterpret_cast<char*>(cpu_mem.allocate_large(_span_size));
+        auto span_size = _span_sizes.preferred;
+        auto data = reinterpret_cast<char*>(cpu_mem.allocate_large(span_size));
         if (!data) {
-            return;
+            span_size = _span_sizes.fallback;
+            auto data = reinterpret_cast<char*>(cpu_mem.allocate_large(span_size));
+            if (!data) {
+                return;
+            }
         }
-        ++_spans_in_use;
+        _pages_in_use += span_size;
         auto span = cpu_mem.to_page(data);
-        for (unsigned i = 0; i < _span_size; ++i) {
+        for (unsigned i = 0; i < span_size; ++i) {
             span[i].offset_in_span = i;
             span[i].pool = this;
         }
         span->nr_small_alloc = 0;
         span->freelist = nullptr;
-        for (unsigned offset = 0; offset <= span_bytes() - _object_size; offset += _object_size) {
+        for (unsigned offset = 0; offset <= span_size * page_size - _object_size; offset += _object_size) {
             auto h = reinterpret_cast<free_object*>(data + offset);
             h->next = _free;
             _free = h;
@@ -1171,15 +1186,11 @@ small_pool::trim_free_list() {
         obj->next = span->freelist;
         span->freelist = obj;
         if (--span->nr_small_alloc == 0) {
+            _pages_in_use -= span->span_size;
             _span_list.erase(cpu_mem.pages, *span);
             cpu_mem.free_span(span - cpu_mem.pages, span->span_size);
-            --_spans_in_use;
         }
     }
-}
-
-float small_pool::waste() {
-    return (span_bytes() % _object_size) / (1.0 * span_bytes());
 }
 
 void
@@ -1411,10 +1422,10 @@ void on_allocation_failure(size_t size) {
         seastar_memory_logger.debug("objsz spansz usedobj   memory       wst%");
         for (unsigned i = 0; i < cpu_mem.small_pools.nr_small_pools; i++) {
             auto& sp = cpu_mem.small_pools[i];
-            auto memory = sp._spans_in_use * sp.span_bytes();
-            auto use_count = sp._spans_in_use * sp.span_bytes() / sp.object_size() - sp._free_count;
+            auto use_count = sp._pages_in_use * page_size / sp.object_size() - sp._free_count;
+            auto memory = sp._pages_in_use * page_size;
             auto wasted_percent = memory ? sp._free_count * sp.object_size() * 100.0 / memory : 0;
-            seastar_memory_logger.debug("{} {} {} {} {}", sp.object_size(), sp.span_bytes(), use_count, memory, wasted_percent);
+            seastar_memory_logger.debug("{} {} {} {} {}", sp.object_size(), sp._span_sizes.preferred * page_size, use_count, memory, wasted_percent);
         }
         seastar_memory_logger.debug("Page spans:");
         seastar_memory_logger.debug("index size [B]     free [B]");
