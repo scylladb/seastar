@@ -759,8 +759,8 @@ private:
             } catch (...) {
                 std::throw_with_nested(f_ex);
             }
+            __builtin_unreachable();
         }
-        assert(0 && "we should not be here");
     }
 
     template<typename... U>
@@ -1013,7 +1013,7 @@ public:
                     } catch (...) {
                         return result.rethrow_with_nested();
                     }
-                    assert(0 && "we should not be here");
+                    __builtin_unreachable();
                 }
             });
         }
