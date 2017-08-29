@@ -32,8 +32,7 @@
 
 using namespace seastar;
 
-static future<> connect_to_ssl_google(::shared_ptr<tls::certificate_credentials> certs) {
-    auto addr = make_ipv4_address(ipv4_addr("216.58.209.132:443"));
+static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> certs, ipv4_addr addr) {
     return tls::connect(certs, addr, "www.google.com").then([](connected_socket s) {
         return do_with(std::move(s), [](connected_socket& s) {
             return do_with(s.output(), [&s](auto& os) {
@@ -57,6 +56,11 @@ static future<> connect_to_ssl_google(::shared_ptr<tls::certificate_credentials>
             });
         });
     });
+}
+
+static future<> connect_to_ssl_google(::shared_ptr<tls::certificate_credentials> certs) {
+    auto addr = make_ipv4_address(ipv4_addr("216.58.209.132:443"));
+    return connect_to_ssl_addr(std::move(certs), addr);
 }
 
 SEASTAR_TEST_CASE(test_simple_x509_client) {
@@ -122,6 +126,39 @@ SEASTAR_TEST_CASE(test_x509_client_with_priority_strings_fail) {
         }).handle_exception([](auto ep) {
             // ok.
         });
+    });
+}
+
+SEASTAR_TEST_CASE(test_failed_connect) {
+    tls::credentials_builder b;
+    b.set_system_trust();
+    return connect_to_ssl_addr(b.build_certificate_credentials(), ipv4_addr()).handle_exception([](auto) {});
+}
+
+SEASTAR_TEST_CASE(test_non_tls) {
+    ::listen_options opts;
+    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto server = engine().listen(addr, opts);
+
+    auto c = server.accept();
+
+    tls::credentials_builder b;
+    b.set_system_trust();
+
+    auto f = connect_to_ssl_addr(b.build_certificate_credentials(), addr);
+
+
+    return c.then([this, f = std::move(f)](::connected_socket s, socket_address) mutable {
+        std::cerr << "Established connection" << std::endl;
+        auto sp = std::make_unique<::connected_socket>(std::move(s));
+        timer<> t([s = std::ref(*sp)] {
+            std::cerr << "Killing server side" << std::endl;
+            s.get() = ::connected_socket();
+        });
+        t.arm(timer<>::clock::now() + std::chrono::seconds(5));
+        return std::move(f).finally([t = std::move(t), sp = std::move(sp)] {});
+    }).handle_exception([server = std::move(server)](auto ep) {
+        std::cerr << "Got expected exception" << std::endl;
     });
 }
 

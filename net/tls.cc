@@ -630,6 +630,7 @@ public:
         if (_type == type::CLIENT) {
             return make_ready_future<>(); // can ignore
         }
+        _connected = false;
         return handshake();
     }
 
@@ -669,6 +670,7 @@ public:
         if (_type == type::CLIENT) {
             verify();
         }
+        _connected = true;
         return make_ready_future<>();
     }
 
@@ -759,6 +761,7 @@ public:
                        return do_get();
                     });
                 default:
+                    _error = true;
                     return make_exception_future<temporary_buffer<char>>(std::system_error(n, glts_errorc));
                 }
             }
@@ -911,10 +914,12 @@ public:
 
     future<>
     handle_error(int res) {
+        _error = true;
         return make_exception_future(std::system_error(res, glts_errorc));
     }
     future<>
     handle_output_error(int res) {
+        _error = true;
         if (_output_exception) {
             return make_exception_future(std::move(_output_exception));
         } else {
@@ -955,6 +960,9 @@ public:
         // Note: shutdown is potentially simultaneous with outstanding
         // read/writes, so must do "async" handshake. See wait_for_input
         // for explanation.
+        if (_error || !_connected) {
+            return make_ready_future();
+        }
         if (how == GNUTLS_SHUT_RDWR) {
             auto f = make_ready_future<>();
             if (!_in_sem.current()) {
@@ -981,6 +989,9 @@ public:
             shutdown_with_timer(GNUTLS_SHUT_RDWR, [](session & s) {
                s._eof = true;
                s._in.close();
+               if (!std::exchange(s._shutdown_wr, true)) {
+                   s._out.close();
+               }
             });
         }
     }
@@ -1015,6 +1026,8 @@ private:
     bool _eof = false;
     bool _shutdown_wr = false;
     bool _shutdown_rw = false;
+    bool _connected = false;
+    bool _error = false;
 
     std::experimental::optional<future<>> _output_pending;
     std::exception_ptr _output_exception;
@@ -1029,6 +1042,8 @@ struct session::session_ref {
     session_ref(lw_shared_ptr<session> session)
                     : _session(std::move(session)) {
     }
+    session_ref(session_ref&&) = default;
+    session_ref(const session_ref&) = default;
     ~session_ref() {
         // This is not super pretty. But we take some care to only own sessions
         // through session_ref, and we need to initiate shutdown on "last owner",
@@ -1037,6 +1052,9 @@ struct session::session_ref {
             _session->close();
         }
     }
+
+    session_ref& operator=(session_ref&&) = default;
+    session_ref& operator=(const session_ref&) = default;
 
     lw_shared_ptr<session> _session;
 };
@@ -1058,12 +1076,15 @@ void session::shutdown_with_timer(gnutls_close_request_t how, Func && func) {
         });
     } else {
         f.ignore_ready_future();
+        func(*this);
     }
 }
 
 class tls_connected_socket_impl : public net::connected_socket_impl, public session::session_ref {
 public:
-    using session_ref::session_ref;
+    tls_connected_socket_impl(session_ref&& sess)
+        : session_ref(std::move(sess))
+    {}
 
     class source_impl;
     class sink_impl;
@@ -1200,8 +1221,8 @@ socket tls::socket(shared_ptr<certificate_credentials> cred, sstring name) {
 }
 
 future<connected_socket> tls::wrap_client(shared_ptr<certificate_credentials> cred, connected_socket&& s, sstring name) {
-    auto sess = make_lw_shared<session>(session::type::CLIENT, std::move(cred), std::move(s), std::move(name));
-    auto f = sess->handshake();
+    session::session_ref sess(make_lw_shared<session>(session::type::CLIENT, std::move(cred), std::move(s), std::move(name)));
+    auto f = sess._session->handshake();
     return f.then([sess = std::move(sess)]() mutable {
         connected_socket ssls(std::make_unique<tls_connected_socket_impl>(std::move(sess)));
         return make_ready_future<connected_socket>(std::move(ssls));
@@ -1209,8 +1230,8 @@ future<connected_socket> tls::wrap_client(shared_ptr<certificate_credentials> cr
 }
 
 future<connected_socket> tls::wrap_server(shared_ptr<server_credentials> cred, connected_socket&& s) {
-    auto sess = make_lw_shared<session>(session::type::SERVER, std::move(cred), std::move(s));
-    auto f = sess->handshake();
+    session::session_ref sess(make_lw_shared<session>(session::type::SERVER, std::move(cred), std::move(s)));
+    auto f = sess._session->handshake();
     return f.then([sess = std::move(sess)]() mutable {
         connected_socket ssls(std::make_unique<tls_connected_socket_impl>(std::move(sess)));
         return make_ready_future<connected_socket>(std::move(ssls));
