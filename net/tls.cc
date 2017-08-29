@@ -642,36 +642,40 @@ public:
                return handshake();
             });
         }
-        auto res = gnutls_handshake(*this);
-        if (res < 0) {
-            switch (res) {
-            case GNUTLS_E_AGAIN:
-                // Could not send/recv data immediately.
-                // Ask gnutls which direction we are waiting for.
-                if (gnutls_record_get_direction(*this) == 0) {
-                    return wait_for_input().then([this] {
-                        return handshake();
-                    });
-                } else {
-                    return wait_for_output().then([this] {
-                        return handshake();
-                    });
-                }
-            case GNUTLS_E_NO_CERTIFICATE_FOUND:
-                return make_exception_future<>(verification_error("No certificate was found"));
+        try {
+            auto res = gnutls_handshake(*this);
+            if (res < 0) {
+                switch (res) {
+                case GNUTLS_E_AGAIN:
+                    // Could not send/recv data immediately.
+                    // Ask gnutls which direction we are waiting for.
+                    if (gnutls_record_get_direction(*this) == 0) {
+                        return wait_for_input().then([this] {
+                            return handshake();
+                        });
+                    } else {
+                        return wait_for_output().then([this] {
+                            return handshake();
+                        });
+                    }
+                case GNUTLS_E_NO_CERTIFICATE_FOUND:
+                    return make_exception_future<>(verification_error("No certificate was found"));
 #if GNUTLS_VERSION_NUMBER >= 0x030406
-            case GNUTLS_E_CERTIFICATE_ERROR:
-                verify(); // should throw. otherwise, fallthrough
+                case GNUTLS_E_CERTIFICATE_ERROR:
+                    verify(); // should throw. otherwise, fallthrough
 #endif
-            default:
-                return make_exception_future<>(std::system_error(res, glts_errorc));
+                default:
+                    return make_exception_future<>(std::system_error(res, glts_errorc));
+                }
             }
+            if (_type == type::CLIENT) {
+                verify();
+            }
+            _connected = true;
+            return make_ready_future<>();
+        } catch (...) {
+            return make_exception_future<>(std::current_exception());
         }
-        if (_type == type::CLIENT) {
-            verify();
-        }
-        _connected = true;
-        return make_ready_future<>();
     }
 
     size_t in_avail() const {
