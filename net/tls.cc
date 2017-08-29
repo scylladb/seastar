@@ -858,44 +858,50 @@ public:
         for (int i = 0; i < iovcnt; ++i) {
             n += iov[i].iov_len;
         }
-        // See above. If we have a pending send
-        // the next time we reach this point, it
-        // must be the re-send, otherwise we
-        // have broken our state machine.
-        if (_out_expect == 0) {
-            scattered_message<char> msg;
-            for (int i = 0; i < iovcnt; ++i) {
-                msg.append(sstring(reinterpret_cast<const char *>(iov[i].iov_base), iov[i].iov_len));
+        try {
+            // See above. If we have a pending send
+            // the next time we reach this point, it
+            // must be the re-send, otherwise we
+            // have broken our state machine.
+            if (_out_expect == 0) {
+                scattered_message<char> msg;
+                for (int i = 0; i < iovcnt; ++i) {
+                    msg.append(sstring(reinterpret_cast<const char *>(iov[i].iov_base), iov[i].iov_len));
+                }
+                _output_exception = {};
+                _output_pending = _out.put(std::move(msg).release());
+                // Did we complete already?
+                if (_output_pending->available() && !_output_pending->failed()) {
+                    return n;
+                }
+                if (_output_pending->failed()) {
+                    _output_exception = _output_pending->get_exception();
+                }
             }
-            _output_exception = {};
-            _output_pending = _out.put(std::move(msg).release());
-            // Did we complete already?
-            if (_output_pending->available() && !_output_pending->failed()) {
+            if (_output_exception) {
+                _output_pending = {};
+                _out_expect = 0;
+                gnutls_transport_set_errno(*this, EIO);
+                return -1;
+            }
+            if (_out_expect != 0) {
+                assert(!_output_pending);
+                assert(n == _out_expect);
+                if (n != _out_expect) { // in case assert is not compiled in
+                    throw std::logic_error("State machine broken?");
+                }
+                _out_expect = 0;
                 return n;
             }
-            if (_output_pending->failed()) {
-                _output_exception = _output_pending->get_exception();
-            }
-        }
-        if (_output_exception) {
-            _output_pending = {};
-            _out_expect = 0;
+            // No? Let the IO complete and tell gnutls we could not
+            // complete. This will propagate the error code upwards to
+            // our higher level code.
+            _out_expect = n;
+            gnutls_transport_set_errno(*this, EAGAIN);
+        } catch (...) {
             gnutls_transport_set_errno(*this, EIO);
-            return -1;
+            _output_exception = std::current_exception();
         }
-        if (_out_expect != 0) {
-            assert(!_output_pending);
-            if (n != _out_expect) {
-                throw std::logic_error("State machine broken?");
-            }
-            _out_expect = 0;
-            return n;
-        }
-        // No? Let the IO complete and tell gnutls we could not
-        // complete. This will propagate the error code upwards to
-        // our higher level code.
-        _out_expect = n;
-        gnutls_transport_set_errno(*this, EAGAIN);
         return -1;
     }
 
