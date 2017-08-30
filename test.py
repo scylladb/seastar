@@ -47,6 +47,8 @@ boost_tests = [
     'json_formatter_test',
     'execution_stage_test',
     'lowres_clock_test',
+    'program_options_test',
+    'tuple_utils_test',
 ]
 
 other_tests = [
