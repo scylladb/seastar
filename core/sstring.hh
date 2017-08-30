@@ -343,12 +343,12 @@ public:
      */
     void resize(size_t n, const char_type c  = '\0') {
         if (n > size()) {
-            *this += sstring(n - size(), c);
+            *this += basic_sstring(n - size(), c);
         } else if (n < size()) {
             if (is_internal()) {
                 u.internal.size = n;
             } else if (n + 1 <= sizeof(u.internal.str)) {
-                *this = sstring(u.external.str, n);
+                *this = basic_sstring(u.external.str, n);
             } else {
                 u.external.size = n;
             }
