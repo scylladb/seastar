@@ -27,6 +27,7 @@
 #include "core/do_with.hh"
 #include "core/future-util.hh"
 #include "core/sharded.hh"
+#include "core/thread.hh"
 #include "core/gate.hh"
 #include "net/tls.hh"
 
@@ -137,6 +138,7 @@ SEASTAR_TEST_CASE(test_failed_connect) {
 
 SEASTAR_TEST_CASE(test_non_tls) {
     ::listen_options opts;
+    opts.reuse_address = true;
     auto addr = ::make_ipv4_address( {0x7f000001, 4712});
     auto server = engine().listen(addr, opts);
 
@@ -159,6 +161,55 @@ SEASTAR_TEST_CASE(test_non_tls) {
         return std::move(f).finally([t = std::move(t), sp = std::move(sp)] {});
     }).handle_exception([server = std::move(server)](auto ep) {
         std::cerr << "Got expected exception" << std::endl;
+    });
+}
+
+SEASTAR_TEST_CASE(test_abort_accept_before_handshake) {
+    auto certs = ::make_shared<tls::server_credentials>(::make_shared<tls::dh_params>());
+    return certs->set_x509_key_file("tests/test.crt", "tests/test.key", tls::x509_crt_format::PEM).then([certs] {
+        ::listen_options opts;
+        opts.reuse_address = true;
+        auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+        auto server = tls::listen(certs, addr, opts);
+        auto c = server.accept();
+        BOOST_CHECK(!c.available()); // should not be finished
+
+        server.abort_accept();
+
+        return c.then([](auto, auto) { BOOST_FAIL("Should not reach"); }).handle_exception([](auto) {
+            // ok
+        }).finally([server = std::move(server)] {});
+    });
+}
+
+SEASTAR_TEST_CASE(test_abort_accept_after_handshake) {
+    return async([] {
+        auto certs = ::make_shared<tls::server_credentials>(::make_shared<tls::dh_params>());
+        certs->set_x509_key_file("tests/test.crt", "tests/test.key", tls::x509_crt_format::PEM).get();
+
+        ::listen_options opts;
+        opts.reuse_address = true;
+        auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+        auto server = tls::listen(certs, addr, opts);
+        auto sa = server.accept();
+
+        tls::credentials_builder b;
+        b.set_x509_trust_file("tests/catest.pem", tls::x509_crt_format::PEM).get();
+
+        auto c = tls::connect(b.build_certificate_credentials(), addr).get0();
+        server.abort_accept(); // should not affect the socket we got.
+
+        auto s = sa.get0();
+        auto out = c.output();
+        auto in = s.input();
+
+        out.write("apa").get();
+        out.flush().get();
+        auto buf = in.read().get0();
+        BOOST_CHECK(sstring(buf.begin(), buf.end()) == "apa");
+
+        out.close().get();
+        in.close().get();
     });
 }
 
@@ -275,11 +326,6 @@ static future<> run_echo_test(sstring message,
                 auto range = boost::irange(0, loops);
                 return do_for_each(range, [strms, msg, do_read](auto) {
                     auto f = strms->out.write(*msg);
-                    if (!do_read) {
-                        return strms->out.close().then([f = std::move(f)]() mutable {
-                            return std::move(f);
-                        });
-                    }
                     return f.then([strms, msg]() {
                         return strms->out.flush().then([strms, msg] {
                             return strms->in.read_exactly(msg->size()).then([msg](temporary_buffer<char> buf) {
