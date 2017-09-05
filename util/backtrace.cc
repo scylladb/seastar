@@ -20,16 +20,70 @@
  */
 #include "backtrace.hh"
 
+#include <link.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+#include <errno.h>
+#include <string.h>
+
 #include "core/print.hh"
 
 
 namespace seastar {
 
+static int dl_iterate_phdr_callback(struct dl_phdr_info *info, size_t size, void *data)
+{
+    std::size_t total_size{0};
+    for (int i = 0; i < info->dlpi_phnum; i++) {
+        const auto hdr = info->dlpi_phdr[i];
+
+        // Only account loadable, executable (text) segments
+        if (hdr.p_type == PT_LOAD && (hdr.p_flags & PF_X) == PF_X) {
+            total_size += hdr.p_memsz;
+        }
+    }
+
+    reinterpret_cast<std::vector<shared_object>*>(data)->push_back({info->dlpi_name, info->dlpi_addr, info->dlpi_addr + total_size});
+
+    return 0;
+}
+
+static std::vector<shared_object> enumerate_shared_objects() {
+    std::vector<shared_object> shared_objects;
+    dl_iterate_phdr(dl_iterate_phdr_callback, &shared_objects);
+
+    return shared_objects;
+}
+
+static const std::vector<shared_object> shared_objects{enumerate_shared_objects()};
+static const shared_object uknown_shared_object{"", 0, std::numeric_limits<uintptr_t>::max()};
+
+bool operator==(const frame& a, const frame& b) {
+    return a.so == b.so && a.addr == b.addr;
+}
+
+frame decorate(uintptr_t addr) {
+    // If the shared-objects are not enumerated yet, or the enumeration
+    // failed return the addr as-is with a dummy shared-object.
+    if (shared_objects.empty()) {
+        return {&uknown_shared_object, addr};
+    }
+
+    auto it = std::find_if(shared_objects.begin(), shared_objects.end(), [&] (const shared_object& so) {
+        return addr >= so.begin && addr < so.end;
+    });
+
+    // Unidentified addresses are assumed to originate from the executable.
+    auto& so = it == shared_objects.end() ? shared_objects.front() : *it;
+    return {&so, addr - so.begin};
+}
+
 saved_backtrace current_backtrace() noexcept {
     saved_backtrace::vector_type v;
-    backtrace([&] (uintptr_t addr) {
+    backtrace([&] (frame f) {
         if (v.size() < v.capacity()) {
-            v.push_back(addr);
+            v.emplace_back(std::move(f));
         }
     });
     return saved_backtrace(std::move(v));
@@ -37,22 +91,22 @@ saved_backtrace current_backtrace() noexcept {
 
 size_t saved_backtrace::hash() const {
     size_t h = 0;
-    for (auto addr : _frames) {
-        h = ((h << 5) - h) ^ addr;
+    for (auto f : _frames) {
+        h = ((h << 5) - h) ^ (f.so->begin + f.addr);
     }
     return h;
 }
 
 std::ostream& operator<<(std::ostream& out, const saved_backtrace& b) {
-    bool first = true;
-    for (auto addr : b._frames) {
-        if (!first) {
-            out << ", ";
+    for (auto f : b._frames) {
+        out << "  ";
+        if (!f.so->name.empty()) {
+            out << f.so->name << "+";
         }
-        out << sprint("0x%x", addr - 1);
-        first = false;
+        out << sprint("0x%x", f.addr) << "\n";
     }
     return out;
 }
+
 
 } // namespace seastar

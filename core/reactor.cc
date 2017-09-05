@@ -274,9 +274,15 @@ public:
     }
 
     void append_backtrace() noexcept {
-        backtrace([this] (uintptr_t addr) {
-            append("  0x");
-            append_hex(addr - 1);
+        backtrace([this] (frame f) {
+            append("  ");
+            if (!f.so->name.empty()) {
+                append(f.so->name.c_str(), f.so->name.size());
+                append("+");
+            }
+
+            append("0x");
+            append_hex(f.addr);
             append("\n");
         });
     }
