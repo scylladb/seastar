@@ -293,6 +293,16 @@ input_stream<CharType>::skip(uint64_t n) {
     });
 }
 
+template <typename CharType>
+data_source
+input_stream<CharType>::detach() && {
+    if (_buf) {
+        throw std::logic_error("detach() called on a used input_stream");
+    }
+
+    return std::move(_fd);
+}
+
 // Writes @buf in chunks of _size length. The last chunk is buffered if smaller.
 template <typename CharType>
 future<>
@@ -467,6 +477,16 @@ output_stream<CharType>::close() {
     }).finally([this] {
         return _fd.close();
     });
+}
+
+template <typename CharType>
+data_sink
+output_stream<CharType>::detach() && {
+    if (_buf) {
+        throw std::logic_error("detach() called on a used output_stream");
+    }
+
+    return std::move(_fd);
 }
 
 }
