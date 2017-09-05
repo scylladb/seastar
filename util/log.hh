@@ -273,11 +273,18 @@ public:
 
 logger_registry& global_logger_registry();
 
+enum class logger_timestamp_style {
+    none,
+    boot,
+    real,
+};
+
 struct logging_settings final {
     std::unordered_map<sstring, log_level> logger_levels;
     log_level default_level;
     bool stdout_enabled;
     bool syslog_enabled;
+    logger_timestamp_style stdout_timestamp_style = logger_timestamp_style::real;
 };
 
 /// Shortcut for configuring the logging system all at once.
