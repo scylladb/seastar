@@ -277,8 +277,8 @@ thread_context::reschedule() {
 }
 
 void
-thread_context::s_main(unsigned int lo, unsigned int hi) {
-    uintptr_t q = lo | (uint64_t(hi) << 32);
+thread_context::s_main(int lo, int hi) {
+    uintptr_t q = uint64_t(uint32_t(lo)) | uint64_t(hi) << 32;
     reinterpret_cast<thread_context*>(q)->main();
 }
 

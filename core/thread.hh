@@ -121,7 +121,7 @@ class thread_context {
     static thread_local preempted_thread_list _preempted_threads;
     static thread_local all_thread_list _all_threads;
 private:
-    static void s_main(unsigned int lo, unsigned int hi);
+    static void s_main(int lo, int hi); // all parameters MUST be 'int' for makecontext
     void setup();
     void main();
     static stack_holder make_stack();
