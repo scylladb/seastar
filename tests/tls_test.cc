@@ -31,6 +31,17 @@
 #include "core/gate.hh"
 #include "net/tls.hh"
 
+#if 0
+#include <gnutls/gnutls.h>
+
+static void enable_gnutls_logging() {
+    gnutls_global_set_log_level(99);
+        gnutls_global_set_log_function([](int lv, const char * msg) {
+           std::cerr << "GNUTLS (" << lv << ") " << msg << std::endl;
+        });
+}
+#endif
+
 using namespace seastar;
 
 static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> certs, ipv4_addr addr) {
@@ -204,8 +215,9 @@ SEASTAR_TEST_CASE(test_abort_accept_after_handshake) {
         auto in = s.input();
 
         out.write("apa").get();
-        out.flush().get();
+        auto f = out.flush();
         auto buf = in.read().get0();
+        f.get();
         BOOST_CHECK(sstring(buf.begin(), buf.end()) == "apa");
 
         out.close().get();
