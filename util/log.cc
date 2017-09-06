@@ -307,7 +307,6 @@ void apply_logging_settings(const logging_settings& s) {
     logger::set_stdout_enabled(s.stdout_enabled);
     logger::set_syslog_enabled(s.syslog_enabled);
 
-    print("style2: %s\n", s.stdout_timestamp_style);
     switch (s.stdout_timestamp_style) {
     case logger_timestamp_style::none:
         print_timestamp = print_no_timestamp;
@@ -392,9 +391,6 @@ logging_settings extract_settings(const boost::program_options::variables_map& v
 
     std::unordered_map<sstring, log_level> levels;
     parse_logger_levels(raw_levels, std::inserter(levels, levels.begin()));
-
-    print("style: %s\n", vars["logger-stdout-timestamps"].as<logger_timestamp_style>());
-
 
     return logging_settings{
         std::move(levels),
