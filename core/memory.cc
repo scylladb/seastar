@@ -1147,7 +1147,7 @@ small_pool::add_more_objects() {
         auto data = reinterpret_cast<char*>(cpu_mem.allocate_large(span_size));
         if (!data) {
             span_size = _span_sizes.fallback;
-            auto data = reinterpret_cast<char*>(cpu_mem.allocate_large(span_size));
+            data = reinterpret_cast<char*>(cpu_mem.allocate_large(span_size));
             if (!data) {
                 return;
             }
