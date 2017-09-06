@@ -89,7 +89,10 @@
 #include <osv/newpoll.hh>
 #endif
 
+#if defined(__x86_64__) || defined(__i386__)
 #include <xmmintrin.h>
+#endif
+
 #include "util/defer.hh"
 #include "core/metrics.hh"
 #include "execution_stage.hh"
@@ -2819,7 +2822,9 @@ int reactor::run() {
                 report_exception("Exception while running idle cpu handler", std::current_exception());
             }
             if (go_to_sleep) {
+#if defined(__x86_64__) || defined(__i386__)
                 _mm_pause();
+#endif
                 if (idle_end - idle_start > _max_poll_time) {
                     // Turn off the task quota timer to avoid spurious wakeups
                     struct itimerspec zero_itimerspec = {};
