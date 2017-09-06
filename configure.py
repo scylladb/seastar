@@ -264,6 +264,8 @@ tests = [
     'tests/lowres_clock_test',
     'tests/program_options_test',
     'tests/tuple_utils_test',
+    'tests/tls_echo_server',
+    'tests/tls_simple_client',
     ]
 
 apps = [
@@ -484,6 +486,8 @@ deps = {
     'tests/lowres_clock_test': ['tests/lowres_clock_test.cc'] + core,
     'tests/program_options_test': ['tests/program_options_test.cc'] + core,
     'tests/tuple_utils_test': ['tests/tuple_utils_test.cc'],
+    'tests/tls_echo_server': ['tests/tls_echo_server.cc'] + core + libnet,
+    'tests/tls_simple_client': ['tests/tls_simple_client.cc'] + core + libnet,
 }
 
 boost_tests = [
