@@ -2547,7 +2547,7 @@ class reactor::smp_pollfn final : public reactor::pollfn {
     reactor& _r;
     struct aligned_flag {
         std::atomic<bool> flag;
-        char pad[63];
+        char pad[cache_line_size-sizeof(flag)];
         bool try_lock() {
             return !flag.exchange(true, std::memory_order_relaxed);
         }
@@ -2629,7 +2629,7 @@ public:
 };
 
 
-alignas(64) reactor::smp_pollfn::aligned_flag reactor::smp_pollfn::_membarrier_lock;
+alignas(cache_line_size) reactor::smp_pollfn::aligned_flag reactor::smp_pollfn::_membarrier_lock;
 
 class reactor::epoll_pollfn final : public reactor::pollfn {
     reactor& _r;
@@ -3459,7 +3459,7 @@ void smp::allocate_reactor(unsigned id) {
     // we cannot just write "local_engin = new reactor" since reactor's constructor
     // uses local_engine
     void *buf;
-    int r = posix_memalign(&buf, 64, sizeof(reactor));
+    int r = posix_memalign(&buf, cache_line_size, sizeof(reactor));
     assert(r == 0);
     local_engine = reinterpret_cast<reactor*>(buf);
     new (buf) reactor(id);

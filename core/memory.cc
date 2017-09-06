@@ -50,6 +50,7 @@
 // Runs of pages are organized into spans.  Free spans are organized into lists,
 // by size.  When spans are broken up or coalesced, they may move into new lists.
 
+#include "cacheline.hh"
 #include "memory.hh"
 #include "reactor.hh"
 
@@ -140,7 +141,6 @@ static void on_allocation_failure(size_t size);
 
 static constexpr unsigned cpu_id_shift = 36; // FIXME: make dynamic
 static constexpr unsigned max_cpus = 256;
-static constexpr size_t cache_line_size = 64;
 
 using pageidx = uint32_t;
 
@@ -393,8 +393,8 @@ struct cpu_pages {
         page_list free_spans[nr_span_lists];  // contains spans with span_size >= 2^idx
     } fsu;
     small_pool_array small_pools;
-    alignas(cache_line_size) std::atomic<cross_cpu_free_item*> xcpu_freelist;
-    alignas(cache_line_size) std::vector<physical_address> virt_to_phys_map;
+    alignas(seastar::cache_line_size) std::atomic<cross_cpu_free_item*> xcpu_freelist;
+    alignas(seastar::cache_line_size) std::vector<physical_address> virt_to_phys_map;
     static std::atomic<unsigned> cpu_id_gen;
     static cpu_pages* all_cpus[max_cpus];
     union asu {

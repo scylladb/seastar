@@ -25,6 +25,7 @@
 #include "seastar.hh"
 #include "iostream.hh"
 #include "aligned_buffer.hh"
+#include "cacheline.hh"
 #include <memory>
 #include <type_traits>
 #include <libaio.h>
@@ -297,7 +298,7 @@ class smp_message_queue {
     };
     lf_queue _pending;
     lf_queue _completed;
-    struct alignas(64) {
+    struct alignas(seastar::cache_line_size) {
         size_t _sent = 0;
         size_t _compl = 0;
         size_t _last_snt_batch = 0;
@@ -309,7 +310,7 @@ class smp_message_queue {
     // between them, so hw prefecther will not accidentally prefetch
     // cache line used by aother cpu.
     metrics::metric_groups _metrics;
-    struct alignas(64) {
+    struct alignas(seastar::cache_line_size) {
         size_t _received = 0;
         size_t _last_rcv_batch = 0;
     };
@@ -744,8 +745,8 @@ private:
     steady_clock_type::time_point _start_time = steady_clock_type::now();
     std::chrono::nanoseconds _max_poll_time = calculate_poll_time();
     circular_buffer<output_stream<char>* > _flush_batching;
-    std::atomic<bool> _sleeping alignas(64);
-    pthread_t _thread_id alignas(64) = pthread_self();
+    std::atomic<bool> _sleeping alignas(seastar::cache_line_size);
+    pthread_t _thread_id alignas(seastar::cache_line_size) = pthread_self();
     bool _strict_o_direct = true;
     bool& _local_need_preempt{g_need_preempt}; // for access from the _task_quota_timer_thread
     std::thread _task_quota_timer_thread;
