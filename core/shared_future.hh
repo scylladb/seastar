@@ -148,6 +148,14 @@ private:
                 }
             }
         }
+
+        bool available() const noexcept {
+            return _future_state.available();
+        }
+
+        bool failed() const noexcept {
+            return _future_state.failed();
+        }
     };
     /// \endcond
     lw_shared_ptr<shared_state> _state;
@@ -175,6 +183,20 @@ public:
     /// This object must be in a valid state.
     future_type get_future(time_point timeout = time_point::max()) const {
         return _state->get_future(timeout);
+    }
+
+    /// \brief Returns true if the future is available (ready or failed)
+    ///
+    /// \note This object must be in a valid state.
+    bool available() const noexcept {
+        return _state->available();
+    }
+
+    /// \brief Returns true if the future is failed
+    ///
+    /// \note This object must be in a valid state.
+    bool failed() const noexcept {
+        return _state->failed();
     }
 
     /// \brief Equivalent to \ref get_future()
@@ -246,6 +268,16 @@ public:
     template<typename Exception>
     void set_exception(Exception&& e) noexcept {
         set_exception(make_exception_ptr(std::forward<Exception>(e)));
+    }
+
+    /// \brief Returns true if the underlying future is available (ready or failed)
+    bool available() const noexcept {
+        return _shared_future.available();
+    }
+
+    /// \brief Returns true if the underlying future is  failed
+    bool failed() const noexcept {
+        return _shared_future.failed();
     }
 };
 
