@@ -144,8 +144,8 @@ public:
     input_stream(input_stream&&) = default;
     input_stream& operator=(input_stream&&) = default;
     future<temporary_buffer<CharType>> read_exactly(size_t n);
-    template <typename Consumer>
-    future<> consume(Consumer& c);
+    template <typename Consumer> future<> consume(Consumer&& c);
+    template <typename Consumer> future<> consume(Consumer& c);
     bool eof() { return _eof; }
     /// Returns some data from the stream, or an empty buffer on end of
     /// stream.

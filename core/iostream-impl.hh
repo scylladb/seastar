@@ -194,8 +194,8 @@ input_stream<CharType>::read_exactly(size_t n) {
 template <typename CharType>
 template <typename Consumer>
 future<>
-input_stream<CharType>::consume(Consumer& consumer) {
-    return repeat([&consumer, this] {
+input_stream<CharType>::consume(Consumer&& consumer) {
+    return repeat([consumer = std::move(consumer), this] () mutable {
         if (_buf.empty() && !_eof) {
             return _fd.get().then([this] (tmp_buf buf) {
                 _buf = std::move(buf);
@@ -235,6 +235,13 @@ input_stream<CharType>::consume(Consumer& consumer) {
             });
         }
     });
+}
+
+template <typename CharType>
+template <typename Consumer>
+future<>
+input_stream<CharType>::consume(Consumer& consumer) {
+    return consume(std::ref(consumer));
 }
 
 template <typename CharType>
