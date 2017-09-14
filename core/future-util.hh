@@ -149,15 +149,14 @@ parallel_for_each(Range&& range, Func&& func) {
 /// \cond internal
 template<typename AsyncAction, typename StopCondition>
 inline
-void do_until_continued(StopCondition&& stop_cond, AsyncAction&& action, promise<> p) {
+void do_until_continued(StopCondition stop_cond, AsyncAction action, promise<> p) {
     while (!stop_cond()) {
         try {
             auto&& f = action();
             if (!f.available() || need_preempt()) {
-                f.then_wrapped([action = std::forward<AsyncAction>(action),
-                    stop_cond = std::forward<StopCondition>(stop_cond), p = std::move(p)](std::result_of_t<AsyncAction()> fut) mutable {
+                f.then_wrapped([action = std::move(action), stop_cond = std::move(stop_cond), p = std::move(p)] (std::result_of_t<AsyncAction()> fut) mutable {
                     if (!fut.failed()) {
-                        do_until_continued(stop_cond, std::forward<AsyncAction>(action), std::move(p));
+                        do_until_continued(std::move(stop_cond), std::move(action), std::move(p));
                     } else {
                         p.set_exception(fut.get_exception());
                     }
@@ -324,11 +323,10 @@ repeat_until_value(AsyncAction&& action) {
 template<typename AsyncAction, typename StopCondition>
 GCC6_CONCEPT( requires seastar::ApplyReturns<StopCondition, bool> && seastar::ApplyReturns<AsyncAction, future<>> )
 inline
-future<> do_until(StopCondition&& stop_cond, AsyncAction&& action) {
+future<> do_until(StopCondition stop_cond, AsyncAction action) {
     promise<> p;
     auto f = p.get_future();
-    do_until_continued(std::forward<StopCondition>(stop_cond),
-        std::forward<AsyncAction>(action), std::move(p));
+    do_until_continued(std::move(stop_cond), std::move(action), std::move(p));
     return f;
 }
 
