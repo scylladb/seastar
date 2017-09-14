@@ -146,38 +146,6 @@ parallel_for_each(Range&& range, Func&& func) {
 // the actual function invocation. It is represented by a function which
 // returns a future which resolves when the action is done.
 
-/// \cond internal
-template<typename AsyncAction, typename StopCondition>
-inline
-void do_until_continued(StopCondition stop_cond, AsyncAction action, promise<> p) {
-    while (!stop_cond()) {
-        try {
-            auto&& f = action();
-            if (!f.available() || need_preempt()) {
-                f.then_wrapped([action = std::move(action), stop_cond = std::move(stop_cond), p = std::move(p)] (std::result_of_t<AsyncAction()> fut) mutable {
-                    if (!fut.failed()) {
-                        do_until_continued(std::move(stop_cond), std::move(action), std::move(p));
-                    } else {
-                        p.set_exception(fut.get_exception());
-                    }
-                });
-                return;
-            }
-
-            if (f.failed()) {
-                f.forward_to(std::move(p));
-                return;
-            }
-        } catch (...) {
-            p.set_exception(std::current_exception());
-            return;
-        }
-    }
-
-    p.set_value();
-}
-/// \endcond
-
 struct stop_iteration_tag { };
 using stop_iteration = bool_class<stop_iteration_tag>;
 
@@ -324,9 +292,26 @@ template<typename AsyncAction, typename StopCondition>
 GCC6_CONCEPT( requires seastar::ApplyReturns<StopCondition, bool> && seastar::ApplyReturns<AsyncAction, future<>> )
 inline
 future<> do_until(StopCondition stop_cond, AsyncAction action) {
-    promise<> p;
-    auto f = p.get_future();
-    do_until_continued(std::move(stop_cond), std::move(action), std::move(p));
+    using futurator = futurize<void>;
+    do {
+        if (stop_cond()) {
+            return make_ready_future<>();
+        }
+        auto f = futurator::apply(action);
+        if (!f.available()) {
+            return f.then([stop_cond = std::move(stop_cond), action = std::move(action)] () mutable {
+                return do_until(std::move(stop_cond), std::move(action));
+            });
+        }
+        if (f.failed()) {
+            return f;
+        }
+    } while (!need_preempt());
+    promise<> pr;
+    auto f = pr.get_future();
+    schedule(make_task([pr = std::move(pr), stop_cond = std::move(stop_cond), action = std::move(action)] () mutable {
+        do_until(std::move(stop_cond), std::move(action)).forward_to(std::move(pr));
+    }));
     return f;
 }
 
