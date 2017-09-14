@@ -32,7 +32,7 @@ static constexpr size_t cache_line_size =
     64;
 #elif defined(__s390x__) || defined(__zarch__)
     256;
-#elif defined(__ppc64__)
+#elif defined(__PPC64__)
     128;
 #else
 #error "cache_line_size not defined for this architecture"
