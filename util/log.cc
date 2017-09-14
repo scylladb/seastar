@@ -80,12 +80,12 @@ struct timestamp_tag {};
 static void print_no_timestamp(std::ostream& os) {
 }
 
-static void print_boot_timestamp(std::ostream& os) {
+static void print_space_and_boot_timestamp(std::ostream& os) {
     auto n = std::chrono::steady_clock::now().time_since_epoch() / 1us;
-    fmt::print(os, "{:10d}.{:06d} ", n / 1000000, n % 1000000);
+    fmt::print(os, " {:10d}.{:06d}", n / 1000000, n % 1000000);
 }
 
-static void print_real_timestamp(std::ostream& os) {
+static void print_space_and_real_timestamp(std::ostream& os) {
     struct a_second {
         time_t t;
         std::string s;
@@ -99,12 +99,12 @@ static void print_real_timestamp(std::ostream& os) {
         this_second.t = t;
     }
     auto ms = (n - clock::from_time_t(t)) / 1ms;
-    fmt::print(os, "{},{:03d} ", this_second.s, ms);
+    fmt::print(os, " {},{:03d}", this_second.s, ms);
 }
 
 static void (*print_timestamp)(std::ostream&) = print_no_timestamp;
 
-static inline timestamp_tag current_timestamp() {
+static inline timestamp_tag space_and_current_timestamp() {
     return timestamp_tag{};
 }
 
@@ -199,7 +199,7 @@ logger::really_do_log(log_level level, const char* fmt, stringer** s, size_t n) 
       out << "\n";
     };
     if (is_stdout_enabled) {
-        out << level_map[int(level)] << " " << current_timestamp() << " ";
+        out << level_map[int(level)] << space_and_current_timestamp();
         print_once(out);
         std::cout << out.str();
     }
@@ -312,10 +312,10 @@ void apply_logging_settings(const logging_settings& s) {
         print_timestamp = print_no_timestamp;
         break;
     case logger_timestamp_style::boot:
-        print_timestamp = print_boot_timestamp;
+        print_timestamp = print_space_and_boot_timestamp;
         break;
     case logger_timestamp_style::real:
-        print_timestamp = print_real_timestamp;
+        print_timestamp = print_space_and_real_timestamp;
         break;
     default:
         break;
