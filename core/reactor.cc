@@ -641,6 +641,7 @@ void reactor::configure(boost::program_options::variables_map vm) {
             || (vm["poll-aio"].defaulted() && vm.count("overprovisioned"))) {
         _aio_eventfd = pollable_fd(file_desc::eventfd(0, 0));
     }
+    set_bypass_fsync(vm["unsafe-bypass-fsync"].as<bool>());
 }
 
 future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd,
@@ -1890,6 +1891,9 @@ posix_file_handle_impl::to_file() && {
 future<>
 posix_file_impl::flush(void) {
     ++engine()._fsyncs;
+    if (engine()._bypass_fsync) {
+        return make_ready_future<>();
+    }
     return engine()._thread_pool.submit<syscall_result<int>>([this] {
         return wrap_syscall<int>(::fdatasync(_fd));
     }).then([] (syscall_result<int> sr) {
@@ -3351,6 +3355,7 @@ reactor::get_options_description(std::chrono::duration<double> default_task_quot
         ("blocked-reactor-notify-ms", bpo::value<unsigned>()->default_value(2000), "threshold in miliseconds over which the reactor is considered blocked if no progress is made")
         ("blocked-reactor-reports-per-minute", bpo::value<unsigned>()->default_value(5), "Maximum number of backtraces reported by stall detector per minute")
         ("relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
+        ("unsafe-bypass-fsync", bpo::value<bool>()->default_value(false), "Bypass fsync(), may result in data loss. Use for testing on consumer drives")
         ("overprovisioned", "run in an overprovisioned environment (such as docker or a laptop); equivalent to --idle-poll-time-us 0 --thread-affinity 0 --poll-aio 0")
         ("abort-on-seastar-bad-alloc", "abort when seastar allocator cannot allocate memory")
 #ifdef SEASTAR_HEAPPROF
