@@ -349,6 +349,7 @@ core = [
     'util/conversions.cc',
     'util/program-options.cc',
     'util/log.cc',
+    'util/backtrace.cc',
     'net/packet.cc',
     'net/posix-stack.cc',
     'net/net.cc',

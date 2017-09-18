@@ -274,9 +274,15 @@ public:
     }
 
     void append_backtrace() noexcept {
-        backtrace([this] (uintptr_t addr) {
-            append("  0x");
-            append_hex(addr - 1);
+        backtrace([this] (frame f) {
+            append("  ");
+            if (!f.so->name.empty()) {
+                append(f.so->name.c_str(), f.so->name.size());
+                append("+");
+            }
+
+            append("0x");
+            append_hex(f.addr);
             append("\n");
         });
     }
@@ -3952,36 +3958,6 @@ void engine_exit(std::exception_ptr eptr) {
     }
     report_exception("Exiting on unhandled exception", eptr);
     engine().exit(1);
-}
-
-saved_backtrace current_backtrace() noexcept {
-    saved_backtrace::vector_type v;
-    backtrace([&] (uintptr_t addr) {
-        if (v.size() < v.capacity()) {
-            v.push_back(addr);
-        }
-    });
-    return saved_backtrace(std::move(v));
-}
-
-size_t saved_backtrace::hash() const {
-    size_t h = 0;
-    for (auto addr : _frames) {
-        h = ((h << 5) - h) ^ addr;
-    }
-    return h;
-}
-
-std::ostream& operator<<(std::ostream& out, const saved_backtrace& b) {
-    bool first = true;
-    for (auto addr : b._frames) {
-        if (!first) {
-            out << ", ";
-        }
-        out << sprint("0x%x", addr - 1);
-        first = false;
-    }
-    return out;
 }
 
 void report_failed_future(std::exception_ptr eptr) {
