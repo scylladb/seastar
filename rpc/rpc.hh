@@ -119,7 +119,6 @@ class protocol {
         input_stream<char> _read_buf;
         output_stream<char> _write_buf;
         bool _error = false;
-        bool _write_side_closed = false;
         protocol& _proto;
         bool _connected = false;
         promise<> _stopped;
@@ -217,21 +216,18 @@ class protocol {
                 });
             }).handle_exception([this] (std::exception_ptr eptr) {
                 _error = true;
-            }).finally([this] {
-                _write_side_closed = true;
-                return _write_buf.close();
             });
         }
 
         future<> stop_send_loop() {
             _error = true;
-            // We must not call shutdown_output() concurrently with or after _write_buf.close()
-            if (_connected && !_write_side_closed) {
+            if (_connected) {
                 _outgoing_queue_cond.broken();
                 _fd.shutdown_output();
             }
             return _send_loop_stopped.finally([this] {
                 _outgoing_queue.clear();
+                return _connected ? _write_buf.close() : make_ready_future();
             });
         }
 
