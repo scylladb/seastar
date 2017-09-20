@@ -276,6 +276,9 @@ logger_registry::get_all_logger_names() {
 void
 logger_registry::register_logger(logger* l) {
     std::lock_guard<std::mutex> g(_mutex);
+    if (_loggers.find(l->name()) != _loggers.end()) {
+        throw std::runtime_error(sprint("Logger '%s' registered twice", l->name()));
+    }
     _loggers[l->name()] = l;
 }
 
