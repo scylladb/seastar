@@ -1,0 +1,124 @@
+#!/usr/bin/env python2
+#
+# This file is open source software, licensed to you under the terms
+# of the Apache License, Version 2.0 (the "License").  See the NOTICE file
+# distributed with this work for additional information regarding copyright
+# ownership.  You may not use this file except in compliance with the License.
+#
+# You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+# Copyright (C) 2017 ScyllaDB
+
+import argparse
+import re
+import sys
+import subprocess
+
+
+class line_processor(object):
+    object_address_re = re.compile('^\W*(((/[^/]+)+)\+)?(0x[0-9a-f]+)$')
+
+    def __init__(self, executable):
+        self._executable = executable
+        self._old_path = ''
+        self._new_path = ''
+        self._addr_buf = []
+
+    def __del__(self):
+        self._flush_addr_buf()
+
+    def _flush_addr_buf(self):
+        if len(self._addr_buf) > 0:
+            subprocess.check_call(["addr2line", "-Cfpi", "-e", self._old_path] + self._addr_buf)
+
+    def _process_addr(self, addr):
+        if not self._old_path or self._new_path == self._old_path:
+            self._addr_buf.append(addr)
+        else:
+            self._flush_addr_buf()
+            self._addr_buf = [addr]
+
+    def __call__(self, line):
+        match = re.match(self.object_address_re, line)
+
+        if match:
+            _, object_path, _, addr = match.groups()
+
+            if object_path:
+                self._new_path = object_path
+            else:
+                self._new_path = self._executable
+
+            self._process_addr(addr)
+        else:
+            self._new_path = ""
+
+            self._flush_addr_buf()
+            print(line)
+
+        self._old_path = self._new_path
+
+
+description='Massage and pass addresses to the real addr2line for symbol lookup.'
+epilog='''
+There are three operational modes:
+  1) If -f is specified input will be read from FILE
+  2) If -f is omitted and there are ADDRESS args they will be read as input
+  3) If -f is omitted and there are no ADDRESS args input will be read from stdin
+'''
+
+cmdline_parser = argparse.ArgumentParser(
+    description=description,
+    epilog=epilog,
+    formatter_class=argparse.RawDescriptionHelpFormatter,
+)
+
+cmdline_parser.add_argument(
+        '-e',
+        '--executable',
+        type=str,
+        required=True,
+        metavar='EXECUTABLE',
+        dest='executable',
+        help='The executable where the addresses originate from')
+
+cmdline_parser.add_argument(
+        '-f',
+        '--file',
+        type=str,
+        required=False,
+        metavar='FILE',
+        dest='file',
+        help='The file containing the addresses (one per line)')
+
+cmdline_parser.add_argument(
+        'addresses',
+        type=str,
+        metavar='ADDRESS',
+        nargs='*',
+        help='Addresses to parse')
+
+args = cmdline_parser.parse_args()
+
+if args.addresses and args.file:
+    print("Cannot use both -f and ADDRESS")
+    cmdline_parser.print_help()
+
+
+if args.file:
+    lines = open(args.file, 'r')
+elif args.addresses:
+    lines = args.addresses
+else:
+    lines = sys.stdin
+
+map(line_processor(args.executable), lines)
