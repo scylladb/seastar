@@ -1162,12 +1162,14 @@ socket tls::socket(shared_ptr<certificate_credentials> cred, sstring name) {
 
 future<connected_socket> tls::wrap_client(shared_ptr<certificate_credentials> cred, connected_socket&& s, sstring name) {
     session::session_ref sess(make_lw_shared<session>(session::type::CLIENT, std::move(cred), std::move(s), std::move(name)));
-    return make_ready_future<connected_socket>(std::make_unique<tls_connected_socket_impl>(std::move(sess)));
+    connected_socket sock(std::make_unique<tls_connected_socket_impl>(std::move(sess)));
+    return make_ready_future<connected_socket>(std::move(sock));
 }
 
 future<connected_socket> tls::wrap_server(shared_ptr<server_credentials> cred, connected_socket&& s) {
     session::session_ref sess(make_lw_shared<session>(session::type::SERVER, std::move(cred), std::move(s)));
-    return make_ready_future<connected_socket>(std::make_unique<tls_connected_socket_impl>(std::move(sess)));
+    connected_socket sock(std::make_unique<tls_connected_socket_impl>(std::move(sess)));
+    return make_ready_future<connected_socket>(std::move(sock));
 }
 
 server_socket tls::listen(shared_ptr<server_credentials> creds, socket_address sa, listen_options opts) {
