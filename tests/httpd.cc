@@ -368,17 +368,17 @@ public:
 };
 
 SEASTAR_TEST_CASE(test_message_with_error_non_empty_body) {
-    std::vector<std::tuple<bool, size_t>> tests = {{true, 100}, {false, 10000}};
+    std::vector<std::tuple<bool, size_t>> tests = {std::make_tuple(true, 100), std::make_tuple(false, 10000)};
     return test_client_server::run(tests);
 }
 
 SEASTAR_TEST_CASE(test_simple_chunked) {
-    std::vector<std::tuple<bool, size_t>> tests = {{true, 100000}, {true, 100}};
+    std::vector<std::tuple<bool, size_t>> tests = {std::make_tuple(true, 100000), std::make_tuple(true, 100)};
     return test_client_server::run(tests);
 }
 
 SEASTAR_TEST_CASE(test_http_client_server_full) {
-    std::vector<std::tuple<bool, size_t>> tests = {{true, 100}, {true, 10000}, {true, 100}, {true, 0}, {true, 5000}, {true, 10000}, {true, 9000}, {true, 10000}};
+    std::vector<std::tuple<bool, size_t>> tests = {std::make_tuple(true, 100), std::make_tuple(true, 10000), std::make_tuple(true, 100), std::make_tuple(true, 0), std::make_tuple(true, 5000), std::make_tuple(true, 10000), std::make_tuple(true, 9000), std::make_tuple(true, 10000)};
     return test_client_server::run(tests);
 }
 
