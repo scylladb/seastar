@@ -214,7 +214,7 @@ subscription<packet>
 device::receive(std::function<future<> (packet)> next_packet) {
     auto sub = _queues[engine().cpu_id()]->_rx_stream.listen(std::move(next_packet));
     _queues[engine().cpu_id()]->rx_start();
-    return std::move(sub);
+    return sub;
 }
 
 void device::set_local_queue(std::unique_ptr<qp> dev) {

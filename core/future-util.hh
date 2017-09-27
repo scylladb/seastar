@@ -108,7 +108,7 @@ parallel_for_each(Iterator begin, Iterator end, Func&& func) {
                 });
             } catch (...) {
                 if (!state.ex) {
-                    state.ex = std::move(std::current_exception());
+                    state.ex = std::current_exception();
                 }
                 state.complete();
             }

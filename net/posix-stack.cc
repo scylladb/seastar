@@ -414,7 +414,7 @@ private:
         void prepare(ipv4_addr dst, packet p) {
             _dst = make_ipv4_address(dst);
             _p = std::move(p);
-            _iovecs = std::move(to_iovec(_p));
+            _iovecs = to_iovec(_p);
             _hdr.msg_iov = _iovecs.data();
             _hdr.msg_iovlen = _iovecs.size();
         }

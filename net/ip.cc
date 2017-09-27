@@ -152,7 +152,7 @@ ipv4::handle_received_packet(packet p, ethernet_address from) {
         bool handled = false;
         auto r = _packet_filter->handle(p, &h, from, handled);
         if (handled) {
-            return std::move(r);
+            return r;
         }
     }
 

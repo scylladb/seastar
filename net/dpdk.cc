@@ -2249,7 +2249,7 @@ std::unique_ptr<qp> dpdk_device::init_local_queue(boost::program_options::variab
             init_port_fini();
         }
     });
-    return std::move(qp);
+    return qp;
 }
 } // namespace dpdk
 

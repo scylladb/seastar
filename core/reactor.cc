@@ -939,7 +939,7 @@ io_priority_class io_queue::register_one_priority_class(sstring name, uint32_t s
             io_priority_class p;
             _registered_names[i] = name;
             p.val = i;
-            return std::move(p);
+            return p;
         };
     }
     throw std::runtime_error("No more room for new I/O priority classes");

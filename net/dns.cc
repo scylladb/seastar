@@ -638,7 +638,7 @@ private:
                     }
 
                     try {
-                        udp.in = std::move(f.get0());
+                        udp.in = f.get0();
                         continue; // loop will take care of data
                     } catch (std::system_error& e) {
                         errno = e.code().value();
