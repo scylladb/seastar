@@ -42,3 +42,7 @@ Recommended hardware configuration for SeaStar
        Both memaslap (memcached) and WRK (httpd) cannot over load their matching
        server counter parts. We recommend running the client on different machine
        than the servers and use several of them.
+
+Build status
+------------
+On Travis CI: [![Travis Build Status](https://travis-ci.org/scylladb/seastar.svg?branch=master)](https://travis-ci.org/scylladb/seastar)
