@@ -433,6 +433,7 @@ void impl::run() {
                     break;
                 }
                 ++i;
+                ++md_iterator;
             }
             if (out_of_space) {
                 break;
