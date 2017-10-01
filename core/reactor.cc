@@ -2702,6 +2702,13 @@ int reactor::run() {
     poller io_poller(std::make_unique<io_pollfn>(*this));
 #endif
 
+    ::sched_param sp;
+    sp.sched_priority = 1;
+    auto sched_ok = pthread_setschedparam(_task_quota_timer_thread.native_handle(), SCHED_FIFO, &sp);
+    if (sched_ok != 0 && _id == 0) {
+        seastar_logger.warn("Unable to set SCHED_FIFO scheduling policy for timer thread; latency impact possible. Try adding CAP_SYS_NICE");
+    }
+
     poller sig_poller(std::make_unique<signal_pollfn>(*this));
     poller aio_poller(std::make_unique<aio_batch_submit_pollfn>(*this));
     poller batch_flush_poller(std::make_unique<batch_flush_pollfn>(*this));
