@@ -836,7 +836,7 @@ public:
     }
 
     /// \cond internal
-    void wait() {
+    void wait() noexcept {
         auto thread = thread_impl::get();
         assert(thread);
         schedule([this, thread] (future_state<T...>&& new_state) {
