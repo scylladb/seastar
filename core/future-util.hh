@@ -44,8 +44,50 @@ extern __thread size_t task_quota;
 /// \endcond
 
 
+/// \cond internal
+namespace internal {
+
+template <typename Func>
+void
+schedule_in_group(scheduling_group sg, Func func) {
+    schedule(make_task(sg, std::move(func)));
+}
+
+
+}
+/// \endcond
+
 /// \addtogroup future-util
 /// @{
+
+/// \brief run a callable (with some arbitrary arguments) in a scheduling group
+///
+/// If the conditions are suitable (see scheduling_group::may_run_immediately()),
+/// then the function is run immediately. Otherwise, the function is queued to run
+/// when its scheduling group next runs.
+///
+/// \param sg  scheduling group that controls execution time for the function
+/// \param func function to run; must be movable or copyable
+/// \param args arguments to the function; may be copied or moved, so use \c std::ref()
+///             to force passing references
+template <typename Func, typename... Args>
+inline
+auto
+with_scheduling_group(scheduling_group sg, Func func, Args&&... args) {
+    using return_type = decltype(func(std::forward<Args>(args)...));
+    using futurator = futurize<return_type>;
+    if (sg.active()) {
+        return futurator::apply(func, std::forward<Args>(args)...);
+    } else {
+        typename futurator::promise_type pr;
+        auto f = pr.get_future();
+        auto cur = current_scheduling_group();
+        internal::schedule_in_group(sg, [cur, pr = std::move(pr), func = std::move(func), args = std::make_tuple(std::forward<Args>(args)...)] () mutable {
+            return futurator::apply(func, std::move(args)).forward_to(std::move(pr));
+        });
+        return f;
+    }
+}
 
 /// \cond internal
 

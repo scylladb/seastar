@@ -150,7 +150,8 @@ inline void jmp_buf_link::final_switch_out()
 
 thread_context::thread_context(thread_attributes attr, std::function<void ()> func)
         : _attr(std::move(attr))
-        , _func(std::move(func)) {
+        , _func(std::move(func))
+        , _scheduling_group(_attr.sched_group.value_or(current_scheduling_group())) {
     setup();
     _all_threads.push_front(*this);
 }
@@ -243,7 +244,10 @@ thread_local thread_context::all_thread_list thread_context::_all_threads;
 void
 thread_context::yield() {
     if (!_attr.scheduling_group) {
-        later().get();
+        schedule(make_task(_scheduling_group, [this] {
+            switch_in();
+        }));
+        switch_out();
     } else {
         auto when = _attr.scheduling_group->next_scheduling_point();
         if (when) {
@@ -327,6 +331,11 @@ void init() {
     g_unthreaded_context.link = nullptr;
     g_unthreaded_context.thread = nullptr;
     g_current_context = &g_unthreaded_context;
+}
+
+scheduling_group
+sched_group(const thread_context* thread) {
+    return thread->_scheduling_group;
 }
 
 }

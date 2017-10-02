@@ -52,6 +52,9 @@
 #include <boost/algorithm/string/split.hpp>
 #include <boost/iterator/counting_iterator.hpp>
 #include <boost/range/numeric.hpp>
+#include <boost/range/algorithm/sort.hpp>
+#include <boost/range/algorithm/remove_if.hpp>
+#include <boost/algorithm/clamp.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/version.hpp>
 #include <atomic>
@@ -105,11 +108,24 @@ using namespace std::chrono_literals;
 using namespace net;
 
 seastar::logger seastar_logger("seastar");
+seastar::logger sched_logger("scheduler");
 
 std::atomic<lowres_clock_impl::steady_rep> lowres_clock_impl::counters::_steady_now;
 std::atomic<lowres_clock_impl::system_rep> lowres_clock_impl::counters::_system_now;
 std::atomic<manual_clock::rep> manual_clock::_now;
 constexpr std::chrono::milliseconds lowres_clock_impl::_granularity;
+
+static bool sched_debug() {
+    return false;
+}
+
+template <typename... Args>
+void
+sched_print(const char* fmt, Args&&... args) {
+    if (sched_debug()) {
+        sched_logger.trace(fmt, std::forward<Args>(args)...);
+    }
+}
 
 timespec to_timespec(steady_clock_type::time_point t) {
     using ns = std::chrono::nanoseconds;
@@ -339,6 +355,62 @@ static decltype(auto) install_signal_handler_stack() {
     });
 }
 
+reactor::task_queue::task_queue(unsigned id, sstring name, float shares)
+        : _shares(std::max(shares, 1.0f))
+        , _reciprocal_shares_times_2_power_32((uint64_t(1) << 32) / _shares)
+        , _id(id)
+        , _name(name) {
+    namespace sm = seastar::metrics;
+    static auto group = sm::label("group");
+    auto group_label = group(_name);
+    _metrics.add_group("scheduler", {
+        sm::make_counter("runtime_ms", [this] {
+            return std::chrono::duration_cast<std::chrono::milliseconds>(_runtime).count();
+        }, sm::description("Accumulated runtime of this task queue; an increment rate of 1000ms per second indicates full utilization"),
+            {group_label}),
+        sm::make_counter("tasks_processed", _tasks_processed,
+                sm::description("Count of tasks executing on this queue; indicates together with runtime_ms indicates length of tasks"),
+                {group_label}),
+        sm::make_gauge("queue_length", [this] { return _q.size(); },
+                sm::description("Size of backlog on this queue, in tasks; indicates whether the queue is busy and/or contended"),
+                {group_label}),
+        sm::make_gauge("shares", [this] { return _shares; },
+                sm::description("Shares allocated to this queue"),
+                {group_label}),
+    });
+}
+
+inline
+int64_t
+reactor::task_queue::to_vruntime(sched_clock::duration runtime) const {
+    auto scaled = (runtime.count() * _reciprocal_shares_times_2_power_32) >> 32;
+    // Prevent overflow from returning ridiculous values
+    return std::max<int64_t>(scaled, 0);
+}
+
+void
+reactor::task_queue::set_shares(float shares) {
+    _shares = std::max(shares, 1.0f);
+    _reciprocal_shares_times_2_power_32 = (uint64_t(1) << 32) / _shares;
+}
+
+void
+reactor::account_runtime(task_queue& tq, sched_clock::duration runtime) {
+    tq._vruntime += tq.to_vruntime(runtime);
+    tq._runtime += runtime;
+}
+
+void
+reactor::account_idle(sched_clock::duration runtime) {
+    // anything to do here?
+}
+
+struct reactor::task_queue::indirect_compare {
+    bool operator()(const task_queue* tq1, const task_queue* tq2) const {
+        return tq1->_vruntime < tq2->_vruntime;
+    }
+};
+
 reactor::reactor(unsigned id)
     : _backend()
     , _id(id)
@@ -354,7 +426,9 @@ reactor::reactor(unsigned id)
     , _reuseport(posix_reuseport_detect())
     , _task_quota_timer_thread(&reactor::task_quota_timer_thread_fn, this)
     , _thread_pool(seastar::format("syscall-{}", id)) {
-
+    _task_queues.push_back(std::make_unique<task_queue>(0, "main", 1000));
+    _task_queues.push_back(std::make_unique<task_queue>(1, "atexit", 1000));
+    _at_destroy_tasks = _task_queues.back().get();
     seastar::thread_impl::init();
     auto r = ::io_setup(max_aio, &_io_context);
     assert(r >= 0);
@@ -378,7 +452,7 @@ reactor::reactor(unsigned id)
     assert(r == 0);
 #endif
     memory::set_reclaim_hook([this] (std::function<void ()> reclaim_fn) {
-        add_high_priority_task(make_task([fn = std::move(reclaim_fn)] {
+        add_high_priority_task(make_task(default_scheduling_group(), [fn = std::move(reclaim_fn)] {
             fn();
         }));
     });
@@ -564,7 +638,7 @@ void reactor::timer_thread_func() {
                 if (tmr.expired()) {
                     _timer_due = 0;
                     _engine_thread->unsafe_stop();
-                    _pending_tasks.push_front(make_task([this] {
+                    _pending_tasks.push_front(make_task(default_scheduling_group(), [this] {
                         complete_timers(_timers, _expired_timers, [this] {
                             if (!_timers.empty()) {
                                 enable_timer(_timers.get_next_timeout());
@@ -626,10 +700,11 @@ void reactor::configure(boost::program_options::variables_map vm) {
     });
 
     _handle_sigint = !vm.count("no-handle-interrupt");
-    _task_quota = vm["task-quota-ms"].as<double>() * 1ms;
+    auto task_quota = vm["task-quota-ms"].as<double>() * 1ms;
+    _task_quota = std::chrono::duration_cast<sched_clock::duration>(task_quota);
 
     auto blocked_time = vm["blocked-reactor-notify-ms"].as<unsigned>() * 1ms;
-    _tasks_processed_report_threshold = unsigned(blocked_time / _task_quota);
+    _tasks_processed_report_threshold = unsigned(blocked_time / task_quota);
     _stall_detector_reports_per_minute = vm["blocked-reactor-reports-per-minute"].as<unsigned>();
 
     _max_task_backlog = vm["max-task-backlog"].as<unsigned>();
@@ -2244,14 +2319,32 @@ void reactor::exit(int ret) {
     smp::submit_to(0, [this, ret] { _return = ret; stop(); });
 }
 
+uint64_t
+reactor::pending_task_count() const {
+    uint64_t ret = 0;
+    for (auto&& tq : _task_queues) {
+        ret += tq->_q.size();
+    }
+    return ret;
+}
+
+uint64_t
+reactor::tasks_processed() const {
+    uint64_t ret = 0;
+    for (auto&& tq : _task_queues) {
+        ret += tq->_tasks_processed;
+    }
+    return ret;
+}
+
 void reactor::register_metrics() {
 
     namespace sm = seastar::metrics;
 
     _metric_groups.add_group("reactor", {
-            sm::make_gauge("tasks_pending", sm::description("Number of pending tasks in the queue"), std::bind(&decltype(_pending_tasks)::size, &_pending_tasks)),
+            sm::make_gauge("tasks_pending", std::bind(&reactor::pending_task_count, this), sm::description("Number of pending tasks in the queue")),
             // total_operations value:DERIVE:0:U
-            sm::make_derive("tasks_processed", [this] { return _tasks_processed.load(std::memory_order_relaxed); }, sm::description("Total tasks processed")),
+            sm::make_derive("tasks_processed", std::bind(&reactor::tasks_processed, this), sm::description("Total tasks processed")),
             sm::make_derive("polls", [this] { return _polls.load(std::memory_order_relaxed); }, sm::description("Number of times pollers were executed")),
             sm::make_derive("timers_pending", std::bind(&decltype(_timers)::size, &_timers), sm::description("Number of tasks in the timer-pending queue")),
             sm::make_gauge("utilization", [this] { return (1-_load)  * 100; }, sm::description("CPU utilization")),
@@ -2325,9 +2418,10 @@ void reactor::register_metrics() {
     });
 }
 
-void reactor::run_tasks(circular_buffer<std::unique_ptr<task>>& tasks) {
-    STAP_PROBE(seastar, reactor_run_tasks_start);
-    g_need_preempt = false;
+void reactor::run_tasks(task_queue& tq) {
+    // Make sure new tasks will inherit our scheduling group
+    *internal::current_scheduling_group_ptr() = scheduling_group(tq._id);
+    auto& tasks = tq._q;
     while (!tasks.empty()) {
         auto tsk = std::move(tasks.front());
         tasks.pop_front();
@@ -2335,13 +2429,12 @@ void reactor::run_tasks(circular_buffer<std::unique_ptr<task>>& tasks) {
         tsk->run();
         tsk.reset();
         STAP_PROBE(seastar, reactor_run_tasks_single_end);
-        increment_nonatomically(_tasks_processed);
+        ++tq._tasks_processed;
         // check at end of loop, to allow at least one task to run
         if (need_preempt() && tasks.size() <= _max_task_backlog) {
             break;
         }
     }
-    STAP_PROBE(seastar, reactor_run_tasks_end);
 }
 
 void reactor::force_poll() {
@@ -2392,7 +2485,7 @@ void
 manual_clock::advance(manual_clock::duration d) {
     _now.fetch_add(d.count());
     if (local_engine) {
-        schedule_urgent(make_task(&manual_clock::expire_timers));
+        schedule_urgent(make_task(default_scheduling_group(), &manual_clock::expire_timers));
         smp::invoke_on_all(&manual_clock::expire_timers);
     }
 }
@@ -2693,6 +2786,95 @@ void reactor::stop_aio_eventfd_loop() {
     ::write(_aio_eventfd->get_fd(), &one, 8);
 }
 
+inline
+bool
+reactor::have_more_tasks() const {
+    return _active_task_queues.size() + _activating_task_queues.size();
+}
+
+void reactor::insert_active_task_queue(task_queue* tq) {
+    tq->_active = true;
+    auto& atq = _active_task_queues;
+    auto less = task_queue::indirect_compare();
+    if (atq.empty() || less(atq.back(), tq)) {
+        // Common case: idle->working
+        // Common case: CPU intensive task queue going to the back
+        atq.push_back(tq);
+    } else {
+        // Common case: newly activated queue preempting everything else
+        atq.push_front(tq);
+        // Less common case: newly activated queue behind something already active
+        size_t i = 0;
+        while (i + 1 != atq.size() && !less(atq[i], atq[i+1])) {
+            std::swap(atq[i], atq[i+1]);
+            ++i;
+        }
+    }
+}
+
+void
+reactor::insert_activating_task_queues() {
+    // Quadratic, but since we expect the common cases in insert_active_task_queue() to dominate, faster
+    for (auto&& tq : _activating_task_queues) {
+        insert_active_task_queue(tq);
+    }
+    _activating_task_queues.clear();
+}
+
+void
+reactor::run_some_tasks(sched_clock::time_point& t_run_completed) {
+    if (!have_more_tasks()) {
+        return;
+    }
+    sched_print("run_some_tasks: start");
+    g_need_preempt = false;
+    STAP_PROBE(seastar, reactor_run_tasks_start);
+    do {
+        auto t_run_started = t_run_completed;
+        insert_activating_task_queues();
+        auto tq = _active_task_queues.front();
+        _active_task_queues.pop_front();
+        sched_print("running tq {} {}", (void*)tq, tq->_name);
+        tq->_current = true;
+        run_tasks(*tq);
+        tq->_current = false;
+        t_run_completed = std::chrono::steady_clock::now();
+        auto delta = t_run_completed - t_run_started;
+        account_runtime(*tq, delta);
+        _last_vruntime = std::max(tq->_vruntime, _last_vruntime);
+        sched_print("run complete ({} {}); time consumed {} usec; final vruntime {} empty {}",
+                (void*)tq, tq->_name, delta / 1us, tq->_vruntime, tq->_q.empty());
+        if (!tq->_q.empty()) {
+            insert_active_task_queue(tq);
+        } else {
+            tq->_active = false;
+        }
+    } while (have_more_tasks() && !need_preempt());
+    STAP_PROBE(seastar, reactor_run_tasks_end);
+    *internal::current_scheduling_group_ptr() = default_scheduling_group(); // Prevent inheritance from last group run
+    sched_print("run_some_tasks: end");
+}
+
+void
+reactor::activate(task_queue& tq) {
+    if (tq._active) {
+        return;
+    }
+    sched_print("activating {} {}", (void*)&tq, tq._name);
+    // If activate() was called, the task queue is likely network-bound or I/O bound, not CPU-bound. As
+    // such its vruntime will be low, and it will have a large advantage over other task queues. Limit
+    // the advantage so it doesn't dominate scheduling for a long time, in case it _does_ become CPU
+    // bound later.
+    //
+    // FIXME: different scheduling groups have different sensitivity to jitter, take advantage
+    auto advantage = tq.to_vruntime(_task_quota);
+    if (_last_vruntime - advantage > tq._vruntime) {
+        sched_print("tq {} {} losing vruntime {} due to sleep", (void*)&tq, tq._name, _last_vruntime - advantage - tq._vruntime);
+    }
+    tq._vruntime = std::max(_last_vruntime - advantage, tq._vruntime);
+    _activating_task_queues.push_back(&tq);
+}
+
 int reactor::run() {
     auto signal_stack = install_signal_handler_stack();
 
@@ -2761,10 +2943,10 @@ int reactor::run() {
     using namespace std::chrono_literals;
     timer<lowres_clock> load_timer;
     auto last_idle = _total_idle;
-    auto idle_start = steady_clock_type::now(), idle_end = idle_start;
+    auto idle_start = sched_clock::now(), idle_end = idle_start;
     load_timer.set_callback([this, &last_idle, &idle_start, &idle_end] () mutable {
         _total_idle += idle_end - idle_start;
-        auto load = double((_total_idle - last_idle).count()) / double(std::chrono::duration_cast<steady_clock_type::duration>(1s).count());
+        auto load = double((_total_idle - last_idle).count()) / double(std::chrono::duration_cast<sched_clock::duration>(1s).count());
         last_idle = _total_idle;
         load = std::min(load, 1.0);
         idle_start = idle_end;
@@ -2791,21 +2973,22 @@ int reactor::run() {
     bool idle = false;
 
     std::function<bool()> check_for_work = [this] () {
-        return poll_once() || !_pending_tasks.empty() || seastar::thread::try_run_one_yielded_thread();
+        return poll_once() || have_more_tasks() || seastar::thread::try_run_one_yielded_thread();
     };
     std::function<bool()> pure_check_for_work = [this] () {
-        return pure_poll_once() || !_pending_tasks.empty() || seastar::thread::try_run_one_yielded_thread();
+        return pure_poll_once() || have_more_tasks() || seastar::thread::try_run_one_yielded_thread();
     };
+    auto t_run_completed = idle_end;
     while (true) {
-        run_tasks(_pending_tasks);
+        run_some_tasks(t_run_completed);
         if (_stopped) {
             load_timer.cancel();
             // Final tasks may include sending the last response to cpu 0, so run them
-            while (!_pending_tasks.empty()) {
-                run_tasks(_pending_tasks);
+            while (have_more_tasks()) {
+                run_some_tasks(t_run_completed);
             }
-            while (!_at_destroy_tasks.empty()) {
-                run_tasks(_at_destroy_tasks);
+            while (!_at_destroy_tasks->_q.empty()) {
+                run_tasks(*_at_destroy_tasks);
             }
             smp::arrive_at_event_loop_end();
             if (_id == 0) {
@@ -2817,13 +3000,15 @@ int reactor::run() {
         increment_nonatomically(_polls);
 
         if (check_for_work()) {
+            idle_end = t_run_completed;
             if (idle) {
                 _total_idle += idle_end - idle_start;
+                account_idle(idle_end - idle_start);
                 idle_start = idle_end;
                 idle = false;
             }
         } else {
-            idle_end = steady_clock_type::now();
+            idle_end = sched_clock::now();
             if (!idle) {
                 idle_start = idle_end;
                 idle = true;
@@ -2846,10 +3031,10 @@ int reactor::run() {
                     // Turn off the task quota timer to avoid spurious wakeups
                     struct itimerspec zero_itimerspec = {};
                     _task_quota_timer.timerfd_settime(0, zero_itimerspec);
-                    auto start_sleep = steady_clock_type::now();
+                    auto start_sleep = sched_clock::now();
                     sleep();
                     // We may have slept for a while, so freshen idle_end
-                    idle_end = steady_clock_type::now();
+                    idle_end = sched_clock::now();
                     add_nonatomically(_stall_detector_missed_ticks, uint64_t((start_sleep - idle_end)/_task_quota));
                     _task_quota_timer.timerfd_settime(0, task_quote_itimerspec);
                 }
@@ -2859,6 +3044,7 @@ int reactor::run() {
                 check_for_work();
             }
         }
+        t_run_completed = idle_end;
     }
     // To prevent ordering issues from rising, destroy the I/O queue explicitly at this point.
     // This is needed because the reactor is destroyed from the thread_local destructors. If
@@ -4116,7 +4302,7 @@ future<connected_socket> connect(socket_address sa, socket_address local, transp
 }
 
 void reactor::add_high_priority_task(std::unique_ptr<task>&& t) {
-    _pending_tasks.push_front(std::move(t));
+    add_urgent_task(std::move(t));
     // break .then() chains
     g_need_preempt = true;
 }
@@ -4142,7 +4328,7 @@ future<> later() {
     promise<> p;
     auto f = p.get_future();
     engine().force_poll();
-    schedule(make_task([p = std::move(p)] () mutable {
+    schedule(make_task(default_scheduling_group(), [p = std::move(p)] () mutable {
         p.set_value();
     }));
     return f;
@@ -4186,12 +4372,41 @@ namespace seastar {
 
 #endif
 
-steady_clock_type::duration reactor::total_idle_time() {
+reactor::sched_clock::duration reactor::total_idle_time() {
     return _total_idle;
 }
 
-steady_clock_type::duration reactor::total_busy_time() {
-    return steady_clock_type::now() - _start_time - _total_idle;
+reactor::sched_clock::duration reactor::total_busy_time() {
+    return sched_clock::now() - _start_time - _total_idle;
+}
+
+void
+reactor::init_scheduling_group(seastar::scheduling_group sg, sstring name, float shares) {
+    _task_queues.resize(std::max<size_t>(_task_queues.size(), sg._id + 1));
+    _task_queues[sg._id] = std::make_unique<task_queue>(sg._id, name, shares);
+}
+
+const sstring&
+scheduling_group::name() const {
+    return engine()._task_queues[_id]->_name;
+}
+
+void
+scheduling_group::set_shares(float shares) {
+    engine()._task_queues[_id]->set_shares(shares);
+}
+
+future<scheduling_group>
+create_scheduling_group(sstring name, float shares) {
+    static std::atomic<unsigned> last{2}; // 0=main, 1=atexit
+    auto id = last.fetch_add(1);
+    assert(id < max_scheduling_groups());
+    auto sg = scheduling_group(id);
+    return smp::invoke_on_all([sg, name, shares] {
+        engine().init_scheduling_group(sg, name, shares);
+    }).then([sg] {
+        return make_ready_future<scheduling_group>(sg);
+    });
 }
 
 }
