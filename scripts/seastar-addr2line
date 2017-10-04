@@ -25,7 +25,7 @@ import subprocess
 
 
 class line_processor(object):
-    object_address_re = re.compile('^\W*(((/[^/]+)+)\+)?(0x[0-9a-f]+)$')
+    object_address_re = re.compile('^\W*(((/[^/]+)+)\+)?(0x[0-9a-f]+)\W*$')
 
     def __init__(self, executable):
         self._executable = executable
