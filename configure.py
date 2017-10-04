@@ -267,6 +267,7 @@ tests = [
     'tests/tls_echo_server',
     'tests/tls_simple_client',
     'tests/circular_buffer_fixed_capacity_test',
+    'tests/noncopyable_function_test',
     ]
 
 apps = [
@@ -493,6 +494,7 @@ deps = {
     'tests/tls_simple_client': ['tests/tls_simple_client.cc'] + core + libnet,
     'tests/circular_buffer_fixed_capacity_test': ['tests/circular_buffer_fixed_capacity_test.cc'],
     'tests/scheduling_group_demo': ['tests/scheduling_group_demo.cc'] + core,
+    'tests/noncopyable_function_test': ['tests/noncopyable_function_test.cc'],
 }
 
 boost_tests = [

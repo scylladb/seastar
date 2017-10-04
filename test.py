@@ -49,6 +49,7 @@ boost_tests = [
     'lowres_clock_test',
     'program_options_test',
     'tuple_utils_test',
+    'noncopytable_function_test',
 ]
 
 other_tests = [
