@@ -318,6 +318,7 @@ arg_parser.add_argument('--enable-gcc6-concepts', dest='gcc6_concepts', action='
                         help='enable experimental support for C++ Concepts as implemented in GCC 6')
 add_tristate(arg_parser, name = 'exception-scalability-workaround', dest='exception_workaround',
         help='disabling override of dl_iterate_phdr symbol to workaround C++ exception scalability issues')
+arg_parser.add_argument('--allocator-page-size', dest='allocator_page_size', type=int, help='override allocator page size')
 args = arg_parser.parse_args()
 
 libnet = [
@@ -544,6 +545,9 @@ if args.with_osv:
         ' -DDEFAULT_ALLOCATOR -fvisibility=default -DHAVE_OSV -I' +
         args.with_osv + ' -I' + args.with_osv + '/include -I' +
         args.with_osv + '/arch/x64')
+
+if args.allocator_page_size:
+    args.user_cflags += ' -DSEASTAR_OVERRIDE_ALLOCATOR_PAGE_SIZE=' + str(args.allocator_page_size)
 
 dpdk_arch_xlat = {
     'native': 'native',
