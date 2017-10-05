@@ -1004,7 +1004,9 @@ void cpu_pages::do_resize(size_t new_size, allocate_system_memory_fn alloc_sys_m
         old_pages_start = 1;
         old_pages_size -= page_size;
     }
-    free_span(old_pages_start, old_pages_size / page_size);
+    if (old_pages_size != 0) {
+        free_span(old_pages_start, old_pages_size / page_size);
+    }
     free_span(old_nr_pages, new_pages - old_nr_pages);
 }
 
