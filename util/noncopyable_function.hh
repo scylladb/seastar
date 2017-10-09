@@ -145,6 +145,10 @@ public:
     Ret operator()(Args... args) const {
         return _vtable->call(this, std::forward<Args>(args)...);
     }
+
+    explicit operator bool() const {
+        return _vtable != &_s_empty_vtable;
+    }
 };
 
 
