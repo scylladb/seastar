@@ -140,7 +140,7 @@ static output_stream<char> make_http_chunked_output_stream(output_stream<char>& 
 }
 
 
-void reply::write_body(const sstring& content_type, std::function<future<>(output_stream<char>&&)>&& body_writer) {
+void reply::write_body(const sstring& content_type, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer) {
     set_content_type(content_type);
     _body_writer  = std::move(body_writer);
 }

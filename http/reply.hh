@@ -36,6 +36,7 @@
 #include "http/mime_types.hh"
 #include "core/future-util.hh"
 #include "core/iostream.hh"
+#include "util/noncopyable_function.hh"
 
 namespace seastar {
 
@@ -152,7 +153,7 @@ struct reply {
      *
      */
 
-    void write_body(const sstring& content_type, std::function<future<>(output_stream<char>&&)>&& body_writer);
+    void write_body(const sstring& content_type, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer);
 
     /*!
      * \brief Write a string as the reply
@@ -169,7 +170,7 @@ private:
     future<> write_reply_to_connection(connection& con);
     future<> write_reply_headers(connection& connection);
 
-    std::function<future<>(output_stream<char>&&)> _body_writer;
+    noncopyable_function<future<>(output_stream<char>&&)> _body_writer;
     friend class routes;
     friend class connection;
 };
