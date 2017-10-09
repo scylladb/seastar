@@ -42,8 +42,8 @@ namespace httpd {
  */
 class content_replace : public file_transformer {
 public:
-    virtual void transform(sstring& content, const request& req,
-            const sstring& extension) override;
+    virtual output_stream<char> transform(std::unique_ptr<request> req,
+            const sstring& extension, output_stream<char>&& s);
     /**
      * the constructor get the file extension the replace would work on.
      * @param extension file extension, when not set all files extension

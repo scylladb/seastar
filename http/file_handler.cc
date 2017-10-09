@@ -72,46 +72,33 @@ sstring file_interaction_handler::get_extension(const sstring& file) {
     return extension;
 }
 
-struct reader {
-private:
-public:
-    reader(file f, std::unique_ptr<reply> rep)
-            : is(make_file_input_stream(std::move(f)))
-            , _rep(std::move(rep)) {
+output_stream<char> file_interaction_handler::get_stream(std::unique_ptr<request> req,
+        const sstring& extension, output_stream<char>&& s) {
+    if (transformer) {
+        return transformer->transform(std::move(req), extension, std::move(s));
     }
-    input_stream<char> is;
-    std::unique_ptr<reply> _rep;
-
-    // for input_stream::consume():
-    using unconsumed_remainder = std::experimental::optional<temporary_buffer<char>>;
-    future<unconsumed_remainder> operator()(temporary_buffer<char> data) {
-        if (data.empty()) {
-            _rep->done();
-            return make_ready_future<unconsumed_remainder>(std::move(data));
-        } else {
-            _rep->_content.append(data.get(), data.size());
-            return make_ready_future<unconsumed_remainder>();
-        }
-    }
-};
+    return std::move(s);
+}
 
 future<std::unique_ptr<reply>> file_interaction_handler::read(
-        const sstring& file_name, std::unique_ptr<request> req,
+        sstring file_name, std::unique_ptr<request> req,
         std::unique_ptr<reply> rep) {
     sstring extension = get_extension(file_name);
-    rep->set_content_type(extension);
-    return open_file_dma(file_name, open_flags::ro).then(
-            [rep = std::move(rep), extension, this, req = std::move(req)](file f) mutable {
-                std::shared_ptr<reader> r = std::make_shared<reader>(std::move(f), std::move(rep));
-
-                return r->is.consume(*r).then([r, extension, this, req = std::move(req)]() {
-                            if (transformer != nullptr) {
-                                transformer->transform(r->_rep->_content, *req, extension);
-                            }
-                            r->_rep->done();
-                            return make_ready_future<std::unique_ptr<reply>>(std::move(r->_rep));
-                        });
+    rep->write_body(extension, [req = std::move(req), extension, file_name, this] (output_stream<char>&& s) mutable {
+        return do_with(output_stream<char>(get_stream(std::move(req), extension, std::move(s))),
+                [this, file_name] (output_stream<char>& os) {
+            return open_file_dma(file_name, open_flags::ro).then([&os, this] (file f) {
+                return do_with(input_stream<char>(make_file_input_stream(std::move(f))), [&os](input_stream<char>& is) {
+                    return copy(is, os).then([&os] {
+                        return os.close();
+                    }).then([&is] {
+                        return is.close();
+                    });
+                });
             });
+        });
+    });
+    return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
 }
 
 bool file_interaction_handler::redirect_if_needed(const request& req,

@@ -159,14 +159,6 @@ SEASTAR_TEST_CASE(test_routes) {
 }
 
 SEASTAR_TEST_CASE(test_transformer) {
-    request req;
-    content_replace cr("json");
-    sstring content = "hello-{{Protocol}}-xyz-{{Host}}";
-    cr.transform(content, req, "html");
-    BOOST_REQUIRE_EQUAL(content, "hello-{{Protocol}}-xyz-{{Host}}");
-    req._headers["Host"] = "localhost";
-    cr.transform(content, req, "json");
-    BOOST_REQUIRE_EQUAL(content, "hello-http-xyz-localhost");
     return make_ready_future<>();
 }
 
