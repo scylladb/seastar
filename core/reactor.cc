@@ -478,6 +478,7 @@ reactor::~reactor() {
     eraser(_expired_timers);
     eraser(_expired_lowres_timers);
     eraser(_expired_manual_timers);
+    ::io_destroy(_io_context);
 }
 
 // Add to an atomic integral non-atomically and returns the previous value
