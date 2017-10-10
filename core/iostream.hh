@@ -252,6 +252,12 @@ private:
     friend class reactor;
 };
 
+/*!
+ * \brief copy all the content from the input stream to the output stream
+ */
+template <typename CharType>
+future<> copy(input_stream<CharType>&, output_stream<CharType>&);
+
 }
 
 #include "iostream-impl.hh"

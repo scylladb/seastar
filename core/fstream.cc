@@ -436,5 +436,11 @@ output_stream<char> make_file_output_stream(file f, file_output_stream_options o
     return output_stream<char>(file_data_sink(std::move(f), options), options.buffer_size, true);
 }
 
+/*
+ * template initialization, definition in iostream-impl.hh
+ */
+template struct internal::stream_copy_consumer<char>;
+template future<> copy<char>(input_stream<char>&, output_stream<char>&);
+
 }
 
