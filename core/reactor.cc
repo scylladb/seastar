@@ -3002,7 +3002,6 @@ int reactor::run() {
         increment_nonatomically(_polls);
 
         if (check_for_work()) {
-            idle_end = t_run_completed;
             if (idle) {
                 _total_idle += idle_end - idle_start;
                 account_idle(idle_end - idle_start);
@@ -3045,8 +3044,8 @@ int reactor::run() {
                 // any work.
                 check_for_work();
             }
+            t_run_completed = idle_end;
         }
-        t_run_completed = idle_end;
     }
     // To prevent ordering issues from rising, destroy the I/O queue explicitly at this point.
     // This is needed because the reactor is destroyed from the thread_local destructors. If
