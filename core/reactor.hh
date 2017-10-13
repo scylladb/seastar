@@ -732,7 +732,7 @@ private:
         explicit task_queue(unsigned id, sstring name, float shares);
         int64_t _vruntime = 0;
         float _shares;
-        unsigned _reciprocal_shares_times_2_power_32;
+        int64_t _reciprocal_shares_times_2_power_32;
         bool _current = false;
         bool _active = false;
         uint8_t _id;
