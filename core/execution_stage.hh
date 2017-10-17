@@ -331,9 +331,7 @@ public:
         _empty = false;
         _stats.function_calls_enqueued++;
         auto f = _queue.back()._ready.get_future();
-        if (_queue.size() > flush_threshold) {
-            flush();
-        }
+        flush();
         return f;
     }
 };
