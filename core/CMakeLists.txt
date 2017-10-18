@@ -97,3 +97,5 @@ add_library(core OBJECT
         vector-data-sink.hh
         vla.hh
         weak_ptr.hh)
+
+add_definitions(-DDEFAULT_ALLOCATOR)
