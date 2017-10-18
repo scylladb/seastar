@@ -4,3 +4,6 @@
 build
 build.ninja
 cscope.*
+
+.idea/
+cmake-build-debug/

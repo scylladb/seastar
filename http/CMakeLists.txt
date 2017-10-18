@@ -1,0 +1,40 @@
+RAGEL_TARGET(http_response_parser
+        http_response_parser.rl
+        ${CMAKE_CURRENT_BINARY_DIR}/http_response_parser.hh
+        COMPILE_FLAGS
+        '-G2')
+
+RAGEL_TARGET(request_parser
+        request_parser.rl
+        ${CMAKE_CURRENT_BINARY_DIR}/request_parser.hh
+        COMPILE_FLAGS
+        '-G2')
+
+add_library(http OBJECT
+        ${RAGEL_request_parser_OUTPUTS}
+        ${RAGEL_http_response_parser_OUTPUTS}
+        api_docs.cc
+        api_docs.hh
+        common.cc
+        common.hh
+        exception.hh
+        file_handler.cc
+        file_handler.hh
+        function_handlers.hh
+        handlers.hh
+        httpd.cc
+        httpd.hh
+        json_path.cc
+        json_path.hh
+        matcher.cc
+        matcher.hh
+        matchrules.hh
+        mime_types.cc
+        mime_types.hh
+        reply.cc
+        reply.hh
+        request.hh
+        routes.cc
+        routes.hh
+        transformers.cc
+        transformers.hh)
