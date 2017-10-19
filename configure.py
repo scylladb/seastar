@@ -534,6 +534,7 @@ warnings = [
     '-Wno-undefined-inline',                # clang-only: inline function 'x' is not defined
     '-Wno-overloaded-virtual',              # clang-only: 'x' hides overloaded virtual functions
     '-Wno-maybe-uninitialized',
+    '-Wno-sign-compare',
     ]
 
 # The "--with-osv=<path>" parameter is a shortcut for a bunch of other
