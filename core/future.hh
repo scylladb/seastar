@@ -392,8 +392,9 @@ template <typename Func, typename... T>
 struct continuation final : task {
     continuation(Func&& func, future_state<T...>&& state) : _state(std::move(state)), _func(std::move(func)) {}
     continuation(Func&& func) : _func(std::move(func)) {}
-    virtual void run() noexcept override {
+    virtual void run_and_dispose() noexcept override {
         _func(std::move(_state));
+        delete this;
     }
     future_state<T...> _state;
     Func _func;

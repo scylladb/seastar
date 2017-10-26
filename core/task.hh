@@ -31,7 +31,7 @@ class task {
 public:
     explicit task(scheduling_group sg = current_scheduling_group()) : _sg(sg) {}
     virtual ~task() noexcept {}
-    virtual void run() noexcept = 0;
+    virtual void run_and_dispose() noexcept = 0;
     scheduling_group group() const { return _sg; }
 };
 
@@ -44,7 +44,10 @@ class lambda_task final : public task {
 public:
     lambda_task(scheduling_group sg, const Func& func) : task(sg), _func(func) {}
     lambda_task(scheduling_group sg, Func&& func) : task(sg), _func(std::move(func)) {}
-    virtual void run() noexcept override { _func(); }
+    virtual void run_and_dispose() noexcept override {
+        _func();
+        delete this;
+    }
 };
 
 template <typename Func>
