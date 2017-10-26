@@ -36,6 +36,7 @@
 #include <vector>
 #include <experimental/optional>
 #include "util/tuple_utils.hh"
+#include "util/noncopyable_function.hh"
 
 namespace seastar {
 
@@ -191,6 +192,81 @@ parallel_for_each(Range&& range, Func&& func) {
 struct stop_iteration_tag { };
 using stop_iteration = bool_class<stop_iteration_tag>;
 
+/// \cond internal
+
+namespace internal {
+
+template <typename AsyncAction>
+class repeater final : public continuation_base<stop_iteration> {
+    promise<> _promise;
+    AsyncAction _action;
+public:
+    explicit repeater(AsyncAction action) : _action(std::move(action)) {}
+    repeater(stop_iteration si, AsyncAction action) : repeater(std::move(action)) {
+        _state.set(std::make_tuple(si));
+    }
+    future<> get_future() { return _promise.get_future(); }
+    virtual void run_and_dispose() noexcept override {
+        std::unique_ptr<repeater> zis{this};
+        if (_state.failed()) {
+            _promise.set_exception(_state.get_exception());
+            return;
+        } else {
+            if (std::get<0>(_state.get()) == stop_iteration::yes) {
+                _promise.set_value();
+                return;
+            }
+            _state = {};
+        }
+        try {
+            do {
+                auto f = _action();
+                if (!f.available()) {
+                    internal::set_callback(f, std::move(zis));
+                    return;
+                }
+                if (f.get0() == stop_iteration::yes) {
+                    _promise.set_value();
+                    return;
+                }
+            } while (!need_preempt());
+        } catch (...) {
+            _promise.set_exception(std::current_exception());
+            return;
+        }
+        _state.set(stop_iteration::no);
+        schedule(std::move(zis));
+    }
+};
+
+template <typename AsyncAction, bool ReturnsFuture = true>
+struct futurized_action_helper {
+    using type = AsyncAction;
+};
+
+template <typename AsyncAction>
+struct futurized_action_helper<AsyncAction, false> {
+    struct wrapper {
+        AsyncAction action;
+        using orig_ret = std::result_of_t<AsyncAction()>;
+        explicit wrapper(AsyncAction&& action) : action(std::move(action)) {}
+        futurize_t<orig_ret> operator()() const {
+            return futurize<orig_ret>::convert(action());
+        };
+    };
+    using type = wrapper;
+};
+
+template <typename AsyncAction>
+struct futurized_action {
+    using type = typename futurized_action_helper<AsyncAction, is_future<std::result_of_t<AsyncAction()>>::value>::type;
+};
+
+
+}
+
+/// \endcond
+
 /// Invokes given action until it fails or the function requests iteration to stop by returning
 /// \c stop_iteration::yes.
 ///
@@ -206,19 +282,18 @@ inline
 future<> repeat(AsyncAction action) {
     using futurator = futurize<std::result_of_t<AsyncAction()>>;
     static_assert(std::is_same<future<stop_iteration>, typename futurator::type>::value, "bad AsyncAction signature");
-
+    using futurized_action_type = typename internal::futurized_action<AsyncAction>::type;
+    auto futurized_action = futurized_action_type(std::move(action));
     try {
         do {
-            auto f = futurator::apply(action);
+            // Do not type-erase here in case this is a short repeat()
+            auto f = futurized_action();
 
             if (!f.available()) {
-                return f.then([action = std::move(action)] (stop_iteration stop) mutable {
-                    if (stop == stop_iteration::yes) {
-                        return make_ready_future<>();
-                    } else {
-                        return repeat(std::move(action));
-                    }
-                });
+                auto repeater = std::make_unique<internal::repeater<futurized_action_type>>(std::move(futurized_action));
+                auto ret = repeater->get_future();
+                internal::set_callback(f, std::move(repeater));
+                return ret;
             }
 
             if (f.get0() == stop_iteration::yes) {
@@ -226,12 +301,10 @@ future<> repeat(AsyncAction action) {
             }
         } while (!need_preempt());
 
-        promise<> p;
-        auto f = p.get_future();
-        schedule(make_task([action = std::move(action), p = std::move(p)]() mutable {
-            repeat(std::move(action)).forward_to(std::move(p));
-        }));
-        return f;
+        auto repeater = std::make_unique<internal::repeater<futurized_action_type>>(stop_iteration::no, std::move(futurized_action));
+        auto ret = repeater->get_future();
+        schedule(std::move(repeater));
+        return ret;
     } catch (...) {
         return make_exception_future(std::current_exception());
     }
