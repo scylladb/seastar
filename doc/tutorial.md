@@ -470,7 +470,7 @@ Now consider that in the above example we had a different definition for `fail()
 seastar::future<> fail() {
     throw my_exception();
 }
-````
+```
 
 Here, `fail()` does not return a failing future. Rather, it fails to return a future at all! The exception it throws stops the entire function `f()`, and the `finally()` continuation does not not get attached to the future (which was never returned), and will never run. The "cleaning up" message is not printed now.
 
@@ -725,7 +725,7 @@ The most common use for a semaphore in Seastar is for limiting parallelism, i.e.
 
 Consider a case where an external source of events (e.g., an incoming network request) causes an asynchronous function ```g()``` to be called. Imagine that we want to limit the number of concurrent ```g()``` operations to 100. I.e., If g() is started when 100 other invocations are still ongoing, we want it to delay its real work until one of the other invocations has completed. We can do this with a semaphore:
 
-```c++
+```cpp
 seastar::future<> g() {
     static thread_local seastar::semaphore limit(100);
     return limit.wait(1).then([] {
@@ -744,7 +744,7 @@ Luckily, the above code happens to be exception safe: `limit.wait(1)` can throw 
 
 However, as the application code becomes more complex, it becomes harder to ensure that we never forget to call `signal()` after the operation is done, regardless of which code path or exceptions happen. As an example of what might go wrong, consider the following *buggy* code snippet, which differs subtly from the above one, and also appears, on first sight, to be correct:
 
-```c++
+```cpp
 seastar::future<> g() {
     static thread_local seastar::semaphore limit(100);
     return limit.wait(1).then([] {
@@ -759,7 +759,7 @@ For exception safety, in C++ it is generally not recommended to have separate re
 
 The lambda-based solution is a function ```seastar::with_semaphore()``` which is a shortcut for the code in the examples above:
 
-```c++
+```cpp
 seastar::future<> g() {
     static thread_local seastar::semaphore limit(100);
     return seastar::with_semaphore(limit, 1, [] {
@@ -772,7 +772,7 @@ seastar::future<> g() {
 
 The function `seastar::get_units()` is more general. It provides an exception-safe alternative to `seastar::semaphore`'s separate `wait()` and `signal()` methods, based on C++'s RAII philosophy: The function returns an opaque units object, which while held, keeps the semaphore's counter decreased - and as soon as this object is destructed, the counter is increased back. With this interface you cannot forget to increase the counter, or increase it twice, or increase without decreasing: The counter will always be decreased once when the units object is created, and if that succeeded, increased when the object is destructed. When the units object is moved into a continuation, no matter how this continuation ends, when the continuation is destructed, the units object is destructed and the units are returned to the semaphore's counter. The above examples, written with `get_units()`, looks like this:
 
-```c++
+```cpp
 seastar::future<> g() {
     static thread_local semaphore limit(100);
     return seastar::get_units(limit, 1).then([] (auto units) {
@@ -789,7 +789,7 @@ Seastars programmers should generally avoid using the the `seamphore::wait()` an
 ## Limiting resource use
 Because semaphores support waiting for any number of units, not just 1, we can use them for more than simple limiting of the *number* of parallel invocation. For example, consider we have an asynchronous function ```using_lots_of_memory(size_t bytes)```, which uses ```bytes``` bytes of memory, and we want to ensure that not more than 1 MB of memory is used by all parallel invocations of this function --- and that additional calls are delayed until previous calls have finished. We can do this with a semaphore:
 
-```c++
+```cpp
 seastar::future<> using_lots_of_memory(size_t bytes) {
     static thread_local seastar::semaphore limit(1000000); // limit to 1MB
     return seastar::with_semaphore(limit, bytes, [bytes] {
