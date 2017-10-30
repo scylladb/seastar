@@ -68,7 +68,7 @@ private:
         static Func* access(noncopyable_function* func) { return reinterpret_cast<Func*>(func->_storage.direct); }
         static const Func* access(const noncopyable_function* func) { return reinterpret_cast<const Func*>(func->_storage.direct); }
         static Ret call(const noncopyable_function* func, Args... args) {
-            return (*access(func))(std::forward<Args>(args)...);
+            return (*access(const_cast<noncopyable_function*>(func)))(std::forward<Args>(args)...);
         }
         static void move(noncopyable_function* from, noncopyable_function* to) {
             new (access(to)) Func(std::move(*access(from)));
@@ -88,7 +88,7 @@ private:
         static Func* access(noncopyable_function* func) { return reinterpret_cast<Func*>(func->_storage.indirect); }
         static const Func* access(const noncopyable_function* func) { return reinterpret_cast<const Func*>(func->_storage.indirect); }
         static Ret call(const noncopyable_function* func, Args... args) {
-            return (*access(func))(std::forward<Args>(args)...);
+            return (*access(const_cast<noncopyable_function*>(func)))(std::forward<Args>(args)...);
         }
         static void destroy(noncopyable_function* func) {
             delete access(func);
