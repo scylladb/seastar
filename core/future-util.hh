@@ -335,6 +335,55 @@ template <typename AsyncAction>
 using repeat_until_value_return_type
         = typename repeat_until_value_type_helper<std::result_of_t<AsyncAction()>>::future_type;
 
+namespace internal {
+
+template <typename AsyncAction, typename T>
+class repeat_until_value_state final : public continuation_base<std::experimental::optional<T>> {
+    promise<T> _promise;
+    AsyncAction _action;
+public:
+    explicit repeat_until_value_state(AsyncAction action) : _action(std::move(action)) {}
+    repeat_until_value_state(std::experimental::optional<T> st, AsyncAction action) : repeat_until_value_state(std::move(action)) {
+        this->_state.set(std::make_tuple(std::move(st)));
+    }
+    future<T> get_future() { return _promise.get_future(); }
+    virtual void run_and_dispose() noexcept override {
+        std::unique_ptr<repeat_until_value_state> zis{this};
+        if (this->_state.failed()) {
+            _promise.set_exception(std::move(this->_state).get_exception());
+            return;
+        } else {
+            auto v = std::get<0>(std::move(this->_state).get());
+            if (v) {
+                _promise.set_value(std::move(*v));
+                return;
+            }
+            this->_state = {};
+        }
+        try {
+            do {
+                auto f = _action();
+                if (!f.available()) {
+                    internal::set_callback(f, std::move(zis));
+                    return;
+                }
+                auto ret = f.get0();
+                if (ret) {
+                    _promise.set_value(std::make_tuple(std::move(*ret)));
+                    return;
+                }
+            } while (!need_preempt());
+        } catch (...) {
+            _promise.set_exception(std::current_exception());
+            return;
+        }
+        this->_state.set(std::experimental::nullopt);
+        schedule(std::move(zis));
+    }
+};
+
+}
+    
 /// Invokes given action until it fails or the function requests iteration to stop by returning
 /// an engaged \c future<std::experimental::optional<T>>.  The value is extracted from the
 /// \c optional, and returned, as a future, from repeat_until_value().
@@ -357,18 +406,16 @@ repeat_until_value(AsyncAction action) {
     // the "T" in the documentation
     using value_type = typename type_helper::value_type;
     using optional_type = typename type_helper::optional_type;
-    using futurator = futurize<typename type_helper::future_optional_type>;
+    using futurized_action_type = typename internal::futurized_action<AsyncAction>::type;
+    auto futurized_action = futurized_action_type(std::move(action));
     do {
-        auto f = futurator::apply(action);
+        auto f = futurized_action();
 
         if (!f.available()) {
-            return f.then([action = std::move(action)] (auto&& optional) mutable {
-                if (optional) {
-                    return make_ready_future<value_type>(std::move(optional.value()));
-                } else {
-                    return repeat_until_value(std::move(action));
-                }
-            });
+            auto state = std::make_unique<internal::repeat_until_value_state<futurized_action_type, value_type>>(std::move(futurized_action));
+            auto ret = state->get_future();
+            internal::set_callback(f, std::move(state));
+            return ret;
         }
 
         if (f.failed()) {
@@ -382,11 +429,9 @@ repeat_until_value(AsyncAction action) {
     } while (!need_preempt());
 
     try {
-        promise<value_type> p;
-        auto f = p.get_future();
-        schedule(make_task([action = std::move(action), p = std::move(p)] () mutable {
-            repeat_until_value(std::move(action)).forward_to(std::move(p));
-        }));
+        auto state = std::make_unique<internal::repeat_until_value_state<futurized_action_type, value_type>>(std::experimental::nullopt, std::move(futurized_action));
+        auto f = state->get_future();
+        schedule(std::move(state));
         return f;
     } catch (...) {
         return make_exception_future<value_type>(std::current_exception());
