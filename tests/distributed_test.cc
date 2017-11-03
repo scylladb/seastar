@@ -24,12 +24,13 @@
 #include "core/distributed.hh"
 #include "core/future-util.hh"
 #include "core/sleep.hh"
+#include "core/thread.hh"
 
 using namespace seastar;
 
-struct async : public seastar::async_sharded_service<async> {
+struct async_service : public seastar::async_sharded_service<async_service> {
     thread_local static bool deleted;
-    ~async() {
+    ~async_service() {
         deleted = true;
     }
     void run() {
@@ -44,7 +45,7 @@ struct async : public seastar::async_sharded_service<async> {
     future<> stop() { return make_ready_future<>(); }
 };
 
-thread_local bool async::deleted = false;
+thread_local bool async_service::deleted = false;
 
 struct X {
     sstring echo(sstring arg) {
@@ -123,12 +124,42 @@ future<> test_map_reduce() {
 }
 
 future<> test_async() {
-    return do_with_distributed<async>([] (distributed<async>& x) {
+    return do_with_distributed<async_service>([] (distributed<async_service>& x) {
         return x.start().then([&x] {
-            return x.invoke_on_all(&async::run);
+            return x.invoke_on_all(&async_service::run);
         });
     }).then([] {
         return sleep(std::chrono::milliseconds(100 * (smp::count + 1)));
+    });
+}
+
+future<> test_invoke_on_others() {
+    return seastar::async([] {
+        struct my_service {
+            int counter = 0;
+            void up() { ++counter; }
+            future<> stop() { return make_ready_future<>(); }
+        };
+        for (unsigned c = 0; c < smp::count; ++c) {
+            smp::submit_to(c, [c] {
+                return seastar::async([c] {
+                    sharded<my_service> s;
+                    s.start().get();
+                    s.invoke_on_others([](auto& s) { s.up(); }).get();
+                    if (s.local().counter != 0) {
+                        throw std::runtime_error("local modified");
+                    }
+                    s.invoke_on_all([c](auto& remote) {
+                        if (engine().cpu_id() != c) {
+                            if (remote.counter != 1) {
+                                throw std::runtime_error("remote not modified");
+                            }
+                        }
+                    }).get();
+                    s.stop().get();
+                });
+            }).get();
+        }
     });
 }
 
@@ -143,6 +174,8 @@ int main(int argc, char** argv) {
             return test_map_reduce();
         }).then([] {
             return test_async();
+        }).then([] {
+            return test_invoke_on_others();
         });
     });
 }

@@ -188,6 +188,17 @@ public:
     template <typename Func>
     future<> invoke_on_all(Func&& func);
 
+    /// Invoke a callable on all instances of  \c Service except the instance
+    /// which is allocated on current shard.
+    ///
+    /// \param func a callable with the signature `void (Service&)`
+    ///             or `future<> (Service&)`, to be called on each core
+    ///             with the local instance as an argument.
+    /// \return a `future<>` that becomes ready when all cores but the current one have
+    ///         processed the message.
+    template <typename Func>
+    future<> invoke_on_others(Func&& func);
+
     /// Invoke a method on all instances of `Service` and reduce the results using
     /// `Reducer`.
     ///
@@ -500,6 +511,18 @@ sharded<Service>::invoke_on_all(Func&& func) {
             auto inst = get_local_service();
             return func(*inst);
         });
+    });
+}
+
+template <typename Service>
+template <typename Func>
+inline
+future<>
+sharded<Service>::invoke_on_others(Func&& func) {
+    static_assert(std::is_same<futurize_t<std::result_of_t<Func(Service&)>>, future<>>::value,
+                  "invoke_on_others()'s func must return void or future<>");
+    return invoke_on_all([orig = engine().cpu_id(), func = std::forward<Func>(func)] (auto& s) -> future<> {
+        return engine().cpu_id() == orig ? make_ready_future<>() : futurize_apply(func, s);
     });
 }
 
