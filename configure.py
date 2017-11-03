@@ -316,6 +316,8 @@ arg_parser.add_argument('--static-boost', dest = 'staticboost', action = 'store_
 add_tristate(arg_parser, name = 'hwloc', dest = 'hwloc', help = 'hwloc support')
 arg_parser.add_argument('--enable-gcc6-concepts', dest='gcc6_concepts', action='store_true', default=False,
                         help='enable experimental support for C++ Concepts as implemented in GCC 6')
+arg_parser.add_argument('--enable-alloc-failure-injector', dest='alloc_failure_injector', action='store_true', default=False,
+                        help='enable allocation failure injection')
 add_tristate(arg_parser, name = 'exception-scalability-workaround', dest='exception_workaround',
         help='disabling override of dl_iterate_phdr symbol to workaround C++ exception scalability issues')
 arg_parser.add_argument('--allocator-page-size', dest='allocator_page_size', type=int, help='override allocator page size')
@@ -354,6 +356,7 @@ core = [
     'util/program-options.cc',
     'util/log.cc',
     'util/backtrace.cc',
+    'util/alloc_failure_injector.cc',
     'net/packet.cc',
     'net/posix-stack.cc',
     'net/net.cc',
@@ -416,6 +419,9 @@ hwloc_libs = '-lhwloc -lnuma -lpciaccess -lxml2 -lz'
 if args.gcc6_concepts:
     defines.append('HAVE_GCC6_CONCEPTS')
     args.user_cflags += ' -fconcepts'
+
+if args.alloc_failure_injector:
+    defines.append('SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION')
 
 if not apply_tristate(args.exception_workaround, test = lambda: not args.staticcxx and not args.static,
         note = "Note: disabling exception scalability workaround due to static linkage of libgcc and libstdc++",

@@ -33,6 +33,7 @@
 #include <assert.h>
 #include <cstdlib>
 #include "function_traits.hh"
+#include "util/alloc_failure_injector.hh"
 #include "../util/gcc6-concepts.hh"
 
 namespace seastar {
@@ -839,10 +840,13 @@ public:
     void wait() noexcept {
         auto thread = thread_impl::get();
         assert(thread);
-        schedule([this, thread] (future_state<T...>&& new_state) {
-            *state() = std::move(new_state);
-            thread_impl::switch_in(thread);
-        });
+        {
+            memory::disable_failure_guard dfg;
+            schedule([this, thread](future_state<T...>&& new_state) {
+                *state() = std::move(new_state);
+                thread_impl::switch_in(thread);
+            });
+        }
         thread_impl::switch_out(thread);
     }
     /// \endcond
@@ -893,6 +897,7 @@ public:
         typename futurator::promise_type pr;
         auto fut = pr.get_future();
         try {
+            memory::disable_failure_guard dfg;
             schedule([pr = std::move(pr), func = std::forward<Func>(func)] (auto&& state) mutable {
                 if (state.failed()) {
                     pr.set_exception(std::move(state).get_exception());
@@ -936,6 +941,7 @@ public:
         typename futurator::promise_type pr;
         auto fut = pr.get_future();
         try {
+            memory::disable_failure_guard dfg;
             schedule([pr = std::move(pr), func = std::forward<Func>(func)] (auto&& state) mutable {
                 futurator::apply(std::forward<Func>(func), future(std::move(state))).forward_to(std::move(pr));
             });
