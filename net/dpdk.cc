@@ -2286,6 +2286,11 @@ get_dpdk_net_options_description()
             "DPDK net options");
 
     opts.add_options()
+        ("dpdk-port-index",
+                boost::program_options::value<unsigned>()->default_value(0),
+                "DPDK Port Index");
+
+    opts.add_options()
         ("hw-fc",
                 boost::program_options::value<std::string>()->default_value("on"),
                 "Enable HW Flow Control (on / off)");
