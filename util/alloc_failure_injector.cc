@@ -20,15 +20,22 @@
  */
 
 #include "util/alloc_failure_injector.hh"
+#include "util/backtrace.hh"
+#include "util/log.hh"
 
 namespace seastar {
 namespace memory {
+
+static logger log("failure_injector");
 
 thread_local alloc_failure_injector the_alloc_failure_injector;
 
 void alloc_failure_injector::fail() {
     _failed = true;
     cancel();
+    if (log.is_enabled(log_level::trace)) {
+        log.trace("Failing at {}", current_backtrace());
+    }
     _on_alloc_failure();
 }
 
