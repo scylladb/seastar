@@ -53,15 +53,15 @@ class alloc_failure_injector {
     bool _failed;
     uint64_t _suppressed = 0;
     friend class disable_failure_guard;
+private:
+    void fail();
 public:
     void on_alloc_point() {
         if (_suppressed) {
             return;
         }
         if (_alloc_count >= _fail_at) {
-            _failed = true;
-            cancel();
-            _on_alloc_failure();
+            fail();
         }
         ++_alloc_count;
     }
@@ -87,10 +87,8 @@ public:
         return _failed;
     }
 
-    // Sets the callback to run when allocation fails instead of the default std::bad_alloc throw
-    void set_alloc_failure_callback(std::function<void()> cb) {
-        _on_alloc_failure = std::move(cb);
-    }
+    // Runs given function with a custom failure action instead of the default std::bad_alloc throw.
+    void run_with_callback(std::function<void()> callback, std::function<void()> to_run);
 };
 
 extern thread_local alloc_failure_injector the_alloc_failure_injector;
