@@ -53,15 +53,15 @@ class alloc_failure_injector {
     bool _failed;
     uint64_t _suppressed = 0;
     friend class disable_failure_guard;
+private:
+    void fail();
 public:
     void on_alloc_point() {
         if (_suppressed) {
             return;
         }
         if (_alloc_count >= _fail_at) {
-            _failed = true;
-            cancel();
-            _on_alloc_failure();
+            fail();
         }
         ++_alloc_count;
     }

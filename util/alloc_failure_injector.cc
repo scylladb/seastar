@@ -26,5 +26,11 @@ namespace memory {
 
 thread_local alloc_failure_injector the_alloc_failure_injector;
 
+void alloc_failure_injector::fail() {
+    _failed = true;
+    cancel();
+    _on_alloc_failure();
+}
+
 }
 }
