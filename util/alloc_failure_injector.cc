@@ -22,6 +22,7 @@
 #include "util/alloc_failure_injector.hh"
 #include "util/backtrace.hh"
 #include "util/log.hh"
+#include "util/defer.hh"
 
 namespace seastar {
 namespace memory {
@@ -37,6 +38,13 @@ void alloc_failure_injector::fail() {
         log.trace("Failing at {}", current_backtrace());
     }
     _on_alloc_failure();
+}
+
+void alloc_failure_injector::run_with_callback(std::function<void()> callback, std::function<void()> to_run) {
+    auto restore = defer([this, prev = std::exchange(_on_alloc_failure, std::move(callback))] {
+        _on_alloc_failure = std::move(prev);
+    });
+    to_run();
 }
 
 }
