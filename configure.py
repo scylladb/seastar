@@ -541,6 +541,8 @@ warnings = [
     '-Wno-overloaded-virtual',              # clang-only: 'x' hides overloaded virtual functions
     '-Wno-maybe-uninitialized',
     '-Wno-sign-compare',
+    '-Wno-error=cpp',                       # gcc: allow preprecessor warnings
+    '-Wno-error=#warning',                  # clang: allow preprecessor warnings
     ]
 
 # The "--with-osv=<path>" parameter is a shortcut for a bunch of other
@@ -769,7 +771,7 @@ with open(buildfile, 'w') as f:
         full_builddir = {srcdir}/$builddir
         cxx = {cxx}
         # we disable _FORTIFY_SOURCE because it generates false positives with longjmp() (core/thread.cc)
-        cxxflags = -std=gnu++1y {dbgflag} {fpie} -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=cpp -fvisibility=hidden {visibility_flags} -pthread -I{srcdir} -U_FORTIFY_SOURCE {user_cflags} {warnings} {defines}
+        cxxflags = -std=gnu++1y {dbgflag} {fpie} -Wall -Werror -Wno-error=deprecated-declarations -fvisibility=hidden {visibility_flags} -pthread -I{srcdir} -U_FORTIFY_SOURCE {user_cflags} {warnings} {defines}
         ldflags = {dbgflag} -Wl,--no-as-needed {static} {pie} -fvisibility=hidden {visibility_flags} -pthread {user_ldflags}
         libs = {libs}
         pool link_pool
