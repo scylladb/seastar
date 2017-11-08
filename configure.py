@@ -769,7 +769,7 @@ with open(buildfile, 'w') as f:
         full_builddir = {srcdir}/$builddir
         cxx = {cxx}
         # we disable _FORTIFY_SOURCE because it generates false positives with longjmp() (core/thread.cc)
-        cxxflags = -std=gnu++1y {dbgflag} {fpie} -Wall -Werror -Wno-error=deprecated-declarations -fvisibility=hidden {visibility_flags} -pthread -I{srcdir} -U_FORTIFY_SOURCE {user_cflags} {warnings} {defines}
+        cxxflags = -std=gnu++1y {dbgflag} {fpie} -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=cpp -fvisibility=hidden {visibility_flags} -pthread -I{srcdir} -U_FORTIFY_SOURCE {user_cflags} {warnings} {defines}
         ldflags = {dbgflag} -Wl,--no-as-needed {static} {pie} -fvisibility=hidden {visibility_flags} -pthread {user_ldflags}
         libs = {libs}
         pool link_pool
