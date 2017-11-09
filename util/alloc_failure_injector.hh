@@ -24,6 +24,7 @@
 #include <limits>
 #include <cstdint>
 #include <functional>
+#include "noncopyable_function.hh"
 
 namespace seastar {
 namespace memory {
@@ -49,7 +50,7 @@ namespace memory {
 class alloc_failure_injector {
     uint64_t _alloc_count;
     uint64_t _fail_at = std::numeric_limits<uint64_t>::max();
-    std::function<void()> _on_alloc_failure = [] { throw std::bad_alloc(); };
+    noncopyable_function<void()> _on_alloc_failure = [] { throw std::bad_alloc(); };
     bool _failed;
     uint64_t _suppressed = 0;
     friend class disable_failure_guard;
@@ -88,7 +89,7 @@ public:
     }
 
     // Runs given function with a custom failure action instead of the default std::bad_alloc throw.
-    void run_with_callback(std::function<void()> callback, std::function<void()> to_run);
+    void run_with_callback(noncopyable_function<void()> callback, noncopyable_function<void()> to_run);
 };
 
 extern thread_local alloc_failure_injector the_alloc_failure_injector;
