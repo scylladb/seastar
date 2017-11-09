@@ -102,6 +102,11 @@ public:
     size_t get_count() const {
         return _count;
     }
+
+    /// Returns whether the gate is closed.
+    bool is_closed() const {
+        return bool(_stopped);
+    }
 };
 
 /// Executes the function \c func making sure the gate \c g is properly entered
