@@ -3025,9 +3025,7 @@ int reactor::run() {
                 report_exception("Exception while running idle cpu handler", std::current_exception());
             }
             if (go_to_sleep) {
-#if defined(__x86_64__) || defined(__i386__)
-                _mm_pause();
-#endif
+                internal::cpu_relax();
                 if (idle_end - idle_start > _max_poll_time) {
                     // Turn off the task quota timer to avoid spurious wakeups
                     struct itimerspec zero_itimerspec = {};

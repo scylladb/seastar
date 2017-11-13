@@ -545,7 +545,7 @@ private:
     std::unordered_map<unsigned, lw_shared_ptr<priority_class_data>> _priority_classes;
     fair_queue _fq;
 
-    static constexpr unsigned _max_classes = 1024;
+    static constexpr unsigned _max_classes = 2048;
     static std::array<std::atomic<uint32_t>, _max_classes> _registered_shares;
     static std::array<sstring, _max_classes> _registered_names;
 

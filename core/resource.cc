@@ -24,6 +24,7 @@
 #include <regex>
 #include "resource.hh"
 #include "core/align.hh"
+#include "core/print.hh"
 
 namespace seastar {
 
@@ -79,7 +80,7 @@ size_t calculate_memory(configuration c, size_t available_memory, float panic_fa
     }
     size_t mem = c.total_memory.value_or(available_memory);
     if (mem > available_memory) {
-        throw std::runtime_error("insufficient physical memory");
+        throw std::runtime_error(format("insufficient physical memory: needed {} available {}", mem, available_memory));
     }
     return mem;
 }

@@ -23,11 +23,45 @@
 
 #include <atomic>
 
+namespace seastar {
+
+namespace internal {
 #if defined(__x86_64__) || defined(__i386__)
 #include <xmmintrin.h>
+
+/// \brief Puts the current CPU thread into a "relaxed" state.
+///
+/// This function is supposed to significantly improve the performance in situations like spinlocks when process spins
+/// in a tight loop waiting for a lock. The actual implementation is different on different platforms. For more details
+/// look for "Pause Intrinsic" for x86 version, and for "yield" assembly instruction documentation for Power platform.
+[[gnu::always_inline]]
+inline void cpu_relax() {
+    _mm_pause();
+}
+
+#elif defined(__PPC__)
+
+[[gnu::always_inline]]
+inline void cpu_relax() {
+    __asm__ volatile("yield");
+}
+
+#elif defined(__s390x__) || defined(__zarch__)
+
+// FIXME: there must be a better way
+[[gnu::always_inline]]
+inline void cpu_relax() {}
+
+#else
+
+[[gnu::always_inline]]
+inline void cpu_relax() {}
+#warn "Using an empty cpu_relax() for this architecture"
+
 #endif
 
-namespace seastar {
+
+}
 
 namespace util {
 
@@ -43,9 +77,7 @@ public:
     ~spinlock() { assert(!_busy.load(std::memory_order_relaxed)); }
     void lock() noexcept {
         while (_busy.exchange(true, std::memory_order_acquire)) {
-#if defined(__x86_64__) || defined(__i386__)
-            _mm_pause();
-#endif
+            internal::cpu_relax();
         }
     }
     void unlock() noexcept {
