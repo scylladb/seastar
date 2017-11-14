@@ -23,29 +23,33 @@
 #define HTTP_FILE_HANDLER_HH_
 
 #include "handlers.hh"
+#include "core/iostream.hh"
 
 namespace seastar {
 
 namespace httpd {
+
 /**
  * This is a base class for file transformer.
  *
  * File transformer adds the ability to modify a file content before returning
- * the results.
+ * the results, it acts as a factory class for output_stream.
  *
  * The transformer decides according to the file extension if transforming is
  * needed.
+ *
+ * If a transformation is needed it would create a new output stream from the given stream.
  */
 class file_transformer {
 public:
     /**
      * Any file transformer should implement this method.
-     * @param content the content to transform
      * @param req the request
      * @param extension the file extension originating the content
+     * returns a new output stream to be used when writing the file to the reply
      */
-    virtual void transform(sstring& content, const request& req,
-            const sstring& extension) = 0;
+    virtual output_stream<char> transform(std::unique_ptr<request> req,
+            const sstring& extension, output_stream<char>&& s) = 0;
 
     virtual ~file_transformer() = default;
 };
@@ -99,9 +103,12 @@ protected:
      * @param req the reuest
      * @param rep the reply
      */
-    future<std::unique_ptr<reply> > read(const sstring& file,
+    future<std::unique_ptr<reply> > read(sstring file,
             std::unique_ptr<request> req, std::unique_ptr<reply> rep);
     file_transformer* transformer;
+
+    output_stream<char> get_stream(std::unique_ptr<request> req,
+            const sstring& extension, output_stream<char>&& s);
 };
 
 /**

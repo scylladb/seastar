@@ -158,16 +158,71 @@ SEASTAR_TEST_CASE(test_routes) {
     });
 }
 
+/*!
+ * \brief a helper data sink that stores everything it gets in a stringstream
+ */
+class memory_data_sink_impl : public data_sink_impl {
+    std::stringstream& _ss;
+public:
+    memory_data_sink_impl(std::stringstream& ss) : _ss(ss) {
+    }
+    virtual future<> put(net::packet data)  override {
+        abort();
+        return make_ready_future<>();
+    }
+    virtual future<> put(temporary_buffer<char> buf) override {
+        _ss.write(buf.get(), buf.size());
+        return make_ready_future<>();
+    }
+    virtual future<> flush() override {
+        return make_ready_future<>();
+    }
+
+    virtual future<> close() override {
+        return make_ready_future<>();
+    }
+};
+
+class memory_data_sink : public data_sink {
+public:
+    memory_data_sink(std::stringstream& ss)
+        : data_sink(std::make_unique<memory_data_sink_impl>(ss)) {}
+};
+
+future<> test_transformer_stream(std::stringstream& ss, content_replace& cr, std::vector<sstring>&& buffer_parts) {
+    std::unique_ptr<seastar::httpd::request> req = std::make_unique<seastar::httpd::request>();
+    ss.str("");
+    req->_headers["Host"] = "localhost";
+    return do_with(output_stream<char>(cr.transform(std::move(req), "json", output_stream<char>(memory_data_sink(ss), 32000, true))),
+            std::vector<sstring>(std::move(buffer_parts)), [&ss, &cr] (output_stream<char>& os, std::vector<sstring>& parts) {
+        return do_for_each(parts, [&os](auto& p) {
+            return os.write(p);
+        }).then([&os, &ss] {
+            return os.close();
+        });
+    });
+}
+
 SEASTAR_TEST_CASE(test_transformer) {
-    request req;
-    content_replace cr("json");
-    sstring content = "hello-{{Protocol}}-xyz-{{Host}}";
-    cr.transform(content, req, "html");
-    BOOST_REQUIRE_EQUAL(content, "hello-{{Protocol}}-xyz-{{Host}}");
-    req._headers["Host"] = "localhost";
-    cr.transform(content, req, "json");
-    BOOST_REQUIRE_EQUAL(content, "hello-http-xyz-localhost");
-    return make_ready_future<>();
+    return do_with(std::stringstream(), content_replace("json"), [] (std::stringstream& ss, content_replace& cr) {
+        return do_with(output_stream<char>(cr.transform(std::make_unique<seastar::httpd::request>(), "html", output_stream<char>(memory_data_sink(ss), 32000, true))),
+                [&ss] (output_stream<char>& os) {
+            return os.write(sstring("hello-{{Protocol}}-xyz-{{Host}}")).then([&os] {
+                return os.close();
+            });
+        }).then([&ss, &cr] () {
+            BOOST_REQUIRE_EQUAL(ss.str(), "hello-{{Protocol}}-xyz-{{Host}}");
+            return test_transformer_stream(ss, cr, {"hell", "o-{", "{Pro", "tocol}}-xyz-{{Ho", "st}}{{Pr"}).then([&ss, &cr] {
+                BOOST_REQUIRE_EQUAL(ss.str(), "hello-http-xyz-localhost{{Pr");
+                return test_transformer_stream(ss, cr, {"hell", "o-{{", "Pro", "tocol}}{{Protocol}}-{{Protoxyz-{{Ho", "st}}{{Pr"}).then([&ss, &cr] {
+                    BOOST_REQUIRE_EQUAL(ss.str(), "hello-httphttp-{{Protoxyz-localhost{{Pr");
+                    return test_transformer_stream(ss, cr, {"hell", "o-{{Pro", "t{{Protocol}}ocol}}", "{{Host}}"}).then([&ss, &cr] {
+                        BOOST_REQUIRE_EQUAL(ss.str(), "hello-{{Prothttpocol}}localhost");
+                    });
+                });
+            });
+        });
+    });
 }
 
 struct http_consumer {

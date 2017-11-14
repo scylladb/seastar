@@ -496,4 +496,36 @@ output_stream<CharType>::detach() && {
     return std::move(_fd);
 }
 
+namespace internal {
+
+/// \cond internal
+template <typename CharType>
+struct stream_copy_consumer {
+private:
+    output_stream<CharType>& _os;
+    using unconsumed_remainder = std::experimental::optional<temporary_buffer<CharType>>;
+public:
+    stream_copy_consumer(output_stream<CharType>& os) : _os(os) {
+    }
+    future<unconsumed_remainder> operator()(temporary_buffer<CharType> data) {
+        if (data.empty()) {
+            return make_ready_future<unconsumed_remainder>(std::move(data));
+        }
+        return _os.write(data.get(), data.size()).then([] () {
+            return make_ready_future<unconsumed_remainder>();
+        });
+    }
+};
+/// \endcond
+
+}
+
+extern template struct internal::stream_copy_consumer<char>;
+
+template <typename CharType>
+future<> copy(input_stream<CharType>& in, output_stream<CharType>& out) {
+    return in.consume(internal::stream_copy_consumer<CharType>(out));
+}
+
+extern template future<> copy<char>(input_stream<char>&, output_stream<char>&);
 }
