@@ -15,6 +15,7 @@
 #include "loopback_socket.hh"
 #include <boost/algorithm/string.hpp>
 #include "core/thread.hh"
+#include "util/noncopyable_function.hh"
 
 using namespace seastar;
 using namespace httpd;
@@ -390,7 +391,7 @@ public:
         });
     }
 
-    static std::function<future<>(output_stream<char>&& o_stream)> make_writer(size_t len, bool success) {
+    static noncopyable_function<future<>(output_stream<char>&& o_stream)> make_writer(size_t len, bool success) {
         return [len, success] (output_stream<char>&& o_stream) mutable {
             return do_with(output_stream<char>(std::move(o_stream)), uint32_t(len/10), [success](output_stream<char>& str, uint32_t& remain) {
                 if (remain == 0) {
