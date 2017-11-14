@@ -98,8 +98,14 @@ class thread_context {
         void operator()(char *ptr) const noexcept;
     };
     using stack_holder = std::unique_ptr<char[], stack_deleter>;
+    static constexpr size_t base_stack_size = 128*1024;
+
     thread_attributes _attr;
-    static constexpr size_t _stack_size = 128*1024;
+#ifdef SEASTAR_THREAD_STACK_GUARDS
+    const size_t _stack_size;
+#else
+    static constexpr size_t _stack_size = base_stack_size;
+#endif
     stack_holder _stack{make_stack()};
     std::function<void ()> _func;
     jmp_buf_link _context;
@@ -127,7 +133,7 @@ private:
     static void s_main(int lo, int hi); // all parameters MUST be 'int' for makecontext
     void setup();
     void main();
-    static stack_holder make_stack();
+    stack_holder make_stack();
 public:
     thread_context(thread_attributes attr, std::function<void ()> func);
     ~thread_context();
