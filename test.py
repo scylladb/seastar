@@ -93,6 +93,9 @@ if __name__ == "__main__":
     black_hole = open('/dev/null', 'w')
     print_status = print_status_verbose if args.verbose else print_status_short
 
+    # Run on 2 shard - it should be enough
+    cpu_count = 2
+
     test_to_run = []
     modes_to_run = all_modes if not args.mode else [args.mode]
     for mode in modes_to_run:
@@ -102,7 +105,7 @@ if __name__ == "__main__":
         for test in boost_tests:
             test_to_run.append((os.path.join(prefix, test),'boost'))
         test_to_run.append(('tests/memcached/test.py --mode ' + mode + (' --fast' if args.fast else ''),'other'))
-        test_to_run.append((os.path.join(prefix, 'distributed_test') + ' -c 2','other'))
+        test_to_run.append((os.path.join(prefix, 'distributed_test'),'other'))
 
 
         allocator_test_path = os.path.join(prefix, 'allocator_test')
@@ -139,6 +142,17 @@ if __name__ == "__main__":
         if os.path.isfile('tmp.out'):
            os.remove('tmp.out')
         outf=open('tmp.out','w')
+
+        # Limit shards count
+        if test[1] == 'boost':
+            path = path + " -- --smp={}".format(cpu_count)
+        else:
+            if not re.search("tests/memcached/test.py", path):
+                if re.search("allocator_test", path) or re.search("fair_queue_test", path):
+                    path = path + " -- --smp={}".format(cpu_count)
+                else:
+                    path = path + " --smp={}".format(cpu_count)
+
         proc = subprocess.Popen(path.split(' '), stdout=outf, stderr=subprocess.PIPE, env=env,preexec_fn=os.setsid)
         signal.alarm(args.timeout)
         err = None
