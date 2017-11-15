@@ -55,8 +55,6 @@ boost_tests = [
 other_tests = [
     'smp_test',
     'timertest',
-    'distributed_test',
-    'allocator_test',
     'directory_test',
     'thread_context_switch',
     'fair_queue_test',
