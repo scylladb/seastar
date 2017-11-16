@@ -150,6 +150,9 @@ inline void jmp_buf_link::final_switch_out()
 
 thread_context::thread_context(thread_attributes attr, std::function<void ()> func)
         : _attr(std::move(attr))
+#ifdef SEASTAR_THREAD_STACK_GUARDS
+        , _stack_size(base_stack_size + getpagesize())
+#endif
         , _func(std::move(func))
         , _scheduling_group(_attr.sched_group.value_or(current_scheduling_group())) {
     setup();
@@ -199,7 +202,6 @@ thread_context::setup() {
 #ifdef SEASTAR_THREAD_STACK_GUARDS
     size_t page_size = getpagesize();
     assert(align_up(_stack.get(), page_size) == _stack.get());
-    assert(_stack_size > page_size * 4 && "Stack guard would take too much portion of the stack");
     auto mp_status = mprotect(_stack.get(), page_size, PROT_READ);
     throw_system_error_on(mp_status != 0, "mprotect");
 #endif

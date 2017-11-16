@@ -57,7 +57,14 @@ static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> c
                             auto f = in.read();
                             return f.then([](temporary_buffer<char> buf) {
                                 // std::cout << buf.get() << std::endl;
-                                BOOST_CHECK(strncmp(buf.get(), "HTTP/", 5) == 0);
+
+                                // Avoid passing a nullptr as an argument of strncmp().
+                                // If the temporary_buffer is empty (e.g. due to the underlying TCP connection
+                                // being reset) passing the buf.get() (which would be a nullptr) to strncmp()
+                                // causes a runtime error which masks the actual issue.
+                                if (buf) {
+                                    BOOST_CHECK(strncmp(buf.get(), "HTTP/", 5) == 0);
+                                }
                                 BOOST_CHECK(buf.size() > 8);
                             });
                         });
