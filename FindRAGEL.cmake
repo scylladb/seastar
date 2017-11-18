@@ -89,7 +89,7 @@ ${RAGEL_version_error}")
                 COMMAND ${RAGEL_EXECUTABLE}
                 ARGS    ${RAGEL_EXECUTABLE_opts} -o${Output} ${Input}
                 COMMAND sed
-                ARGS    -i -re 's/static const char _nfa[^;]*;//g' ${Output}
+                ARGS    -i -e '1h\;2,$$H\;$$!d\;g' -re 's/static const char _nfa[^\;]*\;//g' ${Output}
                 DEPENDS ${Input}
                 COMMENT
                 "[RAGEL][${Name}] Compiling state machine with Ragel ${RAGEL_VERSION}"

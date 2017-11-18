@@ -11,6 +11,7 @@ add_subdirectory(c-ares)
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_BINARY_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/fmt)
+include_directories(${PROJECT_BINARY_DIR}/c-ares)
 
 find_package(RAGEL 6.8 REQUIRED)
 
@@ -23,8 +24,6 @@ add_subdirectory(rpc)
 add_subdirectory(json)
 add_subdirectory(http)
 add_subdirectory(core)
-
-
 
 add_library(seastar $<TARGET_OBJECTS:net>
         $<TARGET_OBJECTS:util>
