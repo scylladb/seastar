@@ -59,6 +59,7 @@
 #include <vector>
 #include <cstddef>
 #include "exception_hacks.hh"
+#include "reactor.hh"
 
 namespace seastar {
 using dl_iterate_fn = int (*) (int (*callback) (struct dl_phdr_info *info, size_t size, void *data), void *data);
@@ -88,7 +89,7 @@ extern "C"
 [[gnu::visibility("default")]]
 [[gnu::externally_visible]]
 int dl_iterate_phdr(int (*callback) (struct dl_phdr_info *info, size_t size, void *data), void *data) {
-    if (!seastar::phdrs_cache.size()) {
+    if (!seastar::local_engine || !seastar::phdrs_cache.size()) {
         // Cache is not yet populated, pass through to original function
         return seastar::dl_iterate_phdr_org()(callback, data);
     }
