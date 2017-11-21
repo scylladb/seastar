@@ -273,11 +273,15 @@ tests = [
 apps = [
     'apps/httpd/httpd',
     'apps/seawreck/seawreck',
-    'apps/fair_queue_tester/fair_queue_tester',
+    'apps/io_tester/io_tester',
     'apps/memcached/memcached',
     'apps/iotune/iotune',
     'tests/scheduling_group_demo',
     ]
+
+extralibs = {
+    'apps/io_tester/io_tester': [ '-lyaml-cpp' ]
+}
 
 all_artifacts = apps + tests + ['libseastar.a', 'seastar.pc']
 
@@ -468,7 +472,7 @@ deps = {
     'tests/tls_test': ['tests/tls_test.cc'] + core + libnet,
     'tests/fair_queue_test': ['tests/fair_queue_test.cc'] + core,
     'apps/seawreck/seawreck': ['apps/seawreck/seawreck.cc', 'http/http_response_parser.rl'] + core + libnet,
-    'apps/fair_queue_tester/fair_queue_tester': ['apps/fair_queue_tester/fair_queue_tester.cc'] + core,
+    'apps/io_tester/io_tester': ['apps/io_tester/io_tester.cc'] + core,
     'apps/iotune/iotune': ['apps/iotune/iotune.cc'] + ['core/resource.cc', 'core/fsqual.cc'],
     'tests/blkdiscard_test': ['tests/blkdiscard_test.cc'] + core,
     'tests/sstring_test': ['tests/sstring_test.cc'] + core,
@@ -868,21 +872,24 @@ with open(buildfile, 'w') as f:
                 f.write('build $builddir/{}/{}: ar.{} {}\n'.format(mode, binary, mode, str.join(' ', objs)))
             else:
                 libdeps = str.join(' ', ('$builddir/{}/{}'.format(mode, i) for i in built_libs))
-                extralibs = []
+                test_extralibs = []
                 if binary.startswith('tests/'):
                     if binary in boost_tests:
-                        extralibs += [maybe_static(args.staticboost, '-lboost_unit_test_framework')]
+                        test_extralibs += [maybe_static(args.staticboost, '-lboost_unit_test_framework')]
                     # Our code's debugging information is huge, and multiplied
                     # by many tests yields ridiculous amounts of disk space.
                     # So we strip the tests by default; The user can very
                     # quickly re-link the test unstripped by adding a "_g"
                     # to the test name, e.g., "ninja build/release/testname_g"
                     f.write('build $builddir/{}/{}: {}.{} {} | {} {}\n'.format(mode, binary, tests_link_rule, mode, str.join(' ', objs), dpdk_deps, libdeps))
-                    f.write('  extralibs = {}\n'.format(' '.join(extralibs)))
+                    f.write('  extralibs = {}\n'.format(' '.join(test_extralibs)))
                     f.write('build $builddir/{}/{}_g: link.{} {} | {} {}\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps, libdeps))
-                    f.write('  extralibs = {}\n'.format(' '.join(extralibs)))
+                    f.write('  extralibs = {}\n'.format(' '.join(test_extralibs)))
                 else:
                     f.write('build $builddir/{}/{}: link.{} {} | {} {} $builddir/{}/lib{}.a\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps, libdeps, mode, cares_lib))
+                    if binary in extralibs.keys():
+                        app_extralibs = extralibs[binary]
+                        f.write('  extralibs = {}\n'.format(' '.join(app_extralibs)))
 
             for src in srcs:
                 if src.endswith('.cc'):
