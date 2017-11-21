@@ -387,7 +387,17 @@ public:
         }
 
         return _file.dma_write(pos, p, buf_size, _options.io_priority_class).then(
-                [this, buf = std::move(buf), truncate] (size_t size) {
+                [this, pos, buf = std::move(buf), truncate, buf_size] (size_t size) mutable {
+            // short write handling
+            if (size < buf_size) {
+                buf.trim_front(size);
+                return do_put(pos + size, std::move(buf)).then([this, truncate] {
+                    if (truncate) {
+                        return _file.truncate(_pos);
+                    }
+                    return make_ready_future<>();
+                });
+            }
             if (truncate) {
                 return _file.truncate(_pos);
             }
