@@ -60,6 +60,10 @@ def set_one_mask(conf_file, mask):
     fwriteln(conf_file, mask)
 
 def distribute_irqs(irqs, cpu_mask):
+    # If IRQs' list is empty - do nothing
+    if not irqs:
+        return
+
     for i, mask in enumerate(run_hwloc_distrib(["{}".format(len(irqs)), '--single', '--restrict', cpu_mask])):
         set_one_mask("/proc/irq/{}/smp_affinity".format(irqs[i]), mask)
 
@@ -181,6 +185,8 @@ def learn_all_irqs_one(irq_conf_dir, irq2procline, xen_dev_name):
     # xen case
     if re.search("^xen:", modalias):
         return learn_irqs_from_proc_interrupts(xen_dev_name, irq2procline)
+
+    return []
 
 def get_irqs2procline_map():
     return { line.split(':')[0].lstrip().rstrip() : line for line in open('/proc/interrupts', 'r').readlines() }
