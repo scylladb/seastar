@@ -238,6 +238,9 @@ public:
             : basic_sstring(initialized_later(), std::distance(first, last)) {
         std::copy(first, last, begin());
     }
+    explicit basic_sstring(std::experimental::basic_string_view<char_type, traits_type> v)
+            : basic_sstring(v.data(), v.size()) {
+    }
     ~basic_sstring() noexcept {
         if (is_external()) {
             std::free(u.external.str);
