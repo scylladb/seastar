@@ -577,6 +577,9 @@ public:
     shard_id coordinator_of_shard(shard_id shard) const {
         return _io_topology[shard];
     }
+
+    future<> update_shares_for_class(io_priority_class pc, size_t new_shares);
+
     friend class reactor;
 };
 
@@ -857,6 +860,18 @@ public:
 
     io_priority_class register_one_priority_class(sstring name, uint32_t shares) {
         return io_queue::register_one_priority_class(std::move(name), shares);
+    }
+
+    /// \brief Updates the current amount of shares for a given priority class
+    ///
+    /// This can involve a cross-shard call if the I/O Queue that is responsible for
+    /// this class lives in a foreign shard.
+    ///
+    /// \param pc the priority class handle
+    /// \param shares the new shares value
+    /// \return a future that is ready when the share update is applied
+    future<> update_shares_for_class(io_priority_class pc, uint32_t shares) {
+        return _io_queue->update_shares_for_class(pc, shares);
     }
 
     void configure(boost::program_options::variables_map config);
