@@ -51,7 +51,11 @@ class priority_class {
     bool _queued = false;
 
     friend struct shared_ptr_no_esft<priority_class>;
-    explicit priority_class(uint32_t shares) : _shares(shares) {}
+    explicit priority_class(uint32_t shares) : _shares(std::max(shares, 1u)) {}
+
+    void update_shares(uint32_t shares) {
+        _shares = (std::max(shares, 1u));
+    }
 };
 /// \endcond
 
@@ -225,7 +229,7 @@ public:
     ///
     /// \param new_shares the new number of shares for this priority class
     static void update_shares(priority_class_ptr pc, uint32_t new_shares) {
-        pc->_shares = new_shares;
+        pc->update_shares(new_shares);
     }
 };
 /// @}
