@@ -4,108 +4,87 @@ dist: trusty
 sudo: required
 language: cpp
 compiler: gcc
+dependencies:
+    &seastar_deps [
+        "libaio-dev",
+        "ninja-build",
+        "ragel",
+        "libhwloc-dev",
+        "libnuma-dev",
+        "libpciaccess-dev",
+        "libcrypto++-dev",
+        "libboost1.55-all-dev",
+        "libxml2-dev",
+        "xfslibs-dev",
+        "libgnutls28-dev",
+        "liblz4-dev",
+        "libsctp-dev",
+        "make",
+        "libprotobuf-dev",
+        "protobuf-compiler",
+        "python3",
+        "libunwind8-dev",
+        "systemtap-sdt-dev",
+        "libtool",
+        "cmake",
+        "libyaml-cpp-dev"
+    ]
 matrix:
     include:
       # GCC 5, DPDK enabled
-      - env: DPDK_MODE="--enable-dpdk" GCC_VERSION="--compiler=g++-5"
+      - env: DPDK_MODE="--enable-dpdk" COMPILER="g++-5"
         addons: &gcc5
             apt:
                 sources:
                   - ubuntu-toolchain-r-test
                 packages:
-                  - libaio-dev
-                  - ninja-build
-                  - ragel
-                  - libhwloc-dev
-                  - libnuma-dev
-                  - libpciaccess-dev
-                  - libcrypto++-dev
-                  - libboost1.55-all-dev
-                  - libxml2-dev
-                  - xfslibs-dev
-                  - libgnutls28-dev
-                  - liblz4-dev
-                  - libsctp-dev
-                  - make
-                  - libprotobuf-dev
-                  - protobuf-compiler
-                  - python3
-                  - libunwind8-dev
-                  - systemtap-sdt-dev
-                  - libtool
-                  - cmake
+                  - *seastar_deps
                   - g++-5
 
       # GCC 6, DPDK enabled
-      - env: DPDK_MODE="--enable-dpdk" GCC_VERSION="--compiler=g++-6"
+      - env: DPDK_MODE="--enable-dpdk" COMPILER="g++-6"
         addons: &gcc6
             apt:
                 sources:
                   - ubuntu-toolchain-r-test
                 packages:
-                  - libaio-dev
-                  - ninja-build
-                  - ragel
-                  - libhwloc-dev
-                  - libnuma-dev
-                  - libpciaccess-dev
-                  - libcrypto++-dev
-                  - libboost1.55-all-dev
-                  - libxml2-dev
-                  - xfslibs-dev
-                  - libgnutls28-dev
-                  - liblz4-dev
-                  - libsctp-dev
-                  - make
-                  - libprotobuf-dev
-                  - protobuf-compiler
-                  - python3
-                  - libunwind8-dev
-                  - systemtap-sdt-dev
-                  - libtool
-                  - cmake
+                  - *seastar_deps
                   - g++-6
       # GCC 7, DPDK enabled
-      - env: DPDK_MODE="--enable-dpdk" GCC_VERSION="--compiler=g++-7"
+      - env: DPDK_MODE="--enable-dpdk" COMPILER="g++-7"
         addons: &gcc7
             apt:
                 sources:
                   - ubuntu-toolchain-r-test
                 packages:
-                  - libaio-dev
-                  - ninja-build
-                  - ragel
-                  - libhwloc-dev
-                  - libnuma-dev
-                  - libpciaccess-dev
-                  - libcrypto++-dev
-                  - libboost1.55-all-dev
-                  - libxml2-dev
-                  - xfslibs-dev
-                  - libgnutls28-dev
-                  - liblz4-dev
-                  - libsctp-dev
-                  - make
-                  - libprotobuf-dev
-                  - protobuf-compiler
-                  - python3
-                  - libunwind8-dev
-                  - systemtap-sdt-dev
-                  - libtool
-                  - cmake
+                  - *seastar_deps
                   - g++-7
       # GCC 5, DPDK disabled
-      - env: DPDK_MODE="" GCC_VERSION="--compiler=g++-5"
+      - env: DPDK_MODE="" COMPILER="g++-5"
         addons: *gcc5
       # GCC 6, DPDK disabled
-      - env: DPDK_MODE="" GCC_VERSION="--compiler=g++-6"
+      - env: DPDK_MODE="" COMPILER="g++-6"
         addons: *gcc6
       # GCC 7, DPDK disabled
-      - env: DPDK_MODE="" GCC_VERSION="--compiler=g++-7"
+      - env: DPDK_MODE="" COMPILER="g++-7"
         addons: *gcc7
+      # Clang 5.0, DPDK disabled
+      # Suppress unused lambda capture warning due to a Clang bug (see https://reviews.llvm.org/rL296602)
+      # Need gg++-5 to bring up-to-date libstdc++ in
+      - env: DPDK_MODE="" COMPILER="clang-5.0" CFLAGS="-Wno-unused-lambda-capture"
+        compiler: clang
+        addons: &clang50
+            apt:
+                sources:
+                  - ubuntu-toolchain-r-test
+                  - llvm-toolchain-trusty-5.0
+                packages:
+                  - *seastar_deps
+                  - clang-5.0
+                  - g++-5
 
 before_script:
-  - ./configure.py --mode=release ${DPDK_MODE} ${GCC_VERSION}
+  - ./configure.py --mode=release ${DPDK_MODE} --compiler=${COMPILER} --cflags=${CFLAGS}
 
 script:
   - ninja -j`nproc --all`
