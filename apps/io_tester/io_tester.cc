@@ -58,6 +58,17 @@ static constexpr uint64_t file_data_size = 1ull << 30;
 struct context;
 enum class request_type { seqread, seqwrite, randread, randwrite, append };
 
+namespace std {
+
+template <>
+struct hash<request_type> {
+    size_t operator() (const request_type& type) const {
+        return static_cast<size_t>(type);
+    }
+};
+
+}
+
 struct byte_size {
     uint64_t size;
 };
@@ -124,18 +135,18 @@ public:
     future<> issue_requests(std::chrono::steady_clock::time_point stop) {
         _start = std::chrono::steady_clock::now();
         return parallel_for_each(boost::irange(0u, parallelism()), [this, stop] (auto dummy) mutable {
-            auto bufptr = allocate_aligned_buffer<char>(req_size(), _alignment);
+            auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
             auto buf = bufptr.get();
             return do_until([this, stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf] () mutable {
                 auto start = std::chrono::steady_clock::now();
                 future<size_t> fut = make_ready_future<size_t>(0);
-                if (is_read()) {
-                    fut = _file.dma_read(get_pos(), buf, req_size(), _iop);
+                if (this->is_read()) {
+                    fut = _file.dma_read(this->get_pos(), buf, this->req_size(), _iop);
                 } else {
-                    fut = _file.dma_write(get_pos(), buf, req_size(), _iop);
+                    fut = _file.dma_write(this->get_pos(), buf, this->req_size(), _iop);
                 }
                 return fut.then([this, start] (auto size) {
-                    add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start));
+                    this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start));
                     return seastar::sleep(std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.think_time));
                 });
             }).finally([bufptr = std::move(bufptr)] {});
@@ -169,7 +180,7 @@ public:
                             memset(buf, fill(random_generator), bufsize);
                             pos = pos * bufsize;
                             return _file.dma_write(pos, buf, bufsize).finally([this, bufsize, bufptr = std::move(bufptr), perm = std::move(perm), pos] {
-                                if ((request_type() == request_type::append) && (pos > _last_pos)) {
+                                if ((this->req_type() == request_type::append) && (pos > _last_pos)) {
                                     _last_pos = pos;
                                 }
                             }).discard_result();
@@ -183,7 +194,7 @@ public:
     }
 protected:
     sstring type_str() const {
-        return std::unordered_map<::request_type, sstring>{
+        return std::unordered_map<request_type, sstring>{
             { request_type::seqread, "SEQ READ" },
             { request_type::seqwrite, "SEQ WRITE" },
             { request_type::randread, "RAND READ" },
@@ -196,7 +207,7 @@ protected:
         return _config.name;
     }
 
-    ::request_type request_type() const {
+    request_type req_type() const {
         return _config.type;
     }
 
@@ -241,14 +252,14 @@ protected:
     }
 private:
     bool is_sequential() const {
-        return (request_type() == request_type::seqread) || (request_type() == request_type::seqwrite);
+        return (req_type() == request_type::seqread) || (req_type() == request_type::seqwrite);
     }
     bool is_random() const {
-        return (request_type() == request_type::randread) || (request_type() == request_type::randwrite);
+        return (req_type() == request_type::randread) || (req_type() == request_type::randwrite);
     }
 
     bool is_read() const {
-        return (request_type() == request_type::randread) || (request_type() == request_type::seqread);
+        return (req_type() == request_type::randread) || (req_type() == request_type::seqread);
     }
 
     uint64_t get_pos() {
