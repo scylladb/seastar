@@ -149,10 +149,10 @@ int main(int ac, char** av) {
                     run_compute_intensive_tasks(sg20, var_fn(done), 3, ctr20, light_task),
                     run_compute_intensive_tasks_in_threads(sg50, var_fn(done), 2, ctr50, medium_task)
                     ).get();
-            print("%10s %15s %10s %12s\n", "shares", "task_time (us)", "executed", "runtime (ms)");
-            print("%10d %15d %10d %12d\n", 100, 1000, ctr100, ctr100 * 1000 / 1000);
-            print("%10d %15d %10d %12d\n", 20, 100, ctr20, ctr20 * 100 / 1000);
-            print("%10d %15d %10d %12d\n", 50, 400, ctr50, ctr50 * 400 / 1000);
+            print("%10s %15s %10s %12s %8s\n", "shares", "task_time (us)", "executed", "runtime (ms)", "vruntime");
+            print("%10d %15d %10d %12d %8.2f\n", 100, 1000, ctr100, ctr100 * 1000 / 1000, ctr100 * 1000 / 1000 / 100.);
+            print("%10d %15d %10d %12d %8.2f\n", 20, 100, ctr20, ctr20 * 100 / 1000, ctr20 * 100 / 1000 / 20.);
+            print("%10d %15d %10d %12d %8.2f\n", 50, 400, ctr50, ctr50 * 400 / 1000, ctr50 * 400 / 1000 / 50.);
             print("\n");
 
             print("running two scheduling groups with 100%%/50%% duty cycles (period=1s:\n");
@@ -165,9 +165,9 @@ int main(int ac, char** av) {
                         return run_compute_intensive_tasks(sg100, done, 4, ctr100_2, heavy_task);
                     })
             ).get();
-            print("%10s %10s %15s %10s %12s\n", "shares", "duty", "task_time (us)", "executed", "runtime (ms)");
-            print("%10d %10d %15d %10d %12d\n", 100, 50, 1000, ctr100_2, ctr100_2 * 1000 / 1000);
-            print("%10d %10d %15d %10d %12d\n", 50, 100, 400, ctr50_2, ctr50_2 * 1000 / 1000);
+            print("%10s %10s %15s %10s %12s %8s\n", "shares", "duty", "task_time (us)", "executed", "runtime (ms)", "vruntime");
+            print("%10d %10d %15d %10d %12d %8.2f\n", 100, 50, 1000, ctr100_2, ctr100_2 * 1000 / 1000, ctr100_2 * 1000 / 1000 / 100.);
+            print("%10d %10d %15d %10d %12d %8.2f\n", 50, 100, 400, ctr50_2, ctr50_2 * 1000 / 1000, ctr50_2 * 1000 / 1000 / 50.);
 
             return 0;
         });
