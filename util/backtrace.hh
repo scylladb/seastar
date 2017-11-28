@@ -27,6 +27,7 @@
 #include <boost/container/static_vector.hpp>
 
 #include "core/sstring.hh"
+#include "core/print.hh"
 
 namespace seastar {
 
@@ -111,5 +112,48 @@ namespace seastar {
 
 saved_backtrace current_backtrace() noexcept;
 std::ostream& operator<<(std::ostream& out, const saved_backtrace& b);
+
+namespace internal {
+
+template<class Exc>
+class backtraced : public Exc {
+    std::shared_ptr<sstring> _backtrace;
+public:
+    template<typename... Args>
+    backtraced(Args&&... args)
+            : Exc(std::forward<Args>(args)...)
+            , _backtrace(std::make_shared<sstring>(sprint("%s Backtrace: %s", Exc::what(), current_backtrace()))) {}
+
+    /**
+     * Returns the original exception message with a backtrace appended to it
+     *
+     * @return original exception message followed by a backtrace
+     */
+    virtual const char* what() const noexcept override {
+        assert(_backtrace);
+        return _backtrace->c_str();
+    }
+};
+
+}
+
+    /**
+     * Throws an exception of unspecified type that is derived from the Exc type
+     * with a backtrace attached to its message
+     *
+     * @tparam Exc exception type to be caught at the receiving side
+     * @tparam Args types of arguments forwarded to the constructor of Exc
+     * @param args arguments forwarded to the constructor of Exc
+     * @return never returns (throws an exception)
+     */
+template <class Exc, typename... Args>
+[[noreturn]]
+void
+throw_with_backtrace(Args&&... args) {
+    using exc_type = std::decay_t<Exc>;
+    static_assert(std::is_base_of<std::exception, exc_type>::value,
+            "throw_with_backtrace only works with exception types");
+    throw internal::backtraced<exc_type>(std::forward<Args>(args)...);
+};
 
 }
