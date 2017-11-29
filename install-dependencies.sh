@@ -38,13 +38,24 @@ if [ "$ID" = "ubuntu" ] || [ "$ID" = "debian" ]; then
 elif [ "$ID" = "centos" ] || [ "$ID" = "fedora" ]; then
     if [ "$ID" = "centos" ]; then
         yum install -y epel-release
-        curl -o /etc/yum.repos.d/scylla-1.2.repo http://downloads.scylladb.com/rpm/centos/scylla-1.2.repo
+        cat > /etc/yum.repos.d/scylladb-copr.repo <<EOF
+[scylladb-scylla-3rdparty]
+name=Copr repo for scylla-3rdparty owned by scylladb
+baseurl=https://copr-be.cloud.fedoraproject.org/results/scylladb/scylla-3rdparty/epel-7-x86_64/
+type=rpm-md
+skip_if_unavailable=True
+gpgcheck=1
+gpgkey=https://copr-be.cloud.fedoraproject.org/results/scylladb/scylla-3rdparty/pubkey.gpg
+repo_gpgcheck=0
+enabled=1
+enabled_metadata=1
+EOF
     fi
     yum install -y libaio-devel hwloc-devel numactl-devel libpciaccess-devel cryptopp-devel libxml2-devel xfsprogs-devel gnutls-devel lksctp-tools-devel lz4-devel gcc make protobuf-devel protobuf-compiler libunwind-devel systemtap-sdt-devel libtool cmake yaml-cpp-devel
     if [ "$ID" = "fedora" ]; then
         dnf install -y gcc-c++ ninja-build ragel boost-devel libubsan libasan
     else # centos
-        yum install -y scylla-binutils scylla-gcc-c++ scylla-ninja-build scylla-ragel scylla-boost-devel scylla-libubsan scylla-libasan scylla-libstdc++-static python34
+        yum install -y scylla-binutils scylla-gcc72-c++ scylla-ninja-build scylla-ragel scylla-boost163-devel scylla-libubsan scylla-libasan scylla-libstdc++72-static python34
         echo "g++-5 is installed for Seastar. To build Seastar with g++-5, specify '--compiler=/opt/scylladb/bin/g++ --static-stdc++' on configure.py"
         echo "Before running ninja-build, execute following command: . /etc/profile.d/scylla.sh"
     fi
