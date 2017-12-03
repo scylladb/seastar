@@ -94,6 +94,13 @@ public:
     static sstring to_json(int n);
 
     /**
+     * return a json formated unsigned
+     * @param n the unsigned to format
+     * @return the given unsigned in a json format
+     */
+    static sstring to_json(unsigned n);
+
+    /**
      * return a json formated long
      * @param n the long to format
      * @return the given long in a json format

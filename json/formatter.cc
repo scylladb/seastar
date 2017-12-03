@@ -61,6 +61,10 @@ sstring formatter::to_json(int n) {
     return to_string(n);
 }
 
+sstring formatter::to_json(unsigned n) {
+    return to_string(n);
+}
+
 sstring formatter::to_json(long n) {
     return to_string(n);
 }
