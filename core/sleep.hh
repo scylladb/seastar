@@ -25,6 +25,7 @@
 #include <chrono>
 #include <functional>
 
+#include "core/abort_source.hh"
 #include "core/future.hh"
 #include "core/lowres_clock.hh"
 #include "core/reactor.hh"
@@ -75,5 +76,19 @@ future<> sleep_abortable(typename Clock::duration dur);
 
 extern template future<> sleep_abortable<steady_clock_type>(typename steady_clock_type::duration);
 extern template future<> sleep_abortable<lowres_clock>(typename lowres_clock::duration);
+
+/// Returns a future which completes after a specified time has elapsed
+/// or throws \ref sleep_aborted exception if the sleep is aborted.
+///
+/// \param dur minimum amount of time before the returned future becomes
+///            ready.
+/// \param as the \ref abort_source that eventually notifies that the sleep
+///            should be aborted.
+/// \return A \ref future which becomes ready when the sleep duration elapses.
+template <typename Clock = steady_clock_type>
+future<> sleep_abortable(typename Clock::duration dur, abort_source& as);
+
+extern template future<> sleep_abortable<steady_clock_type>(typename steady_clock_type::duration, abort_source&);
+extern template future<> sleep_abortable<lowres_clock>(typename lowres_clock::duration, abort_source&);
 
 }
