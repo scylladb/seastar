@@ -203,7 +203,7 @@ using stop_iteration = bool_class<stop_iteration_tag>;
 template<typename AsyncAction>
 GCC6_CONCEPT( requires seastar::ApplyReturns<AsyncAction, stop_iteration> || seastar::ApplyReturns<AsyncAction, future<stop_iteration>> )
 inline
-future<> repeat(AsyncAction&& action) {
+future<> repeat(AsyncAction action) {
     using futurator = futurize<std::result_of_t<AsyncAction()>>;
     static_assert(std::is_same<future<stop_iteration>, typename futurator::type>::value, "bad AsyncAction signature");
 
@@ -212,11 +212,11 @@ future<> repeat(AsyncAction&& action) {
             auto f = futurator::apply(action);
 
             if (!f.available()) {
-                return f.then([action = std::forward<AsyncAction>(action)] (stop_iteration stop) mutable {
+                return f.then([action = std::move(action)] (stop_iteration stop) mutable {
                     if (stop == stop_iteration::yes) {
                         return make_ready_future<>();
                     } else {
-                        return repeat(std::forward<AsyncAction>(action));
+                        return repeat(std::move(action));
                     }
                 });
             }
@@ -228,8 +228,8 @@ future<> repeat(AsyncAction&& action) {
 
         promise<> p;
         auto f = p.get_future();
-        schedule(make_task([action = std::forward<AsyncAction>(action), p = std::move(p)]() mutable {
-            repeat(std::forward<AsyncAction>(action)).forward_to(std::move(p));
+        schedule(make_task([action = std::move(action), p = std::move(p)]() mutable {
+            repeat(std::move(action)).forward_to(std::move(p));
         }));
         return f;
     } catch (...) {
@@ -279,7 +279,7 @@ GCC6_CONCEPT( requires requires (AsyncAction aa) {
     aa().get0().value();
 } )
 repeat_until_value_return_type<AsyncAction>
-repeat_until_value(AsyncAction&& action) {
+repeat_until_value(AsyncAction action) {
     using type_helper = repeat_until_value_type_helper<std::result_of_t<AsyncAction()>>;
     // the "T" in the documentation
     using value_type = typename type_helper::value_type;
@@ -289,11 +289,11 @@ repeat_until_value(AsyncAction&& action) {
         auto f = futurator::apply(action);
 
         if (!f.available()) {
-            return f.then([action = std::forward<AsyncAction>(action)] (auto&& optional) mutable {
+            return f.then([action = std::move(action)] (auto&& optional) mutable {
                 if (optional) {
                     return make_ready_future<value_type>(std::move(optional.value()));
                 } else {
-                    return repeat_until_value(std::forward<AsyncAction>(action));
+                    return repeat_until_value(std::move(action));
                 }
             });
         }
@@ -311,8 +311,8 @@ repeat_until_value(AsyncAction&& action) {
     try {
         promise<value_type> p;
         auto f = p.get_future();
-        schedule(make_task([action = std::forward<AsyncAction>(action), p = std::move(p)] () mutable {
-            repeat_until_value(std::forward<AsyncAction>(action)).forward_to(std::move(p));
+        schedule(make_task([action = std::move(action), p = std::move(p)] () mutable {
+            repeat_until_value(std::move(action)).forward_to(std::move(p));
         }));
         return f;
     } catch (...) {
@@ -367,8 +367,8 @@ future<> do_until(StopCondition stop_cond, AsyncAction action) {
 template<typename AsyncAction>
 GCC6_CONCEPT( requires seastar::ApplyReturns<AsyncAction, future<>> )
 inline
-future<> keep_doing(AsyncAction&& action) {
-    return repeat([action = std::forward<AsyncAction>(action)] () mutable {
+future<> keep_doing(AsyncAction action) {
+    return repeat([action = std::move(action)] () mutable {
         return action().then([] {
             return stop_iteration::no;
         });
@@ -390,7 +390,7 @@ future<> keep_doing(AsyncAction&& action) {
 template<typename Iterator, typename AsyncAction>
 GCC6_CONCEPT( requires requires (Iterator i, AsyncAction aa) { { aa(*i) } -> future<> } )
 inline
-future<> do_for_each(Iterator begin, Iterator end, AsyncAction&& action) {
+future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) {
     if (begin == end) {
         return make_ready_future<>();
     }
@@ -401,9 +401,9 @@ future<> do_for_each(Iterator begin, Iterator end, AsyncAction&& action) {
             return f;
         }
         if (!f.available() || need_preempt()) {
-            return std::move(f).then([action = std::forward<AsyncAction>(action),
+            return std::move(f).then([action = std::move(action),
                     begin = std::move(begin), end = std::move(end)] () mutable {
-                return do_for_each(std::move(begin), std::move(end), std::forward<AsyncAction>(action));
+                return do_for_each(std::move(begin), std::move(end), std::move(action));
             });
         }
         if (f.failed()) {
@@ -426,8 +426,8 @@ future<> do_for_each(Iterator begin, Iterator end, AsyncAction&& action) {
 template<typename Container, typename AsyncAction>
 GCC6_CONCEPT( requires requires (Container c, AsyncAction aa) { { aa(*c.begin()) } -> future<> } )
 inline
-future<> do_for_each(Container& c, AsyncAction&& action) {
-    return do_for_each(std::begin(c), std::end(c), std::forward<AsyncAction>(action));
+future<> do_for_each(Container&& c, AsyncAction action) {
+    return do_for_each(std::begin(c), std::end(c), std::move(action));
 }
 
 /// \cond internal
