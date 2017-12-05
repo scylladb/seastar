@@ -203,37 +203,18 @@ input_stream<CharType>::consume(Consumer&& consumer) {
                 return make_ready_future<stop_iteration>(stop_iteration::no);
             });
         }
-        future<unconsumed_remainder> unconsumed = consumer(std::move(_buf));
-        if (unconsumed.available()) {
-            unconsumed_remainder u = std::get<0>(unconsumed.get());
+        return consumer(std::move(_buf)).then([this] (unconsumed_remainder u) {
             if (u) {
                 // consumer is done
                 _buf = std::move(u.value());
                 return make_ready_future<stop_iteration>(stop_iteration::yes);
             }
-            if (_eof) {
-                return make_ready_future<stop_iteration>(stop_iteration::yes);
-            }
             // If we're here, consumer consumed entire buffer and is ready for
             // more now. So we do not return, and rather continue the loop.
-            // TODO: if we did too many iterations, schedule a call to
-            // consume() instead of continuing the loop.
-            return make_ready_future<stop_iteration>(stop_iteration::no);
-        } else {
-            // TODO: here we wait for the consumer to finish the previous
-            // buffer (fulfilling "unconsumed") before starting to read the
-            // next one. Consider reading ahead.
-            return unconsumed.then([this] (unconsumed_remainder u) {
-                if (u) {
-                    // consumer is done
-                    _buf = std::move(u.value());
-                    return make_ready_future<stop_iteration>(stop_iteration::yes);
-                } else {
-                    // consumer consumed entire buffer, and is ready for more
-                    return make_ready_future<stop_iteration>(stop_iteration::no);
-                }
-            });
-        }
+            //
+            // If we're at eof, we should stop.
+            return make_ready_future<stop_iteration>(stop_iteration(_eof));
+        });
     });
 }
 
