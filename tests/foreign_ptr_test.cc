@@ -24,6 +24,7 @@
 #include "core/distributed.hh"
 #include "core/shared_ptr.hh"
 #include "core/thread.hh"
+#include "core/sleep.hh"
 
 using namespace seastar;
 
@@ -46,5 +47,64 @@ SEASTAR_TEST_CASE(foreign_ptr_copy_test) {
         BOOST_REQUIRE(ptr->size() == 3);
         auto ptr2 = ptr.copy().get0();
         BOOST_REQUIRE(ptr2->size() == 3);
+    });
+}
+
+SEASTAR_TEST_CASE(foreign_ptr_get_test) {
+    auto p = make_foreign(std::make_unique<sstring>("foo"));
+    BOOST_REQUIRE_EQUAL(p.get(), &*p);
+    return make_ready_future<>();
+};
+
+SEASTAR_TEST_CASE(foreign_ptr_release_test) {
+    auto p = make_foreign(std::make_unique<sstring>("foo"));
+    auto raw_ptr = p.get();
+    BOOST_REQUIRE(bool(p));
+    BOOST_REQUIRE(p->size() == 3);
+    auto released_p = p.release();
+    BOOST_REQUIRE(!bool(p));
+    BOOST_REQUIRE(released_p->size() == 3);
+    BOOST_REQUIRE_EQUAL(raw_ptr, released_p.get());
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(foreign_ptr_reset_test) {
+    auto fp = make_foreign(std::make_unique<sstring>("foo"));
+    BOOST_REQUIRE(bool(fp));
+    BOOST_REQUIRE(fp->size() == 3);
+
+    fp.reset(std::make_unique<sstring>("foobar"));
+    BOOST_REQUIRE(bool(fp));
+    BOOST_REQUIRE(fp->size() == 6);
+
+    fp.reset();
+    BOOST_REQUIRE(!bool(fp));
+    return make_ready_future<>();
+}
+
+class dummy {
+    unsigned _cpu;
+public:
+    dummy() : _cpu(engine().cpu_id()) { }
+    ~dummy() { BOOST_REQUIRE_EQUAL(_cpu, engine().cpu_id()); }
+};
+
+SEASTAR_TEST_CASE(foreign_ptr_cpu_test) {
+    if (smp::count == 1) {
+        std::cerr << "Skipping multi-cpu foreign_ptr tests. Run with --smp=2 to test multi-cpu delete and reset.";
+        return make_ready_future<>();
+    }
+
+    using namespace std::chrono_literals;
+
+    return seastar::async([] {
+        auto p = smp::submit_to(1, [] {
+            return make_foreign(std::make_unique<dummy>());
+        }).get0();
+
+        p.reset(std::make_unique<dummy>());
+    }).then([] {
+        // Let ~foreign_ptr() take its course. RIP dummy.
+        return seastar::sleep(100ms);
     });
 }

@@ -573,11 +573,16 @@ private:
     PtrType _value;
     unsigned _cpu;
 private:
-    bool on_origin() {
-        return engine().cpu_id() == _cpu;
+    void destroy(PtrType p, unsigned cpu) {
+        if (p && engine().cpu_id() != cpu) {
+            smp::submit_to(cpu, [v = std::move(p)] () mutable {
+                auto local(std::move(v));
+            });
+        }
     }
 public:
     using element_type = typename std::pointer_traits<PtrType>::element_type;
+    using pointer = element_type*;
 
     /// Constructs a null \c foreign_ptr<>.
     foreign_ptr()
@@ -598,11 +603,7 @@ public:
     foreign_ptr(foreign_ptr&& other) = default;
     /// Destroys the wrapped object on its original cpu.
     ~foreign_ptr() {
-        if (_value && !on_origin()) {
-            smp::submit_to(_cpu, [v = std::move(_value)] () mutable {
-                auto local(std::move(v));
-            });
-        }
+        destroy(std::move(_value), _cpu);
     }
     /// Creates a copy of this foreign ptr. Only works if the stored ptr is copyable.
     future<foreign_ptr> copy() const {
@@ -615,10 +616,43 @@ public:
     element_type& operator*() const { return *_value; }
     /// Accesses the wrapped object.
     element_type* operator->() const { return &*_value; }
+    /// Access the raw pointer to the wrapped object.
+    pointer get() const { return &*_value; }
+    /// Return the owner-shard of this pointer.
+    ///
+    /// The owner shard of the pointer can change as a result of
+    /// move-assigment or a call to reset().
+    unsigned get_owner_shard() { return _cpu; }
     /// Checks whether the wrapped pointer is non-null.
     operator bool() const { return static_cast<bool>(_value); }
     /// Move-assigns a \c foreign_ptr<>.
     foreign_ptr& operator=(foreign_ptr&& other) = default;
+    /// Releases the owned pointer
+    ///
+    /// Warning: the caller is now responsible for destroying the
+    /// pointer on its owner shard. This method is best called on the
+    /// owner shard to avoid accidents.
+    PtrType release() {
+        return std::exchange(_value, {});
+    }
+    /// Replace the managed pointer with new_ptr.
+    ///
+    /// The previous managed pointer is destroyed on its owner shard.
+    void reset(PtrType new_ptr) {
+        auto old_ptr = std::move(_value);
+        auto old_cpu = _cpu;
+
+        _value = std::move(new_ptr);
+        _cpu = engine().cpu_id();
+
+        destroy(std::move(old_ptr), old_cpu);
+    }
+    /// Replace the managed pointer with a null value.
+    ///
+    /// The previous managed pointer is destroyed on its owner shard.
+    void reset(std::nullptr_t = nullptr) {
+        reset(PtrType());
+    }
 };
 
 /// Wraps a raw or smart pointer object in a \ref foreign_ptr<>.
