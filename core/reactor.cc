@@ -1099,15 +1099,6 @@ io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_
     });
 }
 
-void
-io_queue::update_shares_for_class(const io_priority_class& pc, size_t new_shares) {
-    smp::submit_to(_coordinator, [&pc, owner = engine().cpu_id(), new_shares] {
-        auto& queue = *(engine()._io_queue);
-        auto& pclass = queue.find_or_create_class(pc, owner);
-        queue._fq.update_shares(pclass.ptr, new_shares);
-    });
-}
-
 file_impl* file_impl::get_file_impl(file& f) {
     return f._file_impl.get();
 }
