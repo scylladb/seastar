@@ -268,6 +268,7 @@ tests = [
     'tests/tls_simple_client',
     'tests/circular_buffer_fixed_capacity_test',
     'tests/noncopyable_function_test',
+    'tests/netconfig_test',
     ]
 
 apps = [
@@ -341,6 +342,7 @@ libnet = [
     'net/dhcp.cc',
     'net/tls.cc',
     'net/dns.cc',
+    'net/config.cc',
     ]
 
 core = [
@@ -412,7 +414,7 @@ libs = ' '.join(['-laio',
                               '-lboost_program_options -lboost_system -lboost_filesystem'),
                  '-lstdc++ -lm',
                  maybe_static(args.staticboost, '-lboost_thread'),
-                 '-lcryptopp -lrt -lgnutls -lgnutlsxx -llz4 -lprotobuf -ldl -lgcc_s -lunwind',
+                 '-lcryptopp -lrt -lgnutls -lgnutlsxx -llz4 -lprotobuf -ldl -lgcc_s -lunwind -lyaml-cpp',
                  ])
 
 boost_unit_test_lib = maybe_static(args.staticboost, '-lboost_unit_test_framework')
@@ -506,6 +508,7 @@ deps = {
     'tests/circular_buffer_fixed_capacity_test': ['tests/circular_buffer_fixed_capacity_test.cc'],
     'tests/scheduling_group_demo': ['tests/scheduling_group_demo.cc'] + core,
     'tests/noncopyable_function_test': ['tests/noncopyable_function_test.cc'],
+    'tests/netconfig_test': ['tests/netconfig_test.cc'] + core + libnet,
 }
 
 boost_tests = [
@@ -872,7 +875,7 @@ with open(buildfile, 'w') as f:
                 f.write('build $builddir/{}/{}: ar.{} {}\n'.format(mode, binary, mode, str.join(' ', objs)))
             else:
                 libdeps = str.join(' ', ('$builddir/{}/{}'.format(mode, i) for i in built_libs))
-                test_extralibs = []
+                test_extralibs = ['-lyaml-cpp']
                 if binary.startswith('tests/'):
                     if binary in boost_tests:
                         test_extralibs += [maybe_static(args.staticboost, '-lboost_unit_test_framework')]
