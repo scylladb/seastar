@@ -383,7 +383,7 @@ By using unique_ptr in this way, the caller passes an object to the function, bu
 seastar::future<int> slow_do_something(std::unique_ptr<T> obj) {
     using namespace std::chrono_literals;
     // The following line won't compile...
-    return seastar::sleep(10ms).then([obj] { return do_something(std::move(obj))});
+    return seastar::sleep(10ms).then([obj] () mutable { return do_something(std::move(obj)); });
 }
 ```
 
@@ -391,22 +391,19 @@ The problem is that a unique_ptr cannot be passed into a continuation by value, 
 ```cpp
 seastar::future<int> slow_do_something(std::unique_ptr<T> obj) {
     using namespace std::chrono_literals;
-    return seastar::sleep(10ms).then([obj = std::move(obj)] {
-        return do_something(std::move(obj))});
+    return seastar::sleep(10ms).then([obj = std::move(obj)] () mutable {
+        return do_something(std::move(obj));
+    });
 }
 ```
 Here the use of `std::move()` causes obj's move-assignment is used to move the object from the outer function into the continuation. The notion of move (*move semantics*), introduced in C++11, is similar to a shallow copy followed by invalidating the source copy (so that the two copies do not co-exist, as forbidden by unique_ptr). After moving obj into the continuation, the top-level function can no longer use it (in this case it's of course ok, because we return anyway).
 
 The `[obj = ...]` capture syntax we used here is new to C++14. This is the main reason why Seastar requires C++14, and does not support older C++11 compilers.
 
+The extra `() mutable` syntax was needed here because by default when C++ captures a value (in this case, the value of std::move(obj)) into a lambda, it makes this value read-only, so our lambda cannot, in this example, move it again. Adding `mutable` removes this artificial restriction.
+
 ## Chaining continuations
-We already saw chaining example in slow() above. TODO: talk about the return from then, and returning a future and chaining more thens.
-
-## Lifetime
-
-TODO: Talk about how we can't capture a reference to a local variable (the continuation runs when the local variable is gone). Take about *move*ing a variable into a continuation, about why with a chain of continuations it is difficult to move it between them so we have do_with, and also explain why lw_shared_ptr is very useful for this purpose.
-
-TODO: Make a simple example (object containing int i, us calling a "slow" method on this object doing "sleep 1; return i" needing the object to exist 1 second later). move is enough. But if we need to call two methods? Show two idiomatic solutions: do_with and lw_shared_ptr.
+TODO: We already saw chaining example in slow() above. talk about the return from then, and returning a future and chaining more thens.
 
 # Handling exceptions
 
