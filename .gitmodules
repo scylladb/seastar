@@ -1,9 +1,9 @@
 [submodule "dpdk"]
 	path = dpdk
-	url = ../dpdk
+	url = https://github.com/scylladb/dpdk.git
 [submodule "fmt"]
 	path = fmt
-	url = ../fmt
+	url = https://github.com/scylladb/fmt.git
 [submodule "c-ares"]
 	path = c-ares
-	url = ../c-ares
+	url = https://github.com/scylladb/c-ares.git
