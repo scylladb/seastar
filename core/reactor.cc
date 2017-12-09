@@ -1048,7 +1048,10 @@ io_queue::priority_class_data::priority_class_data(sstring name, priority_class_
             sm::make_queue_length(name + sstring("_queue_length"), nr_queued, sm::description("Number of requests in the queue"), {io_queue_shard(shard), sm::shard_label(owner)}),
             sm::make_gauge(name + sstring("_delay"), [this] {
                 return queue_time.count();
-            }, sm::description("total delay time in the queue"), {io_queue_shard(shard), sm::shard_label(owner)})
+            }, sm::description("total delay time in the queue"), {io_queue_shard(shard), sm::shard_label(owner)}),
+            sm::make_gauge(name + sstring("_shares"), [this] {
+                return this->ptr->shares();
+            }, sm::description("current amount of shares"), {io_queue_shard(shard), sm::shard_label(owner)})
     });
 }
 
