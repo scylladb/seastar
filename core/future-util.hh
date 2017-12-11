@@ -36,6 +36,7 @@
 #include <vector>
 #include <experimental/optional>
 #include "util/tuple_utils.hh"
+#include "util/noncopyable_function.hh"
 
 namespace seastar {
 
@@ -191,6 +192,81 @@ parallel_for_each(Range&& range, Func&& func) {
 struct stop_iteration_tag { };
 using stop_iteration = bool_class<stop_iteration_tag>;
 
+/// \cond internal
+
+namespace internal {
+
+template <typename AsyncAction>
+class repeater final : public continuation_base<stop_iteration> {
+    promise<> _promise;
+    AsyncAction _action;
+public:
+    explicit repeater(AsyncAction action) : _action(std::move(action)) {}
+    repeater(stop_iteration si, AsyncAction action) : repeater(std::move(action)) {
+        _state.set(std::make_tuple(si));
+    }
+    future<> get_future() { return _promise.get_future(); }
+    virtual void run_and_dispose() noexcept override {
+        std::unique_ptr<repeater> zis{this};
+        if (_state.failed()) {
+            _promise.set_exception(_state.get_exception());
+            return;
+        } else {
+            if (std::get<0>(_state.get()) == stop_iteration::yes) {
+                _promise.set_value();
+                return;
+            }
+            _state = {};
+        }
+        try {
+            do {
+                auto f = _action();
+                if (!f.available()) {
+                    internal::set_callback(f, std::move(zis));
+                    return;
+                }
+                if (f.get0() == stop_iteration::yes) {
+                    _promise.set_value();
+                    return;
+                }
+            } while (!need_preempt());
+        } catch (...) {
+            _promise.set_exception(std::current_exception());
+            return;
+        }
+        _state.set(stop_iteration::no);
+        schedule(std::move(zis));
+    }
+};
+
+template <typename AsyncAction, bool ReturnsFuture = true>
+struct futurized_action_helper {
+    using type = AsyncAction;
+};
+
+template <typename AsyncAction>
+struct futurized_action_helper<AsyncAction, false> {
+    struct wrapper {
+        AsyncAction action;
+        using orig_ret = std::result_of_t<AsyncAction()>;
+        explicit wrapper(AsyncAction&& action) : action(std::move(action)) {}
+        futurize_t<orig_ret> operator()() const {
+            return futurize<orig_ret>::convert(action());
+        };
+    };
+    using type = wrapper;
+};
+
+template <typename AsyncAction>
+struct futurized_action {
+    using type = typename futurized_action_helper<AsyncAction, is_future<std::result_of_t<AsyncAction()>>::value>::type;
+};
+
+
+}
+
+/// \endcond
+
 /// Invokes given action until it fails or the function requests iteration to stop by returning
 /// \c stop_iteration::yes.
 ///
@@ -206,19 +282,18 @@ inline
 future<> repeat(AsyncAction action) {
     using futurator = futurize<std::result_of_t<AsyncAction()>>;
     static_assert(std::is_same<future<stop_iteration>, typename futurator::type>::value, "bad AsyncAction signature");
-
+    using futurized_action_type = typename internal::futurized_action<AsyncAction>::type;
+    auto futurized_action = futurized_action_type(std::move(action));
     try {
         do {
-            auto f = futurator::apply(action);
+            // Do not type-erase here in case this is a short repeat()
+            auto f = futurized_action();
 
             if (!f.available()) {
-                return f.then([action = std::move(action)] (stop_iteration stop) mutable {
-                    if (stop == stop_iteration::yes) {
-                        return make_ready_future<>();
-                    } else {
-                        return repeat(std::move(action));
-                    }
-                });
+                auto repeater = std::make_unique<internal::repeater<futurized_action_type>>(std::move(futurized_action));
+                auto ret = repeater->get_future();
+                internal::set_callback(f, std::move(repeater));
+                return ret;
             }
 
             if (f.get0() == stop_iteration::yes) {
@@ -226,12 +301,10 @@ future<> repeat(AsyncAction action) {
             }
         } while (!need_preempt());
 
-        promise<> p;
-        auto f = p.get_future();
-        schedule(make_task([action = std::move(action), p = std::move(p)]() mutable {
-            repeat(std::move(action)).forward_to(std::move(p));
-        }));
-        return f;
+        auto repeater = std::make_unique<internal::repeater<futurized_action_type>>(stop_iteration::no, std::move(futurized_action));
+        auto ret = repeater->get_future();
+        schedule(std::move(repeater));
+        return ret;
     } catch (...) {
         return make_exception_future(std::current_exception());
     }
@@ -262,6 +335,55 @@ template <typename AsyncAction>
 using repeat_until_value_return_type
         = typename repeat_until_value_type_helper<std::result_of_t<AsyncAction()>>::future_type;
 
+namespace internal {
+
+template <typename AsyncAction, typename T>
+class repeat_until_value_state final : public continuation_base<std::experimental::optional<T>> {
+    promise<T> _promise;
+    AsyncAction _action;
+public:
+    explicit repeat_until_value_state(AsyncAction action) : _action(std::move(action)) {}
+    repeat_until_value_state(std::experimental::optional<T> st, AsyncAction action) : repeat_until_value_state(std::move(action)) {
+        this->_state.set(std::make_tuple(std::move(st)));
+    }
+    future<T> get_future() { return _promise.get_future(); }
+    virtual void run_and_dispose() noexcept override {
+        std::unique_ptr<repeat_until_value_state> zis{this};
+        if (this->_state.failed()) {
+            _promise.set_exception(std::move(this->_state).get_exception());
+            return;
+        } else {
+            auto v = std::get<0>(std::move(this->_state).get());
+            if (v) {
+                _promise.set_value(std::move(*v));
+                return;
+            }
+            this->_state = {};
+        }
+        try {
+            do {
+                auto f = _action();
+                if (!f.available()) {
+                    internal::set_callback(f, std::move(zis));
+                    return;
+                }
+                auto ret = f.get0();
+                if (ret) {
+                    _promise.set_value(std::make_tuple(std::move(*ret)));
+                    return;
+                }
+            } while (!need_preempt());
+        } catch (...) {
+            _promise.set_exception(std::current_exception());
+            return;
+        }
+        this->_state.set(std::experimental::nullopt);
+        schedule(std::move(zis));
+    }
+};
+
+}
+    
 /// Invokes given action until it fails or the function requests iteration to stop by returning
 /// an engaged \c future<std::experimental::optional<T>>.  The value is extracted from the
 /// \c optional, and returned, as a future, from repeat_until_value().
@@ -284,18 +406,16 @@ repeat_until_value(AsyncAction action) {
     // the "T" in the documentation
     using value_type = typename type_helper::value_type;
     using optional_type = typename type_helper::optional_type;
-    using futurator = futurize<typename type_helper::future_optional_type>;
+    using futurized_action_type = typename internal::futurized_action<AsyncAction>::type;
+    auto futurized_action = futurized_action_type(std::move(action));
     do {
-        auto f = futurator::apply(action);
+        auto f = futurized_action();
 
         if (!f.available()) {
-            return f.then([action = std::move(action)] (auto&& optional) mutable {
-                if (optional) {
-                    return make_ready_future<value_type>(std::move(optional.value()));
-                } else {
-                    return repeat_until_value(std::move(action));
-                }
-            });
+            auto state = std::make_unique<internal::repeat_until_value_state<futurized_action_type, value_type>>(std::move(futurized_action));
+            auto ret = state->get_future();
+            internal::set_callback(f, std::move(state));
+            return ret;
         }
 
         if (f.failed()) {
@@ -309,17 +429,60 @@ repeat_until_value(AsyncAction action) {
     } while (!need_preempt());
 
     try {
-        promise<value_type> p;
-        auto f = p.get_future();
-        schedule(make_task([action = std::move(action), p = std::move(p)] () mutable {
-            repeat_until_value(std::move(action)).forward_to(std::move(p));
-        }));
+        auto state = std::make_unique<internal::repeat_until_value_state<futurized_action_type, value_type>>(std::experimental::nullopt, std::move(futurized_action));
+        auto f = state->get_future();
+        schedule(std::move(state));
         return f;
     } catch (...) {
         return make_exception_future<value_type>(std::current_exception());
     }
 }
 
+namespace internal {
+
+template <typename StopCondition, typename AsyncAction>
+class do_until_state final : public continuation_base<> {
+    promise<> _promise;
+    StopCondition _stop;
+    AsyncAction _action;
+public:
+    explicit do_until_state(StopCondition stop, AsyncAction action) : _stop(std::move(stop)), _action(std::move(action)) {}
+    future<> get_future() { return _promise.get_future(); }
+    virtual void run_and_dispose() noexcept override {
+        std::unique_ptr<do_until_state> zis{this};
+        if (_state.available()) {
+            if (_state.failed()) {
+                _state.forward_to(_promise);
+                return;
+            }
+            _state = {}; // allow next cycle to overrun state
+        }
+        try {
+            do {
+                if (_stop()) {
+                    _promise.set_value();
+                    return;
+                }
+                auto f = _action();
+                if (!f.available()) {
+                    internal::set_callback(f, std::move(zis));
+                    return;
+                }
+                if (f.failed()) {
+                    f.forward_to(std::move(_promise));
+                    return;
+                }
+            } while (!need_preempt());
+        } catch (...) {
+            _promise.set_exception(std::current_exception());
+            return;
+        }
+        schedule(std::move(zis));
+    }
+};
+
+}
+    
 /// Invokes given action until it fails or given condition evaluates to true.
 ///
 /// \param stop_cond a callable taking no arguments, returning a boolean that
@@ -334,6 +497,7 @@ template<typename AsyncAction, typename StopCondition>
 GCC6_CONCEPT( requires seastar::ApplyReturns<StopCondition, bool> && seastar::ApplyReturns<AsyncAction, future<>> )
 inline
 future<> do_until(StopCondition stop_cond, AsyncAction action) {
+    using namespace internal;
     using futurator = futurize<void>;
     do {
         if (stop_cond()) {
@@ -341,19 +505,18 @@ future<> do_until(StopCondition stop_cond, AsyncAction action) {
         }
         auto f = futurator::apply(action);
         if (!f.available()) {
-            return f.then([stop_cond = std::move(stop_cond), action = std::move(action)] () mutable {
-                return do_until(std::move(stop_cond), std::move(action));
-            });
+            auto task = std::make_unique<do_until_state<StopCondition, AsyncAction>>(std::move(stop_cond), std::move(action));
+            auto ret = task->get_future();
+            internal::set_callback(f, std::move(task));
+            return ret;
         }
         if (f.failed()) {
             return f;
         }
     } while (!need_preempt());
-    promise<> pr;
-    auto f = pr.get_future();
-    schedule(make_task([pr = std::move(pr), stop_cond = std::move(stop_cond), action = std::move(action)] () mutable {
-        do_until(std::move(stop_cond), std::move(action)).forward_to(std::move(pr));
-    }));
+    auto task = std::make_unique<do_until_state<StopCondition, AsyncAction>>(std::move(stop_cond), std::move(action));
+    auto f = task->get_future();
+    schedule(std::move(task));
     return f;
 }
 

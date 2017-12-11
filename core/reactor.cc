@@ -2428,8 +2428,8 @@ void reactor::run_tasks(task_queue& tq) {
         auto tsk = std::move(tasks.front());
         tasks.pop_front();
         STAP_PROBE(seastar, reactor_run_tasks_single_start);
-        tsk->run();
-        tsk.reset();
+        tsk->run_and_dispose();
+        tsk.release();
         STAP_PROBE(seastar, reactor_run_tasks_single_end);
         ++tq._tasks_processed;
         // check at end of loop, to allow at least one task to run
@@ -3102,11 +3102,12 @@ private:
     poller* _p;
 public:
     explicit registration_task(poller* p) : _p(p) {}
-    virtual void run() noexcept override {
+    virtual void run_and_dispose() noexcept override {
         if (_p) {
             engine().register_poller(_p->_pollfn.get());
             _p->_registration_task = nullptr;
         }
+        delete this;
     }
     void cancel() {
         _p = nullptr;
@@ -3121,8 +3122,9 @@ private:
     std::unique_ptr<pollfn> _p;
 public:
     explicit deregistration_task(std::unique_ptr<pollfn>&& p) : _p(std::move(p)) {}
-    virtual void run() noexcept override {
+    virtual void run_and_dispose() noexcept override {
         engine().unregister_poller(_p.get());
+        delete this;
     }
 };
 

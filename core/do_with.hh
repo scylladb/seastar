@@ -22,11 +22,48 @@
 #pragma once
 
 #include "apply.hh"
+#include "future.hh"
 #include <utility>
 #include <memory>
 #include <tuple>
 
 namespace seastar {
+
+
+/// \cond internal
+
+namespace internal {
+
+
+// Given a future type, find the corresponding continuation_base.
+template <typename Future>
+struct continuation_base_from_future;
+
+template <typename... T>
+struct continuation_base_from_future<future<T...>> {
+    using type = continuation_base<T...>;
+};
+
+template <typename HeldState, typename Future>
+class do_with_state final : public continuation_base_from_future<Future>::type {
+    HeldState _held;
+    typename Future::promise_type _pr;
+public:
+    explicit do_with_state(HeldState&& held) : _held(std::move(held)) {}
+    virtual void run_and_dispose() noexcept override {
+        std::move(this->_state).forward_to(_pr);
+        delete this;
+    }
+    HeldState& data() {
+        return _held;
+    }
+    Future get_future() {
+        return _pr.get_future();
+    }
+};
+
+}
+/// \endcond
 
 /// \addtogroup future-util
 /// @{
@@ -53,11 +90,14 @@ namespace seastar {
 template<typename T, typename F>
 inline
 auto do_with(T&& rvalue, F&& f) {
-    auto obj = std::make_unique<T>(std::forward<T>(rvalue));
-    auto fut = f(*obj);
-    return fut.then_wrapped([obj = std::move(obj)] (auto&& fut) {
-        return std::move(fut);
-    });
+    auto task = std::make_unique<internal::do_with_state<T, std::result_of_t<F(T&)>>>(std::forward<T>(rvalue));
+    auto fut = f(task->data());
+    if (fut.available()) {
+        return fut;
+    }
+    auto ret = task->get_future();
+    internal::set_callback(fut, std::move(task));
+    return ret;
 }
 
 /// \cond internal
@@ -106,11 +146,16 @@ do_with(T1&& rv1, T2&& rv2, T3_or_F&& rv3, More&&... more) {
     using idx = std::make_index_sequence<nr>;
     auto&& just_values = cherry_pick_tuple(idx(), std::move(all));
     auto&& just_func = std::move(std::get<nr>(std::move(all)));
-    auto obj = std::make_unique<std::remove_reference_t<decltype(just_values)>>(std::move(just_values));
-    auto fut = apply(just_func, *obj);
-    return fut.then_wrapped([obj = std::move(obj)] (auto&& fut) {
-        return std::move(fut);
-    });
+    using value_tuple = std::remove_reference_t<decltype(just_values)>;
+    using ret_type = decltype(apply(just_func, just_values));
+    auto task = std::make_unique<internal::do_with_state<value_tuple, ret_type>>(std::move(just_values));
+    auto fut = apply(just_func, task->data());
+    if (fut.available()) {
+        return fut;
+    }
+    auto ret = task->get_future();
+    internal::set_callback(fut, std::move(task));
+    return ret;
 }
 
 /// @}
