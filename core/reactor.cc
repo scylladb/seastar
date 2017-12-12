@@ -1048,7 +1048,10 @@ io_queue::priority_class_data::priority_class_data(sstring name, priority_class_
             sm::make_queue_length(name + sstring("_queue_length"), nr_queued, sm::description("Number of requests in the queue"), {io_queue_shard(shard), sm::shard_label(owner)}),
             sm::make_gauge(name + sstring("_delay"), [this] {
                 return queue_time.count();
-            }, sm::description("total delay time in the queue"), {io_queue_shard(shard), sm::shard_label(owner)})
+            }, sm::description("total delay time in the queue"), {io_queue_shard(shard), sm::shard_label(owner)}),
+            sm::make_gauge(name + sstring("_shares"), [this] {
+                return this->ptr->shares();
+            }, sm::description("current amount of shares"), {io_queue_shard(shard), sm::shard_label(owner)})
     });
 }
 
@@ -1096,6 +1099,15 @@ io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_
             pclass.queue_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start);
             return engine().submit_io(std::move(prepare_io));
         });
+    });
+}
+
+future<>
+io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares) {
+    return smp::submit_to(_coordinator, [pc, owner = engine().cpu_id(), new_shares] {
+        auto& queue = *(engine()._io_queue);
+        auto& pclass = queue.find_or_create_class(pc, owner);
+        queue._fq.update_shares(pclass.ptr, new_shares);
     });
 }
 

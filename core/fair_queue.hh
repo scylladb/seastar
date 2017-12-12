@@ -56,6 +56,11 @@ class priority_class {
     void update_shares(uint32_t shares) {
         _shares = (std::max(shares, 1u));
     }
+public:
+    /// \brief return the current amount of shares for this priority class
+    uint32_t shares() const {
+        return _shares;
+    }
 };
 /// \endcond
 
