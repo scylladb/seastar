@@ -26,6 +26,7 @@
 #include "future-util.hh"
 #include "net/packet.hh"
 #include "core/future-util.hh"
+#include "util/variant_utils.hh"
 
 namespace seastar {
 
@@ -203,17 +204,25 @@ input_stream<CharType>::consume(Consumer&& consumer) {
                 return make_ready_future<stop_iteration>(stop_iteration::no);
             });
         }
-        return consumer(std::move(_buf)).then([this] (unconsumed_remainder u) {
-            if (u) {
+        return consumer(std::move(_buf)).then([this] (consumption_result_type result) {
+            return visit(result.get(), [this] (const continue_consuming&) {
+               // If we're here, consumer consumed entire buffer and is ready for
+                // more now. So we do not return, and rather continue the loop.
+                //
+                // If we're at eof, we should stop.
+                return make_ready_future<stop_iteration>(stop_iteration(this->_eof));
+            }, [this] (stop_consuming<CharType>& stop) {
                 // consumer is done
-                _buf = std::move(u.value());
+                this->_buf = std::move(stop.get_buffer());
                 return make_ready_future<stop_iteration>(stop_iteration::yes);
-            }
-            // If we're here, consumer consumed entire buffer and is ready for
-            // more now. So we do not return, and rather continue the loop.
-            //
-            // If we're at eof, we should stop.
-            return make_ready_future<stop_iteration>(stop_iteration(_eof));
+            }, [this] (const skip_bytes& skip) {
+                return this->_fd.skip(skip.get_value()).then([this](tmp_buf buf) {
+                    if (!buf.empty()) {
+                        this->_buf = std::move(buf);
+                    }
+                    return make_ready_future<stop_iteration>(stop_iteration::no);
+                });
+            });
         });
     });
 }

@@ -46,6 +46,7 @@ struct writer {
 struct reader {
     input_stream<char> in;
     reader(file f) : in(make_file_input_stream(std::move(f))) {}
+    reader(file f, file_input_stream_options options) : in(make_file_input_stream(std::move(f), std::move(options))) {}
 };
 
 SEASTAR_TEST_CASE(test_fstream) {
@@ -101,6 +102,74 @@ SEASTAR_TEST_CASE(test_fstream) {
         });
 
     return sem->wait();
+}
+
+SEASTAR_TEST_CASE(test_consume_skip_bytes) {
+    return seastar::async([] {
+        auto f = open_file_dma("testfile.tmp",
+                               open_flags::rw | open_flags::create | open_flags::truncate).get0();
+        auto w = make_lw_shared<writer>(std::move(f));
+        auto write_block = [w] (char c, size_t size) {
+            std::vector<char> vec(size, c);
+            w->out.write(&vec.front(), vec.size()).get();
+        };
+        write_block('a', 8192);
+        write_block('b', 8192);
+        w->out.close().get();
+        /*  file content after running the above:
+         * 00000000  61 61 61 61 61 61 61 61  61 61 61 61 61 61 61 61  |aaaaaaaaaaaaaaaa|
+         * *
+         * 00002000  62 62 62 62 62 62 62 62  62 62 62 62 62 62 62 62  |bbbbbbbbbbbbbbbb|
+         * *
+         * 00004000
+         */
+        f = open_file_dma("testfile.tmp", open_flags::ro).get0();
+        auto r = make_lw_shared<reader>(std::move(f), file_input_stream_options{512});
+        struct consumer {
+            uint64_t _count = 0;
+            using consumption_result_type = typename input_stream<char>::consumption_result_type;
+            using stop_consuming_type = typename consumption_result_type::stop_consuming_type;
+            using tmp_buf = stop_consuming_type::tmp_buf;
+
+            /*
+             * Consumer reads the file as follows:
+             *  - first 8000 bytes are read in 512-byte chunks and checked
+             *  - next 2000 bytes are skipped (jumping over both read buffer size and DMA block)
+             *  - the remaining 6384 bytes are read and checked
+             */
+            future<consumption_result_type> operator()(tmp_buf buf) {
+                if (_count < 8000) {
+                    auto delta = std::min(buf.size(), 8000 - _count);
+                    for (auto c : buf.share(0, delta)) {
+                        BOOST_REQUIRE_EQUAL(c, 'a');
+                    }
+                    buf.trim_front(delta);
+                    _count += delta;
+
+                    if (_count == 8000) {
+                        return make_ready_future<consumption_result_type>(skip_bytes{2000 - buf.size()});
+                    } else {
+                        assert(buf.empty());
+                        return make_ready_future<consumption_result_type>(continue_consuming{});
+                    }
+                    return make_ready_future<consumption_result_type>(continue_consuming{});
+                } else {
+                    for (auto c : buf) {
+                        BOOST_REQUIRE_EQUAL(c, 'b');
+                    }
+                    _count += buf.size();
+                    if (_count < 14384) {
+                        return make_ready_future<consumption_result_type>(continue_consuming{});
+                    } else if (_count > 14384) {
+                        BOOST_FAIL("Read more than expected");
+                    }
+                    return make_ready_future<consumption_result_type>(stop_consuming_type({}));
+                }
+            }
+        };
+        r->in.consume(consumer{}).get();
+        r->in.close().get();
+    });
 }
 
 SEASTAR_TEST_CASE(test_fstream_unaligned) {
