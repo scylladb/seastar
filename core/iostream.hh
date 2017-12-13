@@ -164,6 +164,37 @@ private:
     consumption_variant _result;
 };
 
+// Consumer concept, for consume() method
+GCC6_CONCEPT(
+// The consumer should operate on the data given to it, and
+// return a future "consumption result", which can be
+//  - continue_consuming, if the consumer has consumed all the input given
+// to it and is ready for more
+//  - stop_consuming, when the consumer is done (and in that case
+// the contained buffer is the unconsumed part of the last data buffer - this
+// can also happen to be empty).
+//  - skip_bytes, when the consumer has consumed all the input given to it
+// and wants to skip before processing the next chunk
+//
+// For backward compatibility reasons, we also support the deprecated return value
+// of type "unconsumed remainder" which can be
+//  - empty optional, if the consumer consumed all the input given to it
+// and is ready for more
+//  - non-empty optional, when the consumer is done (and in that case
+// the value is the unconsumed part of the last data buffer - this
+// can also happen to be empty).
+
+template <typename Consumer, typename CharType>
+concept bool InputStreamConsumer = requires (Consumer c) {
+    { c(temporary_buffer<CharType>{}) } -> future<consumption_result<CharType>>;
+};
+
+template <typename Consumer, typename CharType>
+concept bool ObsoleteInputStreamConsumer = requires (Consumer c) {
+    { c(temporary_buffer<CharType>{}) } -> future<stdx::optional<temporary_buffer<CharType>>>;
+};
+)
+
 template <typename CharType>
 class input_stream final {
     static_assert(sizeof(CharType) == 1, "must buffer stream of bytes");
@@ -186,8 +217,12 @@ public:
     input_stream(input_stream&&) = default;
     input_stream& operator=(input_stream&&) = default;
     future<temporary_buffer<CharType>> read_exactly(size_t n);
-    template <typename Consumer> future<> consume(Consumer&& c);
-    template <typename Consumer> future<> consume(Consumer& c);
+    template <typename Consumer>
+    GCC6_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
+    future<> consume(Consumer&& c);
+    template <typename Consumer>
+    GCC6_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
+    future<> consume(Consumer& c);
     bool eof() { return _eof; }
     /// Returns some data from the stream, or an empty buffer on end of
     /// stream.

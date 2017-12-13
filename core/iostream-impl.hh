@@ -194,6 +194,7 @@ input_stream<CharType>::read_exactly(size_t n) {
 
 template <typename CharType>
 template <typename Consumer>
+GCC6_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
 future<>
 input_stream<CharType>::consume(Consumer&& consumer) {
     return repeat([consumer = std::move(consumer), this] () mutable {
@@ -229,6 +230,7 @@ input_stream<CharType>::consume(Consumer&& consumer) {
 
 template <typename CharType>
 template <typename Consumer>
+GCC6_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
 future<>
 input_stream<CharType>::consume(Consumer& consumer) {
     return consume(std::ref(consumer));
