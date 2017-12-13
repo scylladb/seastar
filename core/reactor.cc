@@ -2665,17 +2665,6 @@ public:
 
 class reactor::smp_pollfn final : public reactor::pollfn {
     reactor& _r;
-    struct aligned_flag {
-        std::atomic<bool> flag;
-        char pad[cache_line_size-sizeof(flag)];
-        bool try_lock() {
-            return !flag.exchange(true, std::memory_order_relaxed);
-        }
-        void unlock() {
-            flag.store(false, std::memory_order_relaxed);
-        }
-    };
-    static aligned_flag _membarrier_lock;
 public:
     smp_pollfn(reactor& r) : _r(r) {}
     virtual bool poll() final override {
@@ -2687,12 +2676,12 @@ public:
     virtual bool try_enter_interrupt_mode() override {
         // systemwide_memory_barrier() is very slow if run concurrently,
         // so don't go to sleep if it is running now.
-        if (!_membarrier_lock.try_lock()) {
+        _r._sleeping.store(true, std::memory_order_relaxed);
+        bool barrier_done = try_systemwide_memory_barrier();
+        if (!barrier_done) {
+            _r._sleeping.store(false, std::memory_order_relaxed);
             return false;
         }
-        _r._sleeping.store(true, std::memory_order_relaxed);
-        systemwide_memory_barrier();
-        _membarrier_lock.unlock();
         if (poll()) {
             // raced
             _r._sleeping.store(false, std::memory_order_relaxed);
@@ -2748,8 +2737,6 @@ public:
     }
 };
 
-
-alignas(cache_line_size) reactor::smp_pollfn::aligned_flag reactor::smp_pollfn::_membarrier_lock;
 
 class reactor::epoll_pollfn final : public reactor::pollfn {
     reactor& _r;

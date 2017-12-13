@@ -20,9 +20,11 @@
  */
 
 #include "systemwide_memory_barrier.hh"
+#include "cacheline.hh"
 #include <sys/mman.h>
 #include <unistd.h>
 #include <cassert>
+#include <atomic>
 
 namespace seastar {
 
@@ -48,6 +50,26 @@ systemwide_memory_barrier() {
     // FIXME: does this work on ARM?
     int r2 = mprotect(mem, getpagesize(), PROT_READ);
     assert(r2 == 0);
+}
+
+struct alignas(cache_line_size) aligned_flag {
+    std::atomic<bool> flag;
+    bool try_lock() {
+        return !flag.exchange(true, std::memory_order_relaxed);
+    }
+    void unlock() {
+        flag.store(false, std::memory_order_relaxed);
+    }
+};
+static aligned_flag membarrier_lock;
+
+bool try_systemwide_memory_barrier() {
+    if (!membarrier_lock.try_lock()) {
+        return false;
+    }
+    systemwide_memory_barrier();
+    membarrier_lock.unlock();
+    return true;
 }
 
 }
