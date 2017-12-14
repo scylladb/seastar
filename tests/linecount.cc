@@ -32,7 +32,10 @@ using namespace seastar;
 
 struct reader {
 public:
-    reader(file f) : is(make_file_input_stream(std::move(f))) {}
+    reader(file f)
+            : is(make_file_input_stream(std::move(f), file_input_stream_options{1 << 16, 1})) {
+    }
+
     input_stream<char> is;
     size_t count = 0;
 
@@ -61,6 +64,7 @@ int main(int ac, char** av) {
             auto r = make_shared<reader>(std::move(f));
             return r->is.consume(*r).then([r] {
                print("%d lines\n", r->count);
+               return r->is.close().then([r] {});
             });
         }).then_wrapped([] (future<> f) -> future<int> {
             try {

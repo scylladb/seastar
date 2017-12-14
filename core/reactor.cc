@@ -1048,7 +1048,10 @@ io_queue::priority_class_data::priority_class_data(sstring name, priority_class_
             sm::make_queue_length(name + sstring("_queue_length"), nr_queued, sm::description("Number of requests in the queue"), {io_queue_shard(shard), sm::shard_label(owner)}),
             sm::make_gauge(name + sstring("_delay"), [this] {
                 return queue_time.count();
-            }, sm::description("total delay time in the queue"), {io_queue_shard(shard), sm::shard_label(owner)})
+            }, sm::description("total delay time in the queue"), {io_queue_shard(shard), sm::shard_label(owner)}),
+            sm::make_gauge(name + sstring("_shares"), [this] {
+                return this->ptr->shares();
+            }, sm::description("current amount of shares"), {io_queue_shard(shard), sm::shard_label(owner)})
     });
 }
 
@@ -1096,6 +1099,15 @@ io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_
             pclass.queue_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start);
             return engine().submit_io(std::move(prepare_io));
         });
+    });
+}
+
+future<>
+io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares) {
+    return smp::submit_to(_coordinator, [pc, owner = engine().cpu_id(), new_shares] {
+        auto& queue = *(engine()._io_queue);
+        auto& pclass = queue.find_or_create_class(pc, owner);
+        queue._fq.update_shares(pclass.ptr, new_shares);
     });
 }
 
@@ -2428,8 +2440,8 @@ void reactor::run_tasks(task_queue& tq) {
         auto tsk = std::move(tasks.front());
         tasks.pop_front();
         STAP_PROBE(seastar, reactor_run_tasks_single_start);
-        tsk->run();
-        tsk.reset();
+        tsk->run_and_dispose();
+        tsk.release();
         STAP_PROBE(seastar, reactor_run_tasks_single_end);
         ++tq._tasks_processed;
         // check at end of loop, to allow at least one task to run
@@ -2653,17 +2665,6 @@ public:
 
 class reactor::smp_pollfn final : public reactor::pollfn {
     reactor& _r;
-    struct aligned_flag {
-        std::atomic<bool> flag;
-        char pad[cache_line_size-sizeof(flag)];
-        bool try_lock() {
-            return !flag.exchange(true, std::memory_order_relaxed);
-        }
-        void unlock() {
-            flag.store(false, std::memory_order_relaxed);
-        }
-    };
-    static aligned_flag _membarrier_lock;
 public:
     smp_pollfn(reactor& r) : _r(r) {}
     virtual bool poll() final override {
@@ -2675,12 +2676,12 @@ public:
     virtual bool try_enter_interrupt_mode() override {
         // systemwide_memory_barrier() is very slow if run concurrently,
         // so don't go to sleep if it is running now.
-        if (!_membarrier_lock.try_lock()) {
+        _r._sleeping.store(true, std::memory_order_relaxed);
+        bool barrier_done = try_systemwide_memory_barrier();
+        if (!barrier_done) {
+            _r._sleeping.store(false, std::memory_order_relaxed);
             return false;
         }
-        _r._sleeping.store(true, std::memory_order_relaxed);
-        systemwide_memory_barrier();
-        _membarrier_lock.unlock();
         if (poll()) {
             // raced
             _r._sleeping.store(false, std::memory_order_relaxed);
@@ -2736,8 +2737,6 @@ public:
     }
 };
 
-
-alignas(cache_line_size) reactor::smp_pollfn::aligned_flag reactor::smp_pollfn::_membarrier_lock;
 
 class reactor::epoll_pollfn final : public reactor::pollfn {
     reactor& _r;
@@ -3102,11 +3101,12 @@ private:
     poller* _p;
 public:
     explicit registration_task(poller* p) : _p(p) {}
-    virtual void run() noexcept override {
+    virtual void run_and_dispose() noexcept override {
         if (_p) {
             engine().register_poller(_p->_pollfn.get());
             _p->_registration_task = nullptr;
         }
+        delete this;
     }
     void cancel() {
         _p = nullptr;
@@ -3121,8 +3121,9 @@ private:
     std::unique_ptr<pollfn> _p;
 public:
     explicit deregistration_task(std::unique_ptr<pollfn>&& p) : _p(std::move(p)) {}
-    virtual void run() noexcept override {
+    virtual void run_and_dispose() noexcept override {
         engine().unregister_poller(_p.get());
+        delete this;
     }
 };
 

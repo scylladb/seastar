@@ -1,4 +1,19 @@
 #!/usr/bin/env python
+
+# C++ Code generation utility from Swagger definitions.
+# This utility support Both the swagger 1.2 format
+#    https://github.com/OAI/OpenAPI-Specification/blob/master/versions/1.2.md
+# And the 2.0 format
+#    https://github.com/OAI/OpenAPI-Specification/blob/master/versions/2.0.md
+# 
+# Swagger 2.0 is not only different in its structure (apis have moved, and
+# models are now under definitions) It also moved from multiple file structure
+# to a single file.
+# To keep the multiple file support, each group of APIs will be placed in a single file
+# Each group can have a .def.json file with its definitions (What used to be models)
+# Because the APIs in definitions are snippets, they are not legal json objects
+# and need to be formated as such so that a json parser would work.
+
 import json
 import sys
 import re
@@ -147,6 +162,12 @@ def clear_path_ending(path):
         return path
     return path[0:-1]
 
+# check if a parameter is query required.
+# It will return true if the required flag is set
+# and if it is a query parameter, both swagger 1.2 'paramType' and swagger 2.0 'in' attributes
+# are supported
+def is_required_query_param(param):
+    return "required" in param and param["required"] and ("paramType" in param and param["paramType"] == "query" or "in" in param and param["in"] == "query")
 
 def add_path(f, path, details):
     if "summary" in details:
@@ -170,7 +191,7 @@ def add_path(f, path, details):
            details["method"], ',"', details["nickname"], '")')
     if "parameters" in details:
         for param in details["parameters"]:
-            if "required" in param and param["required"] and  param["paramType"] == "query":
+            if is_required_query_param(param):
                 fprintln(f, spacing, '  ->pushmandatory_param("', param["name"], '")')
     fprintln(f, spacing, ";")
 
@@ -287,6 +308,17 @@ def create_enum_wrapper(model_name, name, values):
     };
     """).substitute({'enum_name': enum_name, 'wrapper' : wrapper, 'value':values[0]})
 
+def to_operation(opr, data):
+    data["method"] = opr.upper()
+    data["nickname"] = data["operationId"]
+    return data
+
+def to_path(path, data):
+    data["operations"] = [to_operation(k, data[k]) for k in data]
+    data["path"] = path
+
+    return data
+
 def create_h_file(data, hfile_name, api_name, init_method, base_api):
     if config.o != '':
         hfile = open(config.o, "w")
@@ -394,7 +426,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                                        "}\n")
                 if "parameters" in oper:
                     for param in oper["parameters"]:
-                        if "required" in param and param["required"] and  param["paramType"] == "query":
+                        if is_required_query_param(param):
                             if first == True:
                                 first = False
                             else:
@@ -424,17 +456,50 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
     hfile.write("#endif //__JSON_AUTO_GENERATED_HEADERS\n")
     hfile.close()
 
+def remove_leading_comma(data):
+    return re.sub(r'^\s*,','', data)
+
+def format_as_json_object(data):
+    return "{" + remove_leading_comma(data) + "}"
+
+def check_for_models(data, param):
+    model_name = param.replace(".json", ".def.json")
+    if not os.path.isfile(model_name):
+        return 
+    try:
+        with open(model_name) as myfile:
+            json_data = myfile.read()
+            def_data = json.loads(format_as_json_object(json_data))
+            data["models"] = def_data
+    except Exception as e:
+        type, value, tb = sys.exc_info()
+        print("Bad formatted JSON definition file '" + model_name + "' error ", value.message)
+        sys.exit(-1)
+
+def set_apis(data):
+    return {"apis": [to_path(p, data[p]) for p in data]}
+
 def parse_file(param, combined):
     global current_file
     trace_verbose("parsing ", param, " file")
+    with open(param) as myfile:
+        json_data = myfile.read()
     try:
-        json_data = open(param)
-        data = json.load(json_data)
-        json_data.close()
-    except:
-        type, value, tb = sys.exc_info()
-        print("Bad formatted JSON file '" + param + "' error ", value.message)
-        sys.exit(-1)
+        data = json.loads(json_data)
+    except Exception as e:
+        try:
+            # the passed data is not a valid json, so maybe its a swagger 2.0
+            # snippet, format it as json and try again
+            # set_apis and check_for_models will create an object with a similiar format
+            # to a swagger 1.2 so the code generation would work
+            data = set_apis(json.loads(format_as_json_object(json_data)))
+            check_for_models(data, param)
+        except:
+            # The problem is with the file,
+            # just report the error and exit.
+            type, value, tb = sys.exc_info()
+            print("Bad formatted JSON file '" + param + "' error ", value.message)
+            sys.exit(-1)
     try:
         base_file_name = get_base_name(param)
         current_file = base_file_name
