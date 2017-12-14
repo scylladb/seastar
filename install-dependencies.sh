@@ -59,6 +59,9 @@ EOF
         echo "g++-5 is installed for Seastar. To build Seastar with g++-5, specify '--compiler=/opt/scylladb/bin/g++ --static-stdc++' on configure.py"
         echo "Before running ninja-build, execute following command: . /etc/profile.d/scylla.sh"
     fi
-elif [ "$ID" = "arch" ]; then
+elif [ "$ID" = "arch" -o "$ID_LIKE" = "arch" ]; then
     pacman -Sy --needed gcc ninja ragel boost boost-libs libaio hwloc numactl libpciaccess crypto++ libxml2 xfsprogs gnutls lksctp-tools lz4 make protobuf libunwind systemtap libtool cmake yaml-cpp
+else
+    echo "Your system ($ID) is not supported by this script. Please install dependencies manually."
+    exit 1
 fi
