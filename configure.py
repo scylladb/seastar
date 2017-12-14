@@ -146,6 +146,13 @@ def debug_flag(compiler):
         print('Note: debug information disabled; upgrade your compiler')
         return ''
 
+def detect_membarrier(compiler):
+    return try_compile(compiler=compiler, source=textwrap.dedent('''\
+        #include <linux/membarrier.h>
+        
+        int x = MEMBARRIER_CMD_PRIVATE_EXPEDITED | MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED;
+        '''))
+
 def sanitize_vptr_flag(compiler):
     # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=67258
     if (not try_compile(compiler, flags=['-fsanitize=vptr'])
@@ -684,6 +691,9 @@ if apply_tristate(args.hwloc, test = have_hwloc,
     libs += ' ' + hwloc_libs
     defines.append('HAVE_HWLOC')
     defines.append('HAVE_NUMA')
+
+if detect_membarrier(compiler=args.cxx):
+    defines.append('SEASTAR_HAS_MEMBARRIER')
 
 if try_compile(args.cxx, source = textwrap.dedent('''\
         #include <lz4.h>

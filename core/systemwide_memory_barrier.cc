@@ -26,8 +26,7 @@
 #include <cassert>
 #include <atomic>
 
-#if __has_include("linux/membarrier.h")
-#define HAS_MEMBARRIER
+#if SEASTAR_HAS_MEMBARRIER
 #include <linux/membarrier.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -36,7 +35,7 @@
 namespace seastar {
 
 
-#ifdef HAS_MEMBARRIER
+#ifdef SEASTAR_HAS_MEMBARRIER
 
 static bool has_native_membarrier = [] {
     auto r = syscall(SYS_membarrier, MEMBARRIER_CMD_QUERY, 0);
