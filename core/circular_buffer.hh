@@ -72,7 +72,7 @@ public:
     using const_pointer = const T*;
 public:
     circular_buffer() = default;
-    circular_buffer(circular_buffer&& X);
+    circular_buffer(circular_buffer&& X) noexcept;
     circular_buffer(const circular_buffer& X) = delete;
     ~circular_buffer();
     circular_buffer& operator=(const circular_buffer&) = delete;
@@ -241,7 +241,7 @@ circular_buffer<T, Alloc>::reserve(size_t size) {
 
 template <typename T, typename Alloc>
 inline
-circular_buffer<T, Alloc>::circular_buffer(circular_buffer&& x)
+circular_buffer<T, Alloc>::circular_buffer(circular_buffer&& x) noexcept
     : _impl(std::move(x._impl)) {
     x._impl = {};
 }
