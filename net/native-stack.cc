@@ -30,8 +30,10 @@
 #include "dpdk.hh"
 #include "proxy.hh"
 #include "dhcp.hh"
+#include "config.hh"
 #include <memory>
 #include <queue>
+#include <fstream>
 #ifdef HAVE_OSV
 #include <osv/firmware.hh>
 #include <gnu/libc-version.h>
@@ -47,16 +49,53 @@ namespace net {
 using namespace seastar;
 
 void create_native_net_device(boost::program_options::variables_map opts) {
+
+    bool deprecated_config_used = true;
+
+    std::stringstream net_config;
+
+    if ( opts.count("net-config")) {
+        deprecated_config_used = false;
+        net_config << opts["net-config"].as<std::string>();             
+    }
+    if ( opts.count("net-config-file")) {
+        deprecated_config_used = false;
+        std::fstream fs(opts["net-config-file"].as<std::string>());
+        net_config << fs.rdbuf();
+    }
+
     std::unique_ptr<device> dev;
 
+    if ( deprecated_config_used) {
 #ifdef HAVE_DPDK
-    if (opts.count("dpdk-pmd")) {
-        dev = create_dpdk_net_device(opts["dpdk-port-index"].as<unsigned>(), smp::count,
-            !(opts.count("lro") && opts["lro"].as<std::string>() == "off"),
-            !(opts.count("hw-fc") && opts["hw-fc"].as<std::string>() == "off"));
-    } else
-#endif
-    dev = create_virtio_net_device(opts);
+        if ( opts.count("dpdk-pmd")) {
+             dev = create_dpdk_net_device(opts["dpdk-port-index"].as<unsigned>(), smp::count,
+                !(opts.count("lro") && opts["lro"].as<std::string>() == "off"),
+                !(opts.count("hw-fc") && opts["hw-fc"].as<std::string>() == "off"));   
+       } else 
+#endif  
+        dev = create_virtio_net_device(opts);
+    }
+    else {
+        auto device_configs = parse_config(net_config);
+
+        if ( device_configs.size() > 1) {
+            std::runtime_error("only one network interface is supported");
+        }
+
+        for ( auto&& device_config : device_configs) {
+            auto& hw_config = device_config.second.hw_cfg;   
+#ifdef HAVE_DPDK
+            if ( hw_config.port_index || !hw_config.pci_address.empty() ) {
+	            dev = create_dpdk_net_device(hw_config);
+	        } else 
+#endif  
+            {
+                (void)hw_config;        
+                std::runtime_error("only DPDK supports new configuration format"); 
+            }
+        }
+    }
 
     auto sem = std::make_shared<semaphore>(0);
     std::shared_ptr<device> sdev(dev.release());

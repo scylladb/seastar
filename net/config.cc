@@ -35,7 +35,7 @@ namespace seastar {
 namespace net {
 
     // list of supported config keys
-    std::string config_keys[]{ "pci_address", "port_index", "ip", "gateway", "netmask", "dhcp" };
+    std::string config_keys[]{ "pci-address", "port-index", "ip", "gateway", "netmask", "dhcp", "lro", "tso", "ufo", "hw-fc", "event-index", "csum-offload","ring-size" };
 
     std::unordered_map<std::string, device_config>
     parse_config(std::istream& input) {
@@ -104,12 +104,36 @@ struct convert<seastar::net::device_config> {
             }
         }
 
-        if (node["pci_address"]) {
-            dev_cfg.hw_cfg.pci_address = node["pci_address"].as<std::string>();
+        if (node["pci-address"]) {
+            dev_cfg.hw_cfg.pci_address = node["pci-address"].as<std::string>();
         }
 
-        if (node["port_index"]) {
-            dev_cfg.hw_cfg.port_index = node["port_index"].as<unsigned>();
+        if (node["port-index"]) {
+            dev_cfg.hw_cfg.port_index = node["port-index"].as<unsigned>();
+        }
+
+        if (node["lro"]) {
+            dev_cfg.hw_cfg.lro = node["lro"].as<bool>();
+        }
+
+        if (node["tso"]) {
+            dev_cfg.hw_cfg.tso = node["tso"].as<bool>();
+        }
+
+        if (node["ufo"]) {
+            dev_cfg.hw_cfg.ufo = node["ufo"].as<bool>();
+        }
+
+        if (node["hw-fc"]) {
+            dev_cfg.hw_cfg.hw_fc = node["hw-fc"].as<bool>();
+        }
+
+        if (node["event-index"]) {
+            dev_cfg.hw_cfg.event_index = node["event-index"].as<bool>();
+        }
+
+        if (node["ring-size"]) {
+            dev_cfg.hw_cfg.ring_size = node["ring-size"].as<unsigned>();
         }
 
         if (node["ip"]) {

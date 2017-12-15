@@ -30,8 +30,8 @@ using namespace seastar::net;
 
 BOOST_AUTO_TEST_CASE(test_valid_config_with_pci_address) {
     std::stringstream ss;
-    ss << "{eth0: {pci_address: 0000:06:00.0, ip: 192.168.100.10, gateway: 192.168.100.1, netmask: "
-          "255.255.255.0 } , eth1: {pci_address: 0000:06:00.1, dhcp: true } }";
+    ss << "{eth0: {pci-address: 0000:06:00.0, ip: 192.168.100.10, gateway: 192.168.100.1, netmask: "
+          "255.255.255.0 } , eth1: {pci-address: 0000:06:00.1, dhcp: true } }";
     auto device_configs = parse_config(ss);
 
     // eth0 tests
@@ -53,8 +53,8 @@ BOOST_AUTO_TEST_CASE(test_valid_config_with_pci_address) {
 
 BOOST_AUTO_TEST_CASE(test_valid_config_with_port_index) {
     std::stringstream ss;
-    ss << "{eth0: {port_index: 0, ip: 192.168.100.10, gateway: 192.168.100.1, netmask: "
-          "255.255.255.0 } , eth1: {port_index: 1, dhcp: true } }";
+    ss << "{eth0: {port-index: 0, ip: 192.168.100.10, gateway: 192.168.100.1, netmask: "
+          "255.255.255.0 } , eth1: {port-index: 1, dhcp: true } }";
     auto device_configs = parse_config(ss);
 
     // eth0 tests
@@ -76,7 +76,7 @@ BOOST_AUTO_TEST_CASE(test_valid_config_with_port_index) {
 
 BOOST_AUTO_TEST_CASE(test_valid_config_single_device) {
     std::stringstream ss;
-    ss << "eth0: {pci_address: 0000:06:00.0, ip: 192.168.100.10, gateway: 192.168.100.1, netmask: "
+    ss << "eth0: {pci-address: 0000:06:00.0, ip: 192.168.100.10, gateway: 192.168.100.1, netmask: "
           "255.255.255.0 }";
     auto device_configs = parse_config(ss);
 
@@ -91,8 +91,8 @@ BOOST_AUTO_TEST_CASE(test_valid_config_single_device) {
 
 BOOST_AUTO_TEST_CASE(test_unsupported_key) {
     std::stringstream ss;
-    ss << "{eth0: { some_not_supported_tag: xxx, pci_address: 0000:06:00.0, ip: 192.168.100.10, "
-          "gateway: 192.168.100.1, netmask: 255.255.255.0 } , eth1: {pci_address: 0000:06:00.1, "
+    ss << "{eth0: { some_not_supported_tag: xxx, pci-address: 0000:06:00.0, ip: 192.168.100.10, "
+          "gateway: 192.168.100.1, netmask: 255.255.255.0 } , eth1: {pci-address: 0000:06:00.1, "
           "dhcp: true } }";
 
     BOOST_REQUIRE_THROW(parse_config(ss), config_exception);
@@ -106,22 +106,22 @@ BOOST_AUTO_TEST_CASE(test_bad_yaml_syntax_if_thrown) {
 
 BOOST_AUTO_TEST_CASE(test_pci_address_and_port_index_if_thrown) {
     std::stringstream ss;
-    ss << "{eth0: {pci_address: 0000:06:00.0, port_index: 0, ip: 192.168.100.10, gateway: "
-          "192.168.100.1, netmask: 255.255.255.0 } , eth1: {pci_address: 0000:06:00.1, dhcp: true} "
+    ss << "{eth0: {pci-address: 0000:06:00.0, port-index: 0, ip: 192.168.100.10, gateway: "
+          "192.168.100.1, netmask: 255.255.255.0 } , eth1: {pci-address: 0000:06:00.1, dhcp: true} "
           "}";
     BOOST_REQUIRE_THROW(parse_config(ss), config_exception);
 }
 
 BOOST_AUTO_TEST_CASE(test_dhcp_and_ip_if_thrown) {
     std::stringstream ss;
-    ss << "{eth0: {pci_address: 0000:06:00.0, ip: 192.168.100.10, gateway: 192.168.100.1, netmask: "
-          "255.255.255.0, dhcp: true } , eth1: {pci_address: 0000:06:00.1, dhcp: true} }";
+    ss << "{eth0: {pci-address: 0000:06:00.0, ip: 192.168.100.10, gateway: 192.168.100.1, netmask: "
+          "255.255.255.0, dhcp: true } , eth1: {pci-address: 0000:06:00.1, dhcp: true} }";
     BOOST_REQUIRE_THROW(parse_config(ss), config_exception);
 }
 
 BOOST_AUTO_TEST_CASE(test_ip_missing_if_thrown) {
     std::stringstream ss;
-    ss << "{eth0: {pci_address: 0000:06:00.0, gateway: 192.168.100.1, netmask: 255.255.255.0 } , "
-          "eth1: {pci_address: 0000:06:00.1, dhcp: true} }";
+    ss << "{eth0: {pci-address: 0000:06:00.0, gateway: 192.168.100.1, netmask: 255.255.255.0 } , "
+          "eth1: {pci-address: 0000:06:00.1, dhcp: true} }";
     BOOST_REQUIRE_THROW(parse_config(ss), config_exception);
 }

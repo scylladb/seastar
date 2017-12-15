@@ -36,6 +36,10 @@ std::unique_ptr<net::device> create_dpdk_net_device(
                                     bool use_lro = true,
                                     bool enable_fc = true);
 
+std::unique_ptr<net::device> create_dpdk_net_device(
+                                    const hw_config& hw_cfg);
+
+
 boost::program_options::options_description get_dpdk_net_options_description();
 
 namespace dpdk {
