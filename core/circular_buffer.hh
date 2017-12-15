@@ -22,16 +22,6 @@
 #ifndef CIRCULAR_BUFFER_HH_
 #define CIRCULAR_BUFFER_HH_
 
-// A growable double-ended queue container that can be efficiently
-// extended (and shrunk) from both ends.  Implementation is a single
-// storage vector.
-//
-// Similar to libstdc++'s std::deque, except that it uses a single level
-// store, and so is more efficient for simple stored items.
-// Similar to boost::circular_buffer_space_optimized, except it uses
-// uninitialized storage for unoccupied elements (and thus move/copy
-// constructors instead of move/copy assignments, which are less efficient).
-
 #include "transfer.hh"
 #include "bitops.hh"
 #include <memory>
@@ -39,6 +29,30 @@
 
 namespace seastar {
 
+/// A growable double-ended queue container that can be efficiently
+/// extended (and shrunk) from both ends. Implementation is a single
+/// storage vector.
+///
+/// Similar to libstdc++'s std::deque, except that it uses a single
+/// level store, and so is more efficient for simple stored items.
+/// Similar to boost::circular_buffer_space_optimized, except it uses
+/// uninitialized storage for unoccupied elements (and thus move/copy
+/// constructors instead of move/copy assignments, which are less
+/// efficient).
+///
+/// The storage of the circular_buffer is expanded automatically in
+/// exponential increments.
+/// When adding new elements:
+/// * if size + 1 > capacity: all iterators and references are
+///     invalidated,
+/// * otherwise only the begin() or end() iterator is invalidated:
+///     * push_front() and emplace_front() will invalidate begin() and
+///     * push_back() and emplace_back() will invalidate end().
+/// Removing elements never invalidates any references and only
+/// invalidates begin() or end() iterators:
+///     * pop_front() will invalidate begin() and
+///     * pop_back() will invalidate end().
+/// reserve() may also invalidate all iterators and references.
 template <typename T, typename Alloc = std::allocator<T>>
 class circular_buffer {
     struct impl : Alloc {
