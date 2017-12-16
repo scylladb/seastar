@@ -47,6 +47,7 @@
 #include <chrono>
 #include <ratio>
 #include <atomic>
+#include <stack>
 #include <experimental/optional>
 #include <boost/lockfree/spsc_queue.hpp>
 #include <boost/optional.hpp>
@@ -726,7 +727,9 @@ private:
     timer_set<timer<manual_clock>, &timer<manual_clock>::_link> _manual_timers;
     timer_set<timer<manual_clock>, &timer<manual_clock>::_link>::timer_list_t _expired_manual_timers;
     ::aio_context_t _io_context;
-    std::vector<struct ::iocb> _pending_aio;
+    alignas(cache_line_size) std::array<::iocb, max_aio> _iocb_pool;
+    std::stack<::iocb*, boost::container::static_vector<::iocb*, max_aio>> _free_iocbs;
+    boost::container::static_vector<::iocb*, max_aio> _pending_aio;
     semaphore _io_context_available;
     io_stats _io_stats;
     uint64_t _fsyncs = 0;

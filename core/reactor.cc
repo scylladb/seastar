@@ -433,6 +433,9 @@ reactor::reactor(unsigned id)
     _task_queues.push_back(std::make_unique<task_queue>(1, "atexit", 1000));
     _at_destroy_tasks = _task_queues.back().get();
     seastar::thread_impl::init();
+    for (unsigned i = 0; i != max_aio; ++i) {
+        _free_iocbs.push(&_iocb_pool[i]);
+    }
     auto r = io_setup(max_aio, &_io_context);
     assert(r >= 0);
 #ifdef HAVE_OSV
@@ -875,14 +878,15 @@ future<io_event>
 reactor::submit_io(Func prepare_io) {
     return _io_context_available.wait(1).then([this, prepare_io = std::move(prepare_io)] () mutable {
         auto pr = std::make_unique<promise<io_event>>();
-        iocb io;
+        iocb& io = *_free_iocbs.top();
+        _free_iocbs.pop();
         prepare_io(io);
         if (_aio_eventfd) {
             set_eventfd_notification(io, _aio_eventfd->get_fd());
         }
         auto f = pr->get_future();
         set_user_data(io, pr.get());
-        _pending_aio.push_back(io);
+        _pending_aio.push_back(&io);
         pr.release();
         if ((_io_queue->queued_requests() > 0) ||
             (_pending_aio.size() >= std::min(max_aio / 4, _io_queue->_capacity / 2))) {
@@ -897,10 +901,7 @@ reactor::flush_pending_aio() {
     bool did_work = false;
     while (!_pending_aio.empty()) {
         auto nr = _pending_aio.size();
-        struct iocb* iocbs[max_aio];
-        for (size_t i = 0; i < nr; ++i) {
-            iocbs[i] = &_pending_aio[i];
-        }
+        auto iocbs = _pending_aio.data();
         auto r = io_submit(_io_context, nr, iocbs);
         size_t nr_consumed;
         if (r == -1) {
@@ -909,7 +910,9 @@ reactor::flush_pending_aio() {
                 case EAGAIN:
                     return did_work;
                 case EBADF: {
-                    auto pr = reinterpret_cast<promise<io_event>*>(get_user_data(*iocbs[0]));
+                    auto iocb = iocbs[0];
+                    auto pr = reinterpret_cast<promise<io_event>*>(get_user_data(*iocb));
+                    _free_iocbs.push(iocb);
                     try {
                         throw_kernel_error(r);
                     } catch (...) {
@@ -970,6 +973,8 @@ bool reactor::process_io()
     auto n = io_getevents(_io_context, 1, max_aio, ev, &timeout);
     assert(n >= 0);
     for (size_t i = 0; i < size_t(n); ++i) {
+        auto iocb = get_iocb(ev[i]);
+        _free_iocbs.push(iocb);
         auto pr = reinterpret_cast<promise<io_event>*>(ev[i].data);
         pr->set_value(ev[i]);
         delete pr;
