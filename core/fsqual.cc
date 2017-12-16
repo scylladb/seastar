@@ -21,7 +21,7 @@
 
 #include "posix.hh"
 #include "util/defer.hh"
-#include <libaio.h>
+#include "core/linux-aio.hh"
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <fcntl.h>
@@ -32,6 +32,8 @@
 #include "fsqual.hh"
 
 namespace seastar {
+
+using namespace seastar::internal;
 
 // Runs func(), and also adds the number of context switches
 // that happened during func() to counter.
@@ -57,9 +59,9 @@ with_ctxsw_counting(Counter& counter, Func&& func) {
 }
 
 bool filesystem_has_good_aio_support(sstring directory, bool verbose) {
-    io_context_t ioctx = {};
+    aio_context_t ioctx = {};
     auto r = io_setup(1, &ioctx);
-    throw_kernel_error(r);
+    throw_system_error_on(r == -1, "io_setup");
     auto cleanup = defer([&] { io_destroy(ioctx); });
     auto fname = directory + "/fsqual.tmp";
     auto fd = file_desc::open(fname, O_CREAT|O_EXCL|O_RDWR|O_DIRECT, 0600);
@@ -71,16 +73,16 @@ bool filesystem_has_good_aio_support(sstring directory, bool verbose) {
     auto buf = aligned_alloc(4096, 4096);
     for (int i = 0; i < nr; ++i) {
         struct iocb cmd;
-        io_prep_pwrite(&cmd, fd.get(), buf, bufsize, bufsize*i);
+        cmd = make_write_iocb(fd.get(), bufsize*i, buf, bufsize);
         struct iocb* cmds[1] = { &cmd };
         with_ctxsw_counting(ctxsw, [&] {
             auto r = io_submit(ioctx, 1, cmds);
-            throw_kernel_error(r);
+            throw_system_error_on(r == -1, "io_submit");
             assert(r == 1);
         });
         struct io_event ioev;
         auto n = io_getevents(ioctx, 1, 1, &ioev, nullptr);
-        throw_kernel_error(n);
+        throw_system_error_on(n == -1, "io_getevents");
         assert(n == 1);
         throw_kernel_error(long(ioev.res));
         assert(long(ioev.res) == bufsize);

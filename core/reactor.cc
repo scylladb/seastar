@@ -107,6 +107,8 @@ using namespace std::chrono_literals;
 
 using namespace net;
 
+using namespace internal;
+
 seastar::logger seastar_logger("seastar");
 seastar::logger sched_logger("scheduler");
 
@@ -431,7 +433,7 @@ reactor::reactor(unsigned id)
     _task_queues.push_back(std::make_unique<task_queue>(1, "atexit", 1000));
     _at_destroy_tasks = _task_queues.back().get();
     seastar::thread_impl::init();
-    auto r = ::io_setup(max_aio, &_io_context);
+    auto r = io_setup(max_aio, &_io_context);
     assert(r >= 0);
 #ifdef HAVE_OSV
     _timer_thread.start();
@@ -478,7 +480,7 @@ reactor::~reactor() {
     eraser(_expired_timers);
     eraser(_expired_lowres_timers);
     eraser(_expired_manual_timers);
-    ::io_destroy(_io_context);
+    io_destroy(_io_context);
 }
 
 // Add to an atomic integral non-atomically and returns the previous value
@@ -876,10 +878,10 @@ reactor::submit_io(Func prepare_io) {
         iocb io;
         prepare_io(io);
         if (_aio_eventfd) {
-            io_set_eventfd(&io, _aio_eventfd->get_fd());
+            set_eventfd_notification(io, _aio_eventfd->get_fd());
         }
         auto f = pr->get_future();
-        io.data = pr.get();
+        set_user_data(io, pr.get());
         _pending_aio.push_back(io);
         pr.release();
         if ((_io_queue->queued_requests() > 0) ||
@@ -899,15 +901,15 @@ reactor::flush_pending_aio() {
         for (size_t i = 0; i < nr; ++i) {
             iocbs[i] = &_pending_aio[i];
         }
-        auto r = ::io_submit(_io_context, nr, iocbs);
+        auto r = io_submit(_io_context, nr, iocbs);
         size_t nr_consumed;
-        if (r < 0) {
-            auto ec = -r;
+        if (r == -1) {
+            auto ec = errno;
             switch (ec) {
                 case EAGAIN:
                     return did_work;
                 case EBADF: {
-                    auto pr = reinterpret_cast<promise<io_event>*>(iocbs[0]->data);
+                    auto pr = reinterpret_cast<promise<io_event>*>(get_user_data(*iocbs[0]));
                     try {
                         throw_kernel_error(r);
                     } catch (...) {
@@ -921,7 +923,7 @@ reactor::flush_pending_aio() {
                     break;
                 }
                 default:
-                    throw_kernel_error(r);
+                    throw_system_error_on(true, "io_submit");
                     abort();
             }
         } else {
@@ -965,7 +967,7 @@ bool reactor::process_io()
 {
     io_event ev[max_aio];
     struct timespec timeout = {0, 0};
-    auto n = ::io_getevents(_io_context, 1, max_aio, ev, &timeout);
+    auto n = io_getevents(_io_context, 1, max_aio, ev, &timeout);
     assert(n >= 0);
     for (size_t i = 0; i < size_t(n); ++i) {
         auto pr = reinterpret_cast<promise<io_event>*>(ev[i].data);
@@ -1147,7 +1149,7 @@ posix_file_impl::query_dma_alignment() {
 future<size_t>
 posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& io_priority_class) {
     return engine().submit_io_write(io_priority_class, len, [fd = _fd, pos, buffer, len] (iocb& io) {
-        io_prep_pwrite(&io, fd, const_cast<void*>(buffer), len, pos);
+        io = make_write_iocb(fd, pos, const_cast<void*>(buffer), len);
     }).then([] (io_event ev) {
         throw_kernel_error(long(ev.res));
         return make_ready_future<size_t>(size_t(ev.res));
@@ -1161,7 +1163,7 @@ posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priori
     auto size = iov_ptr->size();
     auto data = iov_ptr->data();
     return engine().submit_io_write(io_priority_class, len, [fd = _fd, pos, data, size] (iocb& io) {
-        io_prep_pwritev(&io, fd, data, size, pos);
+        io = make_writev_iocb(fd, pos, data, size);
     }).then([iov_ptr = std::move(iov_ptr)] (io_event ev) {
         throw_kernel_error(long(ev.res));
         return make_ready_future<size_t>(size_t(ev.res));
@@ -1171,7 +1173,7 @@ posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priori
 future<size_t>
 posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& io_priority_class) {
     return engine().submit_io_read(io_priority_class, len, [fd = _fd, pos, buffer, len] (iocb& io) {
-        io_prep_pread(&io, fd, buffer, len, pos);
+        io = make_read_iocb(fd, pos, buffer, len);
     }).then([] (io_event ev) {
         throw_kernel_error(long(ev.res));
         return make_ready_future<size_t>(size_t(ev.res));
@@ -1185,7 +1187,7 @@ posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priorit
     auto size = iov_ptr->size();
     auto data = iov_ptr->data();
     return engine().submit_io_read(io_priority_class, len, [fd = _fd, pos, data, size] (iocb& io) {
-        io_prep_preadv(&io, fd, data, size, pos);
+        io = make_read_iocb(fd, pos, data, size);
     }).then([iov_ptr = std::move(iov_ptr)] (io_event ev) {
         throw_kernel_error(long(ev.res));
         return make_ready_future<size_t>(size_t(ev.res));

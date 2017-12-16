@@ -29,7 +29,6 @@
 #include "circular_buffer_fixed_capacity.hh"
 #include <memory>
 #include <type_traits>
-#include <libaio.h>
 #include <sys/epoll.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -55,6 +54,7 @@
 #include <boost/thread/barrier.hpp>
 #include <boost/container/static_vector.hpp>
 #include <set>
+#include "linux-aio.hh"
 #include "util/eclipse.hh"
 #include "future.hh"
 #include "posix.hh"
@@ -725,7 +725,7 @@ private:
     timer_set<timer<lowres_clock>, &timer<lowres_clock>::_link>::timer_list_t _expired_lowres_timers;
     timer_set<timer<manual_clock>, &timer<manual_clock>::_link> _manual_timers;
     timer_set<timer<manual_clock>, &timer<manual_clock>::_link>::timer_list_t _expired_manual_timers;
-    io_context_t _io_context;
+    ::aio_context_t _io_context;
     std::vector<struct ::iocb> _pending_aio;
     semaphore _io_context_available;
     io_stats _io_stats;

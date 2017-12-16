@@ -26,7 +26,6 @@
 #include <memory>
 #include <vector>
 #include <cmath>
-#include <libaio.h>
 #include <wordexp.h>
 #include <boost/thread/barrier.hpp>
 #include <boost/filesystem.hpp>
@@ -38,6 +37,7 @@
 #include <queue>
 #include <fstream>
 #include <future>
+#include "core/linux-aio.hh"
 #include "core/sstring.hh"
 #include "core/posix.hh"
 #include "core/resource.hh"
@@ -45,6 +45,7 @@
 #include "util/defer.hh"
 
 using namespace seastar;
+using namespace seastar::internal;
 using namespace std::chrono_literals;
 
 namespace seastar {
@@ -478,8 +479,8 @@ public:
     {}
 
     iocb* issue() {
-        io_prep_pread(&_iocb, _file.get(), _buf.get(), iotune_manager::rbuffer_size, _pos_distribution(random_generator) * iotune_manager::rbuffer_size);
-        _iocb.data = this;
+        _iocb = make_read_iocb(_file.get(), _pos_distribution(random_generator) * iotune_manager::rbuffer_size, _buf.get(), iotune_manager::rbuffer_size);
+        set_user_data(_iocb, this);
         _tstamp = std::chrono::steady_clock::now();
         return &_iocb;
     }
@@ -517,10 +518,10 @@ void sanity_check_ev(const io_event& ev, size_t size) {
 }
 
 run_stats iotune_manager::issue_reads(size_t cpu_id, unsigned concurrency) {
-    io_context_t io_context = {0};
-    auto r = ::io_setup(concurrency, &io_context);
+    ::aio_context_t io_context = {0};
+    auto r = io_setup(concurrency, &io_context);
     assert(r >= 0);
-    auto destroyer = defer([&io_context] { ::io_destroy(io_context); });
+    auto destroyer = defer([&io_context] { io_destroy(io_context); });
 
     unsigned finished = 0;
     std::vector<io_event> ev;
@@ -541,13 +542,13 @@ run_stats iotune_manager::issue_reads(size_t cpu_id, unsigned concurrency) {
         iocb_vecptr.push_back(r.issue());
     }
 
-    r = ::io_submit(io_context, iocb_vecptr.size(), iocb_vecptr.data());
-    throw_kernel_error(r);
+    r = io_submit(io_context, iocb_vecptr.size(), iocb_vecptr.data());
+    throw_system_error_on(r == -1, "io_submit");
 
     struct timespec timeout = {0, 0};
     while (finished != concurrency) {
-        int n = ::io_getevents(io_context, 1, ev.size(), ev.data(), &timeout);
-        throw_kernel_error(n);
+        int n = io_getevents(io_context, 1, ev.size(), ev.data(), &timeout);
+        throw_system_error_on(n == -1, "io_getevents");
         unsigned new_req = 0;
         for (auto i = 0ul; i < size_t(n); ++i) {
             sanity_check_ev(ev[i], iotune_manager::rbuffer_size);
@@ -560,7 +561,7 @@ run_stats iotune_manager::issue_reads(size_t cpu_id, unsigned concurrency) {
             }
         }
         r = ::io_submit(io_context, new_req, iocb_vecptr.data());
-        throw_kernel_error(r);
+        throw_system_error_on(r == -1, "io_submit");
     }
     struct run_stats result;
     for (auto&& r: fds) {
@@ -579,11 +580,11 @@ void test_file::generate(iotune_manager& iotune_manager, std::chrono::seconds ti
     auto start_time = iotune_manager::clock::now();
     auto latest_tstamp = start_time;
 
-    io_context_t io_context = {0};
+    aio_context_t io_context = {0};
     auto max_aio = 128;
-    auto r = ::io_setup(max_aio, &io_context);
+    auto r = io_setup(max_aio, &io_context);
     assert(r >= 0);
-    auto destroyer = defer([&io_context] { ::io_destroy(io_context); });
+    auto destroyer = defer([&io_context] { io_destroy(io_context); });
 
     auto buf = allocate_aligned_buffer<char>(iotune_manager::wbuffer_size, 4096);
     memset(buf.get(), 0, iotune_manager::wbuffer_size);
@@ -608,19 +609,19 @@ void test_file::generate(iotune_manager& iotune_manager, std::chrono::seconds ti
         while (i < max_aio - aio_outstanding && pos < iotune_manager.file_size) {
             auto now = std::min(iotune_manager.file_size - pos, iotune_manager::wbuffer_size);
             auto& iocb = iocbs[i++];
-            iocb.data = buf.get();
-            io_prep_pwrite(&iocb, file.get(), buf.get(), now, pos);
+            iocb = make_write_iocb(file.get(), pos, buf.get(), now);
+            set_user_data(iocb, buf.get());
             pos += now;
         }
         if (i) {
-            r = ::io_submit(io_context, i, iocb_vecptr.data());
-            throw_kernel_error(r);
+            r = io_submit(io_context, i, iocb_vecptr.data());
+            throw_system_error_on(r == -1, "io_submit");
             aio_outstanding += r;
         }
         if (aio_outstanding) {
             struct timespec timeout = {0, 0};
-            int n = ::io_getevents(io_context, 1, ev.size(), ev.data(), &timeout);
-            throw_kernel_error(n);
+            int n = io_getevents(io_context, 1, ev.size(), ev.data(), &timeout);
+            throw_system_error_on(n == -1, "io_getevents");
             aio_outstanding -= n;
             for (auto i = 0ul; i < size_t(n); ++i) {
                 if (stopped_on_error) {
