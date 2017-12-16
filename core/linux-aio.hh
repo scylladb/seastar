@@ -22,6 +22,7 @@
 #pragma once
 
 #include <linux/aio_abi.h>
+#include <linux/fs.h>
 #include <sys/time.h>
 #include <sys/uio.h>
 #include <cstdint>
@@ -37,6 +38,7 @@ namespace internal {
 
 void set_user_data(::iocb& iocb, void* data);
 void* get_user_data(const ::iocb& iocb);
+void set_nowait(::iocb& iocb, bool nowait);
 
 void set_eventfd_notification(::iocb& iocb, int eventfd);
 
@@ -123,6 +125,18 @@ inline
 ::iocb*
 get_iocb(const ::io_event& ev) {
     return reinterpret_cast<::iocb*>(uintptr_t(ev.obj));
+}
+
+inline
+void
+set_nowait(::iocb& iocb, bool nowait) {
+#ifdef RWF_NOWAIT
+    if (nowait) {
+        iocb.aio_rw_flags |= RWF_NOWAIT;
+    } else {
+        iocb.aio_rw_flags &= ~RWF_NOWAIT;
+    }
+#endif
 }
 
 }
