@@ -1403,3 +1403,120 @@ seastar::future<int> slow() {
 The most basic building block for writing promises is the **promise object**, an object of type `promise<T>`. A `promise<T>` has a method `future<T> get_future()` to returns a future, and a method `set_value(T)`, to resolve this future. An asynchronous function can create a promise object, return its future, and the `set_value` method to be eventually called - which will finally resolve the future it returned.
 
 CONTINUE HERE. write an example, e.g., something which writes a message every second, and after 10 messages, completes the future.
+
+# Isolation of application components
+Seastar makes multi-tasking very easy - as easy as running an asynchronous function. It is therefore easy for a server to do many unrelated things in parallel. For example, a server might be in the process of answering 100 users' requests, and at the same time also be making progress on some long background operation.
+
+But in the above example, what percentage of the CPU and disk throughput will the background operation get? How long can one of the user's requests be delayed by the background operation? Without the mechanisms we describe in this section, these questions cannot be reliably answered:
+
+* The background operation may be a very "considerate" single fiber, i.e., run a very short continuation and then schedule the next continuation to run later. At each point the scheduler sees 100 request-handling continuations and just one of the background continuations ready to run. The background task gets around 1% of the CPU time, and users' requests are hardly delayed.
+* On the other hand, the background operation may spawn 1,000 fibers in parallel and have 1,000 ready-to-run continuations at each time. The background operation will get about 90% of the runtime, and the continuation handling a user's request may get stuck behind 1,000 of these background continuations, and experience huge latency.
+
+Complex Seastar applications often have different components which run in parallel and have different performance objectives. In the above example we saw two components - user requests and the background operation.  The first goal of the mechanisms we describe in this section is to _isolate_ the performance of each component from the others; In other words, the throughput and latency of one component should not depend on decisions that another component makes - e.g., how many continuations it runs in parallel. The second goal is to allow the application to _control_ this isolation, e.g., in the above example allow the application to explicitly control the amount of CPU the background operation recieves, so that it completes at a desired pace.
+
+In the above examples we used CPU time as the limited resource that the different components need to share effectively. As we show later, another important shared resource is disk I/O.
+
+## Scheduling groups (CPU scheduler)
+Consider the following asynchronous function `loop()`, which loops until some shared variable `stop` becomes true. It keeps a `counter` of the number of iterations until stopping, and returns this counter when finally stopping.
+```cpp
+seastar::future<long> loop(int parallelism, bool& stop) {
+    return seastar::do_with(0L, [parallelism, &stop] (long& counter) {
+        return seastar::parallel_for_each(boost::irange<unsigned>(0, parallelism),
+            [&stop, &counter]  (unsigned c) {
+                return seastar::do_until([&stop] { return stop; }, [&counter] {
+                    ++counter;
+                    return seastar::make_ready_future<>();
+                });
+            }).then([&counter] { return counter; });
+    });
+}
+```
+The `parallelism` parameter determines the parallelism of the silly counting operation: `parallelism=1` means we have just one loop incrementing the counter; `parallelism=10` means we start 10 loops in parallel all incrementing the same counter.
+
+What happens if we start two `loop()` calls in parallel and let them run for 10 seconds?
+```c++
+seastar::future<> f() {
+    return seastar::do_with(false, [] (bool& stop) {
+        seastar::sleep(std::chrono::seconds(10)).then([&stop] {
+            stop = true;
+        });
+        return seastar::when_all_succeed(loop(1, stop), loop(1, stop)).then(
+            [] (long n1, long n2) {
+                std::cout << "Counters: " << n1 << ", " << n2 << "\n";
+            });
+    });
+}
+```
+It turns out that if the two `loop()` calls had the same parallelism `1`, we get roughly the same amount of work from both of them:
+```
+Counters: 3'559'635'758, 3'254'521'376
+```
+But if for example we ran a `loop(1)` in parallel with a `loop(10)`, the result is that the `loop(10)` gets 10 times more work done:
+```
+Counters: 629'482'397, 6'320'167'297
+```
+
+Why does the amount of work that loop(1) can do in ten seconds depends on the parallelism chosen by its competitor, and how can we solve this?
+
+The reason this happens is as follows: When a future resolves and a continuation was linked to it, this continuation becomes ready to run. By default, Seastar's scheduler keeps a single list of ready-to-run continuations (in each shard, of course), and runs the continuations at the same order they became ready to run. In the above example, `loop(1)` always has one ready-to-run continuation, but `loop(10)`, which runs 10 loops in parallel, always has ten ready-to-run continuations. So for every continuation of `loop(1)`, Seastar's default scheduler will run 10 continuations of `loop(10)`, which is why loop(10) gets 10 times more work done.
+
+To solve this, Seastar allows an application to define separate components known as **scheduling groups**, which each has a separate list of ready-to-run continuations. Each scheduling group gets to run its own continuations on a desired percentage of the CPU time, but the number of runnable continuations in one scheduling group does not affect the amount of CPU that another scheduling group gets. Let's look at how this is done:
+
+A scheduling group is defined by a value of type `scheduling_group`. This value is opaque, but internally it is a small integer (similar to a process ID in Linux). We use the `seastar::with_scheduling_group()` function to run code in the desired scheduling group:
+
+```cpp
+seastar::future<long>
+loop_in_sg(int parallelism, bool& stop, seastar::scheduling_group sg) {
+    return seastar::with_scheduling_group(sg, [parallelism, &stop] {
+        return loop(parallelism, stop);
+    });
+}
+```
+
+TODO: explain what `with_scheduling_group` group really does, how the group is "inherited" to the continuations started inside it.
+
+
+Now let's create two scheduling groups, and run `loop(1)` in the first scheduling group and `loop(10)` in the second scheduling group:
+```cpp
+seastar::future<> f() {
+    return seastar::when_all_succeed(
+            seastar::create_scheduling_group("loop1", 100),
+            seastar::create_scheduling_group("loop2", 100)).then(
+        [] (seastar::scheduling_group sg1, seastar::scheduling_group sg2) {
+        return seastar::do_with(false, [sg1, sg2] (bool& stop) {
+            seastar::sleep(std::chrono::seconds(10)).then([&stop] {
+                stop = true;
+            });
+            return seastar::when_all_succeed(loop_in_sg(1, stop, sg1), loop_in_sg(10, stop, sg2)).then(
+                [] (long n1, long n2) {
+                    std::cout << "Counters: " << n1 << ", " << n2 << "\n";
+                });
+        });
+    });
+}
+```
+Here we created two scheduling groups, `sg1` and `sg2`. Each scheduling group has an arbitrary name (which is used for diagnostic purposes only), and a number of *shares*, a number traditionally between 1 and 1000: If one scheduling group has twice the number of shares than a second scheduling group, it will get twice the amount of CPU time. In this example, we used the same number of shares (100) for both groups, so they should get equal CPU time.
+
+Unlike most objects in Seastar which are separate per shard, Seastar wants the identities and numbering of the scheduling groups to be the same on all shards, because it is important when invoking tasks on remote shards. For this reason, the function to create a scheduling group, `seastar::create_scheduling_group()`, is an asynchronous function returning a `future<scheduling_group>`.
+
+Running the above example, with both scheduling group set up with the same number of shares (100), indeed results in both scheduling groups getting the same amount of CPU time:
+```
+Counters: 3'353'900'256, 3'350'871'461
+```
+
+Note how now both loops got the same amount of work done - despite one loop having 10 times the parallelism of the second loop.
+
+If we change the definition of the second scheduling group to have 200 shares, twice the number of shares of the first scheduling group, we'll see the second scheduling group getting twice the amount of CPU time:
+```
+Counters: 2'273'783'385, 4'549'995'716
+```
+## Latency
+TODO: Task quota, preempt, loops with built-in preemption check, etc.
+## Disk I/O scheduler
+TODO
+## Network scheduler
+TODO: Say that not yet available. Give example of potential problem - e.g., sharing a slow WAN link.
+## Controllers
+TODO: Talk about how to dynamically change the number of shares, and why.
+## Multi-tenancy
+TODO
