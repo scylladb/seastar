@@ -146,6 +146,9 @@ def debug_flag(compiler, flags):
         print('Note: debug information disabled; upgrade your compiler')
         return ''
 
+def dialect_supported(dialect, compiler='g++'):
+    return try_compile(compiler=compiler, source='', flags=['-std=' + dialect])
+
 def detect_membarrier(compiler, flags):
     return try_compile(compiler=compiler, flags=flags, source=textwrap.dedent('''\
         #include <linux/membarrier.h>
@@ -293,6 +296,13 @@ extralibs = {
 
 all_artifacts = apps + tests + ['libseastar.a', 'seastar.pc']
 
+cpp_dialects = ['gnu++17', 'gnu++1z', 'gnu++14', 'gnu++1y']
+try:
+    default_cpp_dialect = [x for x in cpp_dialects if dialect_supported(x, compiler='g++')][0]
+except:
+    # if g++ is not available, fallback to something safe-ish
+    default_cpp_dialect='gnu++1y'
+
 arg_parser = argparse.ArgumentParser('Configure seastar')
 arg_parser.add_argument('--static', dest = 'static', action = 'store_const', default = '',
                         const = '-static',
@@ -311,6 +321,8 @@ arg_parser.add_argument('--compiler', action = 'store', dest = 'cxx', default = 
                         help = 'C++ compiler path')
 arg_parser.add_argument('--c-compiler', action='store', dest='cc', default='gcc',
                         help = 'C compiler path (for bundled libraries such as dpdk and c-ares)')
+arg_parser.add_argument('--c++-dialect', action='store', dest='cpp_dialect', default=default_cpp_dialect,
+                        help='C++ dialect to build with [default: %(default)s]')
 arg_parser.add_argument('--with-osv', action = 'store', dest = 'with_osv', default = '',
                         help = 'Shortcut for compile for OSv')
 arg_parser.add_argument('--enable-dpdk', action = 'store_true', dest = 'dpdk', default = False,
@@ -788,7 +800,7 @@ with open(buildfile, 'w') as f:
         full_builddir = {srcdir}/$builddir
         cxx = {cxx}
         # we disable _FORTIFY_SOURCE because it generates false positives with longjmp() (core/thread.cc)
-        cxxflags = -std=gnu++1y {dbgflag} {fpie} -Wall -Werror -Wno-error=deprecated-declarations -fvisibility=hidden {visibility_flags} -pthread -I{srcdir} -U_FORTIFY_SOURCE {user_cflags} {warnings} {defines}
+        cxxflags = -std={cpp_dialect} {dbgflag} {fpie} -Wall -Werror -Wno-error=deprecated-declarations -fvisibility=hidden {visibility_flags} -pthread -I{srcdir} -U_FORTIFY_SOURCE {user_cflags} {warnings} {defines}
         ldflags = {dbgflag} -Wl,--no-as-needed {static} {pie} -fvisibility=hidden {visibility_flags} -pthread {user_ldflags}
         libs = {libs}
         pool link_pool
