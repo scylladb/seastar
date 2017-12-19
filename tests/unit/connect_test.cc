@@ -64,10 +64,12 @@ SEASTAR_TEST_CASE(test_accept_after_abort) {
         });
         listener.abort_accept();
         return done.then([] (ftype f) {
+          return f.then_wrapped([] (ftype f) {
             BOOST_REQUIRE(f.failed());
             if (f.available()) {
                 f.ignore_ready_future();
             }
+          });
         });
     });
 }
