@@ -555,7 +555,7 @@ reactor::reactor(unsigned id)
     , _io_context(0)
     , _reuseport(posix_reuseport_detect())
     , _task_quota_timer_thread(&reactor::task_quota_timer_thread_fn, this)
-    , _thread_pool(seastar::format("syscall-{}", id)) {
+    , _thread_pool(this, seastar::format("syscall-{}", id)) {
     _task_queues.push_back(std::make_unique<task_queue>(0, "main", 1000));
     _task_queues.push_back(std::make_unique<task_queue>(1, "atexit", 1000));
     _at_destroy_tasks = _task_queues.back().get();
@@ -3787,8 +3787,7 @@ void smp_message_queue::start(unsigned cpuid) {
 
 /* not yet implemented for OSv. TODO: do the notification like we do class smp. */
 #ifndef HAVE_OSV
-thread_pool::thread_pool(sstring name) : _worker_thread([this, name] { work(name); }), _notify(pthread_self()) {
-    engine()._signals.handle_signal(SIGUSR1, [this] { inter_thread_wq.complete(); });
+thread_pool::thread_pool(reactor* r, sstring name) : _reactor(r), _worker_thread([this, name] { work(name); }) {
 }
 
 void thread_pool::work(sstring name) {
@@ -3815,7 +3814,8 @@ void thread_pool::work(sstring name) {
             inter_thread_wq._completed.push(wi);
         }
         if (_main_thread_idle.load(std::memory_order_seq_cst)) {
-            pthread_kill(_notify, SIGUSR1);
+            uint64_t one = 1;
+            ::write(_reactor->_notify_eventfd.get(), &one, 8);
         }
     }
 }
