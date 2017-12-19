@@ -359,7 +359,7 @@ reactor::signals::~signals() {
 
 reactor::signals::signal_handler::signal_handler(int signo, std::function<void ()>&& handler)
         : _handler(std::move(handler)) {
-    engine()._backend.handle_signal(signo);
+    engine()._backend->handle_signal(signo);
 }
 
 void reactor_backend_epoll::handle_signal(int signo) {
@@ -589,7 +589,7 @@ struct reactor::task_queue::indirect_compare {
 
 reactor::reactor(unsigned id)
     : _notify_eventfd(file_desc::eventfd(0, EFD_CLOEXEC))
-    , _backend(this)
+    , _backend(std::make_unique<reactor_backend_epoll>(this))
     , _id(id)
 #ifdef HAVE_OSV
     , _timer_thread(
@@ -607,7 +607,7 @@ reactor::reactor(unsigned id)
     _at_destroy_tasks = _task_queues.back().get();
     g_need_preempt = &_preemption_monitor;
     seastar::thread_impl::init();
-    _backend.start_tick();
+    _backend->start_tick();
     for (unsigned i = 0; i != max_aio; ++i) {
         _free_iocbs.push(&_iocb_pool[i]);
     }
@@ -640,7 +640,7 @@ reactor::~reactor() {
     auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
     assert(r == 0);
 
-    _backend.stop_tick();
+    _backend->stop_tick();
     auto eraser = [](auto& list) {
         while (!list.empty()) {
             auto& timer = *list.begin();
@@ -2587,7 +2587,7 @@ void reactor::enable_timer(steady_clock_type::time_point when)
     itimerspec its;
     its.it_interval = {};
     its.it_value = to_timespec(when);
-    _backend.arm_highres_timer(its);
+    _backend->arm_highres_timer(its);
 #else
     using ns = std::chrono::nanoseconds;
     WITH_LOCK(_timer_mutex) {
