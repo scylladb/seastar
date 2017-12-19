@@ -460,6 +460,8 @@ public:
     virtual void forget(pollable_fd_state& fd) = 0;
     // Calls reactor::signal_received(signo) when relevant
     virtual void handle_signal(int signo) = 0;
+    virtual void start_tick() = 0;
+    virtual void stop_tick() = 0;
 };
 
 // reactor backend using file-descriptor & epoll, suitable for running on
@@ -468,6 +470,7 @@ public:
 // using mechanisms like timerfd, signalfd and eventfd respectively.
 class reactor_backend_epoll : public reactor_backend {
     reactor* _r;
+    std::thread _task_quota_timer_thread;
 private:
     file_desc _epollfd;
     future<> get_epoll_future(pollable_fd_state& fd,
@@ -484,6 +487,8 @@ public:
     virtual future<> readable_or_writeable(pollable_fd_state& fd) override;
     virtual void forget(pollable_fd_state& fd) override;
     virtual void handle_signal(int signo) override;
+    virtual void start_tick() override;
+    virtual void stop_tick() override;
 };
 
 #ifdef HAVE_OSV
@@ -831,7 +836,6 @@ private:
     bool _strict_o_direct = true;
     bool _force_io_getevents_syscall = false;
     bool _bypass_fsync = false;
-    std::thread _task_quota_timer_thread;
     std::atomic<bool> _dying{false};
 private:
     static std::chrono::nanoseconds calculate_poll_time();
