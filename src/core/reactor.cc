@@ -974,15 +974,6 @@ void reactor_backend_epoll::forget(pollable_fd_state& fd) {
     }
 }
 
-future<> reactor_backend_epoll::notified(reactor_notifier *n) {
-    // Currently reactor_backend_epoll doesn't need to support notifiers,
-    // because we add to it file descriptors instead. But this can be fixed
-    // later.
-    std::cout << "reactor_backend_epoll does not yet support notifiers!\n";
-    abort();
-}
-
-
 pollable_fd
 reactor::posix_listen(socket_address sa, listen_options opts) {
     file_desc fd = file_desc::socket(sa.u.sa.sa_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, int(opts.proto));
@@ -4540,87 +4531,6 @@ __thread bool g_need_preempt;
 
 __thread reactor* local_engine;
 
-class reactor_notifier_epoll : public reactor_notifier {
-    writeable_eventfd _write;
-    readable_eventfd _read;
-public:
-    reactor_notifier_epoll()
-        : _write()
-        , _read(_write.read_side()) {
-    }
-    virtual future<> wait() override {
-        // convert _read.wait(), a future<size_t>, to a future<>:
-        return _read.wait().then([] (size_t ignore) {
-            return make_ready_future<>();
-        });
-    }
-    virtual void signal() override {
-        _write.signal(1);
-    }
-};
-
-std::unique_ptr<reactor_notifier>
-reactor_backend_epoll::make_reactor_notifier() {
-    return std::make_unique<reactor_notifier_epoll>();
-}
-
-#ifdef HAVE_OSV
-class reactor_notifier_osv :
-        public reactor_notifier, private osv::newpoll::pollable {
-    promise<> _pr;
-    // TODO: pollable should probably remember its poller, so we shouldn't
-    // need to keep another copy of this pointer
-    osv::newpoll::poller *_poller = nullptr;
-    bool _needed = false;
-public:
-    virtual future<> wait() override {
-        return engine().notified(this);
-    }
-    virtual void signal() override {
-        wake();
-    }
-    virtual void on_wake() override {
-        _pr.set_value();
-        _pr = promise<>();
-        // We try to avoid del()/add() ping-pongs: After an one occurance of
-        // the event, we don't del() but rather set needed=false. We guess
-        // the future's continuation (scheduler by _pr.set_value() above)
-        // will make the pollable needed again. Only if we reach this callback
-        // a second time, and needed is still false, do we finally del().
-        if (!_needed) {
-            _poller->del(this);
-            _poller = nullptr;
-
-        }
-        _needed = false;
-    }
-
-    void enable(osv::newpoll::poller &poller) {
-        _needed = true;
-        if (_poller == &poller) {
-            return;
-        }
-        assert(!_poller); // don't put same pollable on multiple pollers!
-        _poller = &poller;
-        _poller->add(this);
-    }
-
-    virtual ~reactor_notifier_osv() {
-        if (_poller) {
-            _poller->del(this);
-        }
-    }
-
-    friend class reactor_backend_osv;
-};
-
-std::unique_ptr<reactor_notifier>
-reactor_backend_osv::make_reactor_notifier() {
-    return std::make_unique<reactor_notifier_osv>();
-}
-#endif
-
-
 #ifdef HAVE_OSV
 reactor_backend_osv::reactor_backend_osv() {
 }
@@ -4637,19 +4547,6 @@ reactor_backend_osv::wait_and_process() {
     }
     return true;
 }
-
-future<>
-reactor_backend_osv::notified(reactor_notifier *notifier) {
-    // reactor_backend_osv::make_reactor_notifier() generates a
-    // reactor_notifier_osv, so we only can work on such notifiers.
-    reactor_notifier_osv *n = dynamic_cast<reactor_notifier_osv *>(notifier);
-    if (n->read()) {
-        return make_ready_future<>();
-    }
-    n->enable(_poller);
-    return n->_pr.get_future();
-}
-
 
 future<>
 reactor_backend_osv::readable(pollable_fd_state& fd) {
