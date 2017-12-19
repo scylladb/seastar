@@ -39,7 +39,11 @@
 #include "temporary_buffer.hh"
 #include "scattered_message.hh"
 
+#include <boost/variant.hpp>
+
 namespace seastar {
+
+namespace stdx = std::experimental;
 
 namespace net { class packet; }
 
@@ -114,6 +118,83 @@ public:
     future<> close() { return _dsi->close(); }
 };
 
+struct continue_consuming {};
+
+template <typename CharType>
+class stop_consuming {
+public:
+    using tmp_buf = temporary_buffer<CharType>;
+    explicit stop_consuming(tmp_buf buf) : _buf(std::move(buf)) {}
+
+    tmp_buf& get_buffer() { return _buf; }
+    const tmp_buf& get_buffer() const { return _buf; }
+private:
+    tmp_buf _buf;
+};
+
+class skip_bytes {
+public:
+    explicit skip_bytes(uint64_t v) : _value(v) {}
+    uint64_t get_value() const { return _value; }
+private:
+    uint64_t _value;
+};
+
+template <typename CharType>
+class consumption_result {
+public:
+    using stop_consuming_type = stop_consuming<CharType>;
+    using consumption_variant = boost::variant<continue_consuming, stop_consuming_type, skip_bytes>;
+    using tmp_buf = typename stop_consuming_type::tmp_buf;
+
+    /*[[deprecated]]*/ consumption_result(stdx::optional<tmp_buf> opt_buf) {
+        if (opt_buf) {
+            _result = stop_consuming_type{std::move(opt_buf.value())};
+        }
+    }
+
+    consumption_result(const continue_consuming&) {}
+    consumption_result(stop_consuming_type&& stop) : _result(std::move(stop)) {}
+    consumption_result(skip_bytes&& skip) : _result(std::move(skip)) {}
+
+    consumption_variant& get() { return _result; }
+    const consumption_variant& get() const { return _result; }
+
+private:
+    consumption_variant _result;
+};
+
+// Consumer concept, for consume() method
+GCC6_CONCEPT(
+// The consumer should operate on the data given to it, and
+// return a future "consumption result", which can be
+//  - continue_consuming, if the consumer has consumed all the input given
+// to it and is ready for more
+//  - stop_consuming, when the consumer is done (and in that case
+// the contained buffer is the unconsumed part of the last data buffer - this
+// can also happen to be empty).
+//  - skip_bytes, when the consumer has consumed all the input given to it
+// and wants to skip before processing the next chunk
+//
+// For backward compatibility reasons, we also support the deprecated return value
+// of type "unconsumed remainder" which can be
+//  - empty optional, if the consumer consumed all the input given to it
+// and is ready for more
+//  - non-empty optional, when the consumer is done (and in that case
+// the value is the unconsumed part of the last data buffer - this
+// can also happen to be empty).
+
+template <typename Consumer, typename CharType>
+concept bool InputStreamConsumer = requires (Consumer c) {
+    { c(temporary_buffer<CharType>{}) } -> future<consumption_result<CharType>>;
+};
+
+template <typename Consumer, typename CharType>
+concept bool ObsoleteInputStreamConsumer = requires (Consumer c) {
+    { c(temporary_buffer<CharType>{}) } -> future<stdx::optional<temporary_buffer<CharType>>>;
+};
+)
+
 template <typename CharType>
 class input_stream final {
     static_assert(sizeof(CharType) == 1, "must buffer stream of bytes");
@@ -127,25 +208,21 @@ protected:
     void reset() { _buf = {}; }
     data_source* fd() { return &_fd; }
 public:
-    // Consumer concept, for consume() method:
-    using unconsumed_remainder = std::experimental::optional<tmp_buf>;
-    struct ConsumerConcept {
-        // The consumer should operate on the data given to it, and
-        // return a future "unconsumed remainder", which can be undefined
-        // if the consumer consumed all the input given to it and is ready
-        // for more, or defined when the consumer is done (and in that case
-        // the value is the unconsumed part of the last data buffer - this
-        // can also happen to be empty).
-        future<unconsumed_remainder> operator()(tmp_buf data);
-    };
+    using consumption_result_type = consumption_result<CharType>;
+    // unconsumed_remainder is mapped for compatibility only; new code should use consumption_result_type
+    using unconsumed_remainder = stdx::optional<tmp_buf>;
     using char_type = CharType;
     input_stream() = default;
     explicit input_stream(data_source fd) : _fd(std::move(fd)), _buf(0) {}
     input_stream(input_stream&&) = default;
     input_stream& operator=(input_stream&&) = default;
     future<temporary_buffer<CharType>> read_exactly(size_t n);
-    template <typename Consumer> future<> consume(Consumer&& c);
-    template <typename Consumer> future<> consume(Consumer& c);
+    template <typename Consumer>
+    GCC6_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
+    future<> consume(Consumer&& c);
+    template <typename Consumer>
+    GCC6_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
+    future<> consume(Consumer& c);
     bool eof() { return _eof; }
     /// Returns some data from the stream, or an empty buffer on end of
     /// stream.
