@@ -752,6 +752,7 @@ private:
     file_desc _task_quota_timer;
     promise<> _start_promise;
     semaphore _cpu_started;
+    internal::preemption_monitor _preemption_monitor{};
     std::atomic<uint64_t> _tasks_processed = { 0 };
     std::atomic<uint64_t> _polls = { 0 };
     std::unique_ptr<internal::cpu_stall_detector> _cpu_stall_detector;
@@ -823,7 +824,6 @@ private:
     bool _strict_o_direct = true;
     bool _force_io_getevents_syscall = false;
     bool _bypass_fsync = false;
-    bool& _local_need_preempt{g_need_preempt}; // for access from the _task_quota_timer_thread
     std::thread _task_quota_timer_thread;
     std::atomic<bool> _dying{false};
 private:
@@ -901,6 +901,8 @@ private:
     void destroy_scheduling_group(scheduling_group sg);
     uint64_t tasks_processed() const;
     uint64_t min_vruntime() const;
+    void request_preemption();
+    void reset_preemption_monitor();
 public:
     static boost::program_options::options_description get_options_description(std::chrono::duration<double> default_task_quota);
     explicit reactor(unsigned id);
