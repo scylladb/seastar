@@ -314,8 +314,12 @@ reactor::signals::~signals() {
 
 reactor::signals::signal_handler::signal_handler(int signo, std::function<void ()>&& handler)
         : _handler(std::move(handler)) {
+    engine()._backend.handle_signal(signo);
+}
+
+void reactor_backend_epoll::handle_signal(int signo) {
     struct sigaction sa;
-    sa.sa_sigaction = action;
+    sa.sa_sigaction = signal_received;
     sa.sa_mask = make_empty_sigset_mask();
     sa.sa_flags = SA_SIGINFO | SA_RESTART;
     auto r = ::sigaction(signo, &sa, nullptr);
@@ -359,12 +363,8 @@ bool reactor::signals::pure_poll_signal() const {
 }
 
 void reactor::signals::action(int signo, siginfo_t* siginfo, void* ignore) {
-    if (engine_is_ready()) {
-        engine().request_preemption();
-        engine()._signals._pending_signals.fetch_or(1ull << signo, std::memory_order_relaxed);
-    } else {
-        failed_to_handle(signo);
-    }
+    engine().request_preemption();
+    engine()._signals._pending_signals.fetch_or(1ull << signo, std::memory_order_relaxed);
 }
 
 void reactor::signals::failed_to_handle(int signo) {
@@ -376,6 +376,14 @@ void reactor::signals::failed_to_handle(int signo) {
 
 void reactor::handle_signal(int signo, std::function<void ()>&& handler) {
     _signals.handle_signal(signo, std::move(handler));
+}
+
+void reactor_backend_epoll::signal_received(int signo, siginfo_t* siginfo, void* ignore) {
+    if (engine_is_ready()) {
+        engine()._signals.action(signo, siginfo, ignore);
+    } else {
+        reactor::signals::failed_to_handle(signo);
+    }
 }
 
 // Accumulates an in-memory backtrace and flush to stderr eventually.
