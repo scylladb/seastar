@@ -13,7 +13,7 @@ dependencies:
         "libnuma-dev",
         "libpciaccess-dev",
         "libcrypto++-dev",
-        "libboost1.55-all-dev",
+        "scylla-libboost163-all-dev",
         "libxml2-dev",
         "xfslibs-dev",
         "libgnutls28-dev",
@@ -32,11 +32,12 @@ dependencies:
 matrix:
     include:
       # GCC 5, DPDK enabled
-      - env: DPDK_MODE="--enable-dpdk" COMPILER="g++-5"
+      - env: DPDK_MODE="--enable-dpdk" COMPILER="g++-5" CFLAGS="-Wno-unused-variable"
         addons: &gcc5
             apt:
                 sources:
                   - ubuntu-toolchain-r-test
+                  - sourceline: 'deb http://ppa.launchpad.net/scylladb/ppa/ubuntu trusty main'
                 packages:
                   - *seastar_deps
                   - g++-5
@@ -47,6 +48,7 @@ matrix:
             apt:
                 sources:
                   - ubuntu-toolchain-r-test
+                  - sourceline: 'deb http://ppa.launchpad.net/scylladb/ppa/ubuntu trusty main'
                 packages:
                   - *seastar_deps
                   - g++-6
@@ -56,11 +58,12 @@ matrix:
             apt:
                 sources:
                   - ubuntu-toolchain-r-test
+                  - sourceline: 'deb http://ppa.launchpad.net/scylladb/ppa/ubuntu trusty main'
                 packages:
                   - *seastar_deps
                   - g++-7
       # GCC 5, DPDK disabled
-      - env: DPDK_MODE="" COMPILER="g++-5"
+      - env: DPDK_MODE="" COMPILER="g++-5" CFLAGS="-Wno-unused-variable"
         addons: *gcc5
       # GCC 6, DPDK disabled
       - env: DPDK_MODE="" COMPILER="g++-6"
@@ -79,13 +82,14 @@ matrix:
                 sources:
                   - ubuntu-toolchain-r-test
                   - llvm-toolchain-trusty-5.0
+                  - sourceline: 'deb http://ppa.launchpad.net/scylladb/ppa/ubuntu trusty main'
                 packages:
                   - *seastar_deps
                   - clang-5.0
                   - g++-5
 
 before_script:
-  - ./configure.py --mode=release ${DPDK_MODE} --compiler=${COMPILER} --cflags="$CFLAGS"
+  - ./configure.py --mode=release ${DPDK_MODE} --compiler=${COMPILER} --cflags="-I/opt/scylladb/include/ $CFLAGS" --ldflags="-L/opt/scylladb/lib/x86_64-linux-gnu/"
 
 script:
   - ninja -j`nproc --all`

@@ -673,10 +673,10 @@ if not try_compile(args.cxx, '#include <experimental/string_view>', ['-std=gnu++
     sys.exit(1)
 
 if not try_compile(args.cxx, '''#include <boost/version.hpp>\n\
-        #if BOOST_VERSION < 105500\n\
+        #if BOOST_VERSION < 105800\n\
         #error "Invalid boost version"\n\
         #endif'''):
-    print("Seastar requires boost >= 1.55")
+    print("Seastar requires boost >= 1.58")
     sys.exit(1)
 
 
