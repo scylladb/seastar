@@ -465,6 +465,7 @@ public:
 // (such as timers, signals, inter-thread notifications) into file descriptors
 // using mechanisms like timerfd, signalfd and eventfd respectively.
 class reactor_backend_epoll : public reactor_backend {
+    reactor* _r;
 private:
     file_desc _epollfd;
     future<> get_epoll_future(pollable_fd_state& fd,
@@ -472,7 +473,7 @@ private:
     void complete_epoll_event(pollable_fd_state& fd,
             promise<> pollable_fd_state::* pr, int events, int event);
 public:
-    reactor_backend_epoll();
+    explicit reactor_backend_epoll(reactor* r);
     virtual ~reactor_backend_epoll() override { }
     virtual bool wait_and_process(int timeout, const sigset_t* active_sigmask) override;
     virtual future<> readable(pollable_fd_state& fd) override;
@@ -673,6 +674,7 @@ private:
     friend class execution_stage_pollfn;
     friend class file_data_source_impl; // for fstream statistics
     friend class internal::reactor_stall_sampler;
+    friend class reactor_backend_epoll;
 public:
     class poller {
         std::unique_ptr<pollfn> _pollfn;
@@ -715,6 +717,7 @@ public:
         uint64_t fstream_read_ahead_discarded_bytes = 0;
     };
 private:
+    file_desc _notify_eventfd;
     // FIXME: make _backend a unique_ptr<reactor_backend>, not a compile-time #ifdef.
 #ifdef HAVE_OSV
     reactor_backend_osv _backend;

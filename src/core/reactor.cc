@@ -294,8 +294,13 @@ wrap_syscall(int result, const Extra& extra) {
     return syscall_result_extra<Extra>{result, errno, extra};
 }
 
-reactor_backend_epoll::reactor_backend_epoll()
-    : _epollfd(file_desc::epoll_create(EPOLL_CLOEXEC)) {
+reactor_backend_epoll::reactor_backend_epoll(reactor* r)
+        : _r(r), _epollfd(file_desc::epoll_create(EPOLL_CLOEXEC)) {
+    ::epoll_event event;
+    event.events = EPOLLIN;
+    event.data.ptr = nullptr;
+    auto ret = ::epoll_ctl(_epollfd.get(), EPOLL_CTL_ADD, _r->_notify_eventfd.get(), &event);
+    throw_system_error_on(ret == -1);
 }
 
 reactor::signals::signals() : _pending_signals(0) {
@@ -536,7 +541,8 @@ struct reactor::task_queue::indirect_compare {
 };
 
 reactor::reactor(unsigned id)
-    : _backend()
+    : _notify_eventfd(file_desc::eventfd(0, EFD_CLOEXEC))
+    , _backend(this)
     , _id(id)
 #ifdef HAVE_OSV
     , _timer_thread(
@@ -3107,7 +3113,8 @@ public:
 
 void
 reactor::wakeup() {
-    pthread_kill(_thread_id, alarm_signal());
+    uint64_t one = 1;
+    ::write(_notify_eventfd.get(), &one, sizeof(one));
 }
 
 void reactor::start_aio_eventfd_loop() {
@@ -3558,6 +3565,11 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
     for (int i = 0; i < nr; ++i) {
         auto& evt = eevt[i];
         auto pfd = reinterpret_cast<pollable_fd_state*>(evt.data.ptr);
+        if (!pfd) {
+            char dummy[8];
+            _r->_notify_eventfd.read(dummy, 8);
+            continue;
+        }
         auto events = evt.events & (EPOLLIN | EPOLLOUT);
         auto events_to_remove = events & ~pfd->events_requested;
         if (pfd->events_rw) {
