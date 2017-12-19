@@ -94,6 +94,7 @@ linux_abi::iocb make_read_iocb(int fd, uint64_t offset, void* buffer, size_t len
 linux_abi::iocb make_write_iocb(int fd, uint64_t offset, const void* buffer, size_t len);
 linux_abi::iocb make_readv_iocb(int fd, uint64_t offset, const ::iovec* iov, size_t niov);
 linux_abi::iocb make_writev_iocb(int fd, uint64_t offset, const ::iovec* iov, size_t niov);
+linux_abi::iocb make_poll_iocb(int fd, uint32_t events);
 
 void set_user_data(linux_abi::iocb& iocb, void* data);
 void* get_user_data(const linux_abi::iocb& iocb);
@@ -161,6 +162,16 @@ make_writev_iocb(int fd, uint64_t offset, const ::iovec* iov, size_t niov) {
     iocb.aio_offset = offset;
     iocb.aio_buf = reinterpret_cast<uintptr_t>(iov);
     iocb.aio_nbytes = niov;
+    return iocb;
+}
+
+inline
+linux_abi::iocb
+make_poll_iocb(int fd, uint32_t events) {
+    linux_abi::iocb iocb{};
+    iocb.aio_lio_opcode = linux_abi::iocb_cmd::POLL;
+    iocb.aio_fildes = fd;
+    iocb.aio_buf = events;
     return iocb;
 }
 
