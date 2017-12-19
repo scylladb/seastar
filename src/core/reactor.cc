@@ -940,8 +940,9 @@ future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd,
         pfd.events_known &= ~event;
         return make_ready_future();
     }
+    pfd.events_rw = event == (EPOLLIN | EPOLLOUT);
     pfd.events_requested |= event;
-    if (!(pfd.events_epoll & event)) {
+    if ((pfd.events_epoll & event) != event) {
         auto ctl = pfd.events_epoll ? EPOLL_CTL_MOD : EPOLL_CTL_ADD;
         pfd.events_epoll |= event;
         ::epoll_event eevt;
@@ -955,24 +956,6 @@ future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd,
     return (pfd.*pr).get_future();
 }
 
-void reactor_backend_epoll::abort_fd(pollable_fd_state& pfd, std::exception_ptr ex,
-                                     promise<> pollable_fd_state::* pr, int event) {
-    if (pfd.events_epoll & event) {
-        pfd.events_epoll &= ~event;
-        auto ctl = pfd.events_epoll ? EPOLL_CTL_MOD : EPOLL_CTL_DEL;
-        ::epoll_event eevt;
-        eevt.events = pfd.events_epoll;
-        eevt.data.ptr = &pfd;
-        int r = ::epoll_ctl(_epollfd.get(), ctl, pfd.fd.get(), &eevt);
-        assert(r == 0);
-    }
-    if (pfd.events_requested & event) {
-        pfd.events_requested &= ~event;
-        (pfd.*pr).set_exception(std::move(ex));
-    }
-    pfd.events_known &= ~event;
-}
-
 future<> reactor_backend_epoll::readable(pollable_fd_state& fd) {
     return get_epoll_future(fd, &pollable_fd_state::pollin, EPOLLIN);
 }
@@ -981,12 +964,8 @@ future<> reactor_backend_epoll::writeable(pollable_fd_state& fd) {
     return get_epoll_future(fd, &pollable_fd_state::pollout, EPOLLOUT);
 }
 
-void reactor_backend_epoll::abort_reader(pollable_fd_state& fd, std::exception_ptr ex) {
-    abort_fd(fd, std::move(ex), &pollable_fd_state::pollin, EPOLLIN);
-}
-
-void reactor_backend_epoll::abort_writer(pollable_fd_state& fd, std::exception_ptr ex) {
-    abort_fd(fd, std::move(ex), &pollable_fd_state::pollout, EPOLLOUT);
+future<> reactor_backend_epoll::readable_or_writeable(pollable_fd_state& fd) {
+    return get_epoll_future(fd, &pollable_fd_state::pollin, EPOLLIN | EPOLLOUT);
 }
 
 void reactor_backend_epoll::forget(pollable_fd_state& fd) {
@@ -1028,6 +1007,18 @@ reactor::posix_reuseport_detect() {
         return true;
     } catch(std::system_error& e) {
         return false;
+    }
+}
+
+void pollable_fd::maybe_no_more_recv() {
+    if (_s->no_more_recv) {
+        throw std::system_error(std::error_code(ECONNABORTED, std::system_category()));
+    }
+}
+
+void pollable_fd::maybe_no_more_send() {
+    if (_s->no_more_send) {
+        throw std::system_error(std::error_code(ECONNABORTED, std::system_category()));
     }
 }
 
@@ -3567,8 +3558,17 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
         auto pfd = reinterpret_cast<pollable_fd_state*>(evt.data.ptr);
         auto events = evt.events & (EPOLLIN | EPOLLOUT);
         auto events_to_remove = events & ~pfd->events_requested;
-        complete_epoll_event(*pfd, &pollable_fd_state::pollin, events, EPOLLIN);
-        complete_epoll_event(*pfd, &pollable_fd_state::pollout, events, EPOLLOUT);
+        if (pfd->events_rw) {
+            // accept() signals normal completions via EPOLLIN, but errors (due to shutdown())
+            // via EPOLLOUT|EPOLLHUP, so we have to wait for both EPOLLIN and EPOLLOUT with the
+            // same future
+            complete_epoll_event(*pfd, &pollable_fd_state::pollin, events, EPOLLIN|EPOLLOUT);
+        } else {
+            // Normal processing where EPOLLIN and EPOLLOUT are waited for via different
+            // futures.
+            complete_epoll_event(*pfd, &pollable_fd_state::pollin, events, EPOLLIN);
+            complete_epoll_event(*pfd, &pollable_fd_state::pollout, events, EPOLLOUT);
+        }
         if (events_to_remove) {
             pfd->events_epoll &= ~events_to_remove;
             evt.events = pfd->events_epoll;
