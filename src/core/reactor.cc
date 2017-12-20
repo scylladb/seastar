@@ -438,7 +438,7 @@ private:
         return did_work;
     }
     static void signal_received(int signo, siginfo_t* siginfo, void* ignore) {
-        engine()._signals.signal_received(signo);
+        engine()._signals.action(signo, siginfo, ignore);
     }
 private:
     class io_poll_poller : public reactor::pollfn {
@@ -844,10 +844,69 @@ struct reactor::task_queue::indirect_compare {
     }
 };
 
-reactor::reactor(unsigned id)
+static bool detect_aio_poll() {
+    auto fd = file_desc::eventfd(0, 0);
+    aio_context_t ioc{};
+    io_setup(1, &ioc);
+    auto cleanup = defer([&] { io_destroy(ioc); });
+    linux_abi::iocb iocb = internal::make_poll_iocb(fd.get(), POLLIN|POLLOUT);
+    linux_abi::iocb* a[1] = { &iocb };
+    auto r = io_submit(ioc, 1, a);
+    if (r != 1) {
+        return false;
+    }
+    uint64_t one = 1;
+    fd.write(&one, 8);
+    io_event ev[1];
+    r = io_pgetevents(ioc, 1, 1, ev, nullptr, nullptr);
+    return r == 1;
+}
+
+class reactor_backend_selector {
+    std::string _name;
+private:
+    explicit reactor_backend_selector(std::string name) : _name(std::move(name)) {}
+public:
+    std::unique_ptr<reactor_backend> create(reactor* r) {
+        if (_name == "linux-aio") {
+            return std::make_unique<reactor_backend_aio>(r);
+        } else if (_name == "epoll") {
+            return std::make_unique<reactor_backend_epoll>(r);
+        }
+        throw std::logic_error("bad reactor backend");
+    }
+    static reactor_backend_selector default_backend() {
+        return available()[0];
+    }
+    static std::vector<reactor_backend_selector> available() {
+        std::vector<reactor_backend_selector> ret;
+        if (detect_aio_poll()) {
+            ret.push_back(reactor_backend_selector("linux-aio"));
+        }
+        ret.push_back(reactor_backend_selector("epoll"));
+        return ret;
+    }
+    friend std::ostream& operator<<(std::ostream& os, const reactor_backend_selector& rbs) {
+        return os << rbs._name;
+    }
+    friend void validate(boost::any& v, const std::vector<std::string> values, reactor_backend_selector* rbs, int) {
+        namespace bpo = boost::program_options;
+        bpo::validators::check_first_occurrence(v);
+        auto s = bpo::validators::get_single_string(values);
+        for (auto&& x : available()) {
+            if (s == x._name) {
+                v = std::move(x);
+                return;
+            }
+        }
+        throw bpo::validation_error(bpo::validation_error::invalid_option_value);
+    }
+};
+
+reactor::reactor(unsigned id, reactor_backend_selector rbs)
     : _notify_eventfd(file_desc::eventfd(0, EFD_CLOEXEC))
     , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
-    , _backend(std::make_unique<reactor_backend_epoll>(this))
+    , _backend(rbs.create(this))
     , _id(id)
 #ifdef HAVE_OSV
     , _timer_thread(
@@ -4239,6 +4298,8 @@ reactor::get_options_description(std::chrono::duration<double> default_task_quot
         ("force-aio-syscalls", bpo::value<bool>()->default_value(false),
                 "Force io_getevents(2) to issue a system call, instead of bypassing the kernel when possible."
                 " This makes strace output more useful, but slows down the application")
+        ("reactor-backend", bpo::value<reactor_backend_selector>()->default_value(reactor_backend_selector::default_backend()),
+                format("Internal reactor implementation ({})", reactor_backend_selector::available()).c_str())
 #ifdef SEASTAR_HEAPPROF
         ("heapprof", "enable seastar heap profiling")
 #endif
@@ -4347,7 +4408,7 @@ void smp::arrive_at_event_loop_end() {
     }
 }
 
-void smp::allocate_reactor(unsigned id) {
+void smp::allocate_reactor(unsigned id, reactor_backend_selector rbs) {
     assert(!reactor_holder);
 
     // we cannot just write "local_engin = new reactor" since reactor's constructor
@@ -4356,7 +4417,7 @@ void smp::allocate_reactor(unsigned id) {
     int r = posix_memalign(&buf, cache_line_size, sizeof(reactor));
     assert(r == 0);
     local_engine = reinterpret_cast<reactor*>(buf);
-    new (buf) reactor(id);
+    new (buf) reactor(id, std::move(rbs));
     reactor_holder.reset(local_engine);
 }
 
@@ -4743,10 +4804,12 @@ void smp::configure(boost::program_options::variables_map configuration)
 
     _all_event_loops_done.emplace(smp::count);
 
+    auto backend_selector = configuration["reactor-backend"].as<reactor_backend_selector>();
+
     unsigned i;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        create_thread([configuration, &disk_config, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity, heapprof_enabled, mbind] {
+        create_thread([configuration, &disk_config, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity, heapprof_enabled, mbind, backend_selector] {
             auto thread_name = seastar::format("reactor-{}", i);
             pthread_setname_np(pthread_self(), thread_name.c_str());
             if (thread_affinity) {
@@ -4761,7 +4824,7 @@ void smp::configure(boost::program_options::variables_map configuration)
             }
             auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
             throw_pthread_error(r);
-            allocate_reactor(i);
+            allocate_reactor(i, backend_selector);
             _reactors[i] = &engine();
             for (auto& dev_id : disk_config.device_ids()) {
                 alloc_io_queue(i, dev_id);
@@ -4778,7 +4841,7 @@ void smp::configure(boost::program_options::variables_map configuration)
         });
     }
 
-    allocate_reactor(0);
+    allocate_reactor(0, backend_selector);
     _reactors[0] = &engine();
     for (auto& dev_id : disk_config.device_ids()) {
         alloc_io_queue(0, dev_id);
