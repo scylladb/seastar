@@ -463,6 +463,8 @@ public:
     virtual void start_tick() = 0;
     virtual void stop_tick() = 0;
     virtual void arm_highres_timer(const ::itimerspec& ts) = 0;
+    virtual void reset_preemption_monitor() = 0;
+    virtual void request_preemption() = 0;
 };
 
 // reactor backend using file-descriptor & epoll, suitable for running on
@@ -493,6 +495,8 @@ public:
     virtual void start_tick() override;
     virtual void stop_tick() override;
     virtual void arm_highres_timer(const ::itimerspec& ts) override;
+    virtual void reset_preemption_monitor() override;
+    virtual void request_preemption() override;
 };
 
 #ifdef HAVE_OSV
