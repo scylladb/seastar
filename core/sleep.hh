@@ -25,9 +25,10 @@
 #include <chrono>
 #include <functional>
 
-#include "core/shared_ptr.hh"
-#include "core/reactor.hh"
 #include "core/future.hh"
+#include "core/lowres_clock.hh"
+#include "core/reactor.hh"
+#include "core/shared_ptr.hh"
 
 namespace seastar {
 
@@ -69,15 +70,10 @@ public:
 /// \param dur minimum amount of time before the returned future becomes
 ///            ready.
 /// \return A \ref future which becomes ready when the sleep duration elapses.
-template <typename Rep, typename Period>
-future<> sleep_abortable(std::chrono::duration<Rep, Period> dur) {
-    return engine().wait_for_stop(dur).then([] {
-        throw sleep_aborted();
-    }).handle_exception([] (std::exception_ptr ep) {
-        try {
-            std::rethrow_exception(ep);
-        } catch(condition_variable_timed_out&) {};
-    });
-}
+template <typename Clock = steady_clock_type>
+future<> sleep_abortable(typename Clock::duration dur);
+
+extern template future<> sleep_abortable<steady_clock_type>(typename steady_clock_type::duration);
+extern template future<> sleep_abortable<lowres_clock>(typename lowres_clock::duration);
 
 }

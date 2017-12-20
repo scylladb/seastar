@@ -390,6 +390,7 @@ core = [
     'rpc/rpc.cc',
     'rpc/lz4_compressor.cc',
     'core/exception_hacks.cc',
+    'core/future-util.cc',
     ]
 
 protobuf = [
