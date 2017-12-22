@@ -94,6 +94,7 @@ public:
     size_t capacity() const;
     void reserve(size_t);
     T& operator[](size_t idx);
+    const T& operator[](size_t idx) const;
     template <typename Func>
     void for_each(Func func);
     // access an element, may return wrong or destroyed element
@@ -416,6 +417,13 @@ template <typename T, typename Alloc>
 inline
 T&
 circular_buffer<T, Alloc>::operator[](size_t idx) {
+    return _impl.storage[mask(_impl.begin + idx)];
+}
+
+template <typename T, typename Alloc>
+inline
+const T&
+circular_buffer<T, Alloc>::operator[](size_t idx) const {
     return _impl.storage[mask(_impl.begin + idx)];
 }
 
