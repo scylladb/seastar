@@ -105,16 +105,15 @@ private:
     struct select_vtable_for<Func, false> : indirect_vtable_for<Func> {};
     template <typename Func>
     static constexpr bool is_direct() {
-        return sizeof(Func) <= nr_direct && alignof(Func) <= alignof(storage);
+        return sizeof(Func) <= nr_direct && alignof(Func) <= alignof(storage)
+                && std::is_nothrow_move_constructible<Func>::value;
     }
     template <typename Func>
     struct vtable_for : select_vtable_for<Func, is_direct<Func>()> {};
 public:
     noncopyable_function() noexcept : _vtable(&_s_empty_vtable) {}
     template <typename Func>
-    noncopyable_function(Func func) noexcept {
-        // If we want, we can support throwing move constructible functions by using the indirect path
-        static_assert(std::is_nothrow_move_constructible<Func>::value, "must be nothrow move constructible");
+    noncopyable_function(Func func) noexcept(std::is_nothrow_move_constructible<Func>::value) {
         vtable_for<Func>::initialize(std::move(func), this);
         _vtable = &vtable_for<Func>::s_vtable;
     }
