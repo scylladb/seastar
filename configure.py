@@ -103,7 +103,7 @@ def try_compile_and_link(compiler, source = '', flags = []):
             sfile.file.flush()
             # We can't write to /dev/null, since in some cases (-ftest-coverage) gcc will create an auxiliary
             # output file based on the name of the output file, and "/dev/null.gcsa" is not a good name
-            return subprocess.call([compiler, '-x', 'c++', '-o', ofile, sfile.name] + args.user_cflags.split() + flags,
+            return subprocess.call([compiler, '-x', 'c++', '-o', ofile, sfile.name] + flags,
                                    stdout = subprocess.DEVNULL,
                                    stderr = subprocess.DEVNULL) == 0
         finally:
@@ -128,35 +128,38 @@ def try_compile_and_run(compiler, flags, source, env = {}):
         env = e
         return subprocess.call([xfile.name], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL, env=env) == 0
 
-def warning_supported(warning, compiler):
+def warning_supported(warning, compiler, flags):
     # gcc ignores -Wno-x even if it is not supported
     adjusted = re.sub('^-Wno-', '-W', warning)
-    return try_compile(flags = [adjusted, '-Werror'], compiler = compiler)
+    return try_compile(flags=flags + [adjusted, '-Werror'], compiler = compiler)
 
-def debug_flag(compiler):
+def debug_flag(compiler, flags):
     src_with_auto = textwrap.dedent('''\
         template <typename T>
         struct x { auto f() {} };
 
         x<int> a;
         ''')
-    if try_compile(source = src_with_auto, flags = ['-g', '-std=gnu++1y'], compiler = compiler):
+    if try_compile(source = src_with_auto, flags = flags + ['-g', '-std=gnu++1y'], compiler = compiler):
         return '-g'
     else:
         print('Note: debug information disabled; upgrade your compiler')
         return ''
 
-def detect_membarrier(compiler):
-    return try_compile(compiler=compiler, source=textwrap.dedent('''\
+def dialect_supported(dialect, compiler='g++'):
+    return try_compile(compiler=compiler, source='', flags=['-std=' + dialect])
+
+def detect_membarrier(compiler, flags):
+    return try_compile(compiler=compiler, flags=flags, source=textwrap.dedent('''\
         #include <linux/membarrier.h>
         
         int x = MEMBARRIER_CMD_PRIVATE_EXPEDITED | MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED;
         '''))
 
-def sanitize_vptr_flag(compiler):
+def sanitize_vptr_flag(compiler, flags):
     # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=67258
-    if (not try_compile(compiler, flags=['-fsanitize=vptr'])
-        or (try_compile_and_run(compiler, flags=['-fsanitize=undefined', '-fno-sanitize-recover'],
+    if (not try_compile(compiler, flags=flags + ['-fsanitize=vptr'])
+        or (try_compile_and_run(compiler, flags=flags + ['-fsanitize=undefined', '-fno-sanitize-recover'],
                                env={'UBSAN_OPTIONS': 'exitcode=1'}, source=textwrap.dedent('''
             struct A
             {
@@ -178,9 +181,9 @@ def sanitize_vptr_flag(compiler):
         return '-fno-sanitize=vptr'
 
 
-def adjust_visibility_flags(compiler):
+def adjust_visibility_flags(compiler, flags):
     # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
-    flags = ['-fvisibility=hidden', '-std=gnu++1y', '-Werror=attributes']
+    flags = flags + ['-fvisibility=hidden', '-std=gnu++1y', '-Werror=attributes']
     if not try_compile(compiler, flags=flags, source=textwrap.dedent('''
             template <class T>
             class MyClass  {
@@ -293,6 +296,13 @@ extralibs = {
 
 all_artifacts = apps + tests + ['libseastar.a', 'seastar.pc']
 
+cpp_dialects = ['gnu++17', 'gnu++1z', 'gnu++14', 'gnu++1y']
+try:
+    default_cpp_dialect = [x for x in cpp_dialects if dialect_supported(x, compiler='g++')][0]
+except:
+    # if g++ is not available, fallback to something safe-ish
+    default_cpp_dialect='gnu++1y'
+
 arg_parser = argparse.ArgumentParser('Configure seastar')
 arg_parser.add_argument('--static', dest = 'static', action = 'store_const', default = '',
                         const = '-static',
@@ -311,6 +321,8 @@ arg_parser.add_argument('--compiler', action = 'store', dest = 'cxx', default = 
                         help = 'C++ compiler path')
 arg_parser.add_argument('--c-compiler', action='store', dest='cc', default='gcc',
                         help = 'C compiler path (for bundled libraries such as dpdk and c-ares)')
+arg_parser.add_argument('--c++-dialect', action='store', dest='cpp_dialect', default=default_cpp_dialect,
+                        help='C++ dialect to build with [default: %(default)s]')
 arg_parser.add_argument('--with-osv', action = 'store', dest = 'with_osv', default = '',
                         help = 'Shortcut for compile for OSv')
 arg_parser.add_argument('--enable-dpdk', action = 'store_true', dest = 'dpdk', default = False,
@@ -649,26 +661,26 @@ if not args.staticboost:
 
 warnings = [w
             for w in warnings
-            if warning_supported(warning = w, compiler = args.cxx)]
+            if warning_supported(warning = w, compiler = args.cxx, flags=args.user_cflags.split())]
 
 warnings = ' '.join(warnings)
 
-dbgflag = debug_flag(args.cxx) if args.debuginfo else ''
+dbgflag = debug_flag(args.cxx, flags=args.user_cflags.split()) if args.debuginfo else ''
 tests_link_rule = 'link' if args.tests_debuginfo else 'link_stripped'
 
-sanitize_flags = sanitize_vptr_flag(args.cxx)
+sanitize_flags = sanitize_vptr_flag(args.cxx, flags=args.user_cflags.split())
 
-visibility_flags = adjust_visibility_flags(args.cxx)
+visibility_flags = adjust_visibility_flags(args.cxx, flags=args.user_cflags.split())
 
-if not try_compile(args.cxx, '#include <gnutls/gnutls.h>'):
+if not try_compile(args.cxx, source='#include <gnutls/gnutls.h>', flags=args.user_cflags.split()):
     print('Seastar requires gnutls.  Install gnutls-devel/libgnutls-dev')
     sys.exit(1)
 
-if not try_compile(args.cxx, '#include <gnutls/gnutls.h>\nint x = GNUTLS_NONBLOCK;'):
+if not try_compile(args.cxx, source='#include <gnutls/gnutls.h>\nint x = GNUTLS_NONBLOCK;', flags=args.user_cflags.split()):
     print('Seastar requires gnutls >= 2.8.  Install libgnutls28-dev or later.')
     sys.exit(1)
 
-if not try_compile(args.cxx, '#include <experimental/string_view>', ['-std=gnu++1y']):
+if not try_compile(args.cxx, source='#include <experimental/string_view>', flags=['-std=gnu++1y'] + args.user_cflags.split()):
     print('Seastar requires g++ >= 4.9.  Install g++-4.9 or later (use --compiler option).')
     sys.exit(1)
 
@@ -683,7 +695,7 @@ if not try_compile(args.cxx, '''#include <boost/version.hpp>\n\
 modes['debug']['sanitize'] += ' ' + sanitize_flags
 
 def have_hwloc():
-    return try_compile(compiler = args.cxx, source = '#include <hwloc.h>\n#include <numa.h>')
+    return try_compile(compiler = args.cxx, source = '#include <hwloc.h>\n#include <numa.h>', flags=args.user_cflags.split())
 
 if apply_tristate(args.hwloc, test = have_hwloc,
                   note = 'Note: hwloc-devel/numactl-devel not installed.  No NUMA support.',
@@ -692,7 +704,7 @@ if apply_tristate(args.hwloc, test = have_hwloc,
     defines.append('HAVE_HWLOC')
     defines.append('HAVE_NUMA')
 
-if detect_membarrier(compiler=args.cxx):
+if detect_membarrier(compiler=args.cxx, flags=args.user_cflags.split()):
     defines.append('SEASTAR_HAS_MEMBARRIER')
 
 if try_compile(args.cxx, source = textwrap.dedent('''\
@@ -701,10 +713,10 @@ if try_compile(args.cxx, source = textwrap.dedent('''\
         void m() {
             LZ4_compress_default(static_cast<const char*>(0), static_cast<char*>(0), 0, 0);
         }
-        ''')):
+        '''), flags=args.user_cflags.split()):
     defines.append("HAVE_LZ4_COMPRESS_DEFAULT")
 
-if try_compile_and_link(args.cxx, flags=['-fsanitize=address'], source = textwrap.dedent('''\
+if try_compile_and_link(args.cxx, flags=['-fsanitize=address'] + args.user_cflags.split(), source = textwrap.dedent('''\
         #include <cstddef>
 
         extern "C" {
@@ -788,7 +800,7 @@ with open(buildfile, 'w') as f:
         full_builddir = {srcdir}/$builddir
         cxx = {cxx}
         # we disable _FORTIFY_SOURCE because it generates false positives with longjmp() (core/thread.cc)
-        cxxflags = -std=gnu++1y {dbgflag} {fpie} -Wall -Werror -Wno-error=deprecated-declarations -fvisibility=hidden {visibility_flags} -pthread -I{srcdir} -U_FORTIFY_SOURCE {user_cflags} {warnings} {defines}
+        cxxflags = -std={cpp_dialect} {dbgflag} {fpie} -Wall -Werror -Wno-error=deprecated-declarations -fvisibility=hidden {visibility_flags} -pthread -I{srcdir} -U_FORTIFY_SOURCE {user_cflags} {warnings} {defines}
         ldflags = {dbgflag} -Wl,--no-as-needed {static} {pie} -fvisibility=hidden {visibility_flags} -pthread {user_ldflags}
         libs = {libs}
         pool link_pool
