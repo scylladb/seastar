@@ -16,6 +16,7 @@
 #include <boost/algorithm/string.hpp>
 #include "core/thread.hh"
 #include "util/noncopyable_function.hh"
+#include <sstream>
 
 using namespace seastar;
 using namespace httpd;
@@ -232,6 +233,8 @@ struct http_consumer {
     uint32_t _remain = 0;
     std::string _current;
     char last = '\0';
+    uint32_t _size = 0;
+    bool _concat = true;
 
     enum class status_type {
         READING_HEADERS,
@@ -277,10 +280,16 @@ struct http_consumer {
             } else {
                 if (last != '\0') {
                     if (status == status_type::CHUNK_BODY || status == status_type::READING_BODY_BY_SIZE) {
-                        _body = _body + last;
+                        if (_concat) {
+                            _body = _body + last;
+                        }
+                        _size++;
                         _remain--;
                         if (_remain <= 1 && status == status_type::READING_BODY_BY_SIZE) {
-                            _body = _body + c;
+                            if (_concat) {
+                                _body = _body + c;
+                            }
+                            _size++;
                             status = status_type::DONE;
                             break;
                         }
@@ -318,6 +327,70 @@ public:
     static future<> write_request(output_stream<char>& output) {
         return output.write(sstring("GET /test HTTP/1.1\r\nHost: myhost.org\r\n\r\n")).then([&output]{
                 return output.flush();
+        });
+    }
+
+    static future<> run_test(std::function<future<>(output_stream<char> &&)>&& write_func, std::function<bool(size_t, http_consumer&)> reader) {
+        return do_with(loopback_connection_factory(), foreign_ptr<shared_ptr<http_server>>(make_shared<http_server>("test")),
+                [reader, &write_func] (loopback_connection_factory& lcf, auto& server) {
+            return do_with(loopback_socket_impl(lcf), [&server, &lcf, reader, &write_func](loopback_socket_impl& lsi) {
+                httpd::http_server_tester::listeners(*server).emplace_back(lcf.get_server_socket());
+
+                auto client = seastar::async([&lsi, reader] {
+                    connected_socket c_socket = std::get<connected_socket>(lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get());
+                    input_stream<char> input(std::move(c_socket.input()));
+                    output_stream<char> output(std::move(c_socket.output()));
+                    bool more = true;
+                    size_t count = 0;
+                    while (more) {
+                        http_consumer htp;
+                        htp._concat = false;
+
+                        write_request(output).get();
+                        repeat([&c_socket, &input, &htp] {
+                            return input.read().then([&c_socket, &input, &htp](const temporary_buffer<char>& b) mutable {
+                                return (b.size() == 0 || htp.read(b)) ? make_ready_future<stop_iteration>(stop_iteration::yes) :
+                                        make_ready_future<stop_iteration>(stop_iteration::no);
+                            });
+                        }).get();
+                        std::cout << htp._body << std::endl;
+                        more = reader(count, htp);
+                        count++;
+                    }
+                    if (input.eof()) {
+                        input.close().get();
+                    }
+                });
+
+                auto writer = seastar::async([&server, &write_func] {
+                    class test_handler : public handler_base {
+                        size_t count = 0;
+                        http_server& _server;
+                        std::function<future<>(output_stream<char> &&)> _write_func;
+                        promise<> _all_message_sent;
+                    public:
+                        test_handler(http_server& server, std::function<future<>(output_stream<char> &&)>&& write_func) : _server(server), _write_func(write_func) {
+                        }
+                        future<std::unique_ptr<reply>> handle(const sstring& path,
+                                std::unique_ptr<request> req, std::unique_ptr<reply> rep) override {
+                            rep->write_body("json", std::move(_write_func));
+                            count++;
+                            _all_message_sent.set_value();
+                            return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
+                        }
+                        future<> wait_for_message() {
+                            return _all_message_sent.get_future();
+                        }
+                    };
+                    auto handler = new test_handler(*server, std::move(write_func));
+                    server->_routes.put(GET, "/test", handler);
+                    when_all(server->do_accepts(0), handler->wait_for_message()).get();
+                });
+                return when_all(std::move(client), std::move(writer));
+            }).discard_result().then_wrapped([&server] (auto f) {
+                f.ignore_ready_future();
+                return server->stop();
+            });
         });
     }
     static future<> run(std::vector<std::tuple<bool, size_t>> tests) {
@@ -450,3 +523,63 @@ SEASTAR_TEST_CASE(test_http_client_server_full) {
     return test_client_server::run(tests);
 }
 
+/*
+ * return string in the given size
+ * The string size takes the quotes into consideration.
+ */
+std::string get_value(int size) {
+    std::stringstream res;
+    for (auto i = 0; i < size - 2; i++) {
+        res << "a";
+    }
+    return res.str();
+}
+
+/*
+ * A helper object that map to a big json string
+ * in the format of:
+ * {"valu": "aaa....aa", "valu": "aaa....aa", "valu": "aaa....aa"...}
+ *
+ * The object can have an arbitrary size in multiplication of 10000 bytes
+ *  */
+struct extra_big_object : public json::json_base {
+    json::json_element<sstring>* value;
+    extra_big_object(size_t size) {
+        value = new json::json_element<sstring>;
+        // size = brackets + (name + ": " + get_value) * n + ", " * (n-1)
+        // size = 2 + (name + 6 + get_value) * n - 2
+        value->_name = "valu";
+        *value = get_value(9990);
+        for (size_t i = 0; i < size/10000; i++) {
+            _elements.emplace_back(value);
+        }
+    }
+
+    virtual ~extra_big_object() {
+        delete value;
+    }
+
+    extra_big_object(const extra_big_object& o) {
+        value = new json::json_element<sstring>;
+        value->_name = o.value->_name;
+        *value = (*o.value)();
+        for (size_t i = 0; i < o._elements.size(); i++) {
+            _elements.emplace_back(value);
+        }
+    }
+
+    extra_big_object(extra_big_object&&) = default;
+};
+
+SEASTAR_TEST_CASE(json_stream) {
+    std::vector<extra_big_object> vec;
+    size_t num_objects = 1000;
+    size_t total_size = num_objects * 1000001 + 1;
+    for (size_t i = 0; i < num_objects; i++) {
+        vec.emplace_back(extra_big_object(1000000));
+    }
+    return test_client_server::run_test(json::stream_object(vec), [total_size](size_t s, http_consumer& h) {
+        BOOST_REQUIRE_EQUAL(h._size, total_size);
+        return false;
+    });
+}

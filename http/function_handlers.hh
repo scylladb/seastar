@@ -99,11 +99,15 @@ public:
     function_handler(const future_json_function& _handle)
             : _f_handle(
                     [_handle](std::unique_ptr<request> req, std::unique_ptr<reply> rep) {
-                        return _handle(std::move(req)).then([rep = std::move(rep)](json::json_return_type res) mutable {
+                        return _handle(std::move(req)).then([rep = std::move(rep)](json::json_return_type&& res) mutable {
+                                if (res._body_writer) {
+                                    rep->write_body("json", std::move(res._body_writer));
+                                } else {
                                     rep->_content += res._res;
-                                    return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
+
                                 }
-                        );
+                                return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
+                        });
                     }), _type("json") {
     }
 
