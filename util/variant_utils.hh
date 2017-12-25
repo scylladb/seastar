@@ -38,7 +38,12 @@ namespace internal {
 
 #if __cplusplus >= 201703L // C++17
 
-template<typename... Args> struct variant_visitor : Args... { using Args::operator()...; };
+template<typename... Args>
+struct variant_visitor : Args... {
+    variant_visitor(Args&&... a) : Args(std::move(a))... {}
+    using Args::operator()...;
+};
+
 template<typename... Args> variant_visitor(Args&&...) -> variant_visitor<Args...>;
 
 #else
