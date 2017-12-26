@@ -687,7 +687,7 @@ if not try_compile(args.cxx, source='#include <experimental/string_view>', flags
 if not try_compile(args.cxx, '''#include <boost/version.hpp>\n\
         #if BOOST_VERSION < 105800\n\
         #error "Invalid boost version"\n\
-        #endif'''):
+        #endif''', flags=args.user_cflags.split()):
     print("Seastar requires boost >= 1.58")
     sys.exit(1)
 
