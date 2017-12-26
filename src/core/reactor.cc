@@ -589,6 +589,7 @@ struct reactor::task_queue::indirect_compare {
 
 reactor::reactor(unsigned id)
     : _notify_eventfd(file_desc::eventfd(0, EFD_CLOEXEC))
+    , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
     , _backend(std::make_unique<reactor_backend_epoll>(this))
     , _id(id)
 #ifdef HAVE_OSV
@@ -596,7 +597,6 @@ reactor::reactor(unsigned id)
         [&] { timer_thread_func(); }, sched::thread::attr().stack(4096).name("timer_thread").pin(sched::cpu::current()))
     , _engine_thread(sched::thread::current())
 #endif
-    , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
     , _cpu_started(0)
     , _cpu_stall_detector(std::make_unique<cpu_stall_detector>(this))
     , _io_context(0)
