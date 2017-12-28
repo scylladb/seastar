@@ -279,6 +279,7 @@ tests = [
     'tests/circular_buffer_fixed_capacity_test',
     'tests/noncopyable_function_test',
     'tests/netconfig_test',
+    'tests/abort_source_test',
     ]
 
 apps = [
@@ -390,6 +391,7 @@ core = [
     'rpc/rpc.cc',
     'rpc/lz4_compressor.cc',
     'core/exception_hacks.cc',
+    'core/future-util.cc',
     ]
 
 protobuf = [
@@ -528,6 +530,7 @@ deps = {
     'tests/scheduling_group_demo': ['tests/scheduling_group_demo.cc'] + core,
     'tests/noncopyable_function_test': ['tests/noncopyable_function_test.cc'],
     'tests/netconfig_test': ['tests/netconfig_test.cc'] + core + libnet,
+    'tests/abort_source_test': ['tests/abort_source_test.cc'] + core,
 }
 
 boost_tests = [
@@ -550,6 +553,7 @@ boost_tests = [
     'tests/dns_test',
     'tests/execution_stage_test',
     'tests/lowres_clock_test',
+    'tests/abort_source_test',
     ]
 
 for bt in boost_tests:

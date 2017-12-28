@@ -50,6 +50,7 @@ boost_tests = [
     'program_options_test',
     'tuple_utils_test',
     'noncopyable_function_test',
+    'gate_test',
 ]
 
 other_tests = [
