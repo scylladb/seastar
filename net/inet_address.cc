@@ -121,7 +121,7 @@ std::ostream& seastar::net::operator<<(std::ostream& os, const inet_address::fam
 
 std::ostream& operator<<(std::ostream& os, const socket_address& a) {
     return os << seastar::net::inet_address(a.as_posix_sockaddr_in().sin_addr)
-        << ":" << a.u.in.sin_port
+        << ":" << ntohs(a.u.in.sin_port)
         ;
 }
 
