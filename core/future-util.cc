@@ -23,7 +23,7 @@
 
 namespace seastar {
 
-template <typename Clock = steady_clock_type>
+template <typename Clock>
 future<> sleep_abortable(typename Clock::duration dur) {
     return engine().wait_for_stop(dur).then([] {
         throw sleep_aborted();
@@ -37,7 +37,7 @@ future<> sleep_abortable(typename Clock::duration dur) {
 template future<> sleep_abortable<steady_clock_type>(typename steady_clock_type::duration);
 template future<> sleep_abortable<lowres_clock>(typename lowres_clock::duration);
 
-template <typename Clock = steady_clock_type>
+template <typename Clock>
 future<> sleep_abortable(typename Clock::duration dur, abort_source& as) {
     struct sleeper {
         promise<> done;
