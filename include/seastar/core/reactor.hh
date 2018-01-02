@@ -462,6 +462,7 @@ public:
     virtual void handle_signal(int signo) = 0;
     virtual void start_tick() = 0;
     virtual void stop_tick() = 0;
+    virtual void arm_highres_timer(const ::itimerspec& ts) = 0;
 };
 
 // reactor backend using file-descriptor & epoll, suitable for running on
@@ -471,6 +472,8 @@ public:
 class reactor_backend_epoll : public reactor_backend {
     reactor* _r;
     std::thread _task_quota_timer_thread;
+    timer_t _steady_clock_timer = {};
+    bool _timer_enabled = false;
 private:
     file_desc _epollfd;
     future<> get_epoll_future(pollable_fd_state& fd,
@@ -480,7 +483,7 @@ private:
     static void signal_received(int signo, siginfo_t* siginfo, void* ignore);
 public:
     explicit reactor_backend_epoll(reactor* r);
-    virtual ~reactor_backend_epoll() override { }
+    virtual ~reactor_backend_epoll() override;
     virtual bool wait_and_process(int timeout, const sigset_t* active_sigmask) override;
     virtual future<> readable(pollable_fd_state& fd) override;
     virtual future<> writeable(pollable_fd_state& fd) override;
@@ -489,6 +492,7 @@ public:
     virtual void handle_signal(int signo) override;
     virtual void start_tick() override;
     virtual void stop_tick() override;
+    virtual void arm_highres_timer(const ::itimerspec& ts) override;
 };
 
 #ifdef HAVE_OSV
@@ -760,7 +764,6 @@ private:
     bool _handle_sigint = true;
     promise<std::unique_ptr<network_stack>> _network_stack_ready_promise;
     int _return = 0;
-    timer_t _steady_clock_timer = {};
     file_desc _task_quota_timer;
     promise<> _start_promise;
     semaphore _cpu_started;
@@ -913,6 +916,7 @@ private:
     uint64_t min_vruntime() const;
     void request_preemption();
     void reset_preemption_monitor();
+    void service_highres_timer();
 public:
     static boost::program_options::options_description get_options_description(std::chrono::duration<double> default_task_quota);
     explicit reactor(unsigned id);
