@@ -2820,7 +2820,7 @@ reactor::do_expire_lowres_timers() {
         return false;
     }
     auto now = lowres_clock::now();
-    if (now > _lowres_next_timeout) {
+    if (now >= _lowres_next_timeout) {
         complete_timers(_lowres_timers, _expired_lowres_timers, [this] {
             if (!_lowres_timers.empty()) {
                 _lowres_next_timeout = _lowres_timers.get_next_timeout();
