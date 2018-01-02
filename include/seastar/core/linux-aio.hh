@@ -109,6 +109,8 @@ int io_submit(linux_abi::aio_context_t io_context, long nr, linux_abi::iocb** io
 int io_cancel(linux_abi::aio_context_t io_context, linux_abi::iocb* iocb, linux_abi::io_event* result);
 int io_getevents(linux_abi::aio_context_t io_context, long min_nr, long nr, linux_abi::io_event* events, const ::timespec* timeout,
         bool force_syscall = false);
+int io_pgetevents(linux_abi::aio_context_t io_context, long min_nr, long nr, linux_abi::io_event* events, const ::timespec* timeout, const sigset_t* sigmask,
+        bool force_syscall = false);
 
 }
 
