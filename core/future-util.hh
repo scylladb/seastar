@@ -95,15 +95,12 @@ with_scheduling_group(scheduling_group sg, Func func, Args&&... args) {
 struct parallel_for_each_state {
     // use optional<> to avoid out-of-line constructor
     std::experimental::optional<std::exception_ptr> ex;
-    size_t waiting = 0;
     promise<> pr;
-    void complete() {
-        if (--waiting == 0) {
-            if (ex) {
-                pr.set_exception(std::move(*ex));
-            } else {
-                pr.set_value();
-            }
+    ~parallel_for_each_state() {
+        if (ex) {
+            pr.set_exception(std::move(*ex));
+        } else {
+            pr.set_value();
         }
     }
 };
@@ -129,37 +126,29 @@ GCC6_CONCEPT( requires requires (Func f, Iterator i) { { f(*i++) } -> future<>; 
 inline
 future<>
 parallel_for_each(Iterator begin, Iterator end, Func&& func) {
-    if (begin == end) {
-        return make_ready_future<>();
-    }
-    return do_with(parallel_for_each_state(), [&] (parallel_for_each_state& state) -> future<> {
-        // increase ref count to ensure all functions run
-        ++state.waiting;
-        while (begin != end) {
-            ++state.waiting;
-            try {
-                func(*begin++).then_wrapped([&] (future<> f) {
-                    if (f.failed()) {
-                        // We can only store one exception.  For more, use when_all().
-                        if (!state.ex) {
-                            state.ex = f.get_exception();
-                        } else {
-                            f.ignore_ready_future();
-                        }
-                    }
-                    state.complete();
-                });
-            } catch (...) {
-                if (!state.ex) {
-                    state.ex = std::current_exception();
-                }
-                state.complete();
+    lw_shared_ptr<parallel_for_each_state> state;
+    while (begin != end) {
+        auto f = futurize_apply(std::forward<Func>(func), *begin++);
+        if (__builtin_expect(!f.available() || f.failed(), false)) {
+            if (!state) {
+                state = make_lw_shared<parallel_for_each_state>();
             }
+            f.then_wrapped([state] (future<> f) {
+                if (f.failed()) {
+                    // We can only store one exception.  For more, use when_all().
+                    if (!state->ex) {
+                        state->ex = f.get_exception();
+                    } else {
+                        f.ignore_ready_future();
+                    }
+                }
+            });
         }
-        // match increment on top
-        state.complete();
-        return state.pr.get_future();
-    });
+    }
+    if (__builtin_expect(bool(state), false)) {
+        return state->pr.get_future();
+    }
+    return make_ready_future<>();
 }
 
 /// Run tasks in parallel (range version).
