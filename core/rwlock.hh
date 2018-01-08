@@ -119,6 +119,12 @@ public:
     bool try_write_lock() {
         return _sem.try_wait(max_ops);
     }
+
+    /// Checks if any read or write locks are currently held.
+    bool locked() const {
+        return _sem.available_units() != max_ops;
+    }
+
     friend class rwlock_for_read;
     friend class rwlock_for_write;
 };
