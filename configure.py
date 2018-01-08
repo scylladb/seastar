@@ -346,6 +346,8 @@ arg_parser.add_argument('--enable-alloc-failure-injector', dest='alloc_failure_i
 add_tristate(arg_parser, name = 'exception-scalability-workaround', dest='exception_workaround',
         help='disabling override of dl_iterate_phdr symbol to workaround C++ exception scalability issues')
 arg_parser.add_argument('--allocator-page-size', dest='allocator_page_size', type=int, help='override allocator page size')
+arg_parser.add_argument('--protoc-compiler', action = 'store', dest='protoc', default='protoc',
+                        help = 'Path to protoc compiler, the default is protoc')
 args = arg_parser.parse_args()
 
 libnet = [
@@ -754,7 +756,7 @@ link_pool_depth = max(int(total_memory / 7e9), 1)
 
 build_modes = modes if args.mode == 'all' else [args.mode]
 build_artifacts = all_artifacts if not args.artifacts else args.artifacts
-
+protoc = args.protoc
 dpdk_sources = []
 if args.dpdk:
     for root, dirs, files in os.walk('dpdk'):
@@ -821,7 +823,7 @@ with open(buildfile, 'w') as f:
             command = json/json2code.py -f $in -o $out
             description = SWAGGER $out
         rule protobuf
-            command = protoc --cpp_out=$outdir $in
+            command = {protoc} --cpp_out=$outdir $in
             description = PROTOC $out
         rule copy_file
             command = cp $in $out
