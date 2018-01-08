@@ -1285,6 +1285,13 @@ void free(void* obj, size_t size) {
     cpu_mem.free(obj, size);
 }
 
+void free_aligned(void* obj, size_t align, size_t size) {
+    if (size <= sizeof(free_object)) {
+        size = sizeof(free_object);
+    }
+    free(obj, size);
+}
+
 void shrink(void* obj, size_t new_size) {
     ++g_frees;
     ++g_allocs; // keep them balanced
@@ -1687,6 +1694,75 @@ void operator delete[](void* ptr, size_t size, std::nothrow_t) throw () {
         seastar::memory::free(ptr, size);
     }
 }
+
+#ifdef __cpp_aligned_new
+
+[[gnu::visibility("default")]]
+void* operator new(size_t size, std::align_val_t a) {
+    auto ptr = allocate_aligned(size_t(a), size);
+    return throw_if_null(ptr);
+}
+
+[[gnu::visibility("default")]]
+void* operator new[](size_t size, std::align_val_t a) {
+    auto ptr = allocate_aligned(size_t(a), size);
+    return throw_if_null(ptr);
+}
+
+[[gnu::visibility("default")]]
+void* operator new(size_t size, std::align_val_t a, const std::nothrow_t&) noexcept {
+    return allocate_aligned(size_t(a), size);
+}
+
+[[gnu::visibility("default")]]
+void* operator new[](size_t size, std::align_val_t a, const std::nothrow_t&) noexcept {
+    return allocate_aligned(size_t(a), size);
+}
+
+
+[[gnu::visibility("default")]]
+void operator delete(void* ptr, std::align_val_t a) noexcept {
+    if (ptr) {
+        seastar::memory::free(ptr);
+    }
+}
+
+[[gnu::visibility("default")]]
+void operator delete[](void* ptr, std::align_val_t a) noexcept {
+    if (ptr) {
+        seastar::memory::free(ptr);
+    }
+}
+
+[[gnu::visibility("default")]]
+void operator delete(void* ptr, size_t size, std::align_val_t a) noexcept {
+    if (ptr) {
+        seastar::memory::free_aligned(ptr, size_t(a), size);
+    }
+}
+
+[[gnu::visibility("default")]]
+void operator delete[](void* ptr, size_t size, std::align_val_t a) noexcept {
+    if (ptr) {
+        seastar::memory::free_aligned(ptr, size_t(a), size);
+    }
+}
+
+[[gnu::visibility("default")]]
+void operator delete(void* ptr, std::align_val_t a, const std::nothrow_t&) noexcept {
+    if (ptr) {
+        seastar::memory::free(ptr);
+    }
+}
+
+[[gnu::visibility("default")]]
+void operator delete[](void* ptr, std::align_val_t a, const std::nothrow_t&) noexcept {
+    if (ptr) {
+        seastar::memory::free(ptr);
+    }
+}
+
+#endif
 
 void* operator new(size_t size, seastar::with_alignment wa) {
     return throw_if_null(allocate_aligned(wa.alignment(), size));
