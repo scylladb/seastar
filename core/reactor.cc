@@ -107,6 +107,8 @@ using namespace std::chrono_literals;
 
 using namespace net;
 
+using namespace internal;
+
 seastar::logger seastar_logger("seastar");
 seastar::logger sched_logger("scheduler");
 
@@ -431,7 +433,10 @@ reactor::reactor(unsigned id)
     _task_queues.push_back(std::make_unique<task_queue>(1, "atexit", 1000));
     _at_destroy_tasks = _task_queues.back().get();
     seastar::thread_impl::init();
-    auto r = ::io_setup(max_aio, &_io_context);
+    for (unsigned i = 0; i != max_aio; ++i) {
+        _free_iocbs.push(&_iocb_pool[i]);
+    }
+    auto r = io_setup(max_aio, &_io_context);
     assert(r >= 0);
 #ifdef HAVE_OSV
     _timer_thread.start();
@@ -478,7 +483,7 @@ reactor::~reactor() {
     eraser(_expired_timers);
     eraser(_expired_lowres_timers);
     eraser(_expired_manual_timers);
-    ::io_destroy(_io_context);
+    io_destroy(_io_context);
 }
 
 // Add to an atomic integral non-atomically and returns the previous value
@@ -868,19 +873,25 @@ void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd, promise
     }
 }
 
+static bool aio_nowait_supported = true;
+
 template <typename Func>
 future<io_event>
 reactor::submit_io(Func prepare_io) {
     return _io_context_available.wait(1).then([this, prepare_io = std::move(prepare_io)] () mutable {
         auto pr = std::make_unique<promise<io_event>>();
-        iocb io;
+        iocb& io = *_free_iocbs.top();
+        _free_iocbs.pop();
         prepare_io(io);
         if (_aio_eventfd) {
-            io_set_eventfd(&io, _aio_eventfd->get_fd());
+            set_eventfd_notification(io, _aio_eventfd->get_fd());
+        }
+        if (aio_nowait_supported) {
+            set_nowait(io, true);
         }
         auto f = pr->get_future();
-        io.data = pr.get();
-        _pending_aio.push_back(io);
+        set_user_data(io, pr.get());
+        _pending_aio.push_back(&io);
         pr.release();
         if ((_io_queue->queued_requests() > 0) ||
             (_pending_aio.size() >= std::min(max_aio / 4, _io_queue->_capacity / 2))) {
@@ -890,40 +901,47 @@ reactor::submit_io(Func prepare_io) {
     });
 }
 
+// Returns: number of iocbs consumed (0 or 1)
+size_t
+reactor::handle_aio_error(::iocb* iocb, int ec) {
+    switch (ec) {
+        case EINVAL:
+        case EOPNOTSUPP:
+            aio_nowait_supported = false;
+            set_nowait(*iocb, false);
+            return 0;
+        case EAGAIN:
+            return 0;
+        case EBADF: {
+            auto pr = reinterpret_cast<promise<io_event>*>(get_user_data(*iocb));
+            _free_iocbs.push(iocb);
+            try {
+                throw std::system_error(EBADF, std::system_category());
+            } catch (...) {
+                pr->set_exception(std::current_exception());
+            }
+            delete pr;
+            _io_context_available.signal(1);
+            // if EBADF, it means that the first request has a bad fd, so
+            // we will only remove it from _pending_aio and try again.
+            return 1;
+        }
+        default:
+            throw_system_error_on(true, "io_submit");
+            abort();
+    }
+}
+
 bool
 reactor::flush_pending_aio() {
     bool did_work = false;
     while (!_pending_aio.empty()) {
         auto nr = _pending_aio.size();
-        struct iocb* iocbs[max_aio];
-        for (size_t i = 0; i < nr; ++i) {
-            iocbs[i] = &_pending_aio[i];
-        }
-        auto r = ::io_submit(_io_context, nr, iocbs);
+        auto iocbs = _pending_aio.data();
+        auto r = io_submit(_io_context, nr, iocbs);
         size_t nr_consumed;
-        if (r < 0) {
-            auto ec = -r;
-            switch (ec) {
-                case EAGAIN:
-                    return did_work;
-                case EBADF: {
-                    auto pr = reinterpret_cast<promise<io_event>*>(iocbs[0]->data);
-                    try {
-                        throw_kernel_error(r);
-                    } catch (...) {
-                        pr->set_exception(std::current_exception());
-                    }
-                    delete pr;
-                    _io_context_available.signal(1);
-                    // if EBADF, it means that the first request has a bad fd, so
-                    // we will only remove it from _pending_aio and try again.
-                    nr_consumed = 1;
-                    break;
-                }
-                default:
-                    throw_kernel_error(r);
-                    abort();
-            }
+        if (r == -1) {
+            nr_consumed = handle_aio_error(iocbs[0], errno);
         } else {
             nr_consumed = size_t(r);
         }
@@ -934,6 +952,23 @@ reactor::flush_pending_aio() {
         } else {
             _pending_aio.erase(_pending_aio.begin(), _pending_aio.begin() + nr_consumed);
         }
+    }
+    if (!_pending_aio_retry.empty()) {
+        auto retries = std::exchange(_pending_aio_retry, {});
+        _thread_pool.submit<syscall_result<int>>([this, retries] () mutable {
+            auto r = io_submit(_io_context, retries.size(), retries.data());
+            return wrap_syscall<int>(r);
+        }).then([this, retries] (syscall_result<int> result) {
+            auto iocbs = retries.data();
+            size_t nr_consumed = 0;
+            if (result.result == -1) {
+                nr_consumed = handle_aio_error(iocbs[0], result.error);
+            } else {
+                nr_consumed = result.result;
+            }
+            std::copy(retries.begin() + nr_consumed, retries.end(), std::back_inserter(_pending_aio_retry));
+        });
+        did_work = true;
     }
     return did_work;
 }
@@ -965,14 +1000,23 @@ bool reactor::process_io()
 {
     io_event ev[max_aio];
     struct timespec timeout = {0, 0};
-    auto n = ::io_getevents(_io_context, 1, max_aio, ev, &timeout);
+    auto n = io_getevents(_io_context, 1, max_aio, ev, &timeout);
     assert(n >= 0);
+    unsigned nr_retry = 0;
     for (size_t i = 0; i < size_t(n); ++i) {
+        auto iocb = get_iocb(ev[i]);
+        if (ev[i].res == -EAGAIN) {
+            ++nr_retry;
+            set_nowait(*iocb, false);
+            _pending_aio_retry.push_back(iocb);
+            continue;
+        }
+        _free_iocbs.push(iocb);
         auto pr = reinterpret_cast<promise<io_event>*>(ev[i].data);
         pr->set_value(ev[i]);
         delete pr;
     }
-    _io_context_available.signal(n);
+    _io_context_available.signal(n - nr_retry);
     return n;
 }
 
@@ -1147,7 +1191,7 @@ posix_file_impl::query_dma_alignment() {
 future<size_t>
 posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& io_priority_class) {
     return engine().submit_io_write(io_priority_class, len, [fd = _fd, pos, buffer, len] (iocb& io) {
-        io_prep_pwrite(&io, fd, const_cast<void*>(buffer), len, pos);
+        io = make_write_iocb(fd, pos, const_cast<void*>(buffer), len);
     }).then([] (io_event ev) {
         throw_kernel_error(long(ev.res));
         return make_ready_future<size_t>(size_t(ev.res));
@@ -1161,7 +1205,7 @@ posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priori
     auto size = iov_ptr->size();
     auto data = iov_ptr->data();
     return engine().submit_io_write(io_priority_class, len, [fd = _fd, pos, data, size] (iocb& io) {
-        io_prep_pwritev(&io, fd, data, size, pos);
+        io = make_writev_iocb(fd, pos, data, size);
     }).then([iov_ptr = std::move(iov_ptr)] (io_event ev) {
         throw_kernel_error(long(ev.res));
         return make_ready_future<size_t>(size_t(ev.res));
@@ -1171,7 +1215,7 @@ posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priori
 future<size_t>
 posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& io_priority_class) {
     return engine().submit_io_read(io_priority_class, len, [fd = _fd, pos, buffer, len] (iocb& io) {
-        io_prep_pread(&io, fd, buffer, len, pos);
+        io = make_read_iocb(fd, pos, buffer, len);
     }).then([] (io_event ev) {
         throw_kernel_error(long(ev.res));
         return make_ready_future<size_t>(size_t(ev.res));
@@ -1185,7 +1229,7 @@ posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priorit
     auto size = iov_ptr->size();
     auto data = iov_ptr->data();
     return engine().submit_io_read(io_priority_class, len, [fd = _fd, pos, data, size] (iocb& io) {
-        io_prep_preadv(&io, fd, data, size, pos);
+        io = make_read_iocb(fd, pos, data, size);
     }).then([iov_ptr = std::move(iov_ptr)] (io_event ev) {
         throw_kernel_error(long(ev.res));
         return make_ready_future<size_t>(size_t(ev.res));
