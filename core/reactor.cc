@@ -873,6 +873,8 @@ void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd, promise
     }
 }
 
+static bool aio_nowait_supported = true;
+
 template <typename Func>
 future<io_event>
 reactor::submit_io(Func prepare_io) {
@@ -883,6 +885,9 @@ reactor::submit_io(Func prepare_io) {
         prepare_io(io);
         if (_aio_eventfd) {
             set_eventfd_notification(io, _aio_eventfd->get_fd());
+        }
+        if (aio_nowait_supported) {
+            set_nowait(io, true);
         }
         auto f = pr->get_future();
         set_user_data(io, pr.get());
@@ -896,6 +901,37 @@ reactor::submit_io(Func prepare_io) {
     });
 }
 
+// Returns: number of iocbs consumed (0 or 1)
+size_t
+reactor::handle_aio_error(::iocb* iocb, int ec) {
+    switch (ec) {
+        case EINVAL:
+        case EOPNOTSUPP:
+            aio_nowait_supported = false;
+            set_nowait(*iocb, false);
+            return 0;
+        case EAGAIN:
+            return 0;
+        case EBADF: {
+            auto pr = reinterpret_cast<promise<io_event>*>(get_user_data(*iocb));
+            _free_iocbs.push(iocb);
+            try {
+                throw std::system_error(EBADF, std::system_category());
+            } catch (...) {
+                pr->set_exception(std::current_exception());
+            }
+            delete pr;
+            _io_context_available.signal(1);
+            // if EBADF, it means that the first request has a bad fd, so
+            // we will only remove it from _pending_aio and try again.
+            return 1;
+        }
+        default:
+            throw_system_error_on(true, "io_submit");
+            abort();
+    }
+}
+
 bool
 reactor::flush_pending_aio() {
     bool did_work = false;
@@ -905,30 +941,7 @@ reactor::flush_pending_aio() {
         auto r = io_submit(_io_context, nr, iocbs);
         size_t nr_consumed;
         if (r == -1) {
-            auto ec = errno;
-            switch (ec) {
-                case EAGAIN:
-                    return did_work;
-                case EBADF: {
-                    auto iocb = iocbs[0];
-                    auto pr = reinterpret_cast<promise<io_event>*>(get_user_data(*iocb));
-                    _free_iocbs.push(iocb);
-                    try {
-                        throw_kernel_error(r);
-                    } catch (...) {
-                        pr->set_exception(std::current_exception());
-                    }
-                    delete pr;
-                    _io_context_available.signal(1);
-                    // if EBADF, it means that the first request has a bad fd, so
-                    // we will only remove it from _pending_aio and try again.
-                    nr_consumed = 1;
-                    break;
-                }
-                default:
-                    throw_system_error_on(true, "io_submit");
-                    abort();
-            }
+            nr_consumed = handle_aio_error(iocbs[0], errno);
         } else {
             nr_consumed = size_t(r);
         }
@@ -939,6 +952,23 @@ reactor::flush_pending_aio() {
         } else {
             _pending_aio.erase(_pending_aio.begin(), _pending_aio.begin() + nr_consumed);
         }
+    }
+    if (!_pending_aio_retry.empty()) {
+        auto retries = std::exchange(_pending_aio_retry, {});
+        _thread_pool.submit<syscall_result<int>>([this, retries] () mutable {
+            auto r = io_submit(_io_context, retries.size(), retries.data());
+            return wrap_syscall<int>(r);
+        }).then([this, retries] (syscall_result<int> result) {
+            auto iocbs = retries.data();
+            size_t nr_consumed = 0;
+            if (result.result == -1) {
+                nr_consumed = handle_aio_error(iocbs[0], result.error);
+            } else {
+                nr_consumed = result.result;
+            }
+            std::copy(retries.begin() + nr_consumed, retries.end(), std::back_inserter(_pending_aio_retry));
+        });
+        did_work = true;
     }
     return did_work;
 }
@@ -972,14 +1002,21 @@ bool reactor::process_io()
     struct timespec timeout = {0, 0};
     auto n = io_getevents(_io_context, 1, max_aio, ev, &timeout);
     assert(n >= 0);
+    unsigned nr_retry = 0;
     for (size_t i = 0; i < size_t(n); ++i) {
         auto iocb = get_iocb(ev[i]);
+        if (ev[i].res == -EAGAIN) {
+            ++nr_retry;
+            set_nowait(*iocb, false);
+            _pending_aio_retry.push_back(iocb);
+            continue;
+        }
         _free_iocbs.push(iocb);
         auto pr = reinterpret_cast<promise<io_event>*>(ev[i].data);
         pr->set_value(ev[i]);
         delete pr;
     }
-    _io_context_available.signal(n);
+    _io_context_available.signal(n - nr_retry);
     return n;
 }
 
