@@ -224,6 +224,7 @@ modes = {
 }
 
 perf_tests = [
+    'tests/perf/perf_future_util',
 ]
 
 tests = [
