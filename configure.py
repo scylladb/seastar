@@ -223,6 +223,9 @@ modes = {
     },
 }
 
+perf_tests = [
+]
+
 tests = [
     'tests/fileiotest',
     'tests/directory_test',
@@ -280,7 +283,7 @@ tests = [
     'tests/noncopyable_function_test',
     'tests/netconfig_test',
     'tests/abort_source_test',
-    ]
+    ] + perf_tests
 
 apps = [
     'apps/httpd/httpd',
@@ -560,6 +563,9 @@ boost_tests = [
 
 for bt in boost_tests:
     deps[bt] += boost_test_lib
+
+for pt in perf_tests:
+    deps[pt] = [pt + '.cc'] + core + ['tests/perf/perf_tests.cc']
 
 warnings = [
     '-Wno-mismatched-tags',                 # clang-only
