@@ -406,6 +406,46 @@ SEASTAR_TEST_CASE(test_do_while_failing_in_the_second_step) {
     });
 }
 
+SEASTAR_TEST_CASE(test_parallel_for_each) {
+    return async([] {
+        // empty
+        parallel_for_each(std::vector<int>(), [] (int) -> future<> {
+            BOOST_FAIL("should not reach");
+            abort();
+        }).get();
+
+        // immediate result
+        auto range = boost::copy_range<std::vector<int>>(boost::irange(1, 6));
+        auto sum = 0;
+        parallel_for_each(range, [&sum] (int v) {
+            sum += v;
+            return make_ready_future<>();
+        }).get();
+        BOOST_REQUIRE_EQUAL(sum, 15);
+
+        // all suspend
+        sum = 0;
+        parallel_for_each(range, [&sum] (int v) {
+            return later().then([&sum, v] {
+                sum += v;
+            });
+        }).get();
+        BOOST_REQUIRE_EQUAL(sum, 15);
+
+        // throws immediately
+        BOOST_CHECK_EXCEPTION(parallel_for_each(range, [&sum] (int) -> future<> {
+            throw 5;
+        }).get(), int, [] (int v) { return v == 5; });
+
+        // throws after suspension
+        BOOST_CHECK_EXCEPTION(parallel_for_each(range, [&sum] (int) {
+            return later().then([] {
+                throw 5;
+            });
+        }).get(), int, [] (int v) { return v == 5; });
+    });
+}
+
 SEASTAR_TEST_CASE(test_parallel_for_each_early_failure) {
     return do_with(0, [] (int& counter) {
         return parallel_for_each(boost::irange(0, 11000), [&counter] (int i) {
