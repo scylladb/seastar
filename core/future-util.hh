@@ -131,7 +131,10 @@ parallel_for_each(Iterator begin, Iterator end, Func&& func) {
         auto f = futurize_apply(std::forward<Func>(func), *begin++);
         if (__builtin_expect(!f.available() || f.failed(), false)) {
             if (!state) {
+              [&state] () noexcept {
+                memory::disable_failure_guard dfg;
                 state = make_lw_shared<parallel_for_each_state>();
+              }();
             }
             f.then_wrapped([state] (future<> f) {
                 if (f.failed()) {
@@ -279,10 +282,13 @@ future<> repeat(AsyncAction action) {
             auto f = futurized_action();
 
             if (!f.available()) {
+              return [&] () noexcept {
+                memory::disable_failure_guard dfg;
                 auto repeater = std::make_unique<internal::repeater<futurized_action_type>>(std::move(futurized_action));
                 auto ret = repeater->get_future();
                 internal::set_callback(f, std::move(repeater));
                 return ret;
+              }();
             }
 
             if (f.get0() == stop_iteration::yes) {
@@ -401,10 +407,13 @@ repeat_until_value(AsyncAction action) {
         auto f = futurized_action();
 
         if (!f.available()) {
+          return [&] () noexcept {
+            memory::disable_failure_guard dfg;
             auto state = std::make_unique<internal::repeat_until_value_state<futurized_action_type, value_type>>(std::move(futurized_action));
             auto ret = state->get_future();
             internal::set_callback(f, std::move(state));
             return ret;
+          }();
         }
 
         if (f.failed()) {
@@ -494,15 +503,19 @@ future<> do_until(StopCondition stop_cond, AsyncAction action) {
         }
         auto f = futurator::apply(action);
         if (!f.available()) {
+          return [&] () noexcept {
+            memory::disable_failure_guard dfg;
             auto task = std::make_unique<do_until_state<StopCondition, AsyncAction>>(std::move(stop_cond), std::move(action));
             auto ret = task->get_future();
             internal::set_callback(f, std::move(task));
             return ret;
+          }();
         }
         if (f.failed()) {
             return f;
         }
     } while (!need_preempt());
+
     auto task = std::make_unique<do_until_state<StopCondition, AsyncAction>>(std::move(stop_cond), std::move(action));
     auto f = task->get_future();
     schedule(std::move(task));
