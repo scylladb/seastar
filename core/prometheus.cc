@@ -32,6 +32,7 @@
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/range/algorithm_ext/erase.hpp>
 #include <boost/algorithm/string.hpp>
+#include <boost/range/algorithm.hpp>
 #include <boost/range/combine.hpp>
 
 namespace seastar {
@@ -108,19 +109,6 @@ static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value&
         mf.set_type(pm::MetricType::COUNTER);
         break;
     }
-}
-
-using metrics_families_per_shard = std::vector<foreign_ptr<mi::values_reference>>;
-
-static future<> get_map_value(metrics_families_per_shard& vec) {
-    vec.resize(smp::count);
-    return parallel_for_each(boost::irange(0u, smp::count), [&vec] (auto cpu) {
-        return smp::submit_to(cpu, [] {
-            return mi::get_values();
-        }).then([&vec, cpu] (auto res) {
-            vec[cpu] = std::move(res);
-        });
-    });
 }
 
 static std::string to_str(seastar::metrics::impl::data_type dt) {
@@ -217,6 +205,93 @@ static void add_name(std::ostream& s, const sstring& name, const std::map<sstrin
  */
 class metric_family_iterator;
 
+class metric_family_range;
+
+class metrics_families_per_shard {
+    using metrics_family_per_shard_data_container = std::vector<foreign_ptr<mi::values_reference>>;
+    metrics_family_per_shard_data_container _data;
+    using comp_function = std::function<bool(const sstring&, const mi::metric_family_metadata&)>;
+    /*!
+     * \brief find the last item in a range of metric family based on a comparator function
+     *
+     */
+    metric_family_iterator find_bound(const sstring& family_name, comp_function comp) const;
+
+public:
+
+    using const_iterator = metrics_family_per_shard_data_container::const_iterator;
+    using iterator = metrics_family_per_shard_data_container::iterator;
+    using reference = metrics_family_per_shard_data_container::reference;
+    using const_reference = metrics_family_per_shard_data_container::const_reference;
+
+    /*!
+     * \brief find the first item following a metric family range.
+     * metric family are sorted, this will return the first item that is outside
+     * of the range
+     */
+    metric_family_iterator upper_bound(const sstring& family_name) const;
+
+    /*!
+     * \brief find the first item in a range of metric family.
+     * metric family are sorted, the first item, is the first to match the
+     * criteria.
+     */
+    metric_family_iterator lower_bound(const sstring& family_name) const;
+
+    /**
+     * \defgroup Variables Global variables
+     */
+
+    /*
+     * @defgroup Vector properties
+     * The following methods making metrics_families_per_shard act as
+     * a vector of foreign_ptr<mi::values_reference>
+     * @{
+     *
+     *
+     */
+    iterator begin() {
+        return _data.begin();
+    }
+
+    iterator end() {
+        return _data.end();
+    }
+
+    const_iterator begin() const {
+        return _data.begin();
+    }
+
+    const_iterator end() const {
+        return _data.end();
+    }
+
+    void resize(size_t new_size) {
+        _data.resize(new_size);
+    }
+
+    reference& operator[](size_t n) {
+        return _data[n];
+    }
+
+    const_reference& operator[](size_t n) const {
+        return _data[n];
+    }
+    /** @} */
+};
+
+static future<> get_map_value(metrics_families_per_shard& vec) {
+    vec.resize(smp::count);
+    return parallel_for_each(boost::irange(0u, smp::count), [&vec] (auto cpu) {
+        return smp::submit_to(cpu, [] {
+            return mi::get_values();
+        }).then([&vec, cpu] (auto res) {
+            vec[cpu] = std::move(res);
+        });
+    });
+}
+
+
 /*!
  * \brief a facade class for metric family
  */
@@ -272,6 +347,10 @@ class metric_family_iterator {
         for (auto&& i : boost::combine(_positions, _families)) {
             auto& pos_in_metric_per_shard = boost::get<0>(i);
             auto& metric_family = boost::get<1>(i);
+            if (_info._name &&  pos_in_metric_per_shard < metric_family->metadata->size() &&
+                    metric_family->metadata->at(pos_in_metric_per_shard).mf.name.compare(*_info._name) <= 0) {
+                pos_in_metric_per_shard++;
+            }
             if (pos_in_metric_per_shard >= metric_family->metadata->size()) {
                 // no more metric family in this shard
                 continue;
@@ -293,18 +372,24 @@ class metric_family_iterator {
 
 public:
     metric_family_iterator() = delete;
-    metric_family_iterator(const metric_family_iterator& o) : _families(o._families), _positions(o._positions), _info(o._info, *this) {
+    metric_family_iterator(const metric_family_iterator& o) : _families(o._families), _positions(o._positions), _info(*this) {
         next();
     }
 
     metric_family_iterator(metric_family_iterator&& o) : _families(o._families), _positions(std::move(o._positions)),
-            _info(o._info, *this) {
+            _info(*this) {
         next();
     }
 
     metric_family_iterator(const metrics_families_per_shard& families,
             unsigned shards)
         : _families(families), _positions(shards, 0), _info(*this) {
+        next();
+    }
+
+    metric_family_iterator(const metrics_families_per_shard& families,
+            std::vector<size_t>&& positions)
+        : _families(families), _positions(std::move(positions)), _info(*this) {
         next();
     }
 
@@ -376,7 +461,6 @@ public:
                     auto& metric_metadata = boost::get<1>(vm);
                     f(value, metric_metadata);
                 }
-                pos_in_metric_per_shard++;
             }
         }
     }
@@ -388,24 +472,82 @@ void metric_family::foreach_metric(std::function<void(const mi::metric_value&, c
 }
 
 class metric_family_range {
-    const metrics_families_per_shard& _families;
+    metric_family_iterator _begin;
+    metric_family_iterator _end;
 public:
-    metric_family_range(const metrics_families_per_shard& families) : _families(families) {
+    metric_family_range(const metrics_families_per_shard& families) : _begin(families, smp::count),
+        _end(metric_family_iterator(families, 0))
+    {
     }
 
-    metric_family_iterator begin () const {
-        return metric_family_iterator(_families, smp::count);
+    metric_family_range(const metric_family_iterator& b, const metric_family_iterator& e) : _begin(b), _end(e)
+    {
     }
 
+    metric_family_iterator begin() const {
+        return _begin;
+    }
 
     metric_family_iterator end() const {
-        return metric_family_iterator(_families, 0);
+        return _end;
     }
 };
 
-future<> write_text_representation(output_stream<char>& out, const metrics_families_per_shard& families, const config& ctx) {
-    return do_with(metric_family_range(families), false,
-            [&ctx, &out](auto& m, auto& found) mutable {
+metric_family_iterator metrics_families_per_shard::find_bound(const sstring& family_name, comp_function comp) const {
+    std::vector<size_t> positions;
+    positions.reserve(smp::count);
+
+    for (auto& shard_info : _data) {
+        std::vector<mi::metric_family_metadata>& metadata = *(shard_info->metadata);
+        std::vector<mi::metric_family_metadata>::iterator it_b = boost::range::upper_bound(metadata, family_name, comp);
+        positions.emplace_back(it_b - metadata.begin());
+    }
+    return metric_family_iterator(*this, std::move(positions));
+
+}
+
+metric_family_iterator metrics_families_per_shard::lower_bound(const sstring& family_name) const {
+    return find_bound(family_name, [](const sstring& a, const mi::metric_family_metadata& b) {
+        //sstring doesn't have a <= operator
+        return a < b.mf.name || a == b.mf.name;
+    });
+}
+
+metric_family_iterator metrics_families_per_shard::upper_bound(const sstring& family_name) const {
+    return find_bound(family_name, [](const sstring& a, const mi::metric_family_metadata& b) {
+        return a < b.mf.name;
+    });
+}
+
+/*!
+ * \brief a helper function to get metric family range
+ * if metric_family_name is empty will return everything, if not, it will return
+ * the range of metric family that match the metric_family_name.
+ *
+ * if prefix is true the match will be based on prefix
+ */
+metric_family_range get_range(const metrics_families_per_shard& mf, const sstring& metric_family_name, bool prefix) {
+    if (metric_family_name == "") {
+        return metric_family_range(mf);
+    }
+    auto upper_bount_prefix = metric_family_name;
+    ++upper_bount_prefix.back();
+    if (prefix) {
+        return metric_family_range(mf.lower_bound(metric_family_name), mf.lower_bound(upper_bount_prefix));
+    }
+    auto lb = mf.lower_bound(metric_family_name);
+    if (lb->name() != metric_family_name) {
+        return metric_family_range(lb, lb); // just return an empty range
+    }
+    auto up = lb;
+    ++up;
+    return metric_family_range(lb, up);
+
+}
+
+future<> write_text_representation(output_stream<char>& out, const config& ctx, metric_family_range& m) {
+    return do_with(false,
+            [&ctx, &out, &m](auto& found) mutable {
         return do_for_each(m, [&out, &found, &ctx] (metric_family& metric_family) mutable {
             std::stringstream s;
             auto name = ctx.prefix + "_" + metric_family.name();
@@ -454,26 +596,23 @@ future<> write_text_representation(output_stream<char>& out, const metrics_famil
     });
 }
 
-future<> write_protobuf_representation(output_stream<char>& out, const metrics_families_per_shard& families, const config& ctx) {
-    return do_with(metric_family_range(families),
-            [&ctx, &out](auto& m) mutable {
-        return do_for_each(m, [&ctx, &out](metric_family& metric_family) mutable {
-            std::string s;
-            google::protobuf::io::StringOutputStream os(&s);
+future<> write_protobuf_representation(output_stream<char>& out, const config& ctx, metric_family_range& m) {
+    return do_for_each(m, [&ctx, &out](metric_family& metric_family) mutable {
+        std::string s;
+        google::protobuf::io::StringOutputStream os(&s);
 
-            auto& name = metric_family.name();
-            pm::MetricFamily mtf;
+        auto& name = metric_family.name();
+        pm::MetricFamily mtf;
 
-            mtf.set_name(ctx.prefix + "_" + name);
-            mtf.mutable_metric()->Reserve(metric_family.size());
-            metric_family.foreach_metric([&mtf, &ctx](auto value, auto value_info) {
-                fill_metric(mtf, value, value_info.id, ctx);
-            });
-            if (!write_delimited_to(mtf, &os)) {
-                seastar_logger.warn("Failed to write protobuf metrics");
-            }
-            return out.write(s);
+        mtf.set_name(ctx.prefix + "_" + name);
+        mtf.mutable_metric()->Reserve(metric_family.size());
+        metric_family.foreach_metric([&mtf, &ctx](auto value, auto value_info) {
+            fill_metric(mtf, value, value_info.id, ctx);
         });
+        if (!write_delimited_to(mtf, &os)) {
+            seastar_logger.warn("Failed to write protobuf metrics");
+        }
+        return out.write(s);
     });
 }
 
@@ -493,18 +632,40 @@ class metrics_handler : public handler_base  {
     sstring _prefix;
     config _ctx;
 
+    /*!
+     * \brief tries to trim an asterisk from the end of the string
+     * return true if an asterisk exists.
+     */
+    bool trim_asterisk(sstring& name) {
+        if (name.size() && name.back() == '*') {
+            name.resize(name.length() - 1);
+            return true;
+        }
+        // Prometheus uses url encoding for the path so '*' is encoded as '%2A'
+        if (boost::algorithm::ends_with(name, "%2A")) {
+            name.resize(name.length() - 3);
+            return true;
+        }
+        return false;
+    }
 public:
     metrics_handler(config ctx) : _ctx(ctx) {}
 
     future<std::unique_ptr<httpd::reply>> handle(const sstring& path,
         std::unique_ptr<httpd::request> req, std::unique_ptr<httpd::reply> rep) override {
         auto text = is_accept_text(req->get_header("Accept"));
-        rep->write_body((text) ? "txt" : "proto", [this, text] (output_stream<char>&& s) {
+        sstring metric_family_name = (req->param.exists("name")) ? req->param["name"] : "";
+        bool prefix = trim_asterisk(metric_family_name);
+
+        rep->write_body((text) ? "txt" : "proto", [this, text, metric_family_name, prefix] (output_stream<char>&& s) {
             return do_with(metrics_families_per_shard(), output_stream<char>(std::move(s)),
-                    [this, text] (metrics_families_per_shard& families, output_stream<char>& s) mutable {
-                return get_map_value(families).then([&s, &families, this, text]() mutable {
-                    return (text) ? write_text_representation(s, families, _ctx) :
-                            write_protobuf_representation(s, families, _ctx);
+                    [this, text, prefix, &metric_family_name] (metrics_families_per_shard& families, output_stream<char>& s) mutable {
+                return get_map_value(families).then([&s, &families, this, text, prefix, &metric_family_name]() mutable {
+                    return do_with(get_range(families, metric_family_name, prefix),
+                            [&s, this, text](metric_family_range& m) {
+                        return (text) ? write_text_representation(s, _ctx, m) :
+                                write_protobuf_representation(s, _ctx, m);
+                    });
                 }).finally([&s] () mutable {
                     return s.close();
                 });
@@ -521,6 +682,7 @@ future<> add_prometheus_routes(http_server& server, config ctx) {
         ctx.hostname = metrics::impl::get_local_impl()->get_config().hostname;
     }
     server._routes.put(GET, "/metrics", new metrics_handler(ctx));
+    server._routes.add(GET, url("/metrics").remainder("name"), new metrics_handler(ctx));
     return make_ready_future<>();
 }
 
