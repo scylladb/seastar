@@ -1386,6 +1386,102 @@ hi
 `boost::program_options` has more powerful features, such as required options, option checking and combining, various option types, and more. Please refer to Boost's documentation for more information.
 
 # Debugging a Seastar program
+## Debugging ignored exceptions
+If a future resolves with an exception, and the application neglects to handle that exception or to explicitly ignore it, the application may have missed an important problem. This is likely to be an application bug.
+
+Therefore, Seastar prints a warning message to the log if a future is destroyed when it stores an exception that hasn't been handled.
+
+For example, consider this code:
+```cpp
+#include <core/future.hh>
+#include <core/sleep.hh>
+
+class myexception {};
+
+seastar::future<> g() {
+    return seastar::make_exception_future<>(myexception());
+}
+
+seastar::future<> f() {
+    g();
+    return seastar::sleep(std::chrono::seconds(1));
+}
+```
+
+Here, the main function `f()` calls `g()`, but doesn't do anything with the future it returns. But this future resolves with an exception, and this exception is silently ignored. So Seastar prints this warning message about the ignored exception:
+```
+WARN  2018-01-11 13:23:17,976 [shard 0] seastar - Exceptional future ignored:
+myexception, backtrace: 0x41ce24
+  0x63729e
+  0x636cd5
+  0x4fa6ec
+  0x4fb0e8
+  0x5010e0
+  0x41bf96
+  0x41c26c
+  0x46a734
+  0x4fd661
+  0x4fe1e2
+  0x4fe332
+  0x417a0b
+  /lib64/libc.so.6+0x21009
+  0x417b99
+```
+
+This message says that an exceptional future was ignored, and that the type of the exception was "`myexception`". The type of the exception is usually not enough to pinpoint where the problem happened, so the warning message also includes the backtrace - the call chain - leading to where the exceptional future was destroyed. The backtrace is given as a list of addresses, where code in other shared libraries is written as a shared library plus offset (when ASLR is enabled, the shared libraries are mapped in a different address each time).
+
+Seastar includes a utility, `seastar-addr2line`, for translating these addresses into readable backtraces including exact method names, source files and line numbers. This utility needs the _unstripped_ executable. Typically, a stripped executable is used for production, but an unstripped copy is kept separately to be used in debugging - including `seastar-addr2line`.
+
+To decode the backtrace, we run
+```
+seastar-addr2line -e a.out
+```
+And then paste the list of addresses in the warning message, and conclude with a `control-D` (it's also possible, if you want, to put the list of addresses in the `seastar-addr2line` command line). The result looks like this:
+
+```
+seastar::report_failed_future(std::__exception_ptr::exception_ptr) at /home/nyh/seastar/core/reactor.cc:4201
+seastar::future<>::~future() at /home/nyh/seastar/core/future.hh:828
+ (inlined by) f() at /home/nyh/seastar/doc/code/26.cc:11
+std::_Function_handler<seastar::future<> (), seastar::future<> (*)()>::_M_invoke(std::_Any_data const&) at /usr/include/c++/7/bits/std_function.h:302
+std::function<seastar::future<> ()>::operator()() const at /usr/include/c++/7/bits/std_function.h:706
+ (inlined by) operator() at /home/nyh/seastar/core/app-template.cc:119
+ (inlined by) _M_invoke at /usr/include/c++/7/bits/std_function.h:302
+std::function<seastar::future<int> ()>::operator()() const at /usr/include/c++/7/bits/std_function.h:706
+ (inlined by) seastar::future<int> seastar::futurize<seastar::future<int> >::apply<std::function<seastar::future<int> ()>&>(std::function<seastar::future<int> ()>&) at /home/nyh/seastar/core/future.hh:1362
+ (inlined by) auto seastar::futurize_apply<std::function<seastar::future<int> ()>&>(std::function<seastar::future<int> ()>&) at /home/nyh/seastar/core/future.hh:1420
+ (inlined by) operator() at /home/nyh/seastar/core/app-template.cc:108
+ (inlined by) _M_invoke at /usr/include/c++/7/bits/std_function.h:316
+std::function<void ()>::operator()() const at /usr/include/c++/7/bits/std_function.h:706
+ (inlined by) seastar::apply_helper<std::function<void ()>, std::tuple<>&&, std::integer_sequence<unsigned long> >::apply(std::function<void ()>&&, std::tuple<>&&) at /home/nyh/seastar/core/apply.hh:36
+ (inlined by) auto seastar::apply<std::function<void ()>>(std::function<void ()>&&, std::tuple<>&&) at /home/nyh/seastar/core/apply.hh:44
+ (inlined by) std::enable_if<!seastar::is_future<std::result_of<std::function<void ()> ()>::type>::value, seastar::future<> >::type seastar::do_void_futurize_apply_tuple<std::function<void ()>>(std::function<void ()>&&, std::tuple<>&&) at /home/nyh/seastar/core/future.hh:1320
+ (inlined by) seastar::future<> seastar::futurize<void>::apply<std::function<void ()>>(std::function<void ()>&&, std::tuple<>&&) at /home/nyh/seastar/core/future.hh:1340
+ (inlined by) seastar::future<> seastar::future<>::then<std::function<void ()>, seastar::future<> >(std::function<void ()>&&)::{lambda(auto:1&&)#1}::operator()<seastar::future_state<> >(auto, std::function<void ()>&&) at /home/nyh/seastar/core/future.hh:933
+ (inlined by) seastar::continuation<seastar::future<> seastar::future<>::then<std::function<void ()>, seastar::future<> >(std::function<void ()>&&)::{lambda(auto:1&&)#1}>::run_and_dispose() at /home/nyh/seastar/core/future.hh:413
+seastar::reactor::run_tasks(seastar::reactor::task_queue&) at /home/nyh/seastar/core/reactor.cc:2487
+seastar::reactor::run_some_tasks(std::chrono::time_point<std::chrono::_V2::steady_clock, std::chrono::duration<long, std::ratio<1l, 1000000000l> > >&) at /home/nyh/seastar/core/reactor.cc:2884
+seastar::reactor::run_some_tasks(std::chrono::time_point<std::chrono::_V2::steady_clock, std::chrono::duration<long, std::ratio<1l, 1000000000l> > >&) at /usr/include/c++/7/chrono:377
+ (inlined by) seastar::reactor::run() at /home/nyh/seastar/core/reactor.cc:3028
+seastar::app_template::run_deprecated(int, char**, std::function<void ()>&&) at /home/nyh/seastar/core/app-template.cc:180
+seastar::app_template::run(int, char**, std::function<seastar::future<int> ()>&&) at /home/nyh/seastar/core/app-template.cc:113
+seastar::app_template::run(int, char**, std::function<seastar::future<> ()>&&) at /home/nyh/seastar/core/app-template.cc:122
+main at /home/nyh/seastar/doc/code/main.cc:11
+__libc_start_main at ??:?
+``` 
+
+Most of the lines at the bottom of this backtrace are not interesting, and just showing the internal details of how Seastar ended up running the main function `f()`. The only interesting part is the _first_ few lines:
+
+```
+seastar::report_failed_future(std::__exception_ptr::exception_ptr) at
+ /home/nyh/seastar/core/reactor.cc:4201
+seastar::future<>::~future() at /home/nyh/seastar/core/future.hh:828
+ (inlined by) f() at /home/nyh/seastar/doc/code/26.cc:11
+```
+
+Here we see that the warning message was printed by the `seastar::report_failed_future()` function which was called when destroying a future (`future<>::~future`) that had not been handled. The future's destructor was called in line 11 of our test code (`26.cc`), which is indeed the line where we called `g()` and ignored its result.  
+This backtrace gives us an accurate understanding of where our code destroyed an exceptional future without handling it first, which is usually helpful in solving these kinds of bugs. Note that this technique does not tell us where the exception was first created, nor what code passed around the exceptional future before it was destroyed - we just learn where the future was destroyed.
+
+## Debugging with gdb
 handle SIGUSR1 pass noprint
 handle SIGALRM pass noprint
 
