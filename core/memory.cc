@@ -1250,9 +1250,8 @@ void* allocate(size_t size) {
 
 void* allocate_aligned(size_t align, size_t size) {
     on_alloc_point();
-    size = std::max(size, align);
     if (size <= sizeof(free_object)) {
-        size = sizeof(free_object);
+        size = std::max(sizeof(free_object), align);
     }
     void* ptr;
     if (size <= max_small_allocation && align <= page_size) {
@@ -1555,6 +1554,7 @@ int __libc_posix_memalign(void** ptr, size_t align, size_t size) throw ();
 extern "C"
 [[gnu::visibility("default")]]
 void* memalign(size_t align, size_t size) {
+    size = seastar::align_up(size, align);
     return allocate_aligned(align, size);
 }
 
