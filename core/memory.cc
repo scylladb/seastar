@@ -1689,11 +1689,11 @@ void operator delete[](void* ptr, size_t size, std::nothrow_t) throw () {
 }
 
 void* operator new(size_t size, seastar::with_alignment wa) {
-    return allocate_aligned(wa.alignment(), size);
+    return throw_if_null(allocate_aligned(wa.alignment(), size));
 }
 
 void* operator new[](size_t size, seastar::with_alignment wa) {
-    return allocate_aligned(wa.alignment(), size);
+    return throw_if_null(allocate_aligned(wa.alignment(), size));
 }
 
 void operator delete(void* ptr, seastar::with_alignment wa) {
