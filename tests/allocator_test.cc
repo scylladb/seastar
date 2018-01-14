@@ -73,6 +73,97 @@ struct allocation {
     }
 };
 
+#ifdef __cpp_aligned_new
+
+template <size_t N>
+struct alignas(N) cpp17_allocation final {
+    char v;
+};
+
+struct test17 {
+    struct handle {
+        const test17* d;
+        void* p;
+        handle(const test17* d, void* p) : d(d), p(p) {}
+        handle(const handle&) = delete;
+        handle(handle&& x) noexcept : d(std::exchange(x.d, nullptr)), p(std::exchange(x.p, nullptr)) {}
+        handle& operator=(const handle&) = delete;
+        handle& operator=(handle&& x) noexcept {
+            std::swap(d, x.d);
+            std::swap(p, x.p);
+            return *this;
+        }
+        ~handle() {
+            if (d) {
+                d->free(p);
+            }
+        }
+    };
+    virtual ~test17() {}
+    virtual handle alloc() const = 0;
+    virtual void free(void* ptr) const = 0;
+};
+
+template <size_t N>
+struct test17_concrete : test17 {
+    using value_type = cpp17_allocation<N>;
+    static_assert(sizeof(value_type) == N, "language does not guarantee size >= align");
+    virtual handle alloc() const override {
+        auto ptr = new value_type();
+        assert((reinterpret_cast<uintptr_t>(ptr) & (N - 1)) == 0);
+        return handle{this, ptr};
+    }
+    virtual void free(void* ptr) const override {
+        delete static_cast<value_type*>(ptr);
+    }
+};
+
+void test_cpp17_aligned_allocator() {
+    std::vector<std::unique_ptr<test17>> tv;
+    tv.push_back(std::make_unique<test17_concrete<1>>());
+    tv.push_back(std::make_unique<test17_concrete<2>>());
+    tv.push_back(std::make_unique<test17_concrete<4>>());
+    tv.push_back(std::make_unique<test17_concrete<8>>());
+    tv.push_back(std::make_unique<test17_concrete<16>>());
+    tv.push_back(std::make_unique<test17_concrete<64>>());
+    tv.push_back(std::make_unique<test17_concrete<128>>());
+    tv.push_back(std::make_unique<test17_concrete<2048>>());
+    tv.push_back(std::make_unique<test17_concrete<4096>>());
+    tv.push_back(std::make_unique<test17_concrete<4096*16>>());
+    tv.push_back(std::make_unique<test17_concrete<4096*256>>());
+
+    std::default_random_engine random_engine;
+    std::uniform_int_distribution<> type_dist(0, 1);
+    std::uniform_int_distribution<size_t> size_dist(0, tv.size() - 1);
+    std::uniform_real_distribution<> which_dist(0, 1);
+
+    std::vector<test17::handle> allocs;
+    for (unsigned i = 0; i < 10000; ++i) {
+        auto type = type_dist(random_engine);
+        switch (type) {
+        case 0: {
+            size_t sz_idx = size_dist(random_engine);
+            allocs.push_back(tv[sz_idx]->alloc());
+            break;
+        }
+        case 1:
+            if (!allocs.empty()) {
+                size_t idx = which_dist(random_engine) * allocs.size();
+                std::swap(allocs[idx], allocs.back());
+                allocs.pop_back();
+            }
+            break;
+        }
+    }
+}
+
+#else
+
+void test_cpp17_aligned_allocator() {
+}
+
+#endif
+
 int main(int ac, char** av) {
     namespace bpo = boost::program_options;
     bpo::options_description opts("Allowed options");
@@ -87,6 +178,7 @@ int main(int ac, char** av) {
     test_aligned_allocator<1>();
     test_aligned_allocator<4>();
     test_aligned_allocator<80>();
+    test_cpp17_aligned_allocator();
     std::default_random_engine random_engine;
     std::exponential_distribution<> distr(0.2);
     std::uniform_int_distribution<> type(0, 1);
