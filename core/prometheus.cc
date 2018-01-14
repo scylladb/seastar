@@ -536,7 +536,7 @@ metric_family_range get_range(const metrics_families_per_shard& mf, const sstrin
         return metric_family_range(mf.lower_bound(metric_family_name), mf.lower_bound(upper_bount_prefix));
     }
     auto lb = mf.lower_bound(metric_family_name);
-    if (lb->name() != metric_family_name) {
+    if (lb.end() || lb->name() != metric_family_name) {
         return metric_family_range(lb, lb); // just return an empty range
     }
     auto up = lb;
