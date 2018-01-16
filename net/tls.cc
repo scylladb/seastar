@@ -925,7 +925,7 @@ public:
                 if (eof()) {
                     return make_ready_future<stop_iteration>(stop_iteration::yes);
                 }
-                return do_get().then([this](auto buf) {
+                return do_get().then([](auto buf) {
                    return make_ready_future<stop_iteration>(stop_iteration::no);
                 });
             });

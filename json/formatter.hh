@@ -98,7 +98,7 @@ class formatter {
     static future<> write(output_stream<char>& stream, state s, Iter i, Iter e) {
         return do_with(true, [&stream, s, i, e] (bool& first) {
             return stream.write(begin(s)).then([&first, &stream, s, i, e] {
-                return do_for_each(i, e, [&first, &stream, s] (auto& m) {
+                return do_for_each(i, e, [&first, &stream] (auto& m) {
                     auto f = (first) ? make_ready_future<>() : stream.write(",");
                     first = false;
                     return f.then([&m, &stream] {

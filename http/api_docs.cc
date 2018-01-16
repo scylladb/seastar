@@ -52,13 +52,13 @@ future<> api_docs_20::write(output_stream<char>&& os, std::unique_ptr<request> r
     return do_with(output_stream<char>(_transform.transform(std::move(req), "", std::move(os))), [this] (output_stream<char>& os) {
         return do_for_each(_apis, [&os](doc_entry& api) {
             return api(os);
-        }).then([this, &os] {
+        }).then([&os] {
             return os.write("},\"definitions\": {");
         }).then([this, &os] {
             return do_for_each(_definitions, [&os](doc_entry& api) {
                 return api(os);
             });
-        }).then([this, &os] {
+        }).then([&os] {
             return os.write("}}");
         }).then([&os] {
             return os.flush();

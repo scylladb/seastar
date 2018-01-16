@@ -163,7 +163,7 @@ public:
         return do_with(temporary_buffer<char>(std::move(buf)), [this] (temporary_buffer<char>& buf) {
             return repeat([&buf, this] {
                 auto bf = _br.replace(buf);
-                return _out.write(bf.get(), bf.size()).then([&buf, this] {
+                return _out.write(bf.get(), bf.size()).then([&buf] {
                     return (buf.empty()) ? stop_iteration::yes : stop_iteration::no;
                 });
             });

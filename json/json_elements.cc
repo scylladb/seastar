@@ -161,7 +161,7 @@ string json_base::to_json() const {
 }
 
 future<> json_base::write(output_stream<char>& s) const {
-    return do_with(json_stream_builder(s), [this, &s] (json_stream_builder& builder) {
+    return do_with(json_stream_builder(s), [this] (json_stream_builder& builder) {
         return do_for_each(_elements, [&builder] (auto m) {
             return builder.add(m);
         }).then([&builder] {
