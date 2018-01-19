@@ -334,13 +334,16 @@ public:
     }
 
     /// Gets a reference to the local instance.
+    const Service& local() const;
+
+    /// Gets a reference to the local instance.
     Service& local();
 
     /// Gets a shared pointer to the local instance.
     shared_ptr<Service> local_shared();
 
     /// Checks whether the local instance has been initialized.
-    bool local_is_initialized();
+    bool local_is_initialized() const;
 
 private:
     void track_deletion(shared_ptr<Service>& s, std::false_type) {
@@ -527,6 +530,12 @@ sharded<Service>::invoke_on_others(Func&& func) {
 }
 
 template <typename Service>
+const Service& sharded<Service>::local() const {
+    assert(local_is_initialized());
+    return *_instances[engine().cpu_id()].service;
+}
+
+template <typename Service>
 Service& sharded<Service>::local() {
     assert(local_is_initialized());
     return *_instances[engine().cpu_id()].service;
@@ -539,7 +548,7 @@ shared_ptr<Service> sharded<Service>::local_shared() {
 }
 
 template <typename Service>
-inline bool sharded<Service>::local_is_initialized() {
+inline bool sharded<Service>::local_is_initialized() const {
     return _instances.size() > engine().cpu_id() &&
            _instances[engine().cpu_id()].service;
 }
