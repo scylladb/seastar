@@ -1230,7 +1230,6 @@ size_t object_size(void* ptr) {
 }
 
 void* allocate(size_t size) {
-    on_alloc_point();
     if (size <= sizeof(free_object)) {
         size = sizeof(free_object);
     }
@@ -1249,7 +1248,6 @@ void* allocate(size_t size) {
 }
 
 void* allocate_aligned(size_t align, size_t size) {
-    on_alloc_point();
     if (size <= sizeof(free_object)) {
         size = std::max(sizeof(free_object), align);
     }
@@ -1460,6 +1458,19 @@ void on_allocation_failure(size_t size) {
     }
 }
 
+static void trigger_error_injector() {
+    on_alloc_point();
+}
+
+static bool try_trigger_error_injector() {
+    try {
+        on_alloc_point();
+        return false;
+    } catch (...) {
+        return true;
+    }
+}
+
 }
 
 }
@@ -1470,6 +1481,9 @@ extern "C"
 [[gnu::visibility("default")]]
 [[gnu::externally_visible]]
 void* malloc(size_t n) throw () {
+    if (try_trigger_error_injector()) {
+        return nullptr;
+    }
     return allocate(n);
 }
 
@@ -1495,6 +1509,9 @@ void* __libc_free(void* obj) throw ();
 extern "C"
 [[gnu::visibility("default")]]
 void* calloc(size_t nmemb, size_t size) {
+    if (try_trigger_error_injector()) {
+        return nullptr;
+    }
     auto s1 = __int128(nmemb) * __int128(size);
     assert(s1 == size_t(s1));
     size_t s = s1;
@@ -1513,7 +1530,9 @@ void* __libc_calloc(size_t n, size_t m) throw ();
 extern "C"
 [[gnu::visibility("default")]]
 void* realloc(void* ptr, size_t size) {
-    seastar::memory::on_alloc_point();
+    if (try_trigger_error_injector()) {
+        return nullptr;
+    }
     auto old_size = ptr ? object_size(ptr) : 0;
     if (size == old_size) {
         return ptr;
@@ -1546,6 +1565,9 @@ extern "C"
 [[gnu::visibility("default")]]
 [[gnu::externally_visible]]
 int posix_memalign(void** ptr, size_t align, size_t size) {
+    if (try_trigger_error_injector()) {
+        return ENOMEM;
+    }
     *ptr = allocate_aligned(align, size);
     if (!*ptr) {
         return ENOMEM;
@@ -1561,6 +1583,9 @@ int __libc_posix_memalign(void** ptr, size_t align, size_t size) throw ();
 extern "C"
 [[gnu::visibility("default")]]
 void* memalign(size_t align, size_t size) {
+    if (try_trigger_error_injector()) {
+        return nullptr;
+    }
     size = seastar::align_up(size, align);
     return allocate_aligned(align, size);
 }
@@ -1568,6 +1593,9 @@ void* memalign(size_t align, size_t size) {
 extern "C"
 [[gnu::visibility("default")]]
 void *aligned_alloc(size_t align, size_t size) {
+    if (try_trigger_error_injector()) {
+        return nullptr;
+    }
     return allocate_aligned(align, size);
 }
 
@@ -1609,6 +1637,7 @@ void* throw_if_null(void* ptr) {
 
 [[gnu::visibility("default")]]
 void* operator new(size_t size) {
+    trigger_error_injector();
     if (size == 0) {
         size = 1;
     }
@@ -1617,6 +1646,7 @@ void* operator new(size_t size) {
 
 [[gnu::visibility("default")]]
 void* operator new[](size_t size) {
+    trigger_error_injector();
     if (size == 0) {
         size = 1;
     }
@@ -1653,6 +1683,9 @@ void operator delete[](void* ptr, size_t size) throw () {
 
 [[gnu::visibility("default")]]
 void* operator new(size_t size, std::nothrow_t) throw () {
+    if (try_trigger_error_injector()) {
+        return nullptr;
+    }
     if (size == 0) {
         size = 1;
     }
@@ -1699,23 +1732,31 @@ void operator delete[](void* ptr, size_t size, std::nothrow_t) throw () {
 
 [[gnu::visibility("default")]]
 void* operator new(size_t size, std::align_val_t a) {
+    trigger_error_injector();
     auto ptr = allocate_aligned(size_t(a), size);
     return throw_if_null(ptr);
 }
 
 [[gnu::visibility("default")]]
 void* operator new[](size_t size, std::align_val_t a) {
+    trigger_error_injector();
     auto ptr = allocate_aligned(size_t(a), size);
     return throw_if_null(ptr);
 }
 
 [[gnu::visibility("default")]]
 void* operator new(size_t size, std::align_val_t a, const std::nothrow_t&) noexcept {
+    if (try_trigger_error_injector()) {
+        return nullptr;
+    }
     return allocate_aligned(size_t(a), size);
 }
 
 [[gnu::visibility("default")]]
 void* operator new[](size_t size, std::align_val_t a, const std::nothrow_t&) noexcept {
+    if (try_trigger_error_injector()) {
+        return nullptr;
+    }
     return allocate_aligned(size_t(a), size);
 }
 
@@ -1765,10 +1806,12 @@ void operator delete[](void* ptr, std::align_val_t a, const std::nothrow_t&) noe
 #endif
 
 void* operator new(size_t size, seastar::with_alignment wa) {
+    trigger_error_injector();
     return throw_if_null(allocate_aligned(wa.alignment(), size));
 }
 
 void* operator new[](size_t size, seastar::with_alignment wa) {
+    trigger_error_injector();
     return throw_if_null(allocate_aligned(wa.alignment(), size));
 }
 
