@@ -86,7 +86,9 @@ public:
     template <typename... A>
     void emplace_back(A&&... args);
     T& front();
+    const T& front() const;
     T& back();
+    const T& back() const;
     void pop_front();
     void pop_back();
     bool empty() const;
@@ -392,8 +394,22 @@ circular_buffer<T, Alloc>::front() {
 
 template <typename T, typename Alloc>
 inline
+const T&
+circular_buffer<T, Alloc>::front() const {
+    return _impl.storage[mask(_impl.begin)];
+}
+
+template <typename T, typename Alloc>
+inline
 T&
 circular_buffer<T, Alloc>::back() {
+    return _impl.storage[mask(_impl.end - 1)];
+}
+
+template <typename T, typename Alloc>
+inline
+const T&
+circular_buffer<T, Alloc>::back() const {
     return _impl.storage[mask(_impl.end - 1)];
 }
 
