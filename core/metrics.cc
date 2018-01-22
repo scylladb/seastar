@@ -126,6 +126,7 @@ metric_value metric_value::operator+(const metric_value& c) {
     switch (_type) {
     case data_type::HISTOGRAM:
         boost::get<histogram>(res.u) += boost::get<histogram>(c.u);
+        break;
     default:
         boost::get<double>(res.u) += boost::get<double>(c.u);
         break;
