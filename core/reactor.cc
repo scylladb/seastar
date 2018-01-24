@@ -1336,8 +1336,10 @@ posix_file_impl::read_maybe_eof(uint64_t pos, size_t len, const io_priority_clas
 }
 
 append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, file_open_options options,
-        unsigned max_size_changing_ops)
-        : posix_file_impl(fd, options), _max_size_changing_ops(max_size_changing_ops) {
+        unsigned max_size_changing_ops, bool fsync_is_exclusive)
+        : posix_file_impl(fd, options)
+        , _max_size_changing_ops(max_size_changing_ops)
+        , _fsync_is_exclusive(fsync_is_exclusive) {
     auto r = ::lseek(fd, 0, SEEK_END);
     throw_system_error_on(r == -1);
     _committed_size = _logical_size = r;
@@ -1359,7 +1361,7 @@ bool
 append_challenged_posix_file_impl::must_run_alone(const op& candidate) const noexcept {
     // checks if candidate is a non-write, size-changing operation.
     return (candidate.type == opcode::truncate)
-            || (_sloppy_size && candidate.type == opcode::flush);
+            || (candidate.type == opcode::flush && (_fsync_is_exclusive || _sloppy_size));
 }
 
 bool
@@ -1575,7 +1577,7 @@ append_challenged_posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> io
 
 future<>
 append_challenged_posix_file_impl::flush() {
-    if (!_sloppy_size || _logical_size == _committed_size) {
+    if ((!_sloppy_size || _logical_size == _committed_size) && !_fsync_is_exclusive) {
         // FIXME: determine if flush can block concurrent reads or writes
         return posix_file_impl::flush();
     } else {
@@ -1718,6 +1720,7 @@ make_file_impl(int fd, file_open_options options) {
         struct append_support {
             bool append_challenged;
             unsigned append_concurrency;
+            bool fsync_is_exclusive;
         };
         static thread_local std::unordered_map<decltype(st.st_dev), append_support> s_fstype;
         if (!s_fstype.count(st.st_dev)) {
@@ -1730,14 +1733,22 @@ make_file_impl(int fd, file_open_options options) {
                 as.append_challenged = true;
                 static auto xc = xfs_concurrency_from_kernel_version();
                 as.append_concurrency = xc;
+                as.fsync_is_exclusive = true;
                 break;
             case 0x6969: /* NFS */
                 as.append_challenged = false;
                 as.append_concurrency = 0;
+                as.fsync_is_exclusive = false;
+                break;
+            case 0xEF53: /* EXT4 */
+                as.append_challenged = true;
+                as.append_concurrency = 0;
+                as.fsync_is_exclusive = false;
                 break;
             default:
                 as.append_challenged = true;
                 as.append_concurrency = 0;
+                as.fsync_is_exclusive = true;
             }
             s_fstype[st.st_dev] = as;
         }
@@ -1745,7 +1756,7 @@ make_file_impl(int fd, file_open_options options) {
         if (!as.append_challenged) {
             return make_shared<posix_file_impl>(fd, options);
         }
-        return make_shared<append_challenged_posix_file_impl>(fd, options, as.append_concurrency);
+        return make_shared<append_challenged_posix_file_impl>(fd, options, as.append_concurrency, as.fsync_is_exclusive);
     }
 }
 
