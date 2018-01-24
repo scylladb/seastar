@@ -651,7 +651,7 @@ public:
                     return make_exception_future<>(std::system_error(res, glts_errorc));
                 }
             }
-            if (_type == type::CLIENT) {
+            if (_type == type::CLIENT || _creds->_impl->get_client_auth() != client_auth::NONE) {
                 verify();
             }
             _connected = true;
@@ -724,8 +724,11 @@ public:
 
     void verify() {
         unsigned int status;
-        auto res = gnutls_certificate_verify_peers3(*this,
-                _hostname.empty() ? nullptr : _hostname.c_str(), &status);
+        auto res = gnutls_certificate_verify_peers3(*this, _type != type::CLIENT || _hostname.empty()
+                        ? nullptr : _hostname.c_str(), &status);
+        if (res == GNUTLS_E_NO_CERTIFICATE_FOUND && _type != type::CLIENT && _creds->_impl->get_client_auth() != client_auth::REQUIRE) {
+            return;
+        }
         if (res < 0) {
             throw std::system_error(res, glts_errorc);
         }
