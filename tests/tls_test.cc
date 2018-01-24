@@ -257,9 +257,15 @@ public:
             , _size(message_size)
     {}
 
-    future<> listen(socket_address addr, sstring crtfile, sstring keyfile, tls::client_auth ca = tls::client_auth::NONE) {
+    future<> listen(socket_address addr, sstring crtfile, sstring keyfile, tls::client_auth ca = tls::client_auth::NONE, sstring trust = {}) {
         _certs->set_client_auth(ca);
-        return _certs->set_x509_key_file(crtfile, keyfile, tls::x509_crt_format::PEM).then([this, addr] {
+        auto f = _certs->set_x509_key_file(crtfile, keyfile, tls::x509_crt_format::PEM);
+        if (!trust.empty()) {
+            f = f.then([this, trust = std::move(trust)] {
+                return _certs->set_x509_trust_file(trust, tls::x509_crt_format::PEM);
+            });
+        }
+        return f.then([this, addr] {
             ::listen_options opts;
             opts.reuse_address = true;
 
@@ -338,7 +344,11 @@ static future<> run_echo_test(sstring message,
         return certs->set_x509_trust_file(trust, tls::x509_crt_format::PEM);
     }).then([=] {
         return server->start(msg->size()).then([=]() {
-            return server->invoke_on_all(&echoserver::listen, addr, crt, key, ca);
+            sstring server_trust;
+            if (ca != tls::client_auth::NONE) {
+                server_trust = trust;
+            }
+            return server->invoke_on_all(&echoserver::listen, addr, crt, key, ca, server_trust);
         }).then([=] {
             return tls::connect(certs, addr, name).then([loops, msg, do_read](::connected_socket s) {
                 auto strms = ::make_lw_shared<streams>(std::move(s));
