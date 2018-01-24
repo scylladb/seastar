@@ -785,7 +785,6 @@ public:
                 case GNUTLS_E_REHANDSHAKE:
                     // server requests new HS. must release semaphore, so set new state
                     // and return nada.
-                    assert(_type == type::CLIENT); // should never get this in server session
                     _connected = false;
                     return make_ready_future<temporary_buffer<char>>();
                 default:
