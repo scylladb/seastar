@@ -25,6 +25,8 @@
 #include <sys/syscall.h>
 #include <sys/vfs.h>
 #include <sys/statfs.h>
+#include <sys/time.h>
+#include <sys/resource.h>
 #include "task.hh"
 #include "reactor.hh"
 #include "memory.hh"
@@ -40,6 +42,7 @@
 #include "thread.hh"
 #include "systemwide_memory_barrier.hh"
 #include "report_exception.hh"
+#include "core/stall_sampler.hh"
 #include "util/log.hh"
 #include "file-impl.hh"
 #include <cassert>
@@ -4462,6 +4465,90 @@ create_scheduling_group(sstring name, float shares) {
     }).then([sg] {
         return make_ready_future<scheduling_group>(sg);
     });
+}
+
+
+
+namespace internal {
+
+inline
+std::chrono::steady_clock::duration
+timeval_to_duration(::timeval tv) {
+    return std::chrono::seconds(tv.tv_sec) + std::chrono::microseconds(tv.tv_usec);
+}
+
+class reactor_stall_sampler : public reactor::pollfn {
+    std::chrono::steady_clock::time_point _run_start;
+    ::rusage _run_start_rusage;
+    uint64_t _kernel_stalls = 0;
+    std::chrono::steady_clock::duration _nonsleep_cpu_time = {};
+    std::chrono::steady_clock::duration _nonsleep_wall_time = {};
+private:
+    static ::rusage get_rusage() {
+        struct ::rusage ru;
+        ::getrusage(RUSAGE_THREAD, &ru);
+        return ru;
+    }
+    static std::chrono::steady_clock::duration cpu_time(const ::rusage& ru) {
+        return timeval_to_duration(ru.ru_stime) + timeval_to_duration(ru.ru_utime);
+    }
+    void mark_run_start() {
+        _run_start = std::chrono::steady_clock::now();
+        _run_start_rusage = get_rusage();
+    }
+    void mark_run_end() {
+        auto start_nvcsw = _run_start_rusage.ru_nvcsw;
+        auto start_cpu_time = cpu_time(_run_start_rusage);
+        auto start_time = _run_start;
+        _run_start = std::chrono::steady_clock::now();
+        _run_start_rusage = get_rusage();
+        _kernel_stalls += _run_start_rusage.ru_nvcsw - start_nvcsw;
+        _nonsleep_cpu_time += cpu_time(_run_start_rusage) - start_cpu_time;
+        _nonsleep_wall_time += _run_start - start_time;
+    }
+public:
+    reactor_stall_sampler() { mark_run_start(); }
+    virtual bool poll() override { return false; }
+    virtual bool pure_poll() override { return false; }
+    virtual bool try_enter_interrupt_mode() override {
+        // try_enter_interrupt_mode marks the end of a reactor run that should be context-switch free
+        mark_run_end();
+        return true;
+    }
+    virtual void exit_interrupt_mode() override {
+        // start a reactor run that should be context switch free
+        mark_run_start();
+    }
+    stall_report report() const {
+        stall_report r;
+        // mark_run_end() with an immediate mark_run_start() is logically a no-op,
+        // but each one of them has an effect, so they can't be marked const
+        const_cast<reactor_stall_sampler*>(this)->mark_run_end();
+        r.kernel_stalls = _kernel_stalls;
+        r.run_wall_time = _nonsleep_wall_time;
+        r.stall_time = _nonsleep_wall_time - _nonsleep_cpu_time;
+        const_cast<reactor_stall_sampler*>(this)->mark_run_start();
+        return r;
+    }
+};
+
+future<stall_report>
+report_reactor_stalls(noncopyable_function<future<> ()> uut) {
+    auto reporter = std::make_unique<reactor_stall_sampler>();
+    auto p_reporter = reporter.get();
+    auto poller = reactor::poller(std::move(reporter));
+    return uut().then([poller = std::move(poller), p_reporter] () mutable {
+        return p_reporter->report();
+    });
+}
+
+std::ostream& operator<<(std::ostream& os, const stall_report& sr) {
+    auto to_ms = [] (std::chrono::steady_clock::duration d) -> float {
+        return std::chrono::duration<float>(d) / 1ms;
+    };
+    return os << format("{} stalls, {} ms stall time, {} ms run time", sr.kernel_stalls, to_ms(sr.stall_time), to_ms(sr.run_wall_time));
+}
+
 }
 
 }
