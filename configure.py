@@ -213,6 +213,7 @@ modes = {
         'opt': '-O0 -DDEBUG -DDEBUG_SHARED_PTR -DDEFAULT_ALLOCATOR -DSEASTAR_THREAD_STACK_GUARDS -DNO_EXCEPTION_HACK',
         'libs': '',
         'cares_opts': '-DCARES_STATIC=ON -DCARES_SHARED=OFF -DCMAKE_BUILD_TYPE=Debug',
+        'fmt_opts': '-DCMAKE_BUILD_TYPE=Debug',
     },
     'release': {
         'sanitize': '',
@@ -220,6 +221,7 @@ modes = {
         'opt': '-O2',
         'libs': '',
         'cares_opts': '-DCARES_STATIC=ON -DCARES_SHARED=OFF -DCMAKE_BUILD_TYPE=Release',
+        'fmt_opts': '-DCMAKE_BUILD_TYPE=Release',
     },
 }
 
@@ -435,7 +437,7 @@ def maybe_static(flag, libs):
         libs = '-Wl,-Bstatic {} -Wl,-Bdynamic'.format(libs)
     return libs
 
-defines = ['FMT_HEADER_ONLY']
+defines = []
 # Include -lgcc_s before -lunwind to work around for https://savannah.nongnu.org/bugs/?48486. See https://github.com/scylladb/scylla/issues/1725.
 libs = ' '.join([maybe_static(args.staticboost,
                               '-lboost_program_options -lboost_system -lboost_filesystem'),
@@ -788,6 +790,20 @@ for root, dirs, files in os.walk('c-ares'):
 cares_sources = ' '.join(cares_sources)
 libs += ' -l' + cares_lib
 
+#
+fmt_dir = 'fmt'
+fmt_lib = 'fmt-seastar'
+fmt_src_lib = fmt_dir + '/fmt/libfmt.a'
+
+fmt_sources = []
+for root, dirs, files in os.walk(fmt_dir + '/fmt'):
+    fmt_sources += [os.path.join(root, file)
+                      for file in files
+                      if file.endswith('.hh') or file.endswith('.cc')]
+fmt_sources = ' '.join(fmt_sources)
+libs += ' -l' + fmt_lib
+
+
 # "libs" contains mostly pre-existing libraries, but if we want to add to
 # it a library which we built here, we need to ensure that this library
 # gets built before actually using "libs". So let's make a list "built_libs"
@@ -795,6 +811,7 @@ libs += ' -l' + cares_lib
 # to the current mode's build directory.
 built_libs = []
 built_libs += ['lib' + cares_lib + '.a']
+built_libs += ['lib' + fmt_lib + '.a']
 
 outdir = 'build'
 buildfile = 'build.ninja'
@@ -869,7 +886,8 @@ with open(buildfile, 'w') as f:
               command = rm -f $out; ar cr $out $in; ranlib $out
               description = AR $out
             ''').format(mode = mode, **modeval))
-        f.write('build {mode}: phony $builddir/{mode}/lib{cares_lib}.a {artifacts}\n'.format(mode = mode, cares_lib=cares_lib,
+        f.write('build {mode}: phony $builddir/{mode}/lib{cares_lib}.a $builddir/{mode}/lib{fmt_lib}.a {artifacts}\n'.format(mode = mode,
+            cares_lib=cares_lib, fmt_lib=fmt_lib,
             artifacts = str.join(' ', ('$builddir/' + mode + '/' + x for x in build_artifacts))))
         f.write(textwrap.dedent('''\
               rule caresmake_{mode}
@@ -882,6 +900,15 @@ with open(buildfile, 'w') as f:
               build $builddir/{mode}/lib{cares_lib}.a : copy_file $builddir/{mode}/{cares_src_lib}
             ''').format(cares_opts=(modeval['cares_opts']), **globals()))
         objdeps['$builddir/' + mode + '/net/dns.o'] = ' $builddir/' + mode + '/' + cares_dir + '/ares_build.h'
+        f.write(textwrap.dedent('''\
+              rule fmtmake_{mode}
+                command = make -C build/{mode}/{fmt_dir} CXX={args.cxx}
+              rule fmtcmake_{mode}
+                command = mkdir -p $builddir/{mode}/{fmt_dir} && cd $builddir/{mode}/{fmt_dir} && CXX={args.cxx} cmake {fmt_opts} {srcdir}/$in
+              build $builddir/{mode}/{fmt_dir}/Makefile : fmtcmake_{mode} {fmt_dir}
+              build $builddir/{mode}/{fmt_src_lib} : fmtmake_{mode} $builddir/{mode}/{fmt_dir}/Makefile | {fmt_sources}
+              build $builddir/{mode}/lib{fmt_lib}.a : copy_file $builddir/{mode}/{fmt_src_lib}
+            ''').format(fmt_opts=(modeval['fmt_opts']), **globals()))
         compiles = {}
         ragels = {}
         swaggers = {}
