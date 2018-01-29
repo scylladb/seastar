@@ -121,6 +121,7 @@ class append_challenged_posix_file_impl : public posix_file_impl {
     unsigned _max_size_changing_ops = 0;
     unsigned _current_non_size_changing_ops = 0;
     unsigned _current_size_changing_ops = 0;
+    bool _fsync_is_exclusive = true;
     // Set when the user closes the file
     bool _done = false;
     bool _sloppy_size = false;
@@ -137,7 +138,7 @@ private:
     bool may_quit() const noexcept;
     void enqueue(op&& op);
 public:
-    append_challenged_posix_file_impl(int fd, file_open_options options, unsigned max_size_changing_ops);
+    append_challenged_posix_file_impl(int fd, file_open_options options, unsigned max_size_changing_ops, bool fsync_is_exclusive);
     ~append_challenged_posix_file_impl() override;
     future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc) override;
     future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) override;

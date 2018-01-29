@@ -22,8 +22,11 @@
 #include "tests/test-utils.hh"
 
 #include "core/semaphore.hh"
+#include "core/condition-variable.hh"
 #include "core/file.hh"
 #include "core/reactor.hh"
+#include "core/thread.hh"
+#include "core/stall_sampler.hh"
 
 using namespace seastar;
 
@@ -70,4 +73,58 @@ SEASTAR_TEST_CASE(test1) {
     });
 }
 
+SEASTAR_TEST_CASE(parallel_write_fsync) {
+    return internal::report_reactor_stalls([] {
+        return async([] {
+            // Plan: open a file and write to it like crazy. In parallel fsync() it all the time.
+            auto fname = "testfile.tmp";
+            auto sz = uint64_t(32*1024*1024);
+            auto buffer_size = 32768;
+            auto write_concurrency = 16;
+            auto fsync_every = 1024*1024;
+            auto max_write_ahead_of_fsync = 4*1024*1024; // ensures writes don't complete too quickly
+            auto written = uint64_t(0);
+            auto fsynced_at = uint64_t(0);
 
+            file f = open_file_dma(fname, open_flags::rw | open_flags::create | open_flags::truncate).get0();
+            // Avoid filesystem problems with size-extending operations
+            f.truncate(sz).get();
+
+            auto fsync_semaphore = semaphore(0);
+            auto may_write_condvar = condition_variable();
+            auto fsync_thread = thread([&] {
+                auto fsynced = uint64_t(0);
+                while (fsynced < sz) {
+                    fsync_semaphore.wait(fsync_every).get();
+                    fsynced_at = written;
+                    // Signal the condition variable now so that writes proceed
+                    // in parallel with the fsync
+                    may_write_condvar.broadcast();
+                    f.flush().get();
+                    fsynced += fsync_every;
+                }
+            });
+
+            auto write_semaphore = semaphore(write_concurrency);
+            while (written < sz) {
+                write_semaphore.wait().get();
+                may_write_condvar.wait([&] {
+                    return written <= fsynced_at + max_write_ahead_of_fsync;
+                }).get();
+                auto buf = temporary_buffer<char>::aligned(f.memory_dma_alignment(), buffer_size);
+                f.dma_write(written, buf.get(), buf.size()).then([&fsync_semaphore, &write_semaphore, buf = std::move(buf)] (size_t w) {
+                    fsync_semaphore.signal(buf.size());
+                    write_semaphore.signal();
+                });
+                written += buffer_size;
+            }
+            write_semaphore.wait(write_concurrency).get();
+
+            fsync_thread.join().get();
+            f.close().get();
+            remove_file(fname).get();
+        });
+    }).then([] (internal::stall_report sr) {
+        std::cout << "parallel_write_fsync: " << sr << "\n";
+    });
+}

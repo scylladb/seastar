@@ -586,6 +586,12 @@ public:
 
 constexpr unsigned max_scheduling_groups() { return 16; }
 
+namespace internal {
+
+class reactor_stall_sampler;
+
+}
+
 class reactor {
     using sched_clock = std::chrono::steady_clock;
 private:
@@ -632,6 +638,7 @@ private:
     friend class syscall_pollfn;
     friend class execution_stage_pollfn;
     friend class file_data_source_impl; // for fstream statistics
+    friend class internal::reactor_stall_sampler;
 public:
     class poller {
         std::unique_ptr<pollfn> _pollfn;
