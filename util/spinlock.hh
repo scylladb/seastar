@@ -52,6 +52,13 @@ inline void cpu_relax() {
 [[gnu::always_inline]]
 inline void cpu_relax() {}
 
+#elif defined(__aarch64__)
+
+[[gnu::always_inline]]
+inline void cpu_relax() {
+    __asm__ volatile("yield");
+}
+
 #else
 
 [[gnu::always_inline]]
