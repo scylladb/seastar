@@ -2205,18 +2205,12 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
     // instead.
 
     // From getdents(2):
-    struct linux_dirent {
-        unsigned long  d_ino;     /* Inode number */
-        unsigned long  d_off;     /* Offset to next linux_dirent */
-        unsigned short d_reclen;  /* Length of this linux_dirent */
-        char           d_name[];  /* Filename (null-terminated) */
-        /* length is actually (d_reclen - 2 -
-                             offsetof(struct linux_dirent, d_name)) */
-        /*
-        char           pad;       // Zero padding byte
-        char           d_type;    // File type (only since Linux
-                                  // 2.6.4); offset is (d_reclen - 1)
-         */
+    struct linux_dirent64 {
+        ino64_t        d_ino;    /* 64-bit inode number */
+        off64_t        d_off;    /* 64-bit offset to next structure */
+        unsigned short d_reclen; /* Size of this dirent */
+        unsigned char  d_type;   /* File type */
+        char           d_name[]; /* Filename (null-terminated) */
     };
 
     auto w = make_lw_shared<work>();
@@ -2226,7 +2220,7 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
         return do_until(eofcond, [w, this] {
             if (w->current == w->total) {
                 return engine()._thread_pool.submit<syscall_result<long>>([w , this] () {
-                    auto ret = ::syscall(__NR_getdents, _fd, reinterpret_cast<linux_dirent*>(w->buffer), sizeof(w->buffer));
+                    auto ret = ::syscall(__NR_getdents64, _fd, reinterpret_cast<linux_dirent64*>(w->buffer), sizeof(w->buffer));
                     return wrap_syscall(ret);
                 }).then([w] (syscall_result<long> ret) {
                     ret.throw_if_error();
@@ -2239,7 +2233,7 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
                 });
             }
             auto start = w->buffer + w->current;
-            auto de = reinterpret_cast<linux_dirent*>(start);
+            auto de = reinterpret_cast<linux_dirent64*>(start);
             std::experimental::optional<directory_entry_type> type;
             switch (start[de->d_reclen - 1]) {
             case DT_BLK:
