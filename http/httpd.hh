@@ -258,6 +258,7 @@ public:
         for (auto&& c : _connections) {
             c.shutdown();
         }
+        maybe_idle();
         return std::move(_stopped);
     }
 
