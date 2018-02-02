@@ -122,7 +122,7 @@ inline
 auto
 with_gate(gate& g, Func&& func) {
     g.enter();
-    return func().finally([&g] { g.leave(); });
+    return futurize_apply(std::forward<Func>(func)).finally([&g] { g.leave(); });
 }
 /// @}
 
