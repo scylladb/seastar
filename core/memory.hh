@@ -66,6 +66,8 @@ static constexpr size_t page_bits = log2ceil(page_size);
 static constexpr size_t huge_page_size =
 #if defined(__x86_64__) || defined(__i386__) || defined(__s390x__) || defined(__zarch__)
     1 << 21; // 2M
+#elif defined(__aarch64__)
+    1 << 21; // 2M
 #elif defined(__PPC__)
     1 << 24; // 16M
 #else
