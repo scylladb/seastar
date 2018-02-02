@@ -2889,12 +2889,12 @@ reactor::run_some_tasks(sched_clock::time_point& t_run_completed) {
         _active_task_queues.pop_front();
         sched_print("running tq {} {}", (void*)tq, tq->_name);
         tq->_current = true;
+        _last_vruntime = std::max(tq->_vruntime, _last_vruntime);
         run_tasks(*tq);
         tq->_current = false;
         t_run_completed = std::chrono::steady_clock::now();
         auto delta = t_run_completed - t_run_started;
         account_runtime(*tq, delta);
-        _last_vruntime = std::max(tq->_vruntime, _last_vruntime);
         sched_print("run complete ({} {}); time consumed {} usec; final vruntime {} empty {}",
                 (void*)tq, tq->_name, delta / 1us, tq->_vruntime, tq->_q.empty());
         if (!tq->_q.empty()) {
@@ -2920,11 +2920,10 @@ reactor::activate(task_queue& tq) {
     // bound later.
     //
     // FIXME: different scheduling groups have different sensitivity to jitter, take advantage
-    auto advantage = tq.to_vruntime(_task_quota);
-    if (_last_vruntime - advantage > tq._vruntime) {
-        sched_print("tq {} {} losing vruntime {} due to sleep", (void*)&tq, tq._name, _last_vruntime - advantage - tq._vruntime);
+    if (_last_vruntime > tq._vruntime) {
+        sched_print("tq {} {} losing vruntime {} due to sleep", (void*)&tq, tq._name, _last_vruntime - tq._vruntime);
     }
-    tq._vruntime = std::max(_last_vruntime - advantage, tq._vruntime);
+    tq._vruntime = std::max(_last_vruntime, tq._vruntime);
     _activating_task_queues.push_back(&tq);
 }
 
