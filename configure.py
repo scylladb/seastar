@@ -206,6 +206,11 @@ def adjust_visibility_flags(compiler, flags):
     else:
         return ''
 
+def configure_fmt(mode, cxx='g++', cc='gcc'):
+    builddir = 'build/{}/fmt'.format(mode)
+    os.makedirs(builddir, exist_ok=True)
+    subprocess.check_output(args=['cmake', '-G', 'Ninja', '../../../fmt', '-DCMAKE_CXX_COMPILER=' + cxx, '-DCMAKE_C_COMPILER=' + cc], cwd=builddir)
+
 modes = {
     'debug': {
         'sanitize': '-fsanitize=address -fsanitize=leak -fsanitize=undefined',
@@ -299,7 +304,7 @@ extralibs = {
     'apps/io_tester/io_tester': [ '-lyaml-cpp' ]
 }
 
-all_artifacts = apps + tests + ['libseastar.a', 'seastar.pc']
+all_artifacts = apps + tests + ['libseastar.a', 'seastar.pc', 'fmt/fmt/libfmt.a']
 
 cpp_dialects = ['gnu++17', 'gnu++1z', 'gnu++14', 'gnu++1y']
 try:
@@ -437,7 +442,7 @@ def maybe_static(flag, libs):
         libs = '-Wl,-Bstatic {} -Wl,-Bdynamic'.format(libs)
     return libs
 
-defines = ['FMT_HEADER_ONLY']
+defines = []
 # Include -lgcc_s before -lunwind to work around for https://savannah.nongnu.org/bugs/?48486. See https://github.com/scylladb/scylla/issues/1725.
 libs = ' '.join([maybe_static(args.staticboost,
                               '-lboost_program_options -lboost_system -lboost_filesystem'),
@@ -478,6 +483,7 @@ memcache_base = [
 deps = {
     'libseastar.a' : core + libnet + http + protobuf + prometheus,
     'seastar.pc': [],
+    'fmt/fmt/libfmt.a': [],
     'apps/httpd/httpd': ['apps/httpd/demo.json', 'apps/httpd/main.cc'] + http + libnet + core,
     'apps/memcached/memcached': ['apps/memcached/memcache.cc'] + memcache_base,
     'tests/memcached/test_ascii_parser': ['tests/memcached/test_ascii_parser.cc'] + memcache_base,
@@ -798,6 +804,17 @@ libs += ' -l' + cares_lib
 # to the current mode's build directory.
 built_libs = []
 built_libs += ['lib' + cares_lib + '.a']
+built_libs += ['fmt/fmt/libfmt.a']
+
+for mode in build_modes:
+    configure_fmt(mode, cxx=args.cxx, cc=args.cc)
+
+libs += ' -lfmt'
+
+fmt_deps = []
+for dirpath, dirnames, filenames in os.walk('fmt'):
+    fmt_deps += [os.path.join(dirpath, filename) for filename in filenames]
+fmt_deps = ' '.join(fmt_deps)
 
 outdir = 'build'
 buildfile = 'build.ninja'
@@ -837,6 +854,8 @@ with open(buildfile, 'w') as f:
             description = PROTOC $out
         rule copy_file
             command = cp $in $out
+        rule ninja
+            command = ninja -C $subdir
         ''').format(**globals()))
     if args.dpdk:
         f.write(textwrap.dedent('''\
@@ -861,11 +880,11 @@ with open(buildfile, 'w') as f:
               description = CXX $out
               depfile = $out.d
             rule link.{mode}
-              command = $cxx  $cxxflags_{mode} -L$builddir/{mode} $ldflags -o $out $in $libs $libs_{mode} $extralibs
+              command = $cxx  $cxxflags_{mode} -L$builddir/{mode} -L$builddir/{mode}/fmt/fmt $ldflags -o $out $in $libs $libs_{mode} $extralibs
               description = LINK $out
               pool = link_pool
             rule link_stripped.{mode}
-              command = $cxx  $cxxflags_{mode} -s -L$builddir/{mode} $ldflags -o $out $in $libs $libs_{mode} $extralibs
+              command = $cxx  $cxxflags_{mode} -s -L$builddir/{mode} -L$builddir/{mode}/fmt/fmt $ldflags -o $out $in $libs $libs_{mode} $extralibs
               description = LINK (stripped) $out
               pool = link_pool
             rule ar.{mode}
@@ -905,10 +924,13 @@ with open(buildfile, 'w') as f:
                         URL: http://seastar-project.org/
                         Description: Advanced C++ framework for high-performance server applications on modern hardware.
                         Version: 1.0
-                        Libs: -L$full_builddir/{mode} -Wl,--whole-archive,-lseastar,--no-whole-archive $cxxflags $cxflags_{mode} -Wl,--no-as-needed {static} {pie} {user_ldflags} {sanitize_libs} {libs}
+                        Libs: -L$full_builddir/{mode} -L$full_builddir/{mode}/fmt/fmt -Wl,--whole-archive,-lseastar,--no-whole-archive -lfmt $cxxflags $cxflags_{mode} -Wl,--no-as-needed {static} {pie} {user_ldflags} {sanitize_libs} {libs}
                         Cflags: $cxxflags $cxxflags_{mode}
                         ''').format(**vars)
                 f.write('build $builddir/{}/{}: gen\n  text = {}\n'.format(mode, binary, repr(pc)))
+            elif binary == 'fmt/fmt/libfmt.a':
+                f.write('build $builddir/{}/fmt/fmt//libfmt.a: ninja | {}\n'.format(mode, fmt_deps))
+                f.write('  subdir=build/{}/fmt\n'.format(mode))
             elif binary.endswith('.a'):
                 f.write('build $builddir/{}/{}: ar.{} {}\n'.format(mode, binary, mode, str.join(' ', objs)))
             else:
@@ -927,7 +949,7 @@ with open(buildfile, 'w') as f:
                     f.write('build $builddir/{}/{}_g: link.{} {} | {} {}\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps, libdeps))
                     f.write('  extralibs = {}\n'.format(' '.join(test_extralibs)))
                 else:
-                    f.write('build $builddir/{}/{}: link.{} {} | {} {} $builddir/{}/lib{}.a\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps, libdeps, mode, cares_lib))
+                    f.write('build $builddir/{}/{}: link.{} {} | {} {} $builddir/{}/lib{}.a $builddir/{}/fmt/fmt/libfmt.a\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps, libdeps, mode, cares_lib, mode))
                     if binary in extralibs.keys():
                         app_extralibs = extralibs[binary]
                         f.write('  extralibs = {}\n'.format(' '.join(app_extralibs)))
