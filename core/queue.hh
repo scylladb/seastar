@@ -160,6 +160,9 @@ T queue<T>::pop() {
 template <typename T>
 inline
 future<T> queue<T>::pop_eventually() {
+    if (_ex) {
+        return make_exception_future<T>(_ex);
+    }
     if (empty()) {
         return not_empty().then([this] {
             if (_ex) {
@@ -176,6 +179,9 @@ future<T> queue<T>::pop_eventually() {
 template <typename T>
 inline
 future<> queue<T>::push_eventually(T&& data) {
+    if (_ex) {
+        return make_exception_future<>(_ex);
+    }
     if (full()) {
         return not_full().then([this, data = std::move(data)] () mutable {
             _q.push(std::move(data));
