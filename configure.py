@@ -17,12 +17,15 @@
 # under the License.
 #
 import os, os.path, textwrap, argparse, sys, shlex, subprocess, tempfile, re
+import distutils.spawn
 
 configure_args = str.join(' ', [shlex.quote(x) for x in sys.argv[1:]])
 
 tempfile.tempdir = "./build/tmp"
 
 srcdir = os.getcwd()
+
+ninja_exe = distutils.spawn.find_executable('ninja-build') or distutils.spawn.find_executable('ninja')
 
 def get_flags():
     with open('/proc/cpuinfo') as f:
@@ -855,7 +858,7 @@ with open(buildfile, 'w') as f:
         rule copy_file
             command = cp $in $out
         rule ninja
-            command = ninja -C $subdir
+            command = {ninja_exe} -C $subdir
         ''').format(**globals()))
     if args.dpdk:
         f.write(textwrap.dedent('''\
