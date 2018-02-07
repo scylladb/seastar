@@ -297,6 +297,35 @@ struct json_return_type {
    }
 };
 
+/*!
+ * \brief capture a range and return a serialize function for it as a json array.
+ *
+ * To use it, pass a range and a mapping function.
+ * For example, if res is a map:
+ *
+ * return make_ready_future<json::json_return_type>(stream_range_as_array(res, [](const auto&i) {return i.first}));
+ */
+template<typename Container, typename Func>
+GCC6_CONCEPT( requires requires (Container c, Func aa, output_stream<char> s) { { formatter::write(s, aa(*c.begin())) } -> future<> } )
+std::function<future<>(output_stream<char>&&)> stream_range_as_array(Container val, Func fun) {
+    return [val = std::move(val), fun = std::move(fun)](output_stream<char>&& s) {
+        return do_with(output_stream<char>(std::move(s)), Container(std::move(val)), Func(std::move(fun)), true, [](output_stream<char>& s, const Container& val, const Func& f, bool& first){
+            return s.write("[").then([&val, &s, &first, &f] () {
+                return do_for_each(val, [&s, &first, &f](const typename Container::value_type& v){
+                    auto fut = first ? make_ready_future<>() : s.write(", ");
+                    first = false;
+                    return fut.then([&s, &f, &v]() {
+                        return formatter::write(s, f(v));
+                    });
+                });
+            }).then([&s](){
+                return s.write("]").then([&s] {
+                    return s.close();
+                });
+            });
+        });
+    };
+}
 
 /*!
  * \brief capture an object and return a serialize function for it.
