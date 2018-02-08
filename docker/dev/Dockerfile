@@ -1,4 +1,4 @@
-FROM fedora:23
+FROM fedora:27
 
 RUN dnf install -y \
     git \
