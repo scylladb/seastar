@@ -596,6 +596,7 @@ warnings = [
     '-Wno-sign-compare',
     '-Wno-error=cpp',                       # gcc: allow preprecessor warnings
     '-Wno-error=#warning',                  # clang: allow preprecessor warnings
+    '-Wno-stringop-overflow',               # gcc: overzealous, false positives
     ]
 
 # The "--with-osv=<path>" parameter is a shortcut for a bunch of other
