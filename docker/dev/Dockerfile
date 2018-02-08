@@ -18,6 +18,7 @@ RUN dnf install -y \
     xfsprogs-devel \
     lz4-devel \
     systemtap-sdt-devel \
+    protobuf-compiler \
     protobuf-devel \
     lksctp-tools-devel \
     yaml-cpp-devel \
