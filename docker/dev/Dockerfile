@@ -20,6 +20,7 @@ RUN dnf install -y \
     systemtap-sdt-devel \
     protobuf-compiler \
     protobuf-devel \
+    protobuf-compiler \ 
     lksctp-tools-devel \
     yaml-cpp-devel \
     libasan \
