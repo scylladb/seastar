@@ -330,6 +330,8 @@ arg_parser.add_argument('--cflags', action = 'store', dest = 'user_cflags', defa
                         help = 'Extra flags for the C++ compiler')
 arg_parser.add_argument('--ldflags', action = 'store', dest = 'user_ldflags', default = '',
                         help = 'Extra flags for the linker')
+arg_parser.add_argument('--optflags', action = 'store', dest = 'user_optflags', default = '',
+                        help = 'Extra optimization flags for the release mode')
 arg_parser.add_argument('--compiler', action = 'store', dest = 'cxx', default = 'g++',
                         help = 'C++ compiler path')
 arg_parser.add_argument('--c-compiler', action='store', dest='cc', default='gcc',
@@ -718,6 +720,7 @@ if not try_compile(args.cxx, '''#include <boost/version.hpp>\n\
 
 
 modes['debug']['sanitize'] += ' ' + sanitize_flags
+modes['release']['opt'] += ' ' + args.user_optflags
 
 def have_hwloc():
     return try_compile(compiler = args.cxx, source = '#include <hwloc.h>\n#include <numa.h>', flags=args.user_cflags.split())
