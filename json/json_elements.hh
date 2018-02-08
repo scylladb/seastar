@@ -334,8 +334,8 @@ std::function<future<>(output_stream<char>&&)> stream_range_as_array(Container v
  * return make_ready_future<json::json_return_type>(stream_object(res));
  */
 template<class T>
-std::function<future<>(output_stream<char>&&)> stream_object(const T& val) {
-    return [val](output_stream<char>&& s) {
+std::function<future<>(output_stream<char>&&)> stream_object(T val) {
+    return [val = std::move(val)](output_stream<char>&& s) {
         return do_with(output_stream<char>(std::move(s)), T(std::move(val)), [](output_stream<char>& s, const T& val){
             return formatter::write(s, val).then([&s] {
                 return s.close();
