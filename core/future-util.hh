@@ -82,8 +82,7 @@ with_scheduling_group(scheduling_group sg, Func func, Args&&... args) {
     } else {
         typename futurator::promise_type pr;
         auto f = pr.get_future();
-        auto cur = current_scheduling_group();
-        internal::schedule_in_group(sg, [cur, pr = std::move(pr), func = std::move(func), args = std::make_tuple(std::forward<Args>(args)...)] () mutable {
+        internal::schedule_in_group(sg, [pr = std::move(pr), func = std::move(func), args = std::make_tuple(std::forward<Args>(args)...)] () mutable {
             return futurator::apply(func, std::move(args)).forward_to(std::move(pr));
         });
         return f;
