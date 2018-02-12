@@ -593,7 +593,6 @@ warnings = [
     '-Wno-undefined-inline',                # clang-only: inline function 'x' is not defined
     '-Wno-overloaded-virtual',              # clang-only: 'x' hides overloaded virtual functions
     '-Wno-maybe-uninitialized',
-    '-Wno-sign-compare',
     '-Wno-error=cpp',                       # gcc: allow preprecessor warnings
     '-Wno-error=#warning',                  # clang: allow preprecessor warnings
     '-Wno-stringop-overflow',               # gcc: overzealous, false positives
