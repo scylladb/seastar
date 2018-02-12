@@ -70,18 +70,22 @@ public:
     // Returns a future<> that becomes available when push() can be called.
     future<> not_full();
 
-    // Pops element now or when ther is some. Returns a future that becomes
+    // Pops element now or when there is some. Returns a future that becomes
     // available when some element is available.
+    // If the queue is, or already was, abort()ed, the future resolves with
+    // the exception provided to abort().
     future<T> pop_eventually();
 
+    // Pushes the element now or when there is room. Returns a future<> which
+    // resolves when data was pushed.
+    // If the queue is, or already was, abort()ed, the future resolves with
+    // the exception provided to abort().
     future<> push_eventually(T&& data);
 
     size_t size() const { return _q.size(); }
 
     size_t max_size() const { return _max; }
 
-    // Pushes the element now or when there is room. Returns a future<> which
-    // resolves when data was pushed.
     // Set the maximum size to a new value. If the queue's max size is reduced,
     // items already in the queue will not be expunged and the queue will be temporarily
     // bigger than its max_size.
@@ -93,7 +97,7 @@ public:
     }
 
     // Destroy any items in the queue, and pass the provided exception to any
-    // waiting readers or writers.
+    // waiting readers or writers - or to any later read or write attempts.
     void abort(std::exception_ptr ex) {
         while (!_q.empty()) {
             _q.pop();
