@@ -29,7 +29,7 @@ SEASTAR_TEST_CASE(test_unconnected_socket_shutsdown_established_connection) {
     auto distr = std::uniform_int_distribution<uint16_t>(12000, 65000);
     auto sa = make_ipv4_address({"127.0.0.1", distr(rnd)});
     return do_with(engine().net().listen(sa, listen_options()), [sa] (auto& listener) {
-        listener.accept();
+        auto f = listener.accept();
         auto unconn = engine().net().socket();
         auto connf = unconn.connect(sa);
         return connf.then([unconn = std::move(unconn)] (auto&& conn) mutable {
@@ -44,6 +44,8 @@ SEASTAR_TEST_CASE(test_unconnected_socket_shutsdown_established_connection) {
                     });
                 });
             });
+        }).finally([f = std::move(f)] () mutable {
+            return std::move(f);
         });
     });
 }
