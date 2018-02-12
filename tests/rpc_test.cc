@@ -246,7 +246,7 @@ SEASTAR_TEST_CASE(test_rpc_cancel) {
             };
             f = call(c1, cancel);
             // cancel wait side
-            f_handler_called.then([cancel = std::move(cancel)] () mutable {
+            f_handler_called.then([&cancel] {
                 cancel.cancel();
             }).get();
             try {
