@@ -82,6 +82,10 @@
 #include <cxxabi.h>
 #endif
 
+#ifdef SEASTAR_SHUFFLE_TASK_QUEUE
+#include <random>
+#endif
+
 #include <sys/mman.h>
 #include <sys/utsname.h>
 #include <linux/falloc.h>
@@ -2502,6 +2506,15 @@ void reactor::run_tasks(task_queue& tq) {
         }
     }
 }
+
+#ifdef SEASTAR_SHUFFLE_TASK_QUEUE
+void reactor::shuffle(std::unique_ptr<task>& t, task_queue& q) {
+    static thread_local std::mt19937 gen = std::mt19937(std::default_random_engine()());
+    std::uniform_int_distribution<size_t> tasks_dist{0, q._q.size() - 1};
+    auto& to_swap = q._q[tasks_dist(gen)];
+    std::swap(to_swap, t);
+}
+#endif
 
 void reactor::force_poll() {
     g_need_preempt = true;

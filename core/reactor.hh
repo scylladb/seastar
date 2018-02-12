@@ -948,11 +948,18 @@ public:
         _at_destroy_tasks->_q.push_back(make_task(default_scheduling_group(), std::forward<Func>(func)));
     }
 
+#ifdef SEASTAR_SHUFFLE_TASK_QUEUE
+    void shuffle(std::unique_ptr<task>&, task_queue&);
+#endif
+
     void add_task(std::unique_ptr<task>&& t) {
         auto sg = t->group();
         auto* q = _task_queues[sg._id].get();
         bool was_empty = q->_q.empty();
         q->_q.push_back(std::move(t));
+#ifdef SEASTAR_SHUFFLE_TASK_QUEUE
+        shuffle(q->_q.back(), *q);
+#endif
         if (was_empty) {
             activate(*q);
         }
@@ -962,6 +969,9 @@ public:
         auto* q = _task_queues[sg._id].get();
         bool was_empty = q->_q.empty();
         q->_q.push_front(std::move(t));
+#ifdef SEASTAR_SHUFFLE_TASK_QUEUE
+        shuffle(q->_q.front(), *q);
+#endif
         if (was_empty) {
             activate(*q);
         }
