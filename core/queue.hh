@@ -42,53 +42,59 @@ private:
 public:
     explicit queue(size_t size);
 
-    // Push an item.
-    //
-    // Returns false if the queue was full and the item was not pushed.
+    /// \brief Push an item.
+    ///
+    /// Returns false if the queue was full and the item was not pushed.
     bool push(T&& a);
 
-    // pops an item.
+    /// \brief Pop an item.
+    ///
+    /// Popping from an empty queue will result in undefined behavior.
     T pop();
 
-    // Consumes items from the queue, passing them to @func, until @func
-    // returns false or the queue it empty
-    //
-    // Returns false if func returned false.
+    /// Consumes items from the queue, passing them to @func, until @func
+    /// returns false or the queue it empty
+    ///
+    /// Returns false if func returned false.
     template <typename Func>
     bool consume(Func&& func);
 
-    // Returns true when the queue is empty.
+    /// Returns true when the queue is empty.
     bool empty() const;
 
-    // Returns true when the queue is full.
+    /// Returns true when the queue is full.
     bool full() const;
 
-    // Returns a future<> that becomes available when pop() or consume()
-    // can be called.
+    /// Returns a future<> that becomes available when pop() or consume()
+    /// can be called.
     future<> not_empty();
 
-    // Returns a future<> that becomes available when push() can be called.
+    /// Returns a future<> that becomes available when push() can be called.
     future<> not_full();
 
-    // Pops element now or when there is some. Returns a future that becomes
-    // available when some element is available.
-    // If the queue is, or already was, abort()ed, the future resolves with
-    // the exception provided to abort().
+    /// Pops element now or when there is some. Returns a future that becomes
+    /// available when some element is available.
+    /// If the queue is, or already was, abort()ed, the future resolves with
+    /// the exception provided to abort().
     future<T> pop_eventually();
 
-    // Pushes the element now or when there is room. Returns a future<> which
-    // resolves when data was pushed.
-    // If the queue is, or already was, abort()ed, the future resolves with
-    // the exception provided to abort().
+    /// Pushes the element now or when there is room. Returns a future<> which
+    /// resolves when data was pushed.
+    /// If the queue is, or already was, abort()ed, the future resolves with
+    /// the exception provided to abort().
     future<> push_eventually(T&& data);
 
+    /// Returns the number of items currently in the queue.
     size_t size() const { return _q.size(); }
 
+    /// Returns the size limit imposed on the queue during its construction
+    /// or by a call to set_max_size(). If the queue contains max_size()
+    /// items (or more), further items cannot be pushed until some are popped.
     size_t max_size() const { return _max; }
 
-    // Set the maximum size to a new value. If the queue's max size is reduced,
-    // items already in the queue will not be expunged and the queue will be temporarily
-    // bigger than its max_size.
+    /// Set the maximum size to a new value. If the queue's max size is reduced,
+    /// items already in the queue will not be expunged and the queue will be temporarily
+    /// bigger than its max_size.
     void set_max_size(size_t max) {
         _max = max;
         if (!full()) {
@@ -96,8 +102,8 @@ public:
         }
     }
 
-    // Destroy any items in the queue, and pass the provided exception to any
-    // waiting readers or writers - or to any later read or write attempts.
+    /// Destroy any items in the queue, and pass the provided exception to any
+    /// waiting readers or writers - or to any later read or write attempts.
     void abort(std::exception_ptr ex) {
         while (!_q.empty()) {
             _q.pop();
