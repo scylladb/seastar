@@ -628,7 +628,8 @@ void test_file::generate(iotune_manager& iotune_manager, std::chrono::seconds ti
                     // We have given up already, just loop through so we will
                     // flush all outstanding I/O.
                     break;
-                } else if ((long(ev[i].res) == -ENOSPC) || (ev[i].res < iotune_manager::wbuffer_size)) {
+                } else if ((long(ev[i].res) == -ENOSPC)
+                        || ((ev[i].res >= 0) && (ev[i].res < ssize_t(iotune_manager::wbuffer_size)))) {
                     // FIXME: The buffer size can be cut short due to other conditions that are unrelated
                     // to ENOSPC. We should be testing it separately.
                     std::cout << " stopped early due to disk space issues. Will continue but accuracy may suffer." << std::endl;
