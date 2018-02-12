@@ -242,6 +242,7 @@ public:
 /// A listening socket, waiting to accept incoming network connections.
 class server_socket {
     std::unique_ptr<net::server_socket_impl> _ssi;
+    bool _aborted = false;
 public:
     /// Constructs a \c server_socket not corresponding to a connection
     server_socket();
