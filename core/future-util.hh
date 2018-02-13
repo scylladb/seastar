@@ -200,7 +200,7 @@ public:
     virtual void run_and_dispose() noexcept override {
         std::unique_ptr<repeater> zis{this};
         if (_state.failed()) {
-            _promise.set_exception(_state.get_exception());
+            _promise.set_exception(std::move(_state).get_exception());
             return;
         } else {
             if (std::get<0>(_state.get()) == stop_iteration::yes) {
