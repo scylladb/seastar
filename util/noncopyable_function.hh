@@ -113,14 +113,14 @@ private:
 public:
     noncopyable_function() noexcept : _vtable(&_s_empty_vtable) {}
     template <typename Func>
-    noncopyable_function(Func func) noexcept(std::is_nothrow_move_constructible<Func>::value) {
+    noncopyable_function(Func func) {
         vtable_for<Func>::initialize(std::move(func), this);
         _vtable = &vtable_for<Func>::s_vtable;
     }
     template <typename Object, typename... AllButFirstArg>
-    noncopyable_function(Ret (Object::*member)(AllButFirstArg...)) noexcept : noncopyable_function(std::mem_fn(member)) {}
+    noncopyable_function(Ret (Object::*member)(AllButFirstArg...)) : noncopyable_function(std::mem_fn(member)) {}
     template <typename Object, typename... AllButFirstArg>
-    noncopyable_function(Ret (Object::*member)(AllButFirstArg...) const) noexcept : noncopyable_function(std::mem_fn(member)) {}
+    noncopyable_function(Ret (Object::*member)(AllButFirstArg...) const) : noncopyable_function(std::mem_fn(member)) {}
 
     ~noncopyable_function() {
         _vtable->destroy(this);
