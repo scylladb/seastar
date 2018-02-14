@@ -68,6 +68,36 @@ class line_processor(object):
         self._old_path = self._new_path
 
 
+class StdinBacktraceIterator():
+    """
+    Read stdin char-by-char and stop when when user pressed Ctrl+D or the
+    Enter twice. Altough reading char-by-char is slow this won't be a
+    problem here as backtraces shouldn't be huge.
+    """
+    def __iter__(self):
+        linefeeds = 0
+        lines = []
+        line = []
+
+        while True:
+            char = sys.stdin.read(1)
+
+            if char == '\n':
+                linefeeds += 1
+
+                if len(line) > 0:
+                    lines.append(''.join(line))
+                    line = []
+            else:
+                line.append(char)
+                linefeeds = 0
+
+            if char == '' or linefeeds > 1:
+                break
+
+        return iter(lines)
+
+
 description='Massage and pass addresses to the real addr2line for symbol lookup.'
 epilog='''
 There are three operational modes:
@@ -119,6 +149,6 @@ if args.file:
 elif args.addresses:
     lines = args.addresses
 else:
-    lines = sys.stdin
+    lines = StdinBacktraceIterator()
 
 map(line_processor(args.executable), lines)
