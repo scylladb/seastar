@@ -552,7 +552,9 @@ future<> keep_doing(AsyncAction action) {
 /// \return a ready future on success, or the first failed future if
 ///         \c action failed.
 template<typename Iterator, typename AsyncAction>
-GCC6_CONCEPT( requires requires (Iterator i, AsyncAction aa) { { aa(*i) } -> future<> } )
+GCC6_CONCEPT( requires requires (Iterator i, AsyncAction aa) {
+    { futurize_apply(aa, *i) } -> future<>;
+} )
 inline
 future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) {
     if (begin == end) {
@@ -588,7 +590,9 @@ future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) {
 /// \return a ready future on success, or the first failed future if
 ///         \c action failed.
 template<typename Container, typename AsyncAction>
-GCC6_CONCEPT( requires requires (Container c, AsyncAction aa) { { aa(*c.begin()) } -> future<> } )
+GCC6_CONCEPT( requires requires (Container c, AsyncAction aa) {
+    { futurize_apply(aa, *c.begin()) } -> future<>
+} )
 inline
 future<> do_for_each(Container& c, AsyncAction action) {
     return do_for_each(std::begin(c), std::end(c), std::move(action));
