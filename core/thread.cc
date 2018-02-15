@@ -295,7 +295,7 @@ thread_context::main() {
     // unwinders don't try to trace back past this frame.
     // See https://github.com/scylladb/scylla/issues/1909.
     asm(".cfi_undefined rip");
-#elif defined(__PPC__) || defined(__aarch64__)
+#elif defined(__PPC__)
     asm(".cfi_undefined lr");
 #else
     #warning "Backtracing from seastar threads may be broken"
