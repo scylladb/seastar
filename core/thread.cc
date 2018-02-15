@@ -297,6 +297,8 @@ thread_context::main() {
     asm(".cfi_undefined rip");
 #elif defined(__PPC__)
     asm(".cfi_undefined lr");
+#elif defined(__aarch64__)
+    asm(".cfi_undefined x30");
 #else
     #warning "Backtracing from seastar threads may be broken"
 #endif
