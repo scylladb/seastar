@@ -1504,6 +1504,93 @@ The most basic building block for writing promises is the **promise object**, an
 
 CONTINUE HERE. write an example, e.g., something which writes a message every second, and after 10 messages, completes the future.
 
+# Seastar::thread
+Seastar's programming model, using futures and continuations, is very powerful and efficient.  However, as we've already seen in examples above, it is also relatively verbose: Every time that we need to wait before proceeding with a computation, we need to write another continuation. We also need to worry about passing the data between the different continuations (using techniques like those described in the "Lifetime management" section). Simple flow-control constructs such as loops also become more involved using continuations. For example, consider this simple classical synchronous code:
+```cpp
+    std::cout << "Hi.\n";
+    for (int i = 1; i < 4; i++) {
+        sleep(1);
+        std::cout << i << "\n";
+    }
+```
+In Seastar, using futures and continuations, we need to write something like this:
+```cpp
+    std::cout << "Hi.\n";
+    return seastar::do_for_each(boost::counting_iterator<int>(1),
+        boost::counting_iterator<int>(4), [] (int i) {
+        return seastar::sleep(std::chrono::seconds(1)).then([i] {
+            std::cout << i << "\n";
+        });
+    });
+```
+
+But Seastar also allows, via `seastar::thread`, to write code which looks more like synchronous code. A `seastar::thread` provides an execution environment where blocking is tolerated; You can issue an asyncrhonous function, and wait for it in the same function, rather then establishing a callback to be called with `future<>::then()`:
+
+```cpp
+    seastar::thread th([] {
+        std::cout << "Hi.\n";
+        for (int i = 1; i < 4; i++) {
+            seastar::sleep(std::chrono::seconds(1)).get();
+            std::cout << i << "\n";
+        }
+    });
+```
+A `seastar::thread` is **not** a separate operating system thread. It still uses continuations, which are scheduled on Seastar's single thread (per core). It works as follows:
+
+The `seastar::thread` allocates a 128KB stack, and runs the given function until the it *blocks* on the call to a future's `get()` method. Outside a `seastar::thread` context, `get()` may only be called on a future which is already available. But inside a thread, calling `get()` on a future which is not yet available stops running the thread function, and schedules a continuation for this future, which continues to run the thread's function (on the same saved stack) when the future becomes available.
+
+Just like normal Seastar continuations, `seastar::thread`s always run on the same core they were launched on. They are also cooperative: they are never preempted except at blocking points (calls to `seastar::future::get()`) or on explict calls to `seastar::thread::yield()`.
+
+It is worth reiterating that a `seastar::thread` is not a POSIX thread, and it can only block on Seastar futures, not on blocking system calls. The above example used `seastar::sleep()`, not the `sleep()` system call. The `seastar::thread`'s function can throw and catch exceptions normally. Remember that `get()` will throw an exception if the future resolves with an exception.
+
+After we created a `seasstar::thread` object, we need wait until it ends, using its `join()` method. We also need to keep that object alive until `join()` completes. A complete example using `seastar::thread` will therefore look like this:
+
+```cpp
+#include <core/sleep.hh>
+#include <core/thread.hh>
+seastar::future<> f() {
+    seastar::thread th([] {
+        std::cout << "Hi.\n";
+        for (int i = 1; i < 4; i++) {
+            seastar::sleep(std::chrono::seconds(1)).get();
+            std::cout << i << "\n";
+        }
+    });
+    return do_with(std::move(th), [] (auto& th) {
+        return th.join();
+    });
+}
+```
+
+The `seastar::async()` function provides a convenient shortcut for creating a `seastar::thread` and returning a future which resolves when the thread completes:
+```cpp
+#include <core/sleep.hh>
+#include <core/thread.hh>
+seastar::future<> f() {
+    return seastar::async([] {
+        std::cout << "Hi.\n";
+        for (int i = 1; i < 4; i++) {
+            seastar::sleep(std::chrono::seconds(1)).get();
+            std::cout << i << "\n";
+        }
+    });
+}
+```
+
+`seastar::async()`'s lambda may return a value, and `seastar::async()` returns it when it completes. For example:
+
+```cpp
+seastar::future<seastar::sstring> read_file(sstring file_name) {
+    return seastar::async([file_name] () {  // lambda executed in a thread
+        file f = seastar::open_file_dma(file_name).get0();  // get0() call "blocks"
+        auto buf = f.dma_read(0, 512).get0();  // "block" again
+        return seastar::sstring(buf.get(), buf.size());
+    });
+};
+```
+
+While `seastar::thread`s and `seastar::async()` make programming more convenient, they also add overhead beyond that of programming directly with continuations. Most notably, each `seastar::thread` requires additional memory for its stack. It is therefore not a good idea to use a `seastar::thread` to handle a highly concurrent operation. For example, if you need to handle 10,000 concurrent requests, do not use a `seastar::thread` to handle each --- use futures and continuations. But if you are writing code where you know that only a few instances will ever run concurrently, e.g., a background cleanup operation in your application, `seastar::thread` is a good match. `seastar::thread` is also great for code which doesn't care about performance --- such as test code.
+
 # Isolation of application components
 Seastar makes multi-tasking very easy - as easy as running an asynchronous function. It is therefore easy for a server to do many unrelated things in parallel. For example, a server might be in the process of answering 100 users' requests, and at the same time also be making progress on some long background operation.
 
