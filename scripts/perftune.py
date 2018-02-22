@@ -238,12 +238,18 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
     @staticmethod
     def irqs_cpu_mask_for_mode(mq_mode, cpu_mask):
         mq_mode = PerfTunerBase.SupportedModes(mq_mode)
+        irqs_cpu_mask = 0
 
         if mq_mode != PerfTunerBase.SupportedModes.mq:
-            return run_hwloc_calc([cpu_mask, "~{}".format(PerfTunerBase.compute_cpu_mask_for_mode(mq_mode, cpu_mask))])
+            irqs_cpu_mask = run_hwloc_calc([cpu_mask, "~{}".format(PerfTunerBase.compute_cpu_mask_for_mode(mq_mode, cpu_mask))])
         else: # mq_mode == PerfTunerBase.SupportedModes.mq
             # distribute equally between all available cores
-            return cpu_mask
+            irqs_cpu_mask = cpu_mask
+
+        if int(irqs_cpu_mask, 16) == 0:
+            raise Exception("Bad configuration mode ({}) and cpu-mask value ({})".format(mq_mode.name, cpu_mask))
+
+        return irqs_cpu_mask
 
     @property
     def mode(self):
