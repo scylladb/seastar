@@ -286,7 +286,7 @@ public:
                                 return make_ready_future<stop_iteration>(stop_iteration::no);
                             });
                         });
-                    }).then([strms]{
+                    }).finally([strms]{
                         return strms->out.close();
                     }).finally([strms]{});
                 }).handle_exception([this](auto ep) {
@@ -309,7 +309,7 @@ public:
     future<> stop() {
         _stopped = true;
         _socket.abort_accept();
-        return _gate.close();
+        return _gate.close().handle_exception([] (std::exception_ptr ignored) { });
     }
 };
 
@@ -363,9 +363,20 @@ static future<> run_echo_test(sstring message,
                             });
                         });
                     });
-                }).then([strms, do_read]{
-                    return do_read ? strms->out.close() : make_ready_future<>();
-                }).finally([strms]{});
+                }).then_wrapped([strms, do_read] (future<> f1) {
+                    // Always call close()
+                    return (do_read ? strms->out.close() : make_ready_future<>()).then_wrapped([strms, f1 = std::move(f1)] (future<> f2) mutable {
+                        // Verification errors will be reported by the call to output_stream::close(),
+                        // which waits for the flush to actually happen. They can also be reported by the
+                        // input_stream::read_exactly() call. We want to keep only one and avoid nested exception mess.
+                        if (f1.failed()) {
+                            f2.handle_exception([] (std::exception_ptr ignored) { });
+                            return std::move(f1);
+                        }
+                        f1.handle_exception([] (std::exception_ptr ignored) { });
+                        return std::move(f2);
+                    }).finally([strms] { });
+                });
             });
         }).finally([server] {
             return server->stop().finally([server]{});

@@ -917,7 +917,7 @@ public:
                 return handle_output_error(res);
             }
         }
-        return make_ready_future<>();
+        return wait_for_output();
     }
     future<> wait_for_eof() {
         // read records until we get an eof alert

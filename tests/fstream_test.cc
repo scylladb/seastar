@@ -479,7 +479,19 @@ SEASTAR_TEST_CASE(test_fstream_slow_start) {
         };
 
         auto make_fstream = [&] {
-            return make_file_input_stream(file(mock_file), 0, file_size, options);
+            struct fstream_wrapper {
+                input_stream<char> s;
+                future<temporary_buffer<char>> read() {
+                    return s.read();
+                }
+                future<> skip(uint64_t n) {
+                    return s.skip(n);
+                }
+                ~fstream_wrapper() {
+                    s.close().get();
+                }
+            };
+            return fstream_wrapper{make_file_input_stream(file(mock_file), 0, file_size, options)};
         };
 
         BOOST_TEST_MESSAGE("Reading file, no history, expectiong a slow start");
