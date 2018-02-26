@@ -73,11 +73,11 @@ a:hover {
 }
 
 
-/* code snippets. The "code" elements hold individual lines, the "pre" holds everything */
-code, pre {
-    background-color: #fdf7ee;
-    background-color: #f8f8f8;
-
+/* Multiline code snippets are wrapped in a "code" inside a "pre".
+ * Inline code snippets are just in a "code".
+ */
+code {
+	background-color: #FFFFFF;
     /* BEGIN word wrap */
     /* Need all the following to word wrap instead of scroll box */
     /* This will override the overflow:auto if present */
@@ -87,13 +87,15 @@ code, pre {
     white-space: -o-pre-wrap; /* Opera 7 */
     word-wrap: break-word; /* Internet Explorer 5.5+ */
     /* END word wrap */
-    }
-
+}
 pre {
     padding: 0.5em;
     border: 1px dotted #777;
     margin-left:  15pt;
     margin-right: 15pt;
+}
+pre, pre > code {
+    background-color: #f8f8f8;
 }
 
 /* Fix stuff for printing, in case somebody tries to print the HTML instead
