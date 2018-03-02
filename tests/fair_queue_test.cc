@@ -36,6 +36,25 @@
 using namespace seastar;
 using namespace std::chrono_literals;
 
+class test_request {
+    fair_queue* _fq;
+    promise<> _pr;
+    future<> _res;
+public:
+    test_request(fair_queue& fq) : _fq(&fq), _res(make_exception_future<>(std::runtime_error("impossible"))) {}
+    ~test_request() {
+    }
+
+    test_request(const test_request&) = delete;
+    test_request(test_request&&) = default;
+    future<> get_future() {
+        return _pr.get_future();
+    }
+    void add_result(future<> f) {
+        _res = std::move(f);
+    }
+};
+
 struct test_env {
     fair_queue fq;
     std::vector<int> results;
@@ -49,13 +68,27 @@ struct test_env {
         classes.push_back(fq.register_priority_class(shares));
         return classes.size() - 1;
     }
+
     void do_op(unsigned index, unsigned weight)  {
         auto cl = classes[index];
-        auto f = fq.queue(cl, weight, [this, index] {
-            results[index]++;
-            return sleep(100us);
+        promise<> pr;
+        inflight.push_back(pr.get_future());
+
+        fq.queue(cl, weight, [this, index, pr = std::move(pr)] () mutable noexcept {
+            try {
+                results[index]++;
+                sleep(100us).then_wrapped([this, pr = std::move(pr)] (future<> f) mutable {
+                    f.forward_to(std::move(pr));
+                    fq.notify_requests_finished(1);
+                    fq.dispatch_requests();
+                });
+            } catch (...) {
+                pr.set_exception(std::current_exception());
+                fq.notify_requests_finished(1);
+                fq.dispatch_requests();
+            }
         });
-        inflight.push_back(std::move(f));
+        fq.dispatch_requests();
     }
     void update_shares(unsigned index, uint32_t shares) {
         auto cl = classes[index];
