@@ -15,3 +15,11 @@
     reqsize: 512
     shares: 100
     think_time: 1000us
+
+- name: cpu_hog
+  shards: [0]
+  type: cpu
+  shard_info:
+    parallelim: 1
+    execution_time: 90us
+    think_time: 10us
