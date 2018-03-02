@@ -113,6 +113,7 @@ class class_data {
     uint64_t _last_pos = 0;
 
     io_priority_class _iop;
+    seastar::scheduling_group _sg;
 
     size_t _bytes = 0;
     std::chrono::duration<float> _total_duration;
@@ -121,6 +122,35 @@ class class_data {
     accumulator_type _latencies;
     std::uniform_int_distribution<uint32_t> _pos_distribution;
     file _file;
+
+    future<> gen_test_file(sstring dir) {
+        auto fname = sprint("%s/test-%s-%d", dir, name(), engine().cpu_id());
+        return open_file_dma(fname, open_flags::rw | open_flags::create | open_flags::truncate).then([this, fname] (auto f) {
+            _file = f;
+            return remove_file(fname);
+        }).then([this, fname] {
+            return do_with(seastar::semaphore(64), [this] (auto& write_parallelism) mutable {
+                auto bufsize = 256ul << 10;
+                auto pos = boost::irange(0ul, (file_data_size / bufsize) + 1);
+                return parallel_for_each(pos.begin(), pos.end(), [this, bufsize, &write_parallelism] (auto pos) mutable {
+                    return get_units(write_parallelism, 1).then([this, bufsize, pos] (auto perm) mutable {
+                        auto bufptr = allocate_aligned_buffer<char>(bufsize, 4096);
+                        auto buf = bufptr.get();
+                        std::uniform_int_distribution<char> fill('@', '~');
+                        memset(buf, fill(random_generator), bufsize);
+                        pos = pos * bufsize;
+                        return _file.dma_write(pos, buf, bufsize).finally([this, bufsize, bufptr = std::move(bufptr), perm = std::move(perm), pos] {
+                            if ((this->req_type() == request_type::append) && (pos > _last_pos)) {
+                                _last_pos = pos;
+                            }
+                        }).discard_result();
+                    });
+                });
+            });
+        }).then([this] {
+            return _file.flush();
+        });
+    }
 public:
 
     static int idgen();
@@ -134,22 +164,24 @@ public:
 
     future<> issue_requests(std::chrono::steady_clock::time_point stop) {
         _start = std::chrono::steady_clock::now();
-        return parallel_for_each(boost::irange(0u, parallelism()), [this, stop] (auto dummy) mutable {
-            auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
-            auto buf = bufptr.get();
-            return do_until([this, stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf] () mutable {
-                auto start = std::chrono::steady_clock::now();
-                future<size_t> fut = make_ready_future<size_t>(0);
-                if (this->is_read()) {
-                    fut = _file.dma_read(this->get_pos(), buf, this->req_size(), _iop);
-                } else {
-                    fut = _file.dma_write(this->get_pos(), buf, this->req_size(), _iop);
-                }
-                return fut.then([this, start] (auto size) {
-                    this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start));
-                    return seastar::sleep(std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.think_time));
-                });
-            }).finally([bufptr = std::move(bufptr)] {});
+        return with_scheduling_group(_sg, [this, stop] {
+            return parallel_for_each(boost::irange(0u, parallelism()), [this, stop] (auto dummy) mutable {
+                auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
+                auto buf = bufptr.get();
+                return do_until([this, stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf] () mutable {
+                    auto start = std::chrono::steady_clock::now();
+                    future<size_t> fut = make_ready_future<size_t>(0);
+                    if (this->is_read()) {
+                        fut = _file.dma_read(this->get_pos(), buf, this->req_size(), _iop);
+                    } else {
+                        fut = _file.dma_write(this->get_pos(), buf, this->req_size(), _iop);
+                    }
+                    return fut.then([this, start] (auto size) {
+                        this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start));
+                        return seastar::sleep(std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.think_time));
+                    });
+                }).finally([bufptr = std::move(bufptr)] {});
+            });
         }).then([this] {
             _total_duration = std::chrono::steady_clock::now() - _start;
         });
@@ -165,31 +197,9 @@ public:
     // random writes     : will overwrite the file at a random position, between 0 and EOF
     // append            : will write to the file from pos = EOF onwards, always appending to the end.
     future<> start(sstring dir) {
-        auto fname = sprint("%s/test-%s-%d", dir, name(), engine().cpu_id());
-        return open_file_dma(fname, open_flags::rw | open_flags::create | open_flags::truncate).then([this, fname] (auto f) {
-            _file = f;
-            return remove_file(fname).then([this] {
-                return do_with(seastar::semaphore(64), [this] (auto& write_parallelism) mutable {
-                    auto bufsize = 256ul << 10;
-                    auto pos = boost::irange(0ul, (file_data_size / bufsize) + 1);
-                    return parallel_for_each(pos.begin(), pos.end(), [this, bufsize, &write_parallelism] (auto pos) mutable {
-                        return get_units(write_parallelism, 1).then([this, bufsize, pos] (auto perm) mutable {
-                            auto bufptr = allocate_aligned_buffer<char>(bufsize, 4096);
-                            auto buf = bufptr.get();
-                            std::uniform_int_distribution<char> fill('@', '~');
-                            memset(buf, fill(random_generator), bufsize);
-                            pos = pos * bufsize;
-                            return _file.dma_write(pos, buf, bufsize).finally([this, bufsize, bufptr = std::move(bufptr), perm = std::move(perm), pos] {
-                                if ((this->req_type() == request_type::append) && (pos > _last_pos)) {
-                                    _last_pos = pos;
-                                }
-                            }).discard_result();
-                        });
-                    });
-                });
-            });
-        }).then([this] {
-            return _file.flush();
+        return seastar::create_scheduling_group(sprint("%s-%d", name(), engine().cpu_id()), shares()).then([this, dir] (seastar::scheduling_group sg) {
+            _sg = sg;
+            return gen_test_file(dir);
         });
     }
 protected:
