@@ -900,10 +900,6 @@ reactor::submit_io(Func prepare_io) {
         set_user_data(io, pr.get());
         _pending_aio.push_back(&io);
         pr.release();
-        if ((_io_queue->queued_requests() > 0) ||
-            (_pending_aio.size() >= std::min(max_aio / 4, _io_queue->_capacity / 2))) {
-            flush_pending_aio();
-        }
         return f;
     });
 }
