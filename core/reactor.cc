@@ -2945,9 +2945,15 @@ int reactor::run() {
 
     register_metrics();
 
+    std::optional<poller> io_poller = {};
+    std::optional<poller> aio_poller = {};
+
+    if (my_io_queue) {
 #ifndef HAVE_OSV
-    poller io_poller(std::make_unique<io_pollfn>(*this));
+        io_poller = poller(std::make_unique<io_pollfn>(*this));
 #endif
+        aio_poller = poller(std::make_unique<aio_batch_submit_pollfn>(*this));
+    }
 
     ::sched_param sp;
     sp.sched_priority = 1;
@@ -2957,7 +2963,6 @@ int reactor::run() {
     }
 
     poller sig_poller(std::make_unique<signal_pollfn>(*this));
-    poller aio_poller(std::make_unique<aio_batch_submit_pollfn>(*this));
     poller batch_flush_poller(std::make_unique<batch_flush_pollfn>(*this));
     poller execution_stage_poller(std::make_unique<execution_stage_pollfn>());
 
