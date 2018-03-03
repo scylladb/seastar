@@ -3439,9 +3439,7 @@ void smp_message_queue::flush_request_batch() {
 
 size_t smp_message_queue::process_incoming() {
     auto nr = process_queue<prefetch_cnt>(_pending, [this] (work_item* wi) {
-        wi->process().then([this, wi] {
-            respond(wi);
-        });
+        wi->process();
     });
     _received += nr;
     _last_rcv_batch = nr;

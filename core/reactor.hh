@@ -320,11 +320,12 @@ class smp_message_queue {
     };
     struct work_item {
         virtual ~work_item() {}
-        virtual future<> process() = 0;
+        virtual void process() = 0;
         virtual void complete() = 0;
     };
     template <typename Func>
     struct async_work_item : work_item {
+        smp_message_queue& _queue;
         Func _func;
         using futurator = futurize<std::result_of_t<Func()>>;
         using future_type = typename futurator::type;
@@ -332,19 +333,20 @@ class smp_message_queue {
         std::experimental::optional<value_type> _result;
         std::exception_ptr _ex; // if !_result
         typename futurator::promise_type _promise; // used on local side
-        async_work_item(Func&& func) : _func(std::move(func)) {}
-        virtual future<> process() override {
+        async_work_item(smp_message_queue& queue, Func&& func) : _queue(queue), _func(std::move(func)) {}
+        virtual void process() override {
             try {
-                return futurator::apply(this->_func).then_wrapped([this] (auto&& f) {
-                    try {
+                futurator::apply(this->_func).then_wrapped([this] (auto f) {
+                    if (f.failed()) {
+                        _ex = f.get_exception();
+                    } else {
                         _result = f.get();
-                    } catch (...) {
-                        _ex = std::current_exception();
                     }
+                    _queue.respond(this);
                 });
             } catch (...) {
                 _ex = std::current_exception();
-                return make_ready_future();
+                _queue.respond(this);
             }
         }
         virtual void complete() override {
@@ -370,7 +372,7 @@ public:
     smp_message_queue(reactor* from, reactor* to);
     template <typename Func>
     futurize_t<std::result_of_t<Func()>> submit(Func&& func) {
-        auto wi = std::make_unique<async_work_item<Func>>(std::forward<Func>(func));
+        auto wi = std::make_unique<async_work_item<Func>>(*this, std::forward<Func>(func));
         auto fut = wi->get_future();
         submit_item(std::move(wi));
         return fut;
