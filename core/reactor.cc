@@ -1025,10 +1025,10 @@ bool reactor::process_io()
 
 io_queue::io_queue(shard_id coordinator, size_t capacity, std::vector<shard_id> topology)
         : _coordinator(coordinator)
-        , _capacity(capacity)
+        , _capacity(std::min(capacity, reactor::max_aio))
         , _io_topology(std::move(topology))
         , _priority_classes()
-        , _fq(capacity) {
+        , _fq(_capacity) {
 }
 
 io_queue::~io_queue() {
