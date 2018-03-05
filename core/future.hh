@@ -840,7 +840,7 @@ public:
     [[gnu::always_inline]]
     std::tuple<T...> get() {
         if (!state()->available()) {
-            wait();
+            do_wait();
         } else if (thread_impl::get() && thread_impl::should_yield()) {
             thread_impl::yield();
         }
@@ -864,8 +864,18 @@ public:
         return future_state<T...>::get0(get());
     }
 
-    /// \cond internal
+    /// Wait for the future to be available (in a seastar::thread)
+    ///
+    /// When called from a seastar::thread, this function blocks the
+    /// thread until the future is availble. Other threads and
+    /// continuations continue to execute; only the thread is blocked.
     void wait() noexcept {
+        if (!state()->available()) {
+            do_wait();
+        }
+    }
+private:
+    void do_wait() noexcept {
         auto thread = thread_impl::get();
         assert(thread);
         {
@@ -877,8 +887,8 @@ public:
         }
         thread_impl::switch_out(thread);
     }
-    /// \endcond
 
+public:
     /// \brief Checks whether the future is available.
     ///
     /// \return \c true if the future has a value, or has failed.
