@@ -1005,10 +1005,10 @@ with open(buildfile, 'w') as f:
             description = CSCOPE
         build cscope: cscope
         rule md2html
-            command = pandoc --self-contained --smart --toc -c doc/template.css -V documentclass=report --chapters --number-sections -f markdown_github+pandoc_title_block --highlight-style tango $in -o $out
+            command = pandoc --self-contained --smart --toc -c doc/template.css -V documentclass=report --chapters --number-sections -f markdown_github+pandoc_title_block+implicit_header_references --highlight-style tango $in -o $out
             description = PANDOC $out
         rule md2pdf
-            command = pandoc -f markdown_github+pandoc_title_block --highlight-style tango --template=doc/template.tex $in -o $out
+            command = pandoc -f markdown_github+pandoc_title_block+implicit_header_references --highlight-style tango --template=doc/template.tex $in -o $out
             description = PANDOC $out
         rule htmlsplit
             command = cd doc; ./htmlsplit.py

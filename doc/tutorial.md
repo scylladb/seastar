@@ -1523,7 +1523,7 @@ The most basic building block for writing promises is the **promise object**, an
 CONTINUE HERE. write an example, e.g., something which writes a message every second, and after 10 messages, completes the future.
 
 # Seastar::thread
-Seastar's programming model, using futures and continuations, is very powerful and efficient.  However, as we've already seen in examples above, it is also relatively verbose: Every time that we need to wait before proceeding with a computation, we need to write another continuation. We also need to worry about passing the data between the different continuations (using techniques like those described in the "Lifetime management" section). Simple flow-control constructs such as loops also become more involved using continuations. For example, consider this simple classical synchronous code:
+Seastar's programming model, using futures and continuations, is very powerful and efficient.  However, as we've already seen in examples above, it is also relatively verbose: Every time that we need to wait before proceeding with a computation, we need to write another continuation. We also need to worry about passing the data between the different continuations (using techniques like those described in the [Lifetime management] section). Simple flow-control constructs such as loops also become more involved using continuations. For example, consider this simple classical synchronous code:
 ```cpp
     std::cout << "Hi.\n";
     for (int i = 1; i < 4; i++) {
