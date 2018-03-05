@@ -901,12 +901,12 @@ The function `seastar::get_units()` is more general. It provides an exception-sa
 seastar::future<> g() {
     static thread_local semaphore limit(100);
     return seastar::get_units(limit, 1).then([] (auto units) {
-        return seastar::futurize_apply(slow).finally([units = std::move(units)] {});
+        return slow().finally([units = std::move(units)] {});
     });
 }
 ```
 
-Note the somewhat convoluted way that `get_units()` needs to be used: The continuations must be nested because we need the `units` object to be passed to the last continuation; We need to use `futurize_apply` as explained above to allow for the possibility that the function `slow()` throws; The `finally()` continuation captures the `units` object until everything is done, but does not run any code.
+Note the somewhat convoluted way that `get_units()` needs to be used: The continuations must be nested because we need the `units` object to be moved to the last continuation. If `slow()` returns a future (and does not throw immediately),  the `finally()` continuation captures the `units` object until everything is done, but does not run any code.
 
 Seastars programmers should generally avoid using the the `seamphore::wait()` and `semaphore::signal()` functions directly, and always prefer either `with_semaphore()` (when applicable) or `get_units()`.
 
