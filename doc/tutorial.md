@@ -965,7 +965,7 @@ seastar::future<> f() {
     return seastar::do_with(seastar::semaphore(100), [] (auto& limit) {
         return seastar::repeat([&limit] {
             return limit.wait(1).then([&limit] {
-                slow().finally([&limit] {
+                seastar::futurize_apply(slow).finally([&limit] {
                     limit.signal(1); 
                 });
                 return seastar::stop_iteration::no;
@@ -975,10 +975,11 @@ seastar::future<> f() {
 }
 ```
 
-Note how in this code we do not wait for `slow()` to complete before continuing the loop (i.e., we do not `return` the future chain starting at `slow()`); The loop continues to the next iteration when a semaphore unit becomes available, while (in our example) 99 other operations might be ongoing in the background and we do not wait for them.
+Note how this code differs from the code we saw above for limiting the number of parallel invocations of a function `g()`:
+1. Here we cannot use a single `thread_local` semaphore. Each call to `f()` has its loop with parallelism of 100, so needs its own semaphore "`limit`", kept alive during the loop with `do_with()`.
+2. Here we do not wait for `slow()` to complete before continuing the loop, i.e., we do not `return` the future chain starting at `futurize_apply(slow)`. The loop continues to the next iteration when a semaphore unit becomes available, while (in our example) 99 other operations might be ongoing in the background and we do not wait for them.
 
-
-Note that in the examples in this section, we cannot not use the `with_semaphore()` shortcut. `with_semaphore()` returns a future which only resolves after the lambda's returned future resolves. But in the above examples, the loop needs to know when just the semaphore units are available, to start the next iteration, and not wait for the previous iteration to complete. We could not achieve that with `with_semaphore()`. But the more general exception-safe idiom, `seastar::get_units()`, can be used in this case, and is recommended:
+In the examples in this section, we cannot use the `with_semaphore()` shortcut. `with_semaphore()` returns a future which only resolves after the lambda's returned future resolves. But in the above example, the loop needs to know when just the semaphore units are available, to start the next iteration --- and not wait for the previous iteration to complete. We could not achieve that with `with_semaphore()`. But the more general exception-safe idiom, `seastar::get_units()`, can be used in this case, and is recommended:
 
 
 ```cpp
@@ -994,9 +995,7 @@ seastar::future<> f() {
 }
 ```
 
-Note that as we already discussed above, in the general case where `slow()` may throw, we should replace in all the examples above the call to `slow()` by `seastar::futurize_apply(slow)`.
-
-The above examples are incomplete, because they have a never-ending loop and the future returned by `f()` will never resolve. In more realistic cases, the loop has an end, and at the end of the loop we need to wait for all the background operations which the loop started. We can do this by ```wait()```ing on the original count of the semaphore: When the full count is finally available, it means that *all* the operations have completed. For example, the following loop ends after 456 iterations:
+The above examples are not realistic, because they have a never-ending loop and the future returned by `f()` will never resolve. In more realistic cases, the loop has an end, and at the end of the loop we need to wait for all the background operations which the loop started. We can do this by ```wait()```ing on the original count of the semaphore: When the full count is finally available, it means that *all* the operations have completed. For example, the following loop ends after 456 iterations:
 
 ```cpp
 seastar::future<> f() {
@@ -1004,7 +1003,7 @@ seastar::future<> f() {
         return seastar::do_for_each(boost::counting_iterator<int>(0),
                 boost::counting_iterator<int>(456), [&limit] (int i) {
             return seastar::get_units(limit, 1).then([] (auto units) {
-                seastar::futurize_apply(slow).finally([units = std::move(units)] {});
+                slow().finally([units = std::move(units)] {});
 	        });
         }).finally([&limit] {
             return limit.wait(100);
@@ -1015,7 +1014,7 @@ seastar::future<> f() {
 
 The last `finally` is what ensures that we wait for the last operations to complete: After the `repeat` loop ends (whether successfully or prematurely because of an exception in one of the iterations), we do a `wait(100)` to wait for the semaphore to reach its original value 100, meaning that all operations that we started have completed. Without this `finally`, the future returned by `f()` will resolve *before* all the iterations of the loop actually completed (the last 100 may still be running).
 
-In the idiom we saw in the above example, the same semaphore is used both for limiting the number of background operations, and later to wait for all of them to complete. Sometimes, we want several different loops to use the same semaphore to limit their total parallelism. In that case we must use a separate mechanism for waiting for the completion of the background operations started by the loop. The most convenient way to wait for ongoing operations is using a gate, which we will describe in detail later. A typical example of a loop whose parallelism is limited by an external semaphore:
+In the idiom we saw in the above example, the same semaphore is used both for limiting the number of background operations, and later to wait for all of them to complete. Sometimes, we want several different loops to use the same semaphore to limit their *total* parallelism. In that case we must use a separate mechanism for waiting for the completion of the background operations started by the loop. The most convenient way to wait for ongoing operations is using a gate, which we will describe in detail later. A typical example of a loop whose parallelism is limited by an external semaphore:
 
 ```cpp
 thread_local seastar::semaphore limit(100);
