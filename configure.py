@@ -1007,7 +1007,11 @@ with open(buildfile, 'w') as f:
         rule md2pdf
             command = pandoc -f markdown_github+pandoc_title_block --highlight-style tango --template=doc/template.tex $in -o $out
             description = PANDOC $out
+        rule htmlsplit
+            command = cd doc; ./htmlsplit.py
+            description = HTMLSPLIT $out
         build doc/tutorial.html: md2html doc/tutorial.md
         build doc/tutorial.pdf: md2pdf doc/tutorial.md
+        build doc/split: htmlsplit doc/tutorial.html
         default {modes_list}
         ''').format(modes_list = ' '.join(build_modes), **globals()))
