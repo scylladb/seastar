@@ -1543,7 +1543,24 @@ Just like normal Seastar continuations, `seastar::thread`s always run on the sam
 
 It is worth reiterating that a `seastar::thread` is not a POSIX thread, and it can only block on Seastar futures, not on blocking system calls. The above example used `seastar::sleep()`, not the `sleep()` system call. The `seastar::thread`'s function can throw and catch exceptions normally. Remember that `get()` will throw an exception if the future resolves with an exception.
 
-After we created a `seasstar::thread` object, we need wait until it ends, using its `join()` method. We also need to keep that object alive until `join()` completes. A complete example using `seastar::thread` will therefore look like this:
+In addition to `seastar::future::get()`, we also have `seastar::future::wait()` to wait *without* fetching the future's result. This can sometimes be useful when you want to avoid throwing an exception when the future failed (as `get()` does). For example:
+```cpp
+    future<char> getchar();
+    int try_getchar() noexcept { // run this in seastar::thread context
+        future fut = get_char();
+        fut.wait();
+        if (fut.failed()) {
+            return -1;
+        } else {
+            // Here we already know that get() will return immediately,
+            // and will not throw.
+            return fut.get();
+        }
+    }
+```
+
+## Starting and ending a seastar::thread
+After we created a `seastar::thread` object, we need wait until it ends, using its `join()` method. We also need to keep that object alive until `join()` completes. A complete example using `seastar::thread` will therefore look like this:
 
 ```cpp
 #include <core/sleep.hh>
