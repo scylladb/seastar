@@ -702,6 +702,25 @@ C++11 offers a standard way of creating reference-counted shared objects - using
 
 Additionally, Seastar also provides an even lower overhead variant of `shared_ptr`: `seastar::lw_shared_ptr<T>`. The full-featured `shared_ptr` is complicated by the need to support polymorphic types correctly (a shared object created of one class, and accessed through a pointer to a base class). It makes `shared_ptr` need to add two words to the shared object, and two words to each `shared_ptr` copy. The simplified `lw_shared_ptr` - which does **not** support polymorphic types - adds just one word in the object (the reference count) and each copy is just one word - just like copying a regular pointer. For this reason, the light-weight `seastar::lw_shared_ptr<T>` should be preferered when possible (`T` is not a polymorphic type), otherwise `seastar::shared_ptr<T>`. The slower `std::shared_ptr<T>` should never be used in sharded Seastar applications.
 
+## Saving objects on the stack
+Wouldn't it be convenient if we could save objects on a stack just like we normally do in synchronous code? I.e., something like:
+```cpp
+int i = ...;
+seastar::sleep(10ms).get();
+return i;
+```
+Seastar allows writing such code, by using a `seastar::thread` object which comes with its own stack.  A complete example using a `seastar::thread` might look like this:
+```cpp
+seastar::future<> slow_incr(int i) {
+    return seastar::async([i] {
+        seastar::sleep(10ms).get();
+        // We get here after the 10ms of wait, i is still available.
+        return i + 1;
+    });
+}
+```
+We present `seastar::thread`, `seastar::async()` and `seastar::future::get()` in the [seastar::thread] section.
+
 # Advanced futures
 ## Futures and interruption
 TODO: A future, e.g., sleep(10s) cannot be interrupted. So if we need to, the promise needs to have a mechanism to interrupt it. Mention pipe's close feature, semaphore stop feature, etc.
