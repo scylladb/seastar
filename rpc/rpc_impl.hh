@@ -763,10 +763,9 @@ read_rcv_buf(input_stream<char>& in, uint32_t size) {
     });
 }
 
-template <typename Serializer, typename MsgType>
 template<typename FrameType, typename Info>
 typename FrameType::return_type
-protocol<Serializer, MsgType>::read_frame(const Info& info, input_stream<char>& in) {
+connection::read_frame(const Info& info, input_stream<char>& in) {
     auto header_size = FrameType::header_size();
     return in.read_exactly(header_size).then([this, header_size, &info, &in] (temporary_buffer<char> header) {
         if (header.size() != header_size) {
@@ -792,10 +791,9 @@ protocol<Serializer, MsgType>::read_frame(const Info& info, input_stream<char>& 
     });
 }
 
-template <typename Serializer, typename MsgType>
 template<typename FrameType, typename Info>
 typename FrameType::return_type
-protocol<Serializer, MsgType>::read_frame_compressed(const Info& info, std::unique_ptr<compressor>& compressor, input_stream<char>& in) {
+connection::read_frame_compressed(const Info& info, std::unique_ptr<compressor>& compressor, input_stream<char>& in) {
     if (compressor) {
         return in.read_exactly(4).then([&] (temporary_buffer<char> compress_header) {
             if (compress_header.size() != 4) {
@@ -912,9 +910,9 @@ template <typename Serializer, typename MsgType>
 future<std::experimental::optional<uint64_t>, MsgType, int64_t, std::experimental::optional<rcv_buf>>
 protocol<Serializer, MsgType>::server::connection::read_request_frame_compressed(input_stream<char>& in) {
     if (this->_timeout_negotiated) {
-        return this->_server._proto.template read_frame_compressed<request_frame_with_timeout<MsgType>>(_info, this->_compressor, in);
+        return this->template read_frame_compressed<request_frame_with_timeout<MsgType>>(_info, this->_compressor, in);
     } else {
-        return this->_server._proto.template read_frame_compressed<request_frame<MsgType>>(_info, this->_compressor, in);
+        return this->template read_frame_compressed<request_frame<MsgType>>(_info, this->_compressor, in);
     }
 }
 
@@ -1031,14 +1029,14 @@ template<typename Serializer, typename MsgType>
 inline
 future<int64_t, std::experimental::optional<rcv_buf>>
 protocol<Serializer, MsgType>::client::read_response_frame(input_stream<char>& in) {
-    return this->_proto.template read_frame<response_frame>(this->_server_addr, in);
+    return this->template read_frame<response_frame>(this->_server_addr, in);
 }
 
 template<typename Serializer, typename MsgType>
 inline
 future<int64_t, std::experimental::optional<rcv_buf>>
 protocol<Serializer, MsgType>::client::read_response_frame_compressed(input_stream<char>& in) {
-    return this->_proto.template read_frame_compressed<response_frame>(this->_server_addr, this->_compressor, in);
+    return this->template read_frame_compressed<response_frame>(this->_server_addr, this->_compressor, in);
 }
 
 template<typename Serializer, typename MsgType>
