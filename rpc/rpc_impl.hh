@@ -309,34 +309,34 @@ struct rcv_reply_base  {
     }
 };
 
-template<typename Serializer, typename MsgType, typename T>
+template<typename Serializer, typename T>
 struct rcv_reply : rcv_reply_base<T, T> {
     inline void get_reply(rpc::client& dst, rcv_buf input) {
         this->set_value(unmarshall<Serializer, T>(dst.template serializer<Serializer>(), std::move(input)));
     }
 };
 
-template<typename Serializer, typename MsgType, typename... T>
-struct rcv_reply<Serializer, MsgType, future<T...>> : rcv_reply_base<std::tuple<T...>, T...> {
+template<typename Serializer, typename... T>
+struct rcv_reply<Serializer, future<T...>> : rcv_reply_base<std::tuple<T...>, T...> {
     inline void get_reply(rpc::client& dst, rcv_buf input) {
         this->set_value(unmarshall<Serializer, T...>(dst.template serializer<Serializer>(), std::move(input)));
     }
 };
 
-template<typename Serializer, typename MsgType>
-struct rcv_reply<Serializer, MsgType, void> : rcv_reply_base<void, void> {
+template<typename Serializer>
+struct rcv_reply<Serializer, void> : rcv_reply_base<void, void> {
     inline void get_reply(rpc::client& dst, rcv_buf input) {
         this->set_value();
     }
 };
 
-template<typename Serializer, typename MsgType>
-struct rcv_reply<Serializer, MsgType, future<>> : rcv_reply<Serializer, MsgType, void> {};
+template<typename Serializer>
+struct rcv_reply<Serializer, future<>> : rcv_reply<Serializer, void> {};
 
-template <typename Serializer, typename MsgType, typename Ret, typename... InArgs>
+template <typename Serializer, typename Ret, typename... InArgs>
 inline auto wait_for_reply(wait_type, std::experimental::optional<rpc_clock_type::time_point> timeout, cancellable* cancel, rpc::client& dst, id_type msg_id,
         signature<Ret (InArgs...)> sig) {
-    using reply_type = rcv_reply<Serializer, MsgType, Ret>;
+    using reply_type = rcv_reply<Serializer, Ret>;
     auto lambda = [] (reply_type& r, rpc::client& dst, id_type msg_id, rcv_buf data) mutable {
         if (msg_id >= 0) {
             dst.get_stats_internal().replied++;
@@ -354,13 +354,13 @@ inline auto wait_for_reply(wait_type, std::experimental::optional<rpc_clock_type
     return fut;
 }
 
-template<typename Serializer, typename MsgType, typename... InArgs>
+template<typename Serializer, typename... InArgs>
 inline auto wait_for_reply(no_wait_type, std::experimental::optional<rpc_clock_type::time_point>, cancellable* cancel, rpc::client& dst, id_type msg_id,
         signature<no_wait_type (InArgs...)> sig) {  // no_wait overload
     return make_ready_future<>();
 }
 
-template<typename Serializer, typename MsgType, typename... InArgs>
+template<typename Serializer, typename... InArgs>
 inline auto wait_for_reply(no_wait_type, std::experimental::optional<rpc_clock_type::time_point>, cancellable* cancel, rpc::client& dst, id_type msg_id,
         signature<future<no_wait_type> (InArgs...)> sig) {  // future<no_wait> overload
     return make_ready_future<>();
@@ -392,7 +392,7 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
 
             // prepare reply handler, if return type is now_wait_type this does nothing, since no reply will be sent
             using wait = wait_signature_t<Ret>;
-            return when_all(dst.send(std::move(data), timeout, cancel), wait_for_reply<Serializer, MsgType>(wait(), timeout, cancel, dst, msg_id, sig)).then([] (auto r) {
+            return when_all(dst.send(std::move(data), timeout, cancel), wait_for_reply<Serializer>(wait(), timeout, cancel, dst, msg_id, sig)).then([] (auto r) {
                     return std::move(std::get<1>(r)); // return future of wait_for_reply
             });
         }
