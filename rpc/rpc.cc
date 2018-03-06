@@ -183,6 +183,184 @@ namespace rpc {
       }
       return _stopped.get_future();
   }
+
+  void
+  client::negotiate(feature_map provided) {
+      // record features returned here
+      for (auto&& e : provided) {
+          auto id = e.first;
+          switch (id) {
+          // supported features go here
+          case protocol_features::COMPRESS:
+              if (_options.compressor_factory) {
+                  this->_compressor = _options.compressor_factory->negotiate(e.second, false);
+              }
+              break;
+          case protocol_features::TIMEOUT:
+              this->_timeout_negotiated = true;
+              break;
+          default:
+              // nothing to do
+              ;
+          }
+      }
+  }
+
+  future<>
+  client::negotiate_protocol(input_stream<char>& in) {
+      return receive_negotiation_frame(*this, in).then([this] (feature_map features) {
+          return negotiate(features);
+      });
+  }
+
+  struct response_frame {
+      using opt_buf_type = std::experimental::optional<rcv_buf>;
+      using return_type = future<int64_t, opt_buf_type>;
+      using header_type = std::tuple<int64_t, uint32_t>;
+      static size_t header_size() {
+          return 12;
+      }
+      static const char* role() {
+          return "client";
+      }
+      static auto empty_value() {
+          return make_ready_future<int64_t, opt_buf_type>(0, std::experimental::nullopt);
+      }
+      static header_type decode_header(const char* ptr) {
+          auto msgid = read_le<int64_t>(ptr);
+          auto size = read_le<uint32_t>(ptr + 8);
+          return std::make_tuple(msgid, size);
+      }
+      static uint32_t get_size(const header_type& t) {
+          return std::get<1>(t);
+      }
+      static auto make_value(const header_type& t, rcv_buf data) {
+          return make_ready_future<int64_t, opt_buf_type>(std::get<0>(t), std::move(data));
+      }
+  };
+
+
+  future<int64_t, std::experimental::optional<rcv_buf>>
+  client::read_response_frame(input_stream<char>& in) {
+      return this->template read_frame<response_frame>(this->_server_addr, in);
+  }
+
+  future<int64_t, std::experimental::optional<rcv_buf>>
+  client::read_response_frame_compressed(input_stream<char>& in) {
+      return this->template read_frame_compressed<response_frame>(this->_server_addr, this->_compressor, in);
+  }
+
+  stats client::get_stats() const {
+      stats res = this->_stats;
+      res.wait_reply = _outstanding.size();
+      res.pending = this->_outgoing_queue.size();
+      return res;
+  }
+
+  void client::wait_for_reply(id_type id, std::unique_ptr<reply_handler_base>&& h, std::experimental::optional<rpc_clock_type::time_point> timeout, cancellable* cancel) {
+      if (timeout) {
+          h->t.set_callback(std::bind(std::mem_fn(&client::wait_timed_out), this, id));
+          h->t.arm(timeout.value());
+      }
+      if (cancel) {
+          cancel->cancel_wait = [this, id] {
+              _outstanding[id]->cancel();
+              _outstanding.erase(id);
+          };
+          h->pcancel = cancel;
+          cancel->wait_back_pointer = &h->pcancel;
+      }
+      _outstanding.emplace(id, std::move(h));
+  }
+  void client::wait_timed_out(id_type id) {
+      this->_stats.timeout++;
+      _outstanding[id]->timeout();
+      _outstanding.erase(id);
+  }
+
+  future<> client::stop() {
+      if (!this->_error) {
+          this->_error = true;
+          _socket.shutdown();
+      }
+      return this->_stopped.get_future();
+  }
+
+  client::client(const logger& l, void* s, client_options ops, socket socket, ipv4_addr addr, ipv4_addr local)
+  : rpc::connection(l, s), _socket(std::move(socket)), _server_addr(addr), _options(ops) {
+      _socket.connect(addr, local).then([this, ops = std::move(ops)] (connected_socket fd) {
+          fd.set_nodelay(ops.tcp_nodelay);
+          if (ops.keepalive) {
+              fd.set_keepalive(true);
+              fd.set_keepalive_parameters(ops.keepalive.value());
+          }
+          this->set_socket(std::move(fd));
+
+          feature_map features;
+          if (_options.compressor_factory) {
+              features[protocol_features::COMPRESS] = _options.compressor_factory->supported();
+          }
+          if (_options.send_timeout_data) {
+              features[protocol_features::TIMEOUT] = "";
+          }
+          send_negotiation_frame(std::move(features));
+
+          return this->negotiate_protocol(this->_read_buf).then([this] () {
+              send_loop();
+              return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
+                  return this->read_response_frame_compressed(this->_read_buf).then([this] (int64_t msg_id, std::experimental::optional<rcv_buf> data) {
+                      auto it = _outstanding.find(std::abs(msg_id));
+                      if (!data) {
+                          this->_error = true;
+                      } else if (it != _outstanding.end()) {
+                          auto handler = std::move(it->second);
+                          _outstanding.erase(it);
+                          (*handler)(*this, msg_id, std::move(data.value()));
+                      } else if (msg_id < 0) {
+                          try {
+                              std::rethrow_exception(unmarshal_exception(data.value()));
+                          } catch(const unknown_verb_error& ex) {
+                              // if this is unknown verb exception with unknown id ignore it
+                              // can happen if unknown verb was used by no_wait client
+                              this->get_logger()(this->peer_address(), sprint("unknown verb exception %d ignored", ex.type));
+                          } catch(...) {
+                              // We've got error response but handler is no longer waiting, could be timed out.
+                              log_exception(*this, "ignoring error response", std::current_exception());
+                          }
+                      } else {
+                          // we get a reply for a message id not in _outstanding
+                          // this can happened if the message id is timed out already
+                          // FIXME: log it but with low level, currently log levels are not supported
+                      }
+                  });
+              });
+          });
+      }).then_wrapped([this] (future<> f) {
+          if (f.failed()) {
+              log_exception(*this, this->_connected ? "client connection dropped" : "fail to connect", f.get_exception());
+          }
+          this->_error = true;
+          this->stop_send_loop().then_wrapped([this] (future<> f) {
+              f.ignore_ready_future();
+              this->_stopped.set_value();
+              this->_outstanding.clear();
+          });
+      });
+  }
+
+  client::client(const logger& l, void* s, ipv4_addr addr, ipv4_addr local)
+  : client(l, s, client_options{}, engine().net().socket(), addr, local)
+  {}
+
+  client::client(const logger& l, void* s, client_options options, ipv4_addr addr, ipv4_addr local)
+  : client(l, s, options, engine().net().socket(), addr, local)
+  {}
+
+  client::client(const logger& l, void* s, socket socket, ipv4_addr addr, ipv4_addr local)
+  : client(l, s, client_options{}, std::move(socket), addr, local)
+  {}
+
+
 }
 
 }
