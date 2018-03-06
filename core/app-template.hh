@@ -34,7 +34,7 @@ class app_template {
 public:
     struct config {
         sstring name = "App";
-        std::chrono::duration<double> default_task_quota = std::chrono::milliseconds(2);
+        std::chrono::duration<double> default_task_quota = std::chrono::microseconds(500);
         config() {}
     };
 
