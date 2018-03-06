@@ -632,7 +632,7 @@ void protocol<Serializer, MsgType>::server::accept() {
 
 template<typename Serializer, typename MsgType>
 protocol<Serializer, MsgType>::server::connection::connection(protocol<Serializer, MsgType>::server& s, connected_socket&& fd, socket_address&& addr, protocol<Serializer, MsgType>& proto)
-    : protocol<Serializer, MsgType>::connection(std::move(fd), proto), _server(s) {
+    : rpc::connection(std::move(fd), proto.get_logger(), &proto._serializer), _server(s) {
     _info.addr = std::move(addr);
 }
 
@@ -659,29 +659,6 @@ static bool verify_frame(Connection& c, temporary_buffer<char>& buf, size_t expe
         return false;
     }
     return true;
-}
-
-template<typename Connection>
-static future<> send_negotiation_frame(Connection& c, feature_map features) {
-    auto negotiation_frame_feature_record_size = [] (const feature_map::value_type& e) {
-        return 8 + e.second.size();
-    };
-    auto extra_len = boost::accumulate(
-            features | boost::adaptors::transformed(negotiation_frame_feature_record_size),
-            uint32_t(0));
-    temporary_buffer<char> reply(sizeof(negotiation_frame) + extra_len);
-    auto p = reply.get_write();
-    p = std::copy_n(rpc_magic, 8, p);
-    write_le<uint32_t>(p, extra_len);
-    p += 4;
-    for (auto&& e : features) {
-        write_le<uint32_t>(p, static_cast<uint32_t>(e.first));
-        p += 4;
-        write_le<uint32_t>(p, e.second.size());
-        p += 4;
-        p = std::copy_n(e.second.begin(), e.second.size(), p);
-    }
-    return c.send_negotiation_frame(std::move(reply));
 }
 
 template<typename Connection>
@@ -861,7 +838,7 @@ future<>
 protocol<Serializer, MsgType>::server::connection::negotiate_protocol(input_stream<char>& in) {
     return receive_negotiation_frame(*this, in).then([this] (feature_map requested_features) {
         auto returned_features = negotiate(std::move(requested_features));
-        return send_negotiation_frame(*this, std::move(returned_features));
+        return send_negotiation_frame(std::move(returned_features));
     });
 }
 
@@ -1041,7 +1018,7 @@ protocol<Serializer, MsgType>::client::read_response_frame_compressed(input_stre
 
 template<typename Serializer, typename MsgType>
 protocol<Serializer, MsgType>::client::client(protocol& proto, client_options ops, socket socket, ipv4_addr addr, ipv4_addr local)
-        : protocol<Serializer, MsgType>::connection(proto), _socket(std::move(socket)), _server_addr(addr), _options(ops) {
+        : rpc::connection(proto.get_logger(), &proto._serializer), _socket(std::move(socket)), _server_addr(addr), _options(ops) {
     _socket.connect(addr, local).then([this, ops = std::move(ops)] (connected_socket fd) {
         fd.set_nodelay(ops.tcp_nodelay);
         if (ops.keepalive) {
@@ -1057,7 +1034,7 @@ protocol<Serializer, MsgType>::client::client(protocol& proto, client_options op
         if (_options.send_timeout_data) {
             features[protocol_features::TIMEOUT] = "";
         }
-        send_negotiation_frame(*this, std::move(features));
+        send_negotiation_frame(std::move(features));
 
         return this->negotiate_protocol(this->_read_buf).then([this] () {
             send_loop();

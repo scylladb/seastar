@@ -125,8 +125,26 @@ namespace rpc {
       _connected = true;
   }
 
-  future<> connection::send_negotiation_frame(temporary_buffer<char> buf) {
-      return _write_buf.write(std::move(buf)).then([this] {
+  future<> connection::send_negotiation_frame(feature_map features) {
+      auto negotiation_frame_feature_record_size = [] (const feature_map::value_type& e) {
+          return 8 + e.second.size();
+      };
+      auto extra_len = boost::accumulate(
+              features | boost::adaptors::transformed(negotiation_frame_feature_record_size),
+              uint32_t(0));
+      temporary_buffer<char> reply(sizeof(negotiation_frame) + extra_len);
+      auto p = reply.get_write();
+      p = std::copy_n(rpc_magic, 8, p);
+      write_le<uint32_t>(p, extra_len);
+      p += 4;
+      for (auto&& e : features) {
+          write_le<uint32_t>(p, static_cast<uint32_t>(e.first));
+          p += 4;
+          write_le<uint32_t>(p, e.second.size());
+          p += 4;
+          p = std::copy_n(e.second.begin(), e.second.size(), p);
+      }
+      return _write_buf.write(std::move(reply)).then([this] {
           _stats.sent_messages++;
           return _write_buf.flush();
       });

@@ -190,7 +190,7 @@ public:
     connection(connected_socket&& fd, const logger& l, void* s) : _fd(std::move(fd)), _read_buf(_fd.input()), _write_buf(_fd.output()), _connected(true), _logger(l), _serializer(s) {}
     connection(const logger& l, void* s) : _logger(l), _serializer(s) {}
     void set_socket(connected_socket&& fd);
-    future<> send_negotiation_frame(temporary_buffer<char> buf);
+    future<> send_negotiation_frame(feature_map features);
     // functions below are public because they are used by external heavily templated functions
     // and I am not smart enough to know how to define them as friends
     future<> send(snd_buf buf, std::experimental::optional<rpc_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr);
@@ -217,17 +217,10 @@ public:
 // do not forget to provide hash function for it
 template<typename Serializer, typename MsgType = uint32_t>
 class protocol {
-    class connection : public rpc::connection {
-    protected:
-        connection(connected_socket&& fd, protocol& proto) : rpc::connection(std::move(fd), proto.get_logger(), &proto._serializer) {}
-        connection(protocol& proto) : rpc::connection(proto.get_logger(), &proto._serializer) {}
-    };
-    friend connection;
-
 public:
     class server {
     public:
-        class connection : public protocol::connection, public enable_lw_shared_from_this<connection> {
+        class connection : public rpc::connection, public enable_lw_shared_from_this<connection> {
             server& _server;
             client_info _info;
         private:
@@ -311,7 +304,7 @@ public:
         friend connection;
     };
 
-    class client : public protocol::connection {
+    class client : public rpc::connection {
         socket _socket;
         id_type _message_id = 1;
         struct reply_handler_base {
