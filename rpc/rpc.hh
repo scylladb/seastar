@@ -212,6 +212,89 @@ public:
     typename FrameType::return_type read_frame_compressed(const Info& info, std::unique_ptr<compressor>& compressor, input_stream<char>& in);
 };
 
+class client : public rpc::connection {
+    socket _socket;
+    id_type _message_id = 1;
+    struct reply_handler_base {
+        timer<rpc_clock_type> t;
+        cancellable* pcancel = nullptr;
+        virtual void operator()(client&, id_type, rcv_buf data) = 0;
+        virtual void timeout() {}
+        virtual void cancel() {}
+        virtual ~reply_handler_base() {
+            if (pcancel) {
+                pcancel->cancel_wait = std::function<void()>();
+                pcancel->wait_back_pointer = nullptr;
+            }
+        };
+    };
+public:
+    template<typename Reply, typename Func>
+    struct reply_handler final : reply_handler_base {
+        Func func;
+        Reply reply;
+        reply_handler(Func&& f) : func(std::move(f)) {}
+        virtual void operator()(client& client, id_type msg_id, rcv_buf data) override {
+            return func(reply, client, msg_id, std::move(data));
+        }
+        virtual void timeout() override {
+            reply.done = true;
+            reply.p.set_exception(timeout_error());
+        }
+        virtual void cancel() override {
+            reply.done = true;
+            reply.p.set_exception(canceled_error());
+        }
+        virtual ~reply_handler() {}
+    };
+private:
+    std::unordered_map<id_type, std::unique_ptr<reply_handler_base>> _outstanding;
+    ipv4_addr _server_addr;
+    client_options _options;
+private:
+    future<> negotiate_protocol(input_stream<char>& in);
+    void negotiate(feature_map server_features);
+    future<int64_t, std::experimental::optional<rcv_buf>>
+    read_response_frame(input_stream<char>& in);
+    future<int64_t, std::experimental::optional<rcv_buf>>
+    read_response_frame_compressed(input_stream<char>& in);
+    void send_loop() {
+        rpc::connection::send_loop(rpc::connection::outgoing_queue_type::request);
+    }
+public:
+    /**
+     * Create client object which will attempt to connect to the remote address.
+     *
+     * @param addr the remote address identifying this client
+     * @param local the local address of this client
+     */
+    client(const logger& l, void* s, ipv4_addr addr, ipv4_addr local = ipv4_addr());
+    client(const logger& l, void* s, client_options options, ipv4_addr addr, ipv4_addr local = ipv4_addr());
+
+     /**
+     * Create client object which will attempt to connect to the remote address using the
+     * specified seastar::socket.
+     *
+     * @param addr the remote address identifying this client
+     * @param local the local address of this client
+     * @param socket the socket object use to connect to the remote address
+     */
+    client(const logger& l, void* s, socket socket, ipv4_addr addr, ipv4_addr local = ipv4_addr());
+    client(const logger& l, void* s, client_options options, socket socket, ipv4_addr addr, ipv4_addr local = ipv4_addr());
+
+    stats get_stats() const;
+    stats& get_stats_internal() {
+        return this->_stats;
+    }
+    auto next_message_id() { return _message_id++; }
+    void wait_for_reply(id_type id, std::unique_ptr<reply_handler_base>&& h, std::experimental::optional<rpc_clock_type::time_point> timeout, cancellable* cancel);
+    void wait_timed_out(id_type id);
+    future<> stop();
+    ipv4_addr peer_address() const {
+        return _server_addr;
+    }
+};
+
 // MsgType is a type that holds type of a message. The type should be hashable
 // and serializable. It is preferable to use enum for message types, but
 // do not forget to provide hash function for it
@@ -304,66 +387,20 @@ public:
         friend connection;
     };
 
-    class client : public rpc::connection {
-        socket _socket;
-        id_type _message_id = 1;
-        struct reply_handler_base {
-            timer<rpc_clock_type> t;
-            cancellable* pcancel = nullptr;
-            virtual void operator()(client&, id_type, rcv_buf data) = 0;
-            virtual void timeout() {}
-            virtual void cancel() {}
-            virtual ~reply_handler_base() {
-                if (pcancel) {
-                    pcancel->cancel_wait = std::function<void()>();
-                    pcancel->wait_back_pointer = nullptr;
-                }
-            };
-        };
+    class client : public rpc::client {
     public:
-        template<typename Reply, typename Func>
-        struct reply_handler final : reply_handler_base {
-            Func func;
-            Reply reply;
-            reply_handler(Func&& f) : func(std::move(f)) {}
-            virtual void operator()(client& client, id_type msg_id, rcv_buf data) override {
-                return func(reply, client, msg_id, std::move(data));
-            }
-            virtual void timeout() override {
-                reply.done = true;
-                reply.p.set_exception(timeout_error());
-            }
-            virtual void cancel() override {
-                reply.done = true;
-                reply.p.set_exception(canceled_error());
-            }
-            virtual ~reply_handler() {}
-        };
-    private:
-        std::unordered_map<id_type, std::unique_ptr<reply_handler_base>> _outstanding;
-        ipv4_addr _server_addr;
-        client_options _options;
-    private:
-        future<> negotiate_protocol(input_stream<char>& in);
-        void negotiate(feature_map server_features);
-        future<int64_t, std::experimental::optional<rcv_buf>>
-        read_response_frame(input_stream<char>& in);
-        future<int64_t, std::experimental::optional<rcv_buf>>
-        read_response_frame_compressed(input_stream<char>& in);
-        void send_loop() {
-            rpc::connection::send_loop(rpc::connection::outgoing_queue_type::request);
-        }
-    public:
-        /**
+        /*
          * Create client object which will attempt to connect to the remote address.
          *
          * @param addr the remote address identifying this client
          * @param local the local address of this client
          */
-        client(protocol& proto, ipv4_addr addr, ipv4_addr local = ipv4_addr());
-        client(protocol& proto, client_options options, ipv4_addr addr, ipv4_addr local = ipv4_addr());
+        client(protocol& p, ipv4_addr addr, ipv4_addr local = ipv4_addr()) :
+            rpc::client(p.get_logger(), &p._serializer, addr, local) {}
+        client(protocol& p, client_options options, ipv4_addr addr, ipv4_addr local = ipv4_addr()) :
+            rpc::client(p.get_logger(), &p._serializer, options, addr, local) {}
 
-         /**
+        /**
          * Create client object which will attempt to connect to the remote address using the
          * specified seastar::socket.
          *
@@ -371,52 +408,12 @@ public:
          * @param local the local address of this client
          * @param socket the socket object use to connect to the remote address
          */
-        client(protocol& proto, socket socket, ipv4_addr addr, ipv4_addr local = ipv4_addr());
-        client(protocol& proto, client_options options, socket socket, ipv4_addr addr, ipv4_addr local = ipv4_addr());
-
-        stats get_stats() const {
-            stats res = this->_stats;
-            res.wait_reply = _outstanding.size();
-            res.pending = this->_outgoing_queue.size();
-            return res;
-        }
-
-        stats& get_stats_internal() {
-            return this->_stats;
-        }
-        auto next_message_id() { return _message_id++; }
-        void wait_for_reply(id_type id, std::unique_ptr<reply_handler_base>&& h, std::experimental::optional<rpc_clock_type::time_point> timeout, cancellable* cancel) {
-            if (timeout) {
-                h->t.set_callback(std::bind(std::mem_fn(&client::wait_timed_out), this, id));
-                h->t.arm(timeout.value());
-            }
-            if (cancel) {
-                cancel->cancel_wait = [this, id] {
-                    _outstanding[id]->cancel();
-                    _outstanding.erase(id);
-                };
-                h->pcancel = cancel;
-                cancel->wait_back_pointer = &h->pcancel;
-            }
-            _outstanding.emplace(id, std::move(h));
-        }
-        void wait_timed_out(id_type id) {
-            this->_stats.timeout++;
-            _outstanding[id]->timeout();
-            _outstanding.erase(id);
-        }
-
-        future<> stop() {
-            if (!this->_error) {
-                this->_error = true;
-                _socket.shutdown();
-            }
-            return this->_stopped.get_future();
-        }
-        ipv4_addr peer_address() const {
-            return _server_addr;
-        }
+        client(protocol& p, socket socket, ipv4_addr addr, ipv4_addr local = ipv4_addr()) :
+            rpc::client(p.get_logger(), &p._serializer, std::move(socket), addr, local) {}
+        client(protocol& p, client_options options, socket socket, ipv4_addr addr, ipv4_addr local = ipv4_addr()) :
+            rpc::client(p.get_logger(), &p._serializer, options, std::move(socket), addr, local) {}
     };
+
     friend server;
 private:
     using rpc_handler = std::function<future<> (lw_shared_ptr<typename server::connection>, std::experimental::optional<rpc_clock_type::time_point> timeout, int64_t msgid,

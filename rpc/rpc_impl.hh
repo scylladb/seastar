@@ -311,21 +311,21 @@ struct rcv_reply_base  {
 
 template<typename Serializer, typename MsgType, typename T>
 struct rcv_reply : rcv_reply_base<T, T> {
-    inline void get_reply(typename protocol<Serializer, MsgType>::client& dst, rcv_buf input) {
+    inline void get_reply(rpc::client& dst, rcv_buf input) {
         this->set_value(unmarshall<Serializer, T>(dst.template serializer<Serializer>(), std::move(input)));
     }
 };
 
 template<typename Serializer, typename MsgType, typename... T>
 struct rcv_reply<Serializer, MsgType, future<T...>> : rcv_reply_base<std::tuple<T...>, T...> {
-    inline void get_reply(typename protocol<Serializer, MsgType>::client& dst, rcv_buf input) {
+    inline void get_reply(rpc::client& dst, rcv_buf input) {
         this->set_value(unmarshall<Serializer, T...>(dst.template serializer<Serializer>(), std::move(input)));
     }
 };
 
 template<typename Serializer, typename MsgType>
 struct rcv_reply<Serializer, MsgType, void> : rcv_reply_base<void, void> {
-    inline void get_reply(typename protocol<Serializer, MsgType>::client& dst, rcv_buf input) {
+    inline void get_reply(rpc::client& dst, rcv_buf input) {
         this->set_value();
     }
 };
@@ -334,10 +334,10 @@ template<typename Serializer, typename MsgType>
 struct rcv_reply<Serializer, MsgType, future<>> : rcv_reply<Serializer, MsgType, void> {};
 
 template <typename Serializer, typename MsgType, typename Ret, typename... InArgs>
-inline auto wait_for_reply(wait_type, std::experimental::optional<rpc_clock_type::time_point> timeout, cancellable* cancel, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id,
+inline auto wait_for_reply(wait_type, std::experimental::optional<rpc_clock_type::time_point> timeout, cancellable* cancel, rpc::client& dst, id_type msg_id,
         signature<Ret (InArgs...)> sig) {
     using reply_type = rcv_reply<Serializer, MsgType, Ret>;
-    auto lambda = [] (reply_type& r, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id, rcv_buf data) mutable {
+    auto lambda = [] (reply_type& r, rpc::client& dst, id_type msg_id, rcv_buf data) mutable {
         if (msg_id >= 0) {
             dst.get_stats_internal().replied++;
             return r.get_reply(dst, std::move(data));
@@ -347,7 +347,7 @@ inline auto wait_for_reply(wait_type, std::experimental::optional<rpc_clock_type
             r.p.set_exception(unmarshal_exception(data));
         }
     };
-    using handler_type = typename protocol<Serializer, MsgType>::client::template reply_handler<reply_type, decltype(lambda)>;
+    using handler_type = typename rpc::client::template reply_handler<reply_type, decltype(lambda)>;
     auto r = std::make_unique<handler_type>(std::move(lambda));
     auto fut = r->reply.p.get_future();
     dst.wait_for_reply(msg_id, std::move(r), timeout, cancel);
@@ -355,13 +355,13 @@ inline auto wait_for_reply(wait_type, std::experimental::optional<rpc_clock_type
 }
 
 template<typename Serializer, typename MsgType, typename... InArgs>
-inline auto wait_for_reply(no_wait_type, std::experimental::optional<rpc_clock_type::time_point>, cancellable* cancel, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id,
+inline auto wait_for_reply(no_wait_type, std::experimental::optional<rpc_clock_type::time_point>, cancellable* cancel, rpc::client& dst, id_type msg_id,
         signature<no_wait_type (InArgs...)> sig) {  // no_wait overload
     return make_ready_future<>();
 }
 
 template<typename Serializer, typename MsgType, typename... InArgs>
-inline auto wait_for_reply(no_wait_type, std::experimental::optional<rpc_clock_type::time_point>, cancellable* cancel, typename protocol<Serializer, MsgType>::client& dst, id_type msg_id,
+inline auto wait_for_reply(no_wait_type, std::experimental::optional<rpc_clock_type::time_point>, cancellable* cancel, rpc::client& dst, id_type msg_id,
         signature<future<no_wait_type> (InArgs...)> sig) {  // future<no_wait> overload
     return make_ready_future<>();
 }
@@ -375,7 +375,7 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
     struct shelper {
         MsgType t;
         signature<Ret (InArgs...)> sig;
-        auto send(typename protocol<Serializer, MsgType>::client& dst, std::experimental::optional<rpc_clock_type::time_point> timeout, cancellable* cancel, const InArgs&... args) {
+        auto send(rpc::client& dst, std::experimental::optional<rpc_clock_type::time_point> timeout, cancellable* cancel, const InArgs&... args) {
             if (dst.error()) {
                 using cleaned_ret_type = typename wait_signature<Ret>::cleaned_type;
                 return futurize<cleaned_ret_type>::make_exception_future(closed_error());
@@ -396,16 +396,16 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
                     return std::move(std::get<1>(r)); // return future of wait_for_reply
             });
         }
-        auto operator()(typename protocol<Serializer, MsgType>::client& dst, const InArgs&... args) {
+        auto operator()(rpc::client& dst, const InArgs&... args) {
             return send(dst, {}, nullptr, args...);
         }
-        auto operator()(typename protocol<Serializer, MsgType>::client& dst, rpc_clock_type::time_point timeout, const InArgs&... args) {
+        auto operator()(rpc::client& dst, rpc_clock_type::time_point timeout, const InArgs&... args) {
             return send(dst, timeout, nullptr, args...);
         }
-        auto operator()(typename protocol<Serializer, MsgType>::client& dst, rpc_clock_type::duration timeout, const InArgs&... args) {
+        auto operator()(rpc::client& dst, rpc_clock_type::duration timeout, const InArgs&... args) {
             return send(dst, rpc_clock_type::now() + timeout, nullptr, args...);
         }
-        auto operator()(typename protocol<Serializer, MsgType>::client& dst, cancellable& cancel, const InArgs&... args) {
+        auto operator()(rpc::client& dst, cancellable& cancel, const InArgs&... args) {
             return send(dst, {}, &cancel, args...);
         }
 
@@ -893,29 +893,6 @@ protocol<Serializer, MsgType>::server::connection::read_request_frame_compressed
     }
 }
 
-template <typename Serializer, typename MsgType>
-void
-protocol<Serializer, MsgType>::client::negotiate(feature_map provided) {
-    // record features returned here
-    for (auto&& e : provided) {
-        auto id = e.first;
-        switch (id) {
-        // supported features go here
-        case protocol_features::COMPRESS:
-            if (_options.compressor_factory) {
-                this->_compressor = _options.compressor_factory->negotiate(e.second, false);
-            }
-        break;
-        case protocol_features::TIMEOUT:
-            this->_timeout_negotiated = true;
-            break;
-        default:
-            // nothing to do
-            ;
-        }
-    }
-}
-
 template<typename Serializer, typename MsgType>
 future<> protocol<Serializer, MsgType>::server::connection::process() {
     return this->negotiate_protocol(this->_read_buf).then([this] () mutable {
@@ -966,134 +943,6 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
         // hold onto connection pointer until do_until() exists
     });
 }
-
-template<typename Serializer, typename MsgType>
-future<>
-protocol<Serializer, MsgType>::client::negotiate_protocol(input_stream<char>& in) {
-    return receive_negotiation_frame(*this, in).then([this] (feature_map features) {
-        return negotiate(features);
-    });
-}
-
-struct response_frame {
-    using opt_buf_type = std::experimental::optional<rcv_buf>;
-    using return_type = future<int64_t, opt_buf_type>;
-    using header_type = std::tuple<int64_t, uint32_t>;
-    static size_t header_size() {
-        return 12;
-    }
-    static const char* role() {
-        return "client";
-    }
-    static auto empty_value() {
-        return make_ready_future<int64_t, opt_buf_type>(0, std::experimental::nullopt);
-    }
-    static header_type decode_header(const char* ptr) {
-        auto msgid = read_le<int64_t>(ptr);
-        auto size = read_le<uint32_t>(ptr + 8);
-        return std::make_tuple(msgid, size);
-    }
-    static uint32_t get_size(const header_type& t) {
-        return std::get<1>(t);
-    }
-    static auto make_value(const header_type& t, rcv_buf data) {
-        return make_ready_future<int64_t, opt_buf_type>(std::get<0>(t), std::move(data));
-    }
-};
-
-// FIXME: take out-of-line?
-template<typename Serializer, typename MsgType>
-inline
-future<int64_t, std::experimental::optional<rcv_buf>>
-protocol<Serializer, MsgType>::client::read_response_frame(input_stream<char>& in) {
-    return this->template read_frame<response_frame>(this->_server_addr, in);
-}
-
-template<typename Serializer, typename MsgType>
-inline
-future<int64_t, std::experimental::optional<rcv_buf>>
-protocol<Serializer, MsgType>::client::read_response_frame_compressed(input_stream<char>& in) {
-    return this->template read_frame_compressed<response_frame>(this->_server_addr, this->_compressor, in);
-}
-
-template<typename Serializer, typename MsgType>
-protocol<Serializer, MsgType>::client::client(protocol& proto, client_options ops, socket socket, ipv4_addr addr, ipv4_addr local)
-        : rpc::connection(proto.get_logger(), &proto._serializer), _socket(std::move(socket)), _server_addr(addr), _options(ops) {
-    _socket.connect(addr, local).then([this, ops = std::move(ops)] (connected_socket fd) {
-        fd.set_nodelay(ops.tcp_nodelay);
-        if (ops.keepalive) {
-            fd.set_keepalive(true);
-            fd.set_keepalive_parameters(ops.keepalive.value());
-        }
-        this->set_socket(std::move(fd));
-
-        feature_map features;
-        if (_options.compressor_factory) {
-            features[protocol_features::COMPRESS] = _options.compressor_factory->supported();
-        }
-        if (_options.send_timeout_data) {
-            features[protocol_features::TIMEOUT] = "";
-        }
-        send_negotiation_frame(std::move(features));
-
-        return this->negotiate_protocol(this->_read_buf).then([this] () {
-            send_loop();
-            return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
-                return this->read_response_frame_compressed(this->_read_buf).then([this] (int64_t msg_id, std::experimental::optional<rcv_buf> data) {
-                    auto it = _outstanding.find(std::abs(msg_id));
-                    if (!data) {
-                        this->_error = true;
-                    } else if (it != _outstanding.end()) {
-                        auto handler = std::move(it->second);
-                        _outstanding.erase(it);
-                        (*handler)(*this, msg_id, std::move(data.value()));
-                    } else if (msg_id < 0) {
-                        try {
-                            std::rethrow_exception(unmarshal_exception(data.value()));
-                        } catch(const unknown_verb_error& ex) {
-                            // if this is unknown verb exception with unknown id ignore it
-                            // can happen if unknown verb was used by no_wait client
-                            this->get_logger()(this->peer_address(), sprint("unknown verb exception %d ignored", ex.type));
-                        } catch(...) {
-                            // We've got error response but handler is no longer waiting, could be timed out.
-                            log_exception(*this, "ignoring error response", std::current_exception());
-                        }
-                    } else {
-                        // we get a reply for a message id not in _outstanding
-                        // this can happened if the message id is timed out already
-                        // FIXME: log it but with low level, currently log levels are not supported
-                    }
-                });
-            });
-        });
-    }).then_wrapped([this] (future<> f) {
-        if (f.failed()) {
-            log_exception(*this, this->_connected ? "client connection dropped" : "fail to connect", f.get_exception());
-        }
-        this->_error = true;
-        this->stop_send_loop().then_wrapped([this] (future<> f) {
-            f.ignore_ready_future();
-            this->_stopped.set_value();
-            this->_outstanding.clear();
-        });
-    });
-}
-
-template<typename Serializer, typename MsgType>
-protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& proto, ipv4_addr addr, ipv4_addr local)
-    : client(proto, client_options{}, engine().net().socket(), addr, local)
-{}
-
-template<typename Serializer, typename MsgType>
-protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& proto, client_options options, ipv4_addr addr, ipv4_addr local)
-    : client(proto, options, engine().net().socket(), addr, local)
-{}
-
-template<typename Serializer, typename MsgType>
-protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& proto, socket socket, ipv4_addr addr, ipv4_addr local)
-    : client(proto, client_options{}, std::move(socket), addr, local)
-{}
-
 }
 
 }
