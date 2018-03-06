@@ -56,7 +56,7 @@ static std::default_random_engine random_generator(random_seed);
 static constexpr uint64_t file_data_size = 1ull << 30;
 
 struct context;
-enum class request_type { seqread, seqwrite, randread, randwrite, append };
+enum class request_type { seqread, seqwrite, randread, randwrite, append, cpu };
 
 namespace std {
 
@@ -94,18 +94,23 @@ struct shard_info {
     unsigned shares = 10;
     uint64_t request_size = 4 << 10;
     std::chrono::duration<float> think_time = 0ms;
+    std::chrono::duration<float> execution_time = 1ms;
 };
+
+class class_data;
 
 struct job_config {
     std::string name;
     request_type type;
     shard_config shard_placement;
     ::shard_info shard_info;
+    std::unique_ptr<class_data> gen_class_data();
 };
 
 std::array<double, 4> quantiles = { 0.5, 0.95, 0.99, 0.999};
 
 class class_data {
+protected:
     using accumulator_type = accumulator_set<double, stats<tag::extended_p_square_quantile(quadratic), tag::mean, tag::max>>;
 
     job_config _config;
@@ -113,16 +118,19 @@ class class_data {
     uint64_t _last_pos = 0;
 
     io_priority_class _iop;
+    seastar::scheduling_group _sg;
 
-    size_t _bytes = 0;
+    size_t _data = 0;
     std::chrono::duration<float> _total_duration;
 
     std::chrono::steady_clock::time_point _start = {};
     accumulator_type _latencies;
     std::uniform_int_distribution<uint32_t> _pos_distribution;
     file _file;
-public:
 
+    virtual future<> do_start(sstring dir) = 0;
+    virtual future<size_t> issue_request(char *buf) = 0;
+public:
     static int idgen();
     class_data(job_config cfg)
         : _config(std::move(cfg))
@@ -134,22 +142,18 @@ public:
 
     future<> issue_requests(std::chrono::steady_clock::time_point stop) {
         _start = std::chrono::steady_clock::now();
-        return parallel_for_each(boost::irange(0u, parallelism()), [this, stop] (auto dummy) mutable {
-            auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
-            auto buf = bufptr.get();
-            return do_until([this, stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf] () mutable {
-                auto start = std::chrono::steady_clock::now();
-                future<size_t> fut = make_ready_future<size_t>(0);
-                if (this->is_read()) {
-                    fut = _file.dma_read(this->get_pos(), buf, this->req_size(), _iop);
-                } else {
-                    fut = _file.dma_write(this->get_pos(), buf, this->req_size(), _iop);
-                }
-                return fut.then([this, start] (auto size) {
-                    this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start));
-                    return seastar::sleep(std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.think_time));
-                });
-            }).finally([bufptr = std::move(bufptr)] {});
+        return with_scheduling_group(_sg, [this, stop] {
+            return parallel_for_each(boost::irange(0u, parallelism()), [this, stop] (auto dummy) mutable {
+                auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
+                auto buf = bufptr.get();
+                return do_until([this, stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf] () mutable {
+                    auto start = std::chrono::steady_clock::now();
+                    return issue_request(buf).then([this, start] (auto size) {
+                        this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start));
+                        return seastar::sleep(std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.think_time));
+                    });
+                }).finally([bufptr = std::move(bufptr)] {});
+            });
         }).then([this] {
             _total_duration = std::chrono::steady_clock::now() - _start;
         });
@@ -164,32 +168,11 @@ public:
     // random reads      : will read the file at random positions, between 0 and EOF
     // random writes     : will overwrite the file at a random position, between 0 and EOF
     // append            : will write to the file from pos = EOF onwards, always appending to the end.
+    // cpu               : CPU-only load, file is not created.
     future<> start(sstring dir) {
-        auto fname = sprint("%s/test-%s-%d", dir, name(), engine().cpu_id());
-        return open_file_dma(fname, open_flags::rw | open_flags::create | open_flags::truncate).then([this, fname] (auto f) {
-            _file = f;
-            return remove_file(fname).then([this] {
-                return do_with(seastar::semaphore(64), [this] (auto& write_parallelism) mutable {
-                    auto bufsize = 256ul << 10;
-                    auto pos = boost::irange(0ul, (file_data_size / bufsize) + 1);
-                    return parallel_for_each(pos.begin(), pos.end(), [this, bufsize, &write_parallelism] (auto pos) mutable {
-                        return get_units(write_parallelism, 1).then([this, bufsize, pos] (auto perm) mutable {
-                            auto bufptr = allocate_aligned_buffer<char>(bufsize, 4096);
-                            auto buf = bufptr.get();
-                            std::uniform_int_distribution<char> fill('@', '~');
-                            memset(buf, fill(random_generator), bufsize);
-                            pos = pos * bufsize;
-                            return _file.dma_write(pos, buf, bufsize).finally([this, bufsize, bufptr = std::move(bufptr), perm = std::move(perm), pos] {
-                                if ((this->req_type() == request_type::append) && (pos > _last_pos)) {
-                                    _last_pos = pos;
-                                }
-                            }).discard_result();
-                        });
-                    });
-                });
-            });
-        }).then([this] {
-            return _file.flush();
+        return seastar::create_scheduling_group(sprint("%s-%d", name(), engine().cpu_id()), shares()).then([this, dir] (seastar::scheduling_group sg) {
+            _sg = sg;
+            return do_start(dir);
         });
     }
 protected:
@@ -200,6 +183,7 @@ protected:
             { request_type::randread, "RAND READ" },
             { request_type::randwrite, "RAND WRITE" },
             { request_type::append , "APPEND" },
+            { request_type::cpu , "CPU" },
         }[_config.type];;
     }
 
@@ -235,8 +219,8 @@ protected:
         return _total_duration;
     }
 
-    uint64_t total_bytes() const {
-        return _bytes;
+    uint64_t total_data() const {
+        return _data;
     }
 
     uint64_t max_latency() const {
@@ -250,16 +234,12 @@ protected:
     uint64_t quantile_latency(double q) const {
         return quantile(_latencies, quantile_probability = q);
     }
-private:
+
     bool is_sequential() const {
         return (req_type() == request_type::seqread) || (req_type() == request_type::seqwrite);
     }
     bool is_random() const {
         return (req_type() == request_type::randread) || (req_type() == request_type::randwrite);
-    }
-
-    bool is_read() const {
-        return (req_type() == request_type::randread) || (req_type() == request_type::seqread);
     }
 
     uint64_t get_pos() {
@@ -276,36 +256,122 @@ private:
         return pos;
     }
 
-    void add_result(size_t bytes, std::chrono::microseconds latency) {
-        _bytes += bytes;
+    void add_result(size_t data, std::chrono::microseconds latency) {
+        _data += data;
         _latencies(latency.count());
     }
+
+public:
+    virtual sstring describe_class() = 0;
+    virtual sstring describe_results() = 0;
 };
 
-// The following two classes inherit from class data and help with pretty printing the output data.
-struct class_data_description final : public class_data {
-    friend std::basic_ostream<char>& operator<<(std::basic_ostream<char>& ss, const class_data_description& cl) {
-        ss << cl.name() << ": " << cl.shares() << " shares, " << cl.req_size() << "-byte " << cl.type_str() << ", " << cl.parallelism() << " concurrent requests, ";
-        ss << cl.think_time();
-        return ss;
+class io_class_data : public class_data {
+public:
+    io_class_data(job_config cfg) : class_data(std::move(cfg)) {}
+
+    future<> do_start(sstring dir) override {
+        auto fname = sprint("%s/test-%s-%d", dir, name(), engine().cpu_id());
+        return open_file_dma(fname, open_flags::rw | open_flags::create | open_flags::truncate).then([this, fname] (auto f) {
+            _file = f;
+            return remove_file(fname);
+        }).then([this, fname] {
+            return do_with(seastar::semaphore(64), [this] (auto& write_parallelism) mutable {
+                auto bufsize = 256ul << 10;
+                auto pos = boost::irange(0ul, (file_data_size / bufsize) + 1);
+                return parallel_for_each(pos.begin(), pos.end(), [this, bufsize, &write_parallelism] (auto pos) mutable {
+                    return get_units(write_parallelism, 1).then([this, bufsize, pos] (auto perm) mutable {
+                        auto bufptr = allocate_aligned_buffer<char>(bufsize, 4096);
+                        auto buf = bufptr.get();
+                        std::uniform_int_distribution<char> fill('@', '~');
+                        memset(buf, fill(random_generator), bufsize);
+                        pos = pos * bufsize;
+                        return _file.dma_write(pos, buf, bufsize).finally([this, bufsize, bufptr = std::move(bufptr), perm = std::move(perm), pos] {
+                            if ((this->req_type() == request_type::append) && (pos > _last_pos)) {
+                                _last_pos = pos;
+                            }
+                        }).discard_result();
+                    });
+                });
+            });
+        }).then([this] {
+            return _file.flush();
+        });
     }
-    class_data_description(const class_data& cl) : class_data(cl) {}
-};
 
-struct class_data_results final : public class_data {
-    friend std::basic_ostream<char>& operator<<(std::basic_ostream<char>& ss, const class_data_results& cl) {
-        auto throughput_kbs = (cl.total_bytes() >> 10) / cl.total_duration().count();
-        ss << "  Throughput         : " << std::setw(8) << throughput_kbs << " KB/s" << std::endl;
-        ss << "  Lat average        : " << std::setw(8) << cl.average_latency() << " usec" << std::endl;
+    virtual sstring describe_class() override {
+        return fmt::format("{}: {} shares, {}-byte {}, {} concurrent requests", name(), shares(), req_size(), type_str(), parallelism());
+    }
 
+    virtual sstring describe_results() override {
+        auto throughput_kbs = (total_data() >> 10) / total_duration().count();
+        sstring result;
+        result += fmt::format("  Throughput         : {:>8} KB/s\n", throughput_kbs);
+        result += fmt::format("  Lat average        : {:>8} usec\n", average_latency());
         for (auto& q: quantiles) {
-            ss << "  Lat quantile=" << std::setw(5) << q << " : " << std::setw(8) << cl.quantile_latency(q) << " usec" << std::endl;
+            result += fmt::format("  Lat quantile={:>5} : {:>8} usec\n", q, quantile_latency(q));
         }
-        ss << "  Lat max            : " << std::setw(8) << cl.max_latency() << " usec" << std::endl;
-        return ss;
+        result += fmt::format("  Lat max            : {:>8} usec\n", max_latency());
+        return result;
     }
-    class_data_results(const class_data& cl) : class_data(cl) {}
 };
+
+class read_io_class_data : public io_class_data {
+public:
+    read_io_class_data(job_config cfg) : io_class_data(std::move(cfg)) {}
+
+    future<size_t> issue_request(char *buf) override {
+        return _file.dma_read(this->get_pos(), buf, this->req_size(), _iop);
+    }
+};
+
+class write_io_class_data : public io_class_data {
+public:
+    write_io_class_data(job_config cfg) : io_class_data(std::move(cfg)) {}
+
+    future<size_t> issue_request(char *buf) override {
+        return _file.dma_write(this->get_pos(), buf, this->req_size(), _iop);
+    }
+};
+
+class cpu_class_data : public class_data {
+public:
+    cpu_class_data(job_config cfg) : class_data(std::move(cfg)) {}
+
+    future<> do_start(sstring dir) override {
+        return make_ready_future<>();
+    }
+
+    future<size_t> issue_request(char *buf) override {
+        // We do want the execution time to be a busy loop, and not just a bunch of
+        // continuations until our time is up: by doing this we can also simulate the behavior
+        // of I/O continuations in the face of reactor stalls.
+        auto start  = std::chrono::steady_clock::now();
+        do {
+        } while ((std::chrono::steady_clock::now() - start) < _config.shard_info.execution_time);
+        return make_ready_future<size_t>(1);
+    }
+
+    virtual sstring describe_class() override {
+        auto exec = std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.execution_time);
+        return fmt::format("{}: {} shares, {} us CPU execution time, {} concurrent requests", name(), shares(), exec.count(), parallelism());
+    }
+
+    virtual sstring describe_results() override {
+        auto throughput = total_data() / total_duration().count();
+        return fmt::format("  Throughput         : {:>8} continuations/s\n", throughput);
+    }
+};
+
+std::unique_ptr<class_data> job_config::gen_class_data() {
+    if (type == request_type::cpu) {
+        return std::make_unique<cpu_class_data>(*this);
+    } else if ((type == request_type::seqread) || (type == request_type::randread)) {
+        return std::make_unique<read_io_class_data>(*this);
+    } else {
+        return std::make_unique<write_io_class_data>(*this);
+    }
+}
 
 /// YAML parsing functions
 namespace YAML {
@@ -380,6 +446,7 @@ struct convert<request_type> {
             { "randread", request_type::randread },
             { "randwrite", request_type::randwrite },
             { "append", request_type::append},
+            { "cpu", request_type::cpu},
         };
         auto reqstr = node.as<std::string>();
         if (!mappings.count(reqstr)) {
@@ -405,6 +472,9 @@ struct convert<shard_info> {
         if (node["think_time"]) {
             sl.think_time = node["think_time"].as<duration_time>().time;
         }
+        if (node["execution_time"]) {
+            sl.execution_time = node["execution_time"].as<duration_time>().time;
+        }
         return true;
     }
 };
@@ -426,7 +496,7 @@ struct convert<job_config> {
 /// Each shard has one context, and the context is responsible for creating the classes that should
 /// run in this shard.
 class context {
-    std::vector<class_data> _cl;
+    std::vector<std::unique_ptr<class_data>> _cl;
 
     sstring _dir;
     std::chrono::seconds _duration;
@@ -434,9 +504,10 @@ class context {
     semaphore _finished;
 public:
     context(sstring dir, std::vector<job_config> req_config, unsigned duration)
-            : _cl(boost::copy_range<std::vector<class_data>>(req_config | boost::adaptors::filtered([] (auto& cfg) {
-                return cfg.shard_placement.is_set(engine().cpu_id());
-            })))
+            : _cl(boost::copy_range<std::vector<std::unique_ptr<class_data>>>(req_config
+                | boost::adaptors::filtered([] (auto& cfg) { return cfg.shard_placement.is_set(engine().cpu_id()); })
+                | boost::adaptors::transformed([] (auto& cfg) { return cfg.gen_class_data(); })
+            ))
             , _dir(dir)
             , _duration(duration)
             , _finished(0)
@@ -445,14 +516,14 @@ public:
     future<> stop() { return make_ready_future<>(); }
 
     future<> start() {
-        return parallel_for_each(_cl, [this] (auto& cl) {
-            return cl.start(_dir);
+        return parallel_for_each(_cl, [this] (std::unique_ptr<class_data>& cl) {
+            return cl->start(_dir);
         });
     }
 
     future<> issue_requests() {
-        return parallel_for_each(_cl.begin(), _cl.end(), [this] (class_data& cl) {
-            return cl.issue_requests(std::chrono::steady_clock::now() + _duration).finally([this] {
+        return parallel_for_each(_cl.begin(), _cl.end(), [this] (std::unique_ptr<class_data>& cl) {
+            return cl->issue_requests(std::chrono::steady_clock::now() + _duration).finally([this] {
                 _finished.signal(1);
             });
         });
@@ -460,15 +531,12 @@ public:
 
     future<> print_stats() {
         return _finished.wait(_cl.size()).then([this] {
-            std::stringstream ss;
-            ss << "Shard " << std::setw(2) << engine().cpu_id() << std::endl;
+            fmt::print("Shard {:>2}\n", engine().cpu_id());
             auto idx = 0;
             for (auto& cl: _cl) {
-                ss << " Class " << idx++ << "(" << std::setw(2) << class_data_description(cl) << ")" << std::endl;
-                ss << class_data_results(cl) << std::endl;
+                fmt::print("Class {:>2} ({})\n", idx++, cl->describe_class());
+                fmt::print("{}\n", cl->describe_results());
             }
-            ss << std::endl;
-            std::cout << ss.str();
             return make_ready_future<>();
         });
     }
