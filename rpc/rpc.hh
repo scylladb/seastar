@@ -222,8 +222,6 @@ public:
         private:
             future<> negotiate_protocol(input_stream<char>& in);
             future<std::experimental::optional<uint64_t>, MsgType, int64_t, std::experimental::optional<rcv_buf>>
-            read_request_frame(input_stream<char>& in);
-            future<std::experimental::optional<uint64_t>, MsgType, int64_t, std::experimental::optional<rcv_buf>>
             read_request_frame_compressed(input_stream<char>& in);
             feature_map negotiate(feature_map requested);
             void send_loop() {
