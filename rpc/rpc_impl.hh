@@ -312,14 +312,14 @@ struct rcv_reply_base  {
 template<typename Serializer, typename MsgType, typename T>
 struct rcv_reply : rcv_reply_base<T, T> {
     inline void get_reply(typename protocol<Serializer, MsgType>::client& dst, rcv_buf input) {
-        this->set_value(unmarshall<Serializer, T>(dst.serializer(), std::move(input)));
+        this->set_value(unmarshall<Serializer, T>(dst.template serializer<Serializer>(), std::move(input)));
     }
 };
 
 template<typename Serializer, typename MsgType, typename... T>
 struct rcv_reply<Serializer, MsgType, future<T...>> : rcv_reply_base<std::tuple<T...>, T...> {
     inline void get_reply(typename protocol<Serializer, MsgType>::client& dst, rcv_buf input) {
-        this->set_value(unmarshall<Serializer, T...>(dst.serializer(), std::move(input)));
+        this->set_value(unmarshall<Serializer, T...>(dst.template serializer<Serializer>(), std::move(input)));
     }
 };
 
@@ -383,7 +383,7 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
 
             // send message
             auto msg_id = dst.next_message_id();
-            snd_buf data = marshall(dst.serializer(), 28, args...);
+            snd_buf data = marshall(dst.template serializer<Serializer>(), 28, args...);
             static_assert(snd_buf::chunk_size >= 28, "send buffer chunk size is too small");
             auto p = data.front().get_write() + 8; // 8 extra bytes for expiration timer
             write_le<uint64_t>(p, uint64_t(t));
@@ -431,7 +431,7 @@ inline future<> reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_s
         snd_buf data;
         try {
             data = apply(marshall<Serializer, const RetTypes&...>,
-                    std::tuple_cat(std::make_tuple(std::ref(client->serializer()), 12), std::move(ret.get())));
+                    std::tuple_cat(std::make_tuple(std::ref(client->template serializer<Serializer>()), 12), std::move(ret.get())));
         } catch (std::exception& ex) {
             uint32_t len = std::strlen(ex.what());
             data = snd_buf(20 + len);
@@ -507,7 +507,7 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
         auto f = client->wait_for_resources(memory_consumed, timeout).then([client, timeout, msg_id, data = std::move(data), &func] (auto permit) mutable {
             try {
                 with_gate(client->get_server().reply_gate(), [client, timeout, msg_id, data = std::move(data), permit = std::move(permit), &func] () mutable {
-                    auto args = unmarshall<Serializer, InArgs...>(client->serializer(), std::move(data));
+                    auto args = unmarshall<Serializer, InArgs...>(client->template serializer<Serializer>(), std::move(data));
                     return apply(func, client->info(), timeout, WantClientInfo(), WantTimePoint(), signature(), std::move(args)).then_wrapped([client, timeout, msg_id, permit = std::move(permit)] (futurize_t<Ret> ret) mutable {
                         return reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, client, timeout).then([permit = std::move(permit)] {});
                     });
