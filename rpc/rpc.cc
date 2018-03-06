@@ -29,6 +29,142 @@ namespace rpc {
           return boost::get<std::vector<temporary_buffer<char>>>(bufs).front();
       }
   }
+
+  snd_buf connection::compress(snd_buf buf) {
+      if (_compressor) {
+          buf = _compressor->compress(4, std::move(buf));
+          static_assert(snd_buf::chunk_size >= 4, "send buffer chunk size is too small");
+          write_le<uint32_t>(buf.front().get_write(), buf.size - 4);
+          return std::move(buf);
+      }
+      return std::move(buf);
+  }
+
+  future<> connection::send_buffer(snd_buf buf) {
+      auto* b = boost::get<temporary_buffer<char>>(&buf.bufs);
+      if (b) {
+          return _write_buf.write(std::move(*b));
+      } else {
+          return do_with(std::move(boost::get<std::vector<temporary_buffer<char>>>(buf.bufs)),
+                  [this] (std::vector<temporary_buffer<char>>& ar) {
+              return do_for_each(ar.begin(), ar.end(), [this] (auto& b) {
+                  return _write_buf.write(std::move(b));
+              });
+          });
+      }
+  }
+
+  template<connection::outgoing_queue_type QueueType>
+  void connection::send_loop() {
+      _send_loop_stopped = do_until([this] { return _error; }, [this] {
+          return _outgoing_queue_cond.wait([this] { return !_outgoing_queue.empty(); }).then([this] {
+              // despite using wait with predicated above _outgoing_queue can still be empty here if
+              // there is only one entry on the list and its expire timer runs after wait() returned ready future,
+              // but before this continuation runs.
+              if (_outgoing_queue.empty()) {
+                  return make_ready_future();
+              }
+              auto d = std::move(_outgoing_queue.front());
+              _outgoing_queue.pop_front();
+              d.t.cancel(); // cancel timeout timer
+              if (d.pcancel) {
+                  d.pcancel->cancel_send = std::function<void()>(); // request is no longer cancellable
+              }
+              if (QueueType == outgoing_queue_type::request) {
+                  static_assert(snd_buf::chunk_size >= 8, "send buffer chunk size is too small");
+                  if (_timeout_negotiated) {
+                      auto expire = d.t.get_timeout();
+                      uint64_t left = 0;
+                      if (expire != typename timer<rpc_clock_type>::time_point()) {
+                          left = std::chrono::duration_cast<std::chrono::milliseconds>(expire - timer<rpc_clock_type>::clock::now()).count();
+                      }
+                      write_le<uint64_t>(d.buf.front().get_write(), left);
+                  } else {
+                      d.buf.front().trim_front(8);
+                      d.buf.size -= 8;
+                  }
+              }
+              d.buf = compress(std::move(d.buf));
+              auto f = send_buffer(std::move(d.buf)).then([this] {
+                  _stats.sent_messages++;
+                  return _write_buf.flush();
+              });
+              return f.finally([d = std::move(d)] {});
+          });
+      }).handle_exception([this] (std::exception_ptr eptr) {
+          _error = true;
+      });
+  }
+  void connection::send_loop(connection::outgoing_queue_type type) {
+      if (type == outgoing_queue_type::request) {
+          send_loop<outgoing_queue_type::request>();
+      } else {
+          send_loop<outgoing_queue_type::response>();
+      }
+  }
+
+  future<> connection::stop_send_loop() {
+      _error = true;
+      if (_connected) {
+          _outgoing_queue_cond.broken();
+          _fd.shutdown_output();
+      }
+      return _send_loop_stopped.finally([this] {
+          _outgoing_queue.clear();
+          return _connected ? _write_buf.close() : make_ready_future();
+      });
+  }
+
+  void connection::set_socket(connected_socket&& fd) {
+      if (_connected) {
+          throw std::runtime_error("already connected");
+      }
+      _fd = std::move(fd);
+      _read_buf =_fd.input();
+      _write_buf = _fd.output();
+      _connected = true;
+  }
+
+  future<> connection::send_negotiation_frame(temporary_buffer<char> buf) {
+      return _write_buf.write(std::move(buf)).then([this] {
+          _stats.sent_messages++;
+          return _write_buf.flush();
+      });
+  }
+
+  future<> connection::send(snd_buf buf, std::experimental::optional<rpc_clock_type::time_point> timeout, cancellable* cancel) {
+      if (!_error) {
+          if (timeout && *timeout <= rpc_clock_type::now()) {
+              return make_ready_future<>();
+          }
+          _outgoing_queue.emplace_back(std::move(buf));
+          auto deleter = [this, it = std::prev(_outgoing_queue.cend())] {
+              _outgoing_queue.erase(it);
+          };
+          if (timeout) {
+              auto& t = _outgoing_queue.back().t;
+              t.set_callback(deleter);
+              t.arm(timeout.value());
+          }
+          if (cancel) {
+              cancel->cancel_send = std::move(deleter);
+              cancel->send_back_pointer = &_outgoing_queue.back().pcancel;
+              _outgoing_queue.back().pcancel = cancel;
+          }
+          _outgoing_queue_cond.signal();
+          return _outgoing_queue.back().p->get_future();
+      } else {
+          return make_exception_future<>(closed_error());
+      }
+  }
+
+  future<> connection::stop() {
+      if (!_error) {
+          _error = true;
+          _fd.shutdown_input();
+      }
+      return _stopped.get_future();
+  }
 }
 
 }
