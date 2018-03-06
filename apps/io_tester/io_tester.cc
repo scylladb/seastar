@@ -260,7 +260,7 @@ protected:
     uint64_t quantile_latency(double q) const {
         return quantile(_latencies, quantile_probability = q);
     }
-private:
+
     bool is_sequential() const {
         return (req_type() == request_type::seqread) || (req_type() == request_type::seqwrite);
     }
@@ -290,31 +290,23 @@ private:
         _bytes += bytes;
         _latencies(latency.count());
     }
-};
 
-// The following two classes inherit from class data and help with pretty printing the output data.
-struct class_data_description final : public class_data {
-    friend std::basic_ostream<char>& operator<<(std::basic_ostream<char>& ss, const class_data_description& cl) {
-        ss << cl.name() << ": " << cl.shares() << " shares, " << cl.req_size() << "-byte " << cl.type_str() << ", " << cl.parallelism() << " concurrent requests, ";
-        ss << cl.think_time();
-        return ss;
+public:
+    sstring describe_class() {
+        return fmt::format("{}: {} shares, {}-byte {}, {} concurrent requests", name(), shares(), req_size(), type_str(), parallelism());
     }
-    class_data_description(const class_data& cl) : class_data(cl) {}
-};
 
-struct class_data_results final : public class_data {
-    friend std::basic_ostream<char>& operator<<(std::basic_ostream<char>& ss, const class_data_results& cl) {
-        auto throughput_kbs = (cl.total_bytes() >> 10) / cl.total_duration().count();
-        ss << "  Throughput         : " << std::setw(8) << throughput_kbs << " KB/s" << std::endl;
-        ss << "  Lat average        : " << std::setw(8) << cl.average_latency() << " usec" << std::endl;
-
+    sstring describe_results() {
+        auto throughput_kbs = (total_bytes() >> 10) / total_duration().count();
+        sstring result;
+        result += fmt::format("  Throughput         : {:>8} KB/s\n", throughput_kbs);
+        result += fmt::format("  Lat average        : {:>8} usec\n", average_latency());
         for (auto& q: quantiles) {
-            ss << "  Lat quantile=" << std::setw(5) << q << " : " << std::setw(8) << cl.quantile_latency(q) << " usec" << std::endl;
+            result += fmt::format("  Lat quantile={:>5} : {:>8} usec\n", q, quantile_latency(q));
         }
-        ss << "  Lat max            : " << std::setw(8) << cl.max_latency() << " usec" << std::endl;
-        return ss;
+        result += fmt::format("  Lat max            : {:>8} usec\n", max_latency());
+        return result;
     }
-    class_data_results(const class_data& cl) : class_data(cl) {}
 };
 
 /// YAML parsing functions
@@ -470,15 +462,12 @@ public:
 
     future<> print_stats() {
         return _finished.wait(_cl.size()).then([this] {
-            std::stringstream ss;
-            ss << "Shard " << std::setw(2) << engine().cpu_id() << std::endl;
+            fmt::print("Shard {:>2}\n", engine().cpu_id());
             auto idx = 0;
             for (auto& cl: _cl) {
-                ss << " Class " << idx++ << "(" << std::setw(2) << class_data_description(cl) << ")" << std::endl;
-                ss << class_data_results(cl) << std::endl;
+                fmt::print("Class {:>2} ({})\n", idx++, cl.describe_class());
+                fmt::print("{}\n", cl.describe_results());
             }
-            ss << std::endl;
-            std::cout << ss.str();
             return make_ready_future<>();
         });
     }
