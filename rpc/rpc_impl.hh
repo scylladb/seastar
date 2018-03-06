@@ -458,7 +458,7 @@ inline future<> reply(no_wait_type, future<no_wait_type>&& r, int64_t msgid, lw_
     try {
         r.get();
     } catch (std::exception& ex) {
-        client->get_protocol().log(client->info(), msgid, to_sstring("exception \"") + ex.what() + "\" in no_wait handler ignored");
+        client->get_logger()(client->info(), msgid, to_sstring("exception \"") + ex.what() + "\" in no_wait handler ignored");
     }
     return make_ready_future<>();
 }
@@ -497,7 +497,7 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
         auto memory_consumed = client->estimate_request_size(data.size);
         if (memory_consumed > client->max_request_size()) {
             auto err = sprint("request size %d large than memory limit %d", memory_consumed, client->max_request_size());
-            client->get_protocol().log(client->peer_address(), err);
+            client->get_logger()(client->peer_address(), err);
             with_gate(client->get_server().reply_gate(), [client, timeout, msg_id, err = std::move(err)] {
                 return reply<Serializer, MsgType>(wait_style(), futurize<Ret>::make_exception_future(std::runtime_error(err.c_str())), msg_id, client, timeout);
             });
@@ -647,14 +647,14 @@ static void log_exception(Connection& c, const char* log, std::exception_ptr ept
     } catch (...) {
         s = "unknown exception";
     }
-    c.get_protocol().log(c.peer_address(), sprint("%s: %s", log, s));
+    c.get_logger()(c.peer_address(), sprint("%s: %s", log, s));
 }
 
 template<typename Connection>
 static bool verify_frame(Connection& c, temporary_buffer<char>& buf, size_t expected, const char* log) {
     if (buf.size() != expected) {
         if (buf.size() != 0) {
-            c.get_protocol().log(c.peer_address(), log);
+            c.get_logger()(c.peer_address(), log);
         }
         return false;
     }
@@ -696,13 +696,13 @@ receive_negotiation_frame(Connection& c, input_stream<char>& in) {
         std::copy_n(neg.get_write(), sizeof(frame.magic), frame.magic);
         frame.len = read_le<uint32_t>(neg.get_write() + 8);
         if (std::memcmp(frame.magic, rpc_magic, sizeof(frame.magic)) != 0) {
-            c.get_protocol().log(c.peer_address(), "wrong protocol magic");
+            c.get_logger()(c.peer_address(), "wrong protocol magic");
             return make_exception_future<feature_map>(closed_error());
         }
         auto len = frame.len;
         return in.read_exactly(len).then([&c, len] (temporary_buffer<char> extra) {
             if (extra.size() != len) {
-                c.get_protocol().log(c.peer_address(), "unexpected eof during negotiation frame");
+                c.get_logger()(c.peer_address(), "unexpected eof during negotiation frame");
                 return make_exception_future<feature_map>(closed_error());
             }
             feature_map map;
@@ -710,14 +710,14 @@ receive_negotiation_frame(Connection& c, input_stream<char>& in) {
             auto end = p + extra.size();
             while (p != end) {
                 if (end - p < 8) {
-                    c.get_protocol().log(c.peer_address(), "bad feature data format in negotiation frame");
+                    c.get_logger()(c.peer_address(), "bad feature data format in negotiation frame");
                     return make_exception_future<feature_map>(closed_error());
                 }
                 auto feature = static_cast<protocol_features>(read_le<uint32_t>(p));
                 auto f_len = read_le<uint32_t>(p + 4);
                 p += 8;
                 if (f_len > end - p) {
-                    c.get_protocol().log(c.peer_address(), "buffer underflow in feature data in negotiation frame");
+                    c.get_logger()(c.peer_address(), "buffer underflow in feature data in negotiation frame");
                     return make_exception_future<feature_map>(closed_error());
                 }
                 auto data = sstring(p, f_len);
@@ -771,7 +771,7 @@ protocol<Serializer, MsgType>::read_frame(const Info& info, input_stream<char>& 
     return in.read_exactly(header_size).then([this, header_size, &info, &in] (temporary_buffer<char> header) {
         if (header.size() != header_size) {
             if (header.size() != 0) {
-                log(info, sprint("unexpected eof on a %s while reading header: expected %d got %d", FrameType::role(), header_size, header.size()));
+                _logger(info, sprint("unexpected eof on a %s while reading header: expected %d got %d", FrameType::role(), header_size, header.size()));
             }
             return FrameType::empty_value();
         }
@@ -782,7 +782,7 @@ protocol<Serializer, MsgType>::read_frame(const Info& info, input_stream<char>& 
         } else {
             return read_rcv_buf(in, size).then([this, &info, h = std::move(h), size] (rcv_buf rb) {
                 if (rb.size != size) {
-                    log(info, sprint("unexpected eof on a %s while reading data: expected %d got %d", FrameType::role(), size, rb.size));
+                    _logger(info, sprint("unexpected eof on a %s while reading data: expected %d got %d", FrameType::role(), size, rb.size));
                     return FrameType::empty_value();
                 } else {
                     return FrameType::make_value(h, std::move(rb));
@@ -800,7 +800,7 @@ protocol<Serializer, MsgType>::read_frame_compressed(const Info& info, std::uniq
         return in.read_exactly(4).then([&] (temporary_buffer<char> compress_header) {
             if (compress_header.size() != 4) {
                 if (compress_header.size() != 0) {
-                    log(info, sprint("unexpected eof on a %s while reading compression header: expected 4 got %d", FrameType::role(), compress_header.size()));
+                    _logger(info, sprint("unexpected eof on a %s while reading compression header: expected 4 got %d", FrameType::role(), compress_header.size()));
                 }
                 return FrameType::empty_value();
             }
@@ -808,7 +808,7 @@ protocol<Serializer, MsgType>::read_frame_compressed(const Info& info, std::uniq
             auto size = read_le<uint32_t>(ptr);
             return read_rcv_buf(in, size).then([this, size, &compressor, &info] (rcv_buf compressed_data) {
                 if (compressed_data.size != size) {
-                    log(info, sprint("unexpected eof on a %s while reading compressed data: expected %d got %d", FrameType::role(), size, compressed_data.size));
+                    _logger(info, sprint("unexpected eof on a %s while reading compressed data: expected %d got %d", FrameType::role(), size, compressed_data.size));
                     return FrameType::empty_value();
                 }
                 auto eb = compressor->decompress(std::move(compressed_data));
@@ -1088,7 +1088,7 @@ protocol<Serializer, MsgType>::client::client(protocol& proto, client_options op
                         } catch(const unknown_verb_error& ex) {
                             // if this is unknown verb exception with unknown id ignore it
                             // can happen if unknown verb was used by no_wait client
-                            this->get_protocol().log(this->peer_address(), sprint("unknown verb exception %d ignored", ex.type));
+                            this->get_logger()(this->peer_address(), sprint("unknown verb exception %d ignored", ex.type));
                         } catch(...) {
                             // We've got error response but handler is no longer waiting, could be timed out.
                             log_exception(*this, "ignoring error response", std::current_exception());

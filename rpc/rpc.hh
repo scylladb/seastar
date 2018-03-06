@@ -108,6 +108,33 @@ using feature_map = std::map<protocol_features, sstring>;
 template <typename Function>
 struct signature;
 
+class logger {
+    std::function<void(const sstring&)> _logger;
+
+    void log(const sstring& str) const {
+        if (_logger) {
+            _logger(str);
+        }
+    }
+
+public:
+    void set(std::function<void(const sstring&)> l) {
+        _logger = std::move(l);
+    }
+
+    void operator()(const client_info& info, id_type msg_id, const sstring& str) const {
+        log(to_sstring("client ") + inet_ntoa(info.addr.as_posix_sockaddr_in().sin_addr) + " msg_id " + to_sstring(msg_id) + ": " + str);
+    }
+
+    void operator()(const client_info& info, const sstring& str) const {
+        log(to_sstring("client ") + inet_ntoa(info.addr.as_posix_sockaddr_in().sin_addr) + ": " + str);
+    }
+
+    void operator()(ipv4_addr addr, const sstring& str) const {
+        log(to_sstring("client ") + inet_ntoa(in_addr{net::ntoh(addr.ip)}) + ": " + str);
+    }
+};
+
 class connection {
 protected:
     connected_socket _fd;
@@ -117,6 +144,7 @@ protected:
     bool _connected = false;
     promise<> _stopped;
     stats _stats;
+    const logger& _logger;
     struct outgoing_entry {
         timer<rpc_clock_type> t;
         snd_buf buf;
@@ -156,8 +184,8 @@ protected:
     future<> stop_send_loop();
 
 public:
-    connection(connected_socket&& fd) : _fd(std::move(fd)), _read_buf(_fd.input()), _write_buf(_fd.output()), _connected(true) {}
-    connection()  {}
+    connection(connected_socket&& fd, const logger& l) : _fd(std::move(fd)), _read_buf(_fd.input()), _write_buf(_fd.output()), _connected(true), _logger(l) {}
+    connection(const logger& l) : _logger(l) {}
     void set_socket(connected_socket&& fd);
     future<> send_negotiation_frame(temporary_buffer<char> buf);
     // functions below are public because they are used by external heavily templated functions
@@ -165,6 +193,9 @@ public:
     future<> send(snd_buf buf, std::experimental::optional<rpc_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr);
     bool error() { return _error; }
     future<> stop();
+    const logger& get_logger() const {
+        return _logger;
+    }
 };
 
 // MsgType is a type that holds type of a message. The type should be hashable
@@ -175,11 +206,10 @@ class protocol {
     class connection : public rpc::connection {
     protected:
         protocol& _proto;
-        connection(connected_socket&& fd, protocol& proto) : rpc::connection(std::move(fd)), _proto(proto) {}
-        connection(protocol& proto) : _proto(proto) {}
+        connection(connected_socket&& fd, protocol& proto) : rpc::connection(std::move(fd), proto.get_logger()), _proto(proto) {}
+        connection(protocol& proto) : rpc::connection(proto.get_logger()), _proto(proto) {}
     public:
         auto& serializer() { return _proto._serializer; }
-        auto& get_protocol() { return _proto; }
     };
     friend connection;
 
@@ -391,7 +421,8 @@ private:
                                                 rcv_buf data)>;
     std::unordered_map<MsgType, rpc_handler> _handlers;
     Serializer _serializer;
-    std::function<void(const sstring&)> _logger;
+    logger _logger;
+
 public:
     protocol(Serializer&& serializer) : _serializer(std::forward<Serializer>(serializer)) {}
     template<typename Func>
@@ -408,23 +439,11 @@ public:
     }
 
     void set_logger(std::function<void(const sstring&)> logger) {
-        _logger = logger;
+        _logger.set(std::move(logger));
     }
 
-    void log(const sstring& str) {
-        if (_logger) {
-            _logger(str);
-        }
-    }
-
-    void log(const client_info& info, id_type msg_id, const sstring& str) {
-        log(to_sstring("client ") + inet_ntoa(info.addr.as_posix_sockaddr_in().sin_addr) + " msg_id " + to_sstring(msg_id) + ": " + str);
-    }
-    void log(const client_info& info, const sstring& str) {
-        log(to_sstring("client ") + inet_ntoa(info.addr.as_posix_sockaddr_in().sin_addr) + ": " + str);
-    }
-    void log(ipv4_addr addr, const sstring& str) {
-        log(to_sstring("client ") + inet_ntoa(in_addr{net::ntoh(addr.ip)}) + ": " + str);
+    const logger& get_logger() const {
+        return _logger;
     }
 
 private:
