@@ -145,6 +145,9 @@ protected:
     promise<> _stopped;
     stats _stats;
     const logger& _logger;
+    // The owner of the pointer below is an instance of rpc::protocol<typename Serializer> class.
+    // The type of the pointer is erased here, but the original type is Serializer
+    void* _serializer;
     struct outgoing_entry {
         timer<rpc_clock_type> t;
         snd_buf buf;
@@ -184,8 +187,8 @@ protected:
     future<> stop_send_loop();
 
 public:
-    connection(connected_socket&& fd, const logger& l) : _fd(std::move(fd)), _read_buf(_fd.input()), _write_buf(_fd.output()), _connected(true), _logger(l) {}
-    connection(const logger& l) : _logger(l) {}
+    connection(connected_socket&& fd, const logger& l, void* s) : _fd(std::move(fd)), _read_buf(_fd.input()), _write_buf(_fd.output()), _connected(true), _logger(l), _serializer(s) {}
+    connection(const logger& l, void* s) : _logger(l), _serializer(s) {}
     void set_socket(connected_socket&& fd);
     future<> send_negotiation_frame(temporary_buffer<char> buf);
     // functions below are public because they are used by external heavily templated functions
@@ -195,6 +198,11 @@ public:
     future<> stop();
     const logger& get_logger() const {
         return _logger;
+    }
+
+    template<typename Serializer>
+    Serializer& serializer() {
+        return *static_cast<Serializer*>(_serializer);
     }
 
     template <typename FrameType, typename Info>
@@ -211,11 +219,8 @@ template<typename Serializer, typename MsgType = uint32_t>
 class protocol {
     class connection : public rpc::connection {
     protected:
-        protocol& _proto;
-        connection(connected_socket&& fd, protocol& proto) : rpc::connection(std::move(fd), proto.get_logger()), _proto(proto) {}
-        connection(protocol& proto) : rpc::connection(proto.get_logger()), _proto(proto) {}
-    public:
-        auto& serializer() { return _proto._serializer; }
+        connection(connected_socket&& fd, protocol& proto) : rpc::connection(std::move(fd), proto.get_logger(), &proto._serializer) {}
+        connection(protocol& proto) : rpc::connection(proto.get_logger(), &proto._serializer) {}
     };
     friend connection;
 
