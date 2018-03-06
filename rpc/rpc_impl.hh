@@ -910,16 +910,6 @@ struct request_frame_with_timeout : request_frame<MsgType> {
 
 template <typename Serializer, typename MsgType>
 future<std::experimental::optional<uint64_t>, MsgType, int64_t, std::experimental::optional<rcv_buf>>
-protocol<Serializer, MsgType>::server::connection::read_request_frame(input_stream<char>& in) {
-    if (this->_timeout_negotiated) {
-        return this->_server._proto.template read_frame<request_frame_with_timeout<MsgType>>(_info, in);
-    } else {
-        return this->_server._proto.template read_frame<request_frame<MsgType>>(_info, in);
-    }
-}
-
-template <typename Serializer, typename MsgType>
-future<std::experimental::optional<uint64_t>, MsgType, int64_t, std::experimental::optional<rcv_buf>>
 protocol<Serializer, MsgType>::server::connection::read_request_frame_compressed(input_stream<char>& in) {
     if (this->_timeout_negotiated) {
         return this->_server._proto.template read_frame_compressed<request_frame_with_timeout<MsgType>>(_info, this->_compressor, in);
