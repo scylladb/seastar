@@ -300,7 +300,7 @@ public:
     }
 
     virtual sstring describe_class() override {
-        return fmt::format("{}: {} shares, {}-byte {}, {} concurrent requests", name(), shares(), req_size(), type_str(), parallelism());
+        return fmt::format("{}: {} shares, {}-byte {}, {} concurrent requests, {}", name(), shares(), req_size(), type_str(), parallelism(), think_time());
     }
 
     virtual sstring describe_results() override {
@@ -354,7 +354,7 @@ public:
 
     virtual sstring describe_class() override {
         auto exec = std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.execution_time);
-        return fmt::format("{}: {} shares, {} us CPU execution time, {} concurrent requests", name(), shares(), exec.count(), parallelism());
+        return fmt::format("{}: {} shares, {} us CPU execution time, {} concurrent requests, {}", name(), shares(), exec.count(), parallelism(), think_time());
     }
 
     virtual sstring describe_results() override {
