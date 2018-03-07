@@ -184,6 +184,176 @@ namespace rpc {
       return _stopped.get_future();
   }
 
+  template<typename Connection>
+  static bool verify_frame(Connection& c, temporary_buffer<char>& buf, size_t expected, const char* log) {
+      if (buf.size() != expected) {
+          if (buf.size() != 0) {
+              c.get_logger()(c.peer_address(), log);
+          }
+          return false;
+      }
+      return true;
+  }
+
+  template<typename Connection>
+  static
+  future<feature_map>
+  receive_negotiation_frame(Connection& c, input_stream<char>& in) {
+      return in.read_exactly(sizeof(negotiation_frame)).then([&c, &in] (temporary_buffer<char> neg) {
+          if (!verify_frame(c, neg, sizeof(negotiation_frame), "unexpected eof during negotiation frame")) {
+              return make_exception_future<feature_map>(closed_error());
+          }
+          negotiation_frame frame;
+          std::copy_n(neg.get_write(), sizeof(frame.magic), frame.magic);
+          frame.len = read_le<uint32_t>(neg.get_write() + 8);
+          if (std::memcmp(frame.magic, rpc_magic, sizeof(frame.magic)) != 0) {
+              c.get_logger()(c.peer_address(), "wrong protocol magic");
+              return make_exception_future<feature_map>(closed_error());
+          }
+          auto len = frame.len;
+          return in.read_exactly(len).then([&c, len] (temporary_buffer<char> extra) {
+              if (extra.size() != len) {
+                  c.get_logger()(c.peer_address(), "unexpected eof during negotiation frame");
+                  return make_exception_future<feature_map>(closed_error());
+              }
+              feature_map map;
+              auto p = extra.get();
+              auto end = p + extra.size();
+              while (p != end) {
+                  if (end - p < 8) {
+                      c.get_logger()(c.peer_address(), "bad feature data format in negotiation frame");
+                      return make_exception_future<feature_map>(closed_error());
+                  }
+                  auto feature = static_cast<protocol_features>(read_le<uint32_t>(p));
+                  auto f_len = read_le<uint32_t>(p + 4);
+                  p += 8;
+                  if (f_len > end - p) {
+                      c.get_logger()(c.peer_address(), "buffer underflow in feature data in negotiation frame");
+                      return make_exception_future<feature_map>(closed_error());
+                  }
+                  auto data = sstring(p, f_len);
+                  p += f_len;
+                  map.emplace(feature, std::move(data));
+              }
+              return make_ready_future<feature_map>(std::move(map));
+          });
+      });
+  }
+
+  inline future<rcv_buf>
+  read_rcv_buf(input_stream<char>& in, uint32_t size) {
+      return in.read_up_to(size).then([&, size] (temporary_buffer<char> data) mutable {
+          rcv_buf rb(size);
+          if (data.size() == 0) {
+              return make_ready_future<rcv_buf>(rcv_buf());
+          } else if (data.size() == size) {
+              rb.bufs = std::move(data);
+              return make_ready_future<rcv_buf>(std::move(rb));
+          } else {
+              size -= data.size();
+              std::vector<temporary_buffer<char>> v;
+              v.push_back(std::move(data));
+              rb.bufs = std::move(v);
+              return do_with(std::move(rb), std::move(size), [&in] (rcv_buf& rb, uint32_t& left) {
+                  return repeat([&] () {
+                      return in.read_up_to(left).then([&] (temporary_buffer<char> data) {
+                          if (!data.size()) {
+                              rb.size -= left;
+                              return stop_iteration::yes;
+                          } else {
+                              left -= data.size();
+                              boost::get<std::vector<temporary_buffer<char>>>(rb.bufs).push_back(std::move(data));
+                              return left ? stop_iteration::no : stop_iteration::yes;
+                          }
+                      });
+                  }).then([&rb] {
+                      return std::move(rb);
+                  });
+              });
+          }
+      });
+  }
+
+  template<typename FrameType, typename Info>
+  typename FrameType::return_type
+  connection::read_frame(const Info& info, input_stream<char>& in) {
+      auto header_size = FrameType::header_size();
+      return in.read_exactly(header_size).then([this, header_size, &info, &in] (temporary_buffer<char> header) {
+          if (header.size() != header_size) {
+              if (header.size() != 0) {
+                  _logger(info, sprint("unexpected eof on a %s while reading header: expected %d got %d", FrameType::role(), header_size, header.size()));
+              }
+              return FrameType::empty_value();
+          }
+          auto h = FrameType::decode_header(header.get());
+          auto size = FrameType::get_size(h);
+          if (!size) {
+              return FrameType::make_value(h, rcv_buf());
+          } else {
+              return read_rcv_buf(in, size).then([this, &info, h = std::move(h), size] (rcv_buf rb) {
+                  if (rb.size != size) {
+                      _logger(info, sprint("unexpected eof on a %s while reading data: expected %d got %d", FrameType::role(), size, rb.size));
+                      return FrameType::empty_value();
+                  } else {
+                      return FrameType::make_value(h, std::move(rb));
+                  }
+              });
+          }
+      });
+  }
+
+  template<typename FrameType, typename Info>
+  typename FrameType::return_type
+  connection::read_frame_compressed(const Info& info, std::unique_ptr<compressor>& compressor, input_stream<char>& in) {
+      if (compressor) {
+          return in.read_exactly(4).then([&] (temporary_buffer<char> compress_header) {
+              if (compress_header.size() != 4) {
+                  if (compress_header.size() != 0) {
+                      _logger(info, sprint("unexpected eof on a %s while reading compression header: expected 4 got %d", FrameType::role(), compress_header.size()));
+                  }
+                  return FrameType::empty_value();
+              }
+              auto ptr = compress_header.get();
+              auto size = read_le<uint32_t>(ptr);
+              return read_rcv_buf(in, size).then([this, size, &compressor, &info] (rcv_buf compressed_data) {
+                  if (compressed_data.size != size) {
+                      _logger(info, sprint("unexpected eof on a %s while reading compressed data: expected %d got %d", FrameType::role(), size, compressed_data.size));
+                      return FrameType::empty_value();
+                  }
+                  auto eb = compressor->decompress(std::move(compressed_data));
+                  net::packet p;
+                  auto* one = boost::get<temporary_buffer<char>>(&eb.bufs);
+                  if (one) {
+                      p = net::packet(std::move(p), std::move(*one));
+                  } else {
+                      for (auto&& b : boost::get<std::vector<temporary_buffer<char>>>(eb.bufs)) {
+                          p = net::packet(std::move(p), std::move(b));
+                      }
+                  }
+                  return do_with(as_input_stream(std::move(p)), [this, &info] (input_stream<char>& in) {
+                      return read_frame<FrameType>(info, in);
+                  });
+              });
+          });
+      } else {
+          return read_frame<FrameType>(info, in);
+      }
+  }
+
+  template<typename Connection>
+  static void log_exception(Connection& c, const char* log, std::exception_ptr eptr) {
+      const char* s;
+      try {
+          std::rethrow_exception(eptr);
+      } catch (std::exception& ex) {
+          s = ex.what();
+      } catch (...) {
+          s = "unknown exception";
+      }
+      c.get_logger()(c.peer_address(), sprint("%s: %s", log, s));
+  }
+
+
   void
   client::negotiate(feature_map provided) {
       // record features returned here
@@ -360,6 +530,198 @@ namespace rpc {
   : client(l, s, client_options{}, std::move(socket), addr, local)
   {}
 
+
+  feature_map
+  server::connection::negotiate(feature_map requested) {
+      feature_map ret;
+      for (auto&& e : requested) {
+          auto id = e.first;
+          switch (id) {
+          // supported features go here
+          case protocol_features::COMPRESS: {
+              if (_server._options.compressor_factory) {
+                  this->_compressor = _server._options.compressor_factory->negotiate(e.second, true);
+                  ret[protocol_features::COMPRESS] = _server._options.compressor_factory->supported();
+              }
+          }
+          break;
+          case protocol_features::TIMEOUT:
+              this->_timeout_negotiated = true;
+              ret[protocol_features::TIMEOUT] = "";
+              break;
+          default:
+              // nothing to do
+              ;
+          }
+      }
+      return ret;
+  }
+
+  future<>
+  server::connection::negotiate_protocol(input_stream<char>& in) {
+      return receive_negotiation_frame(*this, in).then([this] (feature_map requested_features) {
+          auto returned_features = negotiate(std::move(requested_features));
+          return send_negotiation_frame(std::move(returned_features));
+      });
+  }
+
+  struct request_frame {
+      using opt_buf_type = std::experimental::optional<rcv_buf>;
+      using return_type = future<std::experimental::optional<uint64_t>, uint64_t, int64_t, opt_buf_type>;
+      using header_type = std::tuple<std::experimental::optional<uint64_t>, uint64_t, int64_t, uint32_t>;
+      static size_t header_size() {
+          return 20;
+      }
+      static const char* role() {
+          return "server";
+      }
+      static auto empty_value() {
+          return make_ready_future<std::experimental::optional<uint64_t>, uint64_t, int64_t, opt_buf_type>(std::experimental::nullopt, uint64_t(0), 0, std::experimental::nullopt);
+      }
+      static header_type decode_header(const char* ptr) {
+          auto type = read_le<uint64_t>(ptr);
+          auto msgid = read_le<int64_t>(ptr + 8);
+          auto size = read_le<uint32_t>(ptr + 16);
+          return std::make_tuple(std::experimental::nullopt, type, msgid, size);
+      }
+      static uint32_t get_size(const header_type& t) {
+          return std::get<3>(t);
+      }
+      static auto make_value(const header_type& t, rcv_buf data) {
+          return make_ready_future<std::experimental::optional<uint64_t>, uint64_t, int64_t, opt_buf_type>(std::get<0>(t), std::get<1>(t), std::get<2>(t), std::move(data));
+      }
+  };
+
+  struct request_frame_with_timeout : request_frame {
+      using super = request_frame;
+      static size_t header_size() {
+          return 28;
+      }
+      static typename super::header_type decode_header(const char* ptr) {
+          auto h = super::decode_header(ptr + 8);
+          std::get<0>(h) = read_le<uint64_t>(ptr);
+          return h;
+      }
+  };
+
+  future<std::experimental::optional<uint64_t>, uint64_t, int64_t, std::experimental::optional<rcv_buf>>
+  server::connection::read_request_frame_compressed(input_stream<char>& in) {
+      if (this->_timeout_negotiated) {
+          return this->template read_frame_compressed<request_frame_with_timeout>(_info, this->_compressor, in);
+      } else {
+          return this->template read_frame_compressed<request_frame>(_info, this->_compressor, in);
+      }
+  }
+
+  future<>
+  server::connection::respond(int64_t msg_id, snd_buf&& data, std::experimental::optional<rpc_clock_type::time_point> timeout) {
+      static_assert(snd_buf::chunk_size >= 12, "send buffer chunk size is too small");
+      auto p = data.front().get_write();
+      write_le<int64_t>(p, msg_id);
+      write_le<uint32_t>(p + 8, data.size - 12);
+      return this->send(std::move(data), timeout);
+  }
+
+  future<> server::connection::process() {
+      return this->negotiate_protocol(this->_read_buf).then([this] () mutable {
+          send_loop();
+          return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
+              return this->read_request_frame_compressed(this->_read_buf).then([this] (std::experimental::optional<uint64_t> expire, uint64_t type, int64_t msg_id, std::experimental::optional<rcv_buf> data) {
+                  if (!data) {
+                      this->_error = true;
+                      return make_ready_future<>();
+                  } else {
+                      std::experimental::optional<rpc_clock_type::time_point> timeout;
+                      if (expire && *expire) {
+                          timeout = rpc_clock_type::now() + std::chrono::milliseconds(*expire);
+                      }
+                      auto h = _server._proto->get_handler(type);
+                      if (h) {
+                          return (*h)(this->shared_from_this(), timeout, msg_id, std::move(data.value()));
+                      } else {
+                          return this->wait_for_resources(28, timeout).then([this, timeout, msg_id, type] (auto permit) {
+                              // send unknown_verb exception back
+                              snd_buf data(28);
+                              static_assert(snd_buf::chunk_size >= 28, "send buffer chunk size is too small");
+                              auto p = data.front().get_write() + 12;
+                              write_le<uint32_t>(p, uint32_t(exception_type::UNKNOWN_VERB));
+                              write_le<uint32_t>(p + 4, uint32_t(8));
+                              write_le<uint64_t>(p + 8, type);
+                              try {
+                                  with_gate(this->_server._reply_gate, [this, timeout, msg_id, data = std::move(data), permit = std::move(permit)] () mutable {
+                                      return this->respond(-msg_id, std::move(data), timeout).then([c = this->shared_from_this(), permit = std::move(permit)] {});
+                                  });
+                              } catch(gate_closed_exception&) {/* ignore */}
+                          });
+                      }
+                  }
+              });
+          });
+      }).then_wrapped([this] (future<> f) {
+          if (f.failed()) {
+              log_exception(*this, "server connection dropped", f.get_exception());
+          }
+          this->_error = true;
+          return this->stop_send_loop().then_wrapped([this] (future<> f) {
+              f.ignore_ready_future();
+              this->_server._conns.erase(this->shared_from_this());
+              this->_stopped.set_value();
+          });
+      }).finally([conn_ptr = this->shared_from_this()] {
+          // hold onto connection pointer until do_until() exists
+      });
+  }
+
+  server::connection::connection(server& s, connected_socket&& fd, socket_address&& addr, const logger& l, void* serializer)
+      : rpc::connection(std::move(fd), l, serializer), _server(s) {
+      _info.addr = std::move(addr);
+  }
+
+  server::server(protocol_base* proto, ipv4_addr addr, resource_limits limits)
+      : server(proto, engine().listen(addr, listen_options(true)), limits, server_options{})
+  {}
+
+  server::server(protocol_base* proto, server_options opts, ipv4_addr addr, resource_limits limits)
+      : server(proto, engine().listen(addr, listen_options(true)), limits, opts)
+  {}
+
+  server::server(protocol_base* proto, server_socket ss, resource_limits limits, server_options opts)
+          : _proto(proto), _ss(std::move(ss)), _limits(limits), _resources_available(limits.max_memory), _options(opts)
+  {
+      accept();
+  }
+
+  server::server(protocol_base* proto, server_options opts, server_socket ss, resource_limits limits)
+          : server(proto, std::move(ss), limits, opts)
+  {}
+
+  void server::accept() {
+      keep_doing([this] () mutable {
+          return _ss.accept().then([this] (connected_socket fd, socket_address addr) mutable {
+              fd.set_nodelay(_options.tcp_nodelay);
+              auto conn = _proto->make_server_connection(*this, std::move(fd), std::move(addr));
+              _conns.insert(conn);
+              conn->process();
+          });
+      }).then_wrapped([this] (future<>&& f){
+          try {
+              f.get();
+              assert(false);
+          } catch (...) {
+              _ss_stopped.set_value();
+          }
+      });
+  }
+  future<> server::stop() {
+      _ss.abort_accept();
+      _resources_available.broken();
+      return when_all(_ss_stopped.get_future(),
+          parallel_for_each(_conns, [] (lw_shared_ptr<connection> conn) {
+              return conn->stop();
+          }),
+          _reply_gate.close()
+      ).discard_result();
+  }
 
 }
 
