@@ -295,98 +295,112 @@ public:
     }
 };
 
+class protocol_base;
+
+class server {
+public:
+    class connection : public rpc::connection, public enable_lw_shared_from_this<connection> {
+        server& _server;
+        client_info _info;
+    private:
+        future<> negotiate_protocol(input_stream<char>& in);
+        future<std::experimental::optional<uint64_t>, uint64_t, int64_t, std::experimental::optional<rcv_buf>>
+        read_request_frame_compressed(input_stream<char>& in);
+        feature_map negotiate(feature_map requested);
+        void send_loop() {
+            rpc::connection::send_loop(rpc::connection::outgoing_queue_type::response);
+        }
+    public:
+        connection(server& s, connected_socket&& fd, socket_address&& addr, const logger& l, void* seralizer);
+        future<> process();
+        future<> respond(int64_t msg_id, snd_buf&& data, std::experimental::optional<rpc_clock_type::time_point> timeout);
+        client_info& info() { return _info; }
+        const client_info& info() const { return _info; }
+        stats get_stats() const {
+            stats res = this->_stats;
+            res.pending = this->_outgoing_queue.size();
+            return res;
+        }
+
+        stats& get_stats_internal() {
+            return this->_stats;
+        }
+        ipv4_addr peer_address() const {
+            return ipv4_addr(_info.addr);
+        }
+        // Resources will be released when this goes out of scope
+        future<resource_permit> wait_for_resources(size_t memory_consumed,  std::experimental::optional<rpc_clock_type::time_point> timeout) {
+            if (timeout) {
+                return get_units(_server._resources_available, memory_consumed, *timeout);
+            } else {
+                return get_units(_server._resources_available, memory_consumed);
+            }
+        }
+        size_t estimate_request_size(size_t serialized_size) {
+            return rpc::estimate_request_size(_server._limits, serialized_size);
+        }
+        size_t max_request_size() const {
+            return _server._limits.max_memory;
+        }
+        server& get_server() {
+            return _server;
+        }
+    };
+private:
+    protocol_base* _proto;
+    server_socket _ss;
+    resource_limits _limits;
+    rpc_semaphore _resources_available;
+    std::unordered_set<lw_shared_ptr<connection>> _conns;
+    promise<> _ss_stopped;
+    gate _reply_gate;
+    server_options _options;
+public:
+    server(protocol_base* proto, ipv4_addr addr, resource_limits memory_limit = resource_limits());
+    server(protocol_base* proto, server_options opts, ipv4_addr addr, resource_limits memory_limit = resource_limits());
+    server(protocol_base* proto, server_socket, resource_limits memory_limit = resource_limits(), server_options opts = server_options{});
+    server(protocol_base* proto, server_options opts, server_socket, resource_limits memory_limit = resource_limits());
+    void accept();
+    future<> stop();
+    template<typename Func>
+    void foreach_connection(Func&& f) {
+        for (auto c : _conns) {
+            f(*c);
+        }
+    }
+    gate& reply_gate() {
+        return _reply_gate;
+    }
+    friend connection;
+};
+
+using rpc_handler = std::function<future<> (lw_shared_ptr<server::connection>, std::experimental::optional<rpc_clock_type::time_point> timeout, int64_t msgid,
+                                            rcv_buf data)>;
+
+class protocol_base {
+public:
+    virtual ~protocol_base() {};
+    virtual lw_shared_ptr<server::connection> make_server_connection(rpc::server& server, connected_socket fd, socket_address addr) = 0;
+    virtual rpc_handler* get_handler(uint64_t msg_id) = 0;
+};
+
 // MsgType is a type that holds type of a message. The type should be hashable
 // and serializable. It is preferable to use enum for message types, but
 // do not forget to provide hash function for it
 template<typename Serializer, typename MsgType = uint32_t>
-class protocol {
+class protocol : public protocol_base {
 public:
-    class server {
+    class server : public rpc::server {
     public:
-        class connection : public rpc::connection, public enable_lw_shared_from_this<connection> {
-            server& _server;
-            client_info _info;
-        private:
-            future<> negotiate_protocol(input_stream<char>& in);
-            future<std::experimental::optional<uint64_t>, MsgType, int64_t, std::experimental::optional<rcv_buf>>
-            read_request_frame_compressed(input_stream<char>& in);
-            feature_map negotiate(feature_map requested);
-            void send_loop() {
-                rpc::connection::send_loop(rpc::connection::outgoing_queue_type::response);
-            }
-        public:
-            connection(server& s, connected_socket&& fd, socket_address&& addr, protocol& proto);
-            future<> process();
-            future<> respond(int64_t msg_id, snd_buf&& data, std::experimental::optional<rpc_clock_type::time_point> timeout);
-            client_info& info() { return _info; }
-            const client_info& info() const { return _info; }
-            stats get_stats() const {
-                stats res = this->_stats;
-                res.pending = this->_outgoing_queue.size();
-                return res;
-            }
-
-            stats& get_stats_internal() {
-                return this->_stats;
-            }
-            ipv4_addr peer_address() const {
-                return ipv4_addr(_info.addr);
-            }
-            // Resources will be released when this goes out of scope
-            future<resource_permit> wait_for_resources(size_t memory_consumed,  std::experimental::optional<rpc_clock_type::time_point> timeout) {
-                if (timeout) {
-                    return get_units(_server._resources_available, memory_consumed, *timeout);
-                } else {
-                    return get_units(_server._resources_available, memory_consumed);
-                }
-            }
-            size_t estimate_request_size(size_t serialized_size) {
-                return rpc::estimate_request_size(_server._limits, serialized_size);
-            }
-            size_t max_request_size() const {
-                return _server._limits.max_memory;
-            }
-            server& get_server() {
-                return _server;
-            }
-        };
-    private:
-        protocol& _proto;
-        server_socket _ss;
-        resource_limits _limits;
-        rpc_semaphore _resources_available;
-        std::unordered_set<lw_shared_ptr<connection>> _conns;
-        promise<> _ss_stopped;
-        gate _reply_gate;
-        server_options _options;
-    public:
-        server(protocol& proto, ipv4_addr addr, resource_limits memory_limit = resource_limits());
-        server(protocol& proto, server_options opts, ipv4_addr addr, resource_limits memory_limit = resource_limits());
-        server(protocol& proto, server_socket, resource_limits memory_limit = resource_limits(), server_options opts = server_options{});
-        server(protocol& proto, server_options opts, server_socket, resource_limits memory_limit = resource_limits());
-        void accept();
-        future<> stop() {
-            _ss.abort_accept();
-            _resources_available.broken();
-            return when_all(_ss_stopped.get_future(),
-                parallel_for_each(_conns, [] (lw_shared_ptr<connection> conn) {
-                    return conn->stop();
-                }),
-                _reply_gate.close()
-            ).discard_result();
-        }
-        template<typename Func>
-        void foreach_connection(Func&& f) {
-            for (auto c : _conns) {
-                f(*c);
-            }
-        }
-        gate& reply_gate() {
-            return _reply_gate;
-        }
-        friend connection;
+        server(protocol& proto, ipv4_addr addr, resource_limits memory_limit = resource_limits()) :
+            rpc::server(&proto, addr, memory_limit) {}
+        server(protocol& proto, server_options opts, ipv4_addr addr, resource_limits memory_limit = resource_limits()) :
+            rpc::server(&proto, opts, addr, memory_limit) {}
+        server(protocol& proto, server_socket socket, resource_limits memory_limit = resource_limits(), server_options opts = server_options{}) :
+            rpc::server(&proto, std::move(socket), memory_limit) {}
+        server(protocol& proto, server_options opts, server_socket socket, resource_limits memory_limit = resource_limits()) :
+            rpc::server(&proto, opts, std::move(socket), memory_limit) {}
     };
-
     class client : public rpc::client {
     public:
         /*
@@ -416,8 +430,6 @@ public:
 
     friend server;
 private:
-    using rpc_handler = std::function<future<> (lw_shared_ptr<typename server::connection>, std::experimental::optional<rpc_clock_type::time_point> timeout, int64_t msgid,
-                                                rcv_buf data)>;
     std::unordered_map<MsgType, rpc_handler> _handlers;
     Serializer _serializer;
     logger _logger;
@@ -443,6 +455,19 @@ public:
 
     const logger& get_logger() const {
         return _logger;
+    }
+
+    lw_shared_ptr<rpc::server::connection> make_server_connection(rpc::server& server, connected_socket fd, socket_address addr) override {
+        return make_lw_shared<rpc::server::connection>(server, std::move(fd), std::move(addr), _logger, &_serializer);
+    }
+
+    rpc_handler* get_handler(uint64_t msg_id) override {
+        auto it = _handlers.find(MsgType(msg_id));
+        if (it != _handlers.end()) {
+            return &it->second;
+        } else {
+            return nullptr;
+        }
     }
 
 private:
