@@ -320,11 +320,12 @@ class smp_message_queue {
     };
     struct work_item {
         virtual ~work_item() {}
-        virtual future<> process() = 0;
+        virtual void process() = 0;
         virtual void complete() = 0;
     };
     template <typename Func>
     struct async_work_item : work_item {
+        smp_message_queue& _queue;
         Func _func;
         using futurator = futurize<std::result_of_t<Func()>>;
         using future_type = typename futurator::type;
@@ -332,19 +333,20 @@ class smp_message_queue {
         std::experimental::optional<value_type> _result;
         std::exception_ptr _ex; // if !_result
         typename futurator::promise_type _promise; // used on local side
-        async_work_item(Func&& func) : _func(std::move(func)) {}
-        virtual future<> process() override {
+        async_work_item(smp_message_queue& queue, Func&& func) : _queue(queue), _func(std::move(func)) {}
+        virtual void process() override {
             try {
-                return futurator::apply(this->_func).then_wrapped([this] (auto&& f) {
-                    try {
+                futurator::apply(this->_func).then_wrapped([this] (auto f) {
+                    if (f.failed()) {
+                        _ex = f.get_exception();
+                    } else {
                         _result = f.get();
-                    } catch (...) {
-                        _ex = std::current_exception();
                     }
+                    _queue.respond(this);
                 });
             } catch (...) {
                 _ex = std::current_exception();
-                return make_ready_future();
+                _queue.respond(this);
             }
         }
         virtual void complete() override {
@@ -370,7 +372,7 @@ public:
     smp_message_queue(reactor* from, reactor* to);
     template <typename Func>
     futurize_t<std::result_of_t<Func()>> submit(Func&& func) {
-        auto wi = std::make_unique<async_work_item<Func>>(std::forward<Func>(func));
+        auto wi = std::make_unique<async_work_item<Func>>(*this, std::forward<Func>(func));
         auto fut = wi->get_future();
         submit_item(std::move(wi));
         return fut;
@@ -572,6 +574,21 @@ public:
         return _fq.waiters();
     }
 
+    // How many requests are sent to disk but not yet returned.
+    size_t requests_currently_executing() const {
+        return _fq.requests_currently_executing();
+    }
+
+    // Inform the underlying queue about the fact that some of our requests finished
+    void notify_requests_finished(size_t finished) {
+        _fq.notify_requests_finished(finished);
+    }
+
+    // Dispatch requests that are pending in the I/O queue
+    void poll_io_queue() {
+        _fq.dispatch_requests();
+    }
+
     shard_id coordinator() const {
         return _coordinator;
     }
@@ -738,7 +755,6 @@ private:
     std::stack<::iocb*, boost::container::static_vector<::iocb*, max_aio>> _free_iocbs;
     boost::container::static_vector<::iocb*, max_aio> _pending_aio;
     boost::container::static_vector<::iocb*, max_aio> _pending_aio_retry;
-    semaphore _io_context_available;
     io_stats _io_stats;
     uint64_t _fsyncs = 0;
     uint64_t _cxx_exceptions = 0;
@@ -925,7 +941,8 @@ public:
     // in which it was generated. Therefore, care must be taken to avoid the use of objects that could
     // be destroyed within or at exit of prepare_io.
     template <typename Func>
-    future<io_event> submit_io(Func prepare_io);
+    void submit_io(std::unique_ptr<promise<io_event>>, Func prepare_io);
+
     template <typename Func>
     future<io_event> submit_io_read(const io_priority_class& priority_class, size_t len, Func prepare_io);
     template <typename Func>

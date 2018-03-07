@@ -432,7 +432,6 @@ reactor::reactor(unsigned id)
     , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
     , _cpu_started(0)
     , _io_context(0)
-    , _io_context_available(max_aio)
     , _reuseport(posix_reuseport_detect())
     , _task_quota_timer_thread(&reactor::task_quota_timer_thread_fn, this)
     , _thread_pool(seastar::format("syscall-{}", id)) {
@@ -883,29 +882,20 @@ void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd, promise
 static bool aio_nowait_supported = true;
 
 template <typename Func>
-future<io_event>
-reactor::submit_io(Func prepare_io) {
-    return _io_context_available.wait(1).then([this, prepare_io = std::move(prepare_io)] () mutable {
-        auto pr = std::make_unique<promise<io_event>>();
-        iocb& io = *_free_iocbs.top();
-        _free_iocbs.pop();
-        prepare_io(io);
-        if (_aio_eventfd) {
-            set_eventfd_notification(io, _aio_eventfd->get_fd());
-        }
-        if (aio_nowait_supported) {
-            set_nowait(io, true);
-        }
-        auto f = pr->get_future();
-        set_user_data(io, pr.get());
-        _pending_aio.push_back(&io);
-        pr.release();
-        if ((_io_queue->queued_requests() > 0) ||
-            (_pending_aio.size() >= std::min(max_aio / 4, _io_queue->_capacity / 2))) {
-            flush_pending_aio();
-        }
-        return f;
-    });
+void
+reactor::submit_io(std::unique_ptr<promise<io_event>> pr, Func prepare_io) {
+    iocb& io = *_free_iocbs.top();
+    _free_iocbs.pop();
+    prepare_io(io);
+    if (_aio_eventfd) {
+        set_eventfd_notification(io, _aio_eventfd->get_fd());
+    }
+    if (aio_nowait_supported) {
+        set_nowait(io, true);
+    }
+    set_user_data(io, pr.get());
+    pr.release();
+    _pending_aio.push_back(&io);
 }
 
 // Returns: number of iocbs consumed (0 or 1)
@@ -928,7 +918,7 @@ reactor::handle_aio_error(::iocb* iocb, int ec) {
                 pr->set_exception(std::current_exception());
             }
             delete pr;
-            _io_context_available.signal(1);
+            my_io_queue->notify_requests_finished(1);
             // if EBADF, it means that the first request has a bad fd, so
             // we will only remove it from _pending_aio and try again.
             return 1;
@@ -941,6 +931,8 @@ reactor::handle_aio_error(::iocb* iocb, int ec) {
 
 bool
 reactor::flush_pending_aio() {
+    my_io_queue->poll_io_queue();
+
     bool did_work = false;
     while (!_pending_aio.empty()) {
         auto nr = _pending_aio.size();
@@ -1023,16 +1015,16 @@ bool reactor::process_io()
         pr->set_value(ev[i]);
         delete pr;
     }
-    _io_context_available.signal(n - nr_retry);
+    my_io_queue->notify_requests_finished(n - nr_retry);
     return n;
 }
 
 io_queue::io_queue(shard_id coordinator, size_t capacity, std::vector<shard_id> topology)
         : _coordinator(coordinator)
-        , _capacity(capacity)
+        , _capacity(std::min(capacity, reactor::max_aio))
         , _io_topology(std::move(topology))
         , _priority_classes()
-        , _fq(capacity) {
+        , _fq(_capacity) {
 }
 
 io_queue::~io_queue() {
@@ -1145,11 +1137,19 @@ io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_
         pclass.bytes += len;
         pclass.ops++;
         pclass.nr_queued++;
-        return queue._fq.queue(pclass.ptr, weight, [&pclass, start, prepare_io = std::move(prepare_io)] {
-            pclass.nr_queued--;
-            pclass.queue_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start);
-            return engine().submit_io(std::move(prepare_io));
+        auto pr = std::make_unique<promise<io_event>>();
+        auto fut = pr->get_future();
+        queue._fq.queue(pclass.ptr, weight, [&pclass, &queue, start, prepare_io = std::move(prepare_io), pr = std::move(pr)] () mutable noexcept {
+            try {
+                pclass.nr_queued--;
+                pclass.queue_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start);
+                engine().submit_io(std::move(pr), std::move(prepare_io));
+            } catch (...) {
+                pr->set_exception(std::current_exception());
+                queue.notify_requests_finished(1);
+            }
         });
+        return fut;
     });
 }
 
@@ -2592,8 +2592,7 @@ public:
     virtual bool try_enter_interrupt_mode() override {
         // aio cannot generate events if there are no inflight aios;
         // but if we enabled _aio_eventfd, we can always enter
-        return _r._io_context_available.current() == reactor::max_aio
-                || _r._aio_eventfd;
+        return _r.my_io_queue->requests_currently_executing() > 0 || _r._aio_eventfd;
     }
     virtual void exit_interrupt_mode() override {
         // nothing to do
@@ -2945,9 +2944,22 @@ int reactor::run() {
 
     register_metrics();
 
+    std::optional<poller> io_poller = {};
+    std::optional<poller> aio_poller = {};
+    std::experimental::optional<poller> smp_poller = {};
+
+    // I/O Performance greatly increases if the smp poller runs before the I/O poller. This is
+    // because requests that were just added can be polled and processed by the I/O poller right
+    // away.
+    if (smp::count > 1) {
+        smp_poller = poller(std::make_unique<smp_pollfn>(*this));
+    }
+    if (my_io_queue) {
 #ifndef HAVE_OSV
-    poller io_poller(std::make_unique<io_pollfn>(*this));
+        io_poller = poller(std::make_unique<io_pollfn>(*this));
 #endif
+        aio_poller = poller(std::make_unique<aio_batch_submit_pollfn>(*this));
+    }
 
     ::sched_param sp;
     sp.sched_priority = 1;
@@ -2957,7 +2969,6 @@ int reactor::run() {
     }
 
     poller sig_poller(std::make_unique<signal_pollfn>(*this));
-    poller aio_poller(std::make_unique<aio_batch_submit_pollfn>(*this));
     poller batch_flush_poller(std::make_unique<batch_flush_pollfn>(*this));
     poller execution_stage_poller(std::make_unique<execution_stage_pollfn>());
 
@@ -2983,12 +2994,6 @@ int reactor::run() {
             });
         }
     });
-
-    // Register smp queues poller
-    std::experimental::optional<poller> smp_poller;
-    if (smp::count > 1) {
-        smp_poller = poller(std::make_unique<smp_pollfn>(*this));
-    }
 
     poller syscall_poller(std::make_unique<syscall_pollfn>(*this));
 #ifndef HAVE_OSV
@@ -3435,9 +3440,7 @@ void smp_message_queue::flush_request_batch() {
 
 size_t smp_message_queue::process_incoming() {
     auto nr = process_queue<prefetch_cnt>(_pending, [this] (work_item* wi) {
-        wi->process().then([this, wi] {
-            respond(wi);
-        });
+        wi->process();
     });
     _received += nr;
     _last_rcv_batch = nr;
