@@ -1229,6 +1229,28 @@ size_t object_size(void* ptr) {
     return cpu_pages::all_cpus[object_cpu_id(ptr)]->object_size(ptr);
 }
 
+[[gnu::always_inline]]
+static inline cpu_pages& get_cpu_mem()
+{
+    // cpu_pages has a non-trivial constructor which means that the compiler
+    // must make sure the instance local to the current thread has been
+    // constructed before each access.
+    // Unfortunately, this means that GCC will emit an unconditional call
+    // to __tls_init(), which may incurr a noticeable overhead in applications
+    // that are heavy on memory allocations.
+    // This can be solved by adding an easily predictable branch checking
+    // whether the object has already been constructed.
+    static thread_local cpu_pages* cpu_mem_ptr;
+    if (__builtin_expect(!bool(cpu_mem_ptr), false)) {
+        // Mark as cold so that GCC8+ can move this part of the function
+        // to .text.unlikely.
+        [&] () [[gnu::cold]] {
+            cpu_mem_ptr = &cpu_mem;
+        }();
+    }
+    return *cpu_mem_ptr;
+}
+
 void* allocate(size_t size) {
     if (size <= sizeof(free_object)) {
         size = sizeof(free_object);
@@ -1236,7 +1258,7 @@ void* allocate(size_t size) {
     void* ptr;
     if (size <= max_small_allocation) {
         size = object_size_with_alloc_site(size);
-        ptr = cpu_mem.allocate_small(size);
+        ptr = get_cpu_mem().allocate_small(size);
     } else {
         ptr = allocate_large(size);
     }
@@ -1256,7 +1278,7 @@ void* allocate_aligned(size_t align, size_t size) {
         // Our small allocator only guarantees alignment for power-of-two
         // allocations which are not larger than a page.
         size = 1 << log2ceil(object_size_with_alloc_site(size));
-        ptr = cpu_mem.allocate_small(size);
+        ptr = get_cpu_mem().allocate_small(size);
     } else {
         ptr = allocate_large_aligned(align, size);
     }
@@ -1268,19 +1290,19 @@ void* allocate_aligned(size_t align, size_t size) {
 }
 
 void free(void* obj) {
-    if (cpu_mem.try_cross_cpu_free(obj)) {
+    if (get_cpu_mem().try_cross_cpu_free(obj)) {
         return;
     }
     ++g_frees;
-    cpu_mem.free(obj);
+    get_cpu_mem().free(obj);
 }
 
 void free(void* obj, size_t size) {
-    if (cpu_mem.try_cross_cpu_free(obj)) {
+    if (get_cpu_mem().try_cross_cpu_free(obj)) {
         return;
     }
     ++g_frees;
-    cpu_mem.free(obj, size);
+    get_cpu_mem().free(obj, size);
 }
 
 void free_aligned(void* obj, size_t align, size_t size) {
