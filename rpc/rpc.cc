@@ -663,6 +663,7 @@ namespace rpc {
           if (f.failed()) {
               log_exception(*this, "server connection dropped", f.get_exception());
           }
+          _fd.shutdown_input();
           _error = true;
           return stop_send_loop().then_wrapped([this] (future<> f) {
               f.ignore_ready_future();
