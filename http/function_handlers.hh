@@ -111,6 +111,8 @@ public:
                     }), _type("json") {
     }
 
+    function_handler(const function_handler&) = default;
+
     future<std::unique_ptr<reply>> handle(const sstring& path,
             std::unique_ptr<request> req, std::unique_ptr<reply> rep) override {
         return _f_handle(std::move(req), std::move(rep)).then(
