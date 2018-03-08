@@ -363,11 +363,11 @@ namespace rpc {
           // supported features go here
           case protocol_features::COMPRESS:
               if (_options.compressor_factory) {
-                  this->_compressor = _options.compressor_factory->negotiate(e.second, false);
+                  _compressor = _options.compressor_factory->negotiate(e.second, false);
               }
               break;
           case protocol_features::TIMEOUT:
-              this->_timeout_negotiated = true;
+              _timeout_negotiated = true;
               break;
           default:
               // nothing to do
@@ -412,18 +412,18 @@ namespace rpc {
 
   future<int64_t, std::experimental::optional<rcv_buf>>
   client::read_response_frame(input_stream<char>& in) {
-      return this->template read_frame<response_frame>(this->_server_addr, in);
+      return read_frame<response_frame>(_server_addr, in);
   }
 
   future<int64_t, std::experimental::optional<rcv_buf>>
   client::read_response_frame_compressed(input_stream<char>& in) {
-      return this->template read_frame_compressed<response_frame>(this->_server_addr, this->_compressor, in);
+      return read_frame_compressed<response_frame>(_server_addr, _compressor, in);
   }
 
   stats client::get_stats() const {
-      stats res = this->_stats;
+      stats res = _stats;
       res.wait_reply = _outstanding.size();
-      res.pending = this->_outgoing_queue.size();
+      res.pending = _outgoing_queue.size();
       return res;
   }
 
@@ -443,17 +443,17 @@ namespace rpc {
       _outstanding.emplace(id, std::move(h));
   }
   void client::wait_timed_out(id_type id) {
-      this->_stats.timeout++;
+      _stats.timeout++;
       _outstanding[id]->timeout();
       _outstanding.erase(id);
   }
 
   future<> client::stop() {
-      if (!this->_error) {
-          this->_error = true;
+      if (!_error) {
+          _error = true;
           _socket.shutdown();
       }
-      return this->_stopped.get_future();
+      return _stopped.get_future();
   }
 
   client::client(const logger& l, void* s, client_options ops, socket socket, ipv4_addr addr, ipv4_addr local)
@@ -464,7 +464,7 @@ namespace rpc {
               fd.set_keepalive(true);
               fd.set_keepalive_parameters(ops.keepalive.value());
           }
-          this->set_socket(std::move(fd));
+          set_socket(std::move(fd));
 
           feature_map features;
           if (_options.compressor_factory) {
@@ -475,13 +475,13 @@ namespace rpc {
           }
           send_negotiation_frame(std::move(features));
 
-          return this->negotiate_protocol(this->_read_buf).then([this] () {
+          return negotiate_protocol(_read_buf).then([this] () {
               send_loop();
-              return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
-                  return this->read_response_frame_compressed(this->_read_buf).then([this] (int64_t msg_id, std::experimental::optional<rcv_buf> data) {
+              return do_until([this] { return _read_buf.eof() || _error; }, [this] () mutable {
+                  return read_response_frame_compressed(_read_buf).then([this] (int64_t msg_id, std::experimental::optional<rcv_buf> data) {
                       auto it = _outstanding.find(std::abs(msg_id));
                       if (!data) {
-                          this->_error = true;
+                          _error = true;
                       } else if (it != _outstanding.end()) {
                           auto handler = std::move(it->second);
                           _outstanding.erase(it);
@@ -492,7 +492,7 @@ namespace rpc {
                           } catch(const unknown_verb_error& ex) {
                               // if this is unknown verb exception with unknown id ignore it
                               // can happen if unknown verb was used by no_wait client
-                              this->get_logger()(this->peer_address(), sprint("unknown verb exception %d ignored", ex.type));
+                              get_logger()(peer_address(), sprint("unknown verb exception %d ignored", ex.type));
                           } catch(...) {
                               // We've got error response but handler is no longer waiting, could be timed out.
                               log_exception(*this, "ignoring error response", std::current_exception());
@@ -507,13 +507,13 @@ namespace rpc {
           });
       }).then_wrapped([this] (future<> f) {
           if (f.failed()) {
-              log_exception(*this, this->_connected ? "client connection dropped" : "fail to connect", f.get_exception());
+              log_exception(*this, _connected ? "client connection dropped" : "fail to connect", f.get_exception());
           }
-          this->_error = true;
-          this->stop_send_loop().then_wrapped([this] (future<> f) {
+          _error = true;
+          stop_send_loop().then_wrapped([this] (future<> f) {
               f.ignore_ready_future();
-              this->_stopped.set_value();
-              this->_outstanding.clear();
+              _stopped.set_value();
+              _outstanding.clear();
           });
       });
   }
@@ -540,13 +540,13 @@ namespace rpc {
           // supported features go here
           case protocol_features::COMPRESS: {
               if (_server._options.compressor_factory) {
-                  this->_compressor = _server._options.compressor_factory->negotiate(e.second, true);
+                  _compressor = _server._options.compressor_factory->negotiate(e.second, true);
                   ret[protocol_features::COMPRESS] = _server._options.compressor_factory->supported();
               }
           }
           break;
           case protocol_features::TIMEOUT:
-              this->_timeout_negotiated = true;
+              _timeout_negotiated = true;
               ret[protocol_features::TIMEOUT] = "";
               break;
           default:
@@ -606,10 +606,10 @@ namespace rpc {
 
   future<std::experimental::optional<uint64_t>, uint64_t, int64_t, std::experimental::optional<rcv_buf>>
   server::connection::read_request_frame_compressed(input_stream<char>& in) {
-      if (this->_timeout_negotiated) {
-          return this->template read_frame_compressed<request_frame_with_timeout>(_info, this->_compressor, in);
+      if (_timeout_negotiated) {
+          return read_frame_compressed<request_frame_with_timeout>(_info, _compressor, in);
       } else {
-          return this->template read_frame_compressed<request_frame>(_info, this->_compressor, in);
+          return read_frame_compressed<request_frame>(_info, _compressor, in);
       }
   }
 
@@ -619,16 +619,16 @@ namespace rpc {
       auto p = data.front().get_write();
       write_le<int64_t>(p, msg_id);
       write_le<uint32_t>(p + 8, data.size - 12);
-      return this->send(std::move(data), timeout);
+      return send(std::move(data), timeout);
   }
 
   future<> server::connection::process() {
-      return this->negotiate_protocol(this->_read_buf).then([this] () mutable {
+      return negotiate_protocol(_read_buf).then([this] () mutable {
           send_loop();
-          return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
-              return this->read_request_frame_compressed(this->_read_buf).then([this] (std::experimental::optional<uint64_t> expire, uint64_t type, int64_t msg_id, std::experimental::optional<rcv_buf> data) {
+          return do_until([this] { return _read_buf.eof() || _error; }, [this] () mutable {
+              return read_request_frame_compressed(_read_buf).then([this] (std::experimental::optional<uint64_t> expire, uint64_t type, int64_t msg_id, std::experimental::optional<rcv_buf> data) {
                   if (!data) {
-                      this->_error = true;
+                      _error = true;
                       return make_ready_future<>();
                   } else {
                       std::experimental::optional<rpc_clock_type::time_point> timeout;
@@ -637,9 +637,9 @@ namespace rpc {
                       }
                       auto h = _server._proto->get_handler(type);
                       if (h) {
-                          return (*h)(this->shared_from_this(), timeout, msg_id, std::move(data.value()));
+                          return (*h)(shared_from_this(), timeout, msg_id, std::move(data.value()));
                       } else {
-                          return this->wait_for_resources(28, timeout).then([this, timeout, msg_id, type] (auto permit) {
+                          return wait_for_resources(28, timeout).then([this, timeout, msg_id, type] (auto permit) {
                               // send unknown_verb exception back
                               snd_buf data(28);
                               static_assert(snd_buf::chunk_size >= 28, "send buffer chunk size is too small");
@@ -648,8 +648,10 @@ namespace rpc {
                               write_le<uint32_t>(p + 4, uint32_t(8));
                               write_le<uint64_t>(p + 8, type);
                               try {
-                                  with_gate(this->_server._reply_gate, [this, timeout, msg_id, data = std::move(data), permit = std::move(permit)] () mutable {
-                                      return this->respond(-msg_id, std::move(data), timeout).then([c = this->shared_from_this(), permit = std::move(permit)] {});
+                                  with_gate(_server._reply_gate, [this, timeout, msg_id, data = std::move(data), permit = std::move(permit)] () mutable {
+                                      // workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=83268
+                                      auto c = shared_from_this();
+                                      return respond(-msg_id, std::move(data), timeout).then([c = std::move(c), permit = std::move(permit)] {});
                                   });
                               } catch(gate_closed_exception&) {/* ignore */}
                           });
@@ -661,13 +663,13 @@ namespace rpc {
           if (f.failed()) {
               log_exception(*this, "server connection dropped", f.get_exception());
           }
-          this->_error = true;
-          return this->stop_send_loop().then_wrapped([this] (future<> f) {
+          _error = true;
+          return stop_send_loop().then_wrapped([this] (future<> f) {
               f.ignore_ready_future();
-              this->_server._conns.erase(this->shared_from_this());
-              this->_stopped.set_value();
+              _server._conns.erase(shared_from_this());
+              _stopped.set_value();
           });
-      }).finally([conn_ptr = this->shared_from_this()] {
+      }).finally([conn_ptr = shared_from_this()] {
           // hold onto connection pointer until do_until() exists
       });
   }

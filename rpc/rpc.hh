@@ -284,7 +284,7 @@ public:
 
     stats get_stats() const;
     stats& get_stats_internal() {
-        return this->_stats;
+        return _stats;
     }
     auto next_message_id() { return _message_id++; }
     void wait_for_reply(id_type id, std::unique_ptr<reply_handler_base>&& h, std::experimental::optional<rpc_clock_type::time_point> timeout, cancellable* cancel);
@@ -317,13 +317,13 @@ public:
         client_info& info() { return _info; }
         const client_info& info() const { return _info; }
         stats get_stats() const {
-            stats res = this->_stats;
-            res.pending = this->_outgoing_queue.size();
+            stats res = _stats;
+            res.pending = _outgoing_queue.size();
             return res;
         }
 
         stats& get_stats_internal() {
-            return this->_stats;
+            return _stats;
         }
         ipv4_addr peer_address() const {
             return ipv4_addr(_info.addr);
