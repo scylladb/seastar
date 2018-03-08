@@ -68,6 +68,8 @@ public:
     sstring _param;
 };
 
+struct path_description;
+
 /**
  * routes object do the request dispatching according to the url.
  * It uses two decision mechanism exact match, if a url matches exactly
@@ -194,6 +196,14 @@ public:
     std::unique_ptr<reply> exception_reply(std::exception_ptr eptr);
 
     routes();
+
+    /*!
+     * \brief add an alias to an already registered path.
+     * After registering a handler to a path, use this method
+     * to add an alias to that handler.
+     *
+     */
+    void add_alias(const path_description& old_path, const path_description& new_path);
 };
 
 /**
