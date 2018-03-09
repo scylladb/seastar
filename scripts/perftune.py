@@ -541,15 +541,52 @@ class NetPerfTuner(PerfTunerBase):
             else:
                 print("Skipping {} (not a physical slave device?)".format(slave))
 
-    def __get_hw_iface_def_mode(self, iface):
+    def __max_rx_queue_count(self, iface):
         """
-        Returns the default configuration mode for the given interface.
+        :param iface: Interface to check
+        :return: The maximum number of RSS queues for the given interface if there is known limitation and sys.maxsize
+        otherwise.
+
+        Networking drivers serving HW with the known maximum RSS queue limitation (due to lack of RSS bits):
+
+        ixgbe:   PF NICs support up to 16 RSS queues.
+        ixgbevf: VF NICs support up to 4 RSS queues.
+        i40e:    PF NICs support up to 64 RSS queues.
+        i40evf:  VF NICs support up to 16 RSS queues.
+
+        """
+        driver_to_max_rss = {'ixgbe': 16, 'ixgbevf': 4, 'i40e': 64, 'i40evf': 16}
+
+        driver_name = ''
+        ethtool_i_lines = run_one_command(['ethtool', '-i', iface]).splitlines()
+        driver_re = re.compile("driver:")
+        driver_lines = list(filter(lambda one_line: driver_re.search(one_line), ethtool_i_lines))
+
+        if driver_lines:
+            if len(driver_lines) > 1:
+                raise Exception("More than one 'driver:' entries in the 'ethtool -i {}' output. Unable to continue.".format(iface))
+
+            driver_name = driver_lines[0].split()[1].strip()
+
+        return driver_to_max_rss.get(driver_name, sys.maxsize)
+
+    def __get_rx_queue_count(self, iface):
+        """
+        :return: the RSS Rx queues count for the given interface.
         """
         num_irqs = len(self.__get_irqs_one(iface))
         rx_queues_count = len(self.__get_rps_cpus(iface))
 
         if rx_queues_count == 0:
             rx_queues_count = num_irqs
+
+        return min(self.__max_rx_queue_count(iface), rx_queues_count)
+
+    def __get_hw_iface_def_mode(self, iface):
+        """
+        Returns the default configuration mode for the given interface.
+        """
+        rx_queues_count = self.__get_rx_queue_count(iface)
 
         num_cores = int(run_hwloc_calc(['--number-of', 'core', 'machine:0', '--restrict', self.args.cpu_mask]))
         num_PUs = int(run_hwloc_calc(['--number-of', 'PU', 'machine:0', '--restrict', self.args.cpu_mask]))
