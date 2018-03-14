@@ -2888,12 +2888,14 @@ reactor::insert_activating_task_queues() {
 }
 
 void
-reactor::run_some_tasks(sched_clock::time_point& t_run_completed) {
+reactor::run_some_tasks() {
     if (!have_more_tasks()) {
         return;
     }
     sched_print("run_some_tasks: start");
     g_need_preempt = false;
+
+    sched_clock::time_point t_run_completed = std::chrono::steady_clock::now();
     STAP_PROBE(seastar, reactor_run_tasks_start);
     do {
         auto t_run_started = t_run_completed;
@@ -3049,14 +3051,13 @@ int reactor::run() {
     std::function<bool()> pure_check_for_work = [this] () {
         return pure_poll_once() || have_more_tasks() || seastar::thread::try_run_one_yielded_thread();
     };
-    auto t_run_completed = idle_end;
     while (true) {
-        run_some_tasks(t_run_completed);
+        run_some_tasks();
         if (_stopped) {
             load_timer.cancel();
             // Final tasks may include sending the last response to cpu 0, so run them
             while (have_more_tasks()) {
-                run_some_tasks(t_run_completed);
+                run_some_tasks();
             }
             while (!_at_destroy_tasks->_q.empty()) {
                 run_tasks(*_at_destroy_tasks);
@@ -3111,7 +3112,6 @@ int reactor::run() {
                 // any work.
                 check_for_work();
             }
-            t_run_completed = idle_end;
         }
     }
     // To prevent ordering issues from rising, destroy the I/O queue explicitly at this point.
