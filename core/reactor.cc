@@ -2591,9 +2591,11 @@ public:
         return poll(); // actually performs work, but triggers no user continuations, so okay
     }
     virtual bool try_enter_interrupt_mode() override {
-        // aio cannot generate events if there are no inflight aios;
-        // but if we enabled _aio_eventfd, we can always enter
-        return _r.my_io_queue->requests_currently_executing() > 0 || _r._aio_eventfd;
+        // Because aio depends on polling, it cannot generate events to wake us up, Therefore, sleep
+        // is only possible if there are no in-flight aios. If there are, we need to keep polling.
+        //
+        // Alternatively, if we enabled _aio_eventfd, we can always enter
+        return _r.my_io_queue->requests_currently_executing() == 0 || _r._aio_eventfd;
     }
     virtual void exit_interrupt_mode() override {
         // nothing to do
