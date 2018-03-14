@@ -84,28 +84,14 @@ systemwide_memory_barrier() {
        assert(mem != MAP_FAILED);
        return reinterpret_cast<char*>(mem);
     }();
-    int r1 = mprotect(mem, getpagesize(), PROT_READ | PROT_WRITE);
-    assert(r1 == 0);
-    // Force page into memory to avoid next mprotect() attempting to be clever
+    // Force page into memory to make madvise() have real work to do
     *mem = 3;
-    // Force page into memory
-    // lower permissions to force kernel to send IPI to all threads, with
+    // Evict page to force kernel to send IPI to all threads, with
     // a side effect of executing a memory barrier on those threads
     // FIXME: does this work on ARM?
-    int r2 = mprotect(mem, getpagesize(), PROT_READ);
+    int r2 = madvise(mem, getpagesize(), MADV_DONTNEED);
     assert(r2 == 0);
 }
-
-struct alignas(cache_line_size) aligned_flag {
-    std::atomic<bool> flag;
-    bool try_lock() {
-        return !flag.exchange(true, std::memory_order_relaxed);
-    }
-    void unlock() {
-        flag.store(false, std::memory_order_relaxed);
-    }
-};
-static aligned_flag membarrier_lock;
 
 bool try_systemwide_memory_barrier() {
     if (try_native_membarrier()) {
@@ -126,11 +112,7 @@ bool try_systemwide_memory_barrier() {
 
 #endif
 
-    if (!membarrier_lock.try_lock()) {
-        return false;
-    }
     systemwide_memory_barrier();
-    membarrier_lock.unlock();
     return true;
 }
 
