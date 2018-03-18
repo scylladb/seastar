@@ -22,6 +22,7 @@
 #include "routes.hh"
 #include "reply.hh"
 #include "exception.hh"
+#include "json_path.hh"
 
 namespace seastar {
 
@@ -141,6 +142,16 @@ routes& routes::add(operation_type type, const url& url,
         rule->add_param(url._param, true);
     }
     return add(rule, type);
+}
+
+void routes::add_alias(const path_description& old_path, const path_description& new_path) {
+    httpd::parameters p;
+    auto a = get_handler(old_path.operations.method, old_path.path, p);
+    if (!a) {
+        throw std::runtime_error("routes::add_alias path_description not found: " + old_path.path);
+    }
+    // if a handler is found then it must be a function_handler
+    new_path.set(*this, new function_handler(*static_cast<function_handler*>(a)));
 }
 
 }
