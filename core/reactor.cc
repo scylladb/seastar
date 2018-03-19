@@ -1024,12 +1024,16 @@ bool reactor::process_io()
     return n;
 }
 
-io_queue::io_queue(shard_id coordinator, size_t capacity, std::vector<shard_id> topology)
-        : _coordinator(coordinator)
-        , _capacity(std::min(capacity, reactor::max_aio))
-        , _io_topology(std::move(topology))
-        , _priority_classes()
-        , _fq(_capacity) {
+fair_queue::config io_queue::make_fair_queue_config(config iocfg) {
+    fair_queue::config cfg;
+    cfg.capacity = std::min(iocfg.capacity, reactor::max_aio);
+    return cfg;
+}
+
+io_queue::io_queue(io_queue::config cfg)
+    : _priority_classes()
+    , _fq(make_fair_queue_config(cfg))
+    , _config(std::move(cfg)) {
 }
 
 io_queue::~io_queue() {
@@ -1162,7 +1166,7 @@ io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_
 
 future<>
 io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares) {
-    return smp::submit_to(_coordinator, [pc, owner = engine().cpu_id(), new_shares] {
+    return smp::submit_to(coordinator(), [pc, owner = engine().cpu_id(), new_shares] {
         auto& queue = *(engine()._io_queue);
         auto& pclass = queue.find_or_create_class(pc, owner);
         queue._fq.update_shares(pclass.ptr, new_shares);
@@ -3962,7 +3966,12 @@ void smp::configure(boost::program_options::variables_map configuration)
                 continue;
             }
             if (shard == cid) {
-                all_io_queues[vec_idx] = new io_queue(coordinator.id, coordinator.capacity, io_info.shard_to_coordinator);
+                struct io_queue::config cfg;
+                cfg.coordinator = coordinator.id;
+                cfg.io_topology = io_info.shard_to_coordinator;
+                cfg.capacity = coordinator.capacity;
+
+                all_io_queues[vec_idx] = new io_queue(std::move(cfg));
             }
             return vec_idx;
         }

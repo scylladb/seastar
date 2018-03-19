@@ -531,10 +531,6 @@ inline open_flags operator|(open_flags a, open_flags b) {
 
 class io_queue {
 private:
-    shard_id _coordinator;
-    size_t _capacity;
-    std::vector<shard_id> _io_topology;
-
     struct priority_class_data {
         priority_class_ptr ptr;
         size_t bytes;
@@ -558,8 +554,13 @@ private:
     static void fill_shares_array();
     friend smp;
 public:
+    struct config {
+        shard_id coordinator;
+        std::vector<shard_id> io_topology;
+        unsigned capacity = std::numeric_limits<unsigned>::max();
+    };
 
-    io_queue(shard_id coordinator, size_t capacity, std::vector<shard_id> topology);
+    io_queue(config cfg);
     ~io_queue();
 
     template <typename Func>
@@ -567,7 +568,7 @@ public:
     queue_request(shard_id coordinator, const io_priority_class& pc, size_t len, Func do_io);
 
     size_t capacity() const {
-        return _capacity;
+        return _config.capacity;
     }
 
     size_t queued_requests() const {
@@ -590,15 +591,18 @@ public:
     }
 
     shard_id coordinator() const {
-        return _coordinator;
+        return _config.coordinator;
     }
     shard_id coordinator_of_shard(shard_id shard) const {
-        return _io_topology[shard];
+        return _config.io_topology[shard];
     }
 
     future<> update_shares_for_class(io_priority_class pc, size_t new_shares);
 
     friend class reactor;
+private:
+    config _config;
+    static fair_queue::config make_fair_queue_config(config cfg);
 };
 
 constexpr unsigned max_scheduling_groups() { return 16; }
@@ -713,7 +717,7 @@ private:
     sigset_t _active_sigmask; // holds sigmask while sleeping with sig disabled
     std::vector<pollfn*> _pollers;
 
-    static constexpr size_t max_aio = 128;
+    static constexpr unsigned max_aio = 128;
     // Not all reactors have IO queues. If the number of IO queues is less than the number of shards,
     // some reactors will talk to foreign io_queues. If this reactor holds a valid IO queue, it will
     // be stored here.
