@@ -32,19 +32,52 @@
 
 namespace seastar {
 
+struct loopback_error_injector {
+    virtual ~loopback_error_injector() {};
+    virtual bool server_rcv_error() { return false; }
+    virtual bool server_snd_error() { return false; }
+    virtual bool client_rcv_error() { return false; }
+    virtual bool client_snd_error() { return false; }
+};
+
 class loopback_buffer {
+public:
+    enum class type : uint8_t {
+        CLIENT_TX,
+        SERVER_TX
+    };
+private:
     bool _aborted = false;
     queue<temporary_buffer<char>> _q{1};
+    loopback_error_injector* _error_injector;
+    type _type;
 public:
+    loopback_buffer(loopback_error_injector* error_injection, type t) : _error_injector(error_injection), _type(t) {}
     future<> push(temporary_buffer<char>&& b) {
         if (_aborted) {
             return make_exception_future<>(std::system_error(EPIPE, std::system_category()));
+        }
+        bool error = false;
+        if (_error_injector) {
+            error = _type == type::CLIENT_TX ? _error_injector->client_snd_error() : _error_injector->server_snd_error();
+        }
+        if (error) {
+            shutdown();
+            return make_exception_future<>(std::runtime_error("test injected error on send"));
         }
         return _q.push_eventually(std::move(b));
     }
     future<temporary_buffer<char>> pop() {
         if (_aborted) {
             return make_exception_future<temporary_buffer<char>>(std::system_error(EPIPE, std::system_category()));
+        }
+        bool error = false;
+        if (_error_injector) {
+            error = _type == type::CLIENT_TX ? _error_injector->client_rcv_error() : _error_injector->server_rcv_error();
+        }
+        if (error) {
+            shutdown();
+            return make_exception_future<temporary_buffer<char>>(std::runtime_error("test injected error on receive"));
         }
         return _q.pop_eventually();
     }
@@ -169,15 +202,16 @@ public:
 
 class loopback_socket_impl : public net::socket_impl {
     loopback_connection_factory& _factory;
+    loopback_error_injector* _error_injector;
     lw_shared_ptr<loopback_buffer> _b1;
     lw_shared_ptr<loopback_buffer> _b2;
 public:
-    loopback_socket_impl(loopback_connection_factory& factory)
-            : _factory(factory)
+    loopback_socket_impl(loopback_connection_factory& factory, loopback_error_injector* error_injector = nullptr)
+            : _factory(factory), _error_injector(error_injector)
     { }
     future<connected_socket> connect(socket_address sa, socket_address local, seastar::transport proto = seastar::transport::TCP) {
-        _b1 = make_lw_shared<loopback_buffer>();
-        _b2 = make_lw_shared<loopback_buffer>();
+        _b1 = make_lw_shared<loopback_buffer>(_error_injector, loopback_buffer::type::SERVER_TX);
+        _b2 = make_lw_shared<loopback_buffer>(_error_injector, loopback_buffer::type::CLIENT_TX);
         return _factory.make_new_connection(_b1, _b2);
     }
 
