@@ -103,6 +103,16 @@ using priority_class_ptr = lw_shared_ptr<priority_class>;
 /// them first, until balance is restored. This balancing is expected to happen within
 /// a certain time window that obeys an exponential decay.
 class fair_queue {
+public:
+    /// \brief Fair Queue configuration structure.
+    ///
+    /// \sets the operation parameters of a \ref fair_queue
+    /// \related fair_queue
+    struct config {
+        unsigned capacity = std::numeric_limits<unsigned>::max();
+        std::chrono::microseconds tau = std::chrono::milliseconds(100);
+    };
+private:
     friend priority_class;
 
     struct class_compare {
@@ -111,12 +121,11 @@ class fair_queue {
         }
     };
 
+    config _config;
     unsigned _requests_executing = 0;
     unsigned _requests_queued = 0;
-    unsigned _capacity;
     using clock_type = std::chrono::steady_clock::time_point;
     clock_type _base;
-    std::chrono::microseconds _tau;
     using prioq = std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare>;
     prioq _handles;
     std::unordered_set<priority_class_ptr> _all_classes;
@@ -142,7 +151,7 @@ class fair_queue {
     }
 
     void normalize_stats() {
-        auto time_delta = std::log(normalize_factor()) * _tau;
+        auto time_delta = std::log(normalize_factor()) * _config.tau;
         // time_delta is negative; and this may advance _base into the future
         _base -= std::chrono::duration_cast<clock_type::duration>(time_delta);
         for (auto& pc: _all_classes) {
@@ -150,15 +159,20 @@ class fair_queue {
         }
     }
 public:
+    /// Constructs a fair queue with configuration parameters \c cfg.
+    ///
+    /// \param cfg an instance of the class \ref config
+    explicit fair_queue(config cfg)
+        : _config(std::move(cfg))
+        , _base(std::chrono::steady_clock::now())
+    {}
+
     /// Constructs a fair queue with a given \c capacity.
     ///
     /// \param capacity how many concurrent requests are allowed in this queue.
     /// \param tau the queue exponential decay parameter, as in exp(-1/tau * t)
     explicit fair_queue(unsigned capacity, std::chrono::microseconds tau = std::chrono::milliseconds(100))
-                                           : _capacity(capacity)
-                                           , _base(std::chrono::steady_clock::now())
-                                           , _tau(tau) {
-    }
+        : fair_queue(config{capacity, tau}) {}
 
     /// Registers a priority class against this fair queue.
     ///
@@ -210,7 +224,7 @@ public:
 
     /// Try to execute new requests if there is capacity left in the queue.
     void dispatch_requests() {
-        while (_requests_queued && (_requests_executing < _capacity)) {
+        while (_requests_queued && (_requests_executing < _config.capacity)) {
             priority_class_ptr h;
             do {
                 h = pop_priority_class();
@@ -223,13 +237,13 @@ public:
 
             auto delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
             auto req_cost  = float(req.desc.fairness_weight) / h->_shares;
-            auto cost  = expf(1.0f/_tau.count() * delta.count()) * req_cost;
+            auto cost  = expf(1.0f/_config.tau.count() * delta.count()) * req_cost;
             float next_accumulated = h->_accumulated + cost;
             while (std::isinf(next_accumulated)) {
                 normalize_stats();
                 // If we have renormalized, our time base will have changed. This should happen very infrequently
                 delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
-                cost  = expf(1.0f/_tau.count() * delta.count()) * req_cost;
+                cost  = expf(1.0f/_config.tau.count() * delta.count()) * req_cost;
                 next_accumulated = h->_accumulated + cost;
             }
             h->_accumulated = next_accumulated;
