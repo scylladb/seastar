@@ -941,7 +941,7 @@ public:
     // in which it was generated. Therefore, care must be taken to avoid the use of objects that could
     // be destroyed within or at exit of prepare_io.
     template <typename Func>
-    void submit_io(std::unique_ptr<promise<io_event>>, Func prepare_io);
+    void submit_io(promise<io_event>*, Func prepare_io);
 
     template <typename Func>
     future<io_event> submit_io_read(const io_priority_class& priority_class, size_t len, Func prepare_io);

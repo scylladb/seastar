@@ -883,7 +883,7 @@ static bool aio_nowait_supported = true;
 
 template <typename Func>
 void
-reactor::submit_io(std::unique_ptr<promise<io_event>> pr, Func prepare_io) {
+reactor::submit_io(promise<io_event>* pr, Func prepare_io) {
     iocb& io = *_free_iocbs.top();
     _free_iocbs.pop();
     prepare_io(io);
@@ -893,8 +893,7 @@ reactor::submit_io(std::unique_ptr<promise<io_event>> pr, Func prepare_io) {
     if (aio_nowait_supported) {
         set_nowait(io, true);
     }
-    set_user_data(io, pr.get());
-    pr.release();
+    set_user_data(io, pr);
     _pending_aio.push_back(&io);
 }
 
@@ -1143,7 +1142,8 @@ io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_
             try {
                 pclass.nr_queued--;
                 pclass.queue_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start);
-                engine().submit_io(std::move(pr), std::move(prepare_io));
+                engine().submit_io(pr.get(), std::move(prepare_io));
+                pr.release();
             } catch (...) {
                 pr->set_exception(std::current_exception());
                 queue.notify_requests_finished(1);
