@@ -881,9 +881,13 @@ void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd, promise
 
 static bool aio_nowait_supported = true;
 
+struct io_desc {
+    promise<io_event> pr;
+};
+
 template <typename Func>
 void
-reactor::submit_io(promise<io_event>* pr, Func prepare_io) {
+reactor::submit_io(io_desc* desc, Func prepare_io) {
     iocb& io = *_free_iocbs.top();
     _free_iocbs.pop();
     prepare_io(io);
@@ -893,7 +897,7 @@ reactor::submit_io(promise<io_event>* pr, Func prepare_io) {
     if (aio_nowait_supported) {
         set_nowait(io, true);
     }
-    set_user_data(io, pr);
+    set_user_data(io, desc);
     _pending_aio.push_back(&io);
 }
 
@@ -909,14 +913,14 @@ reactor::handle_aio_error(::iocb* iocb, int ec) {
         case EAGAIN:
             return 0;
         case EBADF: {
-            auto pr = reinterpret_cast<promise<io_event>*>(get_user_data(*iocb));
+            auto desc = reinterpret_cast<io_desc*>(get_user_data(*iocb));
             _free_iocbs.push(iocb);
             try {
                 throw std::system_error(EBADF, std::system_category());
             } catch (...) {
-                pr->set_exception(std::current_exception());
+                desc->pr.set_exception(std::current_exception());
             }
-            delete pr;
+            delete desc;
             my_io_queue->notify_requests_finished(1);
             // if EBADF, it means that the first request has a bad fd, so
             // we will only remove it from _pending_aio and try again.
@@ -1010,9 +1014,9 @@ bool reactor::process_io()
             continue;
         }
         _free_iocbs.push(iocb);
-        auto pr = reinterpret_cast<promise<io_event>*>(ev[i].data);
-        pr->set_value(ev[i]);
-        delete pr;
+        auto desc = reinterpret_cast<io_desc*>(ev[i].data);
+        desc->pr.set_value(ev[i]);
+        delete desc;
     }
     my_io_queue->notify_requests_finished(n - nr_retry);
     return n;
@@ -1136,16 +1140,16 @@ io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_
         pclass.bytes += len;
         pclass.ops++;
         pclass.nr_queued++;
-        auto pr = std::make_unique<promise<io_event>>();
-        auto fut = pr->get_future();
-        queue._fq.queue(pclass.ptr, weight, [&pclass, &queue, start, prepare_io = std::move(prepare_io), pr = std::move(pr)] () mutable noexcept {
+        auto desc = std::make_unique<io_desc>();
+        auto fut = desc->pr.get_future();
+        queue._fq.queue(pclass.ptr, weight, [&pclass, &queue, start, prepare_io = std::move(prepare_io), desc = std::move(desc)] () mutable noexcept {
             try {
                 pclass.nr_queued--;
                 pclass.queue_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start);
-                engine().submit_io(pr.get(), std::move(prepare_io));
-                pr.release();
+                engine().submit_io(desc.get(), std::move(prepare_io));
+                desc.release();
             } catch (...) {
-                pr->set_exception(std::current_exception());
+                desc->pr.set_exception(std::current_exception());
                 queue.notify_requests_finished(1);
             }
         });
