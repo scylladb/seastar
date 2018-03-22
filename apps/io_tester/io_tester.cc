@@ -147,11 +147,14 @@ public:
             return parallel_for_each(boost::irange(0u, parallelism()), [this, stop] (auto dummy) mutable {
                 auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
                 auto buf = bufptr.get();
-                return do_until([this, stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf] () mutable {
+                return do_until([this, stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf, stop] () mutable {
                     auto start = std::chrono::steady_clock::now();
-                    return issue_request(buf).then([this, start] (auto size) {
-                        this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start));
-                        return seastar::sleep(std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.think_time));
+                    return issue_request(buf).then([this, start, stop] (auto size) {
+                        auto now = std::chrono::steady_clock::now();
+                        if (now < stop) {
+                            this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(now - start));
+                        }
+                        return think();
                     });
                 }).finally([bufptr = std::move(bufptr)] {});
             });
@@ -160,6 +163,13 @@ public:
         });
     }
 
+    future<> think() {
+        if (_config.shard_info.think_time > 0us) {
+            return seastar::sleep(std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.think_time));
+        } else {
+            return make_ready_future<>();
+        }
+    }
     // Generate the test file for reads and writes alike. It is much simpler to just generate one file per job instead of expecting
     // job dependencies between creators and consumers. So every job (a class in a shard) will have its own file and will operate
     // this file differently depending on the type:
