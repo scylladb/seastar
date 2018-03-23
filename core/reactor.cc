@@ -3913,13 +3913,21 @@ void smp::configure(boost::program_options::variables_map configuration)
 
     rc.cpus = smp::count;
     rc.cpu_set = std::move(cpu_set);
+
+    struct disk_config_params {
+        unsigned capacity = reactor::max_aio * smp::count;
+        unsigned num_io_queues = smp::count;
+    };
+
+    disk_config_params disk_config;
     if (configuration.count("max-io-requests")) {
-        rc.max_io_requests = configuration["max-io-requests"].as<unsigned>();
+        disk_config.capacity = configuration["max-io-requests"].as<unsigned>();
     }
 
     if (configuration.count("num-io-queues")) {
-        rc.io_queues = configuration["num-io-queues"].as<unsigned>();
+        disk_config.num_io_queues = configuration["num-io-queues"].as<unsigned>();
     }
+    rc.io_queues =  disk_config.num_io_queues;
 
     auto resources = resource::allocate(rc);
     std::vector<resource::cpu> allocations = std::move(resources.cpus);
@@ -3957,19 +3965,19 @@ void smp::configure(boost::program_options::variables_map configuration)
     all_io_queues.resize(io_info.coordinators.size());
     io_queue::fill_shares_array();
 
-    auto alloc_io_queue = [io_info, &all_io_queues] (unsigned shard) {
+    auto alloc_io_queue = [io_info, &all_io_queues, &disk_config] (unsigned shard) {
         auto cid = io_info.shard_to_coordinator[shard];
         int vec_idx = 0;
         for (auto& coordinator: io_info.coordinators) {
-            if (coordinator.id != cid) {
+            if (coordinator != cid) {
                 vec_idx++;
                 continue;
             }
             if (shard == cid) {
                 struct io_queue::config cfg;
-                cfg.coordinator = coordinator.id;
+                cfg.coordinator = coordinator;
                 cfg.io_topology = io_info.shard_to_coordinator;
-                cfg.capacity = coordinator.capacity;
+                cfg.capacity = std::max(disk_config.capacity / disk_config.num_io_queues, 1u);
 
                 all_io_queues[vec_idx] = new io_queue(std::move(cfg));
             }
