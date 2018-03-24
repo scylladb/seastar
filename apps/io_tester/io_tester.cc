@@ -96,6 +96,7 @@ struct shard_info {
     uint64_t request_size = 4 << 10;
     std::chrono::duration<float> think_time = 0ms;
     std::chrono::duration<float> execution_time = 1ms;
+    seastar::scheduling_group scheduling_group = seastar::default_scheduling_group();
 };
 
 class class_data;
@@ -137,6 +138,7 @@ public:
         : _config(std::move(cfg))
         , _alignment(_config.shard_info.request_size >= 4096 ? 4096 : 512)
         , _iop(engine().register_one_priority_class(sprint("test-class-%d", idgen()), _config.shard_info.shares))
+        , _sg(cfg.shard_info.scheduling_group)
         , _latencies(extended_p_square_probabilities = quantiles)
         , _pos_distribution(0,  file_data_size / _config.shard_info.request_size)
     {}
@@ -181,10 +183,7 @@ public:
     // append            : will write to the file from pos = EOF onwards, always appending to the end.
     // cpu               : CPU-only load, file is not created.
     future<> start(sstring dir) {
-        return seastar::create_scheduling_group(sprint("%s-%d", name(), engine().cpu_id()), shares()).then([this, dir] (seastar::scheduling_group sg) {
-            _sg = sg;
-            return do_start(dir);
-        });
+        return do_start(dir);
     }
 protected:
     sstring type_str() const {
@@ -584,6 +583,13 @@ int main(int ac, char** av) {
             auto& yaml = opts["conf"].as<sstring>();
             YAML::Node doc = YAML::LoadFile(yaml);
             auto reqs = doc.as<std::vector<job_config>>();
+
+            parallel_for_each(reqs, [] (auto& r) {
+                return seastar::create_scheduling_group(r.name, r.shard_info.shares).then([&r] (seastar::scheduling_group sg) {
+                    r.shard_info.scheduling_group = sg;
+                });
+            }).get();
+
             ctx.start(directory, reqs, duration).get0();
             engine().at_exit([&ctx] {
                 return ctx.stop();
