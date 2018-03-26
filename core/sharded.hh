@@ -41,7 +41,7 @@ template<typename T>
 class async_sharded_service : public enable_shared_from_this<T> {
 protected:
     std::function<void()> _delete_cb;
-    ~async_sharded_service() {
+    virtual ~async_sharded_service() {
         if (_delete_cb) {
             _delete_cb();
         }
