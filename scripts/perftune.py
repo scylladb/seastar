@@ -220,6 +220,20 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
             return PerfTunerBase.SupportedModes.__members__.keys()
 
     @staticmethod
+    def cpu_mask_is_zero(cpu_mask):
+        """
+        The irqs_cpu_mask is a coma-separated list of 32-bit hex values, e.g. 0xffff,0x0,0xffff
+        We want to estimate if the whole mask is all-zeros.
+        :param cpu_mask: hwloc-calc generated CPU mask
+        :return: True if mask is zero, False otherwise
+        """
+        for cur_irqs_cpu_mask in cpu_mask.split(','):
+            if int(cur_irqs_cpu_mask, 16) != 0:
+                return False
+
+        return True
+
+    @staticmethod
     def compute_cpu_mask_for_mode(mq_mode, cpu_mask):
         mq_mode = PerfTunerBase.SupportedModes(mq_mode)
 
@@ -246,16 +260,9 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
             # distribute equally between all available cores
             irqs_cpu_mask = cpu_mask
 
-        # The irqs_cpu_mask is a coma-separated list of 32-bit hex values, e.g. 0xffff,0x0,0xffff
-        # We want to estimate if the whole mask is all-zeros.
-        # For that we will sum them all up. The sum can only be zero if all addends are zeros since all addends are
-        # unsigned.
-        irqs_masks_sum = 0
-        for cur_irqs_cpu_mask in irqs_cpu_mask.split(','):
-            irqs_masks_sum = irqs_masks_sum + int(cur_irqs_cpu_mask, 16)
-
-        if irqs_masks_sum == 0:
-            raise Exception("Bad configuration mode ({}) and cpu-mask value ({})".format(mq_mode.name, cpu_mask))
+        if PerfTunerBase.cpu_mask_is_zero(irqs_cpu_mask):
+            raise Exception("Bad configuration mode ({}) and cpu-mask value ({}): this results in a zero-mask for "
+                            "IRQs".format(mq_mode.name, cpu_mask))
 
         return irqs_cpu_mask
 
