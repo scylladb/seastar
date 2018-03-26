@@ -236,18 +236,25 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
     @staticmethod
     def compute_cpu_mask_for_mode(mq_mode, cpu_mask):
         mq_mode = PerfTunerBase.SupportedModes(mq_mode)
+        irqs_cpu_mask = 0
 
         if mq_mode == PerfTunerBase.SupportedModes.sq:
             # all but CPU0
-            return run_hwloc_calc([cpu_mask, '~PU:0'])
+            irqs_cpu_mask = run_hwloc_calc([cpu_mask, '~PU:0'])
         elif mq_mode == PerfTunerBase.SupportedModes.sq_split:
             # all but CPU0 and its HT siblings
-            return run_hwloc_calc([cpu_mask, '~core:0'])
+            irqs_cpu_mask = run_hwloc_calc([cpu_mask, '~core:0'])
         elif mq_mode == PerfTunerBase.SupportedModes.mq:
             # all available cores
-            return cpu_mask
+            irqs_cpu_mask = cpu_mask
         else:
             raise Exception("Unsupported mode: {}".format(mq_mode))
+
+        if PerfTunerBase.cpu_mask_is_zero(irqs_cpu_mask):
+            raise Exception("Bad configuration mode ({}) and cpu-mask value ({}): this results in a zero-mask for "
+                            "compute".format(mq_mode.name, cpu_mask))
+
+        return irqs_cpu_mask
 
     @staticmethod
     def irqs_cpu_mask_for_mode(mq_mode, cpu_mask):
