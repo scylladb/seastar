@@ -383,10 +383,7 @@ struct cpu_pages {
     std::vector<reclaimer*> reclaimers;
     static constexpr unsigned nr_span_lists = 32;
     union pla {
-        pla() {
-            for (auto&& e : free_spans) {
-                new (&e) page_list;
-            }
+        pla() : free_spans{} {
         }
         ~pla() {
             // no destructor -- might be freeing after we die
@@ -400,8 +397,7 @@ struct cpu_pages {
     static cpu_pages* all_cpus[max_cpus];
     union asu {
         using alloc_sites_type = std::unordered_set<allocation_site>;
-        asu() {
-            new (&alloc_sites) alloc_sites_type();
+        asu() : alloc_sites{} {
         }
         ~asu() {} // alloc_sites live forever
         alloc_sites_type alloc_sites;
