@@ -31,7 +31,13 @@ SEASTAR_TEST_CASE(alloc_almost_all_and_realloc_it_with_a_smaller_size) {
     auto all = memory::stats().total_memory();
     auto reserve = size_t(0.02 * all);
     auto to_alloc = all - (reserve + (10 << 20));
+    auto orig_to_alloc = to_alloc;
     auto obj = malloc(to_alloc);
+    while (!obj) {
+        to_alloc *= 0.9;
+        obj = malloc(to_alloc);
+    }
+    BOOST_REQUIRE(to_alloc > orig_to_alloc / 4);
     BOOST_REQUIRE(obj != nullptr);
     auto obj2 = realloc(obj, to_alloc - (1 << 20));
     BOOST_REQUIRE(obj == obj2);
