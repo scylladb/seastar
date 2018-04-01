@@ -39,7 +39,7 @@
 
 namespace seastar {
 
-template <typename char_type, typename Size, Size max_size>
+template <typename char_type, typename Size, Size max_size, bool NulTerminate = true>
 class basic_sstring;
 
 using sstring = basic_sstring<char, uint32_t, 15>;
@@ -47,7 +47,7 @@ using sstring = basic_sstring<char, uint32_t, 15>;
 template <typename string_type = sstring, typename T>
 inline string_type to_sstring(T value);
 
-template <typename char_type, typename Size, Size max_size>
+template <typename char_type, typename Size, Size max_size, bool NulTerminate>
 class basic_sstring {
     static_assert(
             (std::is_same<char_type, char>::value
@@ -161,23 +161,26 @@ public:
     using difference_type = ssize_t;  // std::make_signed_t<Size> can be too small
     using size_type = Size;
     static constexpr size_type  npos = static_cast<size_type>(-1);
+    static constexpr unsigned padding() { return unsigned(NulTerminate); }
 public:
     struct initialized_later {};
 
     basic_sstring() noexcept {
         u.internal.size = 0;
-        u.internal.str[0] = '\0';
+        if (NulTerminate) {
+            u.internal.str[0] = '\0';
+        }
     }
     basic_sstring(const basic_sstring& x) {
         if (x.is_internal()) {
             u.internal = x.u.internal;
         } else {
             u.internal.size = -1;
-            u.external.str = reinterpret_cast<char_type*>(std::malloc(x.u.external.size + 1));
+            u.external.str = reinterpret_cast<char_type*>(std::malloc(x.u.external.size + padding()));
             if (!u.external.str) {
                 throw std::bad_alloc();
             }
-            std::copy(x.u.external.str, x.u.external.str + x.u.external.size + 1, u.external.str);
+            std::copy(x.u.external.str, x.u.external.str + x.u.external.size + padding(), u.external.str);
             u.external.size = x.u.external.size;
         }
     }
@@ -190,36 +193,44 @@ public:
         if (size_type(size) != size) {
             throw std::overflow_error("sstring overflow");
         }
-        if (size + 1 <= sizeof(u.internal.str)) {
-            u.internal.str[size] = '\0';
+        if (size + padding() <= sizeof(u.internal.str)) {
+            if (NulTerminate) {
+                u.internal.str[size] = '\0';
+            }
             u.internal.size = size;
         } else {
             u.internal.size = -1;
-            u.external.str = reinterpret_cast<char_type*>(std::malloc(size + 1));
+            u.external.str = reinterpret_cast<char_type*>(std::malloc(size + padding()));
             if (!u.external.str) {
                 throw std::bad_alloc();
             }
             u.external.size = size;
-            u.external.str[size] = '\0';
+            if (NulTerminate) {
+                u.external.str[size] = '\0';
+            }
         }
     }
     basic_sstring(const char_type* x, size_t size) {
         if (size_type(size) != size) {
             throw std::overflow_error("sstring overflow");
         }
-        if (size + 1 <= sizeof(u.internal.str)) {
+        if (size + padding() <= sizeof(u.internal.str)) {
             std::copy(x, x + size, u.internal.str);
-            u.internal.str[size] = '\0';
+            if (NulTerminate) {
+                u.internal.str[size] = '\0';
+            }
             u.internal.size = size;
         } else {
             u.internal.size = -1;
-            u.external.str = reinterpret_cast<char_type*>(std::malloc(size + 1));
+            u.external.str = reinterpret_cast<char_type*>(std::malloc(size + padding()));
             if (!u.external.str) {
                 throw std::bad_alloc();
             }
             u.external.size = size;
             std::copy(x, x + size, u.external.str);
-            u.external.str[size] = '\0';
+            if (NulTerminate) {
+                u.external.str[size] = '\0';
+            }
         }
     }
 
@@ -350,7 +361,7 @@ public:
         } else if (n < size()) {
             if (is_internal()) {
                 u.internal.size = n;
-            } else if (n + 1 <= sizeof(u.internal.str)) {
+            } else if (n + padding() <= sizeof(u.internal.str)) {
                 *this = basic_sstring(u.external.str, n);
             } else {
                 u.external.size = n;
@@ -485,7 +496,9 @@ public:
             std::free(u.external.str);
         }
         u.internal.size = 0;
-        u.internal.str[0] = '\0';
+        if (NulTerminate) {
+            u.internal.str[0] = '\0';
+        }
     }
     temporary_buffer<char_type> release() && {
         if (is_external()) {
@@ -498,7 +511,9 @@ public:
             auto buf = temporary_buffer<char_type>(u.internal.size);
             std::copy(u.internal.str, u.internal.str + u.internal.size, buf.get_write());
             u.internal.size = 0;
-            u.internal.str[0] = '\0';
+            if (NulTerminate) {
+                u.internal.str[0] = '\0';
+            }
             return buf;
         }
     }
@@ -588,14 +603,14 @@ public:
     template <typename string_type, typename T>
     friend inline string_type to_sstring(T value);
 };
-template <typename char_type, typename Size, Size max_size>
-constexpr Size basic_sstring<char_type, Size, max_size>::npos;
+template <typename char_type, typename Size, Size max_size, bool NulTerminate>
+constexpr Size basic_sstring<char_type, Size, max_size, NulTerminate>::npos;
 
-template <typename char_type, typename size_type, size_type Max, size_type N>
+template <typename char_type, typename size_type, size_type Max, size_type N, bool NulTerminate>
 inline
-basic_sstring<char_type, size_type, Max>
-operator+(const char(&s)[N], const basic_sstring<char_type, size_type, Max>& t) {
-    using sstring = basic_sstring<char_type, size_type, Max>;
+basic_sstring<char_type, size_type, Max, NulTerminate>
+operator+(const char(&s)[N], const basic_sstring<char_type, size_type, Max, NulTerminate>& t) {
+    using sstring = basic_sstring<char_type, size_type, Max, NulTerminate>;
     // don't copy the terminating NUL character
     sstring ret(typename sstring::initialized_later(), N-1 + t.size());
     auto p = std::copy(std::begin(s), std::end(s)-1, ret.begin());
@@ -615,17 +630,17 @@ template <size_t N>
 static inline
 const char* str_end(const char(&s)[N]) { return str_begin(s) + str_len(s); }
 
-template <typename char_type, typename size_type, size_type max_size>
+template <typename char_type, typename size_type, size_type max_size, bool NulTerminate>
 static inline
-const char_type* str_begin(const basic_sstring<char_type, size_type, max_size>& s) { return s.begin(); }
+const char_type* str_begin(const basic_sstring<char_type, size_type, max_size, NulTerminate>& s) { return s.begin(); }
 
-template <typename char_type, typename size_type, size_type max_size>
+template <typename char_type, typename size_type, size_type max_size, bool NulTerminate>
 static inline
-const char_type* str_end(const basic_sstring<char_type, size_type, max_size>& s) { return s.end(); }
+const char_type* str_end(const basic_sstring<char_type, size_type, max_size, NulTerminate>& s) { return s.end(); }
 
-template <typename char_type, typename size_type, size_type max_size>
+template <typename char_type, typename size_type, size_type max_size, bool NulTerminate>
 static inline
-size_type str_len(const basic_sstring<char_type, size_type, max_size>& s) { return s.size(); }
+size_type str_len(const basic_sstring<char_type, size_type, max_size, NulTerminate>& s) { return s.size(); }
 
 template <typename First, typename Second, typename... Tail>
 static inline
@@ -641,19 +656,19 @@ void swap(basic_sstring<char_type, size_type, max_size>& x,
     return x.swap(y);
 }
 
-template <typename char_type, typename size_type, size_type max_size, typename char_traits>
+template <typename char_type, typename size_type, size_type max_size, bool NulTerminate, typename char_traits>
 inline
 std::basic_ostream<char_type, char_traits>&
 operator<<(std::basic_ostream<char_type, char_traits>& os,
-        const basic_sstring<char_type, size_type, max_size>& s) {
+        const basic_sstring<char_type, size_type, max_size, NulTerminate>& s) {
     return os.write(s.begin(), s.size());
 }
 
-template <typename char_type, typename size_type, size_type max_size, typename char_traits>
+template <typename char_type, typename size_type, size_type max_size, bool NulTerminate, typename char_traits>
 inline
 std::basic_istream<char_type, char_traits>&
 operator>>(std::basic_istream<char_type, char_traits>& is,
-        basic_sstring<char_type, size_type, max_size>& s) {
+        basic_sstring<char_type, size_type, max_size, NulTerminate>& s) {
     std::string tmp;
     is >> tmp;
     s = tmp;
@@ -664,9 +679,9 @@ operator>>(std::basic_istream<char_type, char_traits>& is,
 
 namespace std {
 
-template <typename char_type, typename size_type, size_type max_size>
-struct hash<seastar::basic_sstring<char_type, size_type, max_size>> {
-    size_t operator()(const seastar::basic_sstring<char_type, size_type, max_size>& s) const {
+template <typename char_type, typename size_type, size_type max_size, bool NulTerminate>
+struct hash<seastar::basic_sstring<char_type, size_type, max_size, NulTerminate>> {
+    size_t operator()(const seastar::basic_sstring<char_type, size_type, max_size, NulTerminate>& s) const {
         return std::hash<std::experimental::basic_string_view<char_type>>()(s);
     }
 };

@@ -303,8 +303,8 @@ public:
     future<> write(const char_type* buf, size_t n);
     future<> write(const char_type* buf);
 
-    template <typename StringChar, typename SizeType, SizeType MaxSize>
-    future<> write(const basic_sstring<StringChar, SizeType, MaxSize>& s);
+    template <typename StringChar, typename SizeType, SizeType MaxSize, bool NulTerminate>
+    future<> write(const basic_sstring<StringChar, SizeType, MaxSize, NulTerminate>& s);
     future<> write(const std::basic_string<char_type>& s);
 
     future<> write(net::packet p);
