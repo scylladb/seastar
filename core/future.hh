@@ -1299,60 +1299,64 @@ typename futurize<T>::type futurize<T>::apply(Func&& func, FuncArgs&&... args) n
     }
 }
 
-template<typename Func, typename... FuncArgs>
-inline
-std::enable_if_t<!is_future<std::result_of_t<Func(FuncArgs&&...)>>::value, future<>>
-do_void_futurize_apply(Func&& func, FuncArgs&&... args) noexcept {
-    try {
-        func(std::forward<FuncArgs>(args)...);
-        return make_ready_future<>();
-    } catch (...) {
-        return make_exception_future(std::current_exception());
-    }
-}
+template <typename Ret>  // Ret = void | future<>
+struct do_void_futurize_helper;
 
-template<typename Func, typename... FuncArgs>
-inline
-std::enable_if_t<is_future<std::result_of_t<Func(FuncArgs&&...)>>::value, future<>>
-do_void_futurize_apply(Func&& func, FuncArgs&&... args) noexcept {
-    try {
-        return func(std::forward<FuncArgs>(args)...);
-    } catch (...) {
-        return make_exception_future(std::current_exception());
+template <>
+struct do_void_futurize_helper<void> {
+    template <typename Func, typename... FuncArgs>
+    static future<> apply(Func&& func, FuncArgs&&... args) noexcept {
+        try {
+            func(std::forward<FuncArgs>(args)...);
+            return make_ready_future<>();
+        } catch (...) {
+            return make_exception_future(std::current_exception());
+        }
     }
-}
 
-template<typename Func, typename... FuncArgs>
-inline
-std::enable_if_t<!is_future<std::result_of_t<Func(FuncArgs&&...)>>::value, future<>>
-do_void_futurize_apply_tuple(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
-    try {
-        ::seastar::apply(std::forward<Func>(func), std::move(args));
-        return make_ready_future<>();
-    } catch (...) {
-        return make_exception_future(std::current_exception());
+    template<typename Func, typename... FuncArgs>
+    static future<> apply_tuple(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
+        try {
+            ::seastar::apply(std::forward<Func>(func), std::move(args));
+            return make_ready_future<>();
+        } catch (...) {
+            return make_exception_future(std::current_exception());
+        }
     }
-}
+};
 
-template<typename Func, typename... FuncArgs>
-inline
-std::enable_if_t<is_future<std::result_of_t<Func(FuncArgs&&...)>>::value, future<>>
-do_void_futurize_apply_tuple(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
-    try {
-        return ::seastar::apply(std::forward<Func>(func), std::move(args));
-    } catch (...) {
-        return make_exception_future(std::current_exception());
+template <>
+struct do_void_futurize_helper<future<>> {
+    template <typename Func, typename... FuncArgs>
+    static future<> apply(Func&& func, FuncArgs&&... args) noexcept {
+        try {
+            return func(std::forward<FuncArgs>(args)...);
+        } catch (...) {
+            return make_exception_future(std::current_exception());
+        }
     }
-}
+
+    template<typename Func, typename... FuncArgs>
+    static future<> apply_tuple(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
+        try {
+            return ::seastar::apply(std::forward<Func>(func), std::move(args));
+        } catch (...) {
+            return make_exception_future(std::current_exception());
+        }
+    }
+};
+
+template <typename Func, typename... FuncArgs>
+using void_futurize_helper = do_void_futurize_helper<std::result_of_t<Func(FuncArgs&&...)>>;
 
 template<typename Func, typename... FuncArgs>
 typename futurize<void>::type futurize<void>::apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
-    return do_void_futurize_apply_tuple(std::forward<Func>(func), std::move(args));
+    return void_futurize_helper<Func, FuncArgs...>::apply_tuple(std::forward<Func>(func), std::move(args));
 }
 
 template<typename Func, typename... FuncArgs>
 typename futurize<void>::type futurize<void>::apply(Func&& func, FuncArgs&&... args) noexcept {
-    return do_void_futurize_apply(std::forward<Func>(func), std::forward<FuncArgs>(args)...);
+    return void_futurize_helper<Func, FuncArgs...>::apply(std::forward<Func>(func), std::forward<FuncArgs>(args)...);
 }
 
 template<typename... Args>
