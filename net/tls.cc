@@ -923,6 +923,9 @@ public:
         // read records until we get an eof alert
         // since this call could time out, we must not ac
         return with_semaphore(_in_sem, 1, [this] {
+            if (_error || !_connected) {
+                return make_ready_future();
+            }
             return repeat([this] {
                 if (eof()) {
                     return make_ready_future<stop_iteration>(stop_iteration::yes);
@@ -934,9 +937,6 @@ public:
         }).finally([me = shared_from_this()] {});
     }
     future<> shutdown() {
-        if (_error || !_connected) {
-            return make_ready_future();
-        }
         // first, make sure any pending write is done.
         // bye handshake is a flush operation, but this
         // allows us to not pay extra attention to output state
