@@ -234,6 +234,9 @@ bool queue<T>::full() const {
 template <typename T>
 inline
 future<> queue<T>::not_empty() {
+    if (_ex) {
+        return make_exception_future<>(_ex);
+    }
     if (!empty()) {
         return make_ready_future<>();
     } else {
@@ -245,6 +248,9 @@ future<> queue<T>::not_empty() {
 template <typename T>
 inline
 future<> queue<T>::not_full() {
+    if (_ex) {
+        return make_exception_future<>(_ex);
+    }
     if (!full()) {
         return make_ready_future<>();
     } else {
