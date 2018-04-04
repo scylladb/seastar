@@ -340,8 +340,7 @@ namespace rpc {
       }
   }
 
-  template<typename Connection>
-  static void log_exception(Connection& c, const char* log, std::exception_ptr eptr) {
+  static void log_exception(connection& c, const char* log, std::exception_ptr eptr) {
       const char* s;
       try {
           std::rethrow_exception(eptr);
