@@ -59,6 +59,7 @@ other_tests = [
     'directory_test',
     'thread_context_switch',
     'fair_queue_test',
+    'alien_test',
 ]
 
 last_len = 0
