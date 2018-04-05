@@ -374,14 +374,7 @@ struct cpu_pages {
     std::function<void (std::function<void ()>)> reclaim_hook;
     std::vector<reclaimer*> reclaimers;
     static constexpr unsigned nr_span_lists = 32;
-    union pla {
-        pla() : free_spans{} {
-        }
-        ~pla() {
-            // no destructor -- might be freeing after we die
-        }
-        page_list free_spans[nr_span_lists];  // contains aligned spans with span_size == 2^idx
-    } fsu;
+    page_list free_spans[nr_span_lists];  // contains aligned spans with span_size == 2^idx
     small_pool_array small_pools;
     alignas(seastar::cache_line_size) std::atomic<cross_cpu_free_item*> xcpu_freelist;
     alignas(seastar::cache_line_size) std::vector<physical_address> virt_to_phys_map;
@@ -489,7 +482,7 @@ void cpu_pages::free_span_no_merge(uint32_t span_start, uint32_t nr_pages) {
     span->free = span_end->free = true;
     span->span_size = span_end->span_size = nr_pages;
     auto idx = index_of(nr_pages);
-    link(fsu.free_spans[idx], span);
+    link(free_spans[idx], span);
 }
 
 bool cpu_pages::grow_span(uint32_t& span_start, uint32_t& nr_pages, unsigned idx) {
@@ -501,7 +494,7 @@ bool cpu_pages::grow_span(uint32_t& span_start, uint32_t& nr_pages, unsigned idx
     auto delta = ((which ^ 1) << idx) | -which;
     auto buddy = span_start + delta;
     if (pages[buddy].free && pages[buddy].span_size == nr_pages) {
-        unlink(fsu.free_spans[idx], &pages[span_start ^ nr_pages]);
+        unlink(free_spans[idx], &pages[span_start ^ nr_pages]);
         nr_free_pages -= nr_pages; // free_span_no_merge() will restore
         span_start &= ~nr_pages;
         nr_pages *= 2;
@@ -536,7 +529,7 @@ cpu_pages::find_and_unlink_span(unsigned n_pages) {
     if (n_pages >= (2u << idx)) {
         return nullptr;
     }
-    while (idx < nr_span_lists && fsu.free_spans[idx].empty()) {
+    while (idx < nr_span_lists && free_spans[idx].empty()) {
         ++idx;
     }
     if (idx == nr_span_lists) {
@@ -545,7 +538,7 @@ cpu_pages::find_and_unlink_span(unsigned n_pages) {
         }
         return nullptr;
     }
-    auto& list = fsu.free_spans[idx];
+    auto& list = free_spans[idx];
     page* span = &list.front(pages);
     unlink(list, span);
     return span;
@@ -1447,7 +1440,7 @@ void on_allocation_failure(size_t size) {
         seastar_memory_logger.debug("Page spans:");
         seastar_memory_logger.debug("index size [B]     free [B]");
         for (unsigned i = 0; i< cpu_mem.nr_span_lists; i++) {
-            auto& span_list = cpu_mem.fsu.free_spans[i];
+            auto& span_list = cpu_mem.free_spans[i];
             auto front = span_list._front;
             uint32_t total = 0;
             while(front) {
