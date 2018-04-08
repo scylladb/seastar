@@ -146,7 +146,14 @@ routes& routes::add(operation_type type, const url& url,
 
 void routes::add_alias(const path_description& old_path, const path_description& new_path) {
     httpd::parameters p;
-    auto a = get_handler(old_path.operations.method, old_path.path, p);
+    stringstream path;
+    path << old_path.path;
+    for (uint32_t i = 0; i < old_path.params.size(); i++) {
+        // the path_description path does not contains the path parameters
+        // so just add a fake parameter to the path for each of the parameter.
+        path << "/k";
+    }
+    auto a = get_handler(old_path.operations.method, path.str(), p);
     if (!a) {
         throw std::runtime_error("routes::add_alias path_description not found: " + old_path.path);
     }
