@@ -27,6 +27,7 @@
 #include "core/sleep.hh"
 #include "core/align.hh"
 #include "core/timer.hh"
+#include "core/thread.hh"
 #include <chrono>
 #include <vector>
 #include <boost/range/irange.hpp>
@@ -560,36 +561,34 @@ int main(int ac, char** av) {
 
     distributed<context> ctx;
     return app.run(ac, av, [&] {
-        auto& opts = app.configuration();
-        auto& directory = opts["directory"].as<sstring>();
+        return seastar::async([&] {
+            auto& opts = app.configuration();
+            auto& directory = opts["directory"].as<sstring>();
 
-        return file_system_at(directory).then([directory] (auto fs) {
+            auto fs = file_system_at(directory).get0();
             if (fs != fs_type::xfs) {
                 throw std::runtime_error(sprint("This is a performance test. %s is not on XFS", directory));
             }
-        }).then([&] {
+
             auto& duration = opts["duration"].as<unsigned>();
             auto& yaml = opts["conf"].as<sstring>();
             YAML::Node doc = YAML::LoadFile(yaml);
             auto reqs = doc.as<std::vector<job_config>>();
-            return ctx.start(directory, reqs, duration).then([&ctx] {
-                engine().at_exit([&ctx] {
-                    return ctx.stop();
-                });
-                std::cout << "Creating initial files..." << std::endl;
-                return ctx.invoke_on_all([] (auto& c) {
-                    return c.start();
-                }).then([&ctx] {
-                    std::cout << "Starting evaluation..." << std::endl;
-                    return ctx.invoke_on_all([] (auto& c) {
-                        return c.issue_requests();
-                    });
-                }).then([&ctx] {
-                    return ctx.invoke_on_all([] (auto& c) {
-                        return c.print_stats();
-                    });
-                }).or_terminate();
+            ctx.start(directory, reqs, duration).get0();
+            engine().at_exit([&ctx] {
+                return ctx.stop();
             });
-        });
+            std::cout << "Creating initial files..." << std::endl;
+            ctx.invoke_on_all([] (auto& c) {
+                return c.start();
+            }).get();
+            std::cout << "Starting evaluation..." << std::endl;
+            ctx.invoke_on_all([] (auto& c) {
+                return c.issue_requests();
+            }).get();
+            ctx.invoke_on_all([] (auto& c) {
+                return c.print_stats();
+            }).get();
+        }).or_terminate();
     });
 }
