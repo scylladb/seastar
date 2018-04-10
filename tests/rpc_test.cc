@@ -123,15 +123,23 @@ with_rpc_env(rpc::resource_limits resource_limits, rpc::server_options so, bool 
     struct state {
         test_rpc_proto proto{serializer()};
         loopback_connection_factory lcf;
-        std::unique_ptr<test_rpc_proto::server> server;
+        std::vector<std::unique_ptr<test_rpc_proto::server>> servers;
     };
     return do_with(state(), [=] (state& s) {
-        s.server = std::make_unique<test_rpc_proto::server>(s.proto, so, s.lcf.get_server_socket(), resource_limits);
-        auto make_socket = [&s, connect, inject_error] () {
-            return seastar::socket(std::make_unique<rpc_socket_impl>(s.lcf, connect, inject_error));
-        };
-        return test_fn(s.proto, *s.server, make_socket).finally([&] {
-            return s.server->stop();
+        s.servers.resize(smp::count);
+        return smp::invoke_on_all([=, &s] {
+            s.servers[engine().cpu_id()] =  std::make_unique<test_rpc_proto::server>(s.proto, so, s.lcf.get_server_socket(), resource_limits);
+        }).then([=, &s] {
+            auto make_socket = [&s, connect, inject_error] () {
+                return seastar::socket(std::make_unique<rpc_socket_impl>(s.lcf, connect, inject_error));
+            };
+            return test_fn(s.proto, *s.servers[0], make_socket).finally([&] {
+                return smp::invoke_on_all([&s] {
+                    auto sptr = s.servers[engine().cpu_id()].get();
+                    s.lcf.destroy_shard(engine().cpu_id());
+                    return sptr->stop().finally([p = std::move(s.servers[engine().cpu_id()])] {});
+                });
+            });
         });
     });
 }
