@@ -53,11 +53,30 @@ Actual negotiation looks like this:
     If timeout is specified and server cannot handle the request in specified time frame it my choose
     to not send the reply back (sending it back will not be an error either).
 
+#### Connection ID
+    feature_number: 2
+    uint64_t conenction_id  : RPC connection ID 
+
+    Server assigns unique connection ID for each connection and sends it to a client using
+    this feature.
+
+#### Stream parent
+    feature_number: 3
+    uint64_t connection_id : RPC connection ID representing a parent of the stream
+
+    If this feature is present it means that the connection is not regular RPC connection
+    but stream connection. If parent connection is closed or aborted all streams belonging 
+    to it will be closed as well.
+   
+    Stream connection is a connection that allows bidirectional flow of bytes which may carry one or
+    more messages in each direction. Stream connection should be explicitly closed by both client and
+    server. Closing is done by sending special EOS frame (described below).
+    
 ##### Compressed frame format
     uint32_t len
     uint8_t compressed_data[len]
 
-    after compressed_data is uncompressed it becomes regular request or response frame 
+    after compressed_data is uncompressed it becomes regular request, response or streaming frame 
 
 ## Request frame format
     uint64_t timeout_in_ms - only present if timeout propagation is negotiated
@@ -67,6 +86,7 @@ Actual negotiation looks like this:
     uint8_t data[len]
 
 msg_id has to be positive and may never be reused.
+data is transparent for the protocol and serialized/deserialized by a user 
 
 ## Response frame format
     int64_t msg_id
@@ -74,6 +94,14 @@ msg_id has to be positive and may never be reused.
     uint8_t data[len]
     
 if msg_id < 0 enclosed response contains an exception that came as a response to msg id abs(msg_id)
+data is transparent for the protocol and serialized/deserialized by a user 
+
+## Stream frame format
+   uint32_t len
+   uint8_t data[len]
+
+len == 0xffffffff signals end of stream
+data is transparent for the protocol and serialized/deserialized by a user 
 
 ## Exception encoding
     uint32_t type
@@ -106,6 +134,9 @@ This exception is sent as a response to a request with unknown verb_id, the verb
 	response_stream = negotiation_frame, { response | compressed_response }
 	response = reply | exception
 	compressed_response = len, { byte }*len
+        streaming_stream = negotiation_frame, { streaming_frame | compressed_streaming_frame }
+        streaming_frame = len, { byte }*len
+        compressed_streaming_frame = len, { byte }*len
 	reply = msg_id, len, { byte }*len
 	exception = exception_header, serialized_exception
 	exception_header = -msg_id, len

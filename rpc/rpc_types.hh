@@ -31,6 +31,9 @@
 #include "core/timer.hh"
 #include "core/simple-stream.hh"
 #include "core/lowres_clock.hh"
+#include <boost/functional/hash.hpp>
+#include <iostream>
+#include <core/sharded.hh>
 
 namespace seastar {
 
@@ -108,6 +111,11 @@ public:
     canceled_error() : error("rpc call was canceled") {}
 };
 
+class stream_closed : public error {
+public:
+    stream_closed() : error("rpc stream was closed by peer") {}
+};
+
 struct no_wait_type {};
 
 // return this from a callback if client does not want to waiting for a reply
@@ -165,6 +173,7 @@ struct cancellable {
 
 struct rcv_buf {
     uint32_t size = 0;
+    std::experimental::optional<semaphore_units<>> su;
     boost::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
     using iterator = std::vector<temporary_buffer<char>>::iterator;
     rcv_buf() {}
@@ -211,7 +220,99 @@ public:
     };
 };
 
+class connection;
+
+struct connection_id {
+    uint64_t id;
+    bool operator==(const connection_id& o) const {
+        return id == o.id;
+    }
+    operator bool() const {
+        return id;
+    }
+    size_t shard() {
+        return size_t(id & 0xffff);
+    }
+};
+
+constexpr connection_id invalid_connection_id{0};
+
+std::ostream& operator<<(std::ostream&, const connection_id&);
+
+using xshard_connection_ptr = lw_shared_ptr<foreign_ptr<shared_ptr<connection>>>;
+constexpr size_t max_queued_stream_buffers = 50;
+constexpr size_t max_stream_buffers_memory = 100 * 1024;
+
+// send data Out...
+template<typename... Out>
+class sink {
+public:
+    class impl {
+    protected:
+        xshard_connection_ptr _con;
+        semaphore _sem;
+        std::exception_ptr _ex;
+        impl(xshard_connection_ptr con) : _con(std::move(con)), _sem(max_stream_buffers_memory) {}
+    public:
+        virtual ~impl() {};
+        virtual future<> operator()(const Out&... args) = 0;
+        virtual future<> close() = 0;
+        friend sink;
+    };
+
+private:
+    shared_ptr<impl> _impl;
+
+public:
+    sink(shared_ptr<impl> impl) : _impl(std::move(impl)) {}
+    future<> operator()(const Out&... args) {
+        return _impl->operator()(args...);
+    }
+    future<> close() {
+        return _impl->close();
+    }
+    connection_id get_id() const;
+};
+
+// receive data In...
+template<typename... In>
+class source {
+public:
+    class impl {
+    protected:
+        xshard_connection_ptr _con;
+        circular_buffer<foreign_ptr<std::unique_ptr<rcv_buf>>> _bufs;
+        impl(xshard_connection_ptr con) : _con(std::move(con)) {
+            _bufs.reserve(max_queued_stream_buffers);
+        }
+    public:
+        virtual ~impl() {}
+        virtual future<std::experimental::optional<std::tuple<In...>>> operator()() = 0;
+        friend source;
+    };
+private:
+    shared_ptr<impl> _impl;
+
+public:
+    source(shared_ptr<impl> impl) : _impl(std::move(impl)) {}
+    future<std::experimental::optional<std::tuple<In...>>> operator()() {
+        return _impl->operator()();
+    };
+    connection_id get_id() const;
+    template<typename Serializer, typename... Out> sink<Out...> make_sink();
+};
+
 } // namespace rpc
 
 }
 
+namespace std {
+template<>
+struct hash<seastar::rpc::connection_id> {
+    size_t operator()(const seastar::rpc::connection_id& id) const {
+        size_t h = 0;
+        boost::hash_combine(h, std::hash<uint64_t>{}(id.id));
+        return h;
+    }
+};
+}

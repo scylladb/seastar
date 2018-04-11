@@ -1,4 +1,5 @@
 #include "rpc.hh"
+#include <boost/range/adaptor/map.hpp>
 
 namespace seastar {
 
@@ -29,6 +30,35 @@ namespace rpc {
           return boost::get<std::vector<temporary_buffer<char>>>(bufs).front();
       }
   }
+
+  // Make a copy of a remote buffer. No data is actually copied, only pointers and
+  // a deleter of a new buffer takes care of deleting the original buffer
+  template<typename T> // T is either snd_buf or rcv_buf
+  T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org) {
+      if (org.get_owner_shard() == engine().cpu_id()) {
+          return std::move(*org);
+      }
+      T buf(org->size);
+      auto *one = boost::get<temporary_buffer<char>>(&org->bufs);
+
+      if (one) {
+          buf.bufs = temporary_buffer<char>(one->get_write(), one->size(), make_object_deleter(std::move(org)));
+      } else {
+          auto& orgbufs = boost::get<std::vector<temporary_buffer<char>>>(org->bufs);
+          std::vector<temporary_buffer<char>> newbufs;
+          newbufs.reserve(orgbufs.size());
+          deleter d = make_object_deleter(std::move(org));
+          for (auto&& b : orgbufs) {
+              newbufs.push_back(temporary_buffer<char>(b.get_write(), b.size(), d.share()));
+          }
+          buf.bufs = std::move(newbufs);
+      }
+
+      return buf;
+  }
+
+  template snd_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<snd_buf>>);
+  template rcv_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<rcv_buf>>);
 
   snd_buf connection::compress(snd_buf buf) {
       if (_compressor) {
@@ -95,13 +125,6 @@ namespace rpc {
           _error = true;
       });
   }
-  void connection::send_loop(connection::outgoing_queue_type type) {
-      if (type == outgoing_queue_type::request) {
-          send_loop<outgoing_queue_type::request>();
-      } else {
-          send_loop<outgoing_queue_type::response>();
-      }
-  }
 
   future<> connection::stop_send_loop() {
       _error = true;
@@ -109,9 +132,11 @@ namespace rpc {
           _outgoing_queue_cond.broken();
           _fd.shutdown_output();
       }
-      return _send_loop_stopped.finally([this] {
+      return when_all(std::move(_send_loop_stopped), std::move(_sink_closed_future)).then([this] (std::tuple<future<>, future<bool>> res){
           _outgoing_queue.clear();
-          return _connected ? _write_buf.close() : make_ready_future();
+          // both _send_loop_stopped and _sink_closed_future are never exceptional
+          bool sink_closed = std::get<1>(res).get0();
+          return _connected && !sink_closed ? _write_buf.close() : make_ready_future();
       });
   }
 
@@ -176,11 +201,15 @@ namespace rpc {
       }
   }
 
-  future<> connection::stop() {
+  void connection::abort() {
       if (!_error) {
           _error = true;
           _fd.shutdown_input();
       }
+  }
+
+  future<> connection::stop() {
+      abort();
       return _stopped.get_future();
   }
 
@@ -340,8 +369,112 @@ namespace rpc {
       }
   }
 
-  template<typename Connection>
-  static void log_exception(Connection& c, const char* log, std::exception_ptr eptr) {
+  struct stream_frame {
+      using opt_buf_type = std::experimental::optional<rcv_buf>;
+      using return_type = future<opt_buf_type>;
+      struct header_type {
+          uint32_t size;
+          bool eos;
+      };
+      static size_t header_size() {
+          return 4;
+      }
+      static const char* role() {
+          return "stream";
+      }
+      static future<opt_buf_type> empty_value() {
+          return make_ready_future<opt_buf_type>(std::experimental::nullopt);
+      }
+      static header_type decode_header(const char* ptr) {
+          header_type h{read_le<uint32_t>(ptr), false};
+          if (h.size == -1U) {
+              h.size = 0;
+              h.eos = true;
+          }
+          return h;
+      }
+      static uint32_t get_size(const header_type& t) {
+          return t.size;
+      }
+      static future<opt_buf_type> make_value(const header_type& t, rcv_buf data) {
+          if (t.eos) {
+              data.size = -1U;
+          }
+          return make_ready_future<opt_buf_type>(std::move(data));
+      }
+  };
+
+  future<std::experimental::optional<rcv_buf>>
+  connection::read_stream_frame_compressed(input_stream<char>& in) {
+      return read_frame_compressed<stream_frame>(peer_address(), _compressor, in);
+  }
+
+  future<> connection::stream_close() {
+      auto f = make_ready_future<>();
+      if (!error()) {
+          promise<bool> p;
+          _sink_closed_future = p.get_future();
+          // stop_send_loop(), which also calls _write_buf.close(), and this code can run in parallel.
+          // Use _sink_closed_future to serialize them and skip second call to close()
+          f = _write_buf.close().finally([p = std::move(p)] () mutable { p.set_value(true);});
+      }
+      return f.finally([this] () mutable { return stop(); });
+  }
+
+  future<> connection::stream_process_incoming(rcv_buf&& buf) {
+      // we do not want to dead lock on huge packets, so let them in
+      // but only one at a time
+      auto size = std::min(size_t(buf.size), max_stream_buffers_memory);
+      return get_units(_stream_sem, size).then([this, buf = std::move(buf)] (semaphore_units<>&& su) mutable {
+          buf.su = std::move(su);
+          return _stream_queue.push_eventually(std::move(buf));
+      });
+  }
+
+  future<> connection::handle_stream_frame() {
+      return read_stream_frame_compressed(_read_buf).then([this] (std::experimental::optional<rcv_buf> data) {
+          if (!data) {
+              _error = true;
+              return make_ready_future<>();
+          }
+          return stream_process_incoming(std::move(*data));
+      });
+  }
+
+  future<> connection::stream_receive(circular_buffer<foreign_ptr<std::unique_ptr<rcv_buf>>>& bufs) {
+      if (_source_closed) {
+          return make_exception_future<>(stream_closed());
+      }
+
+      return _stream_queue.not_empty().then([this, &bufs] {
+          bool eof = !_stream_queue.consume([this, &bufs] (rcv_buf&& b) {
+              if (b.size == -1U) { // max fragment length marks an end of a stream
+                  return false;
+              } else {
+                  bufs.push_back(make_foreign(std::make_unique<rcv_buf>(std::move(b))));
+                  return true;
+              }
+          });
+          if (eof && !bufs.empty()) {
+              assert(_stream_queue.empty());
+              _stream_queue.push(rcv_buf(-1U)); // push eof marker back for next read to notice it
+          }
+      });
+  }
+
+  void connection::register_stream(connection_id id, xshard_connection_ptr c) {
+      _streams.emplace(id, std::move(c));
+  }
+
+  xshard_connection_ptr connection::get_stream(connection_id id) const {
+      auto it = _streams.find(id);
+      if (it == _streams.end()) {
+          throw std::logic_error(sprint("rpc stream id %d not found", id).c_str());
+      }
+      return it->second;
+  }
+
+  static void log_exception(connection& c, const char* log, std::exception_ptr eptr) {
       const char* s;
       try {
           std::rethrow_exception(eptr);
@@ -369,6 +502,10 @@ namespace rpc {
           case protocol_features::TIMEOUT:
               _timeout_negotiated = true;
               break;
+          case protocol_features::CONNECTION_ID: {
+              _id = deserialize_connection_id(e.second);
+              break;
+          }
           default:
               // nothing to do
               ;
@@ -456,6 +593,21 @@ namespace rpc {
       return _stopped.get_future();
   }
 
+  void client::abort_all_streams() {
+      while (!_streams.empty()) {
+          auto&& s = _streams.begin();
+          assert(s->second->get_owner_shard() == engine().cpu_id()); // abort can be called only locally
+          s->second->get()->abort();
+          _streams.erase(s);
+      }
+  }
+
+  void client::deregister_this_stream() {
+      if (_parent) {
+          _parent->_streams.erase(_id);
+      }
+  }
+
   client::client(const logger& l, void* s, client_options ops, socket socket, ipv4_addr addr, ipv4_addr local)
   : rpc::connection(l, s), _socket(std::move(socket)), _server_addr(addr), _options(ops) {
       _socket.connect(addr, local).then([this, ops = std::move(ops)] (connected_socket fd) {
@@ -473,11 +625,20 @@ namespace rpc {
           if (_options.send_timeout_data) {
               features[protocol_features::TIMEOUT] = "";
           }
+          if (_options.stream_parent) {
+              features[protocol_features::STREAM_PARENT] = serialize_connection_id(_options.stream_parent);
+          }
+
           send_negotiation_frame(std::move(features));
 
           return negotiate_protocol(_read_buf).then([this] () {
+              _client_negotiated->set_value();
+              _client_negotiated = stdx::nullopt;
               send_loop();
               return do_until([this] { return _read_buf.eof() || _error; }, [this] () mutable {
+                  if (is_stream()) {
+                      return handle_stream_frame();
+                  }
                   return read_response_frame_compressed(_read_buf).then([this] (int64_t msg_id, std::experimental::optional<rcv_buf> data) {
                       auto it = _outstanding.find(std::abs(msg_id));
                       if (!data) {
@@ -506,14 +667,30 @@ namespace rpc {
               });
           });
       }).then_wrapped([this] (future<> f) {
+          std::exception_ptr ep;
           if (f.failed()) {
-              log_exception(*this, _connected ? "client connection dropped" : "fail to connect", f.get_exception());
+              ep = f.get_exception();
+              if (is_stream()) {
+                  log_exception(*this, _connected ? "client stream connection dropped" : "stream fail to connect", ep);
+              } else {
+                  log_exception(*this, _connected ? "client connection dropped" : "fail to connect", ep);
+              }
           }
           _error = true;
+          _stream_queue.abort(std::make_exception_ptr(stream_closed()));
           return stop_send_loop().then_wrapped([this] (future<> f) {
               f.ignore_ready_future();
-              _stopped.set_value();
               _outstanding.clear();
+              if (is_stream()) {
+                  deregister_this_stream();
+              } else {
+                  abort_all_streams();
+              }
+          }).finally([this, ep]{
+              if (_client_negotiated && ep) {
+                  _client_negotiated->set_exception(ep);
+              }
+              _stopped.set_value();
           });
       });
   }
@@ -531,9 +708,10 @@ namespace rpc {
   {}
 
 
-  feature_map
+  future<feature_map>
   server::connection::negotiate(feature_map requested) {
       feature_map ret;
+      future<> f = make_ready_future<>();
       for (auto&& e : requested) {
           auto id = e.first;
           switch (id) {
@@ -549,19 +727,49 @@ namespace rpc {
               _timeout_negotiated = true;
               ret[protocol_features::TIMEOUT] = "";
               break;
+          case protocol_features::STREAM_PARENT: {
+              if (!_server._options.streaming_domain) {
+                  f = make_exception_future<>(std::runtime_error("streaming is not configured for the server"));
+              } else {
+                  _parent_id = deserialize_connection_id(e.second);
+                  _is_stream = true;
+                  // remove stream connection from rpc connection list
+                  _server._conns.erase(get_connection_id());
+                  f = smp::submit_to(_parent_id.shard(), [this, c = make_foreign(static_pointer_cast<rpc::connection>(shared_from_this()))] () mutable {
+                      auto sit = _servers.find(*_server._options.streaming_domain);
+                      if (sit == _servers.end()) {
+                          throw std::logic_error(sprint("Shard %d does not have server with streaming domain %x", engine().cpu_id(), *_server._options.streaming_domain).c_str());
+                      }
+                      auto s = sit->second;
+                      auto it = s->_conns.find(_parent_id);
+                      if (it == s->_conns.end()) {
+                          throw std::logic_error(sprint("Unknown parent connection %d on shard %d", _parent_id, engine().cpu_id()).c_str());
+                      }
+                      auto id = c->get_connection_id();
+                      it->second->register_stream(id, make_lw_shared(std::move(c)));
+                  });
+              }
+              break;
+          }
           default:
               // nothing to do
               ;
           }
       }
-      return ret;
+      if (_server._options.streaming_domain) {
+          ret[protocol_features::CONNECTION_ID] = serialize_connection_id(_id);
+      }
+      return f.then([ret = std::move(ret)] {
+          return ret;
+      });
   }
 
   future<>
   server::connection::negotiate_protocol(input_stream<char>& in) {
       return receive_negotiation_frame(*this, in).then([this] (feature_map requested_features) {
-          auto returned_features = negotiate(std::move(requested_features));
-          return send_negotiation_frame(std::move(returned_features));
+          return negotiate(std::move(requested_features)).then([this] (feature_map returned_features) {
+              return send_negotiation_frame(std::move(returned_features));
+          });
       });
   }
 
@@ -626,6 +834,9 @@ namespace rpc {
       return negotiate_protocol(_read_buf).then([this] () mutable {
           send_loop();
           return do_until([this] { return _read_buf.eof() || _error; }, [this] () mutable {
+              if (is_stream()) {
+                  return handle_stream_frame();
+              }
               return read_request_frame_compressed(_read_buf).then([this] (std::experimental::optional<uint64_t> expire, uint64_t type, int64_t msg_id, std::experimental::optional<rcv_buf> data) {
                   if (!data) {
                       _error = true;
@@ -661,13 +872,20 @@ namespace rpc {
           });
       }).then_wrapped([this] (future<> f) {
           if (f.failed()) {
-              log_exception(*this, "server connection dropped", f.get_exception());
+              log_exception(*this, sprint("server%s connection dropped", is_stream() ? " stream" : "").c_str(), f.get_exception());
           }
           _fd.shutdown_input();
           _error = true;
+          _stream_queue.abort(std::make_exception_ptr(stream_closed()));
           return stop_send_loop().then_wrapped([this] (future<> f) {
               f.ignore_ready_future();
-              _server._conns.erase(shared_from_this());
+              _server._conns.erase(get_connection_id());
+              if (is_stream()) {
+                  return deregister_this_stream();
+              } else {
+                  return make_ready_future<>();
+              }
+          }).finally([this] {
               _stopped.set_value();
           });
       }).finally([conn_ptr = shared_from_this()] {
@@ -675,10 +893,28 @@ namespace rpc {
       });
   }
 
-  server::connection::connection(server& s, connected_socket&& fd, socket_address&& addr, const logger& l, void* serializer)
-      : rpc::connection(std::move(fd), l, serializer), _server(s) {
+  server::connection::connection(server& s, connected_socket&& fd, socket_address&& addr, const logger& l, void* serializer, connection_id id)
+      : rpc::connection(std::move(fd), l, serializer, id), _server(s) {
       _info.addr = std::move(addr);
   }
+
+  future<> server::connection::deregister_this_stream() {
+      if (!_server._options.streaming_domain) {
+          return make_ready_future<>();
+      }
+      return smp::submit_to(_parent_id.shard(), [this] () mutable {
+          auto sit = server::_servers.find(*_server._options.streaming_domain);
+          if (sit != server::_servers.end()) {
+              auto s = sit->second;
+              auto it = s->_conns.find(_parent_id);
+              if (it != s->_conns.end()) {
+                  it->second->_streams.erase(get_connection_id());
+              }
+          }
+      });
+  }
+
+  thread_local std::unordered_map<streaming_domain_type, server*> server::_servers;
 
   server::server(protocol_base* proto, ipv4_addr addr, resource_limits limits)
       : server(proto, engine().listen(addr, listen_options(true)), limits, server_options{})
@@ -691,6 +927,9 @@ namespace rpc {
   server::server(protocol_base* proto, server_socket ss, resource_limits limits, server_options opts)
           : _proto(proto), _ss(std::move(ss)), _limits(limits), _resources_available(limits.max_memory), _options(opts)
   {
+      if (_options.streaming_domain) {
+          _servers[*_options.streaming_domain] = this;
+      }
       accept();
   }
 
@@ -702,8 +941,12 @@ namespace rpc {
       keep_doing([this] () mutable {
           return _ss.accept().then([this] (connected_socket fd, socket_address addr) mutable {
               fd.set_nodelay(_options.tcp_nodelay);
-              auto conn = _proto->make_server_connection(*this, std::move(fd), std::move(addr));
-              _conns.insert(conn);
+              connection_id id = invalid_connection_id;
+              if (_options.streaming_domain) {
+                  id = {_next_client_id++ << 16 | uint16_t(engine().cpu_id())};
+              }
+              auto conn = _proto->make_server_connection(*this, std::move(fd), std::move(addr), id);
+              _conns.emplace(id, conn);
               conn->process();
           });
       }).then_wrapped([this] (future<>&& f){
@@ -715,15 +958,27 @@ namespace rpc {
           }
       });
   }
+
   future<> server::stop() {
       _ss.abort_accept();
       _resources_available.broken();
+      if (_options.streaming_domain) {
+          _servers.erase(*_options.streaming_domain);
+      }
       return when_all(_ss_stopped.get_future(),
-          parallel_for_each(_conns, [] (lw_shared_ptr<connection> conn) {
+          parallel_for_each(_conns | boost::adaptors::map_values, [] (shared_ptr<connection> conn) {
               return conn->stop();
           }),
           _reply_gate.close()
       ).discard_result();
+  }
+
+  std::ostream& operator<<(std::ostream& os, const connection_id& id) {
+      return fprint(os, "%x", id.id);
+  }
+
+  std::ostream& operator<<(std::ostream& os, const streaming_domain_type& domain) {
+      return fprint(os, "%d", domain._id);
   }
 
 }
