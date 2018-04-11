@@ -413,7 +413,7 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
     return shelper{xt, xsig};
 }
 
-template<typename Serializer, typename MsgType, typename... RetTypes>
+template<typename Serializer, typename... RetTypes>
 inline future<> reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_shared_ptr<server::connection> client,
         std::experimental::optional<rpc_clock_type::time_point> timeout) {
     if (!client->error()) {
@@ -442,7 +442,7 @@ inline future<> reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_s
 }
 
 // specialization for no_wait_type which does not send a reply
-template<typename Serializer, typename MsgType>
+template<typename Serializer>
 inline future<> reply(no_wait_type, future<no_wait_type>&& r, int64_t msgid, lw_shared_ptr<server::connection> client, std::experimental::optional<rpc_clock_type::time_point> timeout) {
     try {
         r.get();
@@ -475,7 +475,7 @@ auto lref_to_cref(T& x) {
 
 // Creates lambda to handle RPC message on a server.
 // The lambda unmarshalls all parameters, calls a handler, marshall return values and sends them back to a client
-template <typename Serializer, typename MsgType, typename Func, typename Ret, typename... InArgs, typename WantClientInfo, typename WantTimePoint>
+template <typename Serializer, typename Func, typename Ret, typename... InArgs, typename WantClientInfo, typename WantTimePoint>
 auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci, WantTimePoint wtp) {
     using signature = decltype(sig);
     using wait_style = wait_signature_t<Ret>;
@@ -488,7 +488,7 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
             auto err = sprint("request size %d large than memory limit %d", memory_consumed, client->max_request_size());
             client->get_logger()(client->peer_address(), err);
             with_gate(client->get_server().reply_gate(), [client, timeout, msg_id, err = std::move(err)] {
-                return reply<Serializer, MsgType>(wait_style(), futurize<Ret>::make_exception_future(std::runtime_error(err.c_str())), msg_id, client, timeout);
+                return reply<Serializer>(wait_style(), futurize<Ret>::make_exception_future(std::runtime_error(err.c_str())), msg_id, client, timeout);
             });
             return make_ready_future();
         }
@@ -498,7 +498,7 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
                 with_gate(client->get_server().reply_gate(), [client, timeout, msg_id, data = std::move(data), permit = std::move(permit), &func] () mutable {
                     auto args = unmarshall<Serializer, InArgs...>(client->template serializer<Serializer>(), std::move(data));
                     return apply(func, client->info(), timeout, WantClientInfo(), WantTimePoint(), signature(), std::move(args)).then_wrapped([client, timeout, msg_id, permit = std::move(permit)] (futurize_t<Ret> ret) mutable {
-                        return reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, client, timeout).then([permit = std::move(permit)] {});
+                        return reply<Serializer>(wait_style(), std::move(ret), msg_id, client, timeout).then([permit = std::move(permit)] {});
                     });
                 });
             } catch (gate_closed_exception&) {/* ignore */ }
@@ -572,7 +572,7 @@ auto protocol<Serializer, MsgType>::register_handler(MsgType t, Func&& func) {
     using clean_sig_type = typename sig_type::clean;
     using want_client_info = typename sig_type::want_client_info;
     using want_time_point = typename sig_type::want_time_point;
-    auto recv = recv_helper<Serializer, MsgType>(clean_sig_type(), std::forward<Func>(func),
+    auto recv = recv_helper<Serializer>(clean_sig_type(), std::forward<Func>(func),
             want_client_info(), want_time_point());
     register_receiver(t, make_copyable_function(std::move(recv)));
     return make_client(clean_sig_type(), t);
