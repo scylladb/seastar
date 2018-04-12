@@ -104,6 +104,7 @@
 #endif
 
 #include "util/defer.hh"
+#include "core/alien.hh"
 #include "core/metrics.hh"
 #include "execution_stage.hh"
 #include "exception_hacks.hh"
@@ -2735,10 +2736,12 @@ class reactor::smp_pollfn final : public reactor::pollfn {
 public:
     smp_pollfn(reactor& r) : _r(r) {}
     virtual bool poll() final override {
-        return smp::poll_queues();
+        return (smp::poll_queues() |
+                alien::smp::poll_queues());
     }
     virtual bool pure_poll() final override {
-        return smp::pure_poll_queues();
+        return (smp::pure_poll_queues() ||
+                alien::smp::pure_poll_queues());
     }
     virtual bool try_enter_interrupt_mode() override {
         // systemwide_memory_barrier() is very slow if run concurrently,
@@ -3693,6 +3696,7 @@ void smp::start_all_queues()
             _qs[c][engine().cpu_id()].start(c);
         }
     }
+    alien::smp::_qs[engine().cpu_id()].start();
 }
 
 #ifdef HAVE_DPDK
@@ -3757,6 +3761,9 @@ void smp::cleanup_cpu() {
         for(unsigned i = 0; i < smp::count; i++) {
             _qs[i][cpuid].stop();
         }
+    }
+    if (alien::smp::_qs) {
+        alien::smp::_qs[cpuid].stop();
     }
 }
 
@@ -4025,6 +4032,7 @@ void smp::configure(boost::program_options::variables_map configuration)
         }
     }
     smp_queues_constructed.wait();
+    alien::smp::_qs = alien::smp::create_qs(_reactors);
     start_all_queues();
     assign_io_queue(0, queue_idx);
     inited.wait();

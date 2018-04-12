@@ -93,7 +93,9 @@ namespace seastar {
 
 using shard_id = unsigned;
 
-
+namespace alien {
+class message_queue;
+}
 class reactor;
 class pollable_fd;
 class pollable_fd_state;
@@ -1052,6 +1054,7 @@ private:
 
     future<> run_exit_tasks();
     void stop();
+    friend class alien::message_queue;
     friend class pollable_fd;
     friend class pollable_fd_state;
     friend class posix_file_impl;
