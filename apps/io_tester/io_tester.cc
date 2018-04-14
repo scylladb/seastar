@@ -27,6 +27,7 @@
 #include "core/sleep.hh"
 #include "core/align.hh"
 #include "core/timer.hh"
+#include "core/thread.hh"
 #include <chrono>
 #include <vector>
 #include <boost/range/irange.hpp>
@@ -95,6 +96,7 @@ struct shard_info {
     uint64_t request_size = 4 << 10;
     std::chrono::duration<float> think_time = 0ms;
     std::chrono::duration<float> execution_time = 1ms;
+    seastar::scheduling_group scheduling_group = seastar::default_scheduling_group();
 };
 
 class class_data;
@@ -136,6 +138,7 @@ public:
         : _config(std::move(cfg))
         , _alignment(_config.shard_info.request_size >= 4096 ? 4096 : 512)
         , _iop(engine().register_one_priority_class(sprint("test-class-%d", idgen()), _config.shard_info.shares))
+        , _sg(cfg.shard_info.scheduling_group)
         , _latencies(extended_p_square_probabilities = quantiles)
         , _pos_distribution(0,  file_data_size / _config.shard_info.request_size)
     {}
@@ -146,11 +149,14 @@ public:
             return parallel_for_each(boost::irange(0u, parallelism()), [this, stop] (auto dummy) mutable {
                 auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
                 auto buf = bufptr.get();
-                return do_until([this, stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf] () mutable {
+                return do_until([this, stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf, stop] () mutable {
                     auto start = std::chrono::steady_clock::now();
-                    return issue_request(buf).then([this, start] (auto size) {
-                        this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start));
-                        return seastar::sleep(std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.think_time));
+                    return issue_request(buf).then([this, start, stop] (auto size) {
+                        auto now = std::chrono::steady_clock::now();
+                        if (now < stop) {
+                            this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(now - start));
+                        }
+                        return think();
                     });
                 }).finally([bufptr = std::move(bufptr)] {});
             });
@@ -159,6 +165,13 @@ public:
         });
     }
 
+    future<> think() {
+        if (_config.shard_info.think_time > 0us) {
+            return seastar::sleep(std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.think_time));
+        } else {
+            return make_ready_future<>();
+        }
+    }
     // Generate the test file for reads and writes alike. It is much simpler to just generate one file per job instead of expecting
     // job dependencies between creators and consumers. So every job (a class in a shard) will have its own file and will operate
     // this file differently depending on the type:
@@ -170,10 +183,7 @@ public:
     // append            : will write to the file from pos = EOF onwards, always appending to the end.
     // cpu               : CPU-only load, file is not created.
     future<> start(sstring dir) {
-        return seastar::create_scheduling_group(sprint("%s-%d", name(), engine().cpu_id()), shares()).then([this, dir] (seastar::scheduling_group sg) {
-            _sg = sg;
-            return do_start(dir);
-        });
+        return do_start(dir);
     }
 protected:
     sstring type_str() const {
@@ -560,36 +570,43 @@ int main(int ac, char** av) {
 
     distributed<context> ctx;
     return app.run(ac, av, [&] {
-        auto& opts = app.configuration();
-        auto& directory = opts["directory"].as<sstring>();
+        return seastar::async([&] {
+            auto& opts = app.configuration();
+            auto& directory = opts["directory"].as<sstring>();
 
-        return file_system_at(directory).then([directory] (auto fs) {
+            auto fs = file_system_at(directory).get0();
             if (fs != fs_type::xfs) {
                 throw std::runtime_error(sprint("This is a performance test. %s is not on XFS", directory));
             }
-        }).then([&] {
+
             auto& duration = opts["duration"].as<unsigned>();
             auto& yaml = opts["conf"].as<sstring>();
             YAML::Node doc = YAML::LoadFile(yaml);
             auto reqs = doc.as<std::vector<job_config>>();
-            return ctx.start(directory, reqs, duration).then([&ctx] {
-                engine().at_exit([&ctx] {
-                    return ctx.stop();
+
+            parallel_for_each(reqs, [] (auto& r) {
+                return seastar::create_scheduling_group(r.name, r.shard_info.shares).then([&r] (seastar::scheduling_group sg) {
+                    r.shard_info.scheduling_group = sg;
                 });
-                std::cout << "Creating initial files..." << std::endl;
-                return ctx.invoke_on_all([] (auto& c) {
-                    return c.start();
-                }).then([&ctx] {
-                    std::cout << "Starting evaluation..." << std::endl;
-                    return ctx.invoke_on_all([] (auto& c) {
-                        return c.issue_requests();
-                    });
-                }).then([&ctx] {
-                    return ctx.invoke_on_all([] (auto& c) {
-                        return c.print_stats();
-                    });
-                }).or_terminate();
+            }).get();
+
+            ctx.start(directory, reqs, duration).get0();
+            engine().at_exit([&ctx] {
+                return ctx.stop();
             });
-        });
+            std::cout << "Creating initial files..." << std::endl;
+            ctx.invoke_on_all([] (auto& c) {
+                return c.start();
+            }).get();
+            std::cout << "Starting evaluation..." << std::endl;
+            ctx.invoke_on_all([] (auto& c) {
+                return c.issue_requests();
+            }).get();
+            for (unsigned i = 0; i < smp::count; ++i) {
+                ctx.invoke_on(i, [] (auto& c) {
+                    return c.print_stats();
+                }).get();
+            }
+        }).or_terminate();
     });
 }
