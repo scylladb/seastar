@@ -44,6 +44,17 @@ struct A {
 
 struct B {
     virtual void x() {}
+    virtual void virtual_method() {
+        i = 1;
+    }
+    int get() { return i; }
+    int i = 0;
+};
+
+struct B2 : public B {
+    virtual void virtual_method() {
+        i = 2;
+    }
 };
 
 bool A::destroyed = false;
@@ -55,6 +66,20 @@ BOOST_AUTO_TEST_CASE(explot_dynamic_cast_use_after_free_problem) {
         BOOST_ASSERT(!p2);
     }
     BOOST_ASSERT(!A::destroyed);
+}
+
+BOOST_AUTO_TEST_CASE(test_polymorphism) {
+    {
+        shared_ptr<B> p = make_shared<B2>();
+        p->virtual_method();
+        BOOST_REQUIRE(p->get() == 2);
+    }
+    {
+        //lw_shared_ptr<B> p = make_lw_shared<B2>();//would not compile
+        auto p = make_lw_shared<B2>();
+        p->virtual_method();
+        BOOST_REQUIRE(p->get() == 2);
+    }
 }
 
 class C : public enable_shared_from_this<C> {
