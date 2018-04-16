@@ -883,6 +883,8 @@ static bool aio_nowait_supported = true;
 
 struct io_desc {
     promise<io_event> pr;
+    fair_queue_request_descriptor fq_desc;
+    io_desc(unsigned fairness_weight) : fq_desc(fair_queue_request_descriptor{fairness_weight}) {}
 };
 
 template <typename Func>
@@ -1133,16 +1135,17 @@ io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_
     auto start = std::chrono::steady_clock::now();
     return smp::submit_to(coordinator, [start, &pc, len, prepare_io = std::move(prepare_io), owner = engine().cpu_id()] {
         auto& queue = *(engine()._io_queue);
-        unsigned weight = 1 + len/(16 << 10);
+        unsigned fairness_weight = 1 + len/(16 << 10);
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = queue.find_or_create_class(pc, owner);
         pclass.bytes += len;
         pclass.ops++;
         pclass.nr_queued++;
-        auto desc = std::make_unique<io_desc>();
+        auto desc = std::make_unique<io_desc>(fairness_weight);
+        auto fq_desc = desc->fq_desc;
         auto fut = desc->pr.get_future();
-        queue._fq.queue(pclass.ptr, weight, [&pclass, &queue, start, prepare_io = std::move(prepare_io), desc = std::move(desc)] () mutable noexcept {
+        queue._fq.queue(pclass.ptr, std::move(fq_desc), [&pclass, &queue, start, prepare_io = std::move(prepare_io), desc = std::move(desc)] () mutable noexcept {
             try {
                 pclass.nr_queued--;
                 pclass.queue_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start);

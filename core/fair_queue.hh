@@ -36,6 +36,14 @@
 
 namespace seastar {
 
+/// \brief describes a request that passes through the fair queue
+///
+/// \related fair_queue
+struct fair_queue_request_descriptor {
+    unsigned fairness_weight; ///< weight of this request for equalization purposes.
+                              ///< The fair queue will try to equalize this - not IOPS nor bandwidth - among classes.
+};
+
 /// \addtogroup io-module
 /// @{
 
@@ -43,7 +51,7 @@ namespace seastar {
 class priority_class {
     struct request {
         noncopyable_function<void()> func;
-        unsigned weight;
+        fair_queue_request_descriptor desc;
     };
     friend class fair_queue;
     uint32_t _shares = 0;
@@ -186,12 +194,12 @@ public:
     ///
     /// The user of this interface is supposed to call \ref notify_requests_finished when the
     /// request finishes executing - regardless of success or failure.
-    void queue(priority_class_ptr pc, unsigned weight, noncopyable_function<void()> func) {
+    void queue(priority_class_ptr pc, fair_queue_request_descriptor desc, noncopyable_function<void()> func) {
         // We need to return a future in this function on which the caller can wait.
         // Since we don't know which queue we will use to execute the next request - if ours or
         // someone else's, we need a separate promise at this point.
         push_priority_class(pc);
-        pc->_queue.push_back(priority_class::request{std::move(func), weight});
+        pc->_queue.push_back(priority_class::request{std::move(func), std::move(desc)});
         _requests_queued++;
     }
 
@@ -214,7 +222,7 @@ public:
             _requests_queued--;
 
             auto delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
-            auto req_cost  = float(req.weight) / h->_shares;
+            auto req_cost  = float(req.desc.fairness_weight) / h->_shares;
             auto cost  = expf(1.0f/_tau.count() * delta.count()) * req_cost;
             float next_accumulated = h->_accumulated + cost;
             while (std::isinf(next_accumulated)) {

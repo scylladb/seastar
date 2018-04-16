@@ -74,7 +74,7 @@ struct test_env {
         promise<> pr;
         inflight.push_back(pr.get_future());
 
-        fq.queue(cl, weight, [this, index, pr = std::move(pr)] () mutable noexcept {
+        fq.queue(cl, fair_queue_request_descriptor{weight}, [this, index, pr = std::move(pr)] () mutable noexcept {
             try {
                 results[index]++;
                 sleep(100us).then_wrapped([this, pr = std::move(pr)] (future<> f) mutable {
