@@ -208,6 +208,9 @@ template <typename T>
 template <typename Func>
 inline
 bool queue<T>::consume(Func&& func) {
+    if (_ex) {
+        std::rethrow_exception(_ex);
+    }
     bool running = true;
     while (!_q.empty() && running) {
         running = func(std::move(_q.front()));
