@@ -61,7 +61,6 @@
 #include "posix.hh"
 #include "apply.hh"
 #include "sstring.hh"
-#include "deleter.hh"
 #include "net/api.hh"
 #include "temporary_buffer.hh"
 #include "circular_buffer.hh"
@@ -93,7 +92,9 @@ namespace seastar {
 
 using shard_id = unsigned;
 
-
+namespace alien {
+class message_queue;
+}
 class reactor;
 class pollable_fd;
 class pollable_fd_state;
@@ -311,8 +312,8 @@ class smp_message_queue {
     };
     // keep this between two structures with statistics
     // this makes sure that they have at least one cache line
-    // between them, so hw prefecther will not accidentally prefetch
-    // cache line used by aother cpu.
+    // between them, so hw prefetcher will not accidentally prefetch
+    // cache line used by another cpu.
     metrics::metric_groups _metrics;
     struct alignas(seastar::cache_line_size) {
         size_t _received = 0;
@@ -370,6 +371,7 @@ class smp_message_queue {
     std::vector<work_item*> _completed_fifo;
 public:
     smp_message_queue(reactor* from, reactor* to);
+    ~smp_message_queue();
     template <typename Func>
     futurize_t<std::result_of_t<Func()>> submit(Func&& func) {
         auto wi = std::make_unique<async_work_item<Func>>(*this, std::forward<Func>(func));
@@ -1052,6 +1054,7 @@ private:
 
     future<> run_exit_tasks();
     void stop();
+    friend class alien::message_queue;
     friend class pollable_fd;
     friend class pollable_fd_state;
     friend class posix_file_impl;
@@ -1145,7 +1148,10 @@ class smp {
     static std::vector<std::function<void ()>> _thread_loops; // for dpdk
     static std::experimental::optional<boost::barrier> _all_event_loops_done;
     static std::vector<reactor*> _reactors;
-    static smp_message_queue** _qs;
+    struct qs_deleter {
+      void operator()(smp_message_queue** qs) const;
+    };
+    static std::unique_ptr<smp_message_queue*[], qs_deleter> _qs;
     static std::thread::id _tmain;
     static bool _using_dpdk;
 

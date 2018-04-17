@@ -385,6 +385,7 @@ libnet = [
 
 core = [
     'core/reactor.cc',
+    'core/alien.cc',
     'core/systemwide_memory_barrier.cc',
     'core/fstream.cc',
     'core/posix.cc',
@@ -551,6 +552,7 @@ deps = {
     'tests/noncopyable_function_test': ['tests/noncopyable_function_test.cc'],
     'tests/netconfig_test': ['tests/netconfig_test.cc'] + core + libnet,
     'tests/abort_source_test': ['tests/abort_source_test.cc'] + core,
+    'tests/alien_test': ['tests/alien_test.cc'] + core,
 }
 
 boost_tests = [

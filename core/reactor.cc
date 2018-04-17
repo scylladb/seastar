@@ -104,6 +104,7 @@
 #endif
 
 #include "util/defer.hh"
+#include "core/alien.hh"
 #include "core/metrics.hh"
 #include "execution_stage.hh"
 #include "exception_hacks.hh"
@@ -2735,10 +2736,12 @@ class reactor::smp_pollfn final : public reactor::pollfn {
 public:
     smp_pollfn(reactor& r) : _r(r) {}
     virtual bool poll() final override {
-        return smp::poll_queues();
+        return (smp::poll_queues() |
+                alien::smp::poll_queues());
     }
     virtual bool pure_poll() final override {
-        return smp::pure_poll_queues();
+        return (smp::pure_poll_queues() ||
+                alien::smp::pure_poll_queues());
     }
     virtual bool try_enter_interrupt_mode() override {
         // systemwide_memory_barrier() is very slow if run concurrently,
@@ -3321,9 +3324,17 @@ smp_message_queue::smp_message_queue(reactor* from, reactor* to)
 {
 }
 
+smp_message_queue::~smp_message_queue()
+{
+    if (_pending.remote != _completed.remote) {
+        _tx.a.~aa();
+    }
+}
+
 void smp_message_queue::stop() {
     _metrics.clear();
 }
+
 void smp_message_queue::move_pending() {
     auto begin = _tx.a.pending_fifo.cbegin();
     auto end = _tx.a.pending_fifo.cend();
@@ -3408,7 +3419,7 @@ size_t smp_message_queue::process_queue(lf_queue& q, Func process) {
     work_item* wi;
     if (!q.pop(wi))
         return 0;
-    // start prefecthing first item before popping the rest to overlap memory
+    // start prefetching first item before popping the rest to overlap memory
     // access with potential cache miss the second pop may cause
     prefetch<2>(wi);
     auto nr = q.pop(items);
@@ -3681,7 +3692,7 @@ std::vector<posix_thread> smp::_threads;
 std::vector<std::function<void ()>> smp::_thread_loops;
 std::experimental::optional<boost::barrier> smp::_all_event_loops_done;
 std::vector<reactor*> smp::_reactors;
-smp_message_queue** smp::_qs;
+std::unique_ptr<smp_message_queue*[], smp::qs_deleter> smp::_qs;
 std::thread::id smp::_tmain;
 unsigned smp::count = 1;
 bool smp::_using_dpdk;
@@ -3693,6 +3704,7 @@ void smp::start_all_queues()
             _qs[c][engine().cpu_id()].start(c);
         }
     }
+    alien::smp::_qs[engine().cpu_id()].start();
 }
 
 #ifdef HAVE_DPDK
@@ -3758,6 +3770,9 @@ void smp::cleanup_cpu() {
             _qs[i][cpuid].stop();
         }
     }
+    if (alien::smp::_qs) {
+        alien::smp::_qs[cpuid].stop();
+    }
 }
 
 void smp::create_thread(std::function<void ()> thread_loop) {
@@ -3799,6 +3814,16 @@ static void sigsegv_action() noexcept {
 
 static void sigabrt_action() noexcept {
     print_with_backtrace("Aborting");
+}
+
+void smp::qs_deleter::operator()(smp_message_queue** qs) const {
+    for (unsigned i = 0; i < smp::count; i++) {
+        for (unsigned j = 0; j < smp::count; j++) {
+            qs[i][j].~smp_message_queue();
+        }
+        ::operator delete[](qs[i]);
+    }
+    delete[](qs);
 }
 
 void smp::configure(boost::program_options::variables_map configuration)
@@ -4017,7 +4042,7 @@ void smp::configure(boost::program_options::variables_map configuration)
 #endif
 
     reactors_registered.wait();
-    smp::_qs = new smp_message_queue* [smp::count];
+    smp::_qs = decltype(smp::_qs){new smp_message_queue* [smp::count], qs_deleter{}};
     for(unsigned i = 0; i < smp::count; i++) {
         smp::_qs[i] = reinterpret_cast<smp_message_queue*>(operator new[] (sizeof(smp_message_queue) * smp::count));
         for (unsigned j = 0; j < smp::count; ++j) {
@@ -4025,6 +4050,7 @@ void smp::configure(boost::program_options::variables_map configuration)
         }
     }
     smp_queues_constructed.wait();
+    alien::smp::_qs = alien::smp::create_qs(_reactors);
     start_all_queues();
     assign_io_queue(0, queue_idx);
     inited.wait();
