@@ -3324,9 +3324,17 @@ smp_message_queue::smp_message_queue(reactor* from, reactor* to)
 {
 }
 
+smp_message_queue::~smp_message_queue()
+{
+    if (_pending.remote != _completed.remote) {
+        _tx.a.~aa();
+    }
+}
+
 void smp_message_queue::stop() {
     _metrics.clear();
 }
+
 void smp_message_queue::move_pending() {
     auto begin = _tx.a.pending_fifo.cbegin();
     auto end = _tx.a.pending_fifo.cend();
@@ -3684,7 +3692,7 @@ std::vector<posix_thread> smp::_threads;
 std::vector<std::function<void ()>> smp::_thread_loops;
 std::experimental::optional<boost::barrier> smp::_all_event_loops_done;
 std::vector<reactor*> smp::_reactors;
-smp_message_queue** smp::_qs;
+std::unique_ptr<smp_message_queue*[], smp::qs_deleter> smp::_qs;
 std::thread::id smp::_tmain;
 unsigned smp::count = 1;
 bool smp::_using_dpdk;
@@ -3806,6 +3814,16 @@ static void sigsegv_action() noexcept {
 
 static void sigabrt_action() noexcept {
     print_with_backtrace("Aborting");
+}
+
+void smp::qs_deleter::operator()(smp_message_queue** qs) const {
+    for (unsigned i = 0; i < smp::count; i++) {
+        for (unsigned j = 0; j < smp::count; j++) {
+            qs[i][j].~smp_message_queue();
+        }
+        ::operator delete[](qs[i]);
+    }
+    delete[](qs);
 }
 
 void smp::configure(boost::program_options::variables_map configuration)
@@ -4024,7 +4042,7 @@ void smp::configure(boost::program_options::variables_map configuration)
 #endif
 
     reactors_registered.wait();
-    smp::_qs = new smp_message_queue* [smp::count];
+    smp::_qs = decltype(smp::_qs){new smp_message_queue* [smp::count], qs_deleter{}};
     for(unsigned i = 0; i < smp::count; i++) {
         smp::_qs[i] = reinterpret_cast<smp_message_queue*>(operator new[] (sizeof(smp_message_queue) * smp::count));
         for (unsigned j = 0; j < smp::count; ++j) {
