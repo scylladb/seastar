@@ -292,6 +292,7 @@ tests = [
     'tests/noncopyable_function_test',
     'tests/netconfig_test',
     'tests/abort_source_test',
+    'tests/alien_test',
     ] + perf_tests
 
 apps = [
