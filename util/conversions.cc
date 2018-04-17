@@ -25,6 +25,7 @@
 #include "conversions.hh"
 #include "core/print.hh"
 #include <boost/lexical_cast.hpp>
+#include <cctype>
 
 namespace seastar {
 
@@ -32,6 +33,7 @@ size_t parse_memory_size(std::string s) {
     size_t factor = 1;
     if (s.size()) {
         auto c = s[s.size() - 1];
+        if (!isdigit(c)) {
         static std::string suffixes = "kMGT";
         auto pos = suffixes.find(c);
         if (pos == suffixes.npos) {
@@ -39,6 +41,7 @@ size_t parse_memory_size(std::string s) {
         }
         factor <<= (pos + 1) * 10;
         s = s.substr(0, s.size() - 1);
+        }
     }
     return boost::lexical_cast<size_t>(s) * factor;
 }
