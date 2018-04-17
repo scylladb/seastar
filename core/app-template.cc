@@ -159,7 +159,12 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
     }
 
     configuration.emplace("argv0", boost::program_options::variable_value(std::string(av[0]), false));
-    smp::configure(configuration);
+    try {
+        smp::configure(configuration);
+    } catch (...) {
+        std::cerr << "Could not initialize seastar: " << std::current_exception() << std::endl;
+        return 1;
+    }
     _configuration = {std::move(configuration)};
     engine().when_started().then([this] {
         seastar::metrics::configure(this->configuration()).then([this] {
