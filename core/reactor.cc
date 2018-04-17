@@ -3419,7 +3419,7 @@ size_t smp_message_queue::process_queue(lf_queue& q, Func process) {
     work_item* wi;
     if (!q.pop(wi))
         return 0;
-    // start prefecthing first item before popping the rest to overlap memory
+    // start prefetching first item before popping the rest to overlap memory
     // access with potential cache miss the second pop may cause
     prefetch<2>(wi);
     auto nr = q.pop(items);

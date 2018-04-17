@@ -312,8 +312,8 @@ class smp_message_queue {
     };
     // keep this between two structures with statistics
     // this makes sure that they have at least one cache line
-    // between them, so hw prefecther will not accidentally prefetch
-    // cache line used by aother cpu.
+    // between them, so hw prefetcher will not accidentally prefetch
+    // cache line used by another cpu.
     metrics::metric_groups _metrics;
     struct alignas(seastar::cache_line_size) {
         size_t _received = 0;
