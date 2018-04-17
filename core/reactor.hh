@@ -581,8 +581,8 @@ public:
     }
 
     // Inform the underlying queue about the fact that some of our requests finished
-    void notify_requests_finished(size_t finished) {
-        _fq.notify_requests_finished(finished);
+    void notify_requests_finished(fair_queue_request_descriptor& desc) {
+        _fq.notify_requests_finished(desc);
     }
 
     // Dispatch requests that are pending in the I/O queue

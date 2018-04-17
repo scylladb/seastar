@@ -40,8 +40,8 @@ namespace seastar {
 ///
 /// \related fair_queue
 struct fair_queue_request_descriptor {
-    unsigned fairness_weight; ///< weight of this request for equalization purposes.
-                              ///< The fair queue will try to equalize this - not IOPS nor bandwidth - among classes.
+    unsigned weight = 1; ///< the weight of this request for capacity purposes (IOPS).
+    unsigned size = 1;        ///< the effective size of this request
 };
 
 /// \addtogroup io-module
@@ -111,6 +111,8 @@ public:
     struct config {
         unsigned capacity = std::numeric_limits<unsigned>::max();
         std::chrono::microseconds tau = std::chrono::milliseconds(100);
+        unsigned max_req_count = std::numeric_limits<unsigned>::max();
+        unsigned max_bytes_count = std::numeric_limits<unsigned>::max();
     };
 private:
     friend priority_class;
@@ -123,6 +125,8 @@ private:
 
     config _config;
     unsigned _requests_executing = 0;
+    unsigned _req_count_executing = 0;
+    unsigned _bytes_count_executing = 0;
     unsigned _requests_queued = 0;
     using clock_type = std::chrono::steady_clock::time_point;
     clock_type _base;
@@ -157,6 +161,13 @@ private:
         for (auto& pc: _all_classes) {
             pc->_accumulated *= normalize_factor();
         }
+    }
+
+    bool can_dispatch() const {
+        return _requests_queued &&
+               (_requests_executing < _config.capacity) &&
+               (_req_count_executing < _config.max_req_count) &&
+               (_bytes_count_executing < _config.max_bytes_count);
     }
 public:
     /// Constructs a fair queue with configuration parameters \c cfg.
@@ -217,14 +228,17 @@ public:
         _requests_queued++;
     }
 
-    /// Notifies that \c finished requests finished
-    void notify_requests_finished(unsigned finished) {
-        _requests_executing -= finished;
+    /// Notifies that ont request finished
+    /// \param desc an instance of \c fair_queue_request_descriptor structure describing the request that just finished.
+    void notify_requests_finished(fair_queue_request_descriptor& desc) {
+        _requests_executing--;
+        _req_count_executing -= desc.weight;
+        _bytes_count_executing -= desc.size;
     }
 
     /// Try to execute new requests if there is capacity left in the queue.
     void dispatch_requests() {
-        while (_requests_queued && (_requests_executing < _config.capacity)) {
+        while (can_dispatch()) {
             priority_class_ptr h;
             do {
                 h = pop_priority_class();
@@ -233,10 +247,12 @@ public:
             auto req = std::move(h->_queue.front());
             h->_queue.pop_front();
             _requests_executing++;
+            _req_count_executing += req.desc.weight;
+            _bytes_count_executing += req.desc.size;
             _requests_queued--;
 
             auto delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
-            auto req_cost  = float(req.desc.fairness_weight) / h->_shares;
+            auto req_cost  = (float(req.desc.weight) / _config.max_req_count + float(req.desc.size) / _config.max_bytes_count) / h->_shares;
             auto cost  = expf(1.0f/_config.tau.count() * delta.count()) * req_cost;
             float next_accumulated = h->_accumulated + cost;
             while (std::isinf(next_accumulated)) {

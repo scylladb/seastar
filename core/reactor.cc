@@ -884,7 +884,7 @@ static bool aio_nowait_supported = true;
 struct io_desc {
     promise<io_event> pr;
     fair_queue_request_descriptor fq_desc;
-    io_desc(unsigned fairness_weight) : fq_desc(fair_queue_request_descriptor{fairness_weight}) {}
+    io_desc(unsigned weight, unsigned size) : fq_desc(fair_queue_request_descriptor{weight, size}) {}
 };
 
 template <typename Func>
@@ -922,8 +922,8 @@ reactor::handle_aio_error(::iocb* iocb, int ec) {
             } catch (...) {
                 desc->pr.set_exception(std::current_exception());
             }
+            my_io_queue->notify_requests_finished(desc->fq_desc);
             delete desc;
-            my_io_queue->notify_requests_finished(1);
             // if EBADF, it means that the first request has a bad fd, so
             // we will only remove it from _pending_aio and try again.
             return 1;
@@ -1018,9 +1018,9 @@ bool reactor::process_io()
         _free_iocbs.push(iocb);
         auto desc = reinterpret_cast<io_desc*>(ev[i].data);
         desc->pr.set_value(ev[i]);
+        my_io_queue->notify_requests_finished(desc->fq_desc);
         delete desc;
     }
-    my_io_queue->notify_requests_finished(n - nr_retry);
     return n;
 }
 
@@ -1139,14 +1139,13 @@ io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_
     auto start = std::chrono::steady_clock::now();
     return smp::submit_to(coordinator, [start, &pc, len, prepare_io = std::move(prepare_io), owner = engine().cpu_id()] {
         auto& queue = *(engine()._io_queue);
-        unsigned fairness_weight = 1 + len/(16 << 10);
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = queue.find_or_create_class(pc, owner);
         pclass.bytes += len;
         pclass.ops++;
         pclass.nr_queued++;
-        auto desc = std::make_unique<io_desc>(fairness_weight);
+        auto desc = std::make_unique<io_desc>(1, len);
         auto fq_desc = desc->fq_desc;
         auto fut = desc->pr.get_future();
         queue._fq.queue(pclass.ptr, std::move(fq_desc), [&pclass, &queue, start, prepare_io = std::move(prepare_io), desc = std::move(desc)] () mutable noexcept {
@@ -1157,7 +1156,7 @@ io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_
                 desc.release();
             } catch (...) {
                 desc->pr.set_exception(std::current_exception());
-                queue.notify_requests_finished(1);
+                queue.notify_requests_finished(desc->fq_desc);
             }
         });
         return fut;
