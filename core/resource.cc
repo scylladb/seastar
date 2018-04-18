@@ -159,7 +159,6 @@ struct distribute_objects {
 static io_queue_topology
 allocate_io_queues(hwloc_topology_t& topology, configuration c, std::vector<cpu> cpus) {
     unsigned num_io_queues = c.io_queues.value_or(cpus.size());
-    unsigned max_io_requests = c.max_io_requests.value_or(128 * num_io_queues);
 
     unsigned depth = find_memory_depth(topology);
     auto node_of_shard = [&topology, &cpus, &depth] (unsigned shard) {
@@ -216,7 +215,7 @@ allocate_io_queues(hwloc_topology_t& topology, configuration c, std::vector<cpu>
     for (auto&& cs : cpu_sets()) {
         auto io_coordinator = find_shard(hwloc_bitmap_first(cs));
 
-        ret.coordinators.emplace_back(io_queue{io_coordinator, std::max(max_io_requests / num_io_queues , 1u)});
+        ret.coordinators.emplace_back(io_coordinator);
         // If a processor is a coordinator, it is also obviously a coordinator of itself
         ret.shard_to_coordinator[io_coordinator] = io_coordinator;
 
@@ -353,15 +352,12 @@ allocate_io_queues(configuration c, std::vector<cpu> cpus) {
     io_queue_topology ret;
 
     unsigned nr_cpus = unsigned(cpus.size());
-    unsigned max_io_requests = c.max_io_requests.value_or(128 * nr_cpus);
-
     ret.shard_to_coordinator.resize(nr_cpus);
     ret.coordinators.resize(nr_cpus);
 
     for (unsigned shard = 0; shard < nr_cpus; ++shard) {
         ret.shard_to_coordinator[shard] = shard;
-        ret.coordinators[shard].capacity =  std::max(max_io_requests / nr_cpus, 1u);
-        ret.coordinators[shard].id = shard;
+        ret.coordinators[shard] = shard;
     }
     return ret;
 }

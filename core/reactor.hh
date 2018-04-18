@@ -533,10 +533,6 @@ inline open_flags operator|(open_flags a, open_flags b) {
 
 class io_queue {
 private:
-    shard_id _coordinator;
-    size_t _capacity;
-    std::vector<shard_id> _io_topology;
-
     struct priority_class_data {
         priority_class_ptr ptr;
         size_t bytes;
@@ -560,16 +556,36 @@ private:
     static void fill_shares_array();
     friend smp;
 public:
+    enum class request_type { read, write };
 
-    io_queue(shard_id coordinator, size_t capacity, std::vector<shard_id> topology);
+    // We want to represent the fact that write requests are (maybe) more expensive
+    // than read requests. To avoid dealing with floating point math we will scale one
+    // read request to be counted by this amount.
+    //
+    // A write request that is 30 % more expensive than a read will be accounted as 130.
+    // It is also technically possible for reads to be the expensive ones, in which case
+    // writes will have an integer value lower than 100.
+    static constexpr unsigned read_request_base_count = 128;
+
+    struct config {
+        shard_id coordinator;
+        std::vector<shard_id> io_topology;
+        unsigned capacity = std::numeric_limits<unsigned>::max();
+        unsigned max_req_count = std::numeric_limits<unsigned>::max();
+        unsigned max_bytes_count = std::numeric_limits<unsigned>::max();
+        unsigned disk_req_write_to_read_multiplier = read_request_base_count;
+        unsigned disk_bytes_write_to_read_multiplier = read_request_base_count;
+    };
+
+    io_queue(config cfg);
     ~io_queue();
 
     template <typename Func>
     static future<io_event>
-    queue_request(shard_id coordinator, const io_priority_class& pc, size_t len, Func do_io);
+    queue_request(shard_id coordinator, const io_priority_class& pc, size_t len, request_type req_type, Func do_io);
 
     size_t capacity() const {
-        return _capacity;
+        return _config.capacity;
     }
 
     size_t queued_requests() const {
@@ -582,8 +598,8 @@ public:
     }
 
     // Inform the underlying queue about the fact that some of our requests finished
-    void notify_requests_finished(size_t finished) {
-        _fq.notify_requests_finished(finished);
+    void notify_requests_finished(fair_queue_request_descriptor& desc) {
+        _fq.notify_requests_finished(desc);
     }
 
     // Dispatch requests that are pending in the I/O queue
@@ -592,15 +608,18 @@ public:
     }
 
     shard_id coordinator() const {
-        return _coordinator;
+        return _config.coordinator;
     }
     shard_id coordinator_of_shard(shard_id shard) const {
-        return _io_topology[shard];
+        return _config.io_topology[shard];
     }
 
     future<> update_shares_for_class(io_priority_class pc, size_t new_shares);
 
     friend class reactor;
+private:
+    config _config;
+    static fair_queue::config make_fair_queue_config(config cfg);
 };
 
 constexpr unsigned max_scheduling_groups() { return 16; }
@@ -610,6 +629,8 @@ namespace internal {
 class reactor_stall_sampler;
 
 }
+
+class io_desc;
 
 class reactor {
     using sched_clock = std::chrono::steady_clock;
@@ -713,7 +734,7 @@ private:
     sigset_t _active_sigmask; // holds sigmask while sleeping with sig disabled
     std::vector<pollfn*> _pollers;
 
-    static constexpr size_t max_aio = 128;
+    static constexpr unsigned max_aio = 128;
     // Not all reactors have IO queues. If the number of IO queues is less than the number of shards,
     // some reactors will talk to foreign io_queues. If this reactor holds a valid IO queue, it will
     // be stored here.
@@ -943,7 +964,7 @@ public:
     // in which it was generated. Therefore, care must be taken to avoid the use of objects that could
     // be destroyed within or at exit of prepare_io.
     template <typename Func>
-    void submit_io(promise<io_event>*, Func prepare_io);
+    void submit_io(io_desc* desc, Func prepare_io);
 
     template <typename Func>
     future<io_event> submit_io_read(const io_priority_class& priority_class, size_t len, Func prepare_io);

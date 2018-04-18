@@ -45,7 +45,6 @@ struct configuration {
     optional<size_t> reserve_memory;  // if total_memory not specified
     optional<size_t> cpus;
     optional<cpuset> cpu_set;
-    optional<unsigned> max_io_requests;
     optional<unsigned> io_queues;
 };
 
@@ -55,17 +54,12 @@ struct memory {
 
 };
 
-struct io_queue {
-    unsigned id;
-    unsigned capacity;
-};
-
 // Since this is static information, we will keep a copy at each CPU.
 // This will allow us to easily find who is the IO coordinator for a given
 // node without a trip to a remote CPU.
 struct io_queue_topology {
     std::vector<unsigned> shard_to_coordinator;
-    std::vector<io_queue> coordinators;
+    std::vector<unsigned> coordinators;
 };
 
 struct cpu {

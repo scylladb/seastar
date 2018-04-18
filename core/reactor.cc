@@ -49,6 +49,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/eventfd.h>
+#include <boost/lexical_cast.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/thread/barrier.hpp>
 #include <boost/algorithm/string/classification.hpp>
@@ -108,6 +109,31 @@
 #include "core/metrics.hh"
 #include "execution_stage.hh"
 #include "exception_hacks.hh"
+
+#include <yaml-cpp/yaml.h>
+
+struct mountpoint_params {
+    std::string mountpoint;
+    uint64_t read_bytes_rate = std::numeric_limits<uint64_t>::max();
+    uint64_t write_bytes_rate = std::numeric_limits<uint64_t>::max();
+    uint64_t read_req_rate = std::numeric_limits<uint64_t>::max();
+    uint64_t write_req_rate = std::numeric_limits<uint64_t>::max();
+};
+
+namespace YAML {
+template<>
+struct convert<mountpoint_params> {
+    static bool decode(const Node& node, mountpoint_params& mp) {
+        using namespace seastar;
+        mp.mountpoint = node["mountpoint"].as<std::string>();
+        mp.read_bytes_rate = parse_memory_size(node["read_bytes_per_sec"].as<std::string>());
+        mp.read_req_rate = parse_memory_size(node["read_reqs_per_sec"].as<std::string>());
+        mp.write_bytes_rate = parse_memory_size(node["write_bytes_per_sec"].as<std::string>());
+        mp.write_req_rate = parse_memory_size(node["write_reqs_per_sec"].as<std::string>());
+        return true;
+    }
+};
+}
 
 namespace seastar {
 
@@ -882,9 +908,15 @@ void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd, promise
 
 static bool aio_nowait_supported = true;
 
+struct io_desc {
+    promise<io_event> pr;
+    fair_queue_request_descriptor fq_desc;
+    io_desc(unsigned weight, unsigned size) : fq_desc(fair_queue_request_descriptor{weight, size}) {}
+};
+
 template <typename Func>
 void
-reactor::submit_io(promise<io_event>* pr, Func prepare_io) {
+reactor::submit_io(io_desc* desc, Func prepare_io) {
     iocb& io = *_free_iocbs.top();
     _free_iocbs.pop();
     prepare_io(io);
@@ -894,7 +926,7 @@ reactor::submit_io(promise<io_event>* pr, Func prepare_io) {
     if (aio_nowait_supported) {
         set_nowait(io, true);
     }
-    set_user_data(io, pr);
+    set_user_data(io, desc);
     _pending_aio.push_back(&io);
 }
 
@@ -910,15 +942,15 @@ reactor::handle_aio_error(::iocb* iocb, int ec) {
         case EAGAIN:
             return 0;
         case EBADF: {
-            auto pr = reinterpret_cast<promise<io_event>*>(get_user_data(*iocb));
+            auto desc = reinterpret_cast<io_desc*>(get_user_data(*iocb));
             _free_iocbs.push(iocb);
             try {
                 throw std::system_error(EBADF, std::system_category());
             } catch (...) {
-                pr->set_exception(std::current_exception());
+                desc->pr.set_exception(std::current_exception());
             }
-            delete pr;
-            my_io_queue->notify_requests_finished(1);
+            my_io_queue->notify_requests_finished(desc->fq_desc);
+            delete desc;
             // if EBADF, it means that the first request has a bad fd, so
             // we will only remove it from _pending_aio and try again.
             return 1;
@@ -984,7 +1016,7 @@ future<io_event>
 reactor::submit_io_read(const io_priority_class& pc, size_t len, Func prepare_io) {
     ++_io_stats.aio_reads;
     _io_stats.aio_read_bytes += len;
-    return io_queue::queue_request(_io_coordinator, pc, len, std::move(prepare_io));
+    return io_queue::queue_request(_io_coordinator, pc, len, io_queue::request_type::read, std::move(prepare_io));
 }
 
 template <typename Func>
@@ -992,7 +1024,7 @@ future<io_event>
 reactor::submit_io_write(const io_priority_class& pc, size_t len, Func prepare_io) {
     ++_io_stats.aio_writes;
     _io_stats.aio_write_bytes += len;
-    return io_queue::queue_request(_io_coordinator, pc, len, std::move(prepare_io));
+    return io_queue::queue_request(_io_coordinator, pc, len, io_queue::request_type::write, std::move(prepare_io));
 }
 
 bool reactor::process_io()
@@ -1011,20 +1043,26 @@ bool reactor::process_io()
             continue;
         }
         _free_iocbs.push(iocb);
-        auto pr = reinterpret_cast<promise<io_event>*>(ev[i].data);
-        pr->set_value(ev[i]);
-        delete pr;
+        auto desc = reinterpret_cast<io_desc*>(ev[i].data);
+        desc->pr.set_value(ev[i]);
+        my_io_queue->notify_requests_finished(desc->fq_desc);
+        delete desc;
     }
-    my_io_queue->notify_requests_finished(n - nr_retry);
     return n;
 }
 
-io_queue::io_queue(shard_id coordinator, size_t capacity, std::vector<shard_id> topology)
-        : _coordinator(coordinator)
-        , _capacity(std::min(capacity, reactor::max_aio))
-        , _io_topology(std::move(topology))
-        , _priority_classes()
-        , _fq(_capacity) {
+fair_queue::config io_queue::make_fair_queue_config(config iocfg) {
+    fair_queue::config cfg;
+    cfg.capacity = std::min(iocfg.capacity, reactor::max_aio);
+    cfg.max_req_count = iocfg.max_req_count;
+    cfg.max_bytes_count = iocfg.max_bytes_count;
+    return cfg;
+}
+
+io_queue::io_queue(io_queue::config cfg)
+    : _priority_classes()
+    , _fq(make_fair_queue_config(cfg))
+    , _config(std::move(cfg)) {
 }
 
 io_queue::~io_queue() {
@@ -1126,28 +1164,37 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
 
 template <typename Func>
 future<io_event>
-io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_t len, Func prepare_io) {
+io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_t len, io_queue::request_type req_type, Func prepare_io) {
     auto start = std::chrono::steady_clock::now();
-    return smp::submit_to(coordinator, [start, &pc, len, prepare_io = std::move(prepare_io), owner = engine().cpu_id()] {
+    return smp::submit_to(coordinator, [start, &pc, len, req_type, prepare_io = std::move(prepare_io), owner = engine().cpu_id()] {
         auto& queue = *(engine()._io_queue);
-        unsigned weight = 1 + len/(16 << 10);
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = queue.find_or_create_class(pc, owner);
         pclass.bytes += len;
         pclass.ops++;
         pclass.nr_queued++;
-        auto pr = std::make_unique<promise<io_event>>();
-        auto fut = pr->get_future();
-        queue._fq.queue(pclass.ptr, weight, [&pclass, &queue, start, prepare_io = std::move(prepare_io), pr = std::move(pr)] () mutable noexcept {
+        unsigned weight;
+        size_t size;
+        if (req_type == io_queue::request_type::write) {
+            weight = queue._config.disk_req_write_to_read_multiplier;
+            size = queue._config.disk_bytes_write_to_read_multiplier * len;
+        } else {
+            weight = io_queue::read_request_base_count;
+            size = io_queue::read_request_base_count * len;
+        }
+        auto desc = std::make_unique<io_desc>(weight, size);
+        auto fq_desc = desc->fq_desc;
+        auto fut = desc->pr.get_future();
+        queue._fq.queue(pclass.ptr, std::move(fq_desc), [&pclass, &queue, start, prepare_io = std::move(prepare_io), desc = std::move(desc)] () mutable noexcept {
             try {
                 pclass.nr_queued--;
                 pclass.queue_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start);
-                engine().submit_io(pr.get(), std::move(prepare_io));
-                pr.release();
+                engine().submit_io(desc.get(), std::move(prepare_io));
+                desc.release();
             } catch (...) {
-                pr->set_exception(std::current_exception());
-                queue.notify_requests_finished(1);
+                desc->pr.set_exception(std::current_exception());
+                queue.notify_requests_finished(desc->fq_desc);
             }
         });
         return fut;
@@ -1156,7 +1203,7 @@ io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_
 
 future<>
 io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares) {
-    return smp::submit_to(_coordinator, [pc, owner = engine().cpu_id(), new_shares] {
+    return smp::submit_to(coordinator(), [pc, owner = engine().cpu_id(), new_shares] {
         auto& queue = *(engine()._io_queue);
         auto& pclass = queue.find_or_create_class(pc, owner);
         queue._fq.update_shares(pclass.ptr, new_shares);
@@ -3665,6 +3712,8 @@ smp::get_options_description()
 #else
         ("max-io-requests", bpo::value<unsigned>(), "Maximum amount of concurrent requests to be sent to the disk. Defaults to 128 times the number of processors")
 #endif
+        ("io-properties-file", bpo::value<std::string>(), "path to a YAML file describing the chraracteristics of the I/O Subsystem")
+        ("io-properties", bpo::value<std::string>(), "a YAML string describing the chraracteristics of the I/O Subsystem")
         ("mbind", bpo::value<bool>()->default_value(true), "enable mbind")
 #ifndef NO_EXCEPTION_HACK
         ("enable-glibc-exception-scaling-workaround", bpo::value<bool>()->default_value(true), "enable workaround for glibc/gcc c++ exception scalablity problem")
@@ -3826,6 +3875,79 @@ void smp::qs_deleter::operator()(smp_message_queue** qs) const {
     delete[](qs);
 }
 
+class disk_config_params {
+public:
+    unsigned _num_io_queues = smp::count;
+    unsigned _capacity = std::numeric_limits<unsigned>::max();
+    uint64_t _read_bytes_rate = std::numeric_limits<uint64_t>::max();
+    uint64_t _write_bytes_rate = std::numeric_limits<uint64_t>::max();
+    uint64_t _read_req_rate = std::numeric_limits<uint64_t>::max();
+    uint64_t _write_req_rate = std::numeric_limits<uint64_t>::max();
+    std::chrono::duration<double> _latency_goal;
+
+    uint64_t per_io_queue(uint64_t qty) const {
+        return std::max(qty / _num_io_queues, 1ul);
+    }
+public:
+    unsigned num_io_queues() const {
+        return _num_io_queues;
+    }
+
+    void parse_config(boost::program_options::variables_map& configuration) {
+        if (configuration.count("max-io-requests")) {
+            _capacity = configuration["max-io-requests"].as<unsigned>();
+        }
+
+        if (configuration.count("num-io-queues")) {
+            _num_io_queues = configuration["num-io-queues"].as<unsigned>();
+        }
+        if (configuration.count("io-properties-file") && configuration.count("io-properties")) {
+            throw std::runtime_error("Both io-properties and io-properties-file specified. Don't know which to trust!");
+        }
+
+        std::optional<YAML::Node> doc;
+        if (configuration.count("io-properties-file")) {
+            doc = YAML::LoadFile(configuration["io-properties-file"].as<std::string>());
+        } else if (configuration.count("io-properties")) {
+            doc = YAML::Load(configuration["io-properties"].as<std::string>());
+        }
+        if (doc) {
+            for (auto&& section : *doc) {
+                auto sec_name = section.first.as<std::string>();
+                if (sec_name != "disks") {
+                    throw std::runtime_error(fmt::format("While parsing I/O options: section {} currently unsupported.", sec_name));
+                }
+                auto disks = section.second.as<std::vector<mountpoint_params>>();
+                if (disks.size() != 1) {
+                    throw std::runtime_error(fmt::format("while parsing I/O options: currently only one mountpoint is supported. Specified {}", disks.size()));
+                }
+                _read_bytes_rate = disks[0].read_bytes_rate;
+                _read_req_rate = disks[0].read_req_rate;
+                _write_bytes_rate = disks[0].write_bytes_rate;
+                _write_req_rate = disks[0].write_req_rate;
+            }
+        }
+        _latency_goal = std::chrono::duration_cast<std::chrono::duration<double>>(configuration["task-quota-ms"].as<double>() * 1.5 * 1ms);
+    }
+
+    struct io_queue::config generate_config() const {
+        struct io_queue::config cfg;
+        uint64_t max_bandwidth = std::max(_read_bytes_rate, _write_bytes_rate);
+        uint64_t max_iops = std::max(_read_req_rate, _write_req_rate);
+
+        cfg.capacity = per_io_queue(_capacity);
+        cfg.disk_bytes_write_to_read_multiplier = (io_queue::read_request_base_count * _read_bytes_rate) / _write_bytes_rate;
+        cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * _read_req_rate) / _write_req_rate;
+        cfg.max_req_count = max_bandwidth == std::numeric_limits<uint64_t>::max()
+            ? std::numeric_limits<unsigned>::max()
+            : io_queue::read_request_base_count * per_io_queue(max_iops * _latency_goal.count());
+        cfg.max_bytes_count = max_iops == std::numeric_limits<uint64_t>::max()
+            ? std::numeric_limits<unsigned>::max()
+            : io_queue::read_request_base_count * per_io_queue(max_bandwidth * _latency_goal.count());
+        return cfg;
+    }
+};
+
 void smp::configure(boost::program_options::variables_map configuration)
 {
 #ifndef NO_EXCEPTION_HACK
@@ -3927,13 +4049,10 @@ void smp::configure(boost::program_options::variables_map configuration)
 
     rc.cpus = smp::count;
     rc.cpu_set = std::move(cpu_set);
-    if (configuration.count("max-io-requests")) {
-        rc.max_io_requests = configuration["max-io-requests"].as<unsigned>();
-    }
 
-    if (configuration.count("num-io-queues")) {
-        rc.io_queues = configuration["num-io-queues"].as<unsigned>();
-    }
+    disk_config_params disk_config;
+    disk_config.parse_config(configuration);
+    rc.io_queues =  disk_config.num_io_queues();
 
     auto resources = resource::allocate(rc);
     std::vector<resource::cpu> allocations = std::move(resources.cpus);
@@ -3971,16 +4090,19 @@ void smp::configure(boost::program_options::variables_map configuration)
     all_io_queues.resize(io_info.coordinators.size());
     io_queue::fill_shares_array();
 
-    auto alloc_io_queue = [io_info, &all_io_queues] (unsigned shard) {
+    auto alloc_io_queue = [io_info, &all_io_queues, &disk_config] (unsigned shard) {
         auto cid = io_info.shard_to_coordinator[shard];
         int vec_idx = 0;
         for (auto& coordinator: io_info.coordinators) {
-            if (coordinator.id != cid) {
+            if (coordinator != cid) {
                 vec_idx++;
                 continue;
             }
             if (shard == cid) {
-                all_io_queues[vec_idx] = new io_queue(coordinator.id, coordinator.capacity, io_info.shard_to_coordinator);
+                struct io_queue::config cfg = disk_config.generate_config();
+                cfg.coordinator = coordinator;
+                cfg.io_topology = io_info.shard_to_coordinator;
+                all_io_queues[vec_idx] = new io_queue(std::move(cfg));
             }
             return vec_idx;
         }
