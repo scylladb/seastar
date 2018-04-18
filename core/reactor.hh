@@ -554,10 +554,25 @@ private:
     static void fill_shares_array();
     friend smp;
 public:
+    enum class request_type { read, write };
+
+    // We want to represent the fact that write requests are (maybe) more expensive
+    // than read requests. To avoid dealing with floating point math we will scale one
+    // read request to be counted by this amount.
+    //
+    // A write request that is 30 % more expensive than a read will be accounted as 130.
+    // It is also technically possible for reads to be the expensive ones, in which case
+    // writes will have an integer value lower than 100.
+    static constexpr unsigned read_request_base_count = 128;
+
     struct config {
         shard_id coordinator;
         std::vector<shard_id> io_topology;
         unsigned capacity = std::numeric_limits<unsigned>::max();
+        unsigned max_req_count = std::numeric_limits<unsigned>::max();
+        unsigned max_bytes_count = std::numeric_limits<unsigned>::max();
+        unsigned disk_req_write_to_read_multiplier = read_request_base_count;
+        unsigned disk_bytes_write_to_read_multiplier = read_request_base_count;
     };
 
     io_queue(config cfg);
@@ -565,7 +580,7 @@ public:
 
     template <typename Func>
     static future<io_event>
-    queue_request(shard_id coordinator, const io_priority_class& pc, size_t len, Func do_io);
+    queue_request(shard_id coordinator, const io_priority_class& pc, size_t len, request_type req_type, Func do_io);
 
     size_t capacity() const {
         return _config.capacity;
