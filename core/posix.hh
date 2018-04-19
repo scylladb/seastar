@@ -458,6 +458,7 @@ void pin_this_thread(unsigned cpu_id) {
     CPU_SET(cpu_id, &cs);
     auto r = pthread_setaffinity_np(pthread_self(), sizeof(cs), &cs);
     assert(r == 0);
+    (void)r;
 }
 
 /// @}
