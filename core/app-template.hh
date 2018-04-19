@@ -72,7 +72,7 @@ public:
     // returned by this function.
     int run(int ac, char ** av, std::function<future<int> ()>&& func);
 
-    // Like run_sync() which takes std::function<future<int>()>, but returns
+    // Like run() which takes std::function<future<int>()>, but returns
     // with exit code 0 when the future returned by func resolves
     // successfully.
     int run(int ac, char ** av, std::function<future<> ()>&& func);
