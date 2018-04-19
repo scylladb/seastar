@@ -4171,8 +4171,8 @@ void smp::configure(boost::program_options::variables_map configuration)
             new (&smp::_qs[i][j]) smp_message_queue(_reactors[j], _reactors[i]);
         }
     }
-    smp_queues_constructed.wait();
     alien::smp::_qs = alien::smp::create_qs(_reactors);
+    smp_queues_constructed.wait();
     start_all_queues();
     assign_io_queue(0, queue_idx);
     inited.wait();
