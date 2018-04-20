@@ -55,7 +55,7 @@ EOF
     if [ "$ID" = "fedora" ]; then
         dnf install -y gcc-c++ ninja-build ragel boost-devel libubsan libasan
     else # centos
-        yum install -y scylla-binutils scylla-gcc72-c++ scylla-ninja-build scylla-ragel scylla-boost163-devel scylla-libubsan scylla-libasan scylla-libstdc++72-static python34
+        yum install -y scylla-binutils scylla-gcc73-c++ ninja-build scylla-ragel scylla-boost163-devel scylla-libubsan scylla-libasan scylla-libstdc++73-static python34
         echo "g++-5 is installed for Seastar. To build Seastar with g++-5, specify '--compiler=/opt/scylladb/bin/g++ --static-stdc++' on configure.py"
         echo "Before running ninja-build, execute following command: . /etc/profile.d/scylla.sh"
     fi
