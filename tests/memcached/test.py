@@ -22,11 +22,13 @@ import os
 import argparse
 import subprocess
 
+DIR_PATH = os.path.dirname(os.path.realpath(__file__))
+
 def run(args, cmd):
-    mc = subprocess.Popen([os.path.join('build', args.mode, 'apps', 'memcached', 'memcached'), "--smp=2"])
+    mc = subprocess.Popen([args.memcached, '--smp=2'])
     print('Memcached started.')
     try:
-        cmdline = ['tests/memcached/test_memcached.py'] + cmd
+        cmdline = [DIR_PATH + '/test_memcached.py'] + cmd
         if args.fast:
             cmdline.append('--fast')
         print('Running: ' + ' '.join(cmdline))
@@ -40,7 +42,7 @@ def run(args, cmd):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Seastar test runner")
     parser.add_argument('--fast',  action="store_true", help="Run only fast tests")
-    parser.add_argument('--mode', action="store", help="Test app in given mode", default='release')
+    parser.add_argument('--memcached', required=True, help='Path of the memcached executable')
     args = parser.parse_args()
 
     run(args, [])

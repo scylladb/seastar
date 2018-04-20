@@ -77,6 +77,9 @@ class Alarm(Exception):
 def alarm_handler(signum, frame):
     raise Alarm
 
+def make_build_path(mode, *suffixes):
+    return os.path.join('build', mode, *suffixes)
+
 if __name__ == "__main__":
     all_modes = ['debug', 'release']
 
@@ -103,7 +106,8 @@ if __name__ == "__main__":
             test_to_run.append((os.path.join(prefix, test),'other'))
         for test in boost_tests:
             test_to_run.append((os.path.join(prefix, test),'boost'))
-        test_to_run.append(('tests/memcached/test.py --mode ' + mode + (' --fast' if args.fast else ''),'other'))
+        memcached_path = make_build_path(mode, 'apps', 'memcached', 'memcached')
+        test_to_run.append(('tests/memcached/test.py --memcached ' + memcached_path + (' --fast' if args.fast else ''),'other'))
         test_to_run.append((os.path.join(prefix, 'distributed_test'),'other'))
 
 
