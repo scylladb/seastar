@@ -510,7 +510,7 @@ namespace rpc {
               log_exception(*this, _connected ? "client connection dropped" : "fail to connect", f.get_exception());
           }
           _error = true;
-          stop_send_loop().then_wrapped([this] (future<> f) {
+          return stop_send_loop().then_wrapped([this] (future<> f) {
               f.ignore_ready_future();
               _stopped.set_value();
               _outstanding.clear();
