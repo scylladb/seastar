@@ -55,8 +55,8 @@ EOF
     if [ "$ID" = "fedora" ]; then
         dnf install -y gcc-c++ ninja-build ragel boost-devel libubsan libasan
     else # centos
-        yum install -y scylla-binutils scylla-gcc73-c++ ninja-build scylla-ragel scylla-boost163-devel scylla-libubsan scylla-libasan scylla-libstdc++73-static python34
-        echo "g++-5 is installed for Seastar. To build Seastar with g++-5, specify '--compiler=/opt/scylladb/bin/g++ --static-stdc++' on configure.py"
+        yum install -y scylla-binutils scylla-gcc73-c++ ninja-build ragel-devel scylla-boost163-devel scylla-libubsan73-static scylla-libasan73-static scylla-libstdc++73-static python34
+        echo "g++-7.3 is installed for Seastar. To build Seastar with g++-7.3, specify '--compiler=/opt/scylladb/bin/g++ --static-stdc++' on configure.py"
         echo "Before running ninja-build, execute following command: . /etc/profile.d/scylla.sh"
     fi
 elif [ "$ID" = "arch" -o "$ID_LIKE" = "arch" ]; then
