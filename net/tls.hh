@@ -22,13 +22,21 @@
 
 #include <experimental/string_view>
 #include <vector>
+#include <map>
+
+#include <boost/any.hpp>
 
 #include "core/future.hh"
 #include "core/sstring.hh"
+#include "core/shared_ptr.hh"
+#include "socket_defs.hh"
 
 namespace seastar {
 
+class socket;
+class server_socket;
 class connected_socket;
+class socket_address;
 
 /**
  * Relatively thin SSL wrapper for socket IO.
