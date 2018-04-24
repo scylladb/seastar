@@ -33,6 +33,8 @@
 namespace seastar {
 namespace net {
 
+struct ipv4_address;
+
 class unknown_host : public std::invalid_argument {
 public:
     using invalid_argument::invalid_argument;
@@ -60,6 +62,11 @@ public:
     inet_address(const sstring&);
     inet_address(inet_address&&) = default;
     inet_address(const inet_address&) = default;
+
+    inet_address(const ipv4_address&);
+
+    // throws iff ipv6
+    ipv4_address as_ipv4_address() const;
 
     inet_address& operator=(const inet_address&) = default;
     bool operator==(const inet_address&) const;

@@ -25,6 +25,7 @@
 #include "inet_address.hh"
 #include "socket_defs.hh"
 #include "dns.hh"
+#include "ip.hh"
 
 namespace seastar {
 
@@ -54,6 +55,18 @@ seastar::net::inet_address::inet_address(const sstring& addr)
     throw std::invalid_argument(addr);
 }())
 {}
+
+seastar::net::inet_address::inet_address(const ipv4_address& in)
+    : inet_address(::in_addr{hton(in.ip)})
+{}
+
+seastar::net::ipv4_address seastar::net::inet_address::as_ipv4_address() const {
+    if (_in_family != family::INET) {
+        // TODO: ipv4-compatible ipv6
+        throw std::invalid_argument("Not an IPv4 address");
+    }
+    return ipv4_address(ntoh(_in.s_addr));
+}
 
 bool seastar::net::inet_address::operator==(const inet_address& o) const {
     if (o._in_family != _in_family) {
