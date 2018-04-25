@@ -126,10 +126,10 @@ struct convert<mountpoint_params> {
     static bool decode(const Node& node, mountpoint_params& mp) {
         using namespace seastar;
         mp.mountpoint = node["mountpoint"].as<std::string>();
-        mp.read_bytes_rate = parse_memory_size(node["read_bytes_per_sec"].as<std::string>());
-        mp.read_req_rate = parse_memory_size(node["read_reqs_per_sec"].as<std::string>());
-        mp.write_bytes_rate = parse_memory_size(node["write_bytes_per_sec"].as<std::string>());
-        mp.write_req_rate = parse_memory_size(node["write_reqs_per_sec"].as<std::string>());
+        mp.read_bytes_rate = parse_memory_size(node["read_bandwidth"].as<std::string>());
+        mp.read_req_rate = parse_memory_size(node["read_iops"].as<std::string>());
+        mp.write_bytes_rate = parse_memory_size(node["write_bandwidth"].as<std::string>());
+        mp.write_req_rate = parse_memory_size(node["write_iops"].as<std::string>());
         return true;
     }
 };
