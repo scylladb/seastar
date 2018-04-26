@@ -28,17 +28,29 @@ namespace seastar {
 
 /// \cond internal
 // lock / unlock semantics for rwlock, so it can be used with with_lock()
-class rwlock;
+template<typename Clock>
+class basic_rwlock;
+
+template<typename Clock = typename timer<>::clock>
 struct rwlock_for_read {
-    future<> lock();
-    void unlock();
-    friend class rwlock;
+    future<> lock() {
+        return static_cast<basic_rwlock<Clock>*>(this)->read_lock();
+    }
+    void unlock() {
+        static_cast<basic_rwlock<Clock>*>(this)->read_unlock();
+    }
+    friend class basic_rwlock<Clock>;
 };
 
+template<typename Clock = typename timer<>::clock>
 struct rwlock_for_write {
-    future<> lock();
-    void unlock();
-    friend class rwlock;
+    future<> lock() {
+        return static_cast<basic_rwlock<Clock>*>(this)->write_lock();
+    }
+    void unlock() {
+        static_cast<basic_rwlock<Clock>*>(this)->write_unlock();
+    }
+    friend class basic_rwlock<Clock>;
 };
 /// \endcond
 
@@ -52,34 +64,37 @@ struct rwlock_for_write {
 /// fibers running in the same CPU that may use the same resource.
 /// Acquiring the write lock will effectively cause all readers not to be executed
 /// until the write part is done.
-class rwlock : private rwlock_for_read, rwlock_for_write {
-    static constexpr size_t max_ops = semaphore::max_counter();
+template<typename Clock = typename timer<>::clock>
+class basic_rwlock : private rwlock_for_read<Clock>, rwlock_for_write<Clock> {
+    using semaphore_type = basic_semaphore<semaphore_default_exception_factory, Clock>;
 
-    semaphore _sem;
+    static constexpr size_t max_ops = semaphore_type::max_counter();
+
+    semaphore_type _sem;
 public:
-    rwlock()
+    basic_rwlock()
             : _sem(max_ops) {
     }
 
     /// Cast this rwlock into read lock object with lock semantics appropriate to be used
     /// by "with_lock". The resulting object will have lock / unlock calls that, when called,
     /// will acquire / release the lock in read mode.
-    rwlock_for_read& for_read() {
+    rwlock_for_read<Clock>& for_read() {
         return *this;
     }
 
     /// Cast this rwlock into write lock object with lock semantics appropriate to be used
     /// by "with_lock". The resulting object will have lock / unlock calls that, when called,
     /// will acquire / release the lock in write mode.
-    rwlock_for_write& for_write() {
+    rwlock_for_write<Clock>& for_write() {
         return *this;
     }
 
     /// Acquires this lock in read mode. Many readers are allowed, but when
     /// this future returns, and until \ref read_unlock is called, all fibers
     /// waiting on \ref write_lock are guaranteed not to execute.
-    future<> read_lock() {
-        return _sem.wait();
+    future<> read_lock(typename semaphore_type::time_point timeout = semaphore_type::time_point::max()) {
+        return _sem.wait(timeout);
     }
 
     /// Releases the lock, which must have been taken in read mode. After this
@@ -96,8 +111,8 @@ public:
     /// this future returns, and until \ref write_unlock is called, all other
     /// fibers waiting on either \ref read_lock or \ref write_lock are guaranteed
     /// not to execute.
-    future<> write_lock() {
-        return _sem.wait(max_ops);
+    future<> write_lock(typename semaphore_type::time_point timeout = semaphore_type::time_point::max()) {
+        return _sem.wait(timeout, max_ops);
     }
 
     /// Releases the lock, which must have been taken in write mode. After this
@@ -120,7 +135,7 @@ public:
         return _sem.try_wait(max_ops);
     }
 
-    using holder = semaphore_units<semaphore_default_exception_factory>;
+    using holder = semaphore_units<semaphore_default_exception_factory, Clock>;
 
     /// hold_read_lock() waits for a read lock and returns an object which,
     /// when destroyed, releases the lock. This makes it easy to ensure that
@@ -133,7 +148,7 @@ public:
     /// hold_read_lock() may throw an exception (or, in other implementations,
     /// return an exceptional future) when it failed to obtain the lock -
     /// e.g., on allocation failure.
-    future<holder> hold_read_lock() {
+    future<holder> hold_read_lock(typename semaphore_type::time_point timeout = semaphore_type::time_point::max()) {
         return get_units(_sem, 1);
     }
 
@@ -148,7 +163,7 @@ public:
     /// hold_read_lock() may throw an exception (or, in other implementations,
     /// return an exceptional future) when it failed to obtain the lock -
     /// e.g., on allocation failure.
-    future<holder> hold_write_lock() {
+    future<holder> hold_write_lock(typename semaphore_type::time_point timeout = semaphore_type::time_point::max()) {
         return get_units(_sem, max_ops);
     }
 
@@ -157,27 +172,11 @@ public:
         return _sem.available_units() != max_ops;
     }
 
-    friend class rwlock_for_read;
-    friend class rwlock_for_write;
+    friend class rwlock_for_read<Clock>;
+    friend class rwlock_for_write<Clock>;
 };
 
-/// \cond internal
-inline future<> rwlock_for_read::lock() {
-    return static_cast<rwlock*>(this)->read_lock();
-}
-
-inline void rwlock_for_read::unlock() {
-    static_cast<rwlock*>(this)->read_unlock();
-}
-
-inline future<> rwlock_for_write::lock() {
-    return static_cast<rwlock*>(this)->write_lock();
-}
-
-inline void rwlock_for_write::unlock() {
-    static_cast<rwlock*>(this)->write_unlock();
-}
-/// \endcond
+using rwlock = basic_rwlock<>;
 
 /// @}
 
