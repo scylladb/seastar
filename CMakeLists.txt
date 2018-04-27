@@ -495,13 +495,16 @@ endif ()
 # Compilation flags and definitions.
 #
 
-target_compile_options (seastar PUBLIC
-  "-std=${SEASTAR_CXX_DIALECT}"
-  -Wall
-  -Werror
-  -Wno-error=deprecated-declarations
-  -fvisibility=hidden
-  -U_FORTIFY_SOURCE)
+target_compile_options (seastar
+  PRIVATE
+    -Wall
+    -Werror
+
+  PUBLIC
+    "-std=${SEASTAR_CXX_DIALECT}"
+    -Wno-error=deprecated-declarations
+    -fvisibility=hidden
+    -U_FORTIFY_SOURCE)
 
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
   target_compile_options (seastar PUBLIC
