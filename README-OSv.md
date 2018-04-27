@@ -7,7 +7,7 @@ Running Seastar on OSv
 Before compiling Seastar, configure it with the following command:
 
 ./configure.py --so --disable-hwloc \
-    --cflags="-DDEFAULT_ALLOCATOR -fvisibility=default -DHAVE_OSV -I../osv/include" \
+    --cflags="-DSEASTAR_DEFAULT_ALLOCATOR -fvisibility=default -DHAVE_OSV -I../osv/include" \
     --mode release 
 
 Or more easily, use the "--with-osv=..." shortcut for all the above settings:
@@ -24,7 +24,7 @@ Explanation of these configuration options:
    * The "--disable-hwloc" option is needed so that Seastar does not attempt
      to use the complex NUMA-discovery library, which isn't supported on OSv
      (and isn't relevant anyway, because VMs with NUMA are not (yet) common.
-   * The "-DEFAULT_ALLOCATOR" uses in Seastar the system's regular malloc()
+   * The "-SEASTAR_DEFAULT_ALLOCATOR" uses in Seastar the system's regular malloc()
      and free(), instead of redefining them. Without this flag, what seems
      to happen is that some code compiled into the OSv kernel (notably,
      libboost_program_options.a) uses the standard malloc(), while inline

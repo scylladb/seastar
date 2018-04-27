@@ -218,7 +218,7 @@ modes = {
     'debug': {
         'sanitize': '-fsanitize=address -fsanitize=leak -fsanitize=undefined',
         'sanitize_libs': '-lasan -lubsan',
-        'opt': '-O0 -DSEASTAR_DEBUG -DSEASTAR_DEBUG_SHARED_PTR -DDEFAULT_ALLOCATOR -DSEASTAR_THREAD_STACK_GUARDS -DNO_EXCEPTION_HACK -DSEASTAR_SHUFFLE_TASK_QUEUE',
+        'opt': '-O0 -DSEASTAR_DEBUG -DSEASTAR_DEBUG_SHARED_PTR -DSEASTAR_DEFAULT_ALLOCATOR -DSEASTAR_THREAD_STACK_GUARDS -DNO_EXCEPTION_HACK -DSEASTAR_SHUFFLE_TASK_QUEUE',
         'libs': '',
         'cares_opts': '-DCARES_STATIC=ON -DCARES_SHARED=OFF -DCMAKE_BUILD_TYPE=Debug',
     },
@@ -607,7 +607,7 @@ if args.with_osv:
     args.so = True
     args.hwloc = False
     args.user_cflags = (args.user_cflags +
-        ' -DDEFAULT_ALLOCATOR -fvisibility=default -DHAVE_OSV -I' +
+        ' -DSEASTAR_DEFAULT_ALLOCATOR -fvisibility=default -DHAVE_OSV -I' +
         args.with_osv + ' -I' + args.with_osv + '/include -I' +
         args.with_osv + '/arch/x64')
 

@@ -75,7 +75,7 @@ disable_abort_on_alloc_failure_temporarily::~disable_abort_on_alloc_failure_temp
 
 }
 
-#ifndef DEFAULT_ALLOCATOR
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
 
 #include "bitops.hh"
 #include "align.hh"

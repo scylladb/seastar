@@ -27,7 +27,7 @@
 using namespace seastar;
 
 SEASTAR_TEST_CASE(alloc_almost_all_and_realloc_it_with_a_smaller_size) {
-#ifndef DEFAULT_ALLOCATOR
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
     auto all = memory::stats().total_memory();
     auto reserve = size_t(0.02 * all);
     auto to_alloc = all - (reserve + (10 << 20));
@@ -47,7 +47,7 @@ SEASTAR_TEST_CASE(alloc_almost_all_and_realloc_it_with_a_smaller_size) {
 }
 
 SEASTAR_TEST_CASE(malloc_0_and_free_it) {
-#ifndef DEFAULT_ALLOCATOR
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
     auto obj = malloc(0);
     BOOST_REQUIRE(obj != nullptr);
     free(obj);
