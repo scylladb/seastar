@@ -453,7 +453,7 @@ defines = []
 # Include -lgcc_s before -lunwind to work around for https://savannah.nongnu.org/bugs/?48486. See https://github.com/scylladb/scylla/issues/1725.
 libs = ' '.join([maybe_static(args.staticboost,
                               '-lboost_program_options -lboost_system -lboost_filesystem'),
-                 '-lstdc++ -lm',
+                 '-lstdc++ -lm', '-lstdc++fs',
                  maybe_static(args.staticboost, '-lboost_thread'),
                  '-lcryptopp -lrt -lgnutls -lgnutlsxx -llz4 -lprotobuf -ldl -lgcc_s -lunwind ',
                  maybe_static(args.staticyamlcpp, '-lyaml-cpp'),
@@ -518,7 +518,7 @@ deps = {
     'tests/fair_queue_test': ['tests/fair_queue_test.cc'] + core,
     'apps/seawreck/seawreck': ['apps/seawreck/seawreck.cc', 'http/http_response_parser.rl'] + core + libnet,
     'apps/io_tester/io_tester': ['apps/io_tester/io_tester.cc'] + core,
-    'apps/iotune/iotune': ['apps/iotune/iotune.cc'] + ['core/resource.cc', 'core/fsqual.cc', 'core/linux-aio.cc'],
+    'apps/iotune/iotune': ['apps/iotune/iotune2.cc'] + core,
     'tests/blkdiscard_test': ['tests/blkdiscard_test.cc'] + core,
     'tests/sstring_test': ['tests/sstring_test.cc'] + core,
     'tests/unwind_test': ['tests/unwind_test.cc'] + core,
