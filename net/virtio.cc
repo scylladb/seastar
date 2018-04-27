@@ -685,7 +685,7 @@ qp::rxq::prepare_buffers() {
 
 void
 qp::rxq::debug_mode_adjust_fragments() {
-#ifdef DEBUG
+#ifdef SEASTAR_DEBUG
     // For debug mode, reallocate last fragment to detect buffer overruns
     auto last = _fragments.back();
     auto sz = last.size;

@@ -510,7 +510,7 @@ if ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
     -fsanitize=undefined)
 
   target_compile_definitions (seastar PUBLIC
-    DEBUG
+    SEASTAR_DEBUG
     DEBUG_SHARED_PTR
     DEFAULT_ALLOCATOR
     SEASTAR_THREAD_STACK_GUARDS
