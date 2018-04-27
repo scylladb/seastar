@@ -3715,7 +3715,7 @@ smp::get_options_description()
         ("io-properties-file", bpo::value<std::string>(), "path to a YAML file describing the chraracteristics of the I/O Subsystem")
         ("io-properties", bpo::value<std::string>(), "a YAML string describing the chraracteristics of the I/O Subsystem")
         ("mbind", bpo::value<bool>()->default_value(true), "enable mbind")
-#ifndef NO_EXCEPTION_HACK
+#ifndef SEASTAR_NO_EXCEPTION_HACK
         ("enable-glibc-exception-scaling-workaround", bpo::value<bool>()->default_value(true), "enable workaround for glibc/gcc c++ exception scalablity problem")
 #endif
         ;
@@ -3950,7 +3950,7 @@ public:
 
 void smp::configure(boost::program_options::variables_map configuration)
 {
-#ifndef NO_EXCEPTION_HACK
+#ifndef SEASTAR_NO_EXCEPTION_HACK
     if (configuration["enable-glibc-exception-scaling-workaround"].as<bool>()) {
         init_phdr_cache();
     }

@@ -527,7 +527,7 @@ endif ()
 
 if (NOT ${SEASTAR_ENABLE_EXCEPTION_SCALABILITY_WORKAROUND})
   target_compile_definitions (seastar PUBLIC
-    NO_EXCEPTION_HACK)
+    SEASTAR_NO_EXCEPTION_HACK)
 endif ()
 
 if (${SEASTAR_ENABLE_HWLOC})
