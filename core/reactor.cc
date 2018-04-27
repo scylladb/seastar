@@ -3706,7 +3706,7 @@ smp::get_options_description()
         ("hugepages", bpo::value<std::string>(), "path to accessible hugetlbfs mount (typically /dev/hugepages/something)")
         ("lock-memory", bpo::value<bool>(), "lock all memory (prevents swapping)")
         ("thread-affinity", bpo::value<bool>()->default_value(true), "pin threads to their cpus (disable for overprovisioning)")
-#ifdef HAVE_HWLOC
+#ifdef SEASTAR_HAVE_HWLOC
         ("num-io-queues", bpo::value<unsigned>(), "Number of IO queues. Each IO unit will be responsible for a fraction of the IO requests. Defaults to the number of threads")
         ("max-io-requests", bpo::value<unsigned>(), "Maximum amount of concurrent requests to be sent to the disk. Defaults to 128 times the number of IO queues")
 #else

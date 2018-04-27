@@ -732,7 +732,7 @@ if apply_tristate(args.hwloc, test = have_hwloc,
                   note = 'Note: hwloc-devel/numactl-devel not installed.  No NUMA support.',
                   missing = 'Error: required packages hwloc-devel/numactl-devel not installed.'):
     libs += ' ' + hwloc_libs
-    defines.append('HAVE_HWLOC')
+    defines.append('SEASTAR_HAVE_HWLOC')
     defines.append('HAVE_NUMA')
 
 if detect_membarrier(compiler=args.cxx, flags=args.user_cflags.split()):

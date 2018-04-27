@@ -532,7 +532,7 @@ endif ()
 
 if (${SEASTAR_ENABLE_HWLOC})
   target_compile_definitions (seastar PUBLIC
-    HAVE_HWLOC HAVE_NUMA)
+    SEASTAR_HAVE_HWLOC HAVE_NUMA)
 endif ()
 
 if (${SEASTAR_ENABLE_DPDK})

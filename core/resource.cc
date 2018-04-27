@@ -89,7 +89,7 @@ size_t calculate_memory(configuration c, size_t available_memory, float panic_fa
 
 }
 
-#ifdef HAVE_HWLOC
+#ifdef SEASTAR_HAVE_HWLOC
 
 #include "util/defer.hh"
 #include "core/print.hh"
