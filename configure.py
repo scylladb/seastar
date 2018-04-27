@@ -733,7 +733,7 @@ if apply_tristate(args.hwloc, test = have_hwloc,
                   missing = 'Error: required packages hwloc-devel/numactl-devel not installed.'):
     libs += ' ' + hwloc_libs
     defines.append('SEASTAR_HAVE_HWLOC')
-    defines.append('HAVE_NUMA')
+    defines.append('SEASTAR_HAVE_NUMA')
 
 if detect_membarrier(compiler=args.cxx, flags=args.user_cflags.split()):
     defines.append('SEASTAR_HAS_MEMBARRIER')
