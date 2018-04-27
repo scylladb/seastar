@@ -745,7 +745,7 @@ if try_compile(args.cxx, source = textwrap.dedent('''\
             LZ4_compress_default(static_cast<const char*>(0), static_cast<char*>(0), 0, 0);
         }
         '''), flags=args.user_cflags.split()):
-    defines.append("HAVE_LZ4_COMPRESS_DEFAULT")
+    defines.append("SEASTAR_HAVE_LZ4_COMPRESS_DEFAULT")
 
 if try_compile_and_link(args.cxx, flags=['-fsanitize=address'] + args.user_cflags.split(), source = textwrap.dedent('''\
         #include <cstddef>

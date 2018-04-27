@@ -568,7 +568,7 @@ set (CMAKE_REQUIRED_LIBRARIES ${Lz4_LIBRARIES})
 check_symbol_exists (LZ4_compress_default lz4.h have_lz4_compress_default)
 
 if (${have_lz4_compress_default})
-  target_compile_definitions (seastar PUBLIC HAVE_LZ4_COMPRESS_DEFAULT)
+  target_compile_definitions (seastar PUBLIC SEASTAR_HAVE_LZ4_COMPRESS_DEFAULT)
 endif ()
 
 ###
