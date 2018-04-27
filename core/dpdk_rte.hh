@@ -18,7 +18,7 @@
 #ifndef DPDK_RTE_HH_
 #define DPDK_RTE_HH_
 
-#ifdef HAVE_DPDK
+#ifdef SEASTAR_HAVE_DPDK
 
 #include <bitset>
 #include <rte_config.h>
@@ -62,5 +62,5 @@ public:
 
 }
 
-#endif // HAVE_DPDK
+#endif // SEASTAR_HAVE_DPDK
 #endif // DPDK_RTE_HH_

@@ -19,7 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifdef HAVE_DPDK
+#ifdef SEASTAR_HAVE_DPDK
 
 #ifndef _SEASTAR_DPDK_DEV_H
 #define _SEASTAR_DPDK_DEV_H
@@ -54,4 +54,4 @@ uint32_t qp_mempool_obj_size(bool hugetlbfs_membackend);
 
 #endif // _SEASTAR_DPDK_DEV_H
 
-#endif // HAVE_DPDK
+#endif // SEASTAR_HAVE_DPDK

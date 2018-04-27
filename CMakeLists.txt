@@ -542,7 +542,7 @@ if (${SEASTAR_ENABLE_DPDK})
     -Wno-invalid-offsetof)
 
   target_compile_definitions (seastar PUBLIC
-    HAVE_DPDK)
+    SEASTAR_HAVE_DPDK)
 endif ()
 
 if (${SEASTAR_ALLOCATOR_PAGE_SIZE})

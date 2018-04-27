@@ -67,7 +67,7 @@ void create_native_net_device(boost::program_options::variables_map opts) {
     std::unique_ptr<device> dev;
 
     if ( deprecated_config_used) {
-#ifdef HAVE_DPDK
+#ifdef SEASTAR_HAVE_DPDK
         if ( opts.count("dpdk-pmd")) {
              dev = create_dpdk_net_device(opts["dpdk-port-index"].as<unsigned>(), smp::count,
                 !(opts.count("lro") && opts["lro"].as<std::string>() == "off"),
@@ -85,7 +85,7 @@ void create_native_net_device(boost::program_options::variables_map opts) {
 
         for ( auto&& device_config : device_configs) {
             auto& hw_config = device_config.second.hw_cfg;   
-#ifdef HAVE_DPDK
+#ifdef SEASTAR_HAVE_DPDK
             if ( hw_config.port_index || !hw_config.pci_address.empty() ) {
 	            dev = create_dpdk_net_device(hw_config);
 	        } else 
@@ -176,7 +176,7 @@ native_network_stack::make_udp_channel(ipv4_addr addr) {
 void
 add_native_net_options_description(boost::program_options::options_description &opts) {
     opts.add(get_virtio_net_options_description());
-#ifdef HAVE_DPDK
+#ifdef SEASTAR_HAVE_DPDK
     opts.add(get_dpdk_net_options_description());
 #endif
 }
@@ -313,7 +313,7 @@ boost::program_options::options_description nns_options() {
         ("hw-queue-weight",
                 boost::program_options::value<float>()->default_value(1.0f),
                 "Weighing of a hardware network queue relative to a software queue (0=no work, 1=equal share)")
-#ifdef HAVE_DPDK
+#ifdef SEASTAR_HAVE_DPDK
         ("dpdk-pmd", "Use DPDK PMD drivers")
 #endif
         ("lro",

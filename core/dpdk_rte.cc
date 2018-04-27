@@ -15,7 +15,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-#ifdef HAVE_DPDK
+#ifdef SEASTAR_HAVE_DPDK
 
 #include <cinttypes>
 #include "net/dpdk.hh"
@@ -115,4 +115,4 @@ size_t eal::mem_size(int num_cpus, bool hugetlbfs_membackend)
 
 }
 
-#endif // HAVE_DPDK
+#endif // SEASTAR_HAVE_DPDK

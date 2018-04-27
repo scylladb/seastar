@@ -675,7 +675,7 @@ if args.dpdk:
 
 if args.dpdk_target:
     args.user_cflags = (args.user_cflags +
-        ' -DHAVE_DPDK -I' + args.dpdk_target + '/include ' +
+        ' -DSEASTAR_HAVE_DPDK -I' + args.dpdk_target + '/include ' +
         dpdk_cflags(args.dpdk_target) +
         ' -Wno-error=literal-suffix -Wno-literal-suffix -Wno-invalid-offsetof')
     libs += (' -L' + args.dpdk_target + '/lib ')

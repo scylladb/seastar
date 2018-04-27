@@ -18,7 +18,7 @@
 /*
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
-#ifdef HAVE_DPDK
+#ifdef SEASTAR_HAVE_DPDK
 
 #include <cinttypes>
 #include "core/posix.hh"
@@ -2319,4 +2319,4 @@ get_dpdk_net_options_description()
 
 }
 
-#endif // HAVE_DPDK
+#endif // SEASTAR_HAVE_DPDK

@@ -69,7 +69,7 @@
 #define min min    /* prevent xfs.h from defining min() as a macro */
 #include <xfs/xfs.h>
 #undef min
-#ifdef HAVE_DPDK
+#ifdef SEASTAR_HAVE_DPDK
 #include <core/dpdk_rte.hh>
 #include <rte_lcore.h>
 #include <rte_launch.h>
@@ -3756,7 +3756,7 @@ void smp::start_all_queues()
     alien::smp::_qs[engine().cpu_id()].start();
 }
 
-#ifdef HAVE_DPDK
+#ifdef SEASTAR_HAVE_DPDK
 
 int dpdk_thread_adaptor(void* f)
 {
@@ -3768,7 +3768,7 @@ int dpdk_thread_adaptor(void* f)
 
 void smp::join_all()
 {
-#ifdef HAVE_DPDK
+#ifdef SEASTAR_HAVE_DPDK
     if (_using_dpdk) {
         rte_eal_mp_wait_lcore();
         return;
@@ -3972,7 +3972,7 @@ void smp::configure(boost::program_options::variables_map configuration)
     install_oneshot_signal_handler<SIGSEGV, sigsegv_action>();
     install_oneshot_signal_handler<SIGABRT, sigabrt_action>();
 
-#ifdef HAVE_DPDK
+#ifdef SEASTAR_HAVE_DPDK
     _using_dpdk = configuration.count("dpdk-pmd");
 #endif
     auto thread_affinity = configuration["thread-affinity"].as<bool>();
@@ -4007,7 +4007,7 @@ void smp::configure(boost::program_options::variables_map configuration)
     resource::configuration rc;
     if (configuration.count("memory")) {
         rc.total_memory = parse_memory_size(configuration["memory"].as<std::string>());
-#ifdef HAVE_DPDK
+#ifdef SEASTAR_HAVE_DPDK
         if (configuration.count("hugepages") &&
             !configuration["network-stack"].as<std::string>().compare("native") &&
             _using_dpdk) {
@@ -4068,7 +4068,7 @@ void smp::configure(boost::program_options::variables_map configuration)
     bool heapprof_enabled = configuration.count("heapprof");
     memory::set_heap_profiling_enabled(heapprof_enabled);
 
-#ifdef HAVE_DPDK
+#ifdef SEASTAR_HAVE_DPDK
     if (smp::_using_dpdk) {
         dpdk::eal::cpuset cpus;
         for (auto&& a : allocations) {
@@ -4154,7 +4154,7 @@ void smp::configure(boost::program_options::variables_map configuration)
     _reactors[0] = &engine();
     auto queue_idx = alloc_io_queue(0);
 
-#ifdef HAVE_DPDK
+#ifdef SEASTAR_HAVE_DPDK
     if (_using_dpdk) {
         auto it = _thread_loops.begin();
         RTE_LCORE_FOREACH_SLAVE(i) {
