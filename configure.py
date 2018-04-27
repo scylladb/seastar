@@ -760,7 +760,7 @@ if try_compile_and_link(args.cxx, flags=['-fsanitize=address'] + args.user_cflag
             __sanitizer_finish_switch_fiber(nullptr, nullptr, nullptr);
         }
         ''')):
-    defines.append("HAVE_ASAN_FIBER_SUPPORT")
+    defines.append("SEASTAR_HAVE_ASAN_FIBER_SUPPORT")
 
 if args.so:
     args.pie = '-shared'

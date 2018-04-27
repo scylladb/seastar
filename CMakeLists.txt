@@ -581,7 +581,7 @@ try_compile (have_asan_fiber_support
   LINK_LIBRARIES -fsanitize=address)
 
 if (${have_asan_fiber_support})
-  target_compile_definitions (seastar PUBLIC HAVE_ASAN_FIBER_SUPPORT)
+  target_compile_definitions (seastar PUBLIC SEASTAR_HAVE_ASAN_FIBER_SUPPORT)
 endif ()
 
 ###

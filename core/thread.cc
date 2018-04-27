@@ -36,7 +36,7 @@ thread_local jmp_buf_link* g_current_context;
 
 namespace {
 
-#ifdef HAVE_ASAN_FIBER_SUPPORT
+#ifdef SEASTAR_HAVE_ASAN_FIBER_SUPPORT
 // ASan provides two functions as a means of informing it that user context
 // switch has happened. First __sanitizer_start_switch_fiber() needs to be
 // called with a place to store the fake stack pointer and the new stack
