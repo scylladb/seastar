@@ -36,7 +36,7 @@ class thread_context;
 class scheduling_group;
 
 struct jmp_buf_link {
-#ifdef ASAN_ENABLED
+#ifdef SEASTAR_ASAN_ENABLED
     ucontext_t context;
     void* fake_stack = nullptr;
     const void* stack_bottom;

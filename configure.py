@@ -880,7 +880,7 @@ with open(buildfile, 'w') as f:
             modeval['sanitize'] = ''
             modeval['sanitize_libs'] = ''
         elif modeval['sanitize']:
-            modeval['sanitize'] += ' -DASAN_ENABLED'
+            modeval['sanitize'] += ' -DSEASTAR_ASAN_ENABLED'
         f.write(textwrap.dedent('''\
             cxxflags_{mode} = {sanitize} {opt} -I$full_builddir/{mode}/gen -I$full_builddir/{mode}/c-ares
             libs_{mode} = {sanitize_libs} {libs}

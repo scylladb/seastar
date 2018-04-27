@@ -32,7 +32,7 @@ namespace seastar {
 thread_local jmp_buf_link g_unthreaded_context;
 thread_local jmp_buf_link* g_current_context;
 
-#ifdef ASAN_ENABLED
+#ifdef SEASTAR_ASAN_ENABLED
 
 namespace {
 
@@ -174,7 +174,7 @@ thread_context::make_stack() {
 #else
     auto stack = stack_holder(new char[_stack_size]);
 #endif
-#ifdef ASAN_ENABLED
+#ifdef SEASTAR_ASAN_ENABLED
     // Avoid ASAN false positive due to garbage on stack
     std::fill_n(stack.get(), _stack_size, 0);
 #endif
