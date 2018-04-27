@@ -522,7 +522,7 @@ endif ()
 
 if (${SEASTAR_ENABLE_GCC6_CONCEPTS})
   target_compile_options (seastar PUBLIC -fconcepts)
-  target_compile_definitions (seastar PUBLIC HAVE_GCC6_CONCEPTS)
+  target_compile_definitions (seastar PUBLIC SEASTAR_HAVE_GCC6_CONCEPTS)
 endif ()
 
 if (NOT ${SEASTAR_ENABLE_EXCEPTION_SCALABILITY_WORKAROUND})

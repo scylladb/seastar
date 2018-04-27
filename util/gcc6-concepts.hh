@@ -20,7 +20,7 @@
  */
 #pragma once
 
-#ifndef HAVE_GCC6_CONCEPTS
+#ifndef SEASTAR_HAVE_GCC6_CONCEPTS
 
 #define GCC6_CONCEPT(x...)
 #define GCC6_NO_CONCEPT(x...) x

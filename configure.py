@@ -465,7 +465,7 @@ boost_unit_test_lib = maybe_static(args.staticboost, '-lboost_unit_test_framewor
 hwloc_libs = '-lhwloc -lnuma -lpciaccess -lxml2 -lz'
 
 if args.gcc6_concepts:
-    defines.append('HAVE_GCC6_CONCEPTS')
+    defines.append('SEASTAR_HAVE_GCC6_CONCEPTS')
     args.user_cflags += ' -fconcepts'
 
 if args.alloc_failure_injector:
