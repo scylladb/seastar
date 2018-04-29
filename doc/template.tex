@@ -13,6 +13,12 @@
 \usepackage{lmodern}
 \usepackage{microtype}
 
+% In code snippets, show backtick (`, grave accent) as a short straight line,
+% not a curved quote. I could have used \IfFileExists{upquote.sty}{...}{}
+% to make this package optional, but I really think it's important, and
+% the user in a modern Linux distribution should be able to get it easily.
+\usepackage{upquote}
+
 % Nice header with document's name and section name, and footer
 % with page number.
 \usepackage{fancyhdr}
