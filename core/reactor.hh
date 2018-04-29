@@ -622,8 +622,6 @@ private:
     static fair_queue::config make_fair_queue_config(config cfg);
 };
 
-constexpr unsigned max_scheduling_groups() { return 16; }
-
 namespace internal {
 
 class reactor_stall_sampler;

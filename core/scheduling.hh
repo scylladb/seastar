@@ -27,6 +27,7 @@
 
 namespace seastar {
 
+constexpr unsigned max_scheduling_groups() { return 16; }
 
 template <typename... T>
 class future;
