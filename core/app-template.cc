@@ -124,7 +124,7 @@ app_template::run(int ac, char ** av, std::function<future<> ()>&& func) {
 
 int
 app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) {
-#ifdef DEBUG
+#ifdef SEASTAR_DEBUG
     print("WARNING: debug mode. Not for benchmarking or production\n");
 #endif
     bpo::variables_map configuration;

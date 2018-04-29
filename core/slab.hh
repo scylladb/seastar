@@ -339,7 +339,7 @@ private:
             _erase_func(*item);
             _stats.frees++;
         }
-#ifdef DEBUG
+#ifdef SEASTAR_DEBUG
         printf("lru slab page eviction succeeded! desc_empty?=%d\n", desc.empty());
 #endif
         ::free(slab_page); // free slab page object

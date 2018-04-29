@@ -51,7 +51,7 @@ namespace seastar {
 // and lw_enable_shared_from_this<>().
 //
 
-#ifndef DEBUG_SHARED_PTR
+#ifndef SEASTAR_DEBUG_SHARED_PTR
 using shared_ptr_counter_type = long;
 #else
 using shared_ptr_counter_type = debug_shared_ptr_counter_type;

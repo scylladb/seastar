@@ -135,7 +135,7 @@ SEASTAR_TEST_CASE(test_thread_sched_group) {
     });
 }
 
-#if defined(ASAN_ENABLED) && defined(HAVE_ASAN_FIBER_SUPPORT)
+#if defined(SEASTAR_ASAN_ENABLED) && defined(SEASTAR_HAVE_ASAN_FIBER_SUPPORT)
 volatile int force_write;
 volatile void* shut_up_gcc;
 

@@ -513,11 +513,11 @@ if ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
     -fsanitize=undefined)
 
   target_compile_definitions (seastar PUBLIC
-    DEBUG
-    DEBUG_SHARED_PTR
-    DEFAULT_ALLOCATOR
+    SEASTAR_DEBUG
+    SEASTAR_DEBUG_SHARED_PTR
+    SEASTAR_DEFAULT_ALLOCATOR
     SEASTAR_THREAD_STACK_GUARDS
-    ASAN_ENABLED
+    SEASTAR_ASAN_ENABLED
     SEASTAR_SHUFFLE_TASK_QUEUE)
 else ()
   target_compile_options (seastar PUBLIC "${SEASTAR_CXX_OPTIMIZATION_FLAGS}")
@@ -525,17 +525,17 @@ endif ()
 
 if (${SEASTAR_ENABLE_GCC6_CONCEPTS})
   target_compile_options (seastar PUBLIC -fconcepts)
-  target_compile_definitions (seastar PUBLIC HAVE_GCC6_CONCEPTS)
+  target_compile_definitions (seastar PUBLIC SEASTAR_HAVE_GCC6_CONCEPTS)
 endif ()
 
 if (NOT ${SEASTAR_ENABLE_EXCEPTION_SCALABILITY_WORKAROUND})
   target_compile_definitions (seastar PUBLIC
-    NO_EXCEPTION_HACK)
+    SEASTAR_NO_EXCEPTION_HACK)
 endif ()
 
 if (${SEASTAR_ENABLE_HWLOC})
   target_compile_definitions (seastar PUBLIC
-    HAVE_HWLOC HAVE_NUMA)
+    SEASTAR_HAVE_HWLOC SEASTAR_HAVE_NUMA)
 endif ()
 
 if (${SEASTAR_ENABLE_DPDK})
@@ -545,7 +545,7 @@ if (${SEASTAR_ENABLE_DPDK})
     -Wno-invalid-offsetof)
 
   target_compile_definitions (seastar PUBLIC
-    HAVE_DPDK)
+    SEASTAR_HAVE_DPDK)
 endif ()
 
 if (${SEASTAR_ALLOCATOR_PAGE_SIZE})
@@ -571,7 +571,7 @@ set (CMAKE_REQUIRED_LIBRARIES ${Lz4_LIBRARIES})
 check_symbol_exists (LZ4_compress_default lz4.h have_lz4_compress_default)
 
 if (${have_lz4_compress_default})
-  target_compile_definitions (seastar PUBLIC HAVE_LZ4_COMPRESS_DEFAULT)
+  target_compile_definitions (seastar PUBLIC SEASTAR_HAVE_LZ4_COMPRESS_DEFAULT)
 endif ()
 
 ###
@@ -584,7 +584,7 @@ try_compile (have_asan_fiber_support
   LINK_LIBRARIES -fsanitize=address)
 
 if (${have_asan_fiber_support})
-  target_compile_definitions (seastar PUBLIC HAVE_ASAN_FIBER_SUPPORT)
+  target_compile_definitions (seastar PUBLIC SEASTAR_HAVE_ASAN_FIBER_SUPPORT)
 endif ()
 
 ###

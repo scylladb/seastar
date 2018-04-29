@@ -218,7 +218,7 @@ modes = {
     'debug': {
         'sanitize': '-fsanitize=address -fsanitize=leak -fsanitize=undefined',
         'sanitize_libs': '-lasan -lubsan',
-        'opt': '-O0 -DDEBUG -DDEBUG_SHARED_PTR -DDEFAULT_ALLOCATOR -DSEASTAR_THREAD_STACK_GUARDS -DNO_EXCEPTION_HACK -DSEASTAR_SHUFFLE_TASK_QUEUE',
+        'opt': '-O0 -DSEASTAR_DEBUG -DSEASTAR_DEBUG_SHARED_PTR -DSEASTAR_DEFAULT_ALLOCATOR -DSEASTAR_THREAD_STACK_GUARDS -DSEASTAR_NO_EXCEPTION_HACK -DSEASTAR_SHUFFLE_TASK_QUEUE',
         'libs': '',
         'cares_opts': '-DCARES_STATIC=ON -DCARES_SHARED=OFF -DCMAKE_BUILD_TYPE=Debug',
     },
@@ -465,7 +465,7 @@ boost_unit_test_lib = maybe_static(args.staticboost, '-lboost_unit_test_framewor
 hwloc_libs = '-lhwloc -lnuma -lpciaccess -lxml2 -lz'
 
 if args.gcc6_concepts:
-    defines.append('HAVE_GCC6_CONCEPTS')
+    defines.append('SEASTAR_HAVE_GCC6_CONCEPTS')
     args.user_cflags += ' -fconcepts'
 
 if args.alloc_failure_injector:
@@ -474,7 +474,7 @@ if args.alloc_failure_injector:
 if not apply_tristate(args.exception_workaround, test = lambda: not args.staticcxx and not args.static,
         note = "Note: disabling exception scalability workaround due to static linkage of libgcc and libstdc++",
         missing = "Error: cannot enable exception scalability workaround with static linkage of libgcc and libstdc++"):
-    defines.append('NO_EXCEPTION_HACK')
+    defines.append('SEASTAR_NO_EXCEPTION_HACK')
 
 if args.staticcxx:
     libs = libs.replace('-lstdc++', '')
@@ -607,7 +607,7 @@ if args.with_osv:
     args.so = True
     args.hwloc = False
     args.user_cflags = (args.user_cflags +
-        ' -DDEFAULT_ALLOCATOR -fvisibility=default -DHAVE_OSV -I' +
+        ' -DSEASTAR_DEFAULT_ALLOCATOR -fvisibility=default -DHAVE_OSV -I' +
         args.with_osv + ' -I' + args.with_osv + '/include -I' +
         args.with_osv + '/arch/x64')
 
@@ -675,7 +675,7 @@ if args.dpdk:
 
 if args.dpdk_target:
     args.user_cflags = (args.user_cflags +
-        ' -DHAVE_DPDK -I' + args.dpdk_target + '/include ' +
+        ' -DSEASTAR_HAVE_DPDK -I' + args.dpdk_target + '/include ' +
         dpdk_cflags(args.dpdk_target) +
         ' -Wno-error=literal-suffix -Wno-literal-suffix -Wno-invalid-offsetof')
     libs += (' -L' + args.dpdk_target + '/lib ')
@@ -732,8 +732,8 @@ if apply_tristate(args.hwloc, test = have_hwloc,
                   note = 'Note: hwloc-devel/numactl-devel not installed.  No NUMA support.',
                   missing = 'Error: required packages hwloc-devel/numactl-devel not installed.'):
     libs += ' ' + hwloc_libs
-    defines.append('HAVE_HWLOC')
-    defines.append('HAVE_NUMA')
+    defines.append('SEASTAR_HAVE_HWLOC')
+    defines.append('SEASTAR_HAVE_NUMA')
 
 if detect_membarrier(compiler=args.cxx, flags=args.user_cflags.split()):
     defines.append('SEASTAR_HAS_MEMBARRIER')
@@ -745,7 +745,7 @@ if try_compile(args.cxx, source = textwrap.dedent('''\
             LZ4_compress_default(static_cast<const char*>(0), static_cast<char*>(0), 0, 0);
         }
         '''), flags=args.user_cflags.split()):
-    defines.append("HAVE_LZ4_COMPRESS_DEFAULT")
+    defines.append("SEASTAR_HAVE_LZ4_COMPRESS_DEFAULT")
 
 if try_compile_and_link(args.cxx, flags=['-fsanitize=address'] + args.user_cflags.split(), source = textwrap.dedent('''\
         #include <cstddef>
@@ -760,7 +760,7 @@ if try_compile_and_link(args.cxx, flags=['-fsanitize=address'] + args.user_cflag
             __sanitizer_finish_switch_fiber(nullptr, nullptr, nullptr);
         }
         ''')):
-    defines.append("HAVE_ASAN_FIBER_SUPPORT")
+    defines.append("SEASTAR_HAVE_ASAN_FIBER_SUPPORT")
 
 if args.so:
     args.pie = '-shared'
@@ -880,7 +880,7 @@ with open(buildfile, 'w') as f:
             modeval['sanitize'] = ''
             modeval['sanitize_libs'] = ''
         elif modeval['sanitize']:
-            modeval['sanitize'] += ' -DASAN_ENABLED'
+            modeval['sanitize'] += ' -DSEASTAR_ASAN_ENABLED'
         f.write(textwrap.dedent('''\
             cxxflags_{mode} = {sanitize} {opt} -I$full_builddir/{mode}/gen -I$full_builddir/{mode}/c-ares
             libs_{mode} = {sanitize_libs} {libs}

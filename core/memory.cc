@@ -75,7 +75,7 @@ disable_abort_on_alloc_failure_temporarily::~disable_abort_on_alloc_failure_temp
 
 }
 
-#ifndef DEFAULT_ALLOCATOR
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
 
 #include "bitops.hh"
 #include "align.hh"
@@ -96,7 +96,7 @@ disable_abort_on_alloc_failure_temporarily::~disable_abort_on_alloc_failure_temp
 #include "util/defer.hh"
 #include "util/backtrace.hh"
 
-#ifdef HAVE_NUMA
+#ifdef SEASTAR_HAVE_NUMA
 #include <numaif.h>
 #endif
 
@@ -1343,7 +1343,7 @@ void configure(std::vector<resource::memory> m, bool mbind,
     cpu_mem.resize(total, sys_alloc);
     size_t pos = 0;
     for (auto&& x : m) {
-#ifdef HAVE_NUMA
+#ifdef SEASTAR_HAVE_NUMA
         unsigned long nodemask = 1UL << x.nodeid;
         if (mbind) {
             auto r = ::mbind(cpu_mem.mem() + pos, x.bytes,
