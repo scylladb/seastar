@@ -36,6 +36,14 @@ class reactor;
 
 class scheduling_group;
 
+namespace internal {
+
+// Returns an index between 0 and max_scheduling_groups()
+unsigned scheduling_group_index(scheduling_group sg);
+scheduling_group scheduling_group_from_index(unsigned index);
+
+}
+
 
 /// Creates a scheduling group with a specified number of shares.
 ///
@@ -77,6 +85,12 @@ public:
     void set_shares(float shares);
     friend future<scheduling_group> create_scheduling_group(sstring name, float shares);
     friend class reactor;
+    friend unsigned internal::scheduling_group_index(scheduling_group sg) {
+        return sg._id;
+    }
+    friend scheduling_group internal::scheduling_group_from_index(unsigned index) {
+        return scheduling_group(index);
+    }
 };
 
 /// \cond internal
