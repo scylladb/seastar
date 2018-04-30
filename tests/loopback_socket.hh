@@ -29,22 +29,57 @@
 #include "core/future-util.hh"
 #include "core/do_with.hh"
 #include "net/stack.hh"
+#include "core/reactor.hh"
+#include "core/sharded.hh"
 
 namespace seastar {
 
+struct loopback_error_injector {
+    virtual ~loopback_error_injector() {};
+    virtual bool server_rcv_error() { return false; }
+    virtual bool server_snd_error() { return false; }
+    virtual bool client_rcv_error() { return false; }
+    virtual bool client_snd_error() { return false; }
+};
+
 class loopback_buffer {
+public:
+    enum class type : uint8_t {
+        CLIENT_TX,
+        SERVER_TX
+    };
+private:
     bool _aborted = false;
     queue<temporary_buffer<char>> _q{1};
+    loopback_error_injector* _error_injector;
+    type _type;
 public:
+    loopback_buffer(loopback_error_injector* error_injection, type t) : _error_injector(error_injection), _type(t) {}
     future<> push(temporary_buffer<char>&& b) {
         if (_aborted) {
             return make_exception_future<>(std::system_error(EPIPE, std::system_category()));
+        }
+        bool error = false;
+        if (_error_injector) {
+            error = _type == type::CLIENT_TX ? _error_injector->client_snd_error() : _error_injector->server_snd_error();
+        }
+        if (error) {
+            shutdown();
+            return make_exception_future<>(std::runtime_error("test injected error on send"));
         }
         return _q.push_eventually(std::move(b));
     }
     future<temporary_buffer<char>> pop() {
         if (_aborted) {
             return make_exception_future<temporary_buffer<char>>(std::system_error(EPIPE, std::system_category()));
+        }
+        bool error = false;
+        if (_error_injector) {
+            error = _type == type::CLIENT_TX ? _error_injector->client_rcv_error() : _error_injector->server_rcv_error();
+        }
+        if (error) {
+            shutdown();
+            return make_exception_future<temporary_buffer<char>>(std::runtime_error("test injected error on receive"));
         }
         return _q.pop_eventually();
     }
@@ -55,20 +90,24 @@ public:
 };
 
 class loopback_data_sink_impl : public data_sink_impl {
-    lw_shared_ptr<loopback_buffer> _buffer;
+    foreign_ptr<lw_shared_ptr<loopback_buffer>>& _buffer;
 public:
-    explicit loopback_data_sink_impl(lw_shared_ptr<loopback_buffer> buffer)
-            : _buffer(std::move(buffer)) {
+    explicit loopback_data_sink_impl(foreign_ptr<lw_shared_ptr<loopback_buffer>>& buffer)
+            : _buffer(buffer) {
     }
     future<> put(net::packet data) override {
         return do_with(data.release(), [this] (std::vector<temporary_buffer<char>>& bufs) {
             return do_for_each(bufs, [this] (temporary_buffer<char>& buf) {
-                return _buffer->push(std::move(buf));
+                return smp::submit_to(_buffer.get_owner_shard(), [this, b = buf.get(), s = buf.size()] {
+                    return _buffer->push(temporary_buffer<char>(b, s));
+                });
             });
         });
     }
     future<> close() override {
-        return _buffer->push({});
+        return smp::submit_to(_buffer.get_owner_shard(), [this] {
+            return _buffer->push({});
+        });
     }
 };
 
@@ -102,10 +141,10 @@ public:
 
 
 class loopback_connected_socket_impl : public net::connected_socket_impl {
-    lw_shared_ptr<loopback_buffer> _tx;
+    foreign_ptr<lw_shared_ptr<loopback_buffer>> _tx;
     lw_shared_ptr<loopback_buffer> _rx;
 public:
-    loopback_connected_socket_impl(lw_shared_ptr<loopback_buffer> tx, lw_shared_ptr<loopback_buffer> rx)
+    loopback_connected_socket_impl(foreign_ptr<lw_shared_ptr<loopback_buffer>> tx, lw_shared_ptr<loopback_buffer> rx)
             : _tx(std::move(tx)), _rx(std::move(rx)) {
     }
     data_source source() override {
@@ -118,7 +157,10 @@ public:
         _rx->shutdown();
     }
     void shutdown_output() override {
-        _tx->shutdown();
+        smp::submit_to(_tx.get_owner_shard(), [this] {
+            // FIXME: who holds to _tx?
+            _tx->shutdown();
+        });
     }
     void set_nodelay(bool nodelay) override {
     }
@@ -153,37 +195,63 @@ public:
 
 
 class loopback_connection_factory {
-    lw_shared_ptr<queue<connected_socket>> _pending = make_lw_shared<queue<connected_socket>>(10);
+    unsigned _shard = 0;
+    std::vector<lw_shared_ptr<queue<connected_socket>>> _pending;
 public:
-    server_socket get_server_socket() {
-        return server_socket(std::make_unique<loopback_server_socket_impl>(_pending));
+    loopback_connection_factory() {
+        _pending.resize(smp::count);
     }
-    future<connected_socket> make_new_connection(lw_shared_ptr<loopback_buffer> b1, lw_shared_ptr<loopback_buffer> b2) {
-        auto c1 = connected_socket(std::make_unique<loopback_connected_socket_impl>(b1, b2));
-        auto c2 = connected_socket(std::make_unique<loopback_connected_socket_impl>(b2, b1));
-        return _pending->push_eventually(std::move(c1)).then([c2 = std::move(c2)] () mutable {
-            return std::move(c2);
-        });
+    server_socket get_server_socket() {
+       if (!_pending[engine().cpu_id()]) {
+           _pending[engine().cpu_id()] = make_lw_shared<queue<connected_socket>>(10);
+       }
+       return server_socket(std::make_unique<loopback_server_socket_impl>(_pending[engine().cpu_id()]));
+    }
+    future<> make_new_server_connection(foreign_ptr<lw_shared_ptr<loopback_buffer>> b1, lw_shared_ptr<loopback_buffer> b2) {
+        if (!_pending[engine().cpu_id()]) {
+            _pending[engine().cpu_id()] = make_lw_shared<queue<connected_socket>>(10);
+        }
+        return _pending[engine().cpu_id()]->push_eventually(connected_socket(std::make_unique<loopback_connected_socket_impl>(std::move(b1), b2)));
+    }
+    connected_socket make_new_client_connection(lw_shared_ptr<loopback_buffer> b1, foreign_ptr<lw_shared_ptr<loopback_buffer>> b2) {
+        return connected_socket(std::make_unique<loopback_connected_socket_impl>(std::move(b2), b1));
+    }
+    unsigned next_shard() {
+        return _shard++ % smp::count;
+    }
+    void destroy_shard(unsigned shard) {
+        _pending[shard] = nullptr;
     }
 };
 
 class loopback_socket_impl : public net::socket_impl {
     loopback_connection_factory& _factory;
+    loopback_error_injector* _error_injector;
     lw_shared_ptr<loopback_buffer> _b1;
-    lw_shared_ptr<loopback_buffer> _b2;
+    foreign_ptr<lw_shared_ptr<loopback_buffer>> _b2;
 public:
-    loopback_socket_impl(loopback_connection_factory& factory)
-            : _factory(factory)
+    loopback_socket_impl(loopback_connection_factory& factory, loopback_error_injector* error_injector = nullptr)
+            : _factory(factory), _error_injector(error_injector)
     { }
     future<connected_socket> connect(socket_address sa, socket_address local, seastar::transport proto = seastar::transport::TCP) {
-        _b1 = make_lw_shared<loopback_buffer>();
-        _b2 = make_lw_shared<loopback_buffer>();
-        return _factory.make_new_connection(_b1, _b2);
+        auto shard = _factory.next_shard();
+        _b1 = make_lw_shared<loopback_buffer>(_error_injector, loopback_buffer::type::SERVER_TX);
+        return smp::submit_to(shard, [this, b1 = make_foreign(_b1)] () mutable {
+            auto b2 = make_lw_shared<loopback_buffer>(_error_injector, loopback_buffer::type::CLIENT_TX);
+            _b2 = make_foreign(b2);
+            return _factory.make_new_server_connection(std::move(b1), b2).then([b2] {
+                return make_foreign(b2);
+            });
+        }).then([this, shard] (foreign_ptr<lw_shared_ptr<loopback_buffer>> b2) {
+            return _factory.make_new_client_connection(_b1, std::move(b2));
+        });
     }
 
     void shutdown() {
         _b1->shutdown();
-        _b2->shutdown();
+        smp::submit_to(_b2.get_owner_shard(), [this, b2 = std::move(_b2)] {
+            b2->shutdown();
+        });
     }
 };
 
