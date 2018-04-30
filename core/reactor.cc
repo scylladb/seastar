@@ -112,6 +112,10 @@
 
 #include <yaml-cpp/yaml.h>
 
+#ifdef SEASTAR_TASK_HISTOGRAM
+#include <typeinfo>
+#endif
+
 namespace seastar {
 
 struct mountpoint_params {
@@ -140,6 +144,46 @@ struct convert<seastar::mountpoint_params> {
 }
 
 namespace seastar {
+
+
+namespace internal {
+
+#ifdef SEASTAR_TASK_HISTOGRAM
+
+class task_histogram {
+    static constexpr unsigned max_countdown = 1'000'000;
+    std::unordered_map<std::type_index, uint64_t> _histogram;
+    unsigned _countdown_to_print = max_countdown;
+public:
+    void add(const task& t) {
+        ++_histogram[std::type_index(typeid(t))];
+        if (!--_countdown_to_print) {
+            print();
+            _countdown_to_print = max_countdown;
+            _histogram.clear();
+        }
+    }
+    void print() const {
+        seastar::print("task histogram, %d task types %d tasks\n", _histogram.size(), max_countdown - _countdown_to_print);
+        for (auto&& type_count : _histogram) {
+            auto&& type = type_count.first;
+            auto&& count = type_count.second;
+            seastar::print("  %10d %s\n", count, type.name());
+        }
+    }
+};
+
+thread_local task_histogram this_thread_task_histogram;
+
+#endif
+
+void task_histogram_add_task(const task& t) {
+#ifdef SEASTAR_TASK_HISTOGRAM
+    this_thread_task_histogram.add(t);
+#endif
+}
+
+}
 
 using namespace std::chrono_literals;
 
@@ -2549,6 +2593,7 @@ void reactor::run_tasks(task_queue& tq) {
         auto tsk = std::move(tasks.front());
         tasks.pop_front();
         STAP_PROBE(seastar, reactor_run_tasks_single_start);
+        task_histogram_add_task(*tsk);
         tsk->run_and_dispose();
         tsk.release();
         STAP_PROBE(seastar, reactor_run_tasks_single_end);
