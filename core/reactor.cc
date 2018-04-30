@@ -3003,8 +3003,8 @@ int reactor::run() {
 
     register_metrics();
 
-    std::optional<poller> io_poller = {};
-    std::optional<poller> aio_poller = {};
+    std::experimental::optional<poller> io_poller = {};
+    std::experimental::optional<poller> aio_poller = {};
     std::experimental::optional<poller> smp_poller = {};
 
     // I/O Performance greatly increases if the smp poller runs before the I/O poller. This is
@@ -3909,7 +3909,7 @@ public:
             throw std::runtime_error("Both io-properties and io-properties-file specified. Don't know which to trust!");
         }
 
-        std::optional<YAML::Node> doc;
+        std::experimental::optional<YAML::Node> doc;
         if (configuration.count("io-properties-file")) {
             doc = YAML::LoadFile(configuration["io-properties-file"].as<std::string>());
         } else if (configuration.count("io-properties")) {
