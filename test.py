@@ -22,6 +22,7 @@ import argparse
 import subprocess
 import signal
 import re
+import seastar_cmake
 
 boost_tests = [
     'alloc_test',
@@ -91,7 +92,43 @@ if __name__ == "__main__":
     parser.add_argument('--jenkins', action="store",help="jenkins output file prefix")
     parser.add_argument('--verbose', '-v', action = 'store_true', default = False,
                         help = 'Verbose reporting')
+    parser.add_argument('--cmake', action='store_true', help='Use the CMake test-runner (CTest)')
     args = parser.parse_args()
+
+    # Forwarding to CMake.
+    if args.cmake:
+        MODES = [args.mode] if args.mode else seastar_cmake.SUPPORTED_MODES
+
+        def run_tests(mode):
+            BUILD_PATH = seastar_cmake.BUILD_PATHS[mode]
+
+            # For convenience.
+            tr = seastar_cmake.translate_arg
+
+            TRANSLATED_CMAKE_ARGS = [
+                tr(args.fast, 'EXECUTE_ONLY_FAST_TESTS'),
+                tr(args.jenkins, 'JENKINS', value_when_none=''),
+            ]
+
+            # Modify the existing build by pointing to the build directory.
+            CMAKE_ARGS = seastar_cmake.CMAKE_BASIC_ARGS + [BUILD_PATH] + TRANSLATED_CMAKE_ARGS
+            print(CMAKE_ARGS)
+            subprocess.check_call(CMAKE_ARGS, shell=False, cwd=BUILD_PATH)
+
+            TRANSLATED_CTEST_ARGS = [
+                '--timeout', args.timeout
+            ] + ['--verbose'] if args.verbose else [
+            ] + ['-R', args.name] if args.name else [
+            ]
+
+            CTEST_ARGS = ['ctest', BUILD_PATH] + TRANSLATED_CTEST_ARGS
+            print(CTEST_ARGS)
+            subprocess.check_call(CTEST_ARGS, shell=False, cwd=BUILD_PATH)
+
+        for mode in MODES:
+            run_tests(mode)
+
+        sys.exit(0)
 
     print_status = print_status_verbose if args.verbose else print_status_short
 
