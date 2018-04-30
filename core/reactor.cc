@@ -112,6 +112,8 @@
 
 #include <yaml-cpp/yaml.h>
 
+namespace seastar {
+
 struct mountpoint_params {
     std::string mountpoint;
     uint64_t read_bytes_rate = std::numeric_limits<uint64_t>::max();
@@ -120,10 +122,12 @@ struct mountpoint_params {
     uint64_t write_req_rate = std::numeric_limits<uint64_t>::max();
 };
 
+}
+    
 namespace YAML {
 template<>
-struct convert<mountpoint_params> {
-    static bool decode(const Node& node, mountpoint_params& mp) {
+struct convert<seastar::mountpoint_params> {
+    static bool decode(const Node& node, seastar::mountpoint_params& mp) {
         using namespace seastar;
         mp.mountpoint = node["mountpoint"].as<std::string>();
         mp.read_bytes_rate = parse_memory_size(node["read_bandwidth"].as<std::string>());
