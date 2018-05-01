@@ -2,6 +2,7 @@ FROM fedora:27
 
 RUN dnf install -y \
     git \
+    make \
     cmake \
     gcc-c++ \
     clang \
