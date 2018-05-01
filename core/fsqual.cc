@@ -81,8 +81,11 @@ bool filesystem_has_good_aio_support(sstring directory, bool verbose) {
             assert(r == 1);
         });
         struct io_event ioev;
-        auto n = io_getevents(ioctx, 1, 1, &ioev, nullptr);
-        throw_system_error_on(n == -1, "io_getevents");
+        int n = -1;
+        do {
+            n = io_getevents(ioctx, 1, 1, &ioev, nullptr);
+            throw_system_error_on((n == -1) && (errno != EINTR) , "io_getevents");
+        } while (n == -1);
         assert(n == 1);
         throw_kernel_error(long(ioev.res));
         assert(long(ioev.res) == bufsize);
