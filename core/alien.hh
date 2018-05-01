@@ -34,9 +34,11 @@
 #include "metrics_registration.hh"
 #include "reactor.hh"
 
+/// \file
 
 namespace seastar {
 
+/// \brief Integration with non-seastar applications.
 namespace alien {
 
 class message_queue {
