@@ -260,6 +260,9 @@ public:
 
     uint64_t get_value(const xstat_id id) {
         auto off = _offsets[static_cast<int>(id)];
+        if (off == -1) {
+            return 0;
+        }
         return _xstats[off].value;
     }
 
