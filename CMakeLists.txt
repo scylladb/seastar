@@ -684,18 +684,7 @@ seastar_add_warning_if_supported (-Wno-maybe-uninitialized)
 # GCC: Overzealous: false positives.
 seastar_add_warning_if_supported (-Wno-stringop-overflow)
 
-# GCC-only: Allow preprocessor warnings.
 seastar_add_warning_if_supported (-Wno-error=cpp)
-
-# Clang-only: Allow preprocessor warnings.
-# Note: the '#' symbol confuses CMake, so we just expand `seastar_add_warning_if_supported` manually.
-if (${CMAKE_CXX_COMPILER_ID} STREQUAL "Clang")
-  check_cxx_compiler_flag ("-Werror=\#warning" supported)
-
-  if ("${supported}")
-    target_compile_options (seastar PUBLIC -Wno-error=\#warning)
-  endif ()
-endif ()
 
 ##
 ## Extra flags at the end.
