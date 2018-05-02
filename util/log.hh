@@ -84,6 +84,7 @@ private:
     struct stringer {
         // no need for virtual dtor, since not dynamically destroyed
         virtual void append(std::ostream& os) = 0;
+        virtual ~stringer() {}
     };
     template <typename Arg>
     struct stringer_for final : stringer {
