@@ -599,6 +599,7 @@ warnings = [
     '-Wno-error=cpp',                       # gcc: allow preprecessor warnings
     '-Wno-error=#warning',                  # clang: allow preprecessor warnings
     '-Wno-stringop-overflow',               # gcc: overzealous, false positives
+    '-Wnon-virtual-dtor',                   # gcc: warn if virtual dtor not defined when it has to be
     ]
 
 # The "--with-osv=<path>" parameter is a shortcut for a bunch of other
