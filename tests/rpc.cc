@@ -152,7 +152,7 @@ int main(int ac, char** av) {
                 try {
                     f.get();
                     printf("test8 should not get here!\n");
-                } catch (rpc::timeout_error) {
+                } catch (rpc::timeout_error&) {
                     printf("test8 timeout!\n");
                 }
             });

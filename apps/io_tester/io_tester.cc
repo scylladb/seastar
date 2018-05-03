@@ -439,7 +439,7 @@ struct convert<shard_config> {
         try {
             auto str = node.as<std::string>();
             return (str == "all");
-        } catch (YAML::TypedBadConversion<std::string> e) {
+        } catch (YAML::TypedBadConversion<std::string>& e) {
             shards = shard_config(boost::copy_range<std::unordered_set<unsigned>>(node.as<std::vector<unsigned>>()));
             return true;
         }
