@@ -44,7 +44,6 @@ struct A {
 
 struct B {
     virtual void x() {}
-    virtual ~B() {}
 };
 
 bool A::destroyed = false;
