@@ -82,20 +82,21 @@ class logger {
     static std::atomic<bool> _syslog;
 private:
     struct stringer {
-        // no need for virtual dtor, since not dynamically destroyed
-        virtual void append(std::ostream& os) = 0;
+        void (*append)(std::ostream& os, const void* object);
+        const void* object;
     };
     template <typename Arg>
-    struct stringer_for final : stringer {
-        explicit stringer_for(const Arg& arg) : arg(arg) {}
-        const Arg& arg;
-        virtual void append(std::ostream& os) override {
-            os << arg;
-        }
+    stringer stringer_for(const Arg& arg) {
+        return stringer{
+            [] (std::ostream& os, const void* object) {
+                os << *static_cast<const std::remove_reference_t<Arg>*>(object);
+            },
+            &arg
+        };
     };
     template <typename... Args>
     void do_log(log_level level, const char* fmt, Args&&... args);
-    void really_do_log(log_level level, const char* fmt, stringer** stringers, size_t n);
+    void really_do_log(log_level level, const char* fmt, const stringer* stringers, size_t n);
     void failed_to_log(std::exception_ptr ex);
 public:
     explicit logger(sstring name);
@@ -118,10 +119,10 @@ public:
     /// \param args - args to print string
     ///
     template <typename... Args>
-    void log(log_level level, const char* fmt, Args&&... args) {
+    void log(log_level level, const char* fmt, const Args&... args) {
         if (is_enabled(level)) {
             try {
-                do_log(level, fmt, std::forward<Args>(args)...);
+                do_log(level, fmt, args...);
             } catch (...) {
                 failed_to_log(std::current_exception());
             }
@@ -308,8 +309,8 @@ public:
 template <typename... Args>
 void
 logger::do_log(log_level level, const char* fmt, Args&&... args) {
-    [&](auto&&... stringers) {
-        stringer* s[sizeof...(stringers)] = {&stringers...};
+    [&](auto... stringers) {
+        stringer s[sizeof...(stringers)] = {stringers...};
         this->really_do_log(level, fmt, s, sizeof...(stringers));
     } (stringer_for<Args>(std::forward<Args>(args))...);
 }
