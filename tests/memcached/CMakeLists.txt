@@ -32,3 +32,9 @@ add_dependencies (tests memcached)
 add_test (
   NAME memcached_test
   COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/test.py" ${fast} --memcached $<TARGET_FILE:memcached>)
+
+add_seastar_test (NAME memcached_ascii_parser_test
+  SUITE
+  SOURCES test_ascii_parser.cc)
+
+add_dependencies (memcached_ascii_parser_test memcached)
