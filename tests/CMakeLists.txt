@@ -182,7 +182,7 @@ add_seastar_test (NAME expiring_fifo_test
   SUITE
   SOURCES expiring_fifo_test.cc)
 
-add_seastar_test (NAME fair_queue-test
+add_seastar_test (NAME fair_queue_test
   SUITE
   SOURCES fair_queue_test.cc)
 
