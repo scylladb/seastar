@@ -284,14 +284,9 @@ add_seastar_test (NAME weak_ptr_test
   CUSTOM
   SOURCES weak_ptr_test.cc)
 
-if (${SEASTAR_EXECUTE_ONLY_FAST_TESTS})
-  set (memcached_test_fast --fast)
-endif()
-add_test (NAME memcached_test WORKING_DIRECTORY ${SEASTAR_BUILD_DIR}
-  COMMAND "${SEASTAR_SOURCE_DIR}/tests/memcached/test.py" ${memcached_test_fast} --memcached "${SEASTAR_BINARY_DIR}/apps/memcached/memcached")
-
 # Disable false positive due to new (with_alignment(...)).
 set (CTEST_ENVIRONMENT
   ASAN_OPTIONS='alloc_dealloc_mismatch=0')
 
 add_subdirectory (perf)
+add_subdirectory (memcached)
