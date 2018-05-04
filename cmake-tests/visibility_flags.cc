@@ -30,6 +30,16 @@ public:
   }
 };
 
+template<typename T>
+void foo() {
+    struct inner {
+        inner() {
+            (void)([this] { });
+        }
+    };
+}
+
 int main() {
   my_class<int> r;
+  foo<int>();
 }

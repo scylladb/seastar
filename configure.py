@@ -200,8 +200,18 @@ def adjust_visibility_flags(compiler, flags):
                 }
             };
 
+            template<typename T>
+            void foo() {
+                struct inner {
+                    inner() {
+                        (void)([this] { });
+                    }
+                };
+            }
+
             int main() {
                  MyClass<int> r;
+                 foo<int>();
             }
             ''')):
         print('Notice: disabling -Wattributes due to https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947')
