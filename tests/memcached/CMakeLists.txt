@@ -26,6 +26,9 @@ else ()
   set (fast "")
 endif()
 
+# Special case dependency since `memcached_test` depends on the `memcached` target being built.
+add_dependencies (tests memcached)
+
 add_test (
   NAME memcached_test
   COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/test.py" ${fast} --memcached $<TARGET_FILE:memcached>)
