@@ -20,6 +20,15 @@
 # Copyright (C) 2018 Scylladb, Ltd.
 #
 
+# Logical target for all applications.
+add_custom_target (apps)
+
+function (add_seastar_app name)
+  add_executable (${name} ${ARGN})
+  target_link_libraries (${name} PRIVATE seastar)
+  add_dependencies (apps ${name})
+endfunction ()
+
 add_subdirectory (httpd)
 add_subdirectory (io_tester)
 add_subdirectory (iotune)

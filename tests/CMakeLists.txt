@@ -32,6 +32,12 @@ if (NOT ${SEASTAR_LINK_STATIC_BOOST})
     BOOST_TEST_DYN_LINK)
 endif ()
 
+# Logical target for all tests.
+add_custom_target (tests)
+# Logical target for all tests with debugging symbols.
+add_custom_target (tests_debug)
+set_target_properties (tests_debug PROPERTIES EXCLUDE_FROM_ALL ON)
+
 # ADD_SEASTAR_TEST NAME $name [CUSTOM] [SUITE] SOURCES $source_1 $source_2 ... $source_n ARGS $arg_1 $arg_2 ... $arg_n)
 #
 # Define a unit test with name `name`. This defines a build target with `name`.
@@ -63,7 +69,7 @@ function (add_seastar_test)
   endmacro ()
 
   prepare (${args_NAME})
-
+  add_dependencies (tests ${args_NAME})
   # Strip symbols.
   target_link_libraries (${args_NAME} PUBLIC -s)
 
@@ -83,6 +89,7 @@ function (add_seastar_test)
 
   set (name_with_symbols "${args_NAME}_g")
   prepare (${name_with_symbols})
+  add_dependencies (tests_debug ${name_with_symbols})
   set_target_properties (${name_with_symbols} PROPERTIES EXCLUDE_FROM_ALL ON)
 endfunction ()
 

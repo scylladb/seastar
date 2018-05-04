@@ -50,13 +50,13 @@ endmacro ()
 # Configuration options.
 #
 
-option (SEASTAR_ENABLE_TESTING
-  "Build and allow running tests."
-  OFF)
+option (SEASTAR_EXCLUDE_TESTS_BY_DEFAULT
+  "If ON, then tests are not built by default when the build tool is invoked"
+  ON)
 
-option (SEASTAR_ENABLE_APPS
-  "Build the included Seastar apps."
-  OFF)
+option (SEASTAR_EXCLUDE_APPS_BY_DEFAULT
+  "If ON, then applications are not build by default when the build tool is invoked"
+  ON)
 
 set (SEASTAR_CXX_DIALECT
   "gnu++17"
@@ -800,18 +800,27 @@ target_link_libraries (seastar PUBLIC "${SEASTAR_USER_LDFLAGS}")
 # Applications.
 #
 
-if (${SEASTAR_ENABLE_APPS})
-  add_subdirectory (apps)
+if (${SEASTAR_EXCLUDE_APPS_BY_DEFAULT})
+  set (exclude_apps EXCLUDE_FROM_ALL)
+else ()
+  set (exclude_apps "")
 endif ()
+
+add_subdirectory (apps ${exclude_apps})
 
 #
 # Tests.
 #
 
-if (${SEASTAR_ENABLE_TESTING})
-  enable_testing ()
-  add_subdirectory (tests)
+enable_testing ()
+
+if (${SEASTAR_EXCLUDE_TESTS_BY_DEFAULT})
+  set (exclude_tests EXCLUDE_FROM_ALL)
+else ()
+  set (exclude_tests "")
 endif ()
+
+add_subdirectory (tests ${exclude_tests})
 
 #
 # Documentation.

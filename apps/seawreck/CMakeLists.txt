@@ -20,5 +20,4 @@
 # Copyright (C) 2018 Scylladb, Ltd.
 #
 
-add_executable (seawreck seawreck.cc)
-target_link_libraries (seawreck seastar)
+add_seastar_app (seawreck seawreck.cc)
