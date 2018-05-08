@@ -539,7 +539,7 @@ void write_property_file(sstring conf_file, struct disk_descriptor desc) {
     out << YAML::Key << "read_iops" << YAML::Value << desc.read_iops;
     out << YAML::Key << "read_bandwidth" << YAML::Value << desc.read_bw;
     out << YAML::Key << "write_iops" << YAML::Value << desc.write_iops;
-    out << YAML::Key << "write_bandwdith" << YAML::Value << desc.write_bw;
+    out << YAML::Key << "write_bandwidth" << YAML::Value << desc.write_bw;
     out << YAML::EndMap;
     out << YAML::EndSeq;
     out << YAML::EndMap;
