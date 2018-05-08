@@ -227,6 +227,11 @@ add_seastar_test (NAME packet_test
   SUITE
   CUSTOM SOURCES packet_test.cc)
 
+add_seastar_test (NAME program_options_test
+  SUITE
+  CUSTOM
+  SOURCES program_options_test.cc)
+
 add_seastar_test (NAME rpc_test
   SUITE
   SOURCES rpc_test.cc)
