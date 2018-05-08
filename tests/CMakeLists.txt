@@ -284,6 +284,11 @@ add_seastar_test (NAME timer_test
 add_seastar_test (NAME tls_test SUITE
   SOURCES tls_test.cc)
 
+add_seastar_test (NAME tuple_utils_test
+  SUITE
+  CUSTOM
+  SOURCES tuple_utils_test)
+
 add_seastar_test (NAME unwind_test
   CUSTOM
   SOURCES unwind_test.cc)
