@@ -21,3 +21,7 @@
 #
 
 add_seastar_app (iotune iotune.cc)
+
+target_link_libraries (iotune
+  PRIVATE
+    stdc++fs)
