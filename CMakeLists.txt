@@ -173,7 +173,9 @@ if (${SEASTAR_LINK_STATIC_BOOST})
   set (Boost_USE_STATIC_LIBS ON)
 endif ()
 
-find_package (Boost COMPONENTS program_options filesystem unit_test_framework thread REQUIRED)
+if (NOT TARGET Boost)
+  find_package (Boost COMPONENTS program_options filesystem unit_test_framework thread REQUIRED)
+endif()
 
 if (${Boost_VERSION} VERSION_LESS "1.58")
   message(error "Seastar requires Boost >= 1.58")
