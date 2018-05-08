@@ -220,6 +220,11 @@ add_seastar_test (NAME lowres_clock_test
   SUITE
   SOURCES lowres_clock_test.cc)
 
+add_seastar_test (NAME noncopyable_function_test
+  SUITE
+  CUSTOM
+  SOURCES noncopyable_function_test.cc)
+
 add_seastar_test (NAME output_stream_test
   SOURCES output_stream_test.cc)
 
