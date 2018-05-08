@@ -200,6 +200,10 @@ add_seastar_test (NAME futures_test
   SUITE
   SOURCES futures_test.cc)
 
+add_seastar_test (NAME httpd_test
+  SUITE
+  SOURCES httpd.cc)
+
 add_seastar_test (NAME ip_test
   CUSTOM
   SOURCES ip_test.cc)
