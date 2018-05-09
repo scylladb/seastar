@@ -17,7 +17,9 @@
 # under the License.
 #
 import os, os.path, textwrap, argparse, sys, shlex, subprocess, tempfile, re
+import distutils.dir_util
 import distutils.spawn
+import seastar_cmake
 
 configure_args = str.join(' ', [shlex.quote(x) for x in sys.argv[1:]])
 
@@ -246,28 +248,28 @@ perf_tests = [
 ]
 
 tests = [
-    'tests/fileiotest',
+    'tests/file_io_test',
     'tests/directory_test',
     'tests/linecount',
     'tests/echotest',
     'tests/l3_test',
     'tests/ip_test',
-    'tests/timertest',
+    'tests/timer_test',
     'tests/tcp_test',
     'tests/futures_test',
     'tests/alloc_test',
     'tests/foreign_ptr_test',
     'tests/smp_test',
     'tests/thread_test',
-    'tests/thread_context_switch',
+    'tests/thread_context_switch_test',
     'tests/udp_server',
     'tests/udp_client',
     'tests/blkdiscard_test',
     'tests/sstring_test',
     'tests/unwind_test',
     'tests/defer_test',
-    'tests/httpd',
-    'tests/memcached/test_ascii_parser',
+    'tests/httpd_test',
+    'tests/memcached/memcached_ascii_parser_test',
     'tests/tcp_sctp_server',
     'tests/tcp_sctp_client',
     'tests/allocator_test',
@@ -375,7 +377,52 @@ add_tristate(arg_parser, name = 'exception-scalability-workaround', dest='except
 arg_parser.add_argument('--allocator-page-size', dest='allocator_page_size', type=int, help='override allocator page size')
 arg_parser.add_argument('--protoc-compiler', action = 'store', dest='protoc', default='protoc',
                         help = 'Path to protoc compiler, the default is protoc')
+arg_parser.add_argument('--cmake', dest='cmake', action='store_true',
+                        help='Use CMake as the underlying build-sytem')
+arg_parser.add_argument('--without-tests', dest='exclude_tests', action='store_true', help='Do not build tests by default (CMake only)')
+arg_parser.add_argument('--without-apps', dest='exclude_apps', action='store_true', help='Do not build applications by default (CMake only)')
 args = arg_parser.parse_args()
+
+# Forwarding to CMake.
+if args.cmake:
+    MODES = seastar_cmake.SUPPORTED_MODES if args.mode is 'all' else [args.mode]
+
+    # For convenience.
+    tr = seastar_cmake.translate_arg
+
+    def configure_mode(mode):
+        BUILD_PATH = seastar_cmake.BUILD_PATHS[mode]
+
+        TRANSLATED_ARGS = [
+            '-DCMAKE_BUILD_TYPE={}'.format(mode.title()),
+            '-DCMAKE_C_COMPILER={}'.format(args.cc),
+            '-DCMAKE_CXX_COMPILER={}'.format(args.cxx),
+            tr(args.exclude_tests, 'EXCLUDE_TESTS_BY_DEFAULT'),
+            tr(args.exclude_apps, 'EXCLUDE_APPS_BY_DEFAULT'),
+            tr(args.user_cflags, 'USER_CXXFLAGS'),
+            tr(args.user_ldflags, 'USER_LDFLAGS'),
+            tr(args.user_optflags, 'CXX_OPTIMIZATION_FLAGS'),
+            tr(args.cpp_dialect, 'CXX_DIALECT'),
+            tr(args.dpdk, 'ENABLE_DPDK'),
+            tr(args.staticboost, 'LINK_STATIC_BOOST'),
+            tr(args.staticyamlcpp, 'LINK_STATIC_YAML_CPP'),
+            tr(args.hwloc, 'ENABLE_HWLOC'),
+            tr(args.gcc6_concepts, 'ENABLE_GCC6_CONCEPTS'),
+            tr(args.alloc_failure_injector, 'ENABLE_ALLOC_FAILURE_INJECTOR'),
+            tr(args.exception_workaround, 'ENABLE_EXCEPTION_SCALABILITY_WORKAROUND'),
+            tr(args.allocator_page_size, 'ALLOCATOR_PAGE_SIZE'),
+        ]
+
+        # Generate a new build by pointing to the source directory.
+        ARGS = seastar_cmake.CMAKE_BASIC_ARGS + [seastar_cmake.ROOT_PATH] + TRANSLATED_ARGS
+        print(ARGS)
+        distutils.dir_util.mkpath(BUILD_PATH)
+        subprocess.check_call(ARGS, shell=False, cwd=BUILD_PATH)
+
+    for mode in MODES:
+        configure_mode(mode)
+
+    sys.exit(0)
 
 libnet = [
     'net/proxy.cc',
@@ -503,15 +550,15 @@ deps = {
     'fmt/fmt/libfmt.a': [],
     'apps/httpd/httpd': ['apps/httpd/demo.json', 'apps/httpd/main.cc'] + http + libnet + core,
     'apps/memcached/memcached': ['apps/memcached/memcache.cc'] + memcache_base,
-    'tests/memcached/test_ascii_parser': ['tests/memcached/test_ascii_parser.cc'] + memcache_base,
-    'tests/fileiotest': ['tests/fileiotest.cc'] + core,
+    'tests/memcached/memcached_ascii_parser_test': ['tests/memcached/test_ascii_parser.cc'] + memcache_base,
+    'tests/file_io_test': ['tests/fileiotest.cc'] + core,
     'tests/directory_test': ['tests/directory_test.cc'] + core,
     'tests/linecount': ['tests/linecount.cc'] + core,
     'tests/echotest': ['tests/echotest.cc'] + core + libnet,
     'tests/l3_test': ['tests/l3_test.cc'] + core + libnet,
     'tests/ip_test': ['tests/ip_test.cc'] + core + libnet,
     'tests/tcp_test': ['tests/tcp_test.cc'] + core + libnet,
-    'tests/timertest': ['tests/timertest.cc'] + core,
+    'tests/timer_test': ['tests/timertest.cc'] + core,
     'tests/futures_test': ['tests/futures_test.cc'] + core,
     'tests/alloc_test': ['tests/alloc_test.cc'] + core,
     'tests/foreign_ptr_test': ['tests/foreign_ptr_test.cc'] + core,
@@ -519,7 +566,7 @@ deps = {
     'tests/expiring_fifo_test': ['tests/expiring_fifo_test.cc'] + core,
     'tests/smp_test': ['tests/smp_test.cc'] + core,
     'tests/thread_test': ['tests/thread_test.cc'] + core,
-    'tests/thread_context_switch': ['tests/thread_context_switch.cc'] + core,
+    'tests/thread_context_switch_test': ['tests/thread_context_switch.cc'] + core,
     'tests/udp_server': ['tests/udp_server.cc'] + core + libnet,
     'tests/udp_client': ['tests/udp_client.cc'] + core + libnet,
     'tests/tcp_sctp_server': ['tests/tcp_sctp_server.cc'] + core + libnet,
@@ -533,7 +580,7 @@ deps = {
     'tests/sstring_test': ['tests/sstring_test.cc'] + core,
     'tests/unwind_test': ['tests/unwind_test.cc'] + core,
     'tests/defer_test': ['tests/defer_test.cc'] + core,
-    'tests/httpd': ['tests/httpd.cc'] + http + core,
+    'tests/httpd_test': ['tests/httpd.cc'] + http + core,
     'tests/allocator_test': ['tests/allocator_test.cc'] + core,
     'tests/output_stream_test': ['tests/output_stream_test.cc'] + core + libnet,
     'tests/udp_zero_copy': ['tests/udp_zero_copy.cc'] + core + libnet,
@@ -567,8 +614,8 @@ deps = {
 }
 
 boost_tests = [
-    'tests/memcached/test_ascii_parser',
-    'tests/fileiotest',
+    'tests/memcached/memcached_ascii_parser_test',
+    'tests/file_io_test',
     'tests/futures_test',
     'tests/alloc_test',
     'tests/foreign_ptr_test',
@@ -577,7 +624,7 @@ boost_tests = [
     'tests/thread_test',
     'tests/tls_test',
     'tests/fair_queue_test',
-    'tests/httpd',
+    'tests/httpd_test',
     'tests/output_stream_test',
     'tests/fstream_test',
     'tests/rpc_test',

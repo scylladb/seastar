@@ -32,6 +32,12 @@ if (NOT ${SEASTAR_LINK_STATIC_BOOST})
     BOOST_TEST_DYN_LINK)
 endif ()
 
+# Logical target for all tests.
+add_custom_target (tests)
+# Logical target for all tests with debugging symbols.
+add_custom_target (tests_debug)
+set_target_properties (tests_debug PROPERTIES EXCLUDE_FROM_ALL ON)
+
 # ADD_SEASTAR_TEST NAME $name [CUSTOM] [SUITE] SOURCES $source_1 $source_2 ... $source_n ARGS $arg_1 $arg_2 ... $arg_n)
 #
 # Define a unit test with name `name`. This defines a build target with `name`.
@@ -63,7 +69,7 @@ function (add_seastar_test)
   endmacro ()
 
   prepare (${args_NAME})
-
+  add_dependencies (tests ${args_NAME})
   # Strip symbols.
   target_link_libraries (${args_NAME} PUBLIC -s)
 
@@ -83,6 +89,7 @@ function (add_seastar_test)
 
   set (name_with_symbols "${args_NAME}_g")
   prepare (${name_with_symbols})
+  add_dependencies (tests_debug ${name_with_symbols})
   set_target_properties (${name_with_symbols} PROPERTIES EXCLUDE_FROM_ALL ON)
 endfunction ()
 
@@ -175,7 +182,7 @@ add_seastar_test (NAME expiring_fifo_test
   SUITE
   SOURCES expiring_fifo_test.cc)
 
-add_seastar_test (NAME fair_queue-test
+add_seastar_test (NAME fair_queue_test
   SUITE
   SOURCES fair_queue_test.cc)
 
@@ -193,6 +200,10 @@ add_seastar_test (NAME futures_test
   SUITE
   SOURCES futures_test.cc)
 
+add_seastar_test (NAME httpd_test
+  SUITE
+  SOURCES httpd.cc)
+
 add_seastar_test (NAME ip_test
   CUSTOM
   SOURCES ip_test.cc)
@@ -209,12 +220,22 @@ add_seastar_test (NAME lowres_clock_test
   SUITE
   SOURCES lowres_clock_test.cc)
 
+add_seastar_test (NAME noncopyable_function_test
+  SUITE
+  CUSTOM
+  SOURCES noncopyable_function_test.cc)
+
 add_seastar_test (NAME output_stream_test
   SOURCES output_stream_test.cc)
 
 add_seastar_test (NAME packet_test
   SUITE
   CUSTOM SOURCES packet_test.cc)
+
+add_seastar_test (NAME program_options_test
+  SUITE
+  CUSTOM
+  SOURCES program_options_test.cc)
 
 add_seastar_test (NAME rpc_test
   SUITE
@@ -268,6 +289,11 @@ add_seastar_test (NAME timer_test
 add_seastar_test (NAME tls_test SUITE
   SOURCES tls_test.cc)
 
+add_seastar_test (NAME tuple_utils_test
+  SUITE
+  CUSTOM
+  SOURCES tuple_utils_test)
+
 add_seastar_test (NAME unwind_test
   CUSTOM
   SOURCES unwind_test.cc)
@@ -277,14 +303,9 @@ add_seastar_test (NAME weak_ptr_test
   CUSTOM
   SOURCES weak_ptr_test.cc)
 
-if (${SEASTAR_EXECUTE_ONLY_FAST_TESTS})
-  set (memcached_test_fast --fast)
-endif()
-add_test (NAME memcached_test WORKING_DIRECTORY ${SEASTAR_BUILD_DIR}
-  COMMAND "${SEASTAR_SOURCE_DIR}/tests/memcached/test.py" ${memcached_test_fast} --memcached "${SEASTAR_BINARY_DIR}/apps/memcached/memcached")
-
 # Disable false positive due to new (with_alignment(...)).
 set (CTEST_ENVIRONMENT
   ASAN_OPTIONS='alloc_dealloc_mismatch=0')
 
 add_subdirectory (perf)
+add_subdirectory (memcached)
