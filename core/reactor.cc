@@ -62,6 +62,7 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/version.hpp>
 #include <atomic>
+#include <experimental/filesystem>
 #include <dirent.h>
 #include <linux/types.h> // for xfs, below
 #include <sys/ioctl.h>
@@ -186,6 +187,7 @@ void task_histogram_add_task(const task& t) {
 }
 
 using namespace std::chrono_literals;
+namespace fs = std::experimental::filesystem;
 
 using namespace net;
 
@@ -240,23 +242,32 @@ struct syscall_result {
     int error;
     void throw_if_error() {
         if (long(result) == -1) {
-            throw std::system_error(error, std::system_category());
+            throw std::system_error(ec());
         }
+    }
+
+    void throw_fs_exception_if_error(sstring reason, sstring path) {
+        if (long(result) == -1) {
+            throw fs::filesystem_error(reason, fs::path(path), ec());
+        }
+    }
+
+    void throw_fs_exception_if_error(sstring reason, sstring path1, sstring path2) {
+        if (long(result) == -1) {
+            throw fs::filesystem_error(reason, fs::path(path1), fs::path(path2), ec());
+        }
+    }
+protected:
+    std::error_code ec() {
+        return std::error_code(error, std::system_category());
     }
 };
 
 // Wrapper for a system call result containing the return value,
 // an output parameter that was returned from the syscall, and errno.
 template <typename Extra>
-struct syscall_result_extra {
-    int result;
+struct syscall_result_extra : public syscall_result<int> {
     Extra extra;
-    int error;
-    void throw_if_error() {
-        if (result == -1) {
-            throw std::system_error(error, std::system_category());
-        }
-    }
 };
 
 template <typename T>
@@ -271,7 +282,7 @@ wrap_syscall(T result) {
 template <typename Extra>
 syscall_result_extra<Extra>
 wrap_syscall(int result, const Extra& extra) {
-    return {result, extra, errno};
+    return {result, errno, extra};
 }
 
 reactor_backend_epoll::reactor_backend_epoll()
@@ -1906,8 +1917,8 @@ reactor::open_file_dma(sstring name, open_flags flags, file_open_options options
             ::ioctl(fd, XFS_IOC_FSSETXATTR, &attr);
         }
         return wrap_syscall<int>(fd);
-    }).then([options] (syscall_result<int> sr) {
-        sr.throw_if_error();
+    }).then([options, name] (syscall_result<int> sr) {
+        sr.throw_fs_exception_if_error("open failed", name);
         return make_ready_future<file>(file(sr.result, options));
     });
 }
@@ -1916,8 +1927,8 @@ future<>
 reactor::remove_file(sstring pathname) {
     return engine()._thread_pool.submit<syscall_result<int>>([pathname] {
         return wrap_syscall<int>(::remove(pathname.c_str()));
-    }).then([] (syscall_result<int> sr) {
-        sr.throw_if_error();
+    }).then([pathname] (syscall_result<int> sr) {
+        sr.throw_fs_exception_if_error("remove failed", pathname);
         return make_ready_future<>();
     });
 }
@@ -1926,18 +1937,18 @@ future<>
 reactor::rename_file(sstring old_pathname, sstring new_pathname) {
     return engine()._thread_pool.submit<syscall_result<int>>([old_pathname, new_pathname] {
         return wrap_syscall<int>(::rename(old_pathname.c_str(), new_pathname.c_str()));
-    }).then([] (syscall_result<int> sr) {
-        sr.throw_if_error();
+    }).then([old_pathname, new_pathname] (syscall_result<int> sr) {
+        sr.throw_fs_exception_if_error("rename failed",  old_pathname, new_pathname);
         return make_ready_future<>();
     });
 }
 
 future<>
 reactor::link_file(sstring oldpath, sstring newpath) {
-    return engine()._thread_pool.submit<syscall_result<int>>([oldpath = std::move(oldpath), newpath = std::move(newpath)] {
+    return engine()._thread_pool.submit<syscall_result<int>>([oldpath, newpath] {
         return wrap_syscall<int>(::link(oldpath.c_str(), newpath.c_str()));
-    }).then([] (syscall_result<int> sr) {
-        sr.throw_if_error();
+    }).then([oldpath, newpath] (syscall_result<int> sr) {
+        sr.throw_fs_exception_if_error("link failed", oldpath, newpath);
         return make_ready_future<>();
     });
 }
@@ -1968,10 +1979,10 @@ reactor::file_type(sstring name) {
         struct stat st;
         auto ret = stat(name.c_str(), &st);
         return wrap_syscall(ret, st);
-    }).then([] (syscall_result_extra<struct stat> sr) {
+    }).then([name] (syscall_result_extra<struct stat> sr) {
         if (long(sr.result) == -1) {
             if (sr.error != ENOENT && sr.error != ENOTDIR) {
-                sr.throw_if_error();
+                sr.throw_fs_exception_if_error("stat failed", name);
             }
             return make_ready_future<std::experimental::optional<directory_entry_type> >
                 (std::experimental::optional<directory_entry_type>() );
@@ -1987,8 +1998,8 @@ reactor::file_size(sstring pathname) {
         struct stat st;
         auto ret = stat(pathname.c_str(), &st);
         return wrap_syscall(ret, st);
-    }).then([] (syscall_result_extra<struct stat> sr) {
-        sr.throw_if_error();
+    }).then([pathname] (syscall_result_extra<struct stat> sr) {
+        sr.throw_fs_exception_if_error("stat failed", pathname);
         return make_ready_future<uint64_t>(sr.extra.st_size);
     });
 }
@@ -1999,11 +2010,11 @@ reactor::file_exists(sstring pathname) {
         struct stat st;
         auto ret = stat(pathname.c_str(), &st);
         return wrap_syscall(ret, st);
-    }).then([] (syscall_result_extra<struct stat> sr) {
+    }).then([pathname] (syscall_result_extra<struct stat> sr) {
         if (sr.result < 0 && sr.error == ENOENT) {
             return make_ready_future<bool>(false);
         }
-        sr.throw_if_error();
+        sr.throw_fs_exception_if_error("stat failed", pathname);
         return make_ready_future<bool>(true);
     });
 }
@@ -2014,7 +2025,7 @@ reactor::file_system_at(sstring pathname) {
         struct statfs st;
         auto ret = statfs(pathname.c_str(), &st);
         return wrap_syscall(ret, st);
-    }).then([] (syscall_result_extra<struct statfs> sr) {
+    }).then([pathname] (syscall_result_extra<struct statfs> sr) {
         static std::unordered_map<long int, fs_type> type_mapper = {
             { 0x58465342, fs_type::xfs },
             { EXT2_SUPER_MAGIC, fs_type::ext2 },
@@ -2024,7 +2035,7 @@ reactor::file_system_at(sstring pathname) {
             { 0x4244, fs_type::hfs },
             { TMPFS_MAGIC, fs_type::tmpfs },
         };
-        sr.throw_if_error();
+        sr.throw_fs_exception_if_error("statfs failed", pathname);
 
         fs_type ret = fs_type::other;
         if (type_mapper.count(sr.extra.f_type) != 0) {
@@ -2039,28 +2050,28 @@ future<file>
 reactor::open_directory(sstring name) {
     return _thread_pool.submit<syscall_result<int>>([name] {
         return wrap_syscall<int>(::open(name.c_str(), O_DIRECTORY | O_CLOEXEC | O_RDONLY));
-    }).then([] (syscall_result<int> sr) {
-        sr.throw_if_error();
+    }).then([name] (syscall_result<int> sr) {
+        sr.throw_fs_exception_if_error("open failed", name);
         return make_ready_future<file>(file(sr.result, file_open_options()));
     });
 }
 
 future<>
 reactor::make_directory(sstring name) {
-    return _thread_pool.submit<syscall_result<int>>([name = std::move(name)] {
+    return _thread_pool.submit<syscall_result<int>>([name] {
         return wrap_syscall<int>(::mkdir(name.c_str(), S_IRWXU));
-    }).then([] (syscall_result<int> sr) {
-        sr.throw_if_error();
+    }).then([name] (syscall_result<int> sr) {
+        sr.throw_fs_exception_if_error("mkdir failed", name);
     });
 }
 
 future<>
 reactor::touch_directory(sstring name) {
-    return engine()._thread_pool.submit<syscall_result<int>>([name = std::move(name)] {
+    return engine()._thread_pool.submit<syscall_result<int>>([name] {
         return wrap_syscall<int>(::mkdir(name.c_str(), S_IRWXU));
-    }).then([] (syscall_result<int> sr) {
+    }).then([name] (syscall_result<int> sr) {
         if (sr.error != EEXIST) {
-            sr.throw_if_error();
+            sr.throw_fs_exception_if_error("mkdir failed", name);
         }
     });
 }
