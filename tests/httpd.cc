@@ -16,6 +16,7 @@
 #include <boost/algorithm/string.hpp>
 #include "core/thread.hh"
 #include "util/noncopyable_function.hh"
+#include "http/json_path.hh"
 #include <sstream>
 
 using namespace seastar;
@@ -157,6 +158,61 @@ SEASTAR_TEST_CASE(test_routes) {
         std::get<1>(fs).get();
         std::get<2>(fs).get();
         std::get<3>(fs).get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_json_path) {
+    shared_ptr<bool> res1 = make_shared<bool>(false);
+    shared_ptr<bool> res2 = make_shared<bool>(false);
+    shared_ptr<bool> res3 = make_shared<bool>(false);
+    shared_ptr<routes> route = make_shared<routes>();
+    path_description path1("/my/path",GET,"path1",
+        {{"param1", path_description::url_component_type::PARAM}
+        ,{"/text", path_description::url_component_type::FIXED_STRING}},{});
+    path_description path2("/my/path",GET,"path2",
+            {{"param1", path_description::url_component_type::PARAM}
+            ,{"param2", path_description::url_component_type::PARAM}},{});
+    path_description path3("/my/path",GET,"path3",
+            {{"param1", path_description::url_component_type::PARAM}
+            ,{"param2", path_description::url_component_type::PARAM_UNTIL_END_OF_PATH}},{});
+
+    path1.set(*route, [res1] (const_req req) {
+        (*res1) = true;
+        BOOST_REQUIRE_EQUAL(req.param["param1"], "value1");
+        return "";
+    });
+
+    path2.set(*route, [res2] (const_req req) {
+        (*res2) = true;
+        BOOST_REQUIRE_EQUAL(req.param["param1"], "value2");
+        BOOST_REQUIRE_EQUAL(req.param["param2"], "text1");
+        return "";
+    });
+
+    path3.set(*route, [res3] (const_req req) {
+        (*res3) = true;
+        BOOST_REQUIRE_EQUAL(req.param["param1"], "value3");
+        BOOST_REQUIRE_EQUAL(req.param["param2"], "text2/text3");
+        return "";
+    });
+
+    auto f1 = route->handle("/my/path/value1/text", std::make_unique<request>(), std::make_unique<reply>()).then([res1, route] (auto f) {
+        BOOST_REQUIRE_EQUAL(*res1, true);
+    });
+
+    auto f2 = route->handle("/my/path/value2/text1", std::make_unique<request>(), std::make_unique<reply>()).then([res2, route] (auto f) {
+        BOOST_REQUIRE_EQUAL(*res2, true);
+    });
+
+    auto f3 = route->handle("/my/path/value3/text2/text3", std::make_unique<request>(), std::make_unique<reply>()).then([res3, route] (auto f) {
+        BOOST_REQUIRE_EQUAL(*res3, true);
+    });
+
+    return when_all(std::move(f1), std::move(f2), std::move(f3))
+                .then([] (std::tuple<future<>, future<>, future<>> fs) {
+            std::get<0>(fs).get();
+            std::get<1>(fs).get();
+            std::get<2>(fs).get();
     });
 }
 
