@@ -3205,7 +3205,7 @@ int reactor::run() {
                     sleep();
                     // We may have slept for a while, so freshen idle_end
                     idle_end = sched_clock::now();
-                    add_nonatomically(_stall_detector_missed_ticks, uint64_t((start_sleep - idle_end)/_task_quota));
+                    add_nonatomically(_stall_detector_missed_ticks, uint64_t((idle_end - start_sleep)/_task_quota));
                     _task_quota_timer.timerfd_settime(0, task_quote_itimerspec);
                 }
             } else {
