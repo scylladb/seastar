@@ -144,10 +144,10 @@ def print_h_file_headers(f, name):
 
 
 def clean_param(param):
-    match = re.match(r"(^[^\}]+)\s*}", param)
+    match = re.match(r"^\{\s*([^\}]+)\s*}", param)
     if match:
-        return match.group(1)
-    return param
+        return [match.group(1), False]
+    return [param, True]
 
 
 def get_parameter_by_name(obj, name):
@@ -172,20 +172,24 @@ def is_required_query_param(param):
 def add_path(f, path, details):
     if "summary" in details:
         print_comment(f, details["summary"])
-
-    if "{" in path:
-        vals = path.split("{")
+    param_starts = path.find("{")
+    if param_starts >= 0:
+        path_reminder = path[param_starts:]
+        vals = path.split("/")
         vals.reverse()
         fprintln(f, spacing, 'path_description::add_path("', clear_path_ending(vals.pop()),
            '",', details["method"], ',"', details["nickname"], '")')
         while vals:
-            param = clean_param(vals.pop())
-            param_type = get_parameter_by_name(details, param)
-            if ("allowMultiple" in param_type and
-                param_type["allowMultiple"] == True):
-                fprintln(f, spacing, '  ->pushparam("', param, '",true)')
+            param, is_url = clean_param(vals.pop())
+            if is_url:
+                fprintln(f, spacing, '  ->pushurl("', param, '")')
             else:
-                fprintln(f, spacing, '  ->pushparam("', param, '")')
+                param_type = get_parameter_by_name(details, param)
+                if ("allowMultiple" in param_type and
+                    param_type["allowMultiple"] == True):
+                    fprintln(f, spacing, '  ->pushparam("', param, '",true)')
+                else:
+                    fprintln(f, spacing, '  ->pushparam("', param, '")')
     else:
         fprintln(f, spacing, 'path_description::add_path("', clear_path_ending(path), '",',
            details["method"], ',"', details["nickname"], '")')
@@ -397,25 +401,36 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
             for oper in item["operations"]:
                 if "summary" in oper:
                     print_comment(hfile, oper["summary"])
-                vals = path.split("{")
-                vals.reverse()
 
-                fprintln(hfile, 'static const path_description ', getitem(oper, "nickname", oper), '("', clear_path_ending(vals.pop()),
+                param_starts = path.find("{")
+                base_url = path
+                vals = []
+                if param_starts >= 0:
+                    vals = path[param_starts:].split("/")
+                    vals.reverse()
+                    base_url = path[:param_starts]
+
+                fprintln(hfile, 'static const path_description ', getitem(oper, "nickname", oper), '("', clear_path_ending(base_url),
                        '",', oper["method"], ',"', oper["nickname"], '",')
                 fprint(hfile, '{')
                 first = True
                 while vals:
-                    path_param = clean_param(vals.pop())
-                    path_param_type = get_parameter_by_name(oper, path_param)
+                    path_param, is_url = clean_param(vals.pop())
+                    if path_param == "":
+                        continue
                     if first == True:
                         first = False
                     else:
                         fprint(hfile, "\n,")
-                    if ("allowMultiple" in path_param_type and
-                        path_param_type["allowMultiple"] == True):
-                        fprint(hfile, '{', '"', path_param , '", true', '}')
+                    if is_url:
+                        fprint(hfile, '{', '"/', path_param , '", path_description::url_component_type::FIXED_STRING', '}')
                     else:
-                        fprint(hfile, '{', '"', path_param , '", false', '}')
+                        path_param_type = get_parameter_by_name(oper, path_param)
+                        if ("allowMultiple" in path_param_type and
+                            path_param_type["allowMultiple"] == True):
+                            fprint(hfile, '{', '"', path_param , '", path_description::url_component_type::PARAM_UNTIL_END_OF_PATH', '}')
+                        else:
+                            fprint(hfile, '{', '"', path_param , '", path_description::url_component_type::PARAM', '}')
                 fprint(hfile, '}')
                 fprint(hfile, ',{')
                 first = True
