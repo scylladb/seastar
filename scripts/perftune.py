@@ -347,6 +347,7 @@ class NetPerfTuner(PerfTunerBase):
         # check that self.nic is either a HW device or a bonding interface
         self.__check_nic()
 
+        self.__irqs2procline = get_irqs2procline_map()
         self.__nic2irqs = self.__learn_irqs()
 
 #### Public methods ############################
@@ -476,6 +477,32 @@ class NetPerfTuner(PerfTunerBase):
 
         return []
 
+    def __intel_irq_to_queue_idx(self, irq):
+        """
+        Return the HW queue index for a given IRQ for Intel NICs in order to sort the IRQs' list by this index.
+
+        Intel's fast path IRQs have the following name convention:
+             <bla-bla>-TxRx-<queue index>
+
+        Intel NICs also have the IRQ for Flow Director (which is not a regular fast path IRQ) which name looks like
+        this:
+             <bla-bla>:fdir-TxRx-<index>
+
+        We want to put the Flow Director's IRQ at the end of the sorted list of IRQs.
+
+        :param irq: IRQ number
+        :return: HW queue index for Intel NICs and 0 for all other NICs
+        """
+        intel_fp_irq_re = re.compile("\-TxRx\-(\d+)")
+        fdir_re = re.compile("fdir\-TxRx\-\d+")
+
+        m = intel_fp_irq_re.search(self.__irqs2procline[irq])
+        m1 = fdir_re.search(self.__irqs2procline[irq])
+        if m and not m1:
+            return int(m.group(1))
+        else:
+            return sys.maxsize
+
     def __learn_irqs_one(self, iface):
         """
         This is a slow method that is going to read from the system files. Never
@@ -495,13 +522,16 @@ class NetPerfTuner(PerfTunerBase):
         this means that the given NIC uses a different IRQs naming pattern. In this case we won't filter any IRQ.
 
         Otherwise, we will use only IRQs which names fit one of the patterns above.
+
+        For NICs with a limited number of Rx queues the IRQs that handle Rx are going to be at the beginning of the
+        list.
         """
-        irqs2procline = get_irqs2procline_map()
         # filter 'all_irqs' to only reference valid keys from 'irqs2procline' and avoid an IndexError on the 'irqs' search below
-        all_irqs = set(learn_all_irqs_one("/sys/class/net/{}/device".format(iface), irqs2procline, iface)).intersection(irqs2procline.keys())
+        all_irqs = set(learn_all_irqs_one("/sys/class/net/{}/device".format(iface), self.__irqs2procline, iface)).intersection(self.__irqs2procline.keys())
         fp_irqs_re = re.compile("\-TxRx\-|\-fp\-|\-Tx\-Rx\-")
-        irqs = list(filter(lambda irq : fp_irqs_re.search(irqs2procline[irq]), all_irqs))
+        irqs = list(filter(lambda irq : fp_irqs_re.search(self.__irqs2procline[irq]), all_irqs))
         if irqs:
+            irqs.sort(key=self.__intel_irq_to_queue_idx)
             return irqs
         else:
             return list(all_irqs)
@@ -527,8 +557,22 @@ class NetPerfTuner(PerfTunerBase):
         return glob.glob("/sys/class/net/{}/queues/*/rps_cpus".format(iface))
 
     def __setup_one_hw_iface(self, iface):
+        max_num_rx_queues = self.__max_rx_queue_count(iface)
+        all_irqs = self.__get_irqs_one(iface)
+
         # Bind the NIC's IRQs according to the configuration mode
-        distribute_irqs(self.__get_irqs_one(iface), self.irqs_cpu_mask)
+        #
+        # If this NIC has a limited number of Rx queues then we want to distribute their IRQs separately.
+        # For such NICs we've sorted IRQs list so that IRQs that handle Rx are all at the head of the list.
+        if max_num_rx_queues < len(all_irqs):
+            num_rx_queues = self.__get_rx_queue_count(iface)
+            print("Distributing IRQs handling Rx:")
+            distribute_irqs(all_irqs[0:num_rx_queues], self.irqs_cpu_mask)
+            print("Distributing the rest of IRQs")
+            distribute_irqs(all_irqs[num_rx_queues:], self.irqs_cpu_mask)
+        else:
+            print("Distributing all IRQs")
+            distribute_irqs(all_irqs, self.irqs_cpu_mask)
 
         self.__setup_rps(iface, self.compute_cpu_mask)
         self.__setup_xps(iface)
@@ -541,15 +585,52 @@ class NetPerfTuner(PerfTunerBase):
             else:
                 print("Skipping {} (not a physical slave device?)".format(slave))
 
-    def __get_hw_iface_def_mode(self, iface):
+    def __max_rx_queue_count(self, iface):
         """
-        Returns the default configuration mode for the given interface.
+        :param iface: Interface to check
+        :return: The maximum number of RSS queues for the given interface if there is known limitation and sys.maxsize
+        otherwise.
+
+        Networking drivers serving HW with the known maximum RSS queue limitation (due to lack of RSS bits):
+
+        ixgbe:   PF NICs support up to 16 RSS queues.
+        ixgbevf: VF NICs support up to 4 RSS queues.
+        i40e:    PF NICs support up to 64 RSS queues.
+        i40evf:  VF NICs support up to 16 RSS queues.
+
+        """
+        driver_to_max_rss = {'ixgbe': 16, 'ixgbevf': 4, 'i40e': 64, 'i40evf': 16}
+
+        driver_name = ''
+        ethtool_i_lines = run_one_command(['ethtool', '-i', iface]).splitlines()
+        driver_re = re.compile("driver:")
+        driver_lines = list(filter(lambda one_line: driver_re.search(one_line), ethtool_i_lines))
+
+        if driver_lines:
+            if len(driver_lines) > 1:
+                raise Exception("More than one 'driver:' entries in the 'ethtool -i {}' output. Unable to continue.".format(iface))
+
+            driver_name = driver_lines[0].split()[1].strip()
+
+        return driver_to_max_rss.get(driver_name, sys.maxsize)
+
+    def __get_rx_queue_count(self, iface):
+        """
+        :return: the RSS Rx queues count for the given interface.
         """
         num_irqs = len(self.__get_irqs_one(iface))
         rx_queues_count = len(self.__get_rps_cpus(iface))
 
         if rx_queues_count == 0:
             rx_queues_count = num_irqs
+
+        return min(self.__max_rx_queue_count(iface), rx_queues_count)
+
+    def __get_hw_iface_def_mode(self, iface):
+        """
+        Returns the default configuration mode for the given interface.
+        """
+        rx_queues_count = self.__get_rx_queue_count(iface)
 
         num_cores = int(run_hwloc_calc(['--number-of', 'core', 'machine:0', '--restrict', self.args.cpu_mask]))
         num_PUs = int(run_hwloc_calc(['--number-of', 'PU', 'machine:0', '--restrict', self.args.cpu_mask]))
