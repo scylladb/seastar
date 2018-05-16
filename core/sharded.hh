@@ -582,12 +582,16 @@ private:
     PtrType _value;
     unsigned _cpu;
 private:
-    void destroy(PtrType p, unsigned cpu) {
+    future<> destroy(PtrType p, unsigned cpu) {
         if (p && engine().cpu_id() != cpu) {
-            smp::submit_to(cpu, [v = std::move(p)] () mutable {
+            return smp::submit_to(cpu, [v = std::move(p)] () mutable {
                 auto local(std::move(v));
             });
         }
+        return make_ready_future<>();
+    }
+    void destroy_nowait(PtrType p, unsigned cpu) {
+        (void)destroy(std::move(p), cpu);
     }
 public:
     using element_type = typename std::pointer_traits<PtrType>::element_type;
@@ -621,6 +625,12 @@ public:
             return make_foreign(std::move(v));
         });
     }
+    /// Destroy the managed pointer on its owner shard.
+    ///
+    /// \returns a future that resolves when the pointer is destroyed.
+    future<> destroy() {
+        return destroy(std::exchange(_value, {}), _cpu);
+    }
     /// Accesses the wrapped object.
     element_type& operator*() const { return *_value; }
     /// Accesses the wrapped object.
@@ -646,7 +656,8 @@ public:
     }
     /// Replace the managed pointer with new_ptr.
     ///
-    /// The previous managed pointer is destroyed on its owner shard.
+    /// The previous managed pointer is eventually destroyed on its
+    /// owner shard.
     void reset(PtrType new_ptr) {
         auto old_ptr = std::move(_value);
         auto old_cpu = _cpu;
@@ -654,11 +665,12 @@ public:
         _value = std::move(new_ptr);
         _cpu = engine().cpu_id();
 
-        destroy(std::move(old_ptr), old_cpu);
+        destroy_nowait(std::move(old_ptr), old_cpu);
     }
     /// Replace the managed pointer with a null value.
     ///
-    /// The previous managed pointer is destroyed on its owner shard.
+    /// The previous managed pointer is eventually destroyed on its
+    /// owner shard.
     void reset(std::nullptr_t = nullptr) {
         reset(PtrType());
     }
