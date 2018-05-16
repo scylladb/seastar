@@ -575,6 +575,10 @@ int main(int ac, char** av) {
                 iotune_logger.error("Exception when qualifying filesystem at {}", eval_dir);
                 return 1;
             }
+            iotune_logger.info("{} passed sanity checks", eval_dir);
+            if (fs_check) {
+                return 0;
+            }
 
             // Directory is the same object for all tests.
             ::evaluation_directory test_directory(eval_dir);
