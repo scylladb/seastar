@@ -88,9 +88,17 @@ void check_device_properties(fs::path dev_sys_file) {
     auto sched_file = dev_sys_file / "queue" / "scheduler";
     auto sched_string = read_sys_file(sched_file);
     auto beg = sched_string.find('[');
-    auto end = sched_string.find(']');
-    size_t len = end - beg - 1;
-    auto scheduler = sched_string.substr(beg+1, len);
+    size_t len = sched_string.size();
+    if (beg == sstring::npos) {
+        beg = 0;
+    } else {
+        auto end = sched_string.find(']');
+        if (end != sstring::npos) {
+            len = end - beg - 1;
+        }
+        beg++;
+    }
+    auto scheduler = sched_string.substr(beg, len);
     if ((scheduler != "noop") && (scheduler != "none")) {
         iotune_logger.warn("Scheduler for {} set to {}. It is recommend to set it to noop before evaluation so as not to skew the results.",
                 sched_file.string(), scheduler);
