@@ -499,8 +499,21 @@ private:
             if (_snd.window_probe) {
                 return 1;
             }
-            // Can not send more than advertised window allows
-            auto x = std::min(uint32_t(_snd.unacknowledged + _snd.window - _snd.next), _snd.unsent_len);
+
+            // Can not send if send window is zero
+            if (_snd.window == 0) {
+                return 0;
+            }
+
+            // Can not send if send window is less than unacknowledged data size
+            auto window_used = uint32_t(_snd.next - _snd.unacknowledged);
+            if (window_used > _snd.window) {
+                return 0;
+            }
+
+            // Can not send more than advertised window allows or unsent data size
+            auto x = std::min(_snd.window - window_used, _snd.unsent_len);
+
             // Can not send more than congestion window allows
             x = std::min(_snd.cwnd, x);
             if (_snd.dupacks == 1 || _snd.dupacks == 2) {
