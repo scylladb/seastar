@@ -378,8 +378,13 @@ private:
             tcp_seq urgent;
             tcp_seq initial;
             std::deque<packet> data;
+            // The total size of data stored in std::deque<packet> data
+            size_t data_size = 0;
             tcp_packet_merger out_of_order;
             std::experimental::optional<promise<>> _data_received_promise;
+            // The maximun memory buffer size allowed for receiving
+            // Currently, it is the same as default receive window size when window scaling is enabled
+            size_t max_receive_buf_size = 3737600;
         } _rcv;
         tcp_option _option;
         timer<lowres_clock> _delayed_ack;
@@ -410,6 +415,16 @@ private:
         tcp_seq get_isn();
         circular_buffer<typename InetTraits::l4packet> _packetq;
         bool _poll_active = false;
+        uint32_t get_default_receive_window_size() {
+            // Linux's default window size
+            constexpr uint32_t size = 29200;
+            return size << _rcv.window_scale;
+        }
+        // Returns the current receive window according to available receiving buffer size
+        uint32_t get_modified_receive_window_size() {
+            uint32_t left =  _rcv.data_size > _rcv.max_receive_buf_size ? 0 : _rcv.max_receive_buf_size - _rcv.data_size;
+            return std::min(left, get_default_receive_window_size());
+        }
     public:
         tcb(tcp& t, connid id);
         void input_handle_listen_state(tcp_hdr* th, packet p);
@@ -1054,8 +1069,7 @@ void tcp<InetTraits>::tcb::init_from_options(tcp_hdr* th, uint8_t* opt_start, ui
     // Maximum segment size local can receive
     _rcv.mss = _option._local_mss = local_mss();
 
-    // Linux's default window size
-    _rcv.window = 29200 << _rcv.window_scale;
+    _rcv.window = get_default_receive_window_size();
     _snd.window = th->window << _snd.window_scale;
 
     // Segment sequence number used for last window update
@@ -1464,9 +1478,11 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
             // RCV.NXT over the data accepted, and adjusts RCV.WND as
             // apporopriate to the current buffer availability.  The total of
             // RCV.NXT and RCV.WND should not be reduced.
+            _rcv.data_size += p.len();
             _rcv.data.push_back(std::move(p));
             _rcv.next += seg_len;
             auto merged = merge_out_of_order();
+            _rcv.window = get_modified_receive_window_size();
             signal_data_received();
             // Send an acknowledgment of the form:
             // <SEQ=SND.NXT><ACK=RCV.NXT><CTL=ACK>
@@ -1732,8 +1748,7 @@ void tcp<InetTraits>::tcb::connect() {
     _rcv.window_scale = _option._local_win_scale = 7;
     // Maximum segment size local can receive
     _rcv.mss = _option._local_mss = local_mss();
-    // Linux's default window size
-    _rcv.window = 29200 << _rcv.window_scale;
+    _rcv.window = get_default_receive_window_size();
 
     do_syn_sent();
 }
@@ -1744,7 +1759,9 @@ packet tcp<InetTraits>::tcb::read() {
     for (auto&& q : _rcv.data) {
         p.append(std::move(q));
     }
+    _rcv.data_size = 0;
     _rcv.data.clear();
+    _rcv.window = get_default_receive_window_size();
     return p;
 }
 
@@ -1857,6 +1874,7 @@ bool tcp<InetTraits>::tcb::merge_out_of_order() {
             }
             _rcv.next += seg_len;
             _rcv.data.push_back(std::move(p));
+            _rcv.data_size += p.len();
             // Since c++11, erase() always returns the value of the following element
             it = _rcv.out_of_order.map.erase(it);
             merged = true;
@@ -2015,6 +2033,7 @@ void tcp<InetTraits>::tcb::cleanup() {
     _snd.unsent.clear();
     _snd.data.clear();
     _rcv.out_of_order.map.clear();
+    _rcv.data_size = 0;
     _rcv.data.clear();
     stop_retransmit_timer();
     clear_delayed_ack();
