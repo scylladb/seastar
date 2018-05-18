@@ -49,6 +49,8 @@ endmacro ()
 #
 # Configuration options.
 #
+option (SEASTAR_ENABLE_TESTS
+  "If OFF, used to disable testing altogether." ON)
 
 option (SEASTAR_EXCLUDE_TESTS_BY_DEFAULT
   "If ON, then tests are not built by default when the build tool is invoked"
@@ -818,8 +820,9 @@ else ()
   set (exclude_tests "")
 endif ()
 
-add_subdirectory (tests ${exclude_tests})
-
+if(${SEASTAR_ENABLE_TESTS})
+  add_subdirectory (tests ${exclude_tests})
+endif()
 #
 # Documentation.
 #
