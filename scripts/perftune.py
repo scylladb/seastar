@@ -51,6 +51,8 @@ def fwriteln_and_log(fname, line):
 double_commas_pattern = re.compile(',,')
 
 def set_one_mask(conf_file, mask):
+    if not os.path.exists(conf_file):
+        raise Exception("Configure file to set mask doesn't exist: {}".format(conf_file))
     mask = re.sub('0x', '', mask)
 
     while double_commas_pattern.search(mask):
