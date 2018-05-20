@@ -72,17 +72,24 @@ struct variant_visitor<FuncObj> : FuncObj
 
 #endif
 
-template <typename... Args>
-auto make_visitor(Args&&... args)
-{
-    return variant_visitor<Args...>(std::forward<Args>(args)...);
-}
-
 }
 /// \endcond
 
 /// \addtogroup utilities
 /// @{
+
+/// Creates a visitor from function objects.
+///
+/// Returns a visitor object comprised of the provided function objects. Can be
+/// used with std::variant, boost::variant or any other custom variant
+/// implementation.
+///
+/// \param args function objects each accepting one or some types stored in the variant as input
+template <typename... Args>
+auto make_visitor(Args&&... args)
+{
+    return internal::variant_visitor<Args...>(std::forward<Args>(args)...);
+}
 
 /// Applies a static visitor comprised of supplied lambdas to a variant.
 /// Note that the lambdas should cover all the types that the variant can possibly hold.
@@ -99,7 +106,7 @@ inline auto visit(Variant&& variant, Args&&... args)
 {
     static_assert(sizeof...(Args) > 0, "At least one lambda must be provided for visitation");
     return boost::apply_visitor(
-        internal::make_visitor(std::forward<Args>(args)...),
+        make_visitor(std::forward<Args>(args)...),
         std::forward<Variant>(variant));
 };
 
