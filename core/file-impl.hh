@@ -22,6 +22,8 @@
 #pragma once
 
 #include "file.hh"
+#include "shared_ptr.hh"
+
 #include <deque>
 #include <atomic>
 
@@ -96,7 +98,7 @@ private:
 //
 // Other Linux filesystems may have different locking rules, so this may need to be
 // adjusted for them.
-class append_challenged_posix_file_impl : public posix_file_impl {
+class append_challenged_posix_file_impl : public posix_file_impl, public enable_shared_from_this<append_challenged_posix_file_impl> {
     // File size as a result of completed kernel operations (writes and truncates)
     uint64_t _committed_size;
     // File size as a result of seastar API calls

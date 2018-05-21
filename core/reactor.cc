@@ -1498,9 +1498,9 @@ append_challenged_posix_file_impl::dispatch(op& candidate) noexcept {
     unsigned* op_counter = size_changing(candidate)
             ? &_current_size_changing_ops : &_current_non_size_changing_ops;
     ++*op_counter;
-    candidate.run().then([this, op_counter] {
+    candidate.run().then([me = shared_from_this(), op_counter] {
         --*op_counter;
-        process_queue();
+        me->process_queue();
     });
 }
 
