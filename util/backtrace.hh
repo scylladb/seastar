@@ -21,8 +21,7 @@
 
 #pragma once
 
-#define UNW_LOCAL_ONLY
-#include <libunwind.h>
+#include <execinfo.h>
 #include <iosfwd>
 #include <boost/container/static_vector.hpp>
 
@@ -52,24 +51,11 @@ frame decorate(uintptr_t addr);
 // Invokes func for each frame passing it as argument.
 template<typename Func>
 void backtrace(Func&& func) noexcept(noexcept(func(frame()))) {
-    unw_context_t context;
-    if (unw_getcontext(&context) < 0) {
-        return;
-    }
-
-    unw_cursor_t cursor;
-    if (unw_init_local(&cursor, &context) < 0) {
-        return;
-    }
-
-    while (unw_step(&cursor) > 0) {
-        unw_word_t ip;
-        if (unw_get_reg(&cursor, UNW_REG_IP, &ip) < 0) {
-            break;
-        }
-        if (!ip) {
-            break;
-        }
+    constexpr size_t max_backtrace = 100;
+    void* buffer[max_backtrace];
+    int n = ::backtrace(buffer, max_backtrace);
+    for (int i = 0; i < n; ++i) {
+        auto ip = reinterpret_cast<uintptr_t>(buffer[i]);
         func(decorate(ip - 1));
     }
 }

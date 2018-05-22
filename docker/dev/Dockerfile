@@ -25,7 +25,6 @@ RUN dnf install -y \
     yaml-cpp-devel \
     libasan \
     libubsan \
-    libunwind-devel \
     libaio-devel \
     libpciaccess-devel \
     libxml2-devel

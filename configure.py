@@ -507,12 +507,11 @@ def maybe_static(flag, libs):
     return libs
 
 defines = []
-# Include -lgcc_s before -lunwind to work around for https://savannah.nongnu.org/bugs/?48486. See https://github.com/scylladb/scylla/issues/1725.
 libs = ' '.join([maybe_static(args.staticboost,
                               '-lboost_program_options -lboost_system -lboost_filesystem'),
                  '-lstdc++ -lm', '-lstdc++fs',
                  maybe_static(args.staticboost, '-lboost_thread'),
-                 '-lcryptopp -lrt -lgnutls -lgnutlsxx -llz4 -lprotobuf -ldl -lgcc_s -lunwind ',
+                 '-lcryptopp -lrt -lgnutls -lgnutlsxx -llz4 -lprotobuf -ldl -lgcc_s ',
                  maybe_static(args.staticyamlcpp, '-lyaml-cpp'),
                  ])
 

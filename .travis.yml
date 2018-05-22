@@ -23,7 +23,6 @@ dependencies:
         "libprotobuf-dev",
         "protobuf-compiler",
         "python3",
-        "libunwind8-dev",
         "systemtap-sdt-dev",
         "libtool",
         "cmake",

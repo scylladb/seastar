@@ -712,10 +712,6 @@ if (${SEASTAR_NABLE_HWLOC})
       ${LIBXML2_INCLUDE_DIRS})
 endif ()
 
-# Include -lgcc_s before -lunwind to work around for
-# https://savannah.nongnu.org/bugs/?48486. See
-# https://github.com/scylladb/scylla/issues/1725.
-
 target_link_libraries (seastar PUBLIC
   -Wl,--no-as-needed
   -fvisibility=hidden)
@@ -726,7 +722,6 @@ target_link_libraries (seastar PUBLIC
   debug -fsanitize=undefined
   -ldl
   -lgcc_s
-  -lunwind
   ${CMAKE_THREAD_LIBS_INIT}
   ${GNUTLS_LIBRARIES}
   ${PROTOBUF_LIBRARIES}
