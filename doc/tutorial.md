@@ -1501,7 +1501,62 @@ seastar::future<>::~future() at /home/nyh/seastar/core/future.hh:828
 ```
 
 Here we see that the warning message was printed by the `seastar::report_failed_future()` function which was called when destroying a future (`future<>::~future`) that had not been handled. The future's destructor was called in line 11 of our test code (`26.cc`), which is indeed the line where we called `g()` and ignored its result.  
-This backtrace gives us an accurate understanding of where our code destroyed an exceptional future without handling it first, which is usually helpful in solving these kinds of bugs. Note that this technique does not tell us where the exception was first created, nor what code passed around the exceptional future before it was destroyed - we just learn where the future was destroyed.
+This backtrace gives us an accurate understanding of where our code destroyed an exceptional future without handling it first, which is usually helpful in solving these kinds of bugs. Note that this technique does not tell us where the exception was first created, nor what code passed around the exceptional future before it was destroyed - we just learn where the future was destroyed. To learn where the exception was originally thrown, see the next section:
+
+## Finding where an exception was thrown
+Sometimes an application logs an exception, and we want to know where in the code the exception was originally thrown. Unlike languages like Java, C++ does not have a builtin method of attaching a backtrace to every exception. So Seastar provides functions which allow adding to an exception the backtrace recorded when throwing it.
+
+For example, in the following code we throw and catch an `std::runtime_error` normally:
+
+```cpp
+#include <core/future.hh>
+#include <util/log.hh>
+#include <exception>
+#include <iostream>
+
+seastar::future<> g() {
+    return seastar::make_exception_future<>(std::runtime_error("hello"));
+}
+
+seastar::future<> f() {
+    return g().handle_exception([](std::exception_ptr e) {
+        std::cerr << "Exception: " << e << "\n";
+    });
+}
+```
+The output is
+```
+Exception: std::runtime_error (hello)
+```
+From this output, we have no way of knowing that the exception was thrown in `g()`. We can solve this if we use `make_exception_future_with_backtrace` instead of `make_exception_future`:
+
+```
+#include <util/backtrace.hh>
+seastar::future<> g() {
+    return seastar::make_exception_future_with_backtrace<>(std::runtime_error("hello"));
+}
+```
+Now the output looks like
+```
+Exception: seastar::internal::backtraced<std::runtime_error> (hello Backtrace:   0x678bd3
+  0x677204
+  0x67736b
+  0x678cd5
+  0x4f923c
+  0x4f9c38
+  0x4ff4d0
+...
+)
+```
+Which, as above, can be converted to a human-readable backtrace by using the `seastar-addr2line` script.
+
+In addition to `seastar::make_exception_future_with_backtrace()`, Seastar also provides a function `throw_with_backtrace()`, to throw an exception instead of returning an exceptional future. For example:
+```
+    seastar::throw_with_backtrace<std::runtime_error>("hello");
+```
+
+In the current implementation, both `make_exception_future_with_backtrace` and `throw_with_backtrace` require that the original exception type (in the above example, `std::runtime_error`) is a subclass of the `std::exception` class. The original exception provides a `what()` string, and the wrapped exception adds the backtrace to this string, as demonstrated above. Moreover, the wrapped exception type is a _subclass_ of the original exception type, which allows `catch(...)` code to continue filtering by the exception original type - despite the addition of the backtrace.
+
 
 ## Debugging with gdb
 handle SIGUSR1 pass noprint
