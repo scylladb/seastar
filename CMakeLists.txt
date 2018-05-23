@@ -747,7 +747,6 @@ target_link_libraries (seastar PUBLIC
   debug -fsanitize=undefined
   stdc++fs
   -ldl
-  -lgcc_s
   ${CMAKE_THREAD_LIBS_INIT}
   ${GNUTLS_LIBRARIES}
   ${PROTOBUF_LIBRARIES}
