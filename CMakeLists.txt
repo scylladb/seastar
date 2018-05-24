@@ -722,6 +722,7 @@ target_link_libraries (seastar PUBLIC
   debug -fsanitize=address
   debug -fsanitize=leak
   debug -fsanitize=undefined
+  std++fs
   -ldl
   -lgcc_s
   ${CMAKE_THREAD_LIBS_INIT}
