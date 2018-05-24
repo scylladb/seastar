@@ -107,7 +107,7 @@ inline auto visit(Variant&& variant, Args&&... args)
     static_assert(sizeof...(Args) > 0, "At least one lambda must be provided for visitation");
     return boost::apply_visitor(
         make_visitor(std::forward<Args>(args)...),
-        std::forward<Variant>(variant));
+        variant);
 };
 
 
