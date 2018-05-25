@@ -392,6 +392,10 @@ public:
         const size_t size() const {
             return _size;
         }
+        
+        const char* first_fragment_data() const { return _current.begin(); }
+        size_t first_fragment_size() const { return _current.size(); }
+        Iterator fragment_iterator() const { return _it; }
     };
 private:
     const bool _is_simple;
