@@ -30,7 +30,9 @@
 #include "util/reference_wrapper.hh"
 #include "util/gcc6-concepts.hh"
 #include "util/noncopyable_function.hh"
+#include "../util/tuple_utils.hh"
 #include "../util/defer.hh"
+#include "print.hh"
 
 namespace seastar {
 
