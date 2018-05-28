@@ -55,6 +55,7 @@
 #include <rte_ethdev.h>
 #include <rte_cycles.h>
 #include <rte_memzone.h>
+#include <rte_eth_bond.h>
 
 #if RTE_VERSION <= RTE_VERSION_NUM(2,0,0,16)
 
@@ -243,6 +244,9 @@ public:
         BOOST_PP_SEQ_ENUM(XSTATS_ID_LIST)
     };
 
+    void set_port_id(uint8_t port_id) {
+        _port_id = port_id;
+    }
 
     void start() {
         _len = rte_eth_xstats_get_names(_port_id, NULL, 0);
@@ -318,9 +322,12 @@ class dpdk_device : public device {
     seastar::metrics::metric_groups _metrics;
     bool _is_i40e_device = false;
     bool _is_vmxnet3_device = false;
-    dpdk_xstats _xstats;
 
 public:
+    int _bond;
+    dpdk_xstats _xstats;
+    uint8_t _slave_port_count;
+    uint8_t _slave_port[RTE_MAX_ETHPORTS];
     rte_eth_dev_info _dev_info = {};
     promise<> _link_ready_promise;
 
@@ -366,7 +373,7 @@ private:
 
 public:
     dpdk_device(uint8_t port_idx, uint16_t num_queues, bool use_lro,
-                bool enable_fc)
+                bool enable_fc, int bond)
         : _port_idx(port_idx)
         , _num_queues(num_queues)
         , _home_cpu(engine().cpu_id())
@@ -376,13 +383,21 @@ public:
         , _stats_plugin_inst(std::string("port") + std::to_string(_port_idx))
         , _xstats(port_idx)
     {
-
+        _bond = bond;
+        _slave_port_count = 0;
         /* now initialise the port we will use */
         int ret = init_port_start();
         if (ret != 0) {
             rte_exit(EXIT_FAILURE, "Cannot initialise port %u\n", _port_idx);
         }
 
+        /*
+         * reset _port_idx for stats, because port id change in bond mode
+         */
+        if (_bond >= BONDING_MODE_ROUND_ROBIN && _bond <= BONDING_MODE_ALB) {
+            _xstats.set_port_id(_port_idx);
+        }
+        
         /* need to defer initialize xstats since NIC specific xstat entries
            show up only after port initization */
         _xstats.start();
@@ -1675,14 +1690,50 @@ int dpdk_device::init_port_start()
     printf("Port %u init ... ", _port_idx);
     fflush(stdout);
 
-    /*
-     * Standard DPDK port initialisation - config port, then set up
-     * rx and tx rings.
-      */
-    if ((retval = rte_eth_dev_configure(_port_idx, _num_queues, _num_queues,
-                                        &port_conf)) != 0) {
-        return retval;
+    if (_bond >= BONDING_MODE_ROUND_ROBIN && _bond <= BONDING_MODE_ALB)  
+    {  
+        /*   
+         * bond mode require slave port_conf are equal   
+         * all ports set the same _num_queues and port_conf    
+         */  
+        uint8_t slave_ports = rte_eth_dev_count();   
+        printf("Begin init bond port, have %d backup slave ports.\n", slave_ports);   
+        for (uint8_t i = 0; i < slave_ports; i++) {   
+            // assume all ports are equal   
+            retval = rte_eth_dev_configure(i, _num_queues, _num_queues,   
+                                            &port_conf);   
+            if (!retval) {   
+                _slave_port_count++;  
+                _slave_port[i] = i;   
+            } else {
+                printf("slave %d port init failed.", i);    
+                return retval;   
+            }   
+        }   
+        printf("End init bond port, have %d slave ports.\n", _slave_port_count);  
+        if (_slave_port_count < 2) {  
+            printf("slave ports less than 2, failed init."); 
+            return -1;    
+        }
+        retval = rte_eth_bond_create("bond0", _bond, 0 /*SOCKET_ID_ANY*/);   
+        if (retval < 0)    
+            rte_exit(EXIT_FAILURE, "Faled to create bond port\n"); 
+        // reset bond port idx   
+        _port_idx = (uint8_t)retval;   
+        retval = rte_eth_dev_configure(_port_idx, _num_queues, _num_queues, &port_conf);   
+        if (retval != 0)  
+            rte_exit(EXIT_FAILURE, "port %u: configuration failed (res=%d)\n", _port_idx, retval);  
+    } else {
+        /*
+         * Standard DPDK port initialisation - config port, then set up 
+         * rx and tx rings.  
+          */    
+        if ((retval = rte_eth_dev_configure(_port_idx, _num_queues, _num_queues,
+                                            &port_conf)) != 0) {   
+            return retval;  
+        }
     }
+
 
     //rte_eth_promiscuous_enable(port_num);
     printf("done: \n");
@@ -1731,6 +1782,19 @@ void dpdk_device::init_port_fini()
 {
     // Changing FC requires HW reset, so set it before the port is initialized.
     set_hw_flow_control();
+
+    if (_bond >= BONDING_MODE_ROUND_ROBIN && _bond <= BONDING_MODE_ALB)  
+    { 
+        for (uint8_t i = 0; i < _slave_port_count; ++i)
+        { 
+            if (rte_eth_dev_start(_slave_port[i]) < 0) {
+                rte_exit(EXIT_FAILURE, "Cannot start slave port %d\n", i);
+            }  
+            if (rte_eth_bond_slave_add(_port_idx, _slave_port[i]) == -1)
+                rte_exit(-1, "Oooops! adding slave (%u) to bond (%u) failed!\n",
+                        _slave_port[i], _port_idx);
+        }
+    } 
 
     if (rte_eth_dev_start(_port_idx) < 0) {
         rte_exit(EXIT_FAILURE, "Cannot start port %d\n", _port_idx);
@@ -1939,15 +2003,42 @@ dpdk_qp<HugetlbfsMemBackend>::dpdk_qp(dpdk_device* dev, uint8_t qid,
     static_assert((inline_mbuf_data_size & (inline_mbuf_data_size - 1)) == 0,
                   "inline_mbuf_data_size has to be a power of two!");
 
-    if (rte_eth_rx_queue_setup(_dev->port_idx(), _qid, default_ring_size,
-            rte_eth_dev_socket_id(_dev->port_idx()),
-            _dev->def_rx_conf(), _pktmbuf_pool_rx) < 0) {
-        rte_exit(EXIT_FAILURE, "Cannot initialize rx queue\n");
-    }
-
-    if (rte_eth_tx_queue_setup(_dev->port_idx(), _qid, default_ring_size,
-            rte_eth_dev_socket_id(_dev->port_idx()), _dev->def_tx_conf()) < 0) {
-        rte_exit(EXIT_FAILURE, "Cannot initialize tx queue\n");
+     if (_dev->_bond >= BONDING_MODE_ROUND_ROBIN && _dev->_bond <= BONDING_MODE_ALB)   
+    { 
+        for (uint8_t i = 0; i < _dev->_slave_port_count; ++i)  
+        {   
+            if (rte_eth_rx_queue_setup(_dev->_slave_port[i], _qid, default_ring_size,  
+                rte_eth_dev_socket_id(i), _dev->def_rx_conf(), _pktmbuf_pool_rx) < 0) {  
+                rte_exit(EXIT_FAILURE, "Cannot initialize slave %d rx queue\n", i);    
+            }
+  
+            if (rte_eth_tx_queue_setup(_dev->_slave_port[i], _qid, default_ring_size,  
+                    rte_eth_dev_socket_id(i), _dev->def_tx_conf()) < 0) {   
+                rte_exit(EXIT_FAILURE, "Cannot initialize slave %d tx queue\n", i);   
+            }  
+        }
+   
+        if (rte_eth_rx_queue_setup(_dev->port_idx(), _qid, default_ring_size,   
+                rte_eth_dev_socket_id(_dev->port_idx()), 
+                _dev->def_rx_conf(), _pktmbuf_pool_rx) < 0) {    
+            rte_exit(EXIT_FAILURE, "Cannot initialize bond rx queue\n");  
+        }
+   
+        if (rte_eth_tx_queue_setup(_dev->port_idx(), _qid, default_ring_size,   
+                rte_eth_dev_socket_id(_dev->port_idx()), _dev->def_tx_conf()) < 0) {  
+            rte_exit(EXIT_FAILURE, "Cannot initialize bond tx queue\n");  
+        }   
+    } else {   
+        if (rte_eth_rx_queue_setup(_dev->port_idx(), _qid, default_ring_size,   
+                rte_eth_dev_socket_id(_dev->port_idx()),
+                _dev->def_rx_conf(), _pktmbuf_pool_rx) < 0) {
+            rte_exit(EXIT_FAILURE, "Cannot initialize rx queue\n");   
+        }
+ 
+        if (rte_eth_tx_queue_setup(_dev->port_idx(), _qid, default_ring_size,    
+                rte_eth_dev_socket_id(_dev->port_idx()), _dev->def_tx_conf()) < 0) {
+            rte_exit(EXIT_FAILURE, "Cannot initialize tx queue\n");
+        } 
     }
 
     // Register error statistics: Rx total and checksum errors
@@ -2259,7 +2350,8 @@ std::unique_ptr<net::device> create_dpdk_net_device(
                                     uint8_t port_idx,
                                     uint8_t num_queues,
                                     bool use_lro,
-                                    bool enable_fc)
+                                    bool enable_fc,
+                                    int bond)
 {
     static bool called = false;
 
@@ -2276,7 +2368,7 @@ std::unique_ptr<net::device> create_dpdk_net_device(
     }
 
     return std::make_unique<dpdk::dpdk_device>(port_idx, num_queues, use_lro,
-                                               enable_fc);
+                                               enable_fc, bond);
 }
 
 std::unique_ptr<net::device> create_dpdk_net_device(
@@ -2301,6 +2393,11 @@ get_dpdk_net_options_description()
         ("hw-fc",
                 boost::program_options::value<std::string>()->default_value("on"),
                 "Enable HW Flow Control (on / off)");
+
+    opts.add_options()
+        ("bond",
+                boost::program_options::value<int>()->default_value(-1),
+                "Enable bond mode , 0-6 is effective");
 #if 0
     opts.add_options()
         ("csum-offload",

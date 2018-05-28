@@ -71,7 +71,8 @@ void create_native_net_device(boost::program_options::variables_map opts) {
         if ( opts.count("dpdk-pmd")) {
              dev = create_dpdk_net_device(opts["dpdk-port-index"].as<unsigned>(), smp::count,
                 !(opts.count("lro") && opts["lro"].as<std::string>() == "off"),
-                !(opts.count("hw-fc") && opts["hw-fc"].as<std::string>() == "off"));   
+                !(opts.count("hw-fc") && opts["hw-fc"].as<std::string>() == "off"),
+                opts["bond"].as<int>());   
        } else 
 #endif  
         dev = create_virtio_net_device(opts);
