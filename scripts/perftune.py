@@ -13,19 +13,17 @@ import re
 import shutil
 import subprocess
 import sys
+import yaml
 
-_pid_dir = re.compile(r"\d+")
-def _is_pid_dir(candidate):
-    return _pid_dir.match(candidate) and os.path.isdir(os.path.join("/proc", candidate))
+def run_one_command(prog_args, my_stderr=None, check=True):
+    proc = subprocess.Popen(prog_args, stdout = subprocess.PIPE, stderr = my_stderr)
+    outs, errs = proc.communicate()
+    outs = str(outs, 'utf-8')
 
-def pids():
-    return [ int(x) for x in os.listdir("/proc") if _is_pid_dir(x) ]
+    if check and proc.returncode != 0:
+        raise subprocess.CalledProcessError(returncode=proc.returncode, cmd=" ".join(prog_args), output=outs, stderr=errs)
 
-def pid_name(pidno):
-    return open(os.path.join("/proc", str(pidno), "comm"), "r").read().strip()
-
-def run_one_command(prog_args, my_stderr=None):
-    return str(subprocess.check_output(prog_args, stderr=my_stderr), 'utf-8')
+    return outs
 
 def run_hwloc_distrib(prog_args):
     """
@@ -50,17 +48,27 @@ def fwriteln_and_log(fname, line):
     print("Writing '{}' to {}".format(line, fname))
     fwriteln(fname, line)
 
+double_commas_pattern = re.compile(',,')
+
 def set_one_mask(conf_file, mask):
     mask = re.sub('0x', '', mask)
+
+    while double_commas_pattern.search(mask):
+        mask = double_commas_pattern.sub(',0,', mask)
+
     print("Setting mask {} in {}".format(mask, conf_file))
     fwriteln(conf_file, mask)
 
 def distribute_irqs(irqs, cpu_mask):
+    # If IRQs' list is empty - do nothing
+    if not irqs:
+        return
+
     for i, mask in enumerate(run_hwloc_distrib(["{}".format(len(irqs)), '--single', '--restrict', cpu_mask])):
         set_one_mask("/proc/irq/{}/smp_affinity".format(irqs[i]), mask)
 
 def is_process_running(name):
-    return any([pid_name(pid) == name for pid in pids()])
+    return len(list(filter(lambda ps_line : not re.search('<defunct>', ps_line), run_one_command(['ps', '--no-headers', '-C', name], check=False).splitlines()))) > 0
 
 def restart_irqbalance(banned_irqs):
     """
@@ -73,7 +81,7 @@ def restart_irqbalance(banned_irqs):
     banned_irqs_list = list(banned_irqs)
 
     # If there is nothing to ban - quit
-    if len(banned_irqs_list) == 0:
+    if not banned_irqs_list:
         return
 
     # return early if irqbalance is not running
@@ -86,6 +94,11 @@ def restart_irqbalance(banned_irqs):
             config_file = '/etc/sysconfig/irqbalance'
             options_key = 'IRQBALANCE_ARGS'
             systemd = True
+        elif os.path.exists('/etc/conf.d/irqbalance'):
+            config_file = '/etc/conf.d/irqbalance'
+            options_key = 'IRQBALANCE_OPTS'
+            with open('/proc/1/comm', 'r') as comm:
+                systemd = 'systemd' in comm.read()
         else:
             print("Unknown system configuration - not restarting irqbalance!")
             print("You have to prevent it from moving IRQs {} manually!".format(banned_irqs_list))
@@ -108,7 +121,7 @@ def restart_irqbalance(banned_irqs):
 
     # Search for the original options line
     opt_lines = list(filter(lambda line : re.search("^\s*{}".format(options_key), line), cfile_lines))
-    if len(opt_lines) == 0:
+    if not opt_lines:
         new_options = "{}=\"".format(options_key)
     elif len(opt_lines) == 1:
         # cut the last "
@@ -173,6 +186,8 @@ def learn_all_irqs_one(irq_conf_dir, irq2procline, xen_dev_name):
     if re.search("^xen:", modalias):
         return learn_irqs_from_proc_interrupts(xen_dev_name, irq2procline)
 
+    return []
+
 def get_irqs2procline_map():
     return { line.split(':')[0].lstrip().rstrip() : line for line in open('/proc/interrupts', 'r').readlines() }
 
@@ -223,12 +238,18 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
     @staticmethod
     def irqs_cpu_mask_for_mode(mq_mode, cpu_mask):
         mq_mode = PerfTunerBase.SupportedModes(mq_mode)
+        irqs_cpu_mask = 0
 
         if mq_mode != PerfTunerBase.SupportedModes.mq:
-            return run_hwloc_calc([cpu_mask, "~{}".format(PerfTunerBase.compute_cpu_mask_for_mode(mq_mode, cpu_mask))])
+            irqs_cpu_mask = run_hwloc_calc([cpu_mask, "~{}".format(PerfTunerBase.compute_cpu_mask_for_mode(mq_mode, cpu_mask))])
         else: # mq_mode == PerfTunerBase.SupportedModes.mq
             # distribute equally between all available cores
-            return cpu_mask
+            irqs_cpu_mask = cpu_mask
+
+        if int(irqs_cpu_mask, 16) == 0:
+            raise Exception("Bad configuration mode ({}) and cpu-mask value ({})".format(mq_mode.name, cpu_mask))
+
+        return irqs_cpu_mask
 
     @property
     def mode(self):
@@ -476,13 +497,14 @@ class NetPerfTuner(PerfTunerBase):
         Otherwise, we will use only IRQs which names fit one of the patterns above.
         """
         irqs2procline = get_irqs2procline_map()
-        all_irqs = learn_all_irqs_one("/sys/class/net/{}/device".format(iface), irqs2procline, iface)
+        # filter 'all_irqs' to only reference valid keys from 'irqs2procline' and avoid an IndexError on the 'irqs' search below
+        all_irqs = set(learn_all_irqs_one("/sys/class/net/{}/device".format(iface), irqs2procline, iface)).intersection(irqs2procline.keys())
         fp_irqs_re = re.compile("\-TxRx\-|\-fp\-|\-Tx\-Rx\-")
         irqs = list(filter(lambda irq : fp_irqs_re.search(irqs2procline[irq]), all_irqs))
-        if len(irqs) > 0:
+        if irqs:
             return irqs
         else:
-            return all_irqs
+            return list(all_irqs)
 
     def __learn_irqs(self):
         """
@@ -532,12 +554,12 @@ class NetPerfTuner(PerfTunerBase):
         num_cores = int(run_hwloc_calc(['--number-of', 'core', 'machine:0', '--restrict', self.args.cpu_mask]))
         num_PUs = int(run_hwloc_calc(['--number-of', 'PU', 'machine:0', '--restrict', self.args.cpu_mask]))
 
-        if num_cores > 4 * rx_queues_count:
-            return PerfTunerBase.SupportedModes.sq_split
-        elif num_PUs > 4 * rx_queues_count:
+        if num_PUs <= 4 or rx_queues_count == num_PUs:
+            return PerfTunerBase.SupportedModes.mq
+        elif num_cores <= 4:
             return PerfTunerBase.SupportedModes.sq
         else:
-            return PerfTunerBase.SupportedModes.mq
+            return PerfTunerBase.SupportedModes.sq_split
 
 #################################################
 class DiskPerfTuner(PerfTunerBase):
@@ -547,6 +569,9 @@ class DiskPerfTuner(PerfTunerBase):
 
     def __init__(self, args):
         super().__init__(args)
+
+        if not (self.args.dirs or self.args.devs):
+            raise Exception("'disks' tuning was requested but neither directories nor storage devices were given")
 
         self.__pyudev_ctx = pyudev.Context()
         self.__dir2disks = self.__learn_directories()
@@ -568,7 +593,7 @@ class DiskPerfTuner(PerfTunerBase):
         mode_cpu_mask = PerfTunerBase.irqs_cpu_mask_for_mode(self.mode, self.args.cpu_mask)
 
         non_nvme_disks, non_nvme_irqs = self.__disks_info_by_type(DiskPerfTuner.SupportedDiskTypes.non_nvme)
-        if len(non_nvme_disks) > 0:
+        if non_nvme_disks:
             print("Setting non-NVMe disks: {}...".format(", ".join(non_nvme_disks)))
             distribute_irqs(non_nvme_irqs, mode_cpu_mask)
             self.__tune_disks(non_nvme_disks)
@@ -576,7 +601,7 @@ class DiskPerfTuner(PerfTunerBase):
             print("No non-NVMe disks to tune")
 
         nvme_disks, nvme_irqs = self.__disks_info_by_type(DiskPerfTuner.SupportedDiskTypes.nvme)
-        if len(nvme_disks) > 0:
+        if nvme_disks:
             print("Setting NVMe disks: {}...".format(", ".join(nvme_disks)))
             distribute_irqs(nvme_irqs, self.args.cpu_mask)
             self.__tune_disks(nvme_disks)
@@ -588,6 +613,11 @@ class DiskPerfTuner(PerfTunerBase):
         """
         Return a default configuration mode.
         """
+        # if the only disks we are tuning are NVMe disks - return the MQ mode
+        non_nvme_disks, non_nvme_irqs = self.__disks_info_by_type(DiskPerfTuner.SupportedDiskTypes.non_nvme)
+        if not non_nvme_disks:
+            return PerfTunerBase.SupportedModes.mq
+
         num_cores = int(run_hwloc_calc(['--number-of', 'core', 'machine:0', '--restrict', self.args.cpu_mask]))
         num_PUs = int(run_hwloc_calc(['--number-of', 'PU', 'machine:0', '--restrict', self.args.cpu_mask]))
         if num_PUs <= 4:
@@ -642,6 +672,9 @@ class DiskPerfTuner(PerfTunerBase):
                 for irq in irqs:
                     non_nvme_irqs.add(irq)
 
+        if not (nvme_disks or non_nvme_disks):
+            raise Exception("'disks' tuning was requested but no disks were found")
+
         disks_info_by_type[DiskPerfTuner.SupportedDiskTypes.nvme] = ( list(nvme_disks), list(nvme_irqs) )
         disks_info_by_type[DiskPerfTuner.SupportedDiskTypes.non_nvme] = ( list(non_nvme_disks), list(non_nvme_irqs) )
 
@@ -662,16 +695,18 @@ class DiskPerfTuner(PerfTunerBase):
             return []
 
         try:
-            udev_obj = pyudev.Devices().from_device_number(self.__pyudev_ctx, 'block', os.stat(directory).st_dev)
+            udev_obj = pyudev.Device.from_device_number(self.__pyudev_ctx, 'block', os.stat(directory).st_dev)
             return self.__get_phys_devices(udev_obj)
         except:
             # handle cases like ecryptfs where the directory is mounted to another directory and not to some block device
             filesystem = run_one_command(['df', '-P', directory]).splitlines()[-1].split()[0].strip()
             if not re.search(r'^/dev/', filesystem):
                 devs = self.__learn_directory(filesystem, True)
+            else:
+                raise Exception("Logic error: failed to create a udev device while 'df -P' {} returns a {}".format(directory, filesystem))
 
             # log error only for the original directory
-            if not recur and len(devs) == 0:
+            if not recur and not devs:
                 print("Can't get a block device for {} - skipping".format(directory))
 
             return devs
@@ -679,7 +714,7 @@ class DiskPerfTuner(PerfTunerBase):
     def __get_phys_devices(self, udev_obj):
         # if device is a virtual device - the underlying physical devices are going to be its slaves
         if re.search(r'virtual', udev_obj.sys_path):
-            return list(itertools.chain.from_iterable([ self.__get_phys_devices(pyudev.Devices.from_device_file(self.__pyudev_ctx, "/dev/{}".format(slave))) for slave in os.listdir(os.path.join(udev_obj.sys_path, 'slaves')) ]))
+            return list(itertools.chain.from_iterable([ self.__get_phys_devices(pyudev.Device.from_device_file(self.__pyudev_ctx, "/dev/{}".format(slave))) for slave in os.listdir(os.path.join(udev_obj.sys_path, 'slaves')) ]))
         else:
             # device node is something like /dev/sda1 - we need only the part without /dev/
             return [ re.match(r'/dev/(\S+\d*)', udev_obj.device_node).group(1) ]
@@ -695,7 +730,7 @@ class DiskPerfTuner(PerfTunerBase):
                 if device in disk2irqs.keys():
                     continue
 
-                udev_obj = pyudev.Devices.from_device_file(self.__pyudev_ctx, "/dev/{}".format(device))
+                udev_obj = pyudev.Device.from_device_file(self.__pyudev_ctx, "/dev/{}".format(device))
                 dev_sys_path = udev_obj.sys_path
                 split_sys_path = list(pathlib.PurePath(dev_sys_path).parts)
 
@@ -726,7 +761,7 @@ class DiskPerfTuner(PerfTunerBase):
 
         If there isn't such ancestor - return False.
         """
-        udev = pyudev.Devices.from_device_file(pyudev.Context(), dev_node)
+        udev = pyudev.Device.from_device_file(pyudev.Context(), dev_node)
         feature_file = path_creator(udev.sys_path)
         if os.path.exists(feature_file):
             if not dev_node in tuned_devs_set:
@@ -802,18 +837,92 @@ Default values:
  --cpu-mask MASK - default: all available cores mask
 ''')
 argp.add_argument('--mode', choices=PerfTunerBase.SupportedModes.names(), help='configuration mode')
-argp.add_argument('--nic', help='network interface name', default='eth0')
+argp.add_argument('--nic', help='network interface name, by default uses \'eth0\'')
 argp.add_argument('--get-cpu-mask', action='store_true', help="print the CPU mask to be used for compute")
 argp.add_argument('--tune', choices=TuneModes.names(), help="components to configure (may be given more than once)", action='append')
-argp.add_argument('--cpu-mask', help="mask of cores to use, by default use all available cores", default=run_hwloc_calc(['all']), metavar='MASK')
+argp.add_argument('--cpu-mask', help="mask of cores to use, by default use all available cores", metavar='MASK')
 argp.add_argument('--dir', help="directory to optimize (may appear more than once)", action='append', dest='dirs', default=[])
 argp.add_argument('--dev', help="device to optimize (may appear more than once), e.g. sda1", action='append', dest='devs', default=[])
+argp.add_argument('--options-file', help="configuration YAML file")
+argp.add_argument('--dump-options-file', action='store_true', help="Print the configuration YAML file containing the current configuration")
+
+def parse_options_file(prog_args):
+    if not prog_args.options_file:
+        return
+
+    y = yaml.load(open(prog_args.options_file))
+    if y is None:
+        return
+
+    if 'mode' in y and not prog_args.mode:
+        if not y['mode'] in PerfTunerBase.SupportedModes.names():
+            raise Exception("Bad 'mode' value in {}: {}".format(prog_args.options_file, y['mode']))
+        prog_args.mode = y['mode']
+
+    if 'nic' in y and not prog_args.nic:
+        prog_args.nic = y['nic']
+
+    if 'tune' in y and not prog_args.tune:
+        if set(y['tune']) <= set(TuneModes.names()):
+            prog_args.tune = y['tune']
+        else:
+            raise Exception("Bad 'tune' value in {}: {}".format(prog_args.options_file, y['tune']))
+
+    if 'cpu_mask' in y and not prog_args.cpu_mask:
+        hex_32bit_pattern='0x[0-9a-fA-F]{1,8}'
+        mask_pattern = re.compile('^{}((,({})?)*,{})*$'.format(hex_32bit_pattern, hex_32bit_pattern, hex_32bit_pattern))
+        if mask_pattern.match(str(y['cpu_mask'])):
+            prog_args.cpu_mask = y['cpu_mask']
+        else:
+            raise Exception("Bad 'cpu_mask' value in {}: {}".format(prog_args.options_file, str(y['cpu_mask'])))
+
+    if 'dir' in y and not prog_args.dirs:
+        prog_args.dirs = y['dir']
+
+    if 'dev' in y and not prog_args.devs:
+        prog_args.devs = y['dev']
+
+def dump_config(prog_args):
+    prog_options = {}
+
+    if prog_args.mode:
+        prog_options['mode'] = prog_args.mode
+
+    if prog_args.nic:
+        prog_options['nic'] = prog_args.nic
+
+    if prog_args.tune:
+        prog_options['tune'] = prog_args.tune
+
+    if prog_args.cpu_mask:
+        prog_options['cpu_mask'] = prog_args.cpu_mask
+
+    if prog_args.dirs:
+        prog_options['dir'] = prog_args.dirs
+
+    if prog_args.devs:
+        prog_options['dev'] = prog_args.devs
+
+    print(yaml.dump(prog_options, default_flow_style=False))
 ################################################################################
 
 args = argp.parse_args()
+parse_options_file(args)
 
 # if nothing needs to be configured - quit
 if args.tune is None:
+    sys.exit("ERROR: At least one tune mode MUST be given.")
+
+# set default values #####################
+if not args.nic:
+    args.nic = 'eth0'
+
+if not args.cpu_mask:
+    args.cpu_mask = run_hwloc_calc(['all'])
+##########################################
+
+if args.dump_options_file:
+    dump_config(args)
     sys.exit(0)
 
 try:

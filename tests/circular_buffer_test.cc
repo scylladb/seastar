@@ -28,6 +28,8 @@
 #include <deque>
 #include "core/circular_buffer.hh"
 
+using namespace seastar;
+
 BOOST_AUTO_TEST_CASE(test_erasing) {
     circular_buffer<int> buf;
 

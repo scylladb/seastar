@@ -24,6 +24,7 @@
 #include "../../core/file.hh"
 #include "../../core/app-template.hh"
 
+using namespace seastar;
 using namespace std::chrono_literals;
 
 int main(int ac, char** av) {

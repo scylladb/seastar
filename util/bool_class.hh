@@ -23,6 +23,8 @@
 
 #include <ostream>
 
+namespace seastar {
+
 /// \addtogroup utilities
 /// @{
 
@@ -104,3 +106,5 @@ template<typename Tag>
 const bool_class<Tag> bool_class<Tag>::no { false };
 
 /// @}
+
+}

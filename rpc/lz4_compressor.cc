@@ -22,6 +22,8 @@
 #include "lz4_compressor.hh"
 #include "core/byteorder.hh"
 
+namespace seastar {
+
 namespace rpc {
 
 const sstring lz4_compressor::factory::_name = "LZ4";
@@ -77,13 +79,15 @@ rcv_buf lz4_compressor::decompress(rcv_buf data) {
             if (LZ4_decompress_fast(src.begin(), dst.get_write(), dst.size()) < 0) {
                 throw std::runtime_error("RPC frame LZ4 decompression failure");
             }
-            return std::move(rb);
+            return rb;
         } else {
             // special case: if uncompressed size is zero it means that data was not compressed
             // compress side still not use this but we want to be ready for the future
-            return std::move(data);
+            return data;
         }
     }
+}
+
 }
 
 }

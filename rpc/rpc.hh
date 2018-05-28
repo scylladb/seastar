@@ -34,6 +34,8 @@
 #include "rpc/rpc_types.hh"
 #include "core/byteorder.hh"
 
+namespace seastar {
+
 namespace rpc {
 
 using id_type = int64_t;
@@ -73,12 +75,14 @@ struct resource_limits {
 
 struct client_options {
     std::experimental::optional<net::tcp_keepalive_params> keepalive;
+    bool tcp_nodelay = true;
     compressor::factory* compressor_factory = nullptr;
     bool send_timeout_data = true;
 };
 
 struct server_options {
     compressor::factory* compressor_factory = nullptr;
+    bool tcp_nodelay = true;
 };
 
 inline
@@ -115,7 +119,6 @@ class protocol {
         input_stream<char> _read_buf;
         output_stream<char> _write_buf;
         bool _error = false;
-        bool _write_side_closed = false;
         protocol& _proto;
         bool _connected = false;
         promise<> _stopped;
@@ -213,21 +216,18 @@ class protocol {
                 });
             }).handle_exception([this] (std::exception_ptr eptr) {
                 _error = true;
-            }).finally([this] {
-                _write_side_closed = true;
-                return _write_buf.close();
             });
         }
 
         future<> stop_send_loop() {
             _error = true;
-            // We must not call shutdown_output() concurrently with or after _write_buf.close()
-            if (_connected && !_write_side_closed) {
+            if (_connected) {
                 _outgoing_queue_cond.broken();
                 _fd.shutdown_output();
             }
             return _send_loop_stopped.finally([this] {
                 _outgoing_queue.clear();
+                return _connected ? _write_buf.close() : make_ready_future();
             });
         }
 
@@ -334,6 +334,9 @@ public:
             size_t estimate_request_size(size_t serialized_size) {
                 return rpc::estimate_request_size(_server._limits, serialized_size);
             }
+            size_t max_request_size() const {
+                return _server._limits.max_memory;
+            }
             server& get_server() {
                 return _server;
             }
@@ -345,7 +348,7 @@ public:
         rpc_semaphore _resources_available;
         std::unordered_set<lw_shared_ptr<connection>> _conns;
         promise<> _ss_stopped;
-        seastar::gate _reply_gate;
+        gate _reply_gate;
         server_options _options;
     public:
         server(protocol& proto, ipv4_addr addr, resource_limits memory_limit = resource_limits());
@@ -355,7 +358,6 @@ public:
         void accept();
         future<> stop() {
             _ss.abort_accept();
-            _ss = server_socket();
             _resources_available.broken();
             return when_all(_ss_stopped.get_future(),
                 parallel_for_each(_conns, [] (lw_shared_ptr<connection> conn) {
@@ -370,14 +372,14 @@ public:
                 f(*c);
             }
         }
-        seastar::gate& reply_gate() {
+        gate& reply_gate() {
             return _reply_gate;
         }
         friend connection;
     };
 
     class client : public protocol::connection {
-        ::seastar::socket _socket;
+        socket _socket;
         id_type _message_id = 1;
         struct reply_handler_base {
             timer<rpc_clock_type> t;
@@ -443,8 +445,8 @@ public:
          * @param local the local address of this client
          * @param socket the socket object use to connect to the remote address
          */
-        client(protocol& proto, seastar::socket socket, ipv4_addr addr, ipv4_addr local = ipv4_addr());
-        client(protocol& proto, client_options options, seastar::socket socket, ipv4_addr addr, ipv4_addr local = ipv4_addr());
+        client(protocol& proto, socket socket, ipv4_addr addr, ipv4_addr local = ipv4_addr());
+        client(protocol& proto, client_options options, socket socket, ipv4_addr addr, ipv4_addr local = ipv4_addr());
 
         stats get_stats() const {
             stats res = this->_stats;
@@ -545,6 +547,8 @@ private:
     template <typename FrameType, typename Info>
     typename FrameType::return_type read_frame_compressed(const Info& info, std::unique_ptr<compressor>& compressor, input_stream<char>& in);
 };
+}
+
 }
 
 #include "rpc_impl.hh"

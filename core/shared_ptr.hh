@@ -30,6 +30,8 @@
 #include "util/is_smart_ptr.hh"
 #include "util/indirect.hh"
 
+namespace seastar {
+
 // This header defines two shared pointer facilities, lw_shared_ptr<> and
 // shared_ptr<>, both modeled after std::shared_ptr<>.
 //
@@ -91,6 +93,25 @@ shared_ptr<T> dynamic_pointer_cast(const shared_ptr<U>& p);
 template <typename T, typename U>
 shared_ptr<T> const_pointer_cast(const shared_ptr<U>& p);
 
+struct lw_shared_ptr_counter_base {
+    shared_ptr_counter_type _count = 0;
+};
+
+
+namespace internal {
+
+template <class T, class U>
+struct lw_shared_ptr_accessors;
+
+template <class T>
+struct lw_shared_ptr_accessors_esft;
+
+template <class T>
+struct lw_shared_ptr_accessors_no_esft;
+
+}
+
+
 // We want to support two use cases for shared_ptr<T>:
 //
 //   1. T is any type (primitive or class type)
@@ -111,11 +132,8 @@ shared_ptr<T> const_pointer_cast(const shared_ptr<U>& p);
 
 // CRTP from this to enable shared_from_this:
 template <typename T>
-class enable_lw_shared_from_this {
-    shared_ptr_counter_type _count = 0;
+class enable_lw_shared_from_this : private lw_shared_ptr_counter_base {
     using ctor = T;
-    T* to_value() { return static_cast<T*>(this); }
-    T* to_internal_object() { return static_cast<T*>(this); }
 protected:
     enable_lw_shared_from_this() noexcept {}
     enable_lw_shared_from_this(enable_lw_shared_from_this&&) noexcept {}
@@ -125,47 +143,122 @@ protected:
 public:
     lw_shared_ptr<T> shared_from_this();
     lw_shared_ptr<const T> shared_from_this() const;
+
     template <typename X>
     friend class lw_shared_ptr;
+    template <typename X>
+    friend class internal::lw_shared_ptr_accessors_esft;
+    template <typename X, class Y>
+    friend class internal::lw_shared_ptr_accessors;
 };
 
 template <typename T>
-struct shared_ptr_no_esft {
-    shared_ptr_counter_type _count = 0;
+struct shared_ptr_no_esft : private lw_shared_ptr_counter_base {
     T _value;
-    using ctor = shared_ptr_no_esft;
 
-    T* to_value() { return &_value; }
-    shared_ptr_no_esft* to_internal_object() { return this; }
     shared_ptr_no_esft() = default;
     shared_ptr_no_esft(const T& x) : _value(x) {}
     shared_ptr_no_esft(T&& x) : _value(std::move(x)) {}
     template <typename... A>
     shared_ptr_no_esft(A&&... a) : _value(std::forward<A>(a)...) {}
+
     template <typename X>
     friend class lw_shared_ptr;
+    template <typename X>
+    friend class internal::lw_shared_ptr_accessors_no_esft;
+    template <typename X, class Y>
+    friend class internal::lw_shared_ptr_accessors;
+};
+
+
+/// Extension point: the user may override this to change how \ref lw_shared_ptr objects are destroyed,
+/// primarily so that incomplete classes can be used.
+///
+/// Customizing the deleter requires that \c T be derived from \c enable_lw_shared_from_this<T>.
+/// The specialization must be visible for all uses of \c lw_shared_ptr<T>.
+///
+/// To customize, the template must have a `static void dispose(T*)` operator that disposes of
+/// the object.
+template <typename T>
+struct lw_shared_ptr_deleter;  // No generic implementation
+
+namespace internal {
+
+template <typename T>
+struct lw_shared_ptr_accessors_esft {
+    using concrete_type = std::remove_const_t<T>;
+    static T* to_value(lw_shared_ptr_counter_base* counter) {
+        return static_cast<T*>(counter);
+    }
+    static void dispose(lw_shared_ptr_counter_base* counter) {
+        delete static_cast<T*>(counter);
+    }
+    static void instantiate_to_value(lw_shared_ptr_counter_base* p) {
+        // since to_value() is defined above, we don't need to do anything special
+        // to force-instantiate it
+    }
 };
 
 template <typename T>
-using shared_ptr_impl
-    = std::conditional_t<
-        std::is_base_of<enable_lw_shared_from_this<std::remove_const_t<T>>, T>::value,
-        enable_lw_shared_from_this<std::remove_const_t<T>>,
-        shared_ptr_no_esft<std::remove_const_t<T>>
-      >;
+struct lw_shared_ptr_accessors_no_esft {
+    using concrete_type = shared_ptr_no_esft<T>;
+    static T* to_value(lw_shared_ptr_counter_base* counter) {
+        return &static_cast<concrete_type*>(counter)->_value;
+    }
+    static void dispose(lw_shared_ptr_counter_base* counter) {
+        delete static_cast<concrete_type*>(counter);
+    }
+    static void instantiate_to_value(lw_shared_ptr_counter_base* p) {
+        // since to_value() is defined above, we don't need to do anything special
+        // to force-instantiate it
+    }
+};
+
+// Generic case: lw_shared_ptr_deleter<T> is not specialized, select
+// implementation based on whether T inherits from enable_lw_shared_from_this<T>.
+template <typename T, typename U = void>
+struct lw_shared_ptr_accessors : std::conditional_t<
+         std::is_base_of<enable_lw_shared_from_this<T>, T>::value,
+         lw_shared_ptr_accessors_esft<T>,
+         lw_shared_ptr_accessors_no_esft<T>> {
+};
+
+// void_t is C++17, use this temporarily
+template <typename... T>
+using void_t = void;
+
+// Overload when lw_shared_ptr_deleter<T> specialized
+template <typename T>
+struct lw_shared_ptr_accessors<T, void_t<decltype(lw_shared_ptr_deleter<T>{})>> {
+    using concrete_type = T;
+    static T* to_value(lw_shared_ptr_counter_base* counter);
+    static void dispose(lw_shared_ptr_counter_base* counter) {
+        lw_shared_ptr_deleter<T>::dispose(to_value(counter));
+    }
+    static void instantiate_to_value(lw_shared_ptr_counter_base* p) {
+        // instantiate to_value(); must be defined by shared_ptr_incomplete.hh
+        to_value(p);
+    }
+};
+
+}
 
 template <typename T>
 class lw_shared_ptr {
-    mutable shared_ptr_impl<T>* _p = nullptr;
+    using accessors = internal::lw_shared_ptr_accessors<std::remove_const_t<T>>;
+    using concrete_type = typename accessors::concrete_type;
+    mutable lw_shared_ptr_counter_base* _p = nullptr;
 private:
-    lw_shared_ptr(shared_ptr_impl<T>* p) noexcept : _p(p) {
+    lw_shared_ptr(lw_shared_ptr_counter_base* p) noexcept : _p(p) {
         if (_p) {
             ++_p->_count;
         }
     }
     template <typename... A>
     static lw_shared_ptr make(A&&... a) {
-        return lw_shared_ptr(new typename shared_ptr_impl<T>::ctor(std::forward<A>(a)...));
+        auto p = new concrete_type(std::forward<A>(a)...);
+        accessors::instantiate_to_value(p);
+        return lw_shared_ptr(p);
     }
 public:
     using element_type = T;
@@ -183,7 +276,7 @@ public:
     [[gnu::always_inline]]
     ~lw_shared_ptr() {
         if (_p && !--_p->_count) {
-            delete _p->to_internal_object();
+            accessors::dispose(_p);
         }
     }
     lw_shared_ptr& operator=(const lw_shared_ptr& x) noexcept {
@@ -209,11 +302,11 @@ public:
         return *this;
     }
 
-    T& operator*() const noexcept { return *_p->to_value(); }
-    T* operator->() const noexcept { return _p->to_value(); }
+    T& operator*() const noexcept { return *accessors::to_value(_p); }
+    T* operator->() const noexcept { return accessors::to_value(_p); }
     T* get() const noexcept {
         if (_p) {
-            return _p->to_value();
+            return accessors::to_value(_p);
         } else {
             return nullptr;
         }
@@ -704,28 +797,34 @@ using shared_ptr_equal_by_value = indirect_equal_to<shared_ptr<T>>;
 template<typename T>
 using shared_ptr_value_hash = indirect_hash<shared_ptr<T>>;
 
+}
+
 namespace std {
 
 template <typename T>
-struct hash<lw_shared_ptr<T>> : private hash<T*> {
-    size_t operator()(const lw_shared_ptr<T>& p) const {
+struct hash<seastar::lw_shared_ptr<T>> : private hash<T*> {
+    size_t operator()(const seastar::lw_shared_ptr<T>& p) const {
         return hash<T*>::operator()(p.get());
     }
 };
 
 template <typename T>
-struct hash<::shared_ptr<T>> : private hash<T*> {
-    size_t operator()(const ::shared_ptr<T>& p) const {
+struct hash<seastar::shared_ptr<T>> : private hash<T*> {
+    size_t operator()(const seastar::shared_ptr<T>& p) const {
         return hash<T*>::operator()(p.get());
     }
 };
 
 }
 
-template<typename T>
-struct is_smart_ptr<::shared_ptr<T>> : std::true_type {};
+namespace seastar {
 
 template<typename T>
-struct is_smart_ptr<::lw_shared_ptr<T>> : std::true_type {};
+struct is_smart_ptr<shared_ptr<T>> : std::true_type {};
+
+template<typename T>
+struct is_smart_ptr<lw_shared_ptr<T>> : std::true_type {};
+
+}
 
 #endif /* SHARED_PTR_HH_ */

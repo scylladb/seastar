@@ -26,6 +26,8 @@
 #include <netinet/tcp.h>
 #include <netinet/sctp.h>
 
+namespace seastar {
+
 namespace net {
 
 using namespace seastar;
@@ -104,8 +106,11 @@ template <transport Transport>
 class posix_connected_socket_impl final : public connected_socket_impl, posix_connected_socket_operations<Transport> {
     lw_shared_ptr<pollable_fd> _fd;
     using _ops = posix_connected_socket_operations<Transport>;
+    conntrack::handle _handle;
 private:
     explicit posix_connected_socket_impl(lw_shared_ptr<pollable_fd> fd) : _fd(std::move(fd)) {}
+    explicit posix_connected_socket_impl(lw_shared_ptr<pollable_fd> fd, conntrack::handle&& handle)
+        : _fd(std::move(fd)), _handle(std::move(handle)) {}
 public:
     virtual data_source source() override {
         return data_source(std::make_unique< posix_data_source_impl>(_fd));
@@ -182,17 +187,16 @@ template <transport Transport>
 future<connected_socket, socket_address>
 posix_server_socket_impl<Transport>::accept() {
     return _lfd.accept().then([this] (pollable_fd fd, socket_address sa) {
-        static unsigned balance = 0;
-        auto cpu = balance++ % smp::count;
-
+        auto cth = _conntrack.get_handle();
+        auto cpu = cth.cpu();
         if (cpu == engine().cpu_id()) {
             std::unique_ptr<connected_socket_impl> csi(
-                    new posix_connected_socket_impl<Transport>(make_lw_shared(std::move(fd))));
+                    new posix_connected_socket_impl<Transport>(make_lw_shared(std::move(fd)), std::move(cth)));
             return make_ready_future<connected_socket, socket_address>(
                     connected_socket(std::move(csi)), sa);
         } else {
-            smp::submit_to(cpu, [this, fd = std::move(fd.get_file_desc()), sa] () mutable {
-                posix_ap_server_socket_impl<Transport>::move_connected_socket(_sa, pollable_fd(std::move(fd)), sa);
+            smp::submit_to(cpu, [ssa = _sa, fd = std::move(fd.get_file_desc()), sa, cth = std::move(cth)] () mutable {
+                posix_ap_server_socket_impl<Transport>::move_connected_socket(ssa, pollable_fd(std::move(fd)), sa, std::move(cth));
             });
             return accept();
         }
@@ -258,11 +262,12 @@ posix_reuseport_server_socket_impl<Transport>::abort_accept() {
 }
 
 template <transport Transport>
-void  posix_ap_server_socket_impl<Transport>::move_connected_socket(socket_address sa, pollable_fd fd, socket_address addr) {
+void
+posix_ap_server_socket_impl<Transport>::move_connected_socket(socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle cth) {
     auto i = sockets.find(sa.as_posix_sockaddr_in());
     if (i != sockets.end()) {
         try {
-            std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl<Transport>(make_lw_shared(std::move(fd))));
+            std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl<Transport>(make_lw_shared(std::move(fd)), std::move(cth)));
             i->second.set_value(connected_socket(std::move(csi)), std::move(addr));
         } catch (...) {
             i->second.set_exception(std::current_exception());
@@ -409,7 +414,7 @@ private:
         void prepare(ipv4_addr dst, packet p) {
             _dst = make_ipv4_address(dst);
             _p = std::move(p);
-            _iovecs = std::move(to_iovec(_p));
+            _iovecs = to_iovec(_p);
             _hdr.msg_iov = _iovecs.data();
             _hdr.msg_iovlen = _iovecs.size();
         }
@@ -487,6 +492,8 @@ posix_udp_channel::receive() {
         delete[] p;
         return make_exception_future<udp_datagram>(std::move(ep));
     });
+}
+
 }
 
 }

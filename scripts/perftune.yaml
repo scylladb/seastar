@@ -1,0 +1,30 @@
+# Mode is one of the following values:
+#   - 'mq'
+#   - 'sq'
+#   - 'sq_split'
+#mode: 'sq_split'
+
+# Name of the NIC to tune, e.g. eth7.
+# By default would use 'eth0'.
+#nic: eth7
+
+# If 'true' the script will the CPU mask to be used for compute.
+#get_cpu_mask: true
+
+# Define what to tune: could be any combination of the values from {'net', 'disks'} set.
+#tune:
+#  - net
+#  - disks
+
+# Mask of cores to use, by default use all available cores.
+#cpu_mask: '0x00f,,,0x0,,0x00f'
+
+# Set of directories to optimize.
+#dir:
+#  - /root
+#  - /home
+
+# Set of disk devices to optimize
+#dev:
+#  - /dev/sda2
+#  - /dev/md0

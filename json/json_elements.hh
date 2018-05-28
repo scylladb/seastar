@@ -28,6 +28,9 @@
 #include <sstream>
 #include "formatter.hh"
 #include "core/sstring.hh"
+#include "core/iostream.hh"
+
+namespace seastar {
 
 namespace json {
 
@@ -73,6 +76,7 @@ public:
      */
     virtual std::string to_string() = 0;
 
+    virtual future<> write(output_stream<char>& s) const = 0;
     std::string _name;
     bool _mandatory;
     bool _set;
@@ -129,6 +133,9 @@ public:
         return formatter::to_json(_value);
     }
 
+    virtual future<> write(output_stream<char>& s) const {
+        return formatter::write(s, _value);
+    }
 private:
     T _value;
 };
@@ -169,7 +176,9 @@ public:
         }
         return *this;
     }
-
+    virtual future<> write(output_stream<char>& s) const {
+        return formatter::write(s, _elements);
+    }
     std::vector<T> _elements;
 };
 
@@ -181,6 +190,16 @@ public:
      * @return the object formated.
      */
     virtual std::string to_json() const = 0;
+
+    /*!
+     * \brief write an object to the output stream
+     *
+     * The defult implementation uses the to_json
+     * Object implementation override it.
+     */
+    virtual future<> write(output_stream<char>& s) const {
+        return s.write(to_json());
+    }
 };
 
 /**
@@ -208,6 +227,11 @@ struct json_base : public jsonable {
      * @return the object formated.
      */
     virtual std::string to_json() const;
+
+    /*!
+     * \brief write to an output stream
+     */
+    virtual future<> write(output_stream<char>&) const;
 
     /**
      * Check that all mandatory elements are set
@@ -237,6 +261,13 @@ struct json_void : public jsonable{
     virtual std::string to_json() const {
         return "";
     }
+
+    /*!
+     * \brief write to an output stream
+     */
+    virtual future<> write(output_stream<char>& s) const {
+        return s.close();
+    }
 };
 
 
@@ -254,13 +285,66 @@ struct json_void : public jsonable{
  */
 struct json_return_type {
     sstring _res;
+    std::function<future<>(output_stream<char>&&)> _body_writer;
+    json_return_type(std::function<future<>(output_stream<char>&&)>&& body_writer) : _body_writer(std::move(body_writer)) {
+    }
     template<class T>
     json_return_type(const T& res) {
         _res = formatter::to_json(res);
     }
-    json_return_type(json_return_type&&) = default;
-    json_return_type& operator=(json_return_type&&) = default;
+
+   json_return_type(json_return_type&& o) noexcept : _res(std::move(o._res)), _body_writer(std::move(o._body_writer)) {
+   }
 };
+
+/*!
+ * \brief capture a range and return a serialize function for it as a json array.
+ *
+ * To use it, pass a range and a mapping function.
+ * For example, if res is a map:
+ *
+ * return make_ready_future<json::json_return_type>(stream_range_as_array(res, [](const auto&i) {return i.first}));
+ */
+template<typename Container, typename Func>
+GCC6_CONCEPT( requires requires (Container c, Func aa, output_stream<char> s) { { formatter::write(s, aa(*c.begin())) } -> future<> } )
+std::function<future<>(output_stream<char>&&)> stream_range_as_array(Container val, Func fun) {
+    return [val = std::move(val), fun = std::move(fun)](output_stream<char>&& s) {
+        return do_with(output_stream<char>(std::move(s)), Container(std::move(val)), Func(std::move(fun)), true, [](output_stream<char>& s, const Container& val, const Func& f, bool& first){
+            return s.write("[").then([&val, &s, &first, &f] () {
+                return do_for_each(val, [&s, &first, &f](const typename Container::value_type& v){
+                    auto fut = first ? make_ready_future<>() : s.write(", ");
+                    first = false;
+                    return fut.then([&s, &f, &v]() {
+                        return formatter::write(s, f(v));
+                    });
+                });
+            }).then([&s](){
+                return s.write("]").then([&s] {
+                    return s.close();
+                });
+            });
+        });
+    };
+}
+
+/*!
+ * \brief capture an object and return a serialize function for it.
+ *
+ * To use it:
+ * return make_ready_future<json::json_return_type>(stream_object(res));
+ */
+template<class T>
+std::function<future<>(output_stream<char>&&)> stream_object(T val) {
+    return [val = std::move(val)](output_stream<char>&& s) {
+        return do_with(output_stream<char>(std::move(s)), T(std::move(val)), [](output_stream<char>& s, const T& val){
+            return formatter::write(s, val).then([&s] {
+                return s.close();
+            });
+        });
+    };
+}
+
+}
 
 }
 

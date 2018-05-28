@@ -23,7 +23,7 @@ import argparse
 import subprocess
 
 def run(args, cmd):
-    mc = subprocess.Popen([os.path.join('build', args.mode, 'apps', 'memcached', 'memcached')])
+    mc = subprocess.Popen([os.path.join('build', args.mode, 'apps', 'memcached', 'memcached'), "--smp=2"])
     print('Memcached started.')
     try:
         cmdline = ['tests/memcached/test_memcached.py'] + cmd

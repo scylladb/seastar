@@ -32,6 +32,8 @@
 #include <experimental/optional>
 #include <functional>
 
+namespace seastar {
+
 namespace net {
 
 struct fragment {
@@ -125,7 +127,7 @@ class packet final {
             n->_rss_hash = old->_rss_hash;
             std::copy(old->_frags, old->_frags + old->_nr_frags, n->_frags);
             old->copy_internal_fragment_to(n.get());
-            return std::move(n);
+            return n;
         }
 
         static std::unique_ptr<impl> copy(impl* old) {
@@ -134,7 +136,7 @@ class packet final {
 
         static std::unique_ptr<impl> allocate_if_needed(std::unique_ptr<impl> old, size_t extra_frags) {
             if (old->_allocated_frags >= old->_nr_frags + extra_frags) {
-                return std::move(old);
+                return old;
             }
             return copy(old.get(), std::max<size_t>(old->_nr_frags + extra_frags, 2 * old->_nr_frags));
         }
@@ -613,6 +615,8 @@ packet packet::share(size_t offset, size_t len) {
     assert(!n._impl->_deleter);
     n._impl->_deleter = _impl->_deleter.share();
     return n;
+}
+
 }
 
 }

@@ -28,11 +28,20 @@
 
 #include "core/unaligned.hh"
 
+namespace seastar {
+
 inline uint64_t ntohq(uint64_t v) {
+#if defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // big endian, nothing to do
+    return v;
+#else
+    // little endian, reverse bytes
     return __builtin_bswap64(v);
+#endif
 }
 inline uint64_t htonq(uint64_t v) {
-    return __builtin_bswap64(v);
+    // htonq and ntohq have identical implementations
+    return ntohq(v);
 }
 
 namespace net {
@@ -113,6 +122,8 @@ T hton(const T& x) {
     T tmp = x;
     tmp.adjust_endianness([] (auto&&... what) { hton_inplace(std::forward<decltype(what)&>(what)...); });
     return tmp;
+}
+
 }
 
 }

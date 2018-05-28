@@ -28,6 +28,7 @@
 #include <utility>
 #include <algorithm>
 
+using namespace seastar;
 using namespace net;
 
 void dump_packet(const packet& p) {
@@ -115,7 +116,7 @@ int main(int ac, char** av) {
     vnet = qp.get();
     dnet->set_local_queue(std::move(qp));
     subscription<packet> rx =
-        dnet->receive([vnet, &rx] (packet p) {
+        dnet->receive([vnet] (packet p) {
             return echo_packet(*vnet, std::move(p));
         });
     engine().run();

@@ -23,6 +23,8 @@
 
 #include <stdio.h>
 
+namespace seastar {
+
 //
 // Collection of async-signal safe printing functions.
 //
@@ -106,4 +108,6 @@ void print_decimal_safe(Integral n) noexcept {
     unsigned i = sizeof(buf);
     auto len = convert_decimal_safe(buf, i, n);
     print_safe(buf, len);
+}
+
 }

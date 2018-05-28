@@ -23,6 +23,8 @@
 
 #include <tuple>
 
+namespace seastar {
+
 template<typename T>
 struct function_traits;
  
@@ -63,3 +65,4 @@ template<typename T>
 struct function_traits<T&> : public function_traits<std::remove_reference_t<T>>
 {};
 
+}

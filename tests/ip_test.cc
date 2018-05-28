@@ -25,6 +25,7 @@
 #include "core/reactor.hh"
 #include "net/virtio.hh"
 
+using namespace seastar;
 using namespace net;
 
 int main(int ac, char** av) {

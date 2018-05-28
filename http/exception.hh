@@ -25,6 +25,8 @@
 #include "reply.hh"
 #include "json/json_elements.hh"
 
+namespace seastar {
+
 namespace httpd {
 
 /**
@@ -133,6 +135,8 @@ private:
         _code = (int) code;
     }
 };
+
+}
 
 }
 

@@ -26,6 +26,8 @@
 
 #include "core/future.hh"
 
+namespace seastar {
+
 class listen_options;
 class server_socket;
 class connected_socket;
@@ -41,6 +43,8 @@ tcpv4_listen(tcp<ipv4_traits>& tcpv4, uint16_t port, listen_options opts);
 
 seastar::socket
 tcpv4_socket(tcp<ipv4_traits>& tcpv4);
+
+}
 
 }
 

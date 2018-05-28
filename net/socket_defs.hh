@@ -25,6 +25,8 @@
 #include <netinet/ip.h>
 #include "net/byteorder.hh"
 
+namespace seastar {
+
 struct ipv4_addr;
 
 class socket_address {
@@ -49,8 +51,6 @@ public:
 
 std::ostream& operator<<(std::ostream&, const socket_address&);
 
-namespace seastar {
-
 enum class transport {
     TCP = IPPROTO_TCP,
     SCTP = IPPROTO_SCTP
@@ -61,10 +61,8 @@ namespace net {
 class inet_address;
 }
 
-}
-
 struct listen_options {
-    seastar::transport proto = seastar::transport::TCP;
+    transport proto = transport::TCP;
     bool reuse_address = false;
     listen_options(bool rua = false)
         : reuse_address(rua)
@@ -80,7 +78,7 @@ struct ipv4_addr {
     ipv4_addr(uint16_t port) : ip(0), port(port) {}
     ipv4_addr(const std::string &addr);
     ipv4_addr(const std::string &addr, uint16_t port);
-    ipv4_addr(const seastar::net::inet_address&, uint16_t);
+    ipv4_addr(const net::inet_address&, uint16_t);
 
     ipv4_addr(const socket_address &sa) {
         ip = net::ntoh(sa.u.in.sin_addr.s_addr);
@@ -89,3 +87,5 @@ struct ipv4_addr {
 
     ipv4_addr(socket_address &&sa) : ipv4_addr(sa) {}
 };
+
+}

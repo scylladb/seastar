@@ -71,9 +71,9 @@ public:
 
     void do_accepts(std::vector<server_socket>& listeners) {
         int which = listeners.size() - 1;
-        listeners[which].accept().then([this, which, &listeners] (connected_socket fd, socket_address addr) mutable {
+        listeners[which].accept().then([this, &listeners] (connected_socket fd, socket_address addr) mutable {
             auto conn = new connection(*this, std::move(fd), addr);
-            conn->process().then_wrapped([this, conn] (auto&& f) {
+            conn->process().then_wrapped([conn] (auto&& f) {
                 delete conn;
                 try {
                     f.get();
@@ -130,7 +130,7 @@ public:
                 } else {
                     return _write_buf.write(str_unknow).then([this] {
                         return _write_buf.flush();
-                    }).then([this] {
+                    }).then([] {
                         return make_ready_future();
                     });
                 }
@@ -140,7 +140,7 @@ public:
             if (end == 0) {
                 return make_ready_future<>();
             }
-            return _write_buf.write(str_txbuf).then([this, end] {
+            return _write_buf.write(str_txbuf).then([this] {
                 return _write_buf.flush();
             }).then([this, end] {
                 return do_write(end - 1);
@@ -149,7 +149,7 @@ public:
         future<> tx_test() {
             return do_write(tx_msg_nr).then([this] {
                 return _write_buf.close();
-            }).then([this] {
+            }).then([] {
                 return make_ready_future<>();
             });
         }

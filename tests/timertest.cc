@@ -24,6 +24,7 @@
 #include "core/print.hh"
 #include <chrono>
 
+using namespace seastar;
 using namespace std::chrono_literals;
 
 #define BUG() do { \
@@ -57,9 +58,9 @@ struct timer_test {
             }
             t5.arm(1100ms);
         });
-        t2.set_callback([this] { OK(); print(" 900ms timer expired\n"); });
-        t3.set_callback([this] { OK(); print("1000ms timer expired\n"); });
-        t4.set_callback([this] { OK(); print("  BAD cancelled timer expired\n"); });
+        t2.set_callback([] { OK(); print(" 900ms timer expired\n"); });
+        t3.set_callback([] { OK(); print("1000ms timer expired\n"); });
+        t4.set_callback([] { OK(); print("  BAD cancelled timer expired\n"); });
         t5.set_callback([this] { OK(); print("1600ms rearmed timer expired\n"); pr1.set_value(); });
 
         t1.arm(500ms);

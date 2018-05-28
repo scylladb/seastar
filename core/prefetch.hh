@@ -26,8 +26,10 @@
 #include <boost/mpl/range_c.hpp>
 #include <boost/mpl/for_each.hpp>
 #include "align.hh"
+#include "cacheline.hh"
 
-static constexpr size_t  cacheline_size = 64;
+namespace seastar {
+
 template <size_t N, int RW, int LOC>
 struct prefetcher;
 
@@ -41,7 +43,7 @@ struct prefetcher {
     prefetcher(uintptr_t ptr) {
         __builtin_prefetch(reinterpret_cast<void*>(ptr), RW, LOC);
         std::atomic_signal_fence(std::memory_order_seq_cst);
-        prefetcher<N-64, RW, LOC>(ptr + 64);
+        prefetcher<N-cache_line_size, RW, LOC>(ptr + cache_line_size);
     }
 };
 
@@ -53,7 +55,7 @@ struct prefetcher {
 //  low or moderate degree of temporal locality. The default is three."
 template<typename T, int LOC = 3>
 void prefetch(T* ptr) {
-    prefetcher<align_up(sizeof(T), cacheline_size), 0, LOC>(reinterpret_cast<uintptr_t>(ptr));
+    prefetcher<align_up(sizeof(T), cache_line_size), 0, LOC>(reinterpret_cast<uintptr_t>(ptr));
 }
 
 template<typename Iterator, int LOC = 3>
@@ -68,7 +70,7 @@ void prefetch_n(T** pptr) {
 
 template<size_t L, int LOC = 3>
 void prefetch(void* ptr) {
-    prefetcher<L*cacheline_size, 0, LOC>(reinterpret_cast<uintptr_t>(ptr));
+    prefetcher<L*cache_line_size, 0, LOC>(reinterpret_cast<uintptr_t>(ptr));
 }
 
 template<size_t L, typename Iterator, int LOC = 3>
@@ -83,7 +85,7 @@ void prefetch_n(T** pptr) {
 
 template<typename T, int LOC = 3>
 void prefetchw(T* ptr) {
-    prefetcher<align_up(sizeof(T), cacheline_size), 1, LOC>(reinterpret_cast<uintptr_t>(ptr));
+    prefetcher<align_up(sizeof(T), cache_line_size), 1, LOC>(reinterpret_cast<uintptr_t>(ptr));
 }
 
 template<typename Iterator, int LOC = 3>
@@ -98,7 +100,7 @@ void prefetchw_n(T** pptr) {
 
 template<size_t L, int LOC = 3>
 void prefetchw(void* ptr) {
-    prefetcher<L*cacheline_size, 1, LOC>(reinterpret_cast<uintptr_t>(ptr));
+    prefetcher<L*cache_line_size, 1, LOC>(reinterpret_cast<uintptr_t>(ptr));
 }
 
 template<size_t L, typename Iterator, int LOC = 3>
@@ -109,6 +111,8 @@ void prefetchw_n(Iterator begin, Iterator end) {
 template<size_t L, size_t C, typename T, int LOC = 3>
 void prefetchw_n(T** pptr) {
     boost::mpl::for_each< boost::mpl::range_c<size_t,0,C> >( [pptr] (size_t x) { prefetchw<L, LOC>(*(pptr + x)); } );
+}
+
 }
 
 #endif

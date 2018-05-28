@@ -26,6 +26,8 @@
 #include "test-utils.hh"
 #include "core/file.hh"
 
+namespace seastar {
+
 class mock_read_only_file final : public file_impl {
     bool _closed = false;
     uint64_t _total_file_size;
@@ -107,3 +109,5 @@ public:
         return make_ready_future<temporary_buffer<uint8_t>>(temporary_buffer<uint8_t>(length));
     }
 };
+
+}

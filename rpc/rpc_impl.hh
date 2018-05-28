@@ -32,6 +32,8 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include "net/packet-data-source.hh"
 
+namespace seastar {
+
 namespace rpc {
 
 enum class exception_type : uint32_t {
@@ -203,19 +205,19 @@ inline void do_marshall(Serializer& serializer, Output& out, const T&... args) {
     (void)std::initializer_list<int>{(marshall_one(serializer, out, args), 1)...};
 }
 
-static inline seastar::memory_output_stream<snd_buf::iterator> make_serializer_stream(snd_buf& output) {
+static inline memory_output_stream<snd_buf::iterator> make_serializer_stream(snd_buf& output) {
     auto* b = boost::get<temporary_buffer<char>>(&output.bufs);
     if (b) {
-        return seastar::memory_output_stream<snd_buf::iterator>(seastar::memory_output_stream<snd_buf::iterator>::simple(b->get_write(), b->size()));
+        return memory_output_stream<snd_buf::iterator>(memory_output_stream<snd_buf::iterator>::simple(b->get_write(), b->size()));
     } else {
         auto& ar = boost::get<std::vector<temporary_buffer<char>>>(output.bufs);
-        return seastar::memory_output_stream<snd_buf::iterator>(seastar::memory_output_stream<snd_buf::iterator>::fragmented(ar.begin(), output.size));
+        return memory_output_stream<snd_buf::iterator>(memory_output_stream<snd_buf::iterator>::fragmented(ar.begin(), output.size));
     }
 }
 
 template <typename Serializer, typename... T>
 inline snd_buf marshall(Serializer& serializer, size_t head_space, const T&... args) {
-    seastar::measuring_output_stream measure;
+    measuring_output_stream measure;
     do_marshall(serializer, measure, args...);
     snd_buf ret(measure.size() + head_space);
     auto out = make_serializer_stream(ret);
@@ -261,7 +263,7 @@ inline std::tuple<T...> unmarshall(Serializer& serializer, rcv_buf input) {
     return do_unmarshall<Serializer, decltype(in), T...>(serializer, in);
 }
 
-static std::exception_ptr unmarshal_exception(rcv_buf& d) {
+inline std::exception_ptr unmarshal_exception(rcv_buf& d) {
     std::exception_ptr ex;
     auto data = make_deserializer_stream(d);
 
@@ -428,7 +430,7 @@ inline future<> reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, lw_s
     if (!client->error()) {
         snd_buf data;
         try {
-            data = ::apply(marshall<Serializer, const RetTypes&...>,
+            data = apply(marshall<Serializer, const RetTypes&...>,
                     std::tuple_cat(std::make_tuple(std::ref(client->serializer()), 12), std::move(ret.get())));
         } catch (std::exception& ex) {
             uint32_t len = std::strlen(ex.what());
@@ -493,16 +495,24 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
                                                            int64_t msg_id,
                                                            rcv_buf data) mutable {
         auto memory_consumed = client->estimate_request_size(data.size);
+        if (memory_consumed > client->max_request_size()) {
+            auto err = sprint("request size %d large than memory limit %d", memory_consumed, client->max_request_size());
+            client->get_protocol().log(client->peer_address(), err);
+            with_gate(client->get_server().reply_gate(), [client, timeout, msg_id, err = std::move(err)] {
+                return reply<Serializer, MsgType>(wait_style(), futurize<Ret>::make_exception_future(std::runtime_error(err.c_str())), msg_id, client, timeout);
+            });
+            return make_ready_future();
+        }
         // note: apply is executed asynchronously with regards to networking so we cannot chain futures here by doing "return apply()"
         auto f = client->wait_for_resources(memory_consumed, timeout).then([client, timeout, msg_id, data = std::move(data), &func] (auto permit) mutable {
             try {
-                seastar::with_gate(client->get_server().reply_gate(), [client, timeout, msg_id, data = std::move(data), permit = std::move(permit), &func] () mutable {
+                with_gate(client->get_server().reply_gate(), [client, timeout, msg_id, data = std::move(data), permit = std::move(permit), &func] () mutable {
                     auto args = unmarshall<Serializer, InArgs...>(client->serializer(), std::move(data));
                     return apply(func, client->info(), timeout, WantClientInfo(), WantTimePoint(), signature(), std::move(args)).then_wrapped([client, timeout, msg_id, permit = std::move(permit)] (futurize_t<Ret> ret) mutable {
                         return reply<Serializer, MsgType>(wait_style(), std::move(ret), msg_id, client, timeout).then([permit = std::move(permit)] {});
                     });
                 });
-            } catch (seastar::gate_closed_exception&) {/* ignore */ }
+            } catch (gate_closed_exception&) {/* ignore */ }
         });
 
         if (timeout) {
@@ -605,7 +615,7 @@ template<typename Serializer, typename MsgType>
 void protocol<Serializer, MsgType>::server::accept() {
     keep_doing([this] () mutable {
         return _ss.accept().then([this] (connected_socket fd, socket_address addr) mutable {
-            fd.set_nodelay(true);
+            fd.set_nodelay(_options.tcp_nodelay);
             auto conn = make_lw_shared<connection>(*this, std::move(fd), std::move(addr), _proto);
             _conns.insert(conn);
             conn->process();
@@ -851,7 +861,7 @@ protocol<Serializer, MsgType>::server::connection::negotiate(feature_map request
 template<typename Serializer, typename MsgType>
 future<>
 protocol<Serializer, MsgType>::server::connection::negotiate_protocol(input_stream<char>& in) {
-    return receive_negotiation_frame(*this, in).then([this, &in] (feature_map requested_features) {
+    return receive_negotiation_frame(*this, in).then([this] (feature_map requested_features) {
         auto returned_features = negotiate(std::move(requested_features));
         return send_negotiation_frame(*this, std::move(returned_features));
     });
@@ -943,8 +953,8 @@ protocol<Serializer, MsgType>::client::negotiate(feature_map provided) {
 
 template<typename Serializer, typename MsgType>
 future<> protocol<Serializer, MsgType>::server::connection::process() {
-    send_loop();
     return this->negotiate_protocol(this->_read_buf).then([this] () mutable {
+        send_loop();
         return do_until([this] { return this->_read_buf.eof() || this->_error; }, [this] () mutable {
             return this->read_request_frame_compressed(this->_read_buf).then([this] (std::experimental::optional<uint64_t> expire, MsgType type, int64_t msg_id, std::experimental::optional<rcv_buf> data) {
                 if (!data) {
@@ -968,10 +978,10 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
                             write_le<uint32_t>(p + 4, uint32_t(8));
                             write_le<uint64_t>(p + 8, uint64_t(type));
                             try {
-                                seastar::with_gate(this->_server._reply_gate, [this, timeout, msg_id, data = std::move(data), permit = std::move(permit)] () mutable {
+                                with_gate(this->_server._reply_gate, [this, timeout, msg_id, data = std::move(data), permit = std::move(permit)] () mutable {
                                     return this->respond(-msg_id, std::move(data), timeout).then([c = this->shared_from_this(), permit = std::move(permit)] {});
                                 });
-                            } catch(seastar::gate_closed_exception&) {/* ignore */}
+                            } catch(gate_closed_exception&) {/* ignore */}
                         });
                     }
                 }
@@ -995,7 +1005,7 @@ future<> protocol<Serializer, MsgType>::server::connection::process() {
 template<typename Serializer, typename MsgType>
 future<>
 protocol<Serializer, MsgType>::client::negotiate_protocol(input_stream<char>& in) {
-    return receive_negotiation_frame(*this, in).then([this, &in] (feature_map features) {
+    return receive_negotiation_frame(*this, in).then([this] (feature_map features) {
         return negotiate(features);
     });
 }
@@ -1042,10 +1052,10 @@ protocol<Serializer, MsgType>::client::read_response_frame_compressed(input_stre
 }
 
 template<typename Serializer, typename MsgType>
-protocol<Serializer, MsgType>::client::client(protocol& proto, client_options ops, seastar::socket socket, ipv4_addr addr, ipv4_addr local)
+protocol<Serializer, MsgType>::client::client(protocol& proto, client_options ops, socket socket, ipv4_addr addr, ipv4_addr local)
         : protocol<Serializer, MsgType>::connection(proto), _socket(std::move(socket)), _server_addr(addr), _options(ops) {
     _socket.connect(addr, local).then([this, ops = std::move(ops)] (connected_socket fd) {
-        fd.set_nodelay(true);
+        fd.set_nodelay(ops.tcp_nodelay);
         if (ops.keepalive) {
             fd.set_keepalive(true);
             fd.set_keepalive_parameters(ops.keepalive.value());
@@ -1115,8 +1125,10 @@ protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& pro
 {}
 
 template<typename Serializer, typename MsgType>
-protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& proto, seastar::socket socket, ipv4_addr addr, ipv4_addr local)
+protocol<Serializer, MsgType>::client::client(protocol<Serializer, MsgType>& proto, socket socket, ipv4_addr addr, ipv4_addr local)
     : client(proto, client_options{}, std::move(socket), addr, local)
 {}
+
+}
 
 }

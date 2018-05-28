@@ -102,6 +102,11 @@ public:
     size_t get_count() const {
         return _count;
     }
+
+    /// Returns whether the gate is closed.
+    bool is_closed() const {
+        return bool(_stopped);
+    }
 };
 
 /// Executes the function \c func making sure the gate \c g is properly entered
@@ -117,7 +122,7 @@ inline
 auto
 with_gate(gate& g, Func&& func) {
     g.enter();
-    return func().finally([&g] { g.leave(); });
+    return futurize_apply(std::forward<Func>(func)).finally([&g] { g.leave(); });
 }
 /// @}
 

@@ -25,6 +25,8 @@
 #include "core/reactor.hh"
 #include "core/metrics_api.hh"
 
+namespace seastar {
+
 namespace scollectd {
 
 using namespace std::chrono_literals;
@@ -84,3 +86,5 @@ private:
 impl & get_impl();
 
 };
+
+}

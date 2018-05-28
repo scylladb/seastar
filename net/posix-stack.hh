@@ -23,12 +23,77 @@
 #define POSIX_STACK_HH_
 
 #include "core/reactor.hh"
+#include "core/sharded.hh"
 #include "stack.hh"
 #include <boost/program_options.hpp>
+
+namespace seastar {
 
 namespace net {
 
 using namespace seastar;
+
+// We can't keep this in any of the socket servers as instance members, because a connection can
+// outlive the socket server. To avoid having the whole socket_server tracked as a shared pointer,
+// we will have a conntrack structure.
+//
+// Right now this class is used by the posix_server_socket_impl, but it could be used by any other.
+class conntrack {
+    class load_balancer {
+        std::vector<unsigned> _cpu_load;
+    public:
+        load_balancer() : _cpu_load(size_t(smp::count), 0) {}
+        void closed_cpu(shard_id cpu) {
+            _cpu_load[cpu]--;
+        }
+        shard_id next_cpu() {
+            // FIXME: The naive algorithm will just round robin the connections around the shards.
+            // A more complex version can keep track of the amount of activity in each connection,
+            // and use that information.
+            auto min_el = std::min_element(_cpu_load.begin(), _cpu_load.end());
+            auto cpu = shard_id(std::distance(_cpu_load.begin(), min_el));
+            _cpu_load[cpu]++;
+            return cpu;
+        }
+    };
+
+    lw_shared_ptr<load_balancer> _lb;
+    void closed_cpu(shard_id cpu) {
+        _lb->closed_cpu(cpu);
+    }
+public:
+    class handle {
+        shard_id _host_cpu;
+        shard_id _target_cpu;
+        foreign_ptr<lw_shared_ptr<load_balancer>> _lb;
+    public:
+        handle() : _lb(nullptr) {}
+        handle(shard_id cpu, lw_shared_ptr<load_balancer> lb)
+            : _host_cpu(engine().cpu_id())
+            , _target_cpu(cpu)
+            , _lb(make_foreign(std::move(lb))) {}
+
+        handle(const handle&) = delete;
+        handle(handle&&) = default;
+        ~handle() {
+            if (!_lb) {
+                return;
+            }
+            smp::submit_to(_host_cpu, [cpu = _target_cpu, lb = std::move(_lb)] {
+                lb->closed_cpu(cpu);
+            });
+        }
+        shard_id cpu() {
+            return _target_cpu;
+        }
+    };
+    friend class handle;
+
+    conntrack() : _lb(make_lw_shared<load_balancer>()) {}
+    handle get_handle() {
+        return handle(_lb->next_cpu(), _lb);
+    }
+};
 
 class posix_data_source_impl final : public data_source_impl {
     lw_shared_ptr<pollable_fd> _fd;
@@ -65,7 +130,7 @@ public:
     explicit posix_ap_server_socket_impl(socket_address sa) : _sa(sa) {}
     virtual future<connected_socket, socket_address> accept() override;
     virtual void abort_accept() override;
-    static void move_connected_socket(socket_address sa, pollable_fd fd, socket_address addr);
+    static void move_connected_socket(socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle);
 };
 using posix_tcp_ap_server_socket_impl = posix_ap_server_socket_impl<transport::TCP>;
 using posix_sctp_ap_server_socket_impl = posix_ap_server_socket_impl<transport::SCTP>;
@@ -74,6 +139,7 @@ template <transport Transport>
 class posix_server_socket_impl : public server_socket_impl {
     socket_address _sa;
     pollable_fd _lfd;
+    conntrack _conntrack;
 public:
     explicit posix_server_socket_impl(socket_address sa, pollable_fd lfd) : _sa(sa), _lfd(std::move(lfd)) {}
     virtual future<connected_socket, socket_address> accept();
@@ -101,7 +167,7 @@ public:
     explicit posix_network_stack(boost::program_options::variables_map opts) : _reuseport(engine().posix_reuseport_available()) {}
     virtual server_socket listen(socket_address sa, listen_options opts) override;
     virtual ::seastar::socket socket() override;
-    virtual ::net::udp_channel make_udp_channel(ipv4_addr addr) override;
+    virtual net::udp_channel make_udp_channel(ipv4_addr addr) override;
     static future<std::unique_ptr<network_stack>> create(boost::program_options::variables_map opts) {
         return make_ready_future<std::unique_ptr<network_stack>>(std::unique_ptr<network_stack>(new posix_network_stack(opts)));
     }
@@ -118,6 +184,8 @@ public:
         return make_ready_future<std::unique_ptr<network_stack>>(std::unique_ptr<network_stack>(new posix_ap_network_stack(opts)));
     }
 };
+
+}
 
 }
 

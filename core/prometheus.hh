@@ -23,6 +23,8 @@
 
 #include "http/httpd.hh"
 
+namespace seastar {
+
 namespace prometheus {
 
 /*!
@@ -35,4 +37,12 @@ struct config {
 };
 
 future<> start(httpd::http_server_control& http_server, config ctx);
+
+/// \defgroup add_prometheus_routes adds a /metrics endpoint that returns prometheus metrics
+///    both in txt format and in protobuf according to the prometheus spec
+/// @{
+future<> add_prometheus_routes(distributed<http_server>& server, config ctx);
+future<> add_prometheus_routes(http_server& server, config ctx);
+/// @}
+}
 }

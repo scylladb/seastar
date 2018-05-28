@@ -48,11 +48,12 @@
 #define VERSION "v1.0"
 #define VERSION_STRING PLATFORM " " VERSION
 
+using namespace seastar;
 using namespace net;
 
-namespace bi = boost::intrusive;
-
 namespace memcache {
+
+namespace bi = boost::intrusive;
 
 static constexpr double default_slab_growth_factor = 1.25;
 static constexpr uint64_t default_slab_page_size = 1UL*MB;
@@ -940,78 +941,78 @@ private:
     future<> print_stats(output_stream<char>& out) {
         return _cache.stats().then([this, &out] (auto stats) {
             return _system_stats.map_reduce(adder<system_stats>(), &system_stats::self)
-                .then([this, &out, all_cache_stats = std::move(stats)] (auto all_system_stats) -> future<> {
+                .then([&out, all_cache_stats = std::move(stats)] (auto all_system_stats) -> future<> {
                     auto now = clock_type::now();
                     auto total_items = all_cache_stats._set_replaces + all_cache_stats._set_adds
                         + all_cache_stats._cas_hits;
                     return print_stat(out, "pid", getpid())
-                        .then([this, now, &out, uptime = now - all_system_stats._start_time] {
+                        .then([&out, uptime = now - all_system_stats._start_time] {
                             return print_stat(out, "uptime",
                                 std::chrono::duration_cast<std::chrono::seconds>(uptime).count());
-                        }).then([this, now, &out] {
+                        }).then([now, &out] {
                             return print_stat(out, "time",
                                 std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count());
-                        }).then([this, &out] {
+                        }).then([&out] {
                             return print_stat(out, "version", VERSION_STRING);
-                        }).then([this, &out] {
+                        }).then([&out] {
                             return print_stat(out, "pointer_size", sizeof(void*)*8);
-                        }).then([this, &out, v = all_system_stats._curr_connections] {
+                        }).then([&out, v = all_system_stats._curr_connections] {
                             return print_stat(out, "curr_connections", v);
-                        }).then([this, &out, v = all_system_stats._total_connections] {
+                        }).then([&out, v = all_system_stats._total_connections] {
                             return print_stat(out, "total_connections", v);
-                        }).then([this, &out, v = all_system_stats._curr_connections] {
+                        }).then([&out, v = all_system_stats._curr_connections] {
                             return print_stat(out, "connection_structures", v);
-                        }).then([this, &out, v = all_system_stats._cmd_get] {
+                        }).then([&out, v = all_system_stats._cmd_get] {
                             return print_stat(out, "cmd_get", v);
-                        }).then([this, &out, v = all_system_stats._cmd_set] {
+                        }).then([&out, v = all_system_stats._cmd_set] {
                             return print_stat(out, "cmd_set", v);
-                        }).then([this, &out, v = all_system_stats._cmd_flush] {
+                        }).then([&out, v = all_system_stats._cmd_flush] {
                             return print_stat(out, "cmd_flush", v);
-                        }).then([this, &out] {
+                        }).then([&out] {
                             return print_stat(out, "cmd_touch", 0);
-                        }).then([this, &out, v = all_cache_stats._get_hits] {
+                        }).then([&out, v = all_cache_stats._get_hits] {
                             return print_stat(out, "get_hits", v);
-                        }).then([this, &out, v = all_cache_stats._get_misses] {
+                        }).then([&out, v = all_cache_stats._get_misses] {
                             return print_stat(out, "get_misses", v);
-                        }).then([this, &out, v = all_cache_stats._delete_misses] {
+                        }).then([&out, v = all_cache_stats._delete_misses] {
                             return print_stat(out, "delete_misses", v);
-                        }).then([this, &out, v = all_cache_stats._delete_hits] {
+                        }).then([&out, v = all_cache_stats._delete_hits] {
                             return print_stat(out, "delete_hits", v);
-                        }).then([this, &out, v = all_cache_stats._incr_misses] {
+                        }).then([&out, v = all_cache_stats._incr_misses] {
                             return print_stat(out, "incr_misses", v);
-                        }).then([this, &out, v = all_cache_stats._incr_hits] {
+                        }).then([&out, v = all_cache_stats._incr_hits] {
                             return print_stat(out, "incr_hits", v);
-                        }).then([this, &out, v = all_cache_stats._decr_misses] {
+                        }).then([&out, v = all_cache_stats._decr_misses] {
                             return print_stat(out, "decr_misses", v);
-                        }).then([this, &out, v = all_cache_stats._decr_hits] {
+                        }).then([&out, v = all_cache_stats._decr_hits] {
                             return print_stat(out, "decr_hits", v);
-                        }).then([this, &out, v = all_cache_stats._cas_misses] {
+                        }).then([&out, v = all_cache_stats._cas_misses] {
                             return print_stat(out, "cas_misses", v);
-                        }).then([this, &out, v = all_cache_stats._cas_hits] {
+                        }).then([&out, v = all_cache_stats._cas_hits] {
                             return print_stat(out, "cas_hits", v);
-                        }).then([this, &out, v = all_cache_stats._cas_badval] {
+                        }).then([&out, v = all_cache_stats._cas_badval] {
                             return print_stat(out, "cas_badval", v);
-                        }).then([this, &out] {
+                        }).then([&out] {
                             return print_stat(out, "touch_hits", 0);
-                        }).then([this, &out] {
+                        }).then([&out] {
                             return print_stat(out, "touch_misses", 0);
-                        }).then([this, &out] {
+                        }).then([&out] {
                             return print_stat(out, "auth_cmds", 0);
-                        }).then([this, &out] {
+                        }).then([&out] {
                             return print_stat(out, "auth_errors", 0);
-                        }).then([this, &out] {
+                        }).then([&out] {
                             return print_stat(out, "threads", smp::count);
-                        }).then([this, &out, v = all_cache_stats._size] {
+                        }).then([&out, v = all_cache_stats._size] {
                             return print_stat(out, "curr_items", v);
-                        }).then([this, &out, v = total_items] {
+                        }).then([&out, v = total_items] {
                             return print_stat(out, "total_items", v);
-                        }).then([this, &out, v = all_cache_stats._expired] {
+                        }).then([&out, v = all_cache_stats._expired] {
                             return print_stat(out, "seastar.expired", v);
-                        }).then([this, &out, v = all_cache_stats._resize_failure] {
+                        }).then([&out, v = all_cache_stats._resize_failure] {
                             return print_stat(out, "seastar.resize_failure", v);
-                        }).then([this, &out, v = all_cache_stats._evicted] {
+                        }).then([&out, v = all_cache_stats._evicted] {
                             return print_stat(out, "evictions", v);
-                        }).then([this, &out, v = all_cache_stats._bytes] {
+                        }).then([&out, v = all_cache_stats._bytes] {
                             return print_stat(out, "bytes", v);
                         }).then([&out] {
                             return out.write(msg_end);
@@ -1355,7 +1356,7 @@ public:
         keep_doing([this] {
             return _listener->accept().then([this] (connected_socket fd, socket_address addr) mutable {
                 auto conn = make_lw_shared<connection>(std::move(fd), addr, _cache, _system_stats);
-                do_until([conn] { return conn->_in.eof(); }, [this, conn] {
+                do_until([conn] { return conn->_in.eof(); }, [conn] {
                     return conn->_proto.handle(conn->_in, conn->_out).then([conn] {
                         return conn->_out.flush();
                     });
@@ -1379,7 +1380,7 @@ public:
 
     void start() {
         _timer.set_callback([this] {
-            _cache.stats().then([this] (auto stats) {
+            _cache.stats().then([] (auto stats) {
                 auto gets_total = stats._get_hits + stats._get_misses;
                 auto get_hit_rate = gets_total ? ((double)stats._get_hits * 100 / gets_total) : 0;
                 auto sets_total = stats._set_adds + stats._set_replaces;

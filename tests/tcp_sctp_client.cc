@@ -23,8 +23,8 @@
 #include "core/future-util.hh"
 #include "core/distributed.hh"
 
-using namespace net;
 using namespace seastar;
+using namespace net;
 using namespace std::chrono_literals;
 
 static int rx_msg_size = 4 * 1024;
@@ -77,7 +77,7 @@ public:
             if (end == 0) {
                 return make_ready_future();
             }
-            return _write_buf.write(str_txbuf).then([this, end] {
+            return _write_buf.write(str_txbuf).then([this] {
                 _bytes_write += tx_msg_size;
                 return _write_buf.flush();
             }).then([this, end] {
@@ -208,9 +208,9 @@ public:
 
         for (unsigned i = 0; i < ncon; i++) {
             socket_address local = socket_address(::sockaddr_in{AF_INET, INADDR_ANY, {0}});
-            engine().net().connect(make_ipv4_address(server_addr), local, protocol).then([this, server_addr, test] (connected_socket fd) {
+            engine().net().connect(make_ipv4_address(server_addr), local, protocol).then([this, test] (connected_socket fd) {
                 auto conn = new connection(std::move(fd));
-                (this->*tests.at(test))(conn).then_wrapped([this, conn] (auto&& f) {
+                (this->*tests.at(test))(conn).then_wrapped([conn] (auto&& f) {
                     delete conn;
                     try {
                         f.get();

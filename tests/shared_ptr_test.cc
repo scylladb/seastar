@@ -28,6 +28,8 @@
 #include "core/sstring.hh"
 #include "core/shared_ptr.hh"
 
+using namespace seastar;
+
 struct expected_exception : public std::exception {};
 
 struct A {

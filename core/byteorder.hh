@@ -25,6 +25,8 @@
 #include <endian.h>
 #include "unaligned.hh"
 
+namespace seastar {
+
 inline uint8_t cpu_to_le(uint8_t x) { return x; }
 inline uint8_t le_to_cpu(uint8_t x) { return x; }
 inline uint16_t cpu_to_le(uint16_t x) { return htole16(x); }
@@ -120,4 +122,6 @@ void
 produce_be(char*& p, T datum) {
     write_be<T>(p, datum);
     p += sizeof(T);
+}
+
 }

@@ -29,6 +29,8 @@
 #include <deque>
 #include "core/circular_buffer.hh"
 
+using namespace seastar;
+
 BOOST_AUTO_TEST_CASE(chunked_fifo_small) {
     // Check all the methods of chunked_fifo but with a trivial type (int) and
     // only a few elements - and in particular a single chunk is enough.

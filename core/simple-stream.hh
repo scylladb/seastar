@@ -38,105 +38,118 @@ public:
 
 struct simple_stream_tag {};
 
+template<typename>
+class memory_output_stream;
+
+class simple_memory_output_stream {
+    char* _p = nullptr;
+    size_t _size = 0;
+public:
+    using has_with_stream = std::false_type;
+    simple_memory_output_stream() {}
+    simple_memory_output_stream(char* p, size_t size, size_t start = 0) : _p(p + start), _size(size) {}
+    char* begin() { return _p; }
+
+    [[gnu::always_inline]]
+    void skip(size_t size) {
+        if (size > _size) {
+            throw std::out_of_range("serialization buffer overflow");
+        }
+        _p += size;
+        _size -= size;
+    }
+
+    [[gnu::always_inline]]
+    simple_memory_output_stream write_substream(size_t size) {
+       if (size > _size) {
+           throw std::out_of_range("serialization buffer overflow");
+       }
+       simple_memory_output_stream substream(_p, size);
+       skip(size);
+       return substream;
+    }
+
+    [[gnu::always_inline]]
+    void write(const char* p, size_t size) {
+        if (size > _size) {
+            throw std::out_of_range("serialization buffer overflow");
+        }
+        std::copy_n(p, size, _p);
+        skip(size);
+    }
+
+    [[gnu::always_inline]]
+    const size_t size() const {
+        return _size;
+    }
+};
+
+template<typename Iterator>
+class fragmented_memory_output_stream {
+    using simple = simple_memory_output_stream ;
+
+    Iterator _it;
+    simple _current;
+    size_t _size;
+private:
+    template<typename Func>
+    //requires requires(Func f, view bv) { { f(bv) } -> void; }
+    void for_each_fragment(size_t size, Func&& func) {
+        if (size > _size) {
+            throw std::out_of_range("serialization buffer overflow");
+        }
+        _size -= size;
+        while (size) {
+            if (!_current.size()) {
+                _current = simple(reinterpret_cast<char*>((*_it).get_write()), (*_it).size());
+                _it++;
+            }
+            auto this_size = std::min(_current.size(), size);
+            func(_current.write_substream(this_size));
+            size -= this_size;
+        }
+    }
+    fragmented_memory_output_stream(Iterator it, simple_memory_output_stream bv, size_t size)
+        : _it(it), _current(bv), _size(size) { }
+public:
+    using has_with_stream = std::false_type;
+    using iterator_type = Iterator;
+    fragmented_memory_output_stream(Iterator it, size_t size)
+        : _it(it), _size(size) {
+    }
+
+    void skip(size_t size) {
+        for_each_fragment(size, [] (auto) { });
+    }
+    memory_output_stream<Iterator> write_substream(size_t size) {
+        if (size > _size) {
+            throw std::out_of_range("serialization buffer overflow");
+        }
+        if (_current.size() >= size) {
+            _size -= size;
+            return _current.write_substream(size);
+        }
+        fragmented_memory_output_stream substream(_it, _current, size);
+        skip(size);
+        return substream;
+    }
+    void write(const char* p, size_t size) {
+        for_each_fragment(size, [&p] (auto bv) {
+            std::copy_n(p, bv.size(), bv.begin());
+            p += bv.size();
+        });
+    }
+    const size_t size() const {
+        return _size;
+    }
+};
+
 template<typename Iterator>
 class memory_output_stream {
 public:
-    class simple {
-        char* _p = nullptr;
-        size_t _size = 0;
-    public:
-        using has_with_stream = std::false_type;
-        using iterator_type = Iterator;
-        simple() {}
-        simple(char* p, size_t size, size_t start = 0) : _p(p + start), _size(size) {}
-        char* begin() { return _p; }
+    using simple = simple_memory_output_stream;
+    using fragmented = fragmented_memory_output_stream<Iterator>;
 
-        [[gnu::always_inline]]
-        void skip(size_t size) {
-            if (size > _size) {
-                throw std::out_of_range("serialization buffer overflow");
-            }
-            _p += size;
-            _size -= size;
-        }
-
-        [[gnu::always_inline]]
-        simple write_substream(size_t size) {
-           if (size > _size) {
-               throw std::out_of_range("serialization buffer overflow");
-           }
-           simple substream(_p, size);
-           skip(size);
-           return substream;
-        }
-
-        [[gnu::always_inline]]
-        void write(const char* p, size_t size) {
-            if (size > _size) {
-                throw std::out_of_range("serialization buffer overflow");
-            }
-            std::copy_n(p, size, _p);
-            skip(size);
-        }
-
-        [[gnu::always_inline]]
-        const size_t size() const {
-            return _size;
-        }
-    };
-
-    class fragmented {
-        Iterator _it;
-        simple _current;
-        size_t _size;
-    private:
-        template<typename Func>
-        //requires requires(Func f, view bv) { { f(bv) } -> void; }
-        void for_each_fragment(size_t size, Func&& func) {
-            if (size > _size) {
-                throw std::out_of_range("serialization buffer overflow");
-            }
-            _size -= size;
-            while (size) {
-                if (!_current.size()) {
-                    _current = simple(reinterpret_cast<char*>((*_it).get_write()), (*_it).size());
-                    _it++;
-                }
-                auto this_size = std::min(_current.size(), size);
-                func(_current.write_substream(this_size));
-                size -= this_size;
-            }
-        }
-        fragmented(Iterator it, simple bv, size_t size)
-            : _it(it), _current(bv), _size(size) { }
-    public:
-        using has_with_stream = std::false_type;
-        using iterator_type = Iterator;
-        fragmented(Iterator it, size_t size)
-            : _it(it), _size(size) {
-        }
-
-        void skip(size_t size) {
-            for_each_fragment(size, [] (auto) { });
-        }
-        fragmented write_substream(size_t size) {
-            if (size > _size) {
-                throw std::out_of_range("serialization buffer overflow");
-            }
-            fragmented substream(_it, _current, size);
-            skip(size);
-            return substream;
-        }
-        void write(const char* p, size_t size) {
-            for_each_fragment(size, [&p] (auto bv) {
-                std::copy_n(p, bv.size(), bv.begin());
-                p += bv.size();
-            });
-        }
-        const size_t size() const {
-            return _size;
-        }
-    };
 private:
     const bool _is_simple;
     using fragmented_type = std::conditional_t<std::is_same<Iterator, simple_stream_tag>::value, simple, fragmented>;

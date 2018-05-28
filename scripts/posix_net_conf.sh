@@ -11,6 +11,8 @@
 # !        them all to CPU0. In this mode RPS is always enabled to
 # !        spreads NAPIs' handling between all CPUs.
 # !
+# !   --options-file <YAML file> - YAML file with perftune.py options
+# !
 # !  If there isn't any mode given script will use a default mode:
 # !     - If number of physical CPU cores per Rx HW queue is greater than 4 - use the '-sq' mode.
 # !     - Otherwise use the '-mq' mode.
@@ -51,6 +53,10 @@ parse_args()
                 CPU_FILTER_MASK="--cpu-mask $2"
                 shift
                 ;;
+            "--options-file")
+                OPTIONS_FILE="--options-file $2"
+                shift
+                ;;
             "-h"|"--help")
                 usage
                 exit 0
@@ -68,7 +74,8 @@ MQ_MODE=""
 CPU_FILTER_MASK=""
 CPU_MASK=""
 MY_DIR=`dirname $0`
+OPTIONS_FILE=""
 
 parse_args $@
 
-$MY_DIR/perftune.py --nic $IFACE $MQ_MODE $CPU_FILTER_MASK $CPU_MASK --tune net
+$MY_DIR/perftune.py --nic $IFACE $MQ_MODE $CPU_FILTER_MASK $CPU_MASK $OPTIONS_FILE --tune net

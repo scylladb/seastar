@@ -23,5 +23,10 @@
 
 #include "sharded.hh"
 
+namespace seastar {
+
+
 template <typename Service>
-using distributed = seastar::sharded<Service>;
+using distributed = sharded<Service>;
+
+}

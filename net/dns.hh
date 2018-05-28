@@ -31,6 +31,8 @@
 #include "../core/shared_ptr.hh"
 #include "inet_address.hh"
 
+namespace seastar {
+
 struct ipv4_addr;
 
 class socket_address;
@@ -42,7 +44,6 @@ class network_stack;
  *
  */
 
-namespace seastar {
 namespace net {
 
 /**
@@ -83,7 +84,7 @@ public:
     dns_resolver();
     dns_resolver(dns_resolver&&) noexcept;
     explicit dns_resolver(const options&);
-    explicit dns_resolver(::network_stack&, const options& = {});
+    explicit dns_resolver(network_stack&, const options& = {});
     ~dns_resolver();
 
     dns_resolver& operator=(dns_resolver&&) noexcept;
@@ -112,7 +113,7 @@ public:
     future<> close();
 private:
     class impl;
-    ::shared_ptr<impl> _impl;
+    shared_ptr<impl> _impl;
 };
 
 namespace dns {
@@ -128,4 +129,5 @@ future<sstring> resolve_addr(const inet_address&);
 }
 
 }
+
 }

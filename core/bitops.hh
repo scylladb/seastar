@@ -24,6 +24,8 @@
 
 #include <limits>
 
+namespace seastar {
+
 inline
 constexpr unsigned count_leading_zeros(unsigned x) {
     return __builtin_clz(x);
@@ -64,6 +66,8 @@ template<typename T>
 //requires stdx::is_integral_v<T>
 inline constexpr unsigned log2floor(T n) {
     return std::numeric_limits<T>::digits - count_leading_zeros(n) - 1;
+}
+
 }
 
 #endif /* BITOPS_HH_ */

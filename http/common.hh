@@ -25,6 +25,8 @@
 #include <unordered_map>
 #include "core/sstring.hh"
 
+namespace seastar {
+
 namespace httpd {
 
 
@@ -67,6 +69,8 @@ enum operation_type {
  * @return the operation_type
  */
 operation_type str2type(const sstring& type);
+
+}
 
 }
 

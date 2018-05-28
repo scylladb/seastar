@@ -30,6 +30,8 @@
 #include "core/print.hh"
 #include <unordered_map>
 
+namespace seastar {
+
 namespace net {
 
 class arp;
@@ -289,6 +291,8 @@ arp_for<L3>::handle_request(arp_hdr* ah) {
         send(ah->target_hwaddr, std::move(p));
     }
     return make_ready_future<>();
+}
+
 }
 
 }

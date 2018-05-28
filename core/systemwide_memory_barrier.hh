@@ -21,10 +21,17 @@
 
 #pragma once
 
+namespace seastar {
+
 /// \cond internal
 
 // cause all threads to invoke a full memory barrier
 void systemwide_memory_barrier();
-
+// attempt to invoke a systemwide memory barrier; return false
+// if doing so would cause lock contention in the kernel
+bool try_systemwide_memory_barrier();
 
 /// \endcond
+
+}
+

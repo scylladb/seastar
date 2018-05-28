@@ -28,6 +28,7 @@
 #include "future-util.hh"
 #include "timer.hh"
 #include "reactor.hh"
+#include "scheduling.hh"
 #include <memory>
 #include <setjmp.h>
 #include <type_traits>
@@ -70,7 +71,6 @@
 namespace seastar {
 
 namespace stdx = std::experimental;
-namespace bi = boost::intrusive;
 
 /// \addtogroup thread-module
 /// @{
@@ -82,7 +82,8 @@ class thread_scheduling_group;
 /// Class that holds attributes controling the behavior of a thread.
 class thread_attributes {
 public:
-    thread_scheduling_group* scheduling_group = nullptr;
+    thread_scheduling_group* scheduling_group = nullptr;  // FIXME: remove
+    stdx::optional<seastar::scheduling_group> sched_group;
 };
 
 
@@ -97,35 +98,42 @@ class thread_context {
         void operator()(char *ptr) const noexcept;
     };
     using stack_holder = std::unique_ptr<char[], stack_deleter>;
+    static constexpr size_t base_stack_size = 128*1024;
+
     thread_attributes _attr;
-    static constexpr size_t _stack_size = 128*1024;
+#ifdef SEASTAR_THREAD_STACK_GUARDS
+    const size_t _stack_size;
+#else
+    static constexpr size_t _stack_size = base_stack_size;
+#endif
     stack_holder _stack{make_stack()};
     std::function<void ()> _func;
     jmp_buf_link _context;
+    scheduling_group _scheduling_group;
     promise<> _done;
     bool _joined = false;
     timer<> _sched_timer{[this] { reschedule(); }};
     stdx::optional<promise<>> _sched_promise;
 
-    bi::list_member_hook<> _preempted_link;
-    using preempted_thread_list = bi::list<thread_context,
-        bi::member_hook<thread_context, bi::list_member_hook<>,
+    boost::intrusive::list_member_hook<> _preempted_link;
+    using preempted_thread_list = boost::intrusive::list<thread_context,
+        boost::intrusive::member_hook<thread_context, boost::intrusive::list_member_hook<>,
         &thread_context::_preempted_link>,
-        bi::constant_time_size<false>>;
+        boost::intrusive::constant_time_size<false>>;
 
-    bi::list_member_hook<> _all_link;
-    using all_thread_list = bi::list<thread_context,
-        bi::member_hook<thread_context, bi::list_member_hook<>,
+    boost::intrusive::list_member_hook<> _all_link;
+    using all_thread_list = boost::intrusive::list<thread_context,
+        boost::intrusive::member_hook<thread_context, boost::intrusive::list_member_hook<>,
         &thread_context::_all_link>,
-        bi::constant_time_size<false>>;
+        boost::intrusive::constant_time_size<false>>;
 
     static thread_local preempted_thread_list _preempted_threads;
     static thread_local all_thread_list _all_threads;
 private:
-    static void s_main(unsigned int lo, unsigned int hi);
+    static void s_main(int lo, int hi); // all parameters MUST be 'int' for makecontext
     void setup();
     void main();
-    static stack_holder make_stack();
+    stack_holder make_stack();
 public:
     thread_context(thread_attributes attr, std::function<void ()> func);
     ~thread_context();
@@ -137,6 +145,7 @@ public:
     friend class thread;
     friend void thread_impl::switch_in(thread_context*);
     friend void thread_impl::switch_out(thread_context*);
+    friend scheduling_group thread_impl::sched_group(const thread_context*);
 };
 
 /// \endcond
@@ -193,10 +202,10 @@ public:
     static bool should_yield();
 
     static bool running_in_thread() {
-        return seastar::thread_impl::get() != nullptr;
+        return thread_impl::get() != nullptr;
     }
 private:
-    friend class ::reactor;
+    friend class reactor;
     // To be used by seastar reactor only.
     static bool try_run_one_yielded_thread();
 };

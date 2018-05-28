@@ -23,12 +23,51 @@
 #include "handlers.hh"
 #include "json/formatter.hh"
 #include "transformers.hh"
+#include "core/reactor.hh"
+#include "core/fstream.hh"
+#include "http/transformers.hh"
 
 using namespace std;
 
+namespace seastar {
+
 namespace httpd {
 
-const sstring api_registry_builder::DEFAULT_PATH = "/api-doc";
-const sstring api_registry_builder::DEFAULT_DIR = ".";
+const sstring api_registry_builder_base::DEFAULT_PATH = "/api-doc";
+const sstring api_registry_builder_base::DEFAULT_DIR = ".";
+
+doc_entry get_file_reader(sstring file_name) {
+    return [file_name] (output_stream<char>& os) {
+        return open_file_dma(file_name, open_flags::ro).then([&os] (file f) mutable {
+            return do_with(input_stream<char>(make_file_input_stream(std::move(f))), [&os](input_stream<char>& is) {
+                return copy(is, os).then([&is] {
+                    return is.close();
+                });
+            });
+        });
+    };
+}
+
+future<> api_docs_20::write(output_stream<char>&& os, std::unique_ptr<request> req) {
+    return do_with(output_stream<char>(_transform.transform(std::move(req), "", std::move(os))), [this] (output_stream<char>& os) {
+        return do_for_each(_apis, [&os](doc_entry& api) {
+            return api(os);
+        }).then([&os] {
+            return os.write("},\"definitions\": {");
+        }).then([this, &os] {
+            return do_for_each(_definitions, [&os](doc_entry& api) {
+                return api(os);
+            });
+        }).then([&os] {
+            return os.write("}}");
+        }).then([&os] {
+            return os.flush();
+        }).finally([&os] {
+            return os.close();
+        });
+    });
+}
+
+}
 
 }

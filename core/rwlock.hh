@@ -24,6 +24,8 @@
 
 #include "semaphore.hh"
 
+namespace seastar {
+
 /// \cond internal
 // lock / unlock semantics for rwlock, so it can be used with with_lock()
 class rwlock;
@@ -117,6 +119,44 @@ public:
     bool try_write_lock() {
         return _sem.try_wait(max_ops);
     }
+
+    using holder = semaphore_units<semaphore_default_exception_factory>;
+
+    /// hold_read_lock() waits for a read lock and returns an object which,
+    /// when destroyed, releases the lock. This makes it easy to ensure that
+    /// the lock is eventually undone, at any circumstance (even including
+    /// exceptions). The release() method can be used on the returned object
+    /// to release its ownership of the lock and avoid the automatic unlock.
+    /// Note that both hold_read_lock() and hold_write_lock() return an object
+    /// of the same type, rwlock::holder.
+    ///
+    /// hold_read_lock() may throw an exception (or, in other implementations,
+    /// return an exceptional future) when it failed to obtain the lock -
+    /// e.g., on allocation failure.
+    future<holder> hold_read_lock() {
+        return get_units(_sem, 1);
+    }
+
+    /// hold_write_lock() waits for a write lock and returns an object which,
+    /// when destroyed, releases the lock. This makes it easy to ensure that
+    /// the lock is eventually undone, at any circumstance (even including
+    /// exceptions). The release() method can be used on the returned object
+    /// to release its ownership of the lock and avoid the automatic unlock.
+    /// Note that both hold_read_lock() and hold_write_lock() return an object
+    /// of the same type, rwlock::holder.
+    ///
+    /// hold_read_lock() may throw an exception (or, in other implementations,
+    /// return an exceptional future) when it failed to obtain the lock -
+    /// e.g., on allocation failure.
+    future<holder> hold_write_lock() {
+        return get_units(_sem, max_ops);
+    }
+
+    /// Checks if any read or write locks are currently held.
+    bool locked() const {
+        return _sem.available_units() != max_ops;
+    }
+
     friend class rwlock_for_read;
     friend class rwlock_for_write;
 };
@@ -140,5 +180,7 @@ inline void rwlock_for_write::unlock() {
 /// \endcond
 
 /// @}
+
+}
 
 #endif /* CORE_RWLOCK_HH_ */

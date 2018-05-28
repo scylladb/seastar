@@ -29,6 +29,8 @@
 #include "timer.hh"
 #include "expiring_fifo.hh"
 
+namespace seastar {
+
 /// \addtogroup fiber-module
 /// @{
 
@@ -361,6 +363,30 @@ get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, typename 
     });
 }
 
+/// \brief Take units from semaphore temporarily with time bound on wait
+///
+/// Like \ref get_units(basic_semaphore<ExceptionFactory>&, size_t, basic_semaphore<ExceptionFactory>::time_point) but
+/// allow the timeout to be specified as a duration.
+///
+/// \param sem The semaphore to take units from
+/// \param units  Number of units to take
+/// \param timeout a duration specifying when to timeout the current request
+/// \return a \ref future<> holding \ref semaphore_units object. When the object goes out of scope
+///         the units are returned to the semaphore.
+///
+/// \note The caller must guarantee that \c sem is valid as long as
+///      \ref seaphore_units object is alive.
+///
+/// \related semaphore
+template<typename ExceptionFactory>
+future<semaphore_units<ExceptionFactory>>
+get_units(basic_semaphore<ExceptionFactory>& sem, size_t units, typename basic_semaphore<ExceptionFactory>::duration timeout) {
+    return sem.wait(timeout, units).then([&sem, units] {
+        return semaphore_units<ExceptionFactory>{ sem, units };
+    });
+}
+
+
 /// \brief Consume units from semaphore temporarily
 ///
 /// Consume units from the semaphore and returns them when the \ref semaphore_units object goes out of scope.
@@ -410,10 +436,46 @@ with_semaphore(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, Func
     });
 }
 
+/// \brief Runs a function protected by a semaphore with time bound on wait
+///
+/// If possible, acquires a \ref semaphore, runs a function, and releases
+/// the semaphore, returning the the return value of the function,
+/// as a \ref future.
+///
+/// If the semaphore can't be acquired within the specified timeout, returns
+/// a semaphore_timed_out exception
+///
+/// \param sem The semaphore to be held while the \c func is
+///            running.
+/// \param units  Number of units to acquire from \c sem (as
+///               with semaphore::wait())
+/// \param timeout a duration specifying when to timeout the current request
+/// \param func   The function to run; signature \c void() or
+///               \c future<>().
+/// \return a \ref future<> holding the function's return value
+///         or exception thrown; or a \ref future<> containing
+///         an exception from one of the semaphore::broken()
+///         variants.
+///
+/// \note The caller must guarantee that \c sem is valid until
+///       the future returned by with_semaphore() resolves.
+///
+/// \related semaphore
+template <typename ExceptionFactory, typename Func>
+inline
+futurize_t<std::result_of_t<Func()>>
+with_semaphore(basic_semaphore<ExceptionFactory>& sem, size_t units, typename basic_semaphore<ExceptionFactory>::duration timeout, Func&& func) {
+    return get_units(sem, units, timeout).then([func = std::forward<Func>(func)] (auto units) mutable {
+        return futurize_apply(std::forward<Func>(func)).finally([units = std::move(units)] {});
+    });
+}
+
 /// default basic_semaphore specialization that throws semaphore specific exceptions
 /// on error conditions.
 using semaphore = basic_semaphore<semaphore_default_exception_factory>;
 
 /// @}
+
+}
 
 #endif /* CORE_SEMAPHORE_HH_ */

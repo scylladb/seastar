@@ -18,19 +18,100 @@
 /*
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
+
+#include "fmt/time.h"
+
 #include "log.hh"
+#include "log-cli.hh"
+
 #include "core/array_map.hh"
 #include "core/reactor.hh"
-#include <cxxabi.h>
-#include <system_error>
+
+#include <boost/any.hpp>
+#include <boost/lexical_cast.hpp>
 #include <boost/range/adaptor/map.hpp>
-#include <map>
+#include <cxxabi.h>
 #include <syslog.h>
 
+#include <iostream>
+#include <map>
+#include <regex>
+#include <string>
+#include <system_error>
+#include <chrono>
+
+using namespace std::chrono_literals;
+
 namespace seastar {
-log_registry& logger_registry();
 
 thread_local uint64_t logging_failures = 0;
+
+void validate(boost::any& v,
+              const std::vector<std::string>& values,
+              logger_timestamp_style* target_type, int) {
+    using namespace boost::program_options;
+    validators::check_first_occurrence(v);
+    auto s = validators::get_single_string(values);
+    if (s == "none") {
+        v = logger_timestamp_style::none;
+        return;
+    } else if (s == "boot") {
+        v = logger_timestamp_style::boot;
+        return;
+    } else if (s == "real") {
+        v = logger_timestamp_style::real;
+        return;
+    }
+    throw validation_error(validation_error::invalid_option_value);
+}
+
+std::ostream& operator<<(std::ostream& os, logger_timestamp_style lts) {
+    switch (lts) {
+    case logger_timestamp_style::none: return os << "none";
+    case logger_timestamp_style::boot: return os << "boot";
+    case logger_timestamp_style::real: return os << "real";
+    default: abort();
+    }
+    return os;
+}
+
+struct timestamp_tag {};
+
+static void print_no_timestamp(std::ostream& os) {
+}
+
+static void print_space_and_boot_timestamp(std::ostream& os) {
+    auto n = std::chrono::steady_clock::now().time_since_epoch() / 1us;
+    fmt::print(os, " {:10d}.{:06d}", n / 1000000, n % 1000000);
+}
+
+static void print_space_and_real_timestamp(std::ostream& os) {
+    struct a_second {
+        time_t t;
+        std::string s;
+    };
+    static thread_local a_second this_second;
+    using clock = std::chrono::high_resolution_clock;
+    auto n = clock::now();
+    auto t = clock::to_time_t(n);
+    if (this_second.t != t) {
+        this_second.s = fmt::format("{:%Y-%m-%d %T}", fmt::localtime(t));
+        this_second.t = t;
+    }
+    auto ms = (n - clock::from_time_t(t)) / 1ms;
+    fmt::print(os, " {},{:03d}", this_second.s, ms);
+}
+
+static void (*print_timestamp)(std::ostream&) = print_no_timestamp;
+
+static inline timestamp_tag space_and_current_timestamp() {
+    return timestamp_tag{};
+}
+
+std::ostream& operator<<(std::ostream& os, timestamp_tag) {
+    print_timestamp(os);
+    return os;
+}
 
 const std::map<log_level, sstring> log_level_names = {
         { log_level::trace, "trace" },
@@ -39,9 +120,6 @@ const std::map<log_level, sstring> log_level_names = {
         { log_level::warn, "warn" },
         { log_level::error, "error" },
 };
-}
-
-using namespace seastar;
 
 std::ostream& operator<<(std::ostream& out, log_level level) {
     return out << log_level_names.at(level);
@@ -63,21 +141,19 @@ std::istream& operator>>(std::istream& in, log_level& level) {
     return in;
 }
 
-namespace seastar {
-
 std::atomic<bool> logger::_stdout = { true };
 std::atomic<bool> logger::_syslog = { false };
 
 logger::logger(sstring name) : _name(std::move(name)) {
-    logger_registry().register_logger(this);
+    global_logger_registry().register_logger(this);
 }
 
 logger::logger(logger&& x) : _name(std::move(x._name)), _level(x._level.load(std::memory_order_relaxed)) {
-    logger_registry().moved(&x, this);
+    global_logger_registry().moved(&x, this);
 }
 
 logger::~logger() {
-    logger_registry().unregister_logger(this);
+    global_logger_registry().unregister_logger(this);
 }
 
 void
@@ -87,8 +163,7 @@ logger::really_do_log(log_level level, const char* fmt, stringer** s, size_t n) 
     if(!is_stdout_enabled && !is_syslog_enabled) {
       return;
     }
-    int syslog_offset = 0;
-    std::ostringstream out;
+    std::ostringstream out, log;
     static array_map<sstring, 20> level_map = {
             { int(log_level::debug), "DEBUG" },
             { int(log_level::info),  "INFO "  },
@@ -96,25 +171,14 @@ logger::really_do_log(log_level level, const char* fmt, stringer** s, size_t n) 
             { int(log_level::warn),  "WARN "  },
             { int(log_level::error), "ERROR" },
     };
-    out << level_map[int(level)];
-    syslog_offset += 5;
-    if (_stdout.load(std::memory_order_relaxed)) {
-        auto now = std::chrono::system_clock::now();
-        auto residual_millis =
-                std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000;
-        auto tm = std::chrono::system_clock::to_time_t(now);
-        char tmp[100];
-        strftime(tmp, sizeof(tmp), " %Y-%m-%d %T", std::localtime(&tm));
-        out << tmp << sprint(",%03d", residual_millis);
-        syslog_offset += 24;
-    }
-    if (local_engine) {
+    auto print_once = [&] (std::ostream& out) {
+      if (local_engine) {
         out << " [shard " << engine().cpu_id() << "] " << _name << " - ";
-    } else {
+      } else {
         out << " " << _name << " - ";
-    }
-    const char* p = fmt;
-    while (*p != '\0') {
+      }
+      const char* p = fmt;
+      while (*p != '\0') {
         if (*p == '{' && *(p+1) == '}') {
             p += 2;
             if (n > 0) {
@@ -131,13 +195,16 @@ logger::really_do_log(log_level level, const char* fmt, stringer** s, size_t n) 
         } else {
             out << *p++;
         }
-    }
-    out << "\n";
-    auto msg = out.str();
+      }
+      out << "\n";
+    };
     if (is_stdout_enabled) {
-        std::cout << msg;
+        out << level_map[int(level)] << space_and_current_timestamp();
+        print_once(out);
+        std::cout << out.str();
     }
     if (is_syslog_enabled) {
+        print_once(log);
         static array_map<int, 20> level_map = {
                 { int(log_level::debug), LOG_DEBUG },
                 { int(log_level::info), LOG_INFO },
@@ -151,7 +218,8 @@ logger::really_do_log(log_level level, const char* fmt, stringer** s, size_t n) 
         //       we'll have to implement some internal buffering (which
         //       still means the problem can happen, just less frequently).
         // syslog() interprets % characters, so send msg as a parameter
-        syslog(level_map[int(level)], "%s", msg.c_str() + syslog_offset);
+        auto msg = log.str();
+        syslog(level_map[int(level)], "%s", msg.c_str());
     }
 }
 
@@ -174,8 +242,12 @@ logger::set_syslog_enabled(bool enabled) {
     _syslog.store(enabled, std::memory_order_relaxed);
 }
 
+bool logger::is_shard_zero() {
+    return engine().cpu_id() == 0;
+}
+
 void
-log_registry::set_all_loggers_level(log_level level) {
+logger_registry::set_all_loggers_level(log_level level) {
     std::lock_guard<std::mutex> g(_mutex);
     for (auto&& l : _loggers | boost::adaptors::map_values) {
         l->set_level(level);
@@ -183,40 +255,74 @@ log_registry::set_all_loggers_level(log_level level) {
 }
 
 log_level
-log_registry::get_logger_level(sstring name) const {
+logger_registry::get_logger_level(sstring name) const {
     std::lock_guard<std::mutex> g(_mutex);
     return _loggers.at(name)->level();
 }
 
 void
-log_registry::set_logger_level(sstring name, log_level level) {
+logger_registry::set_logger_level(sstring name, log_level level) {
     std::lock_guard<std::mutex> g(_mutex);
     _loggers.at(name)->set_level(level);
 }
 
 std::vector<sstring>
-log_registry::get_all_logger_names() {
+logger_registry::get_all_logger_names() {
     std::lock_guard<std::mutex> g(_mutex);
     auto ret = _loggers | boost::adaptors::map_keys;
     return std::vector<sstring>(ret.begin(), ret.end());
 }
 
 void
-log_registry::register_logger(logger* l) {
+logger_registry::register_logger(logger* l) {
     std::lock_guard<std::mutex> g(_mutex);
+    if (_loggers.find(l->name()) != _loggers.end()) {
+        throw std::runtime_error(sprint("Logger '%s' registered twice", l->name()));
+    }
     _loggers[l->name()] = l;
 }
 
 void
-log_registry::unregister_logger(logger* l) {
+logger_registry::unregister_logger(logger* l) {
     std::lock_guard<std::mutex> g(_mutex);
     _loggers.erase(l->name());
 }
 
 void
-log_registry::moved(logger* from, logger* to) {
+logger_registry::moved(logger* from, logger* to) {
     std::lock_guard<std::mutex> g(_mutex);
     _loggers[from->name()] = to;
+}
+
+void apply_logging_settings(const logging_settings& s) {
+    global_logger_registry().set_all_loggers_level(s.default_level);
+
+    for (const auto& pair : s.logger_levels) {
+        try {
+            global_logger_registry().set_logger_level(pair.first, pair.second);
+        } catch (const std::out_of_range&) {
+            throw std::runtime_error(
+                        seastar::sprint("Unknown logger '%s'. Use --help-loggers to list available loggers.",
+                                        pair.first));
+        }
+    }
+
+    logger::set_stdout_enabled(s.stdout_enabled);
+    logger::set_syslog_enabled(s.syslog_enabled);
+
+    switch (s.stdout_timestamp_style) {
+    case logger_timestamp_style::none:
+        print_timestamp = print_no_timestamp;
+        break;
+    case logger_timestamp_style::boot:
+        print_timestamp = print_space_and_boot_timestamp;
+        break;
+    case logger_timestamp_style::real:
+        print_timestamp = print_space_and_real_timestamp;
+        break;
+    default:
+        break;
+    }
 }
 
 sstring pretty_type_name(const std::type_info& ti) {
@@ -226,13 +332,79 @@ sstring pretty_type_name(const std::type_info& ti) {
     return result.get() ? result.get() : ti.name();
 }
 
-log_registry& logger_registry() {
-    static log_registry g_registry;
+logger_registry& global_logger_registry() {
+    static logger_registry g_registry;
     return g_registry;
 }
 
 sstring level_name(log_level level) {
     return  log_level_names.at(level);
+}
+
+namespace log_cli {
+
+namespace bpo = boost::program_options;
+
+log_level parse_log_level(const sstring& s) {
+    try {
+        return boost::lexical_cast<log_level>(s.c_str());
+    } catch (const boost::bad_lexical_cast&) {
+        throw std::runtime_error(sprint("Unknown log level '%s'", s));
+    }
+}
+
+bpo::options_description get_options_description() {
+    bpo::options_description opts("Logging options");
+
+    opts.add_options()
+            ("default-log-level",
+             bpo::value<sstring>()->default_value("info"),
+             "Default log level for log messages. Valid values are trace, debug, info, warn, error."
+            )
+            ("logger-log-level",
+             bpo::value<program_options::string_map>()->default_value({}),
+             "Map of logger name to log level. The format is \"NAME0=LEVEL0[:NAME1=LEVEL1:...]\". "
+             "Valid logger names can be queried with --help-logging. "
+             "Valid values for levels are trace, debug, info, warn, error. "
+             "This option can be specified multiple times."
+            )
+            ("logger-stdout-timestamps", bpo::value<logger_timestamp_style>()->default_value(logger_timestamp_style::real),
+                    "Select timestamp style for stdout logs: none|boot|real")
+            ("log-to-stdout", bpo::value<bool>()->default_value(true), "Send log output to stdout.")
+            ("log-to-syslog", bpo::value<bool>()->default_value(false), "Send log output to syslog.")
+            ("help-loggers", bpo::bool_switch(), "Print a list of logger names and exit.");
+
+    return opts;
+}
+
+void print_available_loggers(std::ostream& os) {
+    auto names = global_logger_registry().get_all_logger_names();
+    // For quick searching by humans.
+    std::sort(names.begin(), names.end());
+
+    os << "Available loggers:\n";
+
+    for (auto&& name : names) {
+        os << "    " << name << '\n';
+    }
+}
+
+logging_settings extract_settings(const boost::program_options::variables_map& vars) {
+    const auto& raw_levels = vars["logger-log-level"].as<program_options::string_map>();
+
+    std::unordered_map<sstring, log_level> levels;
+    parse_logger_levels(raw_levels, std::inserter(levels, levels.begin()));
+
+    return logging_settings{
+        std::move(levels),
+        parse_log_level(vars["default-log-level"].as<sstring>()),
+        vars["log-to-stdout"].as<bool>(),
+        vars["log-to-syslog"].as<bool>(),
+        vars["logger-stdout-timestamps"].as<logger_timestamp_style>()
+    };
+
+}
+
 }
 
 }
@@ -241,8 +413,7 @@ template<>
 seastar::log_level lexical_cast(const std::string& source) {
     std::istringstream in(source);
     seastar::log_level level;
-    // Using the operator normall fails.
-    if (!::operator>>(in, level)) {
+    if (!(in >> level)) {
         throw boost::bad_lexical_cast();
     }
     return level;
@@ -273,6 +444,11 @@ std::ostream& operator<<(std::ostream& out, const std::exception_ptr& eptr) {
             out << " (error " << e.code() << ", " << e.code().message() << ")";
         } catch(const std::exception& e) {
             out << " (" << e.what() << ")";
+            try {
+                std::rethrow_if_nested(e);
+            } catch (...) {
+                out << ": " << std::current_exception();
+            }
         } catch(...) {
             // no extra info
         }

@@ -29,6 +29,8 @@
 #include "core/future-util.hh"
 #include <chrono>
 
+using namespace seastar;
+
 template <typename... Args>
 void http_debug(const char* fmt, Args&&... args) {
 #if HTTP_DEBUG
@@ -194,7 +196,7 @@ int main(int ac, char** av) {
         print("Server: %s\n", server);
         print("Connections: %u\n", total_conn);
         print("Requests/connection: %s\n", reqs_per_conn == 0 ? "dynamic (timer based)" : std::to_string(reqs_per_conn));
-        return http_clients->start(std::move(duration), std::move(total_conn), std::move(reqs_per_conn)).then([http_clients, started, server] {
+        return http_clients->start(std::move(duration), std::move(total_conn), std::move(reqs_per_conn)).then([http_clients, server] {
             return http_clients->invoke_on_all(&http_client::connect, ipv4_addr{server});
         }).then([http_clients] {
             return http_clients->invoke_on_all(&http_client::run);

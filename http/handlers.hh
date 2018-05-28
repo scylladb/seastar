@@ -29,6 +29,8 @@
 
 #include <unordered_map>
 
+namespace seastar {
+
 namespace httpd {
 
 typedef const httpd::request& const_req;
@@ -67,6 +69,8 @@ public:
     std::vector<sstring> _mandatory_param;
 
 };
+
+}
 
 }
 

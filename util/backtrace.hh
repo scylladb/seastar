@@ -24,11 +24,34 @@
 #define UNW_LOCAL_ONLY
 #include <libunwind.h>
 #include <iosfwd>
-#include <vector>
+#include <boost/container/static_vector.hpp>
 
-// Invokes func for each frame passing return address as argument.
+#include "core/sstring.hh"
+#include "core/print.hh"
+
+namespace seastar {
+
+struct shared_object {
+    sstring name;
+    uintptr_t begin;
+    uintptr_t end; // C++-style, last addr + 1
+};
+
+struct frame {
+    const shared_object* so;
+    uintptr_t addr;
+};
+
+bool operator==(const frame& a, const frame& b);
+
+
+// If addr doesn't seem to belong to any of the provided shared objects, it
+// will be considered as part of the executable.
+frame decorate(uintptr_t addr);
+
+// Invokes func for each frame passing it as argument.
 template<typename Func>
-void backtrace(Func&& func) noexcept(noexcept(func(0))) {
+void backtrace(Func&& func) noexcept(noexcept(func(frame()))) {
     unw_context_t context;
     if (unw_getcontext(&context) < 0) {
         return;
@@ -47,15 +70,18 @@ void backtrace(Func&& func) noexcept(noexcept(func(0))) {
         if (!ip) {
             break;
         }
-        func(ip);
+        func(decorate(ip - 1));
     }
 }
 
 class saved_backtrace {
-    std::vector<unw_word_t> _frames;
+public:
+    using vector_type = boost::container::static_vector<frame, 64>;
+private:
+    vector_type _frames;
 public:
     saved_backtrace() = default;
-    saved_backtrace(std::vector<unw_word_t> f) : _frames(std::move(f)) {}
+    saved_backtrace(vector_type f) : _frames(std::move(f)) {}
     size_t hash() const;
 
     friend std::ostream& operator<<(std::ostream& out, const saved_backtrace&);
@@ -69,15 +95,65 @@ public:
     }
 };
 
+}
+
 namespace std {
 
 template<>
-struct hash<::saved_backtrace> {
-    size_t operator()(const ::saved_backtrace& b) const {
+struct hash<seastar::saved_backtrace> {
+    size_t operator()(const seastar::saved_backtrace& b) const {
         return b.hash();
     }
 };
 
 }
 
-saved_backtrace current_backtrace();
+namespace seastar {
+
+saved_backtrace current_backtrace() noexcept;
+std::ostream& operator<<(std::ostream& out, const saved_backtrace& b);
+
+namespace internal {
+
+template<class Exc>
+class backtraced : public Exc {
+    std::shared_ptr<sstring> _backtrace;
+public:
+    template<typename... Args>
+    backtraced(Args&&... args)
+            : Exc(std::forward<Args>(args)...)
+            , _backtrace(std::make_shared<sstring>(sprint("%s Backtrace: %s", Exc::what(), current_backtrace()))) {}
+
+    /**
+     * Returns the original exception message with a backtrace appended to it
+     *
+     * @return original exception message followed by a backtrace
+     */
+    virtual const char* what() const noexcept override {
+        assert(_backtrace);
+        return _backtrace->c_str();
+    }
+};
+
+}
+
+    /**
+     * Throws an exception of unspecified type that is derived from the Exc type
+     * with a backtrace attached to its message
+     *
+     * @tparam Exc exception type to be caught at the receiving side
+     * @tparam Args types of arguments forwarded to the constructor of Exc
+     * @param args arguments forwarded to the constructor of Exc
+     * @return never returns (throws an exception)
+     */
+template <class Exc, typename... Args>
+[[noreturn]]
+void
+throw_with_backtrace(Args&&... args) {
+    using exc_type = std::decay_t<Exc>;
+    static_assert(std::is_base_of<std::exception, exc_type>::value,
+            "throw_with_backtrace only works with exception types");
+    throw internal::backtraced<exc_type>(std::forward<Args>(args)...);
+};
+
+}

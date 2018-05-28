@@ -23,6 +23,8 @@
 
 #include <chrono>
 
+namespace seastar {
+
 class manual_clock {
 public:
     using rep = int64_t;
@@ -39,3 +41,6 @@ public:
     }
     static void advance(duration d);
 };
+
+}
+

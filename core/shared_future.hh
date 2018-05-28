@@ -28,6 +28,8 @@
 /// \addtogroup future-module
 /// @{
 
+namespace seastar {
+
 /// Changes the clock used by shared_future<> and shared_promise<> when passed as the first template parameter.
 template<typename Clock>
 struct with_clock {};
@@ -146,6 +148,14 @@ private:
                 }
             }
         }
+
+        bool available() const noexcept {
+            return _future_state.available();
+        }
+
+        bool failed() const noexcept {
+            return _future_state.failed();
+        }
     };
     /// \endcond
     lw_shared_ptr<shared_state> _state;
@@ -173,6 +183,20 @@ public:
     /// This object must be in a valid state.
     future_type get_future(time_point timeout = time_point::max()) const {
         return _state->get_future(timeout);
+    }
+
+    /// \brief Returns true if the future is available (ready or failed)
+    ///
+    /// \note This object must be in a valid state.
+    bool available() const noexcept {
+        return _state->available();
+    }
+
+    /// \brief Returns true if the future is failed
+    ///
+    /// \note This object must be in a valid state.
+    bool failed() const noexcept {
+        return _state->failed();
     }
 
     /// \brief Equivalent to \ref get_future()
@@ -215,7 +239,7 @@ public:
     /// \brief Gets new future associated with this promise.
     /// If the promise is not resolved before timeout the returned future will resolve with \ref timed_out_error.
     /// This instance doesn't have to be kept alive until the returned future resolves.
-    future_type get_shared_future(time_point timeout = time_point::max()) {
+    future_type get_shared_future(time_point timeout = time_point::max()) const {
         return _shared_future.get_future(timeout);
     }
 
@@ -245,6 +269,18 @@ public:
     void set_exception(Exception&& e) noexcept {
         set_exception(make_exception_ptr(std::forward<Exception>(e)));
     }
+
+    /// \brief Returns true if the underlying future is available (ready or failed)
+    bool available() const noexcept {
+        return _shared_future.available();
+    }
+
+    /// \brief Returns true if the underlying future is  failed
+    bool failed() const noexcept {
+        return _shared_future.failed();
+    }
 };
 
 /// @}
+
+}

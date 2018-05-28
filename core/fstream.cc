@@ -27,6 +27,8 @@
 #include <malloc.h>
 #include <string.h>
 
+namespace seastar {
+
 class file_data_source_impl : public data_source_impl {
     struct issued_read {
         uint64_t _pos;
@@ -147,6 +149,15 @@ private:
         update_history(bytes, bytes);
         set_new_buffer_size(after_skip::yes);
     }
+    // Safely ignores read future even if it is not resolved yet.
+    void ignore_read_future(future<temporary_buffer<char>> read_future) {
+        if (read_future.available()) {
+            read_future.ignore_ready_future();
+            return;
+        }
+        auto f = read_future.then_wrapped([] (auto f) { f.ignore_ready_future(); });
+        _dropped_reads = _dropped_reads.then([f = std::move(f)] () mutable { return std::move(f); });
+    }
 public:
     file_data_source_impl(file f, uint64_t offset, uint64_t len, file_input_stream_options options)
             : _file(std::move(f)), _options(options), _pos(offset), _remain(len), _current_read_ahead(get_initial_read_ahead())
@@ -190,8 +201,7 @@ public:
                 });
                 break;
             } else {
-                auto f = front._ready.then_wrapped([] (auto f) { f.ignore_ready_future(); });
-                _dropped_reads = _dropped_reads.then([f = std::move(f)] () mutable { return std::move(f); });
+                ignore_read_future(std::move(front._ready));
                 n -= front._size;
                 dropped += front._size;
                 _reactor._io_stats.fstream_read_aheads_discarded += 1;
@@ -213,7 +223,7 @@ public:
                 _reactor._io_stats.fstream_read_aheads_discarded += 1;
                 _reactor._io_stats.fstream_read_ahead_discarded_bytes += c._size;
                 dropped += c._size;
-                c._ready.ignore_ready_future();
+                ignore_read_future(std::move(c._ready));
             }
             update_history_unused(dropped);
             return std::move(_dropped_reads);
@@ -377,7 +387,17 @@ public:
         }
 
         return _file.dma_write(pos, p, buf_size, _options.io_priority_class).then(
-                [this, buf = std::move(buf), truncate] (size_t size) {
+                [this, pos, buf = std::move(buf), truncate, buf_size] (size_t size) mutable {
+            // short write handling
+            if (size < buf_size) {
+                buf.trim_front(size);
+                return do_put(pos + size, std::move(buf)).then([this, truncate] {
+                    if (truncate) {
+                        return _file.truncate(_pos);
+                    }
+                    return make_ready_future<>();
+                });
+            }
             if (truncate) {
                 return _file.truncate(_pos);
             }
@@ -424,5 +444,13 @@ output_stream<char> make_file_output_stream(file f, size_t buffer_size) {
 
 output_stream<char> make_file_output_stream(file f, file_output_stream_options options) {
     return output_stream<char>(file_data_sink(std::move(f), options), options.buffer_size, true);
+}
+
+/*
+ * template initialization, definition in iostream-impl.hh
+ */
+template struct internal::stream_copy_consumer<char>;
+template future<> copy<char>(input_stream<char>&, output_stream<char>&);
+
 }
 

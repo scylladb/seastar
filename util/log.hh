@@ -47,11 +47,10 @@ enum class log_level {
     debug,
     trace,
 };
-}
 
-// Must exist logging namespace, or ADL gets confused in logger::stringer
-std::ostream& operator<<(std::ostream& out, seastar::log_level level);
-std::istream& operator>>(std::istream& in, seastar::log_level& level);
+std::ostream& operator<<(std::ostream& out, log_level level);
+std::istream& operator>>(std::istream& in, log_level& level);
+}
 
 // Boost doesn't auto-deduce the existence of the streaming operators for some reason
 
@@ -64,7 +63,7 @@ seastar::log_level lexical_cast(const std::string& source);
 namespace seastar {
 
 class logger;
-class log_registry;
+class logger_registry;
 
 /// \brief Logger class for stdout or syslog.
 ///
@@ -102,6 +101,8 @@ public:
     explicit logger(sstring name);
     logger(logger&& x);
     ~logger();
+
+    bool is_shard_zero();
 
     /// Test if desired log level is enabled
     ///
@@ -156,6 +157,18 @@ public:
     template <typename... Args>
     void info(const char* fmt, Args&&... args) {
         log(log_level::info, fmt, std::forward<Args>(args)...);
+    }
+    /// Log with info tag on shard zero only:
+    /// INFO  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
+    ///
+    /// \param fmt - printf style format
+    /// \param args - args to print string
+    ///
+    template <typename... Args>
+    void info0(const char* fmt, Args&&... args) {
+        if (is_shard_zero()) {
+            log(log_level::info, fmt, std::forward<Args>(args)...);
+        }
     }
     /// Log with info tag:
     /// DEBUG  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
@@ -215,7 +228,7 @@ public:
 /// this class is used to wrap around the static map
 /// that holds pointers to all logs
 ///
-class log_registry {
+class logger_registry {
     mutable std::mutex _mutex;
     std::unordered_map<sstring, logger*> _loggers;
 public:
@@ -258,6 +271,26 @@ public:
     void moved(logger* from, logger* to);
 };
 
+logger_registry& global_logger_registry();
+
+enum class logger_timestamp_style {
+    none,
+    boot,
+    real,
+};
+
+struct logging_settings final {
+    std::unordered_map<sstring, log_level> logger_levels;
+    log_level default_level;
+    bool stdout_enabled;
+    bool syslog_enabled;
+    logger_timestamp_style stdout_timestamp_style = logger_timestamp_style::real;
+};
+
+/// Shortcut for configuring the logging system all at once.
+///
+void apply_logging_settings(const logging_settings&);
+
 /// \cond internal
 
 extern thread_local uint64_t logging_failures;
@@ -265,8 +298,6 @@ extern thread_local uint64_t logging_failures;
 sstring pretty_type_name(const std::type_info&);
 
 sstring level_name(log_level level);
-
-log_registry& logger_registry();
 
 template <typename T>
 class logger_for : public logger {

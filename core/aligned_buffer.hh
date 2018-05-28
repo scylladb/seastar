@@ -24,6 +24,9 @@
 #include <stdexcept>
 #include "print.hh"
 
+namespace seastar {
+
+
 struct free_deleter {
     void operator()(void* p) { ::free(p); }
 };
@@ -45,3 +48,4 @@ std::unique_ptr<CharType[], free_deleter> allocate_aligned_buffer(size_t size, s
 }
 
 
+}

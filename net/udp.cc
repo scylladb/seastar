@@ -22,6 +22,8 @@
 #include "ip.hh"
 #include "stack.hh"
 
+namespace seastar {
+
 using namespace net;
 
 namespace net {
@@ -138,7 +140,7 @@ bool ipv4_udp::forward(forward_hash& out_hash_data, packet& p, size_t off)
 {
     auto uh = p.get_header<udp_hdr>(off);
 
-    if (!uh) {
+    if (uh) {
         out_hash_data.push_back(uh->src_port);
         out_hash_data.push_back(uh->dst_port);
     }
@@ -221,3 +223,6 @@ ipv4_udp::make_channel(ipv4_addr addr) {
 }
 
 } /* namespace net */
+
+}
+

@@ -26,8 +26,10 @@
 #include "function_traits.hh"
 #include "sstring.hh"
 #include "metrics.hh"
+#include "scheduling.hh"
 #include "util/reference_wrapper.hh"
 #include "util/gcc6-concepts.hh"
+#include "util/noncopyable_function.hh"
 #include "../util/defer.hh"
 
 namespace seastar {
@@ -120,13 +122,14 @@ public:
 protected:
     bool _empty = true;
     bool _flush_scheduled = false;
+    scheduling_group _sg;
     stats _stats;
     sstring _name;
     metrics::metric_group _metric_group;
 protected:
     virtual void do_flush() noexcept = 0;
 public:
-    explicit execution_stage(const sstring& name);
+    explicit execution_stage(const sstring& name, scheduling_group sg = {});
     virtual ~execution_stage();
 
     execution_stage(const execution_stage&) = delete;
@@ -157,7 +160,7 @@ public:
             return false;
         }
         _stats.tasks_scheduled++;
-        schedule(make_task([this] {
+        schedule(make_task(_sg, [this] {
             do_flush();
             _flush_scheduled = false;
         }));
@@ -241,28 +244,27 @@ public:
 /// \note The recommended way of creating execution stages is to use
 /// make_execution_stage().
 ///
-/// \tparam Function function object to be executed by the stage
 /// \tparam ReturnType return type of the function object
-/// \tparam ArgsTuple tuple containing arguments to the function object, needs
+/// \tparam Args  argument pack containing arguments to the function object, needs
 ///                   to have move constructor that doesn't throw
-template<typename Function, typename ReturnType, typename ArgsTuple>
-GCC6_CONCEPT(requires std::is_nothrow_move_constructible<ArgsTuple>::value)
+template<typename ReturnType, typename... Args>
+GCC6_CONCEPT(requires std::is_nothrow_move_constructible<std::tuple<Args...>>::value)
 class concrete_execution_stage final : public execution_stage {
-    static_assert(std::is_nothrow_move_constructible<ArgsTuple>::value,
+    using args_tuple = std::tuple<Args...>;
+    static_assert(std::is_nothrow_move_constructible<args_tuple>::value,
                   "Function arguments need to be nothrow move constructible");
 
     static constexpr size_t flush_threshold = 128;
 
     using return_type = futurize_t<ReturnType>;
     using promise_type = typename return_type::promise_type;
-    using input_type = typename tuple_map_types<internal::wrap_for_es, ArgsTuple>::type;
+    using input_type = typename tuple_map_types<internal::wrap_for_es, args_tuple>::type;
 
     struct work_item {
         input_type _in;
         promise_type _ready;
 
-        template<typename... Args>
-        work_item(Args&&... args) : _in(std::forward<Args>(args)...) { }
+        work_item(typename internal::wrap_for_es<Args>::type... args) : _in(std::move(args)...) { }
 
         work_item(work_item&& other) = delete;
         work_item(const work_item&) = delete;
@@ -270,7 +272,7 @@ class concrete_execution_stage final : public execution_stage {
     };
     chunked_fifo<work_item, flush_threshold> _queue;
 
-    Function _function;
+    noncopyable_function<ReturnType (Args...)> _function;
 private:
     auto unwrap(input_type&& in) {
         return tuple_map(std::move(in), [] (auto&& obj) {
@@ -293,11 +295,14 @@ private:
         _empty = _queue.empty();
     }
 public:
-    explicit concrete_execution_stage(const sstring& name, Function f)
-        : execution_stage(name)
+    explicit concrete_execution_stage(const sstring& name, scheduling_group sg, noncopyable_function<ReturnType (Args...)> f)
+        : execution_stage(name, sg)
         , _function(std::move(f))
     {
         _queue.reserve(flush_threshold);
+    }
+    explicit concrete_execution_stage(const sstring& name, noncopyable_function<ReturnType (Args...)> f)
+        : concrete_execution_stage(name, scheduling_group(), std::move(f)) {
     }
 
     /// Enqueues a call to the stage's function
@@ -309,7 +314,7 @@ public:
     /// Usage example:
     /// ```
     /// void do_something(int&, int, std::vector<int>&&);
-    /// thread_local auto stage = seastar::make_execution_stage(do_something);
+    /// thread_local auto stage = seastar::make_execution_stage("execution-stage", do_something);
     ///
     /// int global_value;
     ///
@@ -321,19 +326,29 @@ public:
     ///
     /// \param args arguments passed to the stage's function
     /// \return future containing the result of the call to the stage's function
-    template<typename... Args>
-    GCC6_CONCEPT(requires std::is_constructible<input_type, Args...>::value)
-    return_type operator()(Args&&... args) {
-        _queue.emplace_back(std::forward<Args>(args)...);
+    return_type operator()(typename internal::wrap_for_es<Args>::type... args) {
+        _queue.emplace_back(std::move(args)...);
         _empty = false;
         _stats.function_calls_enqueued++;
         auto f = _queue.back()._ready.get_future();
-        if (_queue.size() > flush_threshold) {
-            flush();
-        }
+        flush();
         return f;
     }
 };
+
+/// \cond internal
+namespace internal {
+
+template <typename Ret, typename ArgsTuple>
+struct concrete_execution_stage_helper;
+
+template <typename Ret, typename... Args>
+struct concrete_execution_stage_helper<Ret, std::tuple<Args...>> {
+    using type = concrete_execution_stage<Ret, Args...>;
+};
+
+}
+/// \endcond
 
 /// Creates a new execution stage
 ///
@@ -347,14 +362,14 @@ public:
 /// Usage example:
 /// ```
 /// double do_something(int);
-/// thread_local auto stage1 = seastar::make_execution_stage(do_something);
+/// thread_local auto stage1 = seastar::make_execution_stage("execution-stage1", do_something);
 ///
 /// future<double> func1(int val) {
 ///     return stage1(val);
 /// }
 ///
 /// future<double> do_some_io(int);
-/// thread_local auto stage2 = seastar::make_execution_stage(do_some_io);
+/// thread_local auto stage2 = seastar::make_execution_stage("execution-stage2", do_some_io);
 ///
 /// future<double> func2(int val) {
 ///     return stage2(val);
@@ -362,13 +377,52 @@ public:
 /// ```
 ///
 /// \param name unique name of the execution stage
+/// \param sg scheduling group to run under
 /// \param fn function to be executed by the stage
 /// \return concrete_execution_stage
+///
+template<typename Function>
+auto make_execution_stage(const sstring& name, scheduling_group sg, Function&& fn) {
+    using traits = function_traits<Function>;
+    using ret_type = typename traits::return_type;
+    using args_as_tuple = typename traits::args_as_tuple;
+    using concrete_execution_stage = typename internal::concrete_execution_stage_helper<ret_type, args_as_tuple>::type;
+    return concrete_execution_stage(name, sg, std::forward<Function>(fn));
+}
+
+/// Creates a new execution stage (variant taking \ref scheduling_group)
+///
+/// Wraps given function object in a concrete_execution_stage. All arguments
+/// of the function object are required to have move constructors that do not
+/// throw. Function object may return a future or an immediate object or void.
+///
+/// Moving execution stages is discouraged and illegal after first function
+/// call is enqueued.
+///
+/// Usage example:
+/// ```
+/// double do_something(int);
+/// thread_local auto stage1 = seastar::make_execution_stage("execution-stage1", do_something);
+///
+/// future<double> func1(int val) {
+///     return stage1(val);
+/// }
+///
+/// future<double> do_some_io(int);
+/// thread_local auto stage2 = seastar::make_execution_stage("execution-stage2", do_some_io);
+///
+/// future<double> func2(int val) {
+///     return stage2(val);
+/// }
+/// ```
+///
+/// \param name unique name of the execution stage (variant not taking \ref scheduling_group)
+/// \param fn function to be executed by the stage
+/// \return concrete_execution_stage
+///
 template<typename Function>
 auto make_execution_stage(const sstring& name, Function&& fn) {
-    using traits = function_traits<Function>;
-    return concrete_execution_stage<std::decay_t<Function>, typename traits::return_type,
-                                    typename traits::args_as_tuple>(name, std::forward<Function>(fn));
+    return make_execution_stage(name, scheduling_group(), std::forward<Function>(fn));
 }
 
 /// Creates a new execution stage from a member function
@@ -383,32 +437,46 @@ auto make_execution_stage(const sstring& name, Function&& fn) {
 ///     void do_something(int);
 /// };
 ///
-/// thread_local auto stage = seastar::make_execution_stage(&foo::do_something);
+/// thread_local auto stage = seastar::make_execution_stage("execution-stage", &foo::do_something);
 ///
 /// future<> func(foo& obj, int val) {
 ///     return stage(&obj, val);
 /// }
 /// ```
 ///
-/// \see make_execution_stage(Function&&)
+/// \see make_execution_stage(const sstring&, Function&&)
 /// \param name unique name of the execution stage
 /// \param fn member function to be executed by the stage
 /// \return concrete_execution_stage
 template<typename Ret, typename Object, typename... Args>
-auto make_execution_stage(const sstring& name, Ret (Object::*fn)(Args...)) {
-    return concrete_execution_stage<decltype(std::mem_fn(fn)), Ret, std::tuple<Object*, Args...>>(name, std::mem_fn(fn));
+concrete_execution_stage<Ret, Object*, Args...>
+make_execution_stage(const sstring& name, scheduling_group sg, Ret (Object::*fn)(Args...)) {
+    return concrete_execution_stage<Ret, Object*, Args...>(name, sg, std::mem_fn(fn));
 }
 
 template<typename Ret, typename Object, typename... Args>
-auto make_execution_stage(const sstring& name, Ret (Object::*fn)(Args...) const) {
-    return concrete_execution_stage<decltype(std::mem_fn(fn)), Ret, std::tuple<const Object*, Args...>>(name, std::mem_fn(fn));
+concrete_execution_stage<Ret, const Object*, Args...>
+make_execution_stage(const sstring& name, scheduling_group sg, Ret (Object::*fn)(Args...) const) {
+    return concrete_execution_stage<Ret, const Object*, Args...>(name, sg, std::mem_fn(fn));
+}
+
+template<typename Ret, typename Object, typename... Args>
+concrete_execution_stage<Ret, Object*, Args...>
+make_execution_stage(const sstring& name, Ret (Object::*fn)(Args...)) {
+    return make_execution_stage(name, scheduling_group(), fn);
+}
+
+template<typename Ret, typename Object, typename... Args>
+concrete_execution_stage<Ret, const Object*, Args...>
+make_execution_stage(const sstring& name, Ret (Object::*fn)(Args...) const) {
+    return make_execution_stage(name, scheduling_group(), fn);
 }
 
 /// @}
 
-inline execution_stage::execution_stage(const sstring& name)
-    : _name(name)
-
+inline execution_stage::execution_stage(const sstring& name, scheduling_group sg)
+    : _sg(sg)
+    , _name(name)
 {
     internal::execution_stage_manager::get().register_execution_stage(*this);
     auto undo = defer([&] { internal::execution_stage_manager::get().unregister_execution_stage(*this); });

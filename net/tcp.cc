@@ -26,6 +26,8 @@
 #include "core/future.hh"
 #include "native-stack-impl.hh"
 
+namespace seastar {
+
 namespace net {
 
 void tcp_option::parse(uint8_t* beg1, uint8_t* end1) {
@@ -164,3 +166,4 @@ tcpv4_socket(tcp<ipv4_traits>& tcpv4) {
 
 }
 
+}

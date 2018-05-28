@@ -26,17 +26,28 @@
 #include <functional>
 #include <core/future.hh>
 #include <core/sstring.hh>
+#include <chrono>
+
+namespace seastar {
 
 class app_template {
 public:
     struct config {
-        sstring name;
+        sstring name = "App";
+        std::chrono::duration<double> default_task_quota = std::chrono::microseconds(500);
+        config() {}
     };
+
+    using configuration_reader = std::function<void (boost::program_options::variables_map&)>;
 private:
     config _cfg;
     boost::program_options::options_description _opts;
+    boost::program_options::options_description _opts_conf_file;
     boost::program_options::positional_options_description _pos_opts;
     boost::optional<boost::program_options::variables_map> _configuration;
+    configuration_reader _conf_reader;
+
+    configuration_reader get_default_configuration_reader();
 public:
     struct positional_option {
         const char* name;
@@ -45,12 +56,16 @@ public:
         int max_count;
     };
 public:
-    explicit app_template(config cfg = config{"App"});
+    explicit app_template(config cfg = config());
 
+    boost::program_options::options_description& get_options_description();
+    boost::program_options::options_description& get_conf_file_options_description();
     boost::program_options::options_description_easy_init add_options();
     void add_positional_options(std::initializer_list<positional_option> options);
     boost::program_options::variables_map& configuration();
     int run_deprecated(int ac, char ** av, std::function<void ()>&& func);
+
+    void set_configuration_reader(configuration_reader conf_reader);
 
     // Runs given function and terminates the application when the future it
     // returns resolves. The value with which the future resolves will be
@@ -62,5 +77,7 @@ public:
     // successfully.
     int run(int ac, char ** av, std::function<future<> ()>&& func);
 };
+
+}
 
 #endif

@@ -21,6 +21,8 @@
 
 #include "common.hh"
 
+namespace seastar {
+
 namespace httpd {
 
 operation_type str2type(const sstring& type) {
@@ -37,3 +39,6 @@ operation_type str2type(const sstring& type) {
 }
 
 }
+
+}
+

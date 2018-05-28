@@ -46,6 +46,8 @@
 #define CRYPTOPP_ENABLE_NAMESPACE_WEAK 1
 #include <cryptopp/md5.h>
 
+namespace seastar {
+
 using namespace std::chrono_literals;
 
 namespace net {
@@ -366,6 +368,7 @@ private:
             uint32_t partial_ack = 0;
             tcp_seq recover;
             bool window_probe = false;
+            uint8_t zero_window_probing_out = 0;
         } _snd;
         struct receive {
             tcp_seq next;
@@ -520,7 +523,7 @@ private:
             return size;
         }
         uint16_t local_mss() {
-            return _tcp.hw_features().mtu - ::net::tcp_hdr_len_min - InetTraits::ip_hdr_len_min;
+            return _tcp.hw_features().mtu - net::tcp_hdr_len_min - InetTraits::ip_hdr_len_min;
         }
         void queue_packet(packet p) {
             _packetq.emplace_back(typename InetTraits::l4packet{_foreign_ip, std::move(p)});
@@ -631,7 +634,7 @@ private:
     // queue for packets that do not belong to any tcb
     circular_buffer<ipv4_traits::l4packet> _packetq;
     semaphore _queue_space = {212992};
-    seastar::metrics::metric_groups _metrics;
+    metrics::metric_groups _metrics;
 public:
     class connection {
         lw_shared_ptr<tcb> _tcb;
@@ -712,7 +715,7 @@ public:
     bool forward(forward_hash& out_hash_data, packet& p, size_t off);
     listener listen(uint16_t port, size_t queue_length = 100);
     connection connect(socket_address sa);
-    const ::net::hw_features& hw_features() const { return _inet._inet.hw_features(); }
+    const net::hw_features& hw_features() const { return _inet._inet.hw_features(); }
     future<> poll_tcb(ipaddr to, lw_shared_ptr<tcb> tcb);
     void add_connected_tcb(lw_shared_ptr<tcb> tcbp, uint16_t local_port) {
         auto it = _listening.find(local_port);
@@ -731,7 +734,7 @@ template <typename InetTraits>
 tcp<InetTraits>::tcp(inet_type& inet)
     : _inet(inet)
     , _e(_rd()) {
-    namespace sm = seastar::metrics;
+    namespace sm = metrics;
 
     _metrics.add_group("tcp", {
         sm::make_derive("linearizations", [] { return tcp_packet_merger::linearizations(); },
@@ -782,7 +785,7 @@ auto tcp<InetTraits>::connect(socket_address sa) -> connection {
     connid id;
     auto src_ip = _inet._inet.host_address();
     auto dst_ip = ipv4_address(sa);
-    auto dst_port = ::net::ntoh(sa.u.in.sin_port);
+    auto dst_port = net::ntoh(sa.u.in.sin_port);
 
     do {
         src_port = _port_dist(_e);
@@ -1267,6 +1270,7 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
             _snd.window = th->window << _snd.window_scale;
             _snd.wl1 = seg_seq;
             _snd.wl2 = seg_ack;
+            _snd.zero_window_probing_out = 0;
             if (_snd.window == 0) {
                 _persist_time_out = _rto;
                 start_persist_timer();
@@ -1277,6 +1281,8 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
         // ESTABLISHED STATE or
         // CLOSE_WAIT STATE: Do the same processing as for the ESTABLISHED state.
         if (in_state(ESTABLISHED | CLOSE_WAIT)){
+            // When we are in zero window probing phase and packets_out = 0 we bypass "duplicated ack" check
+            auto packets_out = _snd.next - _snd.unacknowledged - _snd.zero_window_probing_out;
             // If SND.UNA < SEG.ACK =< SND.NXT then, set SND.UNA <- SEG.ACK.
             if (_snd.unacknowledged < seg_ack && seg_ack <= _snd.next) {
                 // Remote ACKed data we sent
@@ -1343,7 +1349,7 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
                     exit_fast_recovery();
                     set_retransmit_timer();
                 }
-            } else if (!_snd.data.empty() && seg_len == 0 &&
+            } else if ((packets_out > 0) && !_snd.data.empty() && seg_len == 0 &&
                 th->f_fin == 0 && th->f_syn == 0 &&
                 th->ack == _snd.unacknowledged &&
                 uint32_t(th->window << _snd.window_scale) == _snd.window) {
@@ -1524,9 +1530,9 @@ packet tcp<InetTraits>::tcb::get_transmit_packet() {
     uint32_t len;
     if (_tcp.hw_features().tx_tso) {
         // FIXME: Info tap device the size of the splitted packet
-        len = _tcp.hw_features().max_packet_len - ::net::tcp_hdr_len_min - InetTraits::ip_hdr_len_min;
+        len = _tcp.hw_features().max_packet_len - net::tcp_hdr_len_min - InetTraits::ip_hdr_len_min;
     } else {
-        len = std::min(uint16_t(_tcp.hw_features().mtu - ::net::tcp_hdr_len_min - InetTraits::ip_hdr_len_min), _snd.mss);
+        len = std::min(uint16_t(_tcp.hw_features().mtu - net::tcp_hdr_len_min - InetTraits::ip_hdr_len_min), _snd.mss);
     }
     can_send = std::min(can_send, len);
     // easy case: one small packet
@@ -1666,6 +1672,11 @@ void tcp<InetTraits>::tcb::output_one(bool data_retransmit) {
         }
     }
 
+
+    // if advertised TCP receive window is 0 we may only transmit zero window probing segment.
+    // Payload size of this segment is 1. Queueing anything bigger when _snd.window == 0 is bug
+    // and violation of RFC
+    assert((_snd.window > 0) || ((_snd.window == 0) && (len == 1)));
     queue_packet(std::move(p));
 }
 
@@ -1864,6 +1875,7 @@ void tcp<InetTraits>::tcb::persist() {
     tcp_debug("persist timer fired\n");
     // Send 1 byte packet to probe peer's window size
     _snd.window_probe = true;
+    _snd.zero_window_probing_out++;
     output_one();
     _snd.window_probe = false;
 
@@ -2030,10 +2042,11 @@ std::experimental::optional<typename InetTraits::l4packet> tcp<InetTraits>::tcb:
 
     auto p = std::move(_packetq.front());
     _packetq.pop_front();
-    if (!_packetq.empty() || (_snd.dupacks < 3 && can_send() > 0)) {
+    if (!_packetq.empty() || (_snd.dupacks < 3 && can_send() > 0 && (_snd.window > 0))) {
         // If there are packets to send in the queue or tcb is allowed to send
         // more add tcp back to polling set to keep sending. In addition, dupacks >= 3
         // is an indication that an segment is lost, stop sending more in this case.
+        // Finally - we can't send more until window is opened again.
         output();
     }
     return std::move(p);
@@ -2077,6 +2090,6 @@ typename tcp<InetTraits>::tcb::isn_secret tcp<InetTraits>::tcb::_isn_secret;
 
 }
 
-
+}
 
 #endif /* TCP_HH_ */

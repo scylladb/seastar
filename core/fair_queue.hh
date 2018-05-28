@@ -26,6 +26,7 @@
 #include "shared_ptr.hh"
 #include "print.hh"
 #include "circular_buffer.hh"
+#include "util/noncopyable_function.hh"
 #include <queue>
 #include <type_traits>
 #include <experimental/optional>
@@ -33,13 +34,15 @@
 #include <unordered_set>
 #include <cmath>
 
+namespace seastar {
+
 /// \addtogroup io-module
 /// @{
 
 /// \cond internal
 class priority_class {
     struct request {
-        promise<> pr;
+        noncopyable_function<void()> func;
         unsigned weight;
     };
     friend class fair_queue;
@@ -49,7 +52,16 @@ class priority_class {
     bool _queued = false;
 
     friend struct shared_ptr_no_esft<priority_class>;
-    explicit priority_class(uint32_t shares) : _shares(shares) {}
+    explicit priority_class(uint32_t shares) : _shares(std::max(shares, 1u)) {}
+
+    void update_shares(uint32_t shares) {
+        _shares = (std::max(shares, 1u));
+    }
+public:
+    /// \brief return the current amount of shares for this priority class
+    uint32_t shares() const {
+        return _shares;
+    }
 };
 /// \endcond
 
@@ -91,7 +103,8 @@ class fair_queue {
         }
     };
 
-    semaphore _sem;
+    unsigned _requests_executing = 0;
+    unsigned _requests_queued = 0;
     unsigned _capacity;
     using clock_type = std::chrono::steady_clock::time_point;
     clock_type _base;
@@ -116,37 +129,6 @@ class fair_queue {
         return h;
     }
 
-    void execute_one() {
-        _sem.wait().then([this] {
-            priority_class_ptr h;
-            do {
-                h = pop_priority_class();
-            } while (h->_queue.empty());
-
-            auto req = std::move(h->_queue.front());
-            h->_queue.pop_front();
-
-            req.pr.set_value();
-            auto delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
-            auto req_cost  = float(req.weight) / h->_shares;
-            auto cost  = expf(1.0f/_tau.count() * delta.count()) * req_cost;
-            float next_accumulated = h->_accumulated + cost;
-            while (std::isinf(next_accumulated)) {
-                normalize_stats();
-                // If we have renormalized, our time base will have changed. This should happen very infrequently
-                delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
-                cost  = expf(1.0f/_tau.count() * delta.count()) * req_cost;
-                next_accumulated = h->_accumulated + cost;
-            }
-            h->_accumulated = next_accumulated;
-
-            if (!h->_queue.empty()) {
-                push_priority_class(h);
-            }
-            return make_ready_future<>();
-        });
-    }
-
     float normalize_factor() const {
         return std::numeric_limits<float>::min();
     }
@@ -165,8 +147,7 @@ public:
     /// \param capacity how many concurrent requests are allowed in this queue.
     /// \param tau the queue exponential decay parameter, as in exp(-1/tau * t)
     explicit fair_queue(unsigned capacity, std::chrono::microseconds tau = std::chrono::milliseconds(100))
-                                           : _sem(capacity)
-                                           , _capacity(capacity)
+                                           : _capacity(capacity)
                                            , _base(std::chrono::steady_clock::now())
                                            , _tau(tau) {
     }
@@ -190,40 +171,75 @@ public:
 
     /// \return how many waiters are currently queued for all classes.
     size_t waiters() const {
-        return _sem.waiters();
+        return _requests_queued;
     }
 
-    /// Executes the function \c func through this class' \ref fair_queue, with weight \c weight
+    /// \return the number of requests currently executing
+    size_t requests_currently_executing() const {
+        return _requests_executing;
+    }
+
+    /// Queue the function \c func through this class' \ref fair_queue, with weight \c weight
     ///
-    /// \return \c func's return value, if \c func returns a future, or future<T> if \c func returns a non-future of type T.
-    template <typename Func>
-    futurize_t<std::result_of_t<Func()>> queue(priority_class_ptr pc, unsigned weight, Func func) {
+    /// It is expected that \c func doesn't throw. If it does throw, it will be just removed from
+    /// the queue and discarded.
+    ///
+    /// The user of this interface is supposed to call \ref notify_requests_finished when the
+    /// request finishes executing - regardless of success or failure.
+    void queue(priority_class_ptr pc, unsigned weight, noncopyable_function<void()> func) {
         // We need to return a future in this function on which the caller can wait.
         // Since we don't know which queue we will use to execute the next request - if ours or
         // someone else's, we need a separate promise at this point.
-        promise<> pr;
-        auto fut = pr.get_future();
-
         push_priority_class(pc);
-        pc->_queue.push_back(priority_class::request{std::move(pr), weight});
-        try {
-            execute_one();
-        } catch (...) {
-            pc->_queue.pop_back();
-            throw;
+        pc->_queue.push_back(priority_class::request{std::move(func), weight});
+        _requests_queued++;
+    }
+
+    /// Notifies that \c finished requests finished
+    void notify_requests_finished(unsigned finished) {
+        _requests_executing -= finished;
+    }
+
+    /// Try to execute new requests if there is capacity left in the queue.
+    void dispatch_requests() {
+        while (_requests_queued && (_requests_executing < _capacity)) {
+            priority_class_ptr h;
+            do {
+                h = pop_priority_class();
+            } while (h->_queue.empty());
+
+            auto req = std::move(h->_queue.front());
+            h->_queue.pop_front();
+            _requests_executing++;
+            _requests_queued--;
+
+            auto delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
+            auto req_cost  = float(req.weight) / h->_shares;
+            auto cost  = expf(1.0f/_tau.count() * delta.count()) * req_cost;
+            float next_accumulated = h->_accumulated + cost;
+            while (std::isinf(next_accumulated)) {
+                normalize_stats();
+                // If we have renormalized, our time base will have changed. This should happen very infrequently
+                delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
+                cost  = expf(1.0f/_tau.count() * delta.count()) * req_cost;
+                next_accumulated = h->_accumulated + cost;
+            }
+            h->_accumulated = next_accumulated;
+
+            if (!h->_queue.empty()) {
+                push_priority_class(h);
+            }
+            req.func();
         }
-        return fut.then([func = std::move(func)] {
-            return func();
-        }).finally([this] {
-            _sem.signal();
-        });
     }
 
     /// Updates the current shares of this priority class
     ///
     /// \param new_shares the new number of shares for this priority class
     static void update_shares(priority_class_ptr pc, uint32_t new_shares) {
-        pc->_shares = new_shares;
+        pc->update_shares(new_shares);
     }
 };
 /// @}
+
+}

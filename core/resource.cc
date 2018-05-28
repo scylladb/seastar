@@ -24,6 +24,9 @@
 #include <regex>
 #include "resource.hh"
 #include "core/align.hh"
+#include "core/print.hh"
+
+namespace seastar {
 
 // Overload for boost program options parsing/validation
 void validate(boost::any& v,
@@ -77,9 +80,11 @@ size_t calculate_memory(configuration c, size_t available_memory, float panic_fa
     }
     size_t mem = c.total_memory.value_or(available_memory);
     if (mem > available_memory) {
-        throw std::runtime_error("insufficient physical memory");
+        throw std::runtime_error(format("insufficient physical memory: needed {} available {}", mem, available_memory));
     }
     return mem;
+}
+
 }
 
 }
@@ -91,6 +96,8 @@ size_t calculate_memory(configuration c, size_t available_memory, float panic_fa
 #include <hwloc.h>
 #include <unordered_map>
 #include <boost/range/irange.hpp>
+
+namespace seastar {
 
 cpu_set_t cpuid_to_cpuset(unsigned cpuid) {
     cpu_set_t cs;
@@ -329,10 +336,14 @@ unsigned nr_processing_units() {
 
 }
 
+}
+
 #else
 
 #include "resource.hh"
 #include <unistd.h>
+
+namespace seastar {
 
 namespace resource {
 
@@ -374,6 +385,8 @@ resources allocate(configuration c) {
 
 unsigned nr_processing_units() {
     return ::sysconf(_SC_NPROCESSORS_ONLN);
+}
+
 }
 
 }

@@ -47,6 +47,8 @@ operator<<(std::ostream&& os, const void* ptr) {
     return os << ptr; // selects non-rvalue version
 }
 
+namespace seastar {
+
 template <typename... A>
 std::ostream&
 fprint(std::ostream& os, const char* fmt, A&&... a) {
@@ -119,7 +121,6 @@ log(A&&... a) {
     print(std::forward<A>(a)...);
 }
 
-namespace seastar {
 /**
  * Evaluate the formatted string in a native fmt library format
  *

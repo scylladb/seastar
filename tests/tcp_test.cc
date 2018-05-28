@@ -23,6 +23,7 @@
 #include "net/virtio.hh"
 #include "net/tcp.hh"
 
+using namespace seastar;
 using namespace net;
 
 struct tcp_test {

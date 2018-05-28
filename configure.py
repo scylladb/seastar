@@ -17,8 +17,15 @@
 # under the License.
 #
 import os, os.path, textwrap, argparse, sys, shlex, subprocess, tempfile, re
+import distutils.spawn
 
 configure_args = str.join(' ', [shlex.quote(x) for x in sys.argv[1:]])
+
+tempfile.tempdir = "./build/tmp"
+
+srcdir = os.getcwd()
+
+ninja_exe = distutils.spawn.find_executable('ninja-build') or distutils.spawn.find_executable('ninja')
 
 def get_flags():
     with open('/proc/cpuinfo') as f:
@@ -52,6 +59,7 @@ def apply_tristate(var, test, note, missing):
 # MACHINE_CFLAGS value
 #
 def dpdk_cflags (dpdk_target):
+    ensure_tmp_dir_exists()
     with tempfile.NamedTemporaryFile() as sfile:
         dpdk_target = os.path.abspath(dpdk_target)
         dpdk_target = re.sub(r'\/+$', '', dpdk_target)
@@ -85,21 +93,34 @@ def dpdk_cflags (dpdk_target):
 def try_compile(compiler, source = '', flags = []):
     return try_compile_and_link(compiler, source, flags = flags + ['-c'])
 
+def ensure_tmp_dir_exists():
+    if not os.path.exists(tempfile.tempdir):
+        os.makedirs(tempfile.tempdir)
+
 def try_compile_and_link(compiler, source = '', flags = []):
+    ensure_tmp_dir_exists()
     with tempfile.NamedTemporaryFile() as sfile:
-        sfile.file.write(bytes(source, 'utf-8'))
-        sfile.file.flush()
-        return subprocess.call([compiler, '-x', 'c++', '-o', '/dev/null', sfile.name] + flags,
-                               stdout = subprocess.DEVNULL,
-                               stderr = subprocess.DEVNULL) == 0
+        ofile = tempfile.mktemp()
+        try:
+            sfile.file.write(bytes(source, 'utf-8'))
+            sfile.file.flush()
+            # We can't write to /dev/null, since in some cases (-ftest-coverage) gcc will create an auxiliary
+            # output file based on the name of the output file, and "/dev/null.gcsa" is not a good name
+            return subprocess.call([compiler, '-x', 'c++', '-o', ofile, sfile.name] + flags,
+                                   stdout = subprocess.DEVNULL,
+                                   stderr = subprocess.DEVNULL) == 0
+        finally:
+            if os.path.exists(ofile):
+                os.unlink(ofile)
 
 def try_compile_and_run(compiler, flags, source, env = {}):
+    ensure_tmp_dir_exists()
     mktemp = tempfile.NamedTemporaryFile
     with mktemp() as sfile, mktemp(mode='rb') as xfile:
         sfile.file.write(bytes(source, 'utf-8'))
         sfile.file.flush()
         xfile.file.close()
-        if subprocess.call([compiler, '-x', 'c++', '-o', xfile.name, sfile.name] + flags,
+        if subprocess.call([compiler, '-x', 'c++', '-o', xfile.name, sfile.name] + args.user_cflags.split() + flags,
                             stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL) != 0:
             # The compiler may delete the target on failure, and lead to
             # NamedTemporaryFile's destructor throwing an exception.
@@ -110,28 +131,38 @@ def try_compile_and_run(compiler, flags, source, env = {}):
         env = e
         return subprocess.call([xfile.name], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL, env=env) == 0
 
-def warning_supported(warning, compiler):
+def warning_supported(warning, compiler, flags):
     # gcc ignores -Wno-x even if it is not supported
     adjusted = re.sub('^-Wno-', '-W', warning)
-    return try_compile(flags = [adjusted, '-Werror'], compiler = compiler)
+    return try_compile(flags=flags + [adjusted, '-Werror'], compiler = compiler)
 
-def debug_flag(compiler):
+def debug_flag(compiler, flags):
     src_with_auto = textwrap.dedent('''\
         template <typename T>
         struct x { auto f() {} };
 
         x<int> a;
         ''')
-    if try_compile(source = src_with_auto, flags = ['-g', '-std=gnu++1y'], compiler = compiler):
+    if try_compile(source = src_with_auto, flags = flags + ['-g', '-std=gnu++1y'], compiler = compiler):
         return '-g'
     else:
         print('Note: debug information disabled; upgrade your compiler')
         return ''
 
-def sanitize_vptr_flag(compiler):
+def dialect_supported(dialect, compiler='g++'):
+    return try_compile(compiler=compiler, source='', flags=['-std=' + dialect])
+
+def detect_membarrier(compiler, flags):
+    return try_compile(compiler=compiler, flags=flags, source=textwrap.dedent('''\
+        #include <linux/membarrier.h>
+        
+        int x = MEMBARRIER_CMD_PRIVATE_EXPEDITED | MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED;
+        '''))
+
+def sanitize_vptr_flag(compiler, flags):
     # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=67258
-    if (not try_compile(compiler, flags=['-fsanitize=vptr'])
-        or (try_compile_and_run(compiler, flags=['-fsanitize=undefined', '-fno-sanitize-recover'],
+    if (not try_compile(compiler, flags=flags + ['-fsanitize=vptr'])
+        or (try_compile_and_run(compiler, flags=flags + ['-fsanitize=undefined', '-fno-sanitize-recover'],
                                env={'UBSAN_OPTIONS': 'exitcode=1'}, source=textwrap.dedent('''
             struct A
             {
@@ -152,11 +183,42 @@ def sanitize_vptr_flag(compiler):
         print('Notice: -fsanitize=vptr is broken, disabling; some debug mode tests are bypassed.')
         return '-fno-sanitize=vptr'
 
+
+def adjust_visibility_flags(compiler, flags):
+    # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
+    flags = flags + ['-fvisibility=hidden', '-std=gnu++1y', '-Werror=attributes']
+    if not try_compile(compiler, flags=flags, source=textwrap.dedent('''
+            template <class T>
+            class MyClass  {
+            public:
+                MyClass() {
+                    auto outer = [this] ()
+                        {
+                            auto fn = [this]   {  };
+                            //use fn for something here
+                        };
+                }
+            };
+
+            int main() {
+                 MyClass<int> r;
+            }
+            ''')):
+        print('Notice: disabling -Wattributes due to https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947')
+        return '-Wno-attributes'
+    else:
+        return ''
+
+def configure_fmt(mode, cxx='g++', cc='gcc'):
+    builddir = 'build/{}/fmt'.format(mode)
+    os.makedirs(builddir, exist_ok=True)
+    subprocess.check_output(args=['cmake', '-G', 'Ninja', '../../../fmt', '-DCMAKE_CXX_COMPILER=' + cxx, '-DCMAKE_C_COMPILER=' + cc], cwd=builddir)
+
 modes = {
     'debug': {
         'sanitize': '-fsanitize=address -fsanitize=leak -fsanitize=undefined',
         'sanitize_libs': '-lasan -lubsan',
-        'opt': '-O0 -DDEBUG -DDEBUG_SHARED_PTR -DDEFAULT_ALLOCATOR -DSEASTAR_THREAD_STACK_GUARDS',
+        'opt': '-O0 -DDEBUG -DDEBUG_SHARED_PTR -DDEFAULT_ALLOCATOR -DSEASTAR_THREAD_STACK_GUARDS -DNO_EXCEPTION_HACK -DSEASTAR_SHUFFLE_TASK_QUEUE',
         'libs': '',
         'cares_opts': '-DCARES_STATIC=ON -DCARES_SHARED=OFF -DCMAKE_BUILD_TYPE=Debug',
     },
@@ -168,6 +230,10 @@ modes = {
         'cares_opts': '-DCARES_STATIC=ON -DCARES_SHARED=OFF -DCMAKE_BUILD_TYPE=Release',
     },
 }
+
+perf_tests = [
+    'tests/perf/perf_future_util',
+]
 
 tests = [
     'tests/fileiotest',
@@ -217,17 +283,38 @@ tests = [
     'tests/json_formatter_test',
     'tests/dns_test',
     'tests/execution_stage_test',
-    ]
+    'tests/lowres_clock_test',
+    'tests/program_options_test',
+    'tests/tuple_utils_test',
+    'tests/tls_echo_server',
+    'tests/tls_simple_client',
+    'tests/circular_buffer_fixed_capacity_test',
+    'tests/noncopyable_function_test',
+    'tests/netconfig_test',
+    'tests/abort_source_test',
+    ] + perf_tests
 
 apps = [
     'apps/httpd/httpd',
     'apps/seawreck/seawreck',
-    'apps/fair_queue_tester/fair_queue_tester',
+    'apps/io_tester/io_tester',
     'apps/memcached/memcached',
     'apps/iotune/iotune',
+    'tests/scheduling_group_demo',
     ]
 
-all_artifacts = apps + tests + ['libseastar.a', 'seastar.pc']
+extralibs = {
+    'apps/io_tester/io_tester': [ '-lyaml-cpp' ]
+}
+
+all_artifacts = apps + tests + ['libseastar.a', 'seastar.pc', 'fmt/fmt/libfmt.a']
+
+cpp_dialects = ['gnu++17', 'gnu++1z', 'gnu++14', 'gnu++1y']
+try:
+    default_cpp_dialect = [x for x in cpp_dialects if dialect_supported(x, compiler='g++')][0]
+except:
+    # if g++ is not available, fallback to something safe-ish
+    default_cpp_dialect='gnu++1y'
 
 arg_parser = argparse.ArgumentParser('Configure seastar')
 arg_parser.add_argument('--static', dest = 'static', action = 'store_const', default = '',
@@ -243,10 +330,14 @@ arg_parser.add_argument('--cflags', action = 'store', dest = 'user_cflags', defa
                         help = 'Extra flags for the C++ compiler')
 arg_parser.add_argument('--ldflags', action = 'store', dest = 'user_ldflags', default = '',
                         help = 'Extra flags for the linker')
+arg_parser.add_argument('--optflags', action = 'store', dest = 'user_optflags', default = '',
+                        help = 'Extra optimization flags for the release mode')
 arg_parser.add_argument('--compiler', action = 'store', dest = 'cxx', default = 'g++',
                         help = 'C++ compiler path')
 arg_parser.add_argument('--c-compiler', action='store', dest='cc', default='gcc',
                         help = 'C compiler path (for bundled libraries such as dpdk and c-ares)')
+arg_parser.add_argument('--c++-dialect', action='store', dest='cpp_dialect', default=default_cpp_dialect,
+                        help='C++ dialect to build with [default: %(default)s]')
 arg_parser.add_argument('--with-osv', action = 'store', dest = 'with_osv', default = '',
                         help = 'Shortcut for compile for OSv')
 arg_parser.add_argument('--enable-dpdk', action = 'store_true', dest = 'dpdk', default = False,
@@ -261,10 +352,18 @@ arg_parser.add_argument('--static-stdc++', dest = 'staticcxx', action = 'store_t
                         help = 'Link libgcc and libstdc++ statically')
 arg_parser.add_argument('--static-boost', dest = 'staticboost', action = 'store_true',
                         help = 'Link with boost statically')
+arg_parser.add_argument('--static-yaml-cpp', dest = 'staticyamlcpp', action = 'store_true',
+            help = 'Link libyaml-cpp statically')
 add_tristate(arg_parser, name = 'hwloc', dest = 'hwloc', help = 'hwloc support')
-add_tristate(arg_parser, name = 'xen', dest = 'xen', help = 'Xen support')
 arg_parser.add_argument('--enable-gcc6-concepts', dest='gcc6_concepts', action='store_true', default=False,
                         help='enable experimental support for C++ Concepts as implemented in GCC 6')
+arg_parser.add_argument('--enable-alloc-failure-injector', dest='alloc_failure_injector', action='store_true', default=False,
+                        help='enable allocation failure injection')
+add_tristate(arg_parser, name = 'exception-scalability-workaround', dest='exception_workaround',
+        help='disabling override of dl_iterate_phdr symbol to workaround C++ exception scalability issues')
+arg_parser.add_argument('--allocator-page-size', dest='allocator_page_size', type=int, help='override allocator page size')
+arg_parser.add_argument('--protoc-compiler', action = 'store', dest='protoc', default='protoc',
+                        help = 'Path to protoc compiler, the default is protoc')
 args = arg_parser.parse_args()
 
 libnet = [
@@ -281,6 +380,7 @@ libnet = [
     'net/dhcp.cc',
     'net/tls.cc',
     'net/dns.cc',
+    'net/config.cc',
     ]
 
 core = [
@@ -296,8 +396,12 @@ core = [
     'core/thread.cc',
     'core/dpdk_rte.cc',
     'core/fsqual.cc',
+    'core/linux-aio.cc',
     'util/conversions.cc',
+    'util/program-options.cc',
     'util/log.cc',
+    'util/backtrace.cc',
+    'util/alloc_failure_injector.cc',
     'net/packet.cc',
     'net/posix-stack.cc',
     'net/net.cc',
@@ -305,6 +409,8 @@ core = [
     'net/inet_address.cc',
     'rpc/rpc.cc',
     'rpc/lz4_compressor.cc',
+    'core/exception_hacks.cc',
+    'core/future-util.cc',
     ]
 
 protobuf = [
@@ -341,50 +447,32 @@ def maybe_static(flag, libs):
         libs = '-Wl,-Bstatic {} -Wl,-Bdynamic'.format(libs)
     return libs
 
-defines = ['FMT_HEADER_ONLY']
+defines = []
 # Include -lgcc_s before -lunwind to work around for https://savannah.nongnu.org/bugs/?48486. See https://github.com/scylladb/scylla/issues/1725.
-libs = ' '.join(['-laio',
-                 maybe_static(args.staticboost,
+libs = ' '.join([maybe_static(args.staticboost,
                               '-lboost_program_options -lboost_system -lboost_filesystem'),
                  '-lstdc++ -lm',
                  maybe_static(args.staticboost, '-lboost_thread'),
-                 '-lcryptopp -lrt -lgnutls -lgnutlsxx -llz4 -lprotobuf -ldl -lgcc_s -lunwind',
+                 '-lcryptopp -lrt -lgnutls -lgnutlsxx -llz4 -lprotobuf -ldl -lgcc_s -lunwind ',
+                 maybe_static(args.staticyamlcpp, '-lyaml-cpp'),
                  ])
 
 boost_unit_test_lib = maybe_static(args.staticboost, '-lboost_unit_test_framework')
 
 
 hwloc_libs = '-lhwloc -lnuma -lpciaccess -lxml2 -lz'
-xen_used = False
-def have_xen():
-    source  = '#include <stdint.h>\n'
-    source += '#include <xen/xen.h>\n'
-    source += '#include <xen/sys/evtchn.h>\n'
-    source += '#include <xen/sys/gntdev.h>\n'
-    source += '#include <xen/sys/gntalloc.h>\n'
-
-    return try_compile(compiler = args.cxx, source = source)
-
-if apply_tristate(args.xen, test = have_xen,
-                  note = 'Note: xen-devel not installed.  No Xen support.',
-                  missing = 'Error: required package xen-devel not installed.'):
-    libs += ' -lxenstore'
-    defines.append("HAVE_XEN")
-    libnet += [ 'net/xenfront.cc' ]
-    core += [
-                'core/xen/xenstore.cc',
-                'core/xen/gntalloc.cc',
-                'core/xen/evtchn.cc',
-            ]
-    xen_used=True
-
-if xen_used and args.dpdk_target:
-    print("Error: only xen or dpdk can be used, not both.")
-    sys.exit(1)
 
 if args.gcc6_concepts:
     defines.append('HAVE_GCC6_CONCEPTS')
     args.user_cflags += ' -fconcepts'
+
+if args.alloc_failure_injector:
+    defines.append('SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION')
+
+if not apply_tristate(args.exception_workaround, test = lambda: not args.staticcxx and not args.static,
+        note = "Note: disabling exception scalability workaround due to static linkage of libgcc and libstdc++",
+        missing = "Error: cannot enable exception scalability workaround with static linkage of libgcc and libstdc++"):
+    defines.append('NO_EXCEPTION_HACK')
 
 if args.staticcxx:
     libs = libs.replace('-lstdc++', '')
@@ -400,6 +488,7 @@ memcache_base = [
 deps = {
     'libseastar.a' : core + libnet + http + protobuf + prometheus,
     'seastar.pc': [],
+    'fmt/fmt/libfmt.a': [],
     'apps/httpd/httpd': ['apps/httpd/demo.json', 'apps/httpd/main.cc'] + http + libnet + core,
     'apps/memcached/memcached': ['apps/memcached/memcache.cc'] + memcache_base,
     'tests/memcached/test_ascii_parser': ['tests/memcached/test_ascii_parser.cc'] + memcache_base,
@@ -426,8 +515,8 @@ deps = {
     'tests/tls_test': ['tests/tls_test.cc'] + core + libnet,
     'tests/fair_queue_test': ['tests/fair_queue_test.cc'] + core,
     'apps/seawreck/seawreck': ['apps/seawreck/seawreck.cc', 'http/http_response_parser.rl'] + core + libnet,
-    'apps/fair_queue_tester/fair_queue_tester': ['apps/fair_queue_tester/fair_queue_tester.cc'] + core,
-    'apps/iotune/iotune': ['apps/iotune/iotune.cc'] + ['core/resource.cc', 'core/fsqual.cc'],
+    'apps/io_tester/io_tester': ['apps/io_tester/io_tester.cc'] + core,
+    'apps/iotune/iotune': ['apps/iotune/iotune.cc'] + ['core/resource.cc', 'core/fsqual.cc', 'core/linux-aio.cc'],
     'tests/blkdiscard_test': ['tests/blkdiscard_test.cc'] + core,
     'tests/sstring_test': ['tests/sstring_test.cc'] + core,
     'tests/unwind_test': ['tests/unwind_test.cc'] + core,
@@ -452,6 +541,16 @@ deps = {
     'tests/json_formatter_test': ['tests/json_formatter_test.cc'] + core + http,
     'tests/dns_test': ['tests/dns_test.cc'] + core + libnet,
     'tests/execution_stage_test': ['tests/execution_stage_test.cc'] + core,
+    'tests/lowres_clock_test': ['tests/lowres_clock_test.cc'] + core,
+    'tests/program_options_test': ['tests/program_options_test.cc'] + core,
+    'tests/tuple_utils_test': ['tests/tuple_utils_test.cc'],
+    'tests/tls_echo_server': ['tests/tls_echo_server.cc'] + core + libnet,
+    'tests/tls_simple_client': ['tests/tls_simple_client.cc'] + core + libnet,
+    'tests/circular_buffer_fixed_capacity_test': ['tests/circular_buffer_fixed_capacity_test.cc'],
+    'tests/scheduling_group_demo': ['tests/scheduling_group_demo.cc'] + core,
+    'tests/noncopyable_function_test': ['tests/noncopyable_function_test.cc'],
+    'tests/netconfig_test': ['tests/netconfig_test.cc'] + core + libnet,
+    'tests/abort_source_test': ['tests/abort_source_test.cc'] + core,
 }
 
 boost_tests = [
@@ -473,10 +572,15 @@ boost_tests = [
     'tests/json_formatter_test',
     'tests/dns_test',
     'tests/execution_stage_test',
+    'tests/lowres_clock_test',
+    'tests/abort_source_test',
     ]
 
 for bt in boost_tests:
     deps[bt] += boost_test_lib
+
+for pt in perf_tests:
+    deps[pt] = [pt + '.cc'] + core + ['tests/perf/perf_tests.cc']
 
 warnings = [
     '-Wno-mismatched-tags',                 # clang-only
@@ -488,6 +592,10 @@ warnings = [
     '-Wno-unneeded-internal-declaration',   # clang-only: 'x' function 'x' declared in header file shouldb e declared 'x'
     '-Wno-undefined-inline',                # clang-only: inline function 'x' is not defined
     '-Wno-overloaded-virtual',              # clang-only: 'x' hides overloaded virtual functions
+    '-Wno-maybe-uninitialized',
+    '-Wno-error=cpp',                       # gcc: allow preprecessor warnings
+    '-Wno-error=#warning',                  # clang: allow preprecessor warnings
+    '-Wno-stringop-overflow',               # gcc: overzealous, false positives
     ]
 
 # The "--with-osv=<path>" parameter is a shortcut for a bunch of other
@@ -499,6 +607,9 @@ if args.with_osv:
         ' -DDEFAULT_ALLOCATOR -fvisibility=default -DHAVE_OSV -I' +
         args.with_osv + ' -I' + args.with_osv + '/include -I' +
         args.with_osv + '/arch/x64')
+
+if args.allocator_page_size:
+    args.user_cflags += ' -DSEASTAR_OVERRIDE_ALLOCATOR_PAGE_SIZE=' + str(args.allocator_page_size)
 
 dpdk_arch_xlat = {
     'native': 'native',
@@ -549,6 +660,7 @@ if args.dpdk:
                            'CONFIG_RTE_LIBRTE_METER': 'n',
                            'CONFIG_RTE_LIBRTE_SCHED': 'n',
                            'CONFIG_RTE_LIBRTE_DISTRIBUTOR': 'n',
+                           'CONFIG_RTE_LIBRTE_PMD_CRYPTO_SCHEDULER': 'n',
                            'CONFIG_RTE_LIBRTE_REORDER': 'n',
                            'CONFIG_RTE_LIBRTE_PORT': 'n',
                            'CONFIG_RTE_LIBRTE_TABLE': 'n',
@@ -567,40 +679,51 @@ if args.dpdk_target:
     if args.with_osv:
         libs += '-lintel_dpdk -lrt -lm -ldl'
     else:
-        libs += '-Wl,--whole-archive -lrte_pmd_vmxnet3_uio -lrte_pmd_i40e -lrte_pmd_ixgbe -lrte_pmd_e1000 -lrte_pmd_ring -lrte_hash -lrte_kvargs -lrte_mbuf -lrte_ethdev -lrte_eal -lrte_mempool -lrte_ring -lrte_cmdline -lrte_cfgfile -Wl,--no-whole-archive -lrt -lm -ldl'
+        libs += '-Wl,--whole-archive -lrte_pmd_vmxnet3_uio -lrte_pmd_i40e -lrte_pmd_ixgbe -lrte_pmd_e1000 -lrte_pmd_ring -lrte_pmd_bnxt -lrte_pmd_cxgbe -lrte_pmd_ena -lrte_pmd_enic -lrte_pmd_fm10k -lrte_pmd_nfp -lrte_pmd_qede -lrte_pmd_sfc_efx -lrte_hash -lrte_kvargs -lrte_mbuf -lrte_ethdev -lrte_eal -lrte_mempool -lrte_mempool_ring -lrte_ring -lrte_cmdline -lrte_cfgfile -Wl,--no-whole-archive -lrt -lm -ldl'
 
-args.user_cflags += ' -Ifmt'
+args.user_cflags += ' -I{srcdir}/fmt'.format(**globals())
 
 if not args.staticboost:
     args.user_cflags += ' -DBOOST_TEST_DYN_LINK'
 
 warnings = [w
             for w in warnings
-            if warning_supported(warning = w, compiler = args.cxx)]
+            if warning_supported(warning = w, compiler = args.cxx, flags=args.user_cflags.split())]
 
 warnings = ' '.join(warnings)
 
-dbgflag = debug_flag(args.cxx) if args.debuginfo else ''
+dbgflag = debug_flag(args.cxx, flags=args.user_cflags.split()) if args.debuginfo else ''
 tests_link_rule = 'link' if args.tests_debuginfo else 'link_stripped'
 
-sanitize_flags = sanitize_vptr_flag(args.cxx)
+sanitize_flags = sanitize_vptr_flag(args.cxx, flags=args.user_cflags.split())
 
-if not try_compile(args.cxx, '#include <gnutls/gnutls.h>'):
+visibility_flags = adjust_visibility_flags(args.cxx, flags=args.user_cflags.split())
+
+if not try_compile(args.cxx, source='#include <gnutls/gnutls.h>', flags=args.user_cflags.split()):
     print('Seastar requires gnutls.  Install gnutls-devel/libgnutls-dev')
     sys.exit(1)
 
-if not try_compile(args.cxx, '#include <gnutls/gnutls.h>\nint x = GNUTLS_NONBLOCK;'):
+if not try_compile(args.cxx, source='#include <gnutls/gnutls.h>\nint x = GNUTLS_NONBLOCK;', flags=args.user_cflags.split()):
     print('Seastar requires gnutls >= 2.8.  Install libgnutls28-dev or later.')
     sys.exit(1)
 
-if not try_compile(args.cxx, '#include <experimental/string_view>', ['-std=gnu++1y']):
+if not try_compile(args.cxx, source='#include <experimental/string_view>', flags=['-std=gnu++1y'] + args.user_cflags.split()):
     print('Seastar requires g++ >= 4.9.  Install g++-4.9 or later (use --compiler option).')
     sys.exit(1)
 
+if not try_compile(args.cxx, '''#include <boost/version.hpp>\n\
+        #if BOOST_VERSION < 105800\n\
+        #error "Invalid boost version"\n\
+        #endif''', flags=args.user_cflags.split()):
+    print("Seastar requires boost >= 1.58")
+    sys.exit(1)
+
+
 modes['debug']['sanitize'] += ' ' + sanitize_flags
+modes['release']['opt'] += ' ' + args.user_optflags
 
 def have_hwloc():
-    return try_compile(compiler = args.cxx, source = '#include <hwloc.h>\n#include <numa.h>')
+    return try_compile(compiler = args.cxx, source = '#include <hwloc.h>\n#include <numa.h>', flags=args.user_cflags.split())
 
 if apply_tristate(args.hwloc, test = have_hwloc,
                   note = 'Note: hwloc-devel/numactl-devel not installed.  No NUMA support.',
@@ -609,16 +732,19 @@ if apply_tristate(args.hwloc, test = have_hwloc,
     defines.append('HAVE_HWLOC')
     defines.append('HAVE_NUMA')
 
+if detect_membarrier(compiler=args.cxx, flags=args.user_cflags.split()):
+    defines.append('SEASTAR_HAS_MEMBARRIER')
+
 if try_compile(args.cxx, source = textwrap.dedent('''\
         #include <lz4.h>
 
         void m() {
             LZ4_compress_default(static_cast<const char*>(0), static_cast<char*>(0), 0, 0);
         }
-        ''')):
+        '''), flags=args.user_cflags.split()):
     defines.append("HAVE_LZ4_COMPRESS_DEFAULT")
 
-if try_compile_and_link(args.cxx, flags=['-fsanitize=address'], source = textwrap.dedent('''\
+if try_compile_and_link(args.cxx, flags=['-fsanitize=address'] + args.user_cflags.split(), source = textwrap.dedent('''\
         #include <cstddef>
 
         extern "C" {
@@ -652,7 +778,7 @@ link_pool_depth = max(int(total_memory / 7e9), 1)
 
 build_modes = modes if args.mode == 'all' else [args.mode]
 build_artifacts = all_artifacts if not args.artifacts else args.artifacts
-
+protoc = args.protoc
 dpdk_sources = []
 if args.dpdk:
     for root, dirs, files in os.walk('dpdk'):
@@ -684,6 +810,17 @@ libs += ' -l' + cares_lib
 # to the current mode's build directory.
 built_libs = []
 built_libs += ['lib' + cares_lib + '.a']
+built_libs += ['fmt/fmt/libfmt.a']
+
+for mode in build_modes:
+    configure_fmt(mode, cxx=args.cxx, cc=args.cc)
+
+libs += ' -lfmt'
+
+fmt_deps = []
+for dirpath, dirnames, filenames in os.walk('fmt'):
+    fmt_deps += [os.path.join(dirpath, filename) for filename in filenames]
+fmt_deps = ' '.join(fmt_deps)
 
 outdir = 'build'
 buildfile = 'build.ninja'
@@ -699,15 +836,18 @@ with open(buildfile, 'w') as f:
     f.write(textwrap.dedent('''\
         configure_args = {configure_args}
         builddir = {outdir}
+        full_builddir = {srcdir}/$builddir
         cxx = {cxx}
         # we disable _FORTIFY_SOURCE because it generates false positives with longjmp() (core/thread.cc)
-        cxxflags = -std=gnu++1y {dbgflag} {fpie} -Wall -Werror -Wno-error=deprecated-declarations -fvisibility=hidden -pthread -I. -U_FORTIFY_SOURCE {user_cflags} {warnings} {defines}
-        ldflags = {dbgflag} -Wl,--no-as-needed {static} {pie} -fvisibility=hidden -pthread {user_ldflags}
+        cxxflags = -std={cpp_dialect} {dbgflag} {fpie} -Wall -Werror -Wno-error=deprecated-declarations -fvisibility=hidden {visibility_flags} -pthread -I{srcdir} -U_FORTIFY_SOURCE {user_cflags} {warnings} {defines}
+        ldflags = {dbgflag} -Wl,--no-as-needed {static} {pie} -fvisibility=hidden {visibility_flags} -pthread {user_ldflags}
         libs = {libs}
         pool link_pool
             depth = {link_pool_depth}
         rule ragel
-            command = ragel -G2 -o $out $in
+            # sed away a bug in ragel 7 that emits some extraneous _nfa* variables
+            # (the $$ is collapsed to a single one by ninja)
+            command = ragel -G2 -o $out $in && sed -i -e '1h;2,$$H;$$!d;g' -re 's/static const char _nfa[^;]*;//g' $out
             description = RAGEL $out
         rule gen
             command = /bin/echo -e $text > $out
@@ -716,10 +856,12 @@ with open(buildfile, 'w') as f:
             command = json/json2code.py -f $in -o $out
             description = SWAGGER $out
         rule protobuf
-            command = protoc --cpp_out=$outdir $in
+            command = {protoc} --cpp_out=$outdir $in
             description = PROTOC $out
         rule copy_file
             command = cp $in $out
+        rule ninja
+            command = {ninja_exe} -C $subdir
         ''').format(**globals()))
     if args.dpdk:
         f.write(textwrap.dedent('''\
@@ -737,18 +879,18 @@ with open(buildfile, 'w') as f:
         elif modeval['sanitize']:
             modeval['sanitize'] += ' -DASAN_ENABLED'
         f.write(textwrap.dedent('''\
-            cxxflags_{mode} = {sanitize} {opt} -I $builddir/{mode}/gen -I $builddir/{mode}/c-ares
+            cxxflags_{mode} = {sanitize} {opt} -I$full_builddir/{mode}/gen -I$full_builddir/{mode}/c-ares
             libs_{mode} = {sanitize_libs} {libs}
             rule cxx.{mode}
               command = $cxx -MD -MT $out -MF $out.d $cxxflags_{mode} $cxxflags -c -o $out $in
               description = CXX $out
               depfile = $out.d
             rule link.{mode}
-              command = $cxx  $cxxflags_{mode} -L$builddir/{mode} $ldflags -o $out $in $libs $libs_{mode} $extralibs
+              command = $cxx  $cxxflags_{mode} -L$builddir/{mode} -L$builddir/{mode}/fmt/fmt $ldflags -o $out $in $libs $libs_{mode} $extralibs
               description = LINK $out
               pool = link_pool
             rule link_stripped.{mode}
-              command = $cxx  $cxxflags_{mode} -s -L$builddir/{mode} $ldflags -o $out $in $libs $libs_{mode} $extralibs
+              command = $cxx  $cxxflags_{mode} -s -L$builddir/{mode} -L$builddir/{mode}/fmt/fmt $ldflags -o $out $in $libs $libs_{mode} $extralibs
               description = LINK (stripped) $out
               pool = link_pool
             rule ar.{mode}
@@ -766,7 +908,7 @@ with open(buildfile, 'w') as f:
               build $builddir/{mode}/{cares_dir}/ares_build.h : phony $builddir/{mode}/{cares_dir}/Makefile
               build $builddir/{mode}/{cares_src_lib} : caresmake_{mode} $builddir/{mode}/{cares_dir}/Makefile | {cares_sources}
               build $builddir/{mode}/lib{cares_lib}.a : copy_file $builddir/{mode}/{cares_src_lib}
-            ''').format(srcdir = os.getcwd(), cares_opts=(modeval['cares_opts']), **globals()))
+            ''').format(cares_opts=(modeval['cares_opts']), **globals()))
         objdeps['$builddir/' + mode + '/net/dns.o'] = ' $builddir/' + mode + '/' + cares_dir + '/ares_build.h'
         compiles = {}
         ragels = {}
@@ -788,29 +930,35 @@ with open(buildfile, 'w') as f:
                         URL: http://seastar-project.org/
                         Description: Advanced C++ framework for high-performance server applications on modern hardware.
                         Version: 1.0
-                        Libs: -L{srcdir}/{builddir} -Wl,--whole-archive,-lseastar,--no-whole-archive {dbgflag} -Wl,--no-as-needed {static} {pie} -fvisibility=hidden -pthread {user_ldflags} {sanitize_libs} {libs}
-                        Cflags: -std=gnu++1y {dbgflag} {fpie} -Wall -Werror -fvisibility=hidden -pthread -I{srcdir} -I{srcdir}/fmt -I{srcdir}/{builddir}/gen {user_cflags} {warnings} {defines} {sanitize} {opt}
-                        ''').format(builddir = 'build/' + mode, srcdir = os.getcwd(), **vars)
+                        Libs: -L$full_builddir/{mode} -L$full_builddir/{mode}/fmt/fmt -Wl,--whole-archive,-lseastar,--no-whole-archive -lfmt $cxxflags $cxflags_{mode} -Wl,--no-as-needed {static} {pie} {user_ldflags} {sanitize_libs} {libs}
+                        Cflags: $cxxflags $cxxflags_{mode}
+                        ''').format(**vars)
                 f.write('build $builddir/{}/{}: gen\n  text = {}\n'.format(mode, binary, repr(pc)))
+            elif binary == 'fmt/fmt/libfmt.a':
+                f.write('build $builddir/{}/fmt/fmt//libfmt.a: ninja | {}\n'.format(mode, fmt_deps))
+                f.write('  subdir=build/{}/fmt\n'.format(mode))
             elif binary.endswith('.a'):
                 f.write('build $builddir/{}/{}: ar.{} {}\n'.format(mode, binary, mode, str.join(' ', objs)))
             else:
                 libdeps = str.join(' ', ('$builddir/{}/{}'.format(mode, i) for i in built_libs))
-                extralibs = []
+                test_extralibs = [maybe_static(args.staticyamlcpp, '-lyaml-cpp')]
                 if binary.startswith('tests/'):
                     if binary in boost_tests:
-                        extralibs += [maybe_static(args.staticboost, '-lboost_unit_test_framework')]
+                        test_extralibs += [maybe_static(args.staticboost, '-lboost_unit_test_framework')]
                     # Our code's debugging information is huge, and multiplied
                     # by many tests yields ridiculous amounts of disk space.
                     # So we strip the tests by default; The user can very
                     # quickly re-link the test unstripped by adding a "_g"
                     # to the test name, e.g., "ninja build/release/testname_g"
                     f.write('build $builddir/{}/{}: {}.{} {} | {} {}\n'.format(mode, binary, tests_link_rule, mode, str.join(' ', objs), dpdk_deps, libdeps))
-                    f.write('  extralibs = {}\n'.format(' '.join(extralibs)))
+                    f.write('  extralibs = {}\n'.format(' '.join(test_extralibs)))
                     f.write('build $builddir/{}/{}_g: link.{} {} | {} {}\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps, libdeps))
-                    f.write('  extralibs = {}\n'.format(' '.join(extralibs)))
+                    f.write('  extralibs = {}\n'.format(' '.join(test_extralibs)))
                 else:
-                    f.write('build $builddir/{}/{}: link.{} {} | {} {} $builddir/{}/lib{}.a\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps, libdeps, mode, cares_lib))
+                    f.write('build $builddir/{}/{}: link.{} {} | {} {} $builddir/{}/lib{}.a $builddir/{}/fmt/fmt/libfmt.a\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps, libdeps, mode, cares_lib, mode))
+                    if binary in extralibs.keys():
+                        app_extralibs = extralibs[binary]
+                        f.write('  extralibs = {}\n'.format(' '.join(app_extralibs)))
 
             for src in srcs:
                 if src.endswith('.cc'):
@@ -837,7 +985,7 @@ with open(buildfile, 'w') as f:
             f.write('build {}: ragel {}\n'.format(hh, src))
         for hh in swaggers:
             src = swaggers[hh]
-            f.write('build {}: swagger {}\n'.format(hh,src))
+            f.write('build {}: swagger {} | json/json2code.py\n'.format(hh,src))
         for pb in protobufs:
             src = protobufs[pb]
             c_pb = pb.replace('.h','.cc')
@@ -854,12 +1002,16 @@ with open(buildfile, 'w') as f:
             description = CSCOPE
         build cscope: cscope
         rule md2html
-            command = pandoc --self-contained --toc -c doc/template.css -V documentclass=report --chapters --number-sections -f markdown_github+pandoc_title_block --highlight-style tango $in -o $out
+            command = pandoc --self-contained --smart --toc -c doc/template.css -V documentclass=report --chapters --number-sections -f markdown_github+pandoc_title_block --highlight-style tango $in -o $out
             description = PANDOC $out
         rule md2pdf
             command = pandoc -f markdown_github+pandoc_title_block --highlight-style tango --template=doc/template.tex $in -o $out
             description = PANDOC $out
+        rule htmlsplit
+            command = cd doc; ./htmlsplit.py
+            description = HTMLSPLIT $out
         build doc/tutorial.html: md2html doc/tutorial.md
         build doc/tutorial.pdf: md2pdf doc/tutorial.md
+        build doc/split: htmlsplit doc/tutorial.html
         default {modes_list}
         ''').format(modes_list = ' '.join(build_modes), **globals()))

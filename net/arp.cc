@@ -21,6 +21,8 @@
 
 #include "arp.hh"
 
+namespace seastar {
+
 namespace net {
 
 arp_for_protocol::arp_for_protocol(arp& a, uint16_t proto_num)
@@ -79,6 +81,8 @@ arp::process_packet(packet p, ethernet_address from) {
         i->second->received(std::move(p));
     }
     return make_ready_future<>();
+}
+
 }
 
 }

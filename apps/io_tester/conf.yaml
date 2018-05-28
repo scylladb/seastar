@@ -1,0 +1,25 @@
+- name: big_writes
+  shards: all
+  type: seqwrite
+  shard_info:
+    parallelism: 10
+    reqsize: 256kB
+    shares: 10
+    think_time: 0
+
+- name: latency_reads
+  shards: [0]
+  type: randread
+  shard_info:
+    parallelism: 1
+    reqsize: 512
+    shares: 100
+    think_time: 1000us
+
+- name: cpu_hog
+  shards: [0]
+  type: cpu
+  shard_info:
+    parallelim: 1
+    execution_time: 90us
+    think_time: 10us

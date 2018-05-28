@@ -22,11 +22,17 @@
 #pragma once
 
 #include <memory>
+#include "scheduling.hh"
+
+namespace seastar {
 
 class task {
+    scheduling_group _sg;
 public:
+    explicit task(scheduling_group sg = current_scheduling_group()) : _sg(sg) {}
     virtual ~task() noexcept {}
-    virtual void run() noexcept = 0;
+    virtual void run_and_dispose() noexcept = 0;
+    scheduling_group group() const { return _sg; }
 };
 
 void schedule(std::unique_ptr<task> t);
@@ -36,14 +42,26 @@ template <typename Func>
 class lambda_task final : public task {
     Func _func;
 public:
-    lambda_task(const Func& func) : _func(func) {}
-    lambda_task(Func&& func) : _func(std::move(func)) {}
-    virtual void run() noexcept override { _func(); }
+    lambda_task(scheduling_group sg, const Func& func) : task(sg), _func(func) {}
+    lambda_task(scheduling_group sg, Func&& func) : task(sg), _func(std::move(func)) {}
+    virtual void run_and_dispose() noexcept override {
+        _func();
+        delete this;
+    }
 };
 
 template <typename Func>
 inline
 std::unique_ptr<task>
 make_task(Func&& func) {
-    return std::make_unique<lambda_task<Func>>(std::forward<Func>(func));
+    return std::make_unique<lambda_task<Func>>(current_scheduling_group(), std::forward<Func>(func));
+}
+
+template <typename Func>
+inline
+std::unique_ptr<task>
+make_task(scheduling_group sg, Func&& func) {
+    return std::make_unique<lambda_task<Func>>(sg, std::forward<Func>(func));
+}
+
 }

@@ -27,6 +27,8 @@
 #include <malloc.h>
 #include <algorithm>
 
+namespace seastar {
+
 /// \addtogroup memory-module
 /// @{
 
@@ -221,5 +223,7 @@ public:
 };
 
 /// @}
+
+}
 
 #endif /* TEMPORARY_BUFFER_HH_ */

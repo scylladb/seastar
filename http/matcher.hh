@@ -26,6 +26,8 @@
 
 #include "core/sstring.hh"
 
+namespace seastar {
+
 namespace httpd {
 
 /**
@@ -104,6 +106,8 @@ private:
     sstring _cmp;
     unsigned _len;
 };
+
+}
 
 }
 

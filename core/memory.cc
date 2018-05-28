@@ -50,8 +50,12 @@
 // Runs of pages are organized into spans.  Free spans are organized into lists,
 // by size.  When spans are broken up or coalesced, they may move into new lists.
 
+#include "cacheline.hh"
 #include "memory.hh"
 #include "reactor.hh"
+#include "util/alloc_failure_injector.hh"
+
+namespace seastar {
 
 namespace memory {
 
@@ -63,6 +67,8 @@ disable_abort_on_alloc_failure_temporarily::disable_abort_on_alloc_failure_tempo
 
 disable_abort_on_alloc_failure_temporarily::~disable_abort_on_alloc_failure_temporarily() noexcept {
     --abort_on_alloc_failure_suppressed;
+}
+
 }
 
 }
@@ -92,6 +98,8 @@ disable_abort_on_alloc_failure_temporarily::~disable_abort_on_alloc_failure_temp
 #include <numaif.h>
 #endif
 
+namespace seastar {
+
 struct allocation_site {
     mutable size_t count = 0; // number of live objects allocated at backtrace.
     mutable size_t size = 0; // amount of bytes in live objects allocated at backtrace.
@@ -107,40 +115,33 @@ struct allocation_site {
     }
 };
 
+}
+
 namespace std {
 
 template<>
-struct hash<::allocation_site> {
-    size_t operator()(const ::allocation_site& bi) const {
-        return std::hash<saved_backtrace>()(bi.backtrace);
+struct hash<seastar::allocation_site> {
+    size_t operator()(const seastar::allocation_site& bi) const {
+        return std::hash<seastar::saved_backtrace>()(bi.backtrace);
     }
 };
 
 }
 
+namespace seastar {
+
 using allocation_site_ptr = const allocation_site*;
 
 namespace memory {
 
+seastar::logger seastar_memory_logger("seastar_memory");
+
 static allocation_site_ptr get_allocation_site() __attribute__((unused));
 
-static std::atomic<bool> abort_on_allocation_failure{false};
-
-void enable_abort_on_allocation_failure() {
-    abort_on_allocation_failure.store(true, std::memory_order_seq_cst);
-}
-
-static void on_allocation_failure(size_t size) {
-    if (!abort_on_alloc_failure_suppressed
-            && abort_on_allocation_failure.load(std::memory_order_relaxed)) {
-        seastar_logger.error("Failed to allocate {} bytes", size);
-        abort();
-    }
-}
+static void on_allocation_failure(size_t size);
 
 static constexpr unsigned cpu_id_shift = 36; // FIXME: make dynamic
 static constexpr unsigned max_cpus = 256;
-static constexpr size_t cache_line_size = 64;
 
 using pageidx = uint32_t;
 
@@ -170,6 +171,7 @@ class page_list_link {
     uint32_t _prev;
     uint32_t _next;
     friend class page_list;
+    friend void on_allocation_failure(size_t);
 };
 
 static char* mem_base() {
@@ -268,20 +270,23 @@ public:
         }
         return &ary[n];
     }
+    friend void on_allocation_failure(size_t);
 };
 
 class small_pool {
+    struct span_sizes {
+        uint8_t preferred;
+        uint8_t fallback;
+    };
     unsigned _object_size;
-    unsigned _span_size;
+    span_sizes _span_sizes;
     free_object* _free = nullptr;
     size_t _free_count = 0;
     unsigned _min_free;
     unsigned _max_free;
-    unsigned _spans_in_use = 0;
+    unsigned _pages_in_use = 0;
     page_list _span_list;
     static constexpr unsigned idx_frac_bits = 2;
-private:
-    size_t span_bytes() const { return _span_size * page_size; }
 public:
     explicit small_pool(unsigned object_size) noexcept;
     ~small_pool();
@@ -295,7 +300,7 @@ public:
 private:
     void add_more_objects();
     void trim_free_list();
-    float waste();
+    friend void on_allocation_failure(size_t);
 };
 
 // index 0b0001'1100 -> size (1 << 4) + 0b11 << (4 - 2)
@@ -372,6 +377,7 @@ struct cpu_pages {
     uint32_t nr_pages;
     uint32_t nr_free_pages;
     uint32_t current_min_free_pages = 0;
+    size_t large_allocation_warning_threshold = std::numeric_limits<size_t>::max();
     unsigned cpu_id = -1U;
     std::function<void (std::function<void ()>)> reclaim_hook;
     std::vector<reclaimer*> reclaimers;
@@ -388,8 +394,8 @@ struct cpu_pages {
         page_list free_spans[nr_span_lists];  // contains spans with span_size >= 2^idx
     } fsu;
     small_pool_array small_pools;
-    alignas(cache_line_size) std::atomic<cross_cpu_free_item*> xcpu_freelist;
-    alignas(cache_line_size) std::vector<physical_address> virt_to_phys_map;
+    alignas(seastar::cache_line_size) std::atomic<cross_cpu_free_item*> xcpu_freelist;
+    alignas(seastar::cache_line_size) std::vector<physical_address> virt_to_phys_map;
     static std::atomic<unsigned> cpu_id_gen;
     static cpu_pages* all_cpus[max_cpus];
     union asu {
@@ -442,6 +448,8 @@ struct cpu_pages {
     void do_resize(size_t new_size, allocate_system_memory_fn alloc_sys_mem);
     void replace_memory_backing(allocate_system_memory_fn alloc_sys_mem);
     void init_virt_to_phys_map();
+    void check_large_allocation(size_t size);
+    void warn_large_allocation(size_t size);
     memory::memory_layout memory_layout();
     translation translate(const void* addr, size_t size);
     ~cpu_pages();
@@ -527,7 +535,7 @@ cpu_pages::find_and_unlink_span(unsigned n_pages) {
     auto idx = index_of_conservative(n_pages);
     auto orig_idx = idx;
     if (n_pages >= (2u << idx)) {
-        throw std::bad_alloc();
+        return nullptr;
     }
     while (idx < nr_span_lists && fsu.free_spans[idx].empty()) {
         ++idx;
@@ -616,8 +624,23 @@ cpu_pages::allocate_large_and_trim(unsigned n_pages, Trimmer trimmer) {
     return mem() + span_idx * page_size;
 }
 
+void
+cpu_pages::warn_large_allocation(size_t size) {
+    seastar_memory_logger.warn("oversized allocation: {} bytes, please report: at {}", size, current_backtrace());
+    large_allocation_warning_threshold *= 1.618; // prevent spam
+}
+
+void
+inline
+cpu_pages::check_large_allocation(size_t size) {
+    if (size > large_allocation_warning_threshold) {
+        warn_large_allocation(size);
+    }
+}
+
 void*
 cpu_pages::allocate_large(unsigned n_pages) {
+    check_large_allocation(n_pages * page_size);
     return allocate_large_and_trim(n_pages, [n_pages] (unsigned idx, unsigned n) {
         return trim{0, std::min(n, n_pages)};
     });
@@ -625,6 +648,7 @@ cpu_pages::allocate_large(unsigned n_pages) {
 
 void*
 cpu_pages::allocate_large_aligned(unsigned align_pages, unsigned n_pages) {
+    check_large_allocation(n_pages * page_size);
     return allocate_large_and_trim(n_pages + align_pages - 1, [=] (unsigned idx, unsigned n) {
         return trim{align_up(idx, align_pages) - idx, n_pages};
     });
@@ -883,7 +907,7 @@ bool cpu_pages::initialize() {
 }
 
 mmap_area
-allocate_anonymous_memory(optional<void*> where, size_t how_much) {
+allocate_anonymous_memory(std::experimental::optional<void*> where, size_t how_much) {
     return mmap_anonymous(where.value_or(nullptr),
             how_much,
             PROT_READ | PROT_WRITE,
@@ -891,7 +915,7 @@ allocate_anonymous_memory(optional<void*> where, size_t how_much) {
 }
 
 mmap_area
-allocate_hugetlbfs_memory(file_desc& fd, optional<void*> where, size_t how_much) {
+allocate_hugetlbfs_memory(file_desc& fd, std::experimental::optional<void*> where, size_t how_much) {
     auto pos = fd.size();
     fd.truncate(pos + how_much);
     auto ret = fd.map(
@@ -981,7 +1005,9 @@ void cpu_pages::do_resize(size_t new_size, allocate_system_memory_fn alloc_sys_m
         old_pages_start = 1;
         old_pages_size -= page_size;
     }
-    free_span(old_pages_start, old_pages_size / page_size);
+    if (old_pages_size != 0) {
+        free_span(old_pages_start, old_pages_size / page_size);
+    }
     free_span(old_nr_pages, new_pages - old_nr_pages);
 }
 
@@ -1051,12 +1077,21 @@ void cpu_pages::set_min_free_pages(size_t pages) {
 }
 
 small_pool::small_pool(unsigned object_size) noexcept
-    : _object_size(object_size), _span_size(1) {
-    while (_object_size > span_bytes()
-            || (_span_size < 32 && waste() > 0.05)
-            || (span_bytes() / object_size < 32)) {
-        _span_size *= 2;
+    : _object_size(object_size) {
+    unsigned span_size = 1;
+    auto span_bytes = [&] { return span_size * page_size; };
+    auto waste = [&] { return (span_bytes() % _object_size) / (1.0 * span_bytes()); };
+    while (object_size > span_bytes()) {
+        ++span_size;
     }
+    _span_sizes.fallback = span_size;
+    span_size = 1;
+    while (_object_size > span_bytes()
+            || (span_size < 32 && waste() > 0.05)
+            || (span_bytes() / object_size < 4)) {
+        ++span_size;
+    }
+    _span_sizes.preferred = span_size;
     _max_free = std::max<unsigned>(100, span_bytes() * 2 / _object_size);
     _min_free = _max_free / 2;
 }
@@ -1111,19 +1146,24 @@ small_pool::add_more_objects() {
     }
     while (_free_count < goal) {
         disable_backtrace_temporarily dbt;
-        auto data = reinterpret_cast<char*>(cpu_mem.allocate_large(_span_size));
+        auto span_size = _span_sizes.preferred;
+        auto data = reinterpret_cast<char*>(cpu_mem.allocate_large(span_size));
         if (!data) {
-            return;
+            span_size = _span_sizes.fallback;
+            data = reinterpret_cast<char*>(cpu_mem.allocate_large(span_size));
+            if (!data) {
+                return;
+            }
         }
-        ++_spans_in_use;
+        _pages_in_use += span_size;
         auto span = cpu_mem.to_page(data);
-        for (unsigned i = 0; i < _span_size; ++i) {
+        for (unsigned i = 0; i < span_size; ++i) {
             span[i].offset_in_span = i;
             span[i].pool = this;
         }
         span->nr_small_alloc = 0;
         span->freelist = nullptr;
-        for (unsigned offset = 0; offset <= span_bytes() - _object_size; offset += _object_size) {
+        for (unsigned offset = 0; offset <= span_size * page_size - _object_size; offset += _object_size) {
             auto h = reinterpret_cast<free_object*>(data + offset);
             h->next = _free;
             _free = h;
@@ -1149,15 +1189,11 @@ small_pool::trim_free_list() {
         obj->next = span->freelist;
         span->freelist = obj;
         if (--span->nr_small_alloc == 0) {
+            _pages_in_use -= span->span_size;
             _span_list.erase(cpu_mem.pages, *span);
             cpu_mem.free_span(span - cpu_mem.pages, span->span_size);
-            --_spans_in_use;
         }
     }
-}
-
-float small_pool::waste() {
-    return (span_bytes() % _object_size) / (1.0 * span_bytes());
 }
 
 void
@@ -1172,7 +1208,7 @@ void* allocate_large(size_t size) {
     abort_on_underflow(size);
     unsigned size_in_pages = (size + page_size - 1) >> page_bits;
     if ((size_t(size_in_pages) << page_bits) < size) {
-        throw std::bad_alloc();
+        return nullptr; // (size + page_size - 1) caused an overflow
     }
     return cpu_mem.allocate_large(size_in_pages);
 
@@ -1193,6 +1229,28 @@ size_t object_size(void* ptr) {
     return cpu_pages::all_cpus[object_cpu_id(ptr)]->object_size(ptr);
 }
 
+[[gnu::always_inline]]
+static inline cpu_pages& get_cpu_mem()
+{
+    // cpu_pages has a non-trivial constructor which means that the compiler
+    // must make sure the instance local to the current thread has been
+    // constructed before each access.
+    // Unfortunately, this means that GCC will emit an unconditional call
+    // to __tls_init(), which may incurr a noticeable overhead in applications
+    // that are heavy on memory allocations.
+    // This can be solved by adding an easily predictable branch checking
+    // whether the object has already been constructed.
+    static thread_local cpu_pages* cpu_mem_ptr;
+    if (__builtin_expect(!bool(cpu_mem_ptr), false)) {
+        // Mark as cold so that GCC8+ can move this part of the function
+        // to .text.unlikely.
+        [&] () [[gnu::cold]] {
+            cpu_mem_ptr = &cpu_mem;
+        }();
+    }
+    return *cpu_mem_ptr;
+}
+
 void* allocate(size_t size) {
     if (size <= sizeof(free_object)) {
         size = sizeof(free_object);
@@ -1200,7 +1258,7 @@ void* allocate(size_t size) {
     void* ptr;
     if (size <= max_small_allocation) {
         size = object_size_with_alloc_site(size);
-        ptr = cpu_mem.allocate_small(size);
+        ptr = get_cpu_mem().allocate_small(size);
     } else {
         ptr = allocate_large(size);
     }
@@ -1212,16 +1270,15 @@ void* allocate(size_t size) {
 }
 
 void* allocate_aligned(size_t align, size_t size) {
-    size = std::max(size, align);
     if (size <= sizeof(free_object)) {
-        size = sizeof(free_object);
+        size = std::max(sizeof(free_object), align);
     }
     void* ptr;
     if (size <= max_small_allocation && align <= page_size) {
         // Our small allocator only guarantees alignment for power-of-two
         // allocations which are not larger than a page.
         size = 1 << log2ceil(object_size_with_alloc_site(size));
-        ptr = cpu_mem.allocate_small(size);
+        ptr = get_cpu_mem().allocate_small(size);
     } else {
         ptr = allocate_large_aligned(align, size);
     }
@@ -1233,19 +1290,26 @@ void* allocate_aligned(size_t align, size_t size) {
 }
 
 void free(void* obj) {
-    if (cpu_mem.try_cross_cpu_free(obj)) {
+    if (get_cpu_mem().try_cross_cpu_free(obj)) {
         return;
     }
     ++g_frees;
-    cpu_mem.free(obj);
+    get_cpu_mem().free(obj);
 }
 
 void free(void* obj, size_t size) {
-    if (cpu_mem.try_cross_cpu_free(obj)) {
+    if (get_cpu_mem().try_cross_cpu_free(obj)) {
         return;
     }
     ++g_frees;
-    cpu_mem.free(obj, size);
+    get_cpu_mem().free(obj, size);
+}
+
+void free_aligned(void* obj, size_t align, size_t size) {
+    if (size <= sizeof(free_object)) {
+        size = sizeof(free_object);
+    }
+    free(obj, size);
 }
 
 void shrink(void* obj, size_t new_size) {
@@ -1269,7 +1333,19 @@ reclaimer::~reclaimer() {
     r.erase(std::find(r.begin(), r.end(), this));
 }
 
-void configure(std::vector<resource::memory> m,
+void set_large_allocation_warning_threshold(size_t threshold) {
+    cpu_mem.large_allocation_warning_threshold = threshold;
+}
+
+size_t get_large_allocation_warning_threshold() {
+    return cpu_mem.large_allocation_warning_threshold;
+}
+
+void disable_large_allocation_warning() {
+    cpu_mem.large_allocation_warning_threshold = std::numeric_limits<size_t>::max();
+}
+
+void configure(std::vector<resource::memory> m, bool mbind,
         optional<std::string> hugetlbfs_path) {
     size_t total = 0;
     for (auto&& x : m) {
@@ -1290,16 +1366,18 @@ void configure(std::vector<resource::memory> m,
     for (auto&& x : m) {
 #ifdef HAVE_NUMA
         unsigned long nodemask = 1UL << x.nodeid;
-        auto r = ::mbind(cpu_mem.mem() + pos, x.bytes,
-                        MPOL_PREFERRED,
-                        &nodemask, std::numeric_limits<unsigned long>::digits,
-                        MPOL_MF_MOVE);
+        if (mbind) {
+            auto r = ::mbind(cpu_mem.mem() + pos, x.bytes,
+                            MPOL_PREFERRED,
+                            &nodemask, std::numeric_limits<unsigned long>::digits,
+                            MPOL_MF_MOVE);
 
-        if (r == -1) {
-            char err[1000] = {};
-            strerror_r(errno, err, sizeof(err));
-            std::cerr << "WARNING: unable to mbind shard memory; performance may suffer: "
-                    << err << std::endl;
+            if (r == -1) {
+                char err[1000] = {};
+                strerror_r(errno, err, sizeof(err));
+                std::cerr << "WARNING: unable to mbind shard memory; performance may suffer: "
+                        << err << std::endl;
+            }
         }
 #endif
         pos += x.bytes;
@@ -1343,20 +1421,92 @@ void set_min_free_pages(size_t pages) {
     cpu_mem.set_min_free_pages(pages);
 }
 
+static thread_local int report_on_alloc_failure_suppressed = 0;
+
+class disable_report_on_alloc_failure_temporarily {
+public:
+    disable_report_on_alloc_failure_temporarily() {
+        ++report_on_alloc_failure_suppressed;
+    };
+    ~disable_report_on_alloc_failure_temporarily() noexcept {
+        --report_on_alloc_failure_suppressed;
+    }
+};
+
+static std::atomic<bool> abort_on_allocation_failure{false};
+
+void enable_abort_on_allocation_failure() {
+    abort_on_allocation_failure.store(true, std::memory_order_seq_cst);
 }
 
-using namespace memory;
+void on_allocation_failure(size_t size) {
+    if (!report_on_alloc_failure_suppressed &&
+            // report even suppressed failures if trace level is enabled
+            (seastar_memory_logger.is_enabled(seastar::log_level::trace) ||
+                    (seastar_memory_logger.is_enabled(seastar::log_level::debug) && !abort_on_alloc_failure_suppressed))) {
+        disable_report_on_alloc_failure_temporarily guard;
+        seastar_memory_logger.debug("Failed to allocate {} bytes at {}", size, current_backtrace());
+        auto free_mem = cpu_mem.nr_free_pages * page_size;
+        auto total_mem = cpu_mem.nr_pages * page_size;
+        seastar_memory_logger.debug("Used memory: {} Free memory: {} Total memory: {}", total_mem - free_mem, free_mem, total_mem);
+        seastar_memory_logger.debug("Small pools:");
+        seastar_memory_logger.debug("objsz spansz usedobj   memory       wst%");
+        for (unsigned i = 0; i < cpu_mem.small_pools.nr_small_pools; i++) {
+            auto& sp = cpu_mem.small_pools[i];
+            auto use_count = sp._pages_in_use * page_size / sp.object_size() - sp._free_count;
+            auto memory = sp._pages_in_use * page_size;
+            auto wasted_percent = memory ? sp._free_count * sp.object_size() * 100.0 / memory : 0;
+            seastar_memory_logger.debug("{} {} {} {} {}", sp.object_size(), sp._span_sizes.preferred * page_size, use_count, memory, wasted_percent);
+        }
+        seastar_memory_logger.debug("Page spans:");
+        seastar_memory_logger.debug("index size [B]     free [B]");
+        for (unsigned i = 0; i< cpu_mem.nr_span_lists; i++) {
+            auto& span_list = cpu_mem.fsu.free_spans[i];
+            auto front = span_list._front;
+            uint32_t total = 0;
+            while(front) {
+                auto& span = cpu_mem.pages[front];
+                total += span.span_size;
+                front = span.link._next;
+            }
+            seastar_memory_logger.debug("{} {} {}", i, (1<<i) * page_size, total * page_size);
+        }
+    }
+
+    if (!abort_on_alloc_failure_suppressed
+            && abort_on_allocation_failure.load(std::memory_order_relaxed)) {
+        seastar_logger.error("Failed to allocate {} bytes", size);
+        abort();
+    }
+}
+
+static void trigger_error_injector() {
+    on_alloc_point();
+}
+
+static bool try_trigger_error_injector() {
+    try {
+        on_alloc_point();
+        return false;
+    } catch (...) {
+        return true;
+    }
+}
+
+}
+
+}
+
+using namespace seastar::memory;
 
 extern "C"
 [[gnu::visibility("default")]]
 [[gnu::externally_visible]]
 void* malloc(size_t n) throw () {
-    try {
-        return allocate(n);
-    } catch (std::bad_alloc& ba) {
-        on_allocation_failure(n);
+    if (try_trigger_error_injector()) {
         return nullptr;
     }
+    return allocate(n);
 }
 
 extern "C"
@@ -1369,7 +1519,7 @@ extern "C"
 [[gnu::externally_visible]]
 void free(void* ptr) {
     if (ptr) {
-        memory::free(ptr);
+        seastar::memory::free(ptr);
     }
 }
 
@@ -1381,6 +1531,9 @@ void* __libc_free(void* obj) throw ();
 extern "C"
 [[gnu::visibility("default")]]
 void* calloc(size_t nmemb, size_t size) {
+    if (try_trigger_error_injector()) {
+        return nullptr;
+    }
     auto s1 = __int128(nmemb) * __int128(size);
     assert(s1 == size_t(s1));
     size_t s = s1;
@@ -1399,6 +1552,9 @@ void* __libc_calloc(size_t n, size_t m) throw ();
 extern "C"
 [[gnu::visibility("default")]]
 void* realloc(void* ptr, size_t size) {
+    if (try_trigger_error_injector()) {
+        return nullptr;
+    }
     auto old_size = ptr ? object_size(ptr) : 0;
     if (size == old_size) {
         return ptr;
@@ -1408,7 +1564,7 @@ void* realloc(void* ptr, size_t size) {
         return nullptr;
     }
     if (size < old_size) {
-        memory::shrink(ptr, size);
+        seastar::memory::shrink(ptr, size);
         return ptr;
     }
     auto nptr = malloc(size);
@@ -1431,16 +1587,14 @@ extern "C"
 [[gnu::visibility("default")]]
 [[gnu::externally_visible]]
 int posix_memalign(void** ptr, size_t align, size_t size) {
-    try {
-        *ptr = allocate_aligned(align, size);
-        if (!*ptr) {
-            return ENOMEM;
-        }
-        return 0;
-    } catch (std::bad_alloc&) {
-        on_allocation_failure(size);
+    if (try_trigger_error_injector()) {
         return ENOMEM;
     }
+    *ptr = allocate_aligned(align, size);
+    if (!*ptr) {
+        return ENOMEM;
+    }
+    return 0;
 }
 
 extern "C"
@@ -1451,21 +1605,20 @@ int __libc_posix_memalign(void** ptr, size_t align, size_t size) throw ();
 extern "C"
 [[gnu::visibility("default")]]
 void* memalign(size_t align, size_t size) {
-    try {
-        return allocate_aligned(align, size);
-    } catch (std::bad_alloc&) {
-        return NULL;
+    if (try_trigger_error_injector()) {
+        return nullptr;
     }
+    size = seastar::align_up(size, align);
+    return allocate_aligned(align, size);
 }
 
 extern "C"
 [[gnu::visibility("default")]]
 void *aligned_alloc(size_t align, size_t size) {
-    try {
-        return allocate_aligned(align, size);
-    } catch (std::bad_alloc&) {
-        return NULL;
+    if (try_trigger_error_injector()) {
+        return nullptr;
     }
+    return allocate_aligned(align, size);
 }
 
 extern "C"
@@ -1506,6 +1659,7 @@ void* throw_if_null(void* ptr) {
 
 [[gnu::visibility("default")]]
 void* operator new(size_t size) {
+    trigger_error_injector();
     if (size == 0) {
         size = 1;
     }
@@ -1514,6 +1668,7 @@ void* operator new(size_t size) {
 
 [[gnu::visibility("default")]]
 void* operator new[](size_t size) {
+    trigger_error_injector();
     if (size == 0) {
         size = 1;
     }
@@ -1523,41 +1678,40 @@ void* operator new[](size_t size) {
 [[gnu::visibility("default")]]
 void operator delete(void* ptr) throw () {
     if (ptr) {
-        memory::free(ptr);
+        seastar::memory::free(ptr);
     }
 }
 
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr) throw () {
     if (ptr) {
-        memory::free(ptr);
+        seastar::memory::free(ptr);
     }
 }
 
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, size_t size) throw () {
     if (ptr) {
-        memory::free(ptr, size);
+        seastar::memory::free(ptr, size);
     }
 }
 
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, size_t size) throw () {
     if (ptr) {
-        memory::free(ptr, size);
+        seastar::memory::free(ptr, size);
     }
 }
 
 [[gnu::visibility("default")]]
 void* operator new(size_t size, std::nothrow_t) throw () {
+    if (try_trigger_error_injector()) {
+        return nullptr;
+    }
     if (size == 0) {
         size = 1;
     }
-    try {
-        return allocate(size);
-    } catch (...) {
-        return nullptr;
-    }
+    return allocate(size);
 }
 
 [[gnu::visibility("default")]]
@@ -1565,60 +1719,139 @@ void* operator new[](size_t size, std::nothrow_t) throw () {
     if (size == 0) {
         size = 1;
     }
-    try {
-        return allocate(size);
-    } catch (...) {
-        return nullptr;
-    }
+    return allocate(size);
 }
 
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, std::nothrow_t) throw () {
     if (ptr) {
-        memory::free(ptr);
+        seastar::memory::free(ptr);
     }
 }
 
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, std::nothrow_t) throw () {
     if (ptr) {
-        memory::free(ptr);
+        seastar::memory::free(ptr);
     }
 }
 
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, size_t size, std::nothrow_t) throw () {
     if (ptr) {
-        memory::free(ptr, size);
+        seastar::memory::free(ptr, size);
     }
 }
 
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, size_t size, std::nothrow_t) throw () {
     if (ptr) {
-        memory::free(ptr, size);
+        seastar::memory::free(ptr, size);
     }
 }
 
-void* operator new(size_t size, with_alignment wa) {
-    return allocate_aligned(wa.alignment(), size);
+#ifdef __cpp_aligned_new
+
+[[gnu::visibility("default")]]
+void* operator new(size_t size, std::align_val_t a) {
+    trigger_error_injector();
+    auto ptr = allocate_aligned(size_t(a), size);
+    return throw_if_null(ptr);
 }
 
-void* operator new[](size_t size, with_alignment wa) {
-    return allocate_aligned(wa.alignment(), size);
+[[gnu::visibility("default")]]
+void* operator new[](size_t size, std::align_val_t a) {
+    trigger_error_injector();
+    auto ptr = allocate_aligned(size_t(a), size);
+    return throw_if_null(ptr);
 }
 
-void operator delete(void* ptr, with_alignment wa) {
+[[gnu::visibility("default")]]
+void* operator new(size_t size, std::align_val_t a, const std::nothrow_t&) noexcept {
+    if (try_trigger_error_injector()) {
+        return nullptr;
+    }
+    return allocate_aligned(size_t(a), size);
+}
+
+[[gnu::visibility("default")]]
+void* operator new[](size_t size, std::align_val_t a, const std::nothrow_t&) noexcept {
+    if (try_trigger_error_injector()) {
+        return nullptr;
+    }
+    return allocate_aligned(size_t(a), size);
+}
+
+
+[[gnu::visibility("default")]]
+void operator delete(void* ptr, std::align_val_t a) noexcept {
+    if (ptr) {
+        seastar::memory::free(ptr);
+    }
+}
+
+[[gnu::visibility("default")]]
+void operator delete[](void* ptr, std::align_val_t a) noexcept {
+    if (ptr) {
+        seastar::memory::free(ptr);
+    }
+}
+
+[[gnu::visibility("default")]]
+void operator delete(void* ptr, size_t size, std::align_val_t a) noexcept {
+    if (ptr) {
+        seastar::memory::free_aligned(ptr, size_t(a), size);
+    }
+}
+
+[[gnu::visibility("default")]]
+void operator delete[](void* ptr, size_t size, std::align_val_t a) noexcept {
+    if (ptr) {
+        seastar::memory::free_aligned(ptr, size_t(a), size);
+    }
+}
+
+[[gnu::visibility("default")]]
+void operator delete(void* ptr, std::align_val_t a, const std::nothrow_t&) noexcept {
+    if (ptr) {
+        seastar::memory::free(ptr);
+    }
+}
+
+[[gnu::visibility("default")]]
+void operator delete[](void* ptr, std::align_val_t a, const std::nothrow_t&) noexcept {
+    if (ptr) {
+        seastar::memory::free(ptr);
+    }
+}
+
+#endif
+
+void* operator new(size_t size, seastar::with_alignment wa) {
+    trigger_error_injector();
+    return throw_if_null(allocate_aligned(wa.alignment(), size));
+}
+
+void* operator new[](size_t size, seastar::with_alignment wa) {
+    trigger_error_injector();
+    return throw_if_null(allocate_aligned(wa.alignment(), size));
+}
+
+void operator delete(void* ptr, seastar::with_alignment wa) {
     // only called for matching operator new, so we know ptr != nullptr
-    return memory::free(ptr);
+    return seastar::memory::free(ptr);
 }
 
-void operator delete[](void* ptr, with_alignment wa) {
+void operator delete[](void* ptr, seastar::with_alignment wa) {
     // only called for matching operator new, so we know ptr != nullptr
-    return memory::free(ptr);
+    return seastar::memory::free(ptr);
 }
+
+namespace seastar {
 
 #else
+
+namespace seastar {
 
 namespace memory {
 
@@ -1639,7 +1872,7 @@ reclaimer::~reclaimer() {
 void set_reclaim_hook(std::function<void (std::function<void ()>)> hook) {
 }
 
-void configure(std::vector<resource::memory> m, std::experimental::optional<std::string> hugepages_path) {
+void configure(std::vector<resource::memory> m, bool mbind, std::experimental::optional<std::string> hugepages_path) {
 }
 
 statistics stats() {
@@ -1667,9 +1900,24 @@ void set_min_free_pages(size_t pages) {
     // Ignore, reclaiming not supported for default allocator.
 }
 
+void set_large_allocation_warning_threshold(size_t) {
+    // Ignore, not supported for default allocator.
 }
 
-void* operator new(size_t size, with_alignment wa) {
+size_t get_large_allocation_warning_threshold() {
+    // Ignore, not supported for default allocator.
+    return std::numeric_limits<size_t>::max();
+}
+
+void disable_large_allocation_warning() {
+    // Ignore, not supported for default allocator.
+}
+
+}
+
+}
+
+void* operator new(size_t size, seastar::with_alignment wa) {
     void* ret;
     if (posix_memalign(&ret, wa.alignment(), size) != 0) {
         throw std::bad_alloc();
@@ -1677,7 +1925,7 @@ void* operator new(size_t size, with_alignment wa) {
     return ret;
 }
 
-void* operator new[](size_t size, with_alignment wa) {
+void* operator new[](size_t size, seastar::with_alignment wa) {
     void* ret;
     if (posix_memalign(&ret, wa.alignment(), size) != 0) {
         throw std::bad_alloc();
@@ -1685,14 +1933,19 @@ void* operator new[](size_t size, with_alignment wa) {
     return ret;
 }
 
-void operator delete(void* ptr, with_alignment wa) {
+void operator delete(void* ptr, seastar::with_alignment wa) {
     return ::free(ptr);
 }
 
-void operator delete[](void* ptr, with_alignment wa) {
+void operator delete[](void* ptr, seastar::with_alignment wa) {
     return ::free(ptr);
 }
+
+namespace seastar {
 
 #endif
 
 /// \endcond
+
+}
+

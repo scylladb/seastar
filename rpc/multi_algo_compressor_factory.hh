@@ -26,6 +26,8 @@
 #include "core/sstring.hh"
 #include "rpc_types.hh"
 
+namespace seastar {
+
 namespace rpc {
 
 // This is meta compressor factory. It gets an array of regular factories that
@@ -72,5 +74,7 @@ public:
         return nullptr;
     }
 };
+
+}
 
 }

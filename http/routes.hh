@@ -32,6 +32,8 @@
 #include <vector>
 #include "core/future-util.hh"
 
+namespace seastar {
+
 namespace httpd {
 
 /**
@@ -65,6 +67,8 @@ public:
     sstring _path;
     sstring _param;
 };
+
+struct path_description;
 
 /**
  * routes object do the request dispatching according to the url.
@@ -192,6 +196,14 @@ public:
     std::unique_ptr<reply> exception_reply(std::exception_ptr eptr);
 
     routes();
+
+    /*!
+     * \brief add an alias to an already registered path.
+     * After registering a handler to a path, use this method
+     * to add an alias to that handler.
+     *
+     */
+    void add_alias(const path_description& old_path, const path_description& new_path);
 };
 
 /**
@@ -201,6 +213,8 @@ public:
  * @param param the parameter to look for
  */
 void verify_param(const httpd::request& req, const sstring& param);
+
+}
 
 }
 

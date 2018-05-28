@@ -34,6 +34,8 @@
 #include "core/metrics_api.hh"
 #include "core/byteorder.hh"
 
+namespace seastar {
+
 bool scollectd::type_instance_id::operator<(
         const scollectd::type_instance_id& id2) const {
     auto& id1 = *this;
@@ -53,7 +55,7 @@ bool scollectd::type_instance_id::operator==(
 
 namespace scollectd {
 
-seastar::logger logger("scollectd");
+::seastar::logger logger("scollectd");
 thread_local unsigned type_instance_id::_next_truncated_idx = 0;
 
 registration::~registration() {
@@ -69,8 +71,8 @@ registration::registration(type_instance_id&& id)
 }
 
 seastar::metrics::impl::metric_id to_metrics_id(const type_instance_id & id) {
-    return std::move(seastar::metrics::impl::metric_id(id.plugin(), id.type_instance(),
-            {{seastar::metrics::shard_label.name(), seastar::metrics::impl::shard()}, {seastar::metrics::type_label.name(), id.type()}}));
+    return seastar::metrics::impl::metric_id(id.plugin(), id.type_instance(),
+            {{seastar::metrics::shard_label.name(), seastar::metrics::impl::shard()}, {seastar::metrics::type_label.name(), id.type()}});
 }
 
 
@@ -381,51 +383,65 @@ void impl::arm() {
 }
 
 void impl::run() {
-    typedef seastar::metrics::impl::values_copy::iterator iterator;
+    typedef size_t metric_family_id;
     typedef seastar::metrics::impl::value_vector::iterator value_iterator;
-    typedef std::tuple<iterator, value_iterator, cpwriter> context;
+    typedef seastar::metrics::impl::metric_metadata_vector::iterator metadata_iterator;
+    typedef std::tuple<metric_family_id, metadata_iterator, value_iterator, cpwriter> context;
 
     auto ctxt = make_lw_shared<context>();
-    auto vals =  make_lw_shared<seastar::metrics::impl::values_copy>(seastar::metrics::impl::get_values());
+    foreign_ptr<shared_ptr<seastar::metrics::impl::values_copy>> vals =  seastar::metrics::impl::get_values();
 
     // note we're doing this unsynced since we assume
     // all registrations to this instance will be done on the
     // same cpu, and without interuptions (no wait-states)
-    std::get<iterator>(*ctxt) = vals->begin();
-    if (std::get<iterator>(*ctxt) != vals->end()) {
-        std::get<value_iterator>(*ctxt) = std::get<iterator>(*ctxt)->second.begin();
+
+    auto& values = vals->values;
+    auto metadata = vals->metadata;
+    std::get<metric_family_id>(*ctxt) = 0;
+    if (values.size() > 0) {
+        std::get<value_iterator>(*ctxt) = values[0].begin();
+        std::get<metadata_iterator>(*ctxt) = metadata->at(0).metrics.begin();
     }
 
-    auto stop_when = [ctxt, vals]() {
-        auto done = std::get<iterator>(*ctxt) == vals->end();
+    auto stop_when = [ctxt, metadata]() {
+        auto done = std::get<metric_family_id>(*ctxt) == metadata->size();
         return done;
     };
     // append as many values as we can fit into a packet (1024 bytes)
-    auto send_packet = [this, ctxt, vals]() {
+    auto send_packet = [this, ctxt, &values, metadata]() mutable {
         auto start = steady_clock_type::now();
-        auto & m_itartor = std::get<iterator>(*ctxt);
+        auto& mf = std::get<metric_family_id>(*ctxt);
+        auto & md_iterator = std::get<metadata_iterator>(*ctxt);
         auto & i = std::get<value_iterator>(*ctxt);
         auto & out = std::get<cpwriter>(*ctxt);
 
         out.clear();
 
-        while (m_itartor != vals->end()) {
-            while (i != m_itartor->second.end()) {
-                if (std::get<seastar::metrics::impl::register_ref>(*i)->get_type() == seastar::metrics::impl::data_type::HISTOGRAM) {
+        bool out_of_space = false;
+        while (!out_of_space && mf < values.size()) {
+            while (i != values[mf].end()) {
+                if (i->type() == seastar::metrics::impl::data_type::HISTOGRAM) {
                     ++i;
+                    ++md_iterator;
                     continue;
                 }
                 auto m = out.mark();
-                out.put(_host, _period, std::get<seastar::metrics::impl::register_ref>(*i)->get_id(), std::get<seastar::metrics::impl::metric_value>(*i));
+                out.put(_host, _period, md_iterator->id, *i);
                 if (!out) {
                     out.reset(m);
+                    out_of_space = true;
                     break;
                 }
                 ++i;
+                ++md_iterator;
             }
-            ++m_itartor;
-            if (m_itartor != vals->end()) {
-                i = m_itartor->second.begin();
+            if (out_of_space) {
+                break;
+            }
+            ++mf;
+            if (mf < values.size()) {
+                i = values[mf].begin();
+                md_iterator = metadata->at(mf).metrics.begin();
             }
         }
         if (out.empty()) {
@@ -449,7 +465,7 @@ void impl::run() {
                     }
                 });
     };
-    do_until(stop_when, send_packet).finally([this]() {
+    do_until(stop_when, send_packet).finally([this, vals = std::move(vals)]() mutable {
         arm();
     });
 }
@@ -462,8 +478,8 @@ std::vector<type_instance_id> impl::get_instance_ids() const {
         // fully deterministic operation here would like us to only return
         // actually active ids
         for (auto i : v.second) {
-            if (std::get<seastar::metrics::impl::register_ref>(i)) {
-                res.emplace_back(std::get<seastar::metrics::impl::register_ref>(i)->get_id());
+            if (i.second) {
+                res.emplace_back(i.second->get_id());
             }
         }
     }
@@ -537,24 +553,8 @@ std::vector<collectd_value> get_collectd_value(
     return vals;
 }
 
-std::vector<data_type> get_collectd_types(
-        const scollectd::type_instance_id& id) {
-    auto res = get_register(id);
-    if (res == nullptr) {
-        return std::vector<data_type>();
-    }
-    std::vector<data_type> vals;
-    vals.push_back(res->get_type());
-    return vals;
-}
-
 std::vector<scollectd::type_instance_id> get_collectd_ids() {
     return get_impl().get_instance_ids();
-}
-
-sstring get_collectd_description_str(const scollectd::type_instance_id& id) {
-    auto v = get_register(id);
-    return v != nullptr ? v->get_description().str() : sstring();
 }
 
 bool is_enabled(const scollectd::type_instance_id& id) {
@@ -945,8 +945,10 @@ type_id type_id_for(known_type t) {
     }
 }
 
-seastar::metrics::impl::value_map get_value_map() {
-    return seastar::metrics::impl::get_value_map();
+metrics::impl::value_map get_value_map() {
+    return metrics::impl::get_value_map();
+}
+
 }
 
 }

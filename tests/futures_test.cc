@@ -29,6 +29,7 @@
 #include "core/thread.hh"
 #include <boost/iterator/counting_iterator.hpp>
 
+using namespace seastar;
 using namespace std::chrono_literals;
 
 class expected_exception : std::runtime_error {
@@ -405,6 +406,46 @@ SEASTAR_TEST_CASE(test_do_while_failing_in_the_second_step) {
     });
 }
 
+SEASTAR_TEST_CASE(test_parallel_for_each) {
+    return async([] {
+        // empty
+        parallel_for_each(std::vector<int>(), [] (int) -> future<> {
+            BOOST_FAIL("should not reach");
+            abort();
+        }).get();
+
+        // immediate result
+        auto range = boost::copy_range<std::vector<int>>(boost::irange(1, 6));
+        auto sum = 0;
+        parallel_for_each(range, [&sum] (int v) {
+            sum += v;
+            return make_ready_future<>();
+        }).get();
+        BOOST_REQUIRE_EQUAL(sum, 15);
+
+        // all suspend
+        sum = 0;
+        parallel_for_each(range, [&sum] (int v) {
+            return later().then([&sum, v] {
+                sum += v;
+            });
+        }).get();
+        BOOST_REQUIRE_EQUAL(sum, 15);
+
+        // throws immediately
+        BOOST_CHECK_EXCEPTION(parallel_for_each(range, [&sum] (int) -> future<> {
+            throw 5;
+        }).get(), int, [] (int v) { return v == 5; });
+
+        // throws after suspension
+        BOOST_CHECK_EXCEPTION(parallel_for_each(range, [&sum] (int) {
+            return later().then([] {
+                throw 5;
+            });
+        }).get(), int, [] (int v) { return v == 5; });
+    });
+}
+
 SEASTAR_TEST_CASE(test_parallel_for_each_early_failure) {
     return do_with(0, [] (int& counter) {
         return parallel_for_each(boost::irange(0, 11000), [&counter] (int i) {
@@ -455,6 +496,7 @@ SEASTAR_TEST_CASE(test_parallel_for_each_waits_for_all_fibers_even_if_one_of_the
     });
 }
 
+#ifndef SEASTAR_SHUFFLE_TASK_QUEUE
 SEASTAR_TEST_CASE(test_high_priority_task_runs_before_ready_continuations) {
     return now().then([] {
         auto flag = make_lw_shared<bool>(false);
@@ -482,6 +524,7 @@ SEASTAR_TEST_CASE(test_high_priority_task_runs_in_the_middle_of_loops) {
         return stop_iteration::no;
     });
 }
+#endif
 
 SEASTAR_TEST_CASE(futurize_apply_val_exception) {
     return futurize<int>::apply([] (int arg) { throw expected_exception(); return arg; }, 1).then_wrapped([] (future<int> f) {
@@ -626,9 +669,10 @@ SEASTAR_TEST_CASE(test_obtaining_future_from_shared_future_after_it_is_resolved)
     auto sf2 = shared_future<int>(p2.get_future());
     p1.set_value(1);
     p2.set_exception(expected_exception());
-    return sf2.get_future().then_wrapped([](auto&& f) {
+    return sf2.get_future().then_wrapped([f1 = sf1.get_future()] (auto&& f) mutable {
         check_fails_with_expected(std::move(f));
-    }).then([f = sf1.get_future()] () mutable {
+        return std::move(f1);
+    }).then_wrapped([] (auto&& f) {
         BOOST_REQUIRE(f.get0() == 1);
     });
 }
@@ -764,9 +808,6 @@ SEASTAR_TEST_CASE(test_with_timeout_when_it_does_not_time_out) {
 
             pr.set_value(42);
 
-            later().get();
-
-            BOOST_REQUIRE(f.available());
             BOOST_REQUIRE_EQUAL(f.get0(), 42);
         }
 
@@ -802,9 +843,6 @@ SEASTAR_TEST_CASE(test_shared_future_with_timeout) {
 
         pr.set_value(42);
 
-        later().get();
-
-        BOOST_REQUIRE(f3.available());
         BOOST_REQUIRE_EQUAL(42, f3.get0());
     });
 }

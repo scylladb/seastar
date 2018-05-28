@@ -27,6 +27,8 @@
 #include "toeplitz.hh"
 #include "core/metrics.hh"
 
+namespace seastar {
+
 namespace net {
 
 std::ostream& operator<<(std::ostream& os, ipv4_address a) {
@@ -150,7 +152,7 @@ ipv4::handle_received_packet(packet p, ethernet_address from) {
         bool handled = false;
         auto r = _packet_filter->handle(p, &h, from, handled);
         if (handled) {
-            return std::move(r);
+            return r;
         }
     }
 
@@ -187,17 +189,18 @@ ipv4::handle_received_packet(packet p, ethernet_address from) {
                 forward_hash hash_data;
                 hash_data.push_back(hton(h.src_ip.ip));
                 hash_data.push_back(hton(h.dst_ip.ip));
-                l4->forward(hash_data, ip_data, l4_offset);
-                cpu_id = _netif->hash2cpu(toeplitz_hash(_netif->rss_key(), hash_data));
-            }
-
-            // No need to forward if the dst cpu is the current cpu
-            if (cpu_id == engine().cpu_id()) {
-                l4->received(std::move(ip_data), h.src_ip, h.dst_ip);
-            } else {
-                auto to = _netif->hw_address();
-                auto pkt = frag.get_assembled_packet(from, to);
-                _netif->forward(cpu_id, std::move(pkt));
+                auto forwarded = l4->forward(hash_data, ip_data, l4_offset);
+                if (forwarded) {
+                    cpu_id = _netif->hash2cpu(toeplitz_hash(_netif->rss_key(), hash_data));
+                    // No need to forward if the dst cpu is the current cpu
+                    if (cpu_id == engine().cpu_id()) {
+                        l4->received(std::move(ip_data), h.src_ip, h.dst_ip);
+                    } else {
+                        auto to = _netif->hw_address();
+                        auto pkt = frag.get_assembled_packet(from, to);
+                        _netif->forward(cpu_id, std::move(pkt));
+                    }
+                }
             }
 
             // Delete this frag from _frags and _frags_age
@@ -471,6 +474,8 @@ void icmp::received(packet p, ipaddr from, ipaddr to) {
             _packetq.emplace_back(ipv4_traits::l4packet{from, std::move(p), e_dst, ip_protocol_num::icmp});
         });
     }
+}
+
 }
 
 }

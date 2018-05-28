@@ -25,6 +25,8 @@
 #include "core/reactor.hh"
 #include "stack.hh"
 
+namespace seastar {
+
 namespace net {
 
 using namespace seastar;
@@ -229,6 +231,6 @@ keepalive_params native_connected_socket_impl<Protocol>::get_keepalive_parameter
 
 }
 
-
+}
 
 #endif /* NET_NATIVE_STACK_IMPL_HH_ */

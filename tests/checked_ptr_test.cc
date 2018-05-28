@@ -26,6 +26,8 @@
 #include "core/checked_ptr.hh"
 #include "core/weak_ptr.hh"
 
+using namespace seastar;
+
 struct my_st : public weakly_referencable<my_st> {
         my_st(int a_) : a(a_) {}
         int a;

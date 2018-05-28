@@ -46,6 +46,8 @@
 // cause the sanitizer not to generate runtime alignment checks for this
 // access.
 
+namespace seastar {
+
 template <typename T>
 struct unaligned {
     T raw;
@@ -66,4 +68,6 @@ inline auto unaligned_cast(F* p) {
 template <typename T, typename F>
 inline auto unaligned_cast(const F* p) {
     return reinterpret_cast<const unaligned<std::remove_pointer_t<T>>*>(p);
+}
+
 }

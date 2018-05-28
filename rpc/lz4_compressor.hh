@@ -25,6 +25,8 @@
 #include "rpc/rpc_types.hh"
 #include <lz4.h>
 
+namespace seastar {
+
 namespace rpc {
     class lz4_compressor : public compressor {
     public:
@@ -45,4 +47,6 @@ namespace rpc {
         // decompress data
         rcv_buf decompress(rcv_buf data) override;
     };
+}
+
 }

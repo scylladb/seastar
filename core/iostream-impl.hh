@@ -26,6 +26,9 @@
 #include "future-util.hh"
 #include "net/packet.hh"
 #include "core/future-util.hh"
+#include "util/variant_utils.hh"
+
+namespace seastar {
 
 inline future<temporary_buffer<char>> data_source_impl::skip(uint64_t n)
 {
@@ -191,9 +194,10 @@ input_stream<CharType>::read_exactly(size_t n) {
 
 template <typename CharType>
 template <typename Consumer>
+GCC6_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
 future<>
-input_stream<CharType>::consume(Consumer& consumer) {
-    return repeat([&consumer, this] {
+input_stream<CharType>::consume(Consumer&& consumer) {
+    return repeat([consumer = std::move(consumer), this] () mutable {
         if (_buf.empty() && !_eof) {
             return _fd.get().then([this] (tmp_buf buf) {
                 _buf = std::move(buf);
@@ -201,38 +205,35 @@ input_stream<CharType>::consume(Consumer& consumer) {
                 return make_ready_future<stop_iteration>(stop_iteration::no);
             });
         }
-        future<unconsumed_remainder> unconsumed = consumer(std::move(_buf));
-        if (unconsumed.available()) {
-            unconsumed_remainder u = std::get<0>(unconsumed.get());
-            if (u) {
+        return consumer(std::move(_buf)).then([this] (consumption_result_type result) {
+            return visit(result.get(), [this] (const continue_consuming&) {
+               // If we're here, consumer consumed entire buffer and is ready for
+                // more now. So we do not return, and rather continue the loop.
+                //
+                // If we're at eof, we should stop.
+                return make_ready_future<stop_iteration>(stop_iteration(this->_eof));
+            }, [this] (stop_consuming<CharType>& stop) {
                 // consumer is done
-                _buf = std::move(u.value());
+                this->_buf = std::move(stop.get_buffer());
                 return make_ready_future<stop_iteration>(stop_iteration::yes);
-            }
-            if (_eof) {
-                return make_ready_future<stop_iteration>(stop_iteration::yes);
-            }
-            // If we're here, consumer consumed entire buffer and is ready for
-            // more now. So we do not return, and rather continue the loop.
-            // TODO: if we did too many iterations, schedule a call to
-            // consume() instead of continuing the loop.
-            return make_ready_future<stop_iteration>(stop_iteration::no);
-        } else {
-            // TODO: here we wait for the consumer to finish the previous
-            // buffer (fulfilling "unconsumed") before starting to read the
-            // next one. Consider reading ahead.
-            return unconsumed.then([this] (unconsumed_remainder u) {
-                if (u) {
-                    // consumer is done
-                    _buf = std::move(u.value());
-                    return make_ready_future<stop_iteration>(stop_iteration::yes);
-                } else {
-                    // consumer consumed entire buffer, and is ready for more
+            }, [this] (const skip_bytes& skip) {
+                return this->_fd.skip(skip.get_value()).then([this](tmp_buf buf) {
+                    if (!buf.empty()) {
+                        this->_buf = std::move(buf);
+                    }
                     return make_ready_future<stop_iteration>(stop_iteration::no);
-                }
+                });
             });
-        }
+        });
     });
+}
+
+template <typename CharType>
+template <typename Consumer>
+GCC6_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
+future<>
+input_stream<CharType>::consume(Consumer& consumer) {
+    return consume(std::ref(consumer));
 }
 
 template <typename CharType>
@@ -289,6 +290,16 @@ input_stream<CharType>::skip(uint64_t n) {
     return _fd.skip(n).then([this] (temporary_buffer<CharType> buffer) {
         _buf = std::move(buffer);
     });
+}
+
+template <typename CharType>
+data_source
+input_stream<CharType>::detach() && {
+    if (_buf) {
+        throw std::logic_error("detach() called on a used input_stream");
+    }
+
+    return std::move(_fd);
 }
 
 // Writes @buf in chunks of _size length. The last chunk is buffered if smaller.
@@ -465,4 +476,48 @@ output_stream<CharType>::close() {
     }).finally([this] {
         return _fd.close();
     });
+}
+
+template <typename CharType>
+data_sink
+output_stream<CharType>::detach() && {
+    if (_buf) {
+        throw std::logic_error("detach() called on a used output_stream");
+    }
+
+    return std::move(_fd);
+}
+
+namespace internal {
+
+/// \cond internal
+template <typename CharType>
+struct stream_copy_consumer {
+private:
+    output_stream<CharType>& _os;
+    using unconsumed_remainder = std::experimental::optional<temporary_buffer<CharType>>;
+public:
+    stream_copy_consumer(output_stream<CharType>& os) : _os(os) {
+    }
+    future<unconsumed_remainder> operator()(temporary_buffer<CharType> data) {
+        if (data.empty()) {
+            return make_ready_future<unconsumed_remainder>(std::move(data));
+        }
+        return _os.write(data.get(), data.size()).then([] () {
+            return make_ready_future<unconsumed_remainder>();
+        });
+    }
+};
+/// \endcond
+
+}
+
+extern template struct internal::stream_copy_consumer<char>;
+
+template <typename CharType>
+future<> copy(input_stream<CharType>& in, output_stream<CharType>& out) {
+    return in.consume(internal::stream_copy_consumer<CharType>(out));
+}
+
+extern template future<> copy<char>(input_stream<char>&, output_stream<char>&);
 }

@@ -150,7 +150,11 @@ inline void jmp_buf_link::final_switch_out()
 
 thread_context::thread_context(thread_attributes attr, std::function<void ()> func)
         : _attr(std::move(attr))
-        , _func(std::move(func)) {
+#ifdef SEASTAR_THREAD_STACK_GUARDS
+        , _stack_size(base_stack_size + getpagesize())
+#endif
+        , _func(std::move(func))
+        , _scheduling_group(_attr.sched_group.value_or(current_scheduling_group())) {
     setup();
     _all_threads.push_front(*this);
 }
@@ -198,7 +202,6 @@ thread_context::setup() {
 #ifdef SEASTAR_THREAD_STACK_GUARDS
     size_t page_size = getpagesize();
     assert(align_up(_stack.get(), page_size) == _stack.get());
-    assert(_stack_size > page_size * 4 && "Stack guard would take too much portion of the stack");
     auto mp_status = mprotect(_stack.get(), page_size, PROT_READ);
     throw_system_error_on(mp_status != 0, "mprotect");
 #endif
@@ -243,7 +246,10 @@ thread_local thread_context::all_thread_list thread_context::_all_threads;
 void
 thread_context::yield() {
     if (!_attr.scheduling_group) {
-        later().get();
+        schedule(make_task(_scheduling_group, [this] {
+            switch_in();
+        }));
+        switch_out();
     } else {
         auto when = _attr.scheduling_group->next_scheduling_point();
         if (when) {
@@ -260,10 +266,10 @@ thread_context::yield() {
 }
 
 bool thread::try_run_one_yielded_thread() {
-    if (seastar::thread_context::_preempted_threads.empty()) {
+    if (thread_context::_preempted_threads.empty()) {
         return false;
     }
-    auto&& t = seastar::thread_context::_preempted_threads.front();
+    auto&& t = thread_context::_preempted_threads.front();
     t._sched_timer.cancel();
     t._sched_promise->set_value();
     thread_context::_preempted_threads.pop_front();
@@ -277,13 +283,25 @@ thread_context::reschedule() {
 }
 
 void
-thread_context::s_main(unsigned int lo, unsigned int hi) {
-    uintptr_t q = lo | (uint64_t(hi) << 32);
+thread_context::s_main(int lo, int hi) {
+    uintptr_t q = uint64_t(uint32_t(lo)) | uint64_t(hi) << 32;
     reinterpret_cast<thread_context*>(q)->main();
 }
 
 void
 thread_context::main() {
+#ifdef __x86_64__
+    // There is no caller of main() in this context. We need to annotate this frame like this so that
+    // unwinders don't try to trace back past this frame.
+    // See https://github.com/scylladb/scylla/issues/1909.
+    asm(".cfi_undefined rip");
+#elif defined(__PPC__)
+    asm(".cfi_undefined lr");
+#elif defined(__aarch64__)
+    asm(".cfi_undefined x30");
+#else
+    #warning "Backtracing from seastar threads may be broken"
+#endif
     _context.initial_switch_in_completed();
     if (_attr.scheduling_group) {
         _attr.scheduling_group->account_start();
@@ -319,6 +337,11 @@ void init() {
     g_unthreaded_context.link = nullptr;
     g_unthreaded_context.thread = nullptr;
     g_current_context = &g_unthreaded_context;
+}
+
+scheduling_group
+sched_group(const thread_context* thread) {
+    return thread->_scheduling_group;
 }
 
 }
