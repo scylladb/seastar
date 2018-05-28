@@ -232,6 +232,44 @@ SEASTAR_TEST_CASE(test_abort_accept_after_handshake) {
     });
 }
 
+SEASTAR_TEST_CASE(test_abort_accept_on_server_before_handshake) {
+    return async([] {
+        ::listen_options opts;
+        opts.reuse_address = true;
+        auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+        auto server = engine().listen(addr, opts);
+        auto sa = server.accept();
+
+        tls::credentials_builder b;
+        b.set_x509_trust_file("tests/catest.pem", tls::x509_crt_format::PEM).get();
+
+        auto creds = b.build_certificate_credentials();
+        auto f = tls::connect(creds, addr);
+
+        server.abort_accept();
+        try {
+            sa.get();
+        } catch (...) {
+        }
+        server = {};
+
+        try {
+            // the connect as such should succeed, but the handshare following it
+            // should not.
+            auto c = f.get0();
+            auto out = c.output();
+            out.write("apa").get();
+            out.flush().get();
+            out.close().get();
+
+            BOOST_FAIL("Expected exception");
+        } catch (...) {
+            // ok
+        }
+    });
+}
+
+
 struct streams {
     ::connected_socket s;
     input_stream<char> in;

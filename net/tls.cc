@@ -630,17 +630,21 @@ public:
             if (res < 0) {
                 switch (res) {
                 case GNUTLS_E_AGAIN:
-                    // Could not send/recv data immediately.
-                    // Ask gnutls which direction we are waiting for.
-                    if (gnutls_record_get_direction(*this) == 0) {
+                    // #453 always wait for output first.
+                    // If none is pending, it should be a no-op
+                {
+                    int dir = gnutls_record_get_direction(*this);
+                    return wait_for_output().then([this, dir] {
+                        // we actually E_AGAIN:ed in a write. Don't
+                        // wait for input.
+                        if (dir == 1) {
+                            return do_handshake();
+                        }
                         return wait_for_input().then([this] {
                             return do_handshake();
                         });
-                    } else {
-                        return wait_for_output().then([this] {
-                            return do_handshake();
-                        });
-                    }
+                    });
+                }
                 case GNUTLS_E_NO_CERTIFICATE_FOUND:
                     return make_exception_future<>(verification_error("No certificate was found"));
 #if GNUTLS_VERSION_NUMBER >= 0x030406
@@ -892,12 +896,19 @@ public:
     future<>
     handle_output_error(int res) {
         _error = true;
-        if (_output_pending.failed()) {
-            // TODO: nested?
-            return std::exchange(_output_pending, make_ready_future());
-        } else {
-            return handle_error(res);
-        }
+        // #453
+        // defensively wait for output before generating the error.
+        // if we have both error code and an exception in output
+        // future, throw both.
+        return wait_for_output().then_wrapped([this, res](auto f) {
+            try {
+                f.get();
+                // output was ok/done, just generate error code exception
+                return handle_error(res);
+            } catch (...) {
+                std::throw_with_nested(std::system_error(res, glts_errorc));
+            }
+        });
     }
     future<> do_shutdown() {
         if (_error || !_connected) {
