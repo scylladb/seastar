@@ -88,7 +88,8 @@ execution_stage::~execution_stage()
 }
 
 execution_stage::execution_stage(execution_stage&& other)
-    : _stats(other._stats)
+    : _sg(other._sg)
+    , _stats(other._stats)
     , _name(std::move(other._name))
     , _metric_group(std::move(other._metric_group))
 {
