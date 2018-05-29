@@ -32,6 +32,11 @@
 #include "util/noncopyable_function.hh"
 #include "../util/tuple_utils.hh"
 #include "../util/defer.hh"
+#include "../fmt/fmt/format.h"
+#include <vector>
+#include <experimental/optional>
+#include <boost/range/irange.hpp>
+#include <boost/range/adaptor/transformed.hpp>
 
 namespace seastar {
 
@@ -286,6 +291,81 @@ public:
         return f;
     }
 };
+
+
+/// \brief Concrete execution stage class, with support for automatic \ref scheduling_group inheritance
+///
+/// A variation of \ref concrete_execution_stage that inherits the \ref scheduling_group
+/// from the caller. Each call (of `operator()`) can be in its own scheduling group.
+///
+/// \tparam ReturnType return type of the function object
+/// \tparam Args  argument pack containing arguments to the function object, needs
+///                   to have move constructor that doesn't throw
+template<typename ReturnType, typename... Args>
+GCC6_CONCEPT(requires std::is_nothrow_move_constructible<std::tuple<Args...>>::value)
+class inheriting_concrete_execution_stage final {
+    using return_type = futurize_t<ReturnType>;
+    using args_tuple = std::tuple<Args...>;
+    using per_group_stage_type = concrete_execution_stage<ReturnType, Args...>;
+
+    static_assert(std::is_nothrow_move_constructible<args_tuple>::value,
+                  "Function arguments need to be nothrow move constructible");
+
+    sstring _name;
+    noncopyable_function<ReturnType (Args...)> _function;
+    std::vector<std::experimental::optional<per_group_stage_type>> _stage_for_group{max_scheduling_groups()};
+private:
+    per_group_stage_type make_stage_for_group(scheduling_group sg) {
+        // We can't use std::ref(function), because reference_wrapper decays to noncopyable_function& and
+        // that selects the noncopyable_function copy constructor. Use a lambda instead.
+        auto wrapped_function = [&_function = _function] (typename internal::wrap_for_es<Args>::type... args) {
+            return _function(std::move(args)...);
+        };
+        auto name = fmt::format("{}.{}", _name, sg.name());
+        return per_group_stage_type(name, sg, wrapped_function);
+    }
+public:
+    /// Construct an inheriting concrete execution stage.
+    ///
+    /// \param name A name for the execution stage; must be unique
+    /// \param f Function to be called in response to operator(). The function
+    ///        call will be deferred and batched with similar calls to increase
+    ///        instruction cache hit rate.
+    inheriting_concrete_execution_stage(const sstring& name, noncopyable_function<ReturnType (Args...)> f)
+        : _name(std::move(name)),_function(std::move(f)) {
+    }
+
+    /// Enqueues a call to the stage's function
+    ///
+    /// Adds a function call to the queue. Objects passed by value are moved,
+    /// rvalue references are decayed and the objects are moved, lvalue
+    /// references need to be explicitly wrapped using seastar::ref().
+    ///
+    /// The caller's \ref scheduling_group will be preserved across the call.
+    ///
+    /// Usage example:
+    /// ```
+    /// void do_something(int);
+    /// thread_local auto stage = seastar::inheriting_concrete_execution_stage<int>("execution-stage", do_something);
+    ///
+    /// future<> func(int x) {
+    ///     return stage(x);
+    /// }
+    /// ```
+    ///
+    /// \param args arguments passed to the stage's function
+    /// \return future containing the result of the call to the stage's function
+    return_type operator()(typename internal::wrap_for_es<Args>::type... args) {
+        auto sg = current_scheduling_group();
+        auto sg_id = internal::scheduling_group_index(sg);
+        auto& slot = _stage_for_group[sg_id];
+        if (!slot) {
+            slot.emplace(make_stage_for_group(sg));
+        }
+        return (*slot)(std::move(args)...);
+    }
+};
+
 
 /// \cond internal
 namespace internal {
