@@ -71,7 +71,8 @@ void create_native_net_device(boost::program_options::variables_map opts) {
         if ( opts.count("dpdk-pmd")) {
              dev = create_dpdk_net_device(opts["dpdk-port-index"].as<unsigned>(), smp::count,
                 !(opts.count("lro") && opts["lro"].as<std::string>() == "off"),
-                !(opts.count("hw-fc") && opts["hw-fc"].as<std::string>() == "off"));   
+                !(opts.count("hw-fc") && opts["hw-fc"].as<std::string>() == "off"),
+                !(opts.count("bond") && opts["bond"].as<int>()));   
        } else 
 #endif  
         dev = create_virtio_net_device(opts);
@@ -87,7 +88,8 @@ void create_native_net_device(boost::program_options::variables_map opts) {
             auto& hw_config = device_config.second.hw_cfg;   
 #ifdef SEASTAR_HAVE_DPDK
             if ( hw_config.port_index || !hw_config.pci_address.empty() ) {
-	            dev = create_dpdk_net_device(hw_config);
+	            dev = create_dpdk_net_device(hw_config, 
+                    !(opts.count("bond") && opts["bond"].as<int>()));
 	        } else 
 #endif  
             {

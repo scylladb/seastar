@@ -35,10 +35,11 @@ std::unique_ptr<net::device> create_dpdk_net_device(
                                     uint8_t port_idx = 0,
                                     uint8_t num_queues = 1,
                                     bool use_lro = true,
-                                    bool enable_fc = true);
+                                    bool enable_fc = true,
+                                    int bond = -1);
 
 std::unique_ptr<net::device> create_dpdk_net_device(
-                                    const net::hw_config& hw_cfg);
+                                    const net::hw_config& hw_cfg, int bond = -1);
 
 
 boost::program_options::options_description get_dpdk_net_options_description();
