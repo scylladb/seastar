@@ -41,6 +41,9 @@ void execution_stage_manager::register_execution_stage(execution_stage& stage) {
 
 void execution_stage_manager::unregister_execution_stage(execution_stage& stage) noexcept {
     auto it = std::find(_execution_stages.begin(), _execution_stages.end(), &stage);
+    if (it == _execution_stages.end()) {
+        return; // was changed by update_execution_stage_registration
+    }
     _execution_stages.erase(it);
     _stages_by_name.erase(stage.name());
 }
