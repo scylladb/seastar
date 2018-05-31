@@ -22,10 +22,14 @@
 #include <algorithm>
 #include <random>
 #include <vector>
+#include <chrono>
 
 #include "core/thread.hh"
 #include "test-utils.hh"
 #include "core/execution_stage.hh"
+#include "../core/sleep.hh"
+
+using namespace std::chrono_literals;
 
 using namespace seastar;
 
@@ -285,4 +289,32 @@ SEASTAR_TEST_CASE(test_unique_stage_names_are_enforced) {
         auto stage = seastar::make_execution_stage("test", [] {});
         stage().get();
     });
+}
+
+SEASTAR_THREAD_TEST_CASE(test_inheriting_concrete_execution_stage) {
+    auto sg1 = seastar::create_scheduling_group("sg1", 300).get0();
+    auto sg2 = seastar::create_scheduling_group("sg2", 100).get0();
+    auto check_sg = [] (seastar::scheduling_group sg) {
+        BOOST_REQUIRE(seastar::current_scheduling_group() == sg);
+    };
+    auto es = seastar::inheriting_concrete_execution_stage<void, seastar::scheduling_group>("stage", check_sg);
+    auto make_attr = [] (scheduling_group sg) {
+        seastar::thread_attributes a;
+        a.sched_group = sg;
+        return a;
+    };
+    bool done = false;
+    auto make_test_thread = [&] (scheduling_group sg) {
+        return seastar::thread(make_attr(sg), [&] {
+            while (!done) {
+                es(sg).get(); // will check if executed with same sg
+            };
+        });
+    };
+    auto th1 = make_test_thread(sg1);
+    auto th2 = make_test_thread(sg2);
+    seastar::sleep(10ms).get();
+    done = true;
+    th1.join().get();
+    th2.join().get();
 }

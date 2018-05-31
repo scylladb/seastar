@@ -306,6 +306,9 @@ thread_context::main() {
     if (_attr.scheduling_group) {
         _attr.scheduling_group->account_start();
     }
+    if (_scheduling_group != current_scheduling_group()) {
+        yield();
+    }
     try {
         _func();
         _done.set_value();

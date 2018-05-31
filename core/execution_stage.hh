@@ -30,7 +30,13 @@
 #include "util/reference_wrapper.hh"
 #include "util/gcc6-concepts.hh"
 #include "util/noncopyable_function.hh"
+#include "../util/tuple_utils.hh"
 #include "../util/defer.hh"
+#include "../fmt/fmt/format.h"
+#include <vector>
+#include <experimental/optional>
+#include <boost/range/irange.hpp>
+#include <boost/range/adaptor/transformed.hpp>
 
 namespace seastar {
 
@@ -155,18 +161,7 @@ public:
     /// or the queue is empty.
     ///
     /// \return true if a new task has been scheduled
-    bool flush() noexcept {
-        if (_empty || _flush_scheduled) {
-            return false;
-        }
-        _stats.tasks_scheduled++;
-        schedule(make_task(_sg, [this] {
-            do_flush();
-            _flush_scheduled = false;
-        }));
-        _flush_scheduled = true;
-        return true;
-    };
+    bool flush() noexcept;
 
     /// Checks whether there are pending operations.
     ///
@@ -187,53 +182,14 @@ private:
     execution_stage_manager(const execution_stage_manager&) = delete;
     execution_stage_manager(execution_stage_manager&&) = delete;
 public:
-    void register_execution_stage(execution_stage& stage) {
-        auto ret = _stages_by_name.emplace(stage.name(), &stage);
-        if (!ret.second) {
-            throw std::invalid_argument(sprint("Execution stage %s already exists.", stage.name()));
-        }
-        try {
-            _execution_stages.push_back(&stage);
-        } catch (...) {
-            _stages_by_name.erase(stage.name());
-            throw;
-        }
-    }
-    void unregister_execution_stage(execution_stage& stage) noexcept {
-        auto it = std::find(_execution_stages.begin(), _execution_stages.end(), &stage);
-        _execution_stages.erase(it);
-        _stages_by_name.erase(stage.name());
-    }
-    void update_execution_stage_registration(execution_stage& old_es, execution_stage& new_es) noexcept {
-        auto it = std::find(_execution_stages.begin(), _execution_stages.end(), &old_es);
-        *it = &new_es;
-        _stages_by_name.find(new_es.name())->second = &new_es;
-    }
-
-    execution_stage* get_stage(const sstring& name) {
-        return _stages_by_name[name];
-    }
-
-    bool flush() noexcept {
-        bool did_work = false;
-        for (auto&& stage : _execution_stages) {
-            did_work |= stage->flush();
-        }
-        return did_work;
-    }
-    bool poll() const noexcept {
-        for (auto&& stage : _execution_stages) {
-            if (stage->poll()) {
-                return true;
-            }
-        }
-        return false;
-    }
+    void register_execution_stage(execution_stage& stage);
+    void unregister_execution_stage(execution_stage& stage) noexcept;
+    void update_execution_stage_registration(execution_stage& old_es, execution_stage& new_es) noexcept;
+    execution_stage* get_stage(const sstring& name);
+    bool flush() noexcept;
+    bool poll() const noexcept;
 public:
-    static execution_stage_manager& get() noexcept {
-        static thread_local execution_stage_manager instance;
-        return instance;
-    }
+    static execution_stage_manager& get() noexcept;
 };
 
 }
@@ -335,6 +291,81 @@ public:
         return f;
     }
 };
+
+
+/// \brief Concrete execution stage class, with support for automatic \ref scheduling_group inheritance
+///
+/// A variation of \ref concrete_execution_stage that inherits the \ref scheduling_group
+/// from the caller. Each call (of `operator()`) can be in its own scheduling group.
+///
+/// \tparam ReturnType return type of the function object
+/// \tparam Args  argument pack containing arguments to the function object, needs
+///                   to have move constructor that doesn't throw
+template<typename ReturnType, typename... Args>
+GCC6_CONCEPT(requires std::is_nothrow_move_constructible<std::tuple<Args...>>::value)
+class inheriting_concrete_execution_stage final {
+    using return_type = futurize_t<ReturnType>;
+    using args_tuple = std::tuple<Args...>;
+    using per_group_stage_type = concrete_execution_stage<ReturnType, Args...>;
+
+    static_assert(std::is_nothrow_move_constructible<args_tuple>::value,
+                  "Function arguments need to be nothrow move constructible");
+
+    sstring _name;
+    noncopyable_function<ReturnType (Args...)> _function;
+    std::vector<std::experimental::optional<per_group_stage_type>> _stage_for_group{max_scheduling_groups()};
+private:
+    per_group_stage_type make_stage_for_group(scheduling_group sg) {
+        // We can't use std::ref(function), because reference_wrapper decays to noncopyable_function& and
+        // that selects the noncopyable_function copy constructor. Use a lambda instead.
+        auto wrapped_function = [&_function = _function] (typename internal::wrap_for_es<Args>::type... args) {
+            return _function(std::move(args)...);
+        };
+        auto name = fmt::format("{}.{}", _name, sg.name());
+        return per_group_stage_type(name, sg, wrapped_function);
+    }
+public:
+    /// Construct an inheriting concrete execution stage.
+    ///
+    /// \param name A name for the execution stage; must be unique
+    /// \param f Function to be called in response to operator(). The function
+    ///        call will be deferred and batched with similar calls to increase
+    ///        instruction cache hit rate.
+    inheriting_concrete_execution_stage(const sstring& name, noncopyable_function<ReturnType (Args...)> f)
+        : _name(std::move(name)),_function(std::move(f)) {
+    }
+
+    /// Enqueues a call to the stage's function
+    ///
+    /// Adds a function call to the queue. Objects passed by value are moved,
+    /// rvalue references are decayed and the objects are moved, lvalue
+    /// references need to be explicitly wrapped using seastar::ref().
+    ///
+    /// The caller's \ref scheduling_group will be preserved across the call.
+    ///
+    /// Usage example:
+    /// ```
+    /// void do_something(int);
+    /// thread_local auto stage = seastar::inheriting_concrete_execution_stage<int>("execution-stage", do_something);
+    ///
+    /// future<> func(int x) {
+    ///     return stage(x);
+    /// }
+    /// ```
+    ///
+    /// \param args arguments passed to the stage's function
+    /// \return future containing the result of the call to the stage's function
+    return_type operator()(typename internal::wrap_for_es<Args>::type... args) {
+        auto sg = current_scheduling_group();
+        auto sg_id = internal::scheduling_group_index(sg);
+        auto& slot = _stage_for_group[sg_id];
+        if (!slot) {
+            slot.emplace(make_stage_for_group(sg));
+        }
+        return (*slot)(std::move(args)...);
+    }
+};
+
 
 /// \cond internal
 namespace internal {
@@ -473,53 +504,5 @@ make_execution_stage(const sstring& name, Ret (Object::*fn)(Args...) const) {
 }
 
 /// @}
-
-inline execution_stage::execution_stage(const sstring& name, scheduling_group sg)
-    : _sg(sg)
-    , _name(name)
-{
-    internal::execution_stage_manager::get().register_execution_stage(*this);
-    auto undo = defer([&] { internal::execution_stage_manager::get().unregister_execution_stage(*this); });
-    _metric_group = metrics::metric_group("execution_stages", {
-             metrics::make_derive("tasks_scheduled",
-                                  metrics::description("Counts tasks scheduled by execution stages"),
-                                  { metrics::label_instance("execution_stage", name), },
-                                  [name, &esm = internal::execution_stage_manager::get()] {
-                                      return esm.get_stage(name)->get_stats().tasks_scheduled;
-                                  }),
-             metrics::make_derive("tasks_preempted",
-                                  metrics::description("Counts tasks which were preempted before execution all queued operations"),
-                                  { metrics::label_instance("execution_stage", name), },
-                                  [name, &esm = internal::execution_stage_manager::get()] {
-                                      return esm.get_stage(name)->get_stats().tasks_preempted;
-                                  }),
-             metrics::make_derive("function_calls_enqueued",
-                                  metrics::description("Counts function calls added to execution stages queues"),
-                                  { metrics::label_instance("execution_stage", name), },
-                                  [name, &esm = internal::execution_stage_manager::get()] {
-                                      return esm.get_stage(name)->get_stats().function_calls_enqueued;
-                                  }),
-             metrics::make_derive("function_calls_executed",
-                                  metrics::description("Counts function calls executed by execution stages"),
-                                  { metrics::label_instance("execution_stage", name), },
-                                  [name, &esm = internal::execution_stage_manager::get()] {
-                                      return esm.get_stage(name)->get_stats().function_calls_executed;
-                                  }),
-           });
-    undo.cancel();
-}
-
-inline execution_stage::~execution_stage()
-{
-    internal::execution_stage_manager::get().unregister_execution_stage(*this);
-}
-
-inline execution_stage::execution_stage(execution_stage&& other)
-    : _stats(other._stats)
-    , _name(std::move(other._name))
-    , _metric_group(std::move(other._metric_group))
-{
-    internal::execution_stage_manager::get().update_execution_stage_registration(other, *this);
-}
 
 }
