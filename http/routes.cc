@@ -148,10 +148,16 @@ void routes::add_alias(const path_description& old_path, const path_description&
     httpd::parameters p;
     stringstream path;
     path << old_path.path;
-    for (uint32_t i = 0; i < old_path.params.size(); i++) {
+    for (const auto& p : old_path.params) {
         // the path_description path does not contains the path parameters
-        // so just add a fake parameter to the path for each of the parameter.
-        path << "/k";
+        // so just add a fake parameter to the path for each of the parameters,
+        // and add the string for each fixed string part.
+        if (p.type == path_description::url_component_type::FIXED_STRING) {
+            path << p.name;
+        } else {
+            path << "/k";
+        }
+
     }
     auto a = get_handler(old_path.operations.method, path.str(), p);
     if (!a) {

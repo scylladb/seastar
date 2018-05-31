@@ -67,11 +67,30 @@ struct json_operation {
  * defining the operation (path and method) by its
  * nickname.
  *
+ * A path_description has a type, a base path and a list of
+ * url components.
+ * Each component can be a regular path parameter, a path parameter that
+ * contains everything until the end of the path or a fixed string.
+ *
  * the description are taken from the json swagger
  * definition file, during auto code generation in the
  * compilation.
  */
 struct path_description {
+    //
+    enum class url_component_type {
+        PARAM, // a normal path parameter (starts with / and end with / or end of path)
+        PARAM_UNTIL_END_OF_PATH, // a parameter that contains all the path entil its end
+        FIXED_STRING, // a fixed string inside the path, must be a full match and does not count
+                      // as a parameter
+    };
+
+    // path_part is either a parameter or a fixed string
+    struct path_part {
+        sstring name;
+        url_component_type type = url_component_type::PARAM;
+    };
+
     /**
      * default empty constructor
      */
@@ -87,6 +106,20 @@ struct path_description {
     path_description(const sstring& path, operation_type method,
             const sstring& nickname,
             const std::vector<std::pair<sstring, bool>>& path_parameters,
+            const std::vector<sstring>& mandatory_params);
+
+    /**
+     * constructor for path with parameters
+     * The constructor is used by
+     * @param path the url path
+     * @param method the http method
+     * @param nickname the method nickname
+     * @param path_parameters path parametes and url parts of the path
+     * @param mandatory_params the name of the mandatory query parameters
+     */
+    path_description(const sstring& path, operation_type method,
+            const sstring& nickname,
+            const std::initializer_list<path_part>& path_parameters,
             const std::vector<sstring>& mandatory_params);
 
     /**
@@ -107,10 +140,23 @@ struct path_description {
      */
     path_description* pushparam(const sstring& param,
     bool all_path = false) {
-        params.push_back( { param, all_path });
+        params.push_back( { param, (all_path) ? url_component_type::PARAM_UNTIL_END_OF_PATH : url_component_type::PARAM});
         return this;
     }
 
+    /*!
+     * \brief adds a fixed string as part of the path
+     * This will allow to combine fixed string URL parts and path parameters.
+     *
+     * For example to map a path like:
+     * /mypath/{param1}/morepath/{param2}
+     * path_description p("/mypath", operation_type::GET);
+     * p.pushparam("param1)->pushurl("morepath")->pushparam("param2");
+     */
+    path_description* push_static_path_part(const sstring& url) {
+        params.push_back( { url, url_component_type::FIXED_STRING});
+        return this;
+    }
     /**
      * adds a mandatory query parameter to the path
      * this parameter will be check before calling a handler
@@ -122,7 +168,7 @@ struct path_description {
         return this;
     }
 
-    std::vector<std::pair<sstring, bool>> params;
+    std::vector<path_part> params;
     sstring path;
     json_operation operations;
 

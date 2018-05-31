@@ -37,8 +37,12 @@ void path_description::set(routes& _routes, handler_base* handler) const {
     else {
         match_rule* rule = new match_rule(handler);
         rule->add_str(path);
-        for (auto i = params.begin(); i != params.end(); ++i) {
-            rule->add_param(std::get<0>(*i), std::get<1>(*i));
+        for (auto&& i : params) {
+            if (i.type == url_component_type::FIXED_STRING) {
+                rule->add_str(i.name);
+            } else {
+                rule->add_param(i.name, i.type == url_component_type::PARAM_UNTIL_END_OF_PATH);
+            }
         }
         _routes.add(rule, operations.method);
     }
@@ -52,6 +56,7 @@ void path_description::set(routes& _routes,
 void path_description::set(routes& _routes, const future_json_function& f) const {
     set(_routes, new function_handler(f));
 }
+
 path_description::path_description(const sstring& path, operation_type method,
         const sstring& nickname,
         const std::vector<std::pair<sstring, bool>>& path_parameters,
@@ -62,9 +67,22 @@ path_description::path_description(const sstring& path, operation_type method,
         pushmandatory_param(man);
     }
     for (auto param : path_parameters) {
+        pushparam(param.first, param.second);
+    }
+}
+
+path_description::path_description(const sstring& path, operation_type method,
+        const sstring& nickname,
+        const std::initializer_list<path_part>& path_parameters,
+        const std::vector<sstring>& mandatory_params)
+        : path(path), operations(method, nickname) {
+
+    for (auto man : mandatory_params) {
+        pushmandatory_param(man);
+    }
+    for (auto param : path_parameters) {
         params.push_back(param);
     }
-
 }
 
 }
