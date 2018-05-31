@@ -305,7 +305,7 @@ SEASTAR_THREAD_TEST_CASE(test_inheriting_concrete_execution_stage) {
     };
     bool done = false;
     auto make_test_thread = [&] (scheduling_group sg) {
-        return seastar::thread(make_attr(sg), [&] {
+        return seastar::thread(make_attr(sg), [&, sg] {
             while (!done) {
                 es(sg).get(); // will check if executed with same sg
             };
