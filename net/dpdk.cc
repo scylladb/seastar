@@ -57,6 +57,8 @@
 #include <rte_memzone.h>
 #include <rte_eth_bond.h>
 
+#define BOND_ENABLED(x) ((x) >= BONDING_MODE_ROUND_ROBIN && (x) <= BONDING_MODE_ALB) 
+
 #if RTE_VERSION <= RTE_VERSION_NUM(2,0,0,16)
 
 static
@@ -409,7 +411,7 @@ public:
         /*
          * reset _port_idx for stats, because port id change in bond mode
          */
-        if (_bond >= BONDING_MODE_ROUND_ROBIN && _bond <= BONDING_MODE_ALB) {
+        if (BOND_ENABLED(_bond)) {
             _xstats.set_port_id(_port_idx);
         }
         
@@ -1706,7 +1708,7 @@ int dpdk_device::init_port_start()
     printf("Port %u init ... ", _port_idx);
     fflush(stdout);
 
-    if (_bond >= BONDING_MODE_ROUND_ROBIN && _bond <= BONDING_MODE_ALB) {  
+    if (BOND_ENABLED(_bond)) {  
         /* 
          * bond mode require slave port_conf are equal
          * all ports set the same _num_queues and port_conf 
@@ -1804,8 +1806,7 @@ void dpdk_device::init_port_fini()
     // Changing FC requires HW reset, so set it before the port is initialized.
     set_hw_flow_control();
 
-    if (_bond >= BONDING_MODE_ROUND_ROBIN && _bond <= BONDING_MODE_ALB)   
-    {  
+    if (BOND_ENABLED(_bond)) {  
         for (uint8_t i = 0; i < _slave_port_count; ++i)
         {
             if (rte_eth_dev_start(_slave_ports[i]) < 0) {    
@@ -2024,7 +2025,7 @@ dpdk_qp<HugetlbfsMemBackend>::dpdk_qp(dpdk_device* dev, uint8_t qid,
     static_assert((inline_mbuf_data_size & (inline_mbuf_data_size - 1)) == 0,
                   "inline_mbuf_data_size has to be a power of two!");
 
-    if (_dev->bond_mode() >= BONDING_MODE_ROUND_ROBIN && _dev->bond_mode() <= BONDING_MODE_ALB) {   
+    if (BOND_ENABLED(_dev->bond_mode())) {   
         for (uint8_t i = 0; i < _dev->_slave_port_count; ++i)  
         {  
             if (rte_eth_rx_queue_setup(_dev->_slave_ports[i], _qid, default_ring_size,  
