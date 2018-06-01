@@ -36,6 +36,7 @@
 #include <atomic>
 #include <vector>
 #include <queue>
+#include <algorithm>
 #include <experimental/optional>
 #include <boost/preprocessor.hpp>
 #include "ip.hh"
@@ -350,6 +351,13 @@ private:
      *    will also wait for a link to get up in this stage.
      */
 
+    /**
+     * First stage of the bond initialization , if config bond mode.
+     *
+     * @return 0 in case of success and an appropriate error code in case of an
+     *         error.
+     */
+    int init_bond_params();
 
     /**
      * First stage of the port initialization.
@@ -389,7 +397,7 @@ public:
      *       6: BONDING_MODE_ALB
      */
     dpdk_device(uint8_t port_idx, uint16_t num_queues, bool use_lro,
-                bool enable_fc, int bond)
+                bool enable_fc, int bond, std::vector<uint8_t> slave_ports_index)
         : _port_idx(port_idx)
         , _num_queues(num_queues)
         , _home_cpu(engine().cpu_id())
@@ -398,9 +406,15 @@ public:
         , _bond(bond)
         , _stats_plugin_name("network")
         , _stats_plugin_inst(std::string("port") + std::to_string(_port_idx))
+        , _slave_ports(slave_ports_index)
         , _xstats(port_idx)
     {
-        _slave_port_count = 0;
+        if (BOND_ENABLED(_bond)) {
+            int ret = init_bond_params();
+            if (ret != 0) {
+                rte_exit(EXIT_FAILURE, "Cannot bond params conflict");
+            }
+        }
 
         /* now initialise the port we will use */
         int ret = init_port_start();
@@ -1503,6 +1517,27 @@ private:
     static constexpr phys_addr_t page_mask = ~(memory::page_size - 1);
 };
 
+int dpdk_device::init_bond_params()
+{
+    _slave_port_count = 0;
+    if (!_slave_ports.size()) {
+        for (uint8_t i = 0; i < rte_eth_dev_count(); ++i) {
+            _slave_ports.push_back(i);
+        }
+        printf("All ports are slaves, slaves num: %lu\n", _slave_ports.size());
+        return 0;
+    }
+
+    assert(_slave_ports.size() < rte_eth_dev_count());
+    assert(_slave_ports.at(_slave_ports.size()-1) < rte_eth_dev_count());
+    
+    if (std::find(_slave_ports.begin(), _slave_ports.end(), _port_idx) == _slave_ports.end()) {
+        _port_idx = _slave_ports[0];
+        printf("dpdk-index-port not in slave-posts-index, reset dpdk-index-port: %d\n",_port_idx);
+    }
+    return 0;
+}
+
 int dpdk_device::init_port_start()
 {
     assert(_port_idx < rte_eth_dev_count());
@@ -1807,8 +1842,7 @@ void dpdk_device::init_port_fini()
     set_hw_flow_control();
 
     if (BOND_ENABLED(_bond)) {  
-        for (uint8_t i = 0; i < _slave_port_count; ++i)
-        {
+        for (uint8_t i = 0; i < _slave_port_count; ++i) {
             if (rte_eth_dev_start(_slave_ports[i]) < 0) {    
                 rte_exit(EXIT_FAILURE, "Cannot start slave port %d\n", i); 
             }   
@@ -2372,7 +2406,8 @@ std::unique_ptr<net::device> create_dpdk_net_device(
                                     uint8_t num_queues,
                                     bool use_lro,
                                     bool enable_fc,
-                                    int bond)
+                                    int bond
+                                    std::vector<uint8_t> slave_ports_index)
 {
     static bool called = false;
 
@@ -2389,13 +2424,14 @@ std::unique_ptr<net::device> create_dpdk_net_device(
     }
 
     return std::make_unique<dpdk::dpdk_device>(port_idx, num_queues, use_lro,
-                                               enable_fc, bond);
+                                               enable_fc, bond, slave_ports_index);
 }
 
 std::unique_ptr<net::device> create_dpdk_net_device(
-                                    const hw_config& hw_cfg, int bond)
+                                    const hw_config& hw_cfg, int bond,
+                                    std::vector<uint8_t> slave_ports_index)
 {
-    return create_dpdk_net_device(*hw_cfg.port_index, smp::count, hw_cfg.lro, hw_cfg.hw_fc, bond);
+    return create_dpdk_net_device(*hw_cfg.port_index, smp::count, hw_cfg.lro, hw_cfg.hw_fc, bond, slave_ports_index);
 }
 
 
@@ -2419,6 +2455,11 @@ get_dpdk_net_options_description()
         ("bond", 
                 boost::program_options::value<int>()->default_value(-1),
                 "Enable bond mode , 0-6 is effective. 0-BONDING_MODE_ROUND_ROBIN, 1-BONDING_MODE_ACTIVE_BACKUP, 2-BONDING_MODE_BALANCE, 3-BONDING_MODE_BROADCAST, 4-BONDING_MODE_8023AD, 5-BONDING_MODE_TLB, 6-BONDING_MODE_ALB");
+    opts.add_options()
+        ("slave-ports-index",
+                boost::program_options::value<std::string>()->default_value(""),
+                "Slave ports index under bond mode , if slave-ports-index is empty all ports are slave. If dpdk-port-index is excluded in slave-port-index , dpdk-port-index is invalid");
+
 #if 0
     opts.add_options()
         ("csum-offload",

@@ -40,6 +40,8 @@ namespace net {
     struct hw_config {
         std::string pci_address;
         stdx::optional<unsigned> port_index;
+        stdx::optional<int> bond;
+        stdx::optional<std::string> slave_ports_index;
         bool lro{ true };
         bool tso{ true };
         bool ufo{ true };

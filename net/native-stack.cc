@@ -33,6 +33,8 @@
 #include "config.hh"
 #include <memory>
 #include <queue>
+#include <vector>
+#include <algorithm>
 #include <fstream>
 #ifdef HAVE_OSV
 #include <osv/firmware.hh>
@@ -41,6 +43,11 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <boost/lexical_cast.hpp>
+#include <boost/algorithm/string/replace.hpp>
+#include <boost/range/algorithm_ext/erase.hpp>
+#include <boost/algorithm/string.hpp>
+#include <boost/range/combine.hpp>
 
 namespace seastar {
 
@@ -63,6 +70,19 @@ void create_native_net_device(boost::program_options::variables_map opts) {
         std::fstream fs(opts["net-config-file"].as<std::string>());
         net_config << fs.rdbuf();
     }
+    std::vector<uint8_t> slave_ports_index;
+#ifdef SEASTAR_HAVE_DPDK
+    if (opts.count("dpdk-pmd") && opts.count("slave-ports-index")) {
+        std::vector<std::string> ports_idx;
+        std::string ports_idx_str = opts["slave-ports-index"].as<std::string>();
+        boost::split(ports_idx, ports_idx_str, boost::is_any_of(","));
+        for (auto i : ports_idx) {
+            boost::trim(i);
+            slave_ports_index.push_back(boost::lexical_cast<uint8_t>(i));
+            sort(slave_ports_index.begin(), slave_ports_index.end());
+        }
+    }
+#endif  
 
     std::unique_ptr<device> dev;
 
@@ -89,7 +109,8 @@ void create_native_net_device(boost::program_options::variables_map opts) {
 #ifdef SEASTAR_HAVE_DPDK
             if ( hw_config.port_index || !hw_config.pci_address.empty() ) {
 	            dev = create_dpdk_net_device(hw_config, 
-                    !(opts.count("bond") && opts["bond"].as<int>()));
+                    !(opts.count("bond") && opts["bond"].as<int>()), 
+                    slave_ports_index);
 	        } else 
 #endif  
             {
