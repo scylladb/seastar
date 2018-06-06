@@ -86,6 +86,10 @@ template<typename T>
 struct reference_wrapper_for_es : reference_wrapper<T> {
     reference_wrapper_for_es(reference_wrapper <T> rw) noexcept
         : reference_wrapper<T>(std::move(rw)) {}
+    reference_wrapper_for_es(T& t) noexcept
+        : reference_wrapper_for_es(ref(t)) {}
+    reference_wrapper_for_es(const T& t) noexcept
+        : reference_wrapper_for_es(cref(t)) {}
 };
 
 template<typename T>
