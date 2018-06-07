@@ -258,6 +258,7 @@ set (core_files
   core/abort_source.hh
   core/alien.hh core/alien.cc
   core/align.hh
+  core/execution_stage.hh core/execution_stage.cc
   core/aligned_buffer.hh
   core/app-template.hh core/app-template.cc
   core/apply.hh
