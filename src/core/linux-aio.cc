@@ -29,6 +29,7 @@ namespace seastar {
 
 namespace internal {
 
+namespace linux_abi {
 
 struct linux_aio_ring {
     uint32_t id;
@@ -41,7 +42,11 @@ struct linux_aio_ring {
     uint32_t header_length;
 };
 
-static linux_aio_ring* to_ring(::aio_context_t io_context) {
+}
+
+using namespace linux_abi;
+
+static linux_aio_ring* to_ring(aio_context_t io_context) {
     return reinterpret_cast<linux_aio_ring*>(uintptr_t(io_context));
 }
 
@@ -49,23 +54,23 @@ static bool usable(const linux_aio_ring* ring) {
     return ring->magic == 0xa10a10a1 && ring->incompat_features == 0;
 }
 
-int io_setup(int nr_events, ::aio_context_t* io_context) {
+int io_setup(int nr_events, aio_context_t* io_context) {
     return ::syscall(SYS_io_setup, nr_events, io_context);
 }
 
-int io_destroy(::aio_context_t io_context) {
+int io_destroy(aio_context_t io_context) {
    return ::syscall(SYS_io_destroy, io_context);
 }
 
-int io_submit(::aio_context_t io_context, long nr, ::iocb** iocbs) {
+int io_submit(aio_context_t io_context, long nr, iocb** iocbs) {
     return ::syscall(SYS_io_submit, io_context, nr, iocbs);
 }
 
-int io_cancel(::aio_context_t io_context, ::iocb* iocb, ::io_event* result) {
+int io_cancel(aio_context_t io_context, iocb* iocb, io_event* result) {
     return ::syscall(SYS_io_cancel, io_context, iocb, result);
 }
 
-int io_getevents(::aio_context_t io_context, long min_nr, long nr, ::io_event* events, const ::timespec* timeout,
+int io_getevents(aio_context_t io_context, long min_nr, long nr, io_event* events, const ::timespec* timeout,
         bool force_syscall) {
     auto ring = to_ring(io_context);
     if (usable(ring) && !force_syscall) {
@@ -87,7 +92,7 @@ int io_getevents(::aio_context_t io_context, long min_nr, long nr, ::io_event* e
             if (!available) {
                 return 0;
             }
-            auto ring_events = reinterpret_cast<const ::io_event*>(uintptr_t(io_context) + ring->header_length);
+            auto ring_events = reinterpret_cast<const io_event*>(uintptr_t(io_context) + ring->header_length);
             auto now = std::min<uint32_t>(nr, available);
             auto start = ring_events + head;
             auto end = start + now;

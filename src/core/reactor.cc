@@ -196,6 +196,7 @@ namespace fs = std::experimental::filesystem;
 using namespace net;
 
 using namespace internal;
+using namespace internal::linux_abi;
 
 seastar::logger seastar_logger("seastar");
 seastar::logger sched_logger("scheduler");
@@ -1125,7 +1126,7 @@ reactor::submit_io(io_desc* desc, Func prepare_io) {
 
 // Returns: number of iocbs consumed (0 or 1)
 size_t
-reactor::handle_aio_error(::iocb* iocb, int ec) {
+reactor::handle_aio_error(linux_abi::iocb* iocb, int ec) {
     switch (ec) {
         case EINVAL:
         case EOPNOTSUPP:

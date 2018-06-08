@@ -592,7 +592,7 @@ public:
     ~io_queue();
 
     template <typename Func>
-    future<io_event>
+    future<internal::linux_abi::io_event>
     queue_request(const io_priority_class& pc, size_t len, request_type req_type, Func do_io);
 
     size_t capacity() const {
@@ -784,11 +784,11 @@ private:
     timer_set<timer<lowres_clock>, &timer<lowres_clock>::_link>::timer_list_t _expired_lowres_timers;
     timer_set<timer<manual_clock>, &timer<manual_clock>::_link> _manual_timers;
     timer_set<timer<manual_clock>, &timer<manual_clock>::_link>::timer_list_t _expired_manual_timers;
-    ::aio_context_t _io_context;
-    alignas(cache_line_size) std::array<::iocb, max_aio> _iocb_pool;
-    std::stack<::iocb*, boost::container::static_vector<::iocb*, max_aio>> _free_iocbs;
-    boost::container::static_vector<::iocb*, max_aio> _pending_aio;
-    boost::container::static_vector<::iocb*, max_aio> _pending_aio_retry;
+    internal::linux_abi::aio_context_t _io_context;
+    alignas(cache_line_size) std::array<internal::linux_abi::iocb, max_aio> _iocb_pool;
+    std::stack<internal::linux_abi::iocb*, boost::container::static_vector<internal::linux_abi::iocb*, max_aio>> _free_iocbs;
+    boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _pending_aio;
+    boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _pending_aio_retry;
     io_stats _io_stats;
     uint64_t _fsyncs = 0;
     uint64_t _cxx_exceptions = 0;
@@ -851,7 +851,7 @@ private:
     static std::chrono::nanoseconds calculate_poll_time();
     static void block_notifier(int);
     void wakeup();
-    size_t handle_aio_error(::iocb* iocb, int ec);
+    size_t handle_aio_error(internal::linux_abi::iocb* iocb, int ec);
     bool flush_pending_aio();
     bool flush_tcp_batches();
     bool do_expire_lowres_timers();
@@ -999,11 +999,11 @@ public:
     void submit_io(io_desc* desc, Func prepare_io);
 
     template <typename Func>
-    future<io_event> submit_io_read(io_queue* ioq, const io_priority_class& priority_class, size_t len, Func prepare_io);
+    future<internal::linux_abi::io_event> submit_io_read(io_queue* ioq, const io_priority_class& priority_class, size_t len, Func prepare_io);
     template <typename Func>
-    future<io_event> submit_io_write(io_queue* ioq, const io_priority_class& priority_class, size_t len, Func prepare_io);
+    future<internal::linux_abi::io_event> submit_io_write(io_queue* ioq, const io_priority_class& priority_class, size_t len, Func prepare_io);
 
-    inline void handle_io_result(const io_event& ev) {
+    inline void handle_io_result(const internal::linux_abi::io_event& ev) {
         auto res = long(ev.res);
         if (res < 0) {
             ++_io_stats.aio_errors;
