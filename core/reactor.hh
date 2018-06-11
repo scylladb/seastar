@@ -910,7 +910,7 @@ public:
     ~reactor();
     void operator=(const reactor&) = delete;
 
-    const io_queue& get_io_queue() const {
+    io_queue& get_io_queue() {
         return *_io_queue;
     }
 
@@ -972,9 +972,9 @@ public:
     void submit_io(io_desc* desc, Func prepare_io);
 
     template <typename Func>
-    future<io_event> submit_io_read(const io_priority_class& priority_class, size_t len, Func prepare_io);
+    future<io_event> submit_io_read(io_queue* ioq, const io_priority_class& priority_class, size_t len, Func prepare_io);
     template <typename Func>
-    future<io_event> submit_io_write(const io_priority_class& priority_class, size_t len, Func prepare_io);
+    future<io_event> submit_io_write(io_queue* ioq, const io_priority_class& priority_class, size_t len, Func prepare_io);
 
     int run();
     void exit(int ret);

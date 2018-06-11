@@ -1081,18 +1081,18 @@ const io_priority_class& default_priority_class() {
 
 template <typename Func>
 future<io_event>
-reactor::submit_io_read(const io_priority_class& pc, size_t len, Func prepare_io) {
+reactor::submit_io_read(io_queue* ioq, const io_priority_class& pc, size_t len, Func prepare_io) {
     ++_io_stats.aio_reads;
     _io_stats.aio_read_bytes += len;
-    return _io_queue->queue_request(pc, len, io_queue::request_type::read, std::move(prepare_io));
+    return ioq->queue_request(pc, len, io_queue::request_type::read, std::move(prepare_io));
 }
 
 template <typename Func>
 future<io_event>
-reactor::submit_io_write(const io_priority_class& pc, size_t len, Func prepare_io) {
+reactor::submit_io_write(io_queue* ioq, const io_priority_class& pc, size_t len, Func prepare_io) {
     ++_io_stats.aio_writes;
     _io_stats.aio_write_bytes += len;
-    return _io_queue->queue_request(pc, len, io_queue::request_type::write, std::move(prepare_io));
+    return ioq->queue_request(pc, len, io_queue::request_type::write, std::move(prepare_io));
 }
 
 bool reactor::process_io()
@@ -1281,8 +1281,10 @@ file_impl* file_impl::get_file_impl(file& f) {
     return f._file_impl.get();
 }
 
-posix_file_impl::posix_file_impl(int fd, file_open_options options)
-        : _fd(fd) {
+posix_file_impl::posix_file_impl(int fd, file_open_options options, io_queue* ioq)
+        : _io_queue(ioq)
+        , _fd(fd)
+{
     query_dma_alignment();
 }
 
@@ -1312,7 +1314,7 @@ posix_file_impl::query_dma_alignment() {
 
 future<size_t>
 posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& io_priority_class) {
-    return engine().submit_io_write(io_priority_class, len, [fd = _fd, pos, buffer, len] (iocb& io) {
+    return engine().submit_io_write(_io_queue, io_priority_class, len, [fd = _fd, pos, buffer, len] (iocb& io) {
         io = make_write_iocb(fd, pos, const_cast<void*>(buffer), len);
     }).then([] (io_event ev) {
         throw_kernel_error(long(ev.res));
@@ -1326,7 +1328,7 @@ posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priori
     auto iov_ptr = std::make_unique<std::vector<iovec>>(std::move(iov));
     auto size = iov_ptr->size();
     auto data = iov_ptr->data();
-    return engine().submit_io_write(io_priority_class, len, [fd = _fd, pos, data, size] (iocb& io) {
+    return engine().submit_io_write(_io_queue, io_priority_class, len, [fd = _fd, pos, data, size] (iocb& io) {
         io = make_writev_iocb(fd, pos, data, size);
     }).then([iov_ptr = std::move(iov_ptr)] (io_event ev) {
         throw_kernel_error(long(ev.res));
@@ -1336,7 +1338,7 @@ posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priori
 
 future<size_t>
 posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& io_priority_class) {
-    return engine().submit_io_read(io_priority_class, len, [fd = _fd, pos, buffer, len] (iocb& io) {
+    return engine().submit_io_read(_io_queue, io_priority_class, len, [fd = _fd, pos, buffer, len] (iocb& io) {
         io = make_read_iocb(fd, pos, buffer, len);
     }).then([] (io_event ev) {
         throw_kernel_error(long(ev.res));
@@ -1350,7 +1352,7 @@ posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priorit
     auto iov_ptr = std::make_unique<std::vector<iovec>>(std::move(iov));
     auto size = iov_ptr->size();
     auto data = iov_ptr->data();
-    return engine().submit_io_read(io_priority_class, len, [fd = _fd, pos, data, size] (iocb& io) {
+    return engine().submit_io_read(_io_queue, io_priority_class, len, [fd = _fd, pos, data, size] (iocb& io) {
         io = make_read_iocb(fd, pos, data, size);
     }).then([iov_ptr = std::move(iov_ptr)] (io_event ev) {
         throw_kernel_error(long(ev.res));
@@ -1458,8 +1460,8 @@ posix_file_impl::read_maybe_eof(uint64_t pos, size_t len, const io_priority_clas
 }
 
 append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, file_open_options options,
-        unsigned max_size_changing_ops, bool fsync_is_exclusive)
-        : posix_file_impl(fd, options)
+        unsigned max_size_changing_ops, bool fsync_is_exclusive, io_queue* ioq)
+        : posix_file_impl(fd, options, ioq)
         , _max_size_changing_ops(max_size_changing_ops)
         , _fsync_is_exclusive(fsync_is_exclusive) {
     auto r = ::lseek(fd, 0, SEEK_END);
@@ -1824,20 +1826,21 @@ inline
 shared_ptr<file_impl>
 make_file_impl(int fd, file_open_options options) {
     auto r = ::ioctl(fd, BLKGETSIZE);
+    io_queue& io_queue = engine().get_io_queue();
     if (r != -1) {
-        return make_shared<blockdev_file_impl>(fd, options);
+        return make_shared<blockdev_file_impl>(fd, options, &io_queue);
     } else {
         // FIXME: obtain these flags from somewhere else
         auto flags = ::fcntl(fd, F_GETFL);
         throw_system_error_on(flags == -1);
         if ((flags & O_ACCMODE) == O_RDONLY) {
-            return make_shared<posix_file_impl>(fd, options);
+            return make_shared<posix_file_impl>(fd, options, &io_queue);
         }
         struct stat st;
         auto r = ::fstat(fd, &st);
         throw_system_error_on(r == -1);
         if (S_ISDIR(st.st_mode)) {
-            return make_shared<posix_file_impl>(fd, options);
+            return make_shared<posix_file_impl>(fd, options, &io_queue);
         }
         struct append_support {
             bool append_challenged;
@@ -1876,9 +1879,9 @@ make_file_impl(int fd, file_open_options options) {
         }
         auto as = s_fstype[st.st_dev];
         if (!as.append_challenged) {
-            return make_shared<posix_file_impl>(fd, options);
+            return make_shared<posix_file_impl>(fd, options, &io_queue);
         }
-        return make_shared<append_challenged_posix_file_impl>(fd, options, as.append_concurrency, as.fsync_is_exclusive);
+        return make_shared<append_challenged_posix_file_impl>(fd, options, as.append_concurrency, as.fsync_is_exclusive, &io_queue);
     }
 }
 
@@ -2127,13 +2130,13 @@ posix_file_impl::dup() {
     if (!_refcount) {
         _refcount = new std::atomic<unsigned>(1u);
     }
-    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _refcount);
+    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _refcount, _io_queue);
     _refcount->fetch_add(1, std::memory_order_relaxed);
     return std::move(ret);
 }
 
-posix_file_impl::posix_file_impl(int fd, std::atomic<unsigned>* refcount)
-        : _refcount(refcount), _fd(fd) {
+posix_file_impl::posix_file_impl(int fd, std::atomic<unsigned>* refcount, io_queue *ioq)
+        : _refcount(refcount), _io_queue(ioq), _fd(fd) {
 }
 
 posix_file_handle_impl::~posix_file_handle_impl() {
@@ -2145,7 +2148,7 @@ posix_file_handle_impl::~posix_file_handle_impl() {
 
 std::unique_ptr<seastar::file_handle_impl>
 posix_file_handle_impl::clone() const {
-    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _refcount);
+    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _refcount, _io_queue);
     if (_refcount) {
         _refcount->fetch_add(1, std::memory_order_relaxed);
     }
@@ -2154,7 +2157,7 @@ posix_file_handle_impl::clone() const {
 
 shared_ptr<file_impl>
 posix_file_handle_impl::to_file() && {
-    auto ret = ::seastar::make_shared<posix_file_impl>(_fd, _refcount);
+    auto ret = ::seastar::make_shared<posix_file_impl>(_fd, _refcount, _io_queue);
     _fd = -1;
     _refcount = nullptr;
     return ret;
@@ -2196,8 +2199,8 @@ posix_file_impl::truncate(uint64_t length) {
     });
 }
 
-blockdev_file_impl::blockdev_file_impl(int fd, file_open_options options)
-        : posix_file_impl(fd, options) {
+blockdev_file_impl::blockdev_file_impl(int fd, file_open_options options, io_queue *ioq)
+        : posix_file_impl(fd, options, ioq) {
 }
 
 future<>
