@@ -59,6 +59,9 @@ constexpr unsigned count_trailing_zeros(unsigned long long x) {
 template<typename T>
 //requires stdx::is_integral_v<T>
 inline constexpr unsigned log2ceil(T n) {
+    if (n == 1) {
+        return 0;
+    }
     return std::numeric_limits<T>::digits - count_leading_zeros(n - 1);
 }
 
