@@ -1084,7 +1084,7 @@ future<io_event>
 reactor::submit_io_read(const io_priority_class& pc, size_t len, Func prepare_io) {
     ++_io_stats.aio_reads;
     _io_stats.aio_read_bytes += len;
-    return io_queue::queue_request(_io_coordinator, pc, len, io_queue::request_type::read, std::move(prepare_io));
+    return _io_queue->queue_request(pc, len, io_queue::request_type::read, std::move(prepare_io));
 }
 
 template <typename Func>
@@ -1092,7 +1092,7 @@ future<io_event>
 reactor::submit_io_write(const io_priority_class& pc, size_t len, Func prepare_io) {
     ++_io_stats.aio_writes;
     _io_stats.aio_write_bytes += len;
-    return io_queue::queue_request(_io_coordinator, pc, len, io_queue::request_type::write, std::move(prepare_io));
+    return _io_queue->queue_request(pc, len, io_queue::request_type::write, std::move(prepare_io));
 }
 
 bool reactor::process_io()
@@ -1232,21 +1232,20 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
 
 template <typename Func>
 future<io_event>
-io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_t len, io_queue::request_type req_type, Func prepare_io) {
+io_queue::queue_request(const io_priority_class& pc, size_t len, io_queue::request_type req_type, Func prepare_io) {
     auto start = std::chrono::steady_clock::now();
-    return smp::submit_to(coordinator, [start, &pc, len, req_type, prepare_io = std::move(prepare_io), owner = engine().cpu_id()] {
-        auto& queue = *(engine()._io_queue);
+    return smp::submit_to(coordinator(), [start, &pc, len, req_type, prepare_io = std::move(prepare_io), owner = engine().cpu_id(), this] {
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
-        auto& pclass = queue.find_or_create_class(pc, owner);
+        auto& pclass = find_or_create_class(pc, owner);
         pclass.bytes += len;
         pclass.ops++;
         pclass.nr_queued++;
         unsigned weight;
         size_t size;
         if (req_type == io_queue::request_type::write) {
-            weight = queue._config.disk_req_write_to_read_multiplier;
-            size = queue._config.disk_bytes_write_to_read_multiplier * len;
+            weight = _config.disk_req_write_to_read_multiplier;
+            size = _config.disk_bytes_write_to_read_multiplier * len;
         } else {
             weight = io_queue::read_request_base_count;
             size = io_queue::read_request_base_count * len;
@@ -1254,7 +1253,7 @@ io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_
         auto desc = std::make_unique<io_desc>(weight, size);
         auto fq_desc = desc->fq_desc;
         auto fut = desc->pr.get_future();
-        queue._fq.queue(pclass.ptr, std::move(fq_desc), [&pclass, &queue, start, prepare_io = std::move(prepare_io), desc = std::move(desc)] () mutable noexcept {
+        _fq.queue(pclass.ptr, std::move(fq_desc), [&pclass, start, prepare_io = std::move(prepare_io), desc = std::move(desc), this] () mutable noexcept {
             try {
                 pclass.nr_queued--;
                 pclass.queue_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start);
@@ -1262,7 +1261,7 @@ io_queue::queue_request(shard_id coordinator, const io_priority_class& pc, size_
                 desc.release();
             } catch (...) {
                 desc->pr.set_exception(std::current_exception());
-                queue.notify_requests_finished(desc->fq_desc);
+                notify_requests_finished(desc->fq_desc);
             }
         });
         return fut;

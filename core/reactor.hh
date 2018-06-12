@@ -586,8 +586,8 @@ public:
     ~io_queue();
 
     template <typename Func>
-    static future<io_event>
-    queue_request(shard_id coordinator, const io_priority_class& pc, size_t len, request_type req_type, Func do_io);
+    future<io_event>
+    queue_request(const io_priority_class& pc, size_t len, request_type req_type, Func do_io);
 
     size_t capacity() const {
         return _config.capacity;
