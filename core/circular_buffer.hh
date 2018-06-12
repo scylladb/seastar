@@ -95,6 +95,7 @@ public:
     size_t size() const;
     size_t capacity() const;
     void reserve(size_t);
+    void clear();
     T& operator[](size_t idx);
     const T& operator[](size_t idx) const;
     template <typename Func>
@@ -240,6 +241,13 @@ circular_buffer<T, Alloc>::reserve(size_t size) {
         // Make sure that the new capacity is a power of two.
         expand(size_t(1) << log2ceil(size));
     }
+}
+
+template <typename T, typename Alloc>
+inline
+void
+circular_buffer<T, Alloc>::clear() {
+    erase(begin(), end());
 }
 
 template <typename T, typename Alloc>
