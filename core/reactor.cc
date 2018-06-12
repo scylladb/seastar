@@ -976,10 +976,35 @@ void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd, promise
 
 static bool aio_nowait_supported = true;
 
-struct io_desc {
-    promise<io_event> pr;
-    fair_queue_request_descriptor fq_desc;
-    io_desc(unsigned weight, unsigned size) : fq_desc(fair_queue_request_descriptor{weight, size}) {}
+class io_desc {
+    promise<io_event> _pr;
+    io_queue* _ioq_ptr;
+    fair_queue_request_descriptor _fq_desc;
+public:
+    io_desc(io_queue* ioq, unsigned weight, unsigned size)
+        : _ioq_ptr(ioq)
+        , _fq_desc(fair_queue_request_descriptor{weight, size})
+    {}
+
+    fair_queue_request_descriptor& fq_descriptor() {
+        return _fq_desc;
+    }
+
+    void notify_requests_finished() {
+        _ioq_ptr->notify_requests_finished(_fq_desc);
+    }
+
+    void set_exception(std::exception_ptr eptr) {
+        _pr.set_exception(std::move(eptr));
+    }
+
+    void set_value(io_event& ev) {
+        _pr.set_value(ev);
+    }
+
+    future<io_event> get_future() {
+        return _pr.get_future();
+    }
 };
 
 template <typename Func>
@@ -1015,9 +1040,9 @@ reactor::handle_aio_error(::iocb* iocb, int ec) {
             try {
                 throw std::system_error(EBADF, std::system_category());
             } catch (...) {
-                desc->pr.set_exception(std::current_exception());
+                desc->set_exception(std::current_exception());
             }
-            my_io_queue->notify_requests_finished(desc->fq_desc);
+            desc->notify_requests_finished();
             delete desc;
             // if EBADF, it means that the first request has a bad fd, so
             // we will only remove it from _pending_aio and try again.
@@ -1112,8 +1137,8 @@ bool reactor::process_io()
         }
         _free_iocbs.push(iocb);
         auto desc = reinterpret_cast<io_desc*>(ev[i].data);
-        desc->pr.set_value(ev[i]);
-        my_io_queue->notify_requests_finished(desc->fq_desc);
+        desc->set_value(ev[i]);
+        desc->notify_requests_finished();
         delete desc;
     }
     return n;
@@ -1250,9 +1275,9 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, io_queue::reque
             weight = io_queue::read_request_base_count;
             size = io_queue::read_request_base_count * len;
         }
-        auto desc = std::make_unique<io_desc>(weight, size);
-        auto fq_desc = desc->fq_desc;
-        auto fut = desc->pr.get_future();
+        auto desc = std::make_unique<io_desc>(this, weight, size);
+        auto fq_desc = desc->fq_descriptor();
+        auto fut = desc->get_future();
         _fq.queue(pclass.ptr, std::move(fq_desc), [&pclass, start, prepare_io = std::move(prepare_io), desc = std::move(desc), this] () mutable noexcept {
             try {
                 pclass.nr_queued--;
@@ -1260,8 +1285,8 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, io_queue::reque
                 engine().submit_io(desc.get(), std::move(prepare_io));
                 desc.release();
             } catch (...) {
-                desc->pr.set_exception(std::current_exception());
-                notify_requests_finished(desc->fq_desc);
+                desc->set_exception(std::current_exception());
+                notify_requests_finished(desc->fq_descriptor());
             }
         });
         return fut;
