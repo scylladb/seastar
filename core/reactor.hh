@@ -760,7 +760,6 @@ private:
     semaphore _cpu_started;
     std::atomic<uint64_t> _tasks_processed = { 0 };
     std::atomic<uint64_t> _polls = { 0 };
-    std::atomic<sched_clock::duration> _time_spent_on_task_quota_violations;
     std::atomic<unsigned> _tasks_processed_stalled = { 0 };
     unsigned _tasks_processed_report_threshold;
     unsigned _stall_detector_reports_per_minute;
@@ -796,6 +795,7 @@ private:
         int64_t to_vruntime(sched_clock::duration runtime) const;
         void set_shares(float shares);
         struct indirect_compare;
+        sched_clock::duration _time_spent_on_task_quota_violations = {};
         seastar::metrics::metric_groups _metrics;
     };
     boost::container::static_vector<std::unique_ptr<task_queue>, max_scheduling_groups()> _task_queues;

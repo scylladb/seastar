@@ -474,6 +474,10 @@ reactor::task_queue::task_queue(unsigned id, sstring name, float shares)
         sm::make_gauge("shares", [this] { return _shares; },
                 sm::description("Shares allocated to this queue"),
                 {group_label}),
+        sm::make_derive("time_spent_on_task_quota_violations_ns", [this] {
+                return std::chrono::duration_cast<std::chrono::nanoseconds>(_time_spent_on_task_quota_violations).count();
+        }, sm::description("Total amount in nanoseconds we were in violation of the task quota"),
+           {group_label}),
     });
 }
 
@@ -494,6 +498,9 @@ reactor::task_queue::set_shares(float shares) {
 
 void
 reactor::account_runtime(task_queue& tq, sched_clock::duration runtime) {
+    if (runtime > _task_quota) {
+        tq._time_spent_on_task_quota_violations += runtime - _task_quota;
+    }
     tq._vruntime += tq.to_vruntime(runtime);
     tq._runtime += runtime;
 }
@@ -519,7 +526,6 @@ reactor::reactor(unsigned id)
 #endif
     , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
     , _cpu_started(0)
-    , _time_spent_on_task_quota_violations(0ns)
     , _io_context(0)
     , _reuseport(posix_reuseport_detect())
     , _task_quota_timer_thread(&reactor::task_quota_timer_thread_fn, this)
@@ -675,11 +681,7 @@ reactor::task_quota_timer_thread_fn() {
         auto tp = _tasks_processed.load(std::memory_order_relaxed);
         auto p = _polls.load(std::memory_order_relaxed);
         if ((tp == last_tasks_processed_seen) && (p == last_polls_seen)) {
-            auto stalled = increment_nonatomically(_tasks_processed_stalled);
-            if (stalled > 0) {
-                add_nonatomically(_time_spent_on_task_quota_violations, _task_quota);
-            }
-            if (stalled == report_at) {
+            if ((increment_nonatomically(_tasks_processed_stalled) == report_at)) {
                 rate_limit.maybe_report(_thread_id, block_notifier_signal());
                 report_at <<= 1;
             }
@@ -2538,9 +2540,6 @@ void reactor::register_metrics() {
             sm::make_derive("cpu_steal_time_ns", [this] () -> int64_t { return total_steal_time().count(); },
                     sm::description("Total steal time, the time in which some other process was running while Seastar was not trying to run (not sleeping)."
                                      "Because this is in userspace, some time that could be legitimally thought as steal time is not accounted as such. For example, if we are sleeping and can wake up but the kernel hasn't woken us up yet.")),
-            sm::make_derive("time_spent_on_task_quota_violations_ns", [this] {
-                return std::chrono::duration_cast<std::chrono::nanoseconds>(_time_spent_on_task_quota_violations.load(std::memory_order_relaxed)).count();
-            }, sm::description("Total amount in nanoseconds we were in violation of the task quota")),
             // total_operations value:DERIVE:0:U
             sm::make_derive("aio_reads", _io_stats.aio_reads, sm::description("Total aio-reads operations")),
 
