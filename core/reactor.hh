@@ -70,6 +70,7 @@
 #include "core/scattered_message.hh"
 #include "core/enum.hh"
 #include "core/memory.hh"
+#include "core/thread_cputime_clock.hh"
 #include <boost/range/irange.hpp>
 #include "timer.hh"
 #include "condition-variable.hh"
@@ -759,6 +760,7 @@ private:
     semaphore _cpu_started;
     std::atomic<uint64_t> _tasks_processed = { 0 };
     std::atomic<uint64_t> _polls = { 0 };
+    std::atomic<sched_clock::duration> _time_spent_on_task_quota_violations;
     std::atomic<unsigned> _tasks_processed_stalled = { 0 };
     unsigned _tasks_processed_report_threshold;
     unsigned _stall_detector_reports_per_minute;
@@ -821,6 +823,7 @@ private:
     circular_buffer<double> _loads;
     double _load = 0;
     sched_clock::duration _total_idle;
+    sched_clock::duration _total_sleep;
     sched_clock::time_point _start_time = sched_clock::now();
     std::chrono::nanoseconds _max_poll_time = calculate_poll_time();
     circular_buffer<output_stream<char>* > _flush_batching;
@@ -1038,6 +1041,7 @@ public:
 
     steady_clock_type::duration total_idle_time();
     steady_clock_type::duration total_busy_time();
+    std::chrono::nanoseconds total_steal_time();
 
     const io_stats& get_io_stats() const { return _io_stats; }
 #ifdef HAVE_OSV

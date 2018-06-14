@@ -43,6 +43,7 @@
 #include "systemwide_memory_barrier.hh"
 #include "report_exception.hh"
 #include "core/stall_sampler.hh"
+#include "core/thread_cputime_clock.hh"
 #include "util/log.hh"
 #include "file-impl.hh"
 #include <cassert>
@@ -518,6 +519,7 @@ reactor::reactor(unsigned id)
 #endif
     , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
     , _cpu_started(0)
+    , _time_spent_on_task_quota_violations(0ns)
     , _io_context(0)
     , _reuseport(posix_reuseport_detect())
     , _task_quota_timer_thread(&reactor::task_quota_timer_thread_fn, this)
@@ -673,7 +675,11 @@ reactor::task_quota_timer_thread_fn() {
         auto tp = _tasks_processed.load(std::memory_order_relaxed);
         auto p = _polls.load(std::memory_order_relaxed);
         if ((tp == last_tasks_processed_seen) && (p == last_polls_seen)) {
-            if ((increment_nonatomically(_tasks_processed_stalled) == report_at)) {
+            auto stalled = increment_nonatomically(_tasks_processed_stalled);
+            if (stalled > 0) {
+                add_nonatomically(_time_spent_on_task_quota_violations, _task_quota);
+            }
+            if (stalled == report_at) {
                 rate_limit.maybe_report(_thread_id, block_notifier_signal());
                 report_at <<= 1;
             }
@@ -2529,6 +2535,12 @@ void reactor::register_metrics() {
             sm::make_gauge("utilization", [this] { return (1-_load)  * 100; }, sm::description("CPU utilization")),
             sm::make_derive("cpu_busy_ns", [this] () -> int64_t { return std::chrono::duration_cast<std::chrono::nanoseconds>(total_busy_time()).count(); },
                     sm::description("Total cpu busy time in nanoseconds")),
+            sm::make_derive("cpu_steal_time_ns", [this] () -> int64_t { return total_steal_time().count(); },
+                    sm::description("Total steal time, the time in which some other process was running while Seastar was not trying to run (not sleeping)."
+                                     "Because this is in userspace, some time that could be legitimally thought as steal time is not accounted as such. For example, if we are sleeping and can wake up but the kernel hasn't woken us up yet.")),
+            sm::make_derive("time_spent_on_task_quota_violations_ns", [this] {
+                return std::chrono::duration_cast<std::chrono::nanoseconds>(_time_spent_on_task_quota_violations.load(std::memory_order_relaxed)).count();
+            }, sm::description("Total amount in nanoseconds we were in violation of the task quota")),
             // total_operations value:DERIVE:0:U
             sm::make_derive("aio_reads", _io_stats.aio_reads, sm::description("Total aio-reads operations")),
 
@@ -3218,6 +3230,7 @@ int reactor::run() {
                     // We may have slept for a while, so freshen idle_end
                     idle_end = sched_clock::now();
                     add_nonatomically(_stall_detector_missed_ticks, uint64_t((idle_end - start_sleep)/_task_quota));
+                    _total_sleep += idle_end - start_sleep;
                     _task_quota_timer.timerfd_settime(0, task_quote_itimerspec);
                 }
             } else {
@@ -4657,6 +4670,24 @@ reactor::sched_clock::duration reactor::total_idle_time() {
 
 reactor::sched_clock::duration reactor::total_busy_time() {
     return sched_clock::now() - _start_time - _total_idle;
+}
+
+std::chrono::nanoseconds reactor::total_steal_time() {
+    // Steal time: this mimics the concept some Hypervisors have about Steal time.
+    // That is the time in which a VM has something to run, but is not running because some other
+    // process (another VM or the hypervisor itself) is in control.
+    //
+    // For us, we notice that during the time in which we were not sleeping (either running or busy
+    // polling while idle), we should be accumulating thread runtime. If we are not, that's because
+    // someone stole it from us.
+    //
+    // Because this is totally in userspace we can miss some events. For instance, if the seastar
+    // process is ready to run but the kernel hasn't scheduled us yet, that would be technically
+    // steal time but we have no ways to account it.
+    //
+    // But what we have here should be good enough and at least has a well defined meaning.
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(sched_clock::now() - _start_time - _total_sleep) -
+           std::chrono::duration_cast<std::chrono::nanoseconds>(thread_cputime_clock::now().time_since_epoch());
 }
 
 void
