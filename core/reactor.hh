@@ -321,6 +321,7 @@ class smp_message_queue {
         size_t _last_rcv_batch = 0;
     };
     struct work_item {
+        scheduling_group sg = current_scheduling_group();
         virtual ~work_item() {}
         virtual void process() = 0;
         virtual void complete() = 0;
@@ -338,6 +339,7 @@ class smp_message_queue {
         async_work_item(smp_message_queue& queue, Func&& func) : _queue(queue), _func(std::move(func)) {}
         virtual void process() override {
             try {
+              with_scheduling_group(this->sg, [this] {
                 futurator::apply(this->_func).then_wrapped([this] (auto f) {
                     if (f.failed()) {
                         _ex = f.get_exception();
@@ -346,6 +348,7 @@ class smp_message_queue {
                     }
                     _queue.respond(this);
                 });
+              });
             } catch (...) {
                 _ex = std::current_exception();
                 _queue.respond(this);
