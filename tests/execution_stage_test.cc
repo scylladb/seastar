@@ -318,3 +318,16 @@ SEASTAR_THREAD_TEST_CASE(test_inheriting_concrete_execution_stage) {
     th1.join().get();
     th2.join().get();
 }
+
+struct a_struct {};
+
+SEASTAR_THREAD_TEST_CASE(test_inheriting_concrete_execution_stage_reference_parameters) {
+    // mostly a compile test, but take the opportunity to test that passing
+    // by reference preserves the address
+    auto check_ref = [] (a_struct& ref, a_struct* ptr) {
+        BOOST_REQUIRE_EQUAL(&ref, ptr);
+    };
+    auto es = seastar::inheriting_concrete_execution_stage<void, a_struct&, a_struct*>("stage", check_ref);
+    a_struct obj;
+    es(seastar::ref(obj), &obj).get();
+}

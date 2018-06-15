@@ -318,8 +318,8 @@ private:
     per_group_stage_type make_stage_for_group(scheduling_group sg) {
         // We can't use std::ref(function), because reference_wrapper decays to noncopyable_function& and
         // that selects the noncopyable_function copy constructor. Use a lambda instead.
-        auto wrapped_function = [&_function = _function] (typename internal::wrap_for_es<Args>::type... args) {
-            return _function(std::move(args)...);
+        auto wrapped_function = [&_function = _function] (Args... args) {
+            return _function(std::forward<Args>(args)...);
         };
         auto name = fmt::format("{}.{}", _name, sg.name());
         return per_group_stage_type(name, sg, wrapped_function);
