@@ -30,6 +30,8 @@
 #include "util/is_smart_ptr.hh"
 #include "util/indirect.hh"
 
+#include <boost/intrusive/parent_from_member.hpp>
+
 namespace seastar {
 
 // This header defines two shared pointer facilities, lw_shared_ptr<> and
@@ -191,7 +193,10 @@ struct lw_shared_ptr_accessors_esft {
         return static_cast<T*>(counter);
     }
     static void dispose(lw_shared_ptr_counter_base* counter) {
-        delete static_cast<T*>(counter);
+        dispose(static_cast<T*>(counter));
+    }
+    static void dispose(T* value_ptr) {
+        delete value_ptr;
     }
     static void instantiate_to_value(lw_shared_ptr_counter_base* p) {
         // since to_value() is defined above, we don't need to do anything special
@@ -207,6 +212,9 @@ struct lw_shared_ptr_accessors_no_esft {
     }
     static void dispose(lw_shared_ptr_counter_base* counter) {
         delete static_cast<concrete_type*>(counter);
+    }
+    static void dispose(T* value_ptr) {
+        delete boost::intrusive::get_parent_from_member(value_ptr, &concrete_type::_value);
     }
     static void instantiate_to_value(lw_shared_ptr_counter_base* p) {
         // since to_value() is defined above, we don't need to do anything special
@@ -263,6 +271,13 @@ private:
 public:
     using element_type = T;
 
+    class disposer {
+    public:
+        void operator()(T* p) const noexcept {
+            accessors::dispose(p);
+        }
+    };
+
     lw_shared_ptr() noexcept = default;
     lw_shared_ptr(std::nullptr_t) noexcept : lw_shared_ptr() {}
     lw_shared_ptr(const lw_shared_ptr& x) noexcept : _p(x._p) {
@@ -309,6 +324,19 @@ public:
             return accessors::to_value(_p);
         } else {
             return nullptr;
+        }
+    }
+
+    // Releases ownership of the object without destroying it.
+    // If this was the last owner then returns an engaged unique_ptr
+    // which is now the sole owner of the object.
+    // Returns a disengaged pointer if there are still some owners.
+    std::unique_ptr<T, disposer> release() noexcept {
+        auto p = std::exchange(_p, nullptr);
+        if (--p->_count) {
+            return nullptr;
+        } else {
+            return std::unique_ptr<T, disposer>(accessors::to_value(p));
         }
     }
 

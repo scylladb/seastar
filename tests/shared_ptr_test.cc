@@ -42,6 +42,9 @@ struct A {
     }
 };
 
+struct A_esft : public A, public enable_lw_shared_from_this<A_esft> {
+};
+
 struct B {
     virtual void x() {}
 };
@@ -156,4 +159,42 @@ BOOST_AUTO_TEST_CASE(test_indirect_functors) {
         BOOST_REQUIRE(a_map.count(make_shared<sstring>("k4")));
         BOOST_REQUIRE(!a_map.count(make_shared<sstring>("k5")));
     }
+}
+
+template<typename T>
+void do_test_release() {
+    auto ptr = make_lw_shared<T>();
+    BOOST_REQUIRE(!T::destroyed);
+
+    auto ptr2 = ptr;
+
+    BOOST_REQUIRE(!ptr.release());
+    BOOST_REQUIRE(!ptr);
+    BOOST_REQUIRE(ptr2.use_count() == 1);
+
+    auto uptr2 = ptr2.release();
+    BOOST_REQUIRE(uptr2);
+    BOOST_REQUIRE(!ptr2);
+    ptr2 = {};
+
+    BOOST_REQUIRE(!T::destroyed);
+    uptr2 = {};
+
+    BOOST_REQUIRE(T::destroyed);
+
+    // Check destroying via disposer
+    auto ptr3 = make_lw_shared<T>();
+    auto uptr3 = ptr3.release();
+    BOOST_REQUIRE(uptr3);
+    BOOST_REQUIRE(!T::destroyed);
+
+    auto raw_ptr3 = uptr3.release();
+    lw_shared_ptr<T>::disposer del;
+    del(raw_ptr3);
+    BOOST_REQUIRE(T::destroyed);
+}
+
+BOOST_AUTO_TEST_CASE(test_release) {
+    do_test_release<A>();
+    do_test_release<A_esft>();
 }
