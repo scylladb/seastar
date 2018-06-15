@@ -521,7 +521,9 @@ boost_unit_test_lib = maybe_static(args.staticboost, '-lboost_unit_test_framewor
 
 hwloc_libs = '-lhwloc -lnuma -lpciaccess -lxml2 -lz'
 
-if args.gcc6_concepts:
+if args.gcc6_concepts or try_compile(args.cxx, source="""#if __cpp_concepts == 201507
+int main() { return 0; }
+#endif""", flags=['-fconcepts']):
     defines.append('SEASTAR_HAVE_GCC6_CONCEPTS')
     args.user_cflags += ' -fconcepts'
 
