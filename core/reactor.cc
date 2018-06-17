@@ -195,7 +195,6 @@ using namespace internal;
 
 seastar::logger seastar_logger("seastar");
 seastar::logger sched_logger("scheduler");
-seastar::logger exception_logger("exception");
 
 std::atomic<lowres_clock_impl::steady_rep> lowres_clock_impl::counters::_steady_now;
 std::atomic<lowres_clock_impl::system_rep> lowres_clock_impl::counters::_system_now;
@@ -4625,42 +4624,6 @@ network_stack_registrator nsr_posix{"posix",
     },
     true
 };
-
-#ifndef NO_EXCEPTION_INTERCEPT
-
-void log_exception_trace() noexcept {
-    static thread_local bool nested = false;
-    if (!nested && exception_logger.is_enabled(log_level::trace)) {
-        nested = true;
-        exception_logger.trace("Throw exception at:\n{}", current_backtrace());
-        nested = false;
-    }
-}
-
-}
-
-#include <dlfcn.h>
-
-extern "C"
-[[gnu::visibility("default")]]
-[[gnu::externally_visible]]
-int _Unwind_RaiseException(void *h) {
-    using throw_fn =  int (*)(void *);
-    static throw_fn org = nullptr;
-
-    if (!org) {
-        org = (throw_fn)dlsym (RTLD_NEXT, "_Unwind_RaiseException");
-    }
-    if (seastar::local_engine) {
-        seastar::log_exception_trace();
-        seastar::engine()._cxx_exceptions++;
-    }
-    return org(h);
-}
-
-namespace seastar {
-
-#endif
 
 reactor::sched_clock::duration reactor::total_idle_time() {
     return _total_idle;
