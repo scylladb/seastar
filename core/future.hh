@@ -1274,6 +1274,8 @@ future<T...> make_exception_future(std::exception_ptr ex) noexcept {
     return future<T...>(exception_future_marker(), std::move(ex));
 }
 
+void log_exception_trace() noexcept;
+
 /// \brief Creates a \ref future in an available, failed state.
 ///
 /// Creates a \ref future object that is already resolved in a failed
@@ -1283,6 +1285,7 @@ future<T...> make_exception_future(std::exception_ptr ex) noexcept {
 template <typename... T, typename Exception>
 inline
 future<T...> make_exception_future(Exception&& ex) noexcept {
+    log_exception_trace();
     return make_exception_future<T...>(std::make_exception_ptr(std::forward<Exception>(ex)));
 }
 
