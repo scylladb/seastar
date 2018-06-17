@@ -536,7 +536,7 @@ if not apply_tristate(args.exception_workaround, test = lambda: not args.staticc
     defines.append('SEASTAR_NO_EXCEPTION_HACK')
 
 if args.staticcxx:
-    libs = libs.replace('-lstdc++', '')
+    libs = libs.replace('-lstdc++ ', '')
     libs += ' -static-libgcc -static-libstdc++'
 
 if args.staticcxx or args.static:
