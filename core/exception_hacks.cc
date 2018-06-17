@@ -129,7 +129,7 @@ int dl_iterate_phdr(int (*callback) (struct dl_phdr_info *info, size_t size, voi
 extern "C"
 [[gnu::visibility("default")]]
 [[gnu::externally_visible]]
-int _Unwind_RaiseException(void *h) {
+int _Unwind_RaiseException(struct _Unwind_Exception *h) {
     using throw_fn =  int (*)(void *);
     static throw_fn org = nullptr;
 
