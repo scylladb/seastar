@@ -85,16 +85,24 @@ public:
     void set_shares(float shares);
     friend future<scheduling_group> create_scheduling_group(sstring name, float shares);
     friend class reactor;
-    friend unsigned internal::scheduling_group_index(scheduling_group sg) {
-        return sg._id;
-    }
-    friend scheduling_group internal::scheduling_group_from_index(unsigned index) {
-        return scheduling_group(index);
-    }
+    friend unsigned internal::scheduling_group_index(scheduling_group sg);
+    friend scheduling_group internal::scheduling_group_from_index(unsigned index);
 };
 
 /// \cond internal
 namespace internal {
+
+inline
+unsigned
+scheduling_group_index(scheduling_group sg) {
+    return sg._id;
+}
+
+inline
+scheduling_group
+scheduling_group_from_index(unsigned index) {
+    return scheduling_group(index);
+}
 
 inline
 scheduling_group*
