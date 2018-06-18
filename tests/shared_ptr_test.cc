@@ -189,8 +189,7 @@ void do_test_release() {
     BOOST_REQUIRE(!T::destroyed);
 
     auto raw_ptr3 = uptr3.release();
-    typename lw_shared_ptr<T>::disposer del;
-    del(raw_ptr3);
+    lw_shared_ptr<T>::dispose(raw_ptr3);
     BOOST_REQUIRE(T::destroyed);
 }
 

@@ -271,10 +271,17 @@ private:
 public:
     using element_type = T;
 
+    // Destroys the object pointed to by p and disposes of its storage.
+    // The pointer to the object must have been obtained through release().
+    static void dispose(T* p) noexcept {
+        accessors::dispose(p);
+    }
+
+    // A functor which calls dispose().
     class disposer {
     public:
         void operator()(T* p) const noexcept {
-            accessors::dispose(p);
+            dispose(p);
         }
     };
 
@@ -331,6 +338,10 @@ public:
     // If this was the last owner then returns an engaged unique_ptr
     // which is now the sole owner of the object.
     // Returns a disengaged pointer if there are still some owners.
+    //
+    // Note that in case the raw pointer is extracted from the unique_ptr
+    // using unique_ptr::release(), it must be still destroyed using
+    // lw_shared_ptr::disposer or lw_shared_ptr::dispose().
     std::unique_ptr<T, disposer> release() noexcept {
         auto p = std::exchange(_p, nullptr);
         if (--p->_count) {
