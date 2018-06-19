@@ -52,7 +52,6 @@
 // entirely. By calling the callback with old version of dl_phdr_info from
 // our dl_iterate_phdr we can effectively make libgcc callback thread safe.
 
-#ifndef SEASTAR_NO_EXCEPTION_HACK
 #include <link.h>
 #include <dlfcn.h>
 #include <assert.h>
@@ -60,8 +59,10 @@
 #include <cstddef>
 #include "exception_hacks.hh"
 #include "reactor.hh"
+#include "util/backtrace.hh"
 
 namespace seastar {
+#ifndef SEASTAR_NO_EXCEPTION_HACK
 using dl_iterate_fn = int (*) (int (*callback) (struct dl_phdr_info *info, size_t size, void *data), void *data);
 
 static dl_iterate_fn dl_iterate_phdr_org() {
@@ -83,8 +84,24 @@ void init_phdr_cache() {
         return 0;
     }, nullptr);
 }
+#endif
+
+#ifndef NO_EXCEPTION_INTERCEPT
+seastar::logger exception_logger("exception");
+
+void log_exception_trace() noexcept {
+    static thread_local bool nested = false;
+    if (!nested && exception_logger.is_enabled(log_level::trace)) {
+        nested = true;
+        exception_logger.trace("Throw exception at:\n{}", current_backtrace());
+        nested = false;
+    }
+}
+#endif
+
 }
 
+#ifndef SEASTAR_NO_EXCEPTION_HACK
 extern "C"
 [[gnu::visibility("default")]]
 [[gnu::externally_visible]]
@@ -105,5 +122,24 @@ int dl_iterate_phdr(int (*callback) (struct dl_phdr_info *info, size_t size, voi
         }
     }
     return r;
+}
+#endif
+
+#ifndef NO_EXCEPTION_INTERCEPT
+extern "C"
+[[gnu::visibility("default")]]
+[[gnu::externally_visible]]
+int _Unwind_RaiseException(struct _Unwind_Exception *h) {
+    using throw_fn =  int (*)(void *);
+    static throw_fn org = nullptr;
+
+    if (!org) {
+        org = (throw_fn)dlsym (RTLD_NEXT, "_Unwind_RaiseException");
+    }
+    if (seastar::local_engine) {
+        seastar::log_exception_trace();
+        seastar::engine()._cxx_exceptions++;
+    }
+    return org(h);
 }
 #endif

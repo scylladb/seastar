@@ -87,7 +87,8 @@
 #include <osv/newpoll.hh>
 #endif
 
-extern "C" int _Unwind_RaiseException(void *h);
+struct _Unwind_Exception;
+extern "C" int _Unwind_RaiseException(struct _Unwind_Exception *h);
 
 namespace seastar {
 
@@ -1094,7 +1095,7 @@ private:
     friend class poller;
     friend class scheduling_group;
     friend void add_to_flush_poller(output_stream<char>* os);
-    friend int ::_Unwind_RaiseException(void *h);
+    friend int ::_Unwind_RaiseException(struct _Unwind_Exception *h);
     metrics::metric_groups _metric_groups;
     friend future<scheduling_group> create_scheduling_group(sstring name, float shares);
 public:

@@ -4637,32 +4637,6 @@ network_stack_registrator nsr_posix{"posix",
     true
 };
 
-#ifndef NO_EXCEPTION_INTERCEPT
-
-}
-
-#include <dlfcn.h>
-
-extern "C"
-[[gnu::visibility("default")]]
-[[gnu::externally_visible]]
-int _Unwind_RaiseException(void *h) {
-    using throw_fn =  int (*)(void *);
-    static throw_fn org = nullptr;
-
-    if (!org) {
-        org = (throw_fn)dlsym (RTLD_NEXT, "_Unwind_RaiseException");
-    }
-    if (seastar::local_engine) {
-        seastar::engine()._cxx_exceptions++;
-    }
-    return org(h);
-}
-
-namespace seastar {
-
-#endif
-
 reactor::sched_clock::duration reactor::total_idle_time() {
     return _total_idle;
 }
