@@ -848,7 +848,7 @@ namespace rpc {
                       }
                       auto h = _server._proto->get_handler(type);
                       if (h) {
-                          return (*h)(shared_from_this(), timeout, msg_id, std::move(data.value()));
+                          return with_scheduling_group(h->sg, std::ref(h->func), shared_from_this(), timeout, msg_id, std::move(data.value()));
                       } else {
                           return wait_for_resources(28, timeout).then([this, timeout, msg_id, type] (auto permit) {
                               // send unknown_verb exception back

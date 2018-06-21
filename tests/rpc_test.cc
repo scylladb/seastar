@@ -436,3 +436,18 @@ SEASTAR_TEST_CASE(test_stream_connection_error) {
         });
     });
 }
+
+SEASTAR_TEST_CASE(test_rpc_scheduling) {
+    return with_rpc_env({}, {}, true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+        return seastar::async([&proto, make_socket] {
+            auto c1 = test_rpc_proto::client(proto, {}, make_socket(), ipv4_addr());
+            auto sg = create_scheduling_group("rpc", 100).get0();
+            auto call = proto.register_handler(1, sg, [sg] () mutable {
+                BOOST_REQUIRE(sg == current_scheduling_group());
+                return make_ready_future<>();
+            });
+            call(c1).get();
+            c1.stop().get();
+        });
+    });
+}

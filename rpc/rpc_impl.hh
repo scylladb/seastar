@@ -624,15 +624,21 @@ auto protocol<Serializer, MsgType>::make_client(MsgType t) {
 
 template<typename Serializer, typename MsgType>
 template<typename Func>
-auto protocol<Serializer, MsgType>::register_handler(MsgType t, Func&& func) {
+auto protocol<Serializer, MsgType>::register_handler(MsgType t, scheduling_group sg, Func&& func) {
     using sig_type = signature<typename function_traits<Func>::signature>;
     using clean_sig_type = typename sig_type::clean;
     using want_client_info = typename sig_type::want_client_info;
     using want_time_point = typename sig_type::want_time_point;
     auto recv = recv_helper<Serializer>(clean_sig_type(), std::forward<Func>(func),
             want_client_info(), want_time_point());
-    register_receiver(t, make_copyable_function(std::move(recv)));
+    register_receiver(t, rpc_handler{sg, make_copyable_function(std::move(recv))});
     return make_client(clean_sig_type(), t);
+}
+
+template<typename Serializer, typename MsgType>
+template<typename Func>
+auto protocol<Serializer, MsgType>::register_handler(MsgType t, Func&& func) {
+    return register_handler(t, scheduling_group(), std::forward<Func>(func));
 }
 
 template<typename T> T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org);

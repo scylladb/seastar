@@ -36,6 +36,7 @@
 #include "core/shared_future.hh"
 #include "core/queue.hh"
 #include "core/weak_ptr.hh"
+#include "../core/scheduling.hh"
 
 namespace seastar {
 
@@ -523,8 +524,13 @@ public:
     friend client;
 };
 
-using rpc_handler = std::function<future<> (shared_ptr<server::connection>, std::experimental::optional<rpc_clock_type::time_point> timeout, int64_t msgid,
-                                            rcv_buf data)>;
+using rpc_handler_func = std::function<future<> (shared_ptr<server::connection>, std::experimental::optional<rpc_clock_type::time_point> timeout, int64_t msgid,
+                                                 rcv_buf data)>;
+
+struct rpc_handler {
+    scheduling_group sg;
+    rpc_handler_func func;
+};
 
 class protocol_base {
 public:
@@ -593,6 +599,12 @@ public:
     // future<Ret>(protocol::client&, Args...)
     template<typename Func>
     auto register_handler(MsgType t, Func&& func);
+
+    // returns a function which type depends on Func
+    // if Func == Ret(Args...) then return function is
+    // future<Ret>(protocol::client&, Args...)
+    template <typename Func>
+    auto register_handler(MsgType t, scheduling_group sg, Func&& func);
 
     void unregister_handler(MsgType t) {
         _handlers.erase(t);
