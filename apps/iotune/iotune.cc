@@ -479,28 +479,27 @@ public:
         });
     }
 
-    future<io_rates> write_sequential_data(unsigned shard, size_t buffer_size) {
-        return _iotune_test_file.invoke_on(shard, [this, buffer_size] (test_file& tf) {
-            auto duration = std::chrono::duration<double>(30s) / smp::count;
-            return tf.write_workload(buffer_size, test_file::pattern::sequential, 4 * _test_directory.disks_per_array(), duration);
+    future<io_rates> write_sequential_data(unsigned shard, size_t buffer_size, std::chrono::duration<double> duration) {
+        return _iotune_test_file.invoke_on(shard, [this, buffer_size, duration] (test_file& tf) {
+            return tf.write_workload(buffer_size, test_file::pattern::sequential, 4 * _test_directory.disks_per_array(), duration / smp::count);
         });
     }
 
-    future<io_rates> read_sequential_data(unsigned shard, size_t buffer_size) {
-        return _iotune_test_file.invoke_on(shard, [this, buffer_size] (test_file& tf) {
-            return tf.read_workload(buffer_size, test_file::pattern::sequential, 4 * _test_directory.disks_per_array(), 5s);
+    future<io_rates> read_sequential_data(unsigned shard, size_t buffer_size, std::chrono::duration<double> duration) {
+        return _iotune_test_file.invoke_on(shard, [this, buffer_size, duration] (test_file& tf) {
+            return tf.read_workload(buffer_size, test_file::pattern::sequential, 4 * _test_directory.disks_per_array(), duration);
         });
     }
 
-    future<io_rates> write_random_data(size_t buffer_size) {
-        return _iotune_test_file.map_reduce0([buffer_size, this] (test_file& tf) {
-            return tf.write_workload(buffer_size, test_file::pattern::random, per_shard_io_depth(), 5s);
+    future<io_rates> write_random_data(size_t buffer_size, std::chrono::duration<double> duration) {
+        return _iotune_test_file.map_reduce0([buffer_size, this, duration] (test_file& tf) {
+            return tf.write_workload(buffer_size, test_file::pattern::random, per_shard_io_depth(), duration);
         }, io_rates(), std::plus<io_rates>());
     }
 
-    future<io_rates> read_random_data(size_t buffer_size) {
-        return _iotune_test_file.map_reduce0([buffer_size, this] (test_file& tf) {
-            return tf.read_workload(buffer_size, test_file::pattern::random, per_shard_io_depth(), 5s);
+    future<io_rates> read_random_data(size_t buffer_size, std::chrono::duration<double> duration) {
+        return _iotune_test_file.map_reduce0([buffer_size, this, duration] (test_file& tf) {
+            return tf.read_workload(buffer_size, test_file::pattern::random, per_shard_io_depth(), duration);
         }, io_rates(), std::plus<io_rates>());
     }
 
@@ -569,6 +568,7 @@ int main(int ac, char** av) {
         ("evaluation-directory", bpo::value<sstring>()->required(), "directory where to execute the evaluation")
         ("properties-file", bpo::value<sstring>(), "path in which to write the YAML file")
         ("options-file", bpo::value<sstring>(), "path in which to write the legacy conf file")
+        ("duration", bpo::value<unsigned>()->default_value(120), "time, in seconds, for which to run the test")
         ("format", bpo::value<sstring>()->default_value("seastar"), "Configuration file format (seastar | envfile)")
         ("fs-check", bpo::bool_switch(&fs_check), "perform FS check only")
     ;
@@ -578,6 +578,7 @@ int main(int ac, char** av) {
             auto& configuration = app.configuration();
             auto eval_dir = configuration["evaluation-directory"].as<sstring>();
             auto format = configuration["format"].as<sstring>();
+            auto duration = std::chrono::duration<double>(configuration["duration"].as<unsigned>() * 1s);
 
             if (filesystem_has_good_aio_support(eval_dir, false) == false) {
                 iotune_logger.error("Exception when qualifying filesystem at {}", eval_dir);
@@ -605,24 +606,24 @@ int main(int ac, char** av) {
             io_rates write_bw;
             size_t sequential_buffer_size = 1 << 20;
             for (unsigned shard = 0; shard < smp::count; ++shard) {
-                write_bw += iotune_tests.write_sequential_data(shard, sequential_buffer_size).get0();
+                write_bw += iotune_tests.write_sequential_data(shard, sequential_buffer_size, duration * 0.70).get0();
             }
             write_bw.bytes_per_sec /= smp::count;
             fmt::print("{} MB/s\n", uint64_t(write_bw.bytes_per_sec / (1024 * 1024)));
 
             fmt::print("Measuring sequential read bandwidth: ");
             std::cout.flush();
-            auto read_bw = iotune_tests.read_sequential_data(0, sequential_buffer_size).get0();
+            auto read_bw = iotune_tests.read_sequential_data(0, sequential_buffer_size, duration * 0.1).get0();
             fmt::print("{} MB/s\n", uint64_t(read_bw.bytes_per_sec / (1024 * 1024)));
 
             fmt::print("Measuring random write IOPS: ");
             std::cout.flush();
-            auto write_iops = iotune_tests.write_random_data(test_directory.minimum_io_size()).get0();
+            auto write_iops = iotune_tests.write_random_data(test_directory.minimum_io_size(), duration * 0.1).get0();
             fmt::print("{} IOPS\n", uint64_t(write_iops.iops));
 
             fmt::print("Measuring random read IOPS: ");
             std::cout.flush();
-            auto read_iops = iotune_tests.read_random_data(test_directory.minimum_io_size()).get0();
+            auto read_iops = iotune_tests.read_random_data(test_directory.minimum_io_size(), duration * 0.1).get0();
             fmt::print("{} IOPS\n", uint64_t(read_iops.iops));
 
             struct disk_descriptor desc;
