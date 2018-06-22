@@ -60,6 +60,8 @@ option (SEASTAR_EXCLUDE_APPS_BY_DEFAULT
   "If ON, then applications are not build by default when the build tool is invoked"
   ON)
 
+option(SEASTAR_ENABLE_WERROR "If ON, add -Werror to compile flags" ON)
+
 set (SEASTAR_CXX_DIALECT
   "gnu++17"
   CACHE
@@ -77,6 +79,13 @@ set (SEASTAR_USER_CXXFLAGS
   CACHE
   STRING
   "Extra CXXFLAGS, separated by semicolon.")
+
+set (SEASTAR_USER_CFLAGS
+  ""
+  CACHE
+  STRING
+  "Extra CFLAGS, separated by semicolon for DPDK submodule.")
+
 
 set (SEASTAR_USER_LDFLAGS
   ""
@@ -488,7 +497,7 @@ if (${SEASTAR_ENABLE_DPDK})
     OUTPUT_VARIABLE dpdk_cflags)
 
   add_custom_target (seastar-dpdk
-    COMMAND make -C ${dpdk_binary_dir} CC=\"${CMAKE_C_COMPILER} -Wno-implicit-fallthrough -Wno-format-truncation -Wno-bool-operation -Wno-maybe-uninitialized\")
+    COMMAND make -C ${dpdk_binary_dir} CC=\"${CMAKE_C_COMPILER} -Wno-implicit-fallthrough -Wno-format-truncation -Wno-bool-operation -Wno-maybe-uninitialized ${SEASTAR_USER_CFLAGS}\")
 
   add_dependencies (seastar seastar-dpdk)
 
@@ -503,13 +512,18 @@ endif ()
 target_compile_options (seastar
   PRIVATE
     -Wall
-    -Werror
 
   PUBLIC
     "-std=${SEASTAR_CXX_DIALECT}"
     -Wno-error=deprecated-declarations
     -fvisibility=hidden
     -U_FORTIFY_SOURCE)
+
+if(SEASTAR_ENABLE_WERROR)
+  target_compile_options (seastar PRIVATE
+    -Werror
+    )
+endif()
 
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
   target_compile_options (seastar PUBLIC
