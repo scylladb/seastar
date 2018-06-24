@@ -392,6 +392,10 @@ public:
         const size_t size() const {
             return _size;
         }
+        
+        const char* first_fragment_data() const { return _current.begin(); }
+        size_t first_fragment_size() const { return _current.size(); }
+        Iterator fragment_iterator() const { return _it; }
     };
 private:
     const bool _is_simple;
@@ -520,8 +524,7 @@ public:
     }
 
     template<typename Stream, typename StreamVisitor>
-    friend std::result_of_t<StreamVisitor(Stream&)>
-    with_serialized_stream(Stream& stream, StreamVisitor&& visitor);
+    friend decltype(auto) with_serialized_stream(Stream& stream, StreamVisitor&& visitor);
 };
 
 // The purpose of the with_serialized_stream() is to minimize number of dynamic
@@ -537,16 +540,16 @@ public:
 // Using with_stream() there is at most one dynamic dispatch per such
 // function, instead of one per each skip() and deserialize() call.
 
-template<typename Stream, typename StreamVisitor>
+template<typename Stream, typename StreamVisitor, typename = std::enable_if_t<Stream::has_with_stream::value>>
 [[gnu::always_inline]]
- static inline std::enable_if_t<Stream::has_with_stream::value, std::result_of_t<StreamVisitor(Stream&)>>
+ static inline decltype(auto)
  with_serialized_stream(Stream& stream, StreamVisitor&& visitor) {
     return stream.with_stream(std::forward<StreamVisitor>(visitor));
 }
 
-template<typename Stream, typename StreamVisitor>
+template<typename Stream, typename StreamVisitor, typename = std::enable_if_t<!Stream::has_with_stream::value>, typename = void>
 [[gnu::always_inline]]
- static inline std::enable_if_t<!Stream::has_with_stream::value, std::result_of_t<StreamVisitor(Stream&)>>
+ static inline decltype(auto)
  with_serialized_stream(Stream& stream, StreamVisitor&& visitor) {
     return visitor(stream);
 }
