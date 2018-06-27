@@ -612,62 +612,62 @@ int main(int ac, char** av) {
                 mountpoint_map[mountpoint_of(eval_dir).string()] = eval_dir;
             }
             for (auto eval: mountpoint_map) {
-            auto mountpoint = eval.first;
-            auto eval_dir = eval.second;
+                auto mountpoint = eval.first;
+                auto eval_dir = eval.second;
 
-            if (filesystem_has_good_aio_support(eval_dir, false) == false) {
-                iotune_logger.error("Exception when qualifying filesystem at {}", eval_dir);
-                return 1;
-            }
-            iotune_logger.info("{} passed sanity checks", eval_dir);
-            if (fs_check) {
-                return 0;
-            }
+                if (filesystem_has_good_aio_support(eval_dir, false) == false) {
+                    iotune_logger.error("Exception when qualifying filesystem at {}", eval_dir);
+                    return 1;
+                }
+                iotune_logger.info("{} passed sanity checks", eval_dir);
+                if (fs_check) {
+                    return 0;
+                }
 
-            // Directory is the same object for all tests.
-            ::evaluation_directory test_directory(eval_dir);
-            test_directory.discover_directory().get();
+                // Directory is the same object for all tests.
+                ::evaluation_directory test_directory(eval_dir);
+                test_directory.discover_directory().get();
 
-            ::iotune_multi_shard_context iotune_tests(test_directory);
-            iotune_tests.start().get();
-            iotune_tests.create_data_file().get();
+                ::iotune_multi_shard_context iotune_tests(test_directory);
+                iotune_tests.start().get();
+                iotune_tests.create_data_file().get();
 
-            auto stop = defer([&iotune_tests] {
-                iotune_tests.stop().get();
-            });
+                auto stop = defer([&iotune_tests] {
+                    iotune_tests.stop().get();
+                });
 
-            fmt::print("Measuring sequential write bandwidth: ");
-            std::cout.flush();
-            io_rates write_bw;
-            size_t sequential_buffer_size = 1 << 20;
-            for (unsigned shard = 0; shard < smp::count; ++shard) {
-                write_bw += iotune_tests.write_sequential_data(shard, sequential_buffer_size, duration * 0.70).get0();
-            }
-            write_bw.bytes_per_sec /= smp::count;
-            fmt::print("{} MB/s\n", uint64_t(write_bw.bytes_per_sec / (1024 * 1024)));
+                fmt::print("Measuring sequential write bandwidth: ");
+                std::cout.flush();
+                io_rates write_bw;
+                size_t sequential_buffer_size = 1 << 20;
+                for (unsigned shard = 0; shard < smp::count; ++shard) {
+                    write_bw += iotune_tests.write_sequential_data(shard, sequential_buffer_size, duration * 0.70).get0();
+                }
+                write_bw.bytes_per_sec /= smp::count;
+                fmt::print("{} MB/s\n", uint64_t(write_bw.bytes_per_sec / (1024 * 1024)));
 
-            fmt::print("Measuring sequential read bandwidth: ");
-            std::cout.flush();
-            auto read_bw = iotune_tests.read_sequential_data(0, sequential_buffer_size, duration * 0.1).get0();
-            fmt::print("{} MB/s\n", uint64_t(read_bw.bytes_per_sec / (1024 * 1024)));
+                fmt::print("Measuring sequential read bandwidth: ");
+                std::cout.flush();
+                auto read_bw = iotune_tests.read_sequential_data(0, sequential_buffer_size, duration * 0.1).get0();
+                fmt::print("{} MB/s\n", uint64_t(read_bw.bytes_per_sec / (1024 * 1024)));
 
-            fmt::print("Measuring random write IOPS: ");
-            std::cout.flush();
-            auto write_iops = iotune_tests.write_random_data(test_directory.minimum_io_size(), duration * 0.1).get0();
-            fmt::print("{} IOPS\n", uint64_t(write_iops.iops));
+                fmt::print("Measuring random write IOPS: ");
+                std::cout.flush();
+                auto write_iops = iotune_tests.write_random_data(test_directory.minimum_io_size(), duration * 0.1).get0();
+                fmt::print("{} IOPS\n", uint64_t(write_iops.iops));
 
-            fmt::print("Measuring random read IOPS: ");
-            std::cout.flush();
-            auto read_iops = iotune_tests.read_random_data(test_directory.minimum_io_size(), duration * 0.1).get0();
-            fmt::print("{} IOPS\n", uint64_t(read_iops.iops));
+                fmt::print("Measuring random read IOPS: ");
+                std::cout.flush();
+                auto read_iops = iotune_tests.read_random_data(test_directory.minimum_io_size(), duration * 0.1).get0();
+                fmt::print("{} IOPS\n", uint64_t(read_iops.iops));
 
-            struct disk_descriptor desc;
-            desc.mountpoint = mountpoint;
-            desc.read_iops = read_iops.iops;
-            desc.read_bw = read_bw.bytes_per_sec;
-            desc.write_iops = write_iops.iops;
-            desc.write_bw = write_bw.bytes_per_sec;
-            disk_descriptors.push_back(std::move(desc));
+                struct disk_descriptor desc;
+                desc.mountpoint = mountpoint;
+                desc.read_iops = read_iops.iops;
+                desc.read_bw = read_bw.bytes_per_sec;
+                desc.write_iops = write_iops.iops;
+                desc.write_bw = write_bw.bytes_per_sec;
+                disk_descriptors.push_back(std::move(desc));
             }
 
             unsigned num_io_queues = smp::count;
