@@ -536,23 +536,45 @@ void write_configuration_file(sstring conf_file, std::string format, sstring pro
     string_to_file(conf_file, buf);
 }
 
-void write_property_file(sstring conf_file, struct disk_descriptor desc) {
+void write_property_file(sstring conf_file, struct std::vector<disk_descriptor> disk_descriptors) {
     YAML::Emitter out;
     out << YAML::BeginMap;
     out << YAML::Key << "disks";
     out << YAML::BeginSeq;
-    out << YAML::BeginMap;
-    out << YAML::Key << "mountpoint" << YAML::Value << desc.mountpoint;
-    out << YAML::Key << "read_iops" << YAML::Value << desc.read_iops;
-    out << YAML::Key << "read_bandwidth" << YAML::Value << desc.read_bw;
-    out << YAML::Key << "write_iops" << YAML::Value << desc.write_iops;
-    out << YAML::Key << "write_bandwidth" << YAML::Value << desc.write_bw;
-    out << YAML::EndMap;
+    for (auto& desc : disk_descriptors) {
+        out << YAML::BeginMap;
+        out << YAML::Key << "mountpoint" << YAML::Value << desc.mountpoint;
+        out << YAML::Key << "read_iops" << YAML::Value << desc.read_iops;
+        out << YAML::Key << "read_bandwidth" << YAML::Value << desc.read_bw;
+        out << YAML::Key << "write_iops" << YAML::Value << desc.write_iops;
+        out << YAML::Key << "write_bandwidth" << YAML::Value << desc.write_bw;
+        out << YAML::EndMap;
+    }
     out << YAML::EndSeq;
     out << YAML::EndMap;
     out << YAML::Newline;
 
     string_to_file(conf_file, sstring(out.c_str(), out.size()));
+}
+
+// Returns the mountpoint of a path. It works by walking backwards from the canonical path
+// (absolute, with symlinks resolved), until we find a point that crosses a device ID.
+fs::path mountpoint_of(sstring filename) {
+    fs::path mnt_candidate = fs::canonical(fs::path(filename));
+    std::experimental::optional<dev_t> candidate_id = {};
+    auto current = mnt_candidate;
+    do {
+        auto f = open_directory(current.string()).get0();
+        auto st = f.stat().get0();
+        if ((candidate_id) && (*candidate_id != st.st_dev)) {
+            return mnt_candidate;
+        }
+        mnt_candidate = current;
+        candidate_id = st.st_dev;
+        current = current.parent_path();
+    } while (!current.empty());
+
+    return mnt_candidate;
 }
 
 int main(int ac, char** av) {
@@ -565,7 +587,7 @@ int main(int ac, char** av) {
     app_template app(std::move(app_cfg));
     auto opt_add = app.add_options();
     opt_add
-        ("evaluation-directory", bpo::value<sstring>()->required(), "directory where to execute the evaluation")
+        ("evaluation-directory", bpo::value<std::vector<sstring>>()->required(), "directory where to execute the evaluation")
         ("properties-file", bpo::value<sstring>(), "path in which to write the YAML file")
         ("options-file", bpo::value<sstring>(), "path in which to write the legacy conf file")
         ("duration", bpo::value<unsigned>()->default_value(120), "time, in seconds, for which to run the test")
@@ -576,9 +598,22 @@ int main(int ac, char** av) {
     return app.run(ac, av, [&] {
         return seastar::async([&] {
             auto& configuration = app.configuration();
-            auto eval_dir = configuration["evaluation-directory"].as<sstring>();
+            auto eval_dirs = configuration["evaluation-directory"].as<std::vector<sstring>>();
             auto format = configuration["format"].as<sstring>();
             auto duration = std::chrono::duration<double>(configuration["duration"].as<unsigned>() * 1s);
+
+            struct std::vector<disk_descriptor> disk_descriptors;
+            std::unordered_map<sstring, sstring> mountpoint_map;
+            // We want to evaluate once per mountpoint, but we still want to write in one of the
+            // directories that we were provided - we may not have permissions to write into the
+            // mountpoint itself. If we are passed more than one directory per mountpoint, we don't
+            // really care to which one we write, so this simple hash will do.
+            for (auto& eval_dir : eval_dirs) {
+                mountpoint_map[mountpoint_of(eval_dir).string()] = eval_dir;
+            }
+            for (auto eval: mountpoint_map) {
+            auto mountpoint = eval.first;
+            auto eval_dir = eval.second;
 
             if (filesystem_has_good_aio_support(eval_dir, false) == false) {
                 iotune_logger.error("Exception when qualifying filesystem at {}", eval_dir);
@@ -627,24 +662,28 @@ int main(int ac, char** av) {
             fmt::print("{} IOPS\n", uint64_t(read_iops.iops));
 
             struct disk_descriptor desc;
-            desc.mountpoint = test_directory.name();
+            desc.mountpoint = mountpoint;
             desc.read_iops = read_iops.iops;
             desc.read_bw = read_bw.bytes_per_sec;
             desc.write_iops = write_iops.iops;
             desc.write_bw = write_bw.bytes_per_sec;
+            disk_descriptors.push_back(std::move(desc));
+            }
 
-            // Allow each I/O Queue to have at least 10k IOPS and 100MB. Values decided based
-            // on the write performance, which tends to be lower.
             unsigned num_io_queues = smp::count;
-            num_io_queues = std::min(smp::count, unsigned(desc.write_iops / 10000));
-            num_io_queues = std::min(smp::count, unsigned(desc.write_bw / (100 * 1024 * 1024)));
-            num_io_queues = std::max(num_io_queues, 1u);
+            for (auto& desc : disk_descriptors) {
+                // Allow each I/O Queue to have at least 10k IOPS and 100MB. Values decided based
+                // on the write performance, which tends to be lower.
+                num_io_queues = std::min(smp::count, unsigned(desc.write_iops / 10000));
+                num_io_queues = std::min(smp::count, unsigned(desc.write_bw / (100 * 1024 * 1024)));
+                num_io_queues = std::max(num_io_queues, 1u);
+            }
             fmt::print("Recommended --num-io-queues: {}\n", num_io_queues);
 
             auto file = "properties file";
             try {
                 if (configuration.count("properties-file")) {
-                    write_property_file(configuration["properties-file"].as<sstring>(), desc);
+                    write_property_file(configuration["properties-file"].as<sstring>(), disk_descriptors);
                 }
 
                 file = "configuration file";
