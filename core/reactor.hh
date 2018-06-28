@@ -545,7 +545,7 @@ private:
         uint32_t nr_queued;
         std::chrono::duration<double> queue_time;
         metrics::metric_groups _metric_groups;
-        priority_class_data(sstring name, priority_class_ptr ptr, shard_id owner);
+        priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr, shard_id owner);
     };
 
     std::unordered_map<unsigned, lw_shared_ptr<priority_class_data>> _priority_classes;
@@ -580,14 +580,15 @@ public:
         unsigned max_bytes_count = std::numeric_limits<unsigned>::max();
         unsigned disk_req_write_to_read_multiplier = read_request_base_count;
         unsigned disk_bytes_write_to_read_multiplier = read_request_base_count;
+        sstring mountpoint = "undefined";
     };
 
     io_queue(config cfg);
     ~io_queue();
 
     template <typename Func>
-    static future<io_event>
-    queue_request(shard_id coordinator, const io_priority_class& pc, size_t len, request_type req_type, Func do_io);
+    future<io_event>
+    queue_request(const io_priority_class& pc, size_t len, request_type req_type, Func do_io);
 
     size_t capacity() const {
         return _config.capacity;
@@ -612,6 +613,10 @@ public:
         _fq.dispatch_requests();
     }
 
+    sstring mountpoint() const {
+        return _config.mountpoint;
+    }
+
     shard_id coordinator() const {
         return _config.coordinator;
     }
@@ -634,6 +639,7 @@ class reactor_stall_sampler;
 }
 
 class io_desc;
+class disk_config_params;
 
 class reactor {
     using sched_clock = std::chrono::steady_clock;
@@ -737,17 +743,20 @@ private:
     sigset_t _active_sigmask; // holds sigmask while sleeping with sig disabled
     std::vector<pollfn*> _pollers;
 
-    static constexpr unsigned max_aio = 128;
+    static constexpr unsigned max_aio_per_queue = 128;
+    static constexpr unsigned max_queues = 8;
+    static constexpr unsigned max_aio = max_aio_per_queue * max_queues;
+    friend disk_config_params;
     // Not all reactors have IO queues. If the number of IO queues is less than the number of shards,
     // some reactors will talk to foreign io_queues. If this reactor holds a valid IO queue, it will
     // be stored here.
-    std::unique_ptr<io_queue> my_io_queue = {};
+    std::vector<std::unique_ptr<io_queue>> my_io_queues = {};
 
 
     // For submiting the actual IO, all we need is the coordinator id. So storing it
     // separately saves us the pointer access.
     shard_id _io_coordinator;
-    io_queue* _io_queue;
+    std::unordered_map<dev_t, io_queue*> _io_queues;
     friend io_queue;
 
     std::vector<std::function<future<> ()>> _exit_funcs;
@@ -910,8 +919,13 @@ public:
     ~reactor();
     void operator=(const reactor&) = delete;
 
-    const io_queue& get_io_queue() const {
-        return *_io_queue;
+    io_queue& get_io_queue(dev_t devid = 0) {
+        auto queue = _io_queues.find(devid);
+        if (queue == _io_queues.end()) {
+            return *_io_queues[0];
+        } else {
+            return *(queue->second);
+        }
     }
 
     io_priority_class register_one_priority_class(sstring name, uint32_t shares) {
@@ -927,7 +941,9 @@ public:
     /// \param shares the new shares value
     /// \return a future that is ready when the share update is applied
     future<> update_shares_for_class(io_priority_class pc, uint32_t shares) {
-        return _io_queue->update_shares_for_class(pc, shares);
+        return parallel_for_each(_io_queues, [pc, shares] (auto& queue) {
+            return queue.second->update_shares_for_class(pc, shares);
+        });
     }
 
     void configure(boost::program_options::variables_map config);
@@ -972,9 +988,9 @@ public:
     void submit_io(io_desc* desc, Func prepare_io);
 
     template <typename Func>
-    future<io_event> submit_io_read(const io_priority_class& priority_class, size_t len, Func prepare_io);
+    future<io_event> submit_io_read(io_queue* ioq, const io_priority_class& priority_class, size_t len, Func prepare_io);
     template <typename Func>
-    future<io_event> submit_io_write(const io_priority_class& priority_class, size_t len, Func prepare_io);
+    future<io_event> submit_io_write(io_queue* ioq, const io_priority_class& priority_class, size_t len, Func prepare_io);
 
     int run();
     void exit(int ret);
