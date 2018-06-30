@@ -169,7 +169,7 @@ SEASTAR_TEST_CASE(test_rref_decays_to_value) {
             tmp = std::vector<int>();
         }
 
-        for (auto i = 0; i < 100; i++) {
+        for (size_t i = 0; i < 100; i++) {
             BOOST_REQUIRE_EQUAL(fs[i].get0(), i);
         }
     });
@@ -271,7 +271,7 @@ SEASTAR_TEST_CASE(test_stage_stats) {
 
         for (auto i = 0; i < call_count; i++) {
             fs[i].get();
-            BOOST_REQUIRE_GE(stage.get_stats().tasks_scheduled, 1);
+            BOOST_REQUIRE_GE(stage.get_stats().tasks_scheduled, 1u);
             BOOST_REQUIRE_GE(stage.get_stats().function_calls_executed, i);
         }
         BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_executed, call_count);

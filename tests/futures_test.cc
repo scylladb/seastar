@@ -63,7 +63,7 @@ SEASTAR_TEST_CASE(test_finally_is_called_on_success_and_failure) {
 SEASTAR_TEST_CASE(test_get_on_promise) {
     auto p = promise<uint32_t>();
     p.set_value(10);
-    BOOST_REQUIRE_EQUAL(10, p.get_future().get0());
+    BOOST_REQUIRE_EQUAL(10u, p.get_future().get0());
     return make_ready_future();
 }
 
@@ -917,7 +917,7 @@ SEASTAR_TEST_CASE(test_when_all_succeed_vector) {
         vecs.emplace_back(make_ready_future<int>(3));
         return seastar::when_all_succeed(vecs.begin(), vecs.end());
     }).then([] (std::vector<int> vals) {
-        BOOST_REQUIRE_EQUAL(vals.size(), 3);
+        BOOST_REQUIRE_EQUAL(vals.size(), 3u);
         BOOST_REQUIRE_EQUAL(vals[0], 1);
         BOOST_REQUIRE_EQUAL(vals[1], 2);
         BOOST_REQUIRE_EQUAL(vals[2], 3);
