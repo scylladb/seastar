@@ -475,9 +475,9 @@ reactor::task_queue::task_queue(unsigned id, sstring name, float shares)
         sm::make_gauge("shares", [this] { return _shares; },
                 sm::description("Shares allocated to this queue"),
                 {group_label}),
-        sm::make_derive("time_spent_on_task_quota_violations_ns", [this] {
-                return std::chrono::duration_cast<std::chrono::nanoseconds>(_time_spent_on_task_quota_violations).count();
-        }, sm::description("Total amount in nanoseconds we were in violation of the task quota"),
+        sm::make_derive("time_spent_on_task_quota_violations_ms", [this] {
+                return _time_spent_on_task_quota_violations / 1ms;
+        }, sm::description("Total amount in milliseconds we were in violation of the task quota"),
            {group_label}),
     });
 }
@@ -2569,9 +2569,9 @@ void reactor::register_metrics() {
             sm::make_derive("polls", [this] { return _polls.load(std::memory_order_relaxed); }, sm::description("Number of times pollers were executed")),
             sm::make_derive("timers_pending", std::bind(&decltype(_timers)::size, &_timers), sm::description("Number of tasks in the timer-pending queue")),
             sm::make_gauge("utilization", [this] { return (1-_load)  * 100; }, sm::description("CPU utilization")),
-            sm::make_derive("cpu_busy_ns", [this] () -> int64_t { return std::chrono::duration_cast<std::chrono::nanoseconds>(total_busy_time()).count(); },
-                    sm::description("Total cpu busy time in nanoseconds")),
-            sm::make_derive("cpu_steal_time_ns", [this] () -> int64_t { return total_steal_time().count(); },
+            sm::make_derive("cpu_busy_ms", [this] () -> int64_t { return total_busy_time() / 1ms; },
+                    sm::description("Total cpu busy time in milliseconds")),
+            sm::make_derive("cpu_steal_time_ms", [this] () -> int64_t { return total_steal_time() / 1ms; },
                     sm::description("Total steal time, the time in which some other process was running while Seastar was not trying to run (not sleeping)."
                                      "Because this is in userspace, some time that could be legitimally thought as steal time is not accounted as such. For example, if we are sleeping and can wake up but the kernel hasn't woken us up yet.")),
             // total_operations value:DERIVE:0:U
