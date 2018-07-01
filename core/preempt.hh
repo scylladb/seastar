@@ -30,7 +30,7 @@ inline bool need_preempt() {
 #ifndef SEASTAR_DEBUG
     // prevent compiler from eliminating loads in a loop
     std::atomic_signal_fence(std::memory_order_seq_cst);
-    return g_need_preempt;
+    return __builtin_expect(g_need_preempt, false);
 #else
     return true;
 #endif
