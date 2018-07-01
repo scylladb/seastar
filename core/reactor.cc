@@ -2658,8 +2658,15 @@ void reactor::run_tasks(task_queue& tq) {
         STAP_PROBE(seastar, reactor_run_tasks_single_end);
         ++tq._tasks_processed;
         // check at end of loop, to allow at least one task to run
-        if (need_preempt() && tasks.size() <= _max_task_backlog) {
-            break;
+        if (need_preempt()) {
+            if (tasks.size() <= _max_task_backlog) {
+                break;
+            } else {
+                // While need_preempt() is set, task execution is inefficient due to
+                // need_preempt() checks breaking out of loops and .then() calls. See
+                // #302.
+                g_need_preempt = false;
+            }
         }
     }
 }
