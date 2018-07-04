@@ -165,6 +165,12 @@ public:
         ret._size = len;
         return ret;
     }
+    /// Clone the current \c temporary_buffer object into a new one.
+    /// This creates a temporary buffer with the same length and data but not
+    /// pointing to the memory of the original object.
+    temporary_buffer clone() const {
+        return {_buffer, _size};
+    }
     /// Remove a prefix from the buffer.  The underlying data
     /// is not modified.
     ///
