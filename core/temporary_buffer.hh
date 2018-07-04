@@ -103,7 +103,7 @@ public:
     }
     void operator=(const temporary_buffer&) = delete;
     /// Moves a \c temporary_buffer.
-    temporary_buffer& operator=(temporary_buffer&& x) {
+    temporary_buffer& operator=(temporary_buffer&& x) noexcept {
         if (this != &x) {
             _buffer = x._buffer;
             _size = x._size;
