@@ -44,8 +44,8 @@ BOOST_AUTO_TEST_CASE(test_add_literal_to_sstring) {
 }
 
 BOOST_AUTO_TEST_CASE(test_find_sstring) {
-    BOOST_REQUIRE_EQUAL(sstring("abcde").find('b'), 1);
-    BOOST_REQUIRE_EQUAL(sstring("babcde").find('b',1), 2);
+    BOOST_REQUIRE_EQUAL(sstring("abcde").find('b'), 1u);
+    BOOST_REQUIRE_EQUAL(sstring("babcde").find('b',1), 2u);
 }
 
 BOOST_AUTO_TEST_CASE(test_not_find_sstring) {
@@ -53,8 +53,8 @@ BOOST_AUTO_TEST_CASE(test_not_find_sstring) {
 }
 
 BOOST_AUTO_TEST_CASE(test_str_find_sstring) {
-    BOOST_REQUIRE_EQUAL(sstring("abcde").find("bc"), 1);
-    BOOST_REQUIRE_EQUAL(sstring("abcbcde").find("bc", 2), 3);
+    BOOST_REQUIRE_EQUAL(sstring("abcde").find("bc"), 1u);
+    BOOST_REQUIRE_EQUAL(sstring("abcbcde").find("bc", 2), 3u);
 }
 
 BOOST_AUTO_TEST_CASE(test_str_not_find_sstring) {
