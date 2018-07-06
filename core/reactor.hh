@@ -48,6 +48,7 @@
 #include <atomic>
 #include <stack>
 #include <experimental/optional>
+#include <boost/next_prior.hpp>
 #include <boost/lockfree/spsc_queue.hpp>
 #include <boost/optional.hpp>
 #include <boost/program_options.hpp>

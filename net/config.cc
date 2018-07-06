@@ -23,6 +23,7 @@
 #include "core/print.hh"
 #include <boost/algorithm/cxx11/all_of.hpp>
 #include <boost/algorithm/cxx11/none_of.hpp>
+#include <boost/next_prior.hpp>
 #include <yaml-cpp/yaml.h>
 #include <algorithm>
 #include <istream>
