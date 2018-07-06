@@ -19,8 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifndef HTTP_FILE_HANDLER_HH_
-#define HTTP_FILE_HANDLER_HH_
+#pragma once
 
 #include "handlers.hh"
 #include "core/iostream.hh"
@@ -168,5 +167,3 @@ private:
 }
 
 }
-
-#endif /* HTTP_FILE_HANDLER_HH_ */

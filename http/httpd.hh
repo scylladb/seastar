@@ -19,8 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifndef APPS_HTTPD_HTTPD_HH_
-#define APPS_HTTPD_HTTPD_HH_
+#pragma once
 
 #include "http/request_parser.hh"
 #include "http/request.hh"
@@ -376,5 +375,3 @@ public:
 }
 
 }
-
-#endif /* APPS_HTTPD_HTTPD_HH_ */

@@ -19,8 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifndef FORMATTER_HH_
-#define FORMATTER_HH_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -338,4 +337,3 @@ private:
 }
 
 }
-#endif /* FORMATTER_HH_ */

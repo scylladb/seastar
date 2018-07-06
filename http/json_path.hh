@@ -19,8 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifndef JSON_PATH_HH_
-#define JSON_PATH_HH_
+#pragma once
 
 #include <vector>
 #include <unordered_map>
@@ -184,5 +183,3 @@ struct path_description {
 }
 
 }
-
-#endif /* JSON_PATH_HH_ */

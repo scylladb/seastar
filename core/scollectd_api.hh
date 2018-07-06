@@ -2,8 +2,7 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifndef CORE_SCOLLECTD_API_HH_
-#define CORE_SCOLLECTD_API_HH_
+#pragma once
 
 #include "core/scollectd.hh"
 #include "core/metrics_api.hh"
@@ -34,5 +33,3 @@ metrics::impl::value_map get_value_map();
 }
 
 }
-
-#endif /* CORE_SCOLLECTD_API_HH_ */

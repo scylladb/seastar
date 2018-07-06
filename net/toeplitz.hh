@@ -41,8 +41,7 @@
  * SUCH DAMAGE.
  */
 
-#ifndef TOEPLITZ_HH_
-#define TOEPLITZ_HH_
+#pragma once
 
 #include <vector>
 
@@ -94,5 +93,3 @@ toeplitz_hash(const rss_key_type& key, const T& data)
 }
 
 }
-
-#endif

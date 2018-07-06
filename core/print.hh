@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef PRINT_HH_
-#define PRINT_HH_
+#pragma once
 
 #include <fmt/ostream.h>
 #include <fmt/printf.h>
@@ -138,4 +137,3 @@ format(const char* fmt, A&&... a) {
     return sstring{out.data(), out.size()};
 }
 }
-#endif /* PRINT_HH_ */

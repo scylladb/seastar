@@ -15,8 +15,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-#ifndef PROXY_HH_
-#define PROXY_HH_
+#pragma once
 
 #include <memory>
 #include "net.hh"
@@ -31,5 +30,3 @@ std::unique_ptr<qp> create_proxy_net_device(unsigned master_cpu, device* dev);
 }
 
 }
-
-#endif

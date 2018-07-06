@@ -20,8 +20,7 @@
  *
  */
 
-#ifndef ARP_HH_
-#define ARP_HH_
+#pragma once
 
 #include "net.hh"
 #include "core/reactor.hh"
@@ -296,5 +295,3 @@ arp_for<L3>::handle_request(arp_hdr* ah) {
 }
 
 }
-
-#endif /* ARP_HH_ */

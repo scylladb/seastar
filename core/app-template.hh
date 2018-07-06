@@ -18,8 +18,7 @@
 /*
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
-#ifndef _APP_TEMPLATE_HH
-#define _APP_TEMPLATE_HH
+#pragma once
 
 #include <boost/program_options.hpp>
 #include <boost/optional.hpp>
@@ -79,5 +78,3 @@ public:
 };
 
 }
-
-#endif

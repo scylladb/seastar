@@ -19,8 +19,7 @@
  * Copyright 2014 Cloudius Systems
  */
 
-#ifndef REACTOR_HH_
-#define REACTOR_HH_
+#pragma once
 
 #include "seastar.hh"
 #include "iostream.hh"
@@ -1594,5 +1593,3 @@ typename timer<Clock>::time_point timer<Clock>::get_timeout() {
 extern logger seastar_logger;
 
 }
-
-#endif /* REACTOR_HH_ */

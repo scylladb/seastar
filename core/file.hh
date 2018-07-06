@@ -19,8 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifndef FILE_HH_
-#define FILE_HH_
+#pragma once
 
 #include "stream.hh"
 #include "sstring.hh"
@@ -538,5 +537,3 @@ private:
 /// @}
 
 }
-
-#endif /* FILE_HH_ */

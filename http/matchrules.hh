@@ -19,8 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifndef MATCH_RULES_HH_
-#define MATCH_RULES_HH_
+#pragma once
 
 #include "handlers.hh"
 #include "matcher.hh"
@@ -118,5 +117,3 @@ private:
 }
 
 }
-
-#endif /* MATCH_RULES_HH_ */

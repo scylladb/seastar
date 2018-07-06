@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef PACKET_UTIL_HH_
-#define PACKET_UTIL_HH_
+#pragma once
 
 #include "net/packet.hh"
 #include <map>
@@ -157,5 +156,3 @@ public:
 }
 
 }
-
-#endif

@@ -15,8 +15,8 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-#ifndef _MEMCACHED_HH
-#define _MEMCACHED_HH
+
+#pragma once
 
 #include "core/sstring.hh"
 
@@ -72,5 +72,3 @@ struct hash<memcache::item_key> {
 };
 
 } /* namespace std */
-
-#endif

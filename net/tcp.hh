@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef TCP_HH_
-#define TCP_HH_
+#pragma once
 
 #include "core/shared_ptr.hh"
 #include "core/queue.hh"
@@ -2123,5 +2122,3 @@ typename tcp<InetTraits>::tcb::isn_secret tcp<InetTraits>::tcb::_isn_secret;
 }
 
 }
-
-#endif /* TCP_HH_ */

@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef ARRAY_MAP_HH_
-#define ARRAY_MAP_HH_
+#pragma once
 
 #include <array>
 
@@ -49,5 +48,3 @@ public:
 };
 
 }
-
-#endif /* ARRAY_MAP_HH_ */

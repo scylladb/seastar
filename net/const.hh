@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef CONST_HH_
-#define CONST_HH_
+#pragma once
 
 namespace seastar {
 
@@ -43,5 +42,3 @@ const uint16_t ip_packet_len_max = 65535;
 }
 
 }
-
-#endif

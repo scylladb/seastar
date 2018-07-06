@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef MEMORY_HH_
-#define MEMORY_HH_
+#pragma once
 
 #include "resource.hh"
 #include "bitops.hh"
@@ -281,5 +280,3 @@ void* operator new(size_t size, seastar::with_alignment wa);
 void* operator new[](size_t size, seastar::with_alignment wa);
 void operator delete(void* ptr, seastar::with_alignment wa);
 void operator delete[](void* ptr, seastar::with_alignment wa);
-
-#endif /* MEMORY_HH_ */

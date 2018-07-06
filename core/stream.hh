@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef STREAM_HH_
-#define STREAM_HH_
+#pragma once
 
 #include "future.hh"
 #include <exception>
@@ -238,5 +237,3 @@ subscription<T...>::done() {
 }
 
 }
-
-#endif /* STREAM_HH_ */

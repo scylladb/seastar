@@ -11,8 +11,7 @@
  * BSD license as described in the LICENSE file in the top-level directory.
  */
 
-#ifndef __TIMER_SET_HH
-#define __TIMER_SET_HH
+#pragma once
 
 #include <chrono>
 #include <limits>
@@ -252,5 +251,3 @@ public:
     }
 };
 };
-
-#endif

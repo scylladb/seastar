@@ -18,8 +18,7 @@
 /*
  * Copyright 2015 Cloudius Systems
  */
-#ifndef __SLAB_ALLOCATOR__
-#define __SLAB_ALLOCATOR__
+#pragma once
 
 #include <boost/intrusive/unordered_set.hpp>
 #include <boost/intrusive/list.hpp>
@@ -566,5 +565,3 @@ public:
 };
 
 }
-
-#endif /* __SLAB_ALLOCATOR__ */

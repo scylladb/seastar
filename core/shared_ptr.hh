@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef SHARED_PTR_HH_
-#define SHARED_PTR_HH_
+#pragma once
 
 #include "shared_ptr_debug_helper.hh"
 #include <utility>
@@ -865,5 +864,3 @@ template<typename T>
 struct is_smart_ptr<lw_shared_ptr<T>> : std::true_type {};
 
 }
-
-#endif /* SHARED_PTR_HH_ */

@@ -19,8 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifndef COMMON_HH_
-#define COMMON_HH_
+#pragma once
 
 #include <unordered_map>
 #include "core/sstring.hh"
@@ -73,5 +72,3 @@ operation_type str2type(const sstring& type);
 }
 
 }
-
-#endif /* COMMON_HH_ */

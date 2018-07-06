@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef UTIL_DEFER_HH_
-#define UTIL_DEFER_HH_
+#pragma once
 
 namespace seastar {
 
@@ -54,5 +53,3 @@ defer(Func&& func) {
 }
 
 }
-
-#endif /* UTIL_DEFER_HH_ */

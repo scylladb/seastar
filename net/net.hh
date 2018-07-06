@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef NET_HH_
-#define NET_HH_
+#pragma once
 
 #include "core/reactor.hh"
 #include "core/deleter.hh"
@@ -298,5 +297,3 @@ public:
 }
 
 }
-
-#endif /* NET_HH_ */

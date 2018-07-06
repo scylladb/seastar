@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef ETHERNET_HH_
-#define ETHERNET_HH_
+#pragma once
 
 #include <array>
 #include "byteorder.hh"
@@ -93,5 +92,3 @@ ethernet_address parse_ethernet_address(std::string addr);
 }
 
 }
-
-#endif /* ETHERNET_HH_ */

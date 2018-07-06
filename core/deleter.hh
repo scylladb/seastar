@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef DELETER_HH_
-#define DELETER_HH_
+#pragma once
 
 #include <memory>
 #include <cstdlib>
@@ -275,5 +274,3 @@ make_object_deleter(deleter d, T&& obj) {
 /// @}
 
 }
-
-#endif /* DELETER_HH_ */

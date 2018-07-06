@@ -19,8 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifndef HANDLERS_HH_
-#define HANDLERS_HH_
+#pragma once
 
 #include "request.hh"
 #include "common.hh"
@@ -74,4 +73,3 @@ public:
 
 }
 
-#endif /* HANDLERS_HH_ */

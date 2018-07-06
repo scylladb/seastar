@@ -15,8 +15,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-#ifndef DPDK_RTE_HH_
-#define DPDK_RTE_HH_
+#pragma once
 
 #ifdef SEASTAR_HAVE_DPDK
 
@@ -63,4 +62,3 @@ public:
 }
 
 #endif // SEASTAR_HAVE_DPDK
-#endif // DPDK_RTE_HH_

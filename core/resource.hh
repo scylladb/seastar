@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef RESOURCE_HH_
-#define RESOURCE_HH_
+#pragma once
 
 #include <cstdlib>
 #include <string>
@@ -89,5 +88,3 @@ void validate(boost::any& v,
               cpuset_bpo_wrapper* target_type, int);
 
 }
-
-#endif /* RESOURCE_HH_ */

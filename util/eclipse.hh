@@ -20,8 +20,7 @@
  *
  */
 
-#ifndef ECLIPSE_HH_
-#define ECLIPSE_HH_
+#pragma once
 
 // Workarounds for deficiencies in Eclipse's C++ parser
 //
@@ -35,5 +34,3 @@
 #define alignof sizeof
 
 #endif
-
-#endif /* ECLIPSE_HH_ */

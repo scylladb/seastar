@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef BITOPS_HH_
-#define BITOPS_HH_
+#pragma once
 
 #include <limits>
 
@@ -72,5 +71,3 @@ inline constexpr unsigned log2floor(T n) {
 }
 
 }
-
-#endif /* BITOPS_HH_ */

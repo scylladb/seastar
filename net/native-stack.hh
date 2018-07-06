@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef STACK_HH_
-#define STACK_HH_
+#pragma once
 
 #include "net/net.hh"
 #include <boost/program_options.hpp>
@@ -34,5 +33,3 @@ void create_native_stack(boost::program_options::variables_map opts, std::shared
 }
 
 }
-
-#endif /* STACK_HH_ */

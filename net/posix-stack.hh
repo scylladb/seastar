@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef POSIX_STACK_HH_
-#define POSIX_STACK_HH_
+#pragma once
 
 #include "core/reactor.hh"
 #include "core/sharded.hh"
@@ -188,5 +187,3 @@ public:
 }
 
 }
-
-#endif

@@ -19,8 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifndef JSON_ELEMENTS_HH_
-#define JSON_ELEMENTS_HH_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -347,5 +346,3 @@ std::function<future<>(output_stream<char>&&)> stream_object(T val) {
 }
 
 }
-
-#endif /* JSON_ELEMENTS_HH_ */

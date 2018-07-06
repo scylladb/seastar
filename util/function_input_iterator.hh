@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef UTIL_FUNCTION_INPUT_ITERATOR_HH_
-#define UTIL_FUNCTION_INPUT_ITERATOR_HH_
+#pragma once
 
 namespace seastar {
 
@@ -71,5 +70,3 @@ make_function_input_iterator(Function&& func) {
 }
 
 }
-
-#endif /* UTIL_FUNCTION_INPUT_ITERATOR_HH_ */

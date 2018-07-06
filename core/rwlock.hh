@@ -19,8 +19,7 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#ifndef CORE_RWLOCK_HH_
-#define CORE_RWLOCK_HH_
+#pragma once
 
 #include "semaphore.hh"
 
@@ -181,5 +180,3 @@ using rwlock = basic_rwlock<>;
 /// @}
 
 }
-
-#endif /* CORE_RWLOCK_HH_ */

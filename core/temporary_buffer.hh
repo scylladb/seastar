@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef TEMPORARY_BUFFER_HH_
-#define TEMPORARY_BUFFER_HH_
+#pragma once
 
 #include "deleter.hh"
 #include "util/eclipse.hh"
@@ -231,5 +230,3 @@ public:
 /// @}
 
 }
-
-#endif /* TEMPORARY_BUFFER_HH_ */

@@ -19,8 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifndef API_DOCS_HH_
-#define API_DOCS_HH_
+#pragma once
 #include "json/json_elements.hh"
 #include "json/formatter.hh"
 #include "routes.hh"
@@ -335,5 +334,3 @@ public:
 }
 
 }
-
-#endif /* API_DOCS_HH_ */

@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef RAGEL_HH_
-#define RAGEL_HH_
+#pragma once
 
 #include "sstring.hh"
 #include "temporary_buffer.hh"
@@ -140,5 +139,3 @@ public:
 };
 
 }
-
-#endif /* RAGEL_HH_ */

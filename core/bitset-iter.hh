@@ -11,8 +11,7 @@
  * BSD license as described in the LICENSE file in the top-level directory.
  */
 
-#ifndef __OSV_BITSET_ITER
-#define __OSV_BITSET_ITER
+#pragma once
 
 #include <bitset>
 #include <limits>
@@ -177,5 +176,3 @@ static inline set_range<N> for_each_set(std::bitset<N> bitset, int offset = 0)
 }
 
 }
-
-#endif

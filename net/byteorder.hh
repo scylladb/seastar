@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef BYTEORDER_HH_
-#define BYTEORDER_HH_
+#pragma once
 
 #include <arpa/inet.h>  // for ntohs() and friends
 #include <iosfwd>
@@ -127,5 +126,3 @@ T hton(const T& x) {
 }
 
 }
-
-#endif /* BYTEORDER_HH_ */

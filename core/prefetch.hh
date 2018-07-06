@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef PREFETCH_HH_
-#define PREFETCH_HH_
+#pragma once
 
 #include <atomic>
 #include <boost/mpl/range_c.hpp>
@@ -114,5 +113,3 @@ void prefetchw_n(T** pptr) {
 }
 
 }
-
-#endif

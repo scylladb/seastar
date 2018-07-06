@@ -19,8 +19,7 @@
  * Copyright (C) 2016 ScyllaDB
  */
 
-#ifndef FILE_DESC_HH_
-#define FILE_DESC_HH_
+#pragma once
 
 #include "sstring.hh"
 #include <sys/types.h>
@@ -464,5 +463,3 @@ void pin_this_thread(unsigned cpu_id) {
 /// @}
 
 }
-
-#endif /* FILE_DESC_HH_ */

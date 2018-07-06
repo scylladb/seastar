@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef APPLY_HH_
-#define APPLY_HH_
+#pragma once
 
 #include <tuple>
 #include <utility>
@@ -59,5 +58,3 @@ auto apply(Func&& func, const std::tuple<T...>& args) {
 }
 
 }
-
-#endif /* APPLY_HH_ */

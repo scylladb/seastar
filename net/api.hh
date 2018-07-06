@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef NET_API_HH_
-#define NET_API_HH_
+#pragma once
 
 #include <memory>
 #include <vector>
@@ -289,5 +288,3 @@ public:
 };
 
 }
-
-#endif

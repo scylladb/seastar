@@ -19,8 +19,7 @@
  * Copyright (C) 2017 IBM.
  */
 
-#ifndef _CACHELINE_HH
-#define _CACHELINE_HH
+#pragma once
 
 #include <cstddef>
 
@@ -41,5 +40,3 @@ static constexpr size_t cache_line_size =
 #endif
 
 }
-
-#endif // _CACHELINE_HH

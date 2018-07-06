@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef VLA_HH_
-#define VLA_HH_
+#pragma once
 
 #include <memory>
 #include <new>
@@ -59,5 +58,3 @@ make_struct_with_vla(E S::*last, size_t nr) {
 }
 
 }
-
-#endif /* VLA_HH_ */

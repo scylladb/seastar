@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef TRANSFER_HH_
-#define TRANSFER_HH_
+#pragma once
 
 // Helper functions for copying or moving multiple objects in an exception
 // safe manner, then destroying the sources.
@@ -73,4 +72,3 @@ transfer_pass2(Alloc& a, T* from, T* to,
 
 }
 
-#endif /* TRANSFER_HH_ */

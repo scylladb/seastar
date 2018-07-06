@@ -20,8 +20,7 @@
  *
  */
 
-#ifndef UDP_HH_
-#define UDP_HH_
+#pragma once
 
 #include <unordered_map>
 #include <assert.h>
@@ -59,5 +58,3 @@ struct udp_channel_state {
 }
 
 }
-
-#endif

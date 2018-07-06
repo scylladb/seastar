@@ -19,8 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifndef ROUTES_HH_
-#define ROUTES_HH_
+#pragma once
 
 #include "matchrules.hh"
 #include "handlers.hh"
@@ -217,5 +216,3 @@ void verify_param(const httpd::request& req, const sstring& param);
 }
 
 }
-
-#endif /* ROUTES_HH_ */

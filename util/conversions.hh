@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef CONVERSIONS_HH_
-#define CONVERSIONS_HH_
+#pragma once
 
 #include <cstdlib>
 #include <string>
@@ -47,5 +46,3 @@ static inline std::vector<char> string2vector(std::string str) {
 }
 
 }
-
-#endif /* CONVERSIONS_HH_ */

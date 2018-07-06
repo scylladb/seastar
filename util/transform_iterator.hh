@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef UTIL_TRANSFORM_ITERATOR_HH_
-#define UTIL_TRANSFORM_ITERATOR_HH_
+#pragma once
 
 namespace seastar {
 
@@ -56,5 +55,3 @@ make_transform_iterator(Iterator i, Func f) {
 }
 
 }
-
-#endif /* UTIL_TRANSFORM_ITERATOR_HH_ */

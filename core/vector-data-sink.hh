@@ -19,8 +19,7 @@
  * Copyright 2014 Cloudius Systems
  */
 
-#ifndef VECTOR_DATA_SINK_HH_
-#define VECTOR_DATA_SINK_HH_
+#pragma once
 
 #include "core/reactor.hh"
 
@@ -46,5 +45,3 @@ public:
 };
 
 }
-
-#endif

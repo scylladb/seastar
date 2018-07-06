@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef ALIGN_HH_
-#define ALIGN_HH_
+#pragma once
 
 #include <cstdint>
 #include <cstdlib>
@@ -54,5 +53,3 @@ T* align_down(T* v, size_t align) {
 }
 
 }
-
-#endif /* ALIGN_HH_ */

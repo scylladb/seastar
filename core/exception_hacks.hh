@@ -19,6 +19,8 @@
  * Copyright (C) 2017 ScyllaDB
  */
 
+#pragma once
+
 namespace seastar {
 void init_phdr_cache();
 }

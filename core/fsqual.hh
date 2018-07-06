@@ -19,9 +19,7 @@
  * under the License.
  */
 
-
-#ifndef CORE_FSQUAL_HH_
-#define CORE_FSQUAL_HH_
+#pragma once
 
 #include "sstring.hh"
 
@@ -30,5 +28,3 @@ namespace seastar {
 bool filesystem_has_good_aio_support(sstring directory, bool verbose = false);
 
 }
-
-#endif /* CORE_FSQUAL_HH_ */

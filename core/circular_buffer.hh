@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef CIRCULAR_BUFFER_HH_
-#define CIRCULAR_BUFFER_HH_
+#pragma once
 
 #include "transfer.hh"
 #include "bitops.hh"
@@ -489,5 +488,3 @@ circular_buffer<T, Alloc>::erase(iterator first, iterator last) {
 }
 
 }
-
-#endif /* CIRCULAR_BUFFER_HH_ */

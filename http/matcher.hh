@@ -19,8 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifndef MATCHER_HH_
-#define MATCHER_HH_
+#pragma once
 
 #include "common.hh"
 
@@ -110,5 +109,3 @@ private:
 }
 
 }
-
-#endif /* MATCHER_HH_ */

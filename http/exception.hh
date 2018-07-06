@@ -19,8 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifndef EXCEPTION_HH_
-#define EXCEPTION_HH_
+#pragma once
 
 #include "reply.hh"
 #include "json/json_elements.hh"
@@ -139,5 +138,3 @@ private:
 }
 
 }
-
-#endif /* EXCEPTION_HH_ */

@@ -8,8 +8,7 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef HTTP_MIME_TYPES_HH
-#define HTTP_MIME_TYPES_HH
+#pragma once
 
 #include "core/sstring.hh"
 
@@ -32,5 +31,3 @@ const char* extension_to_type(const sstring& extension);
 } // namespace httpd
 
 }
-
-#endif // HTTP_MIME_TYPES_HH

@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef PACKET_HH_
-#define PACKET_HH_
+#pragma once
 
 #include "core/deleter.hh"
 #include "core/temporary_buffer.hh"
@@ -620,5 +619,3 @@ packet packet::share(size_t offset, size_t len) {
 }
 
 }
-
-#endif /* PACKET_HH_ */

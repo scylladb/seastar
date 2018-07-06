@@ -21,8 +21,7 @@
 
 // tcp/network-stack integration
 
-#ifndef NET_TCP_STACK_HH
-#define NET_TCP_STACK_HH
+#pragma once
 
 #include "core/future.hh"
 
@@ -47,5 +46,3 @@ tcpv4_socket(tcp<ipv4_traits>& tcpv4);
 }
 
 }
-
-#endif

@@ -19,8 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifndef TRANSFORMERS_HH_
-#define TRANSFORMERS_HH_
+#pragma once
 
 #include "handlers.hh"
 #include "file_handler.hh"
@@ -58,5 +57,3 @@ private:
 }
 
 }
-
-#endif /* TRANSFORMERS_HH_ */

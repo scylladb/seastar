@@ -15,8 +15,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-#ifndef _PACKET_DATA_SOURCE_HH
-#define _PACKET_DATA_SOURCE_HH
+#pragma once
 
 #include "core/reactor.hh"
 #include "net/packet.hh"
@@ -52,5 +51,3 @@ input_stream<char> as_input_stream(packet&& p) {
 }
 
 }
-
-#endif

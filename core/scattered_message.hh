@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef SCATTERED_MESSAGE_HH
-#define SCATTERED_MESSAGE_HH
+#pragma once
 
 #include "core/deleter.hh"
 #include "core/temporary_buffer.hh"
@@ -105,5 +104,3 @@ public:
 };
 
 }
-
-#endif

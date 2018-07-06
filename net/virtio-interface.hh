@@ -20,8 +20,7 @@
  *
  */
 
-#ifndef VIRTIO_INTERFACE_HH_
-#define VIRTIO_INTERFACE_HH_
+#pragma once
 
 #ifndef _LINUX_VIRTIO_RING_H
 #define _LINUX_VIRTIO_RING_H
@@ -130,5 +129,3 @@
 #define VIRTIO_NET_F_GUEST_ANNOUNCE (1 << 21)
 #define VIRTIO_NET_F_MQ (1 << 22)
 #define VIRTIO_NET_F_CTRL_MAC_ADDR (1 << 23)
-
-#endif /* VIRTIO_INTERFACE_HH_ */

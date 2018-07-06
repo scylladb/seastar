@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef CORE_SEMAPHORE_HH_
-#define CORE_SEMAPHORE_HH_
+#pragma once
 
 #include "future.hh"
 #include "chunked_fifo.hh"
@@ -477,5 +476,3 @@ using semaphore = basic_semaphore<semaphore_default_exception_factory>;
 /// @}
 
 }
-
-#endif /* CORE_SEMAPHORE_HH_ */

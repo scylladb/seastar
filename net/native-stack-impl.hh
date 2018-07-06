@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef NET_NATIVE_STACK_IMPL_HH_
-#define NET_NATIVE_STACK_IMPL_HH_
+#pragma once
 
 #include "core/reactor.hh"
 #include "stack.hh"
@@ -232,5 +231,3 @@ keepalive_params native_connected_socket_impl<Protocol>::get_keepalive_parameter
 }
 
 }
-
-#endif /* NET_NATIVE_STACK_IMPL_HH_ */

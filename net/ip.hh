@@ -20,8 +20,7 @@
  *
  */
 
-#ifndef IP_HH_
-#define IP_HH_
+#pragma once
 
 #include <boost/asio/ip/address_v4.hpp>
 #include <arpa/inet.h>
@@ -476,5 +475,3 @@ void arp_learn(ethernet_address l2, ipv4_address l3);
 }
 
 }
-
-#endif /* IP_HH_ */

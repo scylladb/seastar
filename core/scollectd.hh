@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef SCOLLECTD_HH_
-#define SCOLLECTD_HH_
+#pragma once
 
 #include <type_traits>
 #include <utility>
@@ -858,5 +857,3 @@ future<> send_notification(const type_instance_id & id, const sstring & msg);
 };
 
 }
-
-#endif /* SCOLLECTD_HH_ */

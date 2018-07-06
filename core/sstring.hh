@@ -19,8 +19,7 @@
  * Copyright 2014 Cloudius Systems
  */
 
-#ifndef SSTRING_HH_
-#define SSTRING_HH_
+#pragma once
 
 #include <stdint.h>
 #include <algorithm>
@@ -750,5 +749,3 @@ std::ostream& operator<<(std::ostream& os, const std::unordered_map<Key, T, Hash
     return os;
 }
 }
-
-#endif /* SSTRING_HH_ */

@@ -19,8 +19,7 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#ifndef FUTURE_HH_
-#define FUTURE_HH_
+#pragma once
 
 #include "apply.hh"
 #include "task.hh"
@@ -1464,5 +1463,3 @@ void set_callback(future<T...>& fut, std::unique_ptr<U> callback) {
 /// \endcond
 
 }
-
-#endif /* FUTURE_HH_ */

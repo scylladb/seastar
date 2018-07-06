@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef IP_CHECKSUM_HH_
-#define IP_CHECKSUM_HH_
+#pragma once
 
 #include "packet.hh"
 #include <cstdint>
@@ -75,4 +74,3 @@ struct checksummer {
 
 }
 
-#endif /* IP_CHECKSUM_HH_ */

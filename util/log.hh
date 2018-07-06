@@ -18,8 +18,7 @@
 /*
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
-#ifndef LOG_HH_
-#define LOG_HH_
+#pragma once
 
 #include "core/sstring.hh"
 #include <unordered_map>
@@ -325,5 +324,4 @@ std::ostream& operator<<(std::ostream&, const std::exception&);
 std::ostream& operator<<(std::ostream&, const std::system_error&);
 }
 
-#endif /* LOG_HH_ */
 /// @}

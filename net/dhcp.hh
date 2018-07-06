@@ -19,8 +19,7 @@
  * Copyright 2014 Cloudius Systems
  */
 
-#ifndef NET_DHCP_HH_
-#define NET_DHCP_HH_
+#pragma once
 
 #include "ip.hh"
 #include "core/reactor.hh"
@@ -83,5 +82,3 @@ private:
 }
 
 }
-
-#endif /* NET_DHCP_HH_ */

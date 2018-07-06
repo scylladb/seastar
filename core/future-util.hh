@@ -22,8 +22,7 @@
 
 /** @file */
 
-#ifndef CORE_FUTURE_UTIL_HH_
-#define CORE_FUTURE_UTIL_HH_
+#pragma once
 
 #include "task.hh"
 #include "future.hh"
@@ -1199,5 +1198,3 @@ when_all_succeed(FutureIterator begin, FutureIterator end) {
 }
 
 /// @}
-
-#endif /* CORE_FUTURE_UTIL_HH_ */

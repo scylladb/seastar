@@ -19,8 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef QUEUE_HH_
-#define QUEUE_HH_
+#pragma once
 
 #include "circular_buffer.hh"
 #include "future.hh"
@@ -264,4 +263,3 @@ future<> queue<T>::not_full() {
 
 }
 
-#endif /* QUEUE_HH_ */
