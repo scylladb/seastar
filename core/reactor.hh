@@ -1405,7 +1405,7 @@ future<size_t> pollable_fd::write_some(net::packet& p) {
         iovec* iov = reinterpret_cast<iovec*>(p.fragment_array());
         msghdr mh = {};
         mh.msg_iov = iov;
-        mh.msg_iovlen = p.nr_frags();
+        mh.msg_iovlen = std::min<size_t>(p.nr_frags(), IOV_MAX);
         auto r = get_file_desc().sendmsg(&mh, MSG_NOSIGNAL);
         if (!r) {
             return write_some(p);
