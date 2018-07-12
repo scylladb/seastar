@@ -156,6 +156,7 @@ static thread_local uint64_t g_allocs;
 static thread_local uint64_t g_frees;
 static thread_local uint64_t g_cross_cpu_frees;
 static thread_local uint64_t g_reclaims;
+static thread_local uint64_t g_large_allocs;
 
 using std::experimental::optional;
 
@@ -604,6 +605,7 @@ cpu_pages::allocate_large_and_trim(unsigned n_pages) {
 
 void
 cpu_pages::warn_large_allocation(size_t size) {
+    ++g_large_allocs;
     seastar_memory_logger.warn("oversized allocation: {} bytes, please report: at {}", size, current_backtrace());
     large_allocation_warning_threshold *= 1.618; // prevent spam
 }
@@ -1368,7 +1370,7 @@ void configure(std::vector<resource::memory> m, bool mbind,
 
 statistics stats() {
     return statistics{g_allocs, g_frees, g_cross_cpu_frees,
-        cpu_mem.nr_pages * page_size, cpu_mem.nr_free_pages * page_size, g_reclaims};
+        cpu_mem.nr_pages * page_size, cpu_mem.nr_free_pages * page_size, g_reclaims, g_large_allocs};
 }
 
 bool drain_cross_cpu_freelist() {
@@ -1855,7 +1857,7 @@ void configure(std::vector<resource::memory> m, bool mbind, std::experimental::o
 }
 
 statistics stats() {
-    return statistics{0, 0, 0, 1 << 30, 1 << 30, 0};
+    return statistics{0, 0, 0, 1 << 30, 1 << 30, 0, 0};
 }
 
 bool drain_cross_cpu_freelist() {

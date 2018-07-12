@@ -172,11 +172,12 @@ class statistics {
     size_t _total_memory;
     size_t _free_memory;
     uint64_t _reclaims;
+    uint64_t _large_allocs;
 private:
     statistics(uint64_t mallocs, uint64_t frees, uint64_t cross_cpu_frees,
-            uint64_t total_memory, uint64_t free_memory, uint64_t reclaims)
+            uint64_t total_memory, uint64_t free_memory, uint64_t reclaims, uint64_t large_allocs)
         : _mallocs(mallocs), _frees(frees), _cross_cpu_frees(cross_cpu_frees)
-        , _total_memory(total_memory), _free_memory(free_memory), _reclaims(reclaims) {}
+        , _total_memory(total_memory), _free_memory(free_memory), _reclaims(reclaims), _large_allocs(large_allocs) {}
 public:
     /// Total number of memory allocations calls since the system was started.
     uint64_t mallocs() const { return _mallocs; }
@@ -195,6 +196,8 @@ public:
     size_t total_memory() const { return _total_memory; }
     /// Number of reclaims performed due to low memory
     uint64_t reclaims() const { return _reclaims; }
+    /// Number of allocations which violated the large allocation threshold
+    uint64_t large_allocations() const { return _large_allocs; }
     friend statistics stats();
 };
 
