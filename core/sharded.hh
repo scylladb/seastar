@@ -631,7 +631,7 @@ public:
     ///
     /// The owner shard of the pointer can change as a result of
     /// move-assigment or a call to reset().
-    unsigned get_owner_shard() { return _cpu; }
+    unsigned get_owner_shard() const { return _cpu; }
     /// Checks whether the wrapped pointer is non-null.
     operator bool() const { return static_cast<bool>(_value); }
     /// Move-assigns a \c foreign_ptr<>.
