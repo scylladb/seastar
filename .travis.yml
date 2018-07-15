@@ -47,7 +47,7 @@ matrix:
       # Suppress unused lambda capture warning due to a Clang bug (see https://reviews.llvm.org/rL296602)
       # Suppress missing braces warning due to a Clang bug (see https://bugs.llvm.org/show_bug.cgi?id=21629)
       # Need g++-7 to bring up-to-date libstdc++ in
-      - env: DPDK_MODE="" COMPILER="clang-5.0" CFLAGS="-Wno-unused-lambda-capture -Wno-missing-braces"
+      - env: DPDK_MODE="" COMPILER="clang++-5.0" CFLAGS="-Wno-unused-lambda-capture -Wno-missing-braces"
         compiler: clang
         addons: &clang50
             apt:
