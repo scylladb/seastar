@@ -391,6 +391,8 @@ template <typename... T>
 class continuation_base : public task {
 protected:
     future_state<T...> _state;
+    using future_type = future<T...>;
+    using promise_type = promise<T...>;
 public:
     continuation_base() = default;
     explicit continuation_base(future_state<T...>&& state) : _state(std::move(state)) {}
