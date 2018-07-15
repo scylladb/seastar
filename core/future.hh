@@ -662,12 +662,16 @@ template <typename... Args>
 struct futurize<future<Args...>> {
     using type = future<Args...>;
     using promise_type = promise<Args...>;
+    using value_type = std::tuple<Args...>;
 
     template<typename Func, typename... FuncArgs>
     static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept;
 
     template<typename Func, typename... FuncArgs>
     static inline type apply(Func&& func, FuncArgs&&... args) noexcept;
+
+    static inline type from_tuple(value_type&& value);
+    static inline type from_tuple(const value_type& value);
 
     static inline type convert(Args&&... values) { return make_ready_future<Args...>(std::move(values)...); }
     static inline type convert(type&& value) { return std::move(value); }
@@ -1441,6 +1445,20 @@ inline
 future<>
 futurize<void>::from_tuple(const std::tuple<>& value) {
     return make_ready_future<>();
+}
+
+template <typename... Args>
+inline
+future<Args...>
+futurize<future<Args...>>::from_tuple(std::tuple<Args...>&& value) {
+    return make_ready_future<Args...>(std::move(value));
+}
+
+template <typename... Args>
+inline
+future<Args...>
+futurize<future<Args...>>::from_tuple(const std::tuple<Args...>& value) {
+    return make_ready_future<Args...>(value);
 }
 
 template<typename Func, typename... Args>
