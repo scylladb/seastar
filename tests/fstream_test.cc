@@ -397,7 +397,7 @@ SEASTAR_TEST_CASE(test_fstream_slow_start) {
 
                 mock_file->set_allowed_read_requests(requests_at_slow_start);
                 auto buf = fstr.read().get0();
-                BOOST_CHECK_GT(buf.size(), 0);
+                BOOST_CHECK_GT(buf.size(), 0u);
 
                 mock_file->set_read_size_verifier([&] (size_t length) {
                     // There is no reason to reduce buffer size.
@@ -424,7 +424,7 @@ SEASTAR_TEST_CASE(test_fstream_slow_start) {
 
             mock_file->set_allowed_read_requests(requests_at_full_speed);
             auto buf = fstr.read().get0();
-            BOOST_CHECK_EQUAL(buf.size(), 0);
+            BOOST_CHECK_EQUAL(buf.size(), 0u);
             assert(buf.size() == 0);
         };
 
@@ -440,7 +440,7 @@ SEASTAR_TEST_CASE(test_fstream_slow_start) {
 
             mock_file->set_allowed_read_requests(requests_at_full_speed);
             auto buf = fstr.read().get0();
-            BOOST_CHECK_EQUAL(buf.size(), 0);
+            BOOST_CHECK_EQUAL(buf.size(), 0u);
         };
 
         auto read_and_skip_a_lot = [&] (auto fstr) {
@@ -474,7 +474,7 @@ SEASTAR_TEST_CASE(test_fstream_slow_start) {
 
             mock_file->set_allowed_read_requests(requests_at_full_speed);
             auto buf = fstr.read().get0();
-            BOOST_CHECK_EQUAL(buf.size(), 0);
+            BOOST_CHECK_EQUAL(buf.size(), 0u);
 
         };
 

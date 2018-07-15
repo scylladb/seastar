@@ -86,7 +86,7 @@ SEASTAR_TEST_CASE(system_clock_sanity) {
     return do_with(0ul, 0ul, [](std::size_t& index, std::size_t& success_count) {
         return repeat([&index, &success_count] {
             if (index >= 3) {
-                BOOST_REQUIRE_GE(success_count, 2);
+                BOOST_REQUIRE_GE(success_count, 2u);
                 return make_ready_future<stop_iteration>(stop_iteration::yes);
             }
 

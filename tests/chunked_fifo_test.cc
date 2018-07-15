@@ -35,27 +35,27 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_small) {
     // Check all the methods of chunked_fifo but with a trivial type (int) and
     // only a few elements - and in particular a single chunk is enough.
     chunked_fifo<int> fifo;
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
     BOOST_REQUIRE_EQUAL(fifo.empty(), true);
     fifo.push_back(3);
-    BOOST_REQUIRE_EQUAL(fifo.size(), 1);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
     BOOST_REQUIRE_EQUAL(fifo.empty(), false);
     BOOST_REQUIRE_EQUAL(fifo.front(), 3);
     fifo.push_back(17);
-    BOOST_REQUIRE_EQUAL(fifo.size(), 2);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 2u);
     BOOST_REQUIRE_EQUAL(fifo.empty(), false);
     BOOST_REQUIRE_EQUAL(fifo.front(), 3);
     fifo.pop_front();
-    BOOST_REQUIRE_EQUAL(fifo.size(), 1);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
     BOOST_REQUIRE_EQUAL(fifo.empty(), false);
     BOOST_REQUIRE_EQUAL(fifo.front(), 17);
     fifo.pop_front();
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
     BOOST_REQUIRE_EQUAL(fifo.empty(), true);
     // The previously allocated chunk should have been freed, and now
     // a new one will need to be allocated:
     fifo.push_back(57);
-    BOOST_REQUIRE_EQUAL(fifo.size(), 1);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
     BOOST_REQUIRE_EQUAL(fifo.empty(), false);
     BOOST_REQUIRE_EQUAL(fifo.front(), 57);
     // check miscelleneous methods (at least they shouldn't crash)
@@ -71,20 +71,20 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_small) {
 BOOST_AUTO_TEST_CASE(chunked_fifo_fullchunk) {
     // Grow a chunked_fifo to exactly fill a chunk, and see what happens when
     // we cross that chunk.
-    constexpr int N = 128;
+    constexpr size_t N = 128;
     chunked_fifo<int, N> fifo;
-    for (int i = 0; i < N; i++) {
+    for (int i = 0; i < static_cast<int>(N); i++) {
         fifo.push_back(i);
     }
     BOOST_REQUIRE_EQUAL(fifo.size(), N);
     fifo.push_back(N);
     BOOST_REQUIRE_EQUAL(fifo.size(), N+1);
-    for (int i = 0 ; i < N+1; i++) {
+    for (int i = 0 ; i < static_cast<int>(N+1); i++) {
         BOOST_REQUIRE_EQUAL(fifo.front(), i);
         BOOST_REQUIRE_EQUAL(fifo.size(), N+1-i);
         fifo.pop_front();
     }
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
     BOOST_REQUIRE_EQUAL(fifo.empty(), true);
 }
 
@@ -92,18 +92,18 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_big) {
     // Grow a chunked_fifo to many elements, and see things are working as
     // expected
     chunked_fifo<int> fifo;
-    constexpr int N = 100'000;
-    for (int i=0; i < N; i++) {
+    constexpr size_t N = 100'000;
+    for (int i=0; i < static_cast<int>(N); i++) {
         fifo.push_back(i);
     }
     BOOST_REQUIRE_EQUAL(fifo.size(), N);
     BOOST_REQUIRE_EQUAL(fifo.empty(), false);
-    for (int i = 0 ; i < N; i++) {
+    for (int i = 0 ; i < static_cast<int>(N); i++) {
         BOOST_REQUIRE_EQUAL(fifo.front(), i);
         BOOST_REQUIRE_EQUAL(fifo.size(), N-i);
         fifo.pop_front();
     }
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
     BOOST_REQUIRE_EQUAL(fifo.empty(), true);
 }
 
@@ -112,43 +112,43 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_constructor) {
     // and destructor, and doesn't need anything else.
     struct typ {
         int val;
-        int* constructed;
-        int* destructed;
-        typ(int val, int* constructed, int* destructed)
+        unsigned* constructed;
+        unsigned* destructed;
+        typ(int val, unsigned* constructed, unsigned* destructed)
             : val(val), constructed(constructed), destructed(destructed) {
                 ++*constructed;
         }
         ~typ() { ++*destructed; }
     };
     chunked_fifo<typ> fifo;
-    int constructed = 0, destructed = 0;
-    constexpr int N = 1000;
-    for (int i = 0; i < N; i++) {
+    unsigned constructed = 0, destructed = 0;
+    constexpr unsigned N = 1000;
+    for (unsigned i = 0; i < N; i++) {
         fifo.emplace_back(i, &constructed, &destructed);
     }
     BOOST_REQUIRE_EQUAL(fifo.size(), N);
     BOOST_REQUIRE_EQUAL(constructed, N);
-    BOOST_REQUIRE_EQUAL(destructed, 0);
-    for (int i = 0 ; i < N; i++) {
-        BOOST_REQUIRE_EQUAL(fifo.front().val, i);
+    BOOST_REQUIRE_EQUAL(destructed, 0u);
+    for (unsigned i = 0 ; i < N; i++) {
+        BOOST_REQUIRE_EQUAL(fifo.front().val, static_cast<int>(i));
         BOOST_REQUIRE_EQUAL(fifo.size(), N-i);
         fifo.pop_front();
         BOOST_REQUIRE_EQUAL(destructed, i+1);
     }
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
     BOOST_REQUIRE_EQUAL(fifo.empty(), true);
     // Check that destructing a fifo also destructs the objects it still
     // contains
     constructed = destructed = 0;
     {
         chunked_fifo<typ> fifo;
-        for (int i = 0; i < N; i++) {
+        for (unsigned i = 0; i < N; i++) {
             fifo.emplace_back(i, &constructed, &destructed);
             BOOST_REQUIRE_EQUAL(fifo.front().val, 0);
             BOOST_REQUIRE_EQUAL(fifo.size(), i+1);
             BOOST_REQUIRE_EQUAL(fifo.empty(), false);
             BOOST_REQUIRE_EQUAL(constructed, i+1);
-            BOOST_REQUIRE_EQUAL(destructed, 0);
+            BOOST_REQUIRE_EQUAL(destructed, 0u);
         }
     }
     BOOST_REQUIRE_EQUAL(constructed, N);
@@ -165,14 +165,14 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_construct_fail) {
         }
     };
     chunked_fifo<typ> fifo;
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
     BOOST_REQUIRE_EQUAL(fifo.empty(), true);
     try {
         fifo.emplace_back();
     } catch(my_exception) {
         // expected, ignore
     }
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
     BOOST_REQUIRE_EQUAL(fifo.empty(), true);
 }
 
@@ -191,7 +191,7 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_construct_fail2) {
         }
     };
     chunked_fifo<typ, 2> fifo;
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
     BOOST_REQUIRE_EQUAL(fifo.empty(), true);
     fifo.emplace_back(false);
     fifo.emplace_back(false);
@@ -200,13 +200,13 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_construct_fail2) {
     } catch(my_exception) {
         // expected, ignore
     }
-    BOOST_REQUIRE_EQUAL(fifo.size(), 2);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 2u);
     BOOST_REQUIRE_EQUAL(fifo.empty(), false);
     fifo.pop_front();
-    BOOST_REQUIRE_EQUAL(fifo.size(), 1);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
     BOOST_REQUIRE_EQUAL(fifo.empty(), false);
     fifo.pop_front();
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
     BOOST_REQUIRE_EQUAL(fifo.empty(), true);
 }
 

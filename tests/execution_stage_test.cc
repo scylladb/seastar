@@ -258,18 +258,18 @@ SEASTAR_TEST_CASE(test_stage_stats) {
     return seastar::async([] {
         auto stage = seastar::make_execution_stage("test", [] { });
 
-        BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_enqueued, 0);
-        BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_executed, 0);
+        BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_enqueued, 0u);
+        BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_executed, 0u);
 
         auto fs = std::vector<future<>>();
-        static constexpr auto call_count = 53;
-        for (auto i = 0; i < call_count; i++) {
+        static constexpr auto call_count = 53u;
+        for (auto i = 0u; i < call_count; i++) {
             fs.emplace_back(stage());
         }
 
         BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_enqueued, call_count);
 
-        for (auto i = 0; i < call_count; i++) {
+        for (auto i = 0u; i < call_count; i++) {
             fs[i].get();
             BOOST_REQUIRE_GE(stage.get_stats().tasks_scheduled, 1u);
             BOOST_REQUIRE_GE(stage.get_stats().function_calls_executed, i);

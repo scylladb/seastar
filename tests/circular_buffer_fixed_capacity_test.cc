@@ -43,7 +43,7 @@ BOOST_AUTO_TEST_CASE(test_edge_cases) {
     BOOST_REQUIRE_EQUAL(cb[0], 3);
     BOOST_REQUIRE(cb.begin() < cb.end());
     cb.push_back(4);
-    BOOST_REQUIRE_EQUAL(cb.size(), 2);
+    BOOST_REQUIRE_EQUAL(cb.size(), 2u);
     BOOST_REQUIRE_EQUAL(cb[0], 3);
     BOOST_REQUIRE_EQUAL(cb[1], 4);
     cb.pop_back();

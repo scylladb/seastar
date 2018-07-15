@@ -33,13 +33,13 @@ SEASTAR_TEST_CASE(test_no_expiry_operations) {
     expiring_fifo<int> fifo;
 
     BOOST_REQUIRE(fifo.empty());
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
     BOOST_REQUIRE(!bool(fifo));
 
     fifo.push_back(1);
 
     BOOST_REQUIRE(!fifo.empty());
-    BOOST_REQUIRE_EQUAL(fifo.size(), 1);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
     BOOST_REQUIRE(bool(fifo));
     BOOST_REQUIRE_EQUAL(fifo.front(), 1);
 
@@ -47,28 +47,28 @@ SEASTAR_TEST_CASE(test_no_expiry_operations) {
     fifo.push_back(3);
 
     BOOST_REQUIRE(!fifo.empty());
-    BOOST_REQUIRE_EQUAL(fifo.size(), 3);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 3u);
     BOOST_REQUIRE(bool(fifo));
     BOOST_REQUIRE_EQUAL(fifo.front(), 1);
 
     fifo.pop_front();
 
     BOOST_REQUIRE(!fifo.empty());
-    BOOST_REQUIRE_EQUAL(fifo.size(), 2);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 2u);
     BOOST_REQUIRE(bool(fifo));
     BOOST_REQUIRE_EQUAL(fifo.front(), 2);
 
     fifo.pop_front();
 
     BOOST_REQUIRE(!fifo.empty());
-    BOOST_REQUIRE_EQUAL(fifo.size(), 1);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
     BOOST_REQUIRE(bool(fifo));
     BOOST_REQUIRE_EQUAL(fifo.front(), 3);
 
     fifo.pop_front();
 
     BOOST_REQUIRE(fifo.empty());
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0);
+    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
     BOOST_REQUIRE(!bool(fifo));
 
     return make_ready_future<>();
@@ -87,7 +87,7 @@ SEASTAR_TEST_CASE(test_expiry_operations) {
         fifo.push_back(1, manual_clock::now() + 1s);
 
         BOOST_REQUIRE(!fifo.empty());
-        BOOST_REQUIRE_EQUAL(fifo.size(), 1);
+        BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
         BOOST_REQUIRE(bool(fifo));
         BOOST_REQUIRE_EQUAL(fifo.front(), 1);
 
@@ -95,9 +95,9 @@ SEASTAR_TEST_CASE(test_expiry_operations) {
         later().get();
 
         BOOST_REQUIRE(fifo.empty());
-        BOOST_REQUIRE_EQUAL(fifo.size(), 0);
+        BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
         BOOST_REQUIRE(!bool(fifo));
-        BOOST_REQUIRE_EQUAL(expired.size(), 1);
+        BOOST_REQUIRE_EQUAL(expired.size(), 1u);
         BOOST_REQUIRE_EQUAL(expired[0], 1);
 
         expired.clear();
@@ -110,16 +110,16 @@ SEASTAR_TEST_CASE(test_expiry_operations) {
         later().get();
 
         BOOST_REQUIRE(!fifo.empty());
-        BOOST_REQUIRE_EQUAL(fifo.size(), 2);
+        BOOST_REQUIRE_EQUAL(fifo.size(), 2u);
         BOOST_REQUIRE(bool(fifo));
-        BOOST_REQUIRE_EQUAL(expired.size(), 1);
+        BOOST_REQUIRE_EQUAL(expired.size(), 1u);
         BOOST_REQUIRE_EQUAL(expired[0], 2);
         BOOST_REQUIRE_EQUAL(fifo.front(), 1);
         fifo.pop_front();
-        BOOST_REQUIRE_EQUAL(fifo.size(), 1);
+        BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
         BOOST_REQUIRE_EQUAL(fifo.front(), 3);
         fifo.pop_front();
-        BOOST_REQUIRE_EQUAL(fifo.size(), 0);
+        BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
 
         expired.clear();
 
@@ -132,18 +132,18 @@ SEASTAR_TEST_CASE(test_expiry_operations) {
         later().get();
 
         BOOST_REQUIRE(!fifo.empty());
-        BOOST_REQUIRE_EQUAL(fifo.size(), 2);
+        BOOST_REQUIRE_EQUAL(fifo.size(), 2u);
         BOOST_REQUIRE(bool(fifo));
-        BOOST_REQUIRE_EQUAL(expired.size(), 2);
+        BOOST_REQUIRE_EQUAL(expired.size(), 2u);
         std::sort(expired.begin(), expired.end());
         BOOST_REQUIRE_EQUAL(expired[0], 1);
         BOOST_REQUIRE_EQUAL(expired[1], 2);
         BOOST_REQUIRE_EQUAL(fifo.front(), 3);
         fifo.pop_front();
-        BOOST_REQUIRE_EQUAL(fifo.size(), 1);
+        BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
         BOOST_REQUIRE_EQUAL(fifo.front(), 4);
         fifo.pop_front();
-        BOOST_REQUIRE_EQUAL(fifo.size(), 0);
+        BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
 
         expired.clear();
 
@@ -156,16 +156,16 @@ SEASTAR_TEST_CASE(test_expiry_operations) {
         later().get();
 
         BOOST_REQUIRE(!fifo.empty());
-        BOOST_REQUIRE_EQUAL(fifo.size(), 1);
+        BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
         BOOST_REQUIRE(bool(fifo));
-        BOOST_REQUIRE_EQUAL(expired.size(), 3);
+        BOOST_REQUIRE_EQUAL(expired.size(), 3u);
         std::sort(expired.begin(), expired.end());
         BOOST_REQUIRE_EQUAL(expired[0], 2);
         BOOST_REQUIRE_EQUAL(expired[1], 3);
         BOOST_REQUIRE_EQUAL(expired[2], 4);
         BOOST_REQUIRE_EQUAL(fifo.front(), 1);
         fifo.pop_front();
-        BOOST_REQUIRE_EQUAL(fifo.size(), 0);
+        BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
 
         expired.clear();
 
@@ -178,12 +178,12 @@ SEASTAR_TEST_CASE(test_expiry_operations) {
         manual_clock::advance(1s);
         later().get();
 
-        BOOST_REQUIRE_EQUAL(fifo.size(), 2);
+        BOOST_REQUIRE_EQUAL(fifo.size(), 2u);
         BOOST_REQUIRE_EQUAL(fifo.front(), 1);
         fifo.pop_front();
-        BOOST_REQUIRE_EQUAL(fifo.size(), 1);
+        BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
         BOOST_REQUIRE_EQUAL(fifo.front(), 5);
         fifo.pop_front();
-        BOOST_REQUIRE_EQUAL(fifo.size(), 0);
+        BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
     });
 }

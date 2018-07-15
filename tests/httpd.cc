@@ -44,7 +44,7 @@ SEASTAR_TEST_CASE(test_str_matcher)
 
     str_matcher m("/hello");
     parameters param;
-    BOOST_REQUIRE_EQUAL(m.match("/abc/hello", 4, param), 10);
+    BOOST_REQUIRE_EQUAL(m.match("/abc/hello", 4, param), 10u);
     return make_ready_future<>();
 }
 
@@ -53,7 +53,7 @@ SEASTAR_TEST_CASE(test_param_matcher)
 
     param_matcher m("param");
     parameters param;
-    BOOST_REQUIRE_EQUAL(m.match("/abc/hello", 4, param), 10);
+    BOOST_REQUIRE_EQUAL(m.match("/abc/hello", 4, param), 10u);
     BOOST_REQUIRE_EQUAL(param.path("param"), "/hello");
     BOOST_REQUIRE_EQUAL(param["param"], "hello");
     return make_ready_future<>();

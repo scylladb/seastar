@@ -59,7 +59,7 @@ BOOST_AUTO_TEST_CASE(test_valid_config_with_port_index) {
 
     // eth0 tests
     BOOST_REQUIRE(device_configs.find("eth0") != device_configs.end());
-    BOOST_REQUIRE_EQUAL(*device_configs.at("eth0").hw_cfg.port_index, 0);
+    BOOST_REQUIRE_EQUAL(*device_configs.at("eth0").hw_cfg.port_index, 0u);
     BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.dhcp, false);
     BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.ip, "192.168.100.10");
     BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.gateway, "192.168.100.1");
@@ -67,7 +67,7 @@ BOOST_AUTO_TEST_CASE(test_valid_config_with_port_index) {
 
     // eth1 tests
     BOOST_REQUIRE(device_configs.find("eth1") != device_configs.end());
-    BOOST_REQUIRE_EQUAL(*device_configs.at("eth1").hw_cfg.port_index, 1);
+    BOOST_REQUIRE_EQUAL(*device_configs.at("eth1").hw_cfg.port_index, 1u);
     BOOST_REQUIRE_EQUAL(device_configs.at("eth1").ip_cfg.dhcp, true);
     BOOST_REQUIRE_EQUAL(device_configs.at("eth1").ip_cfg.ip, "");
     BOOST_REQUIRE_EQUAL(device_configs.at("eth1").ip_cfg.gateway, "");

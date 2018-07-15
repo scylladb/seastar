@@ -83,10 +83,10 @@ BOOST_AUTO_TEST_CASE(test_at_sstring) {
 }
 
 BOOST_AUTO_TEST_CASE(test_find_last_sstring) {
-    BOOST_REQUIRE_EQUAL(sstring("ababa").find_last_of('a'), 4);
-    BOOST_REQUIRE_EQUAL(sstring("ababa").find_last_of('a',5), 4);
-    BOOST_REQUIRE_EQUAL(sstring("ababa").find_last_of('a',4), 4);
-    BOOST_REQUIRE_EQUAL(sstring("ababa").find_last_of('a',3), 2);
+    BOOST_REQUIRE_EQUAL(sstring("ababa").find_last_of('a'), 4u);
+    BOOST_REQUIRE_EQUAL(sstring("ababa").find_last_of('a',5), 4u);
+    BOOST_REQUIRE_EQUAL(sstring("ababa").find_last_of('a',4), 4u);
+    BOOST_REQUIRE_EQUAL(sstring("ababa").find_last_of('a',3), 2u);
     BOOST_REQUIRE_EQUAL(sstring("ababa").find_last_of('x'), sstring::npos);
     BOOST_REQUIRE_EQUAL(sstring("").find_last_of('a'), sstring::npos);
 }
