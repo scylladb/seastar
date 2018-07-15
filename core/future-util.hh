@@ -610,25 +610,77 @@ struct identity_futures_tuple {
     }
 };
 
+// Given a future type, find the continuation_base corresponding to that future
+template <typename Future>
+struct continuation_base_for_future;
+
+template <typename... T>
+struct continuation_base_for_future<future<T...>> {
+    using type = continuation_base<T...>;
+};
+
+template <typename Future>
+using continuation_base_for_future_t = typename continuation_base_for_future<Future>::type;
+
+class when_all_state_base {
+    size_t _counter = 0;
+public:
+    virtual ~when_all_state_base() {}
+    void add_completion() {
+        ++_counter;
+    }
+    void complete_one() {
+        if (!--_counter) {
+            delete this; // destructor completes work
+        }
+    }
+    bool done() const {
+        return !_counter;
+    }
+};
+
+template <typename Future>
+class when_all_state_component : public continuation_base_for_future_t<Future> {
+    when_all_state_base* _base;
+    Future* _final_resting_place;
+public:
+    void init(when_all_state_base *base, Future* final_resting_place) {
+        _base = base;
+        _final_resting_place = final_resting_place;
+    }
+    virtual void run_and_dispose() noexcept override {
+        using futurator = futurize<Future>;
+        if (__builtin_expect(this->_state.failed(), false)) {
+            *_final_resting_place = futurator::make_exception_future(std::move(this->_state).get_exception());
+        } else {
+            *_final_resting_place = futurator::from_tuple(std::move(this->_state).get_value());
+        }
+        _base->complete_one();
+    }
+};
+
 template<typename ResolvedTupleTransform, typename... Futures>
-class when_all_state : public enable_lw_shared_from_this<when_all_state<ResolvedTupleTransform, Futures...>> {
+class when_all_state : public when_all_state_base {
     using type = std::tuple<Futures...>;
     type tuple;
+    std::tuple<when_all_state_component<Futures>...> _cont;
 public:
     typename ResolvedTupleTransform::promise_type p;
     when_all_state(Futures&&... t) : tuple(std::make_tuple(std::move(t)...)) {}
-    ~when_all_state() {
+    virtual ~when_all_state() {
         ResolvedTupleTransform::set_promise(p, std::move(tuple));
     }
 private:
     template<size_t Idx>
     int wait() {
+        using future_type = std::tuple_element_t<Idx, type>;
         auto& f = std::get<Idx>(tuple);
         static_assert(is_future<std::remove_reference_t<decltype(f)>>::value, "when_all parameter must be a future");
         if (!f.available()) {
-            f = f.then_wrapped([s = this->shared_from_this()] (auto&& f) {
-                return std::move(f);
-            });
+            add_completion();
+            auto& cont = std::get<Idx>(_cont);
+            cont.init(this, &f);
+            set_callback(f, std::unique_ptr<continuation_base_for_future_t<future_type>>(&cont));
         }
         return 0;
     }
@@ -636,7 +688,12 @@ public:
     template <size_t... Idx>
     typename ResolvedTupleTransform::future_type wait_all(std::index_sequence<Idx...>) {
         [] (...) {} (this->template wait<Idx>()...);
-        return p.get_future();
+        auto ret = p.get_future();
+        // FIXME: don't create when_all_state in this case
+        if (done()) {
+            delete this;
+        }
+        return ret;
     }
 };
 
@@ -688,7 +745,7 @@ future<std::tuple<Futs...>>
 when_all(Futs&&... futs) {
     namespace si = internal;
     using state = si::when_all_state<si::identity_futures_tuple<Futs...>, Futs...>;
-    auto s = make_lw_shared<state>(std::forward<Futs>(futs)...);
+    auto s = new state(std::forward<Futs>(futs)...);
     return s->wait_all(std::make_index_sequence<sizeof...(Futs)>());
 }
 
@@ -1168,7 +1225,7 @@ template<typename... Futures>
 GCC6_CONCEPT( requires seastar::AllAreFutures<Futures...> )
 inline auto when_all_succeed(Futures&&... futures) {
     using state = internal::when_all_state<internal::extract_values_from_futures_tuple<Futures...>, Futures...>;
-    auto s = make_lw_shared<state>(std::forward<Futures>(futures)...);
+    auto s = new state(std::forward<Futures>(futures)...);
     return s->wait_all(std::make_index_sequence<sizeof...(Futures)>());
 }
 
