@@ -61,7 +61,7 @@ matrix:
                   - g++-7
 
 before_script:
-  - ./configure.py --mode=release ${DPDK_MODE} --compiler=${COMPILER} --c-compiler=${C_COMPILER} --cflags="-I/opt/scylladb/include/ $CFLAGS" --ldflags="-L/opt/scylladb/lib/x86_64-linux-gnu/"
+  - ./configure.py --mode=release ${DPDK_MODE} --compiler=${COMPILER} --c-compiler=${C_COMPILER} --c++-dialect="gnu++17" --cflags="-I/opt/scylladb/include/ $CFLAGS" --ldflags="-L/opt/scylladb/lib/x86_64-linux-gnu/"
 
 script:
   - ninja -j`nproc --all`
