@@ -967,15 +967,23 @@ public:
             // running in background. try to bye-handshake us nicely, but after 10s we forcefully close.
             with_timeout(timer<>::clock::now() + std::chrono::seconds(10), shutdown()).finally([this] {
                 _eof = true;
-                _in.close(); // should wake any waiters
-                _out.close();
+                try {
+                    _in.close().handle_exception([](std::exception_ptr) {}); // should wake any waiters
+                } catch (...) {
+                }
+                try {
+                    _out.close().handle_exception([](std::exception_ptr) {});
+                } catch (...) {
+                }
                 // make sure to wait for handshake attempt to leave semaphores. Must be in same order as
                 // handshake aqcuire, because in worst case, we get here while a reader is attempting
                 // re-handshake.
                 return _in_sem.wait().then([this] {
                     return _out_sem.wait();
                 });
-            }).finally([me = std::move(me)] {}); // must keep object alive until here.
+            }).then_wrapped([me = std::move(me)](future<> f) { // must keep object alive until here.
+                f.ignore_ready_future();
+            });
         }
     }
     // helper for sink
