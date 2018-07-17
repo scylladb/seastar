@@ -64,16 +64,16 @@ template <size_t Extra>
 void do_move_tests() {
     using payload = ::payload<Extra>;
     auto f1 = noncopyable_function<int ()>(payload(3));
-    BOOST_REQUIRE_EQUAL(payload::live, 1);
+    BOOST_REQUIRE_EQUAL(payload::live, 1u);
     BOOST_REQUIRE_EQUAL(f1(), 3);
     auto f2 = noncopyable_function<int ()>();
     BOOST_CHECK_THROW(f2(), std::bad_function_call);
     f2 = std::move(f1);
     BOOST_CHECK_THROW(f1(), std::bad_function_call);
     BOOST_REQUIRE_EQUAL(f2(), 3);
-    BOOST_REQUIRE_EQUAL(payload::live, 1);
+    BOOST_REQUIRE_EQUAL(payload::live, 1u);
     f2 = {};
-    BOOST_REQUIRE_EQUAL(payload::live, 0);
+    BOOST_REQUIRE_EQUAL(payload::live, 0u);
     BOOST_CHECK_THROW(f2(), std::bad_function_call);
 }
 

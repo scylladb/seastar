@@ -50,7 +50,7 @@ BOOST_AUTO_TEST_CASE(test_many_fragments) {
         BOOST_CHECK_EQUAL(p.len(), expected.size());
         auto expected_it = expected.begin();
         for (auto&& frag : p.fragments()) {
-            BOOST_CHECK_LE(frag.size, expected.end() - expected_it);
+            BOOST_CHECK_LE(frag.size, static_cast<size_t>(expected.end() - expected_it));
             BOOST_CHECK(std::equal(frag.base, frag.base + frag.size, expected_it));
             expected_it += frag.size;
         }
@@ -91,7 +91,7 @@ BOOST_AUTO_TEST_CASE(test_headers_are_contiguous) {
     packet p(f);
     p.prepend_header<tcp_header>();
     p.prepend_header<ip_header>();
-    BOOST_REQUIRE_EQUAL(p.nr_frags(), 2);
+    BOOST_REQUIRE_EQUAL(p.nr_frags(), 2u);
 }
 
 BOOST_AUTO_TEST_CASE(test_headers_are_contiguous_even_with_small_fragment) {
@@ -102,7 +102,7 @@ BOOST_AUTO_TEST_CASE(test_headers_are_contiguous_even_with_small_fragment) {
     packet p(f);
     p.prepend_header<tcp_header>();
     p.prepend_header<ip_header>();
-    BOOST_REQUIRE_EQUAL(p.nr_frags(), 2);
+    BOOST_REQUIRE_EQUAL(p.nr_frags(), 2u);
 }
 
 BOOST_AUTO_TEST_CASE(test_headers_are_contiguous_even_with_many_fragments) {
@@ -116,6 +116,6 @@ BOOST_AUTO_TEST_CASE(test_headers_are_contiguous_even_with_many_fragments) {
     }
     p.prepend_header<tcp_header>();
     p.prepend_header<ip_header>();
-    BOOST_REQUIRE_EQUAL(p.nr_frags(), 9);
+    BOOST_REQUIRE_EQUAL(p.nr_frags(), 9u);
 }
 

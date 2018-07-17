@@ -39,15 +39,15 @@ using namespace std::chrono_literals;
 SEASTAR_TEST_CASE(test_semaphore_consume) {
     semaphore sem(0);
     sem.consume(1);
-    BOOST_REQUIRE_EQUAL(sem.current(), 0);
-    BOOST_REQUIRE_EQUAL(sem.waiters(), 0);
+    BOOST_REQUIRE_EQUAL(sem.current(), 0u);
+    BOOST_REQUIRE_EQUAL(sem.waiters(), 0u);
 
     BOOST_REQUIRE_EQUAL(sem.try_wait(0), false);
     auto fut = sem.wait(1);
     BOOST_REQUIRE_EQUAL(fut.available(), false);
-    BOOST_REQUIRE_EQUAL(sem.waiters(), 1);
+    BOOST_REQUIRE_EQUAL(sem.waiters(), 1u);
     sem.signal(2);
-    BOOST_REQUIRE_EQUAL(sem.waiters(), 0);
+    BOOST_REQUIRE_EQUAL(sem.waiters(), 0u);
     return make_ready_future<>();
 }
 
@@ -146,11 +146,11 @@ SEASTAR_TEST_CASE(test_shared_mutex_exclusive) {
     return do_with(shared_mutex(), unsigned(0), [] (shared_mutex& sm, unsigned& counter) {
         return parallel_for_each(boost::irange(0, 10), [&sm, &counter] (int idx) {
             return with_lock(sm, [&counter] {
-                BOOST_REQUIRE_EQUAL(counter, 0);
+                BOOST_REQUIRE_EQUAL(counter, 0u);
                 ++counter;
                 return sleep(10ms).then([&counter] {
                     --counter;
-                    BOOST_REQUIRE_EQUAL(counter, 0);
+                    BOOST_REQUIRE_EQUAL(counter, 0u);
                 });
             });
         });
@@ -171,7 +171,7 @@ SEASTAR_TEST_CASE(test_shared_mutex_shared) {
         };
         return map_reduce(boost::irange(0, 100), running_in_parallel, false, std::bit_or<bool>()).then([&counter] (bool result) {
             BOOST_REQUIRE_EQUAL(result, true);
-            BOOST_REQUIRE_EQUAL(counter, 0);
+            BOOST_REQUIRE_EQUAL(counter, 0u);
         });
     });
 }
@@ -190,11 +190,11 @@ SEASTAR_TEST_CASE(test_shared_mutex_mixed) {
         };
         auto running_alone = [&sm, &counter] (int instance) {
             return with_lock(sm, [&counter] {
-                BOOST_REQUIRE_EQUAL(counter, 0);
+                BOOST_REQUIRE_EQUAL(counter, 0u);
                 ++counter;
                 return sleep(10ms).then([&counter] {
                     --counter;
-                    BOOST_REQUIRE_EQUAL(counter, 0);
+                    BOOST_REQUIRE_EQUAL(counter, 0u);
                     return true;
                 });
             });
@@ -208,7 +208,7 @@ SEASTAR_TEST_CASE(test_shared_mutex_mixed) {
         };
         return map_reduce(boost::irange(0, 100), run, false, std::bit_or<bool>()).then([&counter] (bool result) {
             BOOST_REQUIRE_EQUAL(result, true);
-            BOOST_REQUIRE_EQUAL(counter, 0);
+            BOOST_REQUIRE_EQUAL(counter, 0u);
         });
     });
 }

@@ -648,6 +648,7 @@ warnings = [
     '-Wno-mismatched-tags',                 # clang-only
     '-Wno-pessimizing-move',                # clang-only: moving a temporary object prevents copy elision
     '-Wno-redundant-move',                  # clang-only: redundant move in return statement
+    '-Wno-ignored-attributes',              # clang-only: clang does not support [[gnu::code]]unlikely, but GCC does
     '-Wno-inconsistent-missing-override',   # clang-only: 'x' overrides a member function but is not marked 'override'
     '-Wno-unused-private-field',            # clang-only: private field 'x' is not used
     '-Wno-unknown-attributes',              # clang-only: unknown attribute 'x' ignored (x in this case is gnu::externally_visible)
