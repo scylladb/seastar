@@ -593,6 +593,7 @@ reactor::~reactor() {
     assert(r == 0);
 
     _dying.store(true, std::memory_order_relaxed);
+    _task_quota_timer.timerfd_settime(0, seastar::posix::to_relative_itimerspec(1ns, 1ms)); // Make the timer fire soon
     _task_quota_timer_thread.join();
     timer_delete(_steady_clock_timer);
     auto eraser = [](auto& list) {
