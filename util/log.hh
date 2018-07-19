@@ -109,7 +109,7 @@ public:
     /// \param level - enum level value (info|error...)
     /// \return true if the log level has been enabled.
     bool is_enabled(log_level level) const {
-        return level <= _level.load(std::memory_order_relaxed);
+        return __builtin_expect(level <= _level.load(std::memory_order_relaxed), false);
     }
 
     /// logs to desired level if enabled, otherwise we ignore the log line
