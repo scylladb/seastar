@@ -24,6 +24,17 @@ There is a [mini tutorial](doc/mini-tutorial.md) and a [more comprehensive one](
 
 The documentation is available on the [web](http://docs.seastar-project.org/).
 
+
+Resources
+---------
+Ask questions and post patches on the development mailing list. Subscription
+information and archives are available [here](https://groups.google.com/forum/#!forum/seastar-dev),
+or just send an email to seastar-dev@googlegroups.com.
+
+Information can be found on the main [project website](http://seastar.io).
+
+File bug reports on the project [issue tracker](https://github.com/scylladb/seastar/issues).
+
 The Native TCP/IP Stack
 -----------------------
 
