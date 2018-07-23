@@ -626,20 +626,48 @@ struct continuation_base_for_future<future<T...>> {
 template <typename Future>
 using continuation_base_for_future_t = typename continuation_base_for_future<Future>::type;
 
+class when_all_state_base;
+
+// If the future is ready, return true
+// if the future is not ready, chain a continuation to it, and return false
+using when_all_process_element_func = bool (*)(void* future, void* continuation, when_all_state_base* wasb);
+
+struct when_all_process_element {
+    when_all_process_element_func func;
+    void* future;
+};
+
 class when_all_state_base {
-    size_t _counter = 0;
+    size_t _nr_remain;
+    const when_all_process_element* _processors;
+    void* _continuation;
 public:
     virtual ~when_all_state_base() {}
-    void add_completion() {
-        ++_counter;
+    when_all_state_base(size_t nr_remain, const when_all_process_element* processors, void* continuation)
+            : _nr_remain(nr_remain), _processors(processors), _continuation(continuation) {
     }
     void complete_one() {
-        if (!--_counter) {
-            delete this; // destructor completes work
+        // We complete in reverse order; if the futures happen to complete
+        // in order, then waiting for the last one will find the rest ready
+        --_nr_remain;
+        while (_nr_remain) {
+            bool ready = process_one(_nr_remain - 1);
+            if (!ready) {
+                return;
+            }
+            --_nr_remain;
+        }
+        if (!_nr_remain) {
+            delete this;
         }
     }
-    bool done() const {
-        return !_counter;
+    void do_wait_all() {
+        ++_nr_remain; // fake pending completion for complete_one()
+        complete_one();
+    }
+    bool process_one(size_t idx) {
+        auto p = _processors[idx];
+        return p.func(p.future, _continuation, this);
     }
 };
 
@@ -648,10 +676,17 @@ class when_all_state_component : public continuation_base_for_future_t<Future> {
     when_all_state_base* _base;
     Future* _final_resting_place;
 public:
-    void init(when_all_state_base *base, Future* final_resting_place) {
-        _base = base;
-        _final_resting_place = final_resting_place;
+    static bool process_element_func(void* future, void* continuation, when_all_state_base* wasb) {
+        auto f = reinterpret_cast<Future*>(future);
+        if (f->available()) {
+            return true;
+        } else {
+            auto c = new (continuation) when_all_state_component(wasb, f);
+            set_callback(*f, std::unique_ptr<when_all_state_component>(c));
+            return false;
+        }
     }
+    when_all_state_component(when_all_state_base *base, Future* future) : _base(base), _final_resting_place(future) {}
     virtual void run_and_dispose() noexcept override {
         using futurator = futurize<Future>;
         if (__builtin_expect(this->_state.failed(), false)) {
@@ -659,7 +694,9 @@ public:
         } else {
             *_final_resting_place = futurator::from_tuple(std::move(this->_state).get_value());
         }
-        _base->complete_one();
+        auto base = _base;
+        this->~when_all_state_component();
+        base->complete_one();
     }
 };
 
@@ -670,38 +707,29 @@ public:
 
 template<typename ResolvedTupleTransform, typename... Futures>
 class when_all_state : public when_all_state_base {
+    static constexpr size_t nr = sizeof...(Futures);
     using type = std::tuple<Futures...>;
     type tuple;
-    std::tuple<when_all_state_component<Futures>...> _cont;
+    // We only schedule one continuation at a time, and store it in _cont.
+    // This way, if while the future we wait for completes, some other futures
+    // also complete, we won't need to schedule continuations for them.
+    std::aligned_union_t<1, when_all_state_component<Futures>...> _cont;
+    std::array<when_all_process_element, nr> _processors = make_element_processors(std::make_index_sequence<nr>());
 public:
     typename ResolvedTupleTransform::promise_type p;
-    when_all_state(Futures&&... t) : tuple(std::make_tuple(std::move(t)...)) {}
+    when_all_state(Futures&&... t) : when_all_state_base(nr, _processors.data(), &_cont), tuple(std::make_tuple(std::move(t)...)) {}
     virtual ~when_all_state() {
         ResolvedTupleTransform::set_promise(p, std::move(tuple));
     }
 private:
-    template<size_t Idx>
-    int wait() {
-        using future_type = std::tuple_element_t<Idx, type>;
-        auto& f = std::get<Idx>(tuple);
-        static_assert(is_future<std::remove_reference_t<decltype(f)>>::value, "when_all parameter must be a future");
-        if (!f.available()) {
-            add_completion();
-            auto& cont = std::get<Idx>(_cont);
-            cont.init(this, &f);
-            set_callback(f, std::unique_ptr<continuation_base_for_future_t<future_type>>(&cont));
-        }
-        return 0;
-    }
     template <size_t... Idx>
-    typename ResolvedTupleTransform::future_type do_wait_all(std::index_sequence<Idx...>) {
-        [] (...) {} (this->template wait<Idx>()...);
-        auto ret = p.get_future();
-#ifndef SEASTAR__WAIT_ALL__AVOID_ALLOCATION_WHEN_ALL_READY
-        if (done()) {
-            delete this;
-        }
-#endif
+    std::array<when_all_process_element, nr> make_element_processors(std::index_sequence<Idx...>) {
+        std::array<when_all_process_element, nr> ret = { {
+            when_all_process_element{
+                when_all_state_component<std::tuple_element_t<Idx, type>>::process_element_func,
+                &std::get<Idx>(tuple)
+            }...
+        } };
         return ret;
     }
 public:
@@ -712,7 +740,9 @@ public:
         }
 #endif
         auto state = new when_all_state(std::move(futures)...);
-        return state->do_wait_all(std::make_index_sequence<sizeof...(Futures)>());
+        auto ret = state->p.get_future();
+        state->do_wait_all();
+        return ret;
     }
 };
 
