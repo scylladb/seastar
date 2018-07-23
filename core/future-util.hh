@@ -608,6 +608,10 @@ struct identity_futures_tuple {
     static void set_promise(promise_type& p, std::tuple<Futures...> futures) {
         p.set_value(std::move(futures));
     }
+
+    static future_type make_ready_future(std::tuple<Futures...> futures) {
+        return futurize<future_type>::from_tuple(std::move(futures));
+    }
 };
 
 // Given a future type, find the continuation_base corresponding to that future
@@ -659,6 +663,11 @@ public:
     }
 };
 
+#if __cpp_fold_expressions >= 201603
+// This optimization requires C++17
+#  define SEASTAR__WAIT_ALL__AVOID_ALLOCATION_WHEN_ALL_READY
+#endif
+
 template<typename ResolvedTupleTransform, typename... Futures>
 class when_all_state : public when_all_state_base {
     using type = std::tuple<Futures...>;
@@ -684,16 +693,26 @@ private:
         }
         return 0;
     }
-public:
     template <size_t... Idx>
-    typename ResolvedTupleTransform::future_type wait_all(std::index_sequence<Idx...>) {
+    typename ResolvedTupleTransform::future_type do_wait_all(std::index_sequence<Idx...>) {
         [] (...) {} (this->template wait<Idx>()...);
         auto ret = p.get_future();
-        // FIXME: don't create when_all_state in this case
+#ifndef SEASTAR__WAIT_ALL__AVOID_ALLOCATION_WHEN_ALL_READY
         if (done()) {
             delete this;
         }
+#endif
         return ret;
+    }
+public:
+    static typename ResolvedTupleTransform::future_type wait_all(Futures&&... futures) {
+#ifdef SEASTAR__WAIT_ALL__AVOID_ALLOCATION_WHEN_ALL_READY
+        if ((futures.available() && ...)) {
+            return ResolvedTupleTransform::make_ready_future(std::make_tuple(std::move(futures)...));
+        }
+#endif
+        auto state = new when_all_state(std::move(futures)...);
+        return state->do_wait_all(std::make_index_sequence<sizeof...(Futures)>());
     }
 };
 
@@ -745,8 +764,7 @@ future<std::tuple<Futs...>>
 when_all(Futs&&... futs) {
     namespace si = internal;
     using state = si::when_all_state<si::identity_futures_tuple<Futs...>, Futs...>;
-    auto s = new state(std::forward<Futs>(futs)...);
-    return s->wait_all(std::make_index_sequence<sizeof...(Futs)>());
+    return state::wait_all(std::forward<Futs>(futs)...);
 }
 
 /// \cond internal
@@ -1156,6 +1174,10 @@ public:
     static void set_promise(promise_type& p, std::tuple<Futures...> tuple) {
         transform(std::move(tuple)).forward_to(std::move(p));
     }
+
+    static future_type make_ready_future(std::tuple<Futures...> tuple) {
+        return transform(std::move(tuple));
+    }
 };
 
 template<typename Future>
@@ -1225,8 +1247,7 @@ template<typename... Futures>
 GCC6_CONCEPT( requires seastar::AllAreFutures<Futures...> )
 inline auto when_all_succeed(Futures&&... futures) {
     using state = internal::when_all_state<internal::extract_values_from_futures_tuple<Futures...>, Futures...>;
-    auto s = new state(std::forward<Futures>(futures)...);
-    return s->wait_all(std::make_index_sequence<sizeof...(Futures)>());
+    return state::wait_all(std::forward<Futures>(futures)...);
 }
 
 /// Wait for many futures to complete (iterator version).
