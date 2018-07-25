@@ -714,23 +714,26 @@ class when_all_state : public when_all_state_base {
     // This way, if while the future we wait for completes, some other futures
     // also complete, we won't need to schedule continuations for them.
     std::aligned_union_t<1, when_all_state_component<Futures>...> _cont;
-    std::array<when_all_process_element, nr> _processors = make_element_processors(std::make_index_sequence<nr>());
+    when_all_process_element _processors[nr];
 public:
     typename ResolvedTupleTransform::promise_type p;
-    when_all_state(Futures&&... t) : when_all_state_base(nr, _processors.data(), &_cont), tuple(std::make_tuple(std::move(t)...)) {}
+    when_all_state(Futures&&... t) : when_all_state_base(nr, _processors, &_cont), tuple(std::make_tuple(std::move(t)...)) {
+        init_element_processors(std::make_index_sequence<nr>());
+    }
     virtual ~when_all_state() {
         ResolvedTupleTransform::set_promise(p, std::move(tuple));
     }
 private:
     template <size_t... Idx>
-    std::array<when_all_process_element, nr> make_element_processors(std::index_sequence<Idx...>) {
-        std::array<when_all_process_element, nr> ret = { {
-            when_all_process_element{
+    void init_element_processors(std::index_sequence<Idx...>) {
+        auto ignore = {
+	    0,
+            (_processors[Idx] = when_all_process_element{
                 when_all_state_component<std::tuple_element_t<Idx, type>>::process_element_func,
                 &std::get<Idx>(tuple)
-            }...
-        } };
-        return ret;
+	     }, 0)...
+        };
+        (void)ignore;
     }
 public:
     static typename ResolvedTupleTransform::future_type wait_all(Futures&&... futures) {
