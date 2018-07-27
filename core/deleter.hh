@@ -186,6 +186,7 @@ make_deleter(Object o) {
 struct free_deleter_impl final : deleter::impl {
     void* obj;
     free_deleter_impl(void* obj) : impl(deleter()), obj(obj) {}
+    free_deleter_impl operator=(const free_deleter_impl& impl) = delete;
     virtual ~free_deleter_impl() override { std::free(obj); }
 };
 /// \endcond
