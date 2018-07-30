@@ -79,6 +79,15 @@ public:
     }
 
     [[gnu::always_inline]]
+    void fill(char c, size_t size) {
+        if (size > _size) {
+            throw std::out_of_range("serialization buffer overflow"); 
+        }
+        std::fill_n(_p, size, c);
+        skip(size);
+    }
+
+    [[gnu::always_inline]]
     const size_t size() const {
         return _size;
     }
@@ -137,6 +146,11 @@ public:
         for_each_fragment(size, [&p] (auto bv) {
             std::copy_n(p, bv.size(), bv.begin());
             p += bv.size();
+        });
+    }
+    void fill(char c, size_t size) {
+        for_each_fragment(size, [c] (simple fragment) {
+            std::fill_n(fragment.begin(), fragment.size(), c);
         });
     }
     const size_t size() const {
@@ -258,6 +272,13 @@ public:
     void write(const char* p, size_t size) {
         with_stream([p, size] (auto& stream) {
             stream.write(p, size);
+        });
+    }
+
+    [[gnu::always_inline]]
+    void fill(char c, size_t size) {
+        with_stream([c, size] (auto& stream) {
+            stream.fill(c, size);
         });
     }
 
