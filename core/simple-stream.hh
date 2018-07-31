@@ -21,6 +21,7 @@
 
 #pragma once
 #include "core/sstring.hh"
+#include "util/variant_utils.hh"
 
 namespace seastar {
 
@@ -40,6 +41,15 @@ struct simple_stream_tag {};
 
 template<typename>
 class memory_output_stream;
+
+template<typename Iterator>
+class simple_memory_input_stream;
+
+template<typename Iterator>
+class fragmented_memory_input_stream;
+
+template<typename Iterator>
+class memory_input_stream;
 
 class simple_memory_output_stream {
     char* _p = nullptr;
@@ -81,7 +91,7 @@ public:
     [[gnu::always_inline]]
     void fill(char c, size_t size) {
         if (size > _size) {
-            throw std::out_of_range("serialization buffer overflow"); 
+            throw std::out_of_range("serialization buffer overflow");
         }
         std::fill_n(_p, size, c);
         skip(size);
@@ -91,6 +101,13 @@ public:
     const size_t size() const {
         return _size;
     }
+
+    // simple_memory_output_stream is a write cursor that keeps a mutable view of some
+    // underlying buffer and provides write interface. to_input_stream() converts it
+    // to a read cursor that points to the same part of the buffer but provides
+    // read interface.
+    template<typename Iterator = simple_stream_tag>
+    simple_memory_input_stream<Iterator> to_input_stream() const;
 };
 
 template<typename Iterator>
@@ -100,6 +117,8 @@ class fragmented_memory_output_stream {
     Iterator _it;
     simple _current;
     size_t _size;
+
+    friend class memory_input_stream<Iterator>;
 private:
     template<typename Func>
     //requires requires(Func f, view bv) { { f(bv) } -> void; }
@@ -156,6 +175,11 @@ public:
     const size_t size() const {
         return _size;
     }
+
+    // fragmented_memory_input_stream is a write cursor that keeps a mutable view of some
+    // underlying fragmented buffer and provides write interface. to_input_stream() converts
+    // it to a read cursor that points to the same part of the buffer but provides read interface.
+    fragmented_memory_input_stream<Iterator> to_input_stream() const;
 };
 
 template<typename Iterator>
@@ -288,6 +312,8 @@ public:
             return stream.size();
         });
     }
+
+    memory_input_stream<Iterator> to_input_stream() const;
 };
 
 template<typename Iterator>
@@ -372,6 +398,7 @@ private:
     }
     fragmented_memory_input_stream(Iterator it, simple bv, size_t size)
         : _it(it), _current(bv), _size(size) { }
+    friend class fragmented_memory_output_stream<Iterator>;
 public:
     using has_with_stream = std::false_type;
     using iterator_type = Iterator;
@@ -404,7 +431,7 @@ public:
     const size_t size() const {
         return _size;
     }
-    
+
     const char* first_fragment_data() const { return _current.begin(); }
     size_t first_fragment_size() const { return _current.size(); }
     Iterator fragment_iterator() const { return _it; }
@@ -558,6 +585,28 @@ public:
     template<typename Stream, typename StreamVisitor>
     friend decltype(auto) with_serialized_stream(Stream& stream, StreamVisitor&& visitor);
 };
+
+template<typename Iterator>
+inline simple_memory_input_stream<Iterator> simple_memory_output_stream::to_input_stream() const {
+    return simple_memory_input_stream<Iterator>(_p, _size);
+}
+
+template<typename Iterator>
+inline fragmented_memory_input_stream<Iterator> fragmented_memory_output_stream<Iterator>::to_input_stream() const {
+    return fragmented_memory_input_stream<Iterator>(_it, _current.to_input_stream<Iterator>(), _size);
+}
+
+template<typename Iterator>
+inline memory_input_stream<Iterator> memory_output_stream<Iterator>::to_input_stream() const {
+    return with_stream(make_visitor(
+        [] (const simple_memory_output_stream& ostream) -> memory_input_stream<Iterator> {
+            return ostream.to_input_stream<Iterator>();
+        },
+        [] (const fragmented_memory_output_stream<Iterator>& ostream) -> memory_input_stream<Iterator> {
+            return ostream.to_input_stream();
+        }
+    ));
+}
 
 // The purpose of the with_serialized_stream() is to minimize number of dynamic
 // dispatches. For example, a lot of IDL-generated code looks like this:
