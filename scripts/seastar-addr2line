@@ -24,7 +24,7 @@ import sys
 import subprocess
 
 
-class line_processor(object):
+class BacktraceResolver(object):
     object_address_re = re.compile('^\W*(((/[^/]+)+)\+)?(0x[0-9a-f]+)\W*$')
 
     def __init__(self, executable):
@@ -154,4 +154,4 @@ else:
     else:
         lines = sys.stdin
 
-map(line_processor(args.executable), lines)
+map(BacktraceResolver(args.executable), lines)
