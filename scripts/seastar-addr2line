@@ -29,23 +29,33 @@ class BacktraceResolver(object):
 
     def __init__(self, executable):
         self._executable = executable
-        self._old_path = ''
-        self._new_path = ''
-        self._addr_buf = []
+        self._current_backtrace = []
 
     def __del__(self):
-        self._flush_addr_buf()
+        self._print_current_backtrace()
 
-    def _flush_addr_buf(self):
-        if len(self._addr_buf) > 0:
-            subprocess.check_call(["addr2line", "-Cfpi", "-e", self._old_path] + self._addr_buf)
+    def _print_resolved_addresses(self, module, addresses):
+        subprocess.check_call(["addr2line", "-Cfpi", "-e", module] + addresses)
 
-    def _process_addr(self, addr):
-        if not self._old_path or self._new_path == self._old_path:
-            self._addr_buf.append(addr)
-        else:
-            self._flush_addr_buf()
-            self._addr_buf = [addr]
+    def _print_current_backtrace(self):
+        if len(self._current_backtrace) == 0:
+            return
+
+        addr_buffer = []
+        current_module = self._current_backtrace[0][0]
+
+        for module, addr in self._current_backtrace:
+            if module != current_module:
+                self._print_resolved_addresses(current_module, addr_buffer)
+                addr_buffer = []
+                current_module = module
+
+            addr_buffer.append(addr)
+
+        if addr_buffer:
+            self._print_resolved_addresses(current_module, addr_buffer)
+
+        self._current_backtrace = []
 
     def __call__(self, line):
         match = re.match(self.object_address_re, line)
@@ -54,18 +64,12 @@ class BacktraceResolver(object):
             _, object_path, _, addr = match.groups()
 
             if object_path:
-                self._new_path = object_path
+                self._current_backtrace.append((object_path, addr))
             else:
-                self._new_path = self._executable
-
-            self._process_addr(addr)
+                self._current_backtrace.append((self._executable, addr))
         else:
-            self._new_path = ""
-
-            self._flush_addr_buf()
+            self._print_current_backtrace()
             print(line)
-
-        self._old_path = self._new_path
 
 
 class StdinBacktraceIterator(object):
