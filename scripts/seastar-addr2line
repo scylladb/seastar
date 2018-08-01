@@ -149,6 +149,9 @@ if args.file:
 elif args.addresses:
     lines = args.addresses
 else:
-    lines = StdinBacktraceIterator()
+    if sys.stdin.isatty():
+        lines = StdinBacktraceIterator()
+    else:
+        lines = sys.stdin
 
 map(line_processor(args.executable), lines)
