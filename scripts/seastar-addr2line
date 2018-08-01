@@ -34,6 +34,7 @@ class BacktraceResolver(object):
         self._before_lines = before_lines
         self._before_lines_queue = collections.deque(maxlen=before_lines)
         self._i = 0
+        self._known_backtraces = {}
 
     def __del__(self):
         self._print_current_backtrace()
@@ -47,6 +48,14 @@ class BacktraceResolver(object):
 
         for line in self._before_lines_queue:
             sys.stdout.write(line)
+
+        backtrace = "".join(map(str, self._current_backtrace))
+        if backtrace in self._known_backtraces:
+            print("[Backtrace #{}] Already seen, not resolving again.".format(self._known_backtraces[backtrace]))
+            print("") # To separate traces with an empty line
+            return
+
+        self._known_backtraces[backtrace] = self._i
 
         print("[Backtrace #{}]".format(self._i))
 
