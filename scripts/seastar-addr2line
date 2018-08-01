@@ -19,6 +19,7 @@
 # Copyright (C) 2017 ScyllaDB
 
 import argparse
+import collections
 import re
 import sys
 import subprocess
@@ -27,9 +28,12 @@ import subprocess
 class BacktraceResolver(object):
     object_address_re = re.compile('^\W*(((/[^/]+)+)\+)?(0x[0-9a-f]+)\W*$')
 
-    def __init__(self, executable):
+    def __init__(self, executable, before_lines):
         self._executable = executable
         self._current_backtrace = []
+        self._before_lines = before_lines
+        self._before_lines_queue = collections.deque(maxlen=before_lines)
+        self._i = 0
 
     def __del__(self):
         self._print_current_backtrace()
@@ -40,6 +44,11 @@ class BacktraceResolver(object):
     def _print_current_backtrace(self):
         if len(self._current_backtrace) == 0:
             return
+
+        for line in self._before_lines_queue:
+            sys.stdout.write(line)
+
+        print("[Backtrace #{}]".format(self._i))
 
         addr_buffer = []
         current_module = self._current_backtrace[0][0]
@@ -55,7 +64,10 @@ class BacktraceResolver(object):
         if addr_buffer:
             self._print_resolved_addresses(current_module, addr_buffer)
 
+        print("") # To separate traces with an empty line
+
         self._current_backtrace = []
+        self._i += 1
 
     def __call__(self, line):
         match = re.match(self.object_address_re, line)
@@ -69,7 +81,12 @@ class BacktraceResolver(object):
                 self._current_backtrace.append((self._executable, addr))
         else:
             self._print_current_backtrace()
-            print(line)
+            if self._before_lines > 0:
+                self._before_lines_queue.append(line)
+            elif self._before_lines < 0:
+                sys.stdout.write(line) # line already has a trailing newline
+            else:
+                pass # when == 0 no non-backtrace lines are printed
 
 
 class StdinBacktraceIterator(object):
@@ -135,6 +152,16 @@ cmdline_parser.add_argument(
         help='The file containing the addresses (one per line)')
 
 cmdline_parser.add_argument(
+        '-b',
+        '--before',
+        type=int,
+        metavar='BEFORE',
+        default=1,
+        help='Non-backtrace lines to print before resolved backtraces for context.'
+        'Set to 0 to print only resolved backtraces.'
+        'Set to -1 to print all non-backtrace lines. Default is 1.')
+
+cmdline_parser.add_argument(
         'addresses',
         type=str,
         metavar='ADDRESS',
@@ -158,4 +185,4 @@ else:
     else:
         lines = sys.stdin
 
-map(BacktraceResolver(args.executable), lines)
+map(BacktraceResolver(args.executable, args.before), lines)
