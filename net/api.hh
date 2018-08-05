@@ -243,6 +243,17 @@ class server_socket {
     std::unique_ptr<net::server_socket_impl> _ssi;
     bool _aborted = false;
 public:
+    enum class load_balancing_algorithm {
+        // This algorithm tries to distribute all connections equally between all shards.
+        // It does this by sending new connections to a shard with smallest amount of connections.
+        connection_distribution,
+        // This algorithm distributes new connection based on peer's tcp port. Destination shard
+        // is calculated as a port number modulo number of shards. This allows a client to connect
+        // to a specific shard in a server given it knows how many shards server has by choosing
+        // src port number accordingly.
+        port,
+        default_ = connection_distribution
+    };
     /// Constructs a \c server_socket not corresponding to a connection
     server_socket();
     /// \cond internal
@@ -270,6 +281,12 @@ public:
     void abort_accept();
 };
 /// @}
+
+struct listen_options {
+    bool reuse_address = false;
+    server_socket::load_balancing_algorithm lba = server_socket::load_balancing_algorithm::default_;
+    transport proto = transport::TCP;
+};
 
 class network_stack {
 public:

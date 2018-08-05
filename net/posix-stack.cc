@@ -187,7 +187,8 @@ template <transport Transport>
 future<connected_socket, socket_address>
 posix_server_socket_impl<Transport>::accept() {
     return _lfd.accept().then([this] (pollable_fd fd, socket_address sa) {
-        auto cth = _conntrack.get_handle();
+        auto cth = _lba == server_socket::load_balancing_algorithm::connection_distribution ?
+                _conntrack.get_handle() : _conntrack.get_handle(ntoh(sa.as_posix_sockaddr_in().sin_port) % smp::count);
         auto cpu = cth.cpu();
         if (cpu == engine().cpu_id()) {
             std::unique_ptr<connected_socket_impl> csi(
@@ -334,12 +335,12 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
         return _reuseport ?
             server_socket(std::make_unique<posix_reuseport_server_tcp_socket_impl>(sa, engine().posix_listen(sa, opt)))
             :
-            server_socket(std::make_unique<posix_server_tcp_socket_impl>(sa, engine().posix_listen(sa, opt)));
+            server_socket(std::make_unique<posix_server_tcp_socket_impl>(sa, engine().posix_listen(sa, opt), opt.lba));
     } else {
         return _reuseport ?
             server_socket(std::make_unique<posix_reuseport_server_sctp_socket_impl>(sa, engine().posix_listen(sa, opt)))
             :
-            server_socket(std::make_unique<posix_server_sctp_socket_impl>(sa, engine().posix_listen(sa, opt)));
+            server_socket(std::make_unique<posix_server_sctp_socket_impl>(sa, engine().posix_listen(sa, opt), opt.lba));
     }
 }
 

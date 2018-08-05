@@ -61,11 +61,6 @@ namespace net {
 class inet_address;
 }
 
-struct listen_options {
-    bool reuse_address = false;
-    transport proto = transport::TCP;
-};
-
 struct ipv4_addr {
     uint32_t ip;
     uint16_t port;
