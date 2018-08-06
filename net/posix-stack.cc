@@ -19,6 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
+#include <random>
 #include "posix-stack.hh"
 #include "net.hh"
 #include "packet.hh"
@@ -154,12 +155,33 @@ using posix_connected_sctp_socket_impl = posix_connected_socket_impl<transport::
 
 class posix_socket_impl final : public socket_impl {
     lw_shared_ptr<pollable_fd> _fd;
+
+    future<> find_port_and_connect(socket_address sa, socket_address local, transport proto = transport::TCP) {
+        static thread_local std::default_random_engine random_engine{std::random_device{}()};
+        static thread_local std::uniform_int_distribution<uint16_t> u(49152/smp::count + 1, 65535/smp::count - 1);
+        return repeat([this, sa, local, proto, attempts = 0, requested_port = ntoh(local.as_posix_sockaddr_in().sin_port)] () mutable {
+            uint16_t port = attempts++ < 5 && requested_port == 0 && proto == transport::TCP ? u(random_engine) * smp::count + engine().cpu_id() : requested_port;
+            local.as_posix_sockaddr_in().sin_port = hton(port);
+            return futurize_apply([this, sa, local] { return engine().posix_connect(_fd, sa, local); }).then_wrapped([] (future<> f) {
+                try {
+                    f.get();
+                    return stop_iteration::yes;
+                } catch (std::system_error& err) {
+                    if (err.code().value() == EADDRINUSE) {
+                        return stop_iteration::no;
+                    }
+                    throw;
+                }
+            });
+        });
+    }
+
 public:
     posix_socket_impl() = default;
 
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
         _fd = engine().make_pollable_fd(sa, proto);
-        return engine().posix_connect(_fd, sa, local).then([fd = _fd, proto]() mutable {
+        return find_port_and_connect(sa, local, proto).then([fd = _fd, proto] () mutable {
             std::unique_ptr<connected_socket_impl> csi;
             if (proto == transport::TCP) {
                 csi.reset(new posix_connected_tcp_socket_impl(std::move(fd)));
