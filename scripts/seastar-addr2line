@@ -19,33 +19,64 @@
 # Copyright (C) 2017 ScyllaDB
 
 import argparse
+import collections
 import re
 import sys
 import subprocess
 
 
-class line_processor(object):
-    object_address_re = re.compile('^\W*(((/[^/]+)+)\+)?(0x[0-9a-f]+)\W*$')
+class BacktraceResolver(object):
+    object_address_re = re.compile('^.* (((/[^/]+)+)\+)?(0x[0-9a-f]+)\W*$')
 
-    def __init__(self, executable):
+    def __init__(self, executable, before_lines):
         self._executable = executable
-        self._old_path = ''
-        self._new_path = ''
-        self._addr_buf = []
+        self._current_backtrace = []
+        self._before_lines = before_lines
+        self._before_lines_queue = collections.deque(maxlen=before_lines)
+        self._i = 0
+        self._known_backtraces = {}
 
     def __del__(self):
-        self._flush_addr_buf()
+        self._print_current_backtrace()
 
-    def _flush_addr_buf(self):
-        if len(self._addr_buf) > 0:
-            subprocess.check_call(["addr2line", "-Cfpi", "-e", self._old_path] + self._addr_buf)
+    def _print_resolved_addresses(self, module, addresses):
+        subprocess.check_call(["addr2line", "-Cfpi", "-e", module] + addresses)
 
-    def _process_addr(self, addr):
-        if not self._old_path or self._new_path == self._old_path:
-            self._addr_buf.append(addr)
-        else:
-            self._flush_addr_buf()
-            self._addr_buf = [addr]
+    def _print_current_backtrace(self):
+        if len(self._current_backtrace) == 0:
+            return
+
+        for line in self._before_lines_queue:
+            sys.stdout.write(line)
+
+        backtrace = "".join(map(str, self._current_backtrace))
+        if backtrace in self._known_backtraces:
+            print("[Backtrace #{}] Already seen, not resolving again.".format(self._known_backtraces[backtrace]))
+            print("") # To separate traces with an empty line
+            return
+
+        self._known_backtraces[backtrace] = self._i
+
+        print("[Backtrace #{}]".format(self._i))
+
+        addr_buffer = []
+        current_module = self._current_backtrace[0][0]
+
+        for module, addr in self._current_backtrace:
+            if module != current_module:
+                self._print_resolved_addresses(current_module, addr_buffer)
+                addr_buffer = []
+                current_module = module
+
+            addr_buffer.append(addr)
+
+        if addr_buffer:
+            self._print_resolved_addresses(current_module, addr_buffer)
+
+        print("") # To separate traces with an empty line
+
+        self._current_backtrace = []
+        self._i += 1
 
     def __call__(self, line):
         match = re.match(self.object_address_re, line)
@@ -54,21 +85,20 @@ class line_processor(object):
             _, object_path, _, addr = match.groups()
 
             if object_path:
-                self._new_path = object_path
+                self._current_backtrace.append((object_path, addr))
             else:
-                self._new_path = self._executable
-
-            self._process_addr(addr)
+                self._current_backtrace.append((self._executable, addr))
         else:
-            self._new_path = ""
+            self._print_current_backtrace()
+            if self._before_lines > 0:
+                self._before_lines_queue.append(line)
+            elif self._before_lines < 0:
+                sys.stdout.write(line) # line already has a trailing newline
+            else:
+                pass # when == 0 no non-backtrace lines are printed
 
-            self._flush_addr_buf()
-            print(line)
 
-        self._old_path = self._new_path
-
-
-class StdinBacktraceIterator():
+class StdinBacktraceIterator(object):
     """
     Read stdin char-by-char and stop when when user pressed Ctrl+D or the
     Enter twice. Altough reading char-by-char is slow this won't be a
@@ -131,6 +161,16 @@ cmdline_parser.add_argument(
         help='The file containing the addresses (one per line)')
 
 cmdline_parser.add_argument(
+        '-b',
+        '--before',
+        type=int,
+        metavar='BEFORE',
+        default=1,
+        help='Non-backtrace lines to print before resolved backtraces for context.'
+        'Set to 0 to print only resolved backtraces.'
+        'Set to -1 to print all non-backtrace lines. Default is 1.')
+
+cmdline_parser.add_argument(
         'addresses',
         type=str,
         metavar='ADDRESS',
@@ -149,6 +189,9 @@ if args.file:
 elif args.addresses:
     lines = args.addresses
 else:
-    lines = StdinBacktraceIterator()
+    if sys.stdin.isatty():
+        lines = StdinBacktraceIterator()
+    else:
+        lines = sys.stdin
 
-map(line_processor(args.executable), lines)
+map(BacktraceResolver(args.executable, args.before), lines)
