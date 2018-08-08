@@ -62,11 +62,8 @@ class inet_address;
 }
 
 struct listen_options {
-    transport proto = transport::TCP;
     bool reuse_address = false;
-    listen_options(bool rua = false)
-        : reuse_address(rua)
-    {}
+    transport proto = transport::TCP;
 };
 
 struct ipv4_addr {
