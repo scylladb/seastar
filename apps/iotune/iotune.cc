@@ -683,11 +683,13 @@ int main(int ac, char** av) {
             auto file = "properties file";
             try {
                 if (configuration.count("properties-file")) {
+                    fmt::print("Writing result to {}\n", configuration["properties-file"].as<sstring>());
                     write_property_file(configuration["properties-file"].as<sstring>(), disk_descriptors);
                 }
 
                 file = "configuration file";
                 if (configuration.count("options-file")) {
+                    fmt::print("Writing result to {}\n", configuration["options-file"].as<sstring>());
                     write_configuration_file(configuration["options-file"].as<sstring>(), format, configuration["properties-file"].as<sstring>(), num_io_queues);
                 }
             } catch (...) {
