@@ -4066,15 +4066,15 @@ public:
 
         cfg.capacity = per_io_queue(_capacity);
         if (cfg.capacity == std::numeric_limits<unsigned>::max()) {
-        cfg.disk_bytes_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
-        cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
-        cfg.max_req_count = max_bandwidth == std::numeric_limits<uint64_t>::max()
-            ? std::numeric_limits<unsigned>::max()
-            : io_queue::read_request_base_count * per_io_queue(max_iops * _latency_goal.count());
-        cfg.max_bytes_count = max_iops == std::numeric_limits<uint64_t>::max()
-            ? std::numeric_limits<unsigned>::max()
-            : io_queue::read_request_base_count * per_io_queue(max_bandwidth * _latency_goal.count());
-        cfg.mountpoint = p.mountpoint;
+            cfg.disk_bytes_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
+            cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
+            cfg.max_req_count = max_bandwidth == std::numeric_limits<uint64_t>::max()
+                ? std::numeric_limits<unsigned>::max()
+                : io_queue::read_request_base_count * per_io_queue(max_iops * _latency_goal.count());
+            cfg.max_bytes_count = max_iops == std::numeric_limits<uint64_t>::max()
+                ? std::numeric_limits<unsigned>::max()
+                : io_queue::read_request_base_count * per_io_queue(max_bandwidth * _latency_goal.count());
+            cfg.mountpoint = p.mountpoint;
         } else {
             cfg.disk_bytes_write_to_read_multiplier = 1;
             cfg.disk_req_write_to_read_multiplier = 1;
