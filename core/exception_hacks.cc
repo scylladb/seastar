@@ -97,6 +97,8 @@ void log_exception_trace() noexcept {
         nested = false;
     }
 }
+#else
+void log_exception_trace() noexcept {}
 #endif
 
 }
