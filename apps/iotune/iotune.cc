@@ -636,6 +636,7 @@ int main(int ac, char** av) {
                     iotune_tests.stop().get();
                 });
 
+                fmt::print("Starting Evaluation. This may take a while...\n");
                 fmt::print("Measuring sequential write bandwidth: ");
                 std::cout.flush();
                 io_rates write_bw;
