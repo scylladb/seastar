@@ -40,7 +40,7 @@ class BacktraceResolver(object):
         self._print_current_backtrace()
 
     def _print_resolved_addresses(self, module, addresses):
-        subprocess.check_call(["addr2line", "-Cfpi", "-e", module] + addresses)
+        print(subprocess.check_output(["addr2line", "-Cfpi", "-e", module] + addresses))
 
     def _print_current_backtrace(self):
         if len(self._current_backtrace) == 0:
