@@ -53,6 +53,7 @@ class BacktraceResolver(object):
         if backtrace in self._known_backtraces:
             print("[Backtrace #{}] Already seen, not resolving again.".format(self._known_backtraces[backtrace]))
             print("") # To separate traces with an empty line
+            self._current_backtrace = []
             return
 
         self._known_backtraces[backtrace] = self._i
