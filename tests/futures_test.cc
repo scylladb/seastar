@@ -718,14 +718,13 @@ SEASTAR_TEST_CASE(test_futurize_from_tuple) {
 }
 
 SEASTAR_TEST_CASE(test_repeat_until_value) {
-    namespace stdx = std::experimental;
     return do_with(int(), [] (int& counter) {
-        return repeat_until_value([&counter] () -> future<stdx::optional<int>> {
+        return repeat_until_value([&counter] () -> future<compat::optional<int>> {
             if (counter == 10000) {
-                return make_ready_future<stdx::optional<int>>(counter);
+                return make_ready_future<compat::optional<int>>(counter);
             } else {
                 ++counter;
-                return make_ready_future<stdx::optional<int>>(stdx::nullopt);
+                return make_ready_future<compat::optional<int>>(compat::nullopt);
             }
         }).then([&counter] (int result) {
             BOOST_REQUIRE(counter == 10000);

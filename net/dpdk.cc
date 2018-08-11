@@ -36,7 +36,7 @@
 #include <atomic>
 #include <vector>
 #include <queue>
-#include <experimental/optional>
+#include "util/std-compat.hh"
 #include <boost/preprocessor.hpp>
 #include "ip.hh"
 #include "const.hh"
@@ -1082,11 +1082,11 @@ build_mbuf_cluster:
             //
             if (_p) {
                 //
-                // Reset the std::optional. This in particular is going
+                // Reset the compat::optional. This in particular is going
                 // to call the "packet"'s destructor and reset the
                 // "optional" state to "nonengaged".
                 //
-                _p = std::experimental::nullopt;
+                _p = compat::nullopt;
 
             } else if (!_is_zc) {
                 return;
@@ -1118,7 +1118,7 @@ build_mbuf_cluster:
     private:
         struct rte_mbuf _mbuf;
         MARKER private_start;
-        std::experimental::optional<packet> _p;
+        compat::optional<packet> _p;
         phys_addr_t _buf_physaddr;
         uint16_t _data_off;
         // TRUE if underlying mbuf has been used in the zero-copy flow
@@ -1443,7 +1443,7 @@ private:
      * @return a "optional" object representing the newly received data if in an
      *         "engaged" state or an error if in a "disengaged" state.
      */
-    std::experimental::optional<packet> from_mbuf(rte_mbuf* m);
+    compat::optional<packet> from_mbuf(rte_mbuf* m);
 
     /**
      * Transform an LRO rte_mbuf cluster into the "packet" object.
@@ -1452,7 +1452,7 @@ private:
      * @return a "optional" object representing the newly received LRO packet if
      *         in an "engaged" state or an error if in a "disengaged" state.
      */
-    std::experimental::optional<packet> from_mbuf_lro(rte_mbuf* m);
+    compat::optional<packet> from_mbuf_lro(rte_mbuf* m);
 
 private:
     dpdk_device* _dev;
@@ -1466,7 +1466,7 @@ private:
     reactor::poller _rx_gc_poller;
     std::unique_ptr<void, free_deleter> _rx_xmem;
     tx_buf_factory _tx_buf_factory;
-    std::experimental::optional<reactor::poller> _rx_poller;
+    compat::optional<reactor::poller> _rx_poller;
     reactor::poller _tx_gc_poller;
     std::vector<rte_mbuf*> _tx_burst;
     uint16_t _tx_burst_idx = 0;
@@ -1975,7 +1975,7 @@ void dpdk_qp<HugetlbfsMemBackend>::rx_start() {
 }
 
 template<>
-inline std::experimental::optional<packet>
+inline compat::optional<packet>
 dpdk_qp<false>::from_mbuf_lro(rte_mbuf* m)
 {
     //
@@ -2005,11 +2005,11 @@ dpdk_qp<false>::from_mbuf_lro(rte_mbuf* m)
     // Drop if allocation failed
     rte_pktmbuf_free(m);
 
-    return std::experimental::nullopt;
+    return compat::nullopt;
 }
 
 template<>
-inline std::experimental::optional<packet>
+inline compat::optional<packet>
 dpdk_qp<false>::from_mbuf(rte_mbuf* m)
 {
     if (!_dev->hw_features_ref().rx_lro || rte_pktmbuf_is_contiguous(m)) {
@@ -2026,7 +2026,7 @@ dpdk_qp<false>::from_mbuf(rte_mbuf* m)
             // Drop if allocation failed
             rte_pktmbuf_free(m);
 
-            return std::experimental::nullopt;
+            return compat::nullopt;
         } else {
             rte_memcpy(buf, rte_pktmbuf_mtod(m, char*), len);
             rte_pktmbuf_free(m);
@@ -2039,7 +2039,7 @@ dpdk_qp<false>::from_mbuf(rte_mbuf* m)
 }
 
 template<>
-inline std::experimental::optional<packet>
+inline compat::optional<packet>
 dpdk_qp<true>::from_mbuf_lro(rte_mbuf* m)
 {
     _frags.clear();
@@ -2062,7 +2062,7 @@ dpdk_qp<true>::from_mbuf_lro(rte_mbuf* m)
 }
 
 template<>
-inline std::experimental::optional<packet> dpdk_qp<true>::from_mbuf(rte_mbuf* m)
+inline compat::optional<packet> dpdk_qp<true>::from_mbuf(rte_mbuf* m)
 {
     _rx_free_pkts.push_back(m);
     _num_rx_free_segs += m->nb_segs;
@@ -2144,7 +2144,7 @@ void dpdk_qp<HugetlbfsMemBackend>::process_packets(
         struct rte_mbuf *m = bufs[i];
         offload_info oi;
 
-        std::experimental::optional<packet> p = from_mbuf(m);
+        compat::optional<packet> p = from_mbuf(m);
 
         // Drop the packet if translation above has failed
         if (!p) {

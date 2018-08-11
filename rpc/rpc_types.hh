@@ -26,8 +26,7 @@
 #include <string>
 #include <boost/any.hpp>
 #include <boost/type.hpp>
-#include <experimental/optional>
-#include <boost/variant.hpp>
+#include "util/std-compat.hh"
 #include "core/timer.hh"
 #include "core/simple-stream.hh"
 #include "core/lowres_clock.hh"
@@ -122,16 +121,16 @@ struct no_wait_type {};
 extern no_wait_type no_wait;
 
 template <typename T>
-class optional : public std::experimental::optional<T> {
+class optional : public compat::optional<T> {
 public:
-     using std::experimental::optional<T>::optional;
+     using compat::optional<T>::optional;
 };
 
-class opt_time_point : public std::experimental::optional<rpc_clock_type::time_point> {
+class opt_time_point : public compat::optional<rpc_clock_type::time_point> {
 public:
-     using std::experimental::optional<rpc_clock_type::time_point>::optional;
-     opt_time_point(std::experimental::optional<rpc_clock_type::time_point> time_point) {
-         static_cast<std::experimental::optional<rpc_clock_type::time_point>&>(*this) = time_point;
+     using compat::optional<rpc_clock_type::time_point>::optional;
+     opt_time_point(compat::optional<rpc_clock_type::time_point> time_point) {
+         static_cast<compat::optional<rpc_clock_type::time_point>&>(*this) = time_point;
      }
 };
 
@@ -173,8 +172,8 @@ struct cancellable {
 
 struct rcv_buf {
     uint32_t size = 0;
-    std::experimental::optional<semaphore_units<>> su;
-    boost::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
+    compat::optional<semaphore_units<>> su;
+    compat::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
     using iterator = std::vector<temporary_buffer<char>>::iterator;
     rcv_buf() {}
     explicit rcv_buf(size_t size_) : size(size_) {}
@@ -183,7 +182,7 @@ struct rcv_buf {
 struct snd_buf {
     static constexpr size_t chunk_size = 128*1024;
     uint32_t size = 0;
-    boost::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
+    compat::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
     using iterator = std::vector<temporary_buffer<char>>::iterator;
     snd_buf() {}
     explicit snd_buf(size_t size_);
@@ -192,11 +191,11 @@ struct snd_buf {
 };
 
 static inline memory_input_stream<rcv_buf::iterator> make_deserializer_stream(rcv_buf& input) {
-    auto* b = boost::get<temporary_buffer<char>>(&input.bufs);
+    auto* b = compat::get_if<temporary_buffer<char>>(&input.bufs);
     if (b) {
         return memory_input_stream<rcv_buf::iterator>(memory_input_stream<rcv_buf::iterator>::simple(b->begin(), b->size()));
     } else {
-        auto& ar = boost::get<std::vector<temporary_buffer<char>>>(input.bufs);
+        auto& ar = compat::get<std::vector<temporary_buffer<char>>>(input.bufs);
         return memory_input_stream<rcv_buf::iterator>(memory_input_stream<rcv_buf::iterator>::fragmented(ar.begin(), input.size));
     }
 }
@@ -287,7 +286,7 @@ public:
         }
     public:
         virtual ~impl() {}
-        virtual future<std::experimental::optional<std::tuple<In...>>> operator()() = 0;
+        virtual future<compat::optional<std::tuple<In...>>> operator()() = 0;
         friend source;
     };
 private:
@@ -295,7 +294,7 @@ private:
 
 public:
     source(shared_ptr<impl> impl) : _impl(std::move(impl)) {}
-    future<std::experimental::optional<std::tuple<In...>>> operator()() {
+    future<compat::optional<std::tuple<In...>>> operator()() {
         return _impl->operator()();
     };
     connection_id get_id() const;

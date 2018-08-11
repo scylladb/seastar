@@ -381,6 +381,8 @@ arg_parser.add_argument('--cmake', dest='cmake', action='store_true',
                         help='Use CMake as the underlying build-sytem')
 arg_parser.add_argument('--without-tests', dest='exclude_tests', action='store_true', help='Do not build tests by default (CMake only)')
 arg_parser.add_argument('--without-apps', dest='exclude_apps', action='store_true', help='Do not build applications by default (CMake only)')
+arg_parser.add_argument('--use-std-optional-variant-stringview', dest='cpp17_goodies', action='store', type=int, default=0,
+                        help='Use C++17 std types for optional, variant, and string_view. Requires C++17 dialect and GCC >= 8.1.1-5')
 args = arg_parser.parse_args()
 
 # Forwarding to CMake.
@@ -411,6 +413,7 @@ if args.cmake:
             tr(args.alloc_failure_injector, 'ENABLE_ALLOC_FAILURE_INJECTOR'),
             tr(args.exception_workaround, 'ENABLE_EXCEPTION_SCALABILITY_WORKAROUND'),
             tr(args.allocator_page_size, 'ALLOCATOR_PAGE_SIZE'),
+            tr(args.cpp17_goodies, 'USE_STD_OPTIONAL_VARIANT_STRINGVIEW'),
         ]
 
         # Generate a new build by pointing to the source directory.
@@ -518,6 +521,8 @@ libs = ' '.join([maybe_static(args.staticboost,
 
 boost_unit_test_lib = maybe_static(args.staticboost, '-lboost_unit_test_framework')
 
+if args.cpp17_goodies is 1 and args.cpp_dialect == 'gnu++17':
+    defines.append('SEASTAR_USE_STD_OPTIONAL_VARIANT_STRINGVIEW')
 
 hwloc_libs = '-lhwloc -lnuma -lpciaccess -lxml2 -lz'
 

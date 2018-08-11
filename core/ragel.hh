@@ -27,7 +27,7 @@
 #include <algorithm>
 #include <memory>
 #include <cassert>
-#include <experimental/optional>
+#include "util/std-compat.hh"
 #include "future.hh"
 
 namespace seastar {
@@ -124,7 +124,7 @@ protected:
         return std::move(s);
     }
 public:
-    using unconsumed_remainder = std::experimental::optional<temporary_buffer<char>>;
+    using unconsumed_remainder = compat::optional<temporary_buffer<char>>;
     future<unconsumed_remainder> operator()(temporary_buffer<char> buf) {
         char* p = buf.get_write();
         char* pe = p + buf.size();

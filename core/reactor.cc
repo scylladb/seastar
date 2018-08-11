@@ -2016,7 +2016,7 @@ directory_entry_type stat_to_entry_type(__mode_t type) {
 
 }
 
-future<std::experimental::optional<directory_entry_type>>
+future<compat::optional<directory_entry_type>>
 reactor::file_type(sstring name) {
     return _thread_pool.submit<syscall_result_extra<struct stat>>([name] {
         struct stat st;
@@ -2027,11 +2027,11 @@ reactor::file_type(sstring name) {
             if (sr.error != ENOENT && sr.error != ENOTDIR) {
                 sr.throw_fs_exception_if_error("stat failed", name);
             }
-            return make_ready_future<std::experimental::optional<directory_entry_type> >
-                (std::experimental::optional<directory_entry_type>() );
+            return make_ready_future<compat::optional<directory_entry_type> >
+                (compat::optional<directory_entry_type>() );
         }
-        return make_ready_future<std::experimental::optional<directory_entry_type> >
-            (std::experimental::optional<directory_entry_type>(stat_to_entry_type(sr.extra.st_mode)) );
+        return make_ready_future<compat::optional<directory_entry_type> >
+            (compat::optional<directory_entry_type>(stat_to_entry_type(sr.extra.st_mode)) );
     });
 }
 
@@ -2389,7 +2389,7 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
             }
             auto start = w->buffer + w->current;
             auto de = reinterpret_cast<linux_dirent64*>(start);
-            std::experimental::optional<directory_entry_type> type;
+            compat::optional<directory_entry_type> type;
             switch (de->d_type) {
             case DT_BLK:
                 type = directory_entry_type::block_device;
@@ -3118,9 +3118,9 @@ int reactor::run() {
 
     register_metrics();
 
-    std::experimental::optional<poller> io_poller = {};
-    std::experimental::optional<poller> aio_poller = {};
-    std::experimental::optional<poller> smp_poller = {};
+    compat::optional<poller> io_poller = {};
+    compat::optional<poller> aio_poller = {};
+    compat::optional<poller> smp_poller = {};
 
     // I/O Performance greatly increases if the smp poller runs before the I/O poller. This is
     // because requests that were just added can be polled and processed by the I/O poller right
@@ -3859,7 +3859,7 @@ thread_local std::unique_ptr<reactor, reactor_deleter> reactor_holder;
 
 std::vector<posix_thread> smp::_threads;
 std::vector<std::function<void ()>> smp::_thread_loops;
-std::experimental::optional<boost::barrier> smp::_all_event_loops_done;
+compat::optional<boost::barrier> smp::_all_event_loops_done;
 std::vector<reactor*> smp::_reactors;
 std::unique_ptr<smp_message_queue*[], smp::qs_deleter> smp::_qs;
 std::thread::id smp::_tmain;
@@ -4022,7 +4022,7 @@ public:
             throw std::runtime_error("Both io-properties and io-properties-file specified. Don't know which to trust!");
         }
 
-        std::experimental::optional<YAML::Node> doc;
+        compat::optional<YAML::Node> doc;
         if (configuration.count("io-properties-file")) {
             doc = YAML::LoadFile(configuration["io-properties-file"].as<std::string>());
         } else if (configuration.count("io-properties")) {
@@ -4170,7 +4170,7 @@ void smp::configure(boost::program_options::variables_map configuration)
     if (configuration.count("reserve-memory")) {
         rc.reserve_memory = parse_memory_size(configuration["reserve-memory"].as<std::string>());
     }
-    std::experimental::optional<std::string> hugepages_path;
+    compat::optional<std::string> hugepages_path;
     if (configuration.count("hugepages")) {
         hugepages_path = configuration["hugepages"].as<std::string>();
     }
@@ -4499,7 +4499,7 @@ reactor_backend_osv::enable_timer(steady_clock_type::time_point when) {
 
 #endif
 
-void report_exception(std::experimental::string_view message, std::exception_ptr eptr) noexcept {
+void report_exception(compat::string_view message, std::exception_ptr eptr) noexcept {
     seastar_logger.error("{}: {}", message, eptr);
 }
 
@@ -4527,7 +4527,7 @@ future<> check_direct_io_support(sstring path) {
         open_flags flags;
         std::function<future<>()> cleanup;
 
-        static w parse(sstring path, std::experimental::optional<directory_entry_type> type) {
+        static w parse(sstring path, compat::optional<directory_entry_type> type) {
             if (!type) {
                 throw std::invalid_argument(sprint("Could not open file at %s. Make sure it exists", path));
             }

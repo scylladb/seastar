@@ -125,10 +125,10 @@ metric_value metric_value::operator+(const metric_value& c) {
     metric_value res(*this);
     switch (_type) {
     case data_type::HISTOGRAM:
-        boost::get<histogram>(res.u) += boost::get<histogram>(c.u);
+        compat::get<histogram>(res.u) += compat::get<histogram>(c.u);
         break;
     default:
-        boost::get<double>(res.u) += boost::get<double>(c.u);
+        compat::get<double>(res.u) += compat::get<double>(c.u);
         break;
     }
     return res;

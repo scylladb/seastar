@@ -21,7 +21,7 @@
 #include "net/dpdk.hh"
 #include "core/dpdk_rte.hh"
 #include "util/conversions.hh"
-#include <experimental/optional>
+#include "util/std-compat.hh"
 #include <rte_pci.h>
 
 namespace seastar {
@@ -46,7 +46,7 @@ void eal::init(cpuset cpus, boost::program_options::variables_map opts)
         string2vector("-n"), string2vector("1")
     };
 
-    std::experimental::optional<std::string> hugepages_path;
+    compat::optional<std::string> hugepages_path;
     if (opts.count("hugepages")) {
         hugepages_path = opts["hugepages"].as<std::string>();
     }

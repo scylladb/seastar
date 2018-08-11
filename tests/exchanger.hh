@@ -23,7 +23,7 @@
 
 #include <mutex>
 #include <condition_variable>
-#include <experimental/optional>
+#include "util/std-compat.hh"
 
 // Single-element blocking queue
 template <typename T>
@@ -31,7 +31,7 @@ class exchanger {
 private:
     std::mutex _mutex;
     std::condition_variable _cv;
-    std::experimental::optional<T> _element;
+    seastar::compat::optional<T> _element;
     std::exception_ptr _exception;
 private:
     void interrupt_ptr(std::exception_ptr e) {

@@ -34,7 +34,7 @@ inline future<temporary_buffer<char>> data_source_impl::skip(uint64_t n)
 {
     return do_with(uint64_t(n), [this] (uint64_t& n) {
         return repeat_until_value([&] {
-            return get().then([&] (temporary_buffer<char> buffer) -> std::experimental::optional<temporary_buffer<char>> {
+            return get().then([&] (temporary_buffer<char> buffer) -> compat::optional<temporary_buffer<char>> {
                 if (buffer.size() >= n) {
                     buffer.trim_front(n);
                     return std::move(buffer);
@@ -206,7 +206,7 @@ input_stream<CharType>::consume(Consumer&& consumer) {
             });
         }
         return consumer(std::move(_buf)).then([this] (consumption_result_type result) {
-            return visit(result.get(), [this] (const continue_consuming&) {
+            return seastar::visit(result.get(), [this] (const continue_consuming&) {
                // If we're here, consumer consumed entire buffer and is ready for
                 // more now. So we do not return, and rather continue the loop.
                 //
@@ -429,7 +429,7 @@ output_stream<CharType>::poll_flush() {
         // flush was canceled, do nothing
         _flushing = false;
         _in_batch.value().set_value();
-        _in_batch = std::experimental::nullopt;
+        _in_batch = compat::nullopt;
         return;
     }
 
@@ -495,7 +495,7 @@ template <typename CharType>
 struct stream_copy_consumer {
 private:
     output_stream<CharType>& _os;
-    using unconsumed_remainder = std::experimental::optional<temporary_buffer<CharType>>;
+    using unconsumed_remainder = compat::optional<temporary_buffer<CharType>>;
 public:
     stream_copy_consumer(output_stream<CharType>& os) : _os(os) {
     }

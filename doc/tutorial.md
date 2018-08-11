@@ -895,12 +895,12 @@ seastar::future<> g() {
 
 `with_semaphore()`, like the earlier code snippets, waits for the given number of units from the semaphore, then runs the given lambda, and when the future returned by the lambda is resolved, `with_semaphore()` returns back the units to the semaphore. `with_semaphore()` returns a future which only resolves after all these steps are done.
 
-The function `seastar::get_units()` is more general. It provides an exception-safe alternative to `seastar::semaphore`'s separate `wait()` and `signal()` methods, based on C++'s RAII philosophy: The function returns an opaque units object, which while held, keeps the semaphore's counter decreased - and as soon as this object is destructed, the counter is increased back. With this interface you cannot forget to increase the counter, or increase it twice, or increase without decreasing: The counter will always be decreased once when the units object is created, and if that succeeded, increased when the object is destructed. When the units object is moved into a continuation, no matter how this continuation ends, when the continuation is destructed, the units object is destructed and the units are returned to the semaphore's counter. The above examples, written with `get_units()`, looks like this:
+The function `compat::get_units()` is more general. It provides an exception-safe alternative to `seastar::semaphore`'s separate `wait()` and `signal()` methods, based on C++'s RAII philosophy: The function returns an opaque units object, which while held, keeps the semaphore's counter decreased - and as soon as this object is destructed, the counter is increased back. With this interface you cannot forget to increase the counter, or increase it twice, or increase without decreasing: The counter will always be decreased once when the units object is created, and if that succeeded, increased when the object is destructed. When the units object is moved into a continuation, no matter how this continuation ends, when the continuation is destructed, the units object is destructed and the units are returned to the semaphore's counter. The above examples, written with `get_units()`, looks like this:
 
 ```cpp
 seastar::future<> g() {
     static thread_local semaphore limit(100);
-    return seastar::get_units(limit, 1).then([] (auto units) {
+    return compat::get_units(limit, 1).then([] (auto units) {
         return slow().finally([units = std::move(units)] {});
     });
 }
@@ -979,14 +979,14 @@ Note how this code differs from the code we saw above for limiting the number of
 1. Here we cannot use a single `thread_local` semaphore. Each call to `f()` has its loop with parallelism of 100, so needs its own semaphore "`limit`", kept alive during the loop with `do_with()`.
 2. Here we do not wait for `slow()` to complete before continuing the loop, i.e., we do not `return` the future chain starting at `futurize_apply(slow)`. The loop continues to the next iteration when a semaphore unit becomes available, while (in our example) 99 other operations might be ongoing in the background and we do not wait for them.
 
-In the examples in this section, we cannot use the `with_semaphore()` shortcut. `with_semaphore()` returns a future which only resolves after the lambda's returned future resolves. But in the above example, the loop needs to know when just the semaphore units are available, to start the next iteration --- and not wait for the previous iteration to complete. We could not achieve that with `with_semaphore()`. But the more general exception-safe idiom, `seastar::get_units()`, can be used in this case, and is recommended:
+In the examples in this section, we cannot use the `with_semaphore()` shortcut. `with_semaphore()` returns a future which only resolves after the lambda's returned future resolves. But in the above example, the loop needs to know when just the semaphore units are available, to start the next iteration --- and not wait for the previous iteration to complete. We could not achieve that with `with_semaphore()`. But the more general exception-safe idiom, `compat::get_units()`, can be used in this case, and is recommended:
 
 
 ```cpp
 seastar::future<> f() {
     return seastar::do_with(seastar::semaphore(100), [] (auto& limit) {
         return seastar::repeat([&limit] {
-    	    return seastar::get_units(limit, 1).then([] (auto units) {
+    	    return compat::get_units(limit, 1).then([] (auto units) {
 	            slow().finally([units = std::move(units)] {});
 	            return seastar::stop_iteration::no;
 	        });
@@ -1002,7 +1002,7 @@ seastar::future<> f() {
     return seastar::do_with(seastar::semaphore(100), [] (auto& limit) {
         return seastar::do_for_each(boost::counting_iterator<int>(0),
                 boost::counting_iterator<int>(456), [&limit] (int i) {
-            return seastar::get_units(limit, 1).then([] (auto units) {
+            return compat::get_units(limit, 1).then([] (auto units) {
                 slow().finally([units = std::move(units)] {});
 	        });
         }).finally([&limit] {
@@ -1022,7 +1022,7 @@ seastar::future<> f() {
     return seastar::do_with(seastar::gate(), [] (auto& gate) {
         return seastar::do_for_each(boost::counting_iterator<int>(0),
                 boost::counting_iterator<int>(456), [&gate] (int i) {
-            return seastar::get_units(limit, 1).then([&gate] (auto units) {
+            return compat::get_units(limit, 1).then([&gate] (auto units) {
                 gate.enter();
                 seastar::futurize_apply(slow).finally([&gate, units = std::move(units)] {
                     gate.leave();

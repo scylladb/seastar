@@ -32,9 +32,9 @@
 #include "util/noncopyable_function.hh"
 #include "../util/tuple_utils.hh"
 #include "../util/defer.hh"
+#include "util/std-compat.hh"
 #include "../fmt/fmt/format.h"
 #include <vector>
-#include <experimental/optional>
 #include <boost/range/irange.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 
@@ -313,7 +313,7 @@ class inheriting_concrete_execution_stage final {
 
     sstring _name;
     noncopyable_function<ReturnType (Args...)> _function;
-    std::vector<std::experimental::optional<per_group_stage_type>> _stage_for_group{max_scheduling_groups()};
+    std::vector<compat::optional<per_group_stage_type>> _stage_for_group{max_scheduling_groups()};
 private:
     per_group_stage_type make_stage_for_group(scheduling_group sg) {
         // We can't use std::ref(function), because reference_wrapper decays to noncopyable_function& and

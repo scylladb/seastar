@@ -22,15 +22,13 @@
 #pragma once
 
 #include "future.hh"
-#include <experimental/optional>
+#include "util/std-compat.hh"
 #include <exception>
 
 namespace seastar {
 
 /// \addtogroup fiber-module
 /// @{
-
-namespace stdx = std::experimental;
 
 /// Exception thrown when a \ref gate object has been closed
 /// by the \ref gate::close() method.
@@ -48,7 +46,7 @@ public:
 /// requests have completed.  The \c gate class provides a solution.
 class gate {
     size_t _count = 0;
-    stdx::optional<promise<>> _stopped;
+    compat::optional<promise<>> _stopped;
 public:
     /// Registers an in-progress request.
     ///
@@ -91,7 +89,7 @@ public:
     /// made ready.
     future<> close() {
         assert(!_stopped && "seastar::gate::close() cannot be called more than once");
-        _stopped = stdx::make_optional(promise<>());
+        _stopped = compat::make_optional(promise<>());
         if (!_count) {
             _stopped->set_value();
         }

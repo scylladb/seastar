@@ -51,7 +51,7 @@ public:
         return _fd.getsockopt<int>(SOL_SOCKET, SO_KEEPALIVE);
     }
     void set_keepalive_parameters(file_desc& _fd, const keepalive_params& params) {
-        const tcp_keepalive_params& pms = boost::get<tcp_keepalive_params>(params);
+        const tcp_keepalive_params& pms = compat::get<tcp_keepalive_params>(params);
         _fd.setsockopt(IPPROTO_TCP, TCP_KEEPCNT, pms.count);
         _fd.setsockopt(IPPROTO_TCP, TCP_KEEPIDLE, int(pms.idle.count()));
         _fd.setsockopt(IPPROTO_TCP, TCP_KEEPINTVL, int(pms.interval.count()));
@@ -87,7 +87,7 @@ public:
         return _fd.getsockopt<sctp_paddrparams>(SOL_SCTP, SCTP_PEER_ADDR_PARAMS).spp_flags & SPP_HB_ENABLE;
     }
     void set_keepalive_parameters(file_desc& _fd, const keepalive_params& kpms) {
-        const sctp_keepalive_params& pms = boost::get<sctp_keepalive_params>(kpms);
+        const sctp_keepalive_params& pms = compat::get<sctp_keepalive_params>(kpms);
         auto params = _fd.getsockopt<sctp_paddrparams>(SOL_SCTP, SCTP_PEER_ADDR_PARAMS);
         params.spp_hbinterval = pms.interval.count() * 1000; // in milliseconds
         params.spp_pathmaxrxt = pms.count;

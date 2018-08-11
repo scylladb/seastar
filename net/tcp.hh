@@ -32,12 +32,12 @@
 #include "ip.hh"
 #include "const.hh"
 #include "packet-util.hh"
+#include "util/std-compat.hh"
 #include <unordered_map>
 #include <map>
 #include <functional>
 #include <deque>
 #include <chrono>
-#include <experimental/optional>
 #include <random>
 #include <stdexcept>
 #include <system_error>
@@ -343,12 +343,12 @@ private:
             bool closed = false;
             promise<> _window_opened;
             // Wait for all data are acked
-            std::experimental::optional<promise<>> _all_data_acked_promise;
+            compat::optional<promise<>> _all_data_acked_promise;
             // Limit number of data queued into send queue
             size_t max_queue_space = 212992;
             size_t current_queue_space = 0;
             // wait for there is at least one byte available in the queue
-            std::experimental::optional<promise<>> _send_available_promise;
+            compat::optional<promise<>> _send_available_promise;
             // Round-trip time variation
             std::chrono::milliseconds rttvar;
             // Smoothed round-trip time
@@ -380,7 +380,7 @@ private:
             // The total size of data stored in std::deque<packet> data
             size_t data_size = 0;
             tcp_packet_merger out_of_order;
-            std::experimental::optional<promise<>> _data_received_promise;
+            compat::optional<promise<>> _data_received_promise;
             // The maximun memory buffer size allowed for receiving
             // Currently, it is the same as default receive window size when window scaling is enabled
             size_t max_receive_buf_size = 3737600;
@@ -442,7 +442,7 @@ private:
             auto id = connid{_local_ip, _foreign_ip, _local_port, _foreign_port};
             _tcp._tcbs.erase(id);
         }
-        std::experimental::optional<typename InetTraits::l4packet> get_packet();
+        compat::optional<typename InetTraits::l4packet> get_packet();
         void output() {
             if (!_poll_active) {
                 _poll_active = true;
@@ -595,15 +595,15 @@ private:
             cleanup();
             if (_rcv._data_received_promise) {
                 _rcv._data_received_promise->set_exception(tcp_reset_error());
-                _rcv._data_received_promise = std::experimental::nullopt;
+                _rcv._data_received_promise = compat::nullopt;
             }
             if (_snd._all_data_acked_promise) {
                 _snd._all_data_acked_promise->set_exception(tcp_reset_error());
-                _snd._all_data_acked_promise = std::experimental::nullopt;
+                _snd._all_data_acked_promise = compat::nullopt;
             }
             if (_snd._send_available_promise) {
                 _snd._send_available_promise->set_exception(tcp_reset_error());
-                _snd._send_available_promise = std::experimental::nullopt;
+                _snd._send_available_promise = compat::nullopt;
             }
         }
         void do_time_wait() {
@@ -770,7 +770,7 @@ tcp<InetTraits>::tcp(inet_type& inet)
     });
 
     _inet.register_packet_provider([this, tcb_polled = 0u] () mutable {
-        std::experimental::optional<typename InetTraits::l4packet> l4p;
+        compat::optional<typename InetTraits::l4packet> l4p;
         auto c = _poll_tcbs.size();
         if (!_packetq.empty() && (!(tcb_polled % 128) || c == 0)) {
             l4p = std::move(_packetq.front());
@@ -1723,7 +1723,7 @@ tcp<InetTraits>::tcb::abort_reader() {
     if (_rcv._data_received_promise) {
         _rcv._data_received_promise->set_exception(
                 std::make_exception_ptr(std::system_error(ECONNABORTED, std::system_category())));
-        _rcv._data_received_promise = std::experimental::nullopt;
+        _rcv._data_received_promise = compat::nullopt;
     }
 }
 
@@ -2059,14 +2059,14 @@ tcp_seq tcp<InetTraits>::tcb::get_isn() {
 }
 
 template <typename InetTraits>
-std::experimental::optional<typename InetTraits::l4packet> tcp<InetTraits>::tcb::get_packet() {
+compat::optional<typename InetTraits::l4packet> tcp<InetTraits>::tcb::get_packet() {
     _poll_active = false;
     if (_packetq.empty()) {
         output_one();
     }
 
     if (in_state(CLOSED)) {
-        return std::experimental::optional<typename InetTraits::l4packet>();
+        return compat::optional<typename InetTraits::l4packet>();
     }
 
     assert(!_packetq.empty());

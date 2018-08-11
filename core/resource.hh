@@ -23,7 +23,7 @@
 
 #include <cstdlib>
 #include <string>
-#include <experimental/optional>
+#include "util/std-compat.hh"
 #include <vector>
 #include <set>
 #include <sched.h>
@@ -35,7 +35,7 @@ cpu_set_t cpuid_to_cpuset(unsigned cpuid);
 
 namespace resource {
 
-using std::experimental::optional;
+using compat::optional;
 
 using cpuset = std::set<unsigned>;
 

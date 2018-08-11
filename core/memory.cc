@@ -88,7 +88,7 @@ disable_abort_on_alloc_failure_temporarily::~disable_abort_on_alloc_failure_temp
 #include <cassert>
 #include <atomic>
 #include <mutex>
-#include <experimental/optional>
+#include "util/std-compat.hh"
 #include <functional>
 #include <cstring>
 #include <boost/intrusive/list.hpp>
@@ -158,7 +158,7 @@ static thread_local uint64_t g_cross_cpu_frees;
 static thread_local uint64_t g_reclaims;
 static thread_local uint64_t g_large_allocs;
 
-using std::experimental::optional;
+using compat::optional;
 
 using allocate_system_memory_fn
         = std::function<mmap_area (optional<void*> where, size_t how_much)>;
@@ -887,7 +887,7 @@ bool cpu_pages::initialize() {
 }
 
 mmap_area
-allocate_anonymous_memory(std::experimental::optional<void*> where, size_t how_much) {
+allocate_anonymous_memory(compat::optional<void*> where, size_t how_much) {
     return mmap_anonymous(where.value_or(nullptr),
             how_much,
             PROT_READ | PROT_WRITE,
@@ -895,7 +895,7 @@ allocate_anonymous_memory(std::experimental::optional<void*> where, size_t how_m
 }
 
 mmap_area
-allocate_hugetlbfs_memory(file_desc& fd, std::experimental::optional<void*> where, size_t how_much) {
+allocate_hugetlbfs_memory(file_desc& fd, compat::optional<void*> where, size_t how_much) {
     auto pos = fd.size();
     fd.truncate(pos + how_much);
     auto ret = fd.map(
@@ -1853,7 +1853,7 @@ reclaimer::~reclaimer() {
 void set_reclaim_hook(std::function<void (std::function<void ()>)> hook) {
 }
 
-void configure(std::vector<resource::memory> m, bool mbind, std::experimental::optional<std::string> hugepages_path) {
+void configure(std::vector<resource::memory> m, bool mbind, compat::optional<std::string> hugepages_path) {
 }
 
 statistics stats() {

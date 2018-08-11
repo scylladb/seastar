@@ -24,7 +24,7 @@
 #include <vector>
 #include <unordered_map>
 #include <memory>
-#include <experimental/optional>
+#include "util/std-compat.hh"
 
 #include "../core/future.hh"
 #include "../core/sstring.hh"
@@ -56,7 +56,7 @@ struct hostent {
     std::vector<inet_address> addr_list;
 };
 
-typedef std::experimental::optional<inet_address::family> opt_family;
+typedef compat::optional<inet_address::family> opt_family;
 
 /**
  * A DNS resolver object.
@@ -69,15 +69,15 @@ typedef std::experimental::optional<inet_address::family> opt_family;
 class dns_resolver {
 public:
     struct options {
-        std::experimental::optional<bool>
+        compat::optional<bool>
             use_tcp_query;
-        std::experimental::optional<std::vector<inet_address>>
+        compat::optional<std::vector<inet_address>>
             servers;
-        std::experimental::optional<std::chrono::milliseconds>
+        compat::optional<std::chrono::milliseconds>
             timeout;
-        std::experimental::optional<uint16_t>
+        compat::optional<uint16_t>
             tcp_port, udp_port;
-        std::experimental::optional<std::vector<sstring>>
+        compat::optional<std::vector<sstring>>
             domains;
     };
 

@@ -28,7 +28,7 @@
 #include <boost/lexical_cast.hpp>
 #include <map>
 #include "core/metrics_types.hh"
-#include <boost/variant.hpp>
+#include "util/std-compat.hh"
 
 /*! \file metrics.hh
  *  \brief header for metrics creation.
@@ -257,22 +257,22 @@ enum class data_type : uint8_t {
  * Do not use directly @see metrics_creation
  */
 struct metric_value {
-    boost::variant<double, histogram> u;
+    compat::variant<double, histogram> u;
     data_type _type;
     data_type type() const {
         return _type;
     }
 
     double d() const {
-        return boost::get<double>(u);
+        return compat::get<double>(u);
     }
 
     uint64_t ui() const {
-        return boost::get<double>(u);
+        return compat::get<double>(u);
     }
 
     int64_t i() const {
-        return boost::get<double>(u);
+        return compat::get<double>(u);
     }
 
     metric_value()
@@ -299,7 +299,7 @@ struct metric_value {
 
     metric_value operator+(const metric_value& c);
     const histogram& get_histogram() const {
-        return boost::get<histogram>(u);
+        return compat::get<histogram>(u);
     }
 };
 

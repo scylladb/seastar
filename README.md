@@ -17,6 +17,18 @@ There are also instructions for building on any host that supports [Docker](doc/
 
 Use of the [DPDK](http://dpdk.org) is [optional](doc/building-dpdk.md).
 
+#### Using C++17
+
+Seastar can be built with the C++17 dialect by supporting compilers, conditional
+on the `--c++-dialect` option being set to `gnu++17`.
+
+However, by default Seastar uses C++14-compatible types such as
+`std::experimental::optional<>` or `boost::variant`, both internally and in its public
+API, thus forcing them on C++17 projects. To fix this, Seastar provides the `--use-std-optional-variant-stringview 0|1`
+option, which changes those types to their `stdlib` incarnation, and allows
+seemless use of C++17. Usage of this option requires an updated compiler, such
+as GCC 8.1.1-5 on Fedora.
+
 Getting started
 ---------------
 

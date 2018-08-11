@@ -22,7 +22,7 @@
 #pragma once
 
 #include <chrono>
-#include <experimental/optional>
+#include "util/std-compat.hh"
 #include <atomic>
 #include <functional>
 #include "future.hh"
@@ -43,12 +43,12 @@ private:
     boost::intrusive::list_member_hook<> _link;
     callback_t _callback;
     time_point _expiry;
-    std::experimental::optional<duration> _period;
+    compat::optional<duration> _period;
     bool _armed = false;
     bool _queued = false;
     bool _expired = false;
     void readd_periodic();
-    void arm_state(time_point until, std::experimental::optional<duration> period);
+    void arm_state(time_point until, compat::optional<duration> period);
 public:
     timer() = default;
     timer(timer&& t) noexcept : _callback(std::move(t._callback)), _expiry(std::move(t._expiry)), _period(std::move(t._period)),
@@ -61,8 +61,8 @@ public:
     ~timer();
     future<> expired();
     void set_callback(callback_t&& callback);
-    void arm(time_point until, std::experimental::optional<duration> period = {});
-    void rearm(time_point until, std::experimental::optional<duration> period = {});
+    void arm(time_point until, compat::optional<duration> period = {});
+    void rearm(time_point until, compat::optional<duration> period = {});
     void arm(duration delta);
     void arm_periodic(duration delta);
     bool armed() const { return _armed; }

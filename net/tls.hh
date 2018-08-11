@@ -20,7 +20,6 @@
  */
 #pragma once
 
-#include <experimental/string_view>
 #include <vector>
 #include <map>
 
@@ -30,6 +29,7 @@
 #include "core/sstring.hh"
 #include "core/shared_ptr.hh"
 #include "socket_defs.hh"
+#include "util/std-compat.hh"
 
 namespace seastar {
 
@@ -54,7 +54,7 @@ namespace tls {
         PEM,
     };
 
-    typedef std::experimental::basic_string_view<char> blob;
+    typedef compat::basic_string_view<char> blob;
 
     class session;
     class server_session;

@@ -33,7 +33,7 @@
 #include <setjmp.h>
 #include <type_traits>
 #include <chrono>
-#include <experimental/optional>
+#include "util/std-compat.hh"
 #include <ucontext.h>
 #include <boost/intrusive/list.hpp>
 
@@ -70,8 +70,6 @@
 /// Seastar API namespace
 namespace seastar {
 
-namespace stdx = std::experimental;
-
 /// \addtogroup thread-module
 /// @{
 
@@ -83,7 +81,7 @@ class thread_scheduling_group;
 class thread_attributes {
 public:
     thread_scheduling_group* scheduling_group = nullptr;  // FIXME: remove
-    stdx::optional<seastar::scheduling_group> sched_group;
+    compat::optional<seastar::scheduling_group> sched_group;
 };
 
 
@@ -113,7 +111,7 @@ class thread_context {
     promise<> _done;
     bool _joined = false;
     timer<> _sched_timer{[this] { reschedule(); }};
-    stdx::optional<promise<>> _sched_promise;
+    compat::optional<promise<>> _sched_promise;
 
     boost::intrusive::list_member_hook<> _preempted_link;
     using preempted_thread_list = boost::intrusive::list<thread_context,
@@ -253,7 +251,7 @@ public:
 private:
     void account_start();
     void account_stop();
-    stdx::optional<thread_clock::time_point> next_scheduling_point() const;
+    compat::optional<thread_clock::time_point> next_scheduling_point() const;
     friend class thread_context;
 };
 

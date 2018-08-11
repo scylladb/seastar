@@ -181,7 +181,7 @@ void qp::configure_proxies(const std::map<unsigned, float>& cpu_weights) {
         return;
     }
     register_packet_provider([this] {
-        std::experimental::optional<packet> p;
+        compat::optional<packet> p;
         if (!_proxy_packetq.empty()) {
             p = std::move(_proxy_packetq.front());
             _proxy_packetq.pop_front();
@@ -241,7 +241,7 @@ interface::interface(std::shared_ptr<device> dev)
     , _hw_address(_dev->hw_address())
     , _hw_features(_dev->hw_features()) {
     dev->local_queue().register_packet_provider([this, idx = 0u] () mutable {
-            std::experimental::optional<packet> p;
+            compat::optional<packet> p;
             for (size_t i = 0; i < _pkt_providers.size(); i++) {
                 auto l3p = _pkt_providers[idx++]();
                 if (idx == _pkt_providers.size())

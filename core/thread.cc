@@ -258,7 +258,7 @@ thread_context::yield() {
             auto fut = _sched_promise->get_future();
             _sched_timer.arm(*when);
             fut.get();
-            _sched_promise = stdx::nullopt;
+            _sched_promise = compat::nullopt;
         } else if (need_preempt()) {
             later().get();
         }
@@ -376,12 +376,12 @@ thread_scheduling_group::account_stop() {
     _this_period_remain -= thread_clock::now() - _this_run_start;
 }
 
-stdx::optional<thread_clock::time_point>
+compat::optional<thread_clock::time_point>
 thread_scheduling_group::next_scheduling_point() const {
     auto now = thread_clock::now();
     auto current_remain = _this_period_remain - (now - _this_run_start);
     if (current_remain > std::chrono::nanoseconds(0)) {
-        return stdx::nullopt;
+        return compat::nullopt;
     }
     return _this_period_ends - current_remain;
 

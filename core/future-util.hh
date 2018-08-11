@@ -33,7 +33,7 @@
 #include <tuple>
 #include <iterator>
 #include <vector>
-#include <experimental/optional>
+#include "util/std-compat.hh"
 #include "util/tuple_utils.hh"
 #include "util/noncopyable_function.hh"
 
@@ -92,7 +92,7 @@ with_scheduling_group(scheduling_group sg, Func func, Args&&... args) {
 
 struct parallel_for_each_state {
     // use optional<> to avoid out-of-line constructor
-    std::experimental::optional<std::exception_ptr> ex;
+    compat::optional<std::exception_ptr> ex;
     promise<> pr;
     ~parallel_for_each_state() {
         if (ex) {
@@ -312,11 +312,11 @@ struct repeat_until_value_type_helper;
 
 /// Type helper for repeat_until_value()
 template <typename T>
-struct repeat_until_value_type_helper<future<std::experimental::optional<T>>> {
+struct repeat_until_value_type_helper<future<compat::optional<T>>> {
     /// The type of the value we are computing
     using value_type = T;
     /// Type used by \c AsyncAction while looping
-    using optional_type = std::experimental::optional<T>;
+    using optional_type = compat::optional<T>;
     /// Return type of repeat_until_value()
     using future_type = future<value_type>;
     /// Return type of \c AsyncAction
@@ -331,12 +331,12 @@ using repeat_until_value_return_type
 namespace internal {
 
 template <typename AsyncAction, typename T>
-class repeat_until_value_state final : public continuation_base<std::experimental::optional<T>> {
+class repeat_until_value_state final : public continuation_base<compat::optional<T>> {
     promise<T> _promise;
     AsyncAction _action;
 public:
     explicit repeat_until_value_state(AsyncAction action) : _action(std::move(action)) {}
-    repeat_until_value_state(std::experimental::optional<T> st, AsyncAction action) : repeat_until_value_state(std::move(action)) {
+    repeat_until_value_state(compat::optional<T> st, AsyncAction action) : repeat_until_value_state(std::move(action)) {
         this->_state.set(std::make_tuple(std::move(st)));
     }
     future<T> get_future() { return _promise.get_future(); }
@@ -370,7 +370,7 @@ public:
             _promise.set_exception(std::current_exception());
             return;
         }
-        this->_state.set(std::experimental::nullopt);
+        this->_state.set(compat::nullopt);
         schedule(std::move(zis));
     }
 };
@@ -378,10 +378,10 @@ public:
 }
     
 /// Invokes given action until it fails or the function requests iteration to stop by returning
-/// an engaged \c future<std::experimental::optional<T>>.  The value is extracted from the
+/// an engaged \c future<compat::optional<T>>.  The value is extracted from the
 /// \c optional, and returned, as a future, from repeat_until_value().
 ///
-/// \param action a callable taking no arguments, returning a future<std::experimental::optional<T>>.
+/// \param action a callable taking no arguments, returning a future<compat::optional<T>>.
 ///               Will be called again as soon as the future resolves, unless the
 ///               future fails, action throws, or it resolves with an engaged \c optional.
 ///               If \c action is an r-value it can be moved in the middle of iteration.
@@ -425,7 +425,7 @@ repeat_until_value(AsyncAction action) {
     } while (!need_preempt());
 
     try {
-        auto state = std::make_unique<internal::repeat_until_value_state<futurized_action_type, value_type>>(std::experimental::nullopt, std::move(futurized_action));
+        auto state = std::make_unique<internal::repeat_until_value_state<futurized_action_type, value_type>>(compat::nullopt, std::move(futurized_action));
         auto f = state->get_future();
         schedule(std::move(state));
         return f;

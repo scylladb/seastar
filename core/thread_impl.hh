@@ -25,7 +25,7 @@
 #include <setjmp.h>
 #include <ucontext.h>
 #include <chrono>
-#include <experimental/optional>
+#include "util/std-compat.hh"
 
 namespace seastar {
 /// Clock used for scheduling threads
@@ -46,7 +46,7 @@ struct jmp_buf_link {
 #endif
     jmp_buf_link* link;
     thread_context* thread;
-    std::experimental::optional<std::chrono::time_point<thread_clock>> yield_at = {};
+    compat::optional<std::chrono::time_point<thread_clock>> yield_at = {};
 public:
     void initial_switch_in(ucontext_t* initial_context, const void* stack_bottom, size_t stack_size);
     void switch_in();

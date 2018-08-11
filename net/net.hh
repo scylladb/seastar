@@ -92,7 +92,7 @@ public:
         ethernet_address to;
         packet p;
     };
-    using packet_provider_type = std::function<std::experimental::optional<l3packet> ()>;
+    using packet_provider_type = std::function<compat::optional<l3packet> ()>;
 private:
     interface* _netif;
     eth_protocol_num _proto_num;
@@ -211,9 +211,9 @@ struct qp_stats {
 };
 
 class qp {
-    using packet_provider_type = std::function<std::experimental::optional<packet> ()>;
+    using packet_provider_type = std::function<compat::optional<packet> ()>;
     std::vector<packet_provider_type> _pkt_providers;
-    std::experimental::optional<std::array<uint8_t, 128>> _sw_reta;
+    compat::optional<std::array<uint8_t, 128>> _sw_reta;
     circular_buffer<packet> _proxy_packetq;
     stream<packet> _rx_stream;
     reactor::poller _tx_poller;

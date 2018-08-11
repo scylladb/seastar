@@ -47,6 +47,7 @@
 #include "core/fsqual.hh"
 #include "util/defer.hh"
 #include "util/log.hh"
+#include "util/std-compat.hh"
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -561,7 +562,7 @@ void write_property_file(sstring conf_file, struct std::vector<disk_descriptor> 
 // (absolute, with symlinks resolved), until we find a point that crosses a device ID.
 fs::path mountpoint_of(sstring filename) {
     fs::path mnt_candidate = fs::canonical(fs::path(filename));
-    std::experimental::optional<dev_t> candidate_id = {};
+    compat::optional<dev_t> candidate_id = {};
     auto current = mnt_candidate;
     do {
         auto f = open_directory(current.string()).get0();

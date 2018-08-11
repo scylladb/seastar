@@ -178,19 +178,19 @@ public:
         return _version;
     }
 
-    const std::experimental::string_view key() const {
-        return std::experimental::string_view(_data, _key_size);
+    const compat::string_view key() const {
+        return compat::string_view(_data, _key_size);
     }
 
-    const std::experimental::string_view ascii_prefix() const {
+    const compat::string_view ascii_prefix() const {
         const char *p = _data + align_up(_key_size, field_alignment);
-        return std::experimental::string_view(p, _ascii_prefix_size);
+        return compat::string_view(p, _ascii_prefix_size);
     }
 
-    const std::experimental::string_view value() const {
+    const compat::string_view value() const {
         const char *p = _data + align_up(_key_size, field_alignment) +
             align_up(_ascii_prefix_size, field_alignment);
-        return std::experimental::string_view(p, _value_size);
+        return compat::string_view(p, _value_size);
     }
 
     size_t key_size() const {

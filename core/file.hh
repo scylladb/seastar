@@ -27,7 +27,7 @@
 #include "core/align.hh"
 #include "core/future-util.hh"
 #include "core/fair_queue.hh"
-#include <experimental/optional>
+#include "util/std-compat.hh"
 #include <system_error>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
@@ -70,7 +70,7 @@ struct directory_entry {
     /// Name of the file in a directory entry.  Will never be "." or "..".  Only the last component is included.
     sstring name;
     /// Type of the directory entry, if known.
-    std::experimental::optional<directory_entry_type> type;
+    compat::optional<directory_entry_type> type;
 };
 
 /// File open options

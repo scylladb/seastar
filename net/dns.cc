@@ -20,7 +20,6 @@
  */
 
 #include <chrono>
-#include <experimental/string_view>
 
 #include <c-ares/ares.h>
 
@@ -32,6 +31,7 @@
 #include "core/reactor.hh"
 #include "core/gate.hh"
 #include "util/log.hh"
+#include "util/std-compat.hh"
 
 namespace seastar {
 
@@ -768,8 +768,8 @@ private:
         }
         ;
         connected_socket socket;
-        std::experimental::optional<input_stream<char>> in;
-        std::experimental::optional<output_stream<char>> out;
+        compat::optional<input_stream<char>> in;
+        compat::optional<output_stream<char>> out;
         temporary_buffer<char> indata;
     };
     struct udp_entry {
@@ -777,7 +777,7 @@ private:
                         : channel(std::move(c)) {
         }
         net::udp_channel channel;
-        std::experimental::optional<net::udp_datagram> in;;
+        compat::optional<net::udp_datagram> in;;
         socket_address dst;
     };
     struct sock_entry {

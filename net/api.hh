@@ -31,8 +31,8 @@
 #include "core/print.hh"
 #include "core/temporary_buffer.hh"
 #include "core/iostream.hh"
+#include "util/std-compat.hh"
 #include <sys/types.h>
-#include <boost/variant.hpp>
 
 namespace seastar {
 
@@ -89,7 +89,7 @@ struct sctp_keepalive_params {
     unsigned count; // spp_pathmaxrt
 };
 
-using keepalive_params = boost::variant<tcp_keepalive_params, sctp_keepalive_params>;
+using keepalive_params = compat::variant<tcp_keepalive_params, sctp_keepalive_params>;
 
 /// \cond internal
 class connected_socket_impl;

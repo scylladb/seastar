@@ -58,7 +58,7 @@ public:
     using time_point = typename Clock::time_point;
 private:
     struct entry {
-        std::experimental::optional<T> payload; // disengaged means that it's expired
+        compat::optional<T> payload; // disengaged means that it's expired
         timer<Clock> tr;
         entry(T&& payload_) : payload(std::move(payload_)) {}
         entry(const T& payload_) : payload(payload_) {}
@@ -66,7 +66,7 @@ private:
                 : payload(std::move(payload_))
                 , tr([this, &ef] {
                     ef._on_expiry(*payload);
-                    payload = std::experimental::nullopt;
+                    payload = compat::nullopt;
                     --ef._size;
                     ef.drop_expired_front();
                 })

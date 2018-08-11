@@ -21,7 +21,6 @@
 
 #include <boost/algorithm/string/replace.hpp>
 #include "transformers.hh"
-#include <experimental/string_view>
 #include <list>
 
 namespace seastar {

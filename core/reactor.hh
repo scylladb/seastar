@@ -47,7 +47,7 @@
 #include <ratio>
 #include <atomic>
 #include <stack>
-#include <experimental/optional>
+#include "util/std-compat.hh"
 #include <boost/next_prior.hpp>
 #include <boost/lockfree/spsc_queue.hpp>
 #include <boost/optional.hpp>
@@ -259,7 +259,7 @@ class syscall_work_queue {
     struct work_item_returning :  work_item {
         Func _func;
         promise<T> _promise;
-        boost::optional<T> _result;
+        compat::optional<T> _result;
         work_item_returning(Func&& func) : _func(std::move(func)) {}
         virtual void process() override { _result = this->_func(); }
         virtual void complete() override { _promise.set_value(std::move(*_result)); }
@@ -334,7 +334,7 @@ class smp_message_queue {
         using futurator = futurize<std::result_of_t<Func()>>;
         using future_type = typename futurator::type;
         using value_type = typename future_type::value_type;
-        std::experimental::optional<value_type> _result;
+        compat::optional<value_type> _result;
         std::exception_ptr _ex; // if !_result
         typename futurator::promise_type _promise; // used on local side
         async_work_item(smp_message_queue& queue, Func&& func) : _queue(queue), _func(std::move(func)) {}
@@ -830,8 +830,8 @@ private:
     // _lowres_clock_impl will only be created on cpu 0
     std::unique_ptr<lowres_clock_impl> _lowres_clock_impl;
     lowres_clock::time_point _lowres_next_timeout;
-    std::experimental::optional<poller> _epoll_poller;
-    std::experimental::optional<pollable_fd> _aio_eventfd;
+    compat::optional<poller> _epoll_poller;
+    compat::optional<pollable_fd> _aio_eventfd;
     const bool _reuseport;
     circular_buffer<double> _loads;
     double _load = 0;
@@ -973,7 +973,7 @@ public:
     future<file> open_directory(sstring name);
     future<> make_directory(sstring name);
     future<> touch_directory(sstring name);
-    future<std::experimental::optional<directory_entry_type>>  file_type(sstring name);
+    future<compat::optional<directory_entry_type>>  file_type(sstring name);
     future<uint64_t> file_size(sstring pathname);
     future<bool> file_exists(sstring pathname);
     future<fs_type> file_system_at(sstring pathname);
@@ -1189,7 +1189,7 @@ inline bool engine_is_ready() {
 class smp {
     static std::vector<posix_thread> _threads;
     static std::vector<std::function<void ()>> _thread_loops; // for dpdk
-    static std::experimental::optional<boost::barrier> _all_event_loops_done;
+    static compat::optional<boost::barrier> _all_event_loops_done;
     static std::vector<reactor*> _reactors;
     struct qs_deleter {
       void operator()(smp_message_queue** qs) const;
@@ -1527,7 +1527,7 @@ void timer<Clock>::set_callback(callback_t&& callback) {
 
 template <typename Clock>
 inline
-void timer<Clock>::arm_state(time_point until, std::experimental::optional<duration> period) {
+void timer<Clock>::arm_state(time_point until, compat::optional<duration> period) {
     assert(!_armed);
     _period = period;
     _armed = true;
@@ -1538,14 +1538,14 @@ void timer<Clock>::arm_state(time_point until, std::experimental::optional<durat
 
 template <typename Clock>
 inline
-void timer<Clock>::arm(time_point until, std::experimental::optional<duration> period) {
+void timer<Clock>::arm(time_point until, compat::optional<duration> period) {
     arm_state(until, period);
     engine().add_timer(this);
 }
 
 template <typename Clock>
 inline
-void timer<Clock>::rearm(time_point until, std::experimental::optional<duration> period) {
+void timer<Clock>::rearm(time_point until, compat::optional<duration> period) {
     if (_armed) {
         cancel();
     }

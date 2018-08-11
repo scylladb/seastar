@@ -21,7 +21,7 @@
 
 #pragma once
 
-#include <boost/variant.hpp>
+#include "util/std-compat.hh"
 #include <boost/version.hpp>
 
 #if (BOOST_VERSION < 105800)
@@ -105,10 +105,14 @@ template <typename Variant, typename... Args>
 inline auto visit(Variant&& variant, Args&&... args)
 {
     static_assert(sizeof...(Args) > 0, "At least one lambda must be provided for visitation");
+#ifdef SEASTAR_USE_STD_OPTIONAL_VARIANT_STRINGVIEW
+    return std::visit(
+#else
     return boost::apply_visitor(
+#endif
         make_visitor(std::forward<Args>(args)...),
         variant);
-};
+}
 
 
 /// @}

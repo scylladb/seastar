@@ -23,17 +23,15 @@
 
 #include "util/noncopyable_function.hh"
 #include "util/optimized_optional.hh"
+#include "util/std-compat.hh"
 
 #include <boost/intrusive/list.hpp>
 
 #include <exception>
-#include <experimental/optional>
 
 namespace bi = boost::intrusive;
 
 namespace seastar {
-
-namespace stdx = std::experimental;
 
 /// \addtogroup fiber-module
 /// @{
@@ -102,7 +100,7 @@ public:
 
 private:
     using subscription_list_type = bi::list<subscription, bi::constant_time_size<false>>;
-    stdx::optional<subscription_list_type> _subscriptions = subscription_list_type();
+    compat::optional<subscription_list_type> _subscriptions = subscription_list_type();
 
 public:
     /// Delays the invocation of the callback \c f until \ref request_abort() is called.

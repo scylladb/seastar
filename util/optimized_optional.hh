@@ -22,8 +22,8 @@
 #pragma once
 
 #include "util/gcc6-concepts.hh"
+#include "util/std-compat.hh"
 
-#include <experimental/optional>
 #include <experimental/type_traits>
 #include <iostream>
 
@@ -53,10 +53,10 @@ class optimized_optional {
     T _object;
 public:
     optimized_optional() = default;
-    optimized_optional(std::experimental::nullopt_t) noexcept { }
+    optimized_optional(compat::nullopt_t) noexcept { }
     optimized_optional(const T& obj) : _object(obj) { }
     optimized_optional(T&& obj) noexcept : _object(std::move(obj)) { }
-    optimized_optional(std::experimental::optional<T>&& obj) noexcept {
+    optimized_optional(compat::optional<T>&& obj) noexcept {
         if (obj) {
             _object = std::move(*obj);
         }
@@ -64,7 +64,7 @@ public:
     optimized_optional(const optimized_optional&) = default;
     optimized_optional(optimized_optional&&) = default;
 
-    optimized_optional& operator=(std::experimental::nullopt_t) noexcept {
+    optimized_optional& operator=(compat::nullopt_t) noexcept {
         _object = T();
         return *this;
     }

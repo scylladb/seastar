@@ -146,14 +146,14 @@ do_if_constexpr_<Condition, TrueFn, FalseFn> if_constexpr_(TrueFn&& true_fn, Fal
 
 template<typename Test>
 class concrete_performance_test final : public performance_test {
-    std::experimental::optional<Test> _test;
+    compat::optional<Test> _test;
 protected:
     virtual void set_up() override {
         _test.emplace();
     }
 
     virtual void tear_down() noexcept override {
-        _test = std::experimental::nullopt;
+        _test = compat::nullopt;
     }
 
     [[gnu::hot]]

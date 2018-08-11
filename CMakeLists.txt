@@ -137,6 +137,10 @@ set (SEASTAR_JENKINS
   STRING
   "Configure the build and tests for execution within a Jenkins context, with the given identifier.")
 
+option (SEASTAR_USE_STD_OPTIONAL_VARIANT_STRINGVIEW
+  "Use C++17 std types for optional, variant, and string_view. Requires C++17 dialect and GCC >= 8.1.1-5."
+  OFF)
+
 #
 # Link pools (only supported for the Ninja generator).
 #
@@ -575,6 +579,10 @@ endif ()
 if (${SEASTAR_ENABLE_ALLOC_FAILURE_INJECTOR})
   target_compile_definitions (seastar PUBLIC
     SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION)
+endif ()
+
+if ((${SEASTAR_USE_STD_OPTIONAL_VARIANT_STRINGVIEW} EQUAL 1) AND (${SEASTAR_CXX_DIALECT} STREQUAL "gnu++17"))
+  target_compile_definitions (seastar PUBLIC SEASTAR_USE_STD_OPTIONAL_VARIANT_STRINGVIEW)
 endif ()
 
 ##

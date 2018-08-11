@@ -21,14 +21,13 @@
 
 #pragma once
 
-#include <experimental/optional>
+#include "util/std-compat.hh"
 #include <istream>
 #include <string>
 #include <unordered_map>
 
 namespace seastar {
 namespace net {
-    namespace stdx = std::experimental;
 
     struct ipv4_config {
         std::string ip;
@@ -39,14 +38,14 @@ namespace net {
 
     struct hw_config {
         std::string pci_address;
-        stdx::optional<unsigned> port_index;
+        compat::optional<unsigned> port_index;
         bool lro{ true };
         bool tso{ true };
         bool ufo{ true };
         bool hw_fc{ true };
         bool event_index{ true };
         bool csum_offload{ true };
-        stdx::optional<unsigned> ring_size;
+        compat::optional<unsigned> ring_size;
     };
 
     struct device_config {

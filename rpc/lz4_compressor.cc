@@ -29,15 +29,15 @@ namespace rpc {
 const sstring lz4_compressor::factory::_name = "LZ4";
 
 
-static temporary_buffer<char> linearize(boost::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>>& v, uint32_t size) {
-    auto* one = boost::get<temporary_buffer<char>>(&v);
+static temporary_buffer<char> linearize(compat::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>>& v, uint32_t size) {
+    auto* one = compat::get_if<temporary_buffer<char>>(&v);
     if (one) {
         // no need to linearize
         return std::move(*one);
     } else {
         temporary_buffer<char> src(size);
         auto p = src.get_write();
-        for (auto&& b : boost::get<std::vector<temporary_buffer<char>>>(v)) {
+        for (auto&& b : compat::get<std::vector<temporary_buffer<char>>>(v)) {
             p = std::copy_n(b.begin(), b.size(), p);
         }
         return src;
@@ -75,7 +75,7 @@ rcv_buf lz4_compressor::decompress(rcv_buf data) {
             src.trim_front(4);
             rcv_buf rb(size);
             rb.bufs = temporary_buffer<char>(size);
-            auto& dst = boost::get<temporary_buffer<char>>(rb.bufs);
+            auto& dst = compat::get<temporary_buffer<char>>(rb.bufs);
             if (LZ4_decompress_fast(src.begin(), dst.get_write(), dst.size()) < 0) {
                 throw std::runtime_error("RPC frame LZ4 decompression failure");
             }

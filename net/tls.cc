@@ -21,8 +21,6 @@
 
 #include <gnutls/gnutls.h>
 #include <gnutls/x509.h>
-
-#include <experimental/optional>
 #include <system_error>
 
 #include "core/reactor.hh"
@@ -32,6 +30,7 @@
 #include "core/timer.hh"
 #include "tls.hh"
 #include "stack.hh"
+#include "util/std-compat.hh"
 
 namespace seastar {
 
@@ -438,19 +437,19 @@ void tls::credentials_builder::set_dh_level(dh_params::level level) {
 }
 
 void tls::credentials_builder::set_x509_trust(const blob& b, x509_crt_format fmt) {
-    _blobs.emplace(x509_trust_key, std::make_pair(b.to_string(), fmt));
+    _blobs.emplace(x509_trust_key, std::make_pair(compat::string_view_to_string(b), fmt));
 }
 
 void tls::credentials_builder::set_x509_crl(const blob& b, x509_crt_format fmt) {
-    _blobs.emplace(x509_crl_key, std::make_pair(b.to_string(), fmt));
+    _blobs.emplace(x509_crl_key, std::make_pair(compat::string_view_to_string(b), fmt));
 }
 
 void tls::credentials_builder::set_x509_key(const blob& cert, const blob& key, x509_crt_format fmt) {
-    _blobs.emplace(x509_key_key, std::make_tuple(cert.to_string(), key.to_string(), fmt));
+    _blobs.emplace(x509_key_key, std::make_tuple(compat::string_view_to_string(cert), compat::string_view_to_string(key), fmt));
 }
 
 void tls::credentials_builder::set_simple_pkcs12(const blob& b, x509_crt_format fmt, const sstring& password) {
-    _blobs.emplace(pkcs12_key, std::make_tuple(b.to_string(), fmt, password));
+    _blobs.emplace(pkcs12_key, std::make_tuple(compat::string_view_to_string(b), fmt, password));
 }
 
 future<> tls::credentials_builder::set_system_trust() {
