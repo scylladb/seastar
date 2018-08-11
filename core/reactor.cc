@@ -2612,7 +2612,7 @@ void reactor::register_metrics() {
     for (auto& ioq : my_io_queues) {
         auto ioq_name = ioq_group(ioq->mountpoint());
         _metric_groups.add_group("reactor", {
-                sm::make_gauge("io_queue_requests", [this, &ioq] { return ioq->queued_requests(); } , sm::description("Number of requests in the io queue"), {ioq_name}),
+                sm::make_gauge("io_queue_requests", [&ioq] { return ioq->queued_requests(); } , sm::description("Number of requests in the io queue"), {ioq_name}),
         });
     }
 
@@ -3621,7 +3621,7 @@ void smp_message_queue::flush_request_batch() {
 }
 
 size_t smp_message_queue::process_incoming() {
-    auto nr = process_queue<prefetch_cnt>(_pending, [this] (work_item* wi) {
+    auto nr = process_queue<prefetch_cnt>(_pending, [] (work_item* wi) {
         wi->process();
     });
     _received += nr;

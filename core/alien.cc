@@ -89,7 +89,7 @@ size_t message_queue::process_incoming() {
     if (_pending.empty()) {
         return 0;
     }
-    auto nr = process_queue(_pending, [this] (work_item* wi) {
+    auto nr = process_queue(_pending, [] (work_item* wi) {
         wi->process();
         delete wi;
     });
