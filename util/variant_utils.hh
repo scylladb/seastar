@@ -114,6 +114,28 @@ inline auto visit(Variant&& variant, Args&&... args)
         variant);
 }
 
+namespace internal {
+template<typename... Args>
+struct castable_variant {
+    const compat::variant<Args...>& var;
+
+    template<typename... SuperArgs>
+    operator compat::variant<SuperArgs...>() const {
+#ifdef SEASTAR_USE_STD_OPTIONAL_VARIANT_STRINGVIEW
+        return std::visit([] (auto&& x) -> std::variant<SuperArgs...> {
+            return x;
+        }, var);
+#else
+        return var;
+#endif
+    }
+};
+}
+
+template<typename... Args>
+internal::castable_variant<Args...> variant_cast(const compat::variant<Args...>& var) {
+    return {var};
+}
 
 /// @}
 
