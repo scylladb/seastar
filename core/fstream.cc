@@ -325,6 +325,7 @@ public:
     virtual temporary_buffer<char> allocate_buffer(size_t size) override {
         return temporary_buffer<char>::aligned(_file.memory_dma_alignment(), size);
     }
+    using data_sink_impl::put;
     virtual future<> put(temporary_buffer<char> buf) override {
         uint64_t pos = _pos;
         _pos += buf.size();
