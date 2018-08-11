@@ -194,7 +194,7 @@ class ipv4_tcp final : public ip_protocol {
 public:
     ipv4_tcp(ipv4& inet);
     ~ipv4_tcp();
-    virtual void received(packet p, ipv4_address from, ipv4_address to);
+    virtual void received(packet p, ipv4_address from, ipv4_address to) override;
     virtual bool forward(forward_hash& out_hash_data, packet& p, size_t off) override;
     friend class ipv4;
 };

@@ -132,7 +132,7 @@ public:
         return formatter::to_json(_value);
     }
 
-    virtual future<> write(output_stream<char>& s) const {
+    virtual future<> write(output_stream<char>& s) const override {
         return formatter::write(s, _value);
     }
 private:

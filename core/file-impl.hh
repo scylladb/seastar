@@ -53,20 +53,20 @@ public:
     posix_file_impl(int fd, file_open_options options, io_queue* ioq);
     posix_file_impl(int fd, std::atomic<unsigned>* refcount, io_queue *ioq);
     virtual ~posix_file_impl() override;
-    future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc);
-    future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc);
-    future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc);
-    future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc);
-    future<> flush(void);
-    future<struct stat> stat(void);
-    future<> truncate(uint64_t length);
-    future<> discard(uint64_t offset, uint64_t length);
+    future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc) override;
+    future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) override;
+    future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc) override;
+    future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) override;
+    future<> flush(void) override;
+    future<struct stat> stat(void) override;
+    future<> truncate(uint64_t length) override;
+    future<> discard(uint64_t offset, uint64_t length) override;
     virtual future<> allocate(uint64_t position, uint64_t length) override;
-    future<uint64_t> size();
+    future<uint64_t> size() override;
     virtual future<> close() noexcept override;
     virtual std::unique_ptr<seastar::file_handle_impl> dup() override;
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) override;
-    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc);
+    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc) override;
 private:
     void query_dma_alignment();
 
