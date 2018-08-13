@@ -123,7 +123,7 @@ constexpr auto nullopt = std::experimental::nullopt;
 
 template <typename T>
 inline constexpr optional<std::decay_t<T>> make_optional(T&& value) {
-    return compat::make_optional(std::forward<T>(value));
+    return std::experimental::make_optional(std::forward<T>(value));
 }
 
 template <typename CharT, typename Traits = std::char_traits<CharT>>
