@@ -481,6 +481,8 @@ SEASTAR_TEST_CASE(test_fstream_slow_start) {
         auto make_fstream = [&] {
             struct fstream_wrapper {
                 input_stream<char> s;
+                fstream_wrapper(fstream_wrapper&&) = default;
+                fstream_wrapper& operator=(fstream_wrapper&&) = default;
                 future<temporary_buffer<char>> read() {
                     return s.read();
                 }
