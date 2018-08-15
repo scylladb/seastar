@@ -56,7 +56,7 @@ SEASTAR_TEST_CASE(steady_clock_sanity) {
 // high-resolution system clock.
 //
 SEASTAR_TEST_CASE(system_clock_sanity) {
-    static constexpr auto check_matching = [] {
+    static const auto check_matching = [] {
         auto const system_time = std::chrono::system_clock::now();
         auto const lowres_time = lowres_system_clock::now();
 
