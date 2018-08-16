@@ -178,7 +178,7 @@ SEASTAR_TEST_CASE(test_rpc_connect) {
             co.send_timeout_data = j & 2;
             auto f = with_rpc_env({}, so, true, false, [co] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
                 return seastar::async([&proto, make_socket, co] {
-                    auto c1 = test_rpc_proto::client(proto, co, make_socket(), ipv4_addr());
+                    test_rpc_proto::client c1(proto, co, make_socket(), ipv4_addr());
                     auto sum = proto.register_handler(1, [](int a, int b) {
                         return make_ready_future<int>(a+b);
                     });
@@ -212,7 +212,7 @@ SEASTAR_TEST_CASE(test_rpc_connect_multi_compression_algo) {
     co.compressor_factory = &client;
     return with_rpc_env({}, so, true, false, [co] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return seastar::async([&proto, make_socket, co] {
-            auto c1 = test_rpc_proto::client(proto, co, make_socket(), ipv4_addr());
+            test_rpc_proto::client c1(proto, co, make_socket(), ipv4_addr());
             auto sum = proto.register_handler(1, [](int a, int b) {
                 return make_ready_future<int>(a+b);
             });
@@ -229,7 +229,7 @@ SEASTAR_TEST_CASE(test_rpc_connect_multi_compression_algo) {
 SEASTAR_TEST_CASE(test_rpc_connect_abort) {
     return with_rpc_env({}, {}, false, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return seastar::async([&proto, make_socket] {
-            auto c1 = test_rpc_proto::client(proto, {}, make_socket(), ipv4_addr());
+            test_rpc_proto::client c1(proto, {}, make_socket(), ipv4_addr());
             auto f = proto.register_handler(1, []() { return make_ready_future<>(); });
             c1.stop().get0();
             try {
@@ -244,7 +244,7 @@ SEASTAR_TEST_CASE(test_rpc_cancel) {
     using namespace std::chrono_literals;
     return with_rpc_env({}, {}, true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return seastar::async([&proto, make_socket] {
-            auto c1 = test_rpc_proto::client(proto, {}, make_socket(), ipv4_addr());
+            test_rpc_proto::client c1(proto, {}, make_socket(), ipv4_addr());
             bool rpc_executed = false;
             int good = 0;
             promise<> handler_called;
@@ -280,7 +280,7 @@ SEASTAR_TEST_CASE(test_rpc_cancel) {
 SEASTAR_TEST_CASE(test_message_to_big) {
     return with_rpc_env({0, 1, 100}, {}, true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return seastar::async([&proto, make_socket] {
-            auto c = test_rpc_proto::client(proto, {}, make_socket(), ipv4_addr());
+            test_rpc_proto::client c(proto, {}, make_socket(), ipv4_addr());
             bool good = true;
             auto call = proto.register_handler(1, [&] (sstring payload) mutable {
                 good = false;
@@ -313,7 +313,7 @@ struct stream_test_result {
 future<stream_test_result> stream_test_func(test_rpc_proto& proto, make_socket_fn make_socket, bool stop_client) {
     return seastar::async([&proto, make_socket, stop_client] {
         stream_test_result r;
-        auto c = test_rpc_proto::client(proto, {}, make_socket(), ipv4_addr());
+        test_rpc_proto::client c(proto, {}, make_socket(), ipv4_addr());
         future<> server_done = make_ready_future();
         proto.register_handler(1, [&](int i, rpc::source<int> source) {
             BOOST_REQUIRE_EQUAL(i, 666);
@@ -440,7 +440,7 @@ SEASTAR_TEST_CASE(test_stream_connection_error) {
 SEASTAR_TEST_CASE(test_rpc_scheduling) {
     return with_rpc_env({}, {}, true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return seastar::async([&proto, make_socket] {
-            auto c1 = test_rpc_proto::client(proto, {}, make_socket(), ipv4_addr());
+            test_rpc_proto::client c1(proto, {}, make_socket(), ipv4_addr());
             auto sg = create_scheduling_group("rpc", 100).get0();
             auto call = proto.register_handler(1, sg, [sg] () mutable {
                 BOOST_REQUIRE(sg == current_scheduling_group());

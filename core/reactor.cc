@@ -242,6 +242,8 @@ template <typename T>
 struct syscall_result {
     T result;
     int error;
+    syscall_result(T result, int error) : result{std::move(result)}, error{error} {
+    }
     void throw_if_error() {
         if (long(result) == -1) {
             throw std::system_error(ec());
@@ -270,21 +272,20 @@ protected:
 template <typename Extra>
 struct syscall_result_extra : public syscall_result<int> {
     Extra extra;
+    syscall_result_extra(int result, int error, Extra e) : syscall_result<int>{result, error}, extra{std::move(e)} {
+    }
 };
 
 template <typename T>
 syscall_result<T>
 wrap_syscall(T result) {
-    syscall_result<T> sr;
-    sr.result = result;
-    sr.error = errno;
-    return sr;
+    return syscall_result<T>{std::move(result), errno};
 }
 
 template <typename Extra>
 syscall_result_extra<Extra>
 wrap_syscall(int result, const Extra& extra) {
-    return {result, errno, extra};
+    return syscall_result_extra<Extra>{result, errno, extra};
 }
 
 reactor_backend_epoll::reactor_backend_epoll()
