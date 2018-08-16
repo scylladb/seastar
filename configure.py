@@ -602,7 +602,7 @@ deps = {
     'demos/tcp_sctp_client_demo': ['demos/tcp_sctp_client_demo.cc'] + core + libnet,
     'tests/unit/tls_test': ['tests/unit/tls_test.cc'] + core + libnet,
     'tests/unit/fair_queue_test': ['tests/unit/fair_queue_test.cc'] + core,
-    'apps/seawreck/seawreck': ['apps/seawreck/seawreck.cc', 'src/http/http_response_parser.rl'] + core + libnet,
+    'apps/seawreck/seawreck': ['apps/seawreck/seawreck.cc', 'src/http/response_parser.rl'] + core + libnet,
     'apps/io_tester/io_tester': ['apps/io_tester/io_tester.cc'] + core,
     'apps/iotune/iotune': ['apps/iotune/iotune.cc'] + core,
     'demos/block_discard_demo': ['demos/block_discard_demo.cc'] + core,

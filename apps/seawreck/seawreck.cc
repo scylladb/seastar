@@ -19,7 +19,7 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#include <seastar/http/http_response_parser.hh>
+#include <seastar/http/response_parser.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/app-template.hh>
