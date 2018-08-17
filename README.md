@@ -1,6 +1,11 @@
 Seastar
 =======
 
+[![Travis Build Status](https://travis-ci.org/scylladb/seastar.svg?branch=master)](https://travis-ci.org/scylladb/seastar)
+[![Version](https://img.shields.io/github/tag/scylladb/seastar.svg?label=version&colorB=green)](https://github.com/scylladb/seastar/releases)
+[![License: Apache2](https://img.shields.io/github/license/scylladb/seastar.svg)](https://github.com/scylladb/seastar/blob/master/LICENSE)
+[![n00b issues](https://img.shields.io/github/issues/scylladb/seastar/n00b.svg?colorB=green)](https://github.com/scylladb/seastar/labels/n00b)
+
 Introduction
 ------------
 
@@ -65,7 +70,3 @@ Recommended hardware configuration for SeaStar
        Both memaslap (memcached) and WRK (httpd) cannot over load their matching
        server counter parts. We recommend running the client on different machine
        than the servers and use several of them.
-
-Build status
-------------
-On Travis CI: [![Travis Build Status](https://travis-ci.org/scylladb/seastar.svg?branch=master)](https://travis-ci.org/scylladb/seastar)
