@@ -42,6 +42,7 @@ public:
     void start(int argc, char** argv);
     ~test_runner();
     void run_sync(std::function<future<>()> task);
+    void finalize();
 };
 
 test_runner& global_test_runner();

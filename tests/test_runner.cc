@@ -33,10 +33,7 @@ static test_runner instance;
 struct stop_execution : public std::exception {};
 
 test_runner::~test_runner() {
-    if (_thread) {
-        _task.interrupt(stop_execution());
-        _thread->join();
-    }
+    finalize();
 }
 
 void
@@ -89,6 +86,14 @@ test_runner::run_sync(std::function<future<>()> task) {
     auto maybe_exception = e.take();
     if (maybe_exception) {
         std::rethrow_exception(maybe_exception);
+    }
+}
+
+void test_runner::finalize() {
+    if (_thread) {
+        _task.interrupt(stop_execution());
+        _thread->join();
+        _thread = nullptr;
     }
 }
 
