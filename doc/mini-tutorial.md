@@ -76,7 +76,7 @@ future<> loop_to(int end) {
     if (value == end) {
         return make_ready_future<>();
     }
-    get().then([end] (int value) {
+    get().then([] (int value) {
         return put(value + 1);
     }).then([end] {
         return loop_to(end);
