@@ -7,6 +7,11 @@ Installing required packages:
 sudo ./install-dependencies.sh
 ```
 
+update git submodules:
+'''
+git submodule update --init
+'''
+
 You then need to run the following to create the "build.ninja" file:
 ```
 ./configure.py
