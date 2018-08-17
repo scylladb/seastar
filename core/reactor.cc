@@ -203,6 +203,9 @@ std::atomic<lowres_clock_impl::system_rep> lowres_clock_impl::counters::_system_
 std::atomic<manual_clock::rep> manual_clock::_now;
 constexpr std::chrono::milliseconds lowres_clock_impl::_granularity;
 
+constexpr unsigned reactor::max_queues;
+constexpr unsigned reactor::max_aio_per_queue;
+
 static bool sched_debug() {
     return false;
 }
