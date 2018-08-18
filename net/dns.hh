@@ -58,6 +58,13 @@ struct hostent {
 
 typedef compat::optional<inet_address::family> opt_family;
 
+struct srv_record {
+    unsigned short priority;
+    unsigned short weight;
+    unsigned short port;
+    sstring target;
+};
+
 /**
  * A DNS resolver object.
  * Wraps the query logic & networking.
@@ -80,6 +87,11 @@ public:
         compat::optional<std::vector<sstring>>
             domains;
     };
+
+    enum class srv_proto {
+        tcp, udp
+    };
+    using srv_records = std::vector<srv_record>;
 
     dns_resolver();
     dns_resolver(dns_resolver&&) noexcept;
@@ -106,6 +118,13 @@ public:
      * Resolves an address to one (primary) name
      */
     future<sstring> resolve_addr(const inet_address&);
+
+    /**
+     * Resolve a service in given domain to one or more SRV records
+     */
+    future<srv_records> get_srv_records(srv_proto proto,
+                                        const sstring& service,
+                                        const sstring& domain);
 
     /**
      * Shuts the object down. Great for tests.

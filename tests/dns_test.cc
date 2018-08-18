@@ -103,3 +103,28 @@ SEASTAR_TEST_CASE(test_bad_name_tcp) {
     return test_bad_name(opts);
 }
 
+static const sstring imaps_service = "imaps";
+static const sstring gmail_domain = "gmail.com";
+
+static future<> test_srv() {
+    auto d = ::make_lw_shared<dns_resolver>();
+    return d->get_srv_records(dns_resolver::srv_proto::tcp,
+                              imaps_service,
+                              gmail_domain).then([d](dns_resolver::srv_records records) {
+        BOOST_REQUIRE(!records.empty());
+        for (auto& record : records) {
+            // record.target should end with "gmail.com"
+            BOOST_REQUIRE_GT(record.target.size(), gmail_domain.size());
+            BOOST_REQUIRE_EQUAL(record.target.compare(record.target.size() - gmail_domain.size(),
+                                                      gmail_domain.size(),
+                                                      gmail_domain),
+                                0);
+        }
+    }).finally([d]{
+        return d->close();
+    });
+}
+
+SEASTAR_TEST_CASE(test_srv_tcp) {
+    return test_srv();
+}
