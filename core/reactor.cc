@@ -702,6 +702,14 @@ reactor::task_quota_timer_thread_fn() {
         std::atomic_signal_fence(std::memory_order_seq_cst);
     }
 }
+void 
+reactor::update_blocked_reactor_notify_ms(std::chrono::milliseconds ms) {
+    unsigned threshold = ms / _task_quota;
+    if (threshold != _tasks_processed_report_threshold) {
+        _tasks_processed_report_threshold = threshold;
+        seastar_logger.info("updated: blocked-reactor-notify-ms={}", ms.count());
+    }
+}
 
 void
 reactor::block_notifier(int) {

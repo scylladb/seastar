@@ -1156,6 +1156,8 @@ public:
     void set_bypass_fsync(bool value) {
         _bypass_fsync = value;
     }
+
+    void update_blocked_reactor_notify_ms(std::chrono::milliseconds ms);
 };
 
 template <typename Func> // signature: bool ()
