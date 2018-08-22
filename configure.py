@@ -157,7 +157,7 @@ def dialect_supported(dialect, compiler='g++'):
 def detect_membarrier(compiler, flags):
     return try_compile(compiler=compiler, flags=flags, source=textwrap.dedent('''\
         #include <linux/membarrier.h>
-        
+
         int x = MEMBARRIER_CMD_PRIVATE_EXPEDITED | MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED;
         '''))
 
@@ -305,6 +305,7 @@ tests = [
     'tests/netconfig_test',
     'tests/abort_source_test',
     'tests/alien_test',
+    'tests/simple_stream_test',
     ] + perf_tests
 
 apps = [
@@ -620,6 +621,7 @@ deps = {
     'tests/netconfig_test': ['tests/netconfig_test.cc'] + core + libnet,
     'tests/abort_source_test': ['tests/abort_source_test.cc'] + core,
     'tests/alien_test': ['tests/alien_test.cc'] + core,
+    'tests/simple_stream_test': ['tests/simple_stream_test.cc'] + core,
 }
 
 boost_tests = [
