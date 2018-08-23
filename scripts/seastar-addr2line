@@ -26,7 +26,7 @@ import subprocess
 
 
 class BacktraceResolver(object):
-    object_address_re = re.compile('^.*(((/[^/]+)+)\+)?(0x[0-9a-f]+)\W*$')
+    object_address_re = re.compile('^.*?(((/[^/]+)+)\+)?(0x[0-9a-f]+)\W*$')
 
     def __init__(self, executable, before_lines):
         self._executable = executable
