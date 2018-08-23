@@ -42,7 +42,10 @@ class BacktraceResolver(object):
 
     def _print_resolved_addresses(self, module, addresses):
         if not self._verbose:
-            print(subprocess.check_output(["addr2line", "-Cfpi", "-e", module] + addresses))
+            out = subprocess.check_output(["addr2line", "-Cfpi", "-e", module] + addresses)
+            sys.stdout.write(out)
+            if not out[-1] == '\n':
+                sys.stdout.write('\n')
             return
 
         resolved_addresses = subprocess.check_output(["addr2line", "-Cfpia", "-e", module] + addresses)
