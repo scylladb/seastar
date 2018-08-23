@@ -28,19 +28,27 @@ import subprocess
 class BacktraceResolver(object):
     object_address_re = re.compile('^.*?(((/[^/]+)+)\+)?(0x[0-9a-f]+)\W*$')
 
-    def __init__(self, executable, before_lines):
+    def __init__(self, executable, before_lines, verbose):
         self._executable = executable
         self._current_backtrace = []
         self._before_lines = before_lines
         self._before_lines_queue = collections.deque(maxlen=before_lines)
         self._i = 0
         self._known_backtraces = {}
+        self._verbose = verbose
 
     def __del__(self):
         self._print_current_backtrace()
 
     def _print_resolved_addresses(self, module, addresses):
-        print(subprocess.check_output(["addr2line", "-Cfpi", "-e", module] + addresses))
+        if not self._verbose:
+            print(subprocess.check_output(["addr2line", "-Cfpi", "-e", module] + addresses))
+            return
+
+        resolved_addresses = subprocess.check_output(["addr2line", "-Cfpia", "-e", module] + addresses)
+        for resolved_address in resolved_addresses.split('\n'):
+            if resolved_address != '':
+                print('{{{}}} {}'.format(module, resolved_address))
 
     def _print_current_backtrace(self):
         if len(self._current_backtrace) == 0:
@@ -172,6 +180,14 @@ cmdline_parser.add_argument(
         'Set to -1 to print all non-backtrace lines. Default is 1.')
 
 cmdline_parser.add_argument(
+        '-v',
+        '--verbose',
+        action='store_true',
+        default=False,
+        help='Make resolved backtraces verbose, prepend to each line the module'
+        ' it originates from, as well as the address being resolved')
+
+cmdline_parser.add_argument(
         'addresses',
         type=str,
         metavar='ADDRESS',
@@ -195,4 +211,4 @@ else:
     else:
         lines = sys.stdin
 
-map(BacktraceResolver(args.executable, args.before), lines)
+map(BacktraceResolver(args.executable, args.before, args.verbose), lines)
