@@ -37,12 +37,9 @@ public:
     }
 };
 
-struct simple_stream_tag {};
-
 template<typename>
 class memory_output_stream;
 
-template<typename Iterator>
 class simple_memory_input_stream;
 
 template<typename Iterator>
@@ -106,8 +103,7 @@ public:
     // underlying buffer and provides write interface. to_input_stream() converts it
     // to a read cursor that points to the same part of the buffer but provides
     // read interface.
-    template<typename Iterator = simple_stream_tag>
-    simple_memory_input_stream<Iterator> to_input_stream() const;
+    simple_memory_input_stream to_input_stream() const;
 };
 
 template<typename Iterator>
@@ -193,7 +189,7 @@ public:
 
 private:
     const bool _is_simple;
-    using fragmented_type = std::conditional_t<std::is_same<Iterator, simple_stream_tag>::value, simple, fragmented>;
+    using fragmented_type = fragmented;
     union {
         simple _simple;
         fragmented_type _fragmented;
@@ -220,7 +216,7 @@ public:
     using has_with_stream = std::true_type;
     using iterator_type = Iterator;
     memory_output_stream()
-            : _is_simple(true), _simple() {}    
+            : _is_simple(true), _simple() {}
     memory_output_stream(simple stream)
             : _is_simple(true), _simple(std::move(stream)) {}
     memory_output_stream(fragmented stream)
@@ -321,14 +317,12 @@ public:
     memory_input_stream<Iterator> to_input_stream() const;
 };
 
-template<typename Iterator>
 class simple_memory_input_stream {
     using simple = simple_memory_input_stream;
 
     const char* _p = nullptr;
     size_t _size = 0;
 public:
-    using iterator_type = Iterator;
     using has_with_stream = std::false_type;
     simple_memory_input_stream() = default;
     simple_memory_input_stream(const char* p, size_t size) : _p(p), _size(size) {}
@@ -377,7 +371,7 @@ public:
 
 template<typename Iterator>
 class fragmented_memory_input_stream {
-    using simple = simple_memory_input_stream<Iterator>;
+    using simple = simple_memory_input_stream;
     using fragmented = fragmented_memory_input_stream;
 
     Iterator _it;
@@ -459,11 +453,11 @@ concept bool StreamVisitor() {
 template<typename Iterator>
 class memory_input_stream {
 public:
-    using simple = simple_memory_input_stream<Iterator>;
+    using simple = simple_memory_input_stream;
     using fragmented = fragmented_memory_input_stream<Iterator>;
 private:
     const bool _is_simple;
-    using fragmented_type = std::conditional_t<std::is_same<Iterator, simple_stream_tag>::value, simple, fragmented>;
+    using fragmented_type = fragmented;
     union {
         simple _simple;
         fragmented_type _fragmented;
@@ -545,7 +539,7 @@ public:
     [[gnu::always_inline]]
     ~memory_input_stream() {
         if (_is_simple) {
-            _simple.~simple();
+            _simple.~simple_memory_input_stream();
         } else {
             _fragmented.~fragmented_type();
         }
@@ -591,21 +585,20 @@ public:
     friend decltype(auto) with_serialized_stream(Stream& stream, StreamVisitor&& visitor);
 };
 
-template<typename Iterator>
-inline simple_memory_input_stream<Iterator> simple_memory_output_stream::to_input_stream() const {
-    return simple_memory_input_stream<Iterator>(_p, _size);
+inline simple_memory_input_stream simple_memory_output_stream::to_input_stream() const {
+    return simple_memory_input_stream(_p, _size);
 }
 
 template<typename Iterator>
 inline fragmented_memory_input_stream<Iterator> fragmented_memory_output_stream<Iterator>::to_input_stream() const {
-    return fragmented_memory_input_stream<Iterator>(_it, _current.to_input_stream<Iterator>(), _size);
+    return fragmented_memory_input_stream<Iterator>(_it, _current.to_input_stream(), _size);
 }
 
 template<typename Iterator>
 inline memory_input_stream<Iterator> memory_output_stream<Iterator>::to_input_stream() const {
     return with_stream(make_visitor(
         [] (const simple_memory_output_stream& ostream) -> memory_input_stream<Iterator> {
-            return ostream.to_input_stream<Iterator>();
+            return ostream.to_input_stream();
         },
         [] (const fragmented_memory_output_stream<Iterator>& ostream) -> memory_input_stream<Iterator> {
             return ostream.to_input_stream();
@@ -640,7 +633,7 @@ template<typename Stream, typename StreamVisitor, typename = std::enable_if_t<!S
     return visitor(stream);
 }
 
-using simple_input_stream = memory_input_stream<simple_stream_tag>::simple;
-using simple_output_stream = memory_output_stream<simple_stream_tag>::simple;
+using simple_input_stream = simple_memory_input_stream;
+using simple_output_stream = simple_memory_output_stream;
 
 }
