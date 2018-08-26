@@ -352,7 +352,22 @@ bool reactor::signals::pure_poll_signal() const {
 
 void reactor::signals::action(int signo, siginfo_t* siginfo, void* ignore) {
     g_need_preempt = true;
-    engine()._signals._pending_signals.fetch_or(1ull << signo, std::memory_order_relaxed);
+    if (engine_is_ready()) {
+        engine()._signals._pending_signals.fetch_or(1ull << signo, std::memory_order_relaxed);
+    } else {
+        failed_to_handle(signo);
+    }
+}
+
+void reactor::signals::failed_to_handle(int signo) {
+    char tname[64];
+    pthread_getname_np(pthread_self(), tname, sizeof(tname));
+    auto tid = syscall(SYS_gettid);
+    seastar_logger.error("Failed to handle signal {} on thread {} ({}): engine not ready", signo, tid, tname);
+}
+
+void reactor::handle_signal(int signo, std::function<void ()>&& handler) {
+    _signals.handle_signal(signo, std::move(handler));
 }
 
 // Accumulates an in-memory backtrace and flush to stderr eventually.
@@ -611,6 +626,17 @@ void
 reactor::task_quota_timer_thread_fn() {
     auto thread_name = seastar::format("timer-{}", _id);
     pthread_setname_np(pthread_self(), thread_name.c_str());
+
+    sigset_t mask;
+    sigfillset(&mask);            
+    for (auto sig : { SIGSEGV }) {
+        sigdelset(&mask, sig);
+    }
+    auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
+    if (r) {
+        seastar_logger.info("Thread {}: failed to block signals. Aborting.", thread_name.c_str());
+        abort();
+    }
 
     unsigned report_at = _tasks_processed_report_threshold;
     uint64_t last_tasks_processed_seen = 0;

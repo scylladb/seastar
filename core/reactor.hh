@@ -874,6 +874,11 @@ private:
     template <typename Func> // signature: bool ()
     static std::unique_ptr<pollfn> make_pollfn(Func&& func);
 
+public:
+    /// Register a user-defined signal handler
+    void handle_signal(int signo, std::function<void ()>&& handler);
+
+private:
     class signals {
     public:
         signals();
@@ -884,6 +889,7 @@ private:
         void handle_signal(int signo, std::function<void ()>&& handler);
         void handle_signal_once(int signo, std::function<void ()>&& handler);
         static void action(int signo, siginfo_t* siginfo, void* ignore);
+        static void failed_to_handle(int signo);
 
     private:
         struct signal_handler {
@@ -892,6 +898,8 @@ private:
         };
         std::atomic<uint64_t> _pending_signals;
         std::unordered_map<int, signal_handler> _signal_handlers;
+
+        friend void reactor::handle_signal(int, std::function<void ()>&&);
     };
 
     signals _signals;

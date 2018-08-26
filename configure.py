@@ -305,6 +305,7 @@ tests = [
     'tests/netconfig_test',
     'tests/abort_source_test',
     'tests/alien_test',
+    'tests/signal_test',
     ] + perf_tests
 
 apps = [
@@ -620,6 +621,7 @@ deps = {
     'tests/netconfig_test': ['tests/netconfig_test.cc'] + core + libnet,
     'tests/abort_source_test': ['tests/abort_source_test.cc'] + core,
     'tests/alien_test': ['tests/alien_test.cc'] + core,
+    'tests/signal_test': ['tests/signal_test.cc'] + core,
 }
 
 boost_tests = [
@@ -643,6 +645,7 @@ boost_tests = [
     'tests/execution_stage_test',
     'tests/lowres_clock_test',
     'tests/abort_source_test',
+    'tests/signal_test',
     ]
 
 for bt in boost_tests:

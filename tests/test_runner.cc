@@ -24,6 +24,7 @@
 #include "core/app-template.hh"
 #include "core/future-util.hh"
 #include "core/reactor.hh"
+#include "core/posix.hh"
 #include "test_runner.hh"
 
 namespace seastar {
@@ -41,6 +42,18 @@ test_runner::start(int ac, char** av) {
     bool expected = false;
     if (!_started.compare_exchange_strong(expected, true, std::memory_order_acquire)) {
         return;
+    }
+
+    // Don't interfere with seastar signal handling
+    sigset_t mask;
+    sigfillset(&mask);            
+    for (auto sig : { SIGSEGV }) {
+        sigdelset(&mask, sig);
+    }
+    auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
+    if (r) {
+        std::cerr << "Error blocking signals. Aborting." << std::endl;
+        abort();
     }
 
     _thread = std::make_unique<posix_thread>([this, ac, av]() mutable {
