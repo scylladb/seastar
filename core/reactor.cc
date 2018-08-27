@@ -4036,7 +4036,7 @@ void smp::qs_deleter::operator()(smp_message_queue** qs) const {
 class disk_config_params {
 public:
     unsigned _num_io_queues = smp::count;
-    unsigned _capacity = std::numeric_limits<unsigned>::max();
+    compat::optional<unsigned> _capacity;
     std::unordered_map<dev_t, mountpoint_params> _mountpoints;
     std::chrono::duration<double> _latency_goal;
 
@@ -4102,8 +4102,7 @@ public:
         uint64_t max_bandwidth = std::max(p.read_bytes_rate, p.write_bytes_rate);
         uint64_t max_iops = std::max(p.read_req_rate, p.write_req_rate);
 
-        cfg.capacity = per_io_queue(_capacity);
-        if (cfg.capacity == std::numeric_limits<unsigned>::max()) {
+        if (!_capacity) {
             cfg.disk_bytes_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
             cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
             cfg.max_req_count = max_bandwidth == std::numeric_limits<uint64_t>::max()
@@ -4114,6 +4113,7 @@ public:
                 : io_queue::read_request_base_count * per_io_queue(max_bandwidth * _latency_goal.count());
             cfg.mountpoint = p.mountpoint;
         } else {
+            cfg.capacity = per_io_queue(*_capacity);
             cfg.disk_bytes_write_to_read_multiplier = 1;
             cfg.disk_req_write_to_read_multiplier = 1;
         }
