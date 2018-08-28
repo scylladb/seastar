@@ -753,6 +753,10 @@ private:
     future_state<T...>* state() noexcept {
         return _promise ? _promise->_state : &_local_state;
     }
+    [[gnu::always_inline]]
+    const future_state<T...>* state() const noexcept {
+        return _promise ? _promise->_state : &_local_state;
+    }
     template <typename Func>
     void schedule(Func&& func) {
         if (state()->available()) {
@@ -909,7 +913,7 @@ public:
     ///
     /// \return \c true if the future has a value, or has failed.
     [[gnu::always_inline]]
-    bool available() noexcept {
+    bool available() const noexcept {
         return state()->available();
     }
 
