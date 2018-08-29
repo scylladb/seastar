@@ -52,6 +52,7 @@ boost_tests = [
     'tuple_utils_test',
     'noncopyable_function_test',
     'abort_source_test',
+    'signal_test',
     'simple_stream_test',
 ]
 
