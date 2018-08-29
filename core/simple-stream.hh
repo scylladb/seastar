@@ -21,6 +21,7 @@
 
 #pragma once
 #include "core/sstring.hh"
+#include "util/variant_utils.hh"
 
 namespace seastar {
 
@@ -36,10 +37,16 @@ public:
     }
 };
 
-struct simple_stream_tag {};
-
 template<typename>
 class memory_output_stream;
+
+class simple_memory_input_stream;
+
+template<typename Iterator>
+class fragmented_memory_input_stream;
+
+template<typename Iterator>
+class memory_input_stream;
 
 class simple_memory_output_stream {
     char* _p = nullptr;
@@ -79,9 +86,24 @@ public:
     }
 
     [[gnu::always_inline]]
+    void fill(char c, size_t size) {
+        if (size > _size) {
+            throw std::out_of_range("serialization buffer overflow");
+        }
+        std::fill_n(_p, size, c);
+        skip(size);
+    }
+
+    [[gnu::always_inline]]
     const size_t size() const {
         return _size;
     }
+
+    // simple_memory_output_stream is a write cursor that keeps a mutable view of some
+    // underlying buffer and provides write interface. to_input_stream() converts it
+    // to a read cursor that points to the same part of the buffer but provides
+    // read interface.
+    simple_memory_input_stream to_input_stream() const;
 };
 
 template<typename Iterator>
@@ -90,7 +112,9 @@ class fragmented_memory_output_stream {
 
     Iterator _it;
     simple _current;
-    size_t _size;
+    size_t _size = 0;
+
+    friend class memory_input_stream<Iterator>;
 private:
     template<typename Func>
     //requires requires(Func f, view bv) { { f(bv) } -> void; }
@@ -114,6 +138,9 @@ private:
 public:
     using has_with_stream = std::false_type;
     using iterator_type = Iterator;
+
+    fragmented_memory_output_stream() = default;
+
     fragmented_memory_output_stream(Iterator it, size_t size)
         : _it(it), _size(size) {
     }
@@ -139,9 +166,19 @@ public:
             p += bv.size();
         });
     }
+    void fill(char c, size_t size) {
+        for_each_fragment(size, [c] (simple fragment) {
+            std::fill_n(fragment.begin(), fragment.size(), c);
+        });
+    }
     const size_t size() const {
         return _size;
     }
+
+    // fragmented_memory_input_stream is a write cursor that keeps a mutable view of some
+    // underlying fragmented buffer and provides write interface. to_input_stream() converts
+    // it to a read cursor that points to the same part of the buffer but provides read interface.
+    fragmented_memory_input_stream<Iterator> to_input_stream() const;
 };
 
 template<typename Iterator>
@@ -152,7 +189,7 @@ public:
 
 private:
     const bool _is_simple;
-    using fragmented_type = std::conditional_t<std::is_same<Iterator, simple_stream_tag>::value, simple, fragmented>;
+    using fragmented_type = fragmented;
     union {
         simple _simple;
         fragmented_type _fragmented;
@@ -178,6 +215,8 @@ public:
 public:
     using has_with_stream = std::true_type;
     using iterator_type = Iterator;
+    memory_output_stream()
+            : _is_simple(true), _simple() {}
     memory_output_stream(simple stream)
             : _is_simple(true), _simple(std::move(stream)) {}
     memory_output_stream(fragmented stream)
@@ -262,11 +301,139 @@ public:
     }
 
     [[gnu::always_inline]]
+    void fill(char c, size_t size) {
+        with_stream([c, size] (auto& stream) {
+            stream.fill(c, size);
+        });
+    }
+
+    [[gnu::always_inline]]
     size_t size() const {
         return with_stream([] (auto& stream) {
             return stream.size();
         });
     }
+
+    memory_input_stream<Iterator> to_input_stream() const;
+};
+
+class simple_memory_input_stream {
+    using simple = simple_memory_input_stream;
+
+    const char* _p = nullptr;
+    size_t _size = 0;
+public:
+    using has_with_stream = std::false_type;
+    simple_memory_input_stream() = default;
+    simple_memory_input_stream(const char* p, size_t size) : _p(p), _size(size) {}
+
+    const char* begin() const { return _p; }
+
+    [[gnu::always_inline]]
+    void skip(size_t size) {
+        if (size > _size) {
+            throw std::out_of_range("deserialization buffer underflow");
+        }
+        _p += size;
+        _size -= size;
+    }
+
+    [[gnu::always_inline]]
+    simple read_substream(size_t size) {
+        if (size > _size) {
+            throw std::out_of_range("deserialization buffer underflow");
+        }
+        simple substream(_p, size);
+        skip(size);
+        return substream;
+    }
+
+    [[gnu::always_inline]]
+    void read(char* p, size_t size) {
+        if (size > _size) {
+            throw std::out_of_range("deserialization buffer underflow");
+        }
+        std::copy_n(_p, size, p);
+        skip(size);
+    }
+
+    template<typename Output>
+    [[gnu::always_inline]]
+    void copy_to(Output& out) const {
+        out.write(_p, _size);
+    }
+
+    [[gnu::always_inline]]
+    const size_t size() const {
+        return _size;
+    }
+};
+
+template<typename Iterator>
+class fragmented_memory_input_stream {
+    using simple = simple_memory_input_stream;
+    using fragmented = fragmented_memory_input_stream;
+
+    Iterator _it;
+    simple _current;
+    size_t _size;
+private:
+    template<typename Func>
+    //requires requires(Func f, view bv) { { f(bv) } -> void; }
+    void for_each_fragment(size_t size, Func&& func) {
+        if (size > _size) {
+            throw std::out_of_range("deserialization buffer underflow");
+        }
+        _size -= size;
+        while (size) {
+            if (!_current.size()) {
+                _current = simple(reinterpret_cast<const char*>((*_it).begin()), (*_it).size());
+                _it++;
+            }
+            auto this_size = std::min(_current.size(), size);
+            func(_current.read_substream(this_size));
+            size -= this_size;
+        }
+    }
+    fragmented_memory_input_stream(Iterator it, simple bv, size_t size)
+        : _it(it), _current(bv), _size(size) { }
+    friend class fragmented_memory_output_stream<Iterator>;
+public:
+    using has_with_stream = std::false_type;
+    using iterator_type = Iterator;
+    fragmented_memory_input_stream(Iterator it, size_t size)
+        : _it(it), _size(size) {
+    }
+
+    void skip(size_t size) {
+        for_each_fragment(size, [] (auto) { });
+    }
+    fragmented read_substream(size_t size) {
+        if (size > _size) {
+            throw std::out_of_range("deserialization buffer underflow");
+        }
+        fragmented substream(_it, _current, size);
+        skip(size);
+        return substream;
+    }
+    void read(char* p, size_t size) {
+        for_each_fragment(size, [&p] (auto bv) {
+            p = std::copy_n(bv.begin(), bv.size(), p);
+        });
+    }
+    template<typename Output>
+    void copy_to(Output& out) {
+        for_each_fragment(_size, [&out] (auto bv) {
+            bv.copy_to(out);
+        });
+    }
+    const size_t size() const {
+        return _size;
+    }
+
+    const char* first_fragment_data() const { return _current.begin(); }
+    size_t first_fragment_size() const { return _current.size(); }
+    Iterator fragment_iterator() const { return _it; }
 };
 
 /*
@@ -286,120 +453,11 @@ concept bool StreamVisitor() {
 template<typename Iterator>
 class memory_input_stream {
 public:
-    class simple {
-        const char* _p = nullptr;
-        size_t _size = 0;
-    public:
-        using has_with_stream = std::false_type;
-        using iterator_type = Iterator;
-        simple() {}
-        simple(const char* p, size_t size) : _p(p), _size(size) {}
-        const char* begin() const { return _p; }
-
-        [[gnu::always_inline]]
-        void skip(size_t size) {
-            if (size > _size) {
-                throw std::out_of_range("deserialization buffer underflow");
-            }
-            _p += size;
-            _size -= size;
-        }
-
-        [[gnu::always_inline]]
-        simple read_substream(size_t size) {
-           if (size > _size) {
-               throw std::out_of_range("deserialization buffer underflow");
-           }
-           simple substream(_p, size);
-           skip(size);
-           return substream;
-        }
-
-        [[gnu::always_inline]]
-        void read(char* p, size_t size) {
-            if (size > _size) {
-                throw std::out_of_range("deserialization buffer underflow");
-            }
-            std::copy_n(_p, size, p);
-            skip(size);
-        }
-
-        template<typename Output>
-        [[gnu::always_inline]]
-        void copy_to(Output& out) const {
-            out.write(_p, _size);
-        }
-
-        [[gnu::always_inline]]
-        const size_t size() const {
-            return _size;
-        }
-    };
-
-    class fragmented {
-        Iterator _it;
-        simple _current;
-        size_t _size;
-    private:
-        template<typename Func>
-        //requires requires(Func f, view bv) { { f(bv) } -> void; }
-        void for_each_fragment(size_t size, Func&& func) {
-            if (size > _size) {
-                throw std::out_of_range("deserialization buffer underflow");
-            }
-            _size -= size;
-            while (size) {
-                if (!_current.size()) {
-                    _current = simple(reinterpret_cast<const char*>((*_it).begin()), (*_it).size());
-                    _it++;
-                }
-                auto this_size = std::min(_current.size(), size);
-                func(_current.read_substream(this_size));
-                size -= this_size;
-            }
-        }
-        fragmented(Iterator it, simple bv, size_t size)
-            : _it(it), _current(bv), _size(size) { }
-    public:
-        using has_with_stream = std::false_type;
-        using iterator_type = Iterator;
-        fragmented(Iterator it, size_t size)
-            : _it(it), _size(size) {
-        }
-
-        void skip(size_t size) {
-            for_each_fragment(size, [] (auto) { });
-        }
-        fragmented read_substream(size_t size) {
-            if (size > _size) {
-                throw std::out_of_range("deserialization buffer underflow");
-            }
-            fragmented substream(_it, _current, size);
-            skip(size);
-            return substream;
-        }
-        void read(char* p, size_t size) {
-            for_each_fragment(size, [&p] (auto bv) {
-                p = std::copy_n(bv.begin(), bv.size(), p);
-            });
-        }
-        template<typename Output>
-        void copy_to(Output& out) {
-            for_each_fragment(_size, [&out] (auto bv) {
-                bv.copy_to(out);
-            });
-        }
-        const size_t size() const {
-            return _size;
-        }
-        
-        const char* first_fragment_data() const { return _current.begin(); }
-        size_t first_fragment_size() const { return _current.size(); }
-        Iterator fragment_iterator() const { return _it; }
-    };
+    using simple = simple_memory_input_stream;
+    using fragmented = fragmented_memory_input_stream<Iterator>;
 private:
     const bool _is_simple;
-    using fragmented_type = std::conditional_t<std::is_same<Iterator, simple_stream_tag>::value, simple, fragmented>;
+    using fragmented_type = fragmented;
     union {
         simple _simple;
         fragmented_type _fragmented;
@@ -481,7 +539,7 @@ public:
     [[gnu::always_inline]]
     ~memory_input_stream() {
         if (_is_simple) {
-            _simple.~simple();
+            _simple.~simple_memory_input_stream();
         } else {
             _fragmented.~fragmented_type();
         }
@@ -527,6 +585,27 @@ public:
     friend decltype(auto) with_serialized_stream(Stream& stream, StreamVisitor&& visitor);
 };
 
+inline simple_memory_input_stream simple_memory_output_stream::to_input_stream() const {
+    return simple_memory_input_stream(_p, _size);
+}
+
+template<typename Iterator>
+inline fragmented_memory_input_stream<Iterator> fragmented_memory_output_stream<Iterator>::to_input_stream() const {
+    return fragmented_memory_input_stream<Iterator>(_it, _current.to_input_stream(), _size);
+}
+
+template<typename Iterator>
+inline memory_input_stream<Iterator> memory_output_stream<Iterator>::to_input_stream() const {
+    return with_stream(make_visitor(
+        [] (const simple_memory_output_stream& ostream) -> memory_input_stream<Iterator> {
+            return ostream.to_input_stream();
+        },
+        [] (const fragmented_memory_output_stream<Iterator>& ostream) -> memory_input_stream<Iterator> {
+            return ostream.to_input_stream();
+        }
+    ));
+}
+
 // The purpose of the with_serialized_stream() is to minimize number of dynamic
 // dispatches. For example, a lot of IDL-generated code looks like this:
 // auto some_value() const {
@@ -554,7 +633,7 @@ template<typename Stream, typename StreamVisitor, typename = std::enable_if_t<!S
     return visitor(stream);
 }
 
-using simple_input_stream = memory_input_stream<simple_stream_tag>::simple;
-using simple_output_stream = memory_output_stream<simple_stream_tag>::simple;
+using simple_input_stream = simple_memory_input_stream;
+using simple_output_stream = simple_memory_output_stream;
 
 }
