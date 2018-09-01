@@ -974,6 +974,12 @@ future<sstring> net::dns::resolve_addr(const inet_address& addr) {
     return resolver().resolve_addr(addr);
 }
 
+future<net::dns_resolver::srv_records> net::dns::get_srv_records(net::dns_resolver::srv_proto proto,
+                                                                 const sstring& service,
+                                                                 const sstring& domain) {
+    return resolver().get_srv_records(proto, service, domain);
+}
+
 future<sstring> net::inet_address::hostname() const {
     return dns::resolve_addr(*this);
 }
