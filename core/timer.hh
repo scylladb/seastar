@@ -39,7 +39,7 @@ public:
     typedef typename Clock::duration duration;
     typedef Clock clock;
 private:
-    using callback_t = std::function<void()>;
+    using callback_t = noncopyable_function<void()>;
     boost::intrusive::list_member_hook<> _link;
     callback_t _callback;
     time_point _expiry;
