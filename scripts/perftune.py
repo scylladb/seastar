@@ -859,25 +859,45 @@ class DiskPerfTuner(PerfTunerBase):
 
         return disk2irqs
 
+    def __get_feature_file(self, dev_node, path_creator):
+        """
+        Find the closest ancestor with the given feature and return its ('feature file', 'device node') tuple.
+
+        If there isn't such an ancestor - return (None, None) tuple.
+
+        :param dev_node Device node file name, e.g. /dev/sda1
+        :param path_creator A functor that creates a feature file name given a device system file name
+        """
+        udev = pyudev.Device.from_device_file(pyudev.Context(), dev_node)
+        feature_file = path_creator(udev.sys_path)
+
+        if os.path.exists(feature_file):
+            return feature_file, dev_node
+        elif udev.parent is not None:
+            return self.__get_feature_file(udev.parent.device_node, path_creator)
+        else:
+            return None, None
+
     def __tune_one_feature(self, dev_node, path_creator, value, tuned_devs_set):
         """
         Find the closest ancestor that has the given feature, configure it and
         return True.
 
         If there isn't such ancestor - return False.
-        """
-        udev = pyudev.Device.from_device_file(pyudev.Context(), dev_node)
-        feature_file = path_creator(udev.sys_path)
-        if os.path.exists(feature_file):
-            if not dev_node in tuned_devs_set:
-                fwriteln_and_log(feature_file, value)
-                tuned_devs_set.add(dev_node)
 
-            return True
-        elif not udev.parent is None:
-            return self.__tune_one_feature(udev.parent.device_node, path_creator, value, tuned_devs_set)
-        else:
+        :param dev_node Device node file name, e.g. /dev/sda1
+        :param path_creator A functor that creates a feature file name given a device system file name
+        """
+        feature_file, feature_node = self.__get_feature_file(dev_node, path_creator)
+
+        if feature_file is None:
             return False
+
+        if feature_node not in tuned_devs_set:
+            fwriteln_and_log(feature_file, value)
+            tuned_devs_set.add(feature_node)
+
+        return True
 
     def __tune_io_scheduler(self, dev_node):
         return self.__tune_one_feature(dev_node, lambda p : os.path.join(p, 'queue', 'scheduler'), self.__io_scheduler, self.__io_scheduler_tuned_devs)
