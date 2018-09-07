@@ -44,6 +44,14 @@ def fwriteln(fname, line):
     except:
         print("Failed to write into {}: {}".format(fname, sys.exc_info()))
 
+def readlines(fname):
+    try:
+        with open(fname, 'r') as f:
+            return f.readlines()
+    except:
+        print("Failed to read {}: {}".format(fname, sys.exc_info()))
+        return []
+
 def fwriteln_and_log(fname, line):
     print("Writing '{}' to {}".format(line, fname))
     fwriteln(fname, line)
@@ -737,8 +745,11 @@ class DiskPerfTuner(PerfTunerBase):
 
 #### Private methods ############################
     @property
-    def __io_scheduler(self):
-        return 'noop'
+    def __io_schedulers(self):
+        """
+        :return: Set of IO schedulers that we want to configure
+        """
+        return frozenset(["none", "noop"])
 
     @property
     def __nomerges(self):
@@ -899,16 +910,44 @@ class DiskPerfTuner(PerfTunerBase):
 
         return True
 
-    def __tune_io_scheduler(self, dev_node):
-        return self.__tune_one_feature(dev_node, lambda p : os.path.join(p, 'queue', 'scheduler'), self.__io_scheduler, self.__io_scheduler_tuned_devs)
+    def __tune_io_scheduler(self, dev_node, io_scheduler):
+        return self.__tune_one_feature(dev_node, lambda p : os.path.join(p, 'queue', 'scheduler'), io_scheduler, self.__io_scheduler_tuned_devs)
 
     def __tune_nomerges(self, dev_node):
         return self.__tune_one_feature(dev_node, lambda p : os.path.join(p, 'queue', 'nomerges'), self.__nomerges, self.__nomerges_tuned_devs)
 
+    def __get_io_scheduler(self, dev_node):
+        """
+        Return a supported scheduler that is also present in the required schedulers list (__io_schedulers).
+
+        If there isn't such a supported scheduler - return None.
+        """
+        feature_file, feature_node = self.__get_feature_file(dev_node, lambda p : os.path.join(p, 'queue', 'scheduler'))
+
+        lines = readlines(feature_file)
+        if not lines:
+            return None
+
+        # Supported schedulers appear in the config file as a single line as follows:
+        #
+        # sched1 [sched2] sched3
+        #
+        # ...with one or more schedulers where currently selected scheduler is the one in brackets.
+        #
+        # We want to have in "schedulers" only those that are supported and appear in the __io_schedulers set.
+        schedulers = frozenset([scheduler.lstrip("[").rstrip("]") for scheduler in lines[0].split(" ")]) & self.__io_schedulers
+        if not schedulers:
+            return None
+
+        return list(schedulers)[0]
+
     def __tune_disk(self, device):
         dev_node = "/dev/{}".format(device)
+        io_scheduler = self.__get_io_scheduler(dev_node)
 
-        if not self.__tune_io_scheduler(dev_node):
+        if not io_scheduler:
+            print("Not setting I/O Scheduler for {} - required schedulers ({}) are not supported".format(device, list(self.__io_schedulers)))
+        elif not self.__tune_io_scheduler(dev_node, io_scheduler):
             print("Not setting I/O Scheduler for {} - feature not present".format(device))
 
         if not self.__tune_nomerges(dev_node):
