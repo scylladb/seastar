@@ -23,11 +23,14 @@
 
 #include <atomic>
 
+#if defined(__x86_64__) || defined(__i386__)
+#include <xmmintrin.h>
+#endif
+
 namespace seastar {
 
 namespace internal {
 #if defined(__x86_64__) || defined(__i386__)
-#include <xmmintrin.h>
 
 /// \brief Puts the current CPU thread into a "relaxed" state.
 ///
