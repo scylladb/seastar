@@ -1253,9 +1253,11 @@ io_queue::priority_class_data::priority_class_data(sstring name, sstring mountpo
     auto ioq_group = sm::label("mountpoint");
     auto mountlabel = ioq_group(mountpoint);
 
+    auto class_label_type = sm::label("class");
+    auto class_label = class_label_type(name);
     _metric_groups.add_group("io_queue", {
-            sm::make_derive(name + sstring("_total_bytes"), bytes, sm::description("Total bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel}),
-            sm::make_derive(name + sstring("_total_operations"), ops, sm::description("Total bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel}),
+            sm::make_derive("total_bytes", bytes, sm::description("Total bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+            sm::make_derive("total_operations", ops, sm::description("Total bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
             // Note: The counter below is not the same as reactor's queued-io-requests
             // queued-io-requests shows us how many requests in total exist in this I/O Queue.
             //
@@ -1265,13 +1267,13 @@ io_queue::priority_class_data::priority_class_data(sstring name, sstring mountpo
             // In other words: the new counter tells you how busy a class is, and the
             // old counter tells you how busy the system is.
 
-            sm::make_queue_length(name + sstring("_queue_length"), nr_queued, sm::description("Number of requests in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel}),
-            sm::make_gauge(name + sstring("_delay"), [this] {
+            sm::make_queue_length("queue_length", nr_queued, sm::description("Number of requests in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+            sm::make_gauge("delay", [this] {
                 return queue_time.count();
-            }, sm::description("total delay time in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel}),
-            sm::make_gauge(name + sstring("_shares"), [this] {
+            }, sm::description("total delay time in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+            sm::make_gauge("shares", [this] {
                 return this->ptr->shares();
-            }, sm::description("current amount of shares"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel})
+            }, sm::description("current amount of shares"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label})
     });
 }
 
