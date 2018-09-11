@@ -59,6 +59,7 @@ static constexpr double default_slab_growth_factor = 1.25;
 static constexpr uint64_t default_slab_page_size = 1UL*MB;
 static constexpr uint64_t default_per_cpu_slab_size = 0UL; // zero means reclaimer is enabled.
 static __thread slab_allocator<item>* slab;
+static thread_local std::unique_ptr<slab_allocator<item>> slab_holder;
 
 template<typename T>
 using optional = boost::optional<T>;
@@ -515,8 +516,9 @@ public:
         _flush_timer.set_callback([this] { flush_all(); });
 
         // initialize per-thread slab allocator.
-        slab = new slab_allocator<item>(default_slab_growth_factor, per_cpu_slab_size, slab_page_size,
+        slab_holder = std::make_unique<slab_allocator<item>>(default_slab_growth_factor, per_cpu_slab_size, slab_page_size,
                 [this](item& item_ref) { erase<true, true, false>(item_ref); _stats._evicted++; });
+        slab = slab_holder.get();
 #ifdef __DEBUG__
         static bool print_slab_classes = true;
         if (print_slab_classes) {
