@@ -370,7 +370,7 @@ private:
     static constexpr size_t initial_bucket_count = 1 << 10;
     static constexpr float load_factor = 0.75f;
     size_t _resize_up_threshold = load_factor * initial_bucket_count;
-    cache_type::bucket_type* _buckets;
+    std::vector<cache_type::bucket_type> _buckets;
     cache_type _cache;
     seastar::timer_set<item, &item::_timer_link> _alive;
     timer<clock_type> _timer;
@@ -490,22 +490,21 @@ private:
     void maybe_rehash() {
         if (_cache.size() >= _resize_up_threshold) {
             auto new_size = _cache.bucket_count() * 2;
-            auto old_buckets = _buckets;
+            std::vector<cache_type::bucket_type> old_buckets;
             try {
-                _buckets = new cache_type::bucket_type[new_size];
+                old_buckets = std::exchange(_buckets, std::vector<cache_type::bucket_type>(new_size));
             } catch (const std::bad_alloc& e) {
                 _stats._resize_failure++;
                 return;
             }
-            _cache.rehash(typename cache_type::bucket_traits(_buckets, new_size));
-            delete[] old_buckets;
+            _cache.rehash(typename cache_type::bucket_traits(_buckets.data(), new_size));
             _resize_up_threshold = _cache.bucket_count() * load_factor;
         }
     }
 public:
     cache(uint64_t per_cpu_slab_size, uint64_t slab_page_size)
-        : _buckets(new cache_type::bucket_type[initial_bucket_count])
-        , _cache(cache_type::bucket_traits(_buckets, initial_bucket_count))
+        : _buckets(initial_bucket_count)
+        , _cache(cache_type::bucket_traits(_buckets.data(), initial_bucket_count))
     {
         using namespace std::chrono;
 
