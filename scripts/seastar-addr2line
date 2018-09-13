@@ -24,6 +24,30 @@ import re
 import sys
 import subprocess
 
+def ensure_newline(line):
+    """
+    print to stdout, making sure we have one and only one newline.
+    we will be sometimes receiving output that have a newline, and sometimes
+    output that don't
+    """
+
+    if line[-1] != '\n':
+        line += '\n'
+    return line
+
+class Addr2Line:
+    def __init__(self, binary, options):
+        self._binary = binary
+        self._addr2line = subprocess.Popen(["addr2line", options, "-e", self._binary], stdin=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
+
+    def __call__(self, input_lines):
+        decoded_output = []
+        for l in input_lines:
+            self._addr2line.stdin.write(ensure_newline(l))
+            self._addr2line.stdin.flush()
+            rline = self._addr2line.stdout.readline()
+            decoded_output.append(rline)
+        return decoded_output
 
 class BacktraceResolver(object):
     object_address_re = re.compile('^.*?(((/[^/]+)+)\+)?(0x[0-9a-f]+)\W*$')
@@ -36,22 +60,28 @@ class BacktraceResolver(object):
         self._i = 0
         self._known_backtraces = {}
         self._verbose = verbose
+        self._addr2line_options = "-Cfpi"
+        if self._verbose:
+            self._addr2line_options += "a"
+        self._known_modules = {self._executable: Addr2Line(self._executable, self._addr2line_options)}
+
+    def _get_resolver_for_module(self, module):
+        if not module in self._known_modules:
+            self._known_modules[module] = Addr2Line(module, self._addr2line_options)
+        return self._known_modules[module]
 
     def __del__(self):
         self._print_current_backtrace()
 
     def _print_resolved_addresses(self, module, addresses):
-        if not self._verbose:
-            out = subprocess.check_output(["addr2line", "-Cfpi", "-e", module] + addresses)
+        resolved_addresses = self._get_resolver_for_module(module)(addresses)
+        for resolved_address in resolved_addresses:
+            if resolved_address == '':
+                continue
+            if self._verbose:
+                resolved_address = '{{{}}} {}'.format(module, resolved_address)
+            out = ensure_newline(resolved_address)
             sys.stdout.write(out)
-            if not out[-1] == '\n':
-                sys.stdout.write('\n')
-            return
-
-        resolved_addresses = subprocess.check_output(["addr2line", "-Cfpia", "-e", module] + addresses)
-        for resolved_address in resolved_addresses.split('\n'):
-            if resolved_address != '':
-                print('{{{}}} {}'.format(module, resolved_address))
 
     def _print_current_backtrace(self):
         if len(self._current_backtrace) == 0:
