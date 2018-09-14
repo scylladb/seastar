@@ -66,8 +66,8 @@ size_t message_queue::process_queue(lf_queue& q, Func process) {
     if (!q.pop(wi)) {
         return 0;
     }
-    work_item* items[batch_size];
-    // start prefetch first item before popping the rest to overlap memory
+    work_item* items[batch_size + prefetch_cnt];
+    // start prefetching first item before popping the rest to overlap memory
     // access with potential cache miss the second pop may cause
     prefetch<2>(wi);
     size_t nr = 0;
