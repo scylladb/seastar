@@ -747,9 +747,10 @@ class DiskPerfTuner(PerfTunerBase):
     @property
     def __io_schedulers(self):
         """
-        :return: Set of IO schedulers that we want to configure
+        :return: An ordered list of IO schedulers that we want to configure. Schedulers are ordered by their priority
+        from the highest (left most) to the lowest.
         """
-        return frozenset(["none", "noop"])
+        return ["none", "noop"]
 
     @property
     def __nomerges(self):
@@ -934,12 +935,9 @@ class DiskPerfTuner(PerfTunerBase):
         #
         # ...with one or more schedulers where currently selected scheduler is the one in brackets.
         #
-        # We want to have in "schedulers" only those that are supported and appear in the __io_schedulers set.
-        schedulers = frozenset([scheduler.lstrip("[").rstrip("]") for scheduler in lines[0].split(" ")]) & self.__io_schedulers
-        if not schedulers:
-            return None
-
-        return list(schedulers)[0]
+        # Return the scheduler with the highest priority among those that are supported for the current device.
+        supported_schedulers = frozenset([scheduler.lstrip("[").rstrip("]") for scheduler in lines[0].split(" ")])
+        return next((scheduler for scheduler in self.__io_schedulers if scheduler in supported_schedulers), None)
 
     def __tune_disk(self, device):
         dev_node = "/dev/{}".format(device)
