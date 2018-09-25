@@ -441,6 +441,7 @@ public:
 
     ~slab_allocator()
     {
+        _slab_classes.clear();
         _slab_page_desc_lru.clear();
         for (auto desc : _slab_pages_vector) {
             if (!desc) {

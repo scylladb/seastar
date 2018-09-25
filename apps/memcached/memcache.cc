@@ -59,6 +59,7 @@ static constexpr double default_slab_growth_factor = 1.25;
 static constexpr uint64_t default_slab_page_size = 1UL*MB;
 static constexpr uint64_t default_per_cpu_slab_size = 0UL; // zero means reclaimer is enabled.
 static __thread slab_allocator<item>* slab;
+static thread_local std::unique_ptr<slab_allocator<item>> slab_holder;
 
 template<typename T>
 using optional = boost::optional<T>;
@@ -370,7 +371,7 @@ private:
     static constexpr size_t initial_bucket_count = 1 << 10;
     static constexpr float load_factor = 0.75f;
     size_t _resize_up_threshold = load_factor * initial_bucket_count;
-    cache_type::bucket_type* _buckets;
+    std::vector<cache_type::bucket_type> _buckets;
     cache_type _cache;
     seastar::timer_set<item, &item::_timer_link> _alive;
     timer<clock_type> _timer;
@@ -490,22 +491,21 @@ private:
     void maybe_rehash() {
         if (_cache.size() >= _resize_up_threshold) {
             auto new_size = _cache.bucket_count() * 2;
-            auto old_buckets = _buckets;
+            std::vector<cache_type::bucket_type> old_buckets;
             try {
-                _buckets = new cache_type::bucket_type[new_size];
+                old_buckets = std::exchange(_buckets, std::vector<cache_type::bucket_type>(new_size));
             } catch (const std::bad_alloc& e) {
                 _stats._resize_failure++;
                 return;
             }
-            _cache.rehash(typename cache_type::bucket_traits(_buckets, new_size));
-            delete[] old_buckets;
+            _cache.rehash(typename cache_type::bucket_traits(_buckets.data(), new_size));
             _resize_up_threshold = _cache.bucket_count() * load_factor;
         }
     }
 public:
     cache(uint64_t per_cpu_slab_size, uint64_t slab_page_size)
-        : _buckets(new cache_type::bucket_type[initial_bucket_count])
-        , _cache(cache_type::bucket_traits(_buckets, initial_bucket_count))
+        : _buckets(initial_bucket_count)
+        , _cache(cache_type::bucket_traits(_buckets.data(), initial_bucket_count))
     {
         using namespace std::chrono;
 
@@ -516,8 +516,9 @@ public:
         _flush_timer.set_callback([this] { flush_all(); });
 
         // initialize per-thread slab allocator.
-        slab = new slab_allocator<item>(default_slab_growth_factor, per_cpu_slab_size, slab_page_size,
+        slab_holder = std::make_unique<slab_allocator<item>>(default_slab_growth_factor, per_cpu_slab_size, slab_page_size,
                 [this](item& item_ref) { erase<true, true, false>(item_ref); _stats._evicted++; });
+        slab = slab_holder.get();
 #ifdef __DEBUG__
         static bool print_slab_classes = true;
         if (print_slab_classes) {
