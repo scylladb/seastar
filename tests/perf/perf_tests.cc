@@ -318,6 +318,8 @@ int main(int ac, char** av)
             "duration of a single run in seconds")
         ("runs,r", bpo::value<size_t>()->default_value(5), "number of runs")
         ("test,t", bpo::value<std::vector<std::string>>(), "tests to execute")
+        ("no-stdout", "do not print to stdout")
+        ("json-output", bpo::value<std::string>(), "output json file")
         ("list", "list available tests")
         ;
 
@@ -344,7 +346,15 @@ int main(int ac, char** av)
                 return;
             }
 
-            conf.printers.emplace_back(std::make_unique<stdout_printer>());
+            if (!app.configuration().count("no-stdout")) {
+                conf.printers.emplace_back(std::make_unique<stdout_printer>());
+            }
+
+            if (app.configuration().count("json-output")) {
+                conf.printers.emplace_back(std::make_unique<json_printer>(
+                    app.configuration()["json-output"].as<std::string>()
+                ));
+            }
 
             run_all(tests_to_run, conf);
         });
