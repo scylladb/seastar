@@ -101,10 +101,21 @@ private:
 
 time_measurement measure_time;
 
+struct config;
+struct result;
+
+struct result_printer {
+    virtual ~result_printer() = default;
+
+    virtual void print_configuration(const config&) = 0;
+    virtual void print_result(const result&) = 0;
+};
+
 struct config {
     uint64_t single_run_iterations;
     std::chrono::nanoseconds single_run_duration;
     unsigned number_of_runs;
+    std::vector<std::unique_ptr<result_printer>> printers;
 };
 
 struct result {
@@ -146,20 +157,20 @@ static inline std::ostream& operator<<(std::ostream& os, duration d)
 
 static constexpr auto format_string = "{:<40} {:>11} {:>11} {:>11} {:>11} {:>11}\n";
 
-void print_header(const config& c)
-{
+struct stdout_printer final : result_printer {
+  virtual void print_configuration(const config& c) override {
     fmt::print("{:<25} {}\n{:<25} {}\n{:<25} {}\n\n",
                "single run iterations:", c.single_run_iterations,
                "single run duration:", duration { double(c.single_run_duration.count()) },
                "number of runs:", c.number_of_runs);
     fmt::print(format_string, "test", "iterations", "median", "mad", "min", "max");
-}
+  }
 
-void print_result(const result& r)
-{
+  virtual void print_result(const result& r) override {
     fmt::print(format_string, r.test_name, r.total_iterations / r.runs, duration { r.median },
                duration { r.mad }, duration { r.min }, duration { r.max });
-}
+  }
+};
 
 void performance_test::do_run(const config& conf)
 {
@@ -218,7 +229,9 @@ void performance_test::do_run(const config& conf)
     r.min = results[0];
     r.max = results[results.size() - 1];
 
-    print_result(r);
+    for (auto& rp : conf.printers) {
+        rp->print_result(r);
+    }
 }
 
 void performance_test::run(const config& conf)
@@ -253,7 +266,9 @@ void run_all(const std::vector<std::string>& tests, const config& conf)
         return tests.empty() || it != tests.end();
     };
 
-    print_header(conf);
+    for (auto& rp : conf.printers) {
+        rp->print_configuration(conf);
+    }
     for (auto&& test : all_tests() | boost::adaptors::filtered(std::move(can_run))) {
         test->run(conf);
     }
@@ -300,6 +315,9 @@ int main(int ac, char** av)
                 }
                 return;
             }
+
+            conf.printers.emplace_back(std::make_unique<stdout_printer>());
+
             run_all(tests_to_run, conf);
         });
     });
