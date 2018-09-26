@@ -21,6 +21,7 @@
 
 #include "perf_tests.hh"
 
+#include <fstream>
 #include <regex>
 
 #include <boost/range.hpp>
@@ -31,6 +32,7 @@
 
 #include "core/app-template.hh"
 #include "core/thread.hh"
+#include "json/formatter.hh"
 
 namespace perf_tests {
 namespace internal {
@@ -170,6 +172,32 @@ struct stdout_printer final : result_printer {
     fmt::print(format_string, r.test_name, r.total_iterations / r.runs, duration { r.median },
                duration { r.mad }, duration { r.min }, duration { r.max });
   }
+};
+
+class json_printer final : public result_printer {
+    std::string _output_file;
+    std::unordered_map<std::string,
+                       std::unordered_map<std::string,
+                                          std::unordered_map<std::string, double>>> _root;
+public:
+    explicit json_printer(const std::string& file) : _output_file(file) { }
+
+    ~json_printer() {
+        std::ofstream out(_output_file);
+        out << json::formatter::to_json(_root);
+    }
+
+    virtual void print_configuration(const config&) override { }
+
+    virtual void print_result(const result& r) override {
+        auto& result = _root["results"][r.test_name];
+        result["runs"] = r.runs;
+        result["total_iterations"] = r.total_iterations;
+        result["median"] = r.median;
+        result["mad"] = r.mad;
+        result["min"] = r.min;
+        result["max"] = r.max;
+    }
 };
 
 void performance_test::do_run(const config& conf)

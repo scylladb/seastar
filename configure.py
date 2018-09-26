@@ -654,7 +654,7 @@ for bt in boost_tests:
     deps[bt] += boost_test_lib
 
 for pt in perf_tests:
-    deps[pt] = [pt + '.cc'] + core + ['tests/perf/perf_tests.cc']
+    deps[pt] = [pt + '.cc'] + core + ['tests/perf/perf_tests.cc', 'json/formatter.cc']
 
 warnings = [
     '-Wno-mismatched-tags',                 # clang-only
