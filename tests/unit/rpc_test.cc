@@ -25,6 +25,7 @@
 #include <seastar/rpc/rpc.hh>
 #include <seastar/rpc/rpc_types.hh>
 #include <seastar/rpc/lz4_compressor.hh>
+#include <seastar/rpc/lz4_fragmented_compressor.hh>
 #include <seastar/rpc/multi_algo_compressor_factory.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
@@ -769,4 +770,8 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
 
 SEASTAR_THREAD_TEST_CASE(test_lz4_compressor) {
     test_compressor([] { return std::make_unique<rpc::lz4_compressor>(); });
+}
+
+SEASTAR_THREAD_TEST_CASE(test_lz4_fragmented_compressor) {
+    test_compressor([] { return std::make_unique<rpc::lz4_fragmented_compressor>(); });
 }
