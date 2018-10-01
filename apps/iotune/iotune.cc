@@ -33,7 +33,6 @@
 #include <boost/program_options.hpp>
 #include <boost/iterator/counting_iterator.hpp>
 #include <fstream>
-#include <experimental/filesystem>
 #include <wordexp.h>
 #include <yaml-cpp/yaml.h>
 #include "core/thread.hh"
@@ -48,6 +47,7 @@
 #include "util/defer.hh"
 #include "util/log.hh"
 #include "util/std-compat.hh"
+#include "util/read_first_line.hh"
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -58,36 +58,14 @@ logger iotune_logger("iotune");
 using iotune_clock = std::chrono::steady_clock;
 static thread_local std::default_random_engine random_generator(std::chrono::duration_cast<std::chrono::nanoseconds>(iotune_clock::now().time_since_epoch()).count());
 
-sstring read_sys_file(fs::path sys_file) {
-    auto file = file_desc::open(sys_file.string(), O_RDONLY | O_CLOEXEC);
-    sstring buf;
-    size_t n = 0;
-    do {
-        // try to avoid allocations
-        sstring tmp(sstring::initialized_later{}, 8);
-        auto ret = file.read(tmp.data(), 8ul);
-        if (!ret) { // EAGAIN
-            continue;
-        }
-        n = *ret;
-        if (n > 0) {
-            buf += tmp;
-        }
-    } while (n != 0);
-    auto end = buf.find('\n');
-    auto value = buf.substr(0, end);
-    file.close();
-    return value;
-}
-
 template <typename Type>
 Type read_sys_file_as(fs::path sys_file) {
-    return boost::lexical_cast<Type>(read_sys_file(sys_file));
+    return boost::lexical_cast<Type>(read_first_line(sys_file));
 }
 
 void check_device_properties(fs::path dev_sys_file) {
     auto sched_file = dev_sys_file / "queue" / "scheduler";
-    auto sched_string = read_sys_file(sched_file);
+    auto sched_string = read_first_line(sched_file);
     auto beg = sched_string.find('[');
     size_t len = sched_string.size();
     if (beg == sstring::npos) {
@@ -136,7 +114,7 @@ struct evaluation_directory {
             if (fs::exists(sys_file / "slaves")) {
                 for (auto& dev : fs::directory_iterator(sys_file / "slaves")) {
                     is_leaf = false;
-                    scan_device(read_sys_file(dev / "dev"));
+                    scan_device(read_first_line(dev / "dev"));
                 }
             }
 
