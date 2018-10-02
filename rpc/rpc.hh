@@ -111,6 +111,7 @@ struct server_options {
     compressor::factory* compressor_factory = nullptr;
     bool tcp_nodelay = true;
     compat::optional<streaming_domain_type> streaming_domain;
+    server_socket::load_balancing_algorithm load_balancing_algorithm = server_socket::load_balancing_algorithm::default_;
 };
 
 inline

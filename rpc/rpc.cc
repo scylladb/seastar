@@ -917,11 +917,11 @@ namespace rpc {
   thread_local std::unordered_map<streaming_domain_type, server*> server::_servers;
 
   server::server(protocol_base* proto, ipv4_addr addr, resource_limits limits)
-      : server(proto, engine().listen(addr, listen_options(true)), limits, server_options{})
+      : server(proto, engine().listen(addr, listen_options{true}), limits, server_options{})
   {}
 
   server::server(protocol_base* proto, server_options opts, ipv4_addr addr, resource_limits limits)
-      : server(proto, engine().listen(addr, listen_options(true)), limits, opts)
+      : server(proto, engine().listen(addr, listen_options{true, opts.load_balancing_algorithm}), limits, opts)
   {}
 
   server::server(protocol_base* proto, server_socket ss, resource_limits limits, server_options opts)

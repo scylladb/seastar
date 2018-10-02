@@ -54,6 +54,10 @@ class conntrack {
             _cpu_load[cpu]++;
             return cpu;
         }
+        shard_id force_cpu(shard_id cpu) {
+            _cpu_load[cpu]++;
+            return cpu;
+        }
     };
 
     lw_shared_ptr<load_balancer> _lb;
@@ -91,6 +95,9 @@ public:
     conntrack() : _lb(make_lw_shared<load_balancer>()) {}
     handle get_handle() {
         return handle(_lb->next_cpu(), _lb);
+    }
+    handle get_handle(shard_id cpu) {
+        return handle(_lb->force_cpu(cpu), _lb);
     }
 };
 
@@ -139,8 +146,9 @@ class posix_server_socket_impl : public server_socket_impl {
     socket_address _sa;
     pollable_fd _lfd;
     conntrack _conntrack;
+    server_socket::load_balancing_algorithm _lba;
 public:
-    explicit posix_server_socket_impl(socket_address sa, pollable_fd lfd) : _sa(sa), _lfd(std::move(lfd)) {}
+    explicit posix_server_socket_impl(socket_address sa, pollable_fd lfd, server_socket::load_balancing_algorithm lba) : _sa(sa), _lfd(std::move(lfd)), _lba(lba) {}
     virtual future<connected_socket, socket_address> accept();
     virtual void abort_accept() override;
 };
