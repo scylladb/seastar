@@ -47,12 +47,26 @@ scheduling_group scheduling_group_from_index(unsigned index);
 
 /// Creates a scheduling group with a specified number of shares.
 ///
+/// The operation is global and affects all shards. The returned scheduling
+/// group can then be used in any shard.
+///
 /// \param name A name that identifiers the group; will be used as a label
 ///             in the group's metrics
 /// \param shares number of shares of the CPU time allotted to the group;
 ///              Use numbers in the 1-1000 range (but can go above).
 /// \return a scheduling group that can be used on any shard
 future<scheduling_group> create_scheduling_group(sstring name, float shares);
+
+/// Destroys a scheduling group.
+///
+/// Destroys a \ref scheduling_group previously created with create_scheduling_group().
+/// The destroyed group must not be currently in use and must not be used later.
+///
+/// The operation is global and affects all shards.
+///
+/// \param sg The scheduling group to be destroyed
+/// \return a future that is ready when the scheduling group has been torn down
+future<> destroy_scheduling_group(scheduling_group sg);
 
 /// \brief Identifies function calls that are accounted as a group
 ///
@@ -84,6 +98,7 @@ public:
     ///               in the 1-1000 range.
     void set_shares(float shares);
     friend future<scheduling_group> create_scheduling_group(sstring name, float shares);
+    friend future<> destroy_scheduling_group(scheduling_group sg);
     friend class reactor;
     friend unsigned internal::scheduling_group_index(scheduling_group sg);
     friend scheduling_group internal::scheduling_group_from_index(unsigned index);

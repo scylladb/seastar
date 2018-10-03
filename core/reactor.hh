@@ -918,6 +918,7 @@ private:
     void account_runtime(task_queue& tq, sched_clock::duration runtime);
     void account_idle(sched_clock::duration idletime);
     void init_scheduling_group(scheduling_group sg, sstring name, float shares);
+    void destroy_scheduling_group(scheduling_group sg);
     uint64_t tasks_processed() const;
     uint64_t min_vruntime() const;
 public:
@@ -1122,6 +1123,7 @@ private:
     friend int ::_Unwind_RaiseException(struct _Unwind_Exception *h);
     metrics::metric_groups _metric_groups;
     friend future<scheduling_group> create_scheduling_group(sstring name, float shares);
+    friend future<> seastar::destroy_scheduling_group(scheduling_group);
 public:
     bool wait_and_process(int timeout = 0, const sigset_t* active_sigmask = nullptr) {
         return _backend.wait_and_process(timeout, active_sigmask);

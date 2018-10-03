@@ -4777,10 +4777,40 @@ std::chrono::nanoseconds reactor::total_steal_time() {
            std::chrono::duration_cast<std::chrono::nanoseconds>(thread_cputime_clock::now().time_since_epoch());
 }
 
+static std::atomic<unsigned long> s_used_scheduling_group_ids_bitmap = 3; // 0=main, 1=atexit
+
+static
+unsigned
+allocate_scheduling_group_id() {
+    static_assert(max_scheduling_groups() <= std::numeric_limits<unsigned long>::digits);
+    auto b = s_used_scheduling_group_ids_bitmap.load(std::memory_order_relaxed);
+    auto nb = b;
+    unsigned i = 0;
+    do {
+        if (__builtin_popcountl(b) == max_scheduling_groups()) {
+            throw std::runtime_error("Scheduling group limit exceeded");
+        }
+        i = count_trailing_zeros(~b);
+        nb = b | (1ul << i);
+    } while (!s_used_scheduling_group_ids_bitmap.compare_exchange_weak(b, nb, std::memory_order_relaxed));
+    return i;
+}
+
+static
+void
+deallocate_scheduling_group_id(unsigned id) {
+    s_used_scheduling_group_ids_bitmap.fetch_and(~(1ul << id), std::memory_order_relaxed);
+}
+
 void
 reactor::init_scheduling_group(seastar::scheduling_group sg, sstring name, float shares) {
     _task_queues.resize(std::max<size_t>(_task_queues.size(), sg._id + 1));
     _task_queues[sg._id] = std::make_unique<task_queue>(sg._id, name, shares);
+}
+
+void
+reactor::destroy_scheduling_group(scheduling_group sg) {
+    _task_queues[sg._id].reset();
 }
 
 const sstring&
@@ -4795,8 +4825,7 @@ scheduling_group::set_shares(float shares) {
 
 future<scheduling_group>
 create_scheduling_group(sstring name, float shares) {
-    static std::atomic<unsigned> last{2}; // 0=main, 1=atexit
-    auto id = last.fetch_add(1);
+    auto id = allocate_scheduling_group_id();
     assert(id < max_scheduling_groups());
     auto sg = scheduling_group(id);
     return smp::invoke_on_all([sg, name, shares] {
@@ -4806,6 +4835,20 @@ create_scheduling_group(sstring name, float shares) {
     });
 }
 
+future<>
+destroy_scheduling_group(scheduling_group sg) {
+    if (sg == default_scheduling_group()) {
+        throw_with_backtrace<std::runtime_error>("Attempt to destroy the default scheduling group");
+    }
+    if (sg == current_scheduling_group()) {
+        throw_with_backtrace<std::runtime_error>("Attempt to destroy the current scheduling group");
+    }
+    return smp::invoke_on_all([sg] {
+        engine().destroy_scheduling_group(sg);
+    }).then([sg] {
+        deallocate_scheduling_group_id(sg._id);
+    });
+}
 
 
 namespace internal {
