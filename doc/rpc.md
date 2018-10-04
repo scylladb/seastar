@@ -72,6 +72,20 @@ Actual negotiation looks like this:
     more messages in each direction. Stream connection should be explicitly closed by both client and
     server. Closing is done by sending special EOS frame (described below).
     
+
+#### Isolation
+    feature number: 4
+    uint32_t isolation_cookie_len
+    uint8_t isolation_cookie[len]
+
+    The `isolation_cookie` field is used by the server to select a
+    `seastar::scheduling_group` (or equivalent in another implementation) that
+    will run this connection. In the future it will also be used for rpc buffer
+    isolation, to avoid rpc traffic in one isolation group from starving another.
+
+    The server does not directly assign meaning to values of `isolation_cookie`;
+    instead, the interpretation is left to user code.
+
 ##### Compressed frame format
     uint32_t len
     uint8_t compressed_data[len]

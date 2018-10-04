@@ -628,6 +628,9 @@ namespace rpc {
           if (_options.stream_parent) {
               features[protocol_features::STREAM_PARENT] = serialize_connection_id(_options.stream_parent);
           }
+          if (!_options.isolation_cookie.empty()) {
+              features[protocol_features::ISOLATION] = _options.isolation_cookie;
+          }
 
           send_negotiation_frame(std::move(features));
 
@@ -751,6 +754,12 @@ namespace rpc {
               }
               break;
           }
+          case protocol_features::ISOLATION: {
+              auto&& isolation_cookie = e.second;
+              _isolation_config = _server._limits.isolate_connection(isolation_cookie);
+              ret.emplace(e);
+              break;
+          }
           default:
               // nothing to do
               ;
@@ -832,6 +841,8 @@ namespace rpc {
 
   future<> server::connection::process() {
       return negotiate_protocol(_read_buf).then([this] () mutable {
+        auto sg = _isolation_config ? _isolation_config->sched_group : current_scheduling_group();
+        return with_scheduling_group(sg, [this] {
           send_loop();
           return do_until([this] { return _read_buf.eof() || _error; }, [this] () mutable {
               if (is_stream()) {
@@ -848,7 +859,10 @@ namespace rpc {
                       }
                       auto h = _server._proto->get_handler(type);
                       if (h) {
-                          return with_scheduling_group(h->sg, std::ref(h->func), shared_from_this(), timeout, msg_id, std::move(data.value()));
+                          // If the new method of per-connection scheduling group was used, honor it.
+                          // Otherwise, use the old per-handler scheduling group.
+                          auto sg = _isolation_config ? _isolation_config->sched_group : h->sg;
+                          return with_scheduling_group(sg, std::ref(h->func), shared_from_this(), timeout, msg_id, std::move(data.value()));
                       } else {
                           return wait_for_resources(28, timeout).then([this, timeout, msg_id, type] (auto permit) {
                               // send unknown_verb exception back
@@ -870,6 +884,7 @@ namespace rpc {
                   }
               });
           });
+        });
       }).then_wrapped([this] (future<> f) {
           if (f.failed()) {
               log_exception(*this, sprint("server%s connection dropped", is_stream() ? " stream" : "").c_str(), f.get_exception());
@@ -979,6 +994,10 @@ namespace rpc {
 
   std::ostream& operator<<(std::ostream& os, const streaming_domain_type& domain) {
       return fprint(os, "%d", domain._id);
+  }
+
+  isolation_config default_isolate_connection(sstring isolation_cookie) {
+      return isolation_config{};
   }
 
 }

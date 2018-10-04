@@ -59,6 +59,15 @@ struct SerializerConcept {
 
 static constexpr char rpc_magic[] = "SSTARRPC";
 
+/// Specifies resource isolation for a connection.
+struct isolation_config {
+    /// Specifies a scheduling group under which the connection (and all its
+    /// verb handlers) will execute.
+    scheduling_group sched_group = current_scheduling_group();
+};
+
+/// Default isolation configuration - run everything in the default scheduling group.
+isolation_config default_isolate_connection(sstring isolation_cookie);
 
 /// \brief Resource limits for an RPC server
 ///
@@ -75,6 +84,9 @@ struct resource_limits {
     size_t basic_request_size = 0; ///< Minimum request footprint in memory
     unsigned bloat_factor = 1;     ///< Serialized size multiplied by this to estimate memory used by request
     size_t max_memory = rpc_semaphore::max_counter(); ///< Maximum amount of memory that may be consumed by all requests
+    /// Configures isolation for a connection based on its isolation cookie. May throw,
+    /// in which case the connection will be terminated.
+    std::function<isolation_config (sstring isolation_cookie)> isolate_connection = default_isolate_connection;
 };
 
 struct client_options {
@@ -83,7 +95,10 @@ struct client_options {
     compressor::factory* compressor_factory = nullptr;
     bool send_timeout_data = true;
     connection_id stream_parent = invalid_connection_id;
-
+    /// Configures how this connection is isolated from other connection on the same server.
+    ///
+    /// \see resource_limits::isolate_connection
+    sstring isolation_cookie;
 };
 
 // RPC call that passes stream connection id as a parameter
@@ -130,6 +145,7 @@ enum class protocol_features : uint32_t {
     TIMEOUT = 1,
     CONNECTION_ID = 2,
     STREAM_PARENT = 3,
+    ISOLATION = 4,
 };
 
 // internal representation of feature data
@@ -444,7 +460,7 @@ public:
         server& _server;
         client_info _info;
         connection_id _parent_id = invalid_connection_id;
-
+        compat::optional<isolation_config> _isolation_config;
     private:
         future<> negotiate_protocol(input_stream<char>& in);
         future<compat::optional<uint64_t>, uint64_t, int64_t, compat::optional<rcv_buf>>
