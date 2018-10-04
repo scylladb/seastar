@@ -30,6 +30,7 @@
 #include "core/shared_ptr.hh"
 #include "socket_defs.hh"
 #include "util/std-compat.hh"
+#include "api.hh"
 
 namespace seastar {
 
