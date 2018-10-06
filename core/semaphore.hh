@@ -287,10 +287,11 @@ basic_semaphore<ExceptionFactory, Clock>::broken(std::exception_ptr xp) {
 
 template<typename ExceptionFactory = semaphore_default_exception_factory, typename Clock = typename timer<>::clock>
 class semaphore_units {
-    basic_semaphore<ExceptionFactory, Clock>& _sem;
+    basic_semaphore<ExceptionFactory, Clock>* _sem;
     size_t _n;
 public:
-    semaphore_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t n) noexcept : _sem(sem), _n(n) {}
+    semaphore_units(basic_semaphore<ExceptionFactory, Clock>* sem, size_t n) noexcept : _sem(sem), _n(n) {}
+    semaphore_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t n) noexcept : semaphore_units(&sem, n) {}
     semaphore_units(semaphore_units&& o) noexcept : _sem(o._sem), _n(o._n) {
         o._n = 0;
     }
@@ -304,7 +305,7 @@ public:
     semaphore_units(const semaphore_units&) = delete;
     ~semaphore_units() noexcept {
         if (_n) {
-            _sem.signal(_n);
+            _sem->signal(_n);
         }
     }
     /// Releases ownership of the units. The semaphore will not be signalled.
