@@ -311,6 +311,19 @@ public:
     size_t release() {
         return std::exchange(_n, 0);
     }
+    /// Splits this instance into a \ref semaphore_units object holding the specified amount of units.
+    /// This object will continue holding the remaining units.
+    ///
+    /// noexcept if \ref units <= \ref _n
+    ///
+    /// \return semaphore_units holding the specified number of units
+    semaphore_units split(size_t units) {
+        if (units > _n) {
+            throw std::invalid_argument("Cannot take more units than those protected by the semaphore");
+        }
+        _n -= units;
+        return semaphore_units(_sem, units);
+    }
 };
 
 /// \brief Take units from semaphore temporarily
