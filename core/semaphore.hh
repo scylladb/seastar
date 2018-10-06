@@ -292,14 +292,11 @@ class semaphore_units {
 public:
     semaphore_units(basic_semaphore<ExceptionFactory, Clock>* sem, size_t n) noexcept : _sem(sem), _n(n) {}
     semaphore_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t n) noexcept : semaphore_units(&sem, n) {}
-    semaphore_units(semaphore_units&& o) noexcept : _sem(o._sem), _n(o._n) {
-        o._n = 0;
+    semaphore_units(semaphore_units&& o) noexcept : _sem(o._sem), _n(std::exchange(o._n, 0)) {
     }
     semaphore_units& operator=(semaphore_units&& o) noexcept {
-        if (this != &o) {
-            this->~semaphore_units();
-            new (this) semaphore_units(std::move(o));
-        }
+        _sem = o._sem;
+        _n = std::exchange(o._n, 0);
         return *this;
     }
     semaphore_units(const semaphore_units&) = delete;
