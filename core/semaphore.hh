@@ -287,24 +287,22 @@ basic_semaphore<ExceptionFactory, Clock>::broken(std::exception_ptr xp) {
 
 template<typename ExceptionFactory = semaphore_default_exception_factory, typename Clock = typename timer<>::clock>
 class semaphore_units {
-    basic_semaphore<ExceptionFactory, Clock>& _sem;
+    basic_semaphore<ExceptionFactory, Clock>* _sem;
     size_t _n;
 public:
-    semaphore_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t n) noexcept : _sem(sem), _n(n) {}
-    semaphore_units(semaphore_units&& o) noexcept : _sem(o._sem), _n(o._n) {
-        o._n = 0;
+    semaphore_units(basic_semaphore<ExceptionFactory, Clock>* sem, size_t n) noexcept : _sem(sem), _n(n) {}
+    semaphore_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t n) noexcept : semaphore_units(&sem, n) {}
+    semaphore_units(semaphore_units&& o) noexcept : _sem(o._sem), _n(std::exchange(o._n, 0)) {
     }
     semaphore_units& operator=(semaphore_units&& o) noexcept {
-        if (this != &o) {
-            this->~semaphore_units();
-            new (this) semaphore_units(std::move(o));
-        }
+        _sem = o._sem;
+        _n = std::exchange(o._n, 0);
         return *this;
     }
     semaphore_units(const semaphore_units&) = delete;
     ~semaphore_units() noexcept {
         if (_n) {
-            _sem.signal(_n);
+            _sem->signal(_n);
         }
     }
     /// Releases ownership of the units. The semaphore will not be signalled.
@@ -312,6 +310,19 @@ public:
     /// \return the number of units held
     size_t release() {
         return std::exchange(_n, 0);
+    }
+    /// Splits this instance into a \ref semaphore_units object holding the specified amount of units.
+    /// This object will continue holding the remaining units.
+    ///
+    /// noexcept if \ref units <= \ref _n
+    ///
+    /// \return semaphore_units holding the specified number of units
+    semaphore_units split(size_t units) {
+        if (units > _n) {
+            throw std::invalid_argument("Cannot take more units than those protected by the semaphore");
+        }
+        _n -= units;
+        return semaphore_units(_sem, units);
     }
 };
 
