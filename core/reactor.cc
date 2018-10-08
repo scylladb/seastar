@@ -1089,6 +1089,7 @@ reactor::handle_aio_error(::iocb* iocb, int ec) {
             return 1;
         }
         default:
+            ++_io_stats.aio_errors;
             throw_system_error_on(true, "io_submit");
             abort();
     }
@@ -1389,7 +1390,7 @@ posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len, const i
     return engine().submit_io_write(_io_queue, io_priority_class, len, [fd = _fd, pos, buffer, len] (iocb& io) {
         io = make_write_iocb(fd, pos, const_cast<void*>(buffer), len);
     }).then([] (io_event ev) {
-        throw_kernel_error(long(ev.res));
+        engine().handle_io_result(ev);
         return make_ready_future<size_t>(size_t(ev.res));
     });
 }
@@ -1403,7 +1404,7 @@ posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priori
     return engine().submit_io_write(_io_queue, io_priority_class, len, [fd = _fd, pos, data, size] (iocb& io) {
         io = make_writev_iocb(fd, pos, data, size);
     }).then([iov_ptr = std::move(iov_ptr)] (io_event ev) {
-        throw_kernel_error(long(ev.res));
+        engine().handle_io_result(ev);
         return make_ready_future<size_t>(size_t(ev.res));
     });
 }
@@ -1413,7 +1414,7 @@ posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, const io_prior
     return engine().submit_io_read(_io_queue, io_priority_class, len, [fd = _fd, pos, buffer, len] (iocb& io) {
         io = make_read_iocb(fd, pos, buffer, len);
     }).then([] (io_event ev) {
-        throw_kernel_error(long(ev.res));
+        engine().handle_io_result(ev);
         return make_ready_future<size_t>(size_t(ev.res));
     });
 }
@@ -1427,7 +1428,7 @@ posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priorit
     return engine().submit_io_read(_io_queue, io_priority_class, len, [fd = _fd, pos, data, size] (iocb& io) {
         io = make_read_iocb(fd, pos, data, size);
     }).then([iov_ptr = std::move(iov_ptr)] (io_event ev) {
-        throw_kernel_error(long(ev.res));
+        engine().handle_io_result(ev);
         return make_ready_future<size_t>(size_t(ev.res));
     });
 }
@@ -2622,6 +2623,7 @@ void reactor::register_metrics() {
             // total_operations value:DERIVE:0:U
             sm::make_derive("aio_writes", _io_stats.aio_writes, sm::description("Total aio-writes operations")),
             sm::make_total_bytes("aio_bytes_write", _io_stats.aio_write_bytes, sm::description("Total aio-writes bytes")),
+            sm::make_derive("aio_errors", _io_stats.aio_errors, sm::description("Total aio errors")),
             // total_operations value:DERIVE:0:U
             sm::make_derive("fsyncs", _fsyncs, sm::description("Total number of fsync operations")),
             // total_operations value:DERIVE:0:U

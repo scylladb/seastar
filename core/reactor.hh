@@ -721,6 +721,7 @@ public:
         uint64_t aio_read_bytes = 0;
         uint64_t aio_writes = 0;
         uint64_t aio_write_bytes = 0;
+        uint64_t aio_errors = 0;
         uint64_t fstream_reads = 0;
         uint64_t fstream_read_bytes = 0;
         uint64_t fstream_reads_blocked = 0;
@@ -1000,6 +1001,14 @@ public:
     future<io_event> submit_io_read(io_queue* ioq, const io_priority_class& priority_class, size_t len, Func prepare_io);
     template <typename Func>
     future<io_event> submit_io_write(io_queue* ioq, const io_priority_class& priority_class, size_t len, Func prepare_io);
+
+    inline void handle_io_result(const io_event& ev) {
+        auto res = long(ev.res);
+        if (res < 0) {
+            ++_io_stats.aio_errors;
+            throw_kernel_error(res);
+        }
+    }
 
     int run();
     void exit(int ret);
