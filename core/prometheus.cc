@@ -545,7 +545,7 @@ metric_family_range get_range(const metrics_families_per_shard& mf, const sstrin
 
 }
 
-future<> write_text_representation(output_stream<char>& out, const config& ctx, metric_family_range& m) {
+future<> write_text_representation(output_stream<char>& out, const config& ctx, const metric_family_range& m) {
     return do_with(false,
             [&ctx, &out, &m](auto& found) mutable {
         return do_for_each(m, [&out, &found, &ctx] (metric_family& metric_family) mutable {
@@ -563,28 +563,25 @@ future<> write_text_representation(output_stream<char>& out, const config& ctx, 
                 if (value.type() == mi::data_type::HISTOGRAM) {
                     auto&& h = value.get_histogram();
                     std::map<sstring, sstring> labels = value_info.id.labels();
+                    add_name(s, name + "_sum", labels, ctx);
+                    s << h.sample_sum;
+                    s << "\n";
+                    add_name(s, name + "_count", labels, ctx);
+                    s << h.sample_count;
+                    s << "\n";
+
                     auto& le = labels["le"];
-                    uint64_t count = 0;
                     auto bucket = name + "_bucket";
                     for (auto  i : h.buckets) {
                          le = std::to_string(i.upper_bound);
-                        count += i.count;
                         add_name(s, bucket, labels, ctx);
-                        s << count;
+                        s << i.count;
                         s << "\n";
                     }
                     labels["le"] = "+Inf";
                     add_name(s, bucket, labels, ctx);
                     s << h.sample_count;
                     s << "\n";
-
-                    add_name(s, name + "_sum", {}, ctx);
-                    s << h.sample_sum;
-                    s << "\n";
-                    add_name(s, name + "_count", {}, ctx);
-                    s << h.sample_count;
-                    s << "\n";
-
                 } else {
                     add_name(s, name, value_info.id.labels(), ctx);
                     s << to_str(value);
