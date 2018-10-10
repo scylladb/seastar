@@ -1001,7 +1001,7 @@ Default values:
 argp.add_argument('--mode', choices=PerfTunerBase.SupportedModes.names(), help='configuration mode')
 argp.add_argument('--nic', help='network interface name, by default uses \'eth0\'')
 argp.add_argument('--get-cpu-mask', action='store_true', help="print the CPU mask to be used for compute")
-argp.add_argument('--tune', choices=TuneModes.names(), help="components to configure (may be given more than once)", action='append')
+argp.add_argument('--tune', choices=TuneModes.names(), help="components to configure (may be given more than once)", action='append', default=[])
 argp.add_argument('--cpu-mask', help="mask of cores to use, by default use all available cores", metavar='MASK')
 argp.add_argument('--dir', help="directory to optimize (may appear more than once)", action='append', dest='dirs', default=[])
 argp.add_argument('--dev', help="device to optimize (may appear more than once), e.g. sda1", action='append', dest='devs', default=[])
@@ -1024,9 +1024,9 @@ def parse_options_file(prog_args):
     if 'nic' in y and not prog_args.nic:
         prog_args.nic = y['nic']
 
-    if 'tune' in y and not prog_args.tune:
+    if 'tune' in y:
         if set(y['tune']) <= set(TuneModes.names()):
-            prog_args.tune = y['tune']
+            prog_args.tune.extend(y['tune'])
         else:
             raise Exception("Bad 'tune' value in {}: {}".format(prog_args.options_file, y['tune']))
 
@@ -1038,11 +1038,11 @@ def parse_options_file(prog_args):
         else:
             raise Exception("Bad 'cpu_mask' value in {}: {}".format(prog_args.options_file, str(y['cpu_mask'])))
 
-    if 'dir' in y and not prog_args.dirs:
-        prog_args.dirs = y['dir']
+    if 'dir' in y:
+        prog_args.dirs.extend(y['dir'])
 
-    if 'dev' in y and not prog_args.devs:
-        prog_args.devs = y['dev']
+    if 'dev' in y:
+        prog_args.devs.extend(y['dev'])
 
 def dump_config(prog_args):
     prog_options = {}
