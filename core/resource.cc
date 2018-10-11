@@ -1,3 +1,4 @@
+
 /*
  * This file is open source software, licensed to you under the terms
  * of the Apache License, Version 2.0 (the "License").  See the NOTICE file
@@ -25,6 +26,9 @@
 #include "resource.hh"
 #include "core/align.hh"
 #include "core/print.hh"
+#include "util/read_first_line.hh"
+#include <stdlib.h>
+#include <limits>
 
 namespace seastar {
 
@@ -242,6 +246,16 @@ allocate_io_queues(hwloc_topology_t& topology, configuration c, std::vector<cpu>
 }
 
 
+size_t get_cgroup_memory_limit() {
+    std::experimental::filesystem::path cgroup_memory = "/sys/fs/cgroup/memory/memory.limit_in_bytes";
+
+    try {
+        return boost::lexical_cast<size_t>(read_first_line(cgroup_memory));
+    } catch (...) {
+        return std::numeric_limits<size_t>::max();
+    }
+}
+
 resources allocate(configuration c) {
     hwloc_topology_t topology;
     hwloc_topology_init(&topology);
@@ -271,7 +285,8 @@ resources allocate(configuration c) {
     assert(hwloc_get_nbobjs_by_depth(topology, machine_depth) == 1);
     auto machine = hwloc_get_obj_by_depth(topology, machine_depth, 0);
     auto available_memory = machine->memory.total_memory;
-    size_t mem = calculate_memory(c, available_memory);
+    size_t mem = calculate_memory(c, std::min(available_memory,
+                                              get_cgroup_memory_limit()));
     unsigned available_procs = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
     unsigned procs = c.cpus.value_or(available_procs);
     if (procs > available_procs) {

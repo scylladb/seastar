@@ -469,6 +469,7 @@ core = [
     'util/log.cc',
     'util/backtrace.cc',
     'util/alloc_failure_injector.cc',
+    'util/read_first_line.cc',
     'net/packet.cc',
     'net/posix-stack.cc',
     'net/net.cc',
