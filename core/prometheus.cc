@@ -34,6 +34,7 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/range/algorithm.hpp>
 #include <boost/range/combine.hpp>
+#include "thread.hh"
 
 namespace seastar {
 
@@ -546,13 +547,13 @@ metric_family_range get_range(const metrics_families_per_shard& mf, const sstrin
 }
 
 future<> write_text_representation(output_stream<char>& out, const config& ctx, const metric_family_range& m) {
-    return do_with(false,
-            [&ctx, &out, &m](auto& found) mutable {
-        return do_for_each(m, [&out, &found, &ctx] (metric_family& metric_family) mutable {
-            std::stringstream s;
+    return seastar::async([&ctx, &out, &m] () mutable {
+        bool found = false;
+        for (metric_family& metric_family : m) {
             auto name = ctx.prefix + "_" + metric_family.name();
             found = false;
-            metric_family.foreach_metric([&s, &ctx, &found, &name, &metric_family](auto value, auto value_info) mutable {
+            metric_family.foreach_metric([&out, &ctx, &found, &name, &metric_family](auto value, auto value_info) mutable {
+                std::stringstream s;
                 if (!found) {
                     if (metric_family.metadata().d.str() != "") {
                         s << "# HELP " << name << " " <<  metric_family.metadata().d.str() << "\n";
@@ -587,9 +588,9 @@ future<> write_text_representation(output_stream<char>& out, const config& ctx, 
                     s << to_str(value);
                     s << "\n";
                 }
+                out.write(s.str()).get();
             });
-            return out.write(s.str());
-        });
+        }
     });
 }
 
