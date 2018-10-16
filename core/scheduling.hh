@@ -150,3 +150,14 @@ scheduling_group::active() const {
 }
 
 }
+
+namespace std {
+
+template <>
+struct hash<seastar::scheduling_group> {
+    size_t operator()(seastar::scheduling_group sg) const {
+        return seastar::internal::scheduling_group_index(sg);
+    }
+};
+
+}
