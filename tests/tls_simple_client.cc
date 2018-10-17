@@ -20,11 +20,11 @@
  */
 #include <cmath>
 
-#include "core/shared_ptr.hh"
-#include "core/reactor.hh"
-#include "core/app-template.hh"
-#include "core/sleep.hh"
-#include "net/dns.hh"
+#include <seastar/core/shared_ptr.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/app-template.hh>
+#include <seastar/core/sleep.hh>
+#include <seastar/net/dns.hh>
 #include "tls_echo_server.hh"
 
 using namespace seastar;

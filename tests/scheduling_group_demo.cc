@@ -20,13 +20,13 @@
  */
 
 
-#include "../core/app-template.hh"
-#include "../core/future.hh"
-#include "../core/scheduling.hh"
-#include "../core/thread.hh"
-#include "../core/future-util.hh"
-#include "../core/reactor.hh"
-#include "../util/defer.hh"
+#include <seastar/core/app-template.hh>
+#include <seastar/core/future.hh>
+#include <seastar/core/scheduling.hh>
+#include <seastar/core/thread.hh>
+#include <seastar/core/future-util.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/util/defer.hh>
 #include <chrono>
 #include <cmath>
 

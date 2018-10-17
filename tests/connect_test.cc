@@ -1,6 +1,6 @@
-#include "tests/test-utils.hh"
+#include "test-utils.hh"
 
-#include "net/ip.hh"
+#include <seastar/net/ip.hh>
 
 #include <random>
 

@@ -19,13 +19,13 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#include "core/app-template.hh"
-#include "core/shared_ptr.hh"
-#include "core/reactor.hh"
-#include "core/vector-data-sink.hh"
-#include "core/future-util.hh"
-#include "core/sstring.hh"
-#include "net/packet.hh"
+#include <seastar/core/app-template.hh>
+#include <seastar/core/shared_ptr.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/vector-data-sink.hh>
+#include <seastar/core/future-util.hh>
+#include <seastar/core/sstring.hh>
+#include <seastar/net/packet.hh>
 #include "test-utils.hh"
 #include <vector>
 

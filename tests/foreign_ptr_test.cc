@@ -19,12 +19,12 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#include "tests/test-utils.hh"
+#include "test-utils.hh"
 
-#include "core/distributed.hh"
-#include "core/shared_ptr.hh"
-#include "core/thread.hh"
-#include "core/sleep.hh"
+#include <seastar/core/distributed.hh>
+#include <seastar/core/shared_ptr.hh>
+#include <seastar/core/thread.hh>
+#include <seastar/core/sleep.hh>
 
 using namespace seastar;
 

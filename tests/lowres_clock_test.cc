@@ -21,9 +21,9 @@
 
 #include "test-utils.hh"
 
-#include <core/do_with.hh>
-#include <core/lowres_clock.hh>
-#include <core/sleep.hh>
+#include <seastar/core/do_with.hh>
+#include <seastar/core/lowres_clock.hh>
+#include <seastar/core/sleep.hh>
 
 #include <ctime>
 

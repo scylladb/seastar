@@ -20,14 +20,14 @@
  */
 #pragma once
 
-#include "core/do_with.hh"
-#include "core/sstring.hh"
-#include "core/reactor.hh"
-#include "core/do_with.hh"
-#include "core/future-util.hh"
-#include "core/sharded.hh"
-#include "core/gate.hh"
-#include "net/tls.hh"
+#include <seastar/core/do_with.hh>
+#include <seastar/core/sstring.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/do_with.hh>
+#include <seastar/core/future-util.hh>
+#include <seastar/core/sharded.hh>
+#include <seastar/core/gate.hh>
+#include <seastar/net/tls.hh>
 
 using namespace seastar;
 

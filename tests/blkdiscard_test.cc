@@ -20,10 +20,10 @@
  */
 
 #include <algorithm>
-#include "core/app-template.hh"
-#include "core/future-util.hh"
-#include "core/file.hh"
-#include "core/reactor.hh"
+#include <seastar/core/app-template.hh>
+#include <seastar/core/future-util.hh>
+#include <seastar/core/file.hh>
+#include <seastar/core/reactor.hh>
 
 using namespace seastar;
 

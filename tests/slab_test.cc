@@ -23,7 +23,7 @@
 
 #include <iostream>
 #include <assert.h>
-#include "core/slab.hh"
+#include <seastar/core/slab.hh>
 
 using namespace seastar;
 

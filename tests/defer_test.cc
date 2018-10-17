@@ -22,7 +22,7 @@
 #define BOOST_TEST_MODULE core
 
 #include <boost/test/included/unit_test.hpp>
-#include "util/defer.hh"
+#include <seastar/util/defer.hh>
 
 using namespace seastar;
 

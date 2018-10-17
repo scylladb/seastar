@@ -26,7 +26,7 @@
 #include <stdlib.h>
 #include <chrono>
 #include <deque>
-#include "core/circular_buffer.hh"
+#include <seastar/core/circular_buffer.hh>
 
 using namespace seastar;
 

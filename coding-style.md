@@ -4,6 +4,8 @@
 
 Header files have the `.hh` extension, source files use the `.cc` extension. All files must have a license and copyright blurb. Use `#pragma once` instead of an include guard.
 
+Header files which contain a public part of the interface of Seastar go in the `include` directory. Internal header and source files which are private to the implementation go in the `src` directory.
+
 ## Whitespace
 
 Use spaces only; NEVER tabs. Rationale: tabs render differently on each system.
@@ -29,6 +31,20 @@ public:
 Think of the leading underscore as a shorthand for `this->`.
 
 Template parameters and concepts use `CamelCase`
+
+## Including header files
+
+In any file, to include a public header file (one in the `include` directory), use an absolute path with `<>` like this:
+
+```c++
+#include <seastar/core/future.hh>
+```
+
+In any private file, to include a private header file (one in the `src` directory), use an absolute path with `""` like this:
+
+```c++
+#include "core/future_impl.hh"
+```
 
 ## Braced blocks
 

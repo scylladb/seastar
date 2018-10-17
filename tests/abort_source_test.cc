@@ -19,10 +19,10 @@
  * Copyright (C) 2017 ScyllaDB
  */
 
-#include "tests/test-utils.hh"
+#include "test-utils.hh"
 
-#include "core/gate.hh"
-#include "core/sleep.hh"
+#include <seastar/core/gate.hh>
+#include <seastar/core/sleep.hh>
 
 using namespace seastar;
 using namespace std::chrono_literals;

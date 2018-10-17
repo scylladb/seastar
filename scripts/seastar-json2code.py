@@ -329,8 +329,9 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
     else:
         hfile = open(config.outdir + "/" + hfile_name, "w")
     print_h_file_headers(hfile, api_name)
-    add_include(hfile, ['"core/sstring.hh"', '"' + config.jsoninc +
-                       'json_elements.hh"', '"http/json_path.hh"'])
+    add_include(hfile, ['<seastar/core/sstring.hh>',
+                        '<seastar/json/json_elements.hh>',
+                        '<seastar/http/json_path.hh>'])
 
     add_include(hfile, ['<iostream>', '<boost/range/irange.hpp>'])
     open_namespace(hfile, "seastar")

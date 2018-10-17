@@ -23,7 +23,7 @@
 #define BOOST_TEST_MODULE core
 
 #include <boost/test/included/unit_test.hpp>
-#include "core/weak_ptr.hh"
+#include <seastar/core/weak_ptr.hh>
 
 using namespace seastar;
 

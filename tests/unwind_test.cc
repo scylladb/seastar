@@ -23,9 +23,9 @@
 
 #include <boost/test/included/unit_test.hpp>
 #include <pthread.h>
-#include "util/defer.hh"
-#include "core/posix.hh"
-#include "util/backtrace.hh"
+#include <seastar/util/defer.hh>
+#include <seastar/core/posix.hh>
+#include <seastar/util/backtrace.hh>
 
 using namespace seastar;
 

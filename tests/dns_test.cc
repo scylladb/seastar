@@ -22,14 +22,14 @@
 #include <vector>
 #include <algorithm>
 
-#include "core/do_with.hh"
+#include <seastar/core/do_with.hh>
 #include "test-utils.hh"
-#include "core/sstring.hh"
-#include "core/reactor.hh"
-#include "core/do_with.hh"
-#include "core/future-util.hh"
-#include "net/dns.hh"
-#include "net/inet_address.hh"
+#include <seastar/core/sstring.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/do_with.hh>
+#include <seastar/core/future-util.hh>
+#include <seastar/net/dns.hh>
+#include <seastar/net/inet_address.hh>
 
 using namespace seastar;
 using namespace seastar::net;

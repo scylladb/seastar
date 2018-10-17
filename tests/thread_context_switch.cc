@@ -20,12 +20,12 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#include "core/thread.hh"
-#include "core/semaphore.hh"
-#include "core/app-template.hh"
-#include "core/do_with.hh"
-#include "core/distributed.hh"
-#include "core/sleep.hh"
+#include <seastar/core/thread.hh>
+#include <seastar/core/semaphore.hh>
+#include <seastar/core/app-template.hh>
+#include <seastar/core/do_with.hh>
+#include <seastar/core/distributed.hh>
+#include <seastar/core/sleep.hh>
 
 using namespace seastar;
 using namespace std::chrono_literals;

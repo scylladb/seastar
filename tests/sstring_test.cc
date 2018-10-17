@@ -22,7 +22,7 @@
 #define BOOST_TEST_MODULE core
 
 #include <boost/test/included/unit_test.hpp>
-#include "core/sstring.hh"
+#include <seastar/core/sstring.hh>
 #include <list>
 
 using namespace seastar;

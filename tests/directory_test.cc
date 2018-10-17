@@ -20,10 +20,10 @@
  */
 
 
-#include "core/reactor.hh"
-#include "core/app-template.hh"
-#include "core/print.hh"
-#include "core/shared_ptr.hh"
+#include <seastar/core/reactor.hh>
+#include <seastar/core/app-template.hh>
+#include <seastar/core/print.hh>
+#include <seastar/core/shared_ptr.hh>
 
 using namespace seastar;
 

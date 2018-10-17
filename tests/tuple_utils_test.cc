@@ -21,7 +21,7 @@
 
 #define BOOST_TEST_MODULE core
 
-#include <util/tuple_utils.hh>
+#include <seastar/util/tuple_utils.hh>
 
 #include <boost/test/included/unit_test.hpp>
 

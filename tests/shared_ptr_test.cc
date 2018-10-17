@@ -25,8 +25,8 @@
 #include <boost/test/included/unit_test.hpp>
 #include <set>
 #include <unordered_map>
-#include "core/sstring.hh"
-#include "core/shared_ptr.hh"
+#include <seastar/core/sstring.hh>
+#include <seastar/core/shared_ptr.hh>
 
 using namespace seastar;
 

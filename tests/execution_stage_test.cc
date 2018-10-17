@@ -24,10 +24,10 @@
 #include <vector>
 #include <chrono>
 
-#include "core/thread.hh"
+#include <seastar/core/thread.hh>
 #include "test-utils.hh"
-#include "core/execution_stage.hh"
-#include "../core/sleep.hh"
+#include <seastar/core/execution_stage.hh>
+#include <seastar/core/sleep.hh>
 
 using namespace std::chrono_literals;
 

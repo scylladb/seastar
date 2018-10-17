@@ -20,11 +20,11 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#include "core/app-template.hh"
-#include "core/distributed.hh"
-#include "core/future-util.hh"
-#include "core/sleep.hh"
-#include "core/thread.hh"
+#include <seastar/core/app-template.hh>
+#include <seastar/core/distributed.hh>
+#include <seastar/core/future-util.hh>
+#include <seastar/core/sleep.hh>
+#include <seastar/core/thread.hh>
 
 using namespace seastar;
 

@@ -19,7 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#include "core/ragel.hh"
+#include <seastar/core/ragel.hh>
 #include "apps/memcached/memcached.hh"
 #include <memory>
 #include <algorithm>

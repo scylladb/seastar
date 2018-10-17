@@ -20,9 +20,9 @@
  */
 
 #include "test-utils.hh"
-#include "core/queue.hh"
-#include "core/thread.hh"
-#include "core/sleep.hh"
+#include <seastar/core/queue.hh>
+#include <seastar/core/thread.hh>
+#include <seastar/core/sleep.hh>
 
 using namespace seastar;
 using namespace std::chrono_literals;

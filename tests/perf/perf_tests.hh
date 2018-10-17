@@ -26,8 +26,8 @@
 
 #include <fmt/format.h>
 
-#include "core/future.hh"
-#include "core/future-util.hh"
+#include <seastar/core/future.hh>
+#include <seastar/core/future-util.hh>
 
 
 using namespace seastar;

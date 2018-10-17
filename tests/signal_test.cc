@@ -19,9 +19,9 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#include "core/reactor.hh"
-#include "core/shared_ptr.hh"
-#include "core/do_with.hh"
+#include <seastar/core/reactor.hh>
+#include <seastar/core/shared_ptr.hh>
+#include <seastar/core/do_with.hh>
 #include "test-utils.hh"
 
 using namespace seastar;

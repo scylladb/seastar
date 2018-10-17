@@ -23,7 +23,7 @@
 #define BOOST_TEST_MODULE core
 
 #include <boost/test/included/unit_test.hpp>
-#include "util/noncopyable_function.hh"
+#include <seastar/util/noncopyable_function.hh>
 
 using namespace seastar;
 

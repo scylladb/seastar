@@ -20,10 +20,10 @@
  *
  */
 
-#include "net/virtio.hh"
-#include "net/dpdk.hh"
-#include "core/reactor.hh"
-#include "net/ip.hh"
+#include <seastar/net/virtio.hh>
+#include <seastar/net/dpdk.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/net/ip.hh>
 #include <iostream>
 #include <utility>
 #include <algorithm>

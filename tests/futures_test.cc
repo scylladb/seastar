@@ -19,14 +19,14 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#include "tests/test-utils.hh"
+#include "test-utils.hh"
 
-#include "core/shared_ptr.hh"
-#include "core/future-util.hh"
-#include "core/sleep.hh"
-#include "core/do_with.hh"
-#include "core/shared_future.hh"
-#include "core/thread.hh"
+#include <seastar/core/shared_ptr.hh>
+#include <seastar/core/future-util.hh>
+#include <seastar/core/sleep.hh>
+#include <seastar/core/do_with.hh>
+#include <seastar/core/shared_future.hh>
+#include <seastar/core/thread.hh>
 #include <boost/iterator/counting_iterator.hpp>
 
 using namespace seastar;

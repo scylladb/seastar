@@ -2,21 +2,21 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#include "http/httpd.hh"
-#include "http/handlers.hh"
-#include "http/matcher.hh"
-#include "http/matchrules.hh"
-#include "json/formatter.hh"
-#include "http/routes.hh"
-#include "http/exception.hh"
-#include "http/transformers.hh"
-#include "core/future-util.hh"
-#include "tests/test-utils.hh"
+#include <seastar/http/httpd.hh>
+#include <seastar/http/handlers.hh>
+#include <seastar/http/matcher.hh>
+#include <seastar/http/matchrules.hh>
+#include <seastar/json/formatter.hh>
+#include <seastar/http/routes.hh>
+#include <seastar/http/exception.hh>
+#include <seastar/http/transformers.hh>
+#include <seastar/core/future-util.hh>
+#include "test-utils.hh"
 #include "loopback_socket.hh"
 #include <boost/algorithm/string.hpp>
-#include "core/thread.hh"
-#include "util/noncopyable_function.hh"
-#include "http/json_path.hh"
+#include <seastar/core/thread.hh>
+#include <seastar/util/noncopyable_function.hh>
+#include <seastar/http/json_path.hh>
 #include <sstream>
 
 using namespace seastar;

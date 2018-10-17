@@ -19,14 +19,14 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#include "http/http_response_parser.hh"
-#include "core/print.hh"
-#include "core/reactor.hh"
-#include "core/app-template.hh"
-#include "core/future-util.hh"
-#include "core/distributed.hh"
-#include "core/semaphore.hh"
-#include "core/future-util.hh"
+#include <seastar/http/http_response_parser.hh>
+#include <seastar/core/print.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/app-template.hh>
+#include <seastar/core/future-util.hh>
+#include <seastar/core/distributed.hh>
+#include <seastar/core/semaphore.hh>
+#include <seastar/core/future-util.hh>
 #include <chrono>
 
 using namespace seastar;

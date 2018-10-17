@@ -23,11 +23,11 @@
 #define BOOST_TEST_MODULE core
 
 #include <boost/test/included/unit_test.hpp>
-#include "core/chunked_fifo.hh"
+#include <seastar/core/chunked_fifo.hh>
 #include <stdlib.h>
 #include <chrono>
 #include <deque>
-#include "core/circular_buffer.hh"
+#include <seastar/core/circular_buffer.hh>
 
 using namespace seastar;
 

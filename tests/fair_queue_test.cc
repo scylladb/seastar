@@ -20,15 +20,15 @@
  * Copyright (C) 2016 ScyllaDB
  */
 
-#include "core/thread.hh"
-#include "core/do_with.hh"
+#include <seastar/core/thread.hh>
+#include <seastar/core/do_with.hh>
 #include "test-utils.hh"
-#include "core/sstring.hh"
-#include "core/reactor.hh"
-#include "core/fair_queue.hh"
-#include "core/do_with.hh"
-#include "core/future-util.hh"
-#include "core/sleep.hh"
+#include <seastar/core/sstring.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/fair_queue.hh>
+#include <seastar/core/do_with.hh>
+#include <seastar/core/future-util.hh>
+#include <seastar/core/sleep.hh>
 #include <boost/range/irange.hpp>
 #include <random>
 #include <chrono>

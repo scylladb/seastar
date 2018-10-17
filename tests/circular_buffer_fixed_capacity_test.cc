@@ -25,7 +25,7 @@
 #include <boost/test/included/unit_test.hpp>
 #include <deque>
 #include <random>
-#include "../core/circular_buffer_fixed_capacity.hh"
+#include <seastar/core/circular_buffer_fixed_capacity.hh>
 
 #include <boost/range/algorithm/sort.hpp>
 #include <boost/range/algorithm/equal.hpp>

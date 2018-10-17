@@ -449,76 +449,76 @@ if args.cmake:
     sys.exit(0)
 
 libnet = [
-    'net/proxy.cc',
-    'net/virtio.cc',
-    'net/dpdk.cc',
-    'net/ip.cc',
-    'net/ethernet.cc',
-    'net/arp.cc',
-    'net/native-stack.cc',
-    'net/ip_checksum.cc',
-    'net/udp.cc',
-    'net/tcp.cc',
-    'net/dhcp.cc',
-    'net/tls.cc',
-    'net/dns.cc',
-    'net/config.cc',
+    'src/net/proxy.cc',
+    'src/net/virtio.cc',
+    'src/net/dpdk.cc',
+    'src/net/ip.cc',
+    'src/net/ethernet.cc',
+    'src/net/arp.cc',
+    'src/net/native-stack.cc',
+    'src/net/ip_checksum.cc',
+    'src/net/udp.cc',
+    'src/net/tcp.cc',
+    'src/net/dhcp.cc',
+    'src/net/tls.cc',
+    'src/net/dns.cc',
+    'src/net/config.cc',
     ]
 
 core = [
-    'core/reactor.cc',
-    'core/alien.cc',
-    'core/execution_stage.cc',
-    'core/systemwide_memory_barrier.cc',
-    'core/fstream.cc',
-    'core/posix.cc',
-    'core/memory.cc',
-    'core/resource.cc',
-    'core/scollectd.cc',
-    'core/metrics.cc',
-    'core/app-template.cc',
-    'core/thread.cc',
-    'core/dpdk_rte.cc',
-    'core/fsqual.cc',
-    'core/linux-aio.cc',
-    'util/conversions.cc',
-    'util/program-options.cc',
-    'util/log.cc',
-    'util/backtrace.cc',
-    'util/alloc_failure_injector.cc',
-    'util/read_first_line.cc',
-    'net/packet.cc',
-    'net/posix-stack.cc',
-    'net/net.cc',
-    'net/stack.cc',
-    'net/inet_address.cc',
-    'rpc/rpc.cc',
-    'rpc/lz4_compressor.cc',
-    'core/exception_hacks.cc',
-    'core/future-util.cc',
+    'src/core/reactor.cc',
+    'src/core/alien.cc',
+    'src/core/execution_stage.cc',
+    'src/core/systemwide_memory_barrier.cc',
+    'src/core/fstream.cc',
+    'src/core/posix.cc',
+    'src/core/memory.cc',
+    'src/core/resource.cc',
+    'src/core/scollectd.cc',
+    'src/core/metrics.cc',
+    'src/core/app-template.cc',
+    'src/core/thread.cc',
+    'src/core/dpdk_rte.cc',
+    'src/core/fsqual.cc',
+    'src/core/linux-aio.cc',
+    'src/util/conversions.cc',
+    'src/util/program-options.cc',
+    'src/util/log.cc',
+    'src/util/backtrace.cc',
+    'src/util/alloc_failure_injector.cc',
+    'src/util/read_first_line.cc',
+    'src/net/packet.cc',
+    'src/net/posix-stack.cc',
+    'src/net/net.cc',
+    'src/net/stack.cc',
+    'src/net/inet_address.cc',
+    'src/rpc/rpc.cc',
+    'src/rpc/lz4_compressor.cc',
+    'src/core/exception_hacks.cc',
+    'src/core/future-util.cc',
     ]
 
 protobuf = [
-    'proto/metrics2.proto',
+    'src/proto/metrics2.proto',
     ]
 
 prometheus = [
-    'core/prometheus.cc',
+    'src/core/prometheus.cc',
     ]
 
-http = ['http/transformers.cc',
-        'http/json_path.cc',
-        'http/file_handler.cc',
-        'http/common.cc',
-        'http/routes.cc',
-        'json/json_elements.cc',
-        'json/formatter.cc',
-        'http/matcher.cc',
-        'http/mime_types.cc',
-        'http/httpd.cc',
-        'http/reply.cc',
-        'http/request_parser.rl',
-        'http/api_docs.cc',
+http = ['src/http/transformers.cc',
+        'src/http/json_path.cc',
+        'src/http/file_handler.cc',
+        'src/http/common.cc',
+        'src/http/routes.cc',
+        'src/json/json_elements.cc',
+        'src/json/formatter.cc',
+        'src/http/matcher.cc',
+        'src/http/mime_types.cc',
+        'src/http/httpd.cc',
+        'src/http/reply.cc',
+        'src/http/request_parser.rl',
+        'src/http/api_docs.cc',
         ]
 
 boost_test_lib = [
@@ -602,7 +602,7 @@ deps = {
     'tests/tcp_sctp_client': ['tests/tcp_sctp_client.cc'] + core + libnet,
     'tests/tls_test': ['tests/tls_test.cc'] + core + libnet,
     'tests/fair_queue_test': ['tests/fair_queue_test.cc'] + core,
-    'apps/seawreck/seawreck': ['apps/seawreck/seawreck.cc', 'http/http_response_parser.rl'] + core + libnet,
+    'apps/seawreck/seawreck': ['apps/seawreck/seawreck.cc', 'src/http/http_response_parser.rl'] + core + libnet,
     'apps/io_tester/io_tester': ['apps/io_tester/io_tester.cc'] + core,
     'apps/iotune/iotune': ['apps/iotune/iotune.cc'] + core,
     'tests/blkdiscard_test': ['tests/blkdiscard_test.cc'] + core,
@@ -672,7 +672,7 @@ for bt in boost_tests:
     deps[bt] += boost_test_lib
 
 for pt in perf_tests:
-    deps[pt] = [pt + '.cc'] + core + ['tests/perf/perf_tests.cc', 'json/formatter.cc']
+    deps[pt] = [pt + '.cc'] + core + ['tests/perf/perf_tests.cc', 'src/json/formatter.cc']
 
 warnings = [
     '-Wno-mismatched-tags',                 # clang-only
@@ -935,7 +935,7 @@ with open(buildfile, 'w') as f:
             command = scripts/seastar-json2code.py -f $in -o $out
             description = SWAGGER $out
         rule protobuf
-            command = {protoc} --cpp_out=$outdir $in
+            command = mkdir -p $out_dir && {protoc} --cpp_out=$out_dir --proto_path=$pb_dir $pb_base_name
             description = PROTOC $out
         rule copy_file
             command = cp $in $out
@@ -958,7 +958,7 @@ with open(buildfile, 'w') as f:
         elif modeval['sanitize']:
             modeval['sanitize'] += ' -DSEASTAR_ASAN_ENABLED'
         f.write(textwrap.dedent('''\
-            cxxflags_{mode} = {sanitize} {opt} -I$full_builddir/{mode}/gen
+            cxxflags_{mode} = {sanitize} {opt} -I. -Itests -Iinclude -Isrc -I$full_builddir/{mode}/gen/include -I$full_builddir/{mode}/gen/src
             libs_{mode} = {sanitize_libs} {libs}
             rule cxx.{mode}
               command = $cxx -MD -MT $out -MF $out.d $cxxflags_{mode} $cxxflags -c -o $out $in
@@ -1034,13 +1034,16 @@ with open(buildfile, 'w') as f:
                     compiles[obj] = src
                 elif src.endswith('.proto'):
                     hh = '$builddir/' + mode + '/gen/' + src.replace('.proto', '.pb.h')
-                    protobufs[hh] = src
-                    compiles[hh.replace('.h', '.o')] = hh.replace('.h', '.cc')
+                    cc = hh.replace('.h', '.cc')
+                    o = cc.replace('.cc', '.o')
+                    protobufs[hh] = (src, cc)
+                    compiles[o] = cc
+                    objs += o
                 elif src.endswith('.rl'):
-                    hh = '$builddir/' + mode + '/gen/' + src.replace('.rl', '.hh')
+                    hh = '$builddir/' + mode + '/gen/include/' + src.replace('src/', 'seastar/').replace('.rl', '.hh')
                     ragels[hh] = src
                 elif src.endswith('.json'):
-                    hh = '$builddir/' + mode + '/gen/' + src + '.hh'
+                    hh = '$builddir/' + mode + '/gen/include/' + src.replace('src/', 'seastar/') + '.hh'
                     swaggers[hh] = src
                 else:
                     raise Exception('No rule for ' + src)
@@ -1054,11 +1057,18 @@ with open(buildfile, 'w') as f:
         for hh in swaggers:
             src = swaggers[hh]
             f.write('build {}: swagger {} | scripts/seastar-json2code.py\n'.format(hh,src))
-        for pb in protobufs:
-            src = protobufs[pb]
-            c_pb = pb.replace('.h','.cc')
-            outd = os.path.dirname(os.path.dirname(pb))
-            f.write('build {} {}: protobuf {}\n  outdir = {}\n'.format(c_pb, pb, src, outd))
+        for pb_hdr in protobufs:
+            (pb, pb_src) = protobufs[pb_hdr]
+            out_dir = os.path.dirname(pb_src)
+            pb_hdr_dir = os.path.dirname(pb_hdr)
+
+            f.write('build {} {}: protobuf {}\n  pb_dir = {}\n  pb_base_name = {}\n  out_dir = {}\n'.format(
+                pb_src,
+                pb_hdr,
+                pb,
+                os.path.dirname(pb),
+                os.path.basename(pb),
+                out_dir))
 
     f.write(textwrap.dedent('''\
         rule configure

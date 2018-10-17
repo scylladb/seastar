@@ -21,7 +21,7 @@
 
 #define BOOST_TEST_MODULE core
 
-#include "util/program-options.hh"
+#include <seastar/util/program-options.hh>
 
 #include <boost/program_options.hpp>
 #include <boost/test/included/unit_test.hpp>

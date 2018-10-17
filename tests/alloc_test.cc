@@ -19,9 +19,9 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#include "tests/test-utils.hh"
-#include "core/memory.hh"
-#include "core/reactor.hh"
+#include "test-utils.hh"
+#include <seastar/core/memory.hh>
+#include <seastar/core/reactor.hh>
 #include <vector>
 
 using namespace seastar;

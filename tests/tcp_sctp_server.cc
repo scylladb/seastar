@@ -19,10 +19,10 @@
  * Copyright 2014 Cloudius Systems
  */
 
-#include "core/reactor.hh"
-#include "core/app-template.hh"
-#include "core/temporary_buffer.hh"
-#include "core/distributed.hh"
+#include <seastar/core/reactor.hh>
+#include <seastar/core/app-template.hh>
+#include <seastar/core/temporary_buffer.hh>
+#include <seastar/core/distributed.hh>
 #include <vector>
 #include <iostream>
 

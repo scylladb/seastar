@@ -21,14 +21,14 @@
 
 
 #include "loopback_socket.hh"
-#include "rpc/rpc.hh"
-#include "rpc/rpc_types.hh"
-#include "rpc/lz4_compressor.hh"
-#include "rpc/multi_algo_compressor_factory.hh"
+#include <seastar/rpc/rpc.hh>
+#include <seastar/rpc/rpc_types.hh>
+#include <seastar/rpc/lz4_compressor.hh>
+#include <seastar/rpc/multi_algo_compressor_factory.hh>
 #include "test-utils.hh"
-#include "core/thread.hh"
-#include "core/sleep.hh"
-#include "util/defer.hh"
+#include <seastar/core/thread.hh>
+#include <seastar/core/sleep.hh>
+#include <seastar/util/defer.hh>
 
 using namespace seastar;
 

@@ -19,9 +19,9 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#include "core/app-template.hh"
-#include "core/future-util.hh"
-#include "core/distributed.hh"
+#include <seastar/core/app-template.hh>
+#include <seastar/core/future-util.hh>
+#include <seastar/core/distributed.hh>
 
 using namespace seastar;
 using namespace net;

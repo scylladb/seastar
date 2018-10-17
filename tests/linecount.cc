@@ -22,10 +22,10 @@
 // Demonstration of file_input_stream.  Don't expect stellar performance
 // since no read-ahead or caching is done yet.
 
-#include "core/fstream.hh"
-#include "core/app-template.hh"
-#include "core/shared_ptr.hh"
-#include "core/reactor.hh"
+#include <seastar/core/fstream.hh>
+#include <seastar/core/app-template.hh>
+#include <seastar/core/shared_ptr.hh>
+#include <seastar/core/reactor.hh>
 #include <algorithm>
 
 using namespace seastar;

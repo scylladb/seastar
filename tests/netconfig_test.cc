@@ -21,7 +21,7 @@
 
 #define BOOST_TEST_MODULE core
 
-#include "net/config.hh"
+#include <seastar/net/config.hh>
 #include <boost/test/included/unit_test.hpp>
 #include <exception>
 #include <sstream>

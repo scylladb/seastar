@@ -35,19 +35,19 @@
 #include <fstream>
 #include <wordexp.h>
 #include <yaml-cpp/yaml.h>
-#include "core/thread.hh"
-#include "core/sstring.hh"
-#include "core/posix.hh"
-#include "core/resource.hh"
-#include "core/aligned_buffer.hh"
-#include "core/sharded.hh"
-#include "core/app-template.hh"
-#include "core/shared_ptr.hh"
-#include "core/fsqual.hh"
-#include "util/defer.hh"
-#include "util/log.hh"
-#include "util/std-compat.hh"
-#include "util/read_first_line.hh"
+#include <seastar/core/thread.hh>
+#include <seastar/core/sstring.hh>
+#include <seastar/core/posix.hh>
+#include <seastar/core/resource.hh>
+#include <seastar/core/aligned_buffer.hh>
+#include <seastar/core/sharded.hh>
+#include <seastar/core/app-template.hh>
+#include <seastar/core/shared_ptr.hh>
+#include <seastar/core/fsqual.hh>
+#include <seastar/util/defer.hh>
+#include <seastar/util/log.hh>
+#include <seastar/util/std-compat.hh>
+#include <seastar/util/read_first_line.hh>
 
 using namespace seastar;
 using namespace std::chrono_literals;

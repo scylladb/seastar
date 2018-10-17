@@ -19,8 +19,8 @@
  * Copyright 2014 Cloudius Systems
  */
 
-#include "core/memory.hh"
-#include "core/timer.hh"
+#include <seastar/core/memory.hh>
+#include <seastar/core/timer.hh>
 #include <random>
 #include <cmath>
 #include <iostream>

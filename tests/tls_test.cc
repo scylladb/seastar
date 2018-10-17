@@ -20,16 +20,16 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#include "core/do_with.hh"
+#include <seastar/core/do_with.hh>
 #include "test-utils.hh"
-#include "core/sstring.hh"
-#include "core/reactor.hh"
-#include "core/do_with.hh"
-#include "core/future-util.hh"
-#include "core/sharded.hh"
-#include "core/thread.hh"
-#include "core/gate.hh"
-#include "net/tls.hh"
+#include <seastar/core/sstring.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/do_with.hh>
+#include <seastar/core/future-util.hh>
+#include <seastar/core/sharded.hh>
+#include <seastar/core/thread.hh>
+#include <seastar/core/gate.hh>
+#include <seastar/net/tls.hh>
 
 #if 0
 #include <gnutls/gnutls.h>

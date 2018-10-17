@@ -22,7 +22,7 @@
 #define BOOST_TEST_MODULE simple_stream
 
 #include <boost/test/included/unit_test.hpp>
-#include "core/simple-stream.hh"
+#include <seastar/core/simple-stream.hh>
 
 using namespace seastar;
 

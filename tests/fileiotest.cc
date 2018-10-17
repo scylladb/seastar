@@ -19,14 +19,14 @@
  * Copyright (C) 2014-2015 Cloudius Systems, Ltd.
  */
 
-#include "tests/test-utils.hh"
+#include "test-utils.hh"
 
-#include "core/semaphore.hh"
-#include "core/condition-variable.hh"
-#include "core/file.hh"
-#include "core/reactor.hh"
-#include "core/thread.hh"
-#include "core/stall_sampler.hh"
+#include <seastar/core/semaphore.hh>
+#include <seastar/core/condition-variable.hh>
+#include <seastar/core/file.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/thread.hh>
+#include <seastar/core/stall_sampler.hh>
 
 using namespace seastar;
 

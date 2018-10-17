@@ -24,8 +24,8 @@
 #include <memory>
 #include <functional>
 #include <atomic>
-#include "core/future.hh"
-#include "core/posix.hh"
+#include <seastar/core/future.hh>
+#include <seastar/core/posix.hh>
 #include "exchanger.hh"
 
 namespace seastar {

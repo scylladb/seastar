@@ -26,22 +26,23 @@
 #include <boost/optional.hpp>
 #include <iomanip>
 #include <sstream>
-#include "core/app-template.hh"
-#include "core/future-util.hh"
-#include "core/timer-set.hh"
-#include "core/shared_ptr.hh"
-#include "core/stream.hh"
-#include "core/memory.hh"
-#include "core/units.hh"
-#include "core/distributed.hh"
-#include "core/vector-data-sink.hh"
-#include "core/bitops.hh"
-#include "core/slab.hh"
-#include "core/align.hh"
-#include "net/api.hh"
-#include "net/packet-data-source.hh"
+#include <seastar/core/app-template.hh>
+#include <seastar/core/future-util.hh>
+#include <seastar/core/timer-set.hh>
+#include <seastar/core/shared_ptr.hh>
+#include <seastar/core/stream.hh>
+#include <seastar/core/memory.hh>
+#include <seastar/core/units.hh>
+#include <seastar/core/distributed.hh>
+#include <seastar/core/vector-data-sink.hh>
+#include <seastar/core/bitops.hh>
+#include <seastar/core/slab.hh>
+#include <seastar/core/align.hh>
+#include <seastar/net/api.hh>
+#include <seastar/net/packet-data-source.hh>
+// These two paths are non-conventional due to limitations in `configure.py`.
 #include "apps/memcached/ascii.hh"
-#include "memcached.hh"
+#include "apps/memcached/memcached.hh"
 #include <unistd.h>
 
 #define PLATFORM "seastar"

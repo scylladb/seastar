@@ -22,15 +22,15 @@
 #pragma once
 
 #include <system_error>
-#include "core/iostream.hh"
-#include "core/circular_buffer.hh"
-#include "core/shared_ptr.hh"
-#include "core/queue.hh"
-#include "core/future-util.hh"
-#include "core/do_with.hh"
-#include "net/stack.hh"
-#include "core/reactor.hh"
-#include "core/sharded.hh"
+#include <seastar/core/iostream.hh>
+#include <seastar/core/circular_buffer.hh>
+#include <seastar/core/shared_ptr.hh>
+#include <seastar/core/queue.hh>
+#include <seastar/core/future-util.hh>
+#include <seastar/core/do_with.hh>
+#include <seastar/net/stack.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/sharded.hh>
 
 namespace seastar {
 

@@ -20,10 +20,10 @@
  * Copyright (C) 2016 ScyllaDB
  */
 
-#include "core/thread.hh"
+#include <seastar/core/thread.hh>
 #include "test-utils.hh"
-#include "core/future-util.hh"
-#include "core/expiring_fifo.hh"
+#include <seastar/core/future-util.hh>
+#include <seastar/core/expiring_fifo.hh>
 #include <boost/range/irange.hpp>
 
 using namespace seastar;

@@ -19,11 +19,11 @@
  * Copyright 2015 Cloudius Systems
  */
 #include <cmath>
-#include "core/reactor.hh"
-#include "core/app-template.hh"
-#include "rpc/rpc.hh"
-#include "core/sleep.hh"
-#include "rpc/lz4_compressor.hh"
+#include <seastar/core/reactor.hh>
+#include <seastar/core/app-template.hh>
+#include <seastar/rpc/rpc.hh>
+#include <seastar/core/sleep.hh>
+#include <seastar/rpc/lz4_compressor.hh>
 
 using namespace seastar;
 

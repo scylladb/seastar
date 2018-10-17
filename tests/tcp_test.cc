@@ -19,9 +19,9 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#include "net/ip.hh"
-#include "net/virtio.hh"
-#include "net/tcp.hh"
+#include <seastar/net/ip.hh>
+#include <seastar/net/virtio.hh>
+#include <seastar/net/tcp.hh>
 
 using namespace seastar;
 using namespace net;

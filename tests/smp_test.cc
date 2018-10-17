@@ -19,9 +19,9 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#include "core/reactor.hh"
-#include "core/app-template.hh"
-#include "core/print.hh"
+#include <seastar/core/reactor.hh>
+#include <seastar/core/app-template.hh>
+#include <seastar/core/print.hh>
 
 using namespace seastar;
 
