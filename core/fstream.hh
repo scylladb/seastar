@@ -82,8 +82,15 @@ input_stream<char> make_file_input_stream(
         file file, file_input_stream_options = {});
 
 struct file_output_stream_options {
-    unsigned buffer_size = 8192;
-    unsigned preallocation_size = 1024*1024; // 1MB
+    // For small files, setting preallocation_size can make it impossible for XFS to find
+    // an aligned extent. On the other hand, without it, XFS will divide the file into
+    // file_size/buffer_size extents. To avoid fragmentation, we set the default buffer_size
+    // to 64k (so each extent will be a minimum of 64k) and preallocation_size to 0 (to avoid
+    // extent allocation problems).
+    //
+    // Large files should increase both buffer_size and preallocation_size.
+    unsigned buffer_size = 65536;
+    unsigned preallocation_size = 0; ///< Preallocate extents. For large files, set to a large number (a few megabytes) to reduce fragmentation
     unsigned write_behind = 1; ///< Number of buffers to write in parallel
     ::seastar::io_priority_class io_priority_class = default_priority_class();
 };
