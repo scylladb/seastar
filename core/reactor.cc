@@ -1312,8 +1312,6 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, io_queue::reque
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc, owner);
-        pclass.bytes += len;
-        pclass.ops++;
         pclass.nr_queued++;
         unsigned weight;
         size_t size;
@@ -1327,9 +1325,11 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, io_queue::reque
         auto desc = std::make_unique<io_desc>(this, weight, size);
         auto fq_desc = desc->fq_descriptor();
         auto fut = desc->get_future();
-        _fq.queue(pclass.ptr, std::move(fq_desc), [&pclass, start, prepare_io = std::move(prepare_io), desc = std::move(desc), this] () mutable noexcept {
+        _fq.queue(pclass.ptr, std::move(fq_desc), [&pclass, start, prepare_io = std::move(prepare_io), desc = std::move(desc), len, this] () mutable noexcept {
             try {
                 pclass.nr_queued--;
+                pclass.ops++;
+                pclass.bytes += len;
                 pclass.queue_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start);
                 engine().submit_io(desc.get(), std::move(prepare_io));
                 desc.release();
