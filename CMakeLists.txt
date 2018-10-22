@@ -434,6 +434,7 @@ set (util_files
   util/optimized_optional.hh
   util/print_safe.hh
   util/program-options.hh util/program-options.cc
+  util/read_first_line.hh util/read_first_line.cc
   util/reference_wrapper.hh
   util/spinlock.hh
   util/transform_iterator.hh
