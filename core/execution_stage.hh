@@ -33,7 +33,7 @@
 #include "../util/tuple_utils.hh"
 #include "../util/defer.hh"
 #include "util/std-compat.hh"
-#include "../fmt/fmt/format.h"
+#include "fmt/format.h"
 #include <vector>
 #include <boost/range/irange.hpp>
 #include <boost/range/adaptor/transformed.hpp>

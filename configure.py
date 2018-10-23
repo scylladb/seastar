@@ -756,7 +756,7 @@ if args.dpdk_target:
     else:
         libs += '-Wl,--whole-archive -lrte_pmd_vmxnet3_uio -lrte_pmd_i40e -lrte_pmd_ixgbe -lrte_pmd_e1000 -lrte_pmd_ring -lrte_pmd_bnxt -lrte_pmd_cxgbe -lrte_pmd_ena -lrte_pmd_enic -lrte_pmd_fm10k -lrte_pmd_nfp -lrte_pmd_qede -lrte_pmd_sfc_efx -lrte_hash -lrte_kvargs -lrte_mbuf -lrte_ethdev -lrte_eal -lrte_mempool -lrte_mempool_ring -lrte_ring -lrte_cmdline -lrte_cfgfile -Wl,--no-whole-archive -lrt -lm -ldl'
 
-args.user_cflags += ' -I{srcdir}/fmt'.format(**globals())
+args.user_cflags += ' -I{srcdir}/fmt/include'.format(**globals())
 
 if not args.staticboost:
     args.user_cflags += ' -DBOOST_TEST_DYN_LINK'
@@ -961,11 +961,11 @@ with open(buildfile, 'w') as f:
               description = CXX $out
               depfile = $out.d
             rule link.{mode}
-              command = $cxx  $cxxflags_{mode} -L$builddir/{mode} -L$builddir/{mode}/fmt/fmt $ldflags -o $out $in $libs $libs_{mode} $extralibs
+              command = $cxx  $cxxflags_{mode} -L$builddir/{mode} -L$builddir/{mode}/fmt $ldflags -o $out $in $libs $libs_{mode} $extralibs
               description = LINK $out
               pool = link_pool
             rule link_stripped.{mode}
-              command = $cxx  $cxxflags_{mode} -s -L$builddir/{mode} -L$builddir/{mode}/fmt/fmt $ldflags -o $out $in $libs $libs_{mode} $extralibs
+              command = $cxx  $cxxflags_{mode} -s -L$builddir/{mode} -L$builddir/{mode}/fmt $ldflags -o $out $in $libs $libs_{mode} $extralibs
               description = LINK (stripped) $out
               pool = link_pool
             rule ar.{mode}
@@ -1005,7 +1005,7 @@ with open(buildfile, 'w') as f:
                         URL: http://seastar-project.org/
                         Description: Advanced C++ framework for high-performance server applications on modern hardware.
                         Version: 1.0
-                        Libs: -L$full_builddir/{mode} -L$full_builddir/{mode}/fmt/fmt -Wl,--whole-archive,-lseastar,--no-whole-archive -lfmt $cxxflags $cxflags_{mode} -Wl,--no-as-needed {static} {pie} {user_ldflags} {sanitize_libs} {libs}
+                        Libs: -L$full_builddir/{mode} -L$full_builddir/{mode}/fmt -Wl,--whole-archive,-lseastar,--no-whole-archive -lfmt $cxxflags $cxflags_{mode} -Wl,--no-as-needed {static} {pie} {user_ldflags} {sanitize_libs} {libs}
                         Cflags: $cxxflags $cxxflags_{mode}
                         ''').format(**vars)
                 f.write('build $builddir/{}/{}: gen\n  text = {}\n'.format(mode, binary, repr(pc)))
