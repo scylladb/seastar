@@ -26,11 +26,16 @@
 using namespace seastar;
 using namespace std::chrono_literals;
 
+extern "C" {
+#include <sys/types.h>
+#include <unistd.h>
+}
+
 SEASTAR_TEST_CASE(test_sighup) {
     return do_with(false, [](bool& signaled) { 
         engine().handle_signal(SIGHUP, [&] { signaled = true; });
         return seastar::sleep(10ms).then([&] {
-            kill(0, SIGHUP);
+            kill(getpid(), SIGHUP);
             return seastar::sleep(10ms).then([&] {
                 BOOST_REQUIRE_EQUAL(signaled, true);
                 return make_ready_future<>();
