@@ -19,12 +19,12 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#include "core/sleep.hh"
+#include "core/reactor.hh"
+#include "core/shared_ptr.hh"
 #include "core/do_with.hh"
 #include "test-utils.hh"
 
 using namespace seastar;
-using namespace std::chrono_literals;
 
 extern "C" {
 #include <sys/types.h>
@@ -32,14 +32,17 @@ extern "C" {
 }
 
 SEASTAR_TEST_CASE(test_sighup) {
-    return do_with(false, [](bool& signaled) { 
-        engine().handle_signal(SIGHUP, [&] { signaled = true; });
-        return seastar::sleep(10ms).then([&] {
-            kill(getpid(), SIGHUP);
-            return seastar::sleep(10ms).then([&] {
-                BOOST_REQUIRE_EQUAL(signaled, true);
-                return make_ready_future<>();
-            });
+    return do_with(make_lw_shared<promise<>>(), false, [](auto const& p, bool& signaled) {
+        engine().handle_signal(SIGHUP, [p, &signaled] {
+            signaled = true;
+            p->set_value();
+        });
+
+        kill(getpid(), SIGHUP);
+
+        return p->get_future().then([&] {
+            BOOST_REQUIRE_EQUAL(signaled, true);
+            return make_ready_future<>();
         });
     });
 } 
