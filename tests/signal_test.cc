@@ -43,7 +43,6 @@ SEASTAR_TEST_CASE(test_sighup) {
 
         return p->get_future().then([&] {
             BOOST_REQUIRE_EQUAL(signaled, true);
-            return make_ready_future<>();
         });
     });
 } 
