@@ -99,6 +99,8 @@ if __name__ == "__main__":
 
     # Forwarding to CMake.
     if args.cmake:
+        print('CMake support is temporarily disabled.')
+        sys.exit(1)
         MODES = [args.mode] if args.mode else seastar_cmake.SUPPORTED_MODES
 
         def run_tests(mode):

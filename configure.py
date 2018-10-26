@@ -391,6 +391,8 @@ if args.cpp_dialect == '':
 
 # Forwarding to CMake.
 if args.cmake:
+    print('CMake support is temporarily disabled.')
+    sys.exit(1)
     MODES = seastar_cmake.SUPPORTED_MODES if args.mode is 'all' else [args.mode]
 
     # For convenience.
