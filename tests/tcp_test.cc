@@ -40,7 +40,7 @@ struct tcp_test {
                     tcp_conn.close_write();
                     return;
                 }
-                print("read %d bytes\n", p.len());
+                fmt::print("read {:d} bytes\n", p.len());
                 tcp_conn.send(std::move(p));
                 run();
             });

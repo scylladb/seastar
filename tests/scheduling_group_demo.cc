@@ -147,19 +147,19 @@ int main(int ac, char** av) {
 
             end.arm(10s);
             unsigned ctr100 = 0, ctr20 = 0, ctr50 = 0;
-            print("running three scheduling groups with 100%% duty cycle each:\n");
+            fmt::print("running three scheduling groups with 100% duty cycle each:\n");
             when_all(
                     run_compute_intensive_tasks(sg100, var_fn(done), 5, ctr100, heavy_task),
                     run_compute_intensive_tasks(sg20, var_fn(done), 3, ctr20, light_task),
                     run_compute_intensive_tasks_in_threads(sg50, var_fn(done), 2, ctr50, medium_task)
                     ).get();
-            print("%10s %15s %10s %12s %8s\n", "shares", "task_time (us)", "executed", "runtime (ms)", "vruntime");
-            print("%10d %15d %10d %12d %8.2f\n", 100, 1000, ctr100, ctr100 * 1000 / 1000, ctr100 * 1000 / 1000 / 100.);
-            print("%10d %15d %10d %12d %8.2f\n", 20, 100, ctr20, ctr20 * 100 / 1000, ctr20 * 100 / 1000 / 20.);
-            print("%10d %15d %10d %12d %8.2f\n", 50, 400, ctr50, ctr50 * 400 / 1000, ctr50 * 400 / 1000 / 50.);
-            print("\n");
+            fmt::print("{:10} {:15} {:10} {:12} {:8}\n", "shares", "task_time (us)", "executed", "runtime (ms)", "vruntime");
+            fmt::print("{:10d} {:15d} {:10d} {:12d} {:8.2f}\n", 100, 1000, ctr100, ctr100 * 1000 / 1000, ctr100 * 1000 / 1000 / 100.);
+            fmt::print("{:10d} {:15d} {:10d} {:12d} {:8.2f}\n", 20, 100, ctr20, ctr20 * 100 / 1000, ctr20 * 100 / 1000 / 20.);
+            fmt::print("{:10d} {:15d} {:10d} {:12d} {:8.2f}\n", 50, 400, ctr50, ctr50 * 400 / 1000, ctr50 * 400 / 1000 / 50.);
+            fmt::print("\n");
 
-            print("running two scheduling groups with 100%%/50%% duty cycles (period=1s:\n");
+            fmt::print("running two scheduling groups with 100%/50% duty cycles (period=1s:\n");
             unsigned ctr100_2 = 0, ctr50_2 = 0;
             done = false;
             end.arm(10s);
@@ -169,9 +169,9 @@ int main(int ac, char** av) {
                         return run_compute_intensive_tasks(sg100, done, 4, ctr100_2, heavy_task);
                     })
             ).get();
-            print("%10s %10s %15s %10s %12s %8s\n", "shares", "duty", "task_time (us)", "executed", "runtime (ms)", "vruntime");
-            print("%10d %10d %15d %10d %12d %8.2f\n", 100, 50, 1000, ctr100_2, ctr100_2 * 1000 / 1000, ctr100_2 * 1000 / 1000 / 100.);
-            print("%10d %10d %15d %10d %12d %8.2f\n", 50, 100, 400, ctr50_2, ctr50_2 * 1000 / 1000, ctr50_2 * 1000 / 1000 / 50.);
+            fmt::print("{:10} {:10} {:15} {:10} {:12} {:8}\n", "shares", "duty", "task_time (us)", "executed", "runtime (ms)", "vruntime");
+            fmt::print("{:10d} {:10d} {:15d} {:10d} {:12d} {:8.2f}\n", 100, 50, 1000, ctr100_2, ctr100_2 * 1000 / 1000, ctr100_2 * 1000 / 1000 / 100.);
+            fmt::print("{:10d} {:10d} {:15d} {:10d} {:12d} {:8.2f}\n", 50, 100, 400, ctr50_2, ctr50_2 * 1000 / 1000, ctr50_2 * 1000 / 1000 / 50.);
 
             return 0;
         });

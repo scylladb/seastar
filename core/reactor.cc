@@ -167,11 +167,11 @@ public:
         }
     }
     void print() const {
-        seastar::print("task histogram, %d task types %d tasks\n", _histogram.size(), max_countdown - _countdown_to_print);
+        seastar::fmt::print("task histogram, {:d} task types {:d} tasks\n", _histogram.size(), max_countdown - _countdown_to_print);
         for (auto&& type_count : _histogram) {
             auto&& type = type_count.first;
             auto&& count = type_count.second;
-            seastar::print("  %10d %s\n", count, type.name());
+            seastar::fmt::print("  {:10d} {}\n", count, type.name());
         }
     }
 };
@@ -3813,7 +3813,7 @@ network_stack_registry::create(options opts) {
 future<std::unique_ptr<network_stack>>
 network_stack_registry::create(sstring name, options opts) {
     if (!_map().count(name)) {
-        throw std::runtime_error(sprint("network stack %s not registered", name));
+        throw std::runtime_error(format("network stack {} not registered", name));
     }
     return _map()[name](opts);
 }
@@ -3832,7 +3832,7 @@ reactor::get_options_description(std::chrono::duration<double> default_task_quot
     auto net_stack_names = network_stack_registry::list();
     opts.add_options()
         ("network-stack", bpo::value<std::string>(),
-                sprint("select network stack (valid values: %s)",
+                format("select network stack (valid values: {})",
                         format_separated(net_stack_names.begin(), net_stack_names.end(), ", ")).c_str())
         ("no-handle-interrupt", "ignore SIGINT (for gdb)")
         ("poll-mode", "poll continuously (100% cpu use)")
@@ -4163,7 +4163,7 @@ void smp::configure(boost::program_options::variables_map configuration)
         thread_affinity = false;
     }
     if (!thread_affinity && _using_dpdk) {
-        print("warning: --thread-affinity 0 ignored in dpdk mode\n");
+        fmt::print("warning: --thread-affinity 0 ignored in dpdk mode\n");
     }
     auto mbind = configuration["mbind"].as<bool>();
     if (!thread_affinity) {
@@ -4225,7 +4225,7 @@ void smp::configure(boost::program_options::variables_map configuration)
         auto r = mlockall(MCL_CURRENT | MCL_FUTURE);
         if (r) {
             // Don't hard fail for now, it's hard to get the configuration right
-            print("warning: failed to mlockall: %s\n", strerror(errno));
+            fmt::print("warning: failed to mlockall: {}\n", strerror(errno));
         }
     }
 
@@ -4572,7 +4572,7 @@ future<> check_direct_io_support(sstring path) {
 
         static w parse(sstring path, compat::optional<directory_entry_type> type) {
             if (!type) {
-                throw std::invalid_argument(sprint("Could not open file at %s. Make sure it exists", path));
+                throw std::invalid_argument(format("Could not open file at {}. Make sure it exists", path));
             }
 
             if (type == directory_entry_type::directory) {
@@ -4581,7 +4581,7 @@ future<> check_direct_io_support(sstring path) {
             } else if ((type == directory_entry_type::regular) || (type == directory_entry_type::link)) {
                 return w{path, open_flags::ro, [] { return make_ready_future<>(); }};
             } else {
-                throw std::invalid_argument(sprint("%s neither a directory nor file. Can't be opened with O_DIRECT", path));
+                throw std::invalid_argument(format("{} neither a directory nor file. Can't be opened with O_DIRECT", path));
             }
         };
     };
@@ -4594,7 +4594,7 @@ future<> check_direct_io_support(sstring path) {
                 return cleanup();
             } catch (std::system_error& e) {
                 if (e.code() == std::error_code(EINVAL, std::system_category())) {
-                    report_exception(sprint("Could not open file at %s. Does your filesystem support O_DIRECT?", path), std::current_exception());
+                    report_exception(format("Could not open file at {}. Does your filesystem support O_DIRECT?", path), std::current_exception());
                 }
                 throw;
             }

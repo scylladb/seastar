@@ -61,7 +61,7 @@ struct ipv4_address {
         boost::system::error_code ec;
         auto ipv4 = boost::asio::ip::address_v4::from_string(addr, ec);
         if (ec) {
-            throw std::runtime_error(sprint("Wrong format for IPv4 address %s. Please ensure it's in dotted-decimal format",
+            throw std::runtime_error(format("Wrong format for IPv4 address {}. Please ensure it's in dotted-decimal format",
                                             addr));
         }
         ip = static_cast<uint32_t>(std::move(ipv4).to_ulong());

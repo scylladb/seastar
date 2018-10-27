@@ -63,7 +63,7 @@ int main(int ac, char** av) {
         return open_file_dma(fname, open_flags::ro).then([] (file f) {
             auto r = make_shared<reader>(std::move(f));
             return r->is.consume(*r).then([r] {
-               print("%d lines\n", r->count);
+               fmt::print("{:d} lines\n", r->count);
                return r->is.close().then([r] {});
             });
         }).then_wrapped([] (future<> f) -> future<int> {

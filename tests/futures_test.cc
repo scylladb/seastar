@@ -746,7 +746,7 @@ static void check_failed_with(future<T...>&& f) {
     } catch (const E& e) {
         // expected
     } catch (...) {
-        BOOST_FAIL(sprint("wrong exception: %s", std::current_exception()));
+        BOOST_FAIL(format("wrong exception: {}", std::current_exception()));
     }
 }
 

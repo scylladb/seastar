@@ -67,8 +67,8 @@ int main(int ac, char** av) {
                     auto end = std::chrono::steady_clock::now();
                     using fseconds = std::chrono::duration<float, std::ratio<1, 1>>;
                     auto iops = total_ops / std::chrono::duration_cast<fseconds>(end - start).count();
-                    print("%10s %10s %10s %12s\n", "bufsize", "ops", "iodepth", "IOPS");
-                    print("%10d %10d %10d %12.0f\n", buffer_size, total_ops, concurrency, iops);
+                    fmt::print("{:10} {:10} {:10} {:12}\n", "bufsize", "ops", "iodepth", "IOPS");
+                    fmt::print("{:10d} {:10d} {:10d} {:12.0f}\n", buffer_size, total_ops, concurrency, iops);
                     return os.flush();
                 }).then([&os] {
                     return os.close();

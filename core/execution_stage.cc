@@ -29,7 +29,7 @@ namespace internal {
 void execution_stage_manager::register_execution_stage(execution_stage& stage) {
     auto ret = _stages_by_name.emplace(stage.name(), &stage);
     if (!ret.second) {
-        throw std::invalid_argument(sprint("Execution stage %s already exists.", stage.name()));
+        throw std::invalid_argument(format("Execution stage {} already exists.", stage.name()));
     }
     try {
         _execution_stages.push_back(&stage);

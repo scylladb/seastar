@@ -320,7 +320,7 @@ SEASTAR_TEST_CASE(test_input_stream_esp_around_eof) {
             //in.close().get();
             auto xlen = std::min(end, flen) - std::min(flen, start);
             if (xlen != readback.size()) {
-                BOOST_FAIL(sprint("Expected %d bytes but got %d, start=%d, end=%d", xlen, readback.size(), start, end));
+                BOOST_FAIL(format("Expected {:d} bytes but got {:d}, start={:d}, end={:d}", xlen, readback.size(), start, end));
             }
             BOOST_REQUIRE(std::equal(readback.begin(), readback.end(), data.begin() + std::min(start, flen)));
         }
@@ -406,7 +406,7 @@ SEASTAR_TEST_CASE(test_fstream_slow_start) {
                     previous_buffer_length = length;
                 });
 
-                BOOST_TEST_MESSAGE(sprint("Size %u", buf.size()));
+                BOOST_TEST_MESSAGE(format("Size {:d}", buf.size()));
                 total_read += buf.size();
                 if (buf.size() == buffer_size) {
                     BOOST_TEST_MESSAGE("Leaving slow start phase.");

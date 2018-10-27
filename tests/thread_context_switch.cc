@@ -83,7 +83,7 @@ int main(int ac, char** av) {
                 return dcst.map_reduce0(std::mem_fn(&context_switch_tester::measure), uint64_t(), std::plus<uint64_t>());
             }).then([] (uint64_t switches) {
                 switches /= smp::count;
-                print("context switch time: %5.1f ns\n",
+                fmt::print("context switch time: {:5.1f} ns\n",
                       double(std::chrono::duration_cast<std::chrono::nanoseconds>(test_time).count()) / switches);
             }).then([&dcst] {
                 return dcst.stop();

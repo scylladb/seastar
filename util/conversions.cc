@@ -37,7 +37,7 @@ size_t parse_memory_size(std::string s) {
             static std::string suffixes = "kMGT";
             auto pos = suffixes.find(c);
             if (pos == suffixes.npos) {
-                throw std::runtime_error(sprint("Cannot parse memory size '%s'", s));
+                throw std::runtime_error(format("Cannot parse memory size '{}'", s));
             }
             factor <<= (pos + 1) * 10;
             s = s.substr(0, s.size() - 1);

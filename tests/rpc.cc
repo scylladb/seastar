@@ -88,11 +88,11 @@ class mycomp : public rpc::compressor::factory {
     const sstring _name = "LZ4";
 public:
     virtual const sstring& supported() const override {
-        print("supported called\n");
+        fmt::print("supported called\n");
         return _name;
     }
     virtual std::unique_ptr<rpc::compressor> negotiate(sstring feature, bool is_server) const override {
-        print("negotiate called with %s\n", feature);
+        fmt::print("negotiate called with {}\n", feature);
         return feature == _name ? std::make_unique<rpc::lz4_compressor>() : nullptr;
     }
 };
@@ -110,7 +110,7 @@ int main(int ac, char** av) {
     static double x = 30.0;
 
     myrpc.set_logger([] (const sstring& log) {
-        print("%s", log);
+        fmt::print("{}", log);
         std::cout << std::endl;
     });
 
@@ -119,15 +119,15 @@ int main(int ac, char** av) {
         uint16_t port = config["port"].as<uint16_t>();
         bool compress = config["compress"].as<bool>();
         static mycomp mc;
-        auto test1 = myrpc.register_handler(1, [x = 0](int i) mutable { print("test1 count %d got %d\n", ++x, i); });
-        auto test2 = myrpc.register_handler(2, [](int a, int b){ print("test2 got %d %d\n", a, b); return make_ready_future<int>(a+b); });
-        auto test3 = myrpc.register_handler(3, [](double x){ print("test3 got %f\n", x); return std::make_unique<double>(sin(x)); });
-        auto test4 = myrpc.register_handler(4, [](){ print("test4 throw!\n"); throw std::runtime_error("exception!"); });
-        auto test5 = myrpc.register_handler(5, [](){ print("test5 no wait\n"); return rpc::no_wait; });
-        auto test6 = myrpc.register_handler(6, [](const rpc::client_info& info, int x){ print("test6 client %s, %d\n", inet_ntoa(info.addr.as_posix_sockaddr_in().sin_addr), x); });
-        auto test8 = myrpc.register_handler(8, [](){ print("test8 sleep for 2 sec\n"); return sleep(2s); });
-        auto test13 = myrpc.register_handler(13, [](){ print("test13 sleep for 1 msec\n"); return sleep(1ms); });
-        auto test_message_to_big = myrpc.register_handler(14, [](sstring payload){ print("test message to bit, should not get here"); });
+        auto test1 = myrpc.register_handler(1, [x = 0](int i) mutable { fmt::print("test1 count {:d} got {:d}\n", ++x, i); });
+        auto test2 = myrpc.register_handler(2, [](int a, int b){ fmt::print("test2 got {:d} {:d}\n", a, b); return make_ready_future<int>(a+b); });
+        auto test3 = myrpc.register_handler(3, [](double x){ fmt::print("test3 got {:f}\n", x); return std::make_unique<double>(sin(x)); });
+        auto test4 = myrpc.register_handler(4, [](){ fmt::print("test4 throw!\n"); throw std::runtime_error("exception!"); });
+        auto test5 = myrpc.register_handler(5, [](){ fmt::print("test5 no wait\n"); return rpc::no_wait; });
+        auto test6 = myrpc.register_handler(6, [](const rpc::client_info& info, int x){ fmt::print("test6 client {}, {:d}\n", inet_ntoa(info.addr.as_posix_sockaddr_in().sin_addr), x); });
+        auto test8 = myrpc.register_handler(8, [](){ fmt::print("test8 sleep for 2 sec\n"); return sleep(2s); });
+        auto test13 = myrpc.register_handler(13, [](){ fmt::print("test13 sleep for 1 msec\n"); return sleep(1ms); });
+        auto test_message_to_big = myrpc.register_handler(14, [](sstring payload){ fmt::print("test message to bit, should not get here"); });
 
         if (config.count("server")) {
             std::cout << "client" << std::endl;
@@ -157,35 +157,35 @@ int main(int ac, char** av) {
                 }
             });
             for (auto i = 0; i < 100; i++) {
-                print("iteration=%d\n", i);
-                test1(*client, 5).then([] (){ print("test1 ended\n");});
-                test2(*client, 1, 2).then([] (int r) { print("test2 got %d\n", r); });
-                test3(*client, x).then([](double x) { print("sin=%f\n", x); });
+                fmt::print("iteration={:d}\n", i);
+                test1(*client, 5).then([] (){ fmt::print("test1 ended\n");});
+                test2(*client, 1, 2).then([] (int r) { fmt::print("test2 got {:d}\n", r); });
+                test3(*client, x).then([](double x) { fmt::print("sin={:f}\n", x); });
                 test4(*client).then_wrapped([](future<> f) {
                     try {
                         f.get();
-                        print("test4 your should not see this!\n");
+                        fmt::print("test4 your should not see this!\n");
                     } catch (std::runtime_error& x){
-                        print("test4 %s\n", x.what());
+                        fmt::print("test4 {}\n", x.what());
                     }
                 });
-                test5(*client).then([] { print("test5 no wait ended\n"); });
-                test6(*client, 1).then([] { print("test6 ended\n"); });
-                test7(*client, 5, 6).then([] (long r) { print("test7 got %ld\n", r); });
-                test9(*client, 1, 2).then([] (long r) { print("test9 got %ld\n", r); });
-                test9_1(*client, 1, 2, 3).then([] (long r) { print("test9.1 got %ld\n", r); });
-                test9_2(*client, 1, 2, 3, 4).then([] (long r) { print("test9.2 got %ld\n", r); });
-                test10(*client).then([] (long r) { print("test10 got %ld\n", r); });
-                test10_1(*client).then([] (long r, int rr) { print("test10_1 got %ld and %d\n", r, rr); });
-                test11(*client).then([] (long r, rpc::optional<int> rr) { print("test11 got %ld and %d\n", r, bool(rr)); });
+                test5(*client).then([] { fmt::print("test5 no wait ended\n"); });
+                test6(*client, 1).then([] { fmt::print("test6 ended\n"); });
+                test7(*client, 5, 6).then([] (long r) { fmt::print("test7 got {:d}\n", r); });
+                test9(*client, 1, 2).then([] (long r) { fmt::print("test9 got {:d}\n", r); });
+                test9_1(*client, 1, 2, 3).then([] (long r) { fmt::print("test9.1 got {:d}\n", r); });
+                test9_2(*client, 1, 2, 3, 4).then([] (long r) { fmt::print("test9.2 got {:d}\n", r); });
+                test10(*client).then([] (long r) { fmt::print("test10 got {:d}\n", r); });
+                test10_1(*client).then([] (long r, int rr) { fmt::print("test10_1 got {:d} and {:d}\n", r, rr); });
+                test11(*client).then([] (long r, rpc::optional<int> rr) { fmt::print("test11 got {:d} and {:d}\n", r, bool(rr)); });
                 test_nohandler(*client).then_wrapped([](future<> f) {
                     try {
                         f.get();
-                        print("test_nohandler your should not see this!\n");
+                        fmt::print("test_nohandler your should not see this!\n");
                     } catch (rpc::unknown_verb_error& x){
-                        print("test_nohandle no such verb\n");
+                        fmt::print("test_nohandle no such verb\n");
                     } catch (...) {
-                        print("incorrect exception!\n");
+                        fmt::print("incorrect exception!\n");
                     }
                 });
                 test_nohandler_nowait(*client);
@@ -193,33 +193,33 @@ int main(int ac, char** av) {
                 test13(*client, *c).then_wrapped([](future<> f) {
                     try {
                         f.get();
-                        print("test13 shold not get here\n");
+                        fmt::print("test13 shold not get here\n");
                     } catch(rpc::canceled_error&) {
-                        print("test13 canceled\n");
+                        fmt::print("test13 canceled\n");
                     } catch(...) {
-                        print("test13 wrong exception\n");
+                        fmt::print("test13 wrong exception\n");
                     }
                 });
                 c->cancel();
                 test13(*client, *c).then_wrapped([](future<> f) {
                     try {
                         f.get();
-                        print("test13 shold not get here\n");
+                        fmt::print("test13 shold not get here\n");
                     } catch(rpc::canceled_error&) {
-                        print("test13 canceled\n");
+                        fmt::print("test13 canceled\n");
                     } catch(...) {
-                        print("test13 wrong exception\n");
+                        fmt::print("test13 wrong exception\n");
                     }
                 });
                 sleep(500us).then([c] { c->cancel(); });
                 test_message_to_big(*client, sstring(sstring::initialized_later(), 10'000'001)).then_wrapped([](future<> f) {
                     try {
                         f.get();
-                        print("test message to big shold not get here\n");
+                        fmt::print("test message to big shold not get here\n");
                     } catch(std::runtime_error& err) {
-                        print("test message to big get error %s\n", err.what());
+                        fmt::print("test message to big get error {}\n", err.what());
                     } catch(...) {
-                        print("test message to big wrong exception\n");
+                        fmt::print("test message to big wrong exception\n");
                     }
                 });
             }
@@ -231,12 +231,12 @@ int main(int ac, char** av) {
                     return test12(*client, 100, sstring(sstring::initialized_later(), 1'000'000)).then([idx, now] {
                         auto later = rpc::rpc_clock_type::now();
                         auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(later - now);
-                        print("idx %d completed after %d ms\n", idx, delta.count());
+                        fmt::print("idx {:d} completed after {:d} ms\n", idx, delta.count());
                     });
                 }).then([now] {
                     auto later = rpc::rpc_clock_type::now();
                     auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(later - now);
-                    print("test12 completed after %d ms (should be ~300)\n", delta.count());
+                    fmt::print("test12 completed after {:d} ms (should be ~300)\n", delta.count());
                 });
             });
             f.finally([] {
@@ -251,9 +251,9 @@ int main(int ac, char** av) {
             myrpc.register_handler(7, [](long a, long b) mutable {
                 auto p = make_lw_shared<promise<>>();
                 auto t = make_lw_shared<timer<>>();
-                print("test7 got %ld %ld\n", a, b);
+                fmt::print("test7 got {:d} {:d}\n", a, b);
                 auto f = p->get_future().then([a, b, t] {
-                    print("test7 calc res\n");
+                    fmt::print("test7 calc res\n");
                     return a - b;
                 });
                 t->set_callback([p = std::move(p)] () mutable { p->set_value(); });
@@ -262,20 +262,20 @@ int main(int ac, char** av) {
             });
             myrpc.register_handler(9, [] (long a, long b, rpc::optional<int> c) {
                 long r = 2;
-                print("test9 got %ld %ld ", a, b);
+                fmt::print("test9 got {:d} {:d} ", a, b);
                 if (c) {
-                    print("%d", c.value());
+                    fmt::print("{:d}", c.value());
                     r++;
                 }
-                print("\n");
+                fmt::print("\n");
                 return r;
             });
             myrpc.register_handler(10, [] {
-                print("test 10\n");
+                fmt::print("test 10\n");
                 return make_ready_future<long, int>(1, 2);
             });
             myrpc.register_handler(11, [] {
-                print("test 11\n");
+                fmt::print("test 11\n");
                 return 1ul;
             });
             myrpc.register_handler(12, [] (int sleep_ms, sstring payload) {

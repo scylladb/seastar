@@ -33,7 +33,7 @@ namespace net {
 
 std::ostream& operator<<(std::ostream& os, ipv4_address a) {
     auto ip = a.ip;
-    return fprint(os, "%d.%d.%d.%d",
+    return fmt_print(os, "{:d}.{:d}.{:d}.{:d}",
             (ip >> 24) & 0xff,
             (ip >> 16) & 0xff,
             (ip >> 8) & 0xff,

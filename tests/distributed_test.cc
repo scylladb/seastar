@@ -101,7 +101,7 @@ future<> test_constructor_argument_is_passed_to_each_core() {
         return y.start(sstring("hello")).then([&y] {
             return y.invoke_on_all([] (Y& y) {
                 if (y.s != "hello") {
-                    throw std::runtime_error(sprint("expected message mismatch, is \"%s\"", y.s));
+                    throw std::runtime_error(format("expected message mismatch, is \"%s\"", y.s));
                 }
             });
         });

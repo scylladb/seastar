@@ -125,7 +125,7 @@ app_template::run(int ac, char ** av, std::function<future<> ()>&& func) {
 int
 app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) {
 #ifdef SEASTAR_DEBUG
-    print("WARNING: debug mode. Not for benchmarking or production\n");
+    fmt::print("WARNING: debug mode. Not for benchmarking or production\n");
 #endif
     bpo::variables_map configuration;
     try {
@@ -136,7 +136,7 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
             , configuration);
         _conf_reader(configuration);
     } catch (bpo::error& e) {
-        print("error: %s\n\nTry --help.\n", e.what());
+        fmt::print("error: {}\n\nTry --help.\n", e.what());
         return 2;
     }
     if (configuration.count("help")) {

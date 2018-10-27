@@ -39,7 +39,7 @@ int main(int ac, char** av) {
         future<> done() { return _listing.done(); }
     private:
         future<> report(directory_entry de) {
-            print("%s\n", de.name);
+            fmt::print("{}\n", de.name);
             return make_ready_future<>();
         }
     };

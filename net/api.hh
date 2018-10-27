@@ -48,7 +48,7 @@ bool is_port_unspecified(ipv4_addr &addr) {
 
 static inline
 std::ostream& operator<<(std::ostream &os, ipv4_addr addr) {
-    fprint(os, "%d.%d.%d.%d",
+    fmt_print(os, "{:d}.{:d}.{:d}.{:d}",
             (addr.ip >> 24) & 0xff,
             (addr.ip >> 16) & 0xff,
             (addr.ip >> 8) & 0xff,

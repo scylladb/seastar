@@ -103,7 +103,7 @@ class http_chunked_data_sink_impl : public data_sink_impl {
     output_stream<char>& _out;
 
     future<> write_size(size_t s) {
-        auto req = sprint("%x\r\n", s);
+        auto req = format("{:x}\r\n", s);
         return _out.write(req);
     }
 public:

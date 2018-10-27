@@ -112,7 +112,7 @@ std::ostream& operator<<(std::ostream& os, const packet& p) {
                 }
                 nfirst = false;
                 uint8_t b = *p;
-                os << sprint("%02x", unsigned(b));
+                os << format("{:02x}", unsigned(b));
             }
             os << "}";
         }

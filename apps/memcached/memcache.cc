@@ -704,7 +704,7 @@ public:
 
         ss << "size: " << _cache.size() << "\n";
         ss << "buckets: " << _cache.bucket_count() << "\n";
-        ss << "load: " << sprint("%.2lf", (double)_cache.size() / _cache.bucket_count()) << "\n";
+        ss << "load: " << format("{:.2f}", (double)_cache.size() / _cache.bucket_count()) << "\n";
         ss << "max bucket occupancy: " << max_size << "\n";
         ss << "bucket occupancy histogram:\n";
 

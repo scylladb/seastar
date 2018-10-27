@@ -40,7 +40,7 @@ std::unique_ptr<CharType[], free_deleter> allocate_aligned_buffer(size_t size, s
     if (r == ENOMEM) {
         throw std::bad_alloc();
     } else if (r == EINVAL) {
-        throw std::runtime_error(sprint("Invalid alignment of %d; allocating %d bytes", align, size));
+        throw std::runtime_error(format("Invalid alignment of {:d}; allocating {:d} bytes", align, size));
     } else {
         assert(r == 0);
         return std::unique_ptr<CharType[], free_deleter>(reinterpret_cast<CharType *>(ret));

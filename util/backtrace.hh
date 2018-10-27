@@ -108,7 +108,7 @@ public:
     template<typename... Args>
     backtraced(Args&&... args)
             : Exc(std::forward<Args>(args)...)
-            , _backtrace(std::make_shared<sstring>(sprint("%s Backtrace: %s", Exc::what(), current_backtrace()))) {}
+            , _backtrace(std::make_shared<sstring>(format("{} Backtrace: {}", Exc::what(), current_backtrace()))) {}
 
     /**
      * Returns the original exception message with a backtrace appended to it

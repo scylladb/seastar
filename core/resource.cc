@@ -197,7 +197,7 @@ allocate_io_queues(hwloc_topology_t& topology, configuration c, std::vector<cpu>
     // User may be playing with --smp option, but num_io_queues was independently
     // determined by iotune, so adjust for any conflicts.
     if (num_io_queues > cpus.size()) {
-        print("Warning: number of IO queues (%d) greater than logical cores (%d). Adjusting downwards.\n", num_io_queues, cpus.size());
+        fmt::print("Warning: number of IO queues ({:d}) greater than logical cores ({:d}). Adjusting downwards.\n", num_io_queues, cpus.size());
         num_io_queues = cpus.size();
     }
 

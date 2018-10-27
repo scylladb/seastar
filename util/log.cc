@@ -277,7 +277,7 @@ void
 logger_registry::register_logger(logger* l) {
     std::lock_guard<std::mutex> g(_mutex);
     if (_loggers.find(l->name()) != _loggers.end()) {
-        throw std::runtime_error(sprint("Logger '%s' registered twice", l->name()));
+        throw std::runtime_error(format("Logger '{}' registered twice", l->name()));
     }
     _loggers[l->name()] = l;
 }
@@ -302,7 +302,7 @@ void apply_logging_settings(const logging_settings& s) {
             global_logger_registry().set_logger_level(pair.first, pair.second);
         } catch (const std::out_of_range&) {
             throw std::runtime_error(
-                        seastar::sprint("Unknown logger '%s'. Use --help-loggers to list available loggers.",
+                        seastar::format("Unknown logger '{}'. Use --help-loggers to list available loggers.",
                                         pair.first));
         }
     }
@@ -349,7 +349,7 @@ log_level parse_log_level(const sstring& s) {
     try {
         return boost::lexical_cast<log_level>(s.c_str());
     } catch (const boost::bad_lexical_cast&) {
-        throw std::runtime_error(sprint("Unknown log level '%s'", s));
+        throw std::runtime_error(format("Unknown log level '{}'", s));
     }
 }
 

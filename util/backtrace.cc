@@ -103,7 +103,7 @@ std::ostream& operator<<(std::ostream& out, const saved_backtrace& b) {
         if (!f.so->name.empty()) {
             out << f.so->name << "+";
         }
-        out << sprint("0x%x", f.addr) << "\n";
+        out << format("0x{:x}", f.addr) << "\n";
     }
     return out;
 }
