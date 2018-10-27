@@ -136,4 +136,13 @@ format(const char* fmt, A&&... a) {
     fmt::format_to(out, fmt, std::forward<A>(a)...);
     return sstring{out.data(), out.size()};
 }
+
+// temporary, use fmt::print() instead
+template <typename... A>
+std::ostream&
+fmt_print(std::ostream& os, const char* format, A&&... a) {
+    fmt::print(os, format, std::forward<A>(a)...);
+    return os;
+}
+
 }
