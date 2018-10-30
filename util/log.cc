@@ -441,7 +441,7 @@ std::ostream& operator<<(std::ostream& out, const std::exception_ptr& eptr) {
         try {
             throw;
         } catch(const std::system_error &e) {
-            out << " (error " << e.code() << ", " << e.code().message() << ")";
+            out << " (error " << e.code() << ", " << e.what() << ")";
         } catch(const std::exception& e) {
             out << " (" << e.what() << ")";
             try {
