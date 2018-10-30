@@ -23,6 +23,7 @@
 #include <chrono>
 
 #include <c-ares/ares.h>
+#include <boost/lexical_cast.hpp>
 
 #include "ip.hh"
 #include "api.hh"
@@ -207,27 +208,36 @@ public:
     }
 
     future<hostent> get_host_by_name(sstring name, inet_address::family family)  {
-        auto p = new promise<hostent>();
-        auto f = p->get_future();
+        class promise_wrap : public promise<hostent> {
+        public:
+            promise_wrap(sstring s)
+                : name(std::move(s))
+            {}
+            sstring name;
+        };
 
         dns_log.debug("Query name {} ({})", name, family);
 
+        auto p = new promise_wrap(std::move(name));
+        auto f = p->get_future();
+
         dns_call call(*this);
 
-        ares_gethostbyname(_channel, name.c_str(), int(family), [](void* arg, int status, int timeouts, ::hostent* host) {
-            auto p = reinterpret_cast<promise<hostent> *>(arg);
+        ares_gethostbyname(_channel, p->name.c_str(), int(family), [](void* arg, int status, int timeouts, ::hostent* host) {
+            // we do potentially allocating operations below, so wrap the pointer in a
+            // unique here.
+            std::unique_ptr<promise_wrap> p(reinterpret_cast<promise_wrap *>(arg));
 
             switch (status) {
             default:
                 dns_log.debug("Query failed: {}", status);
-                p->set_exception(std::system_error(status, ares_errorc));
+                p->set_exception(std::system_error(status, ares_errorc, p->name));
                 break;
             case ARES_SUCCESS:
                 p->set_value(make_hostent(*host));
                 break;
             }
 
-            delete p;
         }, reinterpret_cast<void *>(p));
 
 
@@ -239,27 +249,36 @@ public:
     }
 
     future<hostent> get_host_by_addr(inet_address addr) {
-        auto p = new promise<hostent>();
-        auto f = p->get_future();
+        class promise_wrap : public promise<hostent> {
+        public:
+            promise_wrap(inet_address a)
+                : addr(std::move(a))
+            {}
+            inet_address addr;
+        };
 
         dns_log.debug("Query addr {}", addr);
 
+        auto p = new promise_wrap(std::move(addr));
+        auto f = p->get_future();
+
         dns_call call(*this);
 
-        ares_gethostbyaddr(_channel, addr.data(), addr.size(), int(addr.in_family()), [](void* arg, int status, int timeouts, ::hostent* host) {
-            auto p = reinterpret_cast<promise<hostent> *>(arg);
+        ares_gethostbyaddr(_channel, p->addr.data(), p->addr.size(), int(p->addr.in_family()), [](void* arg, int status, int timeouts, ::hostent* host) {
+            // we do potentially allocating operations below, so wrap the pointer in a
+            // unique here.
+            std::unique_ptr<promise_wrap> p(reinterpret_cast<promise_wrap *>(arg));
 
             switch (status) {
             default:
                 dns_log.debug("Query failed: {}", status);
-                p->set_exception(std::system_error(status, ares_errorc));
+                p->set_exception(std::system_error(status, ares_errorc, boost::lexical_cast<std::string>(p->addr)));
                 break;
             case ARES_SUCCESS:
                 p->set_value(make_hostent(*host));
                 break;
             }
 
-            delete p;
         }, reinterpret_cast<void *>(p));
 
 
