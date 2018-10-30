@@ -109,4 +109,8 @@ output_stream<char> make_file_output_stream(
         file file,
         file_output_stream_options options);
 
+/// Create a data_sink for writing starting at the position zero of a
+/// newly created file.
+data_sink make_file_data_sink(file, file_output_stream_options);
+
 }

@@ -430,12 +430,9 @@ public:
     }
 };
 
-class file_data_sink : public data_sink {
-public:
-    file_data_sink(file f, file_output_stream_options options)
-        : data_sink(std::make_unique<file_data_sink_impl>(
-                std::move(f), options)) {}
-};
+data_sink make_file_data_sink(file f, file_output_stream_options options) {
+    return data_sink(std::make_unique<file_data_sink_impl>(std::move(f), options));
+}
 
 output_stream<char> make_file_output_stream(file f, size_t buffer_size) {
     file_output_stream_options options;
@@ -444,7 +441,7 @@ output_stream<char> make_file_output_stream(file f, size_t buffer_size) {
 }
 
 output_stream<char> make_file_output_stream(file f, file_output_stream_options options) {
-    return output_stream<char>(file_data_sink(std::move(f), options), options.buffer_size, true);
+    return output_stream<char>(make_file_data_sink(std::move(f), options), options.buffer_size, true);
 }
 
 /*
