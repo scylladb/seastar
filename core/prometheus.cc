@@ -652,7 +652,7 @@ public:
     future<std::unique_ptr<httpd::reply>> handle(const sstring& path,
         std::unique_ptr<httpd::request> req, std::unique_ptr<httpd::reply> rep) override {
         auto text = is_accept_text(req->get_header("Accept"));
-        sstring metric_family_name = (req->param.exists("name")) ? req->param["name"] : "";
+        sstring metric_family_name = req->get_query_param("name");
         bool prefix = trim_asterisk(metric_family_name);
 
         rep->write_body((text) ? "txt" : "proto", [this, text, metric_family_name, prefix] (output_stream<char>&& s) {
@@ -680,7 +680,6 @@ future<> add_prometheus_routes(http_server& server, config ctx) {
         ctx.hostname = metrics::impl::get_local_impl()->get_config().hostname;
     }
     server._routes.put(GET, "/metrics", new metrics_handler(ctx));
-    server._routes.add(GET, url("/metrics").remainder("name"), new metrics_handler(ctx));
     return make_ready_future<>();
 }
 
