@@ -932,7 +932,7 @@ with open(buildfile, 'w') as f:
             command = /bin/echo -e $text > $out
             description = GEN $out
         rule swagger
-            command = json/json2code.py -f $in -o $out
+            command = scripts/seastar-json2code.py -f $in -o $out
             description = SWAGGER $out
         rule protobuf
             command = {protoc} --cpp_out=$outdir $in
@@ -1053,7 +1053,7 @@ with open(buildfile, 'w') as f:
             f.write('build {}: ragel {}\n'.format(hh, src))
         for hh in swaggers:
             src = swaggers[hh]
-            f.write('build {}: swagger {} | json/json2code.py\n'.format(hh,src))
+            f.write('build {}: swagger {} | scripts/seastar-json2code.py\n'.format(hh,src))
         for pb in protobufs:
             src = protobufs[pb]
             c_pb = pb.replace('.h','.cc')
