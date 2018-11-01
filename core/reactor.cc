@@ -4779,7 +4779,7 @@ std::chrono::nanoseconds reactor::total_steal_time() {
            std::chrono::duration_cast<std::chrono::nanoseconds>(thread_cputime_clock::now().time_since_epoch());
 }
 
-static std::atomic<unsigned long> s_used_scheduling_group_ids_bitmap = 3; // 0=main, 1=atexit
+static std::atomic<unsigned long> s_used_scheduling_group_ids_bitmap{3}; // 0=main, 1=atexit
 
 static
 unsigned
