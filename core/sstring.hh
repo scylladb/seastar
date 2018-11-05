@@ -189,7 +189,7 @@ public:
         x.u.internal.str[0] = '\0';
     }
     basic_sstring(initialized_later, size_t size) {
-        if (size_type(size) != size) {
+        if (size == SIZE_MAX || size_type(size + 1) != size + 1) {
             throw std::overflow_error("sstring overflow");
         }
         if (size + padding() <= sizeof(u.internal.str)) {
