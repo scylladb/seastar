@@ -25,6 +25,7 @@
 #include <memory>
 #include <unordered_map>
 #include "http/request.hh"
+#include <algorithm>
 
 namespace seastar {
 
@@ -54,6 +55,7 @@ action store_version {
 
 action store_field_name {
     _field_name = str();
+    std::transform(_field_name.begin(), _field_name.end(), _field_name.begin(), ::tolower);
 }
 
 action store_value {

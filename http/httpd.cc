@@ -158,6 +158,7 @@ future<> connection::read() {
         return _read_buf.close();
     });
 }
+
 future<> connection::read_one() {
     _parser.init();
     return _read_buf.consume(_parser).then([this] () mutable {
@@ -168,11 +169,23 @@ future<> connection::read_one() {
         ++_server._requests_served;
         std::unique_ptr<httpd::request> req = _parser.get_parsed_request();
 
-        return _replies.not_full().then([req = std::move(req), this] () mutable {
-            return generate_reply(std::move(req));
-        }).then([this](bool done) {
-            _done = done;
-        });
+        auto it = req->_headers.find("content-length");
+        req->content_length = 0;
+
+        if (it != req->_headers.end()) {
+            auto content_len = std::stoi(it->second);
+            req->content_length = content_len;
+        }
+
+        return _read_buf.read_exactly(req->content_length).then([req=std::move(req),this](temporary_buffer<char> buf) mutable {
+                req->content = std::move(seastar::to_sstring(std::move(buf)));
+
+                return _replies.not_full().then([req = std::move(req), this] () mutable {
+                        return generate_reply(std::move(req));
+                    }).then([this](bool done) {
+                            _done = done;
+                        });
+            });
     });
 }
 
