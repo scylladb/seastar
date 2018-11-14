@@ -536,6 +536,10 @@ inline open_flags operator|(open_flags a, open_flags b) {
     return open_flags(static_cast<unsigned int>(a) | static_cast<unsigned int>(b));
 }
 
+inline open_flags operator&(open_flags a, open_flags b) {
+    return open_flags(static_cast<unsigned int>(a) & static_cast<unsigned int>(b));
+}
+
 class io_queue {
 private:
     struct priority_class_data {

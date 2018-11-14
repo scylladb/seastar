@@ -30,6 +30,18 @@
 
 using namespace seastar;
 
+SEASTAR_TEST_CASE(open_flags_test) {
+    open_flags flags = open_flags::rw | open_flags::create  | open_flags::exclusive;
+    BOOST_REQUIRE(static_cast<unsigned>(flags) ==
+                  (static_cast<unsigned>(open_flags::rw) |
+                   static_cast<unsigned>(open_flags::create) |
+                   static_cast<unsigned>(open_flags::exclusive)));
+
+    open_flags mask = open_flags::create  | open_flags::exclusive;
+    BOOST_REQUIRE((flags & mask) == mask);
+    return make_ready_future<>();
+}
+
 struct file_test {
     file_test(file&& f) : f(std::move(f)) {}
     file f;
