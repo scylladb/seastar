@@ -32,10 +32,10 @@ using namespace seastar;
 
 SEASTAR_TEST_CASE(open_flags_test) {
     open_flags flags = open_flags::rw | open_flags::create  | open_flags::exclusive;
-    BOOST_REQUIRE(static_cast<unsigned>(flags) ==
-                  (static_cast<unsigned>(open_flags::rw) |
-                   static_cast<unsigned>(open_flags::create) |
-                   static_cast<unsigned>(open_flags::exclusive)));
+    BOOST_REQUIRE(std::underlying_type_t<open_flags>(flags) ==
+                  (std::underlying_type_t<open_flags>(open_flags::rw) |
+                   std::underlying_type_t<open_flags>(open_flags::create) |
+                   std::underlying_type_t<open_flags>(open_flags::exclusive)));
 
     open_flags mask = open_flags::create  | open_flags::exclusive;
     BOOST_REQUIRE((flags & mask) == mask);

@@ -533,11 +533,11 @@ enum class open_flags {
 };
 
 inline open_flags operator|(open_flags a, open_flags b) {
-    return open_flags(static_cast<unsigned int>(a) | static_cast<unsigned int>(b));
+    return open_flags(std::underlying_type_t<open_flags>(a) | std::underlying_type_t<open_flags>(b));
 }
 
 inline open_flags operator&(open_flags a, open_flags b) {
-    return open_flags(static_cast<unsigned int>(a) & static_cast<unsigned int>(b));
+    return open_flags(std::underlying_type_t<open_flags>(a) & std::underlying_type_t<open_flags>(b));
 }
 
 class io_queue {
