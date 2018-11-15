@@ -54,6 +54,7 @@ boost_tests = [
     'abort_source_test',
     'signal_test',
     'simple_stream_test',
+    'dns_test',
 ]
 
 other_tests = [
