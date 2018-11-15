@@ -161,6 +161,13 @@ def detect_membarrier(compiler, flags):
         int x = MEMBARRIER_CMD_PRIVATE_EXPEDITED | MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED;
         '''))
 
+def detect_c_ares(compiler, flags):
+    return try_compile(compiler=compiler, flags=flags, source=textwrap.dedent('''\
+        #include <ares.h>
+
+        struct ares_socket_functions tmp;
+        '''))
+
 def sanitize_vptr_flag(compiler, flags):
     # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=67258
     if (not try_compile(compiler, flags=flags + ['-fsanitize=vptr'])
@@ -232,14 +239,12 @@ modes = {
         'sanitize_libs': '-lasan -lubsan',
         'opt': '-O0 -DSEASTAR_DEBUG -DSEASTAR_DEBUG_SHARED_PTR -DSEASTAR_DEFAULT_ALLOCATOR -DSEASTAR_THREAD_STACK_GUARDS -DSEASTAR_NO_EXCEPTION_HACK -DSEASTAR_SHUFFLE_TASK_QUEUE',
         'libs': '',
-        'cares_opts': '-DCARES_STATIC=ON -DCARES_SHARED=OFF -DCMAKE_BUILD_TYPE=Debug',
     },
     'release': {
         'sanitize': '',
         'sanitize_libs': '',
         'opt': '-O2',
         'libs': '',
-        'cares_opts': '-DCARES_STATIC=ON -DCARES_SHARED=OFF -DCMAKE_BUILD_TYPE=Release',
     },
 }
 
@@ -343,7 +348,7 @@ arg_parser.add_argument('--optflags', action = 'store', dest = 'user_optflags', 
 arg_parser.add_argument('--compiler', action = 'store', dest = 'cxx', default = 'g++',
                         help = 'C++ compiler path')
 arg_parser.add_argument('--c-compiler', action='store', dest='cc', default='gcc',
-                        help = 'C compiler path (for bundled libraries such as dpdk and c-ares)')
+                        help = 'C compiler path (for bundled libraries such as dpdk)')
 arg_parser.add_argument('--c++-dialect', action='store', dest='cpp_dialect', default='',
                         help='C++ dialect to build with [default: %(default)s]')
 arg_parser.add_argument('--with-osv', action = 'store', dest = 'with_osv', default = '',
@@ -805,6 +810,9 @@ if not try_compile(args.cxx, '''#include <boost/version.hpp>\n\
     print("Seastar requires boost >= 1.58")
     sys.exit(1)
 
+if not detect_c_ares(args.cxx, flags=args.user_cflags.split()):
+    print('Seastar requires c-ares 1.13.0 or higher')
+    sys.exit(1)
 
 modes['debug']['sanitize'] += ' ' + sanitize_flags
 modes['release']['opt'] += ' ' + args.user_optflags
@@ -873,22 +881,7 @@ if args.dpdk:
                          for file in files
                          if file.endswith('.h') or file.endswith('.c')]
 dpdk_sources = ' '.join(dpdk_sources)
-
-# both source and builddir location
-cares_dir = 'c-ares'
-cares_lib = 'cares-seastar'
-cares_src_lib = cares_dir + '/lib/libcares.a'
-
-if not os.path.exists(cares_dir) or not os.listdir(cares_dir):
-    raise Exception(cares_dir + ' is empty. Run "git submodule update --init".')
-
-cares_sources = []
-for root, dirs, files in os.walk('c-ares'):
-    cares_sources += [os.path.join(root, file)
-                      for file in files
-                      if file.endswith('.h') or file.endswith('.c')]
-cares_sources = ' '.join(cares_sources)
-libs += ' -l' + cares_lib
+libs += ' -lcares'
 
 # "libs" contains mostly pre-existing libraries, but if we want to add to
 # it a library which we built here, we need to ensure that this library
@@ -896,7 +889,6 @@ libs += ' -l' + cares_lib
 # of libraries which are targets built here. These libraries are all relative
 # to the current mode's build directory.
 built_libs = []
-built_libs += ['lib' + cares_lib + '.a']
 built_libs += ['fmt/fmt/libfmt.a']
 
 for mode in build_modes:
@@ -966,7 +958,7 @@ with open(buildfile, 'w') as f:
         elif modeval['sanitize']:
             modeval['sanitize'] += ' -DSEASTAR_ASAN_ENABLED'
         f.write(textwrap.dedent('''\
-            cxxflags_{mode} = {sanitize} {opt} -I$full_builddir/{mode}/gen -I$full_builddir/{mode}/c-ares
+            cxxflags_{mode} = {sanitize} {opt} -I$full_builddir/{mode}/gen
             libs_{mode} = {sanitize_libs} {libs}
             rule cxx.{mode}
               command = $cxx -MD -MT $out -MF $out.d $cxxflags_{mode} $cxxflags -c -o $out $in
@@ -984,19 +976,8 @@ with open(buildfile, 'w') as f:
               command = rm -f $out; ar cr $out $in; ranlib $out
               description = AR $out
             ''').format(mode = mode, **modeval))
-        f.write('build {mode}: phony $builddir/{mode}/lib{cares_lib}.a {artifacts}\n'.format(mode = mode, cares_lib=cares_lib,
+        f.write('build {mode}: phony {artifacts}\n'.format(mode = mode,
             artifacts = str.join(' ', ('$builddir/' + mode + '/' + x for x in build_artifacts))))
-        f.write(textwrap.dedent('''\
-              rule caresmake_{mode}
-                command = make -C build/{mode}/{cares_dir} CC={args.cc}
-              rule carescmake_{mode}
-                command = mkdir -p $builddir/{mode}/{cares_dir} && cd $builddir/{mode}/{cares_dir} && CC={args.cc} cmake {cares_opts} {srcdir}/$in
-              build $builddir/{mode}/{cares_dir}/Makefile : carescmake_{mode} {cares_dir}
-              build $builddir/{mode}/{cares_dir}/ares_build.h : phony $builddir/{mode}/{cares_dir}/Makefile
-              build $builddir/{mode}/{cares_src_lib} : caresmake_{mode} $builddir/{mode}/{cares_dir}/Makefile | {cares_sources}
-              build $builddir/{mode}/lib{cares_lib}.a : copy_file $builddir/{mode}/{cares_src_lib}
-            ''').format(cares_opts=(modeval['cares_opts']), **globals()))
-        objdeps['$builddir/' + mode + '/net/dns.o'] = ' $builddir/' + mode + '/' + cares_dir + '/ares_build.h'
         compiles = {}
         ragels = {}
         swaggers = {}
@@ -1042,7 +1023,7 @@ with open(buildfile, 'w') as f:
                     f.write('build $builddir/{}/{}_g: link.{} {} | {} {}\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps, libdeps))
                     f.write('  extralibs = {}\n'.format(' '.join(test_extralibs)))
                 else:
-                    f.write('build $builddir/{}/{}: link.{} {} | {} {} $builddir/{}/lib{}.a $builddir/{}/fmt/fmt/libfmt.a\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps, libdeps, mode, cares_lib, mode))
+                    f.write('build $builddir/{}/{}: link.{} {} | {} {} $builddir/{}/fmt/fmt/libfmt.a\n'.format(mode, binary, mode, str.join(' ', objs), dpdk_deps, libdeps, mode, mode))
                     if binary in extralibs.keys():
                         app_extralibs = extralibs[binary]
                         f.write('  extralibs = {}\n'.format(' '.join(app_extralibs)))

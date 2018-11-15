@@ -28,7 +28,7 @@ if [ "$ID" = "ubuntu" ] || [ "$ID" = "debian" ]; then
         add-apt-repository -y ppa:ubuntu-toolchain-r/test
         apt-get -y update
     fi
-    apt-get install -y ninja-build ragel libhwloc-dev libnuma-dev libpciaccess-dev libcrypto++-dev libboost-all-dev libxml2-dev xfslibs-dev libgnutls28-dev liblz4-dev libsctp-dev gcc make libprotobuf-dev protobuf-compiler python3 systemtap-sdt-dev libtool cmake libyaml-cpp-dev
+    apt-get install -y ninja-build ragel libhwloc-dev libnuma-dev libpciaccess-dev libcrypto++-dev libboost-all-dev libxml2-dev xfslibs-dev libgnutls28-dev liblz4-dev libsctp-dev gcc make libprotobuf-dev protobuf-compiler python3 systemtap-sdt-dev libtool cmake libyaml-cpp-dev libc-ares-dev
     if [ "$ID" = "ubuntu" ]; then
         apt-get install -y g++-5
         echo "g++-5 is installed for Seastar. To build Seastar with g++-5, specify '--compiler=g++-5' on configure.py"
@@ -51,7 +51,7 @@ enabled=1
 enabled_metadata=1
 EOF
     fi
-    yum install -y hwloc-devel numactl-devel libpciaccess-devel cryptopp-devel libxml2-devel xfsprogs-devel gnutls-devel lksctp-tools-devel lz4-devel gcc make protobuf-devel protobuf-compiler systemtap-sdt-devel libtool cmake yaml-cpp-devel
+    yum install -y hwloc-devel numactl-devel libpciaccess-devel cryptopp-devel libxml2-devel xfsprogs-devel gnutls-devel lksctp-tools-devel lz4-devel gcc make protobuf-devel protobuf-compiler systemtap-sdt-devel libtool cmake yaml-cpp-devel c-ares-devel
     if [ "$ID" = "fedora" ]; then
         dnf install -y gcc-c++ ninja-build ragel boost-devel libubsan libasan libatomic
     else # centos

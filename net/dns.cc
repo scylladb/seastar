@@ -22,7 +22,7 @@
 #include <arpa/nameser.h>
 #include <chrono>
 
-#include <c-ares/ares.h>
+#include <ares.h>
 #include <boost/lexical_cast.hpp>
 
 #include "ip.hh"
