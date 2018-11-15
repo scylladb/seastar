@@ -26,6 +26,7 @@ dependencies:
         "systemtap-sdt-dev",
         "libtool",
         "cmake",
+        "libc-ares-dev",
         "libyaml-cpp-dev"
     ]
 matrix:
