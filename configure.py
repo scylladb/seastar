@@ -380,14 +380,24 @@ arg_parser.add_argument('--use-std-optional-variant-stringview', dest='cpp17_goo
                         help='Use C++17 std types for optional, variant, and string_view. Requires C++17 dialect and GCC >= 8.1.1-5')
 args = arg_parser.parse_args()
 
+def identify_best_dialect(dialects, compiler):
+    """Returns the first C++ dialect accepted by the compiler in the sequence,
+    assuming the "best" dialects appear first.
+
+    If no dialects are accepted, the result is the last dialect in the sequence
+    (we assume that this error will be displayed to the user - during compile
+    time - in an informative way).
+
+    """
+    for d in dialects:
+        if dialect_supported(d, compiler):
+            return d
+
+    return d
 
 if args.cpp_dialect == '':
     cpp_dialects = ['gnu++17', 'gnu++1z', 'gnu++14', 'gnu++1y']
-    try:
-        args.cpp_dialect = [x for x in cpp_dialects if dialect_supported(x, compiler=args.cxx)][0]
-    except:
-        # if g++ is not available, fallback to something safe-ish
-        args.cpp_dialect='gnu++1y'
+    args.cpp_dialect = identify_best_dialect(cpp_dialects, compiler=args.cxx)
 
 # Forwarding to CMake.
 if args.cmake:
