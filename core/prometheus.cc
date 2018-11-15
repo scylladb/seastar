@@ -69,11 +69,13 @@ static bool write_delimited_to(const google::protobuf::MessageLite& message,
 
 static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::metric_id & id, const config& ctx) {
     mt->mutable_label()->Reserve(id.labels().size() + 1);
-    auto label = mt->add_label();
-    label->set_name("instance");
-    label->set_value(ctx.hostname);
+    if (ctx.label) {
+        auto label = mt->add_label();
+        label->set_name(ctx.label->key());
+        label->set_value(ctx.label->value());
+    }
     for (auto &&i : id.labels()) {
-        label = mt->add_label();
+        auto label = mt->add_label();
         label->set_name(i.first);
         label->set_value(i.second);
     }
@@ -145,10 +147,18 @@ static std::string to_str(const seastar::metrics::impl::metric_value& v) {
 }
 
 static void add_name(std::ostream& s, const sstring& name, const std::map<sstring, sstring>& labels, const config& ctx) {
-    s << name << "{instance=\"" << ctx.hostname << '"';
+    s << name << "{";
+    const char* delimiter = "";
+    if (ctx.label) {
+        s << ctx.label->key()  << "=\"" << ctx.label->value() << '"';
+        delimiter = ",";
+    }
+
     if (!labels.empty()) {
         for (auto l : labels) {
-            s << "," << l.first  << "=\"" << l.second << '"';
+            s << delimiter;
+            s << l.first  << "=\"" << l.second << '"';
+            delimiter = ",";
         }
     }
     s << "} ";
@@ -676,9 +686,6 @@ public:
 
 
 future<> add_prometheus_routes(http_server& server, config ctx) {
-    if (ctx.hostname == "") {
-        ctx.hostname = metrics::impl::get_local_impl()->get_config().hostname;
-    }
     server._routes.put(GET, "/metrics", new metrics_handler(ctx));
     return make_ready_future<>();
 }
