@@ -935,7 +935,7 @@ with open(buildfile, 'w') as f:
             command = scripts/seastar-json2code.py -f $in -o $out
             description = SWAGGER $out
         rule protobuf
-            command = mkdir -p $out_dir && {protoc} --cpp_out=$out_dir --proto_path=$pb_dir $pb_base_name
+            command = mkdir -p $out_dir && {protoc} --cpp_out=$out_dir -I$pb_dir $pb
             description = PROTOC $out
         rule copy_file
             command = cp $in $out
@@ -1059,16 +1059,16 @@ with open(buildfile, 'w') as f:
             f.write('build {}: swagger {} | scripts/seastar-json2code.py\n'.format(hh,src))
         for pb_hdr in protobufs:
             (pb, pb_src) = protobufs[pb_hdr]
-            out_dir = os.path.dirname(pb_src)
-            pb_hdr_dir = os.path.dirname(pb_hdr)
+            pb_dir = os.path.dirname(pb)
+            out_dir = '$builddir/' + mode + '/gen/' + pb_dir
 
-            f.write('build {} {}: protobuf {}\n  pb_dir = {}\n  pb_base_name = {}\n  out_dir = {}\n'.format(
+            f.write('build {} {}: protobuf {}\n  out_dir = {}\n  pb_dir={}\n  pb={}\n'.format(
                 pb_src,
                 pb_hdr,
                 pb,
-                os.path.dirname(pb),
-                os.path.basename(pb),
-                out_dir))
+                out_dir,
+                pb_dir,
+                pb))
 
     f.write(textwrap.dedent('''\
         rule configure
