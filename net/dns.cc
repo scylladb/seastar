@@ -781,7 +781,7 @@ private:
                 switch (e.typ) {
                 case type::tcp:
                     if (!e.tcp.out) {
-                        e.tcp.out = e.tcp.socket.output();
+                        e.tcp.out = e.tcp.socket.output(0);
                     }
                     f = e.tcp.out->write(std::move(p));
                     break;
