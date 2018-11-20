@@ -30,9 +30,9 @@
 
 #include <fmt/ostream.h>
 
-#include "core/app-template.hh"
-#include "core/thread.hh"
-#include "json/formatter.hh"
+#include <seastar/core/app-template.hh>
+#include <seastar/core/thread.hh>
+#include <seastar/json/formatter.hh>
 
 namespace perf_tests {
 namespace internal {

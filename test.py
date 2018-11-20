@@ -24,46 +24,49 @@ import signal
 import re
 import seastar_cmake
 
+app_tests = [
+    'apps/memcached/tests/memcached_ascii_parser_test',
+]
+
 boost_tests = [
-    'alloc_test',
-    'futures_test',
-    'thread_test',
-    'memcached/memcached_ascii_parser_test',
-    'sstring_test',
-    'unwind_test',
-    'defer_test',
-    'output_stream_test',
-    'httpd_test',
-    'fstream_test',
-    'foreign_ptr_test',
-    'semaphore_test',
-    'expiring_fifo_test',
-    'shared_ptr_test',
-    'weak_ptr_test',
-    'file_io_test',
-    'packet_test',
-    'tls_test',
-    'rpc_test',
-    'connect_test',
-    'json_formatter_test',
-    'execution_stage_test',
-    'lowres_clock_test',
-    'program_options_test',
-    'tuple_utils_test',
-    'noncopyable_function_test',
-    'abort_source_test',
-    'signal_test',
-    'simple_stream_test',
-    'dns_test',
+    'unit/alloc_test',
+    'unit/futures_test',
+    'unit/thread_test',
+    'unit/sstring_test',
+    'unit/unwind_test',
+    'unit/defer_test',
+    'unit/output_stream_test',
+    'unit/httpd_test',
+    'unit/fstream_test',
+    'unit/foreign_ptr_test',
+    'unit/semaphore_test',
+    'unit/expiring_fifo_test',
+    'unit/shared_ptr_test',
+    'unit/weak_ptr_test',
+    'unit/file_io_test',
+    'unit/packet_test',
+    'unit/tls_test',
+    'unit/rpc_test',
+    'unit/connect_test',
+    'unit/json_formatter_test',
+    'unit/execution_stage_test',
+    'unit/lowres_clock_test',
+    'unit/program_options_test',
+    'unit/tuple_utils_test',
+    'unit/noncopyable_function_test',
+    'unit/abort_source_test',
+    'unit/signal_test',
+    'unit/simple_stream_test',
+    'unit/dns_test',
 ]
 
 other_tests = [
-    'smp_test',
-    'timer_test',
-    'directory_test',
-    'thread_context_switch_test',
-    'fair_queue_test',
-    'alien_test',
+    'unit/smp_test',
+    'unit/timer_test',
+    'unit/directory_test',
+    'unit/thread_context_switch_test',
+    'unit/fair_queue_test',
+    'unit/alien_test',
 ]
 
 last_len = 0
@@ -143,17 +146,17 @@ if __name__ == "__main__":
     test_to_run = []
     modes_to_run = all_modes if not args.mode else [args.mode]
     for mode in modes_to_run:
-        prefix = os.path.join('build', mode, 'tests')
+        prefix = os.path.join('build', mode)
         for test in other_tests:
-            test_to_run.append((os.path.join(prefix, test),'other'))
+            test_to_run.append((os.path.join(prefix,'tests',test),'other'))
         for test in boost_tests:
-            test_to_run.append((os.path.join(prefix, test),'boost'))
+            test_to_run.append((os.path.join(prefix,'tests',test),'boost'))
         memcached_path = make_build_path(mode, 'apps', 'memcached', 'memcached')
-        test_to_run.append(('tests/memcached/test.py --memcached ' + memcached_path + (' --fast' if args.fast else ''),'other'))
-        test_to_run.append((os.path.join(prefix, 'distributed_test'),'other'))
+        test_to_run.append(('apps/memcached/tests/test.py --memcached ' + memcached_path + (' --fast' if args.fast else ''),'other'))
+        test_to_run.append((os.path.join(prefix, 'tests', 'unit', 'distributed_test'),'other'))
 
 
-        allocator_test_path = os.path.join(prefix, 'allocator_test')
+        allocator_test_path = os.path.join(prefix, 'tests', 'unit', 'allocator_test')
         if args.fast:
             if mode == 'debug':
                 test_to_run.append((allocator_test_path + ' --iterations 5','other'))
@@ -192,8 +195,8 @@ if __name__ == "__main__":
         if test[1] == 'boost':
             path = path + " -- --smp={}".format(cpu_count)
         else:
-            if not re.search("tests/memcached/test.py", path):
-                if re.search("allocator_test", path) or re.search("fair_queue_test", path):
+            if not re.search("apps/memcached/tests/test.py", path):
+                if re.search("allocator_test", path) or re.search("fair_queue_test", path) or re.search("ascii_parser_test", path):
                     path = path + " -- --smp={}".format(cpu_count)
                 else:
                     path = path + " --smp={}".format(cpu_count)

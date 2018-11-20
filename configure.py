@@ -249,69 +249,69 @@ modes = {
 }
 
 perf_tests = [
-    'tests/perf/perf_future_util',
+    'tests/perf/future_util_perf',
 ]
 
 tests = [
-    'tests/file_io_test',
-    'tests/directory_test',
-    'tests/linecount',
-    'tests/echotest',
-    'tests/l3_test',
-    'tests/ip_test',
-    'tests/timer_test',
-    'tests/tcp_test',
-    'tests/futures_test',
-    'tests/alloc_test',
-    'tests/foreign_ptr_test',
-    'tests/smp_test',
-    'tests/thread_test',
-    'tests/thread_context_switch_test',
-    'tests/udp_server',
-    'tests/udp_client',
-    'tests/blkdiscard_test',
-    'tests/sstring_test',
-    'tests/unwind_test',
-    'tests/defer_test',
-    'tests/httpd_test',
-    'tests/memcached/memcached_ascii_parser_test',
-    'tests/tcp_sctp_server',
-    'tests/tcp_sctp_client',
-    'tests/allocator_test',
-    'tests/output_stream_test',
-    'tests/udp_zero_copy',
-    'tests/shared_ptr_test',
-    'tests/weak_ptr_test',
-    'tests/checked_ptr_test',
-    'tests/slab_test',
-    'tests/fstream_test',
-    'tests/distributed_test',
-    'tests/rpc',
-    'tests/semaphore_test',
-    'tests/expiring_fifo_test',
-    'tests/packet_test',
-    'tests/tls_test',
-    'tests/fair_queue_test',
-    'tests/rpc_test',
-    'tests/connect_test',
-    'tests/chunked_fifo_test',
-    'tests/circular_buffer_test',
-    'tests/perf/perf_fstream',
-    'tests/json_formatter_test',
-    'tests/dns_test',
-    'tests/execution_stage_test',
-    'tests/lowres_clock_test',
-    'tests/program_options_test',
-    'tests/tuple_utils_test',
-    'tests/tls_echo_server',
-    'tests/tls_simple_client',
-    'tests/circular_buffer_fixed_capacity_test',
-    'tests/noncopyable_function_test',
-    'tests/netconfig_test',
-    'tests/abort_source_test',
-    'tests/alien_test',
-    'tests/signal_test',
-    'tests/simple_stream_test',
+    'tests/unit/file_io_test',
+    'tests/unit/directory_test',
+    'demos/line_count_demo',
+    'demos/echo_demo',
+    'demos/l3_demo',
+    'demos/ip_demo',
+    'tests/unit/timer_test',
+    'demos/tcp_demo',
+    'tests/unit/futures_test',
+    'tests/unit/alloc_test',
+    'tests/unit/foreign_ptr_test',
+    'tests/unit/smp_test',
+    'tests/unit/thread_test',
+    'tests/unit/thread_context_switch_test',
+    'demos/udp_server_demo',
+    'demos/udp_client_demo',
+    'demos/block_discard_demo',
+    'tests/unit/sstring_test',
+    'tests/unit/unwind_test',
+    'tests/unit/defer_test',
+    'tests/unit/httpd_test',
+    'apps/memcached/tests/memcached_ascii_parser_test',
+    'demos/tcp_sctp_server_demo',
+    'demos/tcp_sctp_client_demo',
+    'tests/unit/allocator_test',
+    'tests/unit/output_stream_test',
+    'demos/udp_zero_copy_demo',
+    'tests/unit/shared_ptr_test',
+    'tests/unit/weak_ptr_test',
+    'tests/unit/checked_ptr_test',
+    'tests/unit/slab_test',
+    'tests/unit/fstream_test',
+    'tests/unit/distributed_test',
+    'demos/rpc_demo',
+    'tests/unit/semaphore_test',
+    'tests/unit/expiring_fifo_test',
+    'tests/unit/packet_test',
+    'tests/unit/tls_test',
+    'tests/unit/fair_queue_test',
+    'tests/unit/rpc_test',
+    'tests/unit/connect_test',
+    'tests/unit/chunked_fifo_test',
+    'tests/unit/circular_buffer_test',
+    'tests/perf/fstream_perf',
+    'tests/unit/json_formatter_test',
+    'tests/unit/dns_test',
+    'tests/unit/execution_stage_test',
+    'tests/unit/lowres_clock_test',
+    'tests/unit/program_options_test',
+    'tests/unit/tuple_utils_test',
+    'demos/tls_echo_server_demo',
+    'demos/tls_simple_client_demo',
+    'tests/unit/circular_buffer_fixed_capacity_test',
+    'tests/unit/noncopyable_function_test',
+    'tests/unit/net_config_test',
+    'tests/unit/abort_source_test',
+    'tests/unit/alien_test',
+    'tests/unit/signal_test',
+    'tests/unit/simple_stream_test',
     ] + perf_tests
 
 apps = [
@@ -320,7 +320,7 @@ apps = [
     'apps/io_tester/io_tester',
     'apps/memcached/memcached',
     'apps/iotune/iotune',
-    'tests/scheduling_group_demo',
+    'demos/scheduling_group_demo',
     ]
 
 extralibs = {
@@ -449,76 +449,76 @@ if args.cmake:
     sys.exit(0)
 
 libnet = [
-    'net/proxy.cc',
-    'net/virtio.cc',
-    'net/dpdk.cc',
-    'net/ip.cc',
-    'net/ethernet.cc',
-    'net/arp.cc',
-    'net/native-stack.cc',
-    'net/ip_checksum.cc',
-    'net/udp.cc',
-    'net/tcp.cc',
-    'net/dhcp.cc',
-    'net/tls.cc',
-    'net/dns.cc',
-    'net/config.cc',
+    'src/net/proxy.cc',
+    'src/net/virtio.cc',
+    'src/net/dpdk.cc',
+    'src/net/ip.cc',
+    'src/net/ethernet.cc',
+    'src/net/arp.cc',
+    'src/net/native-stack.cc',
+    'src/net/ip_checksum.cc',
+    'src/net/udp.cc',
+    'src/net/tcp.cc',
+    'src/net/dhcp.cc',
+    'src/net/tls.cc',
+    'src/net/dns.cc',
+    'src/net/config.cc',
     ]
 
 core = [
-    'core/reactor.cc',
-    'core/alien.cc',
-    'core/execution_stage.cc',
-    'core/systemwide_memory_barrier.cc',
-    'core/fstream.cc',
-    'core/posix.cc',
-    'core/memory.cc',
-    'core/resource.cc',
-    'core/scollectd.cc',
-    'core/metrics.cc',
-    'core/app-template.cc',
-    'core/thread.cc',
-    'core/dpdk_rte.cc',
-    'core/fsqual.cc',
-    'core/linux-aio.cc',
-    'util/conversions.cc',
-    'util/program-options.cc',
-    'util/log.cc',
-    'util/backtrace.cc',
-    'util/alloc_failure_injector.cc',
-    'util/read_first_line.cc',
-    'net/packet.cc',
-    'net/posix-stack.cc',
-    'net/net.cc',
-    'net/stack.cc',
-    'net/inet_address.cc',
-    'rpc/rpc.cc',
-    'rpc/lz4_compressor.cc',
-    'core/exception_hacks.cc',
-    'core/future-util.cc',
+    'src/core/reactor.cc',
+    'src/core/alien.cc',
+    'src/core/execution_stage.cc',
+    'src/core/systemwide_memory_barrier.cc',
+    'src/core/fstream.cc',
+    'src/core/posix.cc',
+    'src/core/memory.cc',
+    'src/core/resource.cc',
+    'src/core/scollectd.cc',
+    'src/core/metrics.cc',
+    'src/core/app-template.cc',
+    'src/core/thread.cc',
+    'src/core/dpdk_rte.cc',
+    'src/core/fsqual.cc',
+    'src/core/linux-aio.cc',
+    'src/util/conversions.cc',
+    'src/util/program-options.cc',
+    'src/util/log.cc',
+    'src/util/backtrace.cc',
+    'src/util/alloc_failure_injector.cc',
+    'src/util/read_first_line.cc',
+    'src/net/packet.cc',
+    'src/net/posix-stack.cc',
+    'src/net/net.cc',
+    'src/net/stack.cc',
+    'src/net/inet_address.cc',
+    'src/rpc/rpc.cc',
+    'src/rpc/lz4_compressor.cc',
+    'src/core/exception_hacks.cc',
+    'src/core/future-util.cc',
     ]
 
 protobuf = [
-    'proto/metrics2.proto',
+    'src/proto/metrics2.proto',
     ]
 
 prometheus = [
-    'core/prometheus.cc',
+    'src/core/prometheus.cc',
     ]
 
-http = ['http/transformers.cc',
-        'http/json_path.cc',
-        'http/file_handler.cc',
-        'http/common.cc',
-        'http/routes.cc',
-        'json/json_elements.cc',
-        'json/formatter.cc',
-        'http/matcher.cc',
-        'http/mime_types.cc',
-        'http/httpd.cc',
-        'http/reply.cc',
-        'http/request_parser.rl',
-        'http/api_docs.cc',
+http = ['src/http/transformers.cc',
+        'src/http/json_path.cc',
+        'src/http/file_handler.cc',
+        'src/http/common.cc',
+        'src/http/routes.cc',
+        'src/json/json_elements.cc',
+        'src/json/formatter.cc',
+        'src/http/matcher.cc',
+        'src/http/mime_types.cc',
+        'src/http/httpd.cc',
+        'src/http/reply.cc',
+        'src/http/request_parser.rl',
+        'src/http/api_docs.cc',
         ]
 
 boost_test_lib = [
@@ -579,100 +579,100 @@ deps = {
     'fmt/fmt/libfmt.a': [],
     'apps/httpd/httpd': ['apps/httpd/demo.json', 'apps/httpd/main.cc'] + http + libnet + core,
     'apps/memcached/memcached': ['apps/memcached/memcache.cc'] + memcache_base,
-    'tests/memcached/memcached_ascii_parser_test': ['tests/memcached/test_ascii_parser.cc'] + memcache_base,
-    'tests/file_io_test': ['tests/fileiotest.cc'] + core,
-    'tests/directory_test': ['tests/directory_test.cc'] + core,
-    'tests/linecount': ['tests/linecount.cc'] + core,
-    'tests/echotest': ['tests/echotest.cc'] + core + libnet,
-    'tests/l3_test': ['tests/l3_test.cc'] + core + libnet,
-    'tests/ip_test': ['tests/ip_test.cc'] + core + libnet,
-    'tests/tcp_test': ['tests/tcp_test.cc'] + core + libnet,
-    'tests/timer_test': ['tests/timertest.cc'] + core,
-    'tests/futures_test': ['tests/futures_test.cc'] + core,
-    'tests/alloc_test': ['tests/alloc_test.cc'] + core,
-    'tests/foreign_ptr_test': ['tests/foreign_ptr_test.cc'] + core,
-    'tests/semaphore_test': ['tests/semaphore_test.cc'] + core,
-    'tests/expiring_fifo_test': ['tests/expiring_fifo_test.cc'] + core,
-    'tests/smp_test': ['tests/smp_test.cc'] + core,
-    'tests/thread_test': ['tests/thread_test.cc'] + core,
-    'tests/thread_context_switch_test': ['tests/thread_context_switch.cc'] + core,
-    'tests/udp_server': ['tests/udp_server.cc'] + core + libnet,
-    'tests/udp_client': ['tests/udp_client.cc'] + core + libnet,
-    'tests/tcp_sctp_server': ['tests/tcp_sctp_server.cc'] + core + libnet,
-    'tests/tcp_sctp_client': ['tests/tcp_sctp_client.cc'] + core + libnet,
-    'tests/tls_test': ['tests/tls_test.cc'] + core + libnet,
-    'tests/fair_queue_test': ['tests/fair_queue_test.cc'] + core,
-    'apps/seawreck/seawreck': ['apps/seawreck/seawreck.cc', 'http/http_response_parser.rl'] + core + libnet,
+    'apps/memcached/tests/memcached_ascii_parser_test': ['apps/memcached/tests/test_ascii_parser.cc'] + memcache_base,
+    'tests/unit/file_io_test': ['tests/unit/file_io_test.cc'] + core,
+    'tests/unit/directory_test': ['tests/unit/directory_test.cc'] + core,
+    'demos/line_count_demo': ['demos/line_count_demo.cc'] + core,
+    'demos/echo_demo': ['demos/echo_demo.cc'] + core + libnet,
+    'demos/l3_demo': ['demos/l3_demo.cc'] + core + libnet,
+    'demos/ip_demo': ['demos/ip_demo.cc'] + core + libnet,
+    'demos/tcp_demo': ['demos/tcp_demo.cc'] + core + libnet,
+    'tests/unit/timer_test': ['tests/unit/timer_test.cc'] + core,
+    'tests/unit/futures_test': ['tests/unit/futures_test.cc'] + core,
+    'tests/unit/alloc_test': ['tests/unit/alloc_test.cc'] + core,
+    'tests/unit/foreign_ptr_test': ['tests/unit/foreign_ptr_test.cc'] + core,
+    'tests/unit/semaphore_test': ['tests/unit/semaphore_test.cc'] + core,
+    'tests/unit/expiring_fifo_test': ['tests/unit/expiring_fifo_test.cc'] + core,
+    'tests/unit/smp_test': ['tests/unit/smp_test.cc'] + core,
+    'tests/unit/thread_test': ['tests/unit/thread_test.cc'] + core,
+    'tests/unit/thread_context_switch_test': ['tests/unit/thread_context_switch_test.cc'] + core,
+    'demos/udp_server_demo': ['demos/udp_server_demo.cc'] + core + libnet,
+    'demos/udp_client_demo': ['demos/udp_client_demo.cc'] + core + libnet,
+    'demos/tcp_sctp_server_demo': ['demos/tcp_sctp_server_demo.cc'] + core + libnet,
+    'demos/tcp_sctp_client_demo': ['demos/tcp_sctp_client_demo.cc'] + core + libnet,
+    'tests/unit/tls_test': ['tests/unit/tls_test.cc'] + core + libnet,
+    'tests/unit/fair_queue_test': ['tests/unit/fair_queue_test.cc'] + core,
+    'apps/seawreck/seawreck': ['apps/seawreck/seawreck.cc', 'src/http/response_parser.rl'] + core + libnet,
     'apps/io_tester/io_tester': ['apps/io_tester/io_tester.cc'] + core,
     'apps/iotune/iotune': ['apps/iotune/iotune.cc'] + core,
-    'tests/blkdiscard_test': ['tests/blkdiscard_test.cc'] + core,
-    'tests/sstring_test': ['tests/sstring_test.cc'] + core,
-    'tests/unwind_test': ['tests/unwind_test.cc'] + core,
-    'tests/defer_test': ['tests/defer_test.cc'] + core,
-    'tests/httpd_test': ['tests/httpd.cc'] + http + core,
-    'tests/allocator_test': ['tests/allocator_test.cc'] + core,
-    'tests/output_stream_test': ['tests/output_stream_test.cc'] + core + libnet,
-    'tests/udp_zero_copy': ['tests/udp_zero_copy.cc'] + core + libnet,
-    'tests/shared_ptr_test': ['tests/shared_ptr_test.cc'] + core,
-    'tests/weak_ptr_test': ['tests/weak_ptr_test.cc'] + core,
-    'tests/checked_ptr_test': ['tests/checked_ptr_test.cc'] + core,
-    'tests/slab_test': ['tests/slab_test.cc'] + core,
-    'tests/fstream_test': ['tests/fstream_test.cc'] + core,
-    'tests/distributed_test': ['tests/distributed_test.cc'] + core,
-    'tests/rpc': ['tests/rpc.cc'] + core + libnet,
-    'tests/rpc_test': ['tests/rpc_test.cc'] + core + libnet,
-    'tests/packet_test': ['tests/packet_test.cc'] + core + libnet,
-    'tests/connect_test': ['tests/connect_test.cc'] + core + libnet,
-    'tests/chunked_fifo_test': ['tests/chunked_fifo_test.cc'] + core,
-    'tests/circular_buffer_test': ['tests/circular_buffer_test.cc'] + core,
-    'tests/perf/perf_fstream': ['tests/perf/perf_fstream.cc'] + core,
-    'tests/json_formatter_test': ['tests/json_formatter_test.cc'] + core + http,
-    'tests/dns_test': ['tests/dns_test.cc'] + core + libnet,
-    'tests/execution_stage_test': ['tests/execution_stage_test.cc'] + core,
-    'tests/lowres_clock_test': ['tests/lowres_clock_test.cc'] + core,
-    'tests/program_options_test': ['tests/program_options_test.cc'] + core,
-    'tests/tuple_utils_test': ['tests/tuple_utils_test.cc'],
-    'tests/tls_echo_server': ['tests/tls_echo_server.cc'] + core + libnet,
-    'tests/tls_simple_client': ['tests/tls_simple_client.cc'] + core + libnet,
-    'tests/circular_buffer_fixed_capacity_test': ['tests/circular_buffer_fixed_capacity_test.cc'],
-    'tests/scheduling_group_demo': ['tests/scheduling_group_demo.cc'] + core,
-    'tests/noncopyable_function_test': ['tests/noncopyable_function_test.cc'],
-    'tests/netconfig_test': ['tests/netconfig_test.cc'] + core + libnet,
-    'tests/abort_source_test': ['tests/abort_source_test.cc'] + core,
-    'tests/alien_test': ['tests/alien_test.cc'] + core,
-    'tests/signal_test': ['tests/signal_test.cc'] + core,
-    'tests/simple_stream_test': ['tests/simple_stream_test.cc'] + core,
+    'demos/block_discard_demo': ['demos/block_discard_demo.cc'] + core,
+    'tests/unit/sstring_test': ['tests/unit/sstring_test.cc'] + core,
+    'tests/unit/unwind_test': ['tests/unit/unwind_test.cc'] + core,
+    'tests/unit/defer_test': ['tests/unit/defer_test.cc'] + core,
+    'tests/unit/httpd_test': ['tests/unit/httpd_test.cc'] + http + core,
+    'tests/unit/allocator_test': ['tests/unit/allocator_test.cc'] + core,
+    'tests/unit/output_stream_test': ['tests/unit/output_stream_test.cc'] + core + libnet,
+    'demos/udp_zero_copy_demo': ['demos/udp_zero_copy_demo.cc'] + core + libnet,
+    'tests/unit/shared_ptr_test': ['tests/unit/shared_ptr_test.cc'] + core,
+    'tests/unit/weak_ptr_test': ['tests/unit/weak_ptr_test.cc'] + core,
+    'tests/unit/checked_ptr_test': ['tests/unit/checked_ptr_test.cc'] + core,
+    'tests/unit/slab_test': ['tests/unit/slab_test.cc'] + core,
+    'tests/unit/fstream_test': ['tests/unit/fstream_test.cc'] + core,
+    'tests/unit/distributed_test': ['tests/unit/distributed_test.cc'] + core,
+    'demos/rpc_demo': ['demos/rpc_demo.cc'] + core + libnet,
+    'tests/unit/rpc_test': ['tests/unit/rpc_test.cc'] + core + libnet,
+    'tests/unit/packet_test': ['tests/unit/packet_test.cc'] + core + libnet,
+    'tests/unit/connect_test': ['tests/unit/connect_test.cc'] + core + libnet,
+    'tests/unit/chunked_fifo_test': ['tests/unit/chunked_fifo_test.cc'] + core,
+    'tests/unit/circular_buffer_test': ['tests/unit/circular_buffer_test.cc'] + core,
+    'tests/perf/fstream_perf': ['tests/perf/fstream_perf.cc'] + core,
+    'tests/unit/json_formatter_test': ['tests/unit/json_formatter_test.cc'] + core + http,
+    'tests/unit/dns_test': ['tests/unit/dns_test.cc'] + core + libnet,
+    'tests/unit/execution_stage_test': ['tests/unit/execution_stage_test.cc'] + core,
+    'tests/unit/lowres_clock_test': ['tests/unit/lowres_clock_test.cc'] + core,
+    'tests/unit/program_options_test': ['tests/unit/program_options_test.cc'] + core,
+    'tests/unit/tuple_utils_test': ['tests/unit/tuple_utils_test.cc'],
+    'demos/tls_echo_server_demo': ['demos/tls_echo_server_demo.cc'] + core + libnet,
+    'demos/tls_simple_client_demo': ['demos/tls_simple_client_demo.cc'] + core + libnet,
+    'tests/unit/circular_buffer_fixed_capacity_test': ['tests/unit/circular_buffer_fixed_capacity_test.cc'],
+    'demos/scheduling_group_demo': ['demos/scheduling_group_demo.cc'] + core,
+    'tests/unit/noncopyable_function_test': ['tests/unit/noncopyable_function_test.cc'],
+    'tests/unit/net_config_test': ['tests/unit/net_config_test.cc'] + core + libnet,
+    'tests/unit/abort_source_test': ['tests/unit/abort_source_test.cc'] + core,
+    'tests/unit/alien_test': ['tests/unit/alien_test.cc'] + core,
+    'tests/unit/signal_test': ['tests/unit/signal_test.cc'] + core,
+    'tests/unit/simple_stream_test': ['tests/unit/simple_stream_test.cc'] + core,
 }
 
 boost_tests = [
-    'tests/memcached/memcached_ascii_parser_test',
-    'tests/file_io_test',
-    'tests/futures_test',
-    'tests/alloc_test',
-    'tests/foreign_ptr_test',
-    'tests/semaphore_test',
-    'tests/expiring_fifo_test',
-    'tests/thread_test',
-    'tests/tls_test',
-    'tests/fair_queue_test',
-    'tests/httpd_test',
-    'tests/output_stream_test',
-    'tests/fstream_test',
-    'tests/rpc_test',
-    'tests/connect_test',
-    'tests/json_formatter_test',
-    'tests/dns_test',
-    'tests/execution_stage_test',
-    'tests/lowres_clock_test',
-    'tests/abort_source_test',
-    'tests/signal_test',
+    'apps/memcached/tests/memcached_ascii_parser_test',
+    'tests/unit/file_io_test',
+    'tests/unit/futures_test',
+    'tests/unit/alloc_test',
+    'tests/unit/foreign_ptr_test',
+    'tests/unit/semaphore_test',
+    'tests/unit/expiring_fifo_test',
+    'tests/unit/thread_test',
+    'tests/unit/tls_test',
+    'tests/unit/fair_queue_test',
+    'tests/unit/httpd_test',
+    'tests/unit/output_stream_test',
+    'tests/unit/fstream_test',
+    'tests/unit/rpc_test',
+    'tests/unit/connect_test',
+    'tests/unit/json_formatter_test',
+    'tests/unit/dns_test',
+    'tests/unit/execution_stage_test',
+    'tests/unit/lowres_clock_test',
+    'tests/unit/abort_source_test',
+    'tests/unit/signal_test',
     ]
 
 for bt in boost_tests:
     deps[bt] += boost_test_lib
 
 for pt in perf_tests:
-    deps[pt] = [pt + '.cc'] + core + ['tests/perf/perf_tests.cc', 'json/formatter.cc']
+    deps[pt] = [pt + '.cc'] + core + ['tests/perf/perf_tests.cc', 'src/json/formatter.cc']
 
 warnings = [
     '-Wno-mismatched-tags',                 # clang-only
@@ -932,10 +932,10 @@ with open(buildfile, 'w') as f:
             command = /bin/echo -e $text > $out
             description = GEN $out
         rule swagger
-            command = json/json2code.py -f $in -o $out
+            command = scripts/seastar-json2code.py -f $in -o $out
             description = SWAGGER $out
         rule protobuf
-            command = {protoc} --cpp_out=$outdir $in
+            command = mkdir -p $out_dir && {protoc} --cpp_out=$out_dir --proto_path=$pb_dir $pb_base_name
             description = PROTOC $out
         rule copy_file
             command = cp $in $out
@@ -958,7 +958,7 @@ with open(buildfile, 'w') as f:
         elif modeval['sanitize']:
             modeval['sanitize'] += ' -DSEASTAR_ASAN_ENABLED'
         f.write(textwrap.dedent('''\
-            cxxflags_{mode} = {sanitize} {opt} -I$full_builddir/{mode}/gen
+            cxxflags_{mode} = {sanitize} {opt} -I. -Itests -Iinclude -Isrc -I$full_builddir/{mode}/gen/include -I$full_builddir/{mode}/gen/src
             libs_{mode} = {sanitize_libs} {libs}
             rule cxx.{mode}
               command = $cxx -MD -MT $out -MF $out.d $cxxflags_{mode} $cxxflags -c -o $out $in
@@ -1034,13 +1034,16 @@ with open(buildfile, 'w') as f:
                     compiles[obj] = src
                 elif src.endswith('.proto'):
                     hh = '$builddir/' + mode + '/gen/' + src.replace('.proto', '.pb.h')
-                    protobufs[hh] = src
-                    compiles[hh.replace('.h', '.o')] = hh.replace('.h', '.cc')
+                    cc = hh.replace('.h', '.cc')
+                    o = cc.replace('.cc', '.o')
+                    protobufs[hh] = (src, cc)
+                    compiles[o] = cc
+                    objs += o
                 elif src.endswith('.rl'):
-                    hh = '$builddir/' + mode + '/gen/' + src.replace('.rl', '.hh')
+                    hh = '$builddir/' + mode + '/gen/include/' + src.replace('src/', 'seastar/').replace('.rl', '.hh')
                     ragels[hh] = src
                 elif src.endswith('.json'):
-                    hh = '$builddir/' + mode + '/gen/' + src + '.hh'
+                    hh = '$builddir/' + mode + '/gen/include/' + src.replace('src/', 'seastar/') + '.hh'
                     swaggers[hh] = src
                 else:
                     raise Exception('No rule for ' + src)
@@ -1053,12 +1056,19 @@ with open(buildfile, 'w') as f:
             f.write('build {}: ragel {}\n'.format(hh, src))
         for hh in swaggers:
             src = swaggers[hh]
-            f.write('build {}: swagger {} | json/json2code.py\n'.format(hh,src))
-        for pb in protobufs:
-            src = protobufs[pb]
-            c_pb = pb.replace('.h','.cc')
-            outd = os.path.dirname(os.path.dirname(pb))
-            f.write('build {} {}: protobuf {}\n  outdir = {}\n'.format(c_pb, pb, src, outd))
+            f.write('build {}: swagger {} | scripts/seastar-json2code.py\n'.format(hh,src))
+        for pb_hdr in protobufs:
+            (pb, pb_src) = protobufs[pb_hdr]
+            out_dir = os.path.dirname(pb_src)
+            pb_hdr_dir = os.path.dirname(pb_hdr)
+
+            f.write('build {} {}: protobuf {}\n  pb_dir = {}\n  pb_base_name = {}\n  out_dir = {}\n'.format(
+                pb_src,
+                pb_hdr,
+                pb,
+                os.path.dirname(pb),
+                os.path.basename(pb),
+                out_dir))
 
     f.write(textwrap.dedent('''\
         rule configure

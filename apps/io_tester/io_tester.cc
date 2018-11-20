@@ -18,16 +18,16 @@
 /*
  * Copyright (C) 2017 ScyllaDB
  */
-#include "core/app-template.hh"
-#include "core/distributed.hh"
-#include "core/reactor.hh"
-#include "core/future.hh"
-#include "core/shared_ptr.hh"
-#include "core/file.hh"
-#include "core/sleep.hh"
-#include "core/align.hh"
-#include "core/timer.hh"
-#include "core/thread.hh"
+#include <seastar/core/app-template.hh>
+#include <seastar/core/distributed.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/future.hh>
+#include <seastar/core/shared_ptr.hh>
+#include <seastar/core/file.hh>
+#include <seastar/core/sleep.hh>
+#include <seastar/core/align.hh>
+#include <seastar/core/timer.hh>
+#include <seastar/core/thread.hh>
 #include <chrono>
 #include <vector>
 #include <boost/range/irange.hpp>

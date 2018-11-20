@@ -28,9 +28,9 @@
 
 #include <thread>
 
-#include "tests/test-utils.hh"
-#include "core/future.hh"
-#include "core/app-template.hh"
+#include "test-utils.hh"
+#include <seastar/core/future.hh>
+#include <seastar/core/app-template.hh>
 #include <boost/test/included/unit_test.hpp>
 
 namespace seastar {

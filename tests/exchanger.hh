@@ -23,7 +23,7 @@
 
 #include <mutex>
 #include <condition_variable>
-#include "util/std-compat.hh"
+#include <seastar/util/std-compat.hh>
 
 // Single-element blocking queue
 template <typename T>
