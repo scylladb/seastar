@@ -654,7 +654,25 @@ void cpu_stall_detector::maybe_report(pthread_t who, int sig) {
 // the near past it's an increment and two branches.
 //
 // We can do it a cheaper if we don't report suppressed backtraces.
-void cpu_stall_detector::tick(unsigned ticks) {
+void cpu_stall_detector::tick() {
+    auto missed_ticks = _stall_detector_missed_ticks.load(std::memory_order_relaxed);
+    auto ticks = std::max(uint64_t(1), missed_ticks - _saved_missed_ticks);
+    _saved_missed_ticks = missed_ticks;
+
+    auto tp = _r->_tasks_processed.load(std::memory_order_relaxed);
+    auto p = _r->_polls.load(std::memory_order_relaxed);
+    if ((tp == _last_tasks_processed_seen) && (p == _last_polls_seen)) {
+        if ((increment_nonatomically(_tasks_processed_stalled) == _report_at)) {
+            maybe_report(_r->_thread_id, cpu_stall_detector::signal_number());
+            _report_at <<= 1;
+        }
+    } else {
+        _last_tasks_processed_seen = tp;
+        _last_polls_seen = p;
+        _tasks_processed_stalled.store(0, std::memory_order_relaxed);
+        _report_at = _tasks_processed_report_threshold;
+    }
+
     if (!_reported) {
         return;
     }
@@ -693,10 +711,6 @@ reactor::task_quota_timer_thread_fn() {
         abort();
     }
 
-    unsigned report_at = _cpu_stall_detector->_tasks_processed_report_threshold;
-    uint64_t last_tasks_processed_seen = 0;
-    uint64_t last_polls_seen = 0;
-
     // We need to wait until task quota is set before we can calculate how many ticks are to
     // a minute. Technically task_quota is used from many threads, but since it is read-only here
     // and only used during initialization we will avoid complicating the code.
@@ -705,30 +719,13 @@ reactor::task_quota_timer_thread_fn() {
         _task_quota_timer.read(&events, 8);
         _local_need_preempt = true;
     }
-    uint64_t saved_missed_ticks = 0;
 
     while (!_dying.load(std::memory_order_relaxed)) {
         uint64_t events;
         _task_quota_timer.read(&events, 8);
         _local_need_preempt = true;
 
-        auto missed_ticks = _cpu_stall_detector->_stall_detector_missed_ticks.load(std::memory_order_relaxed);
-        _cpu_stall_detector->tick(std::max(uint64_t(1), missed_ticks - saved_missed_ticks));
-        saved_missed_ticks = missed_ticks;
-
-        auto tp = _tasks_processed.load(std::memory_order_relaxed);
-        auto p = _polls.load(std::memory_order_relaxed);
-        if ((tp == last_tasks_processed_seen) && (p == last_polls_seen)) {
-            if ((increment_nonatomically(_cpu_stall_detector->_tasks_processed_stalled) == report_at)) {
-                _cpu_stall_detector->maybe_report(_thread_id, cpu_stall_detector::signal_number());
-                report_at <<= 1;
-            }
-        } else {
-            last_tasks_processed_seen = tp;
-            last_polls_seen = p;
-            _cpu_stall_detector->_tasks_processed_stalled.store(0, std::memory_order_relaxed);
-            report_at = _cpu_stall_detector->_tasks_processed_report_threshold;
-        }
+        _cpu_stall_detector->tick();
 
         // We're in a different thread, but guaranteed to be on the same core, so even
         // a signal fence is overdoing it

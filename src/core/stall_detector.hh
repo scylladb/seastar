@@ -50,6 +50,10 @@ class cpu_stall_detector {
     unsigned _max_reports_per_minute;
     unsigned _shard_id;
     unsigned _thread_id;
+    unsigned _report_at{};
+    unsigned _saved_missed_ticks{};
+    uint64_t _last_tasks_processed_seen{};
+    uint64_t _last_polls_seen{};
     cpu_stall_detector_config _config;
     friend reactor;
 private:
@@ -60,7 +64,7 @@ public:
     void generate_trace();
     void update_config(cpu_stall_detector_config cfg);
     cpu_stall_detector_config get_config() const;
-    void tick(unsigned ticks = 1);
+    void tick();
 };
 
 }
