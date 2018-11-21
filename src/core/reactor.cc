@@ -112,6 +112,7 @@
 #include <seastar/core/metrics.hh>
 #include <seastar/core/execution_stage.hh>
 #include <seastar/core/exception_hacks.hh>
+#include "stall_detector.hh"
 
 #include <yaml-cpp/yaml.h>
 
@@ -444,10 +445,6 @@ inline int alarm_signal() {
     return SIGRTMIN;
 }
 
-inline int block_notifier_signal() {
-    return SIGRTMIN + 1;
-}
-
 // Installs signal handler stack for current thread.
 // The stack remains installed as long as the returned object is kept alive.
 // When it goes out of scope the previous handler is restored.
@@ -546,6 +543,7 @@ reactor::reactor(unsigned id)
 #endif
     , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
     , _cpu_started(0)
+    , _cpu_stall_detector(std::make_unique<cpu_stall_detector>(this))
     , _io_context(0)
     , _reuseport(posix_reuseport_detect())
     , _task_quota_timer_thread(&reactor::task_quota_timer_thread_fn, this)
@@ -574,7 +572,7 @@ reactor::reactor(unsigned id)
     r = timer_create(CLOCK_MONOTONIC, &sev, &_steady_clock_timer);
     assert(r >= 0);
     sigemptyset(&mask);
-    sigaddset(&mask, block_notifier_signal());
+    sigaddset(&mask, cpu_stall_detector::signal_number());
     r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
     assert(r == 0);
 #endif
@@ -588,7 +586,7 @@ reactor::reactor(unsigned id)
 reactor::~reactor() {
     sigset_t mask;
     sigemptyset(&mask);
-    sigaddset(&mask, block_notifier_signal());
+    sigaddset(&mask, cpu_stall_detector::signal_number());
     auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
     assert(r == 0);
 
@@ -623,6 +621,26 @@ inline Integral increment_nonatomically(std::atomic<Integral>& value) {
     return add_nonatomically(value, Integral(1));
 }
 
+cpu_stall_detector::cpu_stall_detector(reactor* r, cpu_stall_detector_config cfg)
+        : _r(r) {
+    update_config(cfg);
+}
+
+cpu_stall_detector_config
+cpu_stall_detector::get_config() const {
+    return _config;
+}
+
+void cpu_stall_detector::update_config(cpu_stall_detector_config cfg) {
+    _config = cfg;
+    auto tq = _r->_task_quota;
+    if (tq == 0s) {
+        tq = 1ms; // safe default, initialization order is wrong
+    }
+    _tasks_processed_report_threshold = cfg.threshold / tq;
+    _stall_detector_reports_per_minute = cfg.stall_detector_reports_per_minute;
+}
+
 void
 reactor::task_quota_timer_thread_fn() {
     auto thread_name = seastar::format("timer-{}", _id);
@@ -639,7 +657,7 @@ reactor::task_quota_timer_thread_fn() {
         abort();
     }
 
-    unsigned report_at = _tasks_processed_report_threshold;
+    unsigned report_at = _cpu_stall_detector->_tasks_processed_report_threshold;
     uint64_t last_tasks_processed_seen = 0;
     uint64_t last_polls_seen = 0;
 
@@ -698,7 +716,7 @@ reactor::task_quota_timer_thread_fn() {
         _task_quota_timer.read(&events, 8);
         _local_need_preempt = true;
     }
-    block_notifier_rate_limiter rate_limit(unsigned(60s / _task_quota), _stall_detector_reports_per_minute, _id);
+    block_notifier_rate_limiter rate_limit(unsigned(60s / _task_quota), _cpu_stall_detector->_stall_detector_reports_per_minute, _id);
     uint64_t saved_missed_ticks = 0;
 
     while (!_dying.load(std::memory_order_relaxed)) {
@@ -706,22 +724,22 @@ reactor::task_quota_timer_thread_fn() {
         _task_quota_timer.read(&events, 8);
         _local_need_preempt = true;
 
-        auto missed_ticks = _stall_detector_missed_ticks.load(std::memory_order_relaxed);
+        auto missed_ticks = _cpu_stall_detector->_stall_detector_missed_ticks.load(std::memory_order_relaxed);
         rate_limit.tick(std::max(uint64_t(1), missed_ticks - saved_missed_ticks));
         saved_missed_ticks = missed_ticks;
 
         auto tp = _tasks_processed.load(std::memory_order_relaxed);
         auto p = _polls.load(std::memory_order_relaxed);
         if ((tp == last_tasks_processed_seen) && (p == last_polls_seen)) {
-            if ((increment_nonatomically(_tasks_processed_stalled) == report_at)) {
-                rate_limit.maybe_report(_thread_id, block_notifier_signal());
+            if ((increment_nonatomically(_cpu_stall_detector->_tasks_processed_stalled) == report_at)) {
+                rate_limit.maybe_report(_thread_id, cpu_stall_detector::signal_number());
                 report_at <<= 1;
             }
         } else {
             last_tasks_processed_seen = tp;
             last_polls_seen = p;
-            _tasks_processed_stalled.store(0, std::memory_order_relaxed);
-            report_at = _tasks_processed_report_threshold;
+            _cpu_stall_detector->_tasks_processed_stalled.store(0, std::memory_order_relaxed);
+            report_at = _cpu_stall_detector->_tasks_processed_report_threshold;
         }
 
         // We're in a different thread, but guaranteed to be on the same core, so even
@@ -731,17 +749,23 @@ reactor::task_quota_timer_thread_fn() {
 }
 void 
 reactor::update_blocked_reactor_notify_ms(std::chrono::milliseconds ms) {
-    unsigned threshold = ms / _task_quota;
-    if (threshold != _tasks_processed_report_threshold) {
-        _tasks_processed_report_threshold = threshold;
+    auto cfg = _cpu_stall_detector->get_config();
+    if (ms != cfg.threshold) {
+        cfg.threshold = ms;
+        _cpu_stall_detector->update_config(cfg);
         seastar_logger.info("updated: blocked-reactor-notify-ms={}", ms.count());
     }
 }
 
 void
 reactor::block_notifier(int) {
-    auto steps = engine()._tasks_processed_stalled.load(std::memory_order_relaxed);
-    auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(engine()._task_quota * steps);
+    engine()._cpu_stall_detector->generate_trace();
+}
+
+void
+cpu_stall_detector::generate_trace() {
+    auto steps = _tasks_processed_stalled.load(std::memory_order_relaxed);
+    auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(_r->_task_quota * steps);
 
     backtrace_buffer buf;
     buf.append("Reactor stalled for ");
@@ -852,8 +876,10 @@ void reactor::configure(boost::program_options::variables_map vm) {
     _task_quota = std::chrono::duration_cast<sched_clock::duration>(task_quota);
 
     auto blocked_time = vm["blocked-reactor-notify-ms"].as<unsigned>() * 1ms;
-    _tasks_processed_report_threshold = unsigned(blocked_time / task_quota);
-    _stall_detector_reports_per_minute = vm["blocked-reactor-reports-per-minute"].as<unsigned>();
+    cpu_stall_detector_config csdc;
+    csdc.threshold = blocked_time;
+    csdc.stall_detector_reports_per_minute = vm["blocked-reactor-reports-per-minute"].as<unsigned>();
+    _cpu_stall_detector->update_config(csdc);
 
     _max_task_backlog = vm["max-task-backlog"].as<unsigned>();
     _max_poll_time = vm["idle-poll-time-us"].as<unsigned>() * 1us;
@@ -3254,7 +3280,7 @@ int reactor::run() {
     struct sigaction sa_block_notifier = {};
     sa_block_notifier.sa_handler = &reactor::block_notifier;
     sa_block_notifier.sa_flags = SA_RESTART;
-    auto r = sigaction(block_notifier_signal(), &sa_block_notifier, nullptr);
+    auto r = sigaction(cpu_stall_detector::signal_number(), &sa_block_notifier, nullptr);
     assert(r == 0);
 
     bool idle = false;
@@ -3318,7 +3344,7 @@ int reactor::run() {
                     sleep();
                     // We may have slept for a while, so freshen idle_end
                     idle_end = sched_clock::now();
-                    add_nonatomically(_stall_detector_missed_ticks, uint64_t((idle_end - start_sleep)/_task_quota));
+                    add_nonatomically(_cpu_stall_detector->_stall_detector_missed_ticks, uint64_t((idle_end - start_sleep)/_task_quota));
                     _total_sleep += idle_end - start_sleep;
                     _task_quota_timer.timerfd_settime(0, task_quote_itimerspec);
                 }

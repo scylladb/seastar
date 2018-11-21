@@ -640,6 +640,7 @@ private:
 namespace internal {
 
 class reactor_stall_sampler;
+class cpu_stall_detector;
 
 }
 
@@ -779,10 +780,7 @@ private:
     semaphore _cpu_started;
     std::atomic<uint64_t> _tasks_processed = { 0 };
     std::atomic<uint64_t> _polls = { 0 };
-    std::atomic<unsigned> _tasks_processed_stalled = { 0 };
-    unsigned _tasks_processed_report_threshold;
-    unsigned _stall_detector_reports_per_minute;
-    std::atomic<uint64_t> _stall_detector_missed_ticks = { 0 };
+    std::unique_ptr<internal::cpu_stall_detector> _cpu_stall_detector;
 
     unsigned _max_task_backlog = 1000;
     timer_set<timer<>, &timer<>::_link> _timers;
@@ -911,6 +909,7 @@ private:
     signals _signals;
     thread_pool _thread_pool;
     friend class thread_pool;
+    friend class internal::cpu_stall_detector;
 
     uint64_t pending_task_count() const;
     void run_tasks(task_queue& tq);
