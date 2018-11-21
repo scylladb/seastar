@@ -696,6 +696,11 @@ void cpu_stall_detector::tick() {
 }
 
 void
+cpu_stall_detector::account_for_missed_ticks(std::chrono::steady_clock::duration idle_time) {
+    add_nonatomically(_stall_detector_missed_ticks, uint64_t(idle_time / _r->_task_quota));
+}
+
+void
 reactor::task_quota_timer_thread_fn() {
     auto thread_name = seastar::format("timer-{}", _id);
     pthread_setname_np(pthread_self(), thread_name.c_str());
@@ -3329,7 +3334,7 @@ int reactor::run() {
                     sleep();
                     // We may have slept for a while, so freshen idle_end
                     idle_end = sched_clock::now();
-                    add_nonatomically(_cpu_stall_detector->_stall_detector_missed_ticks, uint64_t((idle_end - start_sleep)/_task_quota));
+                    _cpu_stall_detector->account_for_missed_ticks(idle_end - start_sleep);
                     _total_sleep += idle_end - start_sleep;
                     _task_quota_timer.timerfd_settime(0, task_quote_itimerspec);
                 }

@@ -65,6 +65,7 @@ public:
     void update_config(cpu_stall_detector_config cfg);
     cpu_stall_detector_config get_config() const;
     void tick();
+    void account_for_missed_ticks(std::chrono::steady_clock::duration idle_time);
 };
 
 }
