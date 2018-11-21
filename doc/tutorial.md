@@ -62,8 +62,8 @@ https://github.com/scylladb/seastar/wiki/Networking
 The simplest Seastar program is this:
 
 ```cpp
-#include "core/app-template.hh"
-#include "core/reactor.hh"
+#include <seastar/core/app-template.hh>
+#include <seastar/core/reactor.hh>
 #include <iostream>
 
 int main(int argc, char** argv) {
@@ -103,8 +103,8 @@ $
 As explained in the introduction, Seastar-based programs run a single thread on each CPU. Each of these threads runs its own event loop, known as the *engine* in Seastar nomenclature. By default, the Seastar application will take over all the available cores, starting one thread per core. We can see this with the following program, printing `seastar::smp::count` which is the number of started threads:
 
 ```cpp
-#include "core/app-template.hh"
-#include "core/reactor.hh"
+#include <seastar/core/app-template.hh>
+#include <seastar/core/reactor.hh>
 #include <iostream>
 
 int main(int argc, char** argv) {
@@ -143,8 +143,8 @@ abort (core dumped)
 The error is an exception thrown from app.run, which we did not catch, leading to this ugly uncaught-exception crash. It is better to catch this sort of startup exceptions, and exit gracefully without a core dump:
 
 ```cpp
-#include "core/app-template.hh"
-#include "core/reactor.hh"
+#include <seastar/core/app-template.hh>
+#include <seastar/core/reactor.hh>
 #include <iostream>
 #include <stdexcept>
 
@@ -208,8 +208,8 @@ This function arranges a timer so that the returned future becomes available (wi
 A **continuation** is a callback (typically a lambda) to run when a future becomes available. A continuation is attached to a future with the `then()` method. Here is a simple example:
 
 ```cpp
-#include "core/app-template.hh"
-#include "core/sleep.hh"
+#include <seastar/core/app-template.hh>
+#include <seastar/core/sleep.hh>
 #include <iostream>
 
 int main(int argc, char** argv) {
@@ -231,8 +231,8 @@ The return value of `then()` is itself a future which is useful for chaining mul
 To avoid repeating the boilerplate "app_engine" part in every code example in this tutorial, let's create a simple main() with which we will compile the following examples. This main just calls function `future<> f()`, does the appropriate exception handling, and exits when the future returned by `f` is resolved:
 
 ```cpp
-#include "core/app-template.hh"
-#include "util/log.hh"
+#include <seastar/core/app-template.hh>
+#include <seastar/util/log.hh>
 #include <iostream>
 #include <stdexcept>
 
@@ -254,7 +254,7 @@ int main(int argc, char** argv) {
 Compiling together with this `main.cc`, the above sleep() example code becomes:
 
 ```cpp
-#include "core/sleep.hh"
+#include <seastar/core/sleep.hh>
 #include <iostream>
 
 seastar::future<> f() {
@@ -269,7 +269,7 @@ seastar::future<> f() {
 So far, this example was not very interesting - there is no parallelism, and the same thing could have been achieved by the normal blocking POSIX `sleep()`. Things become much more interesting when we start several sleep() futures in parallel, and attach a different continuation to each. Futures and continuation make parallelism very easy and natural:
 
 ```cpp
-#include "core/sleep.hh"
+#include <seastar/core/sleep.hh>
 #include <iostream>
 
 seastar::future<> f() {
@@ -290,7 +290,7 @@ Sleeping... 100ms 200ms Done.
 `sleep()` returns `future<>`, meaning it will complete at a future time, but once complete, does not return any value. More interesting futures do specify a value of any type (or multiple values) that will become available later. In the following example, we have a function returning a `future<int>`, and a continuation to be run once this value becomes available. Note how the continuation gets the future's value as a parameter:
 
 ```cpp
-#include "core/sleep.hh"
+#include <seastar/core/sleep.hh>
 #include <iostream>
 
 seastar::future<int> slow() {
@@ -317,7 +317,7 @@ This optimization is done *usually*, though sometimes it is avoided: The impleme
 `make_ready_future<>` can be used to return a future which is already ready. The following example is identical to the previous one, except the promise function `fast()` returns a future which is already ready, and not one which will be ready in a second as in the previous example. The nice thing is that the consumer of the future does not care, and uses the future in the same way in both cases.
 
 ```cpp
-#include "core/future.hh"
+#include <seastar/core/future.hh>
 #include <iostream>
 
 seastar::future<int> fast() {
@@ -337,7 +337,7 @@ seastar::future<> f() {
 We've already seen that Seastar *continuations* are lambdas, passed to the `then()` method of a future. In the examples we've seen so far, lambdas have been nothing more than anonymous functions. But C++11 lambdas have one more trick up their sleeve, which is extremely important for future-based asynchronous programming in Seastar: Lambdas can **capture** state. Consider the following example:
 
 ```cpp
-#include "core/sleep.hh"
+#include <seastar/core/sleep.hh>
 #include <iostream>
 
 seastar::future<int> incr(int i) {
@@ -440,7 +440,7 @@ TODO: give example code for the above. Also mention handle_exception - although 
 An asynchronous function can fail in one of two ways: It can fail immediately, by throwing an exception, or it can return a future which will eventually fail (resolve to an exception). These two modes of failure appear similar to the uninitiated, but behave differently when attempting to handle exceptions using `finally()`, `handle_exception()`, or `then_wrapped()`. For example, consider the code:
 
 ```cpp
-#include "core/future.hh"
+#include <seastar/core/future.hh>
 #include <iostream>
 #include <exception>
 
@@ -743,7 +743,7 @@ Above we've seen `parallel_for_each()`, which starts a number of asynchronous op
 The first variant of `when_all()` is variadic, i.e., the futures are given as separate parameters, the exact number of which is known at compile time. The individual futures may have different types. For example,
 
 ```cpp
-#include "core/sleep.hh"
+#include <seastar/core/sleep.hh>
 
 future<> f() {
     using namespace std::chrono_literals;
@@ -932,7 +932,7 @@ Above, we looked at a function `g()` which gets called by some external event, a
 Consider the following simple loop:
 
 ```cpp
-#include "core/sleep.hh"
+#include <seastar/core/sleep.hh>
 seastar::future<> slow() {
     std::cerr << ".";
     return seastar::sleep(std::chrono::seconds(1));
@@ -1070,8 +1070,8 @@ slow().finally([&g] { g.leave(); });
 Here is a typical example of using a gate:
 
 ```cpp
-#include "core/sleep.hh"
-#include "core/gate.hh"
+#include <seastar/core/sleep.hh>
+#include <seastar/core/gate.hh>
 #include <boost/iterator/counting_iterator.hpp>
 
 seastar::future<> slow(int i) {
@@ -1174,9 +1174,9 @@ Here we ask each of Seastar cores (from 0 to `smp::count`-1) to run the same fun
 We begin with a simple example of a TCP network server written in Seastar. This server repeatedly accepts connections on TCP port 1234, and returns an empty response:
 
 ```cpp
-#include "core/seastar.hh"
-#include "core/reactor.hh"
-#include "core/future-util.hh"
+#include <seastar/core/seastar.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/future-util.hh>
 #include <iostream>
 
 seastar::future<> service_loop() {
@@ -1227,9 +1227,9 @@ Most servers will always turn on this ```reuse_address``` listen option. Stevens
 Let's advance our example server by outputting some canned response to each connection, instead of closing each connection immediately with an empty reply.
 
 ```cpp
-#include "core/seastar.hh"
-#include "core/reactor.hh"
-#include "core/future-util.hh"
+#include <seastar/core/seastar.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/future-util.hh>
 #include <iostream>
 
 const char* canned_response = "Seastar is the future!\n";
@@ -1275,9 +1275,9 @@ In the above example we only saw writing to the socket. Real servers will also w
 Let's look at a simple example server involving both reads an writes. This is a simple echo server, as described in RFC 862: The server listens for connections from the client, and once a connection is established, any data received is simply sent back - until the client closes the connection.
 
 ```cpp
-#include "core/seastar.hh"
-#include "core/reactor.hh"
-#include "core/future-util.hh"
+#include <seastar/core/seastar.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/future-util.hh>
 
 seastar::future<> handle_connection(seastar::connected_socket s,
                                     seastar::socket_address a) {
@@ -1355,8 +1355,8 @@ Rather, applications which want to have command-line options of their own should
 
 ```cpp
 #include <iostream>
-#include <core/app-template.hh>
-#include <core/reactor.hh>
+#include <seastar/core/app-template.hh>
+#include <seastar/core/reactor.hh>
 int main(int argc, char** argv) {
     seastar::app_template app;
     namespace bpo = boost::program_options;
@@ -1415,8 +1415,8 @@ Therefore, Seastar prints a warning message to the log if a future is destroyed 
 
 For example, consider this code:
 ```cpp
-#include <core/future.hh>
-#include <core/sleep.hh>
+#include <seastar/core/future.hh>
+#include <seastar/core/sleep.hh>
 
 class myexception {};
 
@@ -1509,8 +1509,8 @@ Sometimes an application logs an exception, and we want to know where in the cod
 For example, in the following code we throw and catch an `std::runtime_error` normally:
 
 ```cpp
-#include <core/future.hh>
-#include <util/log.hh>
+#include <seastar/core/future.hh>
+#include <seastar/util/log.hh>
 #include <exception>
 #include <iostream>
 
@@ -1636,8 +1636,8 @@ In addition to `seastar::future::get()`, we also have `seastar::future::wait()` 
 After we created a `seastar::thread` object, we need wait until it ends, using its `join()` method. We also need to keep that object alive until `join()` completes. A complete example using `seastar::thread` will therefore look like this:
 
 ```cpp
-#include <core/sleep.hh>
-#include <core/thread.hh>
+#include <seastar/core/sleep.hh>
+#include <seastar/core/thread.hh>
 seastar::future<> f() {
     seastar::thread th([] {
         std::cout << "Hi.\n";
@@ -1654,8 +1654,8 @@ seastar::future<> f() {
 
 The `seastar::async()` function provides a convenient shortcut for creating a `seastar::thread` and returning a future which resolves when the thread completes:
 ```cpp
-#include <core/sleep.hh>
-#include <core/thread.hh>
+#include <seastar/core/sleep.hh>
+#include <seastar/core/thread.hh>
 seastar::future<> f() {
     return seastar::async([] {
         std::cout << "Hi.\n";
