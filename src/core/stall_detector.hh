@@ -44,14 +44,23 @@ class cpu_stall_detector {
     unsigned _tasks_processed_report_threshold;
     unsigned _stall_detector_reports_per_minute;
     std::atomic<uint64_t> _stall_detector_missed_ticks = { 0 };
+    unsigned _reported = 0;
+    unsigned _ticks = 0;
+    unsigned _ticks_per_minute;
+    unsigned _max_reports_per_minute;
+    unsigned _shard_id;
+    unsigned _thread_id;
     cpu_stall_detector_config _config;
     friend reactor;
+private:
+    void maybe_report(pthread_t who, int sig);
 public:
     cpu_stall_detector(reactor* r, cpu_stall_detector_config cfg = {});
     static int signal_number() { return SIGRTMIN + 1; }
     void generate_trace();
     void update_config(cpu_stall_detector_config cfg);
     cpu_stall_detector_config get_config() const;
+    void tick(unsigned ticks = 1);
 };
 
 }

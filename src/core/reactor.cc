@@ -622,7 +622,8 @@ inline Integral increment_nonatomically(std::atomic<Integral>& value) {
 }
 
 cpu_stall_detector::cpu_stall_detector(reactor* r, cpu_stall_detector_config cfg)
-        : _r(r) {
+        : _r(r)
+        , _shard_id(_r->cpu_id()) {
     update_config(cfg);
 }
 
@@ -639,6 +640,41 @@ void cpu_stall_detector::update_config(cpu_stall_detector_config cfg) {
     }
     _tasks_processed_report_threshold = cfg.threshold / tq;
     _stall_detector_reports_per_minute = cfg.stall_detector_reports_per_minute;
+    _ticks_per_minute = 60s / tq;
+    _max_reports_per_minute = cfg.stall_detector_reports_per_minute;
+}
+
+void cpu_stall_detector::maybe_report(pthread_t who, int sig) {
+    if (_reported++ < _max_reports_per_minute) {
+        pthread_kill(who, sig);
+    }
+}
+// We use a tick at every timer firing so we can report suppressed backtraces.
+// Best case it's a correctly predicted branch. If a backtrace had happened in
+// the near past it's an increment and two branches.
+//
+// We can do it a cheaper if we don't report suppressed backtraces.
+void cpu_stall_detector::tick(unsigned ticks) {
+    if (!_reported) {
+        return;
+    }
+    _ticks += ticks;
+    if (_ticks >= _ticks_per_minute) {
+        if (_reported > _max_reports_per_minute) {
+            auto supressed = _reported - _max_reports_per_minute;
+            backtrace_buffer buf;
+            // Reuse backtrace buffer infrastructure so we don't have to allocate here
+            buf.append("Rate-limit: supressed ");
+            buf.append_decimal(_reported - _max_reports_per_minute);
+            supressed == 1 ? buf.append(" backtrace") : buf.append(" backtraces");
+            buf.append(" on shard ");
+            buf.append_decimal(_shard_id);
+            buf.append("\n");
+            buf.flush();
+        }
+        _reported = 0;
+        _ticks = 0;
+    }
 }
 
 void
@@ -661,53 +697,6 @@ reactor::task_quota_timer_thread_fn() {
     uint64_t last_tasks_processed_seen = 0;
     uint64_t last_polls_seen = 0;
 
-    class block_notifier_rate_limiter {
-        unsigned _reported = 0;
-        unsigned _ticks = 0;
-        unsigned _ticks_per_minute;
-        unsigned _max_reports_per_minute;
-        unsigned _shard_id;
-        unsigned _thread_id;
-    public:
-        void maybe_report(pthread_t who, int sig) {
-            if (_reported++ < _max_reports_per_minute) {
-                pthread_kill(who, sig);
-            }
-        }
-        // We use a tick at every timer firing so we can report suppressed backtraces.
-        // Best case it's a correctly predicted branch. If a backtrace had happened in
-        // the near past it's an increment and two branches.
-        //
-        // We can do it a cheaper if we don't report suppressed backtraces.
-        void tick(unsigned ticks = 1) {
-            if (!_reported) {
-                return;
-            }
-            _ticks += ticks;
-            if (_ticks >= _ticks_per_minute) {
-                if (_reported > _max_reports_per_minute) {
-                    auto supressed = _reported - _max_reports_per_minute;
-                    backtrace_buffer buf;
-                    // Reuse backtrace buffer infrastructure so we don't have to allocate here
-                    buf.append("Rate-limit: supressed ");
-                    buf.append_decimal(_reported - _max_reports_per_minute);
-                    supressed == 1 ? buf.append(" backtrace") : buf.append(" backtraces");
-                    buf.append(" on shard ");
-                    buf.append_decimal(_shard_id);
-                    buf.append("\n");
-                    buf.flush();
-                }
-                _reported = 0;
-                _ticks = 0;
-            }
-        }
-        block_notifier_rate_limiter(unsigned ticks_per_minute, unsigned max_reports, unsigned shard_id)
-            : _ticks_per_minute(ticks_per_minute)
-            , _max_reports_per_minute(max_reports)
-            , _shard_id(shard_id)
-            {}
-    };
-
     // We need to wait until task quota is set before we can calculate how many ticks are to
     // a minute. Technically task_quota is used from many threads, but since it is read-only here
     // and only used during initialization we will avoid complicating the code.
@@ -716,7 +705,6 @@ reactor::task_quota_timer_thread_fn() {
         _task_quota_timer.read(&events, 8);
         _local_need_preempt = true;
     }
-    block_notifier_rate_limiter rate_limit(unsigned(60s / _task_quota), _cpu_stall_detector->_stall_detector_reports_per_minute, _id);
     uint64_t saved_missed_ticks = 0;
 
     while (!_dying.load(std::memory_order_relaxed)) {
@@ -725,14 +713,14 @@ reactor::task_quota_timer_thread_fn() {
         _local_need_preempt = true;
 
         auto missed_ticks = _cpu_stall_detector->_stall_detector_missed_ticks.load(std::memory_order_relaxed);
-        rate_limit.tick(std::max(uint64_t(1), missed_ticks - saved_missed_ticks));
+        _cpu_stall_detector->tick(std::max(uint64_t(1), missed_ticks - saved_missed_ticks));
         saved_missed_ticks = missed_ticks;
 
         auto tp = _tasks_processed.load(std::memory_order_relaxed);
         auto p = _polls.load(std::memory_order_relaxed);
         if ((tp == last_tasks_processed_seen) && (p == last_polls_seen)) {
             if ((increment_nonatomically(_cpu_stall_detector->_tasks_processed_stalled) == report_at)) {
-                rate_limit.maybe_report(_thread_id, cpu_stall_detector::signal_number());
+                _cpu_stall_detector->maybe_report(_thread_id, cpu_stall_detector::signal_number());
                 report_at <<= 1;
             }
         } else {
