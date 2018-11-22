@@ -767,6 +767,12 @@ reactor::update_blocked_reactor_notify_ms(std::chrono::milliseconds ms) {
     }
 }
 
+std::chrono::milliseconds
+reactor::get_blocked_reactor_notify_ms() const {
+    auto d = _cpu_stall_detector->get_config().threshold;
+    return std::chrono::duration_cast<std::chrono::milliseconds>(d);
+}
+
 void
 reactor::block_notifier(int) {
     engine()._cpu_stall_detector->generate_trace();
