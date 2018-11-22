@@ -257,7 +257,9 @@ protected:
     future<> handle_stream_frame();
 
 public:
-    connection(connected_socket&& fd, const logger& l, void* s, connection_id id = invalid_connection_id) : _fd(std::move(fd)), _read_buf(_fd.input()), _write_buf(_fd.output()), _connected(true), _logger(l), _serializer(s), _id(id) {}
+    connection(connected_socket&& fd, const logger& l, void* s, connection_id id = invalid_connection_id) : connection(l, s, id) {
+        set_socket(std::move(fd));
+    }
     connection(const logger& l, void* s, connection_id id = invalid_connection_id) : _logger(l), _serializer(s), _id(id) {}
     virtual ~connection() {}
     void set_socket(connected_socket&& fd);
