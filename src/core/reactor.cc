@@ -774,6 +774,18 @@ reactor::get_blocked_reactor_notify_ms() const {
 }
 
 void
+reactor::set_stall_detector_report_function(std::function<void ()> report) {
+    auto cfg = _cpu_stall_detector->get_config();
+    cfg.report = std::move(report);
+    _cpu_stall_detector->update_config(std::move(cfg));
+}
+
+std::function<void ()>
+reactor::get_stall_detector_report_function() const {
+    return _cpu_stall_detector->get_config().report;
+}
+
+void
 reactor::block_notifier(int) {
     engine()._cpu_stall_detector->generate_trace();
 }
@@ -781,6 +793,11 @@ reactor::block_notifier(int) {
 void
 cpu_stall_detector::generate_trace() {
     auto delta = std::chrono::steady_clock::now() - _run_started_at;
+
+    if (_config.report) {
+        _config.report();
+        return;
+    }
 
     backtrace_buffer buf;
     buf.append("Reactor stalled for ");

@@ -1182,6 +1182,9 @@ public:
 
     void update_blocked_reactor_notify_ms(std::chrono::milliseconds ms);
     std::chrono::milliseconds get_blocked_reactor_notify_ms() const;
+    // For testing:
+    void set_stall_detector_report_function(std::function<void ()> report);
+    std::function<void ()> get_stall_detector_report_function() const;
 };
 
 template <typename Func> // signature: bool ()
