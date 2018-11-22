@@ -625,6 +625,19 @@ cpu_stall_detector::cpu_stall_detector(reactor* r, cpu_stall_detector_config cfg
         : _r(r)
         , _shard_id(_r->cpu_id()) {
     update_config(cfg);
+    struct sigevent sev = {};
+    sev.sigev_notify = SIGEV_THREAD_ID;
+    sev.sigev_signo = signal_number();
+    sev._sigev_un._tid = syscall(SYS_gettid);
+    int err = timer_create(CLOCK_MONOTONIC, &sev, &_timer);
+    if (err) {
+        throw std::system_error(std::error_code(err, std::system_category()));
+    }
+    // note: if something is added here that can, it should take care to destroy _timer.
+}
+
+cpu_stall_detector::~cpu_stall_detector() {
+    timer_delete(_timer);
 }
 
 cpu_stall_detector_config
@@ -634,19 +647,16 @@ cpu_stall_detector::get_config() const {
 
 void cpu_stall_detector::update_config(cpu_stall_detector_config cfg) {
     _config = cfg;
-    auto tq = _r->_task_quota;
-    if (tq == 0s) {
-        tq = 1ms; // safe default, initialization order is wrong
-    }
-    _tasks_processed_report_threshold = cfg.threshold / tq;
+    _threshold = std::chrono::duration_cast<std::chrono::steady_clock::duration>(cfg.threshold);
+    _slack = std::chrono::duration_cast<std::chrono::steady_clock::duration>(cfg.threshold * cfg.slack);
     _stall_detector_reports_per_minute = cfg.stall_detector_reports_per_minute;
-    _ticks_per_minute = 60s / tq;
     _max_reports_per_minute = cfg.stall_detector_reports_per_minute;
+    _rearm_timer_at = std::chrono::steady_clock::now();
 }
 
-void cpu_stall_detector::maybe_report(pthread_t who, int sig) {
+void cpu_stall_detector::maybe_report() {
     if (_reported++ < _max_reports_per_minute) {
-        pthread_kill(who, sig);
+        generate_trace();
     }
 }
 // We use a tick at every timer firing so we can report suppressed backtraces.
@@ -654,31 +664,17 @@ void cpu_stall_detector::maybe_report(pthread_t who, int sig) {
 // the near past it's an increment and two branches.
 //
 // We can do it a cheaper if we don't report suppressed backtraces.
-void cpu_stall_detector::tick() {
-    auto missed_ticks = _stall_detector_missed_ticks.load(std::memory_order_relaxed);
-    auto ticks = std::max(uint64_t(1), missed_ticks - _saved_missed_ticks);
-    _saved_missed_ticks = missed_ticks;
-
-    auto tp = _r->_tasks_processed.load(std::memory_order_relaxed);
-    auto p = _r->_polls.load(std::memory_order_relaxed);
-    if ((tp == _last_tasks_processed_seen) && (p == _last_polls_seen)) {
-        if ((increment_nonatomically(_tasks_processed_stalled) == _report_at)) {
-            maybe_report(_r->_thread_id, cpu_stall_detector::signal_number());
-            _report_at <<= 1;
-        }
-    } else {
-        _last_tasks_processed_seen = tp;
-        _last_polls_seen = p;
-        _tasks_processed_stalled.store(0, std::memory_order_relaxed);
-        _report_at = _tasks_processed_report_threshold;
+void cpu_stall_detector::on_signal() {
+    if (_active.load(std::memory_order_relaxed)) {
+        maybe_report();
+        _report_at <<= 1;
+        arm_timer();
     }
+}
 
-    if (!_reported) {
-        return;
-    }
-    _ticks += ticks;
-    if (_ticks >= _ticks_per_minute) {
-        if (_reported > _max_reports_per_minute) {
+void cpu_stall_detector::report_suppressions(std::chrono::steady_clock::time_point now) {
+    if (now > _minute_mark + 60s) {
+        if (_reported) {
             auto supressed = _reported - _max_reports_per_minute;
             backtrace_buffer buf;
             // Reuse backtrace buffer infrastructure so we don't have to allocate here
@@ -691,13 +687,39 @@ void cpu_stall_detector::tick() {
             buf.flush();
         }
         _reported = 0;
-        _ticks = 0;
+        _minute_mark = now;
     }
 }
 
-void
-cpu_stall_detector::account_for_missed_ticks(std::chrono::steady_clock::duration idle_time) {
-    add_nonatomically(_stall_detector_missed_ticks, uint64_t(idle_time / _r->_task_quota));
+void cpu_stall_detector::arm_timer() {
+    auto its = posix::to_relative_itimerspec(_threshold * _report_at + _slack, 0s);
+    timer_settime(_timer, 0, &its, nullptr);
+}
+
+void cpu_stall_detector::start_task_run(std::chrono::steady_clock::time_point now) {
+    if (now > _rearm_timer_at) {
+        report_suppressions(now);
+        _report_at = 1;
+        _run_started_at = now;
+        _rearm_timer_at = now + _threshold * _report_at;
+        arm_timer();
+    }
+    _active.store(true, std::memory_order_relaxed);
+    std::atomic_signal_fence(std::memory_order_release); // Don't delay this write, so the signal handler can see it
+}
+
+void cpu_stall_detector::end_task_run(std::chrono::steady_clock::time_point now) {
+    std::atomic_signal_fence(std::memory_order_acquire); // Don't hoist this write, so the signal handler can see it
+    _active.store(false, std::memory_order_relaxed);
+}
+
+void cpu_stall_detector::start_sleep() {
+    auto its = posix::to_relative_itimerspec(0s,  0s);
+    timer_settime(_timer, 0, &its, nullptr);
+    _rearm_timer_at = std::chrono::steady_clock::now();
+}
+
+void cpu_stall_detector::end_sleep() {
 }
 
 void
@@ -730,8 +752,6 @@ reactor::task_quota_timer_thread_fn() {
         _task_quota_timer.read(&events, 8);
         _local_need_preempt = true;
 
-        _cpu_stall_detector->tick();
-
         // We're in a different thread, but guaranteed to be on the same core, so even
         // a signal fence is overdoing it
         std::atomic_signal_fence(std::memory_order_seq_cst);
@@ -754,12 +774,11 @@ reactor::block_notifier(int) {
 
 void
 cpu_stall_detector::generate_trace() {
-    auto steps = _tasks_processed_stalled.load(std::memory_order_relaxed);
-    auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(_r->_task_quota * steps);
+    auto delta = std::chrono::steady_clock::now() - _run_started_at;
 
     backtrace_buffer buf;
     buf.append("Reactor stalled for ");
-    buf.append_decimal(uint64_t(delta.count()));
+    buf.append_decimal(uint64_t(delta / 1ms));
     buf.append(" ms");
     print_with_backtrace(buf);
 }
@@ -3127,6 +3146,7 @@ reactor::run_some_tasks() {
 
     sched_clock::time_point t_run_completed = std::chrono::steady_clock::now();
     STAP_PROBE(seastar, reactor_run_tasks_start);
+    _cpu_stall_detector->start_task_run(t_run_completed);
     do {
         auto t_run_started = t_run_completed;
         insert_activating_task_queues();
@@ -3148,6 +3168,7 @@ reactor::run_some_tasks() {
             tq->_active = false;
         }
     } while (have_more_tasks() && !need_preempt());
+    _cpu_stall_detector->end_task_run(t_run_completed);
     STAP_PROBE(seastar, reactor_run_tasks_end);
     *internal::current_scheduling_group_ptr() = default_scheduling_group(); // Prevent inheritance from last group run
     sched_print("run_some_tasks: end");
@@ -3331,10 +3352,11 @@ int reactor::run() {
                     struct itimerspec zero_itimerspec = {};
                     _task_quota_timer.timerfd_settime(0, zero_itimerspec);
                     auto start_sleep = sched_clock::now();
+                    _cpu_stall_detector->start_sleep();
                     sleep();
+                    _cpu_stall_detector->end_sleep();
                     // We may have slept for a while, so freshen idle_end
                     idle_end = sched_clock::now();
-                    _cpu_stall_detector->account_for_missed_ticks(idle_end - start_sleep);
                     _total_sleep += idle_end - start_sleep;
                     _task_quota_timer.timerfd_settime(0, task_quote_itimerspec);
                 }

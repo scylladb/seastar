@@ -25,6 +25,7 @@
 #include <signal.h>
 #include <limits>
 #include <chrono>
+#include <seastar/core/posix.hh>
 
 namespace seastar {
 
@@ -35,37 +36,44 @@ namespace internal {
 struct cpu_stall_detector_config {
     std::chrono::duration<double> threshold = std::chrono::seconds(2);
     unsigned stall_detector_reports_per_minute = 1;
+    float slack = 0.3;  // fraction of threshold that we're allowed to overshoot
 };
 
 // Detects stalls in continuations that run for too long
 class cpu_stall_detector {
     reactor* _r;
-    std::atomic<unsigned> _tasks_processed_stalled = { 0 };
-    unsigned _tasks_processed_report_threshold;
+    timer_t _timer;
+    std::atomic<bool> _active{};
     unsigned _stall_detector_reports_per_minute;
     std::atomic<uint64_t> _stall_detector_missed_ticks = { 0 };
     unsigned _reported = 0;
-    unsigned _ticks = 0;
-    unsigned _ticks_per_minute;
     unsigned _max_reports_per_minute;
     unsigned _shard_id;
     unsigned _thread_id;
     unsigned _report_at{};
-    unsigned _saved_missed_ticks{};
-    uint64_t _last_tasks_processed_seen{};
-    uint64_t _last_polls_seen{};
+    std::chrono::steady_clock::time_point _minute_mark{};
+    std::chrono::steady_clock::time_point _rearm_timer_at{};
+    std::chrono::steady_clock::time_point _run_started_at{};
+    std::chrono::steady_clock::duration _threshold;
+    std::chrono::steady_clock::duration _slack;
     cpu_stall_detector_config _config;
     friend reactor;
 private:
-    void maybe_report(pthread_t who, int sig);
+    void maybe_report();
+    void arm_timer();
+    void report_suppressions(std::chrono::steady_clock::time_point now);
 public:
     cpu_stall_detector(reactor* r, cpu_stall_detector_config cfg = {});
+    ~cpu_stall_detector();
     static int signal_number() { return SIGRTMIN + 1; }
+    void start_task_run(std::chrono::steady_clock::time_point now);
+    void end_task_run(std::chrono::steady_clock::time_point now);
     void generate_trace();
     void update_config(cpu_stall_detector_config cfg);
     cpu_stall_detector_config get_config() const;
-    void tick();
-    void account_for_missed_ticks(std::chrono::steady_clock::duration idle_time);
+    void on_signal();
+    void start_sleep();
+    void end_sleep();
 };
 
 }
