@@ -206,7 +206,7 @@ inline void stop_measuring_time()
 
 
 template<typename T>
-void do_not_optimize(T& v)
+void do_not_optimize(const T& v)
 {
     asm volatile("" : : "r,m" (v));
 }
