@@ -629,7 +629,7 @@ cpu_stall_detector::cpu_stall_detector(reactor* r, cpu_stall_detector_config cfg
     sev.sigev_notify = SIGEV_THREAD_ID;
     sev.sigev_signo = signal_number();
     sev._sigev_un._tid = syscall(SYS_gettid);
-    int err = timer_create(CLOCK_MONOTONIC, &sev, &_timer);
+    int err = timer_create(CLOCK_THREAD_CPUTIME_ID, &sev, &_timer);
     if (err) {
         throw std::system_error(std::error_code(err, std::system_category()));
     }
