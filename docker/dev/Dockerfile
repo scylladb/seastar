@@ -27,4 +27,5 @@ RUN dnf install -y \
     libubsan \
     libaio-devel \
     libpciaccess-devel \
-    libxml2-devel
+    libxml2-devel \
+    c-ares-devel
