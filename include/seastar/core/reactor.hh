@@ -571,9 +571,10 @@ public:
     // than read requests. To avoid dealing with floating point math we will scale one
     // read request to be counted by this amount.
     //
-    // A write request that is 30 % more expensive than a read will be accounted as 130.
+    // A write request that is 30% more expensive than a read will be accounted as
+    // (read_request_base_count * 130) / 100.
     // It is also technically possible for reads to be the expensive ones, in which case
-    // writes will have an integer value lower than 100.
+    // writes will have an integer value lower than read_request_base_count.
     static constexpr unsigned read_request_base_count = 128;
 
     struct config {
