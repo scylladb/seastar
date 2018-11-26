@@ -17,11 +17,11 @@ Aside from the mount point, 4 properties have to be specified (none are
 optional):
 
 * `read_iops`: read IOPS speed of the device
-* `reads_bandwidth`: read bandwidth speed of the device
+* `read_bandwidth`: read bandwidth speed of the device
 * `write_iops`: write IOPS speed of the device
 * `write_bandwidth`: write bandwidth speed of the device
 
-Those quantities can be specified in raw form, or proceeded with a
+Those quantities can be specified in raw form, or followed with a
 suffix (k, M, G, or T).
 
 Example:
