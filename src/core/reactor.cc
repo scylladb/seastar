@@ -3875,8 +3875,8 @@ smp::get_options_description()
 #else
         ("max-io-requests", bpo::value<unsigned>(), "Maximum amount of concurrent requests to be sent to the disk. Defaults to 128 times the number of processors")
 #endif
-        ("io-properties-file", bpo::value<std::string>(), "path to a YAML file describing the chraracteristics of the I/O Subsystem")
-        ("io-properties", bpo::value<std::string>(), "a YAML string describing the chraracteristics of the I/O Subsystem")
+        ("io-properties-file", bpo::value<std::string>(), "path to a YAML file describing the characteristics of the I/O Subsystem")
+        ("io-properties", bpo::value<std::string>(), "a YAML string describing the characteristics of the I/O Subsystem")
         ("mbind", bpo::value<bool>()->default_value(true), "enable mbind")
 #ifndef SEASTAR_NO_EXCEPTION_HACK
         ("enable-glibc-exception-scaling-workaround", bpo::value<bool>()->default_value(true), "enable workaround for glibc/gcc c++ exception scalablity problem")
