@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # C++ Code generation utility from Swagger definitions.
 # This utility support Both the swagger 1.2 format
