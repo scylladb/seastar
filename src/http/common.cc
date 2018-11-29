@@ -35,6 +35,9 @@ operation_type str2type(const sstring& type) {
     if (type == "PUT") {
         return PUT;
     }
+    if (type == "OPTIONS") {
+        return OPTIONS;
+    }
     return GET;
 }
 
