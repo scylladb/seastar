@@ -10,18 +10,16 @@ Currently only `disks` is supported.
 ## The disks section
 
 Inside the `disks` section, the user can specify a list of mount points.
-Seastar will for now only accept a single mount point, but that should
-change as we move forward to support multiple I/O Schedulers.
 
-Aside from the mount point, 4 properties have to be specified (none are
+For each mount point, 4 properties have to be specified (none are
 optional):
 
 * `read_iops`: read IOPS speed of the device
-* `reads_bandwidth`: read bandwidth speed of the device
+* `read_bandwidth`: read bandwidth speed of the device
 * `write_iops`: write IOPS speed of the device
 * `write_bandwidth`: write bandwidth speed of the device
 
-Those quantities can be specified in raw form, or proceeded with a
+Those quantities can be specified in raw form, or followed with a
 suffix (k, M, G, or T).
 
 Example:

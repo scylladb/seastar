@@ -3875,8 +3875,8 @@ smp::get_options_description()
 #else
         ("max-io-requests", bpo::value<unsigned>(), "Maximum amount of concurrent requests to be sent to the disk. Defaults to 128 times the number of processors")
 #endif
-        ("io-properties-file", bpo::value<std::string>(), "path to a YAML file describing the chraracteristics of the I/O Subsystem")
-        ("io-properties", bpo::value<std::string>(), "a YAML string describing the chraracteristics of the I/O Subsystem")
+        ("io-properties-file", bpo::value<std::string>(), "path to a YAML file describing the characteristics of the I/O Subsystem")
+        ("io-properties", bpo::value<std::string>(), "a YAML string describing the characteristics of the I/O Subsystem")
         ("mbind", bpo::value<bool>()->default_value(true), "enable mbind")
 #ifndef SEASTAR_NO_EXCEPTION_HACK
         ("enable-glibc-exception-scaling-workaround", bpo::value<bool>()->default_value(true), "enable workaround for glibc/gcc c++ exception scalablity problem")
@@ -4110,12 +4110,12 @@ public:
         if (!_capacity) {
             cfg.disk_bytes_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
             cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
-            cfg.max_req_count = max_bandwidth == std::numeric_limits<uint64_t>::max()
-                ? std::numeric_limits<unsigned>::max()
-                : io_queue::read_request_base_count * per_io_queue(max_iops * _latency_goal.count());
-            cfg.max_bytes_count = max_iops == std::numeric_limits<uint64_t>::max()
-                ? std::numeric_limits<unsigned>::max()
-                : io_queue::read_request_base_count * per_io_queue(max_bandwidth * _latency_goal.count());
+            if (max_bandwidth != std::numeric_limits<uint64_t>::max()) {
+                cfg.max_bytes_count = io_queue::read_request_base_count * per_io_queue(max_bandwidth * _latency_goal.count());
+            }
+            if (max_iops != std::numeric_limits<uint64_t>::max()) {
+                cfg.max_req_count = io_queue::read_request_base_count * per_io_queue(max_iops * _latency_goal.count());
+            }
             cfg.mountpoint = p.mountpoint;
         } else {
             cfg.capacity = per_io_queue(*_capacity);
