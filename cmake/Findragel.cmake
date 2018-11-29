@@ -1,3 +1,4 @@
+#
 # This file is open source software, licensed to you under the terms
 # of the Apache License, Version 2.0 (the "License").  See the NOTICE file
 # distributed with this work for additional information regarding copyright
@@ -15,25 +16,31 @@
 # under the License.
 #
 
-import os
+#
+# Copyright (C) 2018 Scylladb, Ltd.
+#
 
-SUPPORTED_MODES = ['release', 'debug']
+find_program (
+  ragel_RAGEL_EXECUTABLE
+  ragel)
 
-ROOT_PATH = os.path.realpath(os.path.dirname(__file__))
+set (_ragel_version_pattern "[0-9]+\\.[0-9]+\\.[0-9]+(\\.[0-9]+)?")
 
-BUILD_PATHS = { mode: os.path.join(ROOT_PATH, 'build', mode) for mode in SUPPORTED_MODES }
+if (ragel_RAGEL_EXECUTABLE)
+  set (ragel_FOUND ON)
 
-COOKING_BASIC_ARGS = ['./cooking.sh', '-r', 'dev', '-i', 'fmt']
+  exec_program (${ragel_RAGEL_EXECUTABLE}
+    ARGS -v
+    OUTPUT_VARIABLE _ragel_version_output)
 
-def translate_arg(arg, new_name, value_when_none='no'):
-    """
-    Translate a value populated from the command-line into a name to pass to the invocation of CMake.
-    """
-    if arg is None:
-        value = value_when_none
-    elif type(arg) is bool:
-        value = 'yes' if arg else 'no'
-    else:
-        value = arg
+  if (${_ragel_version_output} MATCHES "version (${_ragel_version_pattern})")
+    set (ragel_VERSION ${CMAKE_MATCH_1})
+  endif ()
+endif ()
 
-    return '-DSeastar_{}={}'.format(new_name, value)
+find_package_handle_standard_args (ragel
+  FOUND_VAR ragel_FOUND
+  REQUIRED_VARS ragel_RAGEL_EXECUTABLE
+  VERSION_VAR ragel_VERSION)
+
+mark_as_advanced (ragel_RAGEL_EXECUTABLE)

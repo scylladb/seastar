@@ -16,7 +16,24 @@ It is based on [futures](http://en.wikipedia.org/wiki/Futures_and_promises).
 Building Seastar
 --------------------
 
-See instructions for [Fedora](doc/building-fedora.md), [CentOS](doc/building-centos.md) and [Ubuntu](doc/building-ubuntu.md).
+For more detailed instructions, read [HACKING.md](./HACKING.md).
+
+Configuring Seastar via
+
+```
+./cooking.sh -r dev
+```
+
+will create a localized development environment specific to Seastar by downloading, compiling, and installing all dependencies of the library.
+
+You can then compile:
+
+```
+$ cd build
+$ ninja
+```
+
+Alternatively, system packages (via RPM or APT packages, for example) can be used to supply dependencies as well. There are distribution-specific instructions for [Fedora](doc/building-fedora.md), [CentOS](doc/building-centos.md) and [Ubuntu](doc/building-ubuntu.md). In general, the `install-dependencies.sh` will attempt to install all necessary packages for your distribution.
 
 There are also instructions for building on any host that supports [Docker](doc/building-docker.md).
 
@@ -25,12 +42,12 @@ Use of the [DPDK](http://dpdk.org) is [optional](doc/building-dpdk.md).
 #### Using C++17
 
 Seastar can be built with the C++17 dialect by supporting compilers, conditional
-on the `--c++-dialect` option being set to `gnu++17`.
+on the `Seastar_CXX_DIALECT` CMake variable being set to `"17"`.
 
 However, by default Seastar uses C++14-compatible types such as
 `std::experimental::optional<>` or `boost::variant`, both internally and in its public
-API, thus forcing them on C++17 projects. To fix this, Seastar provides the `--use-std-optional-variant-stringview 0|1`
-option, which changes those types to their `stdlib` incarnation, and allows
+API, thus forcing them on C++17 projects. To fix this, Seastar respects the value of the preprocessor variable
+`SEASTAR_USE_STD_OPTIONAL_VARIANT_STRINGVIEW`, which changes those types to their `stdlib` incarnation, and allows
 seemless use of C++17. Usage of this option requires an updated compiler, such
 as GCC 8.1.1-5 on Fedora.
 

@@ -1,3 +1,4 @@
+#
 # This file is open source software, licensed to you under the terms
 # of the Apache License, Version 2.0 (the "License").  See the NOTICE file
 # distributed with this work for additional information regarding copyright
@@ -15,25 +16,22 @@
 # under the License.
 #
 
-import os
+#
+# Copyright (C) 2018 Scylladb, Ltd.
+#
 
-SUPPORTED_MODES = ['release', 'debug']
+seastar_generate_swagger (
+  TARGET app_httpd_swagger
+  VAR app_httpd_swagger_file
+  IN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/demo.json
+  OUT_FILE ${CMAKE_CURRENT_BINARY_DIR}/demo.json.hh)
 
-ROOT_PATH = os.path.realpath(os.path.dirname(__file__))
+seastar_add_app (httpd
+  SOURCES
+    ${app_httpd_swagger_file}
+    main.cc)
 
-BUILD_PATHS = { mode: os.path.join(ROOT_PATH, 'build', mode) for mode in SUPPORTED_MODES }
+target_include_directories (app_httpd
+  PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
-COOKING_BASIC_ARGS = ['./cooking.sh', '-r', 'dev', '-i', 'fmt']
-
-def translate_arg(arg, new_name, value_when_none='no'):
-    """
-    Translate a value populated from the command-line into a name to pass to the invocation of CMake.
-    """
-    if arg is None:
-        value = value_when_none
-    elif type(arg) is bool:
-        value = 'yes' if arg else 'no'
-    else:
-        value = arg
-
-    return '-DSeastar_{}={}'.format(new_name, value)
+add_dependencies (app_httpd app_httpd_swagger)

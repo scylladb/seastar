@@ -24,7 +24,7 @@
 #include "test-utils.hh"
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/net/packet-data-source.hh>
-#include "apps/memcached/ascii.hh"
+#include "ascii.hh"
 #include <seastar/core/future-util.hh>
 
 using namespace seastar;

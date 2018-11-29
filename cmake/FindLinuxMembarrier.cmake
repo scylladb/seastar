@@ -1,3 +1,4 @@
+#
 # This file is open source software, licensed to you under the terms
 # of the Apache License, Version 2.0 (the "License").  See the NOTICE file
 # distributed with this work for additional information regarding copyright
@@ -15,25 +16,21 @@
 # under the License.
 #
 
-import os
+#
+# Copyright (C) 2018 Scylladb, Ltd.
+#
 
-SUPPORTED_MODES = ['release', 'debug']
+find_path (LinuxMembarrier_INCLUDE_DIR
+  NAMES linux/membarrier.h)
 
-ROOT_PATH = os.path.realpath(os.path.dirname(__file__))
+include (CheckCXXSourceCompiles)
+file (READ ${CMAKE_CURRENT_LIST_DIR}/code_tests/LinuxMembarrier_test.cc _linuxmembarrier_test_code)
+check_cxx_source_compiles ("${_linuxmembarrier_test_code}" LinuxMembarrier_FOUND)
 
-BUILD_PATHS = { mode: os.path.join(ROOT_PATH, 'build', mode) for mode in SUPPORTED_MODES }
+if (LinuxMembarrier_FOUND AND NOT (TARGET LinuxMembarrier::membarrier))
+  add_library (LinuxMembarrier::membarrier INTERFACE IMPORTED)
 
-COOKING_BASIC_ARGS = ['./cooking.sh', '-r', 'dev', '-i', 'fmt']
-
-def translate_arg(arg, new_name, value_when_none='no'):
-    """
-    Translate a value populated from the command-line into a name to pass to the invocation of CMake.
-    """
-    if arg is None:
-        value = value_when_none
-    elif type(arg) is bool:
-        value = 'yes' if arg else 'no'
-    else:
-        value = arg
-
-    return '-DSeastar_{}={}'.format(new_name, value)
+  set_target_properties (LinuxMembarrier::membarrier
+    PROPERTIES
+      INTERFACE_INCLUDE_DIRECTORIES ${LinuxMembarrier_INCLUDE_DIR})
+endif ()

@@ -1,0 +1,7 @@
+rule display_help
+  command = echo 'Error: Execute Ninja in a build directory: `ninja -C build/release`'
+  description = Help the poor user
+
+build help: display_help
+
+default help

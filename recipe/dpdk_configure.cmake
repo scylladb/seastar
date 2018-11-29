@@ -1,3 +1,4 @@
+#
 # This file is open source software, licensed to you under the terms
 # of the Apache License, Version 2.0 (the "License").  See the NOTICE file
 # distributed with this work for additional information regarding copyright
@@ -15,25 +16,25 @@
 # under the License.
 #
 
-import os
+#
+# Copyright (C) 2018 Scylladb, Ltd.
+#
 
-SUPPORTED_MODES = ['release', 'debug']
+file (READ ${Seastar_DPDK_CONFIG_FILE_IN} dpdk_config)
+file (STRINGS ${Seastar_DPDK_CONFIG_FILE_CHANGES} dpdk_config_changes)
+set (word_pattern "[^\n\r \t]+")
 
-ROOT_PATH = os.path.realpath(os.path.dirname(__file__))
+foreach (var ${dpdk_config_changes})
+  if (var MATCHES "(${word_pattern})=(${word_pattern})")
+    set (key ${CMAKE_MATCH_1})
+    set (value ${CMAKE_MATCH_2})
 
-BUILD_PATHS = { mode: os.path.join(ROOT_PATH, 'build', mode) for mode in SUPPORTED_MODES }
+    string (REGEX REPLACE
+      "${key}=${word_pattern}"
+      "${key}=${value}"
+      dpdk_config
+      ${dpdk_config})
+  endif ()
+endforeach ()
 
-COOKING_BASIC_ARGS = ['./cooking.sh', '-r', 'dev', '-i', 'fmt']
-
-def translate_arg(arg, new_name, value_when_none='no'):
-    """
-    Translate a value populated from the command-line into a name to pass to the invocation of CMake.
-    """
-    if arg is None:
-        value = value_when_none
-    elif type(arg) is bool:
-        value = 'yes' if arg else 'no'
-    else:
-        value = arg
-
-    return '-DSeastar_{}={}'.format(new_name, value)
+file (WRITE ${Seastar_DPDK_CONFIG_FILE_OUT} ${dpdk_config})

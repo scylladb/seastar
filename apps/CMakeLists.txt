@@ -1,3 +1,4 @@
+#
 # This file is open source software, licensed to you under the terms
 # of the Apache License, Version 2.0 (the "License").  See the NOTICE file
 # distributed with this work for additional information regarding copyright
@@ -15,25 +16,41 @@
 # under the License.
 #
 
-import os
+#
+# Copyright (C) 2018 Scylladb, Ltd.
+#
 
-SUPPORTED_MODES = ['release', 'debug']
+# Logical target for all applications.
+add_custom_target (apps)
 
-ROOT_PATH = os.path.realpath(os.path.dirname(__file__))
+macro (seastar_add_app name)
+  set (args ${ARGN})
 
-BUILD_PATHS = { mode: os.path.join(ROOT_PATH, 'build', mode) for mode in SUPPORTED_MODES }
+  cmake_parse_arguments (
+    parsed_args
+    ""
+    ""
+    "SOURCES"
+    ${args})
 
-COOKING_BASIC_ARGS = ['./cooking.sh', '-r', 'dev', '-i', 'fmt']
+  set (target app_${name})
+  add_executable (${target} ${parsed_args_SOURCES})
 
-def translate_arg(arg, new_name, value_when_none='no'):
-    """
-    Translate a value populated from the command-line into a name to pass to the invocation of CMake.
-    """
-    if arg is None:
-        value = value_when_none
-    elif type(arg) is bool:
-        value = 'yes' if arg else 'no'
-    else:
-        value = arg
+  target_include_directories (${target}
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-    return '-DSeastar_{}={}'.format(new_name, value)
+  target_link_libraries (${target}
+    PRIVATE seastar)
+
+  set_target_properties (${target}
+    PROPERTIES
+      OUTPUT_NAME ${name})
+
+  add_dependencies (apps ${target})
+endmacro ()
+
+add_subdirectory (httpd)
+add_subdirectory (io_tester)
+add_subdirectory (iotune)
+add_subdirectory (memcached)
+add_subdirectory (seawreck)

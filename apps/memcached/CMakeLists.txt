@@ -1,3 +1,4 @@
+#
 # This file is open source software, licensed to you under the terms
 # of the Apache License, Version 2.0 (the "License").  See the NOTICE file
 # distributed with this work for additional information regarding copyright
@@ -15,25 +16,34 @@
 # under the License.
 #
 
-import os
+#
+# Copyright (C) 2018 Scylladb, Ltd.
+#
 
-SUPPORTED_MODES = ['release', 'debug']
+set (Seastar_APP_MEMCACHED_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set (Seastar_APP_MEMCACHED_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
-ROOT_PATH = os.path.realpath(os.path.dirname(__file__))
+seastar_generate_ragel (
+  TARGET app_memcached_ascii
+  VAR app_memcached_ascii_file
+  IN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/ascii.rl
+  OUT_FILE ${CMAKE_CURRENT_BINARY_DIR}/ascii.hh)
 
-BUILD_PATHS = { mode: os.path.join(ROOT_PATH, 'build', mode) for mode in SUPPORTED_MODES }
+seastar_add_app (memcached
+  SOURCES
+    ${app_memcached_ascii_file}
+    memcache.cc
+    memcached.hh)
 
-COOKING_BASIC_ARGS = ['./cooking.sh', '-r', 'dev', '-i', 'fmt']
+target_include_directories (app_memcached
+  PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
-def translate_arg(arg, new_name, value_when_none='no'):
-    """
-    Translate a value populated from the command-line into a name to pass to the invocation of CMake.
-    """
-    if arg is None:
-        value = value_when_none
-    elif type(arg) is bool:
-        value = 'yes' if arg else 'no'
-    else:
-        value = arg
+add_dependencies (app_memcached app_memcached_ascii)
 
-    return '-DSeastar_{}={}'.format(new_name, value)
+#
+# Tests.
+#
+
+if (Seastar_TESTING)
+  add_subdirectory (tests)
+endif ()

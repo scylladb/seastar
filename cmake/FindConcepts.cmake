@@ -1,3 +1,4 @@
+#
 # This file is open source software, licensed to you under the terms
 # of the Apache License, Version 2.0 (the "License").  See the NOTICE file
 # distributed with this work for additional information regarding copyright
@@ -15,25 +16,19 @@
 # under the License.
 #
 
-import os
+#
+# Copyright (C) 2018 Scylladb, Ltd.
+#
 
-SUPPORTED_MODES = ['release', 'debug']
+include (CheckCXXSourceCompiles)
+file (READ ${CMAKE_CURRENT_LIST_DIR}/code_tests/Concepts_test.cc _concepts_test_code)
+set (CMAKE_REQUIRED_FLAGS -fconcepts)
+check_cxx_source_compiles ("${_concepts_test_code}" Concepts_FOUND)
 
-ROOT_PATH = os.path.realpath(os.path.dirname(__file__))
+if (Concepts_FOUND AND NOT (TARGET Concepts::concepts))
+  add_library (Concepts::concepts INTERFACE IMPORTED)
 
-BUILD_PATHS = { mode: os.path.join(ROOT_PATH, 'build', mode) for mode in SUPPORTED_MODES }
-
-COOKING_BASIC_ARGS = ['./cooking.sh', '-r', 'dev', '-i', 'fmt']
-
-def translate_arg(arg, new_name, value_when_none='no'):
-    """
-    Translate a value populated from the command-line into a name to pass to the invocation of CMake.
-    """
-    if arg is None:
-        value = value_when_none
-    elif type(arg) is bool:
-        value = 'yes' if arg else 'no'
-    else:
-        value = arg
-
-    return '-DSeastar_{}={}'.format(new_name, value)
+  set_target_properties (Concepts::concepts
+    PROPERTIES
+      INTERFACE_COMPILE_OPTIONS -fconcepts)
+endif ()

@@ -81,19 +81,38 @@ The `return make_ready_future<>();` causes the event loop, and the whole applica
 
 As shown in this example, all Seastar functions and types live in the "`seastar`" namespace. An user can either type this namespace prefix every time, or use shortcuts like "`using seastar::app_template`" or even "`using namespace seastar`" to avoid typing this prefix. We generally recommend to use the namespace prefixes `seastar` and `std` explicitly, and will will follow this style in all the examples below.
 
-To compile this program, first make sure you have downloaded and built Seastar. Below we'll use the symbol `$SEASTAR` to refer to the directory where Seastar was built (Seastar doesn't yet have a "`make install`" feature).
+To compile this program, first make sure you have downloaded, built, and installed Seastar.
 
-Now, put the above program in a source file anywhere you want, let's call the file `getting-started.cc`. You can compile it with the following command:
+Now, put the above program in a source file anywhere you want, let's call the file `getting-started.cc`.
 
-```none
-c++ `pkg-config --cflags --libs $SEASTAR/build/release/seastar.pc` getting-started.cc
+The easiest way to build a Seastar program is with CMake. Given the following `CMakeLists.txt`
+
+```cmake
+cmake_minimum_required (VERSION 3.5)
+
+project (SeastarExample)
+
+find_package (Seastar REQUIRED)
+
+add_executable (example
+  getting-started.cc)
+
+target_link_libraries (example
+  PRIVATE Seastar::seastar)
 ```
 
-Linux's [pkg-config](http://www.freedesktop.org/wiki/Software/pkg-config/) is a useful tool for easily determining the compilation and linking parameters needed for using various libraries - such as Seastar.
+you can compile the example with the following commands:
+
+```none
+$ mkdir build
+$ cd build
+$ cmake ..
+$ make
+```
 
 The program now runs as expected:
 ```none
-$ ./a.out
+$ ./example
 Hello world
 $
 ```

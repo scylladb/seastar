@@ -3,7 +3,7 @@
  1. Setup host to compile DPDK:
     - Ubuntu 
          `sudo apt-get install -y build-essential linux-image-extra-$(uname -r$)` 
- 2. Run a configure.py: `./configure.py --enable-dpdk`.
+ 2. Configure the project with DPDK enabled: `./cooking.sh -r dev -- -DSeastar_DPDK=ON
  3. Run `ninja-build`.
 
 To run with the DPDK backend for a native stack give the seastar application `--dpdk-pmd 1` parameter.

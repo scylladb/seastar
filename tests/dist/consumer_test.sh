@@ -1,3 +1,4 @@
+#
 # This file is open source software, licensed to you under the terms
 # of the Apache License, Version 2.0 (the "License").  See the NOTICE file
 # distributed with this work for additional information regarding copyright
@@ -15,25 +16,34 @@
 # under the License.
 #
 
-import os
+#
+# Copyright (C) 2018 Scylladb, Ltd.
+#
 
-SUPPORTED_MODES = ['release', 'debug']
+# This test expects the following environmental variables to be defined:
+#
+#     CONSUMER_SOURCE_DIR
+#     SEASTAR_SOURCE_DIR
+#
 
-ROOT_PATH = os.path.realpath(os.path.dirname(__file__))
+set -e
 
-BUILD_PATHS = { mode: os.path.join(ROOT_PATH, 'build', mode) for mode in SUPPORTED_MODES }
+cd "${CONSUMER_SOURCE_DIR}"
+./cooking.sh -r test_dist -t Release
 
-COOKING_BASIC_ARGS = ['./cooking.sh', '-r', 'dev', '-i', 'fmt']
+#
+# Consume from CMake.
+#
 
-def translate_arg(arg, new_name, value_when_none='no'):
-    """
-    Translate a value populated from the command-line into a name to pass to the invocation of CMake.
-    """
-    if arg is None:
-        value = value_when_none
-    elif type(arg) is bool:
-        value = 'yes' if arg else 'no'
-    else:
-        value = arg
+cmake --build build
+build/cmake_consumer
 
-    return '-DSeastar_{}={}'.format(new_name, value)
+#
+# Consume from pkg-config.
+#
+
+ingredients_dir="build/_cooking/installed"
+library_path="${ingredients_dir}"/lib
+pkg_config_path="${library_path}"/pkgconfig
+make BUILD_DIR=build LD_LIBRARY_PATH="${library_path}" PKG_CONFIG_PATH="${pkg_config_path}"
+LD_LIBRARY_PATH="${library_path}" build/pkgconfig_consumer
