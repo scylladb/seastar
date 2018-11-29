@@ -83,15 +83,31 @@ arg_parser.add_argument('--c-compiler', action='store', dest='cc', default='gcc'
                         help = 'C compiler path (for bundled libraries such as dpdk)')
 arg_parser.add_argument('--c++-dialect', action='store', dest='cpp_dialect', default='',
                         help='C++ dialect to build with [default: %(default)s]')
-arg_parser.add_argument('--enable-dpdk', action = 'store_true', dest = 'dpdk', default = False,
-                        help = 'Enable dpdk (from included dpdk sources)')
-add_tristate(arg_parser, name = 'hwloc', dest = 'hwloc', help = 'hwloc support')
-arg_parser.add_argument('--enable-gcc6-concepts', dest='gcc6_concepts', action='store_true', default=False,
-                        help='enable experimental support for C++ Concepts as implemented in GCC 6')
-arg_parser.add_argument('--enable-alloc-failure-injector', dest='alloc_failure_injector', action='store_true', default=False,
-                        help='enable allocation failure injection')
-add_tristate(arg_parser, name = 'exception-scalability-workaround', dest='exception_workaround',
-        help='disabling override of dl_iterate_phdr symbol to workaround C++ exception scalability issues')
+add_tristate(
+    arg_parser,
+    name = 'dpdk',
+    dest = 'dpdk',
+    help = 'DPDK support')
+add_tristate(
+    arg_parser,
+    name = 'hwloc',
+    dest = 'hwloc',
+    help = 'hwloc support')
+add_tristate(
+    arg_parser,
+    name = 'gcc6-concepts',
+    dest = 'gcc6_concepts',
+    help = 'experimental support for C++ Concepts as implemented in GCC 6')
+add_tristate(
+    arg_parser,
+    name = 'alloc-failure-injector',
+    dest = 'alloc_failure_injector',
+    help = 'allocation failure injection')
+add_tristate(
+    arg_parser,
+    name = 'exception-scalability-workaround',
+    dest = 'exception_workaround',
+    help = 'a workaround for C++ exception scalability issues by overriding the definition of `dl_iterate_phdr`')
 arg_parser.add_argument('--allocator-page-size', dest='allocator_page_size', type=int, help='override allocator page size')
 arg_parser.add_argument('--without-tests', dest='exclude_tests', action='store_true', help='Do not build tests by default')
 arg_parser.add_argument('--without-apps', dest='exclude_apps', action='store_true', help='Do not build applications by default')
@@ -139,10 +155,10 @@ def configure_mode(mode):
         tr(args.user_optflags, 'CXX_OPTIMIZATION_FLAGS'),
         tr(args.cpp_dialect, 'CXX_DIALECT'),
         tr(args.dpdk, 'DPDK'),
-        tr(args.hwloc, 'HWLOC'),
+        tr(args.hwloc, 'HWLOC', value_when_none='yes'),
         tr(args.gcc6_concepts, 'GCC6_CONCEPTS'),
         tr(args.alloc_failure_injector, 'ALLOC_FAILURE_INJECTOR'),
-        tr(args.exception_workaround, 'EXCEPTION_SCALABILITY_WORKAROUND'),
+        tr(args.exception_workaround, 'EXCEPTION_SCALABILITY_WORKAROUND', value_when_none='yes'),
         tr(args.allocator_page_size, 'ALLOCATOR_PAGE_SIZE'),
         tr(args.cpp17_goodies, 'STD_OPTIONAL_VARIANT_STRINGVIEW'),
     ]
