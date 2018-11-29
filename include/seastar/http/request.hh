@@ -78,9 +78,9 @@ struct request {
     }
 
     /**
-     * Search for the first header of a given name
-     * @param name the header name
-     * @return a pointer to the header value, if it exists or empty string
+     * Search for the first value of a given parameter name
+     * @param name the parameter name
+     * @return a pointer to the parameter value, if it exists or empty string
      */
     sstring get_query_param(const sstring& name) const {
         auto res = query_parameters.find(name);
