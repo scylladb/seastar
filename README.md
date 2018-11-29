@@ -42,7 +42,7 @@ Use of the [DPDK](http://dpdk.org) is [optional](doc/building-dpdk.md).
 #### Using C++17
 
 Seastar can be built with the C++17 dialect by supporting compilers, conditional
-on the `Seastar_CXX_DIALECT` CMake variable being set to `"17"`.
+on the `Seastar_CXX_DIALECT` CMake variable being set to `"gnu++17"`.
 
 However, by default Seastar uses C++14-compatible types such as
 `std::experimental::optional<>` or `boost::variant`, both internally and in its public
