@@ -17,5 +17,7 @@
 #
 # Copyright (C) 2018 ScyllaDB
 
-pandoc -f markdown+pandoc_title_block+implicit_header_references --highlight-style tango --template=doc/template.tex "$1" -o "$2"
+dir=$(dirname "$0")
+
+pandoc -f markdown+pandoc_title_block+implicit_header_references --highlight-style tango --template=${dir}/template.tex "$1" -o "$2"
 
