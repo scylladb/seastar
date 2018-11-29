@@ -32,18 +32,6 @@ def add_tristate(arg_parser, name, dest, help):
     arg_parser.add_argument('--disable-' + name, dest = dest, action = 'store_false', default = None,
                             help = 'Disable ' + help)
 
-def apply_tristate(var, test, note, missing):
-    if (var is None) or var:
-        if test():
-            return True
-        elif var == True:
-            print(missing)
-            sys.exit(1)
-        else:
-            print(note)
-            return False
-    return False
-
 def try_compile(compiler, source = '', flags = []):
     return try_compile_and_link(compiler, source, flags = flags + ['-c'])
 
