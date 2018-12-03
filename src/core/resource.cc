@@ -30,6 +30,9 @@
 #include <stdlib.h>
 #include <limits>
 
+#include <boost/range/adaptor/map.hpp>
+#include <boost/range/algorithm/copy.hpp>
+
 namespace seastar {
 
 // Overload for boost program options parsing/validation
@@ -231,13 +234,23 @@ allocate_io_queues(hwloc_topology_t& topology, configuration c, std::vector<cpu>
         numa_nodes[node_id].erase(io_coordinator);
     }
 
+
+    auto available_nodes = boost::copy_range<std::vector<unsigned>>(node_coordinators | boost::adaptors::map_keys);
+    unsigned last_node_idx = 0;
+
     // If there are more processors than coordinators, we will have to assign them to existing
-    // coordinators. We always do that within the same NUMA node.
+    // coordinators. We prefer do that within the same NUMA node, but if not possible we assign
+    // the shard to a random node.
     for (auto& node: numa_nodes) {
         auto cid_idx = 0;
         for (auto& remaining_shard: node.second) {
-            auto idx = cid_idx++ % node_coordinators.at(node.first).size();
-            auto io_coordinator = node_coordinators.at(node.first)[idx];
+            auto my_node = node.first;
+            // No I/O queue in this node, round-robin shards from this node into existing ones.
+            if (!node_coordinators.count(node.first)) {
+                my_node = available_nodes[last_node_idx++ % available_nodes.size()];
+            }
+            auto idx = cid_idx++ % node_coordinators.at(my_node).size();
+            auto io_coordinator = node_coordinators.at(my_node)[idx];
             ret.shard_to_coordinator[remaining_shard] = io_coordinator;
         }
     }
