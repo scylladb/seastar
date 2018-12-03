@@ -25,6 +25,16 @@ BUILD_PATHS = { mode: os.path.join(ROOT_PATH, 'build', mode) for mode in SUPPORT
 
 COOKING_BASIC_ARGS = ['./cooking.sh', '-r', 'dev', '-i', 'fmt']
 
+def is_release_mode(mode):
+    return mode == 'release'
+
+def convert_strings_to_cmake_list(*args):
+    """Converts a sequence of whitespace-separated strings of tokens into a semicolon-separated
+    string of tokens for CMake.
+
+    """
+    return ';'.join(' '.join(args).split())
+
 def translate_arg(arg, new_name, value_when_none='no'):
     """
     Translate a value populated from the command-line into a name to pass to the invocation of CMake.

@@ -132,6 +132,10 @@ tr = seastar_cmake.translate_arg
 def configure_mode(mode):
     BUILD_PATH = seastar_cmake.BUILD_PATHS[mode]
 
+    CFLAGS = seastar_cmake.convert_strings_to_cmake_list(
+        args.user_cflags,
+        args.user_optflags if seastar_cmake.is_release_mode(mode) else '')
+
     TRANSLATED_ARGS = [
         '-DCMAKE_BUILD_TYPE={}'.format(mode.title()),
         '-DCMAKE_C_COMPILER={}'.format(args.cc),
@@ -140,9 +144,8 @@ def configure_mode(mode):
         tr(args.exclude_tests, 'EXCLUDE_TESTS_FROM_ALL'),
         tr(args.exclude_apps, 'EXCLUDE_APPS_FROM_ALL'),
         tr(args.exclude_demos, 'EXCLUDE_DEMOS_FROM_ALL'),
-        tr(args.user_cflags, 'USER_CXXFLAGS'),
+        tr(CFLAGS, 'CXX_FLAGS'),
         tr(args.user_ldflags, 'USER_LDFLAGS'),
-        tr(args.user_optflags, 'CXX_OPTIMIZATION_FLAGS'),
         tr(args.cpp_dialect, 'CXX_DIALECT'),
         tr(args.dpdk, 'DPDK'),
         tr(args.hwloc, 'HWLOC', value_when_none='yes'),
