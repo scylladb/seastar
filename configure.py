@@ -137,7 +137,7 @@ def configure_mode(mode):
         '-DCMAKE_CXX_COMPILER={}'.format(args.cxx),
         '-DCMAKE_INSTALL_PREFIX={}'.format(args.install_prefix),
         tr(args.exclude_tests, 'EXCLUDE_TESTS_FROM_ALL'),
-        tr(not args.exclude_apps, 'APPS'),
+        tr(args.exclude_apps, 'EXCLUDE_APPS_FROM_ALL'),
         tr(args.user_cflags, 'USER_CXXFLAGS'),
         tr(args.user_ldflags, 'USER_LDFLAGS'),
         tr(args.user_optflags, 'CXX_OPTIMIZATION_FLAGS'),

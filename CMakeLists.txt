@@ -71,6 +71,10 @@ option (Seastar_EXCEPTION_SCALABILITY_WORKAROUND
   "Enable a workaround for C++ exception scalability issues by overriding the definition of `dl_iterate_phdr`. Disabled for non-release builds."
   ON)
 
+option (Seastar_EXCLUDE_APPS_FROM_ALL
+  "When enabled alongside Seastar_APPS, do not build applications by default."
+  OFF)
+
 option (Seastar_EXCLUDE_TESTS_FROM_ALL
   "When enabled alongide Seastar_TESTING, do not build tests by default."
   OFF)
@@ -660,7 +664,13 @@ endif ()
 #
 
 if (Seastar_APPS)
-  add_subdirectory (apps)
+  if (Seastar_EXCLUDE_APPS_FROM_ALL)
+    set (exclude EXCLUDE_FROM_ALL)
+  else ()
+    set (exclude "")
+  endif ()
+
+  add_subdirectory (apps ${exclude})
 endif ()
 
 #
