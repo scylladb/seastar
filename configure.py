@@ -129,6 +129,8 @@ MODES = seastar_cmake.SUPPORTED_MODES if args.mode is 'all' else [args.mode]
 # For convenience.
 tr = seastar_cmake.translate_arg
 
+MODE_TO_CMAKE_BUILD_TYPE = {'release' : 'RelWithDebInfo', 'debug' : 'Debug' }
+
 def configure_mode(mode):
     BUILD_PATH = seastar_cmake.BUILD_PATHS[mode]
 
@@ -139,7 +141,7 @@ def configure_mode(mode):
     LDFLAGS = seastar_cmake.convert_strings_to_cmake_list(args.user_ldflags)
 
     TRANSLATED_ARGS = [
-        '-DCMAKE_BUILD_TYPE={}'.format(mode.title()),
+        '-DCMAKE_BUILD_TYPE={}'.format(MODE_TO_CMAKE_BUILD_TYPE[mode]),
         '-DCMAKE_C_COMPILER={}'.format(args.cc),
         '-DCMAKE_CXX_COMPILER={}'.format(args.cxx),
         '-DCMAKE_INSTALL_PREFIX={}'.format(args.install_prefix),
