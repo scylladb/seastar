@@ -253,6 +253,9 @@ seastar_add_test (smp
 seastar_add_test (sstring
   SOURCES sstring_test.cc)
 
+seastar_add_test (stall_detector
+  SOURCES stall_detector_test.cc)
+
 seastar_add_test (thread
   SOURCES thread_test.cc)
 
