@@ -75,6 +75,10 @@ option (Seastar_EXCLUDE_APPS_FROM_ALL
   "When enabled alongside Seastar_APPS, do not build applications by default."
   OFF)
 
+option (Seastar_EXCLUDE_DEMOS_FROM_ALL
+  "When enabled alongside Seastar_DEMOS, do not build demonstrations by default."
+  OFF)
+
 option (Seastar_EXCLUDE_TESTS_FROM_ALL
   "When enabled alongide Seastar_TESTING, do not build tests by default."
   OFF)
@@ -648,7 +652,13 @@ endif ()
 #
 
 if (Seastar_DEMOS)
-  add_subdirectory (demos)
+  if (Seastar_EXCLUDE_DEMOS_FROM_ALL)
+    set (exclude EXCLUDE_FROM_ALL)
+  else ()
+    set (exclude "")
+  endif ()
+
+  add_subdirectory (demos ${exclude})
 endif ()
 
 #
