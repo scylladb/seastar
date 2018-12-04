@@ -17,7 +17,7 @@
 
 import os
 
-SUPPORTED_MODES = ['release', 'debug']
+SUPPORTED_MODES = ['release', 'debug', 'dev']
 
 ROOT_PATH = os.path.realpath(os.path.dirname(__file__))
 
