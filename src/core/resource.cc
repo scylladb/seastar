@@ -196,6 +196,8 @@ allocate_io_queues(hwloc_topology_t& topology, configuration c, std::vector<cpu>
 
     io_queue_topology ret;
     ret.shard_to_coordinator.resize(cpus.size());
+    ret.coordinator_to_idx.resize(cpus.size());
+    ret.coordinator_to_idx_valid.resize(cpus.size());
 
     // User may be playing with --smp option, but num_io_queues was independently
     // determined by iotune, so adjust for any conflicts.
@@ -216,12 +218,17 @@ allocate_io_queues(hwloc_topology_t& topology, configuration c, std::vector<cpu>
     };
 
     auto cpu_sets = distribute_objects(topology, num_io_queues);
+    ret.coordinators.reserve(cpu_sets().size());
+
     // First step: distribute the IO queues given the information returned in cpu_sets.
     // If there is one IO queue per processor, only this loop will be executed.
     std::unordered_map<unsigned, std::vector<unsigned>> node_coordinators;
     for (auto&& cs : cpu_sets()) {
         auto io_coordinator = find_shard(hwloc_bitmap_first(cs));
 
+        ret.coordinator_to_idx[io_coordinator] = ret.coordinators.size();
+        assert(!ret.coordinator_to_idx_valid[io_coordinator]);
+        ret.coordinator_to_idx_valid[io_coordinator] = true;
         ret.coordinators.emplace_back(io_coordinator);
         // If a processor is a coordinator, it is also obviously a coordinator of itself
         ret.shard_to_coordinator[io_coordinator] = io_coordinator;
