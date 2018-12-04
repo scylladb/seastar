@@ -4384,7 +4384,7 @@ void smp::configure(boost::program_options::variables_map configuration)
         all_io_queues.emplace(id, io_info.coordinators.size());
     }
 
-    auto alloc_io_queue = [io_info, &all_io_queues, &disk_config] (unsigned shard) {
+    auto alloc_io_queue = [&io_info, &all_io_queues, &disk_config] (unsigned shard) {
         auto cid = io_info.shard_to_coordinator[shard];
         int vec_idx = 0;
         for (auto& coordinator: io_info.coordinators) {
