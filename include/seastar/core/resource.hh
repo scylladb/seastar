@@ -44,7 +44,7 @@ struct configuration {
     optional<size_t> reserve_memory;  // if total_memory not specified
     optional<size_t> cpus;
     optional<cpuset> cpu_set;
-    optional<unsigned> io_queues;
+    optional<unsigned> num_io_queues;
 };
 
 struct memory {

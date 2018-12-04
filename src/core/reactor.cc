@@ -4343,7 +4343,7 @@ void smp::configure(boost::program_options::variables_map configuration)
 
     disk_config_params disk_config;
     disk_config.parse_config(configuration);
-    rc.io_queues =  disk_config.num_io_queues();
+    rc.num_io_queues =  disk_config.num_io_queues();
 
     auto resources = resource::allocate(rc);
     std::vector<resource::cpu> allocations = std::move(resources.cpus);
