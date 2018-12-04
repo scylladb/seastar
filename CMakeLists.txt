@@ -80,7 +80,7 @@ option (Seastar_EXCLUDE_DEMOS_FROM_ALL
   OFF)
 
 option (Seastar_EXCLUDE_TESTS_FROM_ALL
-  "When enabled alongide Seastar_TESTING, do not build tests by default."
+  "When enabled alongside Seastar_TESTING, do not build tests by default."
   OFF)
 
 option (Seastar_EXECUTE_ONLY_FAST_TESTS
