@@ -164,9 +164,7 @@ struct distribute_objects {
 };
 
 static io_queue_topology
-allocate_io_queues(hwloc_topology_t& topology, configuration c, std::vector<cpu> cpus) {
-    unsigned num_io_queues = c.num_io_queues.value_or(cpus.size());
-
+allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, unsigned num_io_queues) {
     unsigned depth = find_memory_depth(topology);
     auto node_of_shard = [&topology, &cpus, &depth] (unsigned shard) {
         auto pu = hwloc_get_pu_obj_by_os_index(topology, cpus[shard].cpu_id);
@@ -356,7 +354,7 @@ resources allocate(configuration c) {
         ret.cpus.push_back(std::move(this_cpu));
     }
 
-    ret.ioq_topology = allocate_io_queues(topology, c, ret.cpus);
+    ret.ioq_topology = allocate_io_queues(topology, ret.cpus, c.num_io_queues.value_or(ret.cpus.size()));
     return ret;
 }
 
