@@ -71,8 +71,16 @@ option (Seastar_EXCEPTION_SCALABILITY_WORKAROUND
   "Enable a workaround for C++ exception scalability issues by overriding the definition of `dl_iterate_phdr`. Disabled for non-release builds."
   ON)
 
+option (Seastar_EXCLUDE_APPS_FROM_ALL
+  "When enabled alongside Seastar_APPS, do not build applications by default."
+  OFF)
+
+option (Seastar_EXCLUDE_DEMOS_FROM_ALL
+  "When enabled alongside Seastar_DEMOS, do not build demonstrations by default."
+  OFF)
+
 option (Seastar_EXCLUDE_TESTS_FROM_ALL
-  "When enabled alongide Seastar_TESTING, do not build tests by default."
+  "When enabled alongside Seastar_TESTING, do not build tests by default."
   OFF)
 
 option (Seastar_EXECUTE_ONLY_FAST_TESTS
@@ -92,6 +100,12 @@ set (Seastar_JENKINS
   CACHE
   STRING
   "If non-empty, the prefix for XML files containing the results of running tests (for Jenkins).")
+
+set (Seastar_LD_FLAGS
+  ""
+  CACHE
+  STRING
+  "Semicolon-separated list of extra linking flags for Seastar itself.")
 
 option (Seastar_INSTALL
   "Install targets."
@@ -593,6 +607,12 @@ if (Seastar_HWLOC)
     PRIVATE hwloc::hwloc)
 endif ()
 
+if (Seastar_LD_FLAGS)
+  # In newer versions of CMake, there is `target_link_options`.
+  target_link_libraries (seastar
+    PRIVATE ${Seastar_LD_FLAGS})
+endif ()
+
 if (Seastar_NUMA)
   if (NOT numactl_FOUND)
     message (FATAL_ERROR "NUMA support is enabled but `numactl` is not available!")
@@ -644,7 +664,13 @@ endif ()
 #
 
 if (Seastar_DEMOS)
-  add_subdirectory (demos)
+  if (Seastar_EXCLUDE_DEMOS_FROM_ALL)
+    set (exclude EXCLUDE_FROM_ALL)
+  else ()
+    set (exclude "")
+  endif ()
+
+  add_subdirectory (demos ${exclude})
 endif ()
 
 #
@@ -660,7 +686,13 @@ endif ()
 #
 
 if (Seastar_APPS)
-  add_subdirectory (apps)
+  if (Seastar_EXCLUDE_APPS_FROM_ALL)
+    set (exclude EXCLUDE_FROM_ALL)
+  else ()
+    set (exclude "")
+  endif ()
+
+  add_subdirectory (apps ${exclude})
 endif ()
 
 #
