@@ -28,6 +28,7 @@
 #include <set>
 #include <sched.h>
 #include <boost/any.hpp>
+#include <unordered_map>
 
 namespace seastar {
 
@@ -44,7 +45,7 @@ struct configuration {
     optional<size_t> reserve_memory;  // if total_memory not specified
     optional<size_t> cpus;
     optional<cpuset> cpu_set;
-    optional<unsigned> num_io_queues;
+    std::unordered_map<dev_t, unsigned> num_io_queues;
 };
 
 struct memory {
@@ -70,7 +71,7 @@ struct cpu {
 
 struct resources {
     std::vector<cpu> cpus;
-    io_queue_topology ioq_topology;
+    std::unordered_map<dev_t, io_queue_topology> ioq_topology;
 };
 
 resources allocate(configuration c);
