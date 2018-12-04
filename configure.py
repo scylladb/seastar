@@ -58,7 +58,7 @@ def dialect_supported(dialect, compiler='g++'):
     return try_compile(compiler=compiler, source='', flags=['-std=' + dialect])
 
 arg_parser = argparse.ArgumentParser('Configure seastar')
-arg_parser.add_argument('--mode', action='store', choices=['release', 'debug', 'all'], default='all')
+arg_parser.add_argument('--mode', action='store', choices=seastar_cmake.SUPPORTED_MODES + ['all'], default='all')
 arg_parser.add_argument('--cflags', action = 'store', dest = 'user_cflags', default = '',
                         help = 'Extra flags for the C++ compiler')
 arg_parser.add_argument('--ldflags', action = 'store', dest = 'user_ldflags', default = '',

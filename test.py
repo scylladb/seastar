@@ -22,12 +22,11 @@ import subprocess
 import seastar_cmake
 
 if __name__ == "__main__":
-    all_modes = ['debug', 'release']
 
     parser = argparse.ArgumentParser(description="Seastar test runner")
     parser.add_argument('--fast',  action="store_true", help="Run only fast tests")
     parser.add_argument('--name',  action="store", help="Run only test whose name contains given string")
-    parser.add_argument('--mode', choices=all_modes, help="Run only tests for given build mode")
+    parser.add_argument('--mode', choices=seastar_cmake.SUPPORTED_MODES, help="Run only tests for given build mode")
     parser.add_argument('--timeout', action="store",default="300",type=int, help="timeout value for test execution")
     parser.add_argument('--jenkins', action="store",help="jenkins output file prefix")
     parser.add_argument('--verbose', '-v', action = 'store_true', default = False,
