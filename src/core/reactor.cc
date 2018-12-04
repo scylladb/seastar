@@ -4375,7 +4375,7 @@ void smp::configure(boost::program_options::variables_map configuration)
     static boost::barrier smp_queues_constructed(smp::count);
     static boost::barrier inited(smp::count);
 
-    auto io_info = std::move(resources.io_queues);
+    auto io_info = std::move(resources.ioq_topology);
 
     std::unordered_map<dev_t, std::vector<io_queue*>> all_io_queues;
     io_queue::fill_shares_array();

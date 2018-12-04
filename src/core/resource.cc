@@ -349,7 +349,7 @@ resources allocate(configuration c) {
         ret.cpus.push_back(std::move(this_cpu));
     }
 
-    ret.io_queues = allocate_io_queues(topology, c, ret.cpus);
+    ret.ioq_topology = allocate_io_queues(topology, c, ret.cpus);
     return ret;
 }
 
@@ -403,7 +403,7 @@ resources allocate(configuration c) {
         ret.cpus.push_back(cpu{i, {{mem / procs, 0}}});
     }
 
-    ret.io_queues = allocate_io_queues(c, ret.cpus);
+    ret.ioq_topology = allocate_io_queues(c, ret.cpus);
     return ret;
 }
 
