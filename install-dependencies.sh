@@ -61,6 +61,8 @@ EOF
     fi
 elif [ "$ID" = "arch" -o "$ID_LIKE" = "arch" ]; then
     pacman -Sy --needed gcc ninja ragel boost boost-libs hwloc numactl libpciaccess crypto++ libxml2 xfsprogs gnutls lksctp-tools lz4 make protobuf systemtap libtool cmake yaml-cpp stow
+elif [ "$ID" = "opensuse-leap" ]; then
+    zypper install -y c-ares-devel cmake hwloc-devel libboost_filesystem1_66_0 libboost_filesystem1_66_0-devel libboost_program_options1_66_0 libboost_program_options1_66_0-devel libboost_system1_66_0 libboost_system1_66_0-devel libboost_test1_66_0 libboost_test1_66_0-devel libboost_thread1_66_0 libboost_thread1_66_0-devel libcryptopp-devel libboost_atomic1_66_0 libboost_atomic1_66_0-devel libboost_date_time1_66_0 libboost_date_time1_66_0-devel libboost_chrono1_66_0 libboost_chrono1_66_0-devel libgnutls-devel libgnutlsxx28 liblz4-devel libnuma-devel lksctp-tools-devel ninja protobuf-devel ragel xfsprogs-devel yaml-cpp-devel libtool stow
 else
     echo "Your system ($ID) is not supported by this script. Please install dependencies manually."
     exit 1
