@@ -136,6 +136,8 @@ def configure_mode(mode):
         args.user_cflags,
         args.user_optflags if seastar_cmake.is_release_mode(mode) else '')
 
+    LDFLAGS = seastar_cmake.convert_strings_to_cmake_list(args.user_ldflags)
+
     TRANSLATED_ARGS = [
         '-DCMAKE_BUILD_TYPE={}'.format(mode.title()),
         '-DCMAKE_C_COMPILER={}'.format(args.cc),
@@ -145,7 +147,7 @@ def configure_mode(mode):
         tr(args.exclude_apps, 'EXCLUDE_APPS_FROM_ALL'),
         tr(args.exclude_demos, 'EXCLUDE_DEMOS_FROM_ALL'),
         tr(CFLAGS, 'CXX_FLAGS'),
-        tr(args.user_ldflags, 'USER_LDFLAGS'),
+        tr(LDFLAGS, 'LD_FLAGS'),
         tr(args.cpp_dialect, 'CXX_DIALECT'),
         tr(args.dpdk, 'DPDK'),
         tr(args.hwloc, 'HWLOC', value_when_none='yes'),

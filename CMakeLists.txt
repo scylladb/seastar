@@ -101,6 +101,12 @@ set (Seastar_JENKINS
   STRING
   "If non-empty, the prefix for XML files containing the results of running tests (for Jenkins).")
 
+set (Seastar_LD_FLAGS
+  ""
+  CACHE
+  STRING
+  "Semicolon-separated list of extra linking flags for Seastar itself.")
+
 option (Seastar_INSTALL
   "Install targets."
   ON)
@@ -599,6 +605,12 @@ if (Seastar_HWLOC)
 
   target_link_libraries (seastar
     PRIVATE hwloc::hwloc)
+endif ()
+
+if (Seastar_LD_FLAGS)
+  # In newer versions of CMake, there is `target_link_options`.
+  target_link_libraries (seastar
+    PRIVATE ${Seastar_LD_FLAGS})
 endif ()
 
 if (Seastar_NUMA)
