@@ -4405,7 +4405,6 @@ void smp::configure(boost::program_options::variables_map configuration)
             engine().my_io_queues.emplace_back(all_io_queues[dev_id][queue_idx]);
         }
         engine()._io_queues.emplace(dev_id, all_io_queues[dev_id][queue_idx]);
-        engine()._io_coordinator = all_io_queues[dev_id][queue_idx]->coordinator();
     };
 
     _all_event_loops_done.emplace(smp::count);
