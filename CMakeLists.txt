@@ -33,6 +33,55 @@ option (Seastar_ALLOC_FAILURE_INJECTION
   "Enable failure injection into the Seastar allocator."
   OFF)
 
+#
+# Add a dev build type.
+#
+# All pre-defined build modes include optimizations or debug info,
+# which make them slow to build. The dev build mode is intended for
+# fast build/test iteration.
+#
+
+set (CMAKE_CXX_FLAGS_DEV
+  "-O1"
+  CACHE
+  STRING
+  "Flags used by the C++ compiler during dev builds."
+  FORCE)
+
+set (CMAKE_C_FLAGS_DEV
+  "-O1"
+  CACHE
+  STRING
+  "Flags used by the C compiler during dev builds."
+  FORCE)
+
+set (CMAKE_EXE_LINKER_FLAGS_DEV
+  ""
+  CACHE
+  STRING
+  "Flags used for linking binaries during dev builds."
+  FORCE)
+
+set (CMAKE_SHARED_LINKER_FLAGS_DEV
+  ""
+  CACHE
+  STRING
+  "Flags used by the shared libraries linker during builds."
+  FORCE)
+
+mark_as_advanced (
+    CMAKE_CXX_FLAGS_DEV
+    CMAKE_C_FLAGS_DEV
+    CMAKE_EXE_LINKER_FLAGS_DEV
+    CMAKE_SHARED_LINKER_FLAGS_DEV)
+
+set (CMAKE_BUILD_TYPE
+  "${CMAKE_BUILD_TYPE}"
+  CACHE
+  STRING
+  "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel Dev."
+  FORCE)
+
 set (Seastar_ALLOC_PAGE_SIZE
   ""
   CACHE
