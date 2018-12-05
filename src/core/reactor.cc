@@ -128,6 +128,7 @@ struct mountpoint_params {
     uint64_t write_bytes_rate = std::numeric_limits<uint64_t>::max();
     uint64_t read_req_rate = std::numeric_limits<uint64_t>::max();
     uint64_t write_req_rate = std::numeric_limits<uint64_t>::max();
+    uint64_t num_io_queues = 0; // calculated
 };
 
 }
@@ -4107,12 +4108,14 @@ private:
     std::chrono::duration<double> _latency_goal;
 
 public:
-    uint64_t per_io_queue(uint64_t qty) const {
-        return std::max(qty / _num_io_queues, 1ul);
+    uint64_t per_io_queue(uint64_t qty, dev_t devid = 0) const {
+        const mountpoint_params& p = _mountpoints.at(devid);
+        return std::max(qty / p.num_io_queues, 1ul);
     }
 
-    unsigned num_io_queues() const {
-        return _num_io_queues;
+    unsigned num_io_queues(dev_t devid = 0) const {
+        const mountpoint_params& p = _mountpoints.at(devid);
+        return p.num_io_queues;
     }
 
     std::chrono::duration<double> latency_goal() const {
@@ -4145,8 +4148,6 @@ public:
             doc = YAML::Load(configuration["io-properties"].as<std::string>());
         }
 
-        // Placeholder for unconfigured disks.
-        _mountpoints.emplace(0, mountpoint_params{});
         if (doc) {
             static constexpr unsigned task_quotas_in_default_latency_goal = 3;
             unsigned auto_num_io_queues = smp::count;
@@ -4170,8 +4171,6 @@ public:
                         throw std::runtime_error(fmt::format("Configured number of queues {} is larger than the maximum {}",
                                                  _mountpoints.size(), reactor::max_queues));
                     }
-                    seastar_logger.debug("dev_id: {} mountpoint: {}", buf.st_dev, d.mountpoint);
-                    _mountpoints.emplace(buf.st_dev, d);
 
                     // Ideally we wouldn't have I/O Queues and would dispatch from every shard (https://github.com/scylladb/seastar/issues/485)
                     // While we don't do that, we'll just be conservative and try to recommend values of I/O Queues that are close to what we
@@ -4186,8 +4185,14 @@ public:
                         dev_io_queues = std::min(dev_io_queues, unsigned((task_quotas_in_default_latency_goal * d.write_bytes_rate * latency_goal().count()) / (4 * 4096)));
                         dev_io_queues = std::max(dev_io_queues, 1u);
                         seastar_logger.debug("dev_io_queues: {}", dev_io_queues);
+                        d.num_io_queues = dev_io_queues;
                         auto_num_io_queues = std::min(auto_num_io_queues, dev_io_queues);
+                    } else {
+                        d.num_io_queues = _num_io_queues;
                     }
+
+                    seastar_logger.debug("dev_id: {} mountpoint: {}", buf.st_dev, d.mountpoint);
+                    _mountpoints.emplace(buf.st_dev, d);
                 }
             }
             if (!_num_io_queues) {
@@ -4196,10 +4201,16 @@ public:
         } else if (!_num_io_queues) {
             _num_io_queues = smp::count;
         }
-        seastar_logger.debug("num_io_queues: {}", num_io_queues());
+
+        // Placeholder for unconfigured disks.
+        mountpoint_params d = {};
+        d.num_io_queues = _num_io_queues;
+        seastar_logger.debug("num_io_queues: {}", d.num_io_queues);
+        _mountpoints.emplace(0, d);
     }
 
     struct io_queue::config generate_config(dev_t devid) const {
+        seastar_logger.debug("generate_config dev_id: {}", devid);
         const mountpoint_params& p = _mountpoints.at(devid);
         struct io_queue::config cfg;
         uint64_t max_bandwidth = std::max(p.read_bytes_rate, p.write_bytes_rate);
@@ -4209,10 +4220,10 @@ public:
             cfg.disk_bytes_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
             cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
             if (max_bandwidth != std::numeric_limits<uint64_t>::max()) {
-                cfg.max_bytes_count = io_queue::read_request_base_count * per_io_queue(max_bandwidth * latency_goal().count());
+                cfg.max_bytes_count = io_queue::read_request_base_count * per_io_queue(max_bandwidth * latency_goal().count(), devid);
             }
             if (max_iops != std::numeric_limits<uint64_t>::max()) {
-                cfg.max_req_count = io_queue::read_request_base_count * per_io_queue(max_iops * latency_goal().count());
+                cfg.max_req_count = io_queue::read_request_base_count * per_io_queue(max_iops * latency_goal().count(), devid);
             }
             cfg.mountpoint = p.mountpoint;
         } else {
