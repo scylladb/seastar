@@ -460,7 +460,7 @@ public:
 
     future<io_rates> write_sequential_data(unsigned shard, size_t buffer_size, std::chrono::duration<double> duration) {
         return _iotune_test_file.invoke_on(shard, [this, buffer_size, duration] (test_file& tf) {
-            return tf.write_workload(buffer_size, test_file::pattern::sequential, 4 * _test_directory.disks_per_array(), duration / smp::count);
+            return tf.write_workload(buffer_size, test_file::pattern::sequential, 4 * _test_directory.disks_per_array(), duration);
         });
     }
 
@@ -624,7 +624,7 @@ int main(int ac, char** av) {
                 io_rates write_bw;
                 size_t sequential_buffer_size = 1 << 20;
                 for (unsigned shard = 0; shard < smp::count; ++shard) {
-                    write_bw += iotune_tests.write_sequential_data(shard, sequential_buffer_size, duration * 0.70).get0();
+                    write_bw += iotune_tests.write_sequential_data(shard, sequential_buffer_size, duration * 0.70 / smp::count).get0();
                 }
                 write_bw.bytes_per_sec /= smp::count;
                 fmt::print("{} MB/s\n", uint64_t(write_bw.bytes_per_sec / (1024 * 1024)));
