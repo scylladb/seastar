@@ -4149,7 +4149,6 @@ public:
         _mountpoints.emplace(0, mountpoint_params{});
         if (doc) {
             static constexpr unsigned task_quotas_in_default_latency_goal = 3;
-            static constexpr float latency_goal = 0.0005;
             unsigned auto_num_io_queues = smp::count;
 
             for (auto&& section : *doc) {
@@ -4183,8 +4182,8 @@ public:
                     // For the bandwidth limit, we want that to be 4 * 4096, so each I/O Queue has the same bandwidth as before.
                     if (!_num_io_queues) {
                         unsigned dev_io_queues = smp::count;
-                        dev_io_queues = std::min(dev_io_queues, unsigned((task_quotas_in_default_latency_goal * d.write_req_rate * latency_goal) / 4));
-                        dev_io_queues = std::min(dev_io_queues, unsigned((task_quotas_in_default_latency_goal * d.write_bytes_rate * latency_goal) / (4 * 4096)));
+                        dev_io_queues = std::min(dev_io_queues, unsigned((task_quotas_in_default_latency_goal * d.write_req_rate * latency_goal().count()) / 4));
+                        dev_io_queues = std::min(dev_io_queues, unsigned((task_quotas_in_default_latency_goal * d.write_bytes_rate * latency_goal().count()) / (4 * 4096)));
                         dev_io_queues = std::max(dev_io_queues, 1u);
                         seastar_logger.debug("dev_io_queues: {}", dev_io_queues);
                         auto_num_io_queues = std::min(auto_num_io_queues, dev_io_queues);
