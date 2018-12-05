@@ -52,11 +52,11 @@ if __name__ == "__main__":
         print(CMAKE_ARGS)
         subprocess.check_call(CMAKE_ARGS, shell=False, cwd=seastar_cmake.ROOT_PATH)
 
-        TRANSLATED_CTEST_ARGS = [
-        ] + (['--verbose'] if args.verbose else [
-        ]) + ['-E', 'Seastar.dist'
-        ] + (['-R', args.name] if args.name else [
-        ])
+        TRANSLATED_CTEST_ARGS = ['-E', 'Seastar.dist']
+        if args.verbose:
+            TRANSLATED_CTEST_ARGS += ['--verbose']
+        if args.name:
+            TRANSLATED_CTEST_ARGS += ['-R', args.name]
 
         CTEST_ARGS = ['ctest', BUILD_PATH] + TRANSLATED_CTEST_ARGS
         print(CTEST_ARGS)
