@@ -4114,7 +4114,15 @@ public:
         return _num_io_queues;
     }
 
+    std::chrono::duration<double> latency_goal() const {
+        return _latency_goal;
+    }
+
     void parse_config(boost::program_options::variables_map& configuration) {
+        seastar_logger.debug("smp::count: {}", smp::count);
+        _latency_goal = std::chrono::duration_cast<std::chrono::duration<double>>(configuration["task-quota-ms"].as<double>() * 1.5 * 1ms);
+        seastar_logger.debug("latency_goal: {}", latency_goal().count());
+
         if (configuration.count("max-io-requests")) {
             _capacity = configuration["max-io-requests"].as<unsigned>();
         }
@@ -4159,7 +4167,6 @@ public:
                 }
             }
         }
-        _latency_goal = std::chrono::duration_cast<std::chrono::duration<double>>(configuration["task-quota-ms"].as<double>() * 1.5 * 1ms);
     }
 
     struct io_queue::config generate_config(dev_t devid) const {
@@ -4172,10 +4179,10 @@ public:
             cfg.disk_bytes_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
             cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
             if (max_bandwidth != std::numeric_limits<uint64_t>::max()) {
-                cfg.max_bytes_count = io_queue::read_request_base_count * per_io_queue(max_bandwidth * _latency_goal.count());
+                cfg.max_bytes_count = io_queue::read_request_base_count * per_io_queue(max_bandwidth * latency_goal().count());
             }
             if (max_iops != std::numeric_limits<uint64_t>::max()) {
-                cfg.max_req_count = io_queue::read_request_base_count * per_io_queue(max_iops * _latency_goal.count());
+                cfg.max_req_count = io_queue::read_request_base_count * per_io_queue(max_iops * latency_goal().count());
             }
             cfg.mountpoint = p.mountpoint;
         } else {
