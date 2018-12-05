@@ -503,14 +503,12 @@ void string_to_file(sstring conf_file, sstring buf) {
     }
 }
 
-void write_configuration_file(sstring conf_file, std::string format, sstring properties_file, unsigned num_io_queues) {
+void write_configuration_file(sstring conf_file, std::string format, sstring properties_file) {
     sstring buf;
     if (format == "seastar") {
-        buf = fmt::format("num-io-queues={}\nio-properties-file={}\n",
-                num_io_queues, properties_file);
+        buf = fmt::format("io-properties-file={}\n", properties_file);
     } else {
-        buf = fmt::format("SEASTAR_IO=\"--num-io-queues={} --io-properties-file={}\"\n",
-                num_io_queues, properties_file);
+        buf = fmt::format("SEASTAR_IO=\"--io-properties-file={}\"\n", properties_file);
     }
     string_to_file(conf_file, buf);
 }
@@ -555,9 +553,6 @@ fs::path mountpoint_of(sstring filename) {
 
     return mnt_candidate;
 }
-
-static constexpr unsigned task_quotas_in_default_latency_goal = 3;
-static constexpr float latency_goal = 0.0005;
 
 int main(int ac, char** av) {
     namespace bpo = boost::program_options;
@@ -653,23 +648,6 @@ int main(int ac, char** av) {
                 disk_descriptors.push_back(std::move(desc));
             }
 
-            unsigned num_io_queues = smp::count;
-            for (auto& desc : disk_descriptors) {
-                // Ideally we wouldn't have I/O Queues and would dispatch from every shard (https://github.com/scylladb/seastar/issues/485)
-                // While we don't do that, we'll just be conservative and try to recommend values of I/O Queues that are close to what we
-                // suggested before the I/O Scheduler rework. The I/O Scheduler has traditionally tried to make sure that each queue would have
-                // at least 4 requests in depth, and all its requests were 4kB in size. Therefore, try to arrange the I/O Queues so that we would
-                // end up in the same situation here (that's where the 4 comes from).
-                //
-                // For the bandwidth limit, we want that to be 4 * 4096, so each I/O Queue has the same bandwidth as before.
-                unsigned dev_io_queues = smp::count;
-                dev_io_queues = std::min(dev_io_queues, unsigned((task_quotas_in_default_latency_goal * desc.write_iops * latency_goal) / 4));
-                dev_io_queues = std::min(dev_io_queues, unsigned((task_quotas_in_default_latency_goal * desc.write_bw * latency_goal) / (4 * 4096)));
-                num_io_queues = std::min(num_io_queues, dev_io_queues);
-            }
-            num_io_queues = std::max(num_io_queues, 1u);
-            fmt::print("Recommended --num-io-queues: {}\n", num_io_queues);
-
             auto file = "properties file";
             try {
                 if (configuration.count("properties-file")) {
@@ -680,7 +658,7 @@ int main(int ac, char** av) {
                 file = "configuration file";
                 if (configuration.count("options-file")) {
                     fmt::print("Writing result to {}\n", configuration["options-file"].as<sstring>());
-                    write_configuration_file(configuration["options-file"].as<sstring>(), format, configuration["properties-file"].as<sstring>(), num_io_queues);
+                    write_configuration_file(configuration["options-file"].as<sstring>(), format, configuration["properties-file"].as<sstring>());
                 }
             } catch (...) {
                 iotune_logger.error("Exception when writing {}: {}.\nPlease add the above values manually to your seastar command line.", file, std::current_exception());

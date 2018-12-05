@@ -4101,7 +4101,7 @@ void smp::qs_deleter::operator()(smp_message_queue** qs) const {
 
 class disk_config_params {
 private:
-    unsigned _num_io_queues = smp::count;
+    unsigned _num_io_queues = 0;
     compat::optional<unsigned> _capacity;
     std::unordered_map<dev_t, mountpoint_params> _mountpoints;
     std::chrono::duration<double> _latency_goal;
@@ -4130,6 +4130,9 @@ public:
 
         if (configuration.count("num-io-queues")) {
             _num_io_queues = configuration["num-io-queues"].as<unsigned>();
+            if (!_num_io_queues) {
+                throw std::runtime_error("num-io-queues must be greater than zero");
+            }
         }
         if (configuration.count("io-properties-file") && configuration.count("io-properties")) {
             throw std::runtime_error("Both io-properties and io-properties-file specified. Don't know which to trust!");
@@ -4145,6 +4148,10 @@ public:
         // Placeholder for unconfigured disks.
         _mountpoints.emplace(0, mountpoint_params{});
         if (doc) {
+            static constexpr unsigned task_quotas_in_default_latency_goal = 3;
+            static constexpr float latency_goal = 0.0005;
+            unsigned auto_num_io_queues = smp::count;
+
             for (auto&& section : *doc) {
                 auto sec_name = section.first.as<std::string>();
                 if (sec_name != "disks") {
@@ -4164,10 +4171,33 @@ public:
                         throw std::runtime_error(fmt::format("Configured number of queues {} is larger than the maximum {}",
                                                  _mountpoints.size(), reactor::max_queues));
                     }
+                    seastar_logger.debug("dev_id: {} mountpoint: {}", buf.st_dev, d.mountpoint);
                     _mountpoints.emplace(buf.st_dev, d);
+
+                    // Ideally we wouldn't have I/O Queues and would dispatch from every shard (https://github.com/scylladb/seastar/issues/485)
+                    // While we don't do that, we'll just be conservative and try to recommend values of I/O Queues that are close to what we
+                    // suggested before the I/O Scheduler rework. The I/O Scheduler has traditionally tried to make sure that each queue would have
+                    // at least 4 requests in depth, and all its requests were 4kB in size. Therefore, try to arrange the I/O Queues so that we would
+                    // end up in the same situation here (that's where the 4 comes from).
+                    //
+                    // For the bandwidth limit, we want that to be 4 * 4096, so each I/O Queue has the same bandwidth as before.
+                    if (!_num_io_queues) {
+                        unsigned dev_io_queues = smp::count;
+                        dev_io_queues = std::min(dev_io_queues, unsigned((task_quotas_in_default_latency_goal * d.write_req_rate * latency_goal) / 4));
+                        dev_io_queues = std::min(dev_io_queues, unsigned((task_quotas_in_default_latency_goal * d.write_bytes_rate * latency_goal) / (4 * 4096)));
+                        dev_io_queues = std::max(dev_io_queues, 1u);
+                        seastar_logger.debug("dev_io_queues: {}", dev_io_queues);
+                        auto_num_io_queues = std::min(auto_num_io_queues, dev_io_queues);
+                    }
                 }
             }
+            if (!_num_io_queues) {
+                _num_io_queues = auto_num_io_queues;
+            }
+        } else if (!_num_io_queues) {
+            _num_io_queues = smp::count;
         }
+        seastar_logger.debug("num_io_queues: {}", num_io_queues());
     }
 
     struct io_queue::config generate_config(dev_t devid) const {
