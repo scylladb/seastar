@@ -25,6 +25,8 @@
 #include <condition_variable>
 #include <seastar/util/std-compat.hh>
 
+namespace seastar {
+
 // Single-element blocking queue
 template <typename T>
 class exchanger {
@@ -72,3 +74,5 @@ public:
         return v;
     }
 };
+
+}
