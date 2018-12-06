@@ -24,6 +24,10 @@
 
 namespace seastar {
 
-int entry_point(int argc, char** argv);
+namespace testing {
+
+int entry_point(int argc, char **argv);
+
+}
 
 }

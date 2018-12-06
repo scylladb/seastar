@@ -30,6 +30,8 @@
 
 namespace seastar {
 
+namespace testing {
+
 class test_runner {
 private:
     std::unique_ptr<posix_thread> _thread;
@@ -44,5 +46,7 @@ public:
 };
 
 test_runner& global_test_runner();
+
+}
 
 }

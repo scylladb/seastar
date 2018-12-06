@@ -26,6 +26,8 @@
 
 namespace seastar {
 
+namespace testing {
+
 static bool init_unit_test_suite() {
     const auto& tests = known_tests();
     auto&& ts = boost::unit_test::framework::master_test_suite();
@@ -46,8 +48,10 @@ static bool init_unit_test_suite() {
 
 int entry_point(int argc, char** argv) {
     const int exit_code = ::boost::unit_test::unit_test_main(&init_unit_test_suite, argc, argv);
-    seastar::global_test_runner().finalize();
+    seastar::testing::global_test_runner().finalize();
     return exit_code;
+}
+
 }
 
 }

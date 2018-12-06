@@ -27,6 +27,8 @@
 
 namespace seastar {
 
+namespace testing {
+
 // Single-element blocking queue
 template <typename T>
 class exchanger {
@@ -74,5 +76,7 @@ public:
         return v;
     }
 };
+
+}
 
 }

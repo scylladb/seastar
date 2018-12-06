@@ -27,7 +27,7 @@
 #include "seastar_test.hh"
 
 #define SEASTAR_TEST_CASE(name) \
-    struct name : public seastar::seastar_test { \
+    struct name : public seastar::testing::seastar_test { \
         const char* get_test_file() override { return __FILE__; } \
         const char* get_name() override { return #name; } \
         seastar::future<> run_test_case() override; \

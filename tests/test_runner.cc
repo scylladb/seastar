@@ -29,6 +29,8 @@
 
 namespace seastar {
 
+namespace testing {
+
 static test_runner instance;
 
 struct stop_execution : public std::exception {};
@@ -112,6 +114,8 @@ void test_runner::finalize() {
 
 test_runner& global_test_runner() {
     return instance;
+}
+
 }
 
 }

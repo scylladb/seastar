@@ -30,6 +30,8 @@
 
 namespace seastar {
 
+namespace testing {
+
 void seastar_test::run() {
     // HACK: please see https://github.com/cloudius-systems/seastar/issues/10
     BOOST_REQUIRE(true);
@@ -58,6 +60,8 @@ seastar_test::seastar_test() {
         tests = new std::vector<seastar_test*>();
     }
     tests->push_back(this);
+}
+
 }
 
 }

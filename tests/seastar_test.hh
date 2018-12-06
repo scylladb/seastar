@@ -32,6 +32,8 @@
 
 namespace seastar {
 
+namespace testing {
+
 class seastar_test {
 public:
     seastar_test();
@@ -46,10 +48,12 @@ const std::vector<seastar_test*>& known_tests();
 
 }
 
+}
+
 #ifdef SEASTAR_TESTING_MAIN
 
 int main(int argc, char** argv) {
-    return seastar::entry_point(argc, argv);
+    return seastar::testing::entry_point(argc, argv);
 }
 
 #endif // SEASTAR_TESTING_MAIN
