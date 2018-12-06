@@ -4100,16 +4100,17 @@ void smp::qs_deleter::operator()(smp_message_queue** qs) const {
 }
 
 class disk_config_params {
-public:
+private:
     unsigned _num_io_queues = smp::count;
     compat::optional<unsigned> _capacity;
     std::unordered_map<dev_t, mountpoint_params> _mountpoints;
     std::chrono::duration<double> _latency_goal;
 
+public:
     uint64_t per_io_queue(uint64_t qty) const {
         return std::max(qty / _num_io_queues, 1ul);
     }
-public:
+
     unsigned num_io_queues() const {
         return _num_io_queues;
     }
