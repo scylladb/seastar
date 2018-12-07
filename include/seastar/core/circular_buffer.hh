@@ -47,10 +47,12 @@ namespace seastar {
 /// * otherwise only the begin() or end() iterator is invalidated:
 ///     * push_front() and emplace_front() will invalidate begin() and
 ///     * push_back() and emplace_back() will invalidate end().
+///
 /// Removing elements never invalidates any references and only
 /// invalidates begin() or end() iterators:
 ///     * pop_front() will invalidate begin() and
 ///     * pop_back() will invalidate end().
+///
 /// reserve() may also invalidate all iterators and references.
 template <typename T, typename Alloc = std::allocator<T>>
 class circular_buffer {
