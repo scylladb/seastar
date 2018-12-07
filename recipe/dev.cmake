@@ -151,7 +151,9 @@ cooking_ingredient (Boost
       install
       variant=debug
       link=shared
-      threading=multi)
+      threading=multi
+      hardcode-dll-paths=true
+      dll-path=<INSTALL_DIR>/lib)
 
 cooking_ingredient (GnuTLS
   REQUIRES
