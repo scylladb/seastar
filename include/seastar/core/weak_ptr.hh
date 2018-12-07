@@ -63,10 +63,8 @@ public:
         return *this;
     }
     explicit operator bool() const { return _ptr != nullptr; }
-    T* operator->() noexcept { return _ptr; }
-    const T* operator->() const noexcept { return _ptr; }
-    T& operator*() noexcept { return *_ptr; }
-    const T& operator*() const noexcept { return *_ptr; }
+    T* operator->() const noexcept { return _ptr; }
+    T& operator*() const noexcept { return *_ptr; }
     T* get() const noexcept { return _ptr; }
     bool operator==(const weak_ptr& o) const { return _ptr == o._ptr; }
     bool operator!=(const weak_ptr& o) const { return _ptr != o._ptr; }
