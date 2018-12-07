@@ -17,35 +17,13 @@
  */
 
 /*
- * Copyright (C) 2014 Cloudius Systems, Ltd.
+ * Copyright (C) 2018 ScyllaDB Ltd.
  */
 
 #pragma once
 
-// hack: define it even when statically linking, to avoid
-// Boost.Test defining main()
-#ifndef BOOST_TEST_DYN_LINK
-#define BOOST_TEST_DYN_LINK
-#endif
-
-#include <vector>
-
-#include <boost/test/unit_test.hpp>
-
-#include <seastar/core/future.hh>
-
 namespace seastar {
 
-class seastar_test {
-public:
-    seastar_test();
-    virtual ~seastar_test() {}
-    virtual const char* get_test_file() = 0;
-    virtual const char* get_name() = 0;
-    virtual future<> run_test_case() = 0;
-    void run();
-};
-
-const std::vector<seastar_test*>& known_tests();
+int entry_point(int argc, char** argv);
 
 }

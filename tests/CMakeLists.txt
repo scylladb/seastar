@@ -33,6 +33,8 @@ function (seastar_jenkins_arguments test_name var)
 endfunction ()
 
 add_library (seastar_testing
+  entry_point.hh
+  entry_point.cc
   exchanger.hh
   seastar_test.hh
   seastar_test.cc
