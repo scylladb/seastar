@@ -273,7 +273,7 @@ public:
     // Destroys the object pointed to by p and disposes of its storage.
     // The pointer to the object must have been obtained through release().
     static void dispose(T* p) noexcept {
-        accessors::dispose(p);
+        accessors::dispose(const_cast<std::remove_const_t<T>*>(p));
     }
 
     // A functor which calls dispose().

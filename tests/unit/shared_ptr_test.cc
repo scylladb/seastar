@@ -197,3 +197,8 @@ BOOST_AUTO_TEST_CASE(test_release) {
     do_test_release<A>();
     do_test_release<A_esft>();
 }
+
+BOOST_AUTO_TEST_CASE(test_const_release) {
+    do_test_release<const A>();
+    do_test_release<const A_esft>();
+}
