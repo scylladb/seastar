@@ -19,7 +19,7 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#include "test_case.hh"
+#include <seastar/testing/test_case.hh>
 #include <seastar/core/memory.hh>
 #include <seastar/core/reactor.hh>
 #include <vector>

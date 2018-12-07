@@ -1,0 +1,22 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+
+Name: Seastar testing
+Url: http://seastar-project.org
+Description: Testing tools for libraries and applications built with Seastar
+Version: @PROJECT_VERSION@
+
+# Dependencies.
+boost_cflags=-I$<JOIN:@Boost_INCLUDE_DIRS@, -I>
+boost_unit_test_libs=@Boost_UNIT_TEST_FRAMEWORK_LIBRARY@
+
+# Us.
+seastar_testing_cflags=-DBoost_TEST_DYN_LINK
+seastar_testing_libs=${libdir}/$<TARGET_FILE_NAME:seastar_testing>
+
+Requires: seastar >= 1.0
+Conflicts:
+Cflags: ${boost_cflags} ${seastar_testing_cflags}
+Libs: ${boost_unit_test_libs} ${seastar_testing_libs}

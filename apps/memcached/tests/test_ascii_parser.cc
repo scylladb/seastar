@@ -21,7 +21,7 @@
 
 #include <iostream>
 #include <limits>
-#include "test_case.hh"
+#include <seastar/testing/test_case.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/net/packet-data-source.hh>
 #include "ascii.hh"

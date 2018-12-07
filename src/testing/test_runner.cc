@@ -25,7 +25,7 @@
 #include <seastar/core/future-util.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/posix.hh>
-#include "test_runner.hh"
+#include <seastar/testing/test_runner.hh>
 
 namespace seastar {
 

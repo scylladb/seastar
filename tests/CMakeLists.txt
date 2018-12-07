@@ -32,28 +32,6 @@ function (seastar_jenkins_arguments test_name var)
     PARENT_SCOPE)
 endfunction ()
 
-add_library (seastar_testing
-  entry_point.hh
-  entry_point.cc
-  exchanger.hh
-  seastar_test.hh
-  seastar_test.cc
-  test_case.hh
-  thread_test_case.hh
-  test_runner.hh
-  test_runner.cc)
-
-target_include_directories (seastar_testing
-  PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-
-target_compile_definitions (seastar_testing
-  PUBLIC BOOST_TEST_DYN_LINK)
-
-target_link_libraries (seastar_testing
-  PUBLIC
-    Boost::unit_test_framework
-    seastar)
-
 # Distribution tests.
 if (Seastar_INSTALL)
   add_subdirectory (dist)

@@ -28,7 +28,7 @@
 #include <seastar/core/app-template.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/seastar.hh>
-#include "test_case.hh"
+#include <seastar/testing/test_case.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/util/defer.hh>
 #include <random>

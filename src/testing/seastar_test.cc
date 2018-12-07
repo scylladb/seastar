@@ -22,9 +22,9 @@
 
 #include <thread>
 
-#include "entry_point.hh"
-#include "seastar_test.hh"
-#include "test_runner.hh"
+#include <seastar/testing/entry_point.hh>
+#include <seastar/testing/seastar_test.hh>
+#include <seastar/testing/test_runner.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/app-template.hh>
 

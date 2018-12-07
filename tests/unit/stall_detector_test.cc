@@ -20,8 +20,8 @@
  */
 
 #include <seastar/core/reactor.hh>
-#include "test_case.hh"
-#include "thread_test_case.hh"
+#include <seastar/testing/test_case.hh>
+#include <seastar/testing/thread_test_case.hh>
 #include <atomic>
 #include <chrono>
 

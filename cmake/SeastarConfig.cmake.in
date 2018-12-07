@@ -35,7 +35,8 @@ find_package (Boost
   COMPONENTS
     filesystem
     program_options
-    thread)
+    thread
+    unit_test_framework)
 
 find_package (c-ares 1.13 REQUIRED MODULE)
 find_package (cryptopp 5.6.5 REQUIRED)

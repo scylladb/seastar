@@ -15,45 +15,38 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-
 /*
- * Copyright (C) 2014 Cloudius Systems, Ltd.
+ * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
 #pragma once
 
-#include <vector>
-
-#include <boost/test/unit_test.hpp>
-
+#include <memory>
+#include <functional>
+#include <atomic>
 #include <seastar/core/future.hh>
-
-#include "entry_point.hh"
+#include <seastar/core/posix.hh>
+#include <seastar/testing/exchanger.hh>
 
 namespace seastar {
 
 namespace testing {
 
-class seastar_test {
+class test_runner {
+private:
+    std::unique_ptr<posix_thread> _thread;
+    std::atomic<bool> _started{false};
+    exchanger<std::function<future<>()>> _task;
+    bool _done = false;
 public:
-    seastar_test();
-    virtual ~seastar_test() {}
-    virtual const char* get_test_file() = 0;
-    virtual const char* get_name() = 0;
-    virtual future<> run_test_case() = 0;
-    void run();
+    void start(int argc, char** argv);
+    ~test_runner();
+    void run_sync(std::function<future<>()> task);
+    void finalize();
 };
 
-const std::vector<seastar_test*>& known_tests();
+test_runner& global_test_runner();
 
 }
 
 }
-
-#ifdef SEASTAR_TESTING_MAIN
-
-int main(int argc, char** argv) {
-    return seastar::testing::entry_point(argc, argv);
-}
-
-#endif // SEASTAR_TESTING_MAIN

@@ -27,6 +27,9 @@ include (Cooking OPTIONAL)
 
 project (SeastarConsumer)
 
+find_package (Boost 1.64.0 REQUIRED
+  COMPONENTS unit_test_framework)
+
 find_package (Seastar 1.0 REQUIRED)
 
 add_executable (cmake_consumer
@@ -34,3 +37,15 @@ add_executable (cmake_consumer
 
 target_link_libraries (cmake_consumer
   PRIVATE Seastar::seastar)
+
+add_executable (cmake_testing_consumer
+  cmake_testing_consumer.cc)
+
+target_compile_definitions (cmake_testing_consumer
+  PRIVATE SEASTAR_TESTING_MAIN)
+
+target_link_libraries (cmake_testing_consumer
+  PRIVATE
+    Boost::unit_test_framework
+    Seastar::seastar
+    Seastar::seastar_testing)

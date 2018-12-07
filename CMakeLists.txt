@@ -207,7 +207,8 @@ find_package (Boost 1.64.0 REQUIRED
   COMPONENTS
     filesystem
     program_options
-    thread)
+    thread
+  OPTIONAL_COMPONENTS unit_test_framework)
 
 find_package (c-ares 1.13.0 REQUIRED MODULE)
 find_package (cryptopp 5.6.5 REQUIRED)
@@ -690,13 +691,37 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 endif ()
 
 #
-# Tests and the testing library.
+# The testing library.
+#
+
+if (Seastar_INSTALL OR Seastar_TESTING)
+  add_library (seastar_testing
+    include/seastar/testing/entry_point.hh
+    include/seastar/testing/exchanger.hh
+    include/seastar/testing/seastar_test.hh
+    include/seastar/testing/test_case.hh
+    include/seastar/testing/test_runner.hh
+    include/seastar/testing/thread_test_case.hh
+    src/testing/entry_point.cc
+    src/testing/seastar_test.cc
+    src/testing/test_runner.cc)
+
+  add_library (Seastar::seastar_testing ALIAS seastar_testing)
+
+  target_compile_definitions (seastar_testing
+    PUBLIC BOOST_TEST_DYN_LINK)
+
+  target_link_libraries (seastar_testing
+    PUBLIC
+      Boost::unit_test_framework
+      seastar)
+endif ()
+
+#
+# The tests themselves.
 #
 
 if (Seastar_TESTING)
-  find_package (Boost REQUIRED
-    COMPONENTS unit_test_framework)
-
   enable_testing ()
 
   if (Seastar_EXCLUDE_TESTS_FROM_ALL)
@@ -765,9 +790,18 @@ configure_file (
   ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar.pc.in
   @ONLY)
 
+configure_file (
+  ${CMAKE_CURRENT_SOURCE_DIR}/pkgconfig/seastar-testing.pc.in
+  ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar-testing.pc.in
+  @ONLY)
+
 file (GENERATE
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/seastar.pc
   INPUT ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar.pc.in)
+
+file (GENERATE
+  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/seastar-testing.pc
+  INPUT ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar-testing.pc.in)
 
 #
 # Installation and export.
@@ -790,7 +824,9 @@ if (Seastar_INSTALL)
     DESTINATION ${CMAKE_INSTALL_BINDIR})
 
   install (
-    TARGETS seastar
+    TARGETS
+      seastar
+      seastar_testing
     EXPORT seastar-export
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
@@ -844,7 +880,9 @@ if (Seastar_INSTALL)
     DESTINATION ${install_cmakedir})
 
   install (
-    FILES ${CMAKE_CURRENT_BINARY_DIR}/seastar.pc
+    FILES
+      ${CMAKE_CURRENT_BINARY_DIR}/seastar.pc
+      ${CMAKE_CURRENT_BINARY_DIR}/seastar-testing.pc
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
 
   #

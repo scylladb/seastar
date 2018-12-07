@@ -17,20 +17,43 @@
  */
 
 /*
- * Copyright (C) 2018 ScyllaDB Ltd.
+ * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
 #pragma once
 
+#include <vector>
+
+#include <boost/test/unit_test.hpp>
+
 #include <seastar/core/future.hh>
 
-#include "seastar_test.hh"
+#include <seastar/testing/entry_point.hh>
 
-#define SEASTAR_TEST_CASE(name) \
-    struct name : public seastar::testing::seastar_test { \
-        const char* get_test_file() override { return __FILE__; } \
-        const char* get_name() override { return #name; } \
-        seastar::future<> run_test_case() override; \
-    }; \
-    static name name ## _instance; \
-    future<> name::run_test_case()
+namespace seastar {
+
+namespace testing {
+
+class seastar_test {
+public:
+    seastar_test();
+    virtual ~seastar_test() {}
+    virtual const char* get_test_file() = 0;
+    virtual const char* get_name() = 0;
+    virtual future<> run_test_case() = 0;
+    void run();
+};
+
+const std::vector<seastar_test*>& known_tests();
+
+}
+
+}
+
+#ifdef SEASTAR_TESTING_MAIN
+
+int main(int argc, char** argv) {
+    return seastar::testing::entry_point(argc, argv);
+}
+
+#endif // SEASTAR_TESTING_MAIN
