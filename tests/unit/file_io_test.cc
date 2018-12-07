@@ -19,7 +19,7 @@
  * Copyright (C) 2014-2015 Cloudius Systems, Ltd.
  */
 
-#include "test-utils.hh"
+#include "test_case.hh"
 
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/condition-variable.hh>

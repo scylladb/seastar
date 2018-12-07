@@ -15,34 +15,22 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
 /*
- * Copyright (C) 2014 Cloudius Systems, Ltd.
+ * Copyright (C) 2018 ScyllaDB Ltd.
  */
 
-#include <seastar/core/reactor.hh>
-#include <seastar/core/shared_ptr.hh>
-#include <seastar/core/do_with.hh>
-#include "test_case.hh"
+#pragma once
 
-using namespace seastar;
+#include <seastar/core/future.hh>
 
-extern "C" {
-#include <signal.h>
-#include <sys/types.h>
-#include <unistd.h>
-}
+#include "seastar_test.hh"
 
-SEASTAR_TEST_CASE(test_sighup) {
-    return do_with(make_lw_shared<promise<>>(), false, [](auto const& p, bool& signaled) {
-        engine().handle_signal(SIGHUP, [p, &signaled] {
-            signaled = true;
-            p->set_value();
-        });
-
-        kill(getpid(), SIGHUP);
-
-        return p->get_future().then([&] {
-            BOOST_REQUIRE_EQUAL(signaled, true);
-        });
-    });
-} 
+#define SEASTAR_TEST_CASE(name) \
+    struct name : public seastar::seastar_test { \
+        const char* get_test_file() override { return __FILE__; } \
+        const char* get_name() override { return #name; } \
+        seastar::future<> run_test_case() override; \
+    }; \
+    static name name ## _instance; \
+    future<> name::run_test_case()

@@ -19,7 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#include "test-utils.hh"
+#include "test_case.hh"
 
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/future-util.hh>

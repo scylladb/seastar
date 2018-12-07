@@ -34,8 +34,10 @@ endfunction ()
 
 add_library (seastar_testing
   exchanger.hh
-  test-utils.hh
-  test-utils.cc
+  seastar_test.hh
+  seastar_test.cc
+  test_case.hh
+  thread_test_case.hh
   test_runner.hh
   test_runner.cc)
 

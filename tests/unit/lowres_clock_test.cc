@@ -19,7 +19,7 @@
  * Copyright (C) 2017 ScyllaDB
  */
 
-#include "test-utils.hh"
+#include "test_case.hh"
 
 #include <seastar/core/do_with.hh>
 #include <seastar/core/lowres_clock.hh>

@@ -28,7 +28,8 @@
 
 #include <thread>
 
-#include "test-utils.hh"
+#include "seastar_test.hh"
+#include "test_runner.hh"
 #include <seastar/core/future.hh>
 #include <seastar/core/app-template.hh>
 #include <boost/test/included/unit_test.hpp>

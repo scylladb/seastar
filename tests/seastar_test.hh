@@ -15,34 +15,28 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
 /*
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#include <seastar/core/reactor.hh>
-#include <seastar/core/shared_ptr.hh>
-#include <seastar/core/do_with.hh>
-#include "test_case.hh"
+#pragma once
 
-using namespace seastar;
 
-extern "C" {
-#include <signal.h>
-#include <sys/types.h>
-#include <unistd.h>
+#include <boost/test/unit_test.hpp>
+
+#include <seastar/core/future.hh>
+
+namespace seastar {
+
+class seastar_test {
+public:
+    seastar_test();
+    virtual ~seastar_test() {}
+    virtual const char* get_test_file() = 0;
+    virtual const char* get_name() = 0;
+    virtual future<> run_test_case() = 0;
+    void run();
+};
+
 }
-
-SEASTAR_TEST_CASE(test_sighup) {
-    return do_with(make_lw_shared<promise<>>(), false, [](auto const& p, bool& signaled) {
-        engine().handle_signal(SIGHUP, [p, &signaled] {
-            signaled = true;
-            p->set_value();
-        });
-
-        kill(getpid(), SIGHUP);
-
-        return p->get_future().then([&] {
-            BOOST_REQUIRE_EQUAL(signaled, true);
-        });
-    });
-} 

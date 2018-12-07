@@ -25,7 +25,8 @@
 #include <chrono>
 
 #include <seastar/core/thread.hh>
-#include "test-utils.hh"
+#include "test_case.hh"
+#include "thread_test_case.hh"
 #include <seastar/core/execution_stage.hh>
 #include <seastar/core/sleep.hh>
 

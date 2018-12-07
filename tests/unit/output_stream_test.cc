@@ -26,7 +26,7 @@
 #include <seastar/core/future-util.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/net/packet.hh>
-#include "test-utils.hh"
+#include "test_case.hh"
 #include <vector>
 
 using namespace seastar;
