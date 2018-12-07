@@ -61,7 +61,3 @@ seastar_test::seastar_test() {
 }
 
 }
-
-int main(int ac, char** av) {
-    return seastar::entry_point(ac, av);
-}

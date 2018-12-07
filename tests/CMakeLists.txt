@@ -46,6 +46,9 @@ add_library (seastar_testing
 target_include_directories (seastar_testing
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
+target_compile_definitions (seastar_testing
+  PUBLIC BOOST_TEST_DYN_LINK)
+
 target_link_libraries (seastar_testing
   PUBLIC
     Boost::unit_test_framework

@@ -22,17 +22,13 @@
 
 #pragma once
 
-// hack: define it even when statically linking, to avoid
-// Boost.Test defining main()
-#ifndef BOOST_TEST_DYN_LINK
-#define BOOST_TEST_DYN_LINK
-#endif
-
 #include <vector>
 
 #include <boost/test/unit_test.hpp>
 
 #include <seastar/core/future.hh>
+
+#include "entry_point.hh"
 
 namespace seastar {
 
@@ -49,3 +45,11 @@ public:
 const std::vector<seastar_test*>& known_tests();
 
 }
+
+#ifdef SEASTAR_TESTING_MAIN
+
+int main(int argc, char** argv) {
+    return seastar::entry_point(argc, argv);
+}
+
+#endif // SEASTAR_TESTING_MAIN
