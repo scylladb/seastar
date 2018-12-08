@@ -26,6 +26,7 @@
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/core/do_with.hh>
 #include <boost/iterator/counting_iterator.hpp>
+#include <functional>
 
 namespace seastar {
 
@@ -109,6 +110,8 @@ class sharded {
     };
     std::vector<entry> _instances;
 private:
+    using invoke_on_all_func_type = std::function<future<> (Service&)>;
+private:
     void service_deleted() {
         _instances[engine().cpu_id()].freed.set_value();
     }
@@ -161,6 +164,11 @@ public:
     /// For every started instance, its \c stop() method is called, and then
     /// it is destroyed.
     future<> stop();
+
+    // Invoke a type-erased function on all instances of @Service.
+    // The return value becomes ready when all instances have processed
+    // the message.
+    future<> invoke_on_all(std::function<future<> (Service&)>);
 
     // Invoke a method on all instances of @Service.
     // The return value becomes ready when all instances have processed
@@ -477,14 +485,11 @@ sharded<Service>::stop() {
 }
 
 template <typename Service>
-template <typename... Args>
-inline
 future<>
-sharded<Service>::invoke_on_all(future<> (Service::*func)(Args...), Args... args) {
-    return parallel_for_each(boost::irange<unsigned>(0, _instances.size()), [this, func, args...] (unsigned c) {
-        return smp::submit_to(c, [this, func, args...] {
-            auto inst = get_local_service();
-            return ((*inst).*func)(args...);
+sharded<Service>::invoke_on_all(std::function<future<> (Service&)> func) {
+    return parallel_for_each(boost::irange<unsigned>(0, _instances.size()), [this, func = std::move(func)] (unsigned c) {
+        return smp::submit_to(c, [this, func] {
+            return func(*get_local_service());
         });
     });
 }
@@ -493,13 +498,21 @@ template <typename Service>
 template <typename... Args>
 inline
 future<>
+sharded<Service>::invoke_on_all(future<> (Service::*func)(Args...), Args... args) {
+    return invoke_on_all(invoke_on_all_func_type([func, args...] (Service& service) mutable {
+        return (service.*func)(args...);
+    }));
+}
+
+template <typename Service>
+template <typename... Args>
+inline
+future<>
 sharded<Service>::invoke_on_all(void (Service::*func)(Args...), Args... args) {
-    return parallel_for_each(boost::irange<unsigned>(0, _instances.size()), [this, func, args...] (unsigned c) {
-        return smp::submit_to(c, [this, func, args...] {
-            auto inst = get_local_service();
-            ((*inst).*func)(args...);
-        });
-    });
+    return invoke_on_all(invoke_on_all_func_type([func, args...] (Service& service) mutable {
+        (service.*func)(args...);
+        return make_ready_future<>();
+    }));
 }
 
 template <typename Service>
@@ -509,12 +522,9 @@ future<>
 sharded<Service>::invoke_on_all(Func&& func) {
     static_assert(std::is_same<futurize_t<std::result_of_t<Func(Service&)>>, future<>>::value,
                   "invoke_on_all()'s func must return void or future<>");
-    return parallel_for_each(boost::irange<unsigned>(0, _instances.size()), [this, &func] (unsigned c) {
-        return smp::submit_to(c, [this, func] {
-            auto inst = get_local_service();
-            return func(*inst);
-        });
-    });
+    return invoke_on_all(invoke_on_all_func_type([func] (Service& service) mutable {
+        return futurize<void>::apply(func, service);
+    }));
 }
 
 template <typename Service>
