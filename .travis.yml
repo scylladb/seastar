@@ -28,6 +28,7 @@ dependencies:
         "cmake",
         "libc-ares-dev",
         "libyaml-cpp-dev",
+	"stow",
         "realpath"
     ]
 matrix:
