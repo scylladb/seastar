@@ -930,6 +930,7 @@ void reactor::configure(boost::program_options::variables_map vm) {
         _aio_eventfd = pollable_fd(file_desc::eventfd(0, 0));
     }
     set_bypass_fsync(vm["unsafe-bypass-fsync"].as<bool>());
+    _force_io_getevents_syscall = vm["force-aio-syscalls"].as<bool>();
 }
 
 future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd,
@@ -1226,7 +1227,10 @@ bool reactor::process_io()
 {
     io_event ev[max_aio];
     struct timespec timeout = {0, 0};
-    auto n = io_getevents(_io_context, 1, max_aio, ev, &timeout);
+    auto n = io_getevents(_io_context, 1, max_aio, ev, &timeout, _force_io_getevents_syscall);
+    if (n == -1 && errno == EINTR) {
+        n = 0;
+    }
     assert(n >= 0);
     unsigned nr_retry = 0;
     for (size_t i = 0; i < size_t(n); ++i) {
@@ -3910,6 +3914,9 @@ reactor::get_options_description(std::chrono::duration<double> default_task_quot
         ("unsafe-bypass-fsync", bpo::value<bool>()->default_value(false), "Bypass fsync(), may result in data loss. Use for testing on consumer drives")
         ("overprovisioned", "run in an overprovisioned environment (such as docker or a laptop); equivalent to --idle-poll-time-us 0 --thread-affinity 0 --poll-aio 0")
         ("abort-on-seastar-bad-alloc", "abort when seastar allocator cannot allocate memory")
+        ("force-aio-syscalls", bpo::value<bool>()->default_value(false),
+                "Force io_getevents(2) to issue a system call, instead of bypassing the kernel when possible."
+                " This makes strace output more useful, but slows down the application")
 #ifdef SEASTAR_HEAPPROF
         ("heapprof", "enable seastar heap profiling")
 #endif

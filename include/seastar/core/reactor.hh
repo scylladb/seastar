@@ -842,6 +842,7 @@ private:
     std::atomic<bool> _sleeping alignas(seastar::cache_line_size);
     pthread_t _thread_id alignas(seastar::cache_line_size) = pthread_self();
     bool _strict_o_direct = true;
+    bool _force_io_getevents_syscall = false;
     bool _bypass_fsync = false;
     bool& _local_need_preempt{g_need_preempt}; // for access from the _task_quota_timer_thread
     std::thread _task_quota_timer_thread;

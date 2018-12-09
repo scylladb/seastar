@@ -48,7 +48,8 @@ int io_setup(int nr_events, ::aio_context_t* io_context);
 int io_destroy(::aio_context_t io_context);
 int io_submit(::aio_context_t io_context, long nr, ::iocb** iocbs);
 int io_cancel(::aio_context_t io_context, ::iocb* iocb, ::io_event* result);
-int io_getevents(::aio_context_t io_context, long min_nr, long nr, ::io_event* events, const ::timespec* timeout);
+int io_getevents(::aio_context_t io_context, long min_nr, long nr, ::io_event* events, const ::timespec* timeout,
+        bool force_syscall = false);
 
 }
 

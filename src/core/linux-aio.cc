@@ -65,9 +65,10 @@ int io_cancel(::aio_context_t io_context, ::iocb* iocb, ::io_event* result) {
     return ::syscall(SYS_io_cancel, io_context, iocb, result);
 }
 
-int io_getevents(::aio_context_t io_context, long min_nr, long nr, ::io_event* events, const ::timespec* timeout) {
+int io_getevents(::aio_context_t io_context, long min_nr, long nr, ::io_event* events, const ::timespec* timeout,
+        bool force_syscall) {
     auto ring = to_ring(io_context);
-    if (usable(ring)) {
+    if (usable(ring) && !force_syscall) {
         // Try to complete in userspace, if enough available events,
         // or if the timeout is zero
 
