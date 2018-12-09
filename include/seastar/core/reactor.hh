@@ -758,11 +758,6 @@ private:
     // some reactors will talk to foreign io_queues. If this reactor holds a valid IO queue, it will
     // be stored here.
     std::vector<std::unique_ptr<io_queue>> my_io_queues = {};
-
-
-    // For submiting the actual IO, all we need is the coordinator id. So storing it
-    // separately saves us the pointer access.
-    shard_id _io_coordinator;
     std::unordered_map<dev_t, io_queue*> _io_queues;
     friend io_queue;
 

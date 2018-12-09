@@ -164,9 +164,7 @@ struct distribute_objects {
 };
 
 static io_queue_topology
-allocate_io_queues(hwloc_topology_t& topology, configuration c, std::vector<cpu> cpus) {
-    unsigned num_io_queues = c.io_queues.value_or(cpus.size());
-
+allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, unsigned num_io_queues, unsigned& last_node_idx) {
     unsigned depth = find_memory_depth(topology);
     auto node_of_shard = [&topology, &cpus, &depth] (unsigned shard) {
         auto pu = hwloc_get_pu_obj_by_os_index(topology, cpus[shard].cpu_id);
@@ -196,6 +194,8 @@ allocate_io_queues(hwloc_topology_t& topology, configuration c, std::vector<cpu>
 
     io_queue_topology ret;
     ret.shard_to_coordinator.resize(cpus.size());
+    ret.coordinator_to_idx.resize(cpus.size());
+    ret.coordinator_to_idx_valid.resize(cpus.size());
 
     // User may be playing with --smp option, but num_io_queues was independently
     // determined by iotune, so adjust for any conflicts.
@@ -216,12 +216,17 @@ allocate_io_queues(hwloc_topology_t& topology, configuration c, std::vector<cpu>
     };
 
     auto cpu_sets = distribute_objects(topology, num_io_queues);
+    ret.coordinators.reserve(cpu_sets().size());
+
     // First step: distribute the IO queues given the information returned in cpu_sets.
     // If there is one IO queue per processor, only this loop will be executed.
     std::unordered_map<unsigned, std::vector<unsigned>> node_coordinators;
     for (auto&& cs : cpu_sets()) {
         auto io_coordinator = find_shard(hwloc_bitmap_first(cs));
 
+        ret.coordinator_to_idx[io_coordinator] = ret.coordinators.size();
+        assert(!ret.coordinator_to_idx_valid[io_coordinator]);
+        ret.coordinator_to_idx_valid[io_coordinator] = true;
         ret.coordinators.emplace_back(io_coordinator);
         // If a processor is a coordinator, it is also obviously a coordinator of itself
         ret.shard_to_coordinator[io_coordinator] = io_coordinator;
@@ -236,7 +241,6 @@ allocate_io_queues(hwloc_topology_t& topology, configuration c, std::vector<cpu>
 
 
     auto available_nodes = boost::copy_range<std::vector<unsigned>>(node_coordinators | boost::adaptors::map_keys);
-    unsigned last_node_idx = 0;
 
     // If there are more processors than coordinators, we will have to assign them to existing
     // coordinators. We prefer do that within the same NUMA node, but if not possible we assign
@@ -349,7 +353,12 @@ resources allocate(configuration c) {
         ret.cpus.push_back(std::move(this_cpu));
     }
 
-    ret.io_queues = allocate_io_queues(topology, c, ret.cpus);
+    unsigned last_node_idx = 0;
+    for (auto d : c.num_io_queues) {
+        auto devid = d.first;
+        auto num_io_queues = d.second;
+        ret.ioq_topology.emplace(devid, allocate_io_queues(topology, ret.cpus, num_io_queues, last_node_idx));
+    }
     return ret;
 }
 
@@ -403,7 +412,7 @@ resources allocate(configuration c) {
         ret.cpus.push_back(cpu{i, {{mem / procs, 0}}});
     }
 
-    ret.io_queues = allocate_io_queues(c, ret.cpus);
+    ret.ioq_topology.emplace_back(0, allocate_io_queues(c, ret.cpus));
     return ret;
 }
 

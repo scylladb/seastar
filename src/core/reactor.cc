@@ -128,6 +128,7 @@ struct mountpoint_params {
     uint64_t write_bytes_rate = std::numeric_limits<uint64_t>::max();
     uint64_t read_req_rate = std::numeric_limits<uint64_t>::max();
     uint64_t write_req_rate = std::numeric_limits<uint64_t>::max();
+    uint64_t num_io_queues = 0; // calculated
 };
 
 }
@@ -4100,27 +4101,41 @@ void smp::qs_deleter::operator()(smp_message_queue** qs) const {
 }
 
 class disk_config_params {
-public:
-    unsigned _num_io_queues = smp::count;
+private:
+    unsigned _num_io_queues = 0;
     compat::optional<unsigned> _capacity;
     std::unordered_map<dev_t, mountpoint_params> _mountpoints;
     std::chrono::duration<double> _latency_goal;
 
-    uint64_t per_io_queue(uint64_t qty) const {
-        return std::max(qty / _num_io_queues, 1ul);
-    }
 public:
-    unsigned num_io_queues() const {
-        return _num_io_queues;
+    uint64_t per_io_queue(uint64_t qty, dev_t devid) const {
+        const mountpoint_params& p = _mountpoints.at(devid);
+        return std::max(qty / p.num_io_queues, 1ul);
+    }
+
+    unsigned num_io_queues(dev_t devid) const {
+        const mountpoint_params& p = _mountpoints.at(devid);
+        return p.num_io_queues;
+    }
+
+    std::chrono::duration<double> latency_goal() const {
+        return _latency_goal;
     }
 
     void parse_config(boost::program_options::variables_map& configuration) {
+        seastar_logger.debug("smp::count: {}", smp::count);
+        _latency_goal = std::chrono::duration_cast<std::chrono::duration<double>>(configuration["task-quota-ms"].as<double>() * 1.5 * 1ms);
+        seastar_logger.debug("latency_goal: {}", latency_goal().count());
+
         if (configuration.count("max-io-requests")) {
             _capacity = configuration["max-io-requests"].as<unsigned>();
         }
 
         if (configuration.count("num-io-queues")) {
             _num_io_queues = configuration["num-io-queues"].as<unsigned>();
+            if (!_num_io_queues) {
+                throw std::runtime_error("num-io-queues must be greater than zero");
+            }
         }
         if (configuration.count("io-properties-file") && configuration.count("io-properties")) {
             throw std::runtime_error("Both io-properties and io-properties-file specified. Don't know which to trust!");
@@ -4133,9 +4148,10 @@ public:
             doc = YAML::Load(configuration["io-properties"].as<std::string>());
         }
 
-        // Placeholder for unconfigured disks.
-        _mountpoints.emplace(0, mountpoint_params{});
         if (doc) {
+            static constexpr unsigned task_quotas_in_default_latency_goal = 3;
+            unsigned auto_num_io_queues = smp::count;
+
             for (auto&& section : *doc) {
                 auto sec_name = section.first.as<std::string>();
                 if (sec_name != "disks") {
@@ -4155,14 +4171,46 @@ public:
                         throw std::runtime_error(fmt::format("Configured number of queues {} is larger than the maximum {}",
                                                  _mountpoints.size(), reactor::max_queues));
                     }
+
+                    // Ideally we wouldn't have I/O Queues and would dispatch from every shard (https://github.com/scylladb/seastar/issues/485)
+                    // While we don't do that, we'll just be conservative and try to recommend values of I/O Queues that are close to what we
+                    // suggested before the I/O Scheduler rework. The I/O Scheduler has traditionally tried to make sure that each queue would have
+                    // at least 4 requests in depth, and all its requests were 4kB in size. Therefore, try to arrange the I/O Queues so that we would
+                    // end up in the same situation here (that's where the 4 comes from).
+                    //
+                    // For the bandwidth limit, we want that to be 4 * 4096, so each I/O Queue has the same bandwidth as before.
+                    if (!_num_io_queues) {
+                        unsigned dev_io_queues = smp::count;
+                        dev_io_queues = std::min(dev_io_queues, unsigned((task_quotas_in_default_latency_goal * d.write_req_rate * latency_goal().count()) / 4));
+                        dev_io_queues = std::min(dev_io_queues, unsigned((task_quotas_in_default_latency_goal * d.write_bytes_rate * latency_goal().count()) / (4 * 4096)));
+                        dev_io_queues = std::max(dev_io_queues, 1u);
+                        seastar_logger.debug("dev_io_queues: {}", dev_io_queues);
+                        d.num_io_queues = dev_io_queues;
+                        auto_num_io_queues = std::min(auto_num_io_queues, dev_io_queues);
+                    } else {
+                        d.num_io_queues = _num_io_queues;
+                    }
+
+                    seastar_logger.debug("dev_id: {} mountpoint: {}", buf.st_dev, d.mountpoint);
                     _mountpoints.emplace(buf.st_dev, d);
                 }
             }
+            if (!_num_io_queues) {
+                _num_io_queues = auto_num_io_queues;
+            }
+        } else if (!_num_io_queues) {
+            _num_io_queues = smp::count;
         }
-        _latency_goal = std::chrono::duration_cast<std::chrono::duration<double>>(configuration["task-quota-ms"].as<double>() * 1.5 * 1ms);
+
+        // Placeholder for unconfigured disks.
+        mountpoint_params d = {};
+        d.num_io_queues = _num_io_queues;
+        seastar_logger.debug("num_io_queues: {}", d.num_io_queues);
+        _mountpoints.emplace(0, d);
     }
 
     struct io_queue::config generate_config(dev_t devid) const {
+        seastar_logger.debug("generate_config dev_id: {}", devid);
         const mountpoint_params& p = _mountpoints.at(devid);
         struct io_queue::config cfg;
         uint64_t max_bandwidth = std::max(p.read_bytes_rate, p.write_bytes_rate);
@@ -4172,14 +4220,14 @@ public:
             cfg.disk_bytes_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
             cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
             if (max_bandwidth != std::numeric_limits<uint64_t>::max()) {
-                cfg.max_bytes_count = io_queue::read_request_base_count * per_io_queue(max_bandwidth * _latency_goal.count());
+                cfg.max_bytes_count = io_queue::read_request_base_count * per_io_queue(max_bandwidth * latency_goal().count(), devid);
             }
             if (max_iops != std::numeric_limits<uint64_t>::max()) {
-                cfg.max_req_count = io_queue::read_request_base_count * per_io_queue(max_iops * _latency_goal.count());
+                cfg.max_req_count = io_queue::read_request_base_count * per_io_queue(max_iops * latency_goal().count(), devid);
             }
             cfg.mountpoint = p.mountpoint;
         } else {
-            cfg.capacity = per_io_queue(*_capacity);
+            cfg.capacity = per_io_queue(*_capacity, 0);
             cfg.disk_bytes_write_to_read_multiplier = 1;
             cfg.disk_req_write_to_read_multiplier = 1;
         }
@@ -4295,7 +4343,9 @@ void smp::configure(boost::program_options::variables_map configuration)
 
     disk_config_params disk_config;
     disk_config.parse_config(configuration);
-    rc.io_queues =  disk_config.num_io_queues();
+    for (auto& id : disk_config.device_ids()) {
+        rc.num_io_queues.emplace(id, disk_config.num_io_queues(id));
+    }
 
     auto resources = resource::allocate(rc);
     std::vector<resource::cpu> allocations = std::move(resources.cpus);
@@ -4327,44 +4377,39 @@ void smp::configure(boost::program_options::variables_map configuration)
     static boost::barrier smp_queues_constructed(smp::count);
     static boost::barrier inited(smp::count);
 
-    auto io_info = std::move(resources.io_queues);
+    auto ioq_topology = std::move(resources.ioq_topology);
 
     std::unordered_map<dev_t, std::vector<io_queue*>> all_io_queues;
     io_queue::fill_shares_array();
 
     for (auto& id : disk_config.device_ids()) {
+        auto io_info = ioq_topology.at(id);
         all_io_queues.emplace(id, io_info.coordinators.size());
     }
 
-    auto alloc_io_queue = [io_info, &all_io_queues, &disk_config] (unsigned shard) {
+    auto alloc_io_queue = [&ioq_topology, &all_io_queues, &disk_config] (unsigned shard, dev_t id) {
+        auto io_info = ioq_topology.at(id);
         auto cid = io_info.shard_to_coordinator[shard];
-        int vec_idx = 0;
-        for (auto& coordinator: io_info.coordinators) {
-            if (coordinator != cid) {
-                vec_idx++;
-                continue;
-            }
-            if (shard == cid) {
-                for (auto& id : disk_config.device_ids()) {
-                    struct io_queue::config cfg = disk_config.generate_config(id);
-                    cfg.coordinator = coordinator;
-                    cfg.io_topology = io_info.shard_to_coordinator;
-                    all_io_queues[id][vec_idx] = new io_queue(std::move(cfg));
-                }
-            }
-            return vec_idx;
+        auto vec_idx = io_info.coordinator_to_idx[cid];
+        assert(io_info.coordinator_to_idx_valid[cid]);
+        if (shard == cid) {
+            struct io_queue::config cfg = disk_config.generate_config(id);
+            cfg.coordinator = cid;
+            cfg.io_topology = io_info.shard_to_coordinator;
+            assert(vec_idx >= 0 && vec_idx < all_io_queues[id].size());
+            assert(!all_io_queues[id][vec_idx]);
+            all_io_queues[id][vec_idx] = new io_queue(std::move(cfg));
         }
-        assert(0); // Impossible
     };
 
-    auto assign_io_queue = [&all_io_queues, &disk_config] (shard_id shard_id, int queue_idx) {
-        for (auto& dev_id : disk_config.device_ids()) {
-            if (all_io_queues[dev_id][queue_idx]->coordinator() == shard_id) {
-                engine().my_io_queues.emplace_back(all_io_queues[dev_id][queue_idx]);
-            }
-            engine()._io_queues.emplace(dev_id, all_io_queues[dev_id][queue_idx]);
-            engine()._io_coordinator = all_io_queues[dev_id][queue_idx]->coordinator();
+    auto assign_io_queue = [&ioq_topology, &all_io_queues, &disk_config] (shard_id shard_id, dev_t dev_id) {
+        auto io_info = ioq_topology.at(dev_id);
+        auto cid = io_info.shard_to_coordinator[shard_id];
+        auto queue_idx = io_info.coordinator_to_idx[cid];
+        if (all_io_queues[dev_id][queue_idx]->coordinator() == shard_id) {
+            engine().my_io_queues.emplace_back(all_io_queues[dev_id][queue_idx]);
         }
+        engine()._io_queues.emplace(dev_id, all_io_queues[dev_id][queue_idx]);
     };
 
     _all_event_loops_done.emplace(smp::count);
@@ -4372,7 +4417,7 @@ void smp::configure(boost::program_options::variables_map configuration)
     unsigned i;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        create_thread([configuration, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity, heapprof_enabled, mbind] {
+        create_thread([configuration, &disk_config, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity, heapprof_enabled, mbind] {
             auto thread_name = seastar::format("reactor-{}", i);
             pthread_setname_np(pthread_self(), thread_name.c_str());
             if (thread_affinity) {
@@ -4389,11 +4434,15 @@ void smp::configure(boost::program_options::variables_map configuration)
             throw_pthread_error(r);
             allocate_reactor(i);
             _reactors[i] = &engine();
-            auto queue_idx = alloc_io_queue(i);
+            for (auto& dev_id : disk_config.device_ids()) {
+                alloc_io_queue(i, dev_id);
+            }
             reactors_registered.wait();
             smp_queues_constructed.wait();
             start_all_queues();
-            assign_io_queue(i, queue_idx);
+            for (auto& dev_id : disk_config.device_ids()) {
+                assign_io_queue(i, dev_id);
+            }
             inited.wait();
             engine().configure(configuration);
             engine().run();
@@ -4402,7 +4451,9 @@ void smp::configure(boost::program_options::variables_map configuration)
 
     allocate_reactor(0);
     _reactors[0] = &engine();
-    auto queue_idx = alloc_io_queue(0);
+    for (auto& dev_id : disk_config.device_ids()) {
+        alloc_io_queue(0, dev_id);
+    }
 
 #ifdef SEASTAR_HAVE_DPDK
     if (_using_dpdk) {
@@ -4424,7 +4475,9 @@ void smp::configure(boost::program_options::variables_map configuration)
     alien::smp::_qs = alien::smp::create_qs(_reactors);
     smp_queues_constructed.wait();
     start_all_queues();
-    assign_io_queue(0, queue_idx);
+    for (auto& dev_id : disk_config.device_ids()) {
+        assign_io_queue(0, dev_id);
+    }
     inited.wait();
 
     engine().configure(configuration);
