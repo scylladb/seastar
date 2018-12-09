@@ -23,7 +23,7 @@
 
 #include <boost/range/numeric.hpp>
 
-#include "test-utils.hh"
+#include <seastar/testing/seastar_test.hh>
 #include <seastar/core/file.hh>
 
 namespace seastar {

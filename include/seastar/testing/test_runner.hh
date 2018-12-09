@@ -16,33 +16,37 @@
  * under the License.
  */
 /*
- * Copyright (C) 2014 Cloudius Systems, Ltd.
+ * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#include <seastar/core/reactor.hh>
-#include <seastar/core/shared_ptr.hh>
-#include <seastar/core/do_with.hh>
-#include <seastar/testing/test_case.hh>
+#pragma once
 
-using namespace seastar;
+#include <memory>
+#include <functional>
+#include <atomic>
+#include <seastar/core/future.hh>
+#include <seastar/core/posix.hh>
+#include <seastar/testing/exchanger.hh>
 
-extern "C" {
-#include <signal.h>
-#include <sys/types.h>
-#include <unistd.h>
+namespace seastar {
+
+namespace testing {
+
+class test_runner {
+private:
+    std::unique_ptr<posix_thread> _thread;
+    std::atomic<bool> _started{false};
+    exchanger<std::function<future<>()>> _task;
+    bool _done = false;
+public:
+    void start(int argc, char** argv);
+    ~test_runner();
+    void run_sync(std::function<future<>()> task);
+    void finalize();
+};
+
+test_runner& global_test_runner();
+
 }
 
-SEASTAR_TEST_CASE(test_sighup) {
-    return do_with(make_lw_shared<promise<>>(), false, [](auto const& p, bool& signaled) {
-        engine().handle_signal(SIGHUP, [p, &signaled] {
-            signaled = true;
-            p->set_value();
-        });
-
-        kill(getpid(), SIGHUP);
-
-        return p->get_future().then([&] {
-            BOOST_REQUIRE_EQUAL(signaled, true);
-        });
-    });
-} 
+}

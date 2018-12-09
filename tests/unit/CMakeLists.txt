@@ -72,6 +72,9 @@ macro (seastar_add_test name)
     target_link_libraries (${executable_target}
       PRIVATE ${libraries})
 
+    target_compile_definitions (${executable_target}
+      PRIVATE SEASTAR_TESTING_MAIN)
+
     target_include_directories (${executable_target}
       PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}

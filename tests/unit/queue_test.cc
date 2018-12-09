@@ -19,7 +19,7 @@
  * Copyright 2018 ScyllaDB
  */
 
-#include "test-utils.hh"
+#include <seastar/testing/test_case.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sleep.hh>

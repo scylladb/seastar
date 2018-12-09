@@ -15,34 +15,19 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
 /*
- * Copyright (C) 2014 Cloudius Systems, Ltd.
+ * Copyright (C) 2018 ScyllaDB Ltd.
  */
 
-#include <seastar/core/reactor.hh>
-#include <seastar/core/shared_ptr.hh>
-#include <seastar/core/do_with.hh>
-#include <seastar/testing/test_case.hh>
+#pragma once
 
-using namespace seastar;
+namespace seastar {
 
-extern "C" {
-#include <signal.h>
-#include <sys/types.h>
-#include <unistd.h>
+namespace testing {
+
+int entry_point(int argc, char **argv);
+
 }
 
-SEASTAR_TEST_CASE(test_sighup) {
-    return do_with(make_lw_shared<promise<>>(), false, [](auto const& p, bool& signaled) {
-        engine().handle_signal(SIGHUP, [p, &signaled] {
-            signaled = true;
-            p->set_value();
-        });
-
-        kill(getpid(), SIGHUP);
-
-        return p->get_future().then([&] {
-            BOOST_REQUIRE_EQUAL(signaled, true);
-        });
-    });
-} 
+}

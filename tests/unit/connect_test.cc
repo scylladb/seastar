@@ -1,4 +1,4 @@
-#include "test-utils.hh"
+#include <seastar/testing/test_case.hh>
 
 #include <seastar/net/ip.hh>
 

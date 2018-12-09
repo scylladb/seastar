@@ -15,36 +15,22 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
 /*
- * Copyright (C) 2015 Cloudius Systems, Ltd.
+ * Copyright (C) 2018 ScyllaDB Ltd.
  */
 
 #pragma once
 
-#include <memory>
-#include <functional>
-#include <atomic>
 #include <seastar/core/future.hh>
-#include <seastar/core/posix.hh>
-#include "exchanger.hh"
 
-namespace seastar {
+#include <seastar/testing/seastar_test.hh>
 
-class posix_thread;
-
-class test_runner {
-private:
-    std::unique_ptr<posix_thread> _thread;
-    std::atomic<bool> _started{false};
-    exchanger<std::function<future<>()>> _task;
-    bool _done = false;
-public:
-    void start(int argc, char** argv);
-    ~test_runner();
-    void run_sync(std::function<future<>()> task);
-    void finalize();
-};
-
-test_runner& global_test_runner();
-
-}
+#define SEASTAR_TEST_CASE(name) \
+    struct name : public seastar::testing::seastar_test { \
+        const char* get_test_file() override { return __FILE__; } \
+        const char* get_name() override { return #name; } \
+        seastar::future<> run_test_case() override; \
+    }; \
+    static name name ## _instance; \
+    seastar::future<> name::run_test_case()

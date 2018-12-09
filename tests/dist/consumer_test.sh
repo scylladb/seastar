@@ -37,6 +37,7 @@ cd "${CONSUMER_SOURCE_DIR}"
 
 cmake --build build
 build/cmake_consumer
+build/cmake_testing_consumer
 
 #
 # Consume from pkg-config.
@@ -45,5 +46,6 @@ build/cmake_consumer
 ingredients_dir="build/_cooking/installed"
 library_path="${ingredients_dir}"/lib
 pkg_config_path="${library_path}"/pkgconfig
-make BUILD_DIR=build LD_LIBRARY_PATH="${library_path}" PKG_CONFIG_PATH="${pkg_config_path}"
+make BUILD_DIR=build PKG_CONFIG_PATH="${pkg_config_path}"
 LD_LIBRARY_PATH="${library_path}" build/pkgconfig_consumer
+LD_LIBRARY_PATH="${library_path}" build/pkgconfig_testing_consumer

@@ -25,9 +25,11 @@
 #include <seastar/core/future-util.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/posix.hh>
-#include "test_runner.hh"
+#include <seastar/testing/test_runner.hh>
 
 namespace seastar {
+
+namespace testing {
 
 static test_runner instance;
 
@@ -112,6 +114,8 @@ void test_runner::finalize() {
 
 test_runner& global_test_runner() {
     return instance;
+}
+
 }
 
 }

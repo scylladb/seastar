@@ -24,12 +24,15 @@
 #
 #     BUILD_DIR
 
-source=pkgconfig_consumer.cc
-
 .PHONY: prepare
 
-pkgconfig_consumer: $(source) prepare
+all: pkgconfig_consumer pkgconfig_testing_consumer
+
+pkgconfig_consumer: pkgconfig_consumer.cc prepare
 	$(CXX) $< `pkg-config seastar --cflags --libs --static` -o $(BUILD_DIR)/$@
+
+pkgconfig_testing_consumer: pkgconfig_testing_consumer.cc prepare
+	$(CXX) $< `pkg-config seastar seastar-testing --cflags --libs --static` -o $(BUILD_DIR)/$@
 
 prepare:
 	mkdir -p $(BUILD_DIR)

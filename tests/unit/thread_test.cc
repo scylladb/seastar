@@ -22,7 +22,7 @@
 
 #include <seastar/core/thread.hh>
 #include <seastar/core/do_with.hh>
-#include "test-utils.hh"
+#include <seastar/testing/test_case.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/semaphore.hh>

@@ -22,14 +22,17 @@
 
 #pragma once
 
+#include <vector>
 
 #include <boost/test/unit_test.hpp>
 
 #include <seastar/core/future.hh>
-#include <seastar/core/thread.hh>
-#include "test_runner.hh"
+
+#include <seastar/testing/entry_point.hh>
 
 namespace seastar {
+
+namespace testing {
 
 class seastar_test {
 public:
@@ -41,27 +44,16 @@ public:
     void run();
 };
 
-#define SEASTAR_TEST_CASE(name) \
-    struct name : public seastar_test { \
-        const char* get_test_file() override { return __FILE__; } \
-        const char* get_name() override { return #name; } \
-        future<> run_test_case() override; \
-    }; \
-    static name name ## _instance; \
-    future<> name::run_test_case()
-
-#define SEASTAR_THREAD_TEST_CASE(name) \
-    struct name : public seastar_test { \
-        const char* get_test_file() override { return __FILE__; } \
-        const char* get_name() override { return #name; } \
-        future<> run_test_case() override { \
-            return async([this] { \
-                do_run_test_case(); \
-            }); \
-        } \
-        void do_run_test_case(); \
-    }; \
-    static name name ## _instance; \
-    void name::do_run_test_case() \
+const std::vector<seastar_test*>& known_tests();
 
 }
+
+}
+
+#ifdef SEASTAR_TESTING_MAIN
+
+int main(int argc, char** argv) {
+    return seastar::testing::entry_point(argc, argv);
+}
+
+#endif // SEASTAR_TESTING_MAIN
