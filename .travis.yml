@@ -27,7 +27,8 @@ dependencies:
         "libtool",
         "cmake",
         "libc-ares-dev",
-        "libyaml-cpp-dev"
+        "libyaml-cpp-dev",
+        "realpath"
     ]
 matrix:
     include:
