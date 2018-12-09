@@ -2193,6 +2193,18 @@ reactor::file_system_at(sstring pathname) {
     });
 }
 
+future<struct statvfs>
+reactor::statvfs(sstring pathname) {
+    return _thread_pool.submit<syscall_result_extra<struct statvfs>>([pathname] {
+        struct statvfs st;
+        auto ret = ::statvfs(pathname.c_str(), &st);
+        return wrap_syscall(ret, st);
+    }).then([pathname] (syscall_result_extra<struct statvfs> sr) {
+        sr.throw_fs_exception_if_error("statvfs failed", pathname);
+        struct statvfs st = sr.extra;
+        return make_ready_future<struct statvfs>(std::move(st));
+    });
+}
 
 future<file>
 reactor::open_directory(sstring name) {
@@ -4799,6 +4811,18 @@ future<> rename_file(sstring old_pathname, sstring new_pathname) {
 
 future<fs_type> file_system_at(sstring name) {
     return engine().file_system_at(name);
+}
+
+future<uint64_t> fs_avail(sstring name) {
+    return engine().statvfs(name).then([] (struct statvfs st) {
+        return make_ready_future<uint64_t>(st.f_bavail * st.f_frsize);
+    });
+}
+
+future<uint64_t> fs_free(sstring name) {
+    return engine().statvfs(name).then([] (struct statvfs st) {
+        return make_ready_future<uint64_t>(st.f_bfree * st.f_frsize);
+    });
 }
 
 future<uint64_t> file_size(sstring name) {

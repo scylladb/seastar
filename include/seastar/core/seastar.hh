@@ -280,6 +280,15 @@ future<> link_file(sstring oldpath, sstring newpath);
 /// \param name name of the file to inspect
 future<fs_type> file_system_at(sstring name);
 
+/// Return space available to unprivileged users in filesystem where a file is located, in bytes.
+///
+/// \param name name of the file to inspect
+future<uint64_t> fs_avail(sstring name);
+
+/// Return free space in filesystem where a file is located, in bytes.
+///
+/// \param name name of the file to inspect
+future<uint64_t> fs_free(sstring name);
 /// @}
 
 }

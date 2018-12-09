@@ -987,6 +987,7 @@ public:
     future<uint64_t> file_size(sstring pathname);
     future<bool> file_exists(sstring pathname);
     future<fs_type> file_system_at(sstring pathname);
+    future<struct statvfs> statvfs(sstring pathname);
     future<> remove_file(sstring pathname);
     future<> rename_file(sstring old_pathname, sstring new_pathname);
     future<> link_file(sstring oldpath, sstring newpath);

@@ -30,6 +30,7 @@
 #include <seastar/util/std-compat.hh>
 #include <system_error>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/ioctl.h>
 #include <linux/fs.h>
 #include <sys/uio.h>
