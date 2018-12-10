@@ -596,6 +596,26 @@ int main(int ac, char** av) {
                     iotune_logger.error("Exception when qualifying filesystem at {}", eval_dir);
                     return 1;
                 }
+
+                auto rec = 10000000000ULL;
+                auto avail = fs_avail(eval_dir).get0();
+                if (avail < rec) {
+                    uint64_t val;
+                    const char* units;
+                    if (avail >= 1000000000) {
+                        val = (avail + 500000000) / 1000000000;
+                        units = "GB";
+                    } else if (avail >= 1000000) {
+                        val = (avail + 500000) / 1000000;
+                        units = "MB";
+                    } else {
+                        val = avail;
+                        units = "bytes";
+                    }
+                    iotune_logger.warn("Available space on filesystem at {}: {} {}: is less than recommended: {} GB",
+                                       eval_dir, val, units, rec / 1000000000ULL);
+                }
+
                 iotune_logger.info("{} passed sanity checks", eval_dir);
                 if (fs_check) {
                     return 0;
