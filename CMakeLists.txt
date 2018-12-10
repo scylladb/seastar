@@ -203,7 +203,7 @@ set (Seastar_GEN_BINARY_DIR ${Seastar_BINARY_DIR}/gen)
 ## Public dependencies.
 ##
 
-find_package (Boost 1.64.0 REQUIRED
+find_package (boost 1.64.0 REQUIRED
   COMPONENTS
     filesystem
     program_options
@@ -224,7 +224,7 @@ find_package (lz4 1.8.0 REQUIRED)
 find_package (Concepts)
 find_package (GnuTLS 3.5.18 REQUIRED)
 find_package (LinuxMembarrier)
-find_package (Protobuf 3.3.0 REQUIRED)
+find_package (protobuf 3.3.0 REQUIRED)
 find_package (Sanitizers REQUIRED)
 find_package (StdFilesystem REQUIRED)
 find_package (dl REQUIRED)
