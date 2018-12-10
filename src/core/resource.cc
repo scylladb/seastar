@@ -412,7 +412,7 @@ resources allocate(configuration c) {
         ret.cpus.push_back(cpu{i, {{mem / procs, 0}}});
     }
 
-    ret.ioq_topology.emplace_back(0, allocate_io_queues(c, ret.cpus));
+    ret.ioq_topology.emplace(0, allocate_io_queues(c, ret.cpus));
     return ret;
 }
 
