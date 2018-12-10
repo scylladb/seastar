@@ -27,6 +27,8 @@ check_cxx_source_compiles ("int main() {}" Sanitizers_ADDRESS_FOUND)
 
 if (Sanitizers_ADDRESS_FOUND)
   set (Sanitizers_ADDRESS_COMPILER_OPTIONS -fsanitize=address)
+else()
+  message(WARN "Sanitizers_ADDRESS_FOUND is false")
 endif ()
 
 set (CMAKE_REQUIRED_FLAGS -fsanitize=undefined)
