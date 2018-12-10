@@ -418,12 +418,20 @@ sharded<Service>::sharded(sharded&& x) noexcept : _instances(std::move(x._instan
     }
 }
 
+namespace internal {
+
+using on_each_shard_func = std::function<future<> (unsigned shard)>;
+
+future<> sharded_parallel_for_each(unsigned nr_shards, on_each_shard_func on_each_shard);
+
+}
+
 template <typename Service>
 template <typename... Args>
 future<>
 sharded<Service>::start(Args&&... args) {
     _instances.resize(smp::count);
-    return parallel_for_each(boost::irange<unsigned>(0, _instances.size()),
+    return internal::sharded_parallel_for_each(_instances.size(),
         [this, args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) mutable {
             return smp::submit_to(c, [this, args] () mutable {
                 _instances[engine().cpu_id()].service = apply([this] (Args... args) {
@@ -467,7 +475,7 @@ sharded<Service>::start_single(Args&&... args) {
 template <typename Service>
 future<>
 sharded<Service>::stop() {
-    return parallel_for_each(boost::irange<unsigned>(0, _instances.size()), [this] (unsigned c) mutable {
+    return internal::sharded_parallel_for_each(_instances.size(), [this] (unsigned c) mutable {
         return smp::submit_to(c, [this] () mutable {
             auto inst = _instances[engine().cpu_id()].service;
             if (!inst) {
@@ -487,7 +495,7 @@ sharded<Service>::stop() {
 template <typename Service>
 future<>
 sharded<Service>::invoke_on_all(std::function<future<> (Service&)> func) {
-    return parallel_for_each(boost::irange<unsigned>(0, _instances.size()), [this, func = std::move(func)] (unsigned c) {
+    return internal::sharded_parallel_for_each(_instances.size(), [this, func = std::move(func)] (unsigned c) {
         return smp::submit_to(c, [this, func] {
             return func(*get_local_service());
         });
