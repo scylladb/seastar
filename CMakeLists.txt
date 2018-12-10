@@ -203,7 +203,7 @@ set (Seastar_GEN_BINARY_DIR ${Seastar_BINARY_DIR}/gen)
 ## Public dependencies.
 ##
 
-find_package (boost 1.64.0 REQUIRED
+find_package (Boost 1.64.0 REQUIRED
   COMPONENTS
     filesystem
     program_options
