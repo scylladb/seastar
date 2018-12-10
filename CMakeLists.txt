@@ -585,8 +585,16 @@ target_link_libraries (seastar
     debug Sanitizers::address
     debug Sanitizers::undefined_behavior)
 
+#
+# We want asserts enabled on all modes, but cmake defaults to passing
+# -DNDEBUG in some modes. We add -UNDEBUG to our private options to
+# reenable it. To force asserts off pass -DNDEBUG in
+# Seastar_CXX_FLAGS.
+#
+
 target_compile_options (seastar
-  PUBLIC -std=${Seastar_CXX_DIALECT})
+  PUBLIC -std=${Seastar_CXX_DIALECT}
+  PRIVATE -UNDEBUG)
 
 if (Seastar_GCC6_CONCEPTS OR Concepts_FOUND)
   target_compile_definitions (seastar
