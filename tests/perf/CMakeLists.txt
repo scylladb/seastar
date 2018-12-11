@@ -77,8 +77,7 @@ endmacro ()
 
 message(WARN "======================================== adding fstream test")
 seastar_add_test (fstream
-  SOURCES fstream_perf.cc
-  NO_SEASTAR_PERF_TESTING_LIBRARY)
+  SOURCES fstream_perf.cc)
 
 seastar_add_test (future_util
   SOURCES future_util_perf.cc)
