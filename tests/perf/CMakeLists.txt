@@ -59,7 +59,7 @@ macro (seastar_add_test name)
 
   message(WARN "====================================== LINKING LIBRARIES FOR ${target} are ${libraries}")
   target_link_libraries (${target}
-    PRIVATE ${libraries})
+    ${libraries})
 
   target_include_directories (${target}
     PRIVATE
@@ -75,7 +75,6 @@ macro (seastar_add_test name)
 endmacro ()
 
 
-message(WARN "======================================== adding fstream test")
 seastar_add_test (fstream
   SOURCES fstream_perf.cc)
 

@@ -260,11 +260,6 @@ function (seastar_generate_protobuf)
   set (header_out ${args_OUT_DIR}/${in_file_name}.pb.h)
   set (source_out ${args_OUT_DIR}/${in_file_name}.pb.cc)
 
-  message(WARN " : protobuf command : ${Protobuf_PROTOC_EXECUTABLE}")
-  message(WARN " : in_file_dir : ${args_OUT_DIR}")
-  message(WARN " : out_file_dir : ${in_file_dir}")
-  message(WARN " : input_file : ${args_IN_FILE}")
-
   add_custom_command (
     DEPENDS ${args_IN_FILE}
     OUTPUT ${header_out} ${source_out}
@@ -338,8 +333,6 @@ seastar_generate_protobuf (
   VAR proto_metrics2_files
   IN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/src/proto/metrics2.proto
   OUT_DIR ${Seastar_GEN_BINARY_DIR}/src/proto)
-
-message(WARN "metrics file: ${proto_metrics2_files}")
 
 add_library (seastar STATIC
   ${http_request_parser_file}
@@ -732,6 +725,9 @@ if (Seastar_INSTALL OR Seastar_TESTING)
   target_link_libraries (seastar_testing
     PUBLIC
       Boost::unit_test_framework
+      Boost::boost
+      Boost::program_options
+      Boost::thread
       seastar)
 endif ()
 
@@ -748,7 +744,6 @@ if (Seastar_TESTING)
     set (exclude "")
   endif ()
 
-    message(WARN "======================================== adding tests subdir")
   add_subdirectory (tests ${exclude})
 endif ()
 
