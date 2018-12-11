@@ -90,19 +90,13 @@ int io_getevents(::aio_context_t io_context, long min_nr, long nr, ::io_event* e
             auto ring_events = reinterpret_cast<const ::io_event*>(uintptr_t(io_context) + ring->header_length);
             auto now = std::min<uint32_t>(nr, available);
             auto start = ring_events + head;
-            auto end = start + now;
-            if (head + now > ring->nr) {
-                end -= ring->nr;
-            }
-            if (end > start) {
-                std::copy(start, end, events);
-            } else {
-                auto p = std::copy(start, ring_events + ring->nr, events);
-                std::copy(ring_events, end, p);
-            }
             head += now;
-            if (head >= ring->nr) {
+            if (head < ring->nr) {
+                std::copy(start, start + now, events);
+            } else {
                 head -= ring->nr;
+                auto p = std::copy(start, ring_events + ring->nr, events);
+                std::copy(ring_events, ring_events + head, p);
             }
             // The kernel will read ring->head and update its view of how many entries
             // in the ring are available, so memory_order_release to make sure any ring
