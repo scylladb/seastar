@@ -239,6 +239,10 @@ find_package (ragel 6.10 REQUIRED)
 find_package (rt REQUIRED)
 find_package (yaml-cpp 0.5.3 REQUIRED)
 
+if (NOT ${Protobuf_PROTOC_EXECUTABLE})
+  message(FATAL_ERROR "missing protoc executable")
+endif()
+
 #
 # Code generation helpers.
 #
@@ -251,10 +255,10 @@ function (seastar_generate_protobuf)
   set (header_out ${args_OUT_DIR}/${in_file_name}.pb.h)
   set (source_out ${args_OUT_DIR}/${in_file_name}.pb.cc)
 
-  message(WARN " protobuf command : ${Protobuf_PROTOC_EXECUTABLE}")
-  message(WARN " in_file_dir : ${args_OUT_DIR}")
-  message(WARN " out_file_dir : ${in_file_dir}")
-  message(WARN " input_file : ${args_IN_FILE}")
+  message(WARN " : protobuf command : ${Protobuf_PROTOC_EXECUTABLE}")
+  message(WARN " : in_file_dir : ${args_OUT_DIR}")
+  message(WARN " : out_file_dir : ${in_file_dir}")
+  message(WARN " : input_file : ${args_IN_FILE}")
 
   add_custom_command (
     DEPENDS ${args_IN_FILE}
@@ -329,6 +333,8 @@ seastar_generate_protobuf (
   VAR proto_metrics2_files
   IN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/src/proto/metrics2.proto
   OUT_DIR ${Seastar_GEN_BINARY_DIR}/src/proto)
+
+message(WARN "metrics file: ${proto_metrics2_files}")
 
 add_library (seastar STATIC
   ${http_request_parser_file}
