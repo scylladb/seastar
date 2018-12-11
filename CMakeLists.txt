@@ -237,7 +237,7 @@ find_package (numactl)
 find_package (ragel 6.10 REQUIRED)
 find_package (rt REQUIRED)
 find_package (yaml-cpp 0.5.3 REQUIRED)
-find_package (protobuf 3.3.0 REQUIRED)
+find_package (protobuf2 3.3.0 REQUIRED)
 
 if (NOT "${Protobuf_PROTOC_EXECUTABLE}")
   message(FATAL_ERROR "missing protoc executable")
@@ -872,7 +872,7 @@ if (Seastar_INSTALL)
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindConcepts.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindGnuTLS.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindLinuxMembarrier.cmake
-      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindProtobuf.cmake
+          ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindProtobuf2.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindSanitizers.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindStdFilesystem.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findc-ares.cmake
