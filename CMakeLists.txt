@@ -244,6 +244,7 @@ find_package (yaml-cpp 0.5.3 REQUIRED)
 #
 
 function (seastar_generate_protobuf)
+  message(status " protobuf command : ${Protobuf_PROTOC_EXECUTABLE}")
   set (one_value_args TARGET VAR IN_FILE OUT_DIR)
   cmake_parse_arguments (args "" "${one_value_args}" "" ${ARGN})
   get_filename_component (in_file_name ${args_IN_FILE} NAME_WE)
