@@ -251,10 +251,10 @@ function (seastar_generate_protobuf)
   set (header_out ${args_OUT_DIR}/${in_file_name}.pb.h)
   set (source_out ${args_OUT_DIR}/${in_file_name}.pb.cc)
 
-  message(status " protobuf command : ${Protobuf_PROTOC_EXECUTABLE}")
-  message(status " in_file_dir : ${args_OUT_DIR}")
-  message(status " out_file_dir : ${in_file_dir}")
-  message(status " input_file : ${args_IN_FILE}")
+  message(WARN " protobuf command : ${Protobuf_PROTOC_EXECUTABLE}")
+  message(WARN " in_file_dir : ${args_OUT_DIR}")
+  message(WARN " out_file_dir : ${in_file_dir}")
+  message(WARN " input_file : ${args_IN_FILE}")
 
   add_custom_command (
     DEPENDS ${args_IN_FILE}
