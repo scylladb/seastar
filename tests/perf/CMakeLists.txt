@@ -74,6 +74,8 @@ macro (seastar_add_test name)
   set (${name}_test ${target})
 endmacro ()
 
+
+message(WARN "======================================== adding fstream test")
 seastar_add_test (fstream
   SOURCES fstream_perf.cc
   NO_SEASTAR_PERF_TESTING_LIBRARY)

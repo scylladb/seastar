@@ -748,6 +748,7 @@ if (Seastar_TESTING)
     set (exclude "")
   endif ()
 
+    message(WARN "======================================== adding tests subdir")
   add_subdirectory (tests ${exclude})
 endif ()
 

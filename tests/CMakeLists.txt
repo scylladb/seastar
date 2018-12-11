@@ -38,6 +38,8 @@ if (Seastar_INSTALL)
 endif ()
 
 # Performance tests.
+
+message(WARN "======================================== adding perf subdir")
 add_subdirectory (perf)
 
 # Unit tests.
