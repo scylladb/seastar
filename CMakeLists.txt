@@ -244,13 +244,17 @@ find_package (yaml-cpp 0.5.3 REQUIRED)
 #
 
 function (seastar_generate_protobuf)
-  message(status " protobuf command : ${Protobuf_PROTOC_EXECUTABLE}")
   set (one_value_args TARGET VAR IN_FILE OUT_DIR)
   cmake_parse_arguments (args "" "${one_value_args}" "" ${ARGN})
   get_filename_component (in_file_name ${args_IN_FILE} NAME_WE)
   get_filename_component (in_file_dir ${args_IN_FILE} DIRECTORY)
   set (header_out ${args_OUT_DIR}/${in_file_name}.pb.h)
   set (source_out ${args_OUT_DIR}/${in_file_name}.pb.cc)
+
+  message(status " protobuf command : ${Protobuf_PROTOC_EXECUTABLE}")
+  message(status " in_file_dir : ${args_OUT_DIR}")
+  message(status " out_file_dir : ${in_file_dir}")
+  message(status " input_file : ${args_IN_FILE}")
 
   add_custom_command (
     DEPENDS ${args_IN_FILE}
