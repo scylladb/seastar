@@ -241,7 +241,7 @@ find_package (rt REQUIRED)
 find_package (yaml-cpp 0.5.3 REQUIRED)
 find_package (Protobuf 3.3.0 REQUIRED)
 
-if (NOT "${PROTOC_BINARY}")
+if (NOT "${PROTOBUF_PROTOC_EXECUTABLE}")
   get_cmake_property(_variableNames VARIABLES)
   list (SORT _variableNames)
   foreach (_variableName ${_variableNames})
