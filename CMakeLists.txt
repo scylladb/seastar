@@ -205,12 +205,12 @@ set (Seastar_GEN_BINARY_DIR ${Seastar_BINARY_DIR}/gen)
 ## Public dependencies.
 ##
 
-find_package (Boost 1.64.0 REQUIRED
+find_package (Boost 1.68.0 REQUIRED
   COMPONENTS
     filesystem
     program_options
     thread
-  OPTIONAL_COMPONENTS unit_test_framework)
+    unit_test_framework)
 
 find_package (c-ares 1.13.0 REQUIRED MODULE)
 find_package (cryptopp 5.6.5 REQUIRED)

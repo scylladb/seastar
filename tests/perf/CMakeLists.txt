@@ -50,7 +50,8 @@ macro (seastar_add_test name)
   else ()
     set (libraries
       seastar
-      seastar_perf_testing)
+      seastar_perf_testing
+      Boost::program_options)
   endif ()
 
   target_link_libraries (${target}
