@@ -78,7 +78,10 @@ class BacktraceResolver(object):
             self._known_modules[module] = Addr2Line(module)
         return self._known_modules[module]
 
-    def __del__(self):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, tb):
         self._print_current_backtrace()
 
     def _print_resolved_address(self, module, address):
@@ -237,6 +240,6 @@ else:
     else:
         lines = sys.stdin
 
-resolve = BacktraceResolver(args.executable, args.before, args.verbose)
-for line in lines:
-    resolve(line)
+with BacktraceResolver(args.executable, args.before, args.verbose) as resolve:
+    for line in lines:
+        resolve(line)
