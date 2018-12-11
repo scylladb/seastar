@@ -241,7 +241,7 @@ find_package (rt REQUIRED)
 find_package (yaml-cpp 0.5.3 REQUIRED)
 find_package (Protobuf 3.3.0 REQUIRED)
 
-if (NOT "${Protobuf_PROTOC_EXECUTABLE}")
+if (NOT "${PROTOC_BINARY}")
   message(FATAL_ERROR "missing protoc executable")
 endif()
 
@@ -257,7 +257,7 @@ function (seastar_generate_protobuf)
   set (header_out ${args_OUT_DIR}/${in_file_name}.pb.h)
   set (source_out ${args_OUT_DIR}/${in_file_name}.pb.cc)
 
-  message(WARN " : protobuf command : ${Protobuf_PROTOC_EXECUTABLE}")
+  message(WARN " : protobuf command : ${PROTOC_BINARY}")
   message(WARN " : in_file_dir : ${args_OUT_DIR}")
   message(WARN " : out_file_dir : ${in_file_dir}")
   message(WARN " : input_file : ${args_IN_FILE}")
