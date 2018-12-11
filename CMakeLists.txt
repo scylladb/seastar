@@ -242,6 +242,11 @@ find_package (yaml-cpp 0.5.3 REQUIRED)
 find_package (Protobuf 3.3.0 REQUIRED)
 
 if (NOT "${PROTOC_BINARY}")
+  get_cmake_property(_variableNames VARIABLES)
+  list (SORT _variableNames)
+  foreach (_variableName ${_variableNames})
+    message(STATUS "${_variableName}=${${_variableName}}")
+  endforeach()
   message(FATAL_ERROR "missing protoc executable")
 endif()
 
