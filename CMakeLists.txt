@@ -239,7 +239,7 @@ find_package (numactl)
 find_package (ragel 6.10 REQUIRED)
 find_package (rt REQUIRED)
 find_package (yaml-cpp 0.5.3 REQUIRED)
-find_package (protobuf2 3.3.0 REQUIRED)
+find_package (Protobuf2 3.3.0 REQUIRED)
 
 if (NOT "${Protobuf_PROTOC_EXECUTABLE}")
   message(FATAL_ERROR "missing protoc executable")
