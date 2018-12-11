@@ -47,7 +47,6 @@ set (Sanitizers_COMPILER_OPTIONS
   ${Sanitizers_UNDEFINED_BEHAVIOR_COMPILER_OPTIONS})
 
 file (READ ${CMAKE_CURRENT_LIST_DIR}/code_tests/Sanitizers_fiber_test.cc _sanitizers_fiber_test_code)
-message(WARN "read file ${_sanitizers_fiber_test_code}")
 set (CMAKE_REQUIRED_FLAGS ${Sanitizers_COMPILER_OPTIONS})
 check_cxx_source_compiles ("${_sanitizers_fiber_test_code}" Sanitizers_FIBER_SUPPORT)
 

@@ -25,8 +25,6 @@ cmake_minimum_required (VERSION 3.5)
 list (APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 include (Cooking OPTIONAL)
 
-MESSAGE(FATAL_EROR "CMAKE_MODULE_PATH IS ${CMAKE_MODULE_PATH}")
-
 include(${CMAKE_BINARY_DIR}/conan_paths.cmake)
 
 project (Seastar
@@ -262,7 +260,7 @@ function (seastar_generate_protobuf)
   set (header_out ${args_OUT_DIR}/${in_file_name}.pb.h)
   set (source_out ${args_OUT_DIR}/${in_file_name}.pb.cc)
 
-  message(WARN " : protobuf command : ${PROTOC_BINARY}")
+  message(WARN " : protobuf command : ${Protobuf_PROTOC_EXECUTABLE}")
   message(WARN " : in_file_dir : ${args_OUT_DIR}")
   message(WARN " : out_file_dir : ${in_file_dir}")
   message(WARN " : input_file : ${args_IN_FILE}")
