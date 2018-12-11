@@ -25,7 +25,7 @@ cmake_minimum_required (VERSION 3.5)
 list (APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 include (Cooking OPTIONAL)
 
-include(${CMAKE_BINARY_DIR}/conan_paths.cmake)
+#include(${CMAKE_BINARY_DIR}/conan_paths.cmake)
 
 project (Seastar
   VERSION 1.0
