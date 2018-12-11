@@ -57,7 +57,7 @@ macro (seastar_add_test name)
       Boost::filesystem)
   endif ()
 
-  message(WARN "LINKING LIBRARIES FOR ${target} are ${libraries}")
+  message(WARN "====================================== LINKING LIBRARIES FOR ${target} are ${libraries}")
   target_link_libraries (${target}
     PRIVATE ${libraries})
 
