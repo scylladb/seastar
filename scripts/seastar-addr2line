@@ -29,6 +29,15 @@ class Addr2Line:
         self._binary = binary
         self._addr2line = subprocess.Popen(["addr2line", "-Cfpia", "-e", self._binary], stdin=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
 
+        # If a library doesn't exist in a particular path, addr2line
+        # will just exit.  We need to be robust against that.  We
+        # can't just wait on self._addr2line since there is no
+        # guarantee on what timeout is sufficient.
+        self._addr2line.stdin.write('\n')
+        self._addr2line.stdin.flush()
+        res = self._addr2line.stdout.readline()
+        self._missing = res == ''
+
     def _read_resolved_address(self):
         res = self._addr2line.stdout.readline()
         # remove the address
@@ -41,24 +50,13 @@ class Addr2Line:
         return res
 
     def __call__(self, address):
-        # If a library doesn't exist in a particular path, addr2line will just
-        # return an IOError, so we need to be robust against that.
-        #
-        # It would be cleaner to already know that in advance in the constructor,
-        # but unfortunately the process won't really exit with a return code until
-        # we try to pipe something to it - so we wrap the decoding code in a
-        # try/except block.
-        #
-        # Instead of an exception we print the address and library name and
-        # move on.
-        try:
-            # print two lines to force addr2line to output a dummy
-            # line which we can look for in _read_address
-            self._addr2line.stdin.write(address + '\n\n')
-            self._addr2line.stdin.flush()
-            return self._read_resolved_address()
-        except IOError:
+        if self._missing:
             return " ".join([self._binary, address, '\n'])
+        # print two lines to force addr2line to output a dummy
+        # line which we can look for in _read_address
+        self._addr2line.stdin.write(address + '\n\n')
+        self._addr2line.stdin.flush()
+        return self._read_resolved_address()
 
 class BacktraceResolver(object):
     object_address_re = re.compile('^.*?(((/[^/]+)+)\+)?(0x[0-9a-f]+)\W*$')
