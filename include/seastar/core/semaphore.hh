@@ -326,6 +326,15 @@ public:
         _n -= units;
         return semaphore_units(_sem, units);
     }
+    /// The inverse of split(), in which the units held by the specified \ref semaphore_units
+    /// object are merged into the current one. The function assumes (and asserts) that both
+    /// are associated with the same \ref semaphore.
+    ///
+    /// \return the updated semaphore_units object
+    void adopt(semaphore_units&& other) noexcept {
+        assert(other._sem == _sem);
+        _n += other.release();
+    }
 };
 
 /// \brief Take units from semaphore temporarily
