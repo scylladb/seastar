@@ -779,44 +779,44 @@ if (Seastar_APPS)
 endif ()
 
 #
-# pkg-config generation.
-#
-# Note that unlike the CMake "config module", this description is not relocatable because
-# some dependencies do not natively support pkg-config.
-#
-
-# Necessary here for pkg-config.
-include (GNUInstallDirs)
-
-if (NOT ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug"))
-  set (Sanitizers_PKGCONFIG_COMPILER_OPTIONS "")
-else ()
-  set (Sanitizers_PKGCONFIG_COMPILER_OPTIONS ${Sanitizers_COMPILER_OPTIONS})
-endif ()
-
-configure_file (
-  ${CMAKE_CURRENT_SOURCE_DIR}/pkgconfig/seastar.pc.in
-  ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar.pc.in
-  @ONLY)
-
-configure_file (
-  ${CMAKE_CURRENT_SOURCE_DIR}/pkgconfig/seastar-testing.pc.in
-  ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar-testing.pc.in
-  @ONLY)
-
-file (GENERATE
-  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/seastar.pc
-  INPUT ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar.pc.in)
-
-file (GENERATE
-  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/seastar-testing.pc
-  INPUT ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar-testing.pc.in)
-
-#
 # Installation and export.
 #
 
 if (Seastar_INSTALL)
+  #
+  # pkg-config generation.
+  #
+  # Note that unlike the CMake "config module", this description is not relocatable because
+  # some dependencies do not natively support pkg-config.
+  #
+
+  # Necessary here for pkg-config.
+  include (GNUInstallDirs)
+
+  if (NOT ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug"))
+    set (Sanitizers_PKGCONFIG_COMPILER_OPTIONS "")
+  else ()
+    set (Sanitizers_PKGCONFIG_COMPILER_OPTIONS ${Sanitizers_COMPILER_OPTIONS})
+  endif ()
+
+  configure_file (
+    ${CMAKE_CURRENT_SOURCE_DIR}/pkgconfig/seastar.pc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar.pc.in
+    @ONLY)
+
+  configure_file (
+    ${CMAKE_CURRENT_SOURCE_DIR}/pkgconfig/seastar-testing.pc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar-testing.pc.in
+    @ONLY)
+
+  file (GENERATE
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/seastar.pc
+    INPUT ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar.pc.in)
+
+  file (GENERATE
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/seastar-testing.pc
+    INPUT ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar-testing.pc.in)
+
   include (CMakePackageConfigHelpers)
   set (install_cmakedir ${CMAKE_INSTALL_LIBDIR}/cmake/Seastar)
 
