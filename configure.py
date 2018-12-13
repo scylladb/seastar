@@ -100,8 +100,8 @@ arg_parser.add_argument('--allocator-page-size', dest='allocator_page_size', typ
 arg_parser.add_argument('--without-tests', dest='exclude_tests', action='store_true', help='Do not build tests by default')
 arg_parser.add_argument('--without-apps', dest='exclude_apps', action='store_true', help='Do not build applications by default')
 arg_parser.add_argument('--without-demos', dest='exclude_demos', action='store_true', help='Do not build demonstrations by default')
-arg_parser.add_argument('--use-std-optional-variant-stringview', dest='cpp17_goodies', action='store', type=int, default=0,
-                        help='Use C++17 std types for optional, variant, and string_view. Requires C++17 dialect and GCC >= 8.1.1-5')
+arg_parser.add_argument('--use-std-optional-variant-stringview-filesystem', dest='cpp17_goodies', action='store', type=int, default=0,
+                        help='Use C++17 std types for optional, variant, string_view, and filesystem. Requires C++17 dialect and GCC >= 8.1.1-5')
 arg_parser.add_argument('--prefix', dest='install_prefix', default='/usr/local', help='Root installation path of Seastar files')
 args = arg_parser.parse_args()
 
@@ -157,7 +157,7 @@ def configure_mode(mode):
         tr(args.alloc_failure_injector, 'ALLOC_FAILURE_INJECTOR'),
         tr(args.exception_workaround, 'EXCEPTION_SCALABILITY_WORKAROUND', value_when_none='yes'),
         tr(args.allocator_page_size, 'ALLOCATOR_PAGE_SIZE'),
-        tr(args.cpp17_goodies, 'STD_OPTIONAL_VARIANT_STRINGVIEW'),
+        tr(args.cpp17_goodies, 'STD_OPTIONAL_VARIANT_STRINGVIEW_FILESYSTEM'),
     ]
 
     # Generate a new build by pointing to the source directory.
