@@ -1074,7 +1074,8 @@ void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd, promise
     }
 }
 
-static bool aio_nowait_supported = true;
+// due to a kernel bug, fix pending: https://lore.kernel.org/lkml/9bab0f40-5748-f147-efeb-5aac4fd44533@scylladb.com/
+static bool aio_nowait_supported = false;
 
 class io_desc {
     promise<io_event> _pr;
