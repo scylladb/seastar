@@ -623,6 +623,7 @@ public:
     future<> touch_directory(sstring name);
     future<compat::optional<directory_entry_type>>  file_type(sstring name);
     future<uint64_t> file_size(sstring pathname);
+    future<bool> file_accessible(sstring pathname, access_flags flags);
     future<bool> file_exists(sstring pathname);
     future<fs_type> file_system_at(sstring pathname);
     future<struct statvfs> statvfs(sstring pathname);

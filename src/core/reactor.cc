@@ -2978,6 +2978,25 @@ reactor::file_size(sstring pathname) {
 }
 
 future<bool>
+reactor::file_accessible(sstring pathname, access_flags flags) {
+    return _thread_pool->submit<syscall_result<int>>([pathname, flags] {
+        auto aflags = std::underlying_type_t<access_flags>(flags);
+        auto ret = ::access(pathname.c_str(), aflags);
+        return wrap_syscall(ret);
+    }).then([this, pathname, flags] (syscall_result<int> sr) {
+        if (sr.result < 0) {
+            if ((sr.error == ENOENT && flags == access_flags::exists) ||
+                (sr.error == EACCES && flags != access_flags::exists)) {
+                return make_ready_future<bool>(false);
+            }
+            sr.throw_fs_exception("access failed", fs::path(pathname));
+        }
+
+        return make_ready_future<bool>(true);
+    });
+}
+
+future<bool>
 reactor::file_exists(sstring pathname) {
     return _thread_pool->submit<syscall_result_extra<struct stat>>([pathname] {
         struct stat st;
@@ -5601,6 +5620,10 @@ future<uint64_t> fs_free(sstring name) {
 
 future<uint64_t> file_size(sstring name) {
     return engine().file_size(name);
+}
+
+future<bool> file_accessible(sstring name, access_flags flags) {
+    return engine().file_accessible(name, flags);
 }
 
 future<bool> file_exists(sstring name) {

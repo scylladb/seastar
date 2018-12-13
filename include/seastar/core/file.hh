@@ -74,6 +74,25 @@ struct directory_entry {
     compat::optional<directory_entry_type> type;
 };
 
+// Access flags for files/directories
+enum class access_flags {
+    exists = F_OK,
+    read = R_OK,
+    write = W_OK,
+    execute = X_OK,
+
+    // alias for directory access
+    lookup = execute,
+};
+
+inline access_flags operator|(access_flags a, access_flags b) {
+    return access_flags(std::underlying_type_t<access_flags>(a) | std::underlying_type_t<access_flags>(b));
+}
+
+inline access_flags operator&(access_flags a, access_flags b) {
+    return access_flags(std::underlying_type_t<access_flags>(a) & std::underlying_type_t<access_flags>(b));
+}
+
 /// File open options
 ///
 /// Options used to configure an open file.
