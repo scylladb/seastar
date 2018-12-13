@@ -510,25 +510,33 @@ struct syscall_result {
     int error;
     syscall_result(T result, int error) : result{std::move(result)}, error{error} {
     }
-    void throw_if_error() {
+    void throw_if_error() const {
         if (long(result) == -1) {
             throw std::system_error(ec());
         }
     }
 
-    void throw_fs_exception_if_error(sstring reason, sstring path) {
+    void throw_fs_exception(const sstring& reason, const fs::path& path) const {
+        throw fs::filesystem_error(reason, path, ec());
+    }
+
+    void throw_fs_exception(const sstring& reason, const fs::path& path1, const fs::path& path2) const {
+        throw fs::filesystem_error(reason, path1, path2, ec());
+    }
+
+    void throw_fs_exception_if_error(const sstring& reason, const sstring& path) const {
         if (long(result) == -1) {
-            throw fs::filesystem_error(reason, fs::path(path), ec());
+            throw_fs_exception(reason, fs::path(path));
         }
     }
 
-    void throw_fs_exception_if_error(sstring reason, sstring path1, sstring path2) {
+    void throw_fs_exception_if_error(const sstring& reason, const sstring& path1, const sstring& path2) const {
         if (long(result) == -1) {
-            throw fs::filesystem_error(reason, fs::path(path1), fs::path(path2), ec());
+            throw_fs_exception(reason, fs::path(path1), fs::path(path2));
         }
     }
 protected:
-    std::error_code ec() {
+    std::error_code ec() const {
         return std::error_code(error, std::system_category());
     }
 };
