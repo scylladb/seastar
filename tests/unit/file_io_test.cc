@@ -43,6 +43,39 @@ SEASTAR_TEST_CASE(open_flags_test) {
     return make_ready_future<>();
 }
 
+SEASTAR_TEST_CASE(access_flags_test) {
+    access_flags flags = access_flags::read | access_flags::write  | access_flags::execute;
+    BOOST_REQUIRE(std::underlying_type_t<open_flags>(flags) ==
+                  (std::underlying_type_t<open_flags>(access_flags::read) |
+                   std::underlying_type_t<open_flags>(access_flags::write) |
+                   std::underlying_type_t<open_flags>(access_flags::execute)));
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(file_exists_test) {
+    return seastar::async([] {
+        sstring filename = "testfile.tmp";
+        auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get0();
+        f.close().get();
+        auto exists = file_exists(filename).get0();
+        BOOST_REQUIRE(exists);
+        remove_file(filename).get();
+        exists = file_exists(filename).get0();
+        BOOST_REQUIRE(!exists);
+    });
+}
+
+SEASTAR_TEST_CASE(file_access_test) {
+    return seastar::async([] {
+        sstring filename = "testfile.tmp";
+        auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get0();
+        f.close().get();
+        auto is_accessible = file_accessible(filename, access_flags::read | access_flags::write).get0();
+        BOOST_REQUIRE(is_accessible);
+        remove_file(filename).get();
+    });
+}
+
 struct file_test {
     file_test(file&& f) : f(std::move(f)) {}
     file f;
