@@ -145,6 +145,8 @@ ninja -C build install
 
 ## Using Seastar in an application
 
+### CMake
+
 Once Seastar has been installed, it is sufficient to add a dependency on Seastar with
 
 ```
@@ -172,3 +174,22 @@ cooking_ingredient (Seastar
   EXTERNAL_PROJECT_ARGS
     SOURCE_DIR ${MY_SEASTAR_SOURCE_DIR})
 ```
+
+### pkg-config
+
+Compiling a single file:
+```
+g++ $(pkg-config --libs --cflags --static /path/to/seastar.pc) foo.cc -o foo
+```
+
+Compiling multiple files:
+```
+// Compiling sources into object files
+g++ -c $(pkg-config --cflags /path/to/seastar.pc)` foo.cc -o foo.o
+g++ -c $(pkg-config --cflags /path/to/seastar.pc)` bar.cc -o bar.o
+
+// Linking object files into an executable
+g++ -o foo_bar foo.o bar.o $(pkg-config --libs --static /path/to/seastar.pc)
+```
+
+The `--static` flag is needed to include transitive (private) dependencies of `libseastar.a`.
