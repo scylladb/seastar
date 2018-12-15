@@ -20,35 +20,38 @@
 # Copyright (C) 2018 Scylladb, Ltd.
 #
 
-find_package (PkgConfig)
+find_package (PkgConfig REQUIRED)
 
-pkg_search_module (PC_hwloc
-  REQUIRED
+pkg_search_module (hwloc_PC
   QUIET
   hwloc)
 
-find_path (hwloc_INCLUDE_DIR
-  NAMES hwloc.h
-  PATHS ${PC_hwloc_INCLUDE_DIRS})
-
 find_library (hwloc_LIBRARY
   NAMES hwloc
-  PATHS ${PC_hwloc_LIBRARY_DIRS})
+  HINTS
+    ${hwloc_PC_LIBDIR}
+    ${hwloc_PC_LIBRARY_DIRS})
 
-set (hwloc_VERSION ${PC_hwloc_VERSION})
+find_path (hwloc_INCLUDE_DIR
+  NAMES hwloc.h
+  HINTS
+    ${hwloc_PC_INCLUDEDIR}
+    ${hwloc_PC_INCLUDEDIRS})
+
+mark_as_advanced (
+  hwloc_LIBRARY
+  hwloc_INCLUDE_DIR)
 
 include (FindPackageHandleStandardArgs)
 
 find_package_handle_standard_args (hwloc
-  FOUND_VAR hwloc_FOUND
   REQUIRED_VARS
-    hwloc_INCLUDE_DIR
     hwloc_LIBRARY
-  VERSION_VAR hwloc_VERSION)
+    hwloc_INCLUDE_DIR
+  VERSION_VAR hwloc_PC_VERSION)
 
-if (hwloc_FOUND)
-  set (hwloc_INCLUDE_DIRS ${hwloc_INCLUDE_DIR})
-endif ()
+set (hwloc_LIBRARIES ${hwloc_LIBRARY})
+set (hwloc_INCLUDE_DIRS ${hwloc_INCLUDE_DIR})
 
 if (hwloc_FOUND AND NOT (TARGET hwloc::hwloc))
   add_library (hwloc::hwloc UNKNOWN IMPORTED)
@@ -56,10 +59,5 @@ if (hwloc_FOUND AND NOT (TARGET hwloc::hwloc))
   set_target_properties (hwloc::hwloc
     PROPERTIES
       IMPORTED_LOCATION ${hwloc_LIBRARY}
-      INTERFACE_COMPILE_OPTIONS "${PC_hwloc_CFLAGS_OTHER}"
-      INTERFACE_INCLUDE_DIRECTORIES ${hwloc_INCLUDE_DIR})
+      INTERFACE_INCLUDE_DIRECTORIES ${hwloc_INCLUDE_DIRS})
 endif ()
-
-mark_as_advanced (
-  hwloc_INCLUDE_DIR
-  hwloc_LIBRARY)
