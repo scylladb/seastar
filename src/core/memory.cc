@@ -723,8 +723,7 @@ void cpu_pages::free_large(void* ptr) {
 }
 
 size_t cpu_pages::object_size(void* ptr) {
-    pageidx idx = (reinterpret_cast<char*>(ptr) - mem()) / page_size;
-    page* span = &pages[idx];
+    page* span = to_page(ptr);
     if (span->pool) {
         auto s = span->pool->object_size();
 #ifdef SEASTAR_HEAPPROF
