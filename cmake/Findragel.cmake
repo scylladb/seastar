@@ -24,6 +24,8 @@ find_program (
   ragel_RAGEL_EXECUTABLE
   ragel)
 
+mark_as_advanced (ragel_RAGEL_EXECUTABLE)
+
 set (_ragel_version_pattern "[0-9]+\\.[0-9]+\\.[0-9]+(\\.[0-9]+)?")
 
 if (ragel_RAGEL_EXECUTABLE)
@@ -39,8 +41,5 @@ if (ragel_RAGEL_EXECUTABLE)
 endif ()
 
 find_package_handle_standard_args (ragel
-  FOUND_VAR ragel_FOUND
   REQUIRED_VARS ragel_RAGEL_EXECUTABLE
   VERSION_VAR ragel_VERSION)
-
-mark_as_advanced (ragel_RAGEL_EXECUTABLE)
