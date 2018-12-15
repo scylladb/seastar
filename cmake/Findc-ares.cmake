@@ -20,26 +20,38 @@
 # Copyright (C) 2018 Scylladb, Ltd.
 #
 
-find_path (c-ares_INCLUDE_DIR
-  NAMES ares_dns.h)
+find_package (PkgConfig REQUIRED)
+
+pkg_check_modules (c-ares_PC
+  QUIET
+  libcares)
 
 find_library (c-ares_LIBRARY
-  NAMES cares)
+  NAMES cares
+  HINTS
+    ${c-ares_PC_LIBDIR}
+    ${c-ares_PC_LIBRARY_DIRS})
 
-if (c-ares_INCLUDE_DIR AND c-ares_LIBRARY)
-  set (c-ares_FOUND ON)
-  set (c-ares_LIBRARIES ${c-ares_LIBRARY})
-  set (c-ares_INCLUDE_DIRS ${c-ares_INCLUDE_DIR})
-endif ()
+find_path (c-ares_INCLUDE_DIR
+  NAMES ares_dns.h
+  HINTS
+    ${c-ares_PC_INCLUDEDIR}
+    ${c-ares_PC_INCLUDE_DIRS})
+
+mark_as_advanced (
+  c-ares_LIBRARY
+  c-ares_INCLUDE_DIR)
 
 include (FindPackageHandleStandardArgs)
 
 find_package_handle_standard_args (c-ares
-  FOUND_VAR c-ares_FOUND
   REQUIRED_VARS
-    c-ares_INCLUDE_DIR
     c-ares_LIBRARY
-  VERSION_VAR c-ares_VERSION)
+    c-ares_INCLUDE_DIR
+  VERSION_VAR c-ares_PC_VERSION)
+
+set (c-ares_LIBRARIES ${c-ares_LIBRARY})
+set (c-ares_INCLUDE_DIRS ${c-ares_INCLUDE_DIR})
 
 if (c-ares_FOUND AND NOT (TARGET c-ares::c-ares))
   add_library (c-ares::c-ares UNKNOWN IMPORTED)
@@ -49,7 +61,3 @@ if (c-ares_FOUND AND NOT (TARGET c-ares::c-ares))
       IMPORTED_LOCATION ${c-ares_LIBRARY}
       INTERFACE_INCLUDE_DIRECTORIES ${c-ares_INCLUDE_DIRS})
 endif ()
-
-mark_as_advanced (
-  c-ares_INCLUDE_DIR
-  c-ares_LIBRARY)
