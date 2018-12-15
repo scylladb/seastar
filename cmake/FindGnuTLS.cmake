@@ -20,35 +20,38 @@
 # Copyright (C) 2018 Scylladb, Ltd.
 #
 
-find_package (PkgConfig)
+find_package (PkgConfig REQUIRED)
 
-pkg_search_module (PC_GnuTLS
+pkg_search_module (GnuTLS_PC
   QUIET
-  REQUIRED
   gnutls)
-
-find_path (GnuTLS_INCLUDE_DIR
-  NAMES gnutls/gnutls.h
-  PATHS ${PC_GnuTLS_INCLUDE_DIRS})
 
 find_library (GnuTLS_LIBRARY
   NAMES gnutls
-  PATHS ${PC_GnuTLS_LIBRARY_DIRS})
+  HINTS
+    ${GnuTLS_PC_LIBDIR}
+    ${GnuTLS_PC_LIBRARY_DIRS})
 
-set (GnuTLS_VERSION ${PC_GnuTLS_VERSION})
+find_path (GnuTLS_INCLUDE_DIR
+  NAMES gnutls/gnutls.h
+  HINTS
+    ${GnuTLS_PC_INCLUDEDIR}
+    ${GnuTLS_PC_INCLUDE_DIRS})
+
+mark_as_advanced (
+  GnuTLS_LIBRARY
+  GnuTLS_INCLUDE_DIR)
 
 include (FindPackageHandleStandardArgs)
 
 find_package_handle_standard_args (GnuTLS
-  FOUND_VAR GnuTLS_FOUND
   REQUIRED_VARS
-    GnuTLS_INCLUDE_DIR
     GnuTLS_LIBRARY
-  VERSION_VAR GnuTLS_VERSION)
+    GnuTLS_INCLUDE_DIR
+  VERSION_VAR GnuTLS_PC_VERSION)
 
-if (GnuTLS_FOUND)
-  set (GnuTLS_INCLUDE_DIRS ${GnuTLS_INCLUDE_DIR})
-endif ()
+set (GnuTLS_LIBRARIES ${GnuTLS_LIBRARY})
+set (GnuTLS_INCLUDE_DIRS ${GnuTLS_INCLUDE_DIR})
 
 if (GnuTLS_FOUND AND NOT (TARGET GnuTLS::gnutls))
   add_library (GnuTLS::gnutls UNKNOWN IMPORTED)
@@ -56,10 +59,5 @@ if (GnuTLS_FOUND AND NOT (TARGET GnuTLS::gnutls))
   set_target_properties (GnuTLS::gnutls
     PROPERTIES
       IMPORTED_LOCATION ${GnuTLS_LIBRARY}
-      INTERFACE_COMPILE_OPTIONS "${PC_GnuTLS_CFLAGS_OTHER}"
-      INTERFACE_INCLUDE_DIRECTORIES ${GnuTLS_INCLUDE_DIR})
+      INTERFACE_INCLUDE_DIRECTORIES ${GnuTLS_INCLUDE_DIRS})
 endif ()
-
-mark_as_advanced (
-  GnuTLS_INCLUDE_DIR
-  GnuTLS_LIBRARY)
