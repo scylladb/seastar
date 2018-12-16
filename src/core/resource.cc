@@ -391,10 +391,14 @@ allocate_io_queues(configuration c, std::vector<cpu> cpus) {
     unsigned nr_cpus = unsigned(cpus.size());
     ret.shard_to_coordinator.resize(nr_cpus);
     ret.coordinators.resize(nr_cpus);
+    ret.coordinator_to_idx.resize(nr_cpus);
+    ret.coordinator_to_idx_valid.resize(nr_cpus);
 
     for (unsigned shard = 0; shard < nr_cpus; ++shard) {
         ret.shard_to_coordinator[shard] = shard;
         ret.coordinators[shard] = shard;
+        ret.coordinator_to_idx[shard] = shard;
+        ret.coordinator_to_idx_valid[shard] = true;
     }
     return ret;
 }
