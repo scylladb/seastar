@@ -117,6 +117,7 @@ class posix_data_sink_impl : public data_sink_impl {
     packet _p;
 public:
     explicit posix_data_sink_impl(lw_shared_ptr<pollable_fd> fd) : _fd(std::move(fd)) {}
+    using data_sink_impl::put;
     future<> put(packet p) override;
     future<> put(temporary_buffer<char> buf) override;
     future<> close() override;

@@ -161,6 +161,7 @@ class native_connected_socket_impl<Protocol>::native_data_sink_impl final
 public:
     explicit native_data_sink_impl(lw_shared_ptr<connection_type> conn)
         : _conn(std::move(conn)) {}
+    using data_sink_impl::put;
     virtual future<> put(packet p) override {
         return _conn->send(std::move(p));
     }

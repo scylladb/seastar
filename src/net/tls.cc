@@ -1103,6 +1103,7 @@ private:
     future<> flush() override {
         return _session->flush();
     }
+    using data_sink_impl::put;
     future<> put(net::packet p) override {
         return _session->put(std::move(p));
     }

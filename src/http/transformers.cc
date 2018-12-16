@@ -155,6 +155,8 @@ public:
         return make_ready_future<>();
     }
 
+    using data_sink_impl::put;
+
     virtual future<> put(temporary_buffer<char> buf) override {
         if (buf.empty()) {
             return make_ready_future<>();
