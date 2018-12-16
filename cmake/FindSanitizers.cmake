@@ -36,10 +36,6 @@ if (Sanitizers_UNDEFINED_BEHAVIOR_FOUND)
   set (Sanitizers_UNDEFINED_BEHAVIOR_COMPILER_OPTIONS -fsanitize=undefined)
 endif ()
 
-if (Sanitizers_ADDRESS_FOUND AND Sanitizers_UNDEFINED_BEHAVIOR_FOUND)
-  set (Sanitizers_FOUND ON)
-endif ()
-
 set (Sanitizers_COMPILER_OPTIONS
   ${Sanitizers_ADDRESS_COMPILER_OPTIONS}
   ${Sanitizers_UNDEFINED_BEHAVIOR_COMPILER_OPTIONS})
@@ -51,9 +47,7 @@ check_cxx_source_compiles ("${_sanitizers_fiber_test_code}" Sanitizers_FIBER_SUP
 include (FindPackageHandleStandardArgs)
 
 find_package_handle_standard_args (Sanitizers
-  FOUND_VAR Sanitizers_FOUND
   REQUIRED_VARS
-    Sanitizers_FIBER_SUPPORT
     Sanitizers_ADDRESS_COMPILER_OPTIONS
     Sanitizers_UNDEFINED_BEHAVIOR_COMPILER_OPTIONS)
 
