@@ -76,6 +76,7 @@ SEASTAR_TEST_CASE(test_bad_name_udp) {
 SEASTAR_TEST_CASE(test_timeout_udp) {
     dns_resolver::options opts;
     opts.servers = std::vector<inet_address>({ inet_address("1.2.3.4") }); // not a server
+    opts.udp_port = 29953; // not a dns port
     opts.timeout = std::chrono::milliseconds(500);
 
     auto d = ::make_lw_shared<dns_resolver>(engine().net(), opts);
