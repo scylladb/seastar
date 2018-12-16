@@ -124,7 +124,7 @@ public:
             return _out.write("\r\n", 2);
         });
     }
-    virtual future<> close() {
+    virtual future<> close() override {
         return  make_ready_future<>();
     }
 };

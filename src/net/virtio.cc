@@ -122,7 +122,7 @@ public:
         return { 0x12, 0x23, 0x34, 0x56, 0x67, 0x78 };
     }
 
-    net::hw_features hw_features() {
+    net::hw_features hw_features() override {
         return _hw_features;
     }
 

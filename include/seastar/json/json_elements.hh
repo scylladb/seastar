@@ -175,7 +175,7 @@ public:
         }
         return *this;
     }
-    virtual future<> write(output_stream<char>& s) const {
+    virtual future<> write(output_stream<char>& s) const override {
         return formatter::write(s, _elements);
     }
     std::vector<T> _elements;

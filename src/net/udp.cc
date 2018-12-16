@@ -105,7 +105,7 @@ public:
         });
     }
 
-    virtual bool is_closed() const {
+    virtual bool is_closed() const override {
         return _closed;
     }
 

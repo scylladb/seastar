@@ -150,7 +150,7 @@ class posix_server_socket_impl : public server_socket_impl {
     server_socket::load_balancing_algorithm _lba;
 public:
     explicit posix_server_socket_impl(socket_address sa, pollable_fd lfd, server_socket::load_balancing_algorithm lba) : _sa(sa), _lfd(std::move(lfd)), _lba(lba) {}
-    virtual future<connected_socket, socket_address> accept();
+    virtual future<connected_socket, socket_address> accept() override;
     virtual void abort_accept() override;
 };
 using posix_server_tcp_socket_impl = posix_server_socket_impl<transport::TCP>;
@@ -162,7 +162,7 @@ class posix_reuseport_server_socket_impl : public server_socket_impl {
     pollable_fd _lfd;
 public:
     explicit posix_reuseport_server_socket_impl(socket_address sa, pollable_fd lfd) : _sa(sa), _lfd(std::move(lfd)) {}
-    virtual future<connected_socket, socket_address> accept();
+    virtual future<connected_socket, socket_address> accept() override;
     virtual void abort_accept() override;
 };
 using posix_reuseport_server_tcp_socket_impl = posix_reuseport_server_socket_impl<transport::TCP>;

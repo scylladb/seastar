@@ -462,8 +462,8 @@ public:
     }
     virtual ~posix_udp_channel() { if (!_closed) close(); };
     virtual future<udp_datagram> receive() override;
-    virtual future<> send(ipv4_addr dst, const char *msg);
-    virtual future<> send(ipv4_addr dst, packet p);
+    virtual future<> send(ipv4_addr dst, const char *msg) override;
+    virtual future<> send(ipv4_addr dst, packet p) override;
     virtual void shutdown_input() override {
         _fd->abort_reader(std::make_exception_ptr(std::system_error(EPIPE, std::system_category())));
     }
