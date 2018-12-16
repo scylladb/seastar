@@ -4415,7 +4415,7 @@ void smp::configure(boost::program_options::variables_map configuration)
             struct io_queue::config cfg = disk_config.generate_config(id);
             cfg.coordinator = cid;
             cfg.io_topology = io_info.shard_to_coordinator;
-            assert(vec_idx >= 0 && vec_idx < all_io_queues[id].size());
+            assert(vec_idx < all_io_queues[id].size());
             assert(!all_io_queues[id][vec_idx]);
             all_io_queues[id][vec_idx] = new io_queue(std::move(cfg));
         }
