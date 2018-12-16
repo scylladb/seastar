@@ -23,11 +23,13 @@
 set (_rt_test_source ${CMAKE_CURRENT_LIST_DIR}/code_tests/rt_test.cc)
 
 # Try to compile without the library first.
-try_compile (_rt_test_nil
+try_compile (rt_NO_EXPLICIT_LINK
   ${CMAKE_CURRENT_BINARY_DIR}
   SOURCES ${_rt_test_source})
 
-if (NOT _rt_test_nil)
+if (rt_NO_EXPLICIT_LINK)
+  set (rt_FOUND yes)
+else ()
   # The `rt` library is required.
 
   try_compile (_rt_test
@@ -37,24 +39,19 @@ if (NOT _rt_test_nil)
 
   if (_rt_test)
     set (rt_LIBRARY_NAME rt)
+    set (rt_LIBRARIES -l${rt_LIBRARY_NAME})
   endif ()
-endif ()
 
-if (_rt_test_nil OR rt_LIBRARY_NAME)
-  set (rt_FOUND ON)
-  set (rt_LIBRARIES -l${rt_LIBRARY_NAME})
-endif ()
+  include (FindPackageHandleStandardArgs)
 
-find_package_handle_standard_args (rt
-  FOUND_VAR rt_FOUND
-  REQUIRED_VARS rt_LIBRARY_NAME)
+  find_package_handle_standard_args (rt
+    REQUIRED_VARS rt_LIBRARIES)
+endif ()
 
 if (rt_FOUND AND NOT (TARGET rt::rt))
   add_library (rt::rt INTERFACE IMPORTED)
 
   set_target_properties (rt::rt
     PROPERTIES
-      INTERFACE_LINK_LIBRARIES ${rt_LIBRARIES})
+      INTERFACE_LINK_LIBRARIES "${rt_LIBRARIES}")
 endif ()
-
-mark_as_advanced (rt_LIBRARY_NAME)
