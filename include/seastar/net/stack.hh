@@ -63,6 +63,8 @@ public:
     virtual future<udp_datagram> receive() = 0;
     virtual future<> send(ipv4_addr dst, const char* msg) = 0;
     virtual future<> send(ipv4_addr dst, packet p) = 0;
+    virtual void shutdown_input() = 0;
+    virtual void shutdown_output() = 0;
     virtual bool is_closed() const = 0;
     virtual void close() = 0;
 };

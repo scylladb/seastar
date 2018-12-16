@@ -134,6 +134,15 @@ public:
     future<> send(ipv4_addr dst, const char* msg);
     future<> send(ipv4_addr dst, packet p);
     bool is_closed() const;
+    /// Causes a pending receive() to complete (possibly with an exception)
+    void shutdown_input();
+    /// Causes a pending send() to complete (possibly with an exception)
+    void shutdown_output();
+    /// Close the channel and releases all resources.
+    ///
+    /// Must be called only when there are no unfinished send() or receive() calls. You
+    /// can force pending calls to complete soon by calling shutdown_input() and
+    /// shutdown_output().
     void close();
 };
 

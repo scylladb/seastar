@@ -52,6 +52,15 @@ bool net::udp_channel::is_closed() const {
     return _impl->is_closed();
 }
 
+void net::udp_channel::shutdown_input() {
+    _impl->shutdown_input();
+}
+
+void net::udp_channel::shutdown_output() {
+    _impl->shutdown_output();
+}
+
+
 void net::udp_channel::close() {
     return _impl->close();
 }

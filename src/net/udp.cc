@@ -109,10 +109,16 @@ public:
         return _closed;
     }
 
-    virtual void close() override {
+    virtual void shutdown_input() override {
         _state->_queue.abort(std::make_exception_ptr(std::system_error(EBADF, std::system_category())));
-        _reg.unregister();
+    }
+
+    virtual void shutdown_output() override {
         _state->_queue.abort(std::make_exception_ptr(std::system_error(EPIPE, std::system_category())));
+    }
+
+    virtual void close() override {
+        _reg.unregister();
         _closed = true;
     }
 };

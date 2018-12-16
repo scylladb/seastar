@@ -539,7 +539,8 @@ private:
             break;
         }
         case type::udp:
-            e.udp.channel.close();
+            e.udp.channel.shutdown_input();
+            e.udp.channel.shutdown_output();
             release(fd);
             break;
         default:
