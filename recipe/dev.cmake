@@ -223,6 +223,7 @@ cooking_ingredient (lksctp-tools
     INSTALL_COMMAND ${make_command} install)
 
 cooking_ingredient (yaml-cpp
+  REQUIRES Boost
   CMAKE_ARGS
     -DYAML_CPP_BUILD_TESTS=OFF
     -DBUILD_SHARED_LIBS=ON

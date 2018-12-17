@@ -20,31 +20,38 @@
 # Copyright (C) 2018 Scylladb, Ltd.
 #
 
-find_package (PkgConfig)
+find_package (PkgConfig REQUIRED)
 
-pkg_search_module (PC_lz4
-  REQUIRED
+pkg_search_module (lz4_PC
   QUIET
   liblz4)
 
-find_path (lz4_INCLUDE_DIR
-  NAMES lz4.h
-  PATHS ${PC_lz4_INCLUDE_DIRS})
-
 find_library (lz4_LIBRARY
   NAMES lz4
-  PATHS ${PC_lz4_LIBRARY_DIRS})
+  HINTS
+    ${lz4_PC_LIBDIR}
+    ${lz4_PC_LIBRARY_DIRS})
 
-set (lz4_VERSION ${PC_lz4_VERSION})
+find_path (lz4_INCLUDE_DIR
+  NAMES lz4.h
+  HINTS
+    ${lz4_PC_INCLUDEDIR}
+    ${lz4_PC_INCLUDEDIRS})
+
+mark_as_advanced (
+  lz4_LIBRARY
+  lz4_INCLUDE_DIR)
 
 include (FindPackageHandleStandardArgs)
 
 find_package_handle_standard_args (lz4
-  FOUND_VAR lz4_FOUND
   REQUIRED_VARS
-    lz4_INCLUDE_DIR
     lz4_LIBRARY
-  VERSION_VAR lz4_VERSION)
+    lz4_INCLUDE_DIR
+  VERSION_VAR lz4_PC_VERSION)
+
+set (lz4_LIBRARIES ${lz4_LIBRARY})
+set (lz4_INCLUDE_DIRS ${lz4_INCLUDE_DIR})
 
 if (lz4_FOUND)
   set (CMAKE_REQUIRED_LIBRARIES ${lz4_LIBRARY})
@@ -53,8 +60,6 @@ if (lz4_FOUND)
   check_symbol_exists (LZ4_compress_default
     ${lz4_INCLUDE_DIR}/lz4.h
     lz4_HAVE_COMPRESS_DEFAULT)
-
-  set (lz4_INCLUDE_DIRS ${lz4_INCLUDE_DIR})
 endif ()
 
 if (lz4_FOUND AND NOT (TARGET lz4::lz4))
@@ -63,10 +68,5 @@ if (lz4_FOUND AND NOT (TARGET lz4::lz4))
   set_target_properties (lz4::lz4
     PROPERTIES
       IMPORTED_LOCATION ${lz4_LIBRARY}
-      INTERFACE_COMPILE_OPTIONS "${PC_lz4_CFLAGS_OTHER}"
-      INTERFACE_INCLUDE_DIRECTORIES ${lz4_INCLUDE_DIR})
+      INTERFACE_INCLUDE_DIRECTORIES ${lz4_INCLUDE_DIRS})
 endif ()
-
-mark_as_advanced (
-  lz4_INCLUDE_DIR
-  lz4_LIBRARY)

@@ -24,10 +24,6 @@ find_path (dpdk_INCLUDE_DIR
   NAMES rte_atomic.h
   PATH_SUFFIXES dpdk)
 
-if (dpdk_INCLUDE_DIR)
-  set (dpdk_FOUND ON)
-endif ()
-
 find_library (dpdk_PMD_VMXNET3_UIO_LIBRARY rte_pmd_vmxnet3_uio)
 find_library (dpdk_PMD_I40E_LIBRARY rte_pmd_i40e)
 find_library (dpdk_PMD_IXGBE_LIBRARY rte_pmd_ixgbe)
@@ -55,7 +51,6 @@ find_library (dpdk_ETHDEV_LIBRARY rte_ethdev)
 include (FindPackageHandleStandardArgs)
 
 find_package_handle_standard_args (dpdk
-  FOUND_VAR dpdk_FOUND
   REQUIRED_VARS
     dpdk_INCLUDE_DIR
     dpdk_PMD_VMXNET3_UIO_LIBRARY
