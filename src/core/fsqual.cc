@@ -34,6 +34,7 @@
 namespace seastar {
 
 using namespace seastar::internal;
+using namespace seastar::internal::linux_abi;
 
 // Runs func(), and also adds the number of context switches
 // that happened during func() to counter.

@@ -114,6 +114,9 @@ public:
     void operator=(const pollable_fd_state&) = delete;
     void speculate_epoll(int events) { events_known |= events; }
     file_desc fd;
+    bool events_rw = false;   // single consumer for both read and write (accept())
+    bool no_more_recv = false; // For udp, there is no shutdown indication from the kernel
+    bool no_more_send = false; // For udp, there is no shutdown indication from the kernel
     int events_requested = 0; // wanted by pollin/pollout promises
     int events_epoll = 0;     // installed in epoll
     int events_known = 0;     // returned from epoll
@@ -150,8 +153,9 @@ public:
     future<> write_all(net::packet& p);
     future<> readable();
     future<> writeable();
-    void abort_reader(std::exception_ptr ex);
-    void abort_writer(std::exception_ptr ex);
+    future<> readable_or_writeable();
+    void abort_reader();
+    void abort_writer();
     future<pollable_fd, socket_address> accept();
     future<size_t> sendmsg(struct msghdr *msg);
     future<size_t> recvmsg(struct msghdr *msg);
@@ -161,6 +165,8 @@ public:
     void close() { _s.reset(); }
 protected:
     int get_fd() const { return _s->fd.get(); }
+    void maybe_no_more_recv();
+    void maybe_no_more_send();
     friend class reactor;
     friend class readable_eventfd;
     friend class writeable_eventfd;
@@ -224,18 +230,6 @@ private:
     static file_desc try_create_eventfd(size_t initial);
 
     friend class readable_eventfd;
-};
-
-// The reactor_notifier interface is a simplified version of Linux's eventfd
-// interface (with semaphore behavior off, and signal() always signaling 1).
-//
-// A call to signal() causes an ongoing wait() to invoke its continuation.
-// If no wait() is ongoing, the next wait() will continue immediately.
-class reactor_notifier {
-public:
-    virtual future<> wait() = 0;
-    virtual void signal() = 0;
-    virtual ~reactor_notifier() {}
 };
 
 class thread_pool;
@@ -405,16 +399,15 @@ private:
 };
 
 class thread_pool {
+    reactor* _reactor;
     uint64_t _aio_threaded_fallbacks = 0;
 #ifndef HAVE_OSV
-    // FIXME: implement using reactor_notifier abstraction we used for SMP
     syscall_work_queue inter_thread_wq;
     posix_thread _worker_thread;
     std::atomic<bool> _stopped = { false };
     std::atomic<bool> _main_thread_idle = { false };
-    pthread_t _notify;
 public:
-    explicit thread_pool(sstring thread_name);
+    explicit thread_pool(reactor* r, sstring thread_name);
     ~thread_pool();
     template <typename T, typename Func>
     future<T> submit(Func func) {
@@ -463,39 +456,49 @@ public:
     // they are called (which is fine if no file descriptors are waited on):
     virtual future<> readable(pollable_fd_state& fd) = 0;
     virtual future<> writeable(pollable_fd_state& fd) = 0;
+    virtual future<> readable_or_writeable(pollable_fd_state& fd) = 0;
     virtual void forget(pollable_fd_state& fd) = 0;
-    // Methods that allow polling on a reactor_notifier. This is currently
-    // used only for reactor_backend_osv, but in the future it should really
-    // replace the above functions.
-    virtual future<> notified(reactor_notifier *n) = 0;
-    // Methods for allowing sending notifications events between threads.
-    virtual std::unique_ptr<reactor_notifier> make_reactor_notifier() = 0;
+    // Calls reactor::signal_received(signo) when relevant
+    virtual void handle_signal(int signo) = 0;
+    virtual void start_tick() = 0;
+    virtual void stop_tick() = 0;
+    virtual void arm_highres_timer(const ::itimerspec& ts) = 0;
+    virtual void reset_preemption_monitor() = 0;
+    virtual void request_preemption() = 0;
 };
+
+class reactor_backend_selector;
 
 // reactor backend using file-descriptor & epoll, suitable for running on
 // Linux. Can wait on multiple file descriptors, and converts other events
 // (such as timers, signals, inter-thread notifications) into file descriptors
 // using mechanisms like timerfd, signalfd and eventfd respectively.
 class reactor_backend_epoll : public reactor_backend {
+    reactor* _r;
+    std::thread _task_quota_timer_thread;
+    timer_t _steady_clock_timer = {};
+    bool _timer_enabled = false;
 private:
     file_desc _epollfd;
     future<> get_epoll_future(pollable_fd_state& fd,
             promise<> pollable_fd_state::* pr, int event);
     void complete_epoll_event(pollable_fd_state& fd,
             promise<> pollable_fd_state::* pr, int events, int event);
-    void abort_fd(pollable_fd_state& fd, std::exception_ptr ex,
-            promise<> pollable_fd_state::* pr, int event);
+    static void signal_received(int signo, siginfo_t* siginfo, void* ignore);
 public:
-    reactor_backend_epoll();
-    virtual ~reactor_backend_epoll() override { }
+    explicit reactor_backend_epoll(reactor* r);
+    virtual ~reactor_backend_epoll() override;
     virtual bool wait_and_process(int timeout, const sigset_t* active_sigmask) override;
     virtual future<> readable(pollable_fd_state& fd) override;
     virtual future<> writeable(pollable_fd_state& fd) override;
+    virtual future<> readable_or_writeable(pollable_fd_state& fd) override;
     virtual void forget(pollable_fd_state& fd) override;
-    virtual future<> notified(reactor_notifier *n) override;
-    virtual std::unique_ptr<reactor_notifier> make_reactor_notifier() override;
-    void abort_reader(pollable_fd_state& fd, std::exception_ptr ex);
-    void abort_writer(pollable_fd_state& fd, std::exception_ptr ex);
+    virtual void handle_signal(int signo) override;
+    virtual void start_tick() override;
+    virtual void stop_tick() override;
+    virtual void arm_highres_timer(const ::itimerspec& ts) override;
+    virtual void reset_preemption_monitor() override;
+    virtual void request_preemption() override;
 };
 
 #ifdef HAVE_OSV
@@ -503,7 +506,6 @@ public:
 // This implementation cannot currently wait on file descriptors, but unlike
 // reactor_backend_epoll it doesn't need file descriptors for waiting on a
 // timer, for example, so file descriptors are not necessary.
-class reactor_notifier_osv;
 class reactor_backend_osv : public reactor_backend {
 private:
     osv::newpoll::poller _poller;
@@ -516,10 +518,7 @@ public:
     virtual future<> readable(pollable_fd_state& fd) override;
     virtual future<> writeable(pollable_fd_state& fd) override;
     virtual void forget(pollable_fd_state& fd) override;
-    virtual future<> notified(reactor_notifier *n) override;
-    virtual std::unique_ptr<reactor_notifier> make_reactor_notifier() override;
     void enable_timer(steady_clock_type::time_point when);
-    friend class reactor_notifier_osv;
 };
 #endif /* HAVE_OSV */
 
@@ -592,7 +591,7 @@ public:
     ~io_queue();
 
     template <typename Func>
-    future<io_event>
+    future<internal::linux_abi::io_event>
     queue_request(const io_priority_class& pc, size_t len, request_type req_type, Func do_io);
 
     size_t capacity() const {
@@ -694,6 +693,8 @@ private:
     friend class execution_stage_pollfn;
     friend class file_data_source_impl; // for fstream statistics
     friend class internal::reactor_stall_sampler;
+    friend class reactor_backend_epoll;
+    friend class reactor_backend_aio;
 public:
     class poller {
         std::unique_ptr<pollfn> _pollfn;
@@ -736,7 +737,8 @@ public:
         uint64_t fstream_read_ahead_discarded_bytes = 0;
     };
 private:
-    // FIXME: make _backend a unique_ptr<reactor_backend>, not a compile-time #ifdef.
+    file_desc _notify_eventfd;
+    file_desc _task_quota_timer;
 #ifdef HAVE_OSV
     reactor_backend_osv _backend;
     sched::thread _timer_thread;
@@ -745,7 +747,7 @@ private:
     condvar _timer_cond;
     s64 _timer_due = 0;
 #else
-    reactor_backend_epoll _backend;
+    std::unique_ptr<reactor_backend> _backend;
 #endif
     sigset_t _active_sigmask; // holds sigmask while sleeping with sig disabled
     std::vector<pollfn*> _pollers;
@@ -769,10 +771,9 @@ private:
     bool _handle_sigint = true;
     promise<std::unique_ptr<network_stack>> _network_stack_ready_promise;
     int _return = 0;
-    timer_t _steady_clock_timer = {};
-    file_desc _task_quota_timer;
     promise<> _start_promise;
     semaphore _cpu_started;
+    internal::preemption_monitor _preemption_monitor{};
     std::atomic<uint64_t> _tasks_processed = { 0 };
     std::atomic<uint64_t> _polls = { 0 };
     std::unique_ptr<internal::cpu_stall_detector> _cpu_stall_detector;
@@ -784,11 +785,11 @@ private:
     timer_set<timer<lowres_clock>, &timer<lowres_clock>::_link>::timer_list_t _expired_lowres_timers;
     timer_set<timer<manual_clock>, &timer<manual_clock>::_link> _manual_timers;
     timer_set<timer<manual_clock>, &timer<manual_clock>::_link>::timer_list_t _expired_manual_timers;
-    ::aio_context_t _io_context;
-    alignas(cache_line_size) std::array<::iocb, max_aio> _iocb_pool;
-    std::stack<::iocb*, boost::container::static_vector<::iocb*, max_aio>> _free_iocbs;
-    boost::container::static_vector<::iocb*, max_aio> _pending_aio;
-    boost::container::static_vector<::iocb*, max_aio> _pending_aio_retry;
+    internal::linux_abi::aio_context_t _io_context;
+    alignas(cache_line_size) std::array<internal::linux_abi::iocb, max_aio> _iocb_pool;
+    std::stack<internal::linux_abi::iocb*, boost::container::static_vector<internal::linux_abi::iocb*, max_aio>> _free_iocbs;
+    boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _pending_aio;
+    boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _pending_aio_retry;
     io_stats _io_stats;
     uint64_t _fsyncs = 0;
     uint64_t _cxx_exceptions = 0;
@@ -844,14 +845,12 @@ private:
     bool _strict_o_direct = true;
     bool _force_io_getevents_syscall = false;
     bool _bypass_fsync = false;
-    bool& _local_need_preempt{g_need_preempt}; // for access from the _task_quota_timer_thread
-    std::thread _task_quota_timer_thread;
     std::atomic<bool> _dying{false};
 private:
     static std::chrono::nanoseconds calculate_poll_time();
     static void block_notifier(int);
     void wakeup();
-    size_t handle_aio_error(::iocb* iocb, int ec);
+    size_t handle_aio_error(internal::linux_abi::iocb* iocb, int ec);
     bool flush_pending_aio();
     bool flush_tcp_batches();
     bool do_expire_lowres_timers();
@@ -890,7 +889,6 @@ private:
         void handle_signal_once(int signo, std::function<void ()>&& handler);
         static void action(int signo, siginfo_t* siginfo, void* ignore);
         static void failed_to_handle(int signo);
-
     private:
         struct signal_handler {
             signal_handler(int signo, std::function<void ()>&& handler);
@@ -922,9 +920,12 @@ private:
     void destroy_scheduling_group(scheduling_group sg);
     uint64_t tasks_processed() const;
     uint64_t min_vruntime() const;
+    void request_preemption();
+    void reset_preemption_monitor();
+    void service_highres_timer();
 public:
     static boost::program_options::options_description get_options_description(std::chrono::duration<double> default_task_quota);
-    explicit reactor(unsigned id);
+    explicit reactor(unsigned id, reactor_backend_selector rbs);
     reactor(const reactor&) = delete;
     ~reactor();
     void operator=(const reactor&) = delete;
@@ -999,11 +1000,11 @@ public:
     void submit_io(io_desc* desc, Func prepare_io);
 
     template <typename Func>
-    future<io_event> submit_io_read(io_queue* ioq, const io_priority_class& priority_class, size_t len, Func prepare_io);
+    future<internal::linux_abi::io_event> submit_io_read(io_queue* ioq, const io_priority_class& priority_class, size_t len, Func prepare_io);
     template <typename Func>
-    future<io_event> submit_io_write(io_queue* ioq, const io_priority_class& priority_class, size_t len, Func prepare_io);
+    future<internal::linux_abi::io_event> submit_io_write(io_queue* ioq, const io_priority_class& priority_class, size_t len, Func prepare_io);
 
-    inline void handle_io_result(const io_event& ev) {
+    inline void handle_io_result(const internal::linux_abi::io_event& ev) {
         auto res = long(ev.res);
         if (res < 0) {
             ++_io_stats.aio_errors;
@@ -1136,31 +1137,36 @@ private:
     friend future<> seastar::destroy_scheduling_group(scheduling_group);
 public:
     bool wait_and_process(int timeout = 0, const sigset_t* active_sigmask = nullptr) {
-        return _backend.wait_and_process(timeout, active_sigmask);
+        return _backend->wait_and_process(timeout, active_sigmask);
     }
 
     future<> readable(pollable_fd_state& fd) {
-        return _backend.readable(fd);
+        return _backend->readable(fd);
     }
     future<> writeable(pollable_fd_state& fd) {
-        return _backend.writeable(fd);
+        return _backend->writeable(fd);
+    }
+    future<> readable_or_writeable(pollable_fd_state& fd) {
+        return _backend->readable_or_writeable(fd);
     }
     void forget(pollable_fd_state& fd) {
-        _backend.forget(fd);
+        _backend->forget(fd);
     }
-    future<> notified(reactor_notifier *n) {
-        return _backend.notified(n);
+    void abort_reader(pollable_fd_state& fd) {
+        // TCP will respond to shutdown(SHUT_RD) by returning ECONNABORT on the next read,
+        // but UDP responds by returning AGAIN. The no_more_recv flag tells us to convert
+        // EAGAIN to ECONNABORT in that case.
+        fd.no_more_recv = true;
+        return fd.fd.shutdown(SHUT_RD);
     }
-    void abort_reader(pollable_fd_state& fd, std::exception_ptr ex) {
-        return _backend.abort_reader(fd, std::move(ex));
-    }
-    void abort_writer(pollable_fd_state& fd, std::exception_ptr ex) {
-        return _backend.abort_writer(fd, std::move(ex));
+    void abort_writer(pollable_fd_state& fd) {
+        // TCP will respond to shutdown(SHUT_WR) by returning ECONNABORT on the next write,
+        // but UDP responds by returning AGAIN. The no_more_recv flag tells us to convert
+        // EAGAIN to ECONNABORT in that case.
+        fd.no_more_send = true;
+        return fd.fd.shutdown(SHUT_WR);
     }
     void enable_timer(steady_clock_type::time_point when);
-    std::unique_ptr<reactor_notifier> make_reactor_notifier() {
-        return _backend.make_reactor_notifier();
-    }
     /// Sets the "Strict DMA" flag.
     ///
     /// When true (default), file I/O operations must use DMA.  This is
@@ -1290,7 +1296,7 @@ public:
 private:
     static void start_all_queues();
     static void pin(unsigned cpu_id);
-    static void allocate_reactor(unsigned id);
+    static void allocate_reactor(unsigned id, reactor_backend_selector rbs);
     static void create_thread(std::function<void ()> thread_loop);
 public:
     static unsigned count;
@@ -1315,7 +1321,7 @@ size_t iovec_len(const iovec* begin, size_t len)
 inline
 future<pollable_fd, socket_address>
 reactor::accept(pollable_fd_state& listenfd) {
-    return readable(listenfd).then([&listenfd] () mutable {
+    return readable_or_writeable(listenfd).then([this, &listenfd] () mutable {
         socket_address sa;
         socklen_t sl = sizeof(&sa.u.sas);
         file_desc fd = listenfd.fd.accept(sa.u.sa, sl, SOCK_NONBLOCK | SOCK_CLOEXEC);
@@ -1465,15 +1471,20 @@ future<> pollable_fd::writeable() {
 }
 
 inline
-void
-pollable_fd::abort_reader(std::exception_ptr ex) {
-    engine().abort_reader(*_s, std::move(ex));
+future<> pollable_fd::readable_or_writeable() {
+    return engine().readable_or_writeable(*_s);
 }
 
 inline
 void
-pollable_fd::abort_writer(std::exception_ptr ex) {
-    engine().abort_writer(*_s, std::move(ex));
+pollable_fd::abort_reader() {
+    engine().abort_reader(*_s);
+}
+
+inline
+void
+pollable_fd::abort_writer() {
+    engine().abort_writer(*_s);
 }
 
 inline
@@ -1483,6 +1494,7 @@ future<pollable_fd, socket_address> pollable_fd::accept() {
 
 inline
 future<size_t> pollable_fd::recvmsg(struct msghdr *msg) {
+    maybe_no_more_recv();
     return engine().readable(*_s).then([this, msg] {
         auto r = get_file_desc().recvmsg(msg, 0);
         if (!r) {
@@ -1502,6 +1514,7 @@ future<size_t> pollable_fd::recvmsg(struct msghdr *msg) {
 
 inline
 future<size_t> pollable_fd::sendmsg(struct msghdr* msg) {
+    maybe_no_more_send();
     return engine().writeable(*_s).then([this, msg] () mutable {
         auto r = get_file_desc().sendmsg(msg, 0);
         if (!r) {
@@ -1519,6 +1532,7 @@ future<size_t> pollable_fd::sendmsg(struct msghdr* msg) {
 
 inline
 future<size_t> pollable_fd::sendto(socket_address addr, const void* buf, size_t len) {
+    maybe_no_more_send();
     return engine().writeable(*_s).then([this, buf, len, addr] () mutable {
         auto r = get_file_desc().sendto(addr, buf, len, 0);
         if (!r) {

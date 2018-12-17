@@ -50,6 +50,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/eventfd.h>
+#include <sys/poll.h>
 #include <boost/lexical_cast.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/thread/barrier.hpp>
@@ -196,6 +197,7 @@ namespace fs = std::experimental::filesystem;
 using namespace net;
 
 using namespace internal;
+using namespace internal::linux_abi;
 
 seastar::logger seastar_logger("seastar");
 seastar::logger sched_logger("scheduler");
@@ -293,8 +295,314 @@ wrap_syscall(int result, const Extra& extra) {
     return syscall_result_extra<Extra>{result, errno, extra};
 }
 
-reactor_backend_epoll::reactor_backend_epoll()
-    : _epollfd(file_desc::epoll_create(EPOLL_CLOEXEC)) {
+inline int alarm_signal() {
+    // We don't want to use SIGALRM, because the boost unit test library
+    // also plays with it.
+    return SIGRTMIN;
+}
+
+class reactor_backend_aio : public reactor_backend {
+    static constexpr size_t max_polls = 10000;
+    reactor* _r;
+    // We use two aio contexts, one for preempting events (the timer tick and
+    // signals), the other for non-preempting events (fd poll).
+    struct context {
+        explicit context(size_t nr) : iocbs(new iocb*[nr]) {
+            auto r = io_setup(nr, &io_context);
+            throw_system_error_on(r == -1);
+        }
+        ~context() {
+            io_destroy(io_context);
+        }
+        linux_abi::aio_context_t io_context{};
+        std::unique_ptr<linux_abi::iocb*[]> iocbs;
+        iocb** last = iocbs.get();
+        void replenish(linux_abi::iocb* iocb, bool& flag) {
+            if (!flag) {
+                flag = true;
+                queue(iocb);
+            }
+        }
+        void queue(linux_abi::iocb* iocb) {
+            *last++ = iocb;
+        }
+        void flush() {
+            if (last != iocbs.get()) {
+                auto nr = last - iocbs.get();
+                last = iocbs.get();
+                io_submit(io_context, nr, iocbs.get());
+            }
+        }
+    };
+    context _preempting_io{2}; // Used for the timer tick and the high resolution timer
+    context _polling_io{max_polls}; // FIXME: unify with disk aio_context
+    file_desc _steady_clock_timer = make_timerfd();
+    linux_abi::iocb _task_quota_timer_iocb;
+    linux_abi::iocb _timerfd_iocb;
+    linux_abi::iocb _smp_wakeup_iocb;
+    bool _task_quota_timer_in_preempting_io = false;
+    bool _timerfd_in_preempting_io = false;
+    bool _timerfd_in_polling_io = false;
+    bool _smp_wakeup_in_polling_io = false;
+    std::stack<std::unique_ptr<linux_abi::iocb>> _iocb_pool;
+private:
+    linux_abi::iocb* new_iocb() {
+        if (_iocb_pool.empty()) {
+            return new linux_abi::iocb;
+        }
+        auto ret = _iocb_pool.top().release();
+        _iocb_pool.pop();
+        return ret;
+    }
+    void free_iocb(linux_abi::iocb* iocb) {
+        _iocb_pool.push(std::unique_ptr<linux_abi::iocb>(iocb));
+    }
+    static file_desc make_timerfd() {
+        return file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC|TFD_NONBLOCK);
+    }
+    void process_task_quota_timer() {
+        uint64_t v;
+        (void)_r->_task_quota_timer.read(&v, 8);
+    }
+    void process_timerfd() {
+        uint64_t expirations = 0;
+        _steady_clock_timer.read(&expirations, 8);
+        if (expirations) {
+            _r->service_highres_timer();
+        }
+    }
+    void process_smp_wakeup() {
+        uint64_t ignore = 0;
+        _r->_notify_eventfd.read(&ignore, 8);
+    }
+    bool service_preempting_io() {
+        linux_abi::io_event a[2];
+        auto r = io_getevents(_preempting_io.io_context, 0, 2, a, 0);
+        assert(r != -1);
+        bool did_work = false;
+        for (unsigned i = 0; i != unsigned(r); ++i) {
+            if (get_iocb(a[i]) == &_task_quota_timer_iocb) {
+                _task_quota_timer_in_preempting_io = false;
+                process_task_quota_timer();
+            } else if (get_iocb(a[i]) == &_timerfd_iocb) {
+                _timerfd_in_preempting_io = false;
+                process_timerfd();
+                did_work = true;
+            }
+        }
+        return did_work;
+    }
+    bool await_events(int timeout, const sigset_t* active_sigmask) {
+        ::timespec ts = {};
+        ::timespec* tsp = [&] () -> ::timespec* {
+            if (timeout == 0) {
+                return &ts;
+            } else if (timeout == -1) {
+                return nullptr;
+            } else {
+                ts = posix::to_timespec(timeout * 1ms);
+                return &ts;
+            }
+        }();
+        constexpr size_t batch_size = 128;
+        io_event batch[batch_size];
+        bool did_work = false;
+        int r;
+        do {
+            r = io_pgetevents(_polling_io.io_context, 1, batch_size, batch, tsp, active_sigmask);
+            if (r == -1 && errno == EINTR) {
+                return true;
+            }
+            assert(r != -1);
+            for (unsigned i = 0; i != unsigned(r); ++i) {
+                did_work = true;
+                auto& event = batch[i];
+                auto iocb = get_iocb(event);
+                if (iocb == &_timerfd_iocb) {
+                    _timerfd_in_polling_io = false;
+                    process_timerfd();
+                    continue;
+                } else if (iocb == &_smp_wakeup_iocb) {
+                    _smp_wakeup_in_polling_io = false;
+                    process_smp_wakeup();
+                    continue;
+                }
+                auto* pr = reinterpret_cast<promise<>*>(uintptr_t(event.data));
+                pr->set_value();
+                free_iocb(iocb);
+            }
+            // For the next iteration, don't use a timeout, since we may have waited already
+            ts = {};
+            tsp = &ts;
+        } while (r == batch_size);
+        return did_work;
+    }
+    static void signal_received(int signo, siginfo_t* siginfo, void* ignore) {
+        engine()._signals.action(signo, siginfo, ignore);
+    }
+private:
+    class io_poll_poller : public reactor::pollfn {
+        reactor_backend_aio* _backend;
+    public:
+        explicit io_poll_poller(reactor_backend_aio* b) : _backend(b) {}
+        virtual bool poll() override {
+            return _backend->wait_and_process(0, nullptr);
+        }
+        virtual bool pure_poll() override {
+            return _backend->wait_and_process(0, nullptr);
+        }
+        virtual bool try_enter_interrupt_mode() override {
+            return true;
+        }
+        virtual void exit_interrupt_mode() override {}
+    };
+public:
+    explicit reactor_backend_aio(reactor* r) : _r(r) {
+        _task_quota_timer_iocb = make_poll_iocb(_r->_task_quota_timer.get(), POLLIN);
+        _timerfd_iocb = make_poll_iocb(_steady_clock_timer.get(), POLLIN);
+        _smp_wakeup_iocb = make_poll_iocb(_r->_notify_eventfd.get(), POLLIN);
+        // Protect against spurious wakeups - if we get notified that the timer has
+        // expired when it really hasn't, we don't want to block in read(tfd, ...).
+        auto tfd = _r->_task_quota_timer.get();
+        ::fcntl(tfd, F_SETFL, ::fcntl(tfd, F_GETFL) | O_NONBLOCK);
+    }
+    virtual bool wait_and_process(int timeout, const sigset_t* active_sigmask) override {
+        bool did_work = service_preempting_io();
+        if (did_work) {
+            timeout = 0;
+        }
+        _polling_io.replenish(&_timerfd_iocb, _timerfd_in_polling_io);
+        _polling_io.replenish(&_smp_wakeup_iocb, _smp_wakeup_in_polling_io);
+        _polling_io.flush();
+        if (timeout) {
+            // If we get a signal during io_pgetevents(), its handler
+            // will call request_preemption(), which needs the preemption monitor
+            // to be armed:
+            reset_preemption_monitor();
+        }
+        did_work |= await_events(timeout, active_sigmask);
+        did_work |= service_preempting_io(); // clear task quota timer
+        return did_work;
+    }
+    future<> poll(pollable_fd_state& fd, promise<> pollable_fd_state::*promise_field, int events) {
+        if (!_r->_epoll_poller) {
+            _r->_epoll_poller = reactor::poller(std::make_unique<io_poll_poller>(this));
+        }
+        try {
+            if (events & fd.events_known) {
+                fd.events_known &= ~events;
+                return make_ready_future<>();
+            }
+            auto iocb = new_iocb(); // FIXME: merge with pollable_fd_state
+            *iocb = make_poll_iocb(fd.fd.get(), events);
+            fd.events_rw = events == (POLLIN|POLLOUT);
+            auto pr = &(fd.*promise_field);
+            *pr = promise<>();
+            set_user_data(*iocb, pr);
+            _polling_io.queue(iocb);
+            return pr->get_future();
+        } catch (...) {
+            return make_exception_future<>(std::current_exception());
+        }
+    }
+    virtual future<> readable(pollable_fd_state& fd) override {
+        return poll(fd, &pollable_fd_state::pollin, POLLIN);
+    }
+    virtual future<> writeable(pollable_fd_state& fd) override {
+        return poll(fd, &pollable_fd_state::pollout, POLLOUT);
+    }
+    virtual future<> readable_or_writeable(pollable_fd_state& fd) override {
+        return poll(fd, &pollable_fd_state::pollin, POLLIN|POLLOUT);
+    }
+    virtual void forget(pollable_fd_state& fd) override {
+        // ?
+    }
+    virtual void handle_signal(int signo) override {
+        struct sigaction sa;
+        sa.sa_sigaction = signal_received;
+        sa.sa_mask = make_empty_sigset_mask();
+        sa.sa_flags = SA_SIGINFO | SA_RESTART;
+        auto r = ::sigaction(signo, &sa, nullptr);
+        throw_system_error_on(r == -1);
+        auto mask = make_sigset_mask(signo);
+        r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
+        throw_pthread_error(r);
+    }
+    virtual void start_tick() override {
+        // Preempt whenever an event (timer tick or signal) is available on the
+        // _preempting_io ring
+        g_need_preempt = reinterpret_cast<const preemption_monitor*>(_preempting_io.io_context + 8);
+        // reactor::request_preemption() will write to reactor::_preemption_monitor, which is now ignored
+    }
+    virtual void stop_tick() override {
+        g_need_preempt = &_r->_preemption_monitor;
+    }
+    virtual void arm_highres_timer(const ::itimerspec& its) override {
+        _steady_clock_timer.timerfd_settime(TFD_TIMER_ABSTIME, its);
+    }
+    virtual void reset_preemption_monitor() override {
+        service_preempting_io();
+        _preempting_io.replenish(&_timerfd_iocb, _timerfd_in_preempting_io);
+        _preempting_io.replenish(&_task_quota_timer_iocb, _task_quota_timer_in_preempting_io);
+        _preempting_io.flush();
+    }
+    virtual void request_preemption() override {
+        ::itimerspec expired = {};
+        expired.it_value.tv_nsec = 1;
+        arm_highres_timer(expired); // will trigger immediately, triggering the preemption monitor
+        // The kernel is not obliged to deliver the completion immediately, so wait for it
+        while (!need_preempt()) {
+            std::atomic_signal_fence(std::memory_order_seq_cst);
+        }
+    }
+};
+
+reactor_backend_epoll::reactor_backend_epoll(reactor* r)
+        : _r(r), _epollfd(file_desc::epoll_create(EPOLL_CLOEXEC)) {
+    ::epoll_event event;
+    event.events = EPOLLIN;
+    event.data.ptr = nullptr;
+    auto ret = ::epoll_ctl(_epollfd.get(), EPOLL_CTL_ADD, _r->_notify_eventfd.get(), &event);
+    throw_system_error_on(ret == -1);
+
+    struct sigevent sev;
+    sev.sigev_notify = SIGEV_THREAD_ID;
+    sev._sigev_un._tid = syscall(SYS_gettid);
+    sev.sigev_signo = alarm_signal();
+    ret = timer_create(CLOCK_MONOTONIC, &sev, &_steady_clock_timer);
+    assert(ret >= 0);
+}
+
+reactor_backend_epoll::~reactor_backend_epoll() {
+    timer_delete(_steady_clock_timer);
+}
+
+void reactor_backend_epoll::start_tick() {
+    _task_quota_timer_thread = std::thread(&reactor::task_quota_timer_thread_fn, _r);
+
+    ::sched_param sp;
+    sp.sched_priority = 1;
+    auto sched_ok = pthread_setschedparam(_task_quota_timer_thread.native_handle(), SCHED_FIFO, &sp);
+    if (sched_ok != 0 && _r->_id == 0) {
+        seastar_logger.warn("Unable to set SCHED_FIFO scheduling policy for timer thread; latency impact possible. Try adding CAP_SYS_NICE");
+    }
+}
+
+void reactor_backend_epoll::stop_tick() {
+    _r->_dying.store(true, std::memory_order_relaxed);
+    _r->_task_quota_timer.timerfd_settime(0, seastar::posix::to_relative_itimerspec(1ns, 1ms)); // Make the timer fire soon
+    _task_quota_timer_thread.join();
+}
+
+void reactor_backend_epoll::arm_highres_timer(const ::itimerspec& its) {
+    auto ret = timer_settime(_steady_clock_timer, TIMER_ABSTIME, &its, NULL);
+    throw_system_error_on(ret == -1);
+    if (!_timer_enabled) {
+        _timer_enabled = true;
+        _r->_signals.handle_signal(alarm_signal(), [r = _r] {
+            r->service_highres_timer();
+        });
+    }
 }
 
 reactor::signals::signals() : _pending_signals(0) {
@@ -308,8 +616,12 @@ reactor::signals::~signals() {
 
 reactor::signals::signal_handler::signal_handler(int signo, std::function<void ()>&& handler)
         : _handler(std::move(handler)) {
+    engine()._backend->handle_signal(signo);
+}
+
+void reactor_backend_epoll::handle_signal(int signo) {
     struct sigaction sa;
-    sa.sa_sigaction = action;
+    sa.sa_sigaction = signal_received;
     sa.sa_mask = make_empty_sigset_mask();
     sa.sa_flags = SA_SIGINFO | SA_RESTART;
     auto r = ::sigaction(signo, &sa, nullptr);
@@ -353,12 +665,8 @@ bool reactor::signals::pure_poll_signal() const {
 }
 
 void reactor::signals::action(int signo, siginfo_t* siginfo, void* ignore) {
-    g_need_preempt = true;
-    if (engine_is_ready()) {
-        engine()._signals._pending_signals.fetch_or(1ull << signo, std::memory_order_relaxed);
-    } else {
-        failed_to_handle(signo);
-    }
+    engine().request_preemption();
+    engine()._signals._pending_signals.fetch_or(1ull << signo, std::memory_order_relaxed);
 }
 
 void reactor::signals::failed_to_handle(int signo) {
@@ -370,6 +678,14 @@ void reactor::signals::failed_to_handle(int signo) {
 
 void reactor::handle_signal(int signo, std::function<void ()>&& handler) {
     _signals.handle_signal(signo, std::move(handler));
+}
+
+void reactor_backend_epoll::signal_received(int signo, siginfo_t* siginfo, void* ignore) {
+    if (engine_is_ready()) {
+        engine()._signals.action(signo, siginfo, ignore);
+    } else {
+        reactor::signals::failed_to_handle(signo);
+    }
 }
 
 // Accumulates an in-memory backtrace and flush to stderr eventually.
@@ -438,12 +754,6 @@ static void print_with_backtrace(const char* cause) noexcept {
     backtrace_buffer buf;
     buf.append(cause);
     print_with_backtrace(buf);
-}
-
-inline int alarm_signal() {
-    // We don't want to use SIGALRM, because the boost unit test library
-    // also plays with it.
-    return SIGRTMIN;
 }
 
 // Installs signal handler stack for current thread.
@@ -534,25 +844,86 @@ struct reactor::task_queue::indirect_compare {
     }
 };
 
-reactor::reactor(unsigned id)
-    : _backend()
+static bool detect_aio_poll() {
+    auto fd = file_desc::eventfd(0, 0);
+    aio_context_t ioc{};
+    io_setup(1, &ioc);
+    auto cleanup = defer([&] { io_destroy(ioc); });
+    linux_abi::iocb iocb = internal::make_poll_iocb(fd.get(), POLLIN|POLLOUT);
+    linux_abi::iocb* a[1] = { &iocb };
+    auto r = io_submit(ioc, 1, a);
+    if (r != 1) {
+        return false;
+    }
+    uint64_t one = 1;
+    fd.write(&one, 8);
+    io_event ev[1];
+    r = io_pgetevents(ioc, 1, 1, ev, nullptr, nullptr);
+    return r == 1;
+}
+
+class reactor_backend_selector {
+    std::string _name;
+private:
+    explicit reactor_backend_selector(std::string name) : _name(std::move(name)) {}
+public:
+    std::unique_ptr<reactor_backend> create(reactor* r) {
+        if (_name == "linux-aio") {
+            return std::make_unique<reactor_backend_aio>(r);
+        } else if (_name == "epoll") {
+            return std::make_unique<reactor_backend_epoll>(r);
+        }
+        throw std::logic_error("bad reactor backend");
+    }
+    static reactor_backend_selector default_backend() {
+        return available()[0];
+    }
+    static std::vector<reactor_backend_selector> available() {
+        std::vector<reactor_backend_selector> ret;
+        if (detect_aio_poll()) {
+            ret.push_back(reactor_backend_selector("linux-aio"));
+        }
+        ret.push_back(reactor_backend_selector("epoll"));
+        return ret;
+    }
+    friend std::ostream& operator<<(std::ostream& os, const reactor_backend_selector& rbs) {
+        return os << rbs._name;
+    }
+    friend void validate(boost::any& v, const std::vector<std::string> values, reactor_backend_selector* rbs, int) {
+        namespace bpo = boost::program_options;
+        bpo::validators::check_first_occurrence(v);
+        auto s = bpo::validators::get_single_string(values);
+        for (auto&& x : available()) {
+            if (s == x._name) {
+                v = std::move(x);
+                return;
+            }
+        }
+        throw bpo::validation_error(bpo::validation_error::invalid_option_value);
+    }
+};
+
+reactor::reactor(unsigned id, reactor_backend_selector rbs)
+    : _notify_eventfd(file_desc::eventfd(0, EFD_CLOEXEC))
+    , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
+    , _backend(rbs.create(this))
     , _id(id)
 #ifdef HAVE_OSV
     , _timer_thread(
         [&] { timer_thread_func(); }, sched::thread::attr().stack(4096).name("timer_thread").pin(sched::cpu::current()))
     , _engine_thread(sched::thread::current())
 #endif
-    , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
     , _cpu_started(0)
     , _cpu_stall_detector(std::make_unique<cpu_stall_detector>(this))
     , _io_context(0)
     , _reuseport(posix_reuseport_detect())
-    , _task_quota_timer_thread(&reactor::task_quota_timer_thread_fn, this)
-    , _thread_pool(seastar::format("syscall-{}", id)) {
+    , _thread_pool(this, seastar::format("syscall-{}", id)) {
     _task_queues.push_back(std::make_unique<task_queue>(0, "main", 1000));
     _task_queues.push_back(std::make_unique<task_queue>(1, "atexit", 1000));
     _at_destroy_tasks = _task_queues.back().get();
+    g_need_preempt = &_preemption_monitor;
     seastar::thread_impl::init();
+    _backend->start_tick();
     for (unsigned i = 0; i != max_aio; ++i) {
         _free_iocbs.push(&_iocb_pool[i]);
     }
@@ -566,12 +937,6 @@ reactor::reactor(unsigned id)
     sigaddset(&mask, alarm_signal());
     r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
     assert(r == 0);
-    struct sigevent sev;
-    sev.sigev_notify = SIGEV_THREAD_ID;
-    sev._sigev_un._tid = syscall(SYS_gettid);
-    sev.sigev_signo = alarm_signal();
-    r = timer_create(CLOCK_MONOTONIC, &sev, &_steady_clock_timer);
-    assert(r >= 0);
     sigemptyset(&mask);
     sigaddset(&mask, cpu_stall_detector::signal_number());
     r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
@@ -591,10 +956,7 @@ reactor::~reactor() {
     auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
     assert(r == 0);
 
-    _dying.store(true, std::memory_order_relaxed);
-    _task_quota_timer.timerfd_settime(0, seastar::posix::to_relative_itimerspec(1ns, 1ms)); // Make the timer fire soon
-    _task_quota_timer_thread.join();
-    timer_delete(_steady_clock_timer);
+    _backend->stop_tick();
     auto eraser = [](auto& list) {
         while (!list.empty()) {
             auto& timer = *list.begin();
@@ -605,6 +967,25 @@ reactor::~reactor() {
     eraser(_expired_lowres_timers);
     eraser(_expired_manual_timers);
     io_destroy(_io_context);
+}
+
+void
+reactor::reset_preemption_monitor() {
+    return _backend->reset_preemption_monitor();
+}
+
+void reactor_backend_epoll::reset_preemption_monitor() {
+    _r->_preemption_monitor.head.store(0, std::memory_order_relaxed);
+}
+
+void
+reactor::request_preemption() {
+    return _backend->request_preemption();
+}
+
+void
+reactor_backend_epoll::request_preemption() {
+    _r->_preemption_monitor.head.store(1, std::memory_order_relaxed);
 }
 
 // Add to an atomic integral non-atomically and returns the previous value
@@ -745,13 +1126,13 @@ reactor::task_quota_timer_thread_fn() {
     {
         uint64_t events;
         _task_quota_timer.read(&events, 8);
-        _local_need_preempt = true;
+        request_preemption();
     }
 
     while (!_dying.load(std::memory_order_relaxed)) {
         uint64_t events;
         _task_quota_timer.read(&events, 8);
-        _local_need_preempt = true;
+        request_preemption();
 
         // We're in a different thread, but guaranteed to be on the same core, so even
         // a signal fence is overdoing it
@@ -939,8 +1320,9 @@ future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd,
         pfd.events_known &= ~event;
         return make_ready_future();
     }
+    pfd.events_rw = event == (EPOLLIN | EPOLLOUT);
     pfd.events_requested |= event;
-    if (!(pfd.events_epoll & event)) {
+    if ((pfd.events_epoll & event) != event) {
         auto ctl = pfd.events_epoll ? EPOLL_CTL_MOD : EPOLL_CTL_ADD;
         pfd.events_epoll |= event;
         ::epoll_event eevt;
@@ -954,24 +1336,6 @@ future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd,
     return (pfd.*pr).get_future();
 }
 
-void reactor_backend_epoll::abort_fd(pollable_fd_state& pfd, std::exception_ptr ex,
-                                     promise<> pollable_fd_state::* pr, int event) {
-    if (pfd.events_epoll & event) {
-        pfd.events_epoll &= ~event;
-        auto ctl = pfd.events_epoll ? EPOLL_CTL_MOD : EPOLL_CTL_DEL;
-        ::epoll_event eevt;
-        eevt.events = pfd.events_epoll;
-        eevt.data.ptr = &pfd;
-        int r = ::epoll_ctl(_epollfd.get(), ctl, pfd.fd.get(), &eevt);
-        assert(r == 0);
-    }
-    if (pfd.events_requested & event) {
-        pfd.events_requested &= ~event;
-        (pfd.*pr).set_exception(std::move(ex));
-    }
-    pfd.events_known &= ~event;
-}
-
 future<> reactor_backend_epoll::readable(pollable_fd_state& fd) {
     return get_epoll_future(fd, &pollable_fd_state::pollin, EPOLLIN);
 }
@@ -980,12 +1344,8 @@ future<> reactor_backend_epoll::writeable(pollable_fd_state& fd) {
     return get_epoll_future(fd, &pollable_fd_state::pollout, EPOLLOUT);
 }
 
-void reactor_backend_epoll::abort_reader(pollable_fd_state& fd, std::exception_ptr ex) {
-    abort_fd(fd, std::move(ex), &pollable_fd_state::pollin, EPOLLIN);
-}
-
-void reactor_backend_epoll::abort_writer(pollable_fd_state& fd, std::exception_ptr ex) {
-    abort_fd(fd, std::move(ex), &pollable_fd_state::pollout, EPOLLOUT);
+future<> reactor_backend_epoll::readable_or_writeable(pollable_fd_state& fd) {
+    return get_epoll_future(fd, &pollable_fd_state::pollin, EPOLLIN | EPOLLOUT);
 }
 
 void reactor_backend_epoll::forget(pollable_fd_state& fd) {
@@ -993,15 +1353,6 @@ void reactor_backend_epoll::forget(pollable_fd_state& fd) {
         ::epoll_ctl(_epollfd.get(), EPOLL_CTL_DEL, fd.fd.get(), nullptr);
     }
 }
-
-future<> reactor_backend_epoll::notified(reactor_notifier *n) {
-    // Currently reactor_backend_epoll doesn't need to support notifiers,
-    // because we add to it file descriptors instead. But this can be fixed
-    // later.
-    std::cout << "reactor_backend_epoll does not yet support notifiers!\n";
-    abort();
-}
-
 
 pollable_fd
 reactor::posix_listen(socket_address sa, listen_options opts) {
@@ -1027,6 +1378,18 @@ reactor::posix_reuseport_detect() {
         return true;
     } catch(std::system_error& e) {
         return false;
+    }
+}
+
+void pollable_fd::maybe_no_more_recv() {
+    if (_s->no_more_recv) {
+        throw std::system_error(std::error_code(ECONNABORTED, std::system_category()));
+    }
+}
+
+void pollable_fd::maybe_no_more_send() {
+    if (_s->no_more_send) {
+        throw std::system_error(std::error_code(ECONNABORTED, std::system_category()));
     }
 }
 
@@ -1126,7 +1489,7 @@ reactor::submit_io(io_desc* desc, Func prepare_io) {
 
 // Returns: number of iocbs consumed (0 or 1)
 size_t
-reactor::handle_aio_error(::iocb* iocb, int ec) {
+reactor::handle_aio_error(linux_abi::iocb* iocb, int ec) {
     switch (ec) {
         case EINVAL:
         case EOPNOTSUPP:
@@ -2550,8 +2913,7 @@ void reactor::enable_timer(steady_clock_type::time_point when)
     itimerspec its;
     its.it_interval = {};
     its.it_value = to_timespec(when);
-    auto ret = timer_settime(_steady_clock_timer, TIMER_ABSTIME, &its, NULL);
-    throw_system_error_on(ret == -1);
+    _backend->arm_highres_timer(its);
 #else
     using ns = std::chrono::nanoseconds;
     WITH_LOCK(_timer_mutex) {
@@ -2784,7 +3146,7 @@ void reactor::run_tasks(task_queue& tq) {
                 // While need_preempt() is set, task execution is inefficient due to
                 // need_preempt() checks breaking out of loops and .then() calls. See
                 // #302.
-                g_need_preempt = false;
+                reset_preemption_monitor();
             }
         }
     }
@@ -2800,7 +3162,7 @@ void reactor::shuffle(std::unique_ptr<task>& t, task_queue& q) {
 #endif
 
 void reactor::force_poll() {
-    g_need_preempt = true;
+    request_preemption();
 }
 
 bool
@@ -2820,7 +3182,7 @@ reactor::do_expire_lowres_timers() {
         return false;
     }
     auto now = lowres_clock::now();
-    if (now > _lowres_next_timeout) {
+    if (now >= _lowres_next_timeout) {
         complete_timers(_lowres_timers, _expired_lowres_timers, [this] {
             if (!_lowres_timers.empty()) {
                 _lowres_next_timeout = _lowres_timers.get_next_timeout();
@@ -3114,7 +3476,8 @@ public:
 
 void
 reactor::wakeup() {
-    pthread_kill(_thread_id, alarm_signal());
+    uint64_t one = 1;
+    ::write(_notify_eventfd.get(), &one, sizeof(one));
 }
 
 void reactor::start_aio_eventfd_loop() {
@@ -3183,7 +3546,7 @@ reactor::run_some_tasks() {
         return;
     }
     sched_print("run_some_tasks: start");
-    g_need_preempt = false;
+    reset_preemption_monitor();
 
     sched_clock::time_point t_run_completed = std::chrono::steady_clock::now();
     STAP_PROBE(seastar, reactor_run_tasks_start);
@@ -3234,6 +3597,14 @@ reactor::activate(task_queue& tq) {
     _activating_task_queues.push_back(&tq);
 }
 
+void reactor::service_highres_timer() {
+    complete_timers(_timers, _expired_timers, [this] {
+        if (!_timers.empty()) {
+            enable_timer(_timers.get_next_timeout());
+        }
+    });
+}
+
 int reactor::run() {
     auto signal_stack = install_signal_handler_stack();
 
@@ -3254,13 +3625,6 @@ int reactor::run() {
         io_poller = poller(std::make_unique<io_pollfn>(*this));
 #endif
         aio_poller = poller(std::make_unique<aio_batch_submit_pollfn>(*this));
-    }
-
-    ::sched_param sp;
-    sp.sched_priority = 1;
-    auto sched_ok = pthread_setschedparam(_task_quota_timer_thread.native_handle(), SCHED_FIFO, &sp);
-    if (sched_ok != 0 && _id == 0) {
-        seastar_logger.warn("Unable to set SCHED_FIFO scheduling policy for timer thread; latency impact possible. Try adding CAP_SYS_NICE");
     }
 
     poller sig_poller(std::make_unique<signal_pollfn>(*this));
@@ -3291,15 +3655,6 @@ int reactor::run() {
     });
 
     poller syscall_poller(std::make_unique<syscall_pollfn>(*this));
-#ifndef HAVE_OSV
-    _signals.handle_signal(alarm_signal(), [this] {
-        complete_timers(_timers, _expired_timers, [this] {
-            if (!_timers.empty()) {
-                enable_timer(_timers.get_next_timeout());
-            }
-        });
-    });
-#endif
 
     poller drain_cross_cpu_freelist(std::make_unique<drain_cross_cpu_freelist_pollfn>());
 
@@ -3565,10 +3920,24 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
     for (int i = 0; i < nr; ++i) {
         auto& evt = eevt[i];
         auto pfd = reinterpret_cast<pollable_fd_state*>(evt.data.ptr);
+        if (!pfd) {
+            char dummy[8];
+            _r->_notify_eventfd.read(dummy, 8);
+            continue;
+        }
         auto events = evt.events & (EPOLLIN | EPOLLOUT);
         auto events_to_remove = events & ~pfd->events_requested;
-        complete_epoll_event(*pfd, &pollable_fd_state::pollin, events, EPOLLIN);
-        complete_epoll_event(*pfd, &pollable_fd_state::pollout, events, EPOLLOUT);
+        if (pfd->events_rw) {
+            // accept() signals normal completions via EPOLLIN, but errors (due to shutdown())
+            // via EPOLLOUT|EPOLLHUP, so we have to wait for both EPOLLIN and EPOLLOUT with the
+            // same future
+            complete_epoll_event(*pfd, &pollable_fd_state::pollin, events, EPOLLIN|EPOLLOUT);
+        } else {
+            // Normal processing where EPOLLIN and EPOLLOUT are waited for via different
+            // futures.
+            complete_epoll_event(*pfd, &pollable_fd_state::pollin, events, EPOLLIN);
+            complete_epoll_event(*pfd, &pollable_fd_state::pollout, events, EPOLLOUT);
+        }
         if (events_to_remove) {
             pfd->events_epoll &= ~events_to_remove;
             evt.events = pfd->events_epoll;
@@ -3773,8 +4142,7 @@ void smp_message_queue::start(unsigned cpuid) {
 
 /* not yet implemented for OSv. TODO: do the notification like we do class smp. */
 #ifndef HAVE_OSV
-thread_pool::thread_pool(sstring name) : _worker_thread([this, name] { work(name); }), _notify(pthread_self()) {
-    engine()._signals.handle_signal(SIGUSR1, [this] { inter_thread_wq.complete(); });
+thread_pool::thread_pool(reactor* r, sstring name) : _reactor(r), _worker_thread([this, name] { work(name); }) {
 }
 
 void thread_pool::work(sstring name) {
@@ -3801,7 +4169,8 @@ void thread_pool::work(sstring name) {
             inter_thread_wq._completed.push(wi);
         }
         if (_main_thread_idle.load(std::memory_order_seq_cst)) {
-            pthread_kill(_notify, SIGUSR1);
+            uint64_t one = 1;
+            ::write(_reactor->_notify_eventfd.get(), &one, 8);
         }
     }
 }
@@ -3930,6 +4299,8 @@ reactor::get_options_description(std::chrono::duration<double> default_task_quot
         ("force-aio-syscalls", bpo::value<bool>()->default_value(false),
                 "Force io_getevents(2) to issue a system call, instead of bypassing the kernel when possible."
                 " This makes strace output more useful, but slows down the application")
+        ("reactor-backend", bpo::value<reactor_backend_selector>()->default_value(reactor_backend_selector::default_backend()),
+                format("Internal reactor implementation ({})", reactor_backend_selector::available()).c_str())
 #ifdef SEASTAR_HEAPPROF
         ("heapprof", "enable seastar heap profiling")
 #endif
@@ -4038,7 +4409,7 @@ void smp::arrive_at_event_loop_end() {
     }
 }
 
-void smp::allocate_reactor(unsigned id) {
+void smp::allocate_reactor(unsigned id, reactor_backend_selector rbs) {
     assert(!reactor_holder);
 
     // we cannot just write "local_engin = new reactor" since reactor's constructor
@@ -4047,7 +4418,7 @@ void smp::allocate_reactor(unsigned id) {
     int r = posix_memalign(&buf, cache_line_size, sizeof(reactor));
     assert(r == 0);
     local_engine = reinterpret_cast<reactor*>(buf);
-    new (buf) reactor(id);
+    new (buf) reactor(id, std::move(rbs));
     reactor_holder.reset(local_engine);
 }
 
@@ -4434,10 +4805,12 @@ void smp::configure(boost::program_options::variables_map configuration)
 
     _all_event_loops_done.emplace(smp::count);
 
+    auto backend_selector = configuration["reactor-backend"].as<reactor_backend_selector>();
+
     unsigned i;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        create_thread([configuration, &disk_config, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity, heapprof_enabled, mbind] {
+        create_thread([configuration, &disk_config, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity, heapprof_enabled, mbind, backend_selector] {
             auto thread_name = seastar::format("reactor-{}", i);
             pthread_setname_np(pthread_self(), thread_name.c_str());
             if (thread_affinity) {
@@ -4452,7 +4825,7 @@ void smp::configure(boost::program_options::variables_map configuration)
             }
             auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
             throw_pthread_error(r);
-            allocate_reactor(i);
+            allocate_reactor(i, backend_selector);
             _reactors[i] = &engine();
             for (auto& dev_id : disk_config.device_ids()) {
                 alloc_io_queue(i, dev_id);
@@ -4469,7 +4842,7 @@ void smp::configure(boost::program_options::variables_map configuration)
         });
     }
 
-    allocate_reactor(0);
+    allocate_reactor(0, backend_selector);
     _reactors[0] = &engine();
     for (auto& dev_id : disk_config.device_ids()) {
         alloc_io_queue(0, dev_id);
@@ -4536,90 +4909,10 @@ bool smp::pure_poll_queues() {
     return false;
 }
 
-__thread bool g_need_preempt;
+internal::preemption_monitor bootstrap_preemption_monitor{};
+__thread const internal::preemption_monitor* g_need_preempt = &bootstrap_preemption_monitor;
 
 __thread reactor* local_engine;
-
-class reactor_notifier_epoll : public reactor_notifier {
-    writeable_eventfd _write;
-    readable_eventfd _read;
-public:
-    reactor_notifier_epoll()
-        : _write()
-        , _read(_write.read_side()) {
-    }
-    virtual future<> wait() override {
-        // convert _read.wait(), a future<size_t>, to a future<>:
-        return _read.wait().then([] (size_t ignore) {
-            return make_ready_future<>();
-        });
-    }
-    virtual void signal() override {
-        _write.signal(1);
-    }
-};
-
-std::unique_ptr<reactor_notifier>
-reactor_backend_epoll::make_reactor_notifier() {
-    return std::make_unique<reactor_notifier_epoll>();
-}
-
-#ifdef HAVE_OSV
-class reactor_notifier_osv :
-        public reactor_notifier, private osv::newpoll::pollable {
-    promise<> _pr;
-    // TODO: pollable should probably remember its poller, so we shouldn't
-    // need to keep another copy of this pointer
-    osv::newpoll::poller *_poller = nullptr;
-    bool _needed = false;
-public:
-    virtual future<> wait() override {
-        return engine().notified(this);
-    }
-    virtual void signal() override {
-        wake();
-    }
-    virtual void on_wake() override {
-        _pr.set_value();
-        _pr = promise<>();
-        // We try to avoid del()/add() ping-pongs: After an one occurance of
-        // the event, we don't del() but rather set needed=false. We guess
-        // the future's continuation (scheduler by _pr.set_value() above)
-        // will make the pollable needed again. Only if we reach this callback
-        // a second time, and needed is still false, do we finally del().
-        if (!_needed) {
-            _poller->del(this);
-            _poller = nullptr;
-
-        }
-        _needed = false;
-    }
-
-    void enable(osv::newpoll::poller &poller) {
-        _needed = true;
-        if (_poller == &poller) {
-            return;
-        }
-        assert(!_poller); // don't put same pollable on multiple pollers!
-        _poller = &poller;
-        _poller->add(this);
-    }
-
-    virtual ~reactor_notifier_osv() {
-        if (_poller) {
-            _poller->del(this);
-        }
-    }
-
-    friend class reactor_backend_osv;
-};
-
-std::unique_ptr<reactor_notifier>
-reactor_backend_osv::make_reactor_notifier() {
-    return std::make_unique<reactor_notifier_osv>();
-}
-#endif
-
 
 #ifdef HAVE_OSV
 reactor_backend_osv::reactor_backend_osv() {
@@ -4637,19 +4930,6 @@ reactor_backend_osv::wait_and_process() {
     }
     return true;
 }
-
-future<>
-reactor_backend_osv::notified(reactor_notifier *notifier) {
-    // reactor_backend_osv::make_reactor_notifier() generates a
-    // reactor_notifier_osv, so we only can work on such notifiers.
-    reactor_notifier_osv *n = dynamic_cast<reactor_notifier_osv *>(notifier);
-    if (n->read()) {
-        return make_ready_future<>();
-    }
-    n->enable(_poller);
-    return n->_pr.get_future();
-}
-
 
 future<>
 reactor_backend_osv::readable(pollable_fd_state& fd) {
@@ -4857,7 +5137,7 @@ future<connected_socket> connect(socket_address sa, socket_address local, transp
 void reactor::add_high_priority_task(std::unique_ptr<task>&& t) {
     add_urgent_task(std::move(t));
     // break .then() chains
-    g_need_preempt = true;
+    request_preemption();
 }
 
 static
