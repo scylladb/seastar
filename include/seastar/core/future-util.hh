@@ -240,7 +240,7 @@ struct futurized_action_helper<AsyncAction, false> {
         AsyncAction action;
         using orig_ret = std::result_of_t<AsyncAction()>;
         explicit wrapper(AsyncAction&& action) : action(std::move(action)) {}
-        futurize_t<orig_ret> operator()() const {
+        futurize_t<orig_ret> operator()() {
             return futurize<orig_ret>::convert(action());
         };
     };

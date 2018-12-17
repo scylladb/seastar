@@ -942,3 +942,14 @@ SEASTAR_TEST_CASE(test_when_all_succeed_vector) {
         BOOST_REQUIRE(ret);
     });
 }
+
+SEASTAR_TEST_CASE(test_futurize_mutable) {
+    int count = 0;
+    return seastar::repeat([count]() mutable {
+        ++count;
+        if (count == 3) {
+            return seastar::stop_iteration::yes;
+        }
+        return seastar::stop_iteration::no;
+    });
+}
