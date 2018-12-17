@@ -81,11 +81,11 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set (dpdk_LIBRARIES
     ${dpdk_CFGFILE_LIBRARY}
     ${dpdk_CMDLINE_LIBRARY}
-    ${dpdk_EAL_LIBRARY}
     ${dpdk_ETHDEV_LIBRARY}
     ${dpdk_HASH_LIBRARY}
     ${dpdk_KVARGS_LIBRARY}
     ${dpdk_MBUF_LIBRARY}
+    ${dpdk_EAL_LIBRARY}
     ${dpdk_MEMPOOL_LIBRARY}
     ${dpdk_MEMPOOL_RING_LIBRARY}
     ${dpdk_PMD_BNXT_LIBRARY}
