@@ -325,10 +325,9 @@ boost::program_options::options_description nns_options() {
     return opts;
 }
 
-network_stack_registrator nns_registrator{
-    "native", nns_options(), native_network_stack::create
-};
-
+void register_native_stack() {
+    register_network_stack("native", nns_options(), native_network_stack::create);
+}
 }
 
 }

@@ -521,6 +521,14 @@ posix_udp_channel::receive() {
     });
 }
 
+void register_posix_stack() {
+    register_network_stack("posix", boost::program_options::options_description(),
+        [](boost::program_options::variables_map ops) {
+            return smp::main_thread() ? posix_network_stack::create(ops)
+                                      : posix_ap_network_stack::create(ops);
+        },
+        true);
+}
 }
 
 }

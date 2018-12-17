@@ -190,14 +190,9 @@ bool operator==(const ::sockaddr_in a, const ::sockaddr_in b);
 
 namespace seastar {
 
-class network_stack_registrator {
-public:
-    using options = boost::program_options::variables_map;
-    explicit network_stack_registrator(sstring name,
-            boost::program_options::options_description opts,
-            std::function<future<std::unique_ptr<network_stack>> (options opts)> factory,
-            bool make_default = false);
-};
+void register_network_stack(sstring name, boost::program_options::options_description opts,
+    std::function<future<std::unique_ptr<network_stack>>(boost::program_options::variables_map opts)> create,
+    bool make_default = false);
 
 class writeable_eventfd;
 

@@ -193,6 +193,7 @@ public:
     }
 };
 
+void register_posix_stack();
 }
 
 }

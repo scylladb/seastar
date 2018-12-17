@@ -34,6 +34,7 @@
 #include <seastar/net/packet.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/net/posix-stack.hh>
+#include <seastar/net/native-stack.hh>
 #include <seastar/core/resource.hh>
 #include <seastar/core/print.hh>
 #include "core/scollectd-impl.hh"
@@ -1267,10 +1268,9 @@ public:
         static boost::program_options::options_description opts;
         return opts;
     }
-    static void register_stack(sstring name,
-            boost::program_options::options_description opts,
-            std::function<future<std::unique_ptr<network_stack>> (options opts)> create,
-            bool make_default = false);
+    static void register_stack(sstring name, boost::program_options::options_description opts,
+        std::function<future<std::unique_ptr<network_stack>>(options opts)> create,
+        bool make_default);
     static sstring default_stack();
     static std::vector<sstring> list();
     static future<std::unique_ptr<network_stack>> create(options opts);
@@ -4241,6 +4241,14 @@ void network_stack_registry::register_stack(sstring name,
     }
 }
 
+void register_network_stack(sstring name, boost::program_options::options_description opts,
+    std::function<future<std::unique_ptr<network_stack>>(boost::program_options::variables_map)>
+        create,
+    bool make_default) {
+    return network_stack_registry::register_stack(
+        std::move(name), std::move(opts), std::move(create), make_default);
+}
+
 sstring network_stack_registry::default_stack() {
     return _default();
 }
@@ -4264,13 +4272,6 @@ network_stack_registry::create(sstring name, options opts) {
         throw std::runtime_error(format("network stack {} not registered", name));
     }
     return _map()[name](opts);
-}
-
-network_stack_registrator::network_stack_registrator(sstring name,
-        boost::program_options::options_description opts,
-        std::function<future<std::unique_ptr<network_stack>>(options opts)> factory,
-        bool make_default) {
-    network_stack_registry::register_stack(name, opts, factory, make_default);
 }
 
 boost::program_options::options_description
@@ -4630,8 +4631,14 @@ public:
     }
 };
 
+static void register_network_stacks() {
+    register_posix_stack();
+    register_native_stack();
+}
+
 void smp::configure(boost::program_options::variables_map configuration)
 {
+    register_network_stacks();
 #ifndef SEASTAR_NO_EXCEPTION_HACK
     if (configuration["enable-glibc-exception-scaling-workaround"].as<bool>()) {
         init_phdr_cache();
@@ -5170,14 +5177,6 @@ future<> later() {
 void add_to_flush_poller(output_stream<char>* os) {
     engine()._flush_batching.emplace_back(os);
 }
-
-network_stack_registrator nsr_posix{"posix",
-    boost::program_options::options_description(),
-    [](boost::program_options::variables_map ops) {
-        return smp::main_thread() ? posix_network_stack::create(ops) : posix_ap_network_stack::create(ops);
-    },
-    true
-};
 
 reactor::sched_clock::duration reactor::total_idle_time() {
     return _total_idle;
