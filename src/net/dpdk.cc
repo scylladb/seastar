@@ -517,7 +517,7 @@ public:
         return _is_vmxnet3_device;
     }
 
-    virtual const rss_key_type& rss_key() const override { return _rss_key; }
+    virtual rss_key_type rss_key() const override { return _rss_key; }
 };
 
 template <bool HugetlbfsMemBackend>

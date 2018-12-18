@@ -47,10 +47,10 @@
 
 namespace seastar {
 
-using rss_key_type = std::vector<uint8_t>;
+using rss_key_type = compat::basic_string_view<uint8_t>;
 
 // Mellanox Linux's driver key
-static const rss_key_type default_rsskey_40bytes = {
+static constexpr uint8_t default_rsskey_40bytes[] = {
     0xd1, 0x81, 0xc6, 0x2c, 0xf7, 0xf4, 0xdb, 0x5b,
     0x19, 0x83, 0xa2, 0xfc, 0x94, 0x3e, 0x1a, 0xdb,
     0xd9, 0x38, 0x9e, 0x6b, 0xd1, 0x03, 0x9c, 0x2c,
@@ -59,7 +59,7 @@ static const rss_key_type default_rsskey_40bytes = {
 };
 
 // Intel's i40e PMD default RSS key
-static const rss_key_type default_rsskey_52bytes = {
+static constexpr uint8_t default_rsskey_52bytes[] = {
     0x44, 0x39, 0x79, 0x6b, 0xb5, 0x4c, 0x50, 0x23,
     0xb6, 0x75, 0xea, 0x5b, 0x12, 0x4f, 0x9f, 0x30,
     0xb8, 0xa2, 0xc0, 0x3d, 0xdf, 0xdc, 0x4d, 0x02,
@@ -71,7 +71,7 @@ static const rss_key_type default_rsskey_52bytes = {
 
 template<typename T>
 static inline uint32_t
-toeplitz_hash(const rss_key_type& key, const T& data)
+toeplitz_hash(rss_key_type key, const T& data)
 {
 	uint32_t hash = 0, v;
 	u_int i, b;
