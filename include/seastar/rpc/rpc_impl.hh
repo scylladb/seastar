@@ -20,7 +20,6 @@
  */
 #pragma once
 
-#include <iostream>
 #include <seastar/core/function_traits.hh>
 #include <seastar/core/apply.hh>
 #include <seastar/core/shared_ptr.hh>

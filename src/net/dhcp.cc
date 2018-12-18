@@ -23,6 +23,7 @@
 #include <unordered_map>
 #include <array>
 #include <random>
+#include <iostream>
 
 #include <seastar/net/dhcp.hh>
 #include <seastar/net/ip.hh>

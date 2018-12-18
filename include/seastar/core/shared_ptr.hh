@@ -25,7 +25,7 @@
 #include <utility>
 #include <type_traits>
 #include <functional>
-#include <iostream>
+#include <ostream>
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/util/indirect.hh>
 

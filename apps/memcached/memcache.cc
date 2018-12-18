@@ -24,6 +24,7 @@
 #include <boost/intrusive_ptr.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/optional.hpp>
+#include <iostream>
 #include <iomanip>
 #include <sstream>
 #include <seastar/core/app-template.hh>

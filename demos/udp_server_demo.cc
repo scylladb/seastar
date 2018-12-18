@@ -19,6 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
+#include <iostream>
 #include <seastar/core/distributed.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/future-util.hh>

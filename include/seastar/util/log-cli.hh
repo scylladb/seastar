@@ -29,7 +29,6 @@
 #include <boost/program_options.hpp>
 
 #include <algorithm>
-#include <iostream>
 #include <unordered_map>
 
 /// \addtogroup logging

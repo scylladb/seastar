@@ -21,6 +21,7 @@
  * The goal of this program is to allow a user to properly configure the Seastar I/O
  * scheduler.
  */
+#include <iostream>
 #include <chrono>
 #include <random>
 #include <memory>

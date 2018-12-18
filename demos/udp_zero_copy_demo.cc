@@ -27,6 +27,7 @@
 #include <seastar/core/units.hh>
 #include <random>
 #include <iomanip>
+#include <iostream>
 
 using namespace seastar;
 using namespace net;

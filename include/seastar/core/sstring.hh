@@ -29,7 +29,8 @@
 #include <cstring>
 #include <stdexcept>
 #include <initializer_list>
-#include <iostream>
+#include <istream>
+#include <ostream>
 #include <functional>
 #include <cstdio>
 #include <type_traits>

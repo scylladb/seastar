@@ -27,6 +27,7 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/stall_sampler.hh>
+#include <iostream>
 
 using namespace seastar;
 

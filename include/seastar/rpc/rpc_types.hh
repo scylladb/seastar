@@ -32,7 +32,6 @@
 #include <seastar/core/simple-stream.hh>
 #include <seastar/core/lowres_clock.hh>
 #include <boost/functional/hash.hpp>
-#include <iostream>
 #include <seastar/core/sharded.hh>
 
 namespace seastar {

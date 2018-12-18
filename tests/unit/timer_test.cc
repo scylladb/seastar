@@ -23,6 +23,7 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/print.hh>
 #include <chrono>
+#include <iostream>
 
 using namespace seastar;
 using namespace std::chrono_literals;

@@ -27,6 +27,7 @@
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/reactor.hh>
 #include <algorithm>
+#include <iostream>
 
 using namespace seastar;
 

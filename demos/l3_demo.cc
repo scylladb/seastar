@@ -22,6 +22,7 @@
 #include <seastar/net/net.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/net/virtio.hh>
+#include <iostream>
 
 using namespace seastar;
 using namespace net;

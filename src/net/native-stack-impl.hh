@@ -23,6 +23,7 @@
 
 #include <seastar/core/reactor.hh>
 #include <seastar/net/stack.hh>
+#include <iostream>
 
 namespace seastar {
 

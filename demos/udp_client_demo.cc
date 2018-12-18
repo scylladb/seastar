@@ -23,6 +23,7 @@
 #include <seastar/core/future-util.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/net/api.hh>
+#include <iostream>
 
 using namespace seastar;
 using namespace net;
