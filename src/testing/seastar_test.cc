@@ -49,9 +49,12 @@ void seastar_test::run() {
 // I use a primitive type, which is guaranteed to be initialized before any
 // dynamic initializer and lazily allocate the factor.
 
-static std::vector<seastar_test*>* tests;
+static std::vector<seastar_test*>* tests = nullptr;
 
 const std::vector<seastar_test*>& known_tests() {
+    if (!tests) {
+        throw std::runtime_error("No tests registered");
+    }
     return *tests;
 }
 
