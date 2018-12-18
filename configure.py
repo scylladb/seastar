@@ -124,7 +124,7 @@ if args.cpp_dialect == '':
     cpp_dialects = ['gnu++17', 'gnu++1z', 'gnu++14', 'gnu++1y']
     args.cpp_dialect = identify_best_dialect(cpp_dialects, compiler=args.cxx)
 
-MODES = seastar_cmake.SUPPORTED_MODES if args.mode is 'all' else [args.mode]
+MODES = seastar_cmake.SUPPORTED_MODES if args.mode == 'all' else [args.mode]
 
 # For convenience.
 tr = seastar_cmake.translate_arg
