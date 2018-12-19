@@ -10,19 +10,8 @@ configure_file (
   ${CMAKE_CURRENT_BINARY_DIR}/DoxygenLayout.xml
   COPYONLY)
 
-set (seastar_doxygen_marker_file ${CMAKE_CURRENT_BINARY_DIR}/.doxygen_generated)
-
-add_custom_command (
-  OUTPUT ${seastar_doxygen_marker_file}
-  DEPENDS
-    seastar
-    ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile
-    ${CMAKE_CURRENT_BINARY_DIR}/DoxygenLayout.xml
-  COMMAND ${Seastar_DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile
-  COMMAND ${CMAKE_COMMAND} -E touch ${seastar_doxygen_marker_file})
-
 add_custom_target (doc_api
-  DEPENDS ${seastar_doxygen_marker_file})
+  COMMAND ${Seastar_DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile)
 
 add_custom_command (
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/tutorial.html
