@@ -26,6 +26,24 @@ Configuring Seastar via
 
 will create a localized development environment specific to Seastar by downloading, compiling, and installing all dependencies of the library.
 
+The build type defaults to `Debug` and can be changed with the `-t`
+option. These include the common cmake ones (`Debug`, `RelWithDebInfo`,
+`Release`, etc), but there are a few peculiarities in Seastar:
+
+- `Debug` includes sanitizers
+- All build modes enable asserts
+- There is a `Dev` build. It has no debug information nor sanitizers and just
+  minimum optimizations. The objective is to build quickly
+
+It is convenient to have multiple build directories and alternate
+between them depending on what is being done.
+
+```
+$ ./cooking -r dev -d build-dev -t Dev     # Use for quick edit-compile-test cycle
+$ ./cooking -r dev -d build-dbg -t Debug   # Use to run gdb
+$ ./cooking -r dev -d build-rel -t Release # Use to benchmark
+```
+
 You can then compile:
 
 ```
