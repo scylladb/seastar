@@ -1130,36 +1130,13 @@ private:
     friend future<scheduling_group> create_scheduling_group(sstring name, float shares);
     friend future<> seastar::destroy_scheduling_group(scheduling_group);
 public:
-    bool wait_and_process(int timeout = 0, const sigset_t* active_sigmask = nullptr) {
-        return _backend->wait_and_process(timeout, active_sigmask);
-    }
-
-    future<> readable(pollable_fd_state& fd) {
-        return _backend->readable(fd);
-    }
-    future<> writeable(pollable_fd_state& fd) {
-        return _backend->writeable(fd);
-    }
-    future<> readable_or_writeable(pollable_fd_state& fd) {
-        return _backend->readable_or_writeable(fd);
-    }
-    void forget(pollable_fd_state& fd) {
-        _backend->forget(fd);
-    }
-    void abort_reader(pollable_fd_state& fd) {
-        // TCP will respond to shutdown(SHUT_RD) by returning ECONNABORT on the next read,
-        // but UDP responds by returning AGAIN. The no_more_recv flag tells us to convert
-        // EAGAIN to ECONNABORT in that case.
-        fd.no_more_recv = true;
-        return fd.fd.shutdown(SHUT_RD);
-    }
-    void abort_writer(pollable_fd_state& fd) {
-        // TCP will respond to shutdown(SHUT_WR) by returning ECONNABORT on the next write,
-        // but UDP responds by returning AGAIN. The no_more_recv flag tells us to convert
-        // EAGAIN to ECONNABORT in that case.
-        fd.no_more_send = true;
-        return fd.fd.shutdown(SHUT_WR);
-    }
+    bool wait_and_process(int timeout = 0, const sigset_t* active_sigmask = nullptr);
+    future<> readable(pollable_fd_state& fd);
+    future<> writeable(pollable_fd_state& fd);
+    future<> readable_or_writeable(pollable_fd_state& fd);
+    void forget(pollable_fd_state& fd);
+    void abort_reader(pollable_fd_state& fd);
+    void abort_writer(pollable_fd_state& fd);
     void enable_timer(steady_clock_type::time_point when);
     /// Sets the "Strict DMA" flag.
     ///
@@ -1170,13 +1147,8 @@ public:
     /// When false, file I/O operations can fall back to buffered I/O if
     /// DMA is not available.  This can result in dramatic reducation in
     /// performance and an increase in memory consumption.
-    void set_strict_dma(bool value) {
-        _strict_o_direct = value;
-    }
-    void set_bypass_fsync(bool value) {
-        _bypass_fsync = value;
-    }
-
+    void set_strict_dma(bool value);
+    void set_bypass_fsync(bool value);
     void update_blocked_reactor_notify_ms(std::chrono::milliseconds ms);
     std::chrono::milliseconds get_blocked_reactor_notify_ms() const;
     // For testing:

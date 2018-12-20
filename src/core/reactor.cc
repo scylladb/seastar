@@ -970,6 +970,50 @@ reactor::~reactor() {
     io_destroy(_io_context);
 }
 
+bool reactor::wait_and_process(int timeout, const sigset_t* active_sigmask) {
+    return _backend->wait_and_process(timeout, active_sigmask);
+}
+
+future<> reactor::readable(pollable_fd_state& fd) {
+    return _backend->readable(fd);
+}
+
+future<> reactor::writeable(pollable_fd_state& fd) {
+    return _backend->writeable(fd);
+}
+
+future<> reactor::readable_or_writeable(pollable_fd_state& fd) {
+    return _backend->readable_or_writeable(fd);
+}
+
+void reactor::forget(pollable_fd_state& fd) {
+    _backend->forget(fd);
+}
+
+void reactor::abort_reader(pollable_fd_state& fd) {
+    // TCP will respond to shutdown(SHUT_RD) by returning ECONNABORT on the next read,
+    // but UDP responds by returning AGAIN. The no_more_recv flag tells us to convert
+    // EAGAIN to ECONNABORT in that case.
+    fd.no_more_recv = true;
+    return fd.fd.shutdown(SHUT_RD);
+}
+
+void reactor::abort_writer(pollable_fd_state& fd) {
+    // TCP will respond to shutdown(SHUT_WR) by returning ECONNABORT on the next write,
+    // but UDP responds by returning AGAIN. The no_more_recv flag tells us to convert
+    // EAGAIN to ECONNABORT in that case.
+    fd.no_more_send = true;
+    return fd.fd.shutdown(SHUT_WR);
+}
+
+void reactor::set_strict_dma(bool value) {
+    _strict_o_direct = value;
+}
+
+void reactor::set_bypass_fsync(bool value) {
+    _bypass_fsync = value;
+}
+
 void
 reactor::reset_preemption_monitor() {
     return _backend->reset_preemption_monitor();
