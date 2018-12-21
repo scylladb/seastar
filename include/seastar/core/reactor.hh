@@ -432,89 +432,7 @@ private:
     void work(sstring thread_name);
 };
 
-// The "reactor_backend" interface provides a method of waiting for various
-// basic events on one thread. We have one implementation based on epoll and
-// file-descriptors (reactor_backend_epoll) and one implementation based on
-// OSv-specific file-descriptor-less mechanisms (reactor_backend_osv).
-class reactor_backend {
-public:
-    virtual ~reactor_backend() {};
-    // wait_and_process() waits for some events to become available, and
-    // processes one or more of them. If block==false, it doesn't wait,
-    // and just processes events that have already happened, if any.
-    // After the optional wait, just before processing the events, the
-    // pre_process() function is called.
-    virtual bool wait_and_process(int timeout = -1, const sigset_t* active_sigmask = nullptr) = 0;
-    // Methods that allow polling on file descriptors. This will only work on
-    // reactor_backend_epoll. Other reactor_backend will probably abort if
-    // they are called (which is fine if no file descriptors are waited on):
-    virtual future<> readable(pollable_fd_state& fd) = 0;
-    virtual future<> writeable(pollable_fd_state& fd) = 0;
-    virtual future<> readable_or_writeable(pollable_fd_state& fd) = 0;
-    virtual void forget(pollable_fd_state& fd) = 0;
-    // Calls reactor::signal_received(signo) when relevant
-    virtual void handle_signal(int signo) = 0;
-    virtual void start_tick() = 0;
-    virtual void stop_tick() = 0;
-    virtual void arm_highres_timer(const ::itimerspec& ts) = 0;
-    virtual void reset_preemption_monitor() = 0;
-    virtual void request_preemption() = 0;
-};
-
 class reactor_backend_selector;
-
-// reactor backend using file-descriptor & epoll, suitable for running on
-// Linux. Can wait on multiple file descriptors, and converts other events
-// (such as timers, signals, inter-thread notifications) into file descriptors
-// using mechanisms like timerfd, signalfd and eventfd respectively.
-class reactor_backend_epoll : public reactor_backend {
-    reactor* _r;
-    std::thread _task_quota_timer_thread;
-    timer_t _steady_clock_timer = {};
-    bool _timer_enabled = false;
-private:
-    file_desc _epollfd;
-    future<> get_epoll_future(pollable_fd_state& fd,
-            promise<> pollable_fd_state::* pr, int event);
-    void complete_epoll_event(pollable_fd_state& fd,
-            promise<> pollable_fd_state::* pr, int events, int event);
-    static void signal_received(int signo, siginfo_t* siginfo, void* ignore);
-public:
-    explicit reactor_backend_epoll(reactor* r);
-    virtual ~reactor_backend_epoll() override;
-    virtual bool wait_and_process(int timeout, const sigset_t* active_sigmask) override;
-    virtual future<> readable(pollable_fd_state& fd) override;
-    virtual future<> writeable(pollable_fd_state& fd) override;
-    virtual future<> readable_or_writeable(pollable_fd_state& fd) override;
-    virtual void forget(pollable_fd_state& fd) override;
-    virtual void handle_signal(int signo) override;
-    virtual void start_tick() override;
-    virtual void stop_tick() override;
-    virtual void arm_highres_timer(const ::itimerspec& ts) override;
-    virtual void reset_preemption_monitor() override;
-    virtual void request_preemption() override;
-};
-
-#ifdef HAVE_OSV
-// reactor_backend using OSv-specific features, without any file descriptors.
-// This implementation cannot currently wait on file descriptors, but unlike
-// reactor_backend_epoll it doesn't need file descriptors for waiting on a
-// timer, for example, so file descriptors are not necessary.
-class reactor_backend_osv : public reactor_backend {
-private:
-    osv::newpoll::poller _poller;
-    future<> get_poller_future(reactor_notifier_osv *n);
-    promise<> _timer_promise;
-public:
-    reactor_backend_osv();
-    virtual ~reactor_backend_osv() override { }
-    virtual bool wait_and_process() override;
-    virtual future<> readable(pollable_fd_state& fd) override;
-    virtual future<> writeable(pollable_fd_state& fd) override;
-    virtual void forget(pollable_fd_state& fd) override;
-    void enable_timer(steady_clock_type::time_point when);
-};
-#endif /* HAVE_OSV */
 
 enum class open_flags {
     rw = O_RDWR,
@@ -532,6 +450,8 @@ inline open_flags operator|(open_flags a, open_flags b) {
 inline open_flags operator&(open_flags a, open_flags b) {
     return open_flags(std::underlying_type_t<open_flags>(a) & std::underlying_type_t<open_flags>(b));
 }
+
+class reactor_backend;
 
 class io_queue {
 private:
@@ -1130,36 +1050,13 @@ private:
     friend future<scheduling_group> create_scheduling_group(sstring name, float shares);
     friend future<> seastar::destroy_scheduling_group(scheduling_group);
 public:
-    bool wait_and_process(int timeout = 0, const sigset_t* active_sigmask = nullptr) {
-        return _backend->wait_and_process(timeout, active_sigmask);
-    }
-
-    future<> readable(pollable_fd_state& fd) {
-        return _backend->readable(fd);
-    }
-    future<> writeable(pollable_fd_state& fd) {
-        return _backend->writeable(fd);
-    }
-    future<> readable_or_writeable(pollable_fd_state& fd) {
-        return _backend->readable_or_writeable(fd);
-    }
-    void forget(pollable_fd_state& fd) {
-        _backend->forget(fd);
-    }
-    void abort_reader(pollable_fd_state& fd) {
-        // TCP will respond to shutdown(SHUT_RD) by returning ECONNABORT on the next read,
-        // but UDP responds by returning AGAIN. The no_more_recv flag tells us to convert
-        // EAGAIN to ECONNABORT in that case.
-        fd.no_more_recv = true;
-        return fd.fd.shutdown(SHUT_RD);
-    }
-    void abort_writer(pollable_fd_state& fd) {
-        // TCP will respond to shutdown(SHUT_WR) by returning ECONNABORT on the next write,
-        // but UDP responds by returning AGAIN. The no_more_recv flag tells us to convert
-        // EAGAIN to ECONNABORT in that case.
-        fd.no_more_send = true;
-        return fd.fd.shutdown(SHUT_WR);
-    }
+    bool wait_and_process(int timeout = 0, const sigset_t* active_sigmask = nullptr);
+    future<> readable(pollable_fd_state& fd);
+    future<> writeable(pollable_fd_state& fd);
+    future<> readable_or_writeable(pollable_fd_state& fd);
+    void forget(pollable_fd_state& fd);
+    void abort_reader(pollable_fd_state& fd);
+    void abort_writer(pollable_fd_state& fd);
     void enable_timer(steady_clock_type::time_point when);
     /// Sets the "Strict DMA" flag.
     ///
@@ -1170,13 +1067,8 @@ public:
     /// When false, file I/O operations can fall back to buffered I/O if
     /// DMA is not available.  This can result in dramatic reducation in
     /// performance and an increase in memory consumption.
-    void set_strict_dma(bool value) {
-        _strict_o_direct = value;
-    }
-    void set_bypass_fsync(bool value) {
-        _bypass_fsync = value;
-    }
-
+    void set_strict_dma(bool value);
+    void set_bypass_fsync(bool value);
     void update_blocked_reactor_notify_ms(std::chrono::milliseconds ms);
     std::chrono::milliseconds get_blocked_reactor_notify_ms() const;
     // For testing:
