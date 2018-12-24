@@ -39,6 +39,7 @@ public:
         struct timespec tp;
         auto ret = clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tp);
         assert(ret == 0);
+        static_cast<void>(ret);
         return time_point(tp.tv_nsec * 1ns + tp.tv_sec * 1s);
     }
 };
