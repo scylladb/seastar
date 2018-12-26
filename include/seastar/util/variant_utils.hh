@@ -105,7 +105,7 @@ template <typename Variant, typename... Args>
 inline auto visit(Variant&& variant, Args&&... args)
 {
     static_assert(sizeof...(Args) > 0, "At least one lambda must be provided for visitation");
-#ifdef SEASTAR_USE_STD_OPTIONAL_VARIANT_STRINGVIEW
+#ifdef SEASTAR_USE_STD_OPTIONAL_VARIANT_STRINGVIEW_FILESYSTEM
     return std::visit(
 #else
     return boost::apply_visitor(
@@ -114,7 +114,7 @@ inline auto visit(Variant&& variant, Args&&... args)
         variant);
 }
 
-#ifdef SEASTAR_USE_STD_OPTIONAL_VARIANT_STRINGVIEW
+#ifdef SEASTAR_USE_STD_OPTIONAL_VARIANT_STRINGVIEW_FILESYSTEM
 
 namespace internal {
 template<typename... Args>
