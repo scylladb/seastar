@@ -24,6 +24,7 @@
 #include <sys/syscall.h>
 #include <atomic>
 #include <algorithm>
+#include <errno.h>
 
 namespace seastar {
 
