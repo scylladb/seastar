@@ -27,6 +27,15 @@ import subprocess
 class Addr2Line:
     def __init__(self, binary):
         self._binary = binary
+
+        # Print warning if binary has no debug info according to `file`.
+        # Note: no message is printed for system errors as they will be
+        # printed also by addr2line later on.
+        output = subprocess.check_output(["file", self._binary])
+        s = output.decode("utf-8")
+        if s.find('ELF') >= 0 and s.find('debug_info', len(self._binary)) < 0:
+            print('{}'.format(s))
+
         self._addr2line = subprocess.Popen(["addr2line", "-Cfpia", "-e", self._binary], stdin=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
 
         # If a library doesn't exist in a particular path, addr2line
