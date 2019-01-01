@@ -336,6 +336,9 @@ public:
     io_rates get_io_rates() const {
         io_rates rates;
         auto t = _last_time_seen - _start_measuring;
+        if (!t.count()) {
+            throw std::runtime_error("No data collected");
+        }
         rates.bytes_per_sec = _bytes / t.count();
         rates.iops = _requests / t.count();
         return rates;
