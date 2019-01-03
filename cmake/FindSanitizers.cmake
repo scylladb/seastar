@@ -33,7 +33,8 @@ set (CMAKE_REQUIRED_FLAGS -fsanitize=undefined)
 check_cxx_source_compiles ("int main() {}" Sanitizers_UNDEFINED_BEHAVIOR_FOUND)
 
 if (Sanitizers_UNDEFINED_BEHAVIOR_FOUND)
-  set (Sanitizers_UNDEFINED_BEHAVIOR_COMPILER_OPTIONS -fsanitize=undefined)
+  # Disable vptr because of https://gcc.gnu.org/bugzilla/show_bug.cgi?id=88684
+  set (Sanitizers_UNDEFINED_BEHAVIOR_COMPILER_OPTIONS "-fsanitize=undefined;-fno-sanitize=vptr")
 endif ()
 
 set (Sanitizers_COMPILER_OPTIONS
@@ -66,7 +67,7 @@ if (Sanitizers_FOUND)
 
     set_target_properties (Sanitizers::undefined_behavior
       PROPERTIES
-        INTERFACE_COMPILE_OPTIONS ${Sanitizers_UNDEFINED_BEHAVIOR_COMPILER_OPTIONS}
-        INTERFACE_LINK_LIBRARIES ${Sanitizers_UNDEFINED_BEHAVIOR_COMPILER_OPTIONS})
+        INTERFACE_COMPILE_OPTIONS "${Sanitizers_UNDEFINED_BEHAVIOR_COMPILER_OPTIONS}"
+        INTERFACE_LINK_LIBRARIES "${Sanitizers_UNDEFINED_BEHAVIOR_COMPILER_OPTIONS}")
   endif ()
 endif ()
