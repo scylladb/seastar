@@ -303,7 +303,9 @@ public:
     virtual server_socket listen(socket_address sa, listen_options opts) = 0;
     // FIXME: local parameter assumes ipv4 for now, fix when adding other AF
     future<connected_socket> connect(socket_address sa, socket_address local = socket_address(::sockaddr_in{AF_INET, INADDR_ANY, {0}}), transport proto = transport::TCP) {
-        return socket().connect(sa, local, proto);
+        return do_with(socket(), [sa, local, proto](::seastar::socket& s) {
+            return s.connect(sa, local, proto);
+        });
     }
     virtual ::seastar::socket socket() = 0;
     virtual net::udp_channel make_udp_channel(ipv4_addr addr = {}) = 0;
