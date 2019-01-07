@@ -1808,26 +1808,6 @@ void operator delete[](void* ptr, std::align_val_t a, const std::nothrow_t&) noe
 
 #endif
 
-void* operator new(size_t size, seastar::with_alignment wa) {
-    trigger_error_injector();
-    return throw_if_null(allocate_aligned(wa.alignment(), size));
-}
-
-void* operator new[](size_t size, seastar::with_alignment wa) {
-    trigger_error_injector();
-    return throw_if_null(allocate_aligned(wa.alignment(), size));
-}
-
-void operator delete(void* ptr, seastar::with_alignment wa) {
-    // only called for matching operator new, so we know ptr != nullptr
-    return seastar::memory::free(ptr);
-}
-
-void operator delete[](void* ptr, seastar::with_alignment wa) {
-    // only called for matching operator new, so we know ptr != nullptr
-    return seastar::memory::free(ptr);
-}
-
 namespace seastar {
 
 #else
@@ -1896,30 +1876,6 @@ void disable_large_allocation_warning() {
 
 }
 
-}
-
-void* operator new(size_t size, seastar::with_alignment wa) {
-    void* ret;
-    if (posix_memalign(&ret, wa.alignment(), size) != 0) {
-        throw std::bad_alloc();
-    }
-    return ret;
-}
-
-void* operator new[](size_t size, seastar::with_alignment wa) {
-    void* ret;
-    if (posix_memalign(&ret, wa.alignment(), size) != 0) {
-        throw std::bad_alloc();
-    }
-    return ret;
-}
-
-void operator delete(void* ptr, seastar::with_alignment wa) {
-    return ::free(ptr);
-}
-
-void operator delete[](void* ptr, seastar::with_alignment wa) {
-    return ::free(ptr);
 }
 
 namespace seastar {

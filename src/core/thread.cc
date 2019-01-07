@@ -170,7 +170,11 @@ thread_context::~thread_context() {
 thread_context::stack_holder
 thread_context::make_stack() {
 #ifdef SEASTAR_THREAD_STACK_GUARDS
-    auto stack = stack_holder(new (with_alignment(getpagesize())) char[_stack_size]);
+    void* mem = ::aligned_alloc(getpagesize(), _stack_size);
+    if (mem == nullptr) {
+        throw std::bad_alloc();
+    }
+    auto stack = stack_holder(new (mem) char[_stack_size]);
 #else
     auto stack = stack_holder(new char[_stack_size]);
 #endif
@@ -183,7 +187,7 @@ thread_context::make_stack() {
 
 void thread_context::stack_deleter::operator()(char* ptr) const noexcept {
 #ifdef SEASTAR_THREAD_STACK_GUARDS
-    operator delete[] (ptr, with_alignment(getpagesize()));
+    free(ptr);
 #else
     delete[] ptr;
 #endif

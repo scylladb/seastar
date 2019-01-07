@@ -269,17 +269,4 @@ public:
 };
 
 }
-
-class with_alignment {
-    size_t _align;
-public:
-    with_alignment(size_t align) : _align(align) {}
-    size_t alignment() const { return _align; }
-};
-
 }
-
-void* operator new(size_t size, seastar::with_alignment wa);
-void* operator new[](size_t size, seastar::with_alignment wa);
-void operator delete(void* ptr, seastar::with_alignment wa);
-void operator delete[](void* ptr, seastar::with_alignment wa);

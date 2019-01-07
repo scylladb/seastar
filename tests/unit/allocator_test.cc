@@ -35,13 +35,15 @@ using namespace seastar;
 
 template <size_t N>
 void test_aligned_allocator() {
+#ifdef __cpp_aligned_new
     using aptr = std::unique_ptr<char[]>;
     std::vector<aptr> v;
     for (unsigned i = 0; i < 1000; ++i) {
-        aptr p(new (with_alignment(64)) char[N]);
+        aptr p(new (std::align_val_t(64)) char[N]);
         assert(reinterpret_cast<uintptr_t>(p.get()) % 64 == 0);
         v.push_back(std::move(p));
     }
+#endif
 }
 
 struct allocation {
