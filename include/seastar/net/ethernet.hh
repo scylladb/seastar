@@ -30,7 +30,8 @@ namespace seastar {
 namespace net {
 
 struct ethernet_address {
-    ethernet_address() {}
+    ethernet_address()
+        : mac{} {}
 
     ethernet_address(const uint8_t *eaddr) {
         std::copy(eaddr, eaddr + 6, mac.begin());
