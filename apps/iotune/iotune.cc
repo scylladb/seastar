@@ -182,8 +182,8 @@ public:
 };
 
 struct io_rates {
-    float bytes_per_sec;
-    float iops;
+    float bytes_per_sec = 0;
+    float iops = 0;
     io_rates operator+(const io_rates& a) const {
         return io_rates{bytes_per_sec + a.bytes_per_sec, iops + a.iops};
     }
