@@ -36,6 +36,10 @@ option (Seastar_ALLOC_FAILURE_INJECTION
   "Enable failure injection into the Seastar allocator."
   OFF)
 
+option (Seastar_EXPERIMENTAL_COROUTINES_TS
+  "Enable experimental support for Coroutines TS."
+  OFF)
+
 #
 # Add a dev build type.
 #
@@ -637,6 +641,11 @@ target_compile_options (seastar
   PUBLIC
     -std=${Seastar_CXX_DIALECT}
     -U_FORTIFY_SOURCE)
+
+if (Seastar_EXPERIMENTAL_COROUTINES_TS)
+  target_compile_options (seastar PUBLIC -fcoroutines-ts -g)
+  target_compile_definitions (seastar PUBLIC SEASTAR_COROUTINES_TS)
+endif ()
 
 if (Seastar_GCC6_CONCEPTS OR Concepts_FOUND)
   target_compile_definitions (seastar
