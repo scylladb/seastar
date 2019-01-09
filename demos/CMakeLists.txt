@@ -42,7 +42,7 @@ macro (seastar_add_demo name)
   target_link_libraries (${target}
     PRIVATE
       Boost::program_options
-      seastar)
+      seastar_with_flags)
 
   set_target_properties (${target}
     PROPERTIES

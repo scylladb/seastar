@@ -563,6 +563,17 @@ target_include_directories (seastar
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${Seastar_GEN_BINARY_DIR}/src)
 
+set (Seastar_DEVELOPMENT_FLAGS
+  -UNDEBUG)
+
+set (Seastar_DEVELOPMENT_LIBS
+    debug Sanitizers::address
+    debug Sanitizers::undefined_behavior)
+
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+  list (APPEND Seastar_DEVELOPMENT_DEFINES SEASTAR_DEFAULT_ALLOCATOR)
+endif ()
+
 target_link_libraries (seastar
   PUBLIC
     Boost::boost
@@ -580,9 +591,7 @@ target_link_libraries (seastar
     lksctp-tools::lksctp-tools
     protobuf::libprotobuf
     rt::rt
-    yaml-cpp::yaml-cpp
-    debug Sanitizers::address
-    debug Sanitizers::undefined_behavior)
+    yaml-cpp::yaml-cpp)
 
 #
 # We want asserts enabled on all modes, but cmake defaults to passing
@@ -592,8 +601,7 @@ target_link_libraries (seastar
 #
 
 target_compile_options (seastar
-  PUBLIC -std=${Seastar_CXX_DIALECT}
-  PRIVATE -UNDEBUG)
+  PUBLIC -std=${Seastar_CXX_DIALECT})
 
 if (Seastar_GCC6_CONCEPTS OR Concepts_FOUND)
   target_compile_definitions (seastar
@@ -604,8 +612,7 @@ if (Seastar_GCC6_CONCEPTS OR Concepts_FOUND)
 endif ()
 
 if (LinuxMembarrier_FOUND)
-  target_compile_definitions (seastar
-    PRIVATE SEASTAR_HAS_MEMBARRIER)
+  list (APPEND Seastar_DEVELOPMENT_DEFINES SEASTAR_HAS_MEMBARRIER)
 
   target_link_libraries (seastar
     PRIVATE LinuxMembarrier::membarrier)
@@ -622,8 +629,7 @@ if (Seastar_STD_OPTIONAL_VARIANT_STRINGVIEW)
 endif ()
 
 if (Sanitizers_FIBER_SUPPORT)
-  target_compile_definitions (seastar
-    PRIVATE SEASTAR_HAVE_ASAN_FIBER_SUPPORT)
+  list (APPEND Seastar_DEVELOPMENT_DEFINES SEASTAR_HAVE_ASAN_FIBER_SUPPORT)
 endif ()
 
 if (Seastar_ALLOC_PAGE_SIZE)
@@ -632,8 +638,7 @@ if (Seastar_ALLOC_PAGE_SIZE)
 endif ()
 
 if (Seastar_CXX_FLAGS)
-  target_compile_options (seastar
-    PRIVATE ${Seastar_CXX_FLAGS})
+  list (APPEND Seastar_DEVELOPMENT_FLAGS ${Seastar_CXX_FLAGS})
 endif ()
 
 if (Seastar_DPDK)
@@ -649,8 +654,7 @@ if (Seastar_DPDK)
 endif ()
 
 if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (NOT Seastar_EXCEPTION_SCALABILITY_WORKAROUND))
-  target_compile_definitions (seastar
-    PRIVATE SEASTAR_NO_EXCEPTION_HACK)
+  list (APPEND Seastar_DEVELOPMENT_DEFINES SEASTAR_NO_EXCEPTION_HACK)
 endif ()
 
 if (Seastar_HWLOC)
@@ -658,8 +662,7 @@ if (Seastar_HWLOC)
     message (FATAL_ERROR "`hwloc` support is enabled but it is not available!")
   endif ()
 
-  target_compile_definitions (seastar
-    PRIVATE SEASTAR_HAVE_HWLOC)
+  list (APPEND Seastar_DEVELOPMENT_DEFINES SEASTAR_HAVE_HWLOC)
 
   target_link_libraries (seastar
     PRIVATE hwloc::hwloc)
@@ -676,16 +679,14 @@ if (Seastar_NUMA)
     message (FATAL_ERROR "NUMA support is enabled but `numactl` is not available!")
   endif ()
 
-  target_compile_definitions (seastar
-    PRIVATE SEASTAR_HAVE_NUMA)
+  list (APPEND Seastar_DEVELOPMENT_DEFINES SEASTAR_HAVE_NUMA)
 
   target_link_libraries (seastar
     PRIVATE numactl::numactl)
 endif ()
 
 if (lz4_HAVE_COMPRESS_DEFAULT)
-  target_compile_definitions (seastar
-    PRIVATE SEASTAR_HAVE_LZ4_COMPRESS_DEFAULT)
+  list (APPEND Seastar_DEVELOPMENT_DEFINES SEASTAR_HAVE_LZ4_COMPRESS_DEFAULT)
 endif ()
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -694,9 +695,30 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
       SEASTAR_DEBUG
       SEASTAR_DEBUG_SHARED_PTR
       SEASTAR_ASAN_ENABLED
-      SEASTAR_THREAD_STACK_GUARDS
-    PRIVATE SEASTAR_DEFAULT_ALLOCATOR)
+      SEASTAR_THREAD_STACK_GUARDS)
 endif ()
+
+target_compile_definitions (seastar
+  PRIVATE ${Seastar_DEVELOPMENT_DEFINES})
+
+target_compile_options (seastar
+  PRIVATE ${Seastar_DEVELOPMENT_FLAGS})
+
+target_link_libraries (seastar
+  PRIVATE ${Seastar_DEVELOPMENT_LIBS})
+
+add_library (seastar_with_flags INTERFACE)
+
+target_compile_definitions (seastar_with_flags
+  INTERFACE ${Seastar_DEVELOPMENT_DEFINES})
+
+target_compile_options (seastar_with_flags
+  INTERFACE ${Seastar_DEVELOPMENT_FLAGS})
+
+target_link_libraries (seastar_with_flags
+  INTERFACE
+    seastar
+    ${Seastar_DEVELOPMENT_LIBS})
 
 #
 # The testing library.

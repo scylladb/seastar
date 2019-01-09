@@ -40,7 +40,7 @@ macro (seastar_add_app name)
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
   target_link_libraries (${target}
-    PRIVATE seastar)
+    PRIVATE seastar_with_flags)
 
   set_target_properties (${target}
     PROPERTIES

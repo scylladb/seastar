@@ -27,7 +27,7 @@ add_library (seastar_perf_testing
 target_link_libraries (seastar_perf_testing
   PUBLIC
     fmt::fmt
-    seastar)
+    seastar_with_flags)
 
 # Logical target for all perf tests.
 add_custom_target (perf_tests)
@@ -46,10 +46,10 @@ macro (seastar_add_test name)
   add_executable (${target} ${parsed_args_SOURCES})
 
   if (parsed_args_NO_SEASTAR_PERF_TESTING_LIBRARY)
-    set (libraries seastar)
+    set (libraries seastar_with_flags)
   else ()
     set (libraries
-      seastar
+      seastar_with_flags
       seastar_perf_testing)
   endif ()
 

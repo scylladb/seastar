@@ -37,7 +37,7 @@ macro (seastar_add_test name)
 
   if (parsed_args_SOURCES)
     if (parsed_args_NO_SEASTAR_TESTING_LIBRARY)
-      set (libraries seastar)
+      set (libraries seastar_with_flags)
 
       if (parsed_args_RUN_ARGS)
         set (run_args ${parsed_args_RUN_ARGS})
@@ -46,7 +46,7 @@ macro (seastar_add_test name)
       endif ()
     else ()
       set (libraries
-        seastar
+        seastar_with_flags
         seastar_testing)
 
       if (NOT (Seastar_JENKINS STREQUAL ""))
