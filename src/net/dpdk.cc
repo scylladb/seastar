@@ -1920,6 +1920,10 @@ void dpdk_device::check_port_link_status()
     t->arm_periodic(check_interval);
 }
 
+// This function uses offsetof with non POD types.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winvalid-offsetof"
+
 template <bool HugetlbfsMemBackend>
 dpdk_qp<HugetlbfsMemBackend>::dpdk_qp(dpdk_device* dev, uint8_t qid,
                                       const std::string stats_plugin_name)
@@ -1968,6 +1972,8 @@ dpdk_qp<HugetlbfsMemBackend>::dpdk_qp(dpdk_device* dev, uint8_t qid,
                                         "A non-zero value indicates that seastar doesn't have enough memory to handle the packet reception or the memory is too fragmented.")),
     });
 }
+
+#pragma GCC diagnostic pop
 
 template <bool HugetlbfsMemBackend>
 void dpdk_qp<HugetlbfsMemBackend>::rx_start() {
