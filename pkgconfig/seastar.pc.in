@@ -9,6 +9,7 @@ Description: Advanced C++ framework for high-performance server applications on 
 Version: @PROJECT_VERSION@
 
 # Platform dependencies.
+stdatomic_libs=$<JOIN:@StdAtomic_LIBRARIES@, >
 stdfilesystem_libs=$<JOIN:@StdFilesystem_LIBRARIES@, >
 dl_libs=-l$<JOIN:@CMAKE_DL_LIBS@,-l>
 rt_libs=$<JOIN:@rt_LIBRARIES@, >
@@ -43,4 +44,4 @@ Requires.private: gnutls >= 3.5.18, protobuf >= 3.3.0, hwloc >= 1.11.5, yaml-cpp
 Conflicts:
 Cflags: ${boost_cflags} ${c_ares_cflags} ${cryptopp_cflags} ${fmt_cflags} ${lksctp_tools_cflags} ${numactl_cflags} ${sanitizers_cflags} ${seastar_cflags}
 Libs: ${boost_program_options_libs} ${boost_thread_libs} ${c_ares_libs} ${cryptopp_libs} ${fmt_libs} ${seastar_libs}
-Libs.private: ${dl_libs} ${rt_libs} ${boost_filesystem_libs} ${boost_thread_libs} ${dpdk_libs} ${lksctp_tools_libs} ${numactl_libs} ${stdfilesystem_libs}
+Libs.private: ${dl_libs} ${rt_libs} ${boost_filesystem_libs} ${boost_thread_libs} ${dpdk_libs} ${lksctp_tools_libs} ${numactl_libs} ${stdatomic_libs} ${stdfilesystem_libs}

@@ -226,6 +226,7 @@ find_package (GnuTLS 3.3.26 REQUIRED)
 find_package (LinuxMembarrier)
 find_package (Protobuf 2.5.0 REQUIRED)
 find_package (Sanitizers REQUIRED)
+find_package (StdAtomic REQUIRED)
 find_package (StdFilesystem REQUIRED)
 find_package (hwloc 1.11.2)
 # No version information published.
@@ -587,6 +588,7 @@ target_link_libraries (seastar
     ${CMAKE_DL_LIBS}
     Boost::filesystem
     GnuTLS::gnutls
+    StdAtomic::atomic
     StdFilesystem::filesystem
     lksctp-tools::lksctp-tools
     protobuf::libprotobuf
@@ -891,6 +893,7 @@ if (Seastar_INSTALL)
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindLinuxMembarrier.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindProtobuf.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindSanitizers.cmake
+      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindStdAtomic.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindStdFilesystem.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findc-ares.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findcryptopp.cmake
