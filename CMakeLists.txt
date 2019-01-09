@@ -565,7 +565,10 @@ target_include_directories (seastar
     ${Seastar_GEN_BINARY_DIR}/src)
 
 set (Seastar_DEVELOPMENT_FLAGS
-  -UNDEBUG)
+  -fvisibility=hidden
+  -UNDEBUG
+  -Wall
+  -Werror)
 
 set (Seastar_DEVELOPMENT_LIBS
     debug Sanitizers::address
@@ -601,9 +604,15 @@ target_link_libraries (seastar
 # reenable it. To force asserts off pass -DNDEBUG in
 # Seastar_CXX_FLAGS.
 #
+# To disable -Werror, pass -Wno-error to Seastar_CXX_FLAGS.
+#
+# We disable _FORTIFY_SOURCE because it generates false positives with longjmp() (src/core/thread.cc)
+#
 
 target_compile_options (seastar
-  PUBLIC -std=${Seastar_CXX_DIALECT})
+  PUBLIC
+    -std=${Seastar_CXX_DIALECT}
+    -U_FORTIFY_SOURCE)
 
 if (Seastar_GCC6_CONCEPTS OR Concepts_FOUND)
   target_compile_definitions (seastar
