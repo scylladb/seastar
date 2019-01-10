@@ -25,6 +25,7 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/noncopyable_function.hh>
 #include <boost/lockfree/spsc_queue.hpp>
 
 namespace seastar {
@@ -43,21 +44,21 @@ class syscall_work_queue {
         virtual void process() = 0;
         virtual void complete() = 0;
     };
-    template <typename T, typename Func>
+    template <typename T>
     struct work_item_returning :  work_item {
-        Func _func;
+        noncopyable_function<T ()> _func;
         promise<T> _promise;
         compat::optional<T> _result;
-        work_item_returning(Func&& func) : _func(std::move(func)) {}
+        work_item_returning(noncopyable_function<T ()> func) : _func(std::move(func)) {}
         virtual void process() override { _result = this->_func(); }
         virtual void complete() override { _promise.set_value(std::move(*_result)); }
         future<T> get_future() { return _promise.get_future(); }
     };
 public:
     syscall_work_queue();
-    template <typename T, typename Func>
-    future<T> submit(Func func) {
-        auto wi = std::make_unique<work_item_returning<T, Func>>(std::move(func));
+    template <typename T>
+    future<T> submit(noncopyable_function<T ()> func) {
+        auto wi = std::make_unique<work_item_returning<T>>(std::move(func));
         auto fut = wi->get_future();
         submit_item(std::move(wi));
         return fut;
