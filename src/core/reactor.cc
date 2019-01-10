@@ -153,6 +153,18 @@ struct convert<seastar::mountpoint_params> {
 
 namespace seastar {
 
+io_priority_class
+reactor::register_one_priority_class(sstring name, uint32_t shares) {
+    return io_queue::register_one_priority_class(std::move(name), shares);
+}
+
+future<>
+reactor::update_shares_for_class(io_priority_class pc, uint32_t shares) {
+    return parallel_for_each(_io_queues, [pc, shares] (auto& queue) {
+        return queue.second->update_shares_for_class(pc, shares);
+    });
+}
+
 future<pollable_fd, socket_address>
 reactor::accept(pollable_fd_state& listenfd) {
     return readable_or_writeable(listenfd).then([this, &listenfd] () mutable {

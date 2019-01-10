@@ -489,7 +489,7 @@ private:
     // Not all reactors have IO queues. If the number of IO queues is less than the number of shards,
     // some reactors will talk to foreign io_queues. If this reactor holds a valid IO queue, it will
     // be stored here.
-    std::vector<std::unique_ptr<io_queue>> my_io_queues = {};
+    std::vector<std::unique_ptr<io_queue>> my_io_queues;
     std::unordered_map<dev_t, io_queue*> _io_queues;
     friend io_queue;
 
@@ -669,9 +669,7 @@ public:
         }
     }
 
-    io_priority_class register_one_priority_class(sstring name, uint32_t shares) {
-        return io_queue::register_one_priority_class(std::move(name), shares);
-    }
+    io_priority_class register_one_priority_class(sstring name, uint32_t shares);
 
     /// \brief Updates the current amount of shares for a given priority class
     ///
@@ -681,11 +679,7 @@ public:
     /// \param pc the priority class handle
     /// \param shares the new shares value
     /// \return a future that is ready when the share update is applied
-    future<> update_shares_for_class(io_priority_class pc, uint32_t shares) {
-        return parallel_for_each(_io_queues, [pc, shares] (auto& queue) {
-            return queue.second->update_shares_for_class(pc, shares);
-        });
-    }
+    future<> update_shares_for_class(io_priority_class pc, uint32_t shares);
 
     void configure(boost::program_options::variables_map config);
 
