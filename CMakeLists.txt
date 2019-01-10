@@ -750,12 +750,17 @@ if (Seastar_INSTALL OR Seastar_TESTING)
   add_library (Seastar::seastar_testing ALIAS seastar_testing)
 
   target_compile_definitions (seastar_testing
-    PUBLIC BOOST_TEST_DYN_LINK)
+    PUBLIC BOOST_TEST_DYN_LINK
+    PRIVATE ${Seastar_DEVELOPMENT_DEFINES})
+
+  target_compile_options (seastar_testing
+    PRIVATE ${Seastar_DEVELOPMENT_FLAGS})
 
   target_link_libraries (seastar_testing
     PUBLIC
       Boost::unit_test_framework
-      seastar)
+      seastar
+    PRIVATE ${Seastar_DEVELOPMENT_LIBS})
 endif ()
 
 #
