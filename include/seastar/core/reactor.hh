@@ -79,6 +79,7 @@
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/scheduling.hh>
 #include "internal/pollable_fd.hh"
+#include "internal/syscall_work_queue.hh"
 
 #ifdef HAVE_OSV
 #include <osv/sched.hh>
@@ -131,53 +132,6 @@ void register_network_stack(sstring name, boost::program_options::options_descri
 
 class thread_pool;
 class smp;
-
-class syscall_work_queue {
-    static constexpr size_t queue_length = 128;
-    struct work_item;
-    using lf_queue = boost::lockfree::spsc_queue<work_item*,
-                            boost::lockfree::capacity<queue_length>>;
-    lf_queue _pending;
-    lf_queue _completed;
-    writeable_eventfd _start_eventfd;
-    semaphore _queue_has_room = { queue_length };
-    struct work_item {
-        virtual ~work_item() {}
-        virtual void process() = 0;
-        virtual void complete() = 0;
-    };
-    template <typename T, typename Func>
-    struct work_item_returning :  work_item {
-        Func _func;
-        promise<T> _promise;
-        compat::optional<T> _result;
-        work_item_returning(Func&& func) : _func(std::move(func)) {}
-        virtual void process() override { _result = this->_func(); }
-        virtual void complete() override { _promise.set_value(std::move(*_result)); }
-        future<T> get_future() { return _promise.get_future(); }
-    };
-public:
-    syscall_work_queue();
-    template <typename T, typename Func>
-    future<T> submit(Func func) {
-        auto wi = std::make_unique<work_item_returning<T, Func>>(std::move(func));
-        auto fut = wi->get_future();
-        submit_item(std::move(wi));
-        return fut;
-    }
-private:
-    void work();
-    // Scans the _completed queue, that contains the requests already handled by the syscall thread,
-    // effectively opening up space for more requests to be submitted. One consequence of this is
-    // that from the reactor's point of view, a request is not considered handled until it is
-    // removed from the _completed queue.
-    //
-    // Returns the number of requests handled.
-    unsigned complete();
-    void submit_item(std::unique_ptr<syscall_work_queue::work_item> wi);
-
-    friend class thread_pool;
-};
 
 class smp_message_queue {
     static constexpr size_t queue_length = 128;
