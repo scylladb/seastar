@@ -225,7 +225,7 @@ find_package (Concepts)
 find_package (GnuTLS 3.3.26 REQUIRED)
 find_package (LinuxMembarrier)
 find_package (Protobuf 2.5.0 REQUIRED)
-find_package (Sanitizers REQUIRED)
+find_package (Sanitizers)
 find_package (StdAtomic REQUIRED)
 find_package (StdFilesystem REQUIRED)
 find_package (hwloc 1.11.2)
@@ -576,6 +576,10 @@ set (Seastar_DEVELOPMENT_LIBS
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   list (APPEND Seastar_DEVELOPMENT_DEFINES SEASTAR_DEFAULT_ALLOCATOR)
+
+  if (NOT Sanitizers_FOUND)
+    message (FATAL_ERROR "Sanitizers are required for debug mode!")
+  endif ()
 endif ()
 
 target_link_libraries (seastar
