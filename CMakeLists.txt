@@ -575,8 +575,6 @@ set (Seastar_DEVELOPMENT_LIBS
     debug Sanitizers::undefined_behavior)
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-  list (APPEND Seastar_DEVELOPMENT_DEFINES SEASTAR_DEFAULT_ALLOCATOR)
-
   if (NOT Sanitizers_FOUND)
     message (FATAL_ERROR "Sanitizers are required for debug mode!")
   endif ()
@@ -701,13 +699,15 @@ if (Seastar_NUMA)
 endif ()
 
 if (lz4_HAVE_COMPRESS_DEFAULT)
-  list (APPEND Seastar_DEVELOPMENT_DEFINES SEASTAR_HAVE_LZ4_COMPRESS_DEFAULT)
+  target_compile_definitions (seastar
+    PUBLIC SEASTAR_HAVE_LZ4_COMPRESS_DEFAULT)
 endif ()
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   target_compile_definitions (seastar
     PUBLIC
       SEASTAR_DEBUG
+      SEASTAR_DEFAULT_ALLOCATOR
       SEASTAR_DEBUG_SHARED_PTR
       SEASTAR_ASAN_ENABLED
       SEASTAR_THREAD_STACK_GUARDS)
