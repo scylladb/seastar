@@ -3763,7 +3763,6 @@ int reactor::run() {
         aio_poller = poller(std::make_unique<aio_batch_submit_pollfn>(*this));
     }
 
-    poller sig_poller(std::make_unique<signal_pollfn>(*this));
     poller batch_flush_poller(std::make_unique<batch_flush_pollfn>(*this));
     poller execution_stage_poller(std::make_unique<execution_stage_pollfn>());
 
@@ -3794,7 +3793,11 @@ int reactor::run() {
 
     poller drain_cross_cpu_freelist(std::make_unique<drain_cross_cpu_freelist_pollfn>());
 
+    // expire_lowres_timers must be before sig_poller, because lowres_timer_pollfn
+    // may arm the first highres timer, which can add a new signal to be registerd. If the order
+    // is reversed, then signal_pollfn::exit_interrupt_mode() can re-block the timer signal.
     poller expire_lowres_timers(std::make_unique<lowres_timer_pollfn>(*this));
+    poller sig_poller(std::make_unique<signal_pollfn>(*this));
 
     using namespace std::chrono_literals;
     timer<lowres_clock> load_timer;
