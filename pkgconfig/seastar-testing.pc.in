@@ -1,7 +1,6 @@
-prefix=@CMAKE_INSTALL_PREFIX@
+prefix=@Seastar_PKG_CONFIG_PREFIX@
 exec_prefix=${prefix}
-includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
-libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+libdir=@Seastar_PKG_CONFIG_LIBDIR@
 
 Name: Seastar testing
 Url: http://seastar-project.org

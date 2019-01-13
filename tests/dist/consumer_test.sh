@@ -39,12 +39,22 @@ cmake --build build
 build/cmake_consumer
 build/cmake_testing_consumer
 
-#
-# Consume from pkg-config.
-#
-
 ingredients_dir="build/_cooking/installed"
 library_path="${ingredients_dir}"/lib
+
+#
+# Consume Seastar from its build directory with pkg-config.
+#
+
+pkg_config_path="build/_cooking/ingredient/Seastar/build"
+make BUILD_DIR=build-no-inst PKG_CONFIG_PATH="${pkg_config_path}"
+LD_LIBRARY_PATH="${library_path}" build-no-inst/pkgconfig_consumer
+LD_LIBRARY_PATH="${library_path}" build-no-inst/pkgconfig_testing_consumer
+
+#
+# Consume Seastar installed to the file-system, with pkg-config.
+#
+
 pkg_config_path="${library_path}"/pkgconfig
 make BUILD_DIR=build PKG_CONFIG_PATH="${pkg_config_path}"
 LD_LIBRARY_PATH="${library_path}" build/pkgconfig_consumer

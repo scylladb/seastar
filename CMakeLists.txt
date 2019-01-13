@@ -840,6 +840,26 @@ if (Seastar_INSTALL)
     set (Sanitizers_PKGCONFIG_COMPILER_OPTIONS ${Sanitizers_COMPILER_OPTIONS})
   endif ()
 
+  # Set paths in pkg-config files for installation.
+  set (Seastar_PKG_CONFIG_PREFIX ${CMAKE_INSTALL_PREFIX})
+  set (Seastar_PKG_CONFIG_LIBDIR ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR})
+  set (Seastar_PKG_CONFIG_SEASTAR_INCLUDE_FLAGS "-I${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}")
+
+  configure_file (
+    ${CMAKE_CURRENT_SOURCE_DIR}/pkgconfig/seastar.pc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar-install.pc.in
+    @ONLY)
+
+  configure_file (
+    ${CMAKE_CURRENT_SOURCE_DIR}/pkgconfig/seastar-testing.pc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar-testing-install.pc.in
+    @ONLY)
+
+  # Set paths in pkg-config files for direct use in the build directory.
+  set (Seastar_PKG_CONFIG_PREFIX ${CMAKE_CURRENT_BINARY_DIR})
+  set (Seastar_PKG_CONFIG_LIBDIR ${CMAKE_CURRENT_BINARY_DIR})
+  set (Seastar_PKG_CONFIG_SEASTAR_INCLUDE_FLAGS "-I${CMAKE_CURRENT_SOURCE_DIR}/include -I${CMAKE_CURRENT_BINARY_DIR}/gen/include")
+
   configure_file (
     ${CMAKE_CURRENT_SOURCE_DIR}/pkgconfig/seastar.pc.in
     ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar.pc.in
@@ -857,6 +877,14 @@ if (Seastar_INSTALL)
   file (GENERATE
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/seastar-testing.pc
     INPUT ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar-testing.pc.in)
+
+  file (GENERATE
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/seastar-install.pc
+    INPUT ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar-install.pc.in)
+
+  file (GENERATE
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/seastar-testing-install.pc
+    INPUT ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar-testing-install.pc.in)
 
   include (CMakePackageConfigHelpers)
   set (install_cmakedir ${CMAKE_INSTALL_LIBDIR}/cmake/Seastar)
@@ -930,10 +958,14 @@ if (Seastar_INSTALL)
     DESTINATION ${install_cmakedir})
 
   install (
-    FILES
-      ${CMAKE_CURRENT_BINARY_DIR}/seastar.pc
-      ${CMAKE_CURRENT_BINARY_DIR}/seastar-testing.pc
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+    FILES ${CMAKE_CURRENT_BINARY_DIR}/seastar-install.pc
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+    RENAME seastar.pc)
+
+  install (
+    FILES ${CMAKE_CURRENT_BINARY_DIR}/seastar-testing-install.pc
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+    RENAME seastar-testing.pc)
 
   #
   # Export targets from the build tree for the user package registry.

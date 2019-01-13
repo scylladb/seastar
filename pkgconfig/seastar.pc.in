@@ -1,7 +1,7 @@
-prefix=@CMAKE_INSTALL_PREFIX@
+prefix=@Seastar_PKG_CONFIG_PREFIX@
 exec_prefix=${prefix}
-includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
-libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+seastar_include_flags=@Seastar_PKG_CONFIG_SEASTAR_INCLUDE_FLAGS@
+libdir=@Seastar_PKG_CONFIG_LIBDIR@
 
 Name: Seastar
 Url: http://seastar-project.org
@@ -36,7 +36,7 @@ numactl_libs=$<JOIN:@numactl_LIBRARIES@, >
 sanitizers_cflags=$<JOIN:@Sanitizers_PKGCONFIG_COMPILER_OPTIONS@, >
 
 # Us.
-seastar_cflags=-I${includedir} $<JOIN:$<TARGET_PROPERTY:seastar,INTERFACE_COMPILE_OPTIONS>, > -D$<JOIN:$<TARGET_PROPERTY:seastar,INTERFACE_COMPILE_DEFINITIONS>, -D>
+seastar_cflags=${seastar_include_flags} $<JOIN:$<TARGET_PROPERTY:seastar,INTERFACE_COMPILE_OPTIONS>, > -D$<JOIN:$<TARGET_PROPERTY:seastar,INTERFACE_COMPILE_DEFINITIONS>, -D>
 seastar_libs=${libdir}/$<TARGET_FILE_NAME:seastar>
 
 Requires: liblz4 >= 1.8.0

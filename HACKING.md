@@ -177,9 +177,12 @@ cooking_ingredient (Seastar
 
 ### pkg-config
 
+Seastar includes a `seastar.pc` file. It can be used from both the
+install and build directories.
+
 Compiling a single file:
 ```
-g++ $(pkg-config --libs --cflags --static /path/to/seastar.pc) foo.cc -o foo
+g++ foo.cc -o foo $(pkg-config --libs --cflags --static /path/to/seastar.pc)
 ```
 
 Compiling multiple files:
