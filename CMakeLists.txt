@@ -699,8 +699,7 @@ if (Seastar_NUMA)
 endif ()
 
 if (lz4_HAVE_COMPRESS_DEFAULT)
-  target_compile_definitions (seastar
-    PUBLIC SEASTAR_HAVE_LZ4_COMPRESS_DEFAULT)
+  list (APPEND Seastar_DEVELOPMENT_DEFINES SEASTAR_HAVE_LZ4_COMPRESS_DEFAULT)
 endif ()
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
