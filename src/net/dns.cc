@@ -922,7 +922,7 @@ private:
     network_stack & _stack;
 
     ares_channel _channel = {};
-    uint64_t _ops = 0, _calls = 0;
+    uint64_t _calls = 0;
     std::chrono::milliseconds _timeout;
     timer<> _timer;
     gate _gate;
@@ -1036,4 +1036,3 @@ future<std::vector<net::inet_address>> net::inet_address::find_all(
 }
 
 }
-

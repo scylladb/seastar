@@ -286,7 +286,6 @@ class io_worker {
     uint64_t _bytes = 0;
     unsigned _requests = 0;
     size_t _buffer_size;
-    std::chrono::duration<double> _duration;
     std::chrono::time_point<iotune_clock, std::chrono::duration<double>> _start_measuring;
     std::chrono::time_point<iotune_clock, std::chrono::duration<double>> _end_measuring;
     std::chrono::time_point<iotune_clock, std::chrono::duration<double>> _end_load;
@@ -306,7 +305,6 @@ public:
 
     io_worker(size_t buffer_size, std::chrono::duration<double> duration, std::unique_ptr<request_issuer> reqs, std::unique_ptr<position_generator> pos)
         : _buffer_size(buffer_size)
-        , _duration(duration)
         , _start_measuring(iotune_clock::now() + std::chrono::duration<double>(10ms))
         , _end_measuring(_start_measuring + duration)
         , _end_load(_end_measuring + 10ms)
