@@ -517,7 +517,7 @@ void write_configuration_file(sstring conf_file, std::string format, sstring pro
     string_to_file(conf_file, buf);
 }
 
-void write_property_file(sstring conf_file, struct std::vector<disk_descriptor> disk_descriptors) {
+void write_property_file(sstring conf_file, std::vector<disk_descriptor> disk_descriptors) {
     YAML::Emitter out;
     out << YAML::BeginMap;
     out << YAML::Key << "disks";
@@ -583,7 +583,7 @@ int main(int ac, char** av) {
             auto format = configuration["format"].as<sstring>();
             auto duration = std::chrono::duration<double>(configuration["duration"].as<unsigned>() * 1s);
 
-            struct std::vector<disk_descriptor> disk_descriptors;
+            std::vector<disk_descriptor> disk_descriptors;
             std::unordered_map<sstring, sstring> mountpoint_map;
             // We want to evaluate once per mountpoint, but we still want to write in one of the
             // directories that we were provided - we may not have permissions to write into the
