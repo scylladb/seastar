@@ -1496,7 +1496,7 @@ using namespace seastar::memory;
 
 extern "C"
 [[gnu::visibility("default")]]
-[[gnu::externally_visible]]
+[[gnu::used]]
 void* malloc(size_t n) throw () {
     if (try_trigger_error_injector()) {
         return nullptr;
@@ -1511,7 +1511,7 @@ void* __libc_malloc(size_t n) throw ();
 
 extern "C"
 [[gnu::visibility("default")]]
-[[gnu::externally_visible]]
+[[gnu::used]]
 void free(void* ptr) {
     if (ptr) {
         seastar::memory::free(ptr);
@@ -1580,7 +1580,7 @@ void* __libc_realloc(void* obj, size_t size) throw ();
 
 extern "C"
 [[gnu::visibility("default")]]
-[[gnu::externally_visible]]
+[[gnu::used]]
 int posix_memalign(void** ptr, size_t align, size_t size) {
     if (try_trigger_error_injector()) {
         return ENOMEM;
@@ -1899,4 +1899,3 @@ namespace seastar {
 /// \endcond
 
 }
-
