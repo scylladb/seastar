@@ -39,9 +39,9 @@ It is convenient to have multiple build directories and alternate
 between them depending on what is being done.
 
 ```
-$ ./cooking -r dev -d build-dev -t Dev     # Use for quick edit-compile-test cycle
-$ ./cooking -r dev -d build-dbg -t Debug   # Use to run gdb
-$ ./cooking -r dev -d build-rel -t Release # Use to benchmark
+$ ./cooking.sh -r dev -d build-dev -t Dev     # Use for quick edit-compile-test cycle
+$ ./cooking.sh -r dev -d build-dbg -t Debug   # Use to run gdb
+$ ./cooking.sh -r dev -d build-rel -t Release # Use to benchmark
 ```
 
 You can then compile:
