@@ -144,6 +144,8 @@ public:
         , _pos_distribution(0,  file_data_size / _config.shard_info.request_size)
     {}
 
+    virtual ~class_data() = default;
+
     future<> issue_requests(std::chrono::steady_clock::time_point stop) {
         _start = std::chrono::steady_clock::now();
         return with_scheduling_group(_sg, [this, stop] {
