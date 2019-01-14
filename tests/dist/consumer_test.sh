@@ -46,7 +46,7 @@ library_path="${ingredients_dir}"/lib
 # Consume Seastar from its build directory with pkg-config.
 #
 
-pkg_config_path="build/_cooking/ingredient/Seastar/build"
+pkg_config_path="build/_cooking/ingredient/Seastar/build:build/_cooking/installed/lib/pkgconfig"
 make BUILD_DIR=build-no-inst PKG_CONFIG_PATH="${pkg_config_path}"
 LD_LIBRARY_PATH="${library_path}" build-no-inst/pkgconfig_consumer
 LD_LIBRARY_PATH="${library_path}" build-no-inst/pkgconfig_testing_consumer
