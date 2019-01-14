@@ -81,11 +81,20 @@ The `return make_ready_future<>();` causes the event loop, and the whole applica
 
 As shown in this example, all Seastar functions and types live in the "`seastar`" namespace. An user can either type this namespace prefix every time, or use shortcuts like "`using seastar::app_template`" or even "`using namespace seastar`" to avoid typing this prefix. We generally recommend to use the namespace prefixes `seastar` and `std` explicitly, and will will follow this style in all the examples below.
 
-To compile this program, first make sure you have downloaded, built, and installed Seastar.
+To compile this program, first make sure you have downloaded, built, and optionally installed Seastar, and put the above program in a source file anywhere you want, let's call the file `getting-started.cc`.
 
-Now, put the above program in a source file anywhere you want, let's call the file `getting-started.cc`.
+Linux's [pkg-config](http://www.freedesktop.org/wiki/Software/pkg-config/) is one way for easily determining the compilation and linking parameters needed for using various libraries - such as Seastar.  For example, if Seastar was built in the directory `$SEASTAR` but not installed, one can compile `getting-started.cc` with it using the command:
+```
+c++ getting-started.cc `pkg-config --cflags --libs --static $SEASTAR/build/release/seastar.pc`
+```
+The "`--static`" is needed because currently, Seastar is built as a static library, so we need to tell `pkg-config` to include its dependencies in the link command (whereas, had Seastar been a shared library, it could have pulled in its own dependencies).
 
-The easiest way to build a Seastar program is with CMake. Given the following `CMakeLists.txt`
+If Seastar _was_ installed, the `pkg-config` command line is even shorter:
+```
+c++ getting-started.cc `pkg-config --cflags --libs --static seastar`
+```
+
+Alternatively, one can easily build a Seastar program with CMake. Given the following `CMakeLists.txt`
 
 ```cmake
 cmake_minimum_required (VERSION 3.5)
