@@ -1239,7 +1239,7 @@ static inline cpu_pages& get_cpu_mem()
     if (__builtin_expect(!bool(cpu_mem_ptr), false)) {
         // Mark as cold so that GCC8+ can move this part of the function
         // to .text.unlikely.
-        [&] () [[gnu::cold]] {
+        [&] () __attribute__((cold)) {
             cpu_mem_ptr = &cpu_mem;
         }();
     }
