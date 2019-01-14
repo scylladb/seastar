@@ -150,7 +150,7 @@ public:
             return parallel_for_each(boost::irange(0u, parallelism()), [this, stop] (auto dummy) mutable {
                 auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
                 auto buf = bufptr.get();
-                return do_until([this, stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf, stop] () mutable {
+                return do_until([stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf, stop] () mutable {
                     auto start = std::chrono::steady_clock::now();
                     return issue_request(buf).then([this, start, stop] (auto size) {
                         auto now = std::chrono::steady_clock::now();
@@ -297,7 +297,7 @@ public:
                         std::uniform_int_distribution<char> fill('@', '~');
                         memset(buf, fill(random_generator), bufsize);
                         pos = pos * bufsize;
-                        return _file.dma_write(pos, buf, bufsize).finally([this, bufsize, bufptr = std::move(bufptr), perm = std::move(perm), pos] {
+                        return _file.dma_write(pos, buf, bufsize).finally([this, bufptr = std::move(bufptr), perm = std::move(perm), pos] {
                             if ((this->req_type() == request_type::append) && (pos > _last_pos)) {
                                 _last_pos = pos;
                             }

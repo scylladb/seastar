@@ -391,12 +391,12 @@ public:
 
         auto worker = worker_ptr.get();
         auto concurrency = boost::irange<unsigned, unsigned>(0, max_os_concurrency, 1);
-        return parallel_for_each(std::move(concurrency), [this, worker] (unsigned idx) {
+        return parallel_for_each(std::move(concurrency), [worker] (unsigned idx) {
             auto bufptr = worker->get_buffer();
             auto buf = bufptr.get();
-            return do_until([worker] { return worker->should_stop(); }, [this, buf, worker, idx] {
+            return do_until([worker] { return worker->should_stop(); }, [buf, worker] {
                 return worker->issue_request(buf);
-            }).finally([this, alive = std::move(bufptr)] {});
+            }).finally([alive = std::move(bufptr)] {});
         }).then_wrapped([this, worker = std::move(worker_ptr), update_file_size] (future<> f) {
             try {
                 f.get();
@@ -457,7 +457,7 @@ public:
     }
 
     future<> create_data_file() {
-        return _iotune_test_file.invoke_on_all([this] (test_file& tf) {
+        return _iotune_test_file.invoke_on_all([] (test_file& tf) {
             return tf.create_data_file();
         });
     }

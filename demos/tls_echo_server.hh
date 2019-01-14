@@ -91,7 +91,7 @@ public:
                             });
                         }).then([strms]{
                             return strms->out.close();
-                        }).handle_exception([this](auto ep) {
+                        }).handle_exception([](auto ep) {
                         }).finally([this, strms]{
                             if (_verbose) {
                                 std::cout << "Ending session" << std::endl;

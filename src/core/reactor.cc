@@ -165,7 +165,7 @@ reactor::update_shares_for_class(io_priority_class pc, uint32_t shares) {
 
 future<pollable_fd, socket_address>
 reactor::accept(pollable_fd_state& listenfd) {
-    return readable_or_writeable(listenfd).then([this, &listenfd] () mutable {
+    return readable_or_writeable(listenfd).then([&listenfd] () mutable {
         socket_address sa;
         socklen_t sl = sizeof(&sa.u.sas);
         file_desc fd = listenfd.fd.accept(sa.u.sa, sl, SOCK_NONBLOCK | SOCK_CLOEXEC);
@@ -5186,7 +5186,7 @@ void smp::configure(boost::program_options::variables_map configuration)
         }
     };
 
-    auto assign_io_queue = [&ioq_topology, &all_io_queues, &disk_config] (shard_id shard_id, dev_t dev_id) {
+    auto assign_io_queue = [&ioq_topology, &all_io_queues] (shard_id shard_id, dev_t dev_id) {
         auto io_info = ioq_topology.at(dev_id);
         auto cid = io_info.shard_to_coordinator[shard_id];
         auto queue_idx = io_info.coordinator_to_idx[cid];

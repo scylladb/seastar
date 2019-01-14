@@ -448,7 +448,7 @@ namespace rpc {
       }
 
       return _stream_queue.not_empty().then([this, &bufs] {
-          bool eof = !_stream_queue.consume([this, &bufs] (rcv_buf&& b) {
+          bool eof = !_stream_queue.consume([&bufs] (rcv_buf&& b) {
               if (b.size == -1U) { // max fragment length marks an end of a stream
                   return false;
               } else {

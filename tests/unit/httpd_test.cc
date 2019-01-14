@@ -252,10 +252,10 @@ future<> test_transformer_stream(std::stringstream& ss, content_replace& cr, std
     ss.str("");
     req->_headers["Host"] = "localhost";
     return do_with(output_stream<char>(cr.transform(std::move(req), "json", output_stream<char>(memory_data_sink(ss), 32000, true))),
-            std::vector<sstring>(std::move(buffer_parts)), [&ss, &cr] (output_stream<char>& os, std::vector<sstring>& parts) {
+            std::vector<sstring>(std::move(buffer_parts)), [] (output_stream<char>& os, std::vector<sstring>& parts) {
         return do_for_each(parts, [&os](auto& p) {
             return os.write(p);
-        }).then([&os, &ss] {
+        }).then([&os] {
             return os.close();
         });
     });
@@ -264,7 +264,7 @@ future<> test_transformer_stream(std::stringstream& ss, content_replace& cr, std
 SEASTAR_TEST_CASE(test_transformer) {
     return do_with(std::stringstream(), content_replace("json"), [] (std::stringstream& ss, content_replace& cr) {
         return do_with(output_stream<char>(cr.transform(std::make_unique<seastar::httpd::request>(), "html", output_stream<char>(memory_data_sink(ss), 32000, true))),
-                [&ss] (output_stream<char>& os) {
+                [] (output_stream<char>& os) {
             return os.write(sstring("hello-{{Protocol}}-xyz-{{Host}}")).then([&os] {
                 return os.close();
             });
@@ -274,7 +274,7 @@ SEASTAR_TEST_CASE(test_transformer) {
                 BOOST_REQUIRE_EQUAL(ss.str(), "hello-http-xyz-localhost{{Pr");
                 return test_transformer_stream(ss, cr, {"hell", "o-{{", "Pro", "tocol}}{{Protocol}}-{{Protoxyz-{{Ho", "st}}{{Pr"}).then([&ss, &cr] {
                     BOOST_REQUIRE_EQUAL(ss.str(), "hello-httphttp-{{Protoxyz-localhost{{Pr");
-                    return test_transformer_stream(ss, cr, {"hell", "o-{{Pro", "t{{Protocol}}ocol}}", "{{Host}}"}).then([&ss, &cr] {
+                    return test_transformer_stream(ss, cr, {"hell", "o-{{Pro", "t{{Protocol}}ocol}}", "{{Host}}"}).then([&ss] {
                         BOOST_REQUIRE_EQUAL(ss.str(), "hello-{{Prothttpocol}}localhost");
                     });
                 });
@@ -403,8 +403,8 @@ public:
                         htp._concat = false;
 
                         write_request(output).get();
-                        repeat([&c_socket, &input, &htp] {
-                            return input.read().then([&c_socket, &input, &htp](const temporary_buffer<char>& b) mutable {
+                        repeat([&input, &htp] {
+                            return input.read().then([&htp](const temporary_buffer<char>& b) mutable {
                                 return (b.size() == 0 || htp.read(b)) ? make_ready_future<stop_iteration>(stop_iteration::yes) :
                                         make_ready_future<stop_iteration>(stop_iteration::no);
                             });
@@ -464,8 +464,8 @@ public:
                     while (more) {
                         http_consumer htp;
                         write_request(output).get();
-                        repeat([&c_socket, &input, &htp] {
-                            return input.read().then([&c_socket, &input, &htp](const temporary_buffer<char>& b) mutable {
+                        repeat([&input, &htp] {
+                            return input.read().then([&htp](const temporary_buffer<char>& b) mutable {
                                 return (b.size() == 0 || htp.read(b)) ? make_ready_future<stop_iteration>(stop_iteration::yes) :
                                         make_ready_future<stop_iteration>(stop_iteration::no);
                             });
@@ -530,7 +530,7 @@ public:
                         throw std::runtime_error("Throwing exception before writing");
                     }
                 }
-                return repeat([&str, &remain, success] () mutable {
+                return repeat([&str, &remain] () mutable {
                     return str.write("1234567890").then([&remain]() mutable {
                         remain--;
                         return (remain == 0)? make_ready_future<stop_iteration>(stop_iteration::yes) : make_ready_future<stop_iteration>(stop_iteration::no);
