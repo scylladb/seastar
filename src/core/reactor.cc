@@ -1149,7 +1149,7 @@ reactor::task_queue::task_queue(unsigned id, sstring name, float shares)
     });
 }
 
-[[gnu::no_sanitize_undefined]]  // multiplication below may overflow; we check for that
+__attribute__((no_sanitize("undefined"))) // multiplication below may overflow; we check for that
 inline
 int64_t
 reactor::task_queue::to_vruntime(sched_clock::duration runtime) const {
