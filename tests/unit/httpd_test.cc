@@ -623,8 +623,6 @@ struct extra_big_object : public json::json_base {
             _elements.emplace_back(value);
         }
     }
-
-    extra_big_object(extra_big_object&&) = default;
 };
 
 SEASTAR_TEST_CASE(json_stream) {
@@ -632,7 +630,7 @@ SEASTAR_TEST_CASE(json_stream) {
     size_t num_objects = 1000;
     size_t total_size = num_objects * 1000001 + 1;
     for (size_t i = 0; i < num_objects; i++) {
-        vec.emplace_back(extra_big_object(1000000));
+        vec.emplace_back(1000000);
     }
     return test_client_server::run_test(json::stream_object(vec), [total_size](size_t s, http_consumer& h) {
         BOOST_REQUIRE_EQUAL(h._size, total_size);
