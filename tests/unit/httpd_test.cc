@@ -394,8 +394,8 @@ public:
 
                 auto client = seastar::async([&lsi, reader] {
                     connected_socket c_socket = std::get<connected_socket>(lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get());
-                    input_stream<char> input(std::move(c_socket.input()));
-                    output_stream<char> output(std::move(c_socket.output()));
+                    input_stream<char> input(c_socket.input());
+                    output_stream<char> output(c_socket.output());
                     bool more = true;
                     size_t count = 0;
                     while (more) {
@@ -457,8 +457,8 @@ public:
 
                 auto client = seastar::async([&lsi, tests] {
                     connected_socket c_socket = std::get<connected_socket>(lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get());
-                    input_stream<char> input(std::move(c_socket.input()));
-                    output_stream<char> output(std::move(c_socket.output()));
+                    input_stream<char> input(c_socket.input());
+                    output_stream<char> output(c_socket.output());
                     bool more = true;
                     size_t count = 0;
                     while (more) {

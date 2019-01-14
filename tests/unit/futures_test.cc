@@ -168,7 +168,7 @@ SEASTAR_TEST_CASE(test_failing_intermediate_promise_should_fail_the_master_futur
     promise<> p1;
     promise<> p2;
 
-    auto f = p1.get_future().then([f = std::move(p2.get_future())] () mutable {
+    auto f = p1.get_future().then([f = p2.get_future()] () mutable {
         return std::move(f);
     }).then([] {
         BOOST_REQUIRE(false);

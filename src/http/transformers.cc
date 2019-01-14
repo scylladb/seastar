@@ -245,7 +245,7 @@ temporary_buffer<char> buffer_replace::match(temporary_buffer<char>& buf) {
             if (_current.last()) {
                 auto res = get_remaining();
                 _current.erase(first);
-                return std::move(res);
+                return res;
             }
             first = _current.erase(first);
         } else {
@@ -257,7 +257,7 @@ temporary_buffer<char> buffer_replace::match(temporary_buffer<char>& buf) {
                 temporary_buffer<char> res(value.data(), value.size());
                 buf.trim_front(len_compare);
                 _current.clear();
-                return std::move(res);
+                return res;
             }
             // only partial match
             pos += len_compare;
