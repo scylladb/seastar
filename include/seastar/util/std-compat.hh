@@ -21,16 +21,14 @@
 
 #pragma once
 
-#ifdef SEASTAR_USE_STD_OPTIONAL_VARIANT_STRINGVIEW_FILESYSTEM
+#ifdef SEASTAR_USE_STD_OPTIONAL_VARIANT_STRINGVIEW
 #include <optional>
 #include <string_view>
 #include <variant>
-#include <filesystem>
 #else
 #include <experimental/optional>
 #include <experimental/string_view>
 #include <boost/variant.hpp>
-#include <experimental/filesystem>
 #endif
 
 namespace seastar {
@@ -39,9 +37,7 @@ namespace seastar {
 
 namespace compat {
 
-#ifdef SEASTAR_USE_STD_OPTIONAL_VARIANT_STRINGVIEW_FILESYSTEM
-
-namespace filesystem = std::filesystem;
+#ifdef SEASTAR_USE_STD_OPTIONAL_VARIANT_STRINGVIEW
 
 template <typename T>
 using optional = std::optional<T>;
@@ -117,8 +113,6 @@ constexpr const U* get_if(const variant<Types...>* v) {
 }
 
 #else
-
-namespace filesystem = std::experimental::filesystem;
 
 template <typename T>
 using optional = std::experimental::optional<T>;

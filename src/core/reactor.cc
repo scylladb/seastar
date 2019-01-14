@@ -53,6 +53,7 @@
 #include <sys/eventfd.h>
 #include <sys/poll.h>
 #include <boost/lexical_cast.hpp>
+#include <boost/filesystem.hpp>
 #include <boost/thread/barrier.hpp>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/split.hpp>
@@ -65,6 +66,7 @@
 #include <boost/range/adaptor/map.hpp>
 #include <boost/version.hpp>
 #include <atomic>
+#include <experimental/filesystem>
 #include <dirent.h>
 #include <linux/types.h> // for xfs, below
 #include <sys/ioctl.h>
@@ -191,7 +193,7 @@ void task_histogram_add_task(const task& t) {
 }
 
 using namespace std::chrono_literals;
-namespace fs = seastar::compat::filesystem;
+namespace fs = std::experimental::filesystem;
 
 using namespace net;
 
@@ -250,33 +252,25 @@ struct syscall_result {
     int error;
     syscall_result(T result, int error) : result{std::move(result)}, error{error} {
     }
-    void throw_if_error() const {
+    void throw_if_error() {
         if (long(result) == -1) {
             throw std::system_error(ec());
         }
     }
 
-    void throw_fs_exception(const sstring& reason, const fs::path& path) const {
-        throw fs::filesystem_error(reason, path, ec());
-    }
-
-    void throw_fs_exception(const sstring& reason, const fs::path& path1, const fs::path& path2) const {
-        throw fs::filesystem_error(reason, path1, path2, ec());
-    }
-
-    void throw_fs_exception_if_error(const sstring& reason, const sstring& path) const {
+    void throw_fs_exception_if_error(sstring reason, sstring path) {
         if (long(result) == -1) {
-            throw_fs_exception(reason, fs::path(path));
+            throw fs::filesystem_error(reason, fs::path(path), ec());
         }
     }
 
-    void throw_fs_exception_if_error(const sstring& reason, const sstring& path1, const sstring& path2) const {
+    void throw_fs_exception_if_error(sstring reason, sstring path1, sstring path2) {
         if (long(result) == -1) {
-            throw_fs_exception(reason, fs::path(path1), fs::path(path2));
+            throw fs::filesystem_error(reason, fs::path(path1), fs::path(path2), ec());
         }
     }
 protected:
-    std::error_code ec() const {
+    std::error_code ec() {
         return std::error_code(error, std::system_category());
     }
 };
@@ -2649,20 +2643,16 @@ reactor::file_size(sstring pathname) {
 }
 
 future<bool>
-reactor::file_accessible(sstring pathname, access_flags flags) {
-    return _thread_pool.submit<syscall_result<int>>([pathname, flags] {
-        auto aflags = std::underlying_type_t<access_flags>(flags);
-        auto ret = ::access(pathname.c_str(), aflags);
-        return wrap_syscall(ret);
-    }).then([this, pathname, flags] (syscall_result<int> sr) {
-        if (sr.result < 0) {
-            if ((sr.error == ENOENT && flags == access_flags::exists) ||
-                (sr.error == EACCES && flags != access_flags::exists)) {
-                return make_ready_future<bool>(false);
-            }
-            sr.throw_fs_exception("access failed", fs::path(pathname));
+reactor::file_exists(sstring pathname) {
+    return _thread_pool.submit<syscall_result_extra<struct stat>>([pathname] {
+        struct stat st;
+        auto ret = stat(pathname.c_str(), &st);
+        return wrap_syscall(ret, st);
+    }).then([pathname] (syscall_result_extra<struct stat> sr) {
+        if (sr.result < 0 && sr.error == ENOENT) {
+            return make_ready_future<bool>(false);
         }
-
+        sr.throw_fs_exception_if_error("stat failed", pathname);
         return make_ready_future<bool>(true);
     });
 }
@@ -5256,10 +5246,6 @@ future<uint64_t> file_size(sstring name) {
     return engine().file_size(name);
 }
 
-future<bool> file_accessible(sstring name, access_flags flags) {
-    return engine().file_accessible(name, flags);
-}
-
 future<bool> file_exists(sstring name) {
     return engine().file_exists(name);
 }
@@ -5293,7 +5279,7 @@ void reactor::add_high_priority_task(std::unique_ptr<task>&& t) {
 static
 bool
 virtualized() {
-    return fs::exists("/sys/hypervisor/type");
+    return boost::filesystem::exists("/sys/hypervisor/type");
 }
 
 std::chrono::nanoseconds
