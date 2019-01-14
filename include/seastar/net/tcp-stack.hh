@@ -27,13 +27,13 @@
 
 namespace seastar {
 
-class listen_options;
+struct listen_options;
 class server_socket;
 class connected_socket;
 
 namespace net {
 
-class ipv4_traits;
+struct ipv4_traits;
 template <typename InetTraits>
 class tcp;
 

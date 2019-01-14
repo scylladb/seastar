@@ -54,12 +54,12 @@ template <class CharType> class output_stream;
 class server_socket;
 class connected_socket;
 class socket_address;
-class listen_options;
+struct listen_options;
 enum class transport;
 
 // file.hh
 class file;
-class file_open_options;
+struct file_open_options;
 enum class open_flags;
 enum class fs_type;
 

@@ -57,7 +57,7 @@ static std::default_random_engine random_generator(random_seed);
 // that will push the data out of the disk's cache. And static sizes per file are simpler.
 static constexpr uint64_t file_data_size = 1ull << 30;
 
-struct context;
+class context;
 enum class request_type { seqread, seqwrite, randread, randwrite, append, cpu };
 
 namespace std {

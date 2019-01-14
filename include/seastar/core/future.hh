@@ -564,7 +564,7 @@ private:
     template <typename... U>
     friend class future;
 
-    friend class future_state<T...>;
+    friend struct future_state<T...>;
 };
 
 /// \brief Specialization of \c promise<void>

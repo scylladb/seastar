@@ -148,9 +148,9 @@ public:
     template <typename X>
     friend class lw_shared_ptr;
     template <typename X>
-    friend class internal::lw_shared_ptr_accessors_esft;
+    friend struct internal::lw_shared_ptr_accessors_esft;
     template <typename X, class Y>
-    friend class internal::lw_shared_ptr_accessors;
+    friend struct internal::lw_shared_ptr_accessors;
 };
 
 template <typename T>
@@ -166,9 +166,9 @@ struct shared_ptr_no_esft : private lw_shared_ptr_counter_base {
     template <typename X>
     friend class lw_shared_ptr;
     template <typename X>
-    friend class internal::lw_shared_ptr_accessors_no_esft;
+    friend struct internal::lw_shared_ptr_accessors_no_esft;
     template <typename X, class Y>
-    friend class internal::lw_shared_ptr_accessors;
+    friend struct internal::lw_shared_ptr_accessors;
 };
 
 
