@@ -25,6 +25,7 @@
 #include <seastar/util/std-compat.hh>
 
 #include <experimental/type_traits>
+#include <iostream>
 
 namespace seastar {
 
