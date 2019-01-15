@@ -280,7 +280,7 @@ cooking_ingredient (dpdk
 cooking_ingredient (fmt
   LOCAL_REBUILD
   CMAKE_ARGS
-    -DBUILD_SHARED_LIBS=ON
+    -DBUILD_SHARED_LIBS=OFF
     -DFMT_DOC=OFF
     -DFMT_LIB_DIR=lib
     -DFMT_TEST=OFF
