@@ -78,6 +78,7 @@
 #include <seastar/core/manual_clock.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/scheduling.hh>
+#include "internal/pollable_fd.hh"
 
 #ifdef HAVE_OSV
 #include <osv/sched.hh>
@@ -97,34 +98,6 @@ namespace alien {
 class message_queue;
 }
 class reactor;
-class pollable_fd;
-class pollable_fd_state;
-
-class pollable_fd_state {
-public:
-    struct speculation {
-        int events = 0;
-        explicit speculation(int epoll_events_guessed = 0) : events(epoll_events_guessed) {}
-    };
-    ~pollable_fd_state();
-    explicit pollable_fd_state(file_desc fd, speculation speculate = speculation())
-        : fd(std::move(fd)), events_known(speculate.events) {}
-    pollable_fd_state(const pollable_fd_state&) = delete;
-    void operator=(const pollable_fd_state&) = delete;
-    void speculate_epoll(int events) { events_known |= events; }
-    file_desc fd;
-    bool events_rw = false;   // single consumer for both read and write (accept())
-    bool no_more_recv = false; // For udp, there is no shutdown indication from the kernel
-    bool no_more_send = false; // For udp, there is no shutdown indication from the kernel
-    int events_requested = 0; // wanted by pollin/pollout promises
-    int events_epoll = 0;     // installed in epoll
-    int events_known = 0;     // returned from epoll
-    promise<> pollin;
-    promise<> pollout;
-    friend class reactor;
-    friend class pollable_fd;
-};
-
 inline
 size_t iovec_len(const std::vector<iovec>& iov)
 {
@@ -134,44 +107,6 @@ size_t iovec_len(const std::vector<iovec>& iov)
     }
     return ret;
 }
-
-class pollable_fd {
-public:
-    using speculation = pollable_fd_state::speculation;
-    pollable_fd(file_desc fd, speculation speculate = speculation())
-        : _s(std::make_unique<pollable_fd_state>(std::move(fd), speculate)) {}
-public:
-    pollable_fd(pollable_fd&&) = default;
-    pollable_fd& operator=(pollable_fd&&) = default;
-    future<size_t> read_some(char* buffer, size_t size);
-    future<size_t> read_some(uint8_t* buffer, size_t size);
-    future<size_t> read_some(const std::vector<iovec>& iov);
-    future<> write_all(const char* buffer, size_t size);
-    future<> write_all(const uint8_t* buffer, size_t size);
-    future<size_t> write_some(net::packet& p);
-    future<> write_all(net::packet& p);
-    future<> readable();
-    future<> writeable();
-    future<> readable_or_writeable();
-    void abort_reader();
-    void abort_writer();
-    future<pollable_fd, socket_address> accept();
-    future<size_t> sendmsg(struct msghdr *msg);
-    future<size_t> recvmsg(struct msghdr *msg);
-    future<size_t> sendto(socket_address addr, const void* buf, size_t len);
-    file_desc& get_file_desc() const { return _s->fd; }
-    void shutdown(int how) { _s->fd.shutdown(how); }
-    void close() { _s.reset(); }
-protected:
-    int get_fd() const { return _s->fd.get(); }
-    void maybe_no_more_recv();
-    void maybe_no_more_send();
-    friend class reactor;
-    friend class readable_eventfd;
-    friend class writeable_eventfd;
-private:
-    std::unique_ptr<pollable_fd_state> _s;
-};
 
 }
 
@@ -194,87 +129,8 @@ void register_network_stack(sstring name, boost::program_options::options_descri
     std::function<future<std::unique_ptr<network_stack>>(boost::program_options::variables_map opts)> create,
     bool make_default = false);
 
-class writeable_eventfd;
-
-class readable_eventfd {
-    pollable_fd _fd;
-public:
-    explicit readable_eventfd(size_t initial = 0) : _fd(try_create_eventfd(initial)) {}
-    readable_eventfd(readable_eventfd&&) = default;
-    writeable_eventfd write_side();
-    future<size_t> wait();
-    int get_write_fd() { return _fd.get_fd(); }
-private:
-    explicit readable_eventfd(file_desc&& fd) : _fd(std::move(fd)) {}
-    static file_desc try_create_eventfd(size_t initial);
-
-    friend class writeable_eventfd;
-};
-
-class writeable_eventfd {
-    file_desc _fd;
-public:
-    explicit writeable_eventfd(size_t initial = 0) : _fd(try_create_eventfd(initial)) {}
-    writeable_eventfd(writeable_eventfd&&) = default;
-    readable_eventfd read_side();
-    void signal(size_t nr);
-    int get_read_fd() { return _fd.get(); }
-private:
-    explicit writeable_eventfd(file_desc&& fd) : _fd(std::move(fd)) {}
-    static file_desc try_create_eventfd(size_t initial);
-
-    friend class readable_eventfd;
-};
-
 class thread_pool;
 class smp;
-
-class syscall_work_queue {
-    static constexpr size_t queue_length = 128;
-    struct work_item;
-    using lf_queue = boost::lockfree::spsc_queue<work_item*,
-                            boost::lockfree::capacity<queue_length>>;
-    lf_queue _pending;
-    lf_queue _completed;
-    writeable_eventfd _start_eventfd;
-    semaphore _queue_has_room = { queue_length };
-    struct work_item {
-        virtual ~work_item() {}
-        virtual void process() = 0;
-        virtual void complete() = 0;
-    };
-    template <typename T, typename Func>
-    struct work_item_returning :  work_item {
-        Func _func;
-        promise<T> _promise;
-        compat::optional<T> _result;
-        work_item_returning(Func&& func) : _func(std::move(func)) {}
-        virtual void process() override { _result = this->_func(); }
-        virtual void complete() override { _promise.set_value(std::move(*_result)); }
-        future<T> get_future() { return _promise.get_future(); }
-    };
-public:
-    syscall_work_queue();
-    template <typename T, typename Func>
-    future<T> submit(Func func) {
-        auto wi = std::make_unique<work_item_returning<T, Func>>(std::move(func));
-        auto fut = wi->get_future();
-        submit_item(std::move(wi));
-        return fut;
-    }
-private:
-    void work();
-    // Scans the _completed queue, that contains the requests already handled by the syscall thread,
-    // effectively opening up space for more requests to be submitted. One consequence of this is
-    // that from the reactor's point of view, a request is not considered handled until it is
-    // removed from the _completed queue.
-    //
-    // Returns the number of requests handled.
-    unsigned complete();
-    void submit_item(std::unique_ptr<syscall_work_queue::work_item> wi);
-
-    friend class thread_pool;
-};
 
 class smp_message_queue {
     static constexpr size_t queue_length = 128;
@@ -392,46 +248,6 @@ private:
     friend class smp;
 };
 
-class thread_pool {
-    reactor* _reactor;
-    uint64_t _aio_threaded_fallbacks = 0;
-#ifndef HAVE_OSV
-    syscall_work_queue inter_thread_wq;
-    posix_thread _worker_thread;
-    std::atomic<bool> _stopped = { false };
-    std::atomic<bool> _main_thread_idle = { false };
-public:
-    explicit thread_pool(reactor* r, sstring thread_name);
-    ~thread_pool();
-    template <typename T, typename Func>
-    future<T> submit(Func func) {
-        ++_aio_threaded_fallbacks;
-        return inter_thread_wq.submit<T>(std::move(func));
-    }
-    uint64_t operation_count() const { return _aio_threaded_fallbacks; }
-
-    unsigned complete() { return inter_thread_wq.complete(); }
-    // Before we enter interrupt mode, we must make sure that the syscall thread will properly
-    // generate signals to wake us up. This means we need to make sure that all modifications to
-    // the pending and completed fields in the inter_thread_wq are visible to all threads.
-    //
-    // Simple release-acquire won't do because we also need to serialize all writes that happens
-    // before the syscall thread loads this value, so we'll need full seq_cst.
-    void enter_interrupt_mode() { _main_thread_idle.store(true, std::memory_order_seq_cst); }
-    // When we exit interrupt mode, however, we can safely used relaxed order. If any reordering
-    // takes place, we'll get an extra signal and complete will be called one extra time, which is
-    // harmless.
-    void exit_interrupt_mode() { _main_thread_idle.store(false, std::memory_order_relaxed); }
-
-#else
-public:
-    template <typename T, typename Func>
-    future<T> submit(Func func) { std::cout << "thread_pool not yet implemented on osv\n"; abort(); }
-#endif
-private:
-    void work(sstring thread_name);
-};
-
 class reactor_backend_selector;
 
 enum class open_flags {
@@ -452,103 +268,6 @@ inline open_flags operator&(open_flags a, open_flags b) {
 }
 
 class reactor_backend;
-
-class io_queue {
-private:
-    struct priority_class_data {
-        priority_class_ptr ptr;
-        size_t bytes;
-        uint64_t ops;
-        uint32_t nr_queued;
-        std::chrono::duration<double> queue_time;
-        metrics::metric_groups _metric_groups;
-        priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr, shard_id owner);
-    };
-
-    std::unordered_map<unsigned, lw_shared_ptr<priority_class_data>> _priority_classes;
-    fair_queue _fq;
-
-    static constexpr unsigned _max_classes = 2048;
-    static std::array<std::atomic<uint32_t>, _max_classes> _registered_shares;
-    static std::array<sstring, _max_classes> _registered_names;
-
-    static io_priority_class register_one_priority_class(sstring name, uint32_t shares);
-
-    priority_class_data& find_or_create_class(const io_priority_class& pc, shard_id owner);
-    static void fill_shares_array();
-    friend smp;
-public:
-    enum class request_type { read, write };
-
-    // We want to represent the fact that write requests are (maybe) more expensive
-    // than read requests. To avoid dealing with floating point math we will scale one
-    // read request to be counted by this amount.
-    //
-    // A write request that is 30% more expensive than a read will be accounted as
-    // (read_request_base_count * 130) / 100.
-    // It is also technically possible for reads to be the expensive ones, in which case
-    // writes will have an integer value lower than read_request_base_count.
-    static constexpr unsigned read_request_base_count = 128;
-
-    struct config {
-        shard_id coordinator;
-        std::vector<shard_id> io_topology;
-        unsigned capacity = std::numeric_limits<unsigned>::max();
-        unsigned max_req_count = std::numeric_limits<unsigned>::max();
-        unsigned max_bytes_count = std::numeric_limits<unsigned>::max();
-        unsigned disk_req_write_to_read_multiplier = read_request_base_count;
-        unsigned disk_bytes_write_to_read_multiplier = read_request_base_count;
-        sstring mountpoint = "undefined";
-    };
-
-    io_queue(config cfg);
-    ~io_queue();
-
-    template <typename Func>
-    future<internal::linux_abi::io_event>
-    queue_request(const io_priority_class& pc, size_t len, request_type req_type, Func do_io);
-
-    size_t capacity() const {
-        return _config.capacity;
-    }
-
-    size_t queued_requests() const {
-        return _fq.waiters();
-    }
-
-    // How many requests are sent to disk but not yet returned.
-    size_t requests_currently_executing() const {
-        return _fq.requests_currently_executing();
-    }
-
-    // Inform the underlying queue about the fact that some of our requests finished
-    void notify_requests_finished(fair_queue_request_descriptor& desc) {
-        _fq.notify_requests_finished(desc);
-    }
-
-    // Dispatch requests that are pending in the I/O queue
-    void poll_io_queue() {
-        _fq.dispatch_requests();
-    }
-
-    sstring mountpoint() const {
-        return _config.mountpoint;
-    }
-
-    shard_id coordinator() const {
-        return _config.coordinator;
-    }
-    shard_id coordinator_of_shard(shard_id shard) const {
-        return _config.io_topology[shard];
-    }
-
-    future<> update_shares_for_class(io_priority_class pc, size_t new_shares);
-
-    friend class reactor;
-private:
-    config _config;
-    static fair_queue::config make_fair_queue_config(config cfg);
-};
 
 namespace internal {
 
@@ -673,7 +392,7 @@ private:
     // Not all reactors have IO queues. If the number of IO queues is less than the number of shards,
     // some reactors will talk to foreign io_queues. If this reactor holds a valid IO queue, it will
     // be stored here.
-    std::vector<std::unique_ptr<io_queue>> my_io_queues = {};
+    std::vector<std::unique_ptr<io_queue>> my_io_queues;
     std::unordered_map<dev_t, io_queue*> _io_queues;
     friend io_queue;
 
@@ -815,7 +534,7 @@ private:
     };
 
     signals _signals;
-    thread_pool _thread_pool;
+    std::unique_ptr<thread_pool> _thread_pool;
     friend class thread_pool;
     friend class internal::cpu_stall_detector;
 
@@ -853,9 +572,7 @@ public:
         }
     }
 
-    io_priority_class register_one_priority_class(sstring name, uint32_t shares) {
-        return io_queue::register_one_priority_class(std::move(name), shares);
-    }
+    io_priority_class register_one_priority_class(sstring name, uint32_t shares);
 
     /// \brief Updates the current amount of shares for a given priority class
     ///
@@ -865,11 +582,7 @@ public:
     /// \param pc the priority class handle
     /// \param shares the new shares value
     /// \return a future that is ready when the share update is applied
-    future<> update_shares_for_class(io_priority_class pc, uint32_t shares) {
-        return parallel_for_each(_io_queues, [pc, shares] (auto& queue) {
-            return queue.second->update_shares_for_class(pc, shares);
-        });
-    }
+    future<> update_shares_for_class(io_priority_class pc, uint32_t shares);
 
     void configure(boost::program_options::variables_map config);
 
@@ -1202,234 +915,6 @@ size_t iovec_len(const iovec* begin, size_t len)
         ret += begin++->iov_len;
     }
     return ret;
-}
-
-inline
-future<pollable_fd, socket_address>
-reactor::accept(pollable_fd_state& listenfd) {
-    return readable_or_writeable(listenfd).then([this, &listenfd] () mutable {
-        socket_address sa;
-        socklen_t sl = sizeof(&sa.u.sas);
-        file_desc fd = listenfd.fd.accept(sa.u.sa, sl, SOCK_NONBLOCK | SOCK_CLOEXEC);
-        pollable_fd pfd(std::move(fd), pollable_fd::speculation(EPOLLOUT));
-        return make_ready_future<pollable_fd, socket_address>(std::move(pfd), std::move(sa));
-    });
-}
-
-inline
-future<size_t>
-reactor::read_some(pollable_fd_state& fd, void* buffer, size_t len) {
-    return readable(fd).then([this, &fd, buffer, len] () mutable {
-        auto r = fd.fd.read(buffer, len);
-        if (!r) {
-            return read_some(fd, buffer, len);
-        }
-        if (size_t(*r) == len) {
-            fd.speculate_epoll(EPOLLIN);
-        }
-        return make_ready_future<size_t>(*r);
-    });
-}
-
-inline
-future<size_t>
-reactor::read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
-    return readable(fd).then([this, &fd, iov = iov] () mutable {
-        ::msghdr mh = {};
-        mh.msg_iov = &iov[0];
-        mh.msg_iovlen = iov.size();
-        auto r = fd.fd.recvmsg(&mh, 0);
-        if (!r) {
-            return read_some(fd, iov);
-        }
-        if (size_t(*r) == iovec_len(iov)) {
-            fd.speculate_epoll(EPOLLIN);
-        }
-        return make_ready_future<size_t>(*r);
-    });
-}
-
-inline
-future<size_t>
-reactor::write_some(pollable_fd_state& fd, const void* buffer, size_t len) {
-    return writeable(fd).then([this, &fd, buffer, len] () mutable {
-        auto r = fd.fd.send(buffer, len, MSG_NOSIGNAL);
-        if (!r) {
-            return write_some(fd, buffer, len);
-        }
-        if (size_t(*r) == len) {
-            fd.speculate_epoll(EPOLLOUT);
-        }
-        return make_ready_future<size_t>(*r);
-    });
-}
-
-inline
-future<>
-reactor::write_all_part(pollable_fd_state& fd, const void* buffer, size_t len, size_t completed) {
-    if (completed == len) {
-        return make_ready_future<>();
-    } else {
-        return write_some(fd, static_cast<const char*>(buffer) + completed, len - completed).then(
-                [&fd, buffer, len, completed, this] (size_t part) mutable {
-            return write_all_part(fd, buffer, len, completed + part);
-        });
-    }
-}
-
-inline
-future<>
-reactor::write_all(pollable_fd_state& fd, const void* buffer, size_t len) {
-    assert(len);
-    return write_all_part(fd, buffer, len, 0);
-}
-
-inline
-future<size_t> pollable_fd::read_some(char* buffer, size_t size) {
-    return engine().read_some(*_s, buffer, size);
-}
-
-inline
-future<size_t> pollable_fd::read_some(uint8_t* buffer, size_t size) {
-    return engine().read_some(*_s, buffer, size);
-}
-
-inline
-future<size_t> pollable_fd::read_some(const std::vector<iovec>& iov) {
-    return engine().read_some(*_s, iov);
-}
-
-inline
-future<> pollable_fd::write_all(const char* buffer, size_t size) {
-    return engine().write_all(*_s, buffer, size);
-}
-
-inline
-future<> pollable_fd::write_all(const uint8_t* buffer, size_t size) {
-    return engine().write_all(*_s, buffer, size);
-}
-
-inline
-future<size_t> pollable_fd::write_some(net::packet& p) {
-    return engine().writeable(*_s).then([this, &p] () mutable {
-        static_assert(offsetof(iovec, iov_base) == offsetof(net::fragment, base) &&
-            sizeof(iovec::iov_base) == sizeof(net::fragment::base) &&
-            offsetof(iovec, iov_len) == offsetof(net::fragment, size) &&
-            sizeof(iovec::iov_len) == sizeof(net::fragment::size) &&
-            alignof(iovec) == alignof(net::fragment) &&
-            sizeof(iovec) == sizeof(net::fragment)
-            , "net::fragment and iovec should be equivalent");
-
-        iovec* iov = reinterpret_cast<iovec*>(p.fragment_array());
-        msghdr mh = {};
-        mh.msg_iov = iov;
-        mh.msg_iovlen = std::min<size_t>(p.nr_frags(), IOV_MAX);
-        auto r = get_file_desc().sendmsg(&mh, MSG_NOSIGNAL);
-        if (!r) {
-            return write_some(p);
-        }
-        if (size_t(*r) == p.len()) {
-            _s->speculate_epoll(EPOLLOUT);
-        }
-        return make_ready_future<size_t>(*r);
-    });
-}
-
-inline
-future<> pollable_fd::write_all(net::packet& p) {
-    return write_some(p).then([this, &p] (size_t size) {
-        if (p.len() == size) {
-            return make_ready_future<>();
-        }
-        p.trim_front(size);
-        return write_all(p);
-    });
-}
-
-inline
-future<> pollable_fd::readable() {
-    return engine().readable(*_s);
-}
-
-inline
-future<> pollable_fd::writeable() {
-    return engine().writeable(*_s);
-}
-
-inline
-future<> pollable_fd::readable_or_writeable() {
-    return engine().readable_or_writeable(*_s);
-}
-
-inline
-void
-pollable_fd::abort_reader() {
-    engine().abort_reader(*_s);
-}
-
-inline
-void
-pollable_fd::abort_writer() {
-    engine().abort_writer(*_s);
-}
-
-inline
-future<pollable_fd, socket_address> pollable_fd::accept() {
-    return engine().accept(*_s);
-}
-
-inline
-future<size_t> pollable_fd::recvmsg(struct msghdr *msg) {
-    maybe_no_more_recv();
-    return engine().readable(*_s).then([this, msg] {
-        auto r = get_file_desc().recvmsg(msg, 0);
-        if (!r) {
-            return recvmsg(msg);
-        }
-        // We always speculate here to optimize for throughput in a workload
-        // with multiple outstanding requests. This way the caller can consume
-        // all messages without resorting to epoll. However this adds extra
-        // recvmsg() call when we hit the empty queue condition, so it may
-        // hurt request-response workload in which the queue is empty when we
-        // initially enter recvmsg(). If that turns out to be a problem, we can
-        // improve speculation by using recvmmsg().
-        _s->speculate_epoll(EPOLLIN);
-        return make_ready_future<size_t>(*r);
-    });
-};
-
-inline
-future<size_t> pollable_fd::sendmsg(struct msghdr* msg) {
-    maybe_no_more_send();
-    return engine().writeable(*_s).then([this, msg] () mutable {
-        auto r = get_file_desc().sendmsg(msg, 0);
-        if (!r) {
-            return sendmsg(msg);
-        }
-        // For UDP this will always speculate. We can't know if there's room
-        // or not, but most of the time there should be so the cost of mis-
-        // speculation is amortized.
-        if (size_t(*r) == iovec_len(msg->msg_iov, msg->msg_iovlen)) {
-            _s->speculate_epoll(EPOLLOUT);
-        }
-        return make_ready_future<size_t>(*r);
-    });
-}
-
-inline
-future<size_t> pollable_fd::sendto(socket_address addr, const void* buf, size_t len) {
-    maybe_no_more_send();
-    return engine().writeable(*_s).then([this, buf, len, addr] () mutable {
-        auto r = get_file_desc().sendto(addr, buf, len, 0);
-        if (!r) {
-            return sendto(std::move(addr), buf, len);
-        }
-        // See the comment about speculation in sendmsg().
-        if (size_t(*r) == len) {
-            _s->speculate_epoll(EPOLLOUT);
-        }
-        return make_ready_future<size_t>(*r);
-    });
 }
 
 template <typename Clock>
