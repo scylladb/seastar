@@ -5,6 +5,19 @@
 namespace seastar {
 
 namespace rpc {
+
+    void logger::operator()(const client_info& info, id_type msg_id, const sstring& str) const {
+        log(to_sstring("client ") + inet_ntoa(info.addr.as_posix_sockaddr_in().sin_addr) + " msg_id " + to_sstring(msg_id) + ": " + str);
+    }
+
+    void logger::operator()(const client_info& info, const sstring& str) const {
+        log(to_sstring("client ") + inet_ntoa(info.addr.as_posix_sockaddr_in().sin_addr) + ": " + str);
+    }
+
+    void logger::operator()(ipv4_addr addr, const sstring& str) const {
+        log(to_sstring("client ") + inet_ntoa(in_addr{net::ntoh(addr.ip)}) + ": " + str);
+    }
+
   no_wait_type no_wait;
 
   constexpr size_t snd_buf::chunk_size;
