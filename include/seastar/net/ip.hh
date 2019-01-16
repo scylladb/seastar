@@ -44,6 +44,8 @@
 
 namespace seastar {
 
+struct ipv6_addr;
+
 namespace net {
 
 class ipv4;
@@ -110,6 +112,7 @@ struct ipv6_address {
     explicit ipv6_address(const ::in6_addr&);
     explicit ipv6_address(const ipv6_bytes&);
     explicit ipv6_address(const std::string&);
+    ipv6_address(const ipv6_addr& addr);
 
     // No need to use packed - we only store
     // as byte array. If we want to read as

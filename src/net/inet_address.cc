@@ -133,6 +133,10 @@ seastar::net::ipv6_address::ipv6_address(const ipv6_bytes& in)
     : ip(in)
 {}
 
+seastar::net::ipv6_address::ipv6_address(const ipv6_addr& addr)
+    : ipv6_address(addr.ip)
+{}
+
 seastar::net::ipv6_address::ipv6_address()
     : ipv6_address(::in6addr_any)
 {}
@@ -182,6 +186,48 @@ std::ostream& seastar::net::operator<<(std::ostream& os, const ipv4_address& a) 
 std::ostream& seastar::net::operator<<(std::ostream& os, const ipv6_address& a) {
     char buffer[64];
     return os << ::inet_ntop(AF_INET6, a.ip.data(), buffer, sizeof(buffer));
+}
+
+seastar::ipv6_addr::ipv6_addr(const ipv6_bytes& b, uint16_t p)
+    : ip(b), port(p)
+{}
+
+seastar::ipv6_addr::ipv6_addr(uint16_t p)
+    : ipv6_addr(net::inet_address(), p)
+{}
+
+seastar::ipv6_addr::ipv6_addr(const ::in6_addr& in6, uint16_t p)
+    : ipv6_addr(net::ipv6_address(in6).bytes(), p)
+{}
+
+seastar::ipv6_addr::ipv6_addr(const std::string& s)
+    : ipv6_addr([&] {
+        auto lc = s.find_last_of(']');
+        auto cp = s.find_first_of(':', lc);
+        auto port = cp != std::string::npos ? std::stoul(s.substr(cp + 1)) : 0;
+        auto ss = lc != std::string::npos ? s.substr(1, lc - 1) : s;
+        return ipv6_addr(net::ipv6_address(ss).bytes(), uint16_t(port));
+    }())
+{}
+
+seastar::ipv6_addr::ipv6_addr(const std::string& s, uint16_t p)
+    : ipv6_addr(net::ipv6_address(s).bytes(), p)
+{}
+
+seastar::ipv6_addr::ipv6_addr(const net::inet_address& i, uint16_t p)
+    : ipv6_addr(i.as_ipv6_address().bytes(), p)
+{}
+
+seastar::ipv6_addr::ipv6_addr(const ::sockaddr_in6& s)
+    : ipv6_addr(s.sin6_addr, net::ntoh(s.sin6_port))
+{}
+
+seastar::ipv6_addr::ipv6_addr(const socket_address& s)
+    : ipv6_addr(s.as_posix_sockaddr_in6())
+{}
+
+bool seastar::ipv6_addr::is_ip_unspecified() const {
+    return std::all_of(ip.begin(), ip.end(), [](uint8_t b) { return b == 0; });
 }
 
 std::ostream& seastar::net::operator<<(std::ostream& os, const inet_address& addr) {

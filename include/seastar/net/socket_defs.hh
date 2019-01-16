@@ -21,6 +21,7 @@
 #pragma once
 
 #include <iosfwd>
+#include <array>
 #include <sys/socket.h>
 #include <netinet/ip.h>
 #include <seastar/net/byteorder.hh>
@@ -76,8 +77,26 @@ struct ipv4_addr {
         ip = net::ntoh(sa.u.in.sin_addr.s_addr);
         port = net::ntoh(sa.u.in.sin_port);
     }
+};
 
-    ipv4_addr(socket_address &&sa) : ipv4_addr(sa) {}
+struct ipv6_addr {
+    using ipv6_bytes = std::array<uint8_t, 16>;
+
+    ipv6_bytes ip;
+    uint16_t port;
+
+    ipv6_addr(const ipv6_bytes&, uint16_t port = 0);
+    ipv6_addr(uint16_t port = 0);
+    ipv6_addr(const std::string&);
+    ipv6_addr(const std::string&, uint16_t port);
+    ipv6_addr(const net::inet_address&, uint16_t = 0);
+    ipv6_addr(const ::in6_addr&, uint16_t = 0);
+    ipv6_addr(const ::sockaddr_in6&);
+
+    bool is_ip_unspecified() const;
+    bool is_port_unspecified() const {
+        return port == 0;
+    }
 };
 
 }
