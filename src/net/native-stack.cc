@@ -151,7 +151,7 @@ public:
     explicit native_network_stack(boost::program_options::variables_map opts, std::shared_ptr<device> dev);
     virtual server_socket listen(socket_address sa, listen_options opt) override;
     virtual ::seastar::socket socket() override;
-    virtual udp_channel make_udp_channel(ipv4_addr addr) override;
+    virtual udp_channel make_udp_channel(const socket_address& addr) override;
     virtual future<> initialize() override;
     static future<std::unique_ptr<network_stack>> create(boost::program_options::variables_map opts) {
         if (engine().cpu_id() == 0) {
@@ -169,7 +169,7 @@ public:
 thread_local promise<std::unique_ptr<network_stack>> native_network_stack::ready_promise;
 
 udp_channel
-native_network_stack::make_udp_channel(ipv4_addr addr) {
+native_network_stack::make_udp_channel(const socket_address& addr) {
     return _inet.get_udp().make_channel(addr);
 }
 

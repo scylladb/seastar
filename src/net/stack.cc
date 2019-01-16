@@ -41,12 +41,12 @@ future<net::udp_datagram> net::udp_channel::receive() {
     return _impl->receive();
 }
 
-future<> net::udp_channel::send(ipv4_addr dst, const char* msg) {
-    return _impl->send(std::move(dst), msg);
+future<> net::udp_channel::send(const socket_address& dst, const char* msg) {
+    return _impl->send(dst, msg);
 }
 
-future<> net::udp_channel::send(ipv4_addr dst, packet p) {
-    return _impl->send(std::move(dst), std::move(p));
+future<> net::udp_channel::send(const socket_address& dst, packet p) {
+    return _impl->send(dst, std::move(p));
 }
 
 bool net::udp_channel::is_closed() const {

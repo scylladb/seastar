@@ -61,8 +61,8 @@ class udp_channel_impl {
 public:
     virtual ~udp_channel_impl() {};
     virtual future<udp_datagram> receive() = 0;
-    virtual future<> send(ipv4_addr dst, const char* msg) = 0;
-    virtual future<> send(ipv4_addr dst, packet p) = 0;
+    virtual future<> send(const socket_address& dst, const char* msg) = 0;
+    virtual future<> send(const socket_address& dst, packet p) = 0;
     virtual void shutdown_input() = 0;
     virtual void shutdown_output() = 0;
     virtual bool is_closed() const = 0;

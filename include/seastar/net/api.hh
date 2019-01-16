@@ -83,8 +83,8 @@ class get_impl;
 class udp_datagram_impl {
 public:
     virtual ~udp_datagram_impl() {};
-    virtual ipv4_addr get_src() = 0;
-    virtual ipv4_addr get_dst() = 0;
+    virtual socket_address get_src() = 0;
+    virtual socket_address get_dst() = 0;
     virtual uint16_t get_dst_port() = 0;
     virtual packet& get_data() = 0;
 };
@@ -94,8 +94,8 @@ private:
     std::unique_ptr<udp_datagram_impl> _impl;
 public:
     udp_datagram(std::unique_ptr<udp_datagram_impl>&& impl) : _impl(std::move(impl)) {};
-    ipv4_addr get_src() { return _impl->get_src(); }
-    ipv4_addr get_dst() { return _impl->get_dst(); }
+    socket_address get_src() { return _impl->get_src(); }
+    socket_address get_dst() { return _impl->get_dst(); }
     uint16_t get_dst_port() { return _impl->get_dst_port(); }
     packet& get_data() { return _impl->get_data(); }
 };
@@ -112,8 +112,8 @@ public:
     udp_channel& operator=(udp_channel&&);
 
     future<udp_datagram> receive();
-    future<> send(ipv4_addr dst, const char* msg);
-    future<> send(ipv4_addr dst, packet p);
+    future<> send(const socket_address& dst, const char* msg);
+    future<> send(const socket_address& dst, packet p);
     bool is_closed() const;
     /// Causes a pending receive() to complete (possibly with an exception)
     void shutdown_input();
@@ -285,7 +285,7 @@ public:
     // FIXME: local parameter assumes ipv4 for now, fix when adding other AF
     future<connected_socket> connect(socket_address sa, socket_address = {}, transport proto = transport::TCP);
     virtual ::seastar::socket socket() = 0;
-    virtual net::udp_channel make_udp_channel(ipv4_addr addr = {}) = 0;
+    virtual net::udp_channel make_udp_channel(const socket_address& = {}) = 0;
     virtual future<> initialize() {
         return make_ready_future();
     }
