@@ -21,13 +21,12 @@
 
 #include <ostream>
 #include <arpa/inet.h>
-
+#include <boost/functional/hash.hpp>
 #include <seastar/net/inet_address.hh>
 #include <seastar/net/socket_defs.hh>
 #include <seastar/net/dns.hh>
 #include <seastar/net/ip.hh>
-
-namespace seastar {
+#include <seastar/core/print.hh>
 
 seastar::net::inet_address::inet_address()
                 : inet_address(::in_addr{ 0, })
@@ -112,6 +111,64 @@ const void * seastar::net::inet_address::data() const {
     return &_in;
 }
 
+seastar::net::ipv6_address::ipv6_address(const ::in6_addr& in) {
+    std::copy(std::begin(in.s6_addr), std::end(in.s6_addr), ip.begin());
+}
+
+seastar::net::ipv6_address::ipv6_address(const ipv6_bytes& in)
+    : ip(in)
+{}
+
+seastar::net::ipv6_address::ipv6_address()
+    : ipv6_address(::in6addr_any)
+{}
+
+seastar::net::ipv6_address::ipv6_address(const std::string& addr) {
+    if (!::inet_pton(AF_INET6, addr.c_str(), ip.data())) {
+        throw std::runtime_error(format("Wrong format for IPv6 address {}. Please ensure it's in colon-hex format",
+                                        addr));
+    }
+}
+
+seastar::net::ipv6_address seastar::net::ipv6_address::read(const char* s) {
+    auto* b = reinterpret_cast<const uint8_t *>(s);
+    ipv6_address in;
+    std::copy(b, b + ipv6_address::size(), in.ip.begin());
+    return in;
+}
+
+seastar::net::ipv6_address seastar::net::ipv6_address::consume(const char*& p) {
+    auto res = read(p);
+    p += size();
+    return res;
+}
+
+void seastar::net::ipv6_address::write(char* p) const {
+    std::copy(ip.begin(), ip.end(), p);
+}
+
+void seastar::net::ipv6_address::produce(char*& p) const {
+    write(p);
+    p += size();
+}
+
+bool seastar::net::ipv6_address::is_unspecified() const {
+    return std::all_of(ip.begin(), ip.end(), [](uint8_t b) { return b == 0; });
+}
+
+std::ostream& seastar::net::operator<<(std::ostream& os, const ipv4_address& a) {
+    auto ip = a.ip;
+    return fmt_print(os, "{:d}.{:d}.{:d}.{:d}",
+            (ip >> 24) & 0xff,
+            (ip >> 16) & 0xff,
+            (ip >> 8) & 0xff,
+            (ip >> 0) & 0xff);
+}
+
+std::ostream& seastar::net::operator<<(std::ostream& os, const ipv6_address& a) {
+    char buffer[64];
+    return os << ::inet_ntop(AF_INET6, a.ip.data(), buffer, sizeof(buffer));
+}
 
 std::ostream& seastar::net::operator<<(std::ostream& os, const inet_address& addr) {
     char buffer[64];
@@ -132,11 +189,12 @@ std::ostream& seastar::net::operator<<(std::ostream& os, const inet_address::fam
     return os;
 }
 
-std::ostream& operator<<(std::ostream& os, const socket_address& a) {
+std::ostream& seastar::operator<<(std::ostream& os, const seastar::socket_address& a) {
     return os << seastar::net::inet_address(a.as_posix_sockaddr_in().sin_addr)
         << ":" << ntohs(a.u.in.sin_port)
         ;
 }
 
+size_t std::hash<seastar::net::ipv6_address>::operator()(const seastar::net::ipv6_address& a) const {
+    return boost::hash_range(a.ip.begin(), a.ip.end());
 }
-

@@ -97,7 +97,51 @@ struct ipv4_address {
 
 static inline bool is_unspecified(ipv4_address addr) { return addr.ip == 0; }
 
-std::ostream& operator<<(std::ostream& os, ipv4_address a);
+std::ostream& operator<<(std::ostream& os, const ipv4_address& a);
+
+// IPv6
+struct ipv6_address {
+    using ipv6_bytes = std::array<uint8_t, 16>;
+
+    static_assert(alignof(ipv6_bytes) == 1);
+    static_assert(sizeof(ipv6_bytes) == 16);
+
+    ipv6_address();
+    explicit ipv6_address(const ::in6_addr&);
+    explicit ipv6_address(const ipv6_bytes&);
+    explicit ipv6_address(const std::string&);
+
+    // No need to use packed - we only store
+    // as byte array. If we want to read as
+    // uints or whatnot, we must copy
+    ipv6_bytes ip;
+
+    template <typename Adjuster>
+    auto adjust_endianness(Adjuster a) { return a(ip); }
+
+    bool operator==(const ipv6_address& y) const {
+        return bytes() == y.bytes();
+    }
+    bool operator!=(const ipv6_address& y) const {
+        return !(*this == y);
+    }
+
+    const ipv6_bytes& bytes() const {
+        return ip;
+    }
+
+    bool is_unspecified() const;
+
+    static ipv6_address read(const char*);
+    static ipv6_address consume(const char*& p);
+    void write(char* p) const;
+    void produce(char*& p) const;
+    static constexpr size_t size() {
+        return sizeof(ipv6_bytes);
+    }
+} __attribute__((packed));
+
+std::ostream& operator<<(std::ostream&, const ipv6_address&);
 
 }
 
@@ -108,6 +152,11 @@ namespace std {
 template <>
 struct hash<seastar::net::ipv4_address> {
     size_t operator()(seastar::net::ipv4_address a) const { return a.ip; }
+};
+
+template <>
+struct hash<seastar::net::ipv6_address> {
+    size_t operator()(const seastar::net::ipv6_address&) const;
 };
 
 }
