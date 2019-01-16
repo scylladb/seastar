@@ -20,6 +20,7 @@
  */
 
 #include <seastar/net/stack.hh>
+#include <seastar/net/inet_address.hh>
 #include <seastar/core/reactor.hh>
 
 namespace seastar {
@@ -205,6 +206,16 @@ bool socket_address::operator==(const socket_address& a) const {
     auto& in2 = a.as_posix_sockaddr_in6();
 
     return IN6_ARE_ADDR_EQUAL(&in1, &in2);
+}
+
+future<connected_socket>
+network_stack::connect(socket_address sa, socket_address local, transport proto) {
+    if (local == socket_address()) {
+        local = net::inet_address(sa.addr().in_family());
+    }
+    return do_with(socket(), [sa, local, proto](::seastar::socket& s) {
+        return s.connect(sa, local, proto);
+    });
 }
 
 }

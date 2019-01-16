@@ -234,7 +234,7 @@ posix_server_socket_impl<Transport>::abort_accept() {
 
 template <transport Transport>
 future<connected_socket, socket_address> posix_ap_server_socket_impl<Transport>::accept() {
-    auto conni = conn_q.find(_sa.as_posix_sockaddr_in());
+    auto conni = conn_q.find(_sa);
     if (conni != conn_q.end()) {
         connection c = std::move(conni->second);
         conn_q.erase(conni);
@@ -247,7 +247,7 @@ future<connected_socket, socket_address> posix_ap_server_socket_impl<Transport>:
         }
     } else {
         try {
-            auto i = sockets.emplace(std::piecewise_construct, std::make_tuple(_sa.as_posix_sockaddr_in()), std::make_tuple());
+            auto i = sockets.emplace(std::piecewise_construct, std::make_tuple(_sa), std::make_tuple());
             assert(i.second);
             return i.first->second.get_future();
         } catch (...) {
@@ -259,7 +259,7 @@ future<connected_socket, socket_address> posix_ap_server_socket_impl<Transport>:
 template <transport Transport>
 void
 posix_ap_server_socket_impl<Transport>::abort_accept() {
-    conn_q.erase(_sa.as_posix_sockaddr_in());
+    conn_q.erase(_sa);
     auto i = sockets.find(_sa.as_posix_sockaddr_in());
     if (i != sockets.end()) {
         i->second.set_exception(std::system_error(ECONNABORTED, std::system_category()));
@@ -287,7 +287,7 @@ posix_reuseport_server_socket_impl<Transport>::abort_accept() {
 template <transport Transport>
 void
 posix_ap_server_socket_impl<Transport>::move_connected_socket(socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle cth) {
-    auto i = sockets.find(sa.as_posix_sockaddr_in());
+    auto i = sockets.find(sa);
     if (i != sockets.end()) {
         try {
             std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl<Transport>(make_lw_shared(std::move(fd)), std::move(cth)));
@@ -297,7 +297,7 @@ posix_ap_server_socket_impl<Transport>::move_connected_socket(socket_address sa,
         }
         sockets.erase(i);
     } else {
-        conn_q.emplace(std::piecewise_construct, std::make_tuple(sa.as_posix_sockaddr_in()), std::make_tuple(std::move(fd), std::move(addr)));
+        conn_q.emplace(std::piecewise_construct, std::make_tuple(sa), std::make_tuple(std::move(fd), std::move(addr)));
     }
 }
 
@@ -371,9 +371,9 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
 }
 
 template<transport Transport>
-thread_local std::unordered_map<::sockaddr_in, promise<connected_socket, socket_address>> posix_ap_server_socket_impl<Transport>::sockets;
+thread_local std::unordered_map<socket_address, promise<connected_socket, socket_address>> posix_ap_server_socket_impl<Transport>::sockets;
 template<transport Transport>
-thread_local std::unordered_multimap<::sockaddr_in, typename posix_ap_server_socket_impl<Transport>::connection> posix_ap_server_socket_impl<Transport>::conn_q;
+thread_local std::unordered_multimap<socket_address, typename posix_ap_server_socket_impl<Transport>::connection> posix_ap_server_socket_impl<Transport>::conn_q;
 
 server_socket
 posix_ap_network_stack::listen(socket_address sa, listen_options opt) {

@@ -130,8 +130,8 @@ class posix_ap_server_socket_impl : public server_socket_impl {
         socket_address addr;
         connection(pollable_fd xfd, socket_address xaddr) : fd(std::move(xfd)), addr(xaddr) {}
     };
-    static thread_local std::unordered_map<::sockaddr_in, promise<connected_socket, socket_address>> sockets;
-    static thread_local std::unordered_multimap<::sockaddr_in, connection> conn_q;
+    static thread_local std::unordered_map<socket_address, promise<connected_socket, socket_address>> sockets;
+    static thread_local std::unordered_multimap<socket_address, connection> conn_q;
     socket_address _sa;
 public:
     explicit posix_ap_server_socket_impl(socket_address sa) : _sa(sa) {}
