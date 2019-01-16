@@ -29,7 +29,7 @@
 #include <seastar/core/print.hh>
 
 seastar::net::inet_address::inet_address()
-                : inet_address(::in_addr{ 0, })
+                : inet_address(::in6_addr{ 0, })
 {}
 
 seastar::net::inet_address::inet_address(::in_addr i)
@@ -60,11 +60,13 @@ seastar::net::inet_address::inet_address(const ipv4_address& in)
 {}
 
 seastar::net::ipv4_address seastar::net::inet_address::as_ipv4_address() const {
-    if (_in_family != family::INET) {
-        // TODO: ipv4-compatible ipv6
-        throw std::invalid_argument("Not an IPv4 address");
-    }
-    return ipv4_address(ntoh(_in.s_addr));
+    in_addr in = *this;
+    return ipv4_address(ntoh(in.s_addr));
+}
+
+seastar::net::ipv6_address seastar::net::inet_address::as_ipv6_address() const {
+    in6_addr in6 = *this;
+    return ipv6_address{in6};
 }
 
 bool seastar::net::inet_address::operator==(const inet_address& o) const {
@@ -82,18 +84,30 @@ bool seastar::net::inet_address::operator==(const inet_address& o) const {
     }
 }
 
-seastar::net::inet_address::operator const ::in_addr&() const {
+seastar::net::inet_address::operator ::in_addr() const {
     if (_in_family != family::INET) {
-        throw std::invalid_argument("Not an ipv4 address");
+        if (IN6_IS_ADDR_V4MAPPED(&_in6)) {
+            ::in_addr in;
+            in.s_addr = _in6.s6_addr32[3];
+            return in;
+        }
+        throw std::invalid_argument("Not an IPv4 address");
     }
     return _in;
 }
 
-seastar::net::inet_address::operator const ::in6_addr&() const {
-    if (_in_family != family::INET6) {
-        throw std::invalid_argument("Not an ipv6 address");
+seastar::net::inet_address::operator ::in6_addr() const {
+    if (_in_family == family::INET) {
+        in6_addr in6 = IN6ADDR_ANY_INIT;
+        in6.s6_addr32[2] = ::htonl(0xffff);
+        in6.s6_addr32[3] = _in.s_addr;
+        return in6;
     }
     return _in6;
+}
+
+seastar::net::inet_address::operator seastar::net::ipv6_address() const {
+    return as_ipv6_address();
 }
 
 size_t seastar::net::inet_address::size() const {
@@ -193,6 +207,17 @@ std::ostream& seastar::operator<<(std::ostream& os, const seastar::socket_addres
     return os << seastar::net::inet_address(a.as_posix_sockaddr_in().sin_addr)
         << ":" << ntohs(a.u.in.sin_port)
         ;
+}
+
+size_t std::hash<seastar::net::inet_address>::operator()(const seastar::net::inet_address& a) const {
+    switch (a.in_family()) {
+    case seastar::net::inet_address::family::INET:
+        return std::hash<seastar::net::ipv4_address>()(a.as_ipv4_address());
+    case seastar::net::inet_address::family::INET6:
+        return std::hash<seastar::net::ipv6_address>()(a.as_ipv6_address());
+    default:
+        return 0;
+    }
 }
 
 size_t std::hash<seastar::net::ipv6_address>::operator()(const seastar::net::ipv6_address& a) const {
