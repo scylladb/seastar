@@ -35,34 +35,24 @@
 
 namespace seastar {
 
-static inline
-bool is_ip_unspecified(ipv4_addr &addr) {
-    return addr.ip == 0;
+inline
+bool is_ip_unspecified(const ipv4_addr& addr) {
+    return addr.is_ip_unspecified();
 }
 
-static inline
-bool is_port_unspecified(ipv4_addr &addr) {
-    return addr.port == 0;
+inline
+bool is_port_unspecified(const ipv4_addr& addr) {
+    return addr.is_port_unspecified();
 }
 
-std::ostream& operator<<(std::ostream& os, ipv4_addr addr);
-
-static inline
-socket_address make_ipv4_address(ipv4_addr addr) {
-    socket_address sa;
-    sa.u.in.sin_family = AF_INET;
-    sa.u.in.sin_port = htons(addr.port);
-    sa.u.in.sin_addr.s_addr = htonl(addr.ip);
-    return sa;
+inline
+socket_address make_ipv4_address(const ipv4_addr& addr) {
+    return socket_address(addr);
 }
 
 inline
 socket_address make_ipv4_address(uint32_t ip, uint16_t port) {
-    socket_address sa;
-    sa.u.in.sin_family = AF_INET;
-    sa.u.in.sin_port = htons(port);
-    sa.u.in.sin_addr.s_addr = htonl(ip);
-    return sa;
+    return make_ipv4_address(ipv4_addr(ip, port));
 }
 
 namespace net {
