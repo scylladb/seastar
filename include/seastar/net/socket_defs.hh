@@ -52,7 +52,7 @@ public:
     socket_address(ipv4_addr);
     socket_address(const ipv6_addr&);
     socket_address(const net::inet_address&, uint16_t p = 0);
-    socket_address() = default;
+    socket_address();
     ::sockaddr& as_posix_sockaddr() { return u.sa; }
     ::sockaddr_in& as_posix_sockaddr_in() { return u.in; }
     ::sockaddr_in6& as_posix_sockaddr_in6() { return u.in6; }

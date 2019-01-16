@@ -159,6 +159,10 @@ void server_socket::abort_accept() {
     _aborted = true;
 }
 
+socket_address::socket_address()
+    : socket_address(ipv4_addr())
+{}
+
 socket_address::socket_address(ipv4_addr addr)
 {
     u.in.sin_family = AF_INET;
