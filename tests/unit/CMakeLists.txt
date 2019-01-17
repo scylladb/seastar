@@ -271,18 +271,22 @@ seastar_add_test (lowres_clock
   SOURCES lowres_clock_test.cc)
 
 seastar_add_test (net_config
+  KIND BOOST
   SOURCES net_config_test.cc)
 
 seastar_add_test (noncopyable_function
+  KIND BOOST
   SOURCES noncopyable_function_test.cc)
 
 seastar_add_test (output_stream
   SOURCES output_stream_test.cc)
 
 seastar_add_test (packet
+  KIND BOOST
   SOURCES packet_test.cc)
 
 seastar_add_test (program_options
+  KIND BOOST
   SOURCES program_options_test.cc)
 
 seastar_add_test (queue
@@ -297,12 +301,14 @@ seastar_add_test (semaphore
   SOURCES semaphore_test.cc)
 
 seastar_add_test (shared_ptr
+  KIND BOOST
   SOURCES shared_ptr_test.cc)
 
 seastar_add_test (signal
   SOURCES signal_test.cc)
 
 seastar_add_test (simple_stream
+  KIND BOOST
   SOURCES simple_stream_test.cc)
 
 # TODO: Disabled for now. See GH-520.
@@ -316,6 +322,7 @@ seastar_add_test (smp
   LIBRARIES seastar_with_flags)
 
 seastar_add_test (sstring
+  KIND BOOST
   SOURCES sstring_test.cc)
 
 seastar_add_test (stall_detector
@@ -365,10 +372,13 @@ add_custom_command (
 #   WORKING_DIRECTORY ${Seastar_BINARY_DIR})
 
 seastar_add_test (tuple_utils
+  KIND BOOST
   SOURCES tuple_utils_test.cc)
 
 seastar_add_test (unwind
+  KIND BOOST
   SOURCES unwind_test.cc)
 
 seastar_add_test (weak_ptr
+  KIND BOOST
   SOURCES weak_ptr_test.cc)
