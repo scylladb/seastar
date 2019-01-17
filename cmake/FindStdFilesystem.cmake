@@ -26,7 +26,7 @@ file (READ ${CMAKE_CURRENT_LIST_DIR}/code_tests/StdFilesystem_test.cc _stdfilesy
 macro (_stdfilesystem_check_compiles var)
   set (libraries ${ARGN})
   set (CMAKE_REQUIRED_LIBRARIES ${libraries})
-  set (CMAKE_REQUIRED_FLAGS -std=gnu++14)
+  set (CMAKE_REQUIRED_FLAGS -std=${Seastar_CXX_DIALECT})
   check_cxx_source_compiles ("${_stdfilesystem_test_code}" ${var})
 endmacro ()
 
