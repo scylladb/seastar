@@ -169,6 +169,37 @@ function (seastar_add_test name)
       TIMEOUT ${Seastar_TEST_TIMEOUT})
 endfunction ()
 
+#
+# Define a new custom unit test whose entry point is a Seastar application.
+#
+# seastar_add_app_test (name
+#   [SOURCES source1 source2 ... sourcen]
+#   [LIBRARIES library1 library2 ... libraryn]
+#   [RUN_ARGS arg1 arg2 ... argn])
+#
+# These kinds of tests are structured like Seastar applications.
+#
+# These tests always link against `seastar_with_flags` and are always invoked with
+# `-c ${Seastar_UNIT_TEST_SMP}`.
+#
+function (seastar_add_app_test name)
+  cmake_parse_arguments (parsed_args
+    ""
+    ""
+    "RUN_ARGS;SOURCES;LIBRARIES"
+    ${ARGN})
+
+  seastar_add_test (${name}
+    KIND CUSTOM
+    SOURCES ${parsed_args_SOURCES}
+    LIBRARIES
+      seastar_with_flags
+      ${parsed_args_LIBRARIES}
+    RUN_ARGS
+      -c ${Seastar_UNIT_TEST_SMP}
+      ${parsed_args_RUN_ARGS})
+endfunction ()
+
 function (prepend_each var prefix)
   set (result "")
 
@@ -203,10 +234,8 @@ seastar_add_test (allocator
   SOURCES allocator_test.cc
   RUN_ARGS ${allocator_test_args})
 
-seastar_add_test (alien
-  KIND CUSTOM
-  SOURCES alien_test.cc
-  LIBRARIES seastar_with_flags)
+seastar_add_app_test (alien
+  SOURCES alien_test.cc)
 
 seastar_add_test (checked_ptr
   SOURCES checked_ptr_test.cc)
@@ -226,15 +255,11 @@ seastar_add_test (connect
 seastar_add_test (defer
   SOURCES defer_test.cc)
 
-seastar_add_test (directory
-  KIND CUSTOM
-  SOURCES directory_test.cc
-  LIBRARIES seastar_with_flags)
+seastar_add_app_test (directory
+  SOURCES directory_test.cc)
 
-seastar_add_test (distributed
-  KIND CUSTOM
-  SOURCES distributed_test.cc
-  LIBRARIES seastar_with_flags)
+seastar_add_app_test (distributed
+  SOURCES distributed_test.cc)
 
 seastar_add_test (dns
   SOURCES dns_test.cc)
@@ -319,10 +344,8 @@ seastar_add_test (simple_stream
 #   SOURCES slab_test.cc
 #   NO_SEASTAR_TESTING_LIBRARY)
 
-seastar_add_test (smp
-  KIND CUSTOM
-  SOURCES smp_test.cc
-  LIBRARIES seastar_with_flags)
+seastar_add_app_test (smp
+  SOURCES smp_test.cc)
 
 seastar_add_test (sstring
   KIND BOOST
@@ -334,15 +357,11 @@ seastar_add_test (stall_detector
 seastar_add_test (thread
   SOURCES thread_test.cc)
 
-seastar_add_test (thread_context_switch
-  KIND CUSTOM
-  SOURCES thread_context_switch_test.cc
-  LIBRARIES seastar_with_flags)
+seastar_add_app_test (thread_context_switch
+  SOURCES thread_context_switch_test.cc)
 
-seastar_add_test (timer
-  KIND CUSTOM
-  SOURCES timer_test.cc
-  LIBRARIES seastar_with_flags)
+seastar_add_app_test (timer
+  SOURCES timer_test.cc)
 
 set (tls_certificate_files
   catest.key
