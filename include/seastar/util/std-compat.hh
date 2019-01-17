@@ -31,6 +31,12 @@
 #include <boost/variant.hpp>
 #endif
 
+#if __cplusplus >= 201703L  // C++17
+#include <filesystem>
+#else
+#include <experimental/filesystem>
+#endif
+
 namespace seastar {
 
 /// \cond internal
@@ -167,6 +173,12 @@ const U* get_if(const variant<Types...>* v) {
     return boost::get<U, Types...>(v);
 }
 
+#endif
+
+#if __cplusplus >= 201703L
+namespace filesystem = std::filesystem;
+#else
+namespace filesystem = std::experimental::filesystem;
 #endif
 
 using string_view = basic_string_view<char>;

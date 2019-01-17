@@ -29,7 +29,6 @@
 #include <cmath>
 #include <sys/vfs.h>
 #include <sys/sysmacros.h>
-#include <boost/filesystem.hpp>
 #include <boost/range/irange.hpp>
 #include <boost/program_options.hpp>
 #include <boost/iterator/counting_iterator.hpp>
@@ -52,7 +51,7 @@
 
 using namespace seastar;
 using namespace std::chrono_literals;
-namespace fs = std::experimental::filesystem;
+namespace fs = seastar::compat::filesystem;
 
 logger iotune_logger("iotune");
 

@@ -264,7 +264,7 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, unsigned n
 
 
 size_t get_cgroup_memory_limit() {
-    std::experimental::filesystem::path cgroup_memory = "/sys/fs/cgroup/memory/memory.limit_in_bytes";
+    compat::filesystem::path cgroup_memory = "/sys/fs/cgroup/memory/memory.limit_in_bytes";
 
     try {
         return boost::lexical_cast<size_t>(read_first_line(cgroup_memory));
