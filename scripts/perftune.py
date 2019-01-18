@@ -6,6 +6,7 @@ import enum
 import functools
 import glob
 import itertools
+import logging
 import multiprocessing
 import os
 import pathlib
@@ -828,9 +829,11 @@ class DiskPerfTuner(PerfTunerBase):
             aws_instance_type = urllib.request.urlopen("http://169.254.169.254/latest/meta-data/instance-type", timeout=0.1).read().decode()
             if re.match(r'i3\.\w+', aws_instance_type):
                 nvme_irqs = list(filter(self.__nvme_fast_path_irq_filter, nvme_irqs))
-        except urllib.error.URLError:
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
             # Non-AWS case
             pass
+        except:
+            logging.warning("Unexpected exception while attempting to access AWS meta server: {}".format(sys.exc_info()[0]))
 
         # Sort IRQs for easier verification
         nvme_irqs.sort(key=lambda irq_num_str: int(irq_num_str))
