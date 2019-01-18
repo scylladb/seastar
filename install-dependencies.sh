@@ -51,7 +51,14 @@ enabled=1
 enabled_metadata=1
 EOF
     fi
-    yum install -y hwloc-devel numactl-devel libpciaccess-devel cryptopp-devel libxml2-devel xfsprogs-devel gnutls-devel lksctp-tools-devel lz4-devel gcc make protobuf-devel protobuf-compiler systemtap-sdt-devel libtool cmake yaml-cpp-devel c-ares-devel stow
+    # seastar doesn't directly depend on these packages. They are
+    # needed because we want to link seastar statically and pkg-config
+    # has no way of saying "static seastar, but dynamic transitive
+    # dependencies". They provide the various .so -> .so.ver symbolic
+    # links.
+    transitive="libtool-ltdl-devel trousers-devel libidn2-devel libunistring-devel"
+
+    yum install -y hwloc-devel numactl-devel libpciaccess-devel cryptopp-devel libxml2-devel xfsprogs-devel gnutls-devel lksctp-tools-devel lz4-devel gcc make protobuf-devel protobuf-compiler systemtap-sdt-devel libtool cmake yaml-cpp-devel c-ares-devel stow $transitive
     if [ "$ID" = "fedora" ]; then
         dnf install -y gcc-c++ ninja-build ragel boost-devel libubsan libasan libatomic
     else # centos
