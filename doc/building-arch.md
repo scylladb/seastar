@@ -7,6 +7,6 @@ sudo ./install-dependencies.sh
 
 To compile Seastar use:
 ```
-./cooking.sh -r dev -i c-ares -i fmt
+./configure.py --mode=release
 ninja -C build
 ```

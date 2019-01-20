@@ -6,14 +6,11 @@ There are multiple ways to configure Seastar and its dependencies.
 
 ### Use system-packages for most dependencies
 
-```
-$ sudo ./install-dependencies.sh
-$ ./configure.py --mode=release
-```
+See the instructions in [README.md](./README.md).
 
 ### Download and install all external dependencies in a project-specific location
 
-- Use `cmake-cooking` to prepare a development environment with all dependencies:
+- Use `cmake-cooking` to prepare a development environment with all dependencies.  This allows for reproducible development environments, but means that approximately 3 GiB of dependencies get installed to `build/_cooking_`:
 
 ```
 ./cooking.sh -r dev
@@ -43,21 +40,9 @@ $ ./configure.py --mode=release
 ./cooking.sh -r dev -e Boost -t Release
 ```
 
-- Assuming all dependencies are accessible (perhaps from system packages), it is not necessary to use `cmake-cooking`:
-
-```
-mkdir build
-cd build
-cmake -DCMAKE_BUILD_TYPE=Debug ..
-```
-
-### Managing dependencies yourself
-
-Invoke `cmake` manually and set the appropriate CMake cache variables to point to the installed dependencies.
-
 ## Using an IDE with CMake support
 
-If you use `cmake-cooking` to configure Seastar (or the `configure.py` script), then the easiest way to use an IDE (such as Qt Creator, or CLion) for development is to instruct the IDE, when it invokes CMake, to include the following option:
+If you use `configure.py` or `cooking.sh` to to configure Seastar, then the easiest way to use an IDE (such as Qt Creator, or CLion) for development is to instruct the IDE, when it invokes CMake, to include the following option:
 
 ```
 -DCMAKE_PREFIX_PATH=${source_dir}/build/_cooking/installed
@@ -65,14 +50,18 @@ If you use `cmake-cooking` to configure Seastar (or the `configure.py` script), 
 
 where `${source_dir}` is the root of the Seastar source tree on your file-system.
 
-This will allow the IDE to also index all dependencies installed in the development environment.
+This will allow the IDE to also index Seastar's dependencies.
 
 ## Building the project
 
 ```
-cd build
+cd $my_build_dir
 ninja
 ```
+
+If you used `configure.py` to configure Seastar, then the build directory will be `build/$mode`. For example, `build/release`.
+
+If you use `cooking.sh`, then the build directory will just be `build`.
 
 ## Running tests
 
@@ -134,6 +123,14 @@ ninja doc_api
 ## Installing the project
 
 Choose the install path:
+
+With `configure.py`:
+
+```
+./configure.py --mode=release --prefix=/my/install/path
+```
+
+With `cooking.sh`:
 
 ```
 ./cooking.sh -r dev -- -DCMAKE_INSTALL_PREFIX=/my/install/path

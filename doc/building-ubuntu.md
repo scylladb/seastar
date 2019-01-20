@@ -9,6 +9,6 @@ sudo ./install-dependencies.sh
 
 To compile Seastar explicitly using gcc 5, use:
 ```
-CXX=g++-5 ./cooking.sh -r dev -i c-ares -i fmt
+CXX=g++-5 ./cooking.sh -r dev -i c-ares -i fmt -t Release
 ninja -C build
 ```

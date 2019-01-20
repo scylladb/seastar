@@ -4,7 +4,7 @@ Seastar and DPDK
 Seastar uses the Data Plane Development Kit to drive NIC hardware directly.  This
 provides an enormous performance boost.
 
-To enable DPDK, specify `-DSeastar_DPDK=ON` to `./cooking.sh`, and `--dpdk-pmd` as a
+To enable DPDK, specify `--enable-dpdk` to `./configure.py`, and `--dpdk-pmd` as a
 run-time parameter.  This will use the DPDK package provided as a git submodule with the
 seastar sources.
 

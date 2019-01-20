@@ -16,42 +16,97 @@ It is based on [futures](http://en.wikipedia.org/wiki/Futures_and_promises).
 Building Seastar
 --------------------
 
-For more detailed instructions, read [HACKING.md](./HACKING.md).
+For more details and alternative work-flows, read [HACKING.md](./HACKING.md).
 
-Configuring Seastar via
-
-```
-./cooking.sh -r dev
-```
-
-will create a localized development environment specific to Seastar by downloading, compiling, and installing all dependencies of the library.
-
-The build type defaults to `Debug` and can be changed with the `-t`
-option. These include the common cmake ones (`Debug`, `RelWithDebInfo`,
-`Release`, etc), but there are a few peculiarities in Seastar:
-
-- `Debug` includes sanitizers
-- All build modes enable asserts
-- There is a `Dev` build. It has no debug information nor sanitizers and just
-  minimum optimizations. The objective is to build quickly
-
-It is convenient to have multiple build directories and alternate
-between them depending on what is being done.
+Assuming that you would like to use system packages (RPMs or DEBs) for Seastar's dependencies, first install them:
 
 ```
-$ ./cooking.sh -r dev -d build-dev -t Dev     # Use for quick edit-compile-test cycle
-$ ./cooking.sh -r dev -d build-dbg -t Debug   # Use to run gdb
-$ ./cooking.sh -r dev -d build-rel -t Release # Use to benchmark
+$ sudo ./install-dependencies.sh
 ```
 
-You can then compile:
+then configure (in "release" mode):
 
 ```
-$ cd build
-$ ninja
+$ ./configure.py --mode=release
+```
+then compile:
+
+```
+$ ninja -C build/release
 ```
 
-Alternatively, system packages (via RPM or APT packages, for example) can be used to supply dependencies as well. There are distribution-specific instructions for [Fedora](doc/building-fedora.md), [CentOS](doc/building-centos.md) and [Ubuntu](doc/building-ubuntu.md). In general, the `install-dependencies.sh` will attempt to install all necessary packages for your distribution.
+Using Seastar from its build directory (without installation)
+----------------------------------------------------------------------------
+
+It's possible to consume Seastar directly from its build directory with CMake or `pkg-config`.
+
+We'll assume that the Seastar repository is located in a directory at `$seastar_dir`.
+
+
+Via `pkg-config`:
+
+```
+$ g++ my_app.cc $(pkg-config --libs --cflags --static $seastar_dir/build/release/seastar.pc) -o my_app
+```
+
+and with CMake using the `Seastar` package:
+
+
+`CMakeLists.txt` for `my_app`:
+
+```
+find_package (Seastar REQUIRED)
+
+add_executable (my_app
+  my_app.cc)
+  
+target_link_libraries (my_app
+  Seastar::seastar)
+```
+
+```
+$ mkdir $my_app_dir/build
+$ cd $my_app_dir/build
+$ cmake -DCMAKE_PREFIX_PATH="$seastar_dir/build/release;$seastar_dir/build/release/_cooking/installed" -DCMAKE_MODULE_PATH=$seastar_dir/cmake $my_app_dir
+```
+
+The `CMAKE_PREFIX_PATH` values ensure that CMake can locate Seastar and its compiled submodules. The `CMAKE_MODULE_PATH` value ensures that CMake can uses Seastar's CMake scripts for locating its dependencies.
+
+Using an installed Seastar
+--------------------------------
+
+You can also consume Seastar after it has been installed to the file-system.
+
+**Important:**
+
+- The [fmt library](https://github.com/fmtlib/fmt) is not typically available as a system package, so Seastar by default builds and installs the fmt submodule to `$build_dir/_cooking/installed`
+- Seastar works with a customized version of DPDK, so by default builds and installs the DPDK submodule to `$build_dir/_cooking/installed`
+
+First, configure the installation path:
+
+```
+$ ./configure.py --mode=release --prefix=/usr/local
+```
+
+then run the `install` target:
+
+```
+$ ninja -C build/release install
+```
+
+then consume it from `pkg-config`:
+
+```
+$ g++ my_app.cc $(pkg-config --libs --cflags --static seastar) -o my_app
+```
+
+or consume it with the same `CMakeLists.txt` as before but with a simpler CMake invocation:
+
+```
+$ cmake ..
+```
+
+(If Seastar has not been installed to a "standard" location like `/usr` or `/usr/local`, then you can invoke CMake with `-DCMAKE_PREFIX_PATH=$my_install_root`.)
 
 There are also instructions for building on any host that supports [Docker](doc/building-docker.md).
 
