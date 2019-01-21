@@ -1554,7 +1554,7 @@ reactor::get_stall_detector_report_function() const {
 
 void
 reactor::block_notifier(int) {
-    engine()._cpu_stall_detector->generate_trace();
+    engine()._cpu_stall_detector->on_signal();
 }
 
 void

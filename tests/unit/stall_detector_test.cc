@@ -77,7 +77,10 @@ SEASTAR_THREAD_TEST_CASE(simple_stalls) {
         spin(20ms);
     }
     spin_some_cooperatively(100ms);
-    BOOST_REQUIRE_EQUAL(reports, 10);
+
+    // blocked-reactor-reports-per-minute defaults to 5, so we don't
+    // get all 10 reports.
+    BOOST_REQUIRE_EQUAL(reports, 5);
 }
 
 
