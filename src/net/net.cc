@@ -30,6 +30,15 @@
 
 namespace seastar {
 
+std::ostream& operator<<(std::ostream &os, ipv4_addr addr) {
+    fmt_print(os, "{:d}.{:d}.{:d}.{:d}",
+            (addr.ip >> 24) & 0xff,
+            (addr.ip >> 16) & 0xff,
+            (addr.ip >> 8) & 0xff,
+            (addr.ip) & 0xff);
+    return os << ":" << addr.port;
+}
+
 using std::move;
 
 ipv4_addr::ipv4_addr(const std::string &addr) {

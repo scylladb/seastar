@@ -60,6 +60,19 @@
 
 namespace seastar {
 
+void* internal::allocate_aligned_buffer_impl(size_t size, size_t align) {
+    void *ret;
+    auto r = posix_memalign(&ret, align, size);
+    if (r == ENOMEM) {
+        throw std::bad_alloc();
+    } else if (r == EINVAL) {
+        throw std::runtime_error(format("Invalid alignment of {:d}; allocating {:d} bytes", align, size));
+    } else {
+        assert(r == 0);
+        return ret;
+    }
+}
+
 namespace memory {
 
 static thread_local int abort_on_alloc_failure_suppressed = 0;
