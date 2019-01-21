@@ -212,6 +212,7 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         self.__mode = None
         self.__compute_cpu_mask = None
         self.__irq_cpu_mask = None
+        self.__is_aws_i3_nonmetal_instance = None
 
 #### Public methods ##########################
     class SupportedModes(enum.IntEnum):
@@ -330,6 +331,16 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         return self.__irq_cpu_mask
 
     @property
+    def is_aws_i3_non_metal_instance(self):
+        """
+        :return: True if we are running on the AWS i3.nonmetal instance, e.g. i3.4xlarge
+        """
+        if self.__is_aws_i3_nonmetal_instance is None:
+            self.__check_host_type()
+
+        return self.__is_aws_i3_nonmetal_instance
+
+    @property
     def args(self):
         return self.__args
 
@@ -370,6 +381,27 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
             self.mode = PerfTunerBase.SupportedModes[self.__args.mode]
         else:
             self.mode = self._get_def_mode()
+
+    def __check_host_type(self):
+        """
+        Check if we are running on the AWS i3 nonmetal instance.
+        If yes, set self.__is_aws_i3_nonmetal_instance to True, and to False otherwise.
+        """
+        try:
+            aws_instance_type = urllib.request.urlopen("http://169.254.169.254/latest/meta-data/instance-type", timeout=0.1).read().decode()
+            if re.match(r'^i3\.(\w(?!metal))+$', aws_instance_type):
+                self.__is_aws_i3_nonmetal_instance = True
+            else:
+                self.__is_aws_i3_nonmetal_instance = False
+
+            return
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
+            # Non-AWS case
+            pass
+        except:
+            logging.warning("Unexpected exception while attempting to access AWS meta server: {}".format(sys.exc_info()[0]))
+
+        self.__is_aws_i3_nonmetal_instance = False
 
 #################################################
 class NetPerfTuner(PerfTunerBase):
@@ -825,15 +857,9 @@ class DiskPerfTuner(PerfTunerBase):
         # There is a known issue with Xen hypervisor that exposes itself on AWS i3 instances where nvme module
         # over-allocates HW queues and uses only queues 1,2,3,..., <up to number of CPUs> for data transfer.
         # On these instances we will distribute only these queues.
-        try:
-            aws_instance_type = urllib.request.urlopen("http://169.254.169.254/latest/meta-data/instance-type", timeout=0.1).read().decode()
-            if re.match(r'i3\.\w+', aws_instance_type):
-                nvme_irqs = list(filter(self.__nvme_fast_path_irq_filter, nvme_irqs))
-        except (urllib.error.URLError, ConnectionError, TimeoutError):
-            # Non-AWS case
-            pass
-        except:
-            logging.warning("Unexpected exception while attempting to access AWS meta server: {}".format(sys.exc_info()[0]))
+
+        if self.is_aws_i3_non_metal_instance:
+            nvme_irqs = list(filter(self.__nvme_fast_path_irq_filter, nvme_irqs))
 
         # Sort IRQs for easier verification
         nvme_irqs.sort(key=lambda irq_num_str: int(irq_num_str))
