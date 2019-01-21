@@ -28,6 +28,7 @@
 #include <seastar/core/sharded.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/net/tls.hh>
+#include <iostream>
 
 using namespace seastar;
 

@@ -30,6 +30,7 @@
 #include <boost/range/numeric.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <seastar/net/packet-data-source.hh>
+#include <seastar/core/print.hh>
 
 namespace seastar {
 

@@ -26,6 +26,7 @@
 #include <utility>
 #include <seastar/net/toeplitz.hh>
 #include <seastar/core/metrics.hh>
+#include <seastar/core/print.hh>
 #include <seastar/net/inet_address.hh>
 
 namespace seastar {

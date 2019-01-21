@@ -23,6 +23,7 @@
 #include <seastar/core/app-template.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/distributed.hh>
+#include <seastar/core/print.hh>
 #include <vector>
 #include <iostream>
 

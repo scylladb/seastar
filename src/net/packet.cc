@@ -20,6 +20,7 @@
  */
 
 #include <seastar/core/reactor.hh>
+#include <seastar/core/print.hh>
 #include <seastar/net/packet.hh>
 #include <iostream>
 #include <algorithm>

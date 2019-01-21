@@ -27,6 +27,7 @@
 #include <seastar/core/queue.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/metrics.hh>
+#include <seastar/core/print.hh>
 #include <iostream>
 #include <algorithm>
 #include <unordered_map>

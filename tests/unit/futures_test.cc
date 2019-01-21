@@ -27,6 +27,7 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/core/shared_future.hh>
 #include <seastar/core/thread.hh>
+#include <seastar/core/print.hh>
 #include <boost/iterator/counting_iterator.hpp>
 
 using namespace seastar;

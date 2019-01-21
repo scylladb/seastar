@@ -27,6 +27,7 @@
 #include <seastar/core/future-util.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/util/defer.hh>
+#include <fmt/printf.h>
 #include <chrono>
 #include <cmath>
 

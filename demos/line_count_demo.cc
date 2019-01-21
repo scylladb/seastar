@@ -26,6 +26,7 @@
 #include <seastar/core/app-template.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/reactor.hh>
+#include <fmt/printf.h>
 #include <algorithm>
 #include <iostream>
 

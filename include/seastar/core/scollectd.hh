@@ -37,7 +37,6 @@
 #include <seastar/net/byteorder.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/core/print.hh>
 #include <seastar/util/log.hh>
 
 #include <seastar/core/metrics_api.hh>

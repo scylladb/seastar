@@ -55,6 +55,7 @@
 #include <seastar/core/cacheline.hh>
 #include <seastar/core/memory.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/print.hh>
 #include <seastar/util/alloc_failure_injector.hh>
 #include <iostream>
 

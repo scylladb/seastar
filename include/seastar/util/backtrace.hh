@@ -26,7 +26,6 @@
 #include <boost/container/static_vector.hpp>
 
 #include <seastar/core/sstring.hh>
-#include <seastar/core/print.hh>
 
 namespace seastar {
 

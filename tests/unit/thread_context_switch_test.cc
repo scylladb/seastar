@@ -26,6 +26,7 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/core/distributed.hh>
 #include <seastar/core/sleep.hh>
+#include <fmt/printf.h>
 
 using namespace seastar;
 using namespace std::chrono_literals;

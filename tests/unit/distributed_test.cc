@@ -25,6 +25,7 @@
 #include <seastar/core/future-util.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/thread.hh>
+#include <seastar/core/print.hh>
 
 using namespace seastar;
 

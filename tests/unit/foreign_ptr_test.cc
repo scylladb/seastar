@@ -25,6 +25,7 @@
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sleep.hh>
+#include <iostream>
 
 using namespace seastar;
 

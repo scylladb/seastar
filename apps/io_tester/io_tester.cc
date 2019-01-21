@@ -28,6 +28,7 @@
 #include <seastar/core/align.hh>
 #include <seastar/core/timer.hh>
 #include <seastar/core/thread.hh>
+#include <seastar/core/print.hh>
 #include <chrono>
 #include <vector>
 #include <boost/range/irange.hpp>

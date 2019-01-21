@@ -22,7 +22,6 @@
 #include <stdlib.h>
 #include <memory>
 #include <stdexcept>
-#include <seastar/core/print.hh>
 
 namespace seastar {
 

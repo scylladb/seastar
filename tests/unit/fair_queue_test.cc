@@ -29,6 +29,7 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/sleep.hh>
+#include <seastar/core/print.hh>
 #include <boost/range/irange.hpp>
 #include <random>
 #include <chrono>

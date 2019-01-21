@@ -1,4 +1,5 @@
 #include <seastar/rpc/rpc.hh>
+#include <seastar/core/print.hh>
 #include <boost/range/adaptor/map.hpp>
 
 namespace seastar {

@@ -30,6 +30,7 @@
 #include <seastar/core/seastar.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/core/thread.hh>
+#include <seastar/core/print.hh>
 #include <seastar/util/defer.hh>
 #include <random>
 #include <boost/range/adaptor/transformed.hpp>

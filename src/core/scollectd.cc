@@ -32,6 +32,7 @@
 #include <seastar/core/scollectd_api.hh>
 #include <seastar/core/metrics_api.hh>
 #include <seastar/core/byteorder.hh>
+#include <seastar/core/print.hh>
 
 #include "core/scollectd-impl.hh"
 

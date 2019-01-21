@@ -26,6 +26,7 @@
 
 #include <seastar/core/array_map.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/print.hh>
 
 #include <boost/any.hpp>
 #include <boost/lexical_cast.hpp>

@@ -35,6 +35,7 @@
 #include <fstream>
 #include <wordexp.h>
 #include <yaml-cpp/yaml.h>
+#include <fmt/printf.h>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/posix.hh>

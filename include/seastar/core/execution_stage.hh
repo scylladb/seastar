@@ -34,6 +34,7 @@
 #include <seastar/util/defer.hh>
 #include <seastar/util/std-compat.hh>
 #include <fmt/format.h>
+#include <fmt/ostream.h>
 #include <vector>
 #include <boost/range/irange.hpp>
 #include <boost/range/adaptor/transformed.hpp>

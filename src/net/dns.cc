@@ -32,6 +32,7 @@
 #include <seastar/core/timer.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/gate.hh>
+#include <seastar/core/print.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/std-compat.hh>
 

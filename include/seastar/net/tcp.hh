@@ -24,7 +24,6 @@
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/core/semaphore.hh>
-#include <seastar/core/print.hh>
 #include <seastar/core/byteorder.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/net/net.hh>

@@ -22,8 +22,9 @@
 #pragma once
 
 #include <array>
+#include <assert.h>
+#include <algorithm>
 #include <seastar/net/byteorder.hh>
-#include <seastar/core/print.hh>
 
 namespace seastar {
 
