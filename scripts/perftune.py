@@ -1072,6 +1072,7 @@ Default values:
 argp.add_argument('--mode', choices=PerfTunerBase.SupportedModes.names(), help='configuration mode')
 argp.add_argument('--nic', help='network interface name, by default uses \'eth0\'')
 argp.add_argument('--get-cpu-mask', action='store_true', help="print the CPU mask to be used for compute")
+argp.add_argument('--verbose', action='store_true', help="be more verbose about operations and their result")
 argp.add_argument('--tune', choices=TuneModes.names(), help="components to configure (may be given more than once)", action='append', default=[])
 argp.add_argument('--cpu-mask', help="mask of cores to use, by default use all available cores", metavar='MASK')
 argp.add_argument('--dir', help="directory to optimize (may appear more than once)", action='append', dest='dirs', default=[])
