@@ -40,14 +40,15 @@ def run_hwloc_calc(prog_args):
     """
     return run_one_command(['hwloc-calc'] + prog_args).rstrip()
 
-def fwriteln(fname, line, log_message):
+def fwriteln(fname, line, log_message, log_errors=True):
     try:
         with open(fname, 'w') as f:
             f.write(line)
 
         print(log_message)
     except:
-        print("{}: failed to write into {}: {}".format(log_message, fname, sys.exc_info()))
+        if log_errors:
+            print("{}: failed to write into {}: {}".format(log_message, fname, sys.exc_info()))
 
 def readlines(fname):
     try:
@@ -57,13 +58,13 @@ def readlines(fname):
         print("Failed to read {}: {}".format(fname, sys.exc_info()))
         return []
 
-def fwriteln_and_log(fname, line):
+def fwriteln_and_log(fname, line, log_errors=True):
     msg = "Writing '{}' to {}".format(line, fname)
-    fwriteln(fname, line, log_message=msg)
+    fwriteln(fname, line, log_message=msg, log_errors=log_errors)
 
 double_commas_pattern = re.compile(',,')
 
-def set_one_mask(conf_file, mask):
+def set_one_mask(conf_file, mask, log_errors=True):
     if not os.path.exists(conf_file):
         raise Exception("Configure file to set mask doesn't exist: {}".format(conf_file))
     mask = re.sub('0x', '', mask)
@@ -72,15 +73,15 @@ def set_one_mask(conf_file, mask):
         mask = double_commas_pattern.sub(',0,', mask)
 
     msg = "Setting mask {} in {}".format(mask, conf_file)
-    fwriteln(conf_file, mask, log_message=msg)
+    fwriteln(conf_file, mask, log_message=msg, log_errors=log_errors)
 
-def distribute_irqs(irqs, cpu_mask):
+def distribute_irqs(irqs, cpu_mask, log_errors=True):
     # If IRQs' list is empty - do nothing
     if not irqs:
         return
 
     for i, mask in enumerate(run_hwloc_distrib(["{}".format(len(irqs)), '--single', '--restrict', cpu_mask])):
-        set_one_mask("/proc/irq/{}/smp_affinity".format(irqs[i]), mask)
+        set_one_mask("/proc/irq/{}/smp_affinity".format(irqs[i]), mask, log_errors=log_errors)
 
 def is_process_running(name):
     return len(list(filter(lambda ps_line : not re.search('<defunct>', ps_line), run_one_command(['ps', '--no-headers', '-C', name], check=False).splitlines()))) > 0
@@ -754,7 +755,8 @@ class DiskPerfTuner(PerfTunerBase):
         nvme_disks, nvme_irqs = self.__disks_info_by_type(DiskPerfTuner.SupportedDiskTypes.nvme)
         if nvme_disks:
             print("Setting NVMe disks: {}...".format(", ".join(nvme_disks)))
-            distribute_irqs(nvme_irqs, self.args.cpu_mask)
+            distribute_irqs(nvme_irqs, self.args.cpu_mask,
+                            log_errors=(self.is_aws_i3_non_metal_instance or self.args.verbose))
             self.__tune_disks(nvme_disks)
         else:
             print("No NVMe disks to tune")
