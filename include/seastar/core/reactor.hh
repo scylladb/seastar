@@ -1005,3 +1005,8 @@ typename timer<Clock>::time_point timer<Clock>::get_timeout() {
 extern logger seastar_logger;
 
 }
+
+// FIXME: we can't include this on the top because io_queue depends on class smp,
+// which is defined in reactor.hh. In any case io_queue.hh needs to be made private.
+// We include it here because reactor::get_io_queue() exists and returns an io_queue.
+#include <seastar/core/io_queue.hh>

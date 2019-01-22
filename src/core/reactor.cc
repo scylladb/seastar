@@ -114,7 +114,6 @@
 #include <seastar/core/execution_stage.hh>
 #include <seastar/core/exception_hacks.hh>
 #include "stall_detector.hh"
-#include "io_queue.hh"
 
 #include <yaml-cpp/yaml.h>
 
