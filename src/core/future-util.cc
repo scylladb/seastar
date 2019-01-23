@@ -19,6 +19,7 @@
  * Copyright (C) 2017 ScyllaDB
  */
 
+#include <seastar/core/reactor.hh>
 #include <seastar/core/sleep.hh>
 
 namespace seastar {

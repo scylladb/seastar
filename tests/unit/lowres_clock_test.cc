@@ -23,6 +23,7 @@
 
 #include <seastar/core/do_with.hh>
 #include <seastar/core/lowres_clock.hh>
+#include <seastar/core/reactor.hh>
 #include <seastar/core/sleep.hh>
 
 #include <ctime>
