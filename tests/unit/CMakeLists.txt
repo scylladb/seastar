@@ -23,6 +23,12 @@
 # Logical target for all unit tests.
 add_custom_target (unit_tests)
 
+set (Seastar_UNIT_TEST_SMP
+  2
+  CACHE
+  STRING
+  "Run unit tests with this many cores.")
+
 #
 # Define a new unit test with the given name.
 #
@@ -61,9 +67,6 @@ function (seastar_add_test name)
     BOOST
     CUSTOM)
 
-  # Run all Seastar tests on two cores by default.
-  set (num_cores 2)
-
   cmake_parse_arguments (parsed_args
     ""
     "WORKING_DIRECTORY;KIND"
@@ -97,7 +100,7 @@ function (seastar_add_test name)
         list (APPEND args ${jenkins_args})
       endif ()
 
-      list (APPEND args -- -c ${num_cores})
+      list (APPEND args -- -c ${Seastar_UNIT_TEST_SMP})
       list (APPEND args ${parsed_args_RUN_ARGS})
     elseif (parsed_args_KIND STREQUAL "BOOST")
       set (args "")
