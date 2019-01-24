@@ -23,47 +23,99 @@
 # Logical target for all unit tests.
 add_custom_target (unit_tests)
 
-macro (seastar_add_test name)
-  set (args ${ARGN})
+set (Seastar_UNIT_TEST_SMP
+  2
+  CACHE
+  STRING
+  "Run unit tests with this many cores.")
+
+#
+# Define a new unit test with the given name.
+#
+# seastar_add_test (name
+#   [KIND {SEASTAR,BOOST,CUSTOM}]
+#   [SOURCES source1 source2 ... sourcen]
+#   [WORKING_DIRECTORY dir]
+#   [LIBRARIES library1 library2 ... libraryn]
+#   [RUN_ARGS arg1 arg2 ... argn])
+#
+# There are three kinds of test we support (the KIND parameter):
+#
+# - SEASTAR: Unit tests which use macros like `SEASTAR_TEST_CASE`
+# - BOOST: Unit tests which use macros like `BOOST_AUTO_TEST_CASE`
+# - CUSTOM: Custom tests which need to be specified
+#
+# SEASTAR and BOOST tests will have their output saved for interpretation by the Jenkins continuous integration service
+# if this is configured for the build.
+#
+# KIND can be omitted, in which case it is assumed to be SEASTAR.
+#
+# If SOURCES is provided, then the test files are first compiled into an executable which has the same name as the test
+# but with a suffix ("_test").
+#
+# WORKING_DIRECTORY can be optionally provided to choose where the test is executed.
+#
+# If LIBRARIES is provided along with SOURCES, then the executable is additionally linked with these libraries.
+#
+# RUN_ARGS are optional additional arguments to pass to the executable. For SEASTAR tests, these come after `--`. For
+# CUSTOM tests with no SOURCES, this parameter can be used to specify the executable name as well as its arguments since
+# no executable is compiled.
+#
+function (seastar_add_test name)
+  set (test_kinds
+    SEASTAR
+    BOOST
+    CUSTOM)
 
   cmake_parse_arguments (parsed_args
-    "NO_SEASTAR_TESTING_LIBRARY"
-    "WORKING_DIRECTORY"
-    "RUN_ARGS;SOURCES"
-    ${args})
+    ""
+    "WORKING_DIRECTORY;KIND"
+    "RUN_ARGS;SOURCES;LIBRARIES"
+    ${ARGN})
 
-  set (command_args "")
-  set (depends_args "")
+  if (NOT parsed_args_KIND)
+    set (parsed_args_KIND SEASTAR)
+  elseif (NOT (parsed_args_KIND IN_LIST test_kinds))
+    message (FATAL_ERROR "Invalid test kind. KIND must be one of ${test_kinds}")
+  endif ()
 
   if (parsed_args_SOURCES)
-    if (parsed_args_NO_SEASTAR_TESTING_LIBRARY)
-      set (libraries seastar_with_flags)
+    # These may be unused.
+    seastar_jenkins_arguments (${name} jenkins_args)
 
-      if (parsed_args_RUN_ARGS)
-        set (run_args ${parsed_args_RUN_ARGS})
-      else ()
-        set (run_args -c 2)
-      endif ()
-    else ()
-      set (libraries
-        seastar_with_flags
-        seastar_testing)
+    #
+    # Each kind of test must populate the `args` and `libraries` lists.
+    #
+
+    set (libraries "${parsed_args_LIBRARIES}")
+
+    if (parsed_args_KIND STREQUAL "SEASTAR")
+      set (args "")
+
+      list (APPEND libraries
+        seastar_testing
+        seastar_with_flags)
 
       if (NOT (Seastar_JENKINS STREQUAL ""))
-        seastar_jenkins_arguments (${name} jenkins_args)
-      else ()
-        set (jenkins_args "")
+        list (APPEND args ${jenkins_args})
       endif ()
 
-      if (parsed_args_RUN_ARGS)
-        set (test_args ${parsed_args_RUN_ARGS})
-      else ()
-        set (test_args -- -c 2)
+      list (APPEND args -- -c ${Seastar_UNIT_TEST_SMP})
+      list (APPEND args ${parsed_args_RUN_ARGS})
+    elseif (parsed_args_KIND STREQUAL "BOOST")
+      set (args "")
+
+      list (APPEND libraries
+        Boost::unit_test_framework
+        seastar_with_flags)
+
+      if (NOT (Seastar_JENKINS STREQUAL ""))
+        list (APPEND args ${jenkins_args})
       endif ()
 
-      set (run_args
-        ${jenkins_args}
-        ${test_args})
+      list (APPEND args ${parsed_args_RUN_ARGS})
+    else () # CUSTOM
+      set (args ${parsed_args_RUN_ARGS})
     endif ()
 
     set (executable_target test_unit_${name})
@@ -85,18 +137,27 @@ macro (seastar_add_test name)
         OUTPUT_NAME ${name})
 
     add_dependencies (unit_tests ${executable_target})
-    list (APPEND command_args COMMAND ${executable_target} ${run_args})
+    set (forwarded_args COMMAND ${executable_target} ${args})
+  else ()
+    if (NOT (parsed_args_KIND STREQUAL "CUSTOM"))
+      message (FATAL_ERROR "SOURCES are required for ${parsed_args_KIND} tests")
+    endif ()
+
+    set (forwarded_args COMMAND ${parsed_args_RUN_ARGS})
   endif ()
+
+  #
+  # We expect `forwarded_args` to be populated correctly at this point.
+  #
 
   set (target test_unit_${name}_run)
 
   if (parsed_args_WORKING_DIRECTORY)
-    list (APPEND command_args WORKING_DIRECTORY ${parsed_args_WORKING_DIRECTORY})
+    list (APPEND forwarded_args WORKING_DIRECTORY ${parsed_args_WORKING_DIRECTORY})
   endif ()
 
   add_custom_target (${target}
-    ${command_args}
-    ${parsed_args_UNPARSED_ARGUMENTS}
+    ${forwarded_args}
     USES_TERMINAL)
 
   add_test (
@@ -106,7 +167,38 @@ macro (seastar_add_test name)
   set_tests_properties (Seastar.unit.${name}
     PROPERTIES
       TIMEOUT ${Seastar_TEST_TIMEOUT})
-endmacro ()
+endfunction ()
+
+#
+# Define a new custom unit test whose entry point is a Seastar application.
+#
+# seastar_add_app_test (name
+#   [SOURCES source1 source2 ... sourcen]
+#   [LIBRARIES library1 library2 ... libraryn]
+#   [RUN_ARGS arg1 arg2 ... argn])
+#
+# These kinds of tests are structured like Seastar applications.
+#
+# These tests always link against `seastar_with_flags` and are always invoked with
+# `-c ${Seastar_UNIT_TEST_SMP}`.
+#
+function (seastar_add_app_test name)
+  cmake_parse_arguments (parsed_args
+    ""
+    ""
+    "RUN_ARGS;SOURCES;LIBRARIES"
+    ${ARGN})
+
+  seastar_add_test (${name}
+    KIND CUSTOM
+    SOURCES ${parsed_args_SOURCES}
+    LIBRARIES
+      seastar_with_flags
+      ${parsed_args_LIBRARIES}
+    RUN_ARGS
+      -c ${Seastar_UNIT_TEST_SMP}
+      ${parsed_args_RUN_ARGS})
+endfunction ()
 
 function (prepend_each var prefix)
   set (result "")
@@ -139,12 +231,13 @@ else ()
 endif ()
 
 seastar_add_test (allocator
+  KIND CUSTOM
   SOURCES allocator_test.cc
+  LIBRARIES seastar_with_flags
   RUN_ARGS ${allocator_test_args})
 
-seastar_add_test (alien
-  SOURCES alien_test.cc
-  NO_SEASTAR_TESTING_LIBRARY)
+seastar_add_app_test (alien
+  SOURCES alien_test.cc)
 
 seastar_add_test (checked_ptr
   SOURCES checked_ptr_test.cc)
@@ -164,13 +257,11 @@ seastar_add_test (connect
 seastar_add_test (defer
   SOURCES defer_test.cc)
 
-seastar_add_test (directory
-  SOURCES directory_test.cc
-  NO_SEASTAR_TESTING_LIBRARY)
+seastar_add_app_test (directory
+  SOURCES directory_test.cc)
 
-seastar_add_test (distributed
-  SOURCES distributed_test.cc
-  NO_SEASTAR_TESTING_LIBRARY)
+seastar_add_app_test (distributed
+  SOURCES distributed_test.cc)
 
 seastar_add_test (dns
   SOURCES dns_test.cc)
@@ -210,18 +301,22 @@ seastar_add_test (lowres_clock
   SOURCES lowres_clock_test.cc)
 
 seastar_add_test (net_config
+  KIND BOOST
   SOURCES net_config_test.cc)
 
 seastar_add_test (noncopyable_function
+  KIND BOOST
   SOURCES noncopyable_function_test.cc)
 
 seastar_add_test (output_stream
   SOURCES output_stream_test.cc)
 
 seastar_add_test (packet
+  KIND BOOST
   SOURCES packet_test.cc)
 
 seastar_add_test (program_options
+  KIND BOOST
   SOURCES program_options_test.cc)
 
 seastar_add_test (queue
@@ -236,12 +331,14 @@ seastar_add_test (semaphore
   SOURCES semaphore_test.cc)
 
 seastar_add_test (shared_ptr
+  KIND BOOST
   SOURCES shared_ptr_test.cc)
 
 seastar_add_test (signal
   SOURCES signal_test.cc)
 
 seastar_add_test (simple_stream
+  KIND BOOST
   SOURCES simple_stream_test.cc)
 
 # TODO: Disabled for now. See GH-520.
@@ -249,11 +346,11 @@ seastar_add_test (simple_stream
 #   SOURCES slab_test.cc
 #   NO_SEASTAR_TESTING_LIBRARY)
 
-seastar_add_test (smp
-  SOURCES smp_test.cc
-  NO_SEASTAR_TESTING_LIBRARY)
+seastar_add_app_test (smp
+  SOURCES smp_test.cc)
 
 seastar_add_test (sstring
+  KIND BOOST
   SOURCES sstring_test.cc)
 
 seastar_add_test (stall_detector
@@ -262,13 +359,11 @@ seastar_add_test (stall_detector
 seastar_add_test (thread
   SOURCES thread_test.cc)
 
-seastar_add_test (thread_context_switch
-  SOURCES thread_context_switch_test.cc
-  NO_SEASTAR_TESTING_LIBRARY)
+seastar_add_app_test (thread_context_switch
+  SOURCES thread_context_switch_test.cc)
 
-seastar_add_test (timer
-  SOURCES timer_test.cc
-  NO_SEASTAR_TESTING_LIBRARY)
+seastar_add_app_test (timer
+  SOURCES timer_test.cc)
 
 set (tls_certificate_files
   catest.key
@@ -301,10 +396,13 @@ add_custom_command (
 #   WORKING_DIRECTORY ${Seastar_BINARY_DIR})
 
 seastar_add_test (tuple_utils
+  KIND BOOST
   SOURCES tuple_utils_test.cc)
 
 seastar_add_test (unwind
+  KIND BOOST
   SOURCES unwind_test.cc)
 
 seastar_add_test (weak_ptr
+  KIND BOOST
   SOURCES weak_ptr_test.cc)

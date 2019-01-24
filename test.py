@@ -29,6 +29,7 @@ if __name__ == "__main__":
     parser.add_argument('--mode', choices=seastar_cmake.SUPPORTED_MODES, help="Run only tests for given build mode")
     parser.add_argument('--timeout', action="store",default="300",type=int, help="timeout value for test execution")
     parser.add_argument('--jenkins', action="store",help="jenkins output file prefix")
+    parser.add_argument('--smp', '-c', action="store",default='2',type=int,help="Number of threads for multi-core tests")
     parser.add_argument('--verbose', '-v', action = 'store_true', default = False,
                         help = 'Verbose reporting')
     args = parser.parse_args()
@@ -44,6 +45,7 @@ if __name__ == "__main__":
         TRANSLATED_CMAKE_ARGS = [
             tr(args.timeout, 'TEST_TIMEOUT'),
             tr(args.fast, 'EXECUTE_ONLY_FAST_TESTS'),
+            tr(args.smp, 'UNIT_TEST_SMP'),
             tr(args.jenkins, 'JENKINS', value_when_none=''),
         ]
 
