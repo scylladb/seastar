@@ -27,6 +27,7 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/net/packet.hh>
 #include <seastar/testing/test_case.hh>
+#include <seastar/testing/thread_test_case.hh>
 #include <vector>
 
 using namespace seastar;
@@ -128,4 +129,31 @@ SEASTAR_TEST_CASE(test_flush_on_empty_buffer_does_not_push_empty_packet_down_str
         BOOST_REQUIRE(v->empty());
         return out->close();
     }).finally([out]{});
+}
+
+SEASTAR_THREAD_TEST_CASE(test_simple_write) {
+    auto vec = std::vector<net::packet>{};
+    auto out = output_stream<char>(data_sink(std::make_unique<vector_data_sink>(vec)), 8);
+
+    auto value1 = sstring("te");
+    out.write(value1).get();
+
+
+    auto value2 = sstring("st");
+    out.write(value2).get();
+
+    auto value3 = sstring("abcdefgh1234");
+    out.write(value3).get();
+
+    out.close().get();
+
+    auto value = value1 + value2 + value3;
+    auto packets = net::packet{};
+    for (auto& p : vec) {
+        packets.append(std::move(p));
+    }
+    packets.linearize();
+    auto buf = packets.release();
+    BOOST_REQUIRE_EQUAL(buf.size(), 1);
+    BOOST_REQUIRE_EQUAL(sstring(buf.front().get(), buf.front().size()), value);
 }

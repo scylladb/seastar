@@ -289,6 +289,8 @@ private:
     void poll_flush();
     future<> zero_copy_put(net::packet p);
     future<> zero_copy_split_and_put(net::packet p);
+    [[gnu::noinline]]
+    future<> slow_write(const CharType* buf, size_t n);
 public:
     using char_type = CharType;
     output_stream() = default;
