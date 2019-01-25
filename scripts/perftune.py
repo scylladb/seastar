@@ -6,6 +6,8 @@ import enum
 import functools
 import glob
 import itertools
+import logging
+import multiprocessing
 import os
 import pathlib
 import pyudev
@@ -13,6 +15,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.request
 import yaml
 
 def run_one_command(prog_args, my_stderr=None, check=True):
@@ -43,6 +46,14 @@ def fwriteln(fname, line):
             f.write(line)
     except:
         print("Failed to write into {}: {}".format(fname, sys.exc_info()))
+
+def readlines(fname):
+    try:
+        with open(fname, 'r') as f:
+            return f.readlines()
+    except:
+        print("Failed to read {}: {}".format(fname, sys.exc_info()))
+        return []
 
 def fwriteln_and_log(fname, line):
     print("Writing '{}' to {}".format(line, fname))
@@ -680,6 +691,7 @@ class DiskPerfTuner(PerfTunerBase):
 
         self.__pyudev_ctx = pyudev.Context()
         self.__dir2disks = self.__learn_directories()
+        self.__irqs2procline = get_irqs2procline_map()
         self.__disk2irqs = self.__learn_irqs()
         self.__type2diskinfo = self.__group_disks_info_by_type()
 
@@ -737,8 +749,12 @@ class DiskPerfTuner(PerfTunerBase):
 
 #### Private methods ############################
     @property
-    def __io_scheduler(self):
-        return 'noop'
+    def __io_schedulers(self):
+        """
+        :return: An ordered list of IO schedulers that we want to configure. Schedulers are ordered by their priority
+        from the highest (left most) to the lowest.
+        """
+        return ["none", "noop"]
 
     @property
     def __nomerges(self):
@@ -750,6 +766,30 @@ class DiskPerfTuner(PerfTunerBase):
         IRQs numbers in the second list are promised to be unique.
         """
         return self.__type2diskinfo[DiskPerfTuner.SupportedDiskTypes(disks_type)]
+
+    def __nvme_fast_path_irq_filter(self, irq):
+        """
+        Return True for fast path NVMe IRQs.
+        For NVMe device only queues 1-<number of CPUs> are going to do fast path work.
+
+        NVMe IRQs have the following name convention:
+             nvme<device index>q<queue index>, e.g. nvme0q7
+
+        :param irq: IRQ number
+        :return: True if this IRQ is an IRQ of a FP NVMe queue.
+        """
+        nvme_irq_re = re.compile(r'(\s|^)nvme\d+q(\d+)(\s|$)')
+
+        # There may be more than an single HW queue bound to the same IRQ. In this case queue names are going to be
+        # coma separated
+        split_line = self.__irqs2procline[irq].split(",")
+
+        for line in split_line:
+            m = nvme_irq_re.search(line)
+            if m and 0 < int(m.group(2)) <= multiprocessing.cpu_count():
+                return True
+
+        return False
 
     def __group_disks_info_by_type(self):
         """
@@ -780,7 +820,25 @@ class DiskPerfTuner(PerfTunerBase):
         if not (nvme_disks or non_nvme_disks):
             raise Exception("'disks' tuning was requested but no disks were found")
 
-        disks_info_by_type[DiskPerfTuner.SupportedDiskTypes.nvme] = ( list(nvme_disks), list(nvme_irqs) )
+        nvme_irqs = list(nvme_irqs)
+
+        # There is a known issue with Xen hypervisor that exposes itself on AWS i3 instances where nvme module
+        # over-allocates HW queues and uses only queues 1,2,3,..., <up to number of CPUs> for data transfer.
+        # On these instances we will distribute only these queues.
+        try:
+            aws_instance_type = urllib.request.urlopen("http://169.254.169.254/latest/meta-data/instance-type", timeout=0.1).read().decode()
+            if re.match(r'i3\.\w+', aws_instance_type):
+                nvme_irqs = list(filter(self.__nvme_fast_path_irq_filter, nvme_irqs))
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
+            # Non-AWS case
+            pass
+        except:
+            logging.warning("Unexpected exception while attempting to access AWS meta server: {}".format(sys.exc_info()[0]))
+
+        # Sort IRQs for easier verification
+        nvme_irqs.sort(key=lambda irq_num_str: int(irq_num_str))
+
+        disks_info_by_type[DiskPerfTuner.SupportedDiskTypes.nvme] = (list(nvme_disks), nvme_irqs)
         disks_info_by_type[DiskPerfTuner.SupportedDiskTypes.non_nvme] = ( list(non_nvme_disks), list(non_nvme_irqs) )
 
         return disks_info_by_type
@@ -826,7 +884,6 @@ class DiskPerfTuner(PerfTunerBase):
 
     def __learn_irqs(self):
         disk2irqs = {}
-        irqs2procline = get_irqs2procline_map()
 
         for devices in list(self.__dir2disks.values()) + [ self.args.devs ]:
             for device in devices:
@@ -855,9 +912,28 @@ class DiskPerfTuner(PerfTunerBase):
                         break
 
                 controler_path_str = functools.reduce(lambda x, y : os.path.join(x, y), controller_path_parts)
-                disk2irqs[device] = learn_all_irqs_one(controler_path_str, irqs2procline, 'blkif')
+                disk2irqs[device] = learn_all_irqs_one(controler_path_str, self.__irqs2procline, 'blkif')
 
         return disk2irqs
+
+    def __get_feature_file(self, dev_node, path_creator):
+        """
+        Find the closest ancestor with the given feature and return its ('feature file', 'device node') tuple.
+
+        If there isn't such an ancestor - return (None, None) tuple.
+
+        :param dev_node Device node file name, e.g. /dev/sda1
+        :param path_creator A functor that creates a feature file name given a device system file name
+        """
+        udev = pyudev.Device.from_device_file(pyudev.Context(), dev_node)
+        feature_file = path_creator(udev.sys_path)
+
+        if os.path.exists(feature_file):
+            return feature_file, dev_node
+        elif udev.parent is not None:
+            return self.__get_feature_file(udev.parent.device_node, path_creator)
+        else:
+            return None, None
 
     def __tune_one_feature(self, dev_node, path_creator, value, tuned_devs_set):
         """
@@ -865,30 +941,56 @@ class DiskPerfTuner(PerfTunerBase):
         return True.
 
         If there isn't such ancestor - return False.
-        """
-        udev = pyudev.Device.from_device_file(pyudev.Context(), dev_node)
-        feature_file = path_creator(udev.sys_path)
-        if os.path.exists(feature_file):
-            if not dev_node in tuned_devs_set:
-                fwriteln_and_log(feature_file, value)
-                tuned_devs_set.add(dev_node)
 
-            return True
-        elif not udev.parent is None:
-            return self.__tune_one_feature(udev.parent.device_node, path_creator, value, tuned_devs_set)
-        else:
+        :param dev_node Device node file name, e.g. /dev/sda1
+        :param path_creator A functor that creates a feature file name given a device system file name
+        """
+        feature_file, feature_node = self.__get_feature_file(dev_node, path_creator)
+
+        if feature_file is None:
             return False
 
-    def __tune_io_scheduler(self, dev_node):
-        return self.__tune_one_feature(dev_node, lambda p : os.path.join(p, 'queue', 'scheduler'), self.__io_scheduler, self.__io_scheduler_tuned_devs)
+        if feature_node not in tuned_devs_set:
+            fwriteln_and_log(feature_file, value)
+            tuned_devs_set.add(feature_node)
+
+        return True
+
+    def __tune_io_scheduler(self, dev_node, io_scheduler):
+        return self.__tune_one_feature(dev_node, lambda p : os.path.join(p, 'queue', 'scheduler'), io_scheduler, self.__io_scheduler_tuned_devs)
 
     def __tune_nomerges(self, dev_node):
         return self.__tune_one_feature(dev_node, lambda p : os.path.join(p, 'queue', 'nomerges'), self.__nomerges, self.__nomerges_tuned_devs)
 
+    def __get_io_scheduler(self, dev_node):
+        """
+        Return a supported scheduler that is also present in the required schedulers list (__io_schedulers).
+
+        If there isn't such a supported scheduler - return None.
+        """
+        feature_file, feature_node = self.__get_feature_file(dev_node, lambda p : os.path.join(p, 'queue', 'scheduler'))
+
+        lines = readlines(feature_file)
+        if not lines:
+            return None
+
+        # Supported schedulers appear in the config file as a single line as follows:
+        #
+        # sched1 [sched2] sched3
+        #
+        # ...with one or more schedulers where currently selected scheduler is the one in brackets.
+        #
+        # Return the scheduler with the highest priority among those that are supported for the current device.
+        supported_schedulers = frozenset([scheduler.lstrip("[").rstrip("]") for scheduler in lines[0].split(" ")])
+        return next((scheduler for scheduler in self.__io_schedulers if scheduler in supported_schedulers), None)
+
     def __tune_disk(self, device):
         dev_node = "/dev/{}".format(device)
+        io_scheduler = self.__get_io_scheduler(dev_node)
 
-        if not self.__tune_io_scheduler(dev_node):
+        if not io_scheduler:
+            print("Not setting I/O Scheduler for {} - required schedulers ({}) are not supported".format(device, list(self.__io_schedulers)))
+        elif not self.__tune_io_scheduler(dev_node, io_scheduler):
             print("Not setting I/O Scheduler for {} - feature not present".format(device))
 
         if not self.__tune_nomerges(dev_node):
@@ -944,7 +1046,7 @@ Default values:
 argp.add_argument('--mode', choices=PerfTunerBase.SupportedModes.names(), help='configuration mode')
 argp.add_argument('--nic', help='network interface name, by default uses \'eth0\'')
 argp.add_argument('--get-cpu-mask', action='store_true', help="print the CPU mask to be used for compute")
-argp.add_argument('--tune', choices=TuneModes.names(), help="components to configure (may be given more than once)", action='append')
+argp.add_argument('--tune', choices=TuneModes.names(), help="components to configure (may be given more than once)", action='append', default=[])
 argp.add_argument('--cpu-mask', help="mask of cores to use, by default use all available cores", metavar='MASK')
 argp.add_argument('--dir', help="directory to optimize (may appear more than once)", action='append', dest='dirs', default=[])
 argp.add_argument('--dev', help="device to optimize (may appear more than once), e.g. sda1", action='append', dest='devs', default=[])
@@ -967,9 +1069,9 @@ def parse_options_file(prog_args):
     if 'nic' in y and not prog_args.nic:
         prog_args.nic = y['nic']
 
-    if 'tune' in y and not prog_args.tune:
+    if 'tune' in y:
         if set(y['tune']) <= set(TuneModes.names()):
-            prog_args.tune = y['tune']
+            prog_args.tune.extend(y['tune'])
         else:
             raise Exception("Bad 'tune' value in {}: {}".format(prog_args.options_file, y['tune']))
 
@@ -981,11 +1083,11 @@ def parse_options_file(prog_args):
         else:
             raise Exception("Bad 'cpu_mask' value in {}: {}".format(prog_args.options_file, str(y['cpu_mask'])))
 
-    if 'dir' in y and not prog_args.dirs:
-        prog_args.dirs = y['dir']
+    if 'dir' in y:
+        prog_args.dirs.extend(y['dir'])
 
-    if 'dev' in y and not prog_args.devs:
-        prog_args.devs = y['dev']
+    if 'dev' in y:
+        prog_args.devs.extend(y['dev'])
 
 def dump_config(prog_args):
     prog_options = {}

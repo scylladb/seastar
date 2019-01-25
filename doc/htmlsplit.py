@@ -55,7 +55,7 @@ with open("tutorial.html") as f:
     # numbers > 0 while reading a chapter
     chapter = None
     for line in f:
-        if line == '<div id="TOC">\n':
+        if line == '<div id="TOC">\n' or line =='<nav id="TOC">\n':
             header = chunk
             chapter = 0
             chunk = ""

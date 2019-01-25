@@ -20,8 +20,10 @@
 # Copyright (C) 2018 Scylladb, Ltd.
 #
 
-add_seastar_app (iotune iotune.cc)
+seastar_add_app (iotune
+  SOURCES iotune.cc)
 
-target_link_libraries (iotune
+target_link_libraries (app_iotune
   PRIVATE
-    stdc++fs)
+    StdFilesystem::filesystem
+    yaml-cpp::yaml-cpp)

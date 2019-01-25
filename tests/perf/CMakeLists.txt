@@ -1,28 +1,77 @@
-add_library (seastar-perf-testing
-  perf_tests.hh perf_tests.cc)
+#
+# This file is open source software, licensed to you under the terms
+# of the Apache License, Version 2.0 (the "License").  See the NOTICE file
+# distributed with this work for additional information regarding copyright
+# ownership.  You may not use this file except in compliance with the License.
+#
+# You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
 
-target_include_directories (seastar-perf-testing PUBLIC
-  $<TARGET_PROPERTY:seastar,INCLUDE_DIRECTORIES>)
+#
+# Copyright (C) 2018 Scylladb, Ltd.
+#
 
-if (NOT ${SEASTAR_LINK_STATIC_BOOST})
-  target_compile_definitions (seastar-perf-testing PUBLIC
-    BOOST_TEST_DYN_LINK)
-endif ()
+add_library (seastar_perf_testing
+  perf_tests.hh
+  perf_tests.cc)
 
-# ADD_SEASTAR_PERF_TEST NAME $name SOURCES $source_1 $source_2 ... $source_n)
-function (add_seastar_perf_test)
-  set (options "")
-  set (one_value_args NAME)
-  set (multi_value_args SOURCES)
-  cmake_parse_arguments (args "${options}" "${one_value_args}" "${multi_value_args}" "${ARGN}")
+target_link_libraries (seastar_perf_testing
+  PUBLIC
+    fmt::fmt
+    seastar_with_flags)
 
-  add_executable (${args_NAME} "${args_SOURCES}")
+# Logical target for all perf tests.
+add_custom_target (perf_tests)
 
-  target_link_libraries (${args_NAME} PUBLIC
-    -Wl,--whole-archive seastar seastar-perf-testing -Wl,--no-whole-archive
-    # Strip symbols.
-    -s)
-endfunction ()
+macro (seastar_add_test name)
+  set (args ${ARGN})
 
-add_seastar_perf_test (NAME perf_future_util
-  SOURCES perf_future_util.cc)
+  cmake_parse_arguments (
+    parsed_args
+    "NO_SEASTAR_PERF_TESTING_LIBRARY"
+    ""
+    "SOURCES"
+    ${args})
+
+  set (target test_perf_${name})
+  add_executable (${target} ${parsed_args_SOURCES})
+
+  if (parsed_args_NO_SEASTAR_PERF_TESTING_LIBRARY)
+    set (libraries seastar_with_flags)
+  else ()
+    set (libraries
+      seastar_with_flags
+      seastar_perf_testing)
+  endif ()
+
+  target_link_libraries (${target}
+    PRIVATE ${libraries})
+
+  target_include_directories (${target}
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}
+      ${Seastar_SOURCE_DIR}/src)
+
+  set_target_properties (${target}
+    PROPERTIES
+      OUTPUT_NAME ${name})
+
+  add_dependencies (perf_tests ${target})
+  set (${name}_test ${target})
+endmacro ()
+
+seastar_add_test (fstream
+  SOURCES fstream_perf.cc
+  NO_SEASTAR_PERF_TESTING_LIBRARY)
+
+seastar_add_test (future_util
+  SOURCES future_util_perf.cc)

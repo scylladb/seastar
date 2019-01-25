@@ -19,14 +19,14 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#include "http/http_response_parser.hh"
-#include "core/print.hh"
-#include "core/reactor.hh"
-#include "core/app-template.hh"
-#include "core/future-util.hh"
-#include "core/distributed.hh"
-#include "core/semaphore.hh"
-#include "core/future-util.hh"
+#include <seastar/http/response_parser.hh>
+#include <seastar/core/print.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/app-template.hh>
+#include <seastar/core/future-util.hh>
+#include <seastar/core/distributed.hh>
+#include <seastar/core/semaphore.hh>
+#include <seastar/core/future-util.hh>
 #include <chrono>
 
 using namespace seastar;
@@ -92,7 +92,7 @@ public:
                     auto _rsp = _parser.get_parsed_response();
                     auto it = _rsp->_headers.find("Content-Length");
                     if (it == _rsp->_headers.end()) {
-                        print("Error: HTTP response does not contain: Content-Length\n");
+                        fmt::print("Error: HTTP response does not contain: Content-Length\n");
                         return make_ready_future<>();
                     }
                     auto content_len = std::stoi(it->second);
@@ -113,7 +113,7 @@ public:
     };
 
     future<uint64_t> total_reqs() {
-        print("Requests on cpu %2d: %ld\n", engine().cpu_id(), _total_reqs);
+        fmt::print("Requests on cpu {:2d}: {:d}\n", engine().cpu_id(), _total_reqs);
         return make_ready_future<uint64_t>(_total_reqs);
     }
 
@@ -153,7 +153,7 @@ public:
                 try {
                     f.get();
                 } catch (std::exception& ex) {
-                    print("http request error: %s\n", ex.what());
+                    fmt::print("http request error: {}\n", ex.what());
                 }
             });
         }
@@ -184,7 +184,7 @@ int main(int ac, char** av) {
         auto duration = config["duration"].as<unsigned>();
 
         if (total_conn % smp::count != 0) {
-            print("Error: conn needs to be n * cpu_nr\n");
+            fmt::print("Error: conn needs to be n * cpu_nr\n");
             return make_ready_future<int>(-1);
         }
 
@@ -192,10 +192,10 @@ int main(int ac, char** av) {
 
         // Start http requests on all the cores
         auto started = steady_clock_type::now();
-        print("========== http_client ============\n");
-        print("Server: %s\n", server);
-        print("Connections: %u\n", total_conn);
-        print("Requests/connection: %s\n", reqs_per_conn == 0 ? "dynamic (timer based)" : std::to_string(reqs_per_conn));
+        fmt::print("========== http_client ============\n");
+        fmt::print("Server: {}\n", server);
+        fmt::print("Connections: {:d}\n", total_conn);
+        fmt::print("Requests/connection: {}\n", reqs_per_conn == 0 ? "dynamic (timer based)" : std::to_string(reqs_per_conn));
         return http_clients->start(std::move(duration), std::move(total_conn), std::move(reqs_per_conn)).then([http_clients, server] {
             return http_clients->invoke_on_all(&http_client::connect, ipv4_addr{server});
         }).then([http_clients] {
@@ -207,11 +207,11 @@ int main(int ac, char** av) {
            auto finished = steady_clock_type::now();
            auto elapsed = finished - started;
            auto secs = static_cast<double>(elapsed.count() / 1000000000.0);
-           print("Total cpus: %u\n", smp::count);
-           print("Total requests: %u\n", total_reqs);
-           print("Total time: %f\n", secs);
-           print("Requests/sec: %f\n", static_cast<double>(total_reqs) / secs);
-           print("==========     done     ============\n");
+           fmt::print("Total cpus: {:d}\n", smp::count);
+           fmt::print("Total requests: {:d}\n", total_reqs);
+           fmt::print("Total time: {:f}\n", secs);
+           fmt::print("Requests/sec: {:f}\n", static_cast<double>(total_reqs) / secs);
+           fmt::print("==========     done     ============\n");
            return http_clients->stop().then([http_clients] {
                // FIXME: If we call engine().exit(0) here to exit when
                // requests are done. The tcp connection will not be closed

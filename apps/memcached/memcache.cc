@@ -24,23 +24,25 @@
 #include <boost/intrusive_ptr.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/optional.hpp>
+#include <iostream>
 #include <iomanip>
 #include <sstream>
-#include "core/app-template.hh"
-#include "core/future-util.hh"
-#include "core/timer-set.hh"
-#include "core/shared_ptr.hh"
-#include "core/stream.hh"
-#include "core/memory.hh"
-#include "core/units.hh"
-#include "core/distributed.hh"
-#include "core/vector-data-sink.hh"
-#include "core/bitops.hh"
-#include "core/slab.hh"
-#include "core/align.hh"
-#include "net/api.hh"
-#include "net/packet-data-source.hh"
-#include "apps/memcached/ascii.hh"
+#include <seastar/core/app-template.hh>
+#include <seastar/core/future-util.hh>
+#include <seastar/core/timer-set.hh>
+#include <seastar/core/shared_ptr.hh>
+#include <seastar/core/stream.hh>
+#include <seastar/core/memory.hh>
+#include <seastar/core/units.hh>
+#include <seastar/core/distributed.hh>
+#include <seastar/core/vector-data-sink.hh>
+#include <seastar/core/bitops.hh>
+#include <seastar/core/slab.hh>
+#include <seastar/core/align.hh>
+#include <seastar/core/print.hh>
+#include <seastar/net/api.hh>
+#include <seastar/net/packet-data-source.hh>
+#include "ascii.hh"
 #include "memcached.hh"
 #include <unistd.h>
 
@@ -59,6 +61,7 @@ static constexpr double default_slab_growth_factor = 1.25;
 static constexpr uint64_t default_slab_page_size = 1UL*MB;
 static constexpr uint64_t default_per_cpu_slab_size = 0UL; // zero means reclaimer is enabled.
 static __thread slab_allocator<item>* slab;
+static thread_local std::unique_ptr<slab_allocator<item>> slab_holder;
 
 template<typename T>
 using optional = boost::optional<T>;
@@ -178,19 +181,19 @@ public:
         return _version;
     }
 
-    const std::experimental::string_view key() const {
-        return std::experimental::string_view(_data, _key_size);
+    const compat::string_view key() const {
+        return compat::string_view(_data, _key_size);
     }
 
-    const std::experimental::string_view ascii_prefix() const {
+    const compat::string_view ascii_prefix() const {
         const char *p = _data + align_up(_key_size, field_alignment);
-        return std::experimental::string_view(p, _ascii_prefix_size);
+        return compat::string_view(p, _ascii_prefix_size);
     }
 
-    const std::experimental::string_view value() const {
+    const compat::string_view value() const {
         const char *p = _data + align_up(_key_size, field_alignment) +
             align_up(_ascii_prefix_size, field_alignment);
-        return std::experimental::string_view(p, _value_size);
+        return compat::string_view(p, _value_size);
     }
 
     size_t key_size() const {
@@ -370,7 +373,7 @@ private:
     static constexpr size_t initial_bucket_count = 1 << 10;
     static constexpr float load_factor = 0.75f;
     size_t _resize_up_threshold = load_factor * initial_bucket_count;
-    cache_type::bucket_type* _buckets;
+    std::vector<cache_type::bucket_type> _buckets;
     cache_type _cache;
     seastar::timer_set<item, &item::_timer_link> _alive;
     timer<clock_type> _timer;
@@ -490,22 +493,21 @@ private:
     void maybe_rehash() {
         if (_cache.size() >= _resize_up_threshold) {
             auto new_size = _cache.bucket_count() * 2;
-            auto old_buckets = _buckets;
+            std::vector<cache_type::bucket_type> old_buckets;
             try {
-                _buckets = new cache_type::bucket_type[new_size];
+                old_buckets = std::exchange(_buckets, std::vector<cache_type::bucket_type>(new_size));
             } catch (const std::bad_alloc& e) {
                 _stats._resize_failure++;
                 return;
             }
-            _cache.rehash(typename cache_type::bucket_traits(_buckets, new_size));
-            delete[] old_buckets;
+            _cache.rehash(typename cache_type::bucket_traits(_buckets.data(), new_size));
             _resize_up_threshold = _cache.bucket_count() * load_factor;
         }
     }
 public:
     cache(uint64_t per_cpu_slab_size, uint64_t slab_page_size)
-        : _buckets(new cache_type::bucket_type[initial_bucket_count])
-        , _cache(cache_type::bucket_traits(_buckets, initial_bucket_count))
+        : _buckets(initial_bucket_count)
+        , _cache(cache_type::bucket_traits(_buckets.data(), initial_bucket_count))
     {
         using namespace std::chrono;
 
@@ -516,8 +518,9 @@ public:
         _flush_timer.set_callback([this] { flush_all(); });
 
         // initialize per-thread slab allocator.
-        slab = new slab_allocator<item>(default_slab_growth_factor, per_cpu_slab_size, slab_page_size,
+        slab_holder = std::make_unique<slab_allocator<item>>(default_slab_growth_factor, per_cpu_slab_size, slab_page_size,
                 [this](item& item_ref) { erase<true, true, false>(item_ref); _stats._evicted++; });
+        slab = slab_holder.get();
 #ifdef __DEBUG__
         static bool print_slab_classes = true;
         if (print_slab_classes) {
@@ -703,7 +706,7 @@ public:
 
         ss << "size: " << _cache.size() << "\n";
         ss << "buckets: " << _cache.bucket_count() << "\n";
-        ss << "load: " << sprint("%.2lf", (double)_cache.size() / _cache.bucket_count()) << "\n";
+        ss << "load: " << format("{:.2f}", (double)_cache.size() / _cache.bucket_count()) << "\n";
         ss << "max bucket occupancy: " << max_size << "\n";
         ss << "bucket occupancy histogram:\n";
 

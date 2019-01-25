@@ -26,8 +26,8 @@
 
 #include <fmt/format.h>
 
-#include "core/future.hh"
-#include "core/future-util.hh"
+#include <seastar/core/future.hh>
+#include <seastar/core/future-util.hh>
 
 
 using namespace seastar;
@@ -146,14 +146,14 @@ do_if_constexpr_<Condition, TrueFn, FalseFn> if_constexpr_(TrueFn&& true_fn, Fal
 
 template<typename Test>
 class concrete_performance_test final : public performance_test {
-    std::experimental::optional<Test> _test;
+    compat::optional<Test> _test;
 protected:
     virtual void set_up() override {
         _test.emplace();
     }
 
     virtual void tear_down() noexcept override {
-        _test = std::experimental::nullopt;
+        _test = compat::nullopt;
     }
 
     [[gnu::hot]]
@@ -206,7 +206,7 @@ inline void stop_measuring_time()
 
 
 template<typename T>
-void do_not_optimize(T& v)
+void do_not_optimize(const T& v)
 {
     asm volatile("" : : "r,m" (v));
 }

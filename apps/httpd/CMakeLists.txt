@@ -20,5 +20,18 @@
 # Copyright (C) 2018 Scylladb, Ltd.
 #
 
-seastar_swagger_generate (demo.json httpd_swagger_sources)
-add_seastar_app (httpd main.cc "${httpd_swagger_sources}")
+seastar_generate_swagger (
+  TARGET app_httpd_swagger
+  VAR app_httpd_swagger_file
+  IN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/demo.json
+  OUT_FILE ${CMAKE_CURRENT_BINARY_DIR}/demo.json.hh)
+
+seastar_add_app (httpd
+  SOURCES
+    ${app_httpd_swagger_file}
+    main.cc)
+
+target_include_directories (app_httpd
+  PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+
+add_dependencies (app_httpd app_httpd_swagger)

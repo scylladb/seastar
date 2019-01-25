@@ -18,16 +18,17 @@
 /*
  * Copyright (C) 2017 ScyllaDB
  */
-#include "core/app-template.hh"
-#include "core/distributed.hh"
-#include "core/reactor.hh"
-#include "core/future.hh"
-#include "core/shared_ptr.hh"
-#include "core/file.hh"
-#include "core/sleep.hh"
-#include "core/align.hh"
-#include "core/timer.hh"
-#include "core/thread.hh"
+#include <seastar/core/app-template.hh>
+#include <seastar/core/distributed.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/future.hh>
+#include <seastar/core/shared_ptr.hh>
+#include <seastar/core/file.hh>
+#include <seastar/core/sleep.hh>
+#include <seastar/core/align.hh>
+#include <seastar/core/timer.hh>
+#include <seastar/core/thread.hh>
+#include <seastar/core/print.hh>
 #include <chrono>
 #include <vector>
 #include <boost/range/irange.hpp>
@@ -137,7 +138,7 @@ public:
     class_data(job_config cfg)
         : _config(std::move(cfg))
         , _alignment(_config.shard_info.request_size >= 4096 ? 4096 : 512)
-        , _iop(engine().register_one_priority_class(sprint("test-class-%d", idgen()), _config.shard_info.shares))
+        , _iop(engine().register_one_priority_class(format("test-class-{:d}", idgen()), _config.shard_info.shares))
         , _sg(cfg.shard_info.scheduling_group)
         , _latencies(extended_p_square_probabilities = quantiles)
         , _pos_distribution(0,  file_data_size / _config.shard_info.request_size)
@@ -209,7 +210,7 @@ protected:
         if (_config.shard_info.think_time == std::chrono::duration<float>(0)) {
             return "NO think time";
         } else {
-            return sprint("%d us think time", std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.think_time).count());
+            return format("{:d} us think time", std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.think_time).count());
         }
     }
 
@@ -281,7 +282,7 @@ public:
     io_class_data(job_config cfg) : class_data(std::move(cfg)) {}
 
     future<> do_start(sstring dir) override {
-        auto fname = sprint("%s/test-%s-%d", dir, name(), engine().cpu_id());
+        auto fname = format("{}/test-{}-{:d}", dir, name(), engine().cpu_id());
         return open_file_dma(fname, open_flags::rw | open_flags::create | open_flags::truncate).then([this, fname] (auto f) {
             _file = f;
             return remove_file(fname);
@@ -576,7 +577,7 @@ int main(int ac, char** av) {
 
             auto fs = file_system_at(directory).get0();
             if (fs != fs_type::xfs) {
-                throw std::runtime_error(sprint("This is a performance test. %s is not on XFS", directory));
+                throw std::runtime_error(format("This is a performance test. {} is not on XFS", directory));
             }
 
             auto& duration = opts["duration"].as<unsigned>();

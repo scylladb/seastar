@@ -22,4 +22,4 @@ To use your own self-compiled DPDK package, follow this procedure:
    - Install IGB_UIO module (option 12).
    - Bind some physical port to IGB_UIO (option 18).
    - Configure hugepage mappings (option 15/16).
-3. Run a configure.py: `./configure.py --dpdk-target <Path to untared dpdk-2.0.0 above>/x86_64-native-linuxapp-gcc`.
+3. Modify the CMake cache (`CMakeCache.txt`) to inform CMake of the location of the installed DPDK SDK.

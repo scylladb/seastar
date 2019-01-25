@@ -15,10 +15,10 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-#ifndef _MEMCACHED_HH
-#define _MEMCACHED_HH
 
-#include "core/sstring.hh"
+#pragma once
+
+#include <seastar/core/sstring.hh>
 
 namespace memcache {
 
@@ -72,5 +72,3 @@ struct hash<memcache::item_key> {
 };
 
 } /* namespace std */
-
-#endif

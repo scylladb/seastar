@@ -20,5 +20,30 @@
 # Copyright (C) 2018 Scylladb, Ltd.
 #
 
-seastar_ragel_generate (ascii.rl memcached_ragel_sources)
-add_seastar_app (memcached memcache.cc "${memcached_ragel_sources}")
+set (Seastar_APP_MEMCACHED_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set (Seastar_APP_MEMCACHED_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
+
+seastar_generate_ragel (
+  TARGET app_memcached_ascii
+  VAR app_memcached_ascii_file
+  IN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/ascii.rl
+  OUT_FILE ${CMAKE_CURRENT_BINARY_DIR}/ascii.hh)
+
+seastar_add_app (memcached
+  SOURCES
+    ${app_memcached_ascii_file}
+    memcache.cc
+    memcached.hh)
+
+target_include_directories (app_memcached
+  PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+
+add_dependencies (app_memcached app_memcached_ascii)
+
+#
+# Tests.
+#
+
+if (Seastar_TESTING)
+  add_subdirectory (tests)
+endif ()

@@ -23,11 +23,31 @@
 # Logical target for all applications.
 add_custom_target (apps)
 
-function (add_seastar_app name)
-  add_executable (${name} ${ARGN})
-  target_link_libraries (${name} PRIVATE seastar)
-  add_dependencies (apps ${name})
-endfunction ()
+macro (seastar_add_app name)
+  set (args ${ARGN})
+
+  cmake_parse_arguments (
+    parsed_args
+    ""
+    ""
+    "SOURCES"
+    ${args})
+
+  set (target app_${name})
+  add_executable (${target} ${parsed_args_SOURCES})
+
+  target_include_directories (${target}
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+  target_link_libraries (${target}
+    PRIVATE seastar_with_flags)
+
+  set_target_properties (${target}
+    PROPERTIES
+      OUTPUT_NAME ${name})
+
+  add_dependencies (apps ${target})
+endmacro ()
 
 add_subdirectory (httpd)
 add_subdirectory (io_tester)

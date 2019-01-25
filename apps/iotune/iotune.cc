@@ -21,6 +21,7 @@
  * The goal of this program is to allow a user to properly configure the Seastar I/O
  * scheduler.
  */
+#include <iostream>
 #include <chrono>
 #include <random>
 #include <memory>
@@ -28,65 +29,44 @@
 #include <cmath>
 #include <sys/vfs.h>
 #include <sys/sysmacros.h>
-#include <boost/filesystem.hpp>
 #include <boost/range/irange.hpp>
 #include <boost/program_options.hpp>
 #include <boost/iterator/counting_iterator.hpp>
 #include <fstream>
-#include <experimental/filesystem>
 #include <wordexp.h>
 #include <yaml-cpp/yaml.h>
-#include "core/thread.hh"
-#include "core/sstring.hh"
-#include "core/posix.hh"
-#include "core/resource.hh"
-#include "core/aligned_buffer.hh"
-#include "core/sharded.hh"
-#include "core/app-template.hh"
-#include "core/shared_ptr.hh"
-#include "core/fsqual.hh"
-#include "util/defer.hh"
-#include "util/log.hh"
+#include <fmt/printf.h>
+#include <seastar/core/thread.hh>
+#include <seastar/core/sstring.hh>
+#include <seastar/core/posix.hh>
+#include <seastar/core/resource.hh>
+#include <seastar/core/aligned_buffer.hh>
+#include <seastar/core/sharded.hh>
+#include <seastar/core/app-template.hh>
+#include <seastar/core/shared_ptr.hh>
+#include <seastar/core/fsqual.hh>
+#include <seastar/util/defer.hh>
+#include <seastar/util/log.hh>
+#include <seastar/util/std-compat.hh>
+#include <seastar/util/read_first_line.hh>
 
 using namespace seastar;
 using namespace std::chrono_literals;
-namespace fs = std::experimental::filesystem;
+namespace fs = seastar::compat::filesystem;
 
 logger iotune_logger("iotune");
 
 using iotune_clock = std::chrono::steady_clock;
 static thread_local std::default_random_engine random_generator(std::chrono::duration_cast<std::chrono::nanoseconds>(iotune_clock::now().time_since_epoch()).count());
 
-sstring read_sys_file(fs::path sys_file) {
-    auto file = file_desc::open(sys_file.string(), O_RDONLY | O_CLOEXEC);
-    sstring buf;
-    size_t n = 0;
-    do {
-        // try to avoid allocations
-        sstring tmp(sstring::initialized_later{}, 8);
-        auto ret = file.read(tmp.data(), 8ul);
-        if (!ret) { // EAGAIN
-            continue;
-        }
-        n = *ret;
-        if (n > 0) {
-            buf += tmp;
-        }
-    } while (n != 0);
-    auto end = buf.find('\n');
-    auto value = buf.substr(0, end);
-    file.close();
-    return value;
-}
-
 template <typename Type>
 Type read_sys_file_as(fs::path sys_file) {
-    return boost::lexical_cast<Type>(read_sys_file(sys_file));
+    return boost::lexical_cast<Type>(read_first_line(sys_file));
 }
 
 void check_device_properties(fs::path dev_sys_file) {
     auto sched_file = dev_sys_file / "queue" / "scheduler";
-    auto sched_string = read_sys_file(sched_file);
+    auto sched_string = read_first_line(sched_file);
     auto beg = sched_string.find('[');
     size_t len = sched_string.size();
     if (beg == sstring::npos) {
@@ -135,7 +115,7 @@ struct evaluation_directory {
             if (fs::exists(sys_file / "slaves")) {
                 for (auto& dev : fs::directory_iterator(sys_file / "slaves")) {
                     is_leaf = false;
-                    scan_device(read_sys_file(dev / "dev"));
+                    scan_device(read_first_line(dev / "dev"));
                 }
             }
 
@@ -203,8 +183,8 @@ public:
 };
 
 struct io_rates {
-    float bytes_per_sec;
-    float iops;
+    float bytes_per_sec = 0;
+    float iops = 0;
     io_rates operator+(const io_rates& a) const {
         return io_rates{bytes_per_sec + a.bytes_per_sec, iops + a.iops};
     }
@@ -357,6 +337,9 @@ public:
     io_rates get_io_rates() const {
         io_rates rates;
         auto t = _last_time_seen - _start_measuring;
+        if (!t.count()) {
+            throw std::runtime_error("No data collected");
+        }
         rates.bytes_per_sec = _bytes / t.count();
         rates.iops = _requests / t.count();
         return rates;
@@ -479,28 +462,27 @@ public:
         });
     }
 
-    future<io_rates> write_sequential_data(unsigned shard, size_t buffer_size) {
-        return _iotune_test_file.invoke_on(shard, [this, buffer_size] (test_file& tf) {
-            auto duration = std::chrono::duration<double>(30s) / smp::count;
+    future<io_rates> write_sequential_data(unsigned shard, size_t buffer_size, std::chrono::duration<double> duration) {
+        return _iotune_test_file.invoke_on(shard, [this, buffer_size, duration] (test_file& tf) {
             return tf.write_workload(buffer_size, test_file::pattern::sequential, 4 * _test_directory.disks_per_array(), duration);
         });
     }
 
-    future<io_rates> read_sequential_data(unsigned shard, size_t buffer_size) {
-        return _iotune_test_file.invoke_on(shard, [this, buffer_size] (test_file& tf) {
-            return tf.read_workload(buffer_size, test_file::pattern::sequential, 4 * _test_directory.disks_per_array(), 5s);
+    future<io_rates> read_sequential_data(unsigned shard, size_t buffer_size, std::chrono::duration<double> duration) {
+        return _iotune_test_file.invoke_on(shard, [this, buffer_size, duration] (test_file& tf) {
+            return tf.read_workload(buffer_size, test_file::pattern::sequential, 4 * _test_directory.disks_per_array(), duration);
         });
     }
 
-    future<io_rates> write_random_data(size_t buffer_size) {
-        return _iotune_test_file.map_reduce0([buffer_size, this] (test_file& tf) {
-            return tf.write_workload(buffer_size, test_file::pattern::random, per_shard_io_depth(), 5s);
+    future<io_rates> write_random_data(size_t buffer_size, std::chrono::duration<double> duration) {
+        return _iotune_test_file.map_reduce0([buffer_size, this, duration] (test_file& tf) {
+            return tf.write_workload(buffer_size, test_file::pattern::random, per_shard_io_depth(), duration);
         }, io_rates(), std::plus<io_rates>());
     }
 
-    future<io_rates> read_random_data(size_t buffer_size) {
-        return _iotune_test_file.map_reduce0([buffer_size, this] (test_file& tf) {
-            return tf.read_workload(buffer_size, test_file::pattern::random, per_shard_io_depth(), 5s);
+    future<io_rates> read_random_data(size_t buffer_size, std::chrono::duration<double> duration) {
+        return _iotune_test_file.map_reduce0([buffer_size, this, duration] (test_file& tf) {
+            return tf.read_workload(buffer_size, test_file::pattern::random, per_shard_io_depth(), duration);
         }, io_rates(), std::plus<io_rates>());
     }
 
@@ -525,35 +507,55 @@ void string_to_file(sstring conf_file, sstring buf) {
     }
 }
 
-void write_configuration_file(sstring conf_file, std::string format, sstring properties_file, unsigned num_io_queues) {
+void write_configuration_file(sstring conf_file, std::string format, sstring properties_file) {
     sstring buf;
     if (format == "seastar") {
-        buf = fmt::format("num-io-queues={}\nio-properties-file={}\n",
-                num_io_queues, properties_file);
+        buf = fmt::format("io-properties-file={}\n", properties_file);
     } else {
-        buf = fmt::format("SEASTAR_IO=\"--num-io-queues={} --io-properties-file={}\"\n",
-                num_io_queues, properties_file);
+        buf = fmt::format("SEASTAR_IO=\"--io-properties-file={}\"\n", properties_file);
     }
     string_to_file(conf_file, buf);
 }
 
-void write_property_file(sstring conf_file, struct disk_descriptor desc) {
+void write_property_file(sstring conf_file, struct std::vector<disk_descriptor> disk_descriptors) {
     YAML::Emitter out;
     out << YAML::BeginMap;
     out << YAML::Key << "disks";
     out << YAML::BeginSeq;
-    out << YAML::BeginMap;
-    out << YAML::Key << "mountpoint" << YAML::Value << desc.mountpoint;
-    out << YAML::Key << "read_iops" << YAML::Value << desc.read_iops;
-    out << YAML::Key << "read_bandwidth" << YAML::Value << desc.read_bw;
-    out << YAML::Key << "write_iops" << YAML::Value << desc.write_iops;
-    out << YAML::Key << "write_bandwidth" << YAML::Value << desc.write_bw;
-    out << YAML::EndMap;
+    for (auto& desc : disk_descriptors) {
+        out << YAML::BeginMap;
+        out << YAML::Key << "mountpoint" << YAML::Value << desc.mountpoint;
+        out << YAML::Key << "read_iops" << YAML::Value << desc.read_iops;
+        out << YAML::Key << "read_bandwidth" << YAML::Value << desc.read_bw;
+        out << YAML::Key << "write_iops" << YAML::Value << desc.write_iops;
+        out << YAML::Key << "write_bandwidth" << YAML::Value << desc.write_bw;
+        out << YAML::EndMap;
+    }
     out << YAML::EndSeq;
     out << YAML::EndMap;
     out << YAML::Newline;
 
     string_to_file(conf_file, sstring(out.c_str(), out.size()));
+}
+
+// Returns the mountpoint of a path. It works by walking backwards from the canonical path
+// (absolute, with symlinks resolved), until we find a point that crosses a device ID.
+fs::path mountpoint_of(sstring filename) {
+    fs::path mnt_candidate = fs::canonical(fs::path(filename));
+    compat::optional<dev_t> candidate_id = {};
+    auto current = mnt_candidate;
+    do {
+        auto f = open_directory(current.string()).get0();
+        auto st = f.stat().get0();
+        if ((candidate_id) && (*candidate_id != st.st_dev)) {
+            return mnt_candidate;
+        }
+        mnt_candidate = current;
+        candidate_id = st.st_dev;
+        current = current.parent_path();
+    } while (!current.empty());
+
+    return mnt_candidate;
 }
 
 int main(int ac, char** av) {
@@ -566,9 +568,10 @@ int main(int ac, char** av) {
     app_template app(std::move(app_cfg));
     auto opt_add = app.add_options();
     opt_add
-        ("evaluation-directory", bpo::value<sstring>()->required(), "directory where to execute the evaluation")
+        ("evaluation-directory", bpo::value<std::vector<sstring>>()->required(), "directory where to execute the evaluation")
         ("properties-file", bpo::value<sstring>(), "path in which to write the YAML file")
         ("options-file", bpo::value<sstring>(), "path in which to write the legacy conf file")
+        ("duration", bpo::value<unsigned>()->default_value(120), "time, in seconds, for which to run the test")
         ("format", bpo::value<sstring>()->default_value("seastar"), "Configuration file format (seastar | envfile)")
         ("fs-check", bpo::bool_switch(&fs_check), "perform FS check only")
     ;
@@ -576,79 +579,110 @@ int main(int ac, char** av) {
     return app.run(ac, av, [&] {
         return seastar::async([&] {
             auto& configuration = app.configuration();
-            auto eval_dir = configuration["evaluation-directory"].as<sstring>();
+            auto eval_dirs = configuration["evaluation-directory"].as<std::vector<sstring>>();
             auto format = configuration["format"].as<sstring>();
+            auto duration = std::chrono::duration<double>(configuration["duration"].as<unsigned>() * 1s);
 
-            if (filesystem_has_good_aio_support(eval_dir, false) == false) {
-                iotune_logger.error("Exception when qualifying filesystem at {}", eval_dir);
-                return 1;
+            struct std::vector<disk_descriptor> disk_descriptors;
+            std::unordered_map<sstring, sstring> mountpoint_map;
+            // We want to evaluate once per mountpoint, but we still want to write in one of the
+            // directories that we were provided - we may not have permissions to write into the
+            // mountpoint itself. If we are passed more than one directory per mountpoint, we don't
+            // really care to which one we write, so this simple hash will do.
+            for (auto& eval_dir : eval_dirs) {
+                mountpoint_map[mountpoint_of(eval_dir).string()] = eval_dir;
             }
-            iotune_logger.info("{} passed sanity checks", eval_dir);
-            if (fs_check) {
-                return 0;
+            for (auto eval: mountpoint_map) {
+                auto mountpoint = eval.first;
+                auto eval_dir = eval.second;
+
+                if (filesystem_has_good_aio_support(eval_dir, false) == false) {
+                    iotune_logger.error("Exception when qualifying filesystem at {}", eval_dir);
+                    return 1;
+                }
+
+                auto rec = 10000000000ULL;
+                auto avail = fs_avail(eval_dir).get0();
+                if (avail < rec) {
+                    uint64_t val;
+                    const char* units;
+                    if (avail >= 1000000000) {
+                        val = (avail + 500000000) / 1000000000;
+                        units = "GB";
+                    } else if (avail >= 1000000) {
+                        val = (avail + 500000) / 1000000;
+                        units = "MB";
+                    } else {
+                        val = avail;
+                        units = "bytes";
+                    }
+                    iotune_logger.warn("Available space on filesystem at {}: {} {}: is less than recommended: {} GB",
+                                       eval_dir, val, units, rec / 1000000000ULL);
+                }
+
+                iotune_logger.info("{} passed sanity checks", eval_dir);
+                if (fs_check) {
+                    return 0;
+                }
+
+                // Directory is the same object for all tests.
+                ::evaluation_directory test_directory(eval_dir);
+                test_directory.discover_directory().get();
+
+                ::iotune_multi_shard_context iotune_tests(test_directory);
+                iotune_tests.start().get();
+                iotune_tests.create_data_file().get();
+
+                auto stop = defer([&iotune_tests] {
+                    iotune_tests.stop().get();
+                });
+
+                fmt::print("Starting Evaluation. This may take a while...\n");
+                fmt::print("Measuring sequential write bandwidth: ");
+                std::cout.flush();
+                io_rates write_bw;
+                size_t sequential_buffer_size = 1 << 20;
+                for (unsigned shard = 0; shard < smp::count; ++shard) {
+                    write_bw += iotune_tests.write_sequential_data(shard, sequential_buffer_size, duration * 0.70 / smp::count).get0();
+                }
+                write_bw.bytes_per_sec /= smp::count;
+                fmt::print("{} MB/s\n", uint64_t(write_bw.bytes_per_sec / (1024 * 1024)));
+
+                fmt::print("Measuring sequential read bandwidth: ");
+                std::cout.flush();
+                auto read_bw = iotune_tests.read_sequential_data(0, sequential_buffer_size, duration * 0.1).get0();
+                fmt::print("{} MB/s\n", uint64_t(read_bw.bytes_per_sec / (1024 * 1024)));
+
+                fmt::print("Measuring random write IOPS: ");
+                std::cout.flush();
+                auto write_iops = iotune_tests.write_random_data(test_directory.minimum_io_size(), duration * 0.1).get0();
+                fmt::print("{} IOPS\n", uint64_t(write_iops.iops));
+
+                fmt::print("Measuring random read IOPS: ");
+                std::cout.flush();
+                auto read_iops = iotune_tests.read_random_data(test_directory.minimum_io_size(), duration * 0.1).get0();
+                fmt::print("{} IOPS\n", uint64_t(read_iops.iops));
+
+                struct disk_descriptor desc;
+                desc.mountpoint = mountpoint;
+                desc.read_iops = read_iops.iops;
+                desc.read_bw = read_bw.bytes_per_sec;
+                desc.write_iops = write_iops.iops;
+                desc.write_bw = write_bw.bytes_per_sec;
+                disk_descriptors.push_back(std::move(desc));
             }
-
-            // Directory is the same object for all tests.
-            ::evaluation_directory test_directory(eval_dir);
-            test_directory.discover_directory().get();
-
-            ::iotune_multi_shard_context iotune_tests(test_directory);
-            iotune_tests.start().get();
-            iotune_tests.create_data_file().get();
-
-            auto stop = defer([&iotune_tests] {
-                iotune_tests.stop().get();
-            });
-
-            fmt::print("Measuring sequential write bandwidth: ");
-            std::cout.flush();
-            io_rates write_bw;
-            size_t sequential_buffer_size = 1 << 20;
-            for (unsigned shard = 0; shard < smp::count; ++shard) {
-                write_bw += iotune_tests.write_sequential_data(shard, sequential_buffer_size).get0();
-            }
-            write_bw.bytes_per_sec /= smp::count;
-            fmt::print("{} MB/s\n", uint64_t(write_bw.bytes_per_sec / (1024 * 1024)));
-
-            fmt::print("Measuring sequential read bandwidth: ");
-            std::cout.flush();
-            auto read_bw = iotune_tests.read_sequential_data(0, sequential_buffer_size).get0();
-            fmt::print("{} MB/s\n", uint64_t(read_bw.bytes_per_sec / (1024 * 1024)));
-
-            fmt::print("Measuring random write IOPS: ");
-            std::cout.flush();
-            auto write_iops = iotune_tests.write_random_data(test_directory.minimum_io_size()).get0();
-            fmt::print("{} IOPS\n", uint64_t(write_iops.iops));
-
-            fmt::print("Measuring random read IOPS: ");
-            std::cout.flush();
-            auto read_iops = iotune_tests.read_random_data(test_directory.minimum_io_size()).get0();
-            fmt::print("{} IOPS\n", uint64_t(read_iops.iops));
-
-            struct disk_descriptor desc;
-            desc.mountpoint = test_directory.name();
-            desc.read_iops = read_iops.iops;
-            desc.read_bw = read_bw.bytes_per_sec;
-            desc.write_iops = write_iops.iops;
-            desc.write_bw = write_bw.bytes_per_sec;
-
-            // Allow each I/O Queue to have at least 10k IOPS and 100MB. Values decided based
-            // on the write performance, which tends to be lower.
-            unsigned num_io_queues = smp::count;
-            num_io_queues = std::min(smp::count, unsigned(desc.write_iops / 10000));
-            num_io_queues = std::min(smp::count, unsigned(desc.write_bw / (100 * 1024 * 1024)));
-            num_io_queues = std::max(num_io_queues, 1u);
-            fmt::print("Recommended --num-io-queues: {}\n", num_io_queues);
 
             auto file = "properties file";
             try {
                 if (configuration.count("properties-file")) {
-                    write_property_file(configuration["properties-file"].as<sstring>(), desc);
+                    fmt::print("Writing result to {}\n", configuration["properties-file"].as<sstring>());
+                    write_property_file(configuration["properties-file"].as<sstring>(), disk_descriptors);
                 }
 
                 file = "configuration file";
                 if (configuration.count("options-file")) {
-                    write_configuration_file(configuration["options-file"].as<sstring>(), format, configuration["properties-file"].as<sstring>(), num_io_queues);
+                    fmt::print("Writing result to {}\n", configuration["options-file"].as<sstring>());
+                    write_configuration_file(configuration["options-file"].as<sstring>(), format, configuration["properties-file"].as<sstring>());
                 }
             } catch (...) {
                 iotune_logger.error("Exception when writing {}: {}.\nPlease add the above values manually to your seastar command line.", file, std::current_exception());

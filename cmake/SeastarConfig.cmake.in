@@ -1,0 +1,66 @@
+#
+# This file is open source software, licensed to you under the terms
+# of the Apache License, Version 2.0 (the "License").  See the NOTICE file
+# distributed with this work for additional information regarding copyright
+# ownership.  You may not use this file except in compliance with the License.
+#
+# You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+
+#
+# Copyright (C) 2018 Scylladb, Ltd.
+#
+
+# We would like to use `find_dependency`, but it is not supported properly until CMake 3.8.
+#include (FindDependencyMacro)
+
+list (APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR})
+
+#
+# Public dependencies.
+#
+
+find_package (Boost
+  1.64.0
+  REQUIRED
+  COMPONENTS
+    filesystem
+    program_options
+    thread
+    unit_test_framework)
+
+find_package (c-ares 1.13 REQUIRED MODULE)
+find_package (cryptopp 5.6.5 REQUIRED)
+find_package (dpdk)
+find_package (fmt 5.2.1 REQUIRED)
+find_package (lz4 1.8.0 REQUIRED)
+
+#
+# Private and private/public dependencies.
+#
+
+find_package (Concepts)
+find_package (GnuTLS 3.5.18 REQUIRED)
+find_package (LinuxMembarrier)
+find_package (Protobuf 3.3.0 REQUIRED)
+find_package (Sanitizers)
+find_package (StdAtomic REQUIRED)
+find_package (StdFilesystem REQUIRED)
+find_package (hwloc 1.11.5)
+find_package (lksctp-tools)
+find_package (numactl)
+find_package (rt REQUIRED)
+find_package (yaml-cpp 0.5.3 REQUIRED)
+
+if (NOT TARGET Seastar::seastar)
+  include ("${CMAKE_CURRENT_LIST_DIR}/SeastarTargets.cmake")
+endif ()
