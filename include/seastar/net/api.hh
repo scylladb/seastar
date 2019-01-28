@@ -271,6 +271,9 @@ public:
     /// Current and future \ref accept() calls will terminate immediately
     /// with an error.
     void abort_accept();
+
+    /// Local bound address
+    socket_address local_address() const;
 };
 /// @}
 

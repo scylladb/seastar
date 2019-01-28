@@ -233,6 +233,11 @@ posix_server_socket_impl<Transport>::abort_accept() {
 }
 
 template <transport Transport>
+socket_address posix_server_socket_impl<Transport>::local_address() const {
+    return _lfd.get_file_desc().get_address();
+}
+
+template <transport Transport>
 future<connected_socket, socket_address> posix_ap_server_socket_impl<Transport>::accept() {
     auto conni = conn_q.find(_sa);
     if (conni != conn_q.end()) {
@@ -282,6 +287,11 @@ template <transport Transport>
 void
 posix_reuseport_server_socket_impl<Transport>::abort_accept() {
     _lfd.abort_reader();
+}
+
+template <transport Transport>
+socket_address posix_reuseport_server_socket_impl<Transport>::local_address() const {
+    return _lfd.get_file_desc().get_address();
 }
 
 template <transport Transport>

@@ -662,6 +662,9 @@ private:
     semaphore _queue_space = {212992};
     metrics::metric_groups _metrics;
 public:
+    const inet_type& inet() const {
+        return _inet;
+    }
     class connection {
         lw_shared_ptr<tcb> _tcb;
     public:
@@ -733,6 +736,13 @@ public:
         bool full() { return _pending + _q.size() >= _q.max_size(); }
         void inc_pending() { _pending++; }
         void dec_pending() { _pending--; }
+
+        const tcp& get_tcp() const {
+            return _tcp;
+        }
+        uint16_t port() const {
+            return _port;
+        }
         friend class tcp;
     };
 public:

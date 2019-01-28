@@ -24,6 +24,7 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/net/stack.hh>
 #include <iostream>
+#include <seastar/net/inet_address.hh>
 
 namespace seastar {
 
@@ -47,6 +48,7 @@ public:
     native_server_socket_impl(Protocol& proto, uint16_t port, listen_options opt);
     virtual future<connected_socket, socket_address> accept() override;
     virtual void abort_accept() override;
+    virtual socket_address local_address() const override;
 };
 
 template <typename Protocol>
@@ -68,6 +70,11 @@ template <typename Protocol>
 void
 native_server_socket_impl<Protocol>::abort_accept() {
     _listener.abort_accept();
+}
+
+template <typename Protocol>
+socket_address native_server_socket_impl<Protocol>::local_address() const {
+    return socket_address(_listener.get_tcp().inet().inet().host_address(), _listener.port());
 }
 
 // native_connected_socket_impl

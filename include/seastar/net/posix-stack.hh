@@ -137,6 +137,9 @@ public:
     explicit posix_ap_server_socket_impl(socket_address sa) : _sa(sa) {}
     virtual future<connected_socket, socket_address> accept() override;
     virtual void abort_accept() override;
+    socket_address local_address() const override {
+        return _sa;
+    }
     static void move_connected_socket(socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle);
 };
 using posix_tcp_ap_server_socket_impl = posix_ap_server_socket_impl<transport::TCP>;
@@ -152,6 +155,7 @@ public:
     explicit posix_server_socket_impl(socket_address sa, pollable_fd lfd, server_socket::load_balancing_algorithm lba) : _sa(sa), _lfd(std::move(lfd)), _lba(lba) {}
     virtual future<connected_socket, socket_address> accept() override;
     virtual void abort_accept() override;
+    virtual socket_address local_address() const override;
 };
 using posix_server_tcp_socket_impl = posix_server_socket_impl<transport::TCP>;
 using posix_server_sctp_socket_impl = posix_server_socket_impl<transport::SCTP>;
@@ -164,6 +168,7 @@ public:
     explicit posix_reuseport_server_socket_impl(socket_address sa, pollable_fd lfd) : _sa(sa), _lfd(std::move(lfd)) {}
     virtual future<connected_socket, socket_address> accept() override;
     virtual void abort_accept() override;
+    virtual socket_address local_address() const override;
 };
 using posix_reuseport_server_tcp_socket_impl = posix_reuseport_server_socket_impl<transport::TCP>;
 using posix_reuseport_server_sctp_socket_impl = posix_reuseport_server_socket_impl<transport::SCTP>;

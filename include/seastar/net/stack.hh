@@ -55,6 +55,7 @@ public:
     virtual ~server_socket_impl() {}
     virtual future<connected_socket, socket_address> accept() = 0;
     virtual void abort_accept() = 0;
+    virtual socket_address local_address() const = 0;
 };
 
 class udp_channel_impl {

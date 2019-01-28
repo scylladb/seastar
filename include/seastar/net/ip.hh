@@ -195,6 +195,9 @@ public:
     ipv4_l4(ipv4& inet) : _inet(inet) {}
     void register_packet_provider(ipv4_traits::packet_provider_type func);
     future<ethernet_address> get_l2_dst_address(ipv4_address to);
+    const ipv4& inet() const {
+        return _inet;
+    }
 };
 
 class ip_protocol {

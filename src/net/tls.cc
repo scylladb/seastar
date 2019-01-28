@@ -1132,6 +1132,9 @@ public:
     void abort_accept() override  {
         _sock.abort_accept();
     }
+    socket_address local_address() const override {
+        return _sock.local_address();
+    }
 private:
     shared_ptr<server_credentials> _creds;
     server_socket _sock;

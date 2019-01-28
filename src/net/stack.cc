@@ -164,6 +164,10 @@ void server_socket::abort_accept() {
     _aborted = true;
 }
 
+socket_address server_socket::local_address() const {
+    return _ssi->local_address();
+}
+
 socket_address::socket_address()
     : socket_address(ipv4_addr())
 {}
