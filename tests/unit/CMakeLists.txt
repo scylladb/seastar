@@ -294,6 +294,9 @@ seastar_add_test (httpd
     httpd_test.cc
     loopback_socket.hh)
 
+seastar_add_test (ipv6
+  SOURCES ipv6_test.cc)
+
 seastar_add_test (json_formatter
   SOURCES json_formatter_test.cc)
 
