@@ -67,6 +67,9 @@ public:
     ::in_port_t port() const;
 
     bool operator==(const socket_address&) const;
+    bool operator!=(const socket_address& a) const {
+        return !(*this == a);
+    }
 };
 
 std::ostream& operator<<(std::ostream&, const socket_address&);
