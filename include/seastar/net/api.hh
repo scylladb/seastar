@@ -111,6 +111,8 @@ public:
     udp_channel(udp_channel&&);
     udp_channel& operator=(udp_channel&&);
 
+    socket_address local_address() const;
+
     future<udp_datagram> receive();
     future<> send(const socket_address& dst, const char* msg);
     future<> send(const socket_address& dst, packet p);

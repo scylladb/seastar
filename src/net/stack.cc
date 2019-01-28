@@ -37,6 +37,10 @@ net::udp_channel::~udp_channel()
 net::udp_channel::udp_channel(udp_channel&&) = default;
 net::udp_channel& net::udp_channel::operator=(udp_channel&&) = default;
 
+socket_address net::udp_channel::local_address() const {
+    return _impl->local_address();
+}
+
 future<net::udp_datagram> net::udp_channel::receive() {
     return _impl->receive();
 }

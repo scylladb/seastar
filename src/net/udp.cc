@@ -21,6 +21,7 @@
 
 #include <seastar/net/ip.hh>
 #include <seastar/net/stack.hh>
+#include <seastar/net/inet_address.hh>
 
 namespace seastar {
 
@@ -87,6 +88,10 @@ public:
     {
         if (!_closed)
             close();
+    }
+
+    socket_address local_address() const override {
+        return socket_address(_proto.inet().host_address(), _reg.port());
     }
 
     virtual future<udp_datagram> receive() override {

@@ -330,6 +330,10 @@ public:
     void send(uint16_t src_port, ipv4_addr dst, packet &&p);
     bool forward(forward_hash& out_hash_data, packet& p, size_t off) override;
     void set_queue_size(int size) { _queue_size = size; }
+
+    const ipv4& inet() const {
+        return _inet;
+    }
 };
 
 struct ip_hdr;

@@ -478,6 +478,9 @@ public:
         _fd.reset();
     }
     virtual bool is_closed() const override { return _closed; }
+    socket_address local_address() const override {
+        return _address;
+    }
 };
 
 future<> posix_udp_channel::send(const socket_address& dst, const char *message) {
