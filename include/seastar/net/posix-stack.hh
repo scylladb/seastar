@@ -180,6 +180,7 @@ public:
         return make_ready_future<std::unique_ptr<network_stack>>(std::unique_ptr<network_stack>(new posix_network_stack(opts)));
     }
     virtual bool has_per_core_namespace() override { return _reuseport; };
+    bool supports_ipv6() const override;
 };
 
 class posix_ap_network_stack : public posix_network_stack {

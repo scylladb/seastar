@@ -498,6 +498,20 @@ posix_network_stack::make_udp_channel(const socket_address& addr) {
     return udp_channel(std::make_unique<posix_udp_channel>(addr));
 }
 
+bool
+posix_network_stack::supports_ipv6() const {
+    static bool has_ipv6 = [] {
+        try {
+            posix_udp_channel c(ipv6_addr{});
+            c.close();
+            return true;
+        } catch (...) {}
+        return false;
+    }();
+
+    return has_ipv6;
+}
+
 class posix_datagram : public udp_datagram_impl {
 private:
     socket_address _src;
