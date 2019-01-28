@@ -325,7 +325,7 @@ void ipv4::set_host_address(ipv4_address ip) {
     _arp.set_self_addr(ip);
 }
 
-ipv4_address ipv4::host_address() {
+ipv4_address ipv4::host_address() const {
     return _host_address;
 }
 

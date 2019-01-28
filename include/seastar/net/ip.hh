@@ -436,7 +436,7 @@ private:
 public:
     explicit ipv4(interface* netif);
     void set_host_address(ipv4_address ip);
-    ipv4_address host_address();
+    ipv4_address host_address() const;
     void set_gw_address(ipv4_address ip);
     ipv4_address gw_address() const;
     void set_netmask_address(ipv4_address ip);
