@@ -56,6 +56,7 @@ private:
 public:
 
     inet_address();
+    inet_address(family);
     inet_address(::in_addr i);
     inet_address(::in6_addr i);
     // NOTE: does _not_ resolve the address. Only parses

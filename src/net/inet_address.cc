@@ -32,6 +32,12 @@ seastar::net::inet_address::inet_address()
                 : inet_address(::in6_addr{ 0, })
 {}
 
+seastar::net::inet_address::inet_address(family f)
+                : _in_family(f)
+{
+    memset(&_in6, 0, sizeof(_in6));
+}
+
 seastar::net::inet_address::inet_address(::in_addr i)
                 : _in_family(family::INET), _in(i) {
 }
