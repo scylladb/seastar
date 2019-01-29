@@ -133,7 +133,7 @@ struct mountpoint_params {
 };
 
 }
-    
+
 namespace YAML {
 template<>
 struct convert<seastar::mountpoint_params> {
@@ -1149,7 +1149,11 @@ reactor::task_queue::task_queue(unsigned id, sstring name, float shares)
     });
 }
 
+#ifdef __clang__
 __attribute__((no_sanitize("undefined"))) // multiplication below may overflow; we check for that
+#elif defined(__GNUC__)
+[[gnu::no_sanitize_undefined]]
+#endif
 inline
 int64_t
 reactor::task_queue::to_vruntime(sched_clock::duration runtime) const {
@@ -1494,7 +1498,7 @@ reactor::task_quota_timer_thread_fn() {
     pthread_setname_np(pthread_self(), thread_name.c_str());
 
     sigset_t mask;
-    sigfillset(&mask);            
+    sigfillset(&mask);
     for (auto sig : { SIGSEGV }) {
         sigdelset(&mask, sig);
     }
@@ -1523,7 +1527,7 @@ reactor::task_quota_timer_thread_fn() {
         std::atomic_signal_fence(std::memory_order_seq_cst);
     }
 }
-void 
+void
 reactor::update_blocked_reactor_notify_ms(std::chrono::milliseconds ms) {
     auto cfg = _cpu_stall_detector->get_config();
     if (ms != cfg.threshold) {
