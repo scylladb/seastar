@@ -29,6 +29,7 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/print.hh>
 #include <boost/iterator/counting_iterator.hpp>
+#include <seastar/testing/thread_test_case.hh>
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -953,4 +954,37 @@ SEASTAR_TEST_CASE(test_futurize_mutable) {
         }
         return seastar::stop_iteration::no;
     });
+}
+
+SEASTAR_THREAD_TEST_CASE(test_broken_promises) {
+    compat::optional<future<>> f;
+    compat::optional<future<>> f2;
+    { // Broken after attaching a continuation
+        auto p = promise<>();
+        f = p.get_future();
+        f2 = f->then_wrapped([&] (future<> f3) {
+            BOOST_CHECK(f3.failed());
+            BOOST_CHECK_THROW(f3.get(), broken_promise);
+            f = { };
+        });
+    }
+    f2->get();
+    BOOST_CHECK(!f);
+
+    { // Broken before attaching a continuation
+        auto p = promise<>();
+        f = p.get_future();
+    }
+    f->then_wrapped([&] (future<> f3) {
+        BOOST_CHECK(f3.failed());
+        BOOST_CHECK_THROW(f3.get(), broken_promise);
+        f = { };
+    }).get();
+    BOOST_CHECK(!f);
+
+    { // Broken before suspending a thread
+        auto p = promise<>();
+        f = p.get_future();
+    }
+    BOOST_CHECK_THROW(f->get(), broken_promise);
 }

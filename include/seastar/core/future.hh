@@ -103,6 +103,16 @@ void engine_exit(std::exception_ptr eptr = {});
 void report_failed_future(std::exception_ptr ex);
 /// \endcond
 
+/// \brief Exception type for broken promises
+///
+/// When a promise is broken, i.e. a promise object with an attached
+/// continuation is destroyed before setting any value or exception, an
+/// exception of `broken_promise` type is propagated to that abandoned
+/// continuation.
+struct broken_promise : std::logic_error {
+    broken_promise() : logic_error("broken promise") { }
+};
+
 //
 // A future/promise pair maintain one logical value (a future_state).
 // To minimize allocations, the value is stored in exactly one of three
@@ -759,7 +769,10 @@ private:
     }
     template <typename Func>
     void schedule(Func&& func) {
-        if (state()->available()) {
+        if (state()->available() || !_promise) {
+            if (__builtin_expect(!state()->available() && !_promise, false)) {
+                abandoned();
+            }
             ::seastar::schedule(std::make_unique<continuation<Func, T...>>(std::move(func), std::move(*state())));
         } else {
             assert(_promise);
@@ -798,6 +811,18 @@ private:
                 std::throw_with_nested(f_ex);
             }
             __builtin_unreachable();
+        }
+    }
+
+    // Used when there is to attempt to attach a continuation or a thread to a future
+    // that was abandoned by its promise.
+    [[gnu::cold]] [[gnu::noinline]]
+    void abandoned() noexcept {
+        try {
+            // Constructing broken_promise may throw (std::logic_error ctor is not noexcept).
+            _local_state.set_exception(std::make_exception_ptr(broken_promise{}));
+        } catch (...) {
+            _local_state.set_exception(std::current_exception());
         }
     }
 
@@ -899,6 +924,10 @@ private:
         }
     };
     void do_wait() noexcept {
+        if (__builtin_expect(!_promise, false)) {
+            abandoned();
+            return;
+        }
         auto thread = thread_impl::get();
         assert(thread);
         thread_wake_task wake_task{thread, this};
@@ -1268,6 +1297,18 @@ void promise<T...>::abandoned() noexcept {
         _future->_promise = nullptr;
     } else if (_state && _state->failed()) {
         report_failed_future(_state->get_exception());
+    } else if (__builtin_expect(bool(_task), false)) {
+        assert(_state && !_state->available());
+        // Encourage the compiler to move this away from the hot paths. __builtin_expect is not enough
+        // to do that. Cold lambdas work (at least for GCC8+).
+        [&] () __attribute__((cold)) {
+            try {
+                // Constructing broken_promise may throw (std::logic_error ctor is not noexcept).
+                set_exception(broken_promise{});
+            } catch (...) {
+                set_exception(std::current_exception());
+            }
+        }();
     }
 }
 
