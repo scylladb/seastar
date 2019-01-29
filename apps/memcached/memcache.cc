@@ -269,7 +269,7 @@ public:
         assert(it->_ref_count >= 0);
     }
 
-    friend class item_key_cmp;
+    friend struct item_key_cmp;
 };
 
 struct item_key_cmp

@@ -57,7 +57,7 @@ static std::default_random_engine random_generator(random_seed);
 // that will push the data out of the disk's cache. And static sizes per file are simpler.
 static constexpr uint64_t file_data_size = 1ull << 30;
 
-struct context;
+class context;
 enum class request_type { seqread, seqwrite, randread, randwrite, append, cpu };
 
 namespace std {
@@ -144,13 +144,15 @@ public:
         , _pos_distribution(0,  file_data_size / _config.shard_info.request_size)
     {}
 
+    virtual ~class_data() = default;
+
     future<> issue_requests(std::chrono::steady_clock::time_point stop) {
         _start = std::chrono::steady_clock::now();
         return with_scheduling_group(_sg, [this, stop] {
             return parallel_for_each(boost::irange(0u, parallelism()), [this, stop] (auto dummy) mutable {
                 auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
                 auto buf = bufptr.get();
-                return do_until([this, stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf, stop] () mutable {
+                return do_until([stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf, stop] () mutable {
                     auto start = std::chrono::steady_clock::now();
                     return issue_request(buf).then([this, start, stop] (auto size) {
                         auto now = std::chrono::steady_clock::now();
@@ -297,7 +299,7 @@ public:
                         std::uniform_int_distribution<char> fill('@', '~');
                         memset(buf, fill(random_generator), bufsize);
                         pos = pos * bufsize;
-                        return _file.dma_write(pos, buf, bufsize).finally([this, bufsize, bufptr = std::move(bufptr), perm = std::move(perm), pos] {
+                        return _file.dma_write(pos, buf, bufsize).finally([this, bufptr = std::move(bufptr), perm = std::move(perm), pos] {
                             if ((this->req_type() == request_type::append) && (pos > _last_pos)) {
                                 _last_pos = pos;
                             }

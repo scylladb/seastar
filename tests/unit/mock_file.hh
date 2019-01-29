@@ -84,7 +84,7 @@ public:
     virtual future<struct stat> stat() override {
         throw std::bad_function_call();
     }
-    virtual future<> truncate(uint64_t) {
+    virtual future<> truncate(uint64_t) override {
         throw std::bad_function_call();
     }
     virtual future<> discard(uint64_t offset, uint64_t length) override {

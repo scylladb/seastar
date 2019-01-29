@@ -165,7 +165,7 @@ reactor::update_shares_for_class(io_priority_class pc, uint32_t shares) {
 
 future<pollable_fd, socket_address>
 reactor::accept(pollable_fd_state& listenfd) {
-    return readable_or_writeable(listenfd).then([this, &listenfd] () mutable {
+    return readable_or_writeable(listenfd).then([&listenfd] () mutable {
         socket_address sa;
         socklen_t sl = sizeof(&sa.u.sas);
         file_desc fd = listenfd.fd.accept(sa.u.sa, sl, SOCK_NONBLOCK | SOCK_CLOEXEC);
@@ -1149,7 +1149,7 @@ reactor::task_queue::task_queue(unsigned id, sstring name, float shares)
     });
 }
 
-[[gnu::no_sanitize_undefined]]  // multiplication below may overflow; we check for that
+__attribute__((no_sanitize("undefined"))) // multiplication below may overflow; we check for that
 inline
 int64_t
 reactor::task_queue::to_vruntime(sched_clock::duration runtime) const {
@@ -5186,7 +5186,7 @@ void smp::configure(boost::program_options::variables_map configuration)
         }
     };
 
-    auto assign_io_queue = [&ioq_topology, &all_io_queues, &disk_config] (shard_id shard_id, dev_t dev_id) {
+    auto assign_io_queue = [&ioq_topology, &all_io_queues] (shard_id shard_id, dev_t dev_id) {
         auto io_info = ioq_topology.at(dev_id);
         auto cid = io_info.shard_to_coordinator[shard_id];
         auto queue_idx = io_info.coordinator_to_idx[cid];

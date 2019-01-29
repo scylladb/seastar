@@ -37,25 +37,6 @@
 using namespace seastar;
 using namespace std::chrono_literals;
 
-class test_request {
-    fair_queue* _fq;
-    promise<> _pr;
-    future<> _res;
-public:
-    test_request(fair_queue& fq) : _fq(&fq), _res(make_exception_future<>(std::runtime_error("impossible"))) {}
-    ~test_request() {
-    }
-
-    test_request(const test_request&) = delete;
-    test_request(test_request&&) = default;
-    future<> get_future() {
-        return _pr.get_future();
-    }
-    void add_result(future<> f) {
-        _res = std::move(f);
-    }
-};
-
 fair_queue::config make_config(unsigned capacity) {
     fair_queue::config cfg;
     cfg.capacity = capacity;

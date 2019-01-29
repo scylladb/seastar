@@ -34,7 +34,7 @@ namespace seastar {
 
 namespace json {
 
-struct jsonable;
+class jsonable;
 
 typedef struct tm date_time;
 

@@ -33,19 +33,6 @@
 
 using namespace seastar;
 
-template <size_t N>
-void test_aligned_allocator() {
-#ifdef __cpp_aligned_new
-    using aptr = std::unique_ptr<char[]>;
-    std::vector<aptr> v;
-    for (unsigned i = 0; i < 1000; ++i) {
-        aptr p(new (std::align_val_t(64)) char[N]);
-        assert(reinterpret_cast<uintptr_t>(p.get()) % 64 == 0);
-        v.push_back(std::move(p));
-    }
-#endif
-}
-
 struct allocation {
     size_t n;
     std::unique_ptr<char[]> data;
@@ -177,9 +164,6 @@ int main(int ac, char** av) {
     bpo::variables_map vm;
     bpo::store(bpo::parse_command_line(ac, av, opts), vm);
     bpo::notify(vm);
-    test_aligned_allocator<1>();
-    test_aligned_allocator<4>();
-    test_aligned_allocator<80>();
     test_cpp17_aligned_allocator();
     std::default_random_engine random_engine;
     std::exponential_distribution<> distr(0.2);
@@ -231,5 +215,3 @@ int main(int ac, char** av) {
     }
     return 0;
 }
-
-

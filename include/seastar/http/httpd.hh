@@ -49,7 +49,7 @@ namespace httpd {
 
 class http_server;
 class http_stats;
-class reply;
+struct reply;
 
 using namespace std::chrono_literals;
 

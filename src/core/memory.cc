@@ -1239,7 +1239,7 @@ static inline cpu_pages& get_cpu_mem()
     if (__builtin_expect(!bool(cpu_mem_ptr), false)) {
         // Mark as cold so that GCC8+ can move this part of the function
         // to .text.unlikely.
-        [&] () [[gnu::cold]] {
+        [&] () __attribute__((cold)) {
             cpu_mem_ptr = &cpu_mem;
         }();
     }
@@ -1496,7 +1496,7 @@ using namespace seastar::memory;
 
 extern "C"
 [[gnu::visibility("default")]]
-[[gnu::externally_visible]]
+[[gnu::used]]
 void* malloc(size_t n) throw () {
     if (try_trigger_error_injector()) {
         return nullptr;
@@ -1511,7 +1511,7 @@ void* __libc_malloc(size_t n) throw ();
 
 extern "C"
 [[gnu::visibility("default")]]
-[[gnu::externally_visible]]
+[[gnu::used]]
 void free(void* ptr) {
     if (ptr) {
         seastar::memory::free(ptr);
@@ -1580,7 +1580,7 @@ void* __libc_realloc(void* obj, size_t size) throw ();
 
 extern "C"
 [[gnu::visibility("default")]]
-[[gnu::externally_visible]]
+[[gnu::used]]
 int posix_memalign(void** ptr, size_t align, size_t size) {
     if (try_trigger_error_injector()) {
         return ENOMEM;
@@ -1899,4 +1899,3 @@ namespace seastar {
 /// \endcond
 
 }
-

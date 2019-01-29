@@ -168,7 +168,7 @@ SEASTAR_TEST_CASE(test_failing_intermediate_promise_should_fail_the_master_futur
     promise<> p1;
     promise<> p2;
 
-    auto f = p1.get_future().then([f = std::move(p2.get_future())] () mutable {
+    auto f = p1.get_future().then([f = p2.get_future()] () mutable {
         return std::move(f);
     }).then([] {
         BOOST_REQUIRE(false);
@@ -434,12 +434,12 @@ SEASTAR_TEST_CASE(test_parallel_for_each) {
         BOOST_REQUIRE_EQUAL(sum, 15);
 
         // throws immediately
-        BOOST_CHECK_EXCEPTION(parallel_for_each(range, [&sum] (int) -> future<> {
+        BOOST_CHECK_EXCEPTION(parallel_for_each(range, [] (int) -> future<> {
             throw 5;
         }).get(), int, [] (int v) { return v == 5; });
 
         // throws after suspension
-        BOOST_CHECK_EXCEPTION(parallel_for_each(range, [&sum] (int) {
+        BOOST_CHECK_EXCEPTION(parallel_for_each(range, [] (int) {
             return later().then([] {
                 throw 5;
             });

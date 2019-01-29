@@ -50,7 +50,7 @@ using namespace std::chrono_literals;
 
 namespace net {
 
-class tcp_hdr;
+struct tcp_hdr;
 
 inline auto tcp_error(int err) {
     return std::system_error(err, std::system_category());

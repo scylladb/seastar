@@ -66,9 +66,9 @@ namespace rpc {
           buf = _compressor->compress(4, std::move(buf));
           static_assert(snd_buf::chunk_size >= 4, "send buffer chunk size is too small");
           write_le<uint32_t>(buf.front().get_write(), buf.size - 4);
-          return std::move(buf);
+          return buf;
       }
-      return std::move(buf);
+      return buf;
   }
 
   future<> connection::send_buffer(snd_buf buf) {
@@ -448,7 +448,7 @@ namespace rpc {
       }
 
       return _stream_queue.not_empty().then([this, &bufs] {
-          bool eof = !_stream_queue.consume([this, &bufs] (rcv_buf&& b) {
+          bool eof = !_stream_queue.consume([&bufs] (rcv_buf&& b) {
               if (b.size == -1U) { // max fragment length marks an end of a stream
                   return false;
               } else {

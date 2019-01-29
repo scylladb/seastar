@@ -106,7 +106,7 @@ void log_exception_trace() noexcept {}
 #ifndef SEASTAR_NO_EXCEPTION_HACK
 extern "C"
 [[gnu::visibility("default")]]
-[[gnu::externally_visible]]
+[[gnu::used]]
 int dl_iterate_phdr(int (*callback) (struct dl_phdr_info *info, size_t size, void *data), void *data) {
     if (!seastar::local_engine || !seastar::phdrs_cache.size()) {
         // Cache is not yet populated, pass through to original function
@@ -130,7 +130,7 @@ int dl_iterate_phdr(int (*callback) (struct dl_phdr_info *info, size_t size, voi
 #ifndef NO_EXCEPTION_INTERCEPT
 extern "C"
 [[gnu::visibility("default")]]
-[[gnu::externally_visible]]
+[[gnu::used]]
 int _Unwind_RaiseException(struct _Unwind_Exception *h) {
     using throw_fn =  int (*)(void *);
     static throw_fn org = nullptr;

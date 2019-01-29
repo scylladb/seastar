@@ -286,7 +286,6 @@ class io_worker {
     uint64_t _bytes = 0;
     unsigned _requests = 0;
     size_t _buffer_size;
-    std::chrono::duration<double> _duration;
     std::chrono::time_point<iotune_clock, std::chrono::duration<double>> _start_measuring;
     std::chrono::time_point<iotune_clock, std::chrono::duration<double>> _end_measuring;
     std::chrono::time_point<iotune_clock, std::chrono::duration<double>> _end_load;
@@ -306,7 +305,6 @@ public:
 
     io_worker(size_t buffer_size, std::chrono::duration<double> duration, std::unique_ptr<request_issuer> reqs, std::unique_ptr<position_generator> pos)
         : _buffer_size(buffer_size)
-        , _duration(duration)
         , _start_measuring(iotune_clock::now() + std::chrono::duration<double>(10ms))
         , _end_measuring(_start_measuring + duration)
         , _end_load(_end_measuring + 10ms)
@@ -391,12 +389,12 @@ public:
 
         auto worker = worker_ptr.get();
         auto concurrency = boost::irange<unsigned, unsigned>(0, max_os_concurrency, 1);
-        return parallel_for_each(std::move(concurrency), [this, worker] (unsigned idx) {
+        return parallel_for_each(std::move(concurrency), [worker] (unsigned idx) {
             auto bufptr = worker->get_buffer();
             auto buf = bufptr.get();
-            return do_until([worker] { return worker->should_stop(); }, [this, buf, worker, idx] {
+            return do_until([worker] { return worker->should_stop(); }, [buf, worker] {
                 return worker->issue_request(buf);
-            }).finally([this, alive = std::move(bufptr)] {});
+            }).finally([alive = std::move(bufptr)] {});
         }).then_wrapped([this, worker = std::move(worker_ptr), update_file_size] (future<> f) {
             try {
                 f.get();
@@ -457,7 +455,7 @@ public:
     }
 
     future<> create_data_file() {
-        return _iotune_test_file.invoke_on_all([this] (test_file& tf) {
+        return _iotune_test_file.invoke_on_all([] (test_file& tf) {
             return tf.create_data_file();
         });
     }
@@ -517,7 +515,7 @@ void write_configuration_file(sstring conf_file, std::string format, sstring pro
     string_to_file(conf_file, buf);
 }
 
-void write_property_file(sstring conf_file, struct std::vector<disk_descriptor> disk_descriptors) {
+void write_property_file(sstring conf_file, std::vector<disk_descriptor> disk_descriptors) {
     YAML::Emitter out;
     out << YAML::BeginMap;
     out << YAML::Key << "disks";
@@ -583,7 +581,7 @@ int main(int ac, char** av) {
             auto format = configuration["format"].as<sstring>();
             auto duration = std::chrono::duration<double>(configuration["duration"].as<unsigned>() * 1s);
 
-            struct std::vector<disk_descriptor> disk_descriptors;
+            std::vector<disk_descriptor> disk_descriptors;
             std::unordered_map<sstring, sstring> mountpoint_map;
             // We want to evaluate once per mountpoint, but we still want to write in one of the
             // directories that we were provided - we may not have permissions to write into the
