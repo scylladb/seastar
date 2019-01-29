@@ -618,7 +618,7 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
     auto buf = temporary_buffer<char>(16 * 1024);
     std::fill_n(buf.get_write(), 16 * 1024, 'a');
 
-    snd = snd_buf(16 * 1024);
+    snd = snd_buf();
     snd.size = 16 * 1024;
     snd.bufs = buf.clone();
     inputs.emplace_back("single 16 kB buffer of \'a\'", 0, std::move(snd));
@@ -626,7 +626,7 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
     buf = temporary_buffer<char>(16 * 1024);
     std::generate_n(buf.get_write(), 16 * 1024, [&] { return dist(eng); });
 
-    snd = snd_buf(16 * 1024);
+    snd = snd_buf();
     snd.size = 16 * 1024;
     snd.bufs = buf.clone();
     inputs.emplace_back("single 16 kB buffer of random", 0, std::move(snd));

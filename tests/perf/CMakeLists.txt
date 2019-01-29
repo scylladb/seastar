@@ -75,3 +75,6 @@ seastar_add_test (fstream
 
 seastar_add_test (future_util
   SOURCES future_util_perf.cc)
+
+seastar_add_test (rpc
+  SOURCES rpc_perf.cc)
