@@ -40,12 +40,15 @@ def run_hwloc_calc(prog_args):
     """
     return run_one_command(['hwloc-calc'] + prog_args).rstrip()
 
-def fwriteln(fname, line):
+def fwriteln(fname, line, log_message, log_errors=True):
     try:
         with open(fname, 'w') as f:
             f.write(line)
+
+        print(log_message)
     except:
-        print("Failed to write into {}: {}".format(fname, sys.exc_info()))
+        if log_errors:
+            print("{}: failed to write into {}: {}".format(log_message, fname, sys.exc_info()))
 
 def readlines(fname):
     try:
@@ -55,13 +58,13 @@ def readlines(fname):
         print("Failed to read {}: {}".format(fname, sys.exc_info()))
         return []
 
-def fwriteln_and_log(fname, line):
-    print("Writing '{}' to {}".format(line, fname))
-    fwriteln(fname, line)
+def fwriteln_and_log(fname, line, log_errors=True):
+    msg = "Writing '{}' to {}".format(line, fname)
+    fwriteln(fname, line, log_message=msg, log_errors=log_errors)
 
 double_commas_pattern = re.compile(',,')
 
-def set_one_mask(conf_file, mask):
+def set_one_mask(conf_file, mask, log_errors=True):
     if not os.path.exists(conf_file):
         raise Exception("Configure file to set mask doesn't exist: {}".format(conf_file))
     mask = re.sub('0x', '', mask)
@@ -69,16 +72,16 @@ def set_one_mask(conf_file, mask):
     while double_commas_pattern.search(mask):
         mask = double_commas_pattern.sub(',0,', mask)
 
-    print("Setting mask {} in {}".format(mask, conf_file))
-    fwriteln(conf_file, mask)
+    msg = "Setting mask {} in {}".format(mask, conf_file)
+    fwriteln(conf_file, mask, log_message=msg, log_errors=log_errors)
 
-def distribute_irqs(irqs, cpu_mask):
+def distribute_irqs(irqs, cpu_mask, log_errors=True):
     # If IRQs' list is empty - do nothing
     if not irqs:
         return
 
     for i, mask in enumerate(run_hwloc_distrib(["{}".format(len(irqs)), '--single', '--restrict', cpu_mask])):
-        set_one_mask("/proc/irq/{}/smp_affinity".format(irqs[i]), mask)
+        set_one_mask("/proc/irq/{}/smp_affinity".format(irqs[i]), mask, log_errors=log_errors)
 
 def is_process_running(name):
     return len(list(filter(lambda ps_line : not re.search('<defunct>', ps_line), run_one_command(['ps', '--no-headers', '-C', name], check=False).splitlines()))) > 0
@@ -212,6 +215,7 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         self.__mode = None
         self.__compute_cpu_mask = None
         self.__irq_cpu_mask = None
+        self.__is_aws_i3_nonmetal_instance = None
 
 #### Public methods ##########################
     class SupportedModes(enum.IntEnum):
@@ -330,6 +334,16 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         return self.__irq_cpu_mask
 
     @property
+    def is_aws_i3_non_metal_instance(self):
+        """
+        :return: True if we are running on the AWS i3.nonmetal instance, e.g. i3.4xlarge
+        """
+        if self.__is_aws_i3_nonmetal_instance is None:
+            self.__check_host_type()
+
+        return self.__is_aws_i3_nonmetal_instance
+
+    @property
     def args(self):
         return self.__args
 
@@ -370,6 +384,27 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
             self.mode = PerfTunerBase.SupportedModes[self.__args.mode]
         else:
             self.mode = self._get_def_mode()
+
+    def __check_host_type(self):
+        """
+        Check if we are running on the AWS i3 nonmetal instance.
+        If yes, set self.__is_aws_i3_nonmetal_instance to True, and to False otherwise.
+        """
+        try:
+            aws_instance_type = urllib.request.urlopen("http://169.254.169.254/latest/meta-data/instance-type", timeout=0.1).read().decode()
+            if re.match(r'^i3\.(\w(?!metal))+$', aws_instance_type):
+                self.__is_aws_i3_nonmetal_instance = True
+            else:
+                self.__is_aws_i3_nonmetal_instance = False
+
+            return
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
+            # Non-AWS case
+            pass
+        except:
+            logging.warning("Unexpected exception while attempting to access AWS meta server: {}".format(sys.exc_info()[0]))
+
+        self.__is_aws_i3_nonmetal_instance = False
 
 #################################################
 class NetPerfTuner(PerfTunerBase):
@@ -473,8 +508,8 @@ class NetPerfTuner(PerfTunerBase):
 
         # Set each RPS queue limit
         for rfs_limit_cnt in rps_limits:
-            print("Setting limit {} in {}".format(one_q_limit, rfs_limit_cnt))
-            fwriteln(rfs_limit_cnt, "{}".format(one_q_limit))
+            msg = "Setting limit {} in {}".format(one_q_limit, rfs_limit_cnt)
+            fwriteln(rfs_limit_cnt, "{}".format(one_q_limit), log_message=msg)
 
         # Enable ntuple filtering HW offload on the NIC
         print("Trying to enable ntuple filtering HW offload for {}...".format(iface), end='')
@@ -720,7 +755,8 @@ class DiskPerfTuner(PerfTunerBase):
         nvme_disks, nvme_irqs = self.__disks_info_by_type(DiskPerfTuner.SupportedDiskTypes.nvme)
         if nvme_disks:
             print("Setting NVMe disks: {}...".format(", ".join(nvme_disks)))
-            distribute_irqs(nvme_irqs, self.args.cpu_mask)
+            distribute_irqs(nvme_irqs, self.args.cpu_mask,
+                            log_errors=(self.is_aws_i3_non_metal_instance or self.args.verbose))
             self.__tune_disks(nvme_disks)
         else:
             print("No NVMe disks to tune")
@@ -825,15 +861,9 @@ class DiskPerfTuner(PerfTunerBase):
         # There is a known issue with Xen hypervisor that exposes itself on AWS i3 instances where nvme module
         # over-allocates HW queues and uses only queues 1,2,3,..., <up to number of CPUs> for data transfer.
         # On these instances we will distribute only these queues.
-        try:
-            aws_instance_type = urllib.request.urlopen("http://169.254.169.254/latest/meta-data/instance-type", timeout=0.1).read().decode()
-            if re.match(r'i3\.\w+', aws_instance_type):
-                nvme_irqs = list(filter(self.__nvme_fast_path_irq_filter, nvme_irqs))
-        except (urllib.error.URLError, ConnectionError, TimeoutError):
-            # Non-AWS case
-            pass
-        except:
-            logging.warning("Unexpected exception while attempting to access AWS meta server: {}".format(sys.exc_info()[0]))
+
+        if self.is_aws_i3_non_metal_instance:
+            nvme_irqs = list(filter(self.__nvme_fast_path_irq_filter, nvme_irqs))
 
         # Sort IRQs for easier verification
         nvme_irqs.sort(key=lambda irq_num_str: int(irq_num_str))
@@ -1046,6 +1076,7 @@ Default values:
 argp.add_argument('--mode', choices=PerfTunerBase.SupportedModes.names(), help='configuration mode')
 argp.add_argument('--nic', help='network interface name, by default uses \'eth0\'')
 argp.add_argument('--get-cpu-mask', action='store_true', help="print the CPU mask to be used for compute")
+argp.add_argument('--verbose', action='store_true', help="be more verbose about operations and their result")
 argp.add_argument('--tune', choices=TuneModes.names(), help="components to configure (may be given more than once)", action='append', default=[])
 argp.add_argument('--cpu-mask', help="mask of cores to use, by default use all available cores", metavar='MASK')
 argp.add_argument('--dir', help="directory to optimize (may appear more than once)", action='append', dest='dirs', default=[])
