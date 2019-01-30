@@ -49,6 +49,7 @@ public:
     socket_address(const sockaddr_in6& sa) {
         u.in6 = sa;
     }
+    socket_address(uint16_t);
     socket_address(ipv4_addr);
     socket_address(const ipv6_addr&);
     socket_address(const net::inet_address&, uint16_t p = 0);
