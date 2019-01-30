@@ -29,7 +29,7 @@
 #include <seastar/core/print.hh>
 
 seastar::net::inet_address::inet_address()
-                : inet_address(::in6_addr{ 0, })
+                : inet_address(::in6_addr{})
 {}
 
 seastar::net::inet_address::inet_address(family f)
