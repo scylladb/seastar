@@ -130,13 +130,16 @@ class posix_ap_server_socket_impl : public server_socket_impl {
         socket_address addr;
         connection(pollable_fd xfd, socket_address xaddr) : fd(std::move(xfd)), addr(xaddr) {}
     };
-    static thread_local std::unordered_map<::sockaddr_in, promise<connected_socket, socket_address>> sockets;
-    static thread_local std::unordered_multimap<::sockaddr_in, connection> conn_q;
+    static thread_local std::unordered_map<socket_address, promise<connected_socket, socket_address>> sockets;
+    static thread_local std::unordered_multimap<socket_address, connection> conn_q;
     socket_address _sa;
 public:
     explicit posix_ap_server_socket_impl(socket_address sa) : _sa(sa) {}
     virtual future<connected_socket, socket_address> accept() override;
     virtual void abort_accept() override;
+    socket_address local_address() const override {
+        return _sa;
+    }
     static void move_connected_socket(socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle);
 };
 using posix_tcp_ap_server_socket_impl = posix_ap_server_socket_impl<transport::TCP>;
@@ -152,6 +155,7 @@ public:
     explicit posix_server_socket_impl(socket_address sa, pollable_fd lfd, server_socket::load_balancing_algorithm lba) : _sa(sa), _lfd(std::move(lfd)), _lba(lba) {}
     virtual future<connected_socket, socket_address> accept() override;
     virtual void abort_accept() override;
+    virtual socket_address local_address() const override;
 };
 using posix_server_tcp_socket_impl = posix_server_socket_impl<transport::TCP>;
 using posix_server_sctp_socket_impl = posix_server_socket_impl<transport::SCTP>;
@@ -164,6 +168,7 @@ public:
     explicit posix_reuseport_server_socket_impl(socket_address sa, pollable_fd lfd) : _sa(sa), _lfd(std::move(lfd)) {}
     virtual future<connected_socket, socket_address> accept() override;
     virtual void abort_accept() override;
+    virtual socket_address local_address() const override;
 };
 using posix_reuseport_server_tcp_socket_impl = posix_reuseport_server_socket_impl<transport::TCP>;
 using posix_reuseport_server_sctp_socket_impl = posix_reuseport_server_socket_impl<transport::SCTP>;
@@ -175,11 +180,12 @@ public:
     explicit posix_network_stack(boost::program_options::variables_map opts) : _reuseport(engine().posix_reuseport_available()) {}
     virtual server_socket listen(socket_address sa, listen_options opts) override;
     virtual ::seastar::socket socket() override;
-    virtual net::udp_channel make_udp_channel(ipv4_addr addr) override;
+    virtual net::udp_channel make_udp_channel(const socket_address&) override;
     static future<std::unique_ptr<network_stack>> create(boost::program_options::variables_map opts) {
         return make_ready_future<std::unique_ptr<network_stack>>(std::unique_ptr<network_stack>(new posix_network_stack(opts)));
     }
     virtual bool has_per_core_namespace() override { return _reuseport; };
+    bool supports_ipv6() const override;
 };
 
 class posix_ap_network_stack : public posix_network_stack {

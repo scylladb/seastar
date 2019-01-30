@@ -233,8 +233,13 @@ posix_server_socket_impl<Transport>::abort_accept() {
 }
 
 template <transport Transport>
+socket_address posix_server_socket_impl<Transport>::local_address() const {
+    return _lfd.get_file_desc().get_address();
+}
+
+template <transport Transport>
 future<connected_socket, socket_address> posix_ap_server_socket_impl<Transport>::accept() {
-    auto conni = conn_q.find(_sa.as_posix_sockaddr_in());
+    auto conni = conn_q.find(_sa);
     if (conni != conn_q.end()) {
         connection c = std::move(conni->second);
         conn_q.erase(conni);
@@ -247,7 +252,7 @@ future<connected_socket, socket_address> posix_ap_server_socket_impl<Transport>:
         }
     } else {
         try {
-            auto i = sockets.emplace(std::piecewise_construct, std::make_tuple(_sa.as_posix_sockaddr_in()), std::make_tuple());
+            auto i = sockets.emplace(std::piecewise_construct, std::make_tuple(_sa), std::make_tuple());
             assert(i.second);
             return i.first->second.get_future();
         } catch (...) {
@@ -259,7 +264,7 @@ future<connected_socket, socket_address> posix_ap_server_socket_impl<Transport>:
 template <transport Transport>
 void
 posix_ap_server_socket_impl<Transport>::abort_accept() {
-    conn_q.erase(_sa.as_posix_sockaddr_in());
+    conn_q.erase(_sa);
     auto i = sockets.find(_sa.as_posix_sockaddr_in());
     if (i != sockets.end()) {
         i->second.set_exception(std::system_error(ECONNABORTED, std::system_category()));
@@ -285,9 +290,14 @@ posix_reuseport_server_socket_impl<Transport>::abort_accept() {
 }
 
 template <transport Transport>
+socket_address posix_reuseport_server_socket_impl<Transport>::local_address() const {
+    return _lfd.get_file_desc().get_address();
+}
+
+template <transport Transport>
 void
 posix_ap_server_socket_impl<Transport>::move_connected_socket(socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle cth) {
-    auto i = sockets.find(sa.as_posix_sockaddr_in());
+    auto i = sockets.find(sa);
     if (i != sockets.end()) {
         try {
             std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl<Transport>(make_lw_shared(std::move(fd)), std::move(cth)));
@@ -297,7 +307,7 @@ posix_ap_server_socket_impl<Transport>::move_connected_socket(socket_address sa,
         }
         sockets.erase(i);
     } else {
-        conn_q.emplace(std::piecewise_construct, std::make_tuple(sa.as_posix_sockaddr_in()), std::make_tuple(std::move(fd), std::move(addr)));
+        conn_q.emplace(std::piecewise_construct, std::make_tuple(sa), std::make_tuple(std::move(fd), std::move(addr)));
     }
 }
 
@@ -371,9 +381,9 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
 }
 
 template<transport Transport>
-thread_local std::unordered_map<::sockaddr_in, promise<connected_socket, socket_address>> posix_ap_server_socket_impl<Transport>::sockets;
+thread_local std::unordered_map<socket_address, promise<connected_socket, socket_address>> posix_ap_server_socket_impl<Transport>::sockets;
 template<transport Transport>
-thread_local std::unordered_multimap<::sockaddr_in, typename posix_ap_server_socket_impl<Transport>::connection> posix_ap_server_socket_impl<Transport>::conn_q;
+thread_local std::unordered_multimap<socket_address, typename posix_ap_server_socket_impl<Transport>::connection> posix_ap_server_socket_impl<Transport>::conn_q;
 
 server_socket
 posix_ap_network_stack::listen(socket_address sa, listen_options opt) {
@@ -392,7 +402,10 @@ posix_ap_network_stack::listen(socket_address sa, listen_options opt) {
 
 struct cmsg_with_pktinfo {
     struct cmsghdrcmh;
-    struct in_pktinfo pktinfo;
+    union {
+        struct in_pktinfo pktinfo;
+        struct in6_pktinfo pkt6info;
+    };
 };
 
 class posix_udp_channel : public udp_channel_impl {
@@ -434,8 +447,8 @@ private:
             _hdr.msg_namelen = sizeof(_dst.u.sas);
         }
 
-        void prepare(ipv4_addr dst, packet p) {
-            _dst = make_ipv4_address(dst);
+        void prepare(const socket_address& dst, packet p) {
+            _dst = dst;
             _p = std::move(p);
             _iovecs = to_iovec(_p);
             _hdr.msg_iov = _iovecs.data();
@@ -443,27 +456,27 @@ private:
         }
     };
     std::unique_ptr<pollable_fd> _fd;
-    ipv4_addr _address;
+    socket_address _address;
     recv_ctx _recv;
     send_ctx _send;
     bool _closed;
 public:
-    posix_udp_channel(ipv4_addr bind_address)
+    posix_udp_channel(const socket_address& bind_address)
             : _closed(false) {
-        auto sa = make_ipv4_address(bind_address);
+        auto sa = bind_address;
         file_desc fd = file_desc::socket(sa.u.sa.sa_family, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
         fd.setsockopt(SOL_IP, IP_PKTINFO, true);
         if (engine().posix_reuseport_available()) {
             fd.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
         }
         fd.bind(sa.u.sa, sizeof(sa.u.sas));
-        _address = ipv4_addr(fd.get_address());
+        _address = fd.get_address();
         _fd = std::make_unique<pollable_fd>(std::move(fd));
     }
     virtual ~posix_udp_channel() { if (!_closed) close(); };
     virtual future<udp_datagram> receive() override;
-    virtual future<> send(ipv4_addr dst, const char *msg) override;
-    virtual future<> send(ipv4_addr dst, packet p) override;
+    virtual future<> send(const socket_address& dst, const char *msg) override;
+    virtual future<> send(const socket_address& dst, packet p) override;
     virtual void shutdown_input() override {
         _fd->abort_reader();
     }
@@ -475,15 +488,18 @@ public:
         _fd.reset();
     }
     virtual bool is_closed() const override { return _closed; }
+    socket_address local_address() const override {
+        return _address;
+    }
 };
 
-future<> posix_udp_channel::send(ipv4_addr dst, const char *message) {
+future<> posix_udp_channel::send(const socket_address& dst, const char *message) {
     auto len = strlen(message);
-    return _fd->sendto(make_ipv4_address(dst), message, len)
+    return _fd->sendto(dst, message, len)
             .then([len] (size_t size) { assert(size == len); });
 }
 
-future<> posix_udp_channel::send(ipv4_addr dst, packet p) {
+future<> posix_udp_channel::send(const socket_address& dst, packet p) {
     auto len = p.len();
     _send.prepare(dst, std::move(p));
     return _fd->sendmsg(&_send._hdr)
@@ -491,20 +507,34 @@ future<> posix_udp_channel::send(ipv4_addr dst, packet p) {
 }
 
 udp_channel
-posix_network_stack::make_udp_channel(ipv4_addr addr) {
+posix_network_stack::make_udp_channel(const socket_address& addr) {
     return udp_channel(std::make_unique<posix_udp_channel>(addr));
+}
+
+bool
+posix_network_stack::supports_ipv6() const {
+    static bool has_ipv6 = [] {
+        try {
+            posix_udp_channel c(ipv6_addr{});
+            c.close();
+            return true;
+        } catch (...) {}
+        return false;
+    }();
+
+    return has_ipv6;
 }
 
 class posix_datagram : public udp_datagram_impl {
 private:
-    ipv4_addr _src;
-    ipv4_addr _dst;
+    socket_address _src;
+    socket_address _dst;
     packet _p;
 public:
-    posix_datagram(ipv4_addr src, ipv4_addr dst, packet p) : _src(src), _dst(dst), _p(std::move(p)) {}
-    virtual ipv4_addr get_src() override { return _src; }
-    virtual ipv4_addr get_dst() override { return _dst; }
-    virtual uint16_t get_dst_port() override { return _dst.port; }
+    posix_datagram(const socket_address& src, const socket_address& dst, packet p) : _src(src), _dst(dst), _p(std::move(p)) {}
+    virtual socket_address get_src() override { return _src; }
+    virtual socket_address get_dst() override { return _dst; }
+    virtual uint16_t get_dst_port() override { return _dst.port(); }
     virtual packet& get_data() override { return _p; }
 };
 
@@ -512,7 +542,16 @@ future<udp_datagram>
 posix_udp_channel::receive() {
     _recv.prepare();
     return _fd->recvmsg(&_recv._hdr).then([this] (size_t size) {
-        auto dst = ipv4_addr(_recv._cmsg.pktinfo.ipi_addr.s_addr, _address.port);
+        socket_address dst;
+        for (auto* cmsg = CMSG_FIRSTHDR(&_recv._hdr); cmsg != nullptr; cmsg = CMSG_NXTHDR(&_recv._hdr, cmsg)) {
+            if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_PKTINFO) {
+                dst = ipv4_addr(reinterpret_cast<const in_pktinfo*>(CMSG_DATA(cmsg))->ipi_addr, _address.port());
+                break;
+            } else if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_PKTINFO) {
+                dst = ipv6_addr(reinterpret_cast<const in6_pktinfo*>(CMSG_DATA(cmsg))->ipi6_addr, _address.port());
+                break;
+            }
+        }
         return make_ready_future<udp_datagram>(udp_datagram(std::make_unique<posix_datagram>(
             _recv._src_addr, dst, packet(fragment{_recv._buffer, size}, make_deleter([buf = _recv._buffer] { delete[] buf; })))));
     }).handle_exception([p = _recv._buffer](auto ep) {

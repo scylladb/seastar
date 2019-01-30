@@ -169,17 +169,11 @@ public:
         _logger = std::move(l);
     }
 
-    void operator()(const client_info& info, id_type msg_id, const sstring& str) const {
-        log(to_sstring("client ") + inet_ntoa(info.addr.as_posix_sockaddr_in().sin_addr) + " msg_id " + to_sstring(msg_id) + ": " + str);
-    }
+    void operator()(const client_info& info, id_type msg_id, const sstring& str) const;
 
-    void operator()(const client_info& info, const sstring& str) const {
-        log(to_sstring("client ") + inet_ntoa(info.addr.as_posix_sockaddr_in().sin_addr) + ": " + str);
-    }
+    void operator()(const client_info& info, const sstring& str) const;
 
-    void operator()(ipv4_addr addr, const sstring& str) const {
-        log(to_sstring("client ") + inet_ntoa(in_addr{net::ntoh(addr.ip)}) + ": " + str);
-    }
+    void operator()(const socket_address& addr, const sstring& str) const;
 };
 
 class connection {
@@ -293,7 +287,7 @@ public:
     }
     xshard_connection_ptr get_stream(connection_id id) const;
     void register_stream(connection_id id, xshard_connection_ptr c);
-    virtual ipv4_addr peer_address() const = 0;
+    virtual socket_address peer_address() const = 0;
 
     const logger& get_logger() const {
         return _logger;
@@ -366,7 +360,7 @@ public:
     };
 private:
     std::unordered_map<id_type, std::unique_ptr<reply_handler_base>> _outstanding;
-    ipv4_addr _server_addr;
+    socket_address _server_addr;
     client_options _options;
     compat::optional<shared_promise<>> _client_negotiated = shared_promise<>();
     weak_ptr<client> _parent; // for stream clients
@@ -392,8 +386,8 @@ public:
      * @param addr the remote address identifying this client
      * @param local the local address of this client
      */
-    client(const logger& l, void* s, ipv4_addr addr, ipv4_addr local = ipv4_addr());
-    client(const logger& l, void* s, client_options options, ipv4_addr addr, ipv4_addr local = ipv4_addr());
+    client(const logger& l, void* s, const socket_address& addr, const socket_address& local = {});
+    client(const logger& l, void* s, client_options options, const socket_address& addr, const socket_address& local = {});
 
      /**
      * Create client object which will attempt to connect to the remote address using the
@@ -403,8 +397,8 @@ public:
      * @param local the local address of this client
      * @param socket the socket object use to connect to the remote address
      */
-    client(const logger& l, void* s, socket socket, ipv4_addr addr, ipv4_addr local = ipv4_addr());
-    client(const logger& l, void* s, client_options options, socket socket, ipv4_addr addr, ipv4_addr local = ipv4_addr());
+    client(const logger& l, void* s, socket socket, const socket_address& addr, const socket_address& local = {});
+    client(const logger& l, void* s, client_options options, socket socket, const socket_address& addr, const socket_address& local = {});
 
     stats get_stats() const;
     stats& get_stats_internal() {
@@ -416,7 +410,7 @@ public:
     future<> stop();
     void abort_all_streams();
     void deregister_this_stream();
-    ipv4_addr peer_address() const override {
+    socket_address peer_address() const override {
         return _server_addr;
     }
     future<> await_connection() {
@@ -490,8 +484,8 @@ public:
         stats& get_stats_internal() {
             return _stats;
         }
-        ipv4_addr peer_address() const override {
-            return ipv4_addr(_info.addr);
+        socket_address peer_address() const override {
+            return _info.addr;
         }
         // Resources will be released when this goes out of scope
         future<resource_permit> wait_for_resources(size_t memory_consumed,  compat::optional<rpc_clock_type::time_point> timeout) {
@@ -524,8 +518,8 @@ private:
     uint64_t _next_client_id = 1;
 
 public:
-    server(protocol_base* proto, ipv4_addr addr, resource_limits memory_limit = resource_limits());
-    server(protocol_base* proto, server_options opts, ipv4_addr addr, resource_limits memory_limit = resource_limits());
+    server(protocol_base* proto, const socket_address& addr, resource_limits memory_limit = resource_limits());
+    server(protocol_base* proto, server_options opts, const socket_address& addr, resource_limits memory_limit = resource_limits());
     server(protocol_base* proto, server_socket, resource_limits memory_limit = resource_limits(), server_options opts = server_options{});
     server(protocol_base* proto, server_options opts, server_socket, resource_limits memory_limit = resource_limits());
     void accept();
@@ -566,9 +560,9 @@ class protocol : public protocol_base {
 public:
     class server : public rpc::server {
     public:
-        server(protocol& proto, ipv4_addr addr, resource_limits memory_limit = resource_limits()) :
+        server(protocol& proto, const socket_address& addr, resource_limits memory_limit = resource_limits()) :
             rpc::server(&proto, addr, memory_limit) {}
-        server(protocol& proto, server_options opts, ipv4_addr addr, resource_limits memory_limit = resource_limits()) :
+        server(protocol& proto, server_options opts, const socket_address& addr, resource_limits memory_limit = resource_limits()) :
             rpc::server(&proto, opts, addr, memory_limit) {}
         server(protocol& proto, server_socket socket, resource_limits memory_limit = resource_limits(), server_options opts = server_options{}) :
             rpc::server(&proto, std::move(socket), memory_limit) {}
@@ -583,9 +577,9 @@ public:
          * @param addr the remote address identifying this client
          * @param local the local address of this client
          */
-        client(protocol& p, ipv4_addr addr, ipv4_addr local = ipv4_addr()) :
+        client(protocol& p, const socket_address& addr, const socket_address& local = {}) :
             rpc::client(p.get_logger(), &p._serializer, addr, local) {}
-        client(protocol& p, client_options options, ipv4_addr addr, ipv4_addr local = ipv4_addr()) :
+        client(protocol& p, client_options options, const socket_address& addr, const socket_address& local = {}) :
             rpc::client(p.get_logger(), &p._serializer, options, addr, local) {}
 
         /**
@@ -596,9 +590,9 @@ public:
          * @param local the local address of this client
          * @param socket the socket object use to connect to the remote address
          */
-        client(protocol& p, socket socket, ipv4_addr addr, ipv4_addr local = ipv4_addr()) :
+        client(protocol& p, socket socket, const socket_address& addr, const socket_address& local = {}) :
             rpc::client(p.get_logger(), &p._serializer, std::move(socket), addr, local) {}
-        client(protocol& p, client_options options, socket socket, ipv4_addr addr, ipv4_addr local = ipv4_addr()) :
+        client(protocol& p, client_options options, socket socket, const socket_address& addr, const socket_address& local = {}) :
             rpc::client(p.get_logger(), &p._serializer, options, std::move(socket), addr, local) {}
     };
 

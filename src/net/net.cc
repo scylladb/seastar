@@ -59,10 +59,15 @@ ipv4_addr::ipv4_addr(const std::string &addr) {
 ipv4_addr::ipv4_addr(const std::string &addr, uint16_t port_) : ip(boost::asio::ip::address_v4::from_string(addr).to_ulong()), port(port_) {}
 
 ipv4_addr::ipv4_addr(const net::inet_address& a, uint16_t port)
-    : ipv4_addr([&a] {
-  ::in_addr in = a;
-  return net::ntoh(in.s_addr);
-}(), port)
+    : ipv4_addr(::in_addr(a), port)
+{}
+
+ipv4_addr::ipv4_addr(const socket_address &sa)
+    : ipv4_addr(sa.addr(), sa.port())
+{}
+
+ipv4_addr::ipv4_addr(const ::in_addr& in, uint16_t p)
+    : ip(net::ntoh(in.s_addr)), port(p)
 {}
 
 namespace net {

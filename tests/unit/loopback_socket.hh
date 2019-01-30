@@ -191,6 +191,10 @@ public:
     void abort_accept() override {
         _pending->abort(std::make_exception_ptr(std::system_error(ECONNABORTED, std::system_category())));
     }
+    socket_address local_address() const override {
+        // CMH dummy
+        return {};
+    }
 };
 
 

@@ -55,14 +55,16 @@ public:
     virtual ~server_socket_impl() {}
     virtual future<connected_socket, socket_address> accept() = 0;
     virtual void abort_accept() = 0;
+    virtual socket_address local_address() const = 0;
 };
 
 class udp_channel_impl {
 public:
     virtual ~udp_channel_impl() {};
+    virtual socket_address local_address() const = 0;
     virtual future<udp_datagram> receive() = 0;
-    virtual future<> send(ipv4_addr dst, const char* msg) = 0;
-    virtual future<> send(ipv4_addr dst, packet p) = 0;
+    virtual future<> send(const socket_address& dst, const char* msg) = 0;
+    virtual future<> send(const socket_address& dst, packet p) = 0;
     virtual void shutdown_input() = 0;
     virtual void shutdown_output() = 0;
     virtual bool is_closed() const = 0;

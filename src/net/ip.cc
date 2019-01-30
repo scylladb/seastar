@@ -41,15 +41,6 @@ ipv4_address::ipv4_address(const std::string& addr) {
     ip = static_cast<uint32_t>(std::move(ipv4).to_ulong());
 }
 
-std::ostream& operator<<(std::ostream& os, ipv4_address a) {
-    auto ip = a.ip;
-    return fmt_print(os, "{:d}.{:d}.{:d}.{:d}",
-            (ip >> 24) & 0xff,
-            (ip >> 16) & 0xff,
-            (ip >> 8) & 0xff,
-            (ip >> 0) & 0xff);
-}
-
 constexpr std::chrono::seconds ipv4::_frag_timeout;
 constexpr uint32_t ipv4::_frag_low_thresh;
 constexpr uint32_t ipv4::_frag_high_thresh;
@@ -334,7 +325,7 @@ void ipv4::set_host_address(ipv4_address ip) {
     _arp.set_self_addr(ip);
 }
 
-ipv4_address ipv4::host_address() {
+ipv4_address ipv4::host_address() const {
     return _host_address;
 }
 

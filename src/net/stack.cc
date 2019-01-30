@@ -20,6 +20,7 @@
  */
 
 #include <seastar/net/stack.hh>
+#include <seastar/net/inet_address.hh>
 #include <seastar/core/reactor.hh>
 
 namespace seastar {
@@ -36,16 +37,20 @@ net::udp_channel::~udp_channel()
 net::udp_channel::udp_channel(udp_channel&&) = default;
 net::udp_channel& net::udp_channel::operator=(udp_channel&&) = default;
 
+socket_address net::udp_channel::local_address() const {
+    return _impl->local_address();
+}
+
 future<net::udp_datagram> net::udp_channel::receive() {
     return _impl->receive();
 }
 
-future<> net::udp_channel::send(ipv4_addr dst, const char* msg) {
-    return _impl->send(std::move(dst), msg);
+future<> net::udp_channel::send(const socket_address& dst, const char* msg) {
+    return _impl->send(dst, msg);
 }
 
-future<> net::udp_channel::send(ipv4_addr dst, packet p) {
-    return _impl->send(std::move(dst), std::move(p));
+future<> net::udp_channel::send(const socket_address& dst, packet p) {
+    return _impl->send(dst, std::move(p));
 }
 
 bool net::udp_channel::is_closed() const {
@@ -159,16 +164,66 @@ void server_socket::abort_accept() {
     _aborted = true;
 }
 
-socket_address::socket_address(ipv4_addr addr)
-    : socket_address(make_ipv4_address(addr))
+socket_address server_socket::local_address() const {
+    return _ssi->local_address();
+}
+
+socket_address::socket_address()
+    : socket_address(ipv4_addr())
 {}
 
+socket_address::socket_address(uint16_t p)
+    : socket_address(ipv4_addr(p))
+{}
+
+socket_address::socket_address(ipv4_addr addr)
+{
+    u.in.sin_family = AF_INET;
+    u.in.sin_port = htons(addr.port);
+    u.in.sin_addr.s_addr = htonl(addr.ip);
+}
+
+socket_address::socket_address(const ipv6_addr& addr)
+{
+    u.in6.sin6_family = AF_INET6;
+    u.in6.sin6_port = htons(addr.port);
+    std::copy(addr.ip.begin(), addr.ip.end(), u.in6.sin6_addr.s6_addr);
+}
+
+socket_address::socket_address(uint32_t ipv4, uint16_t p)
+    : socket_address(make_ipv4_address(ipv4, p))
+{}
 
 bool socket_address::operator==(const socket_address& a) const {
-    // TODO: handle ipv6
-    return std::tie(u.in.sin_family, u.in.sin_port, u.in.sin_addr.s_addr)
-                    == std::tie(a.u.in.sin_family, a.u.in.sin_port,
-                                    a.u.in.sin_addr.s_addr);
+    if (u.sa.sa_family != a.u.sa.sa_family) {
+        return false;
+    }
+    if (u.in.sin_port != a.u.in.sin_port) {
+        return false;
+    }
+    switch (u.sa.sa_family) {
+    case AF_INET:
+        return u.in.sin_addr.s_addr == a.u.in.sin_addr.s_addr;
+    case AF_INET6:
+        break;
+    default:
+        return false;
+    }
+
+    auto& in1 = as_posix_sockaddr_in6();
+    auto& in2 = a.as_posix_sockaddr_in6();
+
+    return IN6_ARE_ADDR_EQUAL(&in1, &in2);
+}
+
+future<connected_socket>
+network_stack::connect(socket_address sa, socket_address local, transport proto) {
+    if (local == socket_address()) {
+        local = net::inet_address(sa.addr().in_family());
+    }
+    return do_with(socket(), [sa, local, proto](::seastar::socket& s) {
+        return s.connect(sa, local, proto);
+    });
 }
 
 }

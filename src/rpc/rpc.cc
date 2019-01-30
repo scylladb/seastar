@@ -5,6 +5,19 @@
 namespace seastar {
 
 namespace rpc {
+
+    void logger::operator()(const client_info& info, id_type msg_id, const sstring& str) const {
+        log(format("client {} msg_id {}:  {}", info.addr, msg_id, str));
+    }
+
+    void logger::operator()(const client_info& info, const sstring& str) const {
+        (*this)(info.addr, str);
+    }
+
+    void logger::operator()(const socket_address& addr, const sstring& str) const {
+        log(format("client {}: {}", addr, str));
+    }
+
   no_wait_type no_wait;
 
   constexpr size_t snd_buf::chunk_size;
@@ -609,7 +622,7 @@ namespace rpc {
       }
   }
 
-  client::client(const logger& l, void* s, client_options ops, socket socket, ipv4_addr addr, ipv4_addr local)
+  client::client(const logger& l, void* s, client_options ops, socket socket, const socket_address& addr, const socket_address& local)
   : rpc::connection(l, s), _socket(std::move(socket)), _server_addr(addr), _options(ops) {
       _socket.connect(addr, local).then([this, ops = std::move(ops)] (connected_socket fd) {
           fd.set_nodelay(ops.tcp_nodelay);
@@ -699,15 +712,15 @@ namespace rpc {
       });
   }
 
-  client::client(const logger& l, void* s, ipv4_addr addr, ipv4_addr local)
+  client::client(const logger& l, void* s, const socket_address& addr, const socket_address& local)
   : client(l, s, client_options{}, engine().net().socket(), addr, local)
   {}
 
-  client::client(const logger& l, void* s, client_options options, ipv4_addr addr, ipv4_addr local)
+  client::client(const logger& l, void* s, client_options options, const socket_address& addr, const socket_address& local)
   : client(l, s, options, engine().net().socket(), addr, local)
   {}
 
-  client::client(const logger& l, void* s, socket socket, ipv4_addr addr, ipv4_addr local)
+  client::client(const logger& l, void* s, socket socket, const socket_address& addr, const socket_address& local)
   : client(l, s, client_options{}, std::move(socket), addr, local)
   {}
 
@@ -932,11 +945,11 @@ namespace rpc {
 
   thread_local std::unordered_map<streaming_domain_type, server*> server::_servers;
 
-  server::server(protocol_base* proto, ipv4_addr addr, resource_limits limits)
+  server::server(protocol_base* proto, const socket_address& addr, resource_limits limits)
       : server(proto, engine().listen(addr, listen_options{true}), limits, server_options{})
   {}
 
-  server::server(protocol_base* proto, server_options opts, ipv4_addr addr, resource_limits limits)
+  server::server(protocol_base* proto, server_options opts, const socket_address& addr, resource_limits limits)
       : server(proto, engine().listen(addr, listen_options{true, opts.load_balancing_algorithm}), limits, opts)
   {}
 

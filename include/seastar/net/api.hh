@@ -35,34 +35,24 @@
 
 namespace seastar {
 
-static inline
-bool is_ip_unspecified(ipv4_addr &addr) {
-    return addr.ip == 0;
+inline
+bool is_ip_unspecified(const ipv4_addr& addr) {
+    return addr.is_ip_unspecified();
 }
 
-static inline
-bool is_port_unspecified(ipv4_addr &addr) {
-    return addr.port == 0;
+inline
+bool is_port_unspecified(const ipv4_addr& addr) {
+    return addr.is_port_unspecified();
 }
 
-std::ostream& operator<<(std::ostream& os, ipv4_addr addr);
-
-static inline
-socket_address make_ipv4_address(ipv4_addr addr) {
-    socket_address sa;
-    sa.u.in.sin_family = AF_INET;
-    sa.u.in.sin_port = htons(addr.port);
-    sa.u.in.sin_addr.s_addr = htonl(addr.ip);
-    return sa;
+inline
+socket_address make_ipv4_address(const ipv4_addr& addr) {
+    return socket_address(addr);
 }
 
 inline
 socket_address make_ipv4_address(uint32_t ip, uint16_t port) {
-    socket_address sa;
-    sa.u.in.sin_family = AF_INET;
-    sa.u.in.sin_port = htons(port);
-    sa.u.in.sin_addr.s_addr = htonl(ip);
-    return sa;
+    return make_ipv4_address(ipv4_addr(ip, port));
 }
 
 namespace net {
@@ -93,8 +83,8 @@ class get_impl;
 class udp_datagram_impl {
 public:
     virtual ~udp_datagram_impl() {};
-    virtual ipv4_addr get_src() = 0;
-    virtual ipv4_addr get_dst() = 0;
+    virtual socket_address get_src() = 0;
+    virtual socket_address get_dst() = 0;
     virtual uint16_t get_dst_port() = 0;
     virtual packet& get_data() = 0;
 };
@@ -104,8 +94,8 @@ private:
     std::unique_ptr<udp_datagram_impl> _impl;
 public:
     udp_datagram(std::unique_ptr<udp_datagram_impl>&& impl) : _impl(std::move(impl)) {};
-    ipv4_addr get_src() { return _impl->get_src(); }
-    ipv4_addr get_dst() { return _impl->get_dst(); }
+    socket_address get_src() { return _impl->get_src(); }
+    socket_address get_dst() { return _impl->get_dst(); }
     uint16_t get_dst_port() { return _impl->get_dst_port(); }
     packet& get_data() { return _impl->get_data(); }
 };
@@ -121,9 +111,11 @@ public:
     udp_channel(udp_channel&&);
     udp_channel& operator=(udp_channel&&);
 
+    socket_address local_address() const;
+
     future<udp_datagram> receive();
-    future<> send(ipv4_addr dst, const char* msg);
-    future<> send(ipv4_addr dst, packet p);
+    future<> send(const socket_address& dst, const char* msg);
+    future<> send(const socket_address& dst, packet p);
     bool is_closed() const;
     /// Causes a pending receive() to complete (possibly with an exception)
     void shutdown_input();
@@ -279,6 +271,9 @@ public:
     /// Current and future \ref accept() calls will terminate immediately
     /// with an error.
     void abort_accept();
+
+    /// Local bound address
+    socket_address local_address() const;
 };
 /// @}
 
@@ -293,17 +288,19 @@ public:
     virtual ~network_stack() {}
     virtual server_socket listen(socket_address sa, listen_options opts) = 0;
     // FIXME: local parameter assumes ipv4 for now, fix when adding other AF
-    future<connected_socket> connect(socket_address sa, socket_address local = socket_address(::sockaddr_in{AF_INET, INADDR_ANY, {0}}), transport proto = transport::TCP) {
-        return do_with(socket(), [sa, local, proto](::seastar::socket& s) {
-            return s.connect(sa, local, proto);
-        });
-    }
+    future<connected_socket> connect(socket_address sa, socket_address = {}, transport proto = transport::TCP);
     virtual ::seastar::socket socket() = 0;
-    virtual net::udp_channel make_udp_channel(ipv4_addr addr = {}) = 0;
+    virtual net::udp_channel make_udp_channel(const socket_address& = {}) = 0;
     virtual future<> initialize() {
         return make_ready_future();
     }
     virtual bool has_per_core_namespace() = 0;
+    // NOTE: this is not a correct query approach.
+    // This question should be per NIC, but we have no such
+    // abstraction, so for now this is "stack-wide"
+    virtual bool supports_ipv6() const {
+        return false;
+    }
 };
 
 }

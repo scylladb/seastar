@@ -21,6 +21,7 @@
 
 #include <seastar/net/ip.hh>
 #include <seastar/net/stack.hh>
+#include <seastar/net/inet_address.hh>
 
 namespace seastar {
 
@@ -50,11 +51,11 @@ public:
         _dst = to_ipv4_addr(dst, h.dst_port);
     }
 
-    virtual ipv4_addr get_src() override {
+    virtual socket_address get_src() override {
         return _src;
     };
 
-    virtual ipv4_addr get_dst() override {
+    virtual socket_address get_dst() override {
         return _dst;
     };
 
@@ -89,15 +90,19 @@ public:
             close();
     }
 
+    socket_address local_address() const override {
+        return socket_address(_proto.inet().host_address(), _reg.port());
+    }
+
     virtual future<udp_datagram> receive() override {
         return _state->_queue.pop_eventually();
     }
 
-    virtual future<> send(ipv4_addr dst, const char* msg) override {
+    virtual future<> send(const socket_address& dst, const char* msg) override {
         return send(dst, packet::from_static_data(msg, strlen(msg)));
     }
 
-    virtual future<> send(ipv4_addr dst, packet p) override {
+    virtual future<> send(const socket_address& dst, packet p) override {
         auto len = p.len();
         return _state->wait_for_send_buffer(len).then([this, dst, p = std::move(p), len] () mutable {
             p = packet(std::move(p), make_deleter([s = _state, len] { s->complete_send(len); }));

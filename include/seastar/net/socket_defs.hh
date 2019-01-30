@@ -21,13 +21,19 @@
 #pragma once
 
 #include <iosfwd>
+#include <array>
 #include <sys/socket.h>
 #include <netinet/ip.h>
 #include <seastar/net/byteorder.hh>
 
 namespace seastar {
 
+namespace net {
+class inet_address;
+}
+
 struct ipv4_addr;
+struct ipv6_addr;
 
 class socket_address {
 public:
@@ -35,18 +41,35 @@ public:
         ::sockaddr_storage sas;
         ::sockaddr sa;
         ::sockaddr_in in;
+        ::sockaddr_in6 in6;
     } u;
-    socket_address(sockaddr_in sa) {
+    socket_address(const sockaddr_in& sa) {
         u.in = sa;
     }
+    socket_address(const sockaddr_in6& sa) {
+        u.in6 = sa;
+    }
+    socket_address(uint16_t);
     socket_address(ipv4_addr);
-    socket_address() = default;
+    socket_address(const ipv6_addr&);
+    socket_address(const net::inet_address&, uint16_t p = 0);
+    socket_address();
     ::sockaddr& as_posix_sockaddr() { return u.sa; }
     ::sockaddr_in& as_posix_sockaddr_in() { return u.in; }
+    ::sockaddr_in6& as_posix_sockaddr_in6() { return u.in6; }
     const ::sockaddr& as_posix_sockaddr() const { return u.sa; }
     const ::sockaddr_in& as_posix_sockaddr_in() const { return u.in; }
+    const ::sockaddr_in6& as_posix_sockaddr_in6() const { return u.in6; }
+
+    socket_address(uint32_t, uint16_t p = 0);
+
+    net::inet_address addr() const;
+    ::in_port_t port() const;
 
     bool operator==(const socket_address&) const;
+    bool operator!=(const socket_address& a) const {
+        return !(*this == a);
+    }
 };
 
 std::ostream& operator<<(std::ostream&, const socket_address&);
@@ -56,10 +79,6 @@ enum class transport {
     SCTP = IPPROTO_SCTP
 };
 
-
-namespace net {
-class inet_address;
-}
 
 struct ipv4_addr {
     uint32_t ip;
@@ -71,13 +90,46 @@ struct ipv4_addr {
     ipv4_addr(const std::string &addr);
     ipv4_addr(const std::string &addr, uint16_t port);
     ipv4_addr(const net::inet_address&, uint16_t);
+    ipv4_addr(const socket_address &);
+    ipv4_addr(const ::in_addr&, uint16_t = 0);
 
-    ipv4_addr(const socket_address &sa) {
-        ip = net::ntoh(sa.u.in.sin_addr.s_addr);
-        port = net::ntoh(sa.u.in.sin_port);
+    bool is_ip_unspecified() const {
+        return ip == 0;
     }
-
-    ipv4_addr(socket_address &&sa) : ipv4_addr(sa) {}
+    bool is_port_unspecified() const {
+        return port == 0;
+    }
 };
 
+struct ipv6_addr {
+    using ipv6_bytes = std::array<uint8_t, 16>;
+
+    ipv6_bytes ip;
+    uint16_t port;
+
+    ipv6_addr(const ipv6_bytes&, uint16_t port = 0);
+    ipv6_addr(uint16_t port = 0);
+    ipv6_addr(const std::string&);
+    ipv6_addr(const std::string&, uint16_t port);
+    ipv6_addr(const net::inet_address&, uint16_t = 0);
+    ipv6_addr(const ::in6_addr&, uint16_t = 0);
+    ipv6_addr(const ::sockaddr_in6&);
+    ipv6_addr(const socket_address&);
+
+    bool is_ip_unspecified() const;
+    bool is_port_unspecified() const {
+        return port == 0;
+    }
+};
+
+std::ostream& operator<<(std::ostream&, const ipv4_addr&);
+std::ostream& operator<<(std::ostream&, const ipv6_addr&);
+
+}
+
+namespace std {
+template<>
+struct hash<seastar::socket_address> {
+    size_t operator()(const seastar::socket_address&) const;
+};
 }
