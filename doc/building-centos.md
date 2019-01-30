@@ -10,6 +10,6 @@ sudo ./install-dependencies.sh
 
 To compile Seastar explicitly using gcc 5, use:
 ```
-CXX=/opt/scylladb/bin/g++ ./cooking.sh -r dev -i c-ares -i fmt -t Release
+CXX=/opt/scylladb/bin/g++ ./cooking.sh -i c-ares -i fmt -t Release
 ninja-build -C build
 ```

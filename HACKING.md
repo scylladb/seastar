@@ -13,31 +13,31 @@ See the instructions in [README.md](./README.md).
 - Use `cmake-cooking` to prepare a development environment with all dependencies.  This allows for reproducible development environments, but means that approximately 3 GiB of dependencies get installed to `build/_cooking_`:
 
 ```
-./cooking.sh -r dev
+./cooking.sh
 ```
 
 - The same as above, and enable DPDK support:
 
 ```
-./cooking.sh -r dev -- -DSeastar_DPDK=ON
+./cooking.sh -- -DSeastar_DPDK=ON
 ```
 
 - Use system packages for all dependencies except `fmt`, and `dpdk`, which are provided by `cmake-cooking` (and not yet widely available via system package-managers):
 
 ```
-./cooking.sh -r dev -i fmt -i dpdk
+./cooking.sh -i fmt -i dpdk
 ```
 
 - Use `cmake-cooking` for all dependencies except for Boost:
 
 ```
-./cooking.sh -r dev -e Boost
+./cooking.sh -e Boost
 ```
 
 - The same, but compile in "release" mode:
 
 ```
-./cooking.sh -r dev -e Boost -t Release
+./cooking.sh -e Boost -t Release
 ```
 
 ## Using an IDE with CMake support
@@ -133,7 +133,7 @@ With `configure.py`:
 With `cooking.sh`:
 
 ```
-./cooking.sh -r dev -- -DCMAKE_INSTALL_PREFIX=/my/install/path
+./cooking.sh -- -DCMAKE_INSTALL_PREFIX=/my/install/path
 ```
 
 ```
@@ -162,7 +162,7 @@ If you'd like to use `cmake-cooking` to set up a development environment which i
 
 ```
 cooking_ingredient (Seastar
-  COOKING_RECIPE dev
+  COOKING_RECIPE <DEFAULT>
   COOKING_CMAKE_ARGS
     -DSeastar_APPS=OFF
     -DSeastar_DEMOS=OFF

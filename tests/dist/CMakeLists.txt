@@ -28,7 +28,7 @@ add_custom_command (
     ${CMAKE_CURRENT_SOURCE_DIR}/consumer/Makefile
     ${CMAKE_CURRENT_SOURCE_DIR}/consumer/cmake_consumer.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/consumer/pkgconfig_consumer.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/consumer/recipe/test_dist.cmake
+    ${CMAKE_CURRENT_SOURCE_DIR}/consumer/cooking_recipe.cmake
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/consumer ${CMAKE_CURRENT_BINARY_DIR}/consumer)
 
 configure_file (

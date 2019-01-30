@@ -29,7 +29,7 @@
 set -e
 
 cd "${CONSUMER_SOURCE_DIR}"
-./cooking.sh -r test_dist -t Release
+./cooking.sh -t Release
 
 #
 # Consume from CMake.

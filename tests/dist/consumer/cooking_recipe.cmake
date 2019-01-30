@@ -30,7 +30,7 @@ cooking_ingredient (Boost
 
 cooking_ingredient (Seastar
   REQUIRES Boost
-  COOKING_RECIPE dev
+  COOKING_RECIPE <DEFAULT>
   COOKING_CMAKE_ARGS
     # Not `lib64`.
     -DCMAKE_INSTALL_LIBDIR=lib

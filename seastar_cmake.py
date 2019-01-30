@@ -23,7 +23,7 @@ ROOT_PATH = os.path.realpath(os.path.dirname(__file__))
 
 BUILD_PATHS = { mode: os.path.join(ROOT_PATH, 'build', mode) for mode in SUPPORTED_MODES }
 
-COOKING_BASIC_ARGS = ['./cooking.sh', '-r', 'dev', '-i', 'fmt']
+COOKING_BASIC_ARGS = ['./cooking.sh', '-i', 'fmt']
 
 def is_release_mode(mode):
     return mode == 'release'

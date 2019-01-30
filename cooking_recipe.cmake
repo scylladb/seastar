@@ -269,9 +269,9 @@ cooking_ingredient (dpdk
       COMMAND
         ${CMAKE_COMMAND}
         -DSeastar_DPDK_CONFIG_FILE_IN=<BINARY_DIR>/.config
-        -DSeastar_DPDK_CONFIG_FILE_CHANGES=${CMAKE_CURRENT_LIST_DIR}/dpdk_config
+        -DSeastar_DPDK_CONFIG_FILE_CHANGES=${CMAKE_CURRENT_SOURCE_DIR}/dpdk_config
         -DSeastar_DPDK_CONFIG_FILE_OUT=<BINARY_DIR>/${dpdk_quadruple}/.config
-        -P ${CMAKE_CURRENT_LIST_DIR}/dpdk_configure.cmake
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/dpdk_configure.cmake
     BUILD_COMMAND <DISABLE>
     INSTALL_COMMAND
       ${CMAKE_COMMAND} -E chdir <SOURCE_DIR>
