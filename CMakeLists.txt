@@ -175,6 +175,10 @@ option (Seastar_TESTING
   "Enable testing targets."
   ON)
 
+option (Seastar_COMPRESS_DEBUG
+  "Compress debug info."
+  ON)
+
 option (Seastar_SPLIT_DWARF
   "Use split dwarf."
   OFF)
@@ -576,6 +580,12 @@ set (Seastar_DEVELOPMENT_FLAGS
   -UNDEBUG
   -Wall
   -Werror)
+
+if (Seastar_COMPRESS_DEBUG)
+  # -gz doesn't imply -g, so it is safe to add it regardless of debug
+  # info being enabled.
+  list (APPEND Seastar_DEVELOPMENT_FLAGS -gz)
+endif()
 
 set (Seastar_DEVELOPMENT_LIBS
     debug Sanitizers::address
