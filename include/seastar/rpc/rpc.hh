@@ -221,8 +221,8 @@ protected:
     std::unordered_map<connection_id, xshard_connection_ptr> _streams;
     queue<rcv_buf> _stream_queue = queue<rcv_buf>(max_queued_stream_buffers);
     semaphore _stream_sem = semaphore(max_stream_buffers_memory);
-    bool _sink_closed = false;
-    bool _source_closed = false;
+    bool _sink_closed = true;
+    bool _source_closed = true;
     // the future holds if sink is already closed
     // if it is not ready it means the sink is been closed
     future<bool> _sink_closed_future = make_ready_future<bool>(false);
@@ -304,13 +304,17 @@ public:
     template <typename FrameType, typename Info>
     typename FrameType::return_type read_frame_compressed(const Info& info, std::unique_ptr<compressor>& compressor, input_stream<char>& in);
     friend class client;
+    template<typename Serializer, typename... Out>
+    friend class sink_impl;
+    template<typename Serializer, typename... In>
+    friend class source_impl;
 };
 
 // send data Out...
 template<typename Serializer, typename... Out>
 class sink_impl : public sink<Out...>::impl {
 public:
-    sink_impl(xshard_connection_ptr con) : sink<Out...>::impl(std::move(con)) {}
+    sink_impl(xshard_connection_ptr con) : sink<Out...>::impl(std::move(con)) { this->_con->get()->_sink_closed = false; }
     future<> operator()(const Out&... args) override;
     future<> close() override;
 };
@@ -319,7 +323,7 @@ public:
 template<typename Serializer, typename... In>
 class source_impl : public source<In...>::impl {
 public:
-    source_impl(xshard_connection_ptr con) : source<In...>::impl(std::move(con)) {}
+    source_impl(xshard_connection_ptr con) : source<In...>::impl(std::move(con)) { this->_con->get()->_source_closed = false; }
     future<compat::optional<std::tuple<In...>>> operator()() override;
 };
 
