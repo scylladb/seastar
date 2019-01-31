@@ -238,6 +238,7 @@ find_package (LinuxMembarrier)
 find_package (Protobuf 2.5.0 REQUIRED)
 find_package (Sanitizers)
 find_package (StdAtomic REQUIRED)
+set (StdFilesystem_CXX_DIALECT ${Seastar_CXX_DIALECT})
 find_package (StdFilesystem REQUIRED)
 find_package (hwloc 1.11.2)
 # No version information published.

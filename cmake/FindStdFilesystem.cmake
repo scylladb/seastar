@@ -20,13 +20,25 @@
 # Copyright (C) 2018 Scylladb, Ltd.
 #
 
+#
+# Variables:
+#
+#   StdFilesystem_CXX_DIALECT
+#
+
 include (CheckCXXSourceCompiles)
 file (READ ${CMAKE_CURRENT_LIST_DIR}/code_tests/StdFilesystem_test.cc _stdfilesystem_test_code)
+
+if (StdFilesystem_CXX_DIALECT)
+  set (_stdfilesystem_cxx_dialect_args "-std=${StdFilesystem_CXX_DIALECT}")
+else ()
+  set (_stdfilesystem_cxx_dialect_args "")
+endif ()
 
 macro (_stdfilesystem_check_compiles var)
   set (libraries ${ARGN})
   set (CMAKE_REQUIRED_LIBRARIES ${libraries})
-  set (CMAKE_REQUIRED_FLAGS -std=${Seastar_CXX_DIALECT})
+  set (CMAKE_REQUIRED_FLAGS ${_stdfilesystem_cxx_dialect_args})
   check_cxx_source_compiles ("${_stdfilesystem_test_code}" ${var})
 endmacro ()
 
