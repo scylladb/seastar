@@ -175,6 +175,10 @@ option (Seastar_TESTING
   "Enable testing targets."
   ON)
 
+option (Seastar_SPLIT_DWARF
+  "Use split dwarf."
+  OFF)
+
 set (Seastar_TEST_TIMEOUT
   "300"
   CACHE
@@ -655,6 +659,17 @@ endif ()
 
 if (Seastar_CXX_FLAGS)
   list (APPEND Seastar_DEVELOPMENT_FLAGS ${Seastar_CXX_FLAGS})
+endif ()
+
+# When using split dwarf --gdb-index is effectively required since
+# otherwise gdb is just too slow. We also want to use split dwarf in
+# as many compilation units as possible.  So while these flags don't
+# have to be public, we don't expect anyone to want to build seastar
+# with them and some client code without.
+if (Seastar_SPLIT_DWARF AND (NOT (CMAKE_BUILD_TYPE STREQUAL "Dev")))
+  set (Seastar_SPLIT_DWARF_FLAG "-Wl,--gdb-index")
+  target_link_libraries (seastar PUBLIC ${Seastar_SPLIT_DWARF_FLAG})
+  target_compile_options (seastar PUBLIC "-gsplit-dwarf")
 endif ()
 
 if (Seastar_DPDK)

@@ -37,7 +37,7 @@ sanitizers_cflags=$<JOIN:@Sanitizers_PKGCONFIG_COMPILER_OPTIONS@, >
 
 # Us.
 seastar_cflags=${seastar_include_flags} $<JOIN:$<TARGET_PROPERTY:seastar,INTERFACE_COMPILE_OPTIONS>, > -D$<JOIN:$<TARGET_PROPERTY:seastar,INTERFACE_COMPILE_DEFINITIONS>, -D>
-seastar_libs=${libdir}/$<TARGET_FILE_NAME:seastar>
+seastar_libs=${libdir}/$<TARGET_FILE_NAME:seastar> @Seastar_SPLIT_DWARF_FLAG@
 
 Requires: liblz4 >= 1.8.0
 Requires.private: gnutls >= 3.5.18, protobuf >= 3.3.0, hwloc >= 1.11.5, yaml-cpp >= 0.5.3
