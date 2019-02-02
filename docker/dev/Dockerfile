@@ -28,4 +28,5 @@ RUN dnf install -y \
     libaio-devel \
     libpciaccess-devel \
     libxml2-devel \
-    c-ares-devel
+    c-ares-devel \
+    stow
