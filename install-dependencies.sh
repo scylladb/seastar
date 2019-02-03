@@ -23,19 +23,7 @@ if [ "$ID" = "ubuntu" ] || [ "$ID" = "debian" ]; then
     apt-get install -y ninja-build ragel libhwloc-dev libnuma-dev libpciaccess-dev libcrypto++-dev libboost-all-dev libxml2-dev xfslibs-dev libgnutls28-dev liblz4-dev libsctp-dev gcc make libprotobuf-dev protobuf-compiler python3 systemtap-sdt-dev libtool cmake libyaml-cpp-dev libc-ares-dev stow g++
 elif [ "$ID" = "centos" ] || [ "$ID" = "fedora" ]; then
     if [ "$ID" = "centos" ]; then
-        yum install -y epel-release
-        cat > /etc/yum.repos.d/scylladb-copr.repo <<EOF
-[scylladb-scylla-3rdparty]
-name=Copr repo for scylla-3rdparty owned by scylladb
-baseurl=https://copr-be.cloud.fedoraproject.org/results/scylladb/scylla-3rdparty/epel-7-x86_64/
-type=rpm-md
-skip_if_unavailable=True
-gpgcheck=1
-gpgkey=https://copr-be.cloud.fedoraproject.org/results/scylladb/scylla-3rdparty/pubkey.gpg
-repo_gpgcheck=0
-enabled=1
-enabled_metadata=1
-EOF
+        yum install -y epel-release centos-release-scl scl-utils
     fi
     # seastar doesn't directly depend on these packages. They are
     # needed because we want to link seastar statically and pkg-config
@@ -48,9 +36,7 @@ EOF
     if [ "$ID" = "fedora" ]; then
         dnf install -y gcc-c++ ninja-build ragel boost-devel libubsan libasan libatomic
     else # centos
-        yum install -y scylla-binutils scylla-gcc73-c++ ninja-build ragel-devel scylla-boost163-devel scylla-libubsan73-static scylla-libasan73-static scylla-libstdc++73-static scylla-libatomic73-static python34
-        echo "g++-7.3 is installed for Seastar. To build Seastar with g++-7.3, specify '--compiler=/opt/scylladb/bin/g++ --static-stdc++' on configure.py"
-        echo "Before running ninja-build, execute following command: . /etc/profile.d/scylla.sh"
+        yum install -y ninja-build ragel rh-mongodb36-boost-devel devtoolset-8-gcc-c++ devtoolset-8-libubsan devtoolset-8-libasan devtoolset-8-libatomic 
     fi
 elif [ "$ID" = "arch" -o "$ID_LIKE" = "arch" ]; then
     pacman -Sy --needed gcc ninja ragel boost boost-libs hwloc numactl libpciaccess crypto++ libxml2 xfsprogs gnutls lksctp-tools lz4 make protobuf systemtap libtool cmake yaml-cpp stow
