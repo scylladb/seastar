@@ -20,21 +20,7 @@
 . /etc/os-release
 
 if [ "$ID" = "ubuntu" ] || [ "$ID" = "debian" ]; then
-    if [ "$VERSION_ID" = "14.04" ]; then
-        if [ ! -f /usr/bin/add-apt-repository ]; then
-            apt-get -y install software-properties-common
-        fi
-
-        add-apt-repository -y ppa:ubuntu-toolchain-r/test
-        apt-get -y update
-    fi
-    apt-get install -y ninja-build ragel libhwloc-dev libnuma-dev libpciaccess-dev libcrypto++-dev libboost-all-dev libxml2-dev xfslibs-dev libgnutls28-dev liblz4-dev libsctp-dev gcc make libprotobuf-dev protobuf-compiler python3 systemtap-sdt-dev libtool cmake libyaml-cpp-dev libc-ares-dev stow
-    if [ "$ID" = "ubuntu" ]; then
-        apt-get install -y g++-5
-        echo "g++-5 is installed for Seastar. To build Seastar with g++-5, specify '--compiler=g++-5' on configure.py"
-    else # debian
-        apt-get install -y g++
-    fi
+    apt-get install -y ninja-build ragel libhwloc-dev libnuma-dev libpciaccess-dev libcrypto++-dev libboost-all-dev libxml2-dev xfslibs-dev libgnutls28-dev liblz4-dev libsctp-dev gcc make libprotobuf-dev protobuf-compiler python3 systemtap-sdt-dev libtool cmake libyaml-cpp-dev libc-ares-dev stow g++
 elif [ "$ID" = "centos" ] || [ "$ID" = "fedora" ]; then
     if [ "$ID" = "centos" ]; then
         yum install -y epel-release
