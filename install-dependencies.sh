@@ -159,13 +159,10 @@ opensuse_packages=(
 if [ "$ID" = "ubuntu" ] || [ "$ID" = "debian" ]; then
     apt-get install -y "${debian_packages[@]}"
 elif [ "$ID" = "centos" ] || [ "$ID" = "fedora" ]; then
-    if [ "$ID" = "centos" ]; then
-        yum install -y epel-release centos-release-scl scl-utils
-    fi
-
     if [ "$ID" = "fedora" ]; then
         dnf install -y "${fedora_packages[@]}"
     else # centos
+        yum install -y epel-release centos-release-scl scl-utils
         yum install -y "${centos_packages[@]}" 
     fi
 elif [ "$ID" = "arch" -o "$ID_LIKE" = "arch" ]; then
