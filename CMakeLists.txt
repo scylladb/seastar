@@ -85,6 +85,10 @@ set (CMAKE_BUILD_TYPE
   "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel Dev."
   FORCE)
 
+if (NOT CMAKE_BUILD_TYPE)
+  set (CMAKE_BUILD_TYPE "Release")
+endif ()
+
 set (Seastar_ALLOC_PAGE_SIZE
   ""
   CACHE
