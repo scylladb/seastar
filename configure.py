@@ -96,6 +96,11 @@ add_tristate(
     name = 'exception-scalability-workaround',
     dest = 'exception_workaround',
     help = 'a workaround for C++ exception scalability issues by overriding the definition of `dl_iterate_phdr`')
+add_tristate(
+    arg_parser,
+    name = 'experimental-coroutines-ts',
+    dest = "coroutines_ts",
+    help = 'experimental support for Coroutines TS')
 arg_parser.add_argument('--allocator-page-size', dest='allocator_page_size', type=int, help='override allocator page size')
 arg_parser.add_argument('--without-tests', dest='exclude_tests', action='store_true', help='Do not build tests by default')
 arg_parser.add_argument('--without-apps', dest='exclude_apps', action='store_true', help='Do not build applications by default')
@@ -161,6 +166,7 @@ def configure_mode(mode):
         tr(args.allocator_page_size, 'ALLOCATOR_PAGE_SIZE'),
         tr(args.cpp17_goodies, 'STD_OPTIONAL_VARIANT_STRINGVIEW'),
         tr(args.split_dwarf, 'SPLIT_DWARF'),
+        tr(args.coroutines_ts, 'EXPERIMENTAL_COROUTINES_TS'),
     ]
 
     # Generate a new build by pointing to the source directory.

@@ -54,6 +54,11 @@ endmacro ()
 seastar_add_demo (block_discard
   SOURCES block_discard_demo.cc)
 
+if (Seastar_EXPERIMENTAL_COROUTINES_TS)
+  seastar_add_demo (coroutines
+    SOURCES coroutines_demo.cc)
+endif ()
+
 seastar_add_demo (echo
   SOURCES echo_demo.cc)
 
