@@ -43,11 +43,11 @@ SEASTAR_TEST_CASE(udp_packet_test) {
         return make_ready_future<>();
     }
 
-    auto sc = engine().net().make_udp_channel(ipv6_addr{});
+    auto sc = engine().net().make_udp_channel(ipv6_addr{"::1"});
 
     BOOST_REQUIRE(sc.local_address().addr().is_ipv6());
 
-    auto cc = engine().net().make_udp_channel(ipv6_addr{});
+    auto cc = engine().net().make_udp_channel(ipv6_addr{"::1"});
 
     auto f1 = cc.send(sc.local_address(), "apa");
 
@@ -75,7 +75,7 @@ SEASTAR_TEST_CASE(tcp_packet_test) {
     }
 
     return async([] {
-        auto sc = engine().net().listen(ipv6_addr{}, {});
+        auto sc = engine().net().listen(ipv6_addr{"::1"}, {});
         auto la = sc.local_address();
 
         BOOST_REQUIRE(la.addr().is_ipv6());

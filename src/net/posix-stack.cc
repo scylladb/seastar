@@ -515,7 +515,7 @@ bool
 posix_network_stack::supports_ipv6() const {
     static bool has_ipv6 = [] {
         try {
-            posix_udp_channel c(ipv6_addr{});
+            posix_udp_channel c(ipv6_addr{"::1"});
             c.close();
             return true;
         } catch (...) {}
