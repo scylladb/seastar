@@ -1,0 +1,19 @@
+version: 2
+jobs:
+  build_and_test:
+    docker:
+      - image: scylladb/seastar-toolchain
+    steps:
+      - checkout
+      - run: git submodule sync
+      - run: git submodule update --init
+      - run:
+          command: |
+            ./configure.py
+            ninja -C build/release -j1
+            ./test.py --mode release
+workflows:
+  version: 2
+  build_and_test:
+    jobs:
+      - build_and_test
