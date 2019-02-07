@@ -29,27 +29,26 @@
 #include <seastar/util/read_first_line.hh>
 #include <stdlib.h>
 #include <limits>
+#include "cgroup.hh"
+#include <seastar/util/log.hh>
 
 #include <boost/range/adaptor/map.hpp>
 #include <boost/range/algorithm/copy.hpp>
 
 namespace seastar {
 
-// Overload for boost program options parsing/validation
-void validate(boost::any& v,
-              const std::vector<std::string>& values,
-              cpuset_bpo_wrapper* target_type, int) {
-    using namespace boost::program_options;
+extern logger seastar_logger;
+
+// This function was made optional because of validate. It needs to
+// throw an error when a non parseable input is given.
+compat::optional<resource::cpuset> parse_cpuset(std::string value) {
     static std::regex r("(\\d+-)?(\\d+)(,(\\d+-)?(\\d+))*");
-    validators::check_first_occurrence(v);
-    // Extract the first string from 'values'. If there is more than
-    // one string, it's an error, and exception will be thrown.
-    auto&& s = validators::get_single_string(values);
+
     std::smatch match;
-    if (std::regex_match(s, match, r)) {
+    if (std::regex_match(value, match, r)) {
         std::vector<std::string> ranges;
-        boost::split(ranges, s, boost::is_any_of(","));
-        cpuset_bpo_wrapper ret;
+        boost::split(ranges, value, boost::is_any_of(","));
+        resource::cpuset ret;
         for (auto&& range: ranges) {
             std::string beg = range;
             std::string end = range;
@@ -60,17 +59,72 @@ void validate(boost::any& v,
             }
             auto b = boost::lexical_cast<unsigned>(beg);
             auto e = boost::lexical_cast<unsigned>(end);
+
             if (b > e) {
-                throw validation_error(validation_error::invalid_option_value);
+                return seastar::compat::nullopt;
             }
+
             for (auto i = b; i <= e; ++i) {
-                ret.value.insert(i);
+                ret.insert(i);
             }
         }
+        return ret;
+    }
+    return seastar::compat::nullopt;
+}
+
+// Overload for boost program options parsing/validation
+void validate(boost::any& v,
+              const std::vector<std::string>& values,
+              cpuset_bpo_wrapper* target_type, int) {
+    using namespace boost::program_options;
+    validators::check_first_occurrence(v);
+
+    // Extract the first string from 'values'. If there is more than
+    // one string, it's an error, and exception will be thrown.
+    auto&& s = validators::get_single_string(values);
+    auto parsed_cpu_set = parse_cpuset(s);
+
+    if (parsed_cpu_set) {
+        cpuset_bpo_wrapper ret;
+        ret.value = *parsed_cpu_set;
         v = std::move(ret);
     } else {
         throw validation_error(validation_error::invalid_option_value);
     }
+}
+
+namespace cgroup {
+
+
+optional<cpuset> cpu_set() {
+    auto cpuset = read_setting_as<std::string>("/sys/fs/cgroup/cpuset/cpuset.cpus");
+    if (cpuset) {
+        return seastar::parse_cpuset(*cpuset);
+    }
+
+    seastar_logger.warn("Unable to parse cgroup's cpuset. Ignoring.");
+    return seastar::compat::nullopt;
+}
+
+size_t memory_limit() {
+    return read_setting_as<size_t>("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+        .value_or(std::numeric_limits<size_t>::max());
+}
+
+
+template <typename T>
+optional<T> read_setting_as(std::string path) {
+    try {
+        auto line = read_first_line(path);
+        return boost::lexical_cast<T>(line);
+    } catch (...) {
+        seastar_logger.warn("Couldn't read cgroup file {}.", path);
+    }
+
+    return seastar::compat::nullopt;
+}
+
 }
 
 namespace resource {
@@ -263,16 +317,6 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, unsigned n
 }
 
 
-size_t get_cgroup_memory_limit() {
-    compat::filesystem::path cgroup_memory = "/sys/fs/cgroup/memory/memory.limit_in_bytes";
-
-    try {
-        return boost::lexical_cast<size_t>(read_first_line(cgroup_memory));
-    } catch (...) {
-        return std::numeric_limits<size_t>::max();
-    }
-}
-
 resources allocate(configuration c) {
     hwloc_topology_t topology;
     hwloc_topology_init(&topology);
@@ -303,7 +347,7 @@ resources allocate(configuration c) {
     auto machine = hwloc_get_obj_by_depth(topology, machine_depth, 0);
     auto available_memory = machine->memory.total_memory;
     size_t mem = calculate_memory(c, std::min(available_memory,
-                                              get_cgroup_memory_limit()));
+                                              cgroup::memory_limit()));
     unsigned available_procs = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
     unsigned procs = c.cpus.value_or(available_procs);
     if (procs > available_procs) {

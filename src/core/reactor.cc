@@ -48,6 +48,7 @@
 #include <seastar/util/log.hh>
 #include "core/file-impl.hh"
 #include "syscall_work_queue.hh"
+#include "cgroup.hh"
 #include <cassert>
 #include <unistd.h>
 #include <fcntl.h>
@@ -5071,11 +5072,34 @@ void smp::configure(boost::program_options::variables_map configuration)
     smp::_tmain = std::this_thread::get_id();
     auto nr_cpus = resource::nr_processing_units();
     resource::cpuset cpu_set;
+    auto cgroup_cpu_set = cgroup::cpu_set();
+
     std::copy(boost::counting_iterator<unsigned>(0), boost::counting_iterator<unsigned>(nr_cpus),
             std::inserter(cpu_set, cpu_set.end()));
+
     if (configuration.count("cpuset")) {
         cpu_set = configuration["cpuset"].as<cpuset_bpo_wrapper>().value;
+        if (cgroup_cpu_set && *cgroup_cpu_set != cpu_set) {
+            // CPUs that are not available are those pinned by
+            // --cpuset but not by cgroups, if mounted.
+            std::set<unsigned int> not_available_cpus;
+            std::set_difference(cpu_set.begin(), cpu_set.end(),
+                                cgroup_cpu_set->begin(), cgroup_cpu_set->end(),
+                                std::inserter(not_available_cpus, not_available_cpus.end()));
+
+            if (!not_available_cpus.empty()) {
+                std::ostringstream not_available_cpus_list;
+                for (auto cpu_id : not_available_cpus) {
+                    not_available_cpus_list << " " << cpu_id;
+                }
+                seastar_logger.error("Bad value for --cpuset:{} not allowed. Shutting down.", not_available_cpus_list.str());
+                exit(1);
+            }
+        }
+    } else if (cgroup_cpu_set) {
+        cpu_set = *cgroup_cpu_set;
     }
+
     if (configuration.count("smp")) {
         nr_cpus = configuration["smp"].as<unsigned>();
     } else {
