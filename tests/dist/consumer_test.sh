@@ -25,11 +25,17 @@
 #     CONSUMER_SOURCE_DIR
 #     SEASTAR_SOURCE_DIR
 #
+# The following environmental variables can optionally be defined:
+#
+#    CMAKE_BUILD_TYPE (defaults to "Release")
+#
 
 set -e
 
+CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE:-Release}
+
 cd "${CONSUMER_SOURCE_DIR}"
-./cooking.sh -t Release
+./cooking.sh -t "${CMAKE_BUILD_TYPE}"
 
 #
 # Consume from CMake.
