@@ -596,10 +596,6 @@ if (Seastar_COMPRESS_DEBUG)
   list (APPEND Seastar_DEVELOPMENT_FLAGS -gz)
 endif()
 
-set (Seastar_DEVELOPMENT_LIBS
-    debug Sanitizers::address
-    debug Sanitizers::undefined_behavior)
-
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   if (NOT Sanitizers_FOUND)
     message (FATAL_ERROR "Sanitizers are required for debug mode!")
@@ -608,6 +604,8 @@ endif ()
 
 target_link_libraries (seastar
   PUBLIC
+    debug Sanitizers::address
+    debug Sanitizers::undefined_behavior
     Boost::boost
     Boost::program_options
     Boost::thread
@@ -760,9 +758,6 @@ target_compile_definitions (seastar
 target_compile_options (seastar
   PRIVATE ${Seastar_DEVELOPMENT_FLAGS})
 
-target_link_libraries (seastar
-  PRIVATE ${Seastar_DEVELOPMENT_LIBS})
-
 add_library (seastar_with_flags INTERFACE)
 
 target_compile_definitions (seastar_with_flags
@@ -772,9 +767,7 @@ target_compile_options (seastar_with_flags
   INTERFACE ${Seastar_DEVELOPMENT_FLAGS})
 
 target_link_libraries (seastar_with_flags
-  INTERFACE
-    seastar
-    ${Seastar_DEVELOPMENT_LIBS})
+  INTERFACE seastar)
 
 #
 # The testing library.
@@ -804,8 +797,7 @@ if (Seastar_INSTALL OR Seastar_TESTING)
   target_link_libraries (seastar_testing
     PUBLIC
       Boost::unit_test_framework
-      seastar
-    PRIVATE ${Seastar_DEVELOPMENT_LIBS})
+      seastar)
 endif ()
 
 #
@@ -874,12 +866,6 @@ if (Seastar_INSTALL)
 
   # Necessary here for pkg-config.
   include (GNUInstallDirs)
-
-  if (NOT ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug"))
-    set (Sanitizers_PKGCONFIG_COMPILER_OPTIONS "")
-  else ()
-    set (Sanitizers_PKGCONFIG_COMPILER_OPTIONS ${Sanitizers_COMPILER_OPTIONS})
-  endif ()
 
   # Set paths in pkg-config files for installation.
   set (Seastar_PKG_CONFIG_PREFIX ${CMAKE_INSTALL_PREFIX})
