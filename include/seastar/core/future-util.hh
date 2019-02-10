@@ -129,6 +129,11 @@ parallel_for_each(Iterator begin, Iterator end, Func&& func) {
         auto f = futurize_apply(std::forward<Func>(func), *begin++);
         if (__builtin_expect(!f.available() || f.failed(), false)) {
             if (!state) {
+                if (begin == end) {
+                    // Only the last element was not immediately ready (likely if
+                    // there is exactly one element)
+                    return f;
+                }
               [&state] () noexcept {
                 memory::disable_failure_guard dfg;
                 state = make_lw_shared<parallel_for_each_state>();
