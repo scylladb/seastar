@@ -554,6 +554,7 @@ private:
     uint64_t tasks_processed() const;
     uint64_t min_vruntime() const;
     void request_preemption();
+    void start_handling_signal();
     void reset_preemption_monitor();
     void service_highres_timer();
 public:

@@ -587,6 +587,7 @@ public:
     virtual void arm_highres_timer(const ::itimerspec& ts) = 0;
     virtual void reset_preemption_monitor() = 0;
     virtual void request_preemption() = 0;
+    virtual void start_handling_signal() = 0;
 };
 
 // reactor backend using file-descriptor & epoll, suitable for running on
@@ -619,6 +620,7 @@ public:
     virtual void arm_highres_timer(const ::itimerspec& ts) override;
     virtual void reset_preemption_monitor() override;
     virtual void request_preemption() override;
+    virtual void start_handling_signal() override;
 };
 
 #ifdef HAVE_OSV
@@ -815,12 +817,6 @@ public:
         _polling_io.replenish(&_timerfd_iocb, _timerfd_in_polling_io);
         _polling_io.replenish(&_smp_wakeup_iocb, _smp_wakeup_in_polling_io);
         _polling_io.flush();
-        if (timeout) {
-            // If we get a signal during io_pgetevents(), its handler
-            // will call request_preemption(), which needs the preemption monitor
-            // to be armed:
-            reset_preemption_monitor();
-        }
         did_work |= await_events(timeout, active_sigmask);
         did_work |= service_preempting_io(); // clear task quota timer
         return did_work;
@@ -891,10 +887,20 @@ public:
         ::itimerspec expired = {};
         expired.it_value.tv_nsec = 1;
         arm_highres_timer(expired); // will trigger immediately, triggering the preemption monitor
+
+        // This might have been called from poll_once. If that is the case, we cannot assume that timerfd is being
+        // monitored.
+        _preempting_io.replenish(&_timerfd_iocb, _timerfd_in_preempting_io);
+        _preempting_io.flush();
+
         // The kernel is not obliged to deliver the completion immediately, so wait for it
         while (!need_preempt()) {
             std::atomic_signal_fence(std::memory_order_seq_cst);
         }
+    }
+    virtual void start_handling_signal() override {
+        // The aio backend only uses SIGHUP/SIGTERM/SIGINT. We don't need to handle them right away and our
+        // implementation of request_preemption is not signal safe, so do nothing.
     }
 };
 
@@ -1006,7 +1012,7 @@ bool reactor::signals::pure_poll_signal() const {
 }
 
 void reactor::signals::action(int signo, siginfo_t* siginfo, void* ignore) {
-    engine().request_preemption();
+    engine().start_handling_signal();
     engine()._signals._pending_signals.fetch_or(1ull << signo, std::memory_order_relaxed);
 }
 
@@ -1372,9 +1378,19 @@ reactor::request_preemption() {
     return _backend->request_preemption();
 }
 
+void reactor::start_handling_signal() {
+    return _backend->start_handling_signal();
+}
+
 void
 reactor_backend_epoll::request_preemption() {
     _r->_preemption_monitor.head.store(1, std::memory_order_relaxed);
+}
+
+void reactor_backend_epoll::start_handling_signal() {
+    // The epoll backend uses signals for the high resolution timer. That is used for thread_scheduling_group, so we
+    // request preemption so when we receive a signal.
+    request_preemption();
 }
 
 // Add to an atomic integral non-atomically and returns the previous value
