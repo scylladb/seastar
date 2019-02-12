@@ -28,15 +28,28 @@
 #include <boost/iterator/counting_iterator.hpp>
 #include <functional>
 
+/// \defgroup smp-module Multicore
+///
+/// \brief Support for exploiting multiple cores on a server.
+///
+/// Seastar supports multicore servers by using *sharding*.  Each logical
+/// core (lcore) runs a separate event loop, with its own memory allocator,
+/// TCP/IP stack, and other services.  Shards communicate by explicit message
+/// passing, rather than using locks and condition variables as with traditional
+/// threaded programming.
+
 namespace seastar {
+
+/// \addtogroup smp-module
+/// @{
 
 template <typename T>
 class sharded;
 
-/// if sharded service inherits from this class sharded::stop() will wait
-/// untill all references to a service on each shard will dissapper before
-/// returning. It is still service's own responcibility to track its references
-/// in asyncronous code by calling shared_from_this() and keeping returned smart
+/// If sharded service inherits from this class sharded::stop() will wait
+/// until all references to a service on each shard will disappear before
+/// returning. It is still service's own responsibility to track its references
+/// in asynchronous code by calling shared_from_this() and keeping returned smart
 /// pointer as long as object is in use.
 template<typename T>
 class async_sharded_service : public enable_shared_from_this<T> {
@@ -54,8 +67,8 @@ protected:
 /// \brief Provide a sharded service with access to its peers
 ///
 /// If a service class inherits from this, it will gain a \code container()
-/// method that provides access to the \ref sharded object, with which it
-/// can call its peers.
+/// \endcode method that provides access to the \ref sharded object, with which
+/// it can call its peers.
 template <typename Service>
 class peering_sharded_service {
     sharded<Service>* _container = nullptr;
@@ -79,19 +92,6 @@ public:
         return "sharded instance does not exists";
     }
 };
-
-/// \defgroup smp-module Multicore
-///
-/// \brief Support for exploiting multiple cores on a server.
-///
-/// Seastar supports multicore servers by using \i sharding.  Each logical
-/// core (lcore) runs a separate event loop, with its own memory allocator,
-/// TCP/IP stack, and other services.  Shards communicate by explicit message
-/// passing, rather than using locks and condition variables as with traditional
-/// threaded programming.
-
-/// \addtogroup smp-module
-/// @{
 
 /// Template helper to distribute a service across all logical cores.
 ///
@@ -380,6 +380,8 @@ private:
     }
 };
 
+/// @}
+
 template <typename Service>
 sharded<Service>::~sharded() {
 	assert(_instances.empty());
@@ -571,6 +573,9 @@ inline bool sharded<Service>::local_is_initialized() const {
            _instances[engine().cpu_id()].service;
 }
 
+/// \addtogroup smp-module
+/// @{
+
 /// Smart pointer wrapper which makes it safe to move across CPUs.
 ///
 /// \c foreign_ptr<> is a smart pointer wrapper which, unlike
@@ -690,10 +695,9 @@ foreign_ptr<T> make_foreign(T ptr) {
     return foreign_ptr<T>(std::move(ptr));
 }
 
+/// @}
+
 template<typename T>
 struct is_smart_ptr<foreign_ptr<T>> : std::true_type {};
 
 }
-
-/// @}
-
