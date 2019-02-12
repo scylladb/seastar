@@ -394,14 +394,14 @@ SEASTAR_TEST_CASE(test_stream_simple) {
     so.streaming_domain = rpc::streaming_domain_type(1);
     return with_rpc_env({}, so, true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return stream_test_func(proto, make_socket, false).then([] (stream_test_result r) {
-            BOOST_REQUIRE(r.client_source_closed &&
-                    r.server_source_closed &&
-                    r.server_sum == 5050 &&
-                    !r.sink_exception &&
-                    !r.sink_close_exception &&
-                    !r.source_done_exception &&
-                    !r.server_done_exception &&
-                    !r.client_stop_exception);
+            BOOST_REQUIRE(r.client_source_closed);
+            BOOST_REQUIRE(r.server_source_closed);
+            BOOST_REQUIRE(r.server_sum == 5050);
+            BOOST_REQUIRE(!r.sink_exception);
+            BOOST_REQUIRE(!r.sink_close_exception);
+            BOOST_REQUIRE(!r.source_done_exception);
+            BOOST_REQUIRE(!r.server_done_exception);
+            BOOST_REQUIRE(!r.client_stop_exception);
         });
     });
 }
@@ -411,13 +411,13 @@ SEASTAR_TEST_CASE(test_stream_stop_client) {
     so.streaming_domain = rpc::streaming_domain_type(1);
     return with_rpc_env({}, so, true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return stream_test_func(proto, make_socket, true).then([] (stream_test_result r) {
-            BOOST_REQUIRE(!r.client_source_closed &&
-                    !r.server_source_closed &&
-                    r.sink_exception &&
-                    r.sink_close_exception &&
-                    r.source_done_exception &&
-                    r.server_done_exception &&
-                    !r.client_stop_exception);
+            BOOST_REQUIRE(!r.client_source_closed);
+            BOOST_REQUIRE(!r.server_source_closed);
+            BOOST_REQUIRE(r.sink_exception);
+            BOOST_REQUIRE(r.sink_close_exception);
+            BOOST_REQUIRE(r.source_done_exception);
+            BOOST_REQUIRE(r.server_done_exception);
+            BOOST_REQUIRE(!r.client_stop_exception);
         });
     });
 }
@@ -428,13 +428,13 @@ SEASTAR_TEST_CASE(test_stream_connection_error) {
     so.streaming_domain = rpc::streaming_domain_type(1);
     return with_rpc_env({}, so, true, true, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return stream_test_func(proto, make_socket, false).then([] (stream_test_result r) {
-            BOOST_REQUIRE(!r.client_source_closed &&
-                    !r.server_source_closed &&
-                    r.sink_exception &&
-                    r.sink_close_exception &&
-                    r.source_done_exception &&
-                    r.server_done_exception &&
-                    !r.client_stop_exception);
+            BOOST_REQUIRE(!r.client_source_closed);
+            BOOST_REQUIRE(!r.server_source_closed);
+            BOOST_REQUIRE(r.sink_exception);
+            BOOST_REQUIRE(r.sink_close_exception);
+            BOOST_REQUIRE(r.source_done_exception);
+            BOOST_REQUIRE(r.server_done_exception);
+            BOOST_REQUIRE(!r.client_stop_exception);
         });
     });
 }
