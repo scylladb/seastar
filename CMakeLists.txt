@@ -754,6 +754,12 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
       SEASTAR_THREAD_STACK_GUARDS)
 endif ()
 
+if ((CMAKE_BUILD_TYPE STREQUAL "Dev") OR (CMAKE_BUILD_TYPE STREQUAL "Debug"))
+  target_compile_definitions (seastar
+    PUBLIC
+      SEASTAR_TYPE_ERASE_MORE)
+endif ()
+
 target_compile_definitions (seastar
   PRIVATE ${Seastar_DEVELOPMENT_DEFINES})
 

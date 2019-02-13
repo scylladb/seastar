@@ -34,6 +34,7 @@
 #include <seastar/core/function_traits.hh>
 #include <seastar/util/alloc_failure_injector.hh>
 #include <seastar/util/gcc6-concepts.hh>
+#include <seastar/util/noncopyable_function.hh>
 
 namespace seastar {
 
@@ -980,6 +981,21 @@ public:
     GCC6_CONCEPT( requires ::seastar::CanApply<Func, T...> )
     Result
     then(Func&& func) noexcept {
+#ifndef SEASTAR_TYPE_ERASE_MORE
+        return then_impl(std::move(func));
+#else
+        using futurator = futurize<std::result_of_t<Func(T&&...)>>;
+        return then_impl(noncopyable_function<Result (T&&...)>([func = std::forward<Func>(func)] (T&&... args) mutable {
+            return futurator::apply(func, std::forward_as_tuple(std::move(args)...));
+        }));
+#endif
+    }
+
+private:
+
+    template <typename Func, typename Result = futurize_t<std::result_of_t<Func(T&&...)>>>
+    Result
+    then_impl(Func&& func) noexcept {
         using futurator = futurize<std::result_of_t<Func(T&&...)>>;
         if (available() && !need_preempt()) {
             if (failed()) {
@@ -1008,7 +1024,7 @@ public:
         return fut;
     }
 
-
+public:
     /// \brief Schedule a block of code to run when the future is ready, allowing
     ///        for exception handling.
     ///
@@ -1028,6 +1044,21 @@ public:
     GCC6_CONCEPT( requires ::seastar::CanApply<Func, future> )
     Result
     then_wrapped(Func&& func) noexcept {
+#ifndef SEASTAR_TYPE_ERASE_MORE
+        return then_wrapped_impl(std::move(func));
+#else
+        using futurator = futurize<std::result_of_t<Func(future)>>;
+        return then_wrapped_impl(noncopyable_function<Result (future)>([func = std::forward<Func>(func)] (future f) mutable {
+            return futurator::apply(std::forward<Func>(func), std::move(f));
+        }));
+#endif
+    }
+
+private:
+
+    template <typename Func, typename Result = futurize_t<std::result_of_t<Func(future)>>>
+    Result
+    then_wrapped_impl(Func&& func) noexcept {
         using futurator = futurize<std::result_of_t<Func(future)>>;
         if (available() && !need_preempt()) {
             return futurator::apply(std::forward<Func>(func), future(get_available_state()));
@@ -1048,6 +1079,7 @@ public:
         return fut;
     }
 
+public:
     /// \brief Satisfy some \ref promise object with this future as a result.
     ///
     /// Arranges so that when this future is resolve, it will be used to
