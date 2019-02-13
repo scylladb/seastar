@@ -588,7 +588,8 @@ set (Seastar_DEVELOPMENT_FLAGS
   -fvisibility=hidden
   -UNDEBUG
   -Wall
-  -Werror)
+  -Werror
+  -Wno-error=deprecated-declarations)
 
 if (Seastar_COMPRESS_DEBUG)
   # -gz doesn't imply -g, so it is safe to add it regardless of debug
