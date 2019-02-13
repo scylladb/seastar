@@ -63,7 +63,7 @@ macro (seastar_add_test name)
 
   set_target_properties (${target}
     PROPERTIES
-      OUTPUT_NAME ${name})
+      OUTPUT_NAME ${name}_perf)
 
   add_dependencies (perf_tests ${target})
   set (${name}_test ${target})
