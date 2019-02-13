@@ -46,7 +46,7 @@ macro (seastar_add_demo name)
 
   set_target_properties (${target}
     PROPERTIES
-      OUTPUT_NAME ${name})
+      OUTPUT_NAME ${name}_demo)
 
   add_dependencies (demos ${target})
 endmacro ()
