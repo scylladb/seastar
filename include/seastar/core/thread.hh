@@ -230,7 +230,10 @@ private:
 /// After those events, if the thread has already run for more than its fraction, it will be scheduled to
 /// run again only after \c period completes, unless there are no other tasks to run (the system is
 /// idle)
-class thread_scheduling_group {
+///
+/// \deprecated This class has been replaced by \ref scheduling_group, which can be used to schedule
+/// both threads and continuations.
+class [[deprecated("Use seastar::scheduling_group instead")]] thread_scheduling_group {
     std::chrono::nanoseconds _period;
     std::chrono::nanoseconds _quota;
     std::chrono::time_point<thread_clock> _this_period_ends = {};
