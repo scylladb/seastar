@@ -227,14 +227,20 @@ struct connection_id {
         return id == o.id;
     }
     operator bool() const {
-        return id;
+        return shard() != 0xffff;
     }
-    size_t shard() {
+    size_t shard() const {
         return size_t(id & 0xffff);
+    }
+    constexpr static connection_id make_invalid_id(uint64_t id = 0) {
+        return make_id(id, 0xffff);
+    }
+    constexpr static connection_id make_id(uint64_t id, uint16_t shard) {
+        return {id << 16 | shard};
     }
 };
 
-constexpr connection_id invalid_connection_id{0};
+constexpr connection_id invalid_connection_id = connection_id::make_invalid_id();
 
 std::ostream& operator<<(std::ostream&, const connection_id&);
 

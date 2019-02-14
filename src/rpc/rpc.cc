@@ -970,12 +970,12 @@ namespace rpc {
       keep_doing([this] () mutable {
           return _ss.accept().then([this] (connected_socket fd, socket_address addr) mutable {
               fd.set_nodelay(_options.tcp_nodelay);
-              connection_id id = invalid_connection_id;
-              if (_options.streaming_domain) {
-                  id = {_next_client_id++ << 16 | uint16_t(engine().cpu_id())};
-              }
+              connection_id id = _options.streaming_domain ?
+                      connection_id::make_id(_next_client_id++, uint16_t(engine().cpu_id())) :
+                      connection_id::make_invalid_id(_next_client_id++);
               auto conn = _proto->make_server_connection(*this, std::move(fd), std::move(addr), id);
-              _conns.emplace(id, conn);
+              auto r = _conns.emplace(id, conn);
+              assert(r.second);
               conn->process();
           });
       }).then_wrapped([this] (future<>&& f){
