@@ -584,7 +584,7 @@ target_include_directories (seastar
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${Seastar_GEN_BINARY_DIR}/src)
 
-set (Seastar_DEVELOPMENT_FLAGS
+set (Seastar_PRIVATE_CXX_FLAGS
   -fvisibility=hidden
   -UNDEBUG
   -Wall
@@ -594,7 +594,7 @@ set (Seastar_DEVELOPMENT_FLAGS
 if (Seastar_COMPRESS_DEBUG)
   # -gz doesn't imply -g, so it is safe to add it regardless of debug
   # info being enabled.
-  list (APPEND Seastar_DEVELOPMENT_FLAGS -gz)
+  list (APPEND Seastar_PRIVATE_CXX_FLAGS -gz)
 endif()
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -655,7 +655,7 @@ if (Seastar_GCC6_CONCEPTS OR Concepts_FOUND)
 endif ()
 
 if (LinuxMembarrier_FOUND)
-  list (APPEND Seastar_DEVELOPMENT_DEFINES SEASTAR_HAS_MEMBARRIER)
+  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAS_MEMBARRIER)
 
   target_link_libraries (seastar
     PRIVATE LinuxMembarrier::membarrier)
@@ -672,7 +672,7 @@ if (Seastar_STD_OPTIONAL_VARIANT_STRINGVIEW)
 endif ()
 
 if (Sanitizers_FIBER_SUPPORT)
-  list (APPEND Seastar_DEVELOPMENT_DEFINES SEASTAR_HAVE_ASAN_FIBER_SUPPORT)
+  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_ASAN_FIBER_SUPPORT)
 endif ()
 
 if (Seastar_ALLOC_PAGE_SIZE)
@@ -681,7 +681,7 @@ if (Seastar_ALLOC_PAGE_SIZE)
 endif ()
 
 if (Seastar_CXX_FLAGS)
-  list (APPEND Seastar_DEVELOPMENT_FLAGS ${Seastar_CXX_FLAGS})
+  list (APPEND Seastar_PRIVATE_CXX_FLAGS ${Seastar_CXX_FLAGS})
 endif ()
 
 # When using split dwarf --gdb-index is effectively required since
@@ -708,7 +708,7 @@ if (Seastar_DPDK)
 endif ()
 
 if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (NOT Seastar_EXCEPTION_SCALABILITY_WORKAROUND))
-  list (APPEND Seastar_DEVELOPMENT_DEFINES SEASTAR_NO_EXCEPTION_HACK)
+  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_NO_EXCEPTION_HACK)
 endif ()
 
 if (Seastar_HWLOC)
@@ -716,7 +716,7 @@ if (Seastar_HWLOC)
     message (FATAL_ERROR "`hwloc` support is enabled but it is not available!")
   endif ()
 
-  list (APPEND Seastar_DEVELOPMENT_DEFINES SEASTAR_HAVE_HWLOC)
+  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_HWLOC)
 
   target_link_libraries (seastar
     PRIVATE hwloc::hwloc)
@@ -733,14 +733,14 @@ if (Seastar_NUMA)
     message (FATAL_ERROR "NUMA support is enabled but `numactl` is not available!")
   endif ()
 
-  list (APPEND Seastar_DEVELOPMENT_DEFINES SEASTAR_HAVE_NUMA)
+  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_NUMA)
 
   target_link_libraries (seastar
     PRIVATE numactl::numactl)
 endif ()
 
 if (lz4_HAVE_COMPRESS_DEFAULT)
-  list (APPEND Seastar_DEVELOPMENT_DEFINES SEASTAR_HAVE_LZ4_COMPRESS_DEFAULT)
+  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_LZ4_COMPRESS_DEFAULT)
 endif ()
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -761,20 +761,20 @@ if ((CMAKE_BUILD_TYPE STREQUAL "Dev") OR (CMAKE_BUILD_TYPE STREQUAL "Debug"))
 endif ()
 
 target_compile_definitions (seastar
-  PRIVATE ${Seastar_DEVELOPMENT_DEFINES})
+  PRIVATE ${Seastar_PRIVATE_COMPILE_DEFINITIONS})
 
 target_compile_options (seastar
-  PRIVATE ${Seastar_DEVELOPMENT_FLAGS})
+  PRIVATE ${Seastar_PRIVATE_CXX_FLAGS})
 
-add_library (seastar_with_flags INTERFACE)
+add_library (seastar_private INTERFACE)
 
-target_compile_definitions (seastar_with_flags
-  INTERFACE ${Seastar_DEVELOPMENT_DEFINES})
+target_compile_definitions (seastar_private
+  INTERFACE ${Seastar_PRIVATE_COMPILE_DEFINITIONS})
 
-target_compile_options (seastar_with_flags
-  INTERFACE ${Seastar_DEVELOPMENT_FLAGS})
+target_compile_options (seastar_private
+  INTERFACE ${Seastar_PRIVATE_CXX_FLAGS})
 
-target_link_libraries (seastar_with_flags
+target_link_libraries (seastar_private
   INTERFACE seastar)
 
 #
@@ -797,10 +797,10 @@ if (Seastar_INSTALL OR Seastar_TESTING)
 
   target_compile_definitions (seastar_testing
     PUBLIC BOOST_TEST_DYN_LINK
-    PRIVATE ${Seastar_DEVELOPMENT_DEFINES})
+    PRIVATE ${Seastar_PRIVATE_COMPILE_DEFINITIONS})
 
   target_compile_options (seastar_testing
-    PRIVATE ${Seastar_DEVELOPMENT_FLAGS})
+    PRIVATE ${Seastar_PRIVATE_CXX_FLAGS})
 
   target_link_libraries (seastar_testing
     PUBLIC

@@ -94,7 +94,7 @@ function (seastar_add_test name)
 
       list (APPEND libraries
         seastar_testing
-        seastar_with_flags)
+        seastar_private)
 
       if (NOT (Seastar_JENKINS STREQUAL ""))
         list (APPEND args ${jenkins_args})
@@ -107,7 +107,7 @@ function (seastar_add_test name)
 
       list (APPEND libraries
         Boost::unit_test_framework
-        seastar_with_flags)
+        seastar_private)
 
       if (NOT (Seastar_JENKINS STREQUAL ""))
         list (APPEND args ${jenkins_args})
@@ -179,7 +179,7 @@ endfunction ()
 #
 # These kinds of tests are structured like Seastar applications.
 #
-# These tests always link against `seastar_with_flags` and are always invoked with
+# These tests always link against `seastar_private` and are always invoked with
 # `-c ${Seastar_UNIT_TEST_SMP}`.
 #
 function (seastar_add_app_test name)
@@ -193,7 +193,7 @@ function (seastar_add_app_test name)
     KIND CUSTOM
     SOURCES ${parsed_args_SOURCES}
     LIBRARIES
-      seastar_with_flags
+      seastar_private
       ${parsed_args_LIBRARIES}
     RUN_ARGS
       -c ${Seastar_UNIT_TEST_SMP}
@@ -233,7 +233,7 @@ endif ()
 seastar_add_test (allocator
   KIND CUSTOM
   SOURCES allocator_test.cc
-  LIBRARIES seastar_with_flags
+  LIBRARIES seastar_private
   RUN_ARGS ${allocator_test_args})
 
 seastar_add_app_test (alien

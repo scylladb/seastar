@@ -58,7 +58,7 @@ target_compile_definitions (app_memcached_test_ascii
 
 target_link_libraries (app_memcached_test_ascii
   PRIVATE
-    seastar_with_flags
+    seastar_private
     seastar_testing)
 
 add_custom_target (app_memcached_test_ascii_run
