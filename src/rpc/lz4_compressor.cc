@@ -70,7 +70,9 @@ rcv_buf lz4_compressor::decompress(rcv_buf data) {
         uint32_t v32;
         in.read(reinterpret_cast<char*>(&v32), 4);
         auto size = le_to_cpu(v32);
-        if (size) {
+        if (!size) {
+            throw std::runtime_error("RPC frame LZ4 decompression failure: decompressed size cannot be zero");
+        }
             temporary_buffer<char> src = linearize(data.bufs, data.size);
             src.trim_front(4);
             rcv_buf rb(size);
@@ -80,11 +82,6 @@ rcv_buf lz4_compressor::decompress(rcv_buf data) {
                 throw std::runtime_error("RPC frame LZ4 decompression failure");
             }
             return rb;
-        } else {
-            // special case: if uncompressed size is zero it means that data was not compressed
-            // compress side still not use this but we want to be ready for the future
-            return data;
-        }
     }
 }
 
