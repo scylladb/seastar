@@ -44,7 +44,7 @@ app_template::app_template(app_template::config cfg)
                 ("help,h", "show help message")
                 ;
 
-        _opts_conf_file.add(reactor::get_options_description(cfg.default_task_quota));
+        _opts_conf_file.add(reactor::get_options_description(_cfg.default_task_quota));
         _opts_conf_file.add(seastar::metrics::get_options_description());
         _opts_conf_file.add(smp::get_options_description());
         _opts_conf_file.add(scollectd::get_options_description());
