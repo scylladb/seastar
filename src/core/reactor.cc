@@ -2257,7 +2257,7 @@ posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priorit
     auto size = iov_ptr->size();
     auto data = iov_ptr->data();
     return engine().submit_io_read(_io_queue, io_priority_class, len, [fd = _fd, pos, data, size] (iocb& io) {
-        io = make_read_iocb(fd, pos, data, size);
+        io = make_readv_iocb(fd, pos, data, size);
     }).then([iov_ptr = std::move(iov_ptr)] (io_event ev) {
         engine().handle_io_result(ev);
         return make_ready_future<size_t>(size_t(ev.res));
