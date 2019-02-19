@@ -41,7 +41,7 @@ find_package (Boost
 find_package (c-ares 1.13 REQUIRED MODULE)
 find_package (cryptopp 5.6.5 REQUIRED)
 find_package (dpdk)
-find_package (fmt 5.2.1 REQUIRED)
+find_package (fmt 5.0.0 REQUIRED)
 find_package (lz4 1.7.3 REQUIRED)
 
 #

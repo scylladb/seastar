@@ -233,7 +233,7 @@ find_package (c-ares 1.13.0 REQUIRED MODULE)
 find_package (cryptopp 5.6.5 REQUIRED)
 # No version information published.
 find_package (dpdk)
-find_package (fmt 4.0.0 REQUIRED)
+find_package (fmt 5.0.0 REQUIRED)
 find_package (lz4 1.7.3 REQUIRED)
 
 ##
