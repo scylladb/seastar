@@ -125,7 +125,7 @@ SEASTAR_TEST_CASE(test_thread_sched_group) {
         done = true;
         when_all(metered.join(), unmetered.join()).discard_result().get();
         auto ratio = float(m_ctr) / (u_ctr + m_ctr);
-#ifndef DEBUG
+#ifndef SEASTAR_DEBUG
         BOOST_REQUIRE(ratio > metered_ratio - 0.05);
         BOOST_REQUIRE(ratio < metered_ratio + 0.05);
 #else
