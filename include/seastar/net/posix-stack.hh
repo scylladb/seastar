@@ -128,7 +128,8 @@ class posix_ap_server_socket_impl : public server_socket_impl {
     struct connection {
         pollable_fd fd;
         socket_address addr;
-        connection(pollable_fd xfd, socket_address xaddr) : fd(std::move(xfd)), addr(xaddr) {}
+        conntrack::handle connection_tracking_handle;
+        connection(pollable_fd xfd, socket_address xaddr, conntrack::handle cth) : fd(std::move(xfd)), addr(xaddr), connection_tracking_handle(std::move(cth)) {}
     };
     static thread_local std::unordered_map<socket_address, promise<connected_socket, socket_address>> sockets;
     static thread_local std::unordered_multimap<socket_address, connection> conn_q;

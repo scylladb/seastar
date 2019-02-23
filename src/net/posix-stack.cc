@@ -245,7 +245,7 @@ future<connected_socket, socket_address> posix_ap_server_socket_impl<Transport>:
         conn_q.erase(conni);
         try {
             std::unique_ptr<connected_socket_impl> csi(
-                    new posix_connected_socket_impl<Transport>(make_lw_shared(std::move(c.fd))));
+                    new posix_connected_socket_impl<Transport>(make_lw_shared(std::move(c.fd)), std::move(c.connection_tracking_handle)));
             return make_ready_future<connected_socket, socket_address>(connected_socket(std::move(csi)), std::move(c.addr));
         } catch (...) {
             return make_exception_future<connected_socket, socket_address>(std::current_exception());
@@ -307,7 +307,7 @@ posix_ap_server_socket_impl<Transport>::move_connected_socket(socket_address sa,
         }
         sockets.erase(i);
     } else {
-        conn_q.emplace(std::piecewise_construct, std::make_tuple(sa), std::make_tuple(std::move(fd), std::move(addr)));
+        conn_q.emplace(std::piecewise_construct, std::make_tuple(sa), std::make_tuple(std::move(fd), std::move(addr), std::move(cth)));
     }
 }
 
