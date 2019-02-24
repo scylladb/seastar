@@ -262,9 +262,6 @@ endif ()
 seastar_add_test (defer
   SOURCES defer_test.cc)
 
-seastar_add_test (deleter
-  SOURCES deleter_test.cc)
-
 seastar_add_app_test (directory
   SOURCES directory_test.cc)
 
