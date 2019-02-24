@@ -105,8 +105,8 @@ std::ostream& operator<<(std::ostream& os, const ipv4_address& a);
 struct ipv6_address {
     using ipv6_bytes = std::array<uint8_t, 16>;
 
-    static_assert(alignof(ipv6_bytes) == 1);
-    static_assert(sizeof(ipv6_bytes) == 16);
+    static_assert(alignof(ipv6_bytes) == 1, "ipv6_bytes should be byte-aligned");
+    static_assert(sizeof(ipv6_bytes) == 16, "ipv6_bytes should be 16 bytes");
 
     ipv6_address();
     explicit ipv6_address(const ::in6_addr&);

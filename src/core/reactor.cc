@@ -5639,7 +5639,7 @@ static std::atomic<unsigned long> s_used_scheduling_group_ids_bitmap{3}; // 0=ma
 static
 unsigned
 allocate_scheduling_group_id() {
-    static_assert(max_scheduling_groups() <= std::numeric_limits<unsigned long>::digits);
+    static_assert(max_scheduling_groups() <= std::numeric_limits<unsigned long>::digits, "more scheduling groups than available bits");
     auto b = s_used_scheduling_group_ids_bitmap.load(std::memory_order_relaxed);
     auto nb = b;
     unsigned i = 0;
