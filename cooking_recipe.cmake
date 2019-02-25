@@ -278,14 +278,12 @@ cooking_ingredient (dpdk
       ${make_command} ${dpdk_args} install)
 
 cooking_ingredient (fmt
-  LOCAL_REBUILD
-  CMAKE_ARGS
-    -DBUILD_SHARED_LIBS=OFF
-    -DFMT_DOC=OFF
-    -DFMT_LIB_DIR=lib
-    -DFMT_TEST=OFF
   EXTERNAL_PROJECT_ARGS
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/fmt)
+    URL https://github.com/fmtlib/fmt/archive/5.2.1.tar.gz
+    URL_MD5 eaf6e3c1b2f4695b9a612cedf17b509d
+  CMAKE_ARGS
+    -DFMT_DOC=OFF
+    -DFMT_TEST=OFF)
 
 cooking_ingredient (lz4
   EXTERNAL_PROJECT_ARGS

@@ -82,6 +82,7 @@ fedora_packages=(
     ninja-build
     ragel
     boost-devel
+    fmt-devel
     libubsan
     libasan
     libatomic

@@ -79,7 +79,6 @@ You can also consume Seastar after it has been installed to the file-system.
 
 **Important:**
 
-- The [fmt library](https://github.com/fmtlib/fmt) is not typically available as a system package, so Seastar by default builds and installs the fmt submodule to `$build_dir/_cooking/installed`
 - Seastar works with a customized version of DPDK, so by default builds and installs the DPDK submodule to `$build_dir/_cooking/installed`
 
 First, configure the installation path:

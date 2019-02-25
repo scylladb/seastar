@@ -170,10 +170,20 @@ def configure_mode(mode):
     ]
 
     # Generate a new build by pointing to the source directory.
-    ARGS = seastar_cmake.COOKING_BASIC_ARGS + (['-i', 'dpdk'] if args.dpdk else []) + ['-d', BUILD_PATH, '--'] + TRANSLATED_ARGS
+    if args.dpdk:
+        # When building with dpdk, we need to cook it first
+        ARGS = seastar_cmake.COOKING_BASIC_ARGS + ['-i', 'dpdk','-d', BUILD_PATH, '--']
+        dir = seastar_cmake.ROOT_PATH
+    else:
+        # When building without dpdk, we can invoke cmake directly. We can't call
+        # cooking.sh, because without any -i parameters, it will try to build
+        # everything.
+        ARGS = ['cmake', '-G', 'Ninja', '../..']
+        dir = BUILD_PATH
+    ARGS += TRANSLATED_ARGS
     print(ARGS)
     distutils.dir_util.mkpath(BUILD_PATH)
-    subprocess.check_call(ARGS, shell=False, cwd=seastar_cmake.ROOT_PATH)
+    subprocess.check_call(ARGS, shell=False, cwd=dir)
 
 for mode in MODES:
     configure_mode(mode)

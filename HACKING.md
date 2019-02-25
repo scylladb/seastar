@@ -22,10 +22,10 @@ See the instructions in [README.md](./README.md).
 ./cooking.sh -- -DSeastar_DPDK=ON
 ```
 
-- Use system packages for all dependencies except `fmt`, and `dpdk`, which are provided by `cmake-cooking` (and not yet widely available via system package-managers):
+- Use system packages for all dependencies except `dpdk`, which is provided by `cmake-cooking` (and not yet widely available via system package-managers):
 
 ```
-./cooking.sh -i fmt -i dpdk
+./cooking.sh -i dpdk
 ```
 
 - Use `cmake-cooking` for all dependencies except for Boost:
