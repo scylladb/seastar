@@ -32,6 +32,8 @@ configure_file (
 add_custom_command (
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/split
   DEPENDS
+    # Necessary because file-level dependencies are not propagated for custom targets.
+    ${CMAKE_CURRENT_BINARY_DIR}/tutorial.html
     doc_tutorial_html
     ${CMAKE_CURRENT_BINARY_DIR}/htmlsplit.py
   COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/split
