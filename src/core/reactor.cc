@@ -5038,14 +5038,13 @@ public:
     }
 };
 
-static void register_network_stacks() {
+void smp::register_network_stacks() {
     register_posix_stack();
     register_native_stack();
 }
 
 void smp::configure(boost::program_options::variables_map configuration)
 {
-    register_network_stacks();
 #ifndef SEASTAR_NO_EXCEPTION_HACK
     if (configuration["enable-glibc-exception-scaling-workaround"].as<bool>()) {
         init_phdr_cache();
