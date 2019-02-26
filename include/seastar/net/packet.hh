@@ -169,7 +169,8 @@ class packet final {
             deleter d = make_free_deleter(buf);
             std::copy(_frags[0].base, _frags[0].base + _frags[0].size, buf);
             _frags[0].base = buf;
-            _deleter.append(std::move(d));
+            d.append(std::move(_deleter));
+            _deleter = std::move(d);
             _headroom = internal_data_size;
         }
         void copy_internal_fragment_to(impl* to) {
