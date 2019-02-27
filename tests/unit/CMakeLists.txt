@@ -134,7 +134,7 @@ function (seastar_add_test name)
 
     set_target_properties (${executable_target}
       PROPERTIES
-        OUTPUT_NAME ${name})
+        OUTPUT_NAME ${name}_test)
 
     add_dependencies (unit_tests ${executable_target})
     set (forwarded_args COMMAND ${executable_target} ${args})
