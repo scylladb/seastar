@@ -22,6 +22,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/core/memory.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/temporary_buffer.hh>
 #include <vector>
 
 using namespace seastar;
@@ -66,4 +67,30 @@ SEASTAR_TEST_CASE(test_live_objects_counter_with_cross_cpu_free) {
         vec.clear(); // cause cross-cpu free
         BOOST_REQUIRE(memory::stats().live_objects() < std::numeric_limits<size_t>::max() / 2);
     });
+}
+
+SEASTAR_TEST_CASE(test_aligned_alloc) {
+    for (size_t align = sizeof(void*); align <= 65536; align <<= 1) {
+        for (size_t size = align; size <= align * 2; size <<= 1) {
+            void *p = aligned_alloc(align, size);
+            BOOST_REQUIRE(p != nullptr);
+            BOOST_REQUIRE((reinterpret_cast<uintptr_t>(p) % align) == 0);
+            ::memset(p, 0, size);
+            free(p);
+        }
+    }
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_temporary_buffer_aligned) {
+    for (size_t align = sizeof(void*); align <= 65536; align <<= 1) {
+        for (size_t size = align; size <= align * 2; size <<= 1) {
+            auto buf = temporary_buffer<char>::aligned(align, size);
+            void *p = buf.get_write();
+            BOOST_REQUIRE(p != nullptr);
+            BOOST_REQUIRE((reinterpret_cast<uintptr_t>(p) % align) == 0);
+            ::memset(p, 0, size);
+        }
+    }
+    return make_ready_future<>();
 }

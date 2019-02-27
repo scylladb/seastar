@@ -207,8 +207,8 @@ public:
     /// Creates a \c temporary_buffer object with a specified size, with
     /// memory aligned to a specific boundary.
     ///
-    /// \param alignment Required alignment; must be a power of two.
-    /// \param size Required size.
+    /// \param alignment Required alignment; must be a power of two and a multiple of sizeof(void *).
+    /// \param size Required size; must be a multiple of alignment.
     /// \return a new \c temporary_buffer object.
     static temporary_buffer aligned(size_t alignment, size_t size) {
         void *ptr = nullptr;
