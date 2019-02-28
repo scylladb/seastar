@@ -201,25 +201,33 @@ class page_list_link {
     friend void on_allocation_failure(size_t);
 };
 
+constexpr size_t mem_base_alloc = size_t(1) << 44;
+
 static char* mem_base() {
     static char* known;
     static std::once_flag flag;
     std::call_once(flag, [] {
-        size_t alloc = size_t(1) << 44;
-        auto r = ::mmap(NULL, 2 * alloc,
+        auto r = ::mmap(NULL, 2 * mem_base_alloc,
                     PROT_NONE,
                     MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE,
                     -1, 0);
         if (r == MAP_FAILED) {
             abort();
         }
-        ::madvise(r, 2 * alloc, MADV_DONTDUMP);
+        ::madvise(r, 2 * mem_base_alloc, MADV_DONTDUMP);
         auto cr = reinterpret_cast<char*>(r);
-        known = align_up(cr, alloc);
+        known = align_up(cr, mem_base_alloc);
         ::munmap(cr, known - cr);
-        ::munmap(known + alloc, cr + 2 * alloc - (known + alloc));
+        ::munmap(known + mem_base_alloc, cr + 2 * mem_base_alloc - (known + mem_base_alloc));
     });
     return known;
+}
+
+bool is_seastar_memory(void * ptr)
+{
+    auto begin = mem_base();
+    auto end = begin + mem_base_alloc;
+    return ptr >= begin && ptr < end;
 }
 
 constexpr bool is_page_aligned(size_t size) {
