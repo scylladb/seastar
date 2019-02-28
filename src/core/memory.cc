@@ -186,6 +186,11 @@ static thread_local uint64_t g_large_allocs;
 
 using std::optional;
 
+// is_reactor_thread gets set to true when memory::configure() gets called
+// it is used to identify seastar threads and hence use system memory allocator
+// for those threads
+static thread_local bool is_reactor_thread = false;
+
 // original memory allocator support
 // note: allocations before calling the constructor would use seastar allocator
 using malloc_func_type = void * (*)(size_t);
@@ -1387,6 +1392,7 @@ void disable_large_allocation_warning() {
 
 void configure(std::vector<resource::memory> m, bool mbind,
         optional<std::string> hugetlbfs_path) {
+    is_reactor_thread = true;
     size_t total = 0;
     for (auto&& x : m) {
         total += x.bytes;
