@@ -106,7 +106,11 @@ public:
     }
     future<> close() override {
         return smp::submit_to(_buffer.get_owner_shard(), [this] {
-            return _buffer->push({});
+            return _buffer->push({}).handle_exception_type([] (std::system_error& err) {
+                if (err.code().value() != EPIPE) {
+                    throw err;
+                }
+            });
         });
     }
 };
