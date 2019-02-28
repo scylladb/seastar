@@ -466,7 +466,7 @@ struct cpu_pages {
     void* allocate_small(unsigned size);
     void free(void* ptr);
     void free(void* ptr, size_t size);
-    bool try_cross_cpu_free(void* ptr);
+    bool try_foreign_free(void* ptr);
     void shrink(void* ptr, size_t new_size);
     void free_cross_cpu(unsigned cpu_id, void* ptr);
     bool drain_cross_cpu_freelist();
@@ -878,13 +878,17 @@ void cpu_pages::free(void* ptr, size_t size) {
 }
 
 bool
-cpu_pages::try_cross_cpu_free(void* ptr) {
+cpu_pages::try_foreign_free(void* ptr) {
     auto obj_cpu = object_cpu_id(ptr);
-    if (obj_cpu != cpu_id) {
-        free_cross_cpu(obj_cpu, ptr);
+    if (!is_seastar_memory(ptr)) {
+        original_free_func(ptr);
         return true;
     }
-    return false;
+    if (obj_cpu == cpu_id) {
+        return false;
+    }
+    free_cross_cpu(obj_cpu, ptr);
+    return true;
 }
 
 void cpu_pages::shrink(void* ptr, size_t new_size) {
@@ -1281,6 +1285,11 @@ static constexpr int debug_allocation_pattern = 0xab;
 #endif
 
 void* allocate(size_t size) {
+    // original_malloc_func might be null for allocations before main
+    // in constructors before original_malloc_func ctor is called
+    if (!is_reactor_thread && original_malloc_func) {
+        return original_malloc_func(size);
+    }
     if (size <= sizeof(free_object)) {
         size = sizeof(free_object);
     }
@@ -1303,6 +1312,11 @@ void* allocate(size_t size) {
 }
 
 void* allocate_aligned(size_t align, size_t size) {
+    // original_realloc_func might be null for allocations before main
+    // in constructors before original_realloc_func ctor is called
+    if (!is_reactor_thread && original_aligned_alloc_func) {
+        return original_aligned_alloc_func(align, size);
+    }
     if (size <= sizeof(free_object)) {
         size = std::max(sizeof(free_object), align);
     }
@@ -1327,7 +1341,7 @@ void* allocate_aligned(size_t align, size_t size) {
 }
 
 void free(void* obj) {
-    if (get_cpu_mem().try_cross_cpu_free(obj)) {
+    if (get_cpu_mem().try_foreign_free(obj)) {
         return;
     }
     ++g_frees;
@@ -1335,7 +1349,7 @@ void free(void* obj) {
 }
 
 void free(void* obj, size_t size) {
-    if (get_cpu_mem().try_cross_cpu_free(obj)) {
+    if (get_cpu_mem().try_foreign_free(obj)) {
         return;
     }
     ++g_frees;
@@ -1600,6 +1614,19 @@ void* realloc(void* ptr, size_t size) {
     if (try_trigger_error_injector()) {
         return nullptr;
     }
+    if (ptr != nullptr && !is_seastar_memory(ptr)) {
+        // we can't realloc foreign memory on a shard
+        if (is_reactor_thread) {
+            abort();
+        }
+        // original_realloc_func might be null when previous ctor allocates
+        if (original_realloc_func) {
+            return original_realloc_func(ptr, size);
+        }
+    }
+    // if we're here, it's either ptr is a seastar memory ptr
+    // or a nullptr, or, original functions aren't available
+    // at any rate, using the seastar allocator is OK now.
     auto old_size = ptr ? object_size(ptr) : 0;
     if (size == old_size) {
         return ptr;
@@ -1705,12 +1732,18 @@ void __libc_cfree(void* obj) throw ();
 extern "C"
 [[gnu::visibility("default")]]
 size_t malloc_usable_size(void* obj) {
+    if (!is_reactor_thread) {
+        return original_malloc_usable_size_func(obj);
+    }
     return object_size(obj);
 }
 
 extern "C"
 [[gnu::visibility("default")]]
 int malloc_trim(size_t pad) {
+    if (!is_reactor_thread) {
+        return original_malloc_trim_func(pad);
+    }
     return 0;
 }
 
