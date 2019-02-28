@@ -917,7 +917,9 @@ void cpu_pages::shrink(void* ptr, size_t new_size) {
 }
 
 cpu_pages::~cpu_pages() {
-    live_cpus[cpu_id].store(false, std::memory_order_relaxed);
+    if (is_initialized()) {
+        live_cpus[cpu_id].store(false, std::memory_order_relaxed);
+    }
 }
 
 bool cpu_pages::is_initialized() const {
