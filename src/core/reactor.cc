@@ -1767,8 +1767,13 @@ reactor::posix_listen(socket_address sa, listen_options opts) {
     if (_reuseport)
         fd.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
 
-    fd.bind(sa.u.sa, sizeof(sa.u.sas));
-    fd.listen(100);
+    try {
+        fd.bind(sa.u.sa, sizeof(sa.u.sas));
+        fd.listen(100);
+    } catch (const std::system_error& s) {
+        throw std::system_error(s.code(), fmt::format("posix_listen failed for address {}", sa));
+    }
+
     return pollable_fd(std::move(fd));
 }
 
