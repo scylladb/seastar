@@ -2237,6 +2237,27 @@ posix_file_impl::query_dma_alignment() {
     }
 }
 
+namespace internal {
+
+size_t sanitize_iovecs(std::vector<iovec>& iov, size_t disk_alignment) noexcept {
+    if (iov.size() > IOV_MAX) {
+        iov.resize(IOV_MAX);
+    }
+    auto length = boost::accumulate(iov | boost::adaptors::transformed(std::mem_fn(&iovec::iov_len)), size_t(0));
+    while (auto rest = length & (disk_alignment - 1)) {
+        if (iov.back().iov_len <= rest) {
+            length -= iov.back().iov_len;
+            iov.pop_back();
+        } else {
+            iov.back().iov_len -= rest;
+            length -= rest;
+        }
+    }
+    return length;
+}
+
+}
+
 future<size_t>
 posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& io_priority_class) {
     return engine().submit_io_write(_io_queue, io_priority_class, len, [fd = _fd, pos, buffer, len] (iocb& io) {
@@ -2249,7 +2270,7 @@ posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len, const i
 
 future<size_t>
 posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class) {
-    auto len = boost::accumulate(iov | boost::adaptors::transformed(std::mem_fn(&iovec::iov_len)), size_t(0));
+    auto len = internal::sanitize_iovecs(iov, _disk_write_dma_alignment);
     auto iov_ptr = std::make_unique<std::vector<iovec>>(std::move(iov));
     auto size = iov_ptr->size();
     auto data = iov_ptr->data();
@@ -2273,7 +2294,7 @@ posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, const io_prior
 
 future<size_t>
 posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class) {
-    auto len = boost::accumulate(iov | boost::adaptors::transformed(std::mem_fn(&iovec::iov_len)), size_t(0));
+    auto len = internal::sanitize_iovecs(iov, _disk_read_dma_alignment);
     auto iov_ptr = std::make_unique<std::vector<iovec>>(std::move(iov));
     auto size = iov_ptr->size();
     auto data = iov_ptr->data();
