@@ -255,6 +255,16 @@ seastar::net::inet_address seastar::socket_address::addr() const {
     return net::ntoh(u.in.sin_port);
 }
 
+bool seastar::socket_address::is_wildcard() const {
+    if (u.sa.sa_family == AF_INET) {
+        ipv4_addr addr(*this);
+        return addr.is_ip_unspecified() && addr.is_port_unspecified();
+    } else {
+        ipv6_addr addr(*this);
+        return addr.is_ip_unspecified() && addr.is_port_unspecified();
+    }
+}
+
 std::ostream& seastar::net::operator<<(std::ostream& os, const inet_address& addr) {
     char buffer[64];
     return os << inet_ntop(int(addr.in_family()), addr.data(), buffer, sizeof(buffer));

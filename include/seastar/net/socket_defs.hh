@@ -65,6 +65,7 @@ public:
 
     net::inet_address addr() const;
     ::in_port_t port() const;
+    bool is_wildcard() const;
 
     bool operator==(const socket_address&) const;
     bool operator!=(const socket_address& a) const {

@@ -1810,7 +1810,23 @@ reactor::make_pollable_fd(socket_address sa, transport proto) {
 
 future<>
 reactor::posix_connect(lw_shared_ptr<pollable_fd> pfd, socket_address sa, socket_address local) {
-    pfd->get_file_desc().bind(local.u.sa, sizeof(sa.u.sas));
+#ifdef IP_BIND_ADDRESS_NO_PORT
+    try {
+        // do not reserve an ephemeral port when using bind() with port number 0.
+        // connect() will handle it later. The reason for that is that bind() may fail
+        // to allocate a port while connect will success, this is because bind() does not
+        // know dst address and has to find globally unique local port.
+        pfd->get_file_desc().setsockopt(SOL_IP, IP_BIND_ADDRESS_NO_PORT, 1);
+    } catch (std::system_error& err) {
+        if (err.code() !=  std::error_code(ENOPROTOOPT, std::system_category())) {
+            throw;
+        }
+    }
+#endif
+    if (!local.is_wildcard()) {
+        // call bind() only if local address is not wildcard
+        pfd->get_file_desc().bind(local.u.sa, sizeof(sa.u.sas));
+    }
     pfd->get_file_desc().connect(sa.u.sa, sizeof(sa.u.sas));
     return pfd->writeable().then([pfd]() mutable {
         auto err = pfd->get_file_desc().getsockopt<int>(SOL_SOCKET, SO_ERROR);
