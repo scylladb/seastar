@@ -31,6 +31,8 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include <iostream>
 
+#include "core/file-impl.hh"
+
 using namespace seastar;
 
 SEASTAR_TEST_CASE(open_flags_test) {
@@ -192,4 +194,67 @@ SEASTAR_THREAD_TEST_CASE(test_iov_max) {
     }
 
     f.close().get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_sanitize_iovecs) {
+    auto buf = temporary_buffer<char>::aligned(4096, 4096);
+
+    auto iovec_equal = [] (const iovec& a, const iovec& b) {
+        return a.iov_base == b.iov_base && a.iov_len == b.iov_len;
+    };
+
+    { // Single fragment, sanitize is noop
+        auto original_iovecs = std::vector<iovec> { { buf.get_write(), buf.size() } };
+        auto actual_iovecs = original_iovecs;
+        auto actual_length = internal::sanitize_iovecs(actual_iovecs, 4096);
+        BOOST_CHECK_EQUAL(actual_length, 4096);
+        BOOST_CHECK_EQUAL(actual_iovecs.size(), 1);
+        BOOST_CHECK(iovec_equal(original_iovecs.back(), actual_iovecs.back()));
+    }
+
+    { // one 1024 buffer and IOV_MAX+6 buffers of 512; 4096 byte disk alignment, sanitize needs to drop buffers
+        auto original_iovecs = std::vector<iovec>{};
+        for (auto i = 0u; i < IOV_MAX + 7; i++) {
+            original_iovecs.emplace_back(iovec { buf.get_write(), i == 0 ? 1024u : 512u });
+        }
+        auto actual_iovecs = original_iovecs;
+        auto actual_length = internal::sanitize_iovecs(actual_iovecs, 4096);
+        BOOST_CHECK_EQUAL(actual_length, 512 * IOV_MAX);
+        BOOST_CHECK_EQUAL(actual_iovecs.size(), IOV_MAX - 1);
+
+        original_iovecs.resize(IOV_MAX - 1);
+        BOOST_CHECK(std::equal(original_iovecs.begin(), original_iovecs.end(),
+                               actual_iovecs.begin(), actual_iovecs.end(), iovec_equal));
+    }
+
+    { // IOV_MAX-1 buffers of 512, one 1024 buffer, and 6 512 buffers; 4096 byte disk alignment, sanitize needs to drop and trim buffers
+        auto original_iovecs = std::vector<iovec>{};
+        for (auto i = 0u; i < IOV_MAX + 7; i++) {
+            original_iovecs.emplace_back(iovec { buf.get_write(), i == (IOV_MAX - 1) ? 1024u : 512u });
+        }
+        auto actual_iovecs = original_iovecs;
+        auto actual_length = internal::sanitize_iovecs(actual_iovecs, 4096);
+        BOOST_CHECK_EQUAL(actual_length, 512 * IOV_MAX);
+        BOOST_CHECK_EQUAL(actual_iovecs.size(), IOV_MAX);
+
+        original_iovecs.resize(IOV_MAX);
+        original_iovecs.back().iov_len = 512;
+        BOOST_CHECK(std::equal(original_iovecs.begin(), original_iovecs.end(),
+                               actual_iovecs.begin(), actual_iovecs.end(), iovec_equal));
+    }
+
+    { // IOV_MAX+8 buffers of 512; 4096 byte disk alignment, sanitize needs to drop buffers
+        auto original_iovecs = std::vector<iovec>{};
+        for (auto i = 0u; i < IOV_MAX + 8; i++) {
+            original_iovecs.emplace_back(iovec { buf.get_write(), 512 });
+        }
+        auto actual_iovecs = original_iovecs;
+        auto actual_length = internal::sanitize_iovecs(actual_iovecs, 4096);
+        BOOST_CHECK_EQUAL(actual_length, 512 * IOV_MAX);
+        BOOST_CHECK_EQUAL(actual_iovecs.size(), IOV_MAX);
+
+        original_iovecs.resize(IOV_MAX);
+        BOOST_CHECK(std::equal(original_iovecs.begin(), original_iovecs.end(),
+                               actual_iovecs.begin(), actual_iovecs.end(), iovec_equal));
+    }
 }
