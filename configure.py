@@ -89,7 +89,7 @@ add_tristate(
 add_tristate(
     arg_parser,
     name = 'alloc-failure-injector',
-    dest = 'alloc_failure_injector',
+    dest = 'alloc_failure_injection',
     help = 'allocation failure injection')
 add_tristate(
     arg_parser,
@@ -101,7 +101,7 @@ add_tristate(
     name = 'experimental-coroutines-ts',
     dest = "coroutines_ts",
     help = 'experimental support for Coroutines TS')
-arg_parser.add_argument('--allocator-page-size', dest='allocator_page_size', type=int, help='override allocator page size')
+arg_parser.add_argument('--allocator-page-size', dest='alloc_page_size', type=int, help='override allocator page size')
 arg_parser.add_argument('--without-tests', dest='exclude_tests', action='store_true', help='Do not build tests by default')
 arg_parser.add_argument('--without-apps', dest='exclude_apps', action='store_true', help='Do not build applications by default')
 arg_parser.add_argument('--without-demos', dest='exclude_demos', action='store_true', help='Do not build demonstrations by default')
@@ -161,9 +161,9 @@ def configure_mode(mode):
         tr(args.dpdk, 'DPDK'),
         tr(args.hwloc, 'HWLOC', value_when_none='yes'),
         tr(args.gcc6_concepts, 'GCC6_CONCEPTS'),
-        tr(args.alloc_failure_injector, 'ALLOC_FAILURE_INJECTOR'),
+        tr(args.alloc_failure_injection, 'ALLOC_FAILURE_INJECTION'),
         tr(args.exception_workaround, 'EXCEPTION_SCALABILITY_WORKAROUND', value_when_none='yes'),
-        tr(args.allocator_page_size, 'ALLOCATOR_PAGE_SIZE'),
+        tr(args.alloc_page_size, 'ALLOC_PAGE_SIZE'),
         tr(args.cpp17_goodies, 'STD_OPTIONAL_VARIANT_STRINGVIEW'),
         tr(args.split_dwarf, 'SPLIT_DWARF'),
         tr(args.coroutines_ts, 'EXPERIMENTAL_COROUTINES_TS'),
