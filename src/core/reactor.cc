@@ -3328,7 +3328,7 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
         });
     }).then([w] {
         w->s.close();
-    });
+    }).handle_exception([] (std::exception_ptr ignored) {});
     return ret;
 }
 
