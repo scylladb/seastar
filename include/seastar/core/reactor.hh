@@ -257,14 +257,23 @@ enum class open_flags {
     create = O_CREAT,
     truncate = O_TRUNC,
     exclusive = O_EXCL,
+    dsync = O_DSYNC,
 };
 
 inline open_flags operator|(open_flags a, open_flags b) {
     return open_flags(std::underlying_type_t<open_flags>(a) | std::underlying_type_t<open_flags>(b));
 }
 
+inline void operator|=(open_flags& a, open_flags b) {
+    a = (a | b);
+}
+
 inline open_flags operator&(open_flags a, open_flags b) {
     return open_flags(std::underlying_type_t<open_flags>(a) & std::underlying_type_t<open_flags>(b));
+}
+
+inline void operator&=(open_flags& a, open_flags b) {
+    a = (a & b);
 }
 
 class reactor_backend;
