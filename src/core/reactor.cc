@@ -3132,7 +3132,7 @@ posix_file_handle_impl::to_file() && {
 future<>
 posix_file_impl::flush(void) {
     ++engine()._fsyncs;
-    if (engine()._bypass_fsync) {
+    if (engine()._bypass_fsync || (_open_flags & open_flags::dsync) != open_flags{}) {
         return make_ready_future<>();
     }
     return engine()._thread_pool->submit<syscall_result<int>>([this] {
