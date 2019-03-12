@@ -2212,8 +2212,9 @@ file_impl* file_impl::get_file_impl(file& f) {
     return f._file_impl.get();
 }
 
-posix_file_impl::posix_file_impl(int fd, file_open_options options, io_queue* ioq)
+posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, io_queue* ioq)
         : _io_queue(ioq)
+        , _open_flags(f)
         , _fd(fd)
 {
     query_dma_alignment();
@@ -2409,9 +2410,9 @@ posix_file_impl::read_maybe_eof(uint64_t pos, size_t len, const io_priority_clas
     });
 }
 
-append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, file_open_options options,
+append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, open_flags f, file_open_options options,
         unsigned max_size_changing_ops, bool fsync_is_exclusive, io_queue* ioq)
-        : posix_file_impl(fd, options, ioq)
+        : posix_file_impl(fd, f, options, ioq)
         , _max_size_changing_ops(max_size_changing_ops)
         , _fsync_is_exclusive(fsync_is_exclusive) {
     auto r = ::lseek(fd, 0, SEEK_END);
@@ -2781,17 +2782,19 @@ make_file_impl(int fd, file_open_options options) {
 
     r = ::ioctl(fd, BLKGETSIZE);
     io_queue& io_queue = engine().get_io_queue(st.st_dev);
+
+    // FIXME: obtain these flags from somewhere else
+    auto flags = ::fcntl(fd, F_GETFL);
+    throw_system_error_on(flags == -1);
+
     if (r != -1) {
-        return make_shared<blockdev_file_impl>(fd, options, &io_queue);
+        return make_shared<blockdev_file_impl>(fd, open_flags(flags), options, &io_queue);
     } else {
-        // FIXME: obtain these flags from somewhere else
-        auto flags = ::fcntl(fd, F_GETFL);
-        throw_system_error_on(flags == -1);
         if ((flags & O_ACCMODE) == O_RDONLY) {
-            return make_shared<posix_file_impl>(fd, options, &io_queue);
+            return make_shared<posix_file_impl>(fd, open_flags(flags), options, &io_queue);
         }
         if (S_ISDIR(st.st_mode)) {
-            return make_shared<posix_file_impl>(fd, options, &io_queue);
+            return make_shared<posix_file_impl>(fd, open_flags(flags), options, &io_queue);
         }
         struct append_support {
             bool append_challenged;
@@ -2830,9 +2833,9 @@ make_file_impl(int fd, file_open_options options) {
         }
         auto as = s_fstype[st.st_dev];
         if (!as.append_challenged) {
-            return make_shared<posix_file_impl>(fd, options, &io_queue);
+            return make_shared<posix_file_impl>(fd, open_flags(flags), options, &io_queue);
         }
-        return make_shared<append_challenged_posix_file_impl>(fd, options, as.append_concurrency, as.fsync_is_exclusive, &io_queue);
+        return make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), options, as.append_concurrency, as.fsync_is_exclusive, &io_queue);
     }
 }
 
@@ -3093,13 +3096,13 @@ posix_file_impl::dup() {
     if (!_refcount) {
         _refcount = new std::atomic<unsigned>(1u);
     }
-    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _refcount, _io_queue);
+    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _io_queue);
     _refcount->fetch_add(1, std::memory_order_relaxed);
     return std::move(ret);
 }
 
-posix_file_impl::posix_file_impl(int fd, std::atomic<unsigned>* refcount, io_queue *ioq)
-        : _refcount(refcount), _io_queue(ioq), _fd(fd) {
+posix_file_impl::posix_file_impl(int fd, open_flags f, std::atomic<unsigned>* refcount, io_queue *ioq)
+        : _refcount(refcount), _io_queue(ioq), _open_flags(f), _fd(fd) {
 }
 
 posix_file_handle_impl::~posix_file_handle_impl() {
@@ -3111,7 +3114,7 @@ posix_file_handle_impl::~posix_file_handle_impl() {
 
 std::unique_ptr<seastar::file_handle_impl>
 posix_file_handle_impl::clone() const {
-    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _refcount, _io_queue);
+    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _io_queue);
     if (_refcount) {
         _refcount->fetch_add(1, std::memory_order_relaxed);
     }
@@ -3120,7 +3123,7 @@ posix_file_handle_impl::clone() const {
 
 shared_ptr<file_impl>
 posix_file_handle_impl::to_file() && {
-    auto ret = ::seastar::make_shared<posix_file_impl>(_fd, _refcount, _io_queue);
+    auto ret = ::seastar::make_shared<posix_file_impl>(_fd, _open_flags, _refcount, _io_queue);
     _fd = -1;
     _refcount = nullptr;
     return ret;
@@ -3162,8 +3165,8 @@ posix_file_impl::truncate(uint64_t length) {
     });
 }
 
-blockdev_file_impl::blockdev_file_impl(int fd, file_open_options options, io_queue *ioq)
-        : posix_file_impl(fd, options, ioq) {
+blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options options, io_queue *ioq)
+        : posix_file_impl(fd, f, options, ioq) {
 }
 
 future<>

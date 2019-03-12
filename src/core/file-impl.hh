@@ -44,9 +44,10 @@ class posix_file_handle_impl : public seastar::file_handle_impl {
     int _fd;
     std::atomic<unsigned>* _refcount;
     io_queue* _io_queue;
+    open_flags _open_flags;
 public:
-    posix_file_handle_impl(int fd, std::atomic<unsigned>* refcount, io_queue *ioq)
-            : _fd(fd), _refcount(refcount), _io_queue(ioq) {
+    posix_file_handle_impl(int fd, open_flags f, std::atomic<unsigned>* refcount, io_queue *ioq)
+            : _fd(fd), _refcount(refcount), _io_queue(ioq), _open_flags(f) {
     }
     virtual ~posix_file_handle_impl();
     posix_file_handle_impl(const posix_file_handle_impl&) = delete;
@@ -58,10 +59,11 @@ public:
 class posix_file_impl : public file_impl {
     std::atomic<unsigned>* _refcount = nullptr;
     io_queue* _io_queue;
+    open_flags _open_flags;
 public:
     int _fd;
-    posix_file_impl(int fd, file_open_options options, io_queue* ioq);
-    posix_file_impl(int fd, std::atomic<unsigned>* refcount, io_queue *ioq);
+    posix_file_impl(int fd, open_flags, file_open_options options, io_queue* ioq);
+    posix_file_impl(int fd, open_flags, std::atomic<unsigned>* refcount, io_queue *ioq);
     virtual ~posix_file_impl() override;
     future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc) override;
     future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) override;
@@ -77,6 +79,10 @@ public:
     virtual std::unique_ptr<seastar::file_handle_impl> dup() override;
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) override;
     virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc) override;
+
+    open_flags flags() const {
+        return _open_flags;
+    }
 private:
     void query_dma_alignment();
 
@@ -153,7 +159,7 @@ private:
     bool may_quit() const noexcept;
     void enqueue(op&& op);
 public:
-    append_challenged_posix_file_impl(int fd, file_open_options options, unsigned max_size_changing_ops, bool fsync_is_exclusive, io_queue* ioq);
+    append_challenged_posix_file_impl(int fd, open_flags, file_open_options options, unsigned max_size_changing_ops, bool fsync_is_exclusive, io_queue* ioq);
     ~append_challenged_posix_file_impl() override;
     future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc) override;
     future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) override;
@@ -168,7 +174,7 @@ public:
 
 class blockdev_file_impl : public posix_file_impl {
 public:
-    blockdev_file_impl(int fd, file_open_options options, io_queue* ioq);
+    blockdev_file_impl(int fd, open_flags, file_open_options options, io_queue* ioq);
     future<> truncate(uint64_t length) override;
     future<> discard(uint64_t offset, uint64_t length) override;
     future<uint64_t> size() override;
