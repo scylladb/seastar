@@ -105,7 +105,7 @@ class thread_context {
     static constexpr size_t _stack_size = base_stack_size;
 #endif
     stack_holder _stack{make_stack()};
-    std::function<void ()> _func;
+    noncopyable_function<void ()> _func;
     jmp_buf_link _context;
     scheduling_group _scheduling_group;
     promise<> _done;
@@ -133,7 +133,7 @@ private:
     void main();
     stack_holder make_stack();
 public:
-    thread_context(thread_attributes attr, std::function<void ()> func);
+    thread_context(thread_attributes attr, noncopyable_function<void ()> func);
     ~thread_context();
     void switch_in();
     void switch_out();
@@ -261,7 +261,7 @@ private:
 template <typename Func>
 inline
 thread::thread(thread_attributes attr, Func func)
-        : _context(std::make_unique<thread_context>(std::move(attr), func)) {
+        : _context(std::make_unique<thread_context>(std::move(attr), std::move(func))) {
 }
 
 template <typename Func>
