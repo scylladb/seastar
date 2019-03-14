@@ -298,11 +298,11 @@ public:
         return *static_cast<Serializer*>(_serializer);
     }
 
-    template <typename FrameType, typename Info>
-    typename FrameType::return_type read_frame(const Info& info, input_stream<char>& in);
+    template <typename FrameType>
+    typename FrameType::return_type read_frame(socket_address info, input_stream<char>& in);
 
-    template <typename FrameType, typename Info>
-    typename FrameType::return_type read_frame_compressed(const Info& info, std::unique_ptr<compressor>& compressor, input_stream<char>& in);
+    template <typename FrameType>
+    typename FrameType::return_type read_frame_compressed(socket_address info, std::unique_ptr<compressor>& compressor, input_stream<char>& in);
     friend class client;
     template<typename Serializer, typename... Out>
     friend class sink_impl;

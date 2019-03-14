@@ -317,11 +317,11 @@ namespace rpc {
       });
   }
 
-  template<typename FrameType, typename Info>
+  template<typename FrameType>
   typename FrameType::return_type
-  connection::read_frame(const Info& info, input_stream<char>& in) {
+  connection::read_frame(socket_address info, input_stream<char>& in) {
       auto header_size = FrameType::header_size();
-      return in.read_exactly(header_size).then([this, header_size, &info, &in] (temporary_buffer<char> header) {
+      return in.read_exactly(header_size).then([this, header_size, info, &in] (temporary_buffer<char> header) {
           if (header.size() != header_size) {
               if (header.size() != 0) {
                   _logger(info, format("unexpected eof on a {} while reading header: expected {:d} got {:d}", FrameType::role(), header_size, header.size()));
@@ -333,7 +333,7 @@ namespace rpc {
           if (!size) {
               return FrameType::make_value(h, rcv_buf());
           } else {
-              return read_rcv_buf(in, size).then([this, &info, h = std::move(h), size] (rcv_buf rb) {
+              return read_rcv_buf(in, size).then([this, info, h = std::move(h), size] (rcv_buf rb) {
                   if (rb.size != size) {
                       _logger(info, format("unexpected eof on a {} while reading data: expected {:d} got {:d}", FrameType::role(), size, rb.size));
                       return FrameType::empty_value();
@@ -345,9 +345,9 @@ namespace rpc {
       });
   }
 
-  template<typename FrameType, typename Info>
+  template<typename FrameType>
   typename FrameType::return_type
-  connection::read_frame_compressed(const Info& info, std::unique_ptr<compressor>& compressor, input_stream<char>& in) {
+  connection::read_frame_compressed(socket_address info, std::unique_ptr<compressor>& compressor, input_stream<char>& in) {
       if (compressor) {
           return in.read_exactly(4).then([&] (temporary_buffer<char> compress_header) {
               if (compress_header.size() != 4) {
@@ -358,7 +358,7 @@ namespace rpc {
               }
               auto ptr = compress_header.get();
               auto size = read_le<uint32_t>(ptr);
-              return read_rcv_buf(in, size).then([this, size, &compressor, &info] (rcv_buf compressed_data) {
+              return read_rcv_buf(in, size).then([this, size, &compressor, info] (rcv_buf compressed_data) {
                   if (compressed_data.size != size) {
                       _logger(info, format("unexpected eof on a {} while reading compressed data: expected {:d} got {:d}", FrameType::role(), size, compressed_data.size));
                       return FrameType::empty_value();
@@ -373,7 +373,7 @@ namespace rpc {
                           p = net::packet(std::move(p), std::move(b));
                       }
                   }
-                  return do_with(as_input_stream(std::move(p)), [this, &info] (input_stream<char>& in) {
+                  return do_with(as_input_stream(std::move(p)), [this, info] (input_stream<char>& in) {
                       return read_frame<FrameType>(info, in);
                   });
               });
@@ -838,9 +838,9 @@ namespace rpc {
   future<compat::optional<uint64_t>, uint64_t, int64_t, compat::optional<rcv_buf>>
   server::connection::read_request_frame_compressed(input_stream<char>& in) {
       if (_timeout_negotiated) {
-          return read_frame_compressed<request_frame_with_timeout>(_info, _compressor, in);
+          return read_frame_compressed<request_frame_with_timeout>(_info.addr, _compressor, in);
       } else {
-          return read_frame_compressed<request_frame>(_info, _compressor, in);
+          return read_frame_compressed<request_frame>(_info.addr, _compressor, in);
       }
   }
 
