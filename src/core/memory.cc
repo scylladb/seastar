@@ -184,6 +184,9 @@ static thread_local uint64_t g_frees;
 static thread_local uint64_t g_cross_cpu_frees;
 static thread_local uint64_t g_reclaims;
 static thread_local uint64_t g_large_allocs;
+static thread_local uint64_t g_foreign_mallocs;
+static thread_local uint64_t g_foreign_frees;
+static thread_local uint64_t g_foreign_cross_frees;
 
 using std::optional;
 
@@ -887,6 +890,11 @@ cpu_pages::try_foreign_free(void* ptr) {
         return false;
     }
     if (!is_seastar_memory(ptr)) {
+        if (is_reactor_thread) {
+            g_foreign_cross_frees++;
+        } else {
+            g_foreign_frees++;
+        }
         original_free_func(ptr);
         return true;
     }
@@ -1293,6 +1301,7 @@ void* allocate(size_t size) {
     // original_malloc_func might be null for allocations before main
     // in constructors before original_malloc_func ctor is called
     if (!is_reactor_thread && original_malloc_func) {
+        g_foreign_mallocs++;
         return original_malloc_func(size);
     }
     if (size <= sizeof(free_object)) {
@@ -1320,6 +1329,7 @@ void* allocate_aligned(size_t align, size_t size) {
     // original_realloc_func might be null for allocations before main
     // in constructors before original_realloc_func ctor is called
     if (!is_reactor_thread && original_aligned_alloc_func) {
+        g_foreign_mallocs++;
         return original_aligned_alloc_func(align, size);
     }
     if (size <= sizeof(free_object)) {
@@ -1460,7 +1470,8 @@ void configure(std::vector<resource::memory> m, bool mbind,
 
 statistics stats() {
     return statistics{g_allocs, g_frees, g_cross_cpu_frees,
-        cpu_mem.nr_pages * page_size, cpu_mem.nr_free_pages * page_size, g_reclaims, g_large_allocs};
+        cpu_mem.nr_pages * page_size, cpu_mem.nr_free_pages * page_size, g_reclaims, g_large_allocs,
+        g_foreign_mallocs, g_foreign_frees, g_foreign_cross_frees};
 }
 
 bool drain_cross_cpu_freelist() {
@@ -1983,7 +1994,7 @@ void configure(std::vector<resource::memory> m, bool mbind, std::optional<std::s
 }
 
 statistics stats() {
-    return statistics{0, 0, 0, 1 << 30, 1 << 30, 0, 0};
+    return statistics{0, 0, 0, 1 << 30, 1 << 30, 0, 0, 0, 0, 0};
 }
 
 bool drain_cross_cpu_freelist() {
