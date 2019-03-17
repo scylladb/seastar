@@ -57,6 +57,7 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/print.hh>
 #include <seastar/util/alloc_failure_injector.hh>
+#include <seastar/util/std-compat.hh>
 #include <iostream>
 
 namespace seastar {
