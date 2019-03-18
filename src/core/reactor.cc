@@ -1209,7 +1209,13 @@ static bool detect_aio_poll() {
     uint64_t one = 1;
     fd.write(&one, 8);
     io_event ev[1];
-    r = io_pgetevents(ioc, 1, 1, ev, nullptr, nullptr);
+    // We set force_syscall = true (the last parameter) to ensure
+    // the system call exists and is usable. If IOCB_CMD_POLL exists then
+    // io_pgetevents() will also exist, but some versions of docker
+    // have a syscall whitelist that does not include io_pgetevents(),
+    // which causes it to fail with -EPERM. See
+    // https://github.com/moby/moby/issues/38894.
+    r = io_pgetevents(ioc, 1, 1, ev, nullptr, nullptr, true);
     return r == 1;
 }
 
