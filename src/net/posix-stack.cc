@@ -24,6 +24,7 @@
 #include <seastar/net/net.hh>
 #include <seastar/net/packet.hh>
 #include <seastar/net/api.hh>
+#include <seastar/util/std-compat.hh>
 #include <netinet/tcp.h>
 #include <netinet/sctp.h>
 
@@ -316,7 +317,7 @@ posix_data_source_impl::get() {
     return _fd->read_some(_buf.get_write(), _buf_size).then([this] (size_t size) {
         _buf.trim(size);
         auto ret = std::move(_buf);
-        _buf = temporary_buffer<char>(_buf_size);
+        _buf = make_temporary_buffer<char>(_buffer_allocator, _buf_size);
         return make_ready_future<temporary_buffer<char>>(std::move(ret));
     });
 }

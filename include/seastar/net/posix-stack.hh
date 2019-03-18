@@ -24,6 +24,7 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/sharded.hh>
 #include <seastar/net/stack.hh>
+#include <seastar/core/polymorphic_temporary_buffer.hh>
 #include <boost/program_options.hpp>
 
 namespace seastar {
@@ -102,12 +103,14 @@ public:
 };
 
 class posix_data_source_impl final : public data_source_impl {
+    compat::polymorphic_allocator<char>* _buffer_allocator;
     lw_shared_ptr<pollable_fd> _fd;
     temporary_buffer<char> _buf;
     size_t _buf_size;
 public:
-    explicit posix_data_source_impl(lw_shared_ptr<pollable_fd> fd, size_t buf_size = 8192)
-        : _fd(std::move(fd)), _buf(buf_size), _buf_size(buf_size) {}
+    explicit posix_data_source_impl(lw_shared_ptr<pollable_fd> fd, compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator,
+        size_t buf_size = 8192) : _buffer_allocator(allocator), _fd(std::move(fd)),
+        _buf(make_temporary_buffer<char>(_buffer_allocator, buf_size)), _buf_size(buf_size) {}
     future<temporary_buffer<char>> get() override;
     future<> close() override;
 };
