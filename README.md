@@ -35,6 +35,16 @@ then compile:
 $ ninja -C build/release
 ```
 
+If you're missing a dependency of Seastar, then it is possible to have the configuration process fetch a version of the dependency locally for development.
+
+For example, to fetch `fmt` locally, configure Seastar like this:
+
+```
+$ ./configure.py --mode=dev --cook fmt
+```
+
+`--cook` can be repeated many times for selecting multiple dependencies.
+
 Using Seastar from its build directory (without installation)
 ----------------------------------------------------------------------------
 

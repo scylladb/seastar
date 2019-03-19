@@ -71,6 +71,8 @@ arg_parser.add_argument('--c-compiler', action='store', dest='cc', default='gcc'
                         help = 'C compiler path (for bundled libraries such as dpdk)')
 arg_parser.add_argument('--c++-dialect', action='store', dest='cpp_dialect', default='',
                         help='C++ dialect to build with [default: %(default)s]')
+arg_parser.add_argument('--cook', action='append', dest='cook', default=[],
+                        help='Supply this dependency locally for development via `cmake-cooking` (can be repeated)')
 add_tristate(
     arg_parser,
     name = 'dpdk',
@@ -169,13 +171,23 @@ def configure_mode(mode):
         tr(args.coroutines_ts, 'EXPERIMENTAL_COROUTINES_TS'),
     ]
 
-    # Generate a new build by pointing to the source directory.
+    ingredients_to_cook = set(args.cook)
+
     if args.dpdk:
-        # When building with dpdk, we need to cook it first
-        ARGS = seastar_cmake.COOKING_BASIC_ARGS + ['-i', 'dpdk','-d', BUILD_PATH, '--']
+        ingredients_to_cook.add('dpdk')
+
+    # Generate a new build by pointing to the source directory.
+    if ingredients_to_cook:
+        # We need to use cmake-cooking for some dependencies.
+        inclusion_arguments = []
+
+        for ingredient in ingredients_to_cook:
+            inclusion_arguments.extend(['-i', ingredient])
+
+        ARGS = seastar_cmake.COOKING_BASIC_ARGS + inclusion_arguments + ['-d', BUILD_PATH, '--']
         dir = seastar_cmake.ROOT_PATH
     else:
-        # When building without dpdk, we can invoke cmake directly. We can't call
+        # When building without cooked dependencies, we can invoke cmake directly. We can't call
         # cooking.sh, because without any -i parameters, it will try to build
         # everything.
         ARGS = ['cmake', '-G', 'Ninja', '../..']
