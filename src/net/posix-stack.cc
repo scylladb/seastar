@@ -109,13 +109,15 @@ class posix_connected_socket_impl final : public connected_socket_impl, posix_co
     lw_shared_ptr<pollable_fd> _fd;
     using _ops = posix_connected_socket_operations<Transport>;
     conntrack::handle _handle;
+    compat::polymorphic_allocator<char>* _allocator;
 private:
-    explicit posix_connected_socket_impl(lw_shared_ptr<pollable_fd> fd) : _fd(std::move(fd)) {}
-    explicit posix_connected_socket_impl(lw_shared_ptr<pollable_fd> fd, conntrack::handle&& handle)
-        : _fd(std::move(fd)), _handle(std::move(handle)) {}
+    explicit posix_connected_socket_impl(lw_shared_ptr<pollable_fd> fd, compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) :
+        _fd(std::move(fd)), _allocator(allocator) {}
+    explicit posix_connected_socket_impl(lw_shared_ptr<pollable_fd> fd, conntrack::handle&& handle,
+        compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _fd(std::move(fd)), _handle(std::move(handle)), _allocator(allocator) {}
 public:
     virtual data_source source() override {
-        return data_source(std::make_unique< posix_data_source_impl>(_fd));
+        return data_source(std::make_unique< posix_data_source_impl>(_fd, _allocator));
     }
     virtual data_sink sink() override {
         return data_sink(std::make_unique< posix_data_sink_impl>(_fd));
