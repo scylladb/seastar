@@ -747,7 +747,10 @@ public:
             return ResolvedTupleTransform::make_ready_future(std::make_tuple(std::move(futures)...));
         }
 #endif
-        auto state = new when_all_state(std::move(futures)...);
+        auto state = [&] () noexcept {
+            memory::disable_failure_guard dfg;
+            return new when_all_state(std::move(futures)...);
+        }();
         auto ret = state->p.get_future();
         state->do_wait_all();
         return ret;
