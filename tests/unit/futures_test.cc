@@ -739,6 +739,49 @@ SEASTAR_TEST_CASE(test_when_allx) {
     return when_all(later(), later(), make_ready_future()).discard_result();
 }
 
+// A noncopyable and nonmovable struct
+struct non_copy_non_move {
+    non_copy_non_move(non_copy_non_move&&) = delete;
+    non_copy_non_move(const non_copy_non_move&) = delete;
+};
+
+SEASTAR_TEST_CASE(test_when_all_functions) {
+    auto f = [x = non_copy_non_move{}] {
+        (void)x;
+        return make_ready_future<int>(42);
+    };
+    return when_all(f, [] {
+        throw 42;
+        return make_ready_future<>();
+    }, later()).then([] (std::tuple<future<int>, future<>, future<>> res) {
+        BOOST_REQUIRE_EQUAL(std::get<0>(res).get0(), 42);
+
+        BOOST_REQUIRE(std::get<1>(res).available());
+        BOOST_REQUIRE(std::get<1>(res).failed());
+        std::get<1>(res).ignore_ready_future();
+
+        BOOST_REQUIRE(std::get<2>(res).available());
+        BOOST_REQUIRE(!std::get<2>(res).failed());
+        return make_ready_future<>();
+    });
+}
+
+SEASTAR_TEST_CASE(test_when_all_succeed_functions) {
+    auto f = [x = non_copy_non_move{}] {
+        (void)x;
+        return make_ready_future<int>(42);
+    };
+    return when_all_succeed(f, [] {
+        throw 42;
+        return make_ready_future<>();
+    }, later()).then_wrapped([] (future<int> res) {
+        BOOST_REQUIRE(res.available());
+        BOOST_REQUIRE(res.failed());
+        res.ignore_ready_future();
+        return make_ready_future<>();
+    });
+}
+
 template<typename E, typename... T>
 static void check_failed_with(future<T...>&& f) {
     BOOST_REQUIRE(f.failed());

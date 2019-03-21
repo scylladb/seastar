@@ -788,24 +788,42 @@ concept bool AllAreFutures = impl::is_tuple_of_futures<std::tuple<Futs...>>::val
 
 )
 
+template<typename Fut, std::enable_if_t<is_future<Fut>::value, int> = 0>
+auto futurize_apply_if_func(Fut&& fut) {
+    return std::forward<Fut>(fut);
+}
 
-/// Wait for many futures to complete, capturing possible errors (variadic version).
-///
-/// Given a variable number of futures as input, wait for all of them
-/// to resolve (either successfully or with an exception), and return
-/// them as a tuple so individual values or exceptions can be examined.
-///
-/// \param futs futures to wait for
-/// \return an \c std::tuple<> of all the futures in the input; when
-///         ready, all contained futures will be ready as well.
+template<typename Func, std::enable_if_t<!is_future<Func>::value, int> = 0>
+auto futurize_apply_if_func(Func&& func) {
+    return futurize_apply(std::forward<Func>(func));
+}
+
 template <typename... Futs>
 GCC6_CONCEPT( requires seastar::AllAreFutures<Futs...> )
 inline
 future<std::tuple<Futs...>>
-when_all(Futs&&... futs) {
+when_all_impl(Futs&&... futs) {
     namespace si = internal;
     using state = si::when_all_state<si::identity_futures_tuple<Futs...>, Futs...>;
     return state::wait_all(std::forward<Futs>(futs)...);
+}
+
+/// Wait for many futures to complete, capturing possible errors (variadic version).
+///
+/// Each future can be passed directly, or a function that returns a
+/// future can be given instead.
+///
+/// If any function throws, an exceptional future is created for it.
+///
+/// Returns a tuple of futures so individual values or exceptions can be
+/// examined.
+///
+/// \param fut_or_funcs futures or functions that return futures
+/// \return an \c std::tuple<> of all futures returned; when ready,
+///         all contained futures will be ready as well.
+template <typename... FutOrFuncs>
+inline auto when_all(FutOrFuncs&&... fut_or_funcs) {
+    return when_all_impl(futurize_apply_if_func(std::forward<FutOrFuncs>(fut_or_funcs))...);
 }
 
 /// \cond internal
@@ -1274,21 +1292,26 @@ struct extract_values_from_futures_vector<future<>> {
 
 }
 
-/// Wait for many futures to complete (variadic version).
-///
-/// Given a variable number of futures as input, wait for all of them
-/// to resolve, and return a future containing the values of each individual
-/// resolved future.
-/// In case any of the given futures fails one of the exceptions is returned
-/// by this function as a failed future.
-///
-/// \param futures futures to wait for
-/// \return future containing values of input futures
 template<typename... Futures>
 GCC6_CONCEPT( requires seastar::AllAreFutures<Futures...> )
-inline auto when_all_succeed(Futures&&... futures) {
+inline auto when_all_succeed_impl(Futures&&... futures) {
     using state = internal::when_all_state<internal::extract_values_from_futures_tuple<Futures...>, Futures...>;
     return state::wait_all(std::forward<Futures>(futures)...);
+}
+
+/// Wait for many futures to complete (variadic version).
+///
+/// Each future can be passed directly, or a function that returns a
+/// future can be given instead.
+///
+/// If any function throws, or if the returned future fails, one of
+/// the exceptions is returned by this function as a failed future.
+///
+/// \param fut_or_funcs futures or functions that return futures
+/// \return future containing values of futures returned by funcs
+template <typename... FutOrFuncs>
+inline auto when_all_succeed(FutOrFuncs&&... fut_or_funcs) {
+    return when_all_succeed_impl(futurize_apply_if_func(std::forward<FutOrFuncs>(fut_or_funcs))...);
 }
 
 /// Wait for many futures to complete (iterator version).
