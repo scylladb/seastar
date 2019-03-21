@@ -2965,15 +2965,43 @@ reactor::file_type(sstring name) {
     });
 }
 
-future<uint64_t>
-reactor::file_size(sstring pathname) {
+static std::chrono::system_clock::time_point
+timespec_to_time_point(const timespec& ts) {
+    return std::chrono::system_clock::time_point(ts.tv_sec * 1s + ts.tv_nsec * 1ns);
+}
+
+future<stat_data>
+reactor::file_stat(sstring pathname) {
     return _thread_pool->submit<syscall_result_extra<struct stat>>([pathname] {
         struct stat st;
         auto ret = stat(pathname.c_str(), &st);
         return wrap_syscall(ret, st);
-    }).then([pathname] (syscall_result_extra<struct stat> sr) {
+    }).then([pathname = std::move(pathname)] (syscall_result_extra<struct stat> sr) {
         sr.throw_fs_exception_if_error("stat failed", pathname);
-        return make_ready_future<uint64_t>(sr.extra.st_size);
+        struct stat& st = sr.extra;
+        stat_data sd;
+        sd.device_id = st.st_dev;
+        sd.inode_number = st.st_ino;
+        sd.mode = st.st_mode;
+        sd.type = stat_to_entry_type(st.st_mode);
+        sd.number_of_links = st.st_nlink;
+        sd.uid = st.st_uid;
+        sd.gid = st.st_gid;
+        sd.rdev = st.st_rdev;
+        sd.size = st.st_size;
+        sd.block_size = st.st_blksize;
+        sd.allocated_size = st.st_blocks * 512UL;
+        sd.time_accessed = timespec_to_time_point(st.st_atim);
+        sd.time_modified = timespec_to_time_point(st.st_mtim);
+        sd.time_changed = timespec_to_time_point(st.st_ctim);
+        return make_ready_future<stat_data>(std::move(sd));
+    });
+}
+
+future<uint64_t>
+reactor::file_size(sstring pathname) {
+    return file_stat(pathname).then([] (stat_data sd) {
+        return make_ready_future<uint64_t>(sd.size);
     });
 }
 
@@ -5601,6 +5629,10 @@ future<uint64_t> fs_free(sstring name) {
     return engine().statvfs(name).then([] (struct statvfs st) {
         return make_ready_future<uint64_t>(st.f_bfree * st.f_frsize);
     });
+}
+
+future<stat_data> file_stat(sstring name) {
+    return engine().file_stat(name);
 }
 
 future<uint64_t> file_size(sstring name) {

@@ -93,6 +93,25 @@ inline access_flags operator&(access_flags a, access_flags b) {
     return access_flags(std::underlying_type_t<access_flags>(a) & std::underlying_type_t<access_flags>(b));
 }
 
+/// Filesystem object stat information
+struct stat_data {
+    uint64_t  device_id;      // ID of device containing file
+    uint64_t  inode_number;   // Inode number
+    uint64_t  mode;           // File type and mode
+    directory_entry_type type;
+    uint64_t  number_of_links;// Number of hard links
+    uint64_t  uid;            // User ID of owner
+    uint64_t  gid;            // Group ID of owner
+    uint64_t  rdev;           // Device ID (if special file)
+    uint64_t  size;           // Total size, in bytes
+    uint64_t  block_size;     // Block size for filesystem I/O
+    uint64_t  allocated_size; // Total size of allocated storage, in bytes
+
+    std::chrono::system_clock::time_point time_accessed;  // Time of last content access
+    std::chrono::system_clock::time_point time_modified;  // Time of last content modification
+    std::chrono::system_clock::time_point time_changed;   // Time of last status change (either content or attributes)
+};
+
 /// File open options
 ///
 /// Options used to configure an open file.

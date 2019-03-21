@@ -63,6 +63,7 @@ struct file_open_options;
 enum class open_flags;
 enum class access_flags;
 enum class fs_type;
+struct stat_data;
 
 // Networking API
 
@@ -258,6 +259,11 @@ future<> remove_file(sstring name);
 /// The rename is not guaranteed to be stable on disk, unless the
 /// both containing directories are sync'ed.
 future<> rename_file(sstring old_name, sstring new_name);
+
+/// Return stat information about a file.
+///
+/// \param name name of the file to return its stat information
+future<stat_data> file_stat(sstring name);
 
 /// Return the size of a file.
 ///
