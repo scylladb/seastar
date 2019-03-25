@@ -510,25 +510,33 @@ struct syscall_result {
     int error;
     syscall_result(T result, int error) : result{std::move(result)}, error{error} {
     }
-    void throw_if_error() {
+    void throw_if_error() const {
         if (long(result) == -1) {
             throw std::system_error(ec());
         }
     }
 
-    void throw_fs_exception_if_error(sstring reason, sstring path) {
+    void throw_fs_exception(const sstring& reason, const fs::path& path) const {
+        throw fs::filesystem_error(reason, path, ec());
+    }
+
+    void throw_fs_exception(const sstring& reason, const fs::path& path1, const fs::path& path2) const {
+        throw fs::filesystem_error(reason, path1, path2, ec());
+    }
+
+    void throw_fs_exception_if_error(const sstring& reason, const sstring& path) const {
         if (long(result) == -1) {
-            throw fs::filesystem_error(reason, fs::path(path), ec());
+            throw_fs_exception(reason, fs::path(path));
         }
     }
 
-    void throw_fs_exception_if_error(sstring reason, sstring path1, sstring path2) {
+    void throw_fs_exception_if_error(const sstring& reason, const sstring& path1, const sstring& path2) const {
         if (long(result) == -1) {
-            throw fs::filesystem_error(reason, fs::path(path1), fs::path(path2), ec());
+            throw_fs_exception(reason, fs::path(path1), fs::path(path2));
         }
     }
 protected:
-    std::error_code ec() {
+    std::error_code ec() const {
         return std::error_code(error, std::system_category());
     }
 };
@@ -2957,29 +2965,61 @@ reactor::file_type(sstring name) {
     });
 }
 
-future<uint64_t>
-reactor::file_size(sstring pathname) {
+static std::chrono::system_clock::time_point
+timespec_to_time_point(const timespec& ts) {
+    return std::chrono::system_clock::time_point(ts.tv_sec * 1s + ts.tv_nsec * 1ns);
+}
+
+future<stat_data>
+reactor::file_stat(sstring pathname) {
     return _thread_pool->submit<syscall_result_extra<struct stat>>([pathname] {
         struct stat st;
         auto ret = stat(pathname.c_str(), &st);
         return wrap_syscall(ret, st);
-    }).then([pathname] (syscall_result_extra<struct stat> sr) {
+    }).then([pathname = std::move(pathname)] (syscall_result_extra<struct stat> sr) {
         sr.throw_fs_exception_if_error("stat failed", pathname);
-        return make_ready_future<uint64_t>(sr.extra.st_size);
+        struct stat& st = sr.extra;
+        stat_data sd;
+        sd.device_id = st.st_dev;
+        sd.inode_number = st.st_ino;
+        sd.mode = st.st_mode;
+        sd.type = stat_to_entry_type(st.st_mode);
+        sd.number_of_links = st.st_nlink;
+        sd.uid = st.st_uid;
+        sd.gid = st.st_gid;
+        sd.rdev = st.st_rdev;
+        sd.size = st.st_size;
+        sd.block_size = st.st_blksize;
+        sd.allocated_size = st.st_blocks * 512UL;
+        sd.time_accessed = timespec_to_time_point(st.st_atim);
+        sd.time_modified = timespec_to_time_point(st.st_mtim);
+        sd.time_changed = timespec_to_time_point(st.st_ctim);
+        return make_ready_future<stat_data>(std::move(sd));
+    });
+}
+
+future<uint64_t>
+reactor::file_size(sstring pathname) {
+    return file_stat(pathname).then([] (stat_data sd) {
+        return make_ready_future<uint64_t>(sd.size);
     });
 }
 
 future<bool>
-reactor::file_exists(sstring pathname) {
-    return _thread_pool->submit<syscall_result_extra<struct stat>>([pathname] {
-        struct stat st;
-        auto ret = stat(pathname.c_str(), &st);
-        return wrap_syscall(ret, st);
-    }).then([pathname] (syscall_result_extra<struct stat> sr) {
-        if (sr.result < 0 && sr.error == ENOENT) {
-            return make_ready_future<bool>(false);
+reactor::file_accessible(sstring pathname, access_flags flags) {
+    return _thread_pool->submit<syscall_result<int>>([pathname, flags] {
+        auto aflags = std::underlying_type_t<access_flags>(flags);
+        auto ret = ::access(pathname.c_str(), aflags);
+        return wrap_syscall(ret);
+    }).then([this, pathname, flags] (syscall_result<int> sr) {
+        if (sr.result < 0) {
+            if ((sr.error == ENOENT && flags == access_flags::exists) ||
+                (sr.error == EACCES && flags != access_flags::exists)) {
+                return make_ready_future<bool>(false);
+            }
+            sr.throw_fs_exception("access failed", fs::path(pathname));
         }
-        sr.throw_fs_exception_if_error("stat failed", pathname);
+
         return make_ready_future<bool>(true);
     });
 }
@@ -5591,8 +5631,16 @@ future<uint64_t> fs_free(sstring name) {
     });
 }
 
+future<stat_data> file_stat(sstring name) {
+    return engine().file_stat(name);
+}
+
 future<uint64_t> file_size(sstring name) {
     return engine().file_size(name);
+}
+
+future<bool> file_accessible(sstring name, access_flags flags) {
+    return engine().file_accessible(name, flags);
 }
 
 future<bool> file_exists(sstring name) {
