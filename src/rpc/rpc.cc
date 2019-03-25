@@ -646,9 +646,9 @@ namespace rpc {
               features[protocol_features::ISOLATION] = _options.isolation_cookie;
           }
 
-          send_negotiation_frame(std::move(features));
-
-          return negotiate_protocol(_read_buf).then([this] () {
+          return send_negotiation_frame(std::move(features)).then([this] {
+               return negotiate_protocol(_read_buf);
+          }).then([this] () {
               _client_negotiated->set_value();
               _client_negotiated = compat::nullopt;
               send_loop();
