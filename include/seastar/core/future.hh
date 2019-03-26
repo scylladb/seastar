@@ -883,8 +883,6 @@ public:
     std::tuple<T...> get() {
         if (!state()->available()) {
             do_wait();
-        } else if (thread_impl::get() && thread_impl::should_yield()) {
-            thread_impl::yield();
         }
         return get_available_state().get();
     }
