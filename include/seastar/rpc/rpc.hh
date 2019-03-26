@@ -473,6 +473,7 @@ public:
                 rpc::connection::send_loop<rpc::connection::outgoing_queue_type::response>();
             }
         }
+        future<> send_unknown_verb_reply(compat::optional<rpc_clock_type::time_point> timeout, int64_t msg_id, uint64_t type);
     public:
         connection(server& s, connected_socket&& fd, socket_address&& addr, const logger& l, void* seralizer, connection_id id);
         future<> process();
@@ -553,7 +554,9 @@ class protocol_base {
 public:
     virtual ~protocol_base() {};
     virtual shared_ptr<server::connection> make_server_connection(rpc::server& server, connected_socket fd, socket_address addr, connection_id id) = 0;
-    virtual rpc_handler* get_handler(uint64_t msg_id) = 0;
+    // returns a pointer to rpc handler function and a version of handler's table
+    virtual std::pair<rpc_handler*, uint32_t> get_handler(uint64_t msg_id) = 0;
+    virtual uint32_t get_handlers_table_version() const = 0;
 };
 
 // MsgType is a type that holds type of a message. The type should be hashable
@@ -603,6 +606,7 @@ public:
     friend server;
 private:
     std::unordered_map<MsgType, rpc_handler> _handlers;
+    uint32_t  _handlers_version = 0;
     Serializer _serializer;
     logger _logger;
 
@@ -624,6 +628,7 @@ public:
     auto register_handler(MsgType t, scheduling_group sg, Func&& func);
 
     void unregister_handler(MsgType t) {
+        _handlers_version++;
         _handlers.erase(t);
     }
 
@@ -639,15 +644,11 @@ public:
         return make_shared<rpc::server::connection>(server, std::move(fd), std::move(addr), _logger, &_serializer, id);
     }
 
-    rpc_handler* get_handler(uint64_t msg_id) override {
-        auto it = _handlers.find(MsgType(msg_id));
-        if (it != _handlers.end()) {
-            return &it->second;
-        } else {
-            return nullptr;
-        }
-    }
+    std::pair<rpc_handler*, uint32_t> get_handler(uint64_t msg_id) override;
 
+    uint32_t get_handlers_table_version() const override {
+        return _handlers_version;
+    }
 private:
     template<typename Ret, typename... In>
     auto make_client(signature<Ret(In...)> sig, MsgType t);

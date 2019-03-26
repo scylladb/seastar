@@ -645,7 +645,18 @@ auto protocol<Serializer, MsgType>::register_handler(MsgType t, scheduling_group
 template<typename Serializer, typename MsgType>
 template<typename Func>
 auto protocol<Serializer, MsgType>::register_handler(MsgType t, Func&& func) {
+    _handlers_version++;
     return register_handler(t, scheduling_group(), std::forward<Func>(func));
+}
+
+template<typename Serializer, typename MsgType>
+std::pair<rpc_handler*, uint32_t> protocol<Serializer, MsgType>::get_handler(uint64_t msg_id) {
+    rpc_handler* h = nullptr;
+    auto it = _handlers.find(MsgType(msg_id));
+    if (it != _handlers.end()) {
+        h = &it->second;
+    }
+    return std::make_pair(h, _handlers_version);
 }
 
 template<typename T> T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org);

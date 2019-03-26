@@ -853,6 +853,25 @@ namespace rpc {
       return send(std::move(data), timeout);
   }
 
+future<> server::connection::send_unknown_verb_reply(compat::optional<rpc_clock_type::time_point> timeout, int64_t msg_id, uint64_t type) {
+    return wait_for_resources(28, timeout).then([this, timeout, msg_id, type] (auto permit) {
+        // send unknown_verb exception back
+        snd_buf data(28);
+        static_assert(snd_buf::chunk_size >= 28, "send buffer chunk size is too small");
+        auto p = data.front().get_write() + 12;
+        write_le<uint32_t>(p, uint32_t(exception_type::UNKNOWN_VERB));
+        write_le<uint32_t>(p + 4, uint32_t(8));
+        write_le<uint64_t>(p + 8, type);
+        try {
+            with_gate(_server._reply_gate, [this, timeout, msg_id, data = std::move(data), permit = std::move(permit)] () mutable {
+                // workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=83268
+                auto c = shared_from_this();
+                return respond(-msg_id, std::move(data), timeout).then([c = std::move(c), permit = std::move(permit)] {});
+            });
+        } catch(gate_closed_exception&) {/* ignore */}
+    });
+}
+
   future<> server::connection::process() {
       return negotiate_protocol(_read_buf).then([this] () mutable {
         auto sg = _isolation_config ? _isolation_config->sched_group : current_scheduling_group();
@@ -872,29 +891,21 @@ namespace rpc {
                           timeout = rpc_clock_type::now() + std::chrono::milliseconds(*expire);
                       }
                       auto h = _server._proto->get_handler(type);
-                      if (h) {
-                          // If the new method of per-connection scheduling group was used, honor it.
-                          // Otherwise, use the old per-handler scheduling group.
-                          auto sg = _isolation_config ? _isolation_config->sched_group : h->sg;
-                          return with_scheduling_group(sg, std::ref(h->func), shared_from_this(), timeout, msg_id, std::move(data.value()));
-                      } else {
-                          return wait_for_resources(28, timeout).then([this, timeout, msg_id, type] (auto permit) {
-                              // send unknown_verb exception back
-                              snd_buf data(28);
-                              static_assert(snd_buf::chunk_size >= 28, "send buffer chunk size is too small");
-                              auto p = data.front().get_write() + 12;
-                              write_le<uint32_t>(p, uint32_t(exception_type::UNKNOWN_VERB));
-                              write_le<uint32_t>(p + 4, uint32_t(8));
-                              write_le<uint64_t>(p + 8, type);
-                              try {
-                                  with_gate(_server._reply_gate, [this, timeout, msg_id, data = std::move(data), permit = std::move(permit)] () mutable {
-                                      // workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=83268
-                                      auto c = shared_from_this();
-                                      return respond(-msg_id, std::move(data), timeout).then([c = std::move(c), permit = std::move(permit)] {});
-                                  });
-                              } catch(gate_closed_exception&) {/* ignore */}
-                          });
-                      }
+                      // If the new method of per-connection scheduling group was used, honor it.
+                      // Otherwise, use the old per-handler scheduling group.
+                      auto sg = _isolation_config ? _isolation_config->sched_group : h.first ? h.first->sg : scheduling_group();
+                      return with_scheduling_group(sg, [this, timeout, type, msg_id, h, data = std::move(data.value())] () mutable {
+                          // with_scheduling_group may defer and the callback might be unregistered already when the code runs
+                          // verify it by checking that handlers table version did not change, otherwise search for the handler again
+                          if (h.first && h.second != _server._proto->get_handlers_table_version()) {
+                              h = _server._proto->get_handler(type);
+                          }
+                          if (h.first) {
+                              return h.first->func(shared_from_this(), timeout, msg_id, std::move(data));
+                          } else {
+                              return send_unknown_verb_reply(timeout, msg_id, type);
+                          }
+                      });
                   }
               });
           });
