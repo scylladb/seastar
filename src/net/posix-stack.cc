@@ -158,6 +158,7 @@ using posix_connected_sctp_socket_impl = posix_connected_socket_impl<transport::
 
 class posix_socket_impl final : public socket_impl {
     lw_shared_ptr<pollable_fd> _fd;
+    compat::polymorphic_allocator<char>* _allocator;
 
     future<> find_port_and_connect(socket_address sa, socket_address local, transport proto = transport::TCP) {
         static thread_local std::default_random_engine random_engine{std::random_device{}()};
@@ -180,16 +181,16 @@ class posix_socket_impl final : public socket_impl {
     }
 
 public:
-    posix_socket_impl() = default;
+    explicit posix_socket_impl(compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _allocator(allocator) {}
 
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
         _fd = engine().make_pollable_fd(sa, proto);
-        return find_port_and_connect(sa, local, proto).then([fd = _fd, proto] () mutable {
+        return find_port_and_connect(sa, local, proto).then([fd = _fd, proto, allocator = _allocator] () mutable {
             std::unique_ptr<connected_socket_impl> csi;
             if (proto == transport::TCP) {
-                csi.reset(new posix_connected_tcp_socket_impl(std::move(fd)));
+                csi.reset(new posix_connected_tcp_socket_impl(std::move(fd), allocator));
             } else {
-                csi.reset(new posix_connected_sctp_socket_impl(std::move(fd)));
+                csi.reset(new posix_connected_sctp_socket_impl(std::move(fd), allocator));
             }
             return make_ready_future<connected_socket>(connected_socket(std::move(csi)));
         });
@@ -380,7 +381,7 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
 }
 
 ::seastar::socket posix_network_stack::socket() {
-    return ::seastar::socket(std::make_unique<posix_socket_impl>());
+    return ::seastar::socket(std::make_unique<posix_socket_impl>(_allocator));
 }
 
 template<transport Transport>
