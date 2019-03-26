@@ -185,13 +185,15 @@ using posix_reuseport_server_sctp_socket_impl = posix_reuseport_server_socket_im
 class posix_network_stack : public network_stack {
 private:
     const bool _reuseport;
+    compat::polymorphic_allocator<char>* _allocator;
 public:
-    explicit posix_network_stack(boost::program_options::variables_map opts) : _reuseport(engine().posix_reuseport_available()) {}
+    explicit posix_network_stack(boost::program_options::variables_map opts, compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) :
+        _reuseport(engine().posix_reuseport_available()), _allocator(allocator) {}
     virtual server_socket listen(socket_address sa, listen_options opts) override;
     virtual ::seastar::socket socket() override;
     virtual net::udp_channel make_udp_channel(const socket_address&) override;
-    static future<std::unique_ptr<network_stack>> create(boost::program_options::variables_map opts) {
-        return make_ready_future<std::unique_ptr<network_stack>>(std::unique_ptr<network_stack>(new posix_network_stack(opts)));
+    static future<std::unique_ptr<network_stack>> create(boost::program_options::variables_map opts, compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) {
+        return make_ready_future<std::unique_ptr<network_stack>>(std::unique_ptr<network_stack>(new posix_network_stack(opts, allocator)));
     }
     virtual bool has_per_core_namespace() override { return _reuseport; };
     bool supports_ipv6() const override;
