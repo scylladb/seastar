@@ -4752,6 +4752,9 @@ namespace seastar {
 void network_stack_registry::register_stack(sstring name,
         boost::program_options::options_description opts,
         std::function<future<std::unique_ptr<network_stack>> (options opts)> create, bool make_default) {
+    if (_map().count(name)) {
+        return;
+    }
     _map()[name] = std::move(create);
     options_description().add(opts);
     if (make_default) {
