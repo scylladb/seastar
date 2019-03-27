@@ -621,7 +621,7 @@ cpu_pages::allocate_large_and_trim(unsigned n_pages) {
 void
 cpu_pages::warn_large_allocation(size_t size) {
     ++g_large_allocs;
-    seastar_memory_logger.warn("oversized allocation: {} bytes, please report: at {}", size, current_backtrace());
+    seastar_memory_logger.warn("oversized allocation: {} bytes. This is non-fatal, but could lead to latency and/or fragmentation issues. Please report: at {}", size, current_backtrace());
     large_allocation_warning_threshold *= 1.618; // prevent spam
 }
 
