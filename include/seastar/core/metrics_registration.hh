@@ -21,6 +21,11 @@
 
 #pragma once
 
+#include <memory>
+#include <vector>
+
+#include <seastar/core/sstring.hh>
+
 /*!
  * \file metrics_registration.hh
  * \brief holds the metric_groups definition needed by class that reports metrics
@@ -96,22 +101,44 @@ public:
     metric_groups(std::initializer_list<metric_group_definition> mg);
 
     /*!
-     * \brief add metrics belong to the same group.
+     * \brief Add metrics belonging to the same group.
      *
-     * use the metrics creation functions to add metrics.
+     * Use the metrics creation functions to add metrics.
      *
-     * for example:
+     * For example:
      *  _metrics.add_group("my_group", {
      *      make_counter("my_counter_name1", counter, description("my counter description")),
      *      make_counter("my_counter_name2", counter, description("my second counter description")),
      *      make_gauge("my_gauge_name1", gauge, description("my gauge description")),
      *  });
      *
-     *  metric name should be unique inside the group.
-     *  you can change add_group calls like:
-     *  _metrics.add_group("my group1", {...}).add_group("my group2", {...});
+     * Metric name should be unique inside the group.
+     * You can chain add_group calls like:
+     * _metrics.add_group("my group1", {...}).add_group("my group2", {...});
+     *
+     * This overload (with initializer_list) is needed because metric_definition
+     * has no copy constructor, so the other overload (with vector) cannot be
+     * invoked on a braced-init-list.
      */
     metric_groups& add_group(const group_name_type& name, const std::initializer_list<metric_definition>& l);
+
+    /*!
+     * \brief Add metrics belonging to the same group.
+     *
+     * Use the metrics creation functions to add metrics.
+     *
+     * For example:
+     *  vector<metric_definition> v;
+     *  v.push_back(make_counter("my_counter_name1", counter, description("my counter description")));
+     *  v.push_back(make_counter("my_counter_name2", counter, description("my second counter description")));
+     *  v.push_back(make_gauge("my_gauge_name1", gauge, description("my gauge description")));
+     *  _metrics.add_group("my_group", v);
+     *
+     * Metric name should be unique inside the group.
+     * You can chain add_group calls like:
+     * _metrics.add_group("my group1", vec1).add_group("my group2", vec2);
+     */
+    metric_groups& add_group(const group_name_type& name, const std::vector<metric_definition>& l);
 
     /*!
      * \brief clear all metrics groups registrations.

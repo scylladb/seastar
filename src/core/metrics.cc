@@ -45,6 +45,10 @@ metric_groups& metric_groups::add_group(const group_name_type& name, const std::
     _impl->add_group(name, l);
     return *this;
 }
+metric_groups& metric_groups::add_group(const group_name_type& name, const std::vector<metric_definition>& l) {
+    _impl->add_group(name, l);
+    return *this;
+}
 metric_group::metric_group() noexcept = default;
 metric_group::~metric_group() = default;
 metric_group::metric_group(const group_name_type& name, std::initializer_list<metric_definition> l) {

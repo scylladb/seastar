@@ -311,6 +311,9 @@ seastar_add_test (json_formatter
 seastar_add_test (lowres_clock
   SOURCES lowres_clock_test.cc)
 
+seastar_add_test (metrics
+  SOURCES metrics_test.cc)
+
 seastar_add_test (net_config
   KIND BOOST
   SOURCES net_config_test.cc)
