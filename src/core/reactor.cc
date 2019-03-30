@@ -2971,10 +2971,11 @@ timespec_to_time_point(const timespec& ts) {
 }
 
 future<stat_data>
-reactor::file_stat(sstring pathname) {
-    return _thread_pool->submit<syscall_result_extra<struct stat>>([pathname] {
+reactor::file_stat(sstring pathname, follow_symlink follow) {
+    return _thread_pool->submit<syscall_result_extra<struct stat>>([pathname, follow] {
         struct stat st;
-        auto ret = stat(pathname.c_str(), &st);
+        auto stat_syscall = follow ? stat : lstat;
+        auto ret = stat_syscall(pathname.c_str(), &st);
         return wrap_syscall(ret, st);
     }).then([pathname = std::move(pathname)] (syscall_result_extra<struct stat> sr) {
         sr.throw_fs_exception_if_error("stat failed", pathname);
@@ -3000,7 +3001,7 @@ reactor::file_stat(sstring pathname) {
 
 future<uint64_t>
 reactor::file_size(sstring pathname) {
-    return file_stat(pathname).then([] (stat_data sd) {
+    return file_stat(pathname, follow_symlink::yes).then([] (stat_data sd) {
         return make_ready_future<uint64_t>(sd.size);
     });
 }
@@ -5634,8 +5635,8 @@ future<uint64_t> fs_free(sstring name) {
     });
 }
 
-future<stat_data> file_stat(sstring name) {
-    return engine().file_stat(name);
+future<stat_data> file_stat(sstring name, follow_symlink follow) {
+    return engine().file_stat(name, follow);
 }
 
 future<uint64_t> file_size(sstring name) {
