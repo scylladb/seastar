@@ -599,6 +599,7 @@ future<> write_text_representation(output_stream<char>& out, const config& ctx, 
                     s << "\n";
                 }
                 out.write(s.str()).get();
+                thread::maybe_yield();
             });
         }
     });
