@@ -2934,7 +2934,7 @@ directory_entry_type stat_to_entry_type(__mode_t type) {
         return directory_entry_type::block_device;
     }
     if (S_ISCHR(type)) {
-            return directory_entry_type::char_device;
+        return directory_entry_type::char_device;
     }
     if (S_ISFIFO(type)) {
         return directory_entry_type::fifo;
@@ -2942,8 +2942,13 @@ directory_entry_type stat_to_entry_type(__mode_t type) {
     if (S_ISLNK(type)) {
         return directory_entry_type::link;
     }
-    return directory_entry_type::regular;
-
+    if (S_ISSOCK(type)) {
+        return directory_entry_type::socket;
+    }
+    if (S_ISREG(type)) {
+        return directory_entry_type::regular;
+    }
+    return directory_entry_type::unknown;
 }
 
 future<compat::optional<directory_entry_type>>

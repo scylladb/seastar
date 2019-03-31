@@ -45,6 +45,7 @@ namespace seastar {
 ///
 /// \see file::list_directory()
 enum class directory_entry_type {
+    unknown,
     block_device,
     char_device,
     directory,
