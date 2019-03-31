@@ -3380,6 +3380,9 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
             case DT_REG:
                 type = directory_entry_type::regular;
                 break;
+            case DT_LNK:
+                type = directory_entry_type::link;
+                break;
             case DT_SOCK:
                 type = directory_entry_type::socket;
                 break;
