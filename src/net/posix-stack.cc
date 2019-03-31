@@ -218,12 +218,12 @@ posix_server_socket_impl<Transport>::accept() {
         auto cpu = cth.cpu();
         if (cpu == engine().cpu_id()) {
             std::unique_ptr<connected_socket_impl> csi(
-                    new posix_connected_socket_impl<Transport>(make_lw_shared(std::move(fd)), std::move(cth)));
+                    new posix_connected_socket_impl<Transport>(make_lw_shared(std::move(fd)), std::move(cth), _allocator));
             return make_ready_future<connected_socket, socket_address>(
                     connected_socket(std::move(csi)), sa);
         } else {
-            smp::submit_to(cpu, [ssa = _sa, fd = std::move(fd.get_file_desc()), sa, cth = std::move(cth)] () mutable {
-                posix_ap_server_socket_impl<Transport>::move_connected_socket(ssa, pollable_fd(std::move(fd)), sa, std::move(cth));
+            smp::submit_to(cpu, [ssa = _sa, fd = std::move(fd.get_file_desc()), sa, cth = std::move(cth), allocator = _allocator] () mutable {
+                posix_ap_server_socket_impl<Transport>::move_connected_socket(ssa, pollable_fd(std::move(fd)), sa, std::move(cth), allocator);
             });
             return accept();
         }
@@ -279,9 +279,9 @@ posix_ap_server_socket_impl<Transport>::abort_accept() {
 template <transport Transport>
 future<connected_socket, socket_address>
 posix_reuseport_server_socket_impl<Transport>::accept() {
-    return _lfd.accept().then([] (pollable_fd fd, socket_address sa) {
+    return _lfd.accept().then([allocator = _allocator] (pollable_fd fd, socket_address sa) {
         std::unique_ptr<connected_socket_impl> csi(
-                new posix_connected_socket_impl<Transport>(make_lw_shared(std::move(fd))));
+                new posix_connected_socket_impl<Transport>(make_lw_shared(std::move(fd)), allocator));
         return make_ready_future<connected_socket, socket_address>(
             connected_socket(std::move(csi)), sa);
     });

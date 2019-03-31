@@ -156,8 +156,10 @@ class posix_server_socket_impl : public server_socket_impl {
     pollable_fd _lfd;
     conntrack _conntrack;
     server_socket::load_balancing_algorithm _lba;
+    compat::polymorphic_allocator<char>* _allocator;
 public:
-    explicit posix_server_socket_impl(socket_address sa, pollable_fd lfd, server_socket::load_balancing_algorithm lba) : _sa(sa), _lfd(std::move(lfd)), _lba(lba) {}
+    explicit posix_server_socket_impl(socket_address sa, pollable_fd lfd, server_socket::load_balancing_algorithm lba,
+        compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _lfd(std::move(lfd)), _lba(lba), _allocator(allocator) {}
     virtual future<connected_socket, socket_address> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
@@ -169,8 +171,10 @@ template <transport Transport>
 class posix_reuseport_server_socket_impl : public server_socket_impl {
     socket_address _sa;
     pollable_fd _lfd;
+    compat::polymorphic_allocator<char>* _allocator;
 public:
-    explicit posix_reuseport_server_socket_impl(socket_address sa, pollable_fd lfd) : _sa(sa), _lfd(std::move(lfd)) {}
+    explicit posix_reuseport_server_socket_impl(socket_address sa, pollable_fd lfd,
+        compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _lfd(std::move(lfd)), _allocator(allocator) {}
     virtual future<connected_socket, socket_address> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
