@@ -300,11 +300,11 @@ socket_address posix_reuseport_server_socket_impl<Transport>::local_address() co
 
 template <transport Transport>
 void
-posix_ap_server_socket_impl<Transport>::move_connected_socket(socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle cth) {
+posix_ap_server_socket_impl<Transport>::move_connected_socket(socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle cth, compat::polymorphic_allocator<char>* allocator) {
     auto i = sockets.find(sa);
     if (i != sockets.end()) {
         try {
-            std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl<Transport>(make_lw_shared(std::move(fd)), std::move(cth)));
+            std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl<Transport>(make_lw_shared(std::move(fd)), std::move(cth), allocator));
             i->second.set_value(connected_socket(std::move(csi)), std::move(addr));
         } catch (...) {
             i->second.set_exception(std::current_exception());

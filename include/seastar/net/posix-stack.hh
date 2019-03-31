@@ -137,14 +137,15 @@ class posix_ap_server_socket_impl : public server_socket_impl {
     static thread_local std::unordered_map<socket_address, promise<connected_socket, socket_address>> sockets;
     static thread_local std::unordered_multimap<socket_address, connection> conn_q;
     socket_address _sa;
+    compat::polymorphic_allocator<char>* _allocator;
 public:
-    explicit posix_ap_server_socket_impl(socket_address sa) : _sa(sa) {}
+    explicit posix_ap_server_socket_impl(socket_address sa, compat::polymorphic_allocator<char>* allocator = memory::malloc_allocator) : _sa(sa), _allocator(allocator) {}
     virtual future<connected_socket, socket_address> accept() override;
     virtual void abort_accept() override;
     socket_address local_address() const override {
         return _sa;
     }
-    static void move_connected_socket(socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle);
+    static void move_connected_socket(socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, compat::polymorphic_allocator<char>* allocator);
 };
 using posix_tcp_ap_server_socket_impl = posix_ap_server_socket_impl<transport::TCP>;
 using posix_sctp_ap_server_socket_impl = posix_ap_server_socket_impl<transport::SCTP>;
