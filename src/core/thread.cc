@@ -361,6 +361,13 @@ bool thread::should_yield() {
     return thread_impl::get()->should_yield();
 }
 
+void thread::maybe_yield() {
+    auto tctx = thread_impl::get();
+    if (tctx->should_yield()) {
+        tctx->yield();
+    }
+}
+
 thread_scheduling_group::thread_scheduling_group(std::chrono::nanoseconds period, float usage)
         : _period(period), _quota(std::chrono::duration_cast<std::chrono::nanoseconds>(usage * period)) {
 }
