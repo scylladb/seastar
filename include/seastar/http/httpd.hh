@@ -242,10 +242,10 @@ public:
     explicit http_server(const sstring& name) : _stats(*this, name) {
         _date_format_timer.arm_periodic(1s);
     }
-    future<> listen(ipv4_addr addr) {
+    future<> listen(socket_address addr) {
         listen_options lo;
         lo.reuse_address = true;
-        _listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
+        _listeners.push_back(engine().listen(addr, lo));
         _stopped = when_all(std::move(_stopped), do_accepts(_listeners.size() - 1)).discard_result();
         return make_ready_future<>();
     }
@@ -363,7 +363,7 @@ public:
         });
     }
 
-    future<> listen(ipv4_addr addr) {
+    future<> listen(socket_address addr) {
         return _server_dist->invoke_on_all(&http_server::listen, addr);
     }
 
