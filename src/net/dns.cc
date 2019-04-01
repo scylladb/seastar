@@ -38,6 +38,14 @@
 
 namespace seastar {
 
+std::ostream& operator<<(std::ostream& os, const compat::optional<net::inet_address::family>& f) {
+    if (f) {
+        return os << *f;
+    } else {
+        return os << "ANY";
+    }
+}
+
 static logger dns_log("dns_resolver");
 
 class ares_error_category : public std::error_category {
@@ -202,13 +210,13 @@ public:
         }
     }
 
-    future<inet_address> resolve_name(sstring name, inet_address::family family) {
+    future<inet_address> resolve_name(sstring name, opt_family family) {
         return get_host_by_name(std::move(name), family).then([](hostent h) {
             return make_ready_future<inet_address>(h.addr_list.front());
         });
     }
 
-    future<hostent> get_host_by_name(sstring name, inet_address::family family)  {
+    future<hostent> get_host_by_name(sstring name, opt_family family)  {
         class promise_wrap : public promise<hostent> {
         public:
             promise_wrap(sstring s)
@@ -219,12 +227,25 @@ public:
 
         dns_log.debug("Query name {} ({})", name, family);
 
+        if (!family) {
+            ::in_addr in;
+            ::in6_addr in6;
+            if (::inet_pton(AF_INET, name.c_str(), &in)) {
+                return make_ready_future<hostent>(hostent{ {name}, {net::inet_address(in)}});
+            }
+            if (::inet_pton(AF_INET6, name.c_str(), &in6)) {
+                return make_ready_future<hostent>(hostent{ {name}, {net::inet_address(in6)}});
+            }
+        }
+
         auto p = new promise_wrap(std::move(name));
         auto f = p->get_future();
 
         dns_call call(*this);
 
-        ares_gethostbyname(_channel, p->name.c_str(), int(family), [](void* arg, int status, int timeouts, ::hostent* host) {
+        auto af = family ? int(*family) : AF_UNSPEC;
+
+        ares_gethostbyname(_channel, p->name.c_str(), af, [](void* arg, int status, int timeouts, ::hostent* host) {
             // we do potentially allocating operations below, so wrap the pointer in a
             // unique here.
             std::unique_ptr<promise_wrap> p(reinterpret_cast<promise_wrap *>(arg));
@@ -948,7 +969,7 @@ net::dns_resolver::dns_resolver(dns_resolver&&) noexcept = default;
 net::dns_resolver& net::dns_resolver::operator=(dns_resolver&&) noexcept = default;
 
 future<net::hostent> net::dns_resolver::get_host_by_name(const sstring& name, opt_family family) {
-    return _impl->get_host_by_name(name, family.value_or(inet_address::family::INET));
+    return _impl->get_host_by_name(name, family);
 }
 
 future<net::hostent> net::dns_resolver::get_host_by_addr(const inet_address& addr) {
@@ -956,7 +977,7 @@ future<net::hostent> net::dns_resolver::get_host_by_addr(const inet_address& add
 }
 
 future<net::inet_address> net::dns_resolver::resolve_name(const sstring& name, opt_family family) {
-    return _impl->resolve_name(name, family.value_or(inet_address::family::INET));
+    return _impl->resolve_name(name, family);
 }
 
 future<sstring> net::dns_resolver::resolve_addr(const inet_address& addr) {
@@ -980,7 +1001,7 @@ static net::dns_resolver& resolver() {
 
 
 future<net::hostent> net::dns::get_host_by_name(const sstring& name, opt_family family) {
-    return resolver().get_host_by_name(name, family.value_or(inet_address::family::INET));
+    return resolver().get_host_by_name(name, family);
 }
 
 future<net::hostent> net::dns::get_host_by_addr(const inet_address& addr) {
@@ -988,7 +1009,7 @@ future<net::hostent> net::dns::get_host_by_addr(const inet_address& addr) {
 }
 
 future<net::inet_address> net::dns::resolve_name(const sstring& name, opt_family family) {
-    return resolver().resolve_name(name, family.value_or(inet_address::family::INET));
+    return resolver().resolve_name(name, family);
 }
 
 future<sstring> net::dns::resolve_addr(const inet_address& addr) {
