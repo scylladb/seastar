@@ -1150,8 +1150,9 @@ small_pool::add_more_objects() {
                 return;
             }
         }
-        _pages_in_use += span_size;
         auto span = cpu_mem.to_page(data);
+        span_size = span->span_size;
+        _pages_in_use += span_size;
         for (unsigned i = 0; i < span_size; ++i) {
             span[i].offset_in_span = i;
             span[i].pool = this;
