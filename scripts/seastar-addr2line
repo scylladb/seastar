@@ -68,11 +68,12 @@ class Addr2Line:
         return self._read_resolved_address()
 
 class BacktraceResolver(object):
-    object_address_re = re.compile('^.*?(((/[^/]+)+)\+)?(0x[0-9a-f]+)\W*$')
+    object_address_re = re.compile('^(.*?)\W(((/[^/]+)+)\+)?(0x[0-9a-f]+)\W*$')
 
     def __init__(self, executable, before_lines, verbose):
         self._executable = executable
         self._current_backtrace = []
+        self._prefix = None
         self._before_lines = before_lines
         self._before_lines_queue = collections.deque(maxlen=before_lines)
         self._i = 0
@@ -104,6 +105,10 @@ class BacktraceResolver(object):
         for line in self._before_lines_queue:
             sys.stdout.write(line)
 
+        if not self._prefix is None:
+            print(self._prefix)
+            self._prefix = None
+
         backtrace = "".join(map(str, self._current_backtrace))
         if backtrace in self._known_backtraces:
             print("[Backtrace #{}] Already seen, not resolving again.".format(self._known_backtraces[backtrace]))
@@ -127,7 +132,10 @@ class BacktraceResolver(object):
         match = re.match(self.object_address_re, line)
 
         if match:
-            _, object_path, _, addr = match.groups()
+            prefix, _, object_path, _, addr = match.groups()
+
+            if len(self._current_backtrace) == 0:
+                self._prefix = prefix;
 
             if object_path:
                 self._current_backtrace.append((object_path, addr))
