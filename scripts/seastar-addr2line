@@ -212,8 +212,8 @@ cmdline_parser.add_argument(
         metavar='BEFORE',
         default=1,
         help='Non-backtrace lines to print before resolved backtraces for context.'
-        'Set to 0 to print only resolved backtraces.'
-        'Set to -1 to print all non-backtrace lines. Default is 1.')
+        ' Set to 0 to print only resolved backtraces.'
+        ' Set to -1 to print all non-backtrace lines. Default is 1.')
 
 cmdline_parser.add_argument(
         '-v',
