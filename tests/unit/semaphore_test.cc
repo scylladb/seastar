@@ -77,13 +77,13 @@ SEASTAR_TEST_CASE(test_semaphore_2) {
 
 SEASTAR_TEST_CASE(test_semaphore_timeout_1) {
     return do_with(std::make_pair(semaphore(0), 0), [] (std::pair<semaphore, int>& x) {
-        x.first.wait(10ms).then([&x] {
+        x.first.wait(100ms).then([&x] {
             x.second++;
         });
         sleep(3ms).then([&x] {
             x.first.signal();
         });
-        return sleep(20ms).then([&x] {
+        return sleep(200ms).then([&x] {
             BOOST_REQUIRE_EQUAL(x.second, 1);
         });
     });
@@ -94,10 +94,10 @@ SEASTAR_TEST_CASE(test_semaphore_timeout_2) {
         x.first.wait(3ms).then([&x] {
             x.second++;
         });
-        sleep(10ms).then([&x] {
+        sleep(100ms).then([&x] {
             x.first.signal();
         });
-        return sleep(20ms).then([&x] {
+        return sleep(200ms).then([&x] {
             BOOST_REQUIRE_EQUAL(x.second, 0);
         });
     });
@@ -105,16 +105,16 @@ SEASTAR_TEST_CASE(test_semaphore_timeout_2) {
 
 SEASTAR_TEST_CASE(test_semaphore_mix_1) {
     return do_with(std::make_pair(semaphore(0), 0), [] (std::pair<semaphore, int>& x) {
-        x.first.wait(3ms).then([&x] {
+        x.first.wait(30ms).then([&x] {
             x.second++;
         });
         x.first.wait().then([&x] {
             x.second = 10;
         });
-        sleep(10ms).then([&x] {
+        sleep(100ms).then([&x] {
             x.first.signal();
         });
-        return sleep(20ms).then([&x] {
+        return sleep(200ms).then([&x] {
             BOOST_REQUIRE_EQUAL(x.second, 10);
         });
     });
