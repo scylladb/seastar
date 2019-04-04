@@ -469,9 +469,9 @@ struct cpu_pages {
     void* allocate_small(unsigned size);
     void free(void* ptr);
     void free(void* ptr, size_t size);
-    bool try_foreign_free(void* ptr);
+    static bool try_foreign_free(void* ptr);
     void shrink(void* ptr, size_t new_size);
-    void free_cross_cpu(unsigned cpu_id, void* ptr);
+    static void free_cross_cpu(unsigned cpu_id, void* ptr);
     bool drain_cross_cpu_freelist();
     size_t object_size(void* ptr);
     page* to_page(void* p) {
@@ -1346,7 +1346,7 @@ void* allocate_aligned(size_t align, size_t size) {
 }
 
 void free(void* obj) {
-    if (get_cpu_mem().try_foreign_free(obj)) {
+    if (cpu_pages::try_foreign_free(obj)) {
         return;
     }
     ++g_frees;
@@ -1354,7 +1354,7 @@ void free(void* obj) {
 }
 
 void free(void* obj, size_t size) {
-    if (get_cpu_mem().try_foreign_free(obj)) {
+    if (cpu_pages::try_foreign_free(obj)) {
         return;
     }
     ++g_frees;
