@@ -462,7 +462,7 @@ std::ostream& operator<<(std::ostream& out, const std::exception& e) {
 }
 
 std::ostream& operator<<(std::ostream& out, const std::system_error& e) {
-    return out << seastar::pretty_type_name(typeid(e)) << " (error " << e.code() << ", " << e.code().message() << ")";
+    return out << seastar::pretty_type_name(typeid(e)) << " (error " << e.code() << ", " << e.what() << ")";
 }
 
 }
