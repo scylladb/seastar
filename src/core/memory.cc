@@ -1413,6 +1413,13 @@ void disable_large_allocation_warning() {
 
 void configure(std::vector<resource::memory> m, bool mbind,
         optional<std::string> hugetlbfs_path) {
+    // we need to make sure cpu_mem is initialize since configure calls cpu_mem.resize
+    // and we might reach configure without ever allocating, hence without ever calling
+    // cpu_pages::initialize.
+    // The correct solution is to add a condition inside cpu_mem.resize, but since all
+    // other paths to cpu_pages::resize are already verifying initialize was called, we
+    // verify that here.
+    cpu_mem.initialize();
     is_reactor_thread = true;
     size_t total = 0;
     for (auto&& x : m) {
