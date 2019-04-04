@@ -2096,8 +2096,16 @@ io_priority_class io_queue::register_one_priority_class(sstring name, uint32_t s
         if (!_registered_shares[i]) {
             _registered_shares[i] = shares;
             _registered_names[i] = std::move(name);
-            return io_priority_class(i);
-        };
+        } else if (_registered_names[i] != name) {
+            continue;
+        } else {
+            // found an entry matching the name to be registered,
+            // make sure it was registered with the same number shares
+            // Note: those may change dynamically later on in the
+            // fair queue priority_class_ptr
+            assert(_registered_shares[i] == shares);
+        }
+        return io_priority_class(i);
     }
     throw std::runtime_error("No more room for new I/O priority classes");
 }
