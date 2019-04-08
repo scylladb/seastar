@@ -3017,7 +3017,7 @@ reactor::file_accessible(sstring pathname, access_flags flags) {
         auto aflags = std::underlying_type_t<access_flags>(flags);
         auto ret = ::access(pathname.c_str(), aflags);
         return wrap_syscall(ret);
-    }).then([this, pathname, flags] (syscall_result<int> sr) {
+    }).then([pathname, flags] (syscall_result<int> sr) {
         if (sr.result < 0) {
             if ((sr.error == ENOENT && flags == access_flags::exists) ||
                 (sr.error == EACCES && flags != access_flags::exists)) {

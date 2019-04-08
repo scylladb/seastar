@@ -25,6 +25,27 @@
 #include <ares.h>
 #include <boost/lexical_cast.hpp>
 
+#include <ostream>
+#include <seastar/util/std-compat.hh>
+#include <seastar/net/inet_address.hh>
+
+namespace seastar {
+
+// NOTE: Should be prior to <seastar/util/log.hh> include because
+// logger::stringer_for<T> needs to see the corresponding `operator <<`
+// declaration at the call site
+//
+// This doesn't need to be in the public API, so leave it there instead of placing into `inet_address.hh`
+std::ostream& operator<<(std::ostream& os, const compat::optional<net::inet_address::family>& f) {
+    if (f) {
+        return os << *f;
+    } else {
+        return os << "ANY";
+    }
+}
+
+}
+
 #include <seastar/net/ip.hh>
 #include <seastar/net/api.hh>
 #include <seastar/net/dns.hh>
@@ -34,17 +55,8 @@
 #include <seastar/core/gate.hh>
 #include <seastar/core/print.hh>
 #include <seastar/util/log.hh>
-#include <seastar/util/std-compat.hh>
 
 namespace seastar {
-
-std::ostream& operator<<(std::ostream& os, const compat::optional<net::inet_address::family>& f) {
-    if (f) {
-        return os << *f;
-    } else {
-        return os << "ANY";
-    }
-}
 
 static logger dns_log("dns_resolver");
 
