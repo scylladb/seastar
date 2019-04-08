@@ -43,6 +43,7 @@
 
 #include <seastar/core/sstring.hh>
 #include <seastar/core/future.hh>
+#include <seastar/util/bool_class.hh>
 
 namespace seastar {
 
@@ -260,14 +261,26 @@ future<> remove_file(sstring name);
 /// both containing directories are sync'ed.
 future<> rename_file(sstring old_name, sstring new_name);
 
+struct follow_symlink_tag { };
+using follow_symlink = bool_class<follow_symlink_tag>;
+
 /// Return stat information about a file.
 ///
 /// \param name name of the file to return its stat information
-future<stat_data> file_stat(sstring name);
+/// \param follow_symlink follow symbolic links.
+///
+/// \return stat_data of the file identified by name.
+/// If name identifies a symbolic link then stat_data is returned either for the target of the link,
+/// with follow_symlink::yes, or for the link itself, with follow_symlink::no.
+future<stat_data> file_stat(sstring name, follow_symlink fs = follow_symlink::yes);
 
 /// Return the size of a file.
 ///
 /// \param name name of the file to return the size
+///
+/// Note that file_size of a symlink is NOT the size of the symlink -
+/// which is the length of the pathname it contains -
+/// but rather the size of the file to which it points.
 future<uint64_t> file_size(sstring name);
 
 /// Check file access.
