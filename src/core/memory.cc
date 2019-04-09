@@ -438,7 +438,7 @@ struct cpu_pages {
 
     bool is_initialized() const;
     bool initialize();
-    reclaiming_result run_reclaimers(reclaimer_scope);
+    reclaiming_result run_reclaimers(reclaimer_scope, size_t pages_to_reclaim);
     void schedule_reclaim();
     void set_reclaim_hook(std::function<void (std::function<void ()>)> hook);
     void set_min_free_pages(size_t pages);
@@ -567,7 +567,7 @@ cpu_pages::find_and_unlink_span_reclaiming(unsigned n_pages) {
         if (span) {
             return span;
         }
-        if (run_reclaimers(reclaimer_scope::sync) == reclaiming_result::reclaimed_nothing) {
+        if (run_reclaimers(reclaimer_scope::sync, n_pages) == reclaiming_result::reclaimed_nothing) {
             return nullptr;
         }
     }
@@ -576,7 +576,9 @@ cpu_pages::find_and_unlink_span_reclaiming(unsigned n_pages) {
 void cpu_pages::maybe_reclaim() {
     if (nr_free_pages < current_min_free_pages) {
         drain_cross_cpu_freelist();
-        run_reclaimers(reclaimer_scope::sync);
+        if (nr_free_pages < current_min_free_pages) {
+            run_reclaimers(reclaimer_scope::sync, current_min_free_pages - nr_free_pages);
+        }
         if (nr_free_pages < current_min_free_pages) {
             schedule_reclaim();
         }
@@ -1016,15 +1018,15 @@ void cpu_pages::resize(size_t new_size, allocate_system_memory_fn alloc_memory) 
     }
 }
 
-reclaiming_result cpu_pages::run_reclaimers(reclaimer_scope scope) {
-    auto target = std::max(nr_free_pages + 1, min_free_pages);
+reclaiming_result cpu_pages::run_reclaimers(reclaimer_scope scope, size_t n_pages) {
+    auto target = std::max<size_t>(nr_free_pages + n_pages, min_free_pages);
     reclaiming_result result = reclaiming_result::reclaimed_nothing;
     while (nr_free_pages < target) {
         bool made_progress = false;
         ++g_reclaims;
         for (auto&& r : reclaimers) {
             if (r->scope() >= scope) {
-                made_progress |= r->do_reclaim() == reclaiming_result::reclaimed_something;
+                made_progress |= r->do_reclaim((target - nr_free_pages) * page_size) == reclaiming_result::reclaimed_something;
             }
         }
         if (!made_progress) {
@@ -1040,7 +1042,7 @@ void cpu_pages::schedule_reclaim() {
     reclaim_hook([this] {
         if (nr_free_pages < min_free_pages) {
             try {
-                run_reclaimers(reclaimer_scope::async);
+                run_reclaimers(reclaimer_scope::async, min_free_pages - nr_free_pages);
             } catch (...) {
                 current_min_free_pages = min_free_pages;
                 throw;
@@ -1318,7 +1320,13 @@ void set_reclaim_hook(std::function<void (std::function<void ()>)> hook) {
     cpu_mem.set_reclaim_hook(hook);
 }
 
-reclaimer::reclaimer(reclaim_fn reclaim, reclaimer_scope scope)
+reclaimer::reclaimer(std::function<reclaiming_result ()> reclaim, reclaimer_scope scope)
+    : reclaimer([reclaim = std::move(reclaim)] (request) {
+        return reclaim();
+    }, scope) {
+}
+
+reclaimer::reclaimer(std::function<reclaiming_result (request)> reclaim, reclaimer_scope scope)
     : _reclaim(std::move(reclaim))
     , _scope(scope) {
     cpu_mem.reclaimers.push_back(this);
@@ -1839,7 +1847,10 @@ void enable_abort_on_allocation_failure() {
     seastar_logger.warn("Seastar compiled with default allocator, will not abort on bad_alloc");
 }
 
-reclaimer::reclaimer(reclaim_fn reclaim, reclaimer_scope) {
+reclaimer::reclaimer(std::function<reclaiming_result ()> reclaim, reclaimer_scope) {
+}
+
+reclaimer::reclaimer(std::function<reclaiming_result (request)> reclaim, reclaimer_scope) {
 }
 
 reclaimer::~reclaimer() {
