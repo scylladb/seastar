@@ -177,9 +177,13 @@ struct rcv_buf {
     using iterator = std::vector<temporary_buffer<char>>::iterator;
     rcv_buf() {}
     explicit rcv_buf(size_t size_) : size(size_) {}
+    explicit rcv_buf(temporary_buffer<char> b) : size(b.size()), bufs(std::move(b)) {};
+    explicit rcv_buf(std::vector<temporary_buffer<char>> bufs, size_t size)
+        : size(size), bufs(std::move(bufs)) {};
 };
 
 struct snd_buf {
+    // Preferred, but not required, chunk size.
     static constexpr size_t chunk_size = 128*1024;
     uint32_t size = 0;
     compat::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
@@ -187,6 +191,10 @@ struct snd_buf {
     snd_buf() {}
     explicit snd_buf(size_t size_);
     explicit snd_buf(temporary_buffer<char> b) : size(b.size()), bufs(std::move(b)) {};
+
+    explicit snd_buf(std::vector<temporary_buffer<char>> bufs, size_t size)
+        : size(size), bufs(std::move(bufs)) {};
+
     temporary_buffer<char>& front();
 };
 

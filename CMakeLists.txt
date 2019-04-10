@@ -477,6 +477,7 @@ add_library (seastar STATIC
   include/seastar/net/virtio-interface.hh
   include/seastar/net/virtio.hh
   include/seastar/rpc/lz4_compressor.hh
+  include/seastar/rpc/lz4_fragmented_compressor.hh
   include/seastar/rpc/multi_algo_compressor_factory.hh
   include/seastar/rpc/rpc.hh
   include/seastar/rpc/rpc_impl.hh
@@ -560,6 +561,7 @@ add_library (seastar STATIC
   src/net/udp.cc
   src/net/virtio.cc
   src/rpc/lz4_compressor.cc
+  src/rpc/lz4_fragmented_compressor.cc
   src/rpc/rpc.cc
   src/util/alloc_failure_injector.cc
   src/util/backtrace.cc
