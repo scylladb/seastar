@@ -1185,7 +1185,7 @@ reactor::task_queue::set_shares(float shares) {
 
 void
 reactor::account_runtime(task_queue& tq, sched_clock::duration runtime) {
-    if (runtime > _task_quota) {
+    if (runtime > (2 * _task_quota)) {
         tq._time_spent_on_task_quota_violations += runtime - _task_quota;
     }
     tq._vruntime += tq.to_vruntime(runtime);
