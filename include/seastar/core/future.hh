@@ -455,20 +455,9 @@ public:
     promise() noexcept : _state(&_local_state) {}
 
     /// \brief Moves a \c promise object.
-    promise(promise&& x) noexcept : _future(x._future), _state(x._state), _task(std::move(x._task)) {
-        if (_state == &x._local_state) {
-            _state = &_local_state;
-            _local_state = std::move(x._local_state);
-        }
-        x._future = nullptr;
-        x._state = nullptr;
-        migrated();
-    }
+    promise(promise&& x) noexcept;
     promise(const promise&) = delete;
-    __attribute__((always_inline))
-    ~promise() noexcept {
-        abandoned();
-    }
+    ~promise() noexcept;
     promise& operator=(promise&& x) noexcept {
         if (this != &x) {
             this->~promise();
@@ -576,8 +565,6 @@ private:
     template<urgent Urgent>
     __attribute__((always_inline))
     void make_ready() noexcept;
-    void migrated() noexcept;
-    void abandoned() noexcept;
 
     template <typename... U>
     friend class future;
@@ -1323,7 +1310,13 @@ void promise<T...>::make_ready() noexcept {
 
 template <typename... T>
 inline
-void promise<T...>::migrated() noexcept {
+promise<T...>::promise(promise&& x) noexcept : _future(x._future), _state(x._state), _task(std::move(x._task)) {
+    if (_state == &x._local_state) {
+        _state = &_local_state;
+        _local_state = std::move(x._local_state);
+    }
+    x._future = nullptr;
+    x._state = nullptr;
     if (_future) {
         _future->_promise = this;
     }
@@ -1331,7 +1324,7 @@ void promise<T...>::migrated() noexcept {
 
 template <typename... T>
 inline
-void promise<T...>::abandoned() noexcept {
+promise<T...>::~promise() noexcept {
     if (_future) {
         assert(_state);
         assert(_state->available() || !_task);
