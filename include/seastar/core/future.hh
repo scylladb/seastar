@@ -1061,17 +1061,15 @@ private:
         }
         typename futurator::promise_type pr;
         auto fut = pr.get_future();
-        try {
+        // If there is a std::bad_alloc in schedule() there is nothing that can be done about it, we cannot break future
+        // chain by returning ready future while 'this' future is not ready. The noexcept will call std::terminate if
+        // that happens.
+        [&] () noexcept {
             memory::disable_failure_guard dfg;
             schedule([pr = std::move(pr), func = std::forward<Func>(func)] (auto&& state) mutable {
                 futurator::apply(std::forward<Func>(func), future(std::move(state))).forward_to(std::move(pr));
             });
-        } catch (...) {
-            // catch possible std::bad_alloc in schedule() above
-            // nothing can be done about it, we cannot break future chain by returning
-            // ready future while 'this' future is not ready
-            abort();
-        }
+        } ();
         return fut;
     }
 
