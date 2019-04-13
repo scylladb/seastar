@@ -128,6 +128,58 @@ struct get0_return_type<T0, T...> {
     using type = T0;
     static type get0(std::tuple<T0, T...> v) { return std::get<0>(std::move(v)); }
 };
+
+/// \brief Wrapper for keeping uninitialized values of non default constructible types.
+///
+/// This is similar to a std::optional<T>, but it doesn't know if it is holding a value or not, so the user is
+/// responsible for calling constructors and destructors.
+///
+/// The advantage over just using a union directly is that this uses inheritance when possible and so benefits from the
+/// empty base optimization.
+template <typename T, bool is_trivial_class>
+struct uninitialized_wrapper_base;
+
+template <typename T>
+struct uninitialized_wrapper_base<T, false> {
+    union any {
+        any() {}
+        ~any() {}
+        T value;
+    } _v;
+
+public:
+    void uninitialized_set(T v) {
+        new (&_v.value) T(std::move(v));
+    }
+    T& uninitialized_get() {
+        return _v.value;
+    }
+    const T& uninitialized_get() const {
+        return _v.value;
+    }
+};
+
+template <typename T> struct uninitialized_wrapper_base<T, true> : private T {
+    void uninitialized_set(T v) {
+        new (this) T(std::move(v));
+    }
+    T& uninitialized_get() {
+        return *this;
+    }
+    const T& uninitialized_get() const {
+        return *this;
+    }
+};
+
+// The objective is to avoid extra space for empty types like std::tuple<>. We could use std::is_empty_v, but it is
+// better to check that both the constructor and destructor can be skipped.
+template <typename T>
+struct uninitialized_wrapper
+    : public uninitialized_wrapper_base<T, std::is_trivially_destructible<T>::value &&
+                                                   std::is_trivially_constructible<T>::value &&
+                                                   std::is_class<T>::value && !std::is_final<T>::value> {};
+
+static_assert(std::is_empty<uninitialized_wrapper<std::tuple<>>>::value, "This should still be empty");
 }
 
 //
@@ -150,7 +202,7 @@ struct get0_return_type<T0, T...> {
 
 /// \cond internal
 template <typename... T>
-struct future_state {
+struct future_state :  private internal::uninitialized_wrapper<std::tuple<T...>> {
     static constexpr bool copy_noexcept = std::is_nothrow_copy_constructible<std::tuple<T...>>::value;
     static_assert(std::is_nothrow_move_constructible<std::tuple<T...>>::value,
                   "Types must be no-throw move constructible");
@@ -160,55 +212,40 @@ struct future_state {
                   "std::exception_ptr's copy constructor must not throw");
     static_assert(std::is_nothrow_move_constructible<std::exception_ptr>::value,
                   "std::exception_ptr's move constructor must not throw");
-    enum class state {
-         invalid,
-         future,
-         result,
-         exception,
-    } _state = state::future;
+    static_assert(sizeof(std::exception_ptr) == sizeof(void*), "exception_ptr not a pointer");
+    enum class state : uintptr_t {
+         invalid = 0,
+         future = 1,
+         result = 2,
+         exception_min = 3,  // or anything greater
+    };
     union any {
-        any() {}
+        any() { st = state::future; }
         ~any() {}
-        std::tuple<T...> value;
+        state st;
         std::exception_ptr ex;
     } _u;
     future_state() noexcept {}
     [[gnu::always_inline]]
-    future_state(future_state&& x) noexcept
-            : _state(x._state) {
-        switch (_state) {
-        case state::future:
-            break;
-        case state::result:
-            new (&_u.value) std::tuple<T...>(std::move(x._u.value));
-            x._u.value.~tuple();
-            break;
-        case state::exception:
+    future_state(future_state&& x) noexcept {
+        if (x._u.st < state::exception_min) {
+            _u.st = x._u.st;
+        } else {
             new (&_u.ex) std::exception_ptr(std::move(x._u.ex));
             x._u.ex.~exception_ptr();
-            break;
-        case state::invalid:
-            break;
-        default:
-            abort();
         }
-        x._state = state::invalid;
+        x._u.st = state::invalid;
+        if (_u.st == state::result) {
+            this->uninitialized_set(std::move(x.uninitialized_get()));
+            x.uninitialized_get().~tuple();
+        }
     }
     __attribute__((always_inline))
     ~future_state() noexcept {
-        switch (_state) {
-        case state::invalid:
-            break;
-        case state::future:
-            break;
-        case state::result:
-            _u.value.~tuple();
-            break;
-        case state::exception:
+        if (_u.st == state::result) {
+            this->uninitialized_get().~tuple();
+        } else if (_u.st >= state::exception_min) {
             _u.ex.~exception_ptr();
-            break;
-        default:
-            abort();
         }
     }
     future_state& operator=(future_state&& x) noexcept {
@@ -218,90 +255,93 @@ struct future_state {
         }
         return *this;
     }
-    bool available() const noexcept { return _state == state::result || _state == state::exception; }
-    bool failed() const noexcept { return _state == state::exception; }
+    bool available() const noexcept { return _u.st == state::result || _u.st >= state::exception_min; }
+    bool failed() const noexcept { return _u.st >= state::exception_min; }
     void wait();
     void set(const std::tuple<T...>& value) noexcept {
-        assert(_state == state::future);
-        new (&_u.value) std::tuple<T...>(value);
-        _state = state::result;
+        assert(_u.st == state::future);
+        this->uninitialized_set(std::tuple<T...>(value));
+        _u.st = state::result;
     }
     void set(std::tuple<T...>&& value) noexcept {
-        assert(_state == state::future);
-        new (&_u.value) std::tuple<T...>(std::move(value));
-        _state = state::result;
+        assert(_u.st == state::future);
+        this->uninitialized_set(std::tuple<T...>(std::move(value)));
+        _u.st = state::result;
     }
     template <typename... A>
     void set(A&&... a) {
-        assert(_state == state::future);
-        new (&_u.value) std::tuple<T...>(std::forward<A>(a)...);
-        _state = state::result;
+        assert(_u.st == state::future);
+        this->uninitialized_set(std::tuple<T...>(std::forward<A>(a)...));
+        _u.st = state::result;
     }
     void set_exception(std::exception_ptr ex) noexcept {
-        assert(_state == state::future);
+        assert(_u.st == state::future);
         new (&_u.ex) std::exception_ptr(ex);
-        _state = state::exception;
+        assert(_u.st >= state::exception_min);
     }
     std::exception_ptr get_exception() && noexcept {
-        assert(_state == state::exception);
+        assert(_u.st >= state::exception_min);
         // Move ex out so future::~future() knows we've handled it
-        _state = state::invalid;
         auto ex = std::move(_u.ex);
         _u.ex.~exception_ptr();
+        _u.st = state::invalid;
         return ex;
     }
     std::exception_ptr get_exception() const& noexcept {
-        assert(_state == state::exception);
+        assert(_u.st >= state::exception_min);
         return _u.ex;
     }
     std::tuple<T...> get_value() && noexcept {
-        assert(_state == state::result);
-        return std::move(_u.value);
+        assert(_u.st == state::result);
+        return std::move(this->uninitialized_get());
     }
     template<typename U = std::tuple<T...>>
     std::enable_if_t<std::is_copy_constructible<U>::value, U> get_value() const& noexcept(copy_noexcept) {
-        assert(_state == state::result);
-        return _u.value;
+        assert(_u.st == state::result);
+        return this->uninitialized_get();
     }
     std::tuple<T...> get() && {
-        assert(_state != state::future);
-        if (_state == state::exception) {
-            _state = state::invalid;
+        assert(_u.st != state::future);
+        if (_u.st >= state::exception_min) {
             auto ex = std::move(_u.ex);
             _u.ex.~exception_ptr();
             // Move ex out so future::~future() knows we've handled it
+            _u.st = state::invalid;
             std::rethrow_exception(std::move(ex));
         }
-        return std::move(_u.value);
+        return std::move(this->uninitialized_get());
     }
     std::tuple<T...> get() const& {
-        assert(_state != state::future);
-        if (_state == state::exception) {
+        assert(_u.st != state::future);
+        if (_u.st >= state::exception_min) {
             std::rethrow_exception(_u.ex);
         }
-        return _u.value;
+        return this->uninitialized_get();
     }
     void ignore() noexcept {
-        assert(_state != state::future);
+        assert(_u.st != state::future);
         this->~future_state();
-        _state = state::invalid;
+        _u.st = state::invalid;
     }
     using get0_return_type = typename internal::get0_return_type<T...>::type;
     static get0_return_type get0(std::tuple<T...>&& x) {
         return internal::get0_return_type<T...>::get0(std::move(x));
     }
     void forward_to(promise<T...>& pr) noexcept {
-        assert(_state != state::future);
-        if (_state == state::exception) {
+        assert(_u.st != state::future);
+        if (_u.st >= state::exception_min) {
             pr.set_urgent_exception(std::move(_u.ex));
             _u.ex.~exception_ptr();
         } else {
-            pr.set_urgent_value(std::move(_u.value));
-            _u.value.~tuple();
+            pr.set_urgent_value(std::move(this->uninitialized_get()));
+            this->uninitialized_get().~tuple();
         }
-        _state = state::invalid;
+        _u.st = state::invalid;
     }
 };
+
+static_assert(sizeof(future_state<>) <= 8, "future_state<> is too large");
+static_assert(sizeof(future_state<long>) <= 16, "future_state<long> is too large");
 
 template <typename... T>
 class continuation_base : public task {
