@@ -2083,24 +2083,19 @@ io_queue::~io_queue() {
     }
 }
 
-std::array<std::atomic<uint32_t>, io_queue::_max_classes> io_queue::_registered_shares;
+std::mutex io_queue::_register_lock;
+std::array<uint32_t, io_queue::_max_classes> io_queue::_registered_shares;
 // We could very well just add the name to the io_priority_class. However, because that
 // structure is passed along all the time - and sometimes we can't help but copy it, better keep
 // it lean. The name won't really be used for anything other than monitoring.
 std::array<sstring, io_queue::_max_classes> io_queue::_registered_names;
 
-void io_queue::fill_shares_array() {
-    for (unsigned i = 0; i < _max_classes; ++i) {
-        _registered_shares[i].store(0);
-    }
-}
-
 io_priority_class io_queue::register_one_priority_class(sstring name, uint32_t shares) {
+    std::lock_guard<std::mutex> lock(_register_lock);
     for (unsigned i = 0; i < _max_classes; ++i) {
-        uint32_t unused = 0;
-        auto s = _registered_shares[i].compare_exchange_strong(unused, shares, std::memory_order_acq_rel);
-        if (s) {
+        if (!_registered_shares[i]) {
             io_priority_class p;
+            _registered_shares[i] = shares;
             _registered_names[i] = name;
             p.val = i;
             return p;
@@ -2158,7 +2153,7 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
         _priority_classes[owner].resize(id + 1);
     }
     if (do_insert || !_priority_classes[owner][id]) {
-        auto shares = _registered_shares.at(id).load(std::memory_order_acquire);
+        auto shares = _registered_shares.at(id);
         auto name = _registered_names.at(id);
         // A note on naming:
         //
@@ -5317,7 +5312,6 @@ void smp::configure(boost::program_options::variables_map configuration)
     auto ioq_topology = std::move(resources.ioq_topology);
 
     std::unordered_map<dev_t, std::vector<io_queue*>> all_io_queues;
-    io_queue::fill_shares_array();
 
     for (auto& id : disk_config.device_ids()) {
         auto io_info = ioq_topology.at(id);
