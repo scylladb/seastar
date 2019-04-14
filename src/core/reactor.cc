@@ -2094,11 +2094,9 @@ io_priority_class io_queue::register_one_priority_class(sstring name, uint32_t s
     std::lock_guard<std::mutex> lock(_register_lock);
     for (unsigned i = 0; i < _max_classes; ++i) {
         if (!_registered_shares[i]) {
-            io_priority_class p;
             _registered_shares[i] = shares;
             _registered_names[i] = std::move(name);
-            p.val = i;
-            return p;
+            return io_priority_class(i);
         };
     }
     throw std::runtime_error("No more room for new I/O priority classes");
