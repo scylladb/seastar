@@ -54,7 +54,7 @@ private:
         priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr, shard_id owner);
     };
 
-    std::unordered_map<io_priority_class_id, lw_shared_ptr<priority_class_data>> _priority_classes;
+    std::vector<std::vector<lw_shared_ptr<priority_class_data>>> _priority_classes;
     fair_queue _fq;
 
     static constexpr unsigned _max_classes = 2048;

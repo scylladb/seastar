@@ -2074,8 +2074,12 @@ io_queue::~io_queue() {
     //
     // And that will happen only when there are no more fibers to run. If we ever change
     // that, then this has to change.
-    for (auto&& pclasses: _priority_classes) {
-        _fq.unregister_priority_class(pclasses.second->ptr);
+    for (auto&& pc_vec : _priority_classes) {
+        for (auto&& pc_data : pc_vec) {
+            if (pc_data) {
+                _fq.unregister_priority_class(pc_data->ptr);
+            }
+        }
     }
 }
 
@@ -2145,10 +2149,17 @@ io_queue::priority_class_data::priority_class_data(sstring name, sstring mountpo
 }
 
 io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc, shard_id owner) {
-    auto it_pclass = _priority_classes.find(pc.id());
-    if (it_pclass == _priority_classes.end()) {
-        auto shares = _registered_shares.at(pc.id()).load(std::memory_order_acquire);
-        auto name = _registered_names.at(pc.id());
+    auto id = pc.id();
+    bool do_insert = false;
+    if ((do_insert = (owner >= _priority_classes.size()))) {
+        _priority_classes.resize(owner + 1);
+        _priority_classes[owner].resize(id + 1);
+    } else if ((do_insert = (id >= _priority_classes[owner].size()))) {
+        _priority_classes[owner].resize(id + 1);
+    }
+    if (do_insert || !_priority_classes[owner][id]) {
+        auto shares = _registered_shares.at(id).load(std::memory_order_acquire);
+        auto name = _registered_names.at(id);
         // A note on naming:
         //
         // We could just add the owner as the instance id and have something like:
@@ -2163,11 +2174,12 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
         //
         // This conveys all the information we need and allows one to easily group all classes from
         // the same I/O queue (by filtering by shard)
+        auto pc_ptr = _fq.register_priority_class(shares);
+        auto pc_data = make_lw_shared<priority_class_data>(name, mountpoint(), pc_ptr, owner);
 
-        auto ret = _priority_classes.emplace(pc.id(), make_lw_shared<priority_class_data>(name, mountpoint(), _fq.register_priority_class(shares), owner));
-        it_pclass = ret.first;
+        _priority_classes[owner][id] = pc_data;
     }
-    return *(it_pclass->second);
+    return *_priority_classes[owner][id];
 }
 
 template <typename Func>
