@@ -201,11 +201,12 @@ future<file> open_directory(sstring name);
 /// Creates a new directory.
 ///
 /// \param name name of the directory to create
+/// \param permissions optional file permissions of the directory to create.
 ///
 /// \note
 /// The directory is not guaranteed to be stable on disk, unless the
 /// containing directory is sync'ed.
-future<> make_directory(sstring name);
+future<> make_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions);
 
 /// Ensures a directory exists
 ///
@@ -213,21 +214,27 @@ future<> make_directory(sstring name);
 /// the last component of the directory name is created.
 ///
 /// \param name name of the directory to potentially create
+/// \param permissions optional file permissions of the directory to create.
 ///
 /// \note
 /// The directory is not guaranteed to be stable on disk, unless the
 /// containing directory is sync'ed.
-future<> touch_directory(sstring name);
+/// If the directory exists, the provided permissions are not applied.
+future<> touch_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions);
 
 /// Recursively ensures a directory exists
 ///
 /// Checks whether each component of a directory exists, and if not, creates it.
 ///
 /// \param name name of the directory to potentially create
+/// \param permissions optional file permissions of the directory to create.
 ///
 /// \note
 /// This function fsyncs each component created, and is therefore guaranteed to be stable on disk.
-future<> recursive_touch_directory(sstring name);
+/// The provided permissions are applied only on the last component in the path, if it needs to be created,
+/// if intermediate directories do not exist, they are created with the default_dir_permissions.
+/// If any directory exists, the provided permissions are not applied.
+future<> recursive_touch_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions);
 
 /// Synchronizes a directory to disk
 ///

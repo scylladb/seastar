@@ -77,6 +77,7 @@ struct file_open_options {
     uint64_t extent_allocation_size_hint = 1 << 20; ///< Allocate this much disk space when extending the file
     bool sloppy_size = false; ///< Allow the file size not to track the amount of data written until a flush
     uint64_t sloppy_size_hint = 1 << 20; ///< Hint as to what the eventual file size will be
+    file_permissions create_permissions = file_permissions::default_file_permissions; ///< File permissions to use when creating a file
 };
 
 /// \cond internal
