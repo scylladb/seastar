@@ -218,8 +218,11 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         self.__args = args
         self.__args.cpu_mask = run_hwloc_calc(['--restrict', self.__args.cpu_mask, 'all'])
         self.__mode = None
-        self.__compute_cpu_mask = None
-        self.__irq_cpu_mask = None
+        self.__irq_cpu_mask = args.irq_cpu_mask
+        if self.__irq_cpu_mask:
+            self.__compute_cpu_mask = run_hwloc_calc([self.__args.cpu_mask, "~{}".format(self.__irq_cpu_mask)])
+        else:
+            self.__compute_cpu_mask = None
         self.__is_aws_i3_nonmetal_instance = None
 
 #### Public methods ##########################
@@ -1085,10 +1088,20 @@ argp.add_argument('--get-cpu-mask', action='store_true', help="print the CPU mas
 argp.add_argument('--verbose', action='store_true', help="be more verbose about operations and their result")
 argp.add_argument('--tune', choices=TuneModes.names(), help="components to configure (may be given more than once)", action='append', default=[])
 argp.add_argument('--cpu-mask', help="mask of cores to use, by default use all available cores", metavar='MASK')
+argp.add_argument('--irq-cpu-mask', help="mask of cores to use for IRQs binding", metavar='MASK')
 argp.add_argument('--dir', help="directory to optimize (may appear more than once)", action='append', dest='dirs', default=[])
 argp.add_argument('--dev', help="device to optimize (may appear more than once), e.g. sda1", action='append', dest='devs', default=[])
 argp.add_argument('--options-file', help="configuration YAML file")
 argp.add_argument('--dump-options-file', action='store_true', help="Print the configuration YAML file containing the current configuration")
+
+def parse_cpu_mask_from_yaml(y, field_name, fname):
+    hex_32bit_pattern='0x[0-9a-fA-F]{1,8}'
+    mask_pattern = re.compile('^{}((,({})?)*,{})*$'.format(hex_32bit_pattern, hex_32bit_pattern, hex_32bit_pattern))
+
+    if mask_pattern.match(str(y[field_name])):
+        return y[field_name]
+    else:
+        raise Exception("Bad '{}' value in {}: {}".format(field_name, fname, str(y[field_name])))
 
 def parse_options_file(prog_args):
     if not prog_args.options_file:
@@ -1113,12 +1126,10 @@ def parse_options_file(prog_args):
             raise Exception("Bad 'tune' value in {}: {}".format(prog_args.options_file, y['tune']))
 
     if 'cpu_mask' in y and not prog_args.cpu_mask:
-        hex_32bit_pattern='0x[0-9a-fA-F]{1,8}'
-        mask_pattern = re.compile('^{}((,({})?)*,{})*$'.format(hex_32bit_pattern, hex_32bit_pattern, hex_32bit_pattern))
-        if mask_pattern.match(str(y['cpu_mask'])):
-            prog_args.cpu_mask = y['cpu_mask']
-        else:
-            raise Exception("Bad 'cpu_mask' value in {}: {}".format(prog_args.options_file, str(y['cpu_mask'])))
+        prog_args.cpu_mask = parse_cpu_mask_from_yaml(y, 'cpu_mask', prog_args.options_file)
+
+    if 'irq_cpu_mask' in y and not prog_args.irq_cpu_mask:
+        prog_args.irq_cpu_mask = parse_cpu_mask_from_yaml(y, 'irq_cpu_mask', prog_args.options_file)
 
     if 'dir' in y:
         prog_args.dirs.extend(y['dir'])
@@ -1141,6 +1152,9 @@ def dump_config(prog_args):
     if prog_args.cpu_mask:
         prog_options['cpu_mask'] = prog_args.cpu_mask
 
+    if prog_args.irq_cpu_mask:
+        prog_options['irq_cpu_mask'] = prog_args.irq_cpu_mask
+
     if prog_args.dirs:
         prog_options['dir'] = prog_args.dirs
 
@@ -1157,6 +1171,10 @@ parse_options_file(args)
 if not args.tune:
     sys.exit("ERROR: At least one tune mode MUST be given.")
 
+# The must be either 'mode' or an explicit 'irq_cpu_mask' given - not both
+if args.mode and args.irq_cpu_mask:
+    sys.exit("ERROR: Provide either tune mode or IRQs CPU mask - not both.")
+
 # set default values #####################
 if not args.nic:
     args.nic = 'eth0'
@@ -1164,6 +1182,10 @@ if not args.nic:
 if not args.cpu_mask:
     args.cpu_mask = run_hwloc_calc(['all'])
 ##########################################
+
+# Sanity: irq_cpu_mask should be a subset of cpu_mask
+if args.irq_cpu_mask and run_hwloc_calc([args.cpu_mask]) != run_hwloc_calc([args.cpu_mask, args.irq_cpu_mask]):
+    sys.exit("ERROR: IRQ CPU mask({}) must be a subset of CPU mask({})".format(args.irq_cpu_mask, args.cpu_mask))
 
 if args.dump_options_file:
     dump_config(args)
@@ -1179,9 +1201,10 @@ try:
         tuners.append(NetPerfTuner(args))
 
     # Set the minimum mode among all tuners
-    mode = min([ tuner.mode for tuner in tuners ])
-    for tuner in tuners:
-        tuner.mode = mode
+    if not args.irq_cpu_mask:
+        mode = min([tuner.mode for tuner in tuners])
+        for tuner in tuners:
+            tuner.mode = mode
 
     if args.get_cpu_mask:
         # Print the compute mask from the first tuner - it's going to be the same in all of them
