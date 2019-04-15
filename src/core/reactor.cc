@@ -2096,7 +2096,7 @@ io_priority_class io_queue::register_one_priority_class(sstring name, uint32_t s
         if (!_registered_shares[i]) {
             io_priority_class p;
             _registered_shares[i] = shares;
-            _registered_names[i] = name;
+            _registered_names[i] = std::move(name);
             p.val = i;
             return p;
         };
