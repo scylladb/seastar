@@ -2074,33 +2074,38 @@ io_queue::~io_queue() {
     //
     // And that will happen only when there are no more fibers to run. If we ever change
     // that, then this has to change.
-    for (auto&& pclasses: _priority_classes) {
-        _fq.unregister_priority_class(pclasses.second->ptr);
+    for (auto&& pc_vec : _priority_classes) {
+        for (auto&& pc_data : pc_vec) {
+            if (pc_data) {
+                _fq.unregister_priority_class(pc_data->ptr);
+            }
+        }
     }
 }
 
-std::array<std::atomic<uint32_t>, io_queue::_max_classes> io_queue::_registered_shares;
+std::mutex io_queue::_register_lock;
+std::array<uint32_t, io_queue::_max_classes> io_queue::_registered_shares;
 // We could very well just add the name to the io_priority_class. However, because that
 // structure is passed along all the time - and sometimes we can't help but copy it, better keep
 // it lean. The name won't really be used for anything other than monitoring.
 std::array<sstring, io_queue::_max_classes> io_queue::_registered_names;
 
-void io_queue::fill_shares_array() {
-    for (unsigned i = 0; i < _max_classes; ++i) {
-        _registered_shares[i].store(0);
-    }
-}
-
 io_priority_class io_queue::register_one_priority_class(sstring name, uint32_t shares) {
+    std::lock_guard<std::mutex> lock(_register_lock);
     for (unsigned i = 0; i < _max_classes; ++i) {
-        uint32_t unused = 0;
-        auto s = _registered_shares[i].compare_exchange_strong(unused, shares, std::memory_order_acq_rel);
-        if (s) {
-            io_priority_class p;
-            _registered_names[i] = name;
-            p.val = i;
-            return p;
-        };
+        if (!_registered_shares[i]) {
+            _registered_shares[i] = shares;
+            _registered_names[i] = std::move(name);
+        } else if (_registered_names[i] != name) {
+            continue;
+        } else {
+            // found an entry matching the name to be registered,
+            // make sure it was registered with the same number shares
+            // Note: those may change dynamically later on in the
+            // fair queue priority_class_ptr
+            assert(_registered_shares[i] == shares);
+        }
+        return io_priority_class(i);
     }
     throw std::runtime_error("No more room for new I/O priority classes");
 }
@@ -2145,10 +2150,17 @@ io_queue::priority_class_data::priority_class_data(sstring name, sstring mountpo
 }
 
 io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc, shard_id owner) {
-    auto it_pclass = _priority_classes.find(pc.id());
-    if (it_pclass == _priority_classes.end()) {
-        auto shares = _registered_shares.at(pc.id()).load(std::memory_order_acquire);
-        auto name = _registered_names.at(pc.id());
+    auto id = pc.id();
+    bool do_insert = false;
+    if ((do_insert = (owner >= _priority_classes.size()))) {
+        _priority_classes.resize(owner + 1);
+        _priority_classes[owner].resize(id + 1);
+    } else if ((do_insert = (id >= _priority_classes[owner].size()))) {
+        _priority_classes[owner].resize(id + 1);
+    }
+    if (do_insert || !_priority_classes[owner][id]) {
+        auto shares = _registered_shares.at(id);
+        auto name = _registered_names.at(id);
         // A note on naming:
         //
         // We could just add the owner as the instance id and have something like:
@@ -2163,11 +2175,12 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
         //
         // This conveys all the information we need and allows one to easily group all classes from
         // the same I/O queue (by filtering by shard)
+        auto pc_ptr = _fq.register_priority_class(shares);
+        auto pc_data = make_lw_shared<priority_class_data>(name, mountpoint(), pc_ptr, owner);
 
-        auto ret = _priority_classes.emplace(pc.id(), make_lw_shared<priority_class_data>(name, mountpoint(), _fq.register_priority_class(shares), owner));
-        it_pclass = ret.first;
+        _priority_classes[owner][id] = pc_data;
     }
-    return *(it_pclass->second);
+    return *_priority_classes[owner][id];
 }
 
 template <typename Func>
@@ -5305,7 +5318,6 @@ void smp::configure(boost::program_options::variables_map configuration)
     auto ioq_topology = std::move(resources.ioq_topology);
 
     std::unordered_map<dev_t, std::vector<io_queue*>> all_io_queues;
-    io_queue::fill_shares_array();
 
     for (auto& id : disk_config.device_ids()) {
         auto io_info = ioq_topology.at(id);

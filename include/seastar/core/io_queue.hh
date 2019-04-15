@@ -54,17 +54,17 @@ private:
         priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr, shard_id owner);
     };
 
-    std::unordered_map<unsigned, lw_shared_ptr<priority_class_data>> _priority_classes;
+    std::vector<std::vector<lw_shared_ptr<priority_class_data>>> _priority_classes;
     fair_queue _fq;
 
     static constexpr unsigned _max_classes = 2048;
-    static std::array<std::atomic<uint32_t>, _max_classes> _registered_shares;
+    static std::mutex _register_lock;
+    static std::array<uint32_t, _max_classes> _registered_shares;
     static std::array<sstring, _max_classes> _registered_names;
 
     static io_priority_class register_one_priority_class(sstring name, uint32_t shares);
 
     priority_class_data& find_or_create_class(const io_priority_class& pc, shard_id owner);
-    static void fill_shares_array();
     friend smp;
 public:
     enum class request_type { read, write };
