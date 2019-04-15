@@ -1154,7 +1154,7 @@ args = argp.parse_args()
 parse_options_file(args)
 
 # if nothing needs to be configured - quit
-if args.tune is None:
+if not args.tune:
     sys.exit("ERROR: At least one tune mode MUST be given.")
 
 # set default values #####################
