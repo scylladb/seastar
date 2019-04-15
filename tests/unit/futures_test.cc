@@ -739,6 +739,8 @@ SEASTAR_TEST_CASE(test_when_allx) {
     return when_all(later(), later(), make_ready_future()).discard_result();
 }
 
+#if __cplusplus >= 201703L
+
 // A noncopyable and nonmovable struct
 struct non_copy_non_move {
     non_copy_non_move(non_copy_non_move&&) = delete;
@@ -781,6 +783,8 @@ SEASTAR_TEST_CASE(test_when_all_succeed_functions) {
         return make_ready_future<>();
     });
 }
+
+#endif
 
 template<typename E, typename... T>
 static void check_failed_with(future<T...>&& f) {
