@@ -126,6 +126,10 @@ struct ipv6_addr {
 std::ostream& operator<<(std::ostream&, const ipv4_addr&);
 std::ostream& operator<<(std::ostream&, const ipv6_addr&);
 
+inline bool operator==(const ipv4_addr &lhs, const ipv4_addr& rhs) {
+    return lhs.ip == rhs.ip && lhs.port == rhs.port;
+}
+
 }
 
 namespace std {
@@ -133,4 +137,9 @@ template<>
 struct hash<seastar::socket_address> {
     size_t operator()(const seastar::socket_address&) const;
 };
+template<>
+struct hash<seastar::ipv4_addr> {
+    size_t operator()(const seastar::ipv4_addr&) const;
+};
+
 }
