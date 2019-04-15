@@ -589,6 +589,7 @@ class NetPerfTuner(PerfTunerBase):
           - Intel:    <bla-bla>-TxRx-<bla-bla>
           - Broadcom: <bla-bla>-fp-<bla-bla>
           - ena:      <bla-bla>-Tx-Rx-<bla-bla>
+          - Mellanox: mlx<device model index>-<queue idx>@<bla-bla>
 
         So, we will try to filter the etries in /proc/interrupts for IRQs we've got from get_all_irqs_one()
         according to the patterns above.
@@ -603,7 +604,7 @@ class NetPerfTuner(PerfTunerBase):
         """
         # filter 'all_irqs' to only reference valid keys from 'irqs2procline' and avoid an IndexError on the 'irqs' search below
         all_irqs = set(learn_all_irqs_one("/sys/class/net/{}/device".format(iface), self.__irqs2procline, iface)).intersection(self.__irqs2procline.keys())
-        fp_irqs_re = re.compile("\-TxRx\-|\-fp\-|\-Tx\-Rx\-")
+        fp_irqs_re = re.compile("\-TxRx\-|\-fp\-|\-Tx\-Rx\-|mlx\d+\-\d+@")
         irqs = list(filter(lambda irq : fp_irqs_re.search(self.__irqs2procline[irq]), all_irqs))
         if irqs:
             irqs.sort(key=self.__intel_irq_to_queue_idx)
