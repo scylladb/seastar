@@ -119,8 +119,8 @@ enum class file_permissions {
     others_permissions = others_read | others_write | others_execute,
     all_permissions = user_permissions | group_permissions | others_permissions,
 
-    default_file_permissions = user_read | user_write | group_read | others_read, // 0644
-    default_dir_permissions = user_permissions, // 0700
+    default_file_permissions = user_read | user_write | group_read | group_write | others_read | others_write, // 0666
+    default_dir_permissions = all_permissions, // 0777
 };
 
 inline constexpr file_permissions operator|(file_permissions a, file_permissions b) {
