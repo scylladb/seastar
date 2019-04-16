@@ -22,6 +22,7 @@
 
 #include <chrono>
 #include <seastar/net/api.hh>
+#include <seastar/core/memory.hh>
 
 namespace seastar {
 
