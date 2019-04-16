@@ -309,6 +309,13 @@ future<bool> file_exists(sstring name);
 ///
 future<> link_file(sstring oldpath, sstring newpath);
 
+/// Changes the permissions mode of a file or directory
+///
+/// \param name name of the file ot directory to change
+/// \param permissions permissions to set
+///
+future<> chmod(sstring name, file_permissions permissions);
+
 /// Return information about the filesystem where a file is located.
 ///
 /// \param name name of the file to inspect

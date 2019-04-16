@@ -291,3 +291,30 @@ SEASTAR_THREAD_TEST_CASE(test_sanitize_iovecs) {
                                actual_iovecs.begin(), actual_iovecs.end(), iovec_equal));
     }
 }
+
+SEASTAR_THREAD_TEST_CASE(test_chmod) {
+    auto oflags = open_flags::rw | open_flags::create;
+    sstring filename = "testfile.tmp";
+    if (file_exists(filename).get0()) {
+        remove_file(filename).get();
+    }
+
+    auto orig_umask = umask(0);
+
+    // test default_file_permissions
+    auto f = open_file_dma(filename, oflags).get0();
+    f.close().get();
+    auto sd = file_stat(filename).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
+
+    // test chmod with new_permissions
+    auto new_permissions = file_permissions::user_read | file_permissions::group_read | file_permissions::others_read;
+    BOOST_REQUIRE(new_permissions != file_permissions::default_file_permissions);
+    BOOST_REQUIRE(file_exists(filename).get0());
+    chmod(filename, new_permissions).get();
+    sd = file_stat(filename).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(new_permissions));
+    remove_file(filename).get();
+
+    umask(orig_umask);
+}

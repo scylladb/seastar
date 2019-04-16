@@ -2940,6 +2940,20 @@ reactor::link_file(sstring oldpath, sstring newpath) {
     });
 }
 
+future<>
+reactor::chmod(sstring name, file_permissions permissions) {
+    auto mode = static_cast<mode_t>(permissions);
+    return _thread_pool->submit<syscall_result<int>>([name, mode] {
+        return wrap_syscall<int>(::chmod(name.c_str(), mode));
+    }).then([name, mode] (syscall_result<int> sr) {
+        if (sr.result == -1) {
+            auto reason = format("chmod(0{:o}) failed", mode);
+            sr.throw_fs_exception(reason, fs::path(name));
+        }
+        return make_ready_future<>();
+    });
+}
+
 directory_entry_type stat_to_entry_type(__mode_t type) {
     if (S_ISDIR(type)) {
         return directory_entry_type::directory;
@@ -5684,6 +5698,10 @@ future<bool> file_exists(sstring name) {
 
 future<> link_file(sstring oldpath, sstring newpath) {
     return engine().link_file(std::move(oldpath), std::move(newpath));
+}
+
+future<> chmod(sstring name, file_permissions permissions) {
+    return engine().chmod(std::move(name), permissions);
 }
 
 server_socket listen(socket_address sa) {
