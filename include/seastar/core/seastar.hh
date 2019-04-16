@@ -224,7 +224,6 @@ future<> touch_directory(sstring name);
 /// Checks whether each component of a directory exists, and if not, creates it.
 ///
 /// \param name name of the directory to potentially create
-/// \param separator character used as directory separator
 ///
 /// \note
 /// This function fsyncs each component created, and is therefore guaranteed to be stable on disk.
