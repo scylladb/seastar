@@ -25,6 +25,7 @@
 #include <seastar/util/eclipse.hh>
 #include <malloc.h>
 #include <algorithm>
+#include <cstddef>
 
 namespace seastar {
 
