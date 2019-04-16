@@ -2867,7 +2867,6 @@ file::file(int fd, file_open_options options)
 
 future<file>
 reactor::open_file_dma(sstring name, open_flags flags, file_open_options options) {
-    static constexpr mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH; // 0644
     return _thread_pool->submit<syscall_result<int>>([name, flags, options, strict_o_direct = _strict_o_direct] {
         // We want O_DIRECT, except in two cases:
         //   - tmpfs (which doesn't support it, but works fine anyway)
@@ -2884,6 +2883,7 @@ reactor::open_file_dma(sstring name, open_flags flags, file_open_options options
             return buf.f_type == 0x01021994; // TMPFS_MAGIC
         };
         auto open_flags = O_CLOEXEC | static_cast<int>(flags);
+        auto mode = static_cast<mode_t>(file_permissions::default_file_permissions);
         int fd = ::open(name.c_str(), open_flags, mode);
         if (fd == -1) {
             return wrap_syscall<int>(fd);
@@ -3096,7 +3096,8 @@ reactor::open_directory(sstring name) {
 future<>
 reactor::make_directory(sstring name) {
     return _thread_pool->submit<syscall_result<int>>([name] {
-        return wrap_syscall<int>(::mkdir(name.c_str(), S_IRWXU));
+        auto mode = static_cast<mode_t>(file_permissions::default_dir_permissions);
+        return wrap_syscall<int>(::mkdir(name.c_str(), mode));
     }).then([name] (syscall_result<int> sr) {
         sr.throw_fs_exception_if_error("mkdir failed", name);
     });
@@ -3105,7 +3106,8 @@ reactor::make_directory(sstring name) {
 future<>
 reactor::touch_directory(sstring name) {
     return engine()._thread_pool->submit<syscall_result<int>>([name] {
-        return wrap_syscall<int>(::mkdir(name.c_str(), S_IRWXU));
+        auto mode = static_cast<mode_t>(file_permissions::default_dir_permissions);
+        return wrap_syscall<int>(::mkdir(name.c_str(), mode));
     }).then([name] (syscall_result<int> sr) {
         if (sr.error != EEXIST) {
             sr.throw_fs_exception_if_error("mkdir failed", name);

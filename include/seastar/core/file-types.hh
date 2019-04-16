@@ -100,6 +100,37 @@ inline access_flags operator&(access_flags a, access_flags b) {
     return access_flags(std::underlying_type_t<access_flags>(a) & std::underlying_type_t<access_flags>(b));
 }
 
+// Permissions for files/directories
+enum class file_permissions {
+    user_read = S_IRUSR,        // Read by owner
+    user_write = S_IWUSR,       // Write by owner
+    user_execute = S_IXUSR,     // Execute by owner
+
+    group_read = S_IRGRP,       // Read by group
+    group_write = S_IWGRP,      // Write by group
+    group_execute = S_IXGRP,    // Execute by group
+
+    others_read = S_IROTH,      // Read by others
+    others_write = S_IWOTH,     // Write by others
+    others_execute = S_IXOTH,   // Execute by others
+
+    user_permissions = user_read | user_write | user_execute,
+    group_permissions = group_read | group_write | group_execute,
+    others_permissions = others_read | others_write | others_execute,
+    all_permissions = user_permissions | group_permissions | others_permissions,
+
+    default_file_permissions = user_read | user_write | group_read | others_read, // 0644
+    default_dir_permissions = user_permissions, // 0700
+};
+
+inline constexpr file_permissions operator|(file_permissions a, file_permissions b) {
+    return file_permissions(std::underlying_type_t<file_permissions>(a) | std::underlying_type_t<file_permissions>(b));
+}
+
+inline constexpr file_permissions operator&(file_permissions a, file_permissions b) {
+    return file_permissions(std::underlying_type_t<file_permissions>(a) & std::underlying_type_t<file_permissions>(b));
+}
+
 /// @}
 
 } // namespace seastar
