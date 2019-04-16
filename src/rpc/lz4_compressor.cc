@@ -48,12 +48,12 @@ public:
     // Returns a pointer to a contiguous buffer containing all data stored in input.
     // The pointer remains valid until next call to this.
     const char* prepare(const compat::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>>& input, size_t size) {
-        if (auto single = compat::get_if<const temporary_buffer<char>>(&input)) {
+        if (const auto single = compat::get_if<temporary_buffer<char>>(&input)) {
             return single->get();
         }
         reserve(size);
         auto dst = _data.get();
-        for (auto& fragment : compat::get<const std::vector<temporary_buffer<char>>>(input)) {
+        for (const auto& fragment : compat::get<std::vector<temporary_buffer<char>>>(input)) {
             dst = std::copy_n(fragment.begin(), fragment.size(), dst);
         }
         return _data.get();
