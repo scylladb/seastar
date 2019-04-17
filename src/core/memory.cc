@@ -87,6 +87,9 @@ disable_abort_on_alloc_failure_temporarily::~disable_abort_on_alloc_failure_temp
     --abort_on_alloc_failure_suppressed;
 }
 
+static compat::polymorphic_allocator<char> static_malloc_allocator{compat::pmr_get_default_resource()};;
+compat::polymorphic_allocator<char>* malloc_allocator{&static_malloc_allocator};
+
 }
 
 }
@@ -153,9 +156,6 @@ using allocation_site_ptr = const allocation_site*;
 namespace memory {
 
 seastar::logger seastar_memory_logger("seastar_memory");
-
-static compat::polymorphic_allocator<char> static_malloc_allocator{compat::pmr_get_default_resource()};;
-compat::polymorphic_allocator<char>* malloc_allocator{&static_malloc_allocator};
 
 static allocation_site_ptr get_allocation_site() __attribute__((unused));
 
