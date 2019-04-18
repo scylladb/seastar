@@ -94,6 +94,25 @@ namespace seastar {
 
 using shard_id = unsigned;
 
+/// Configuration structure for reactor
+///
+/// This structure provides configuration items for the reactor. It is typically
+/// provided by \ref app_template, not the user.
+struct reactor_config {
+    std::chrono::duration<double> task_quota{0.5e-3}; ///< default time between polls
+    /// \brief Handle SIGINT/SIGTERM by calling reactor::stop()
+    ///
+    /// When true, Seastar will set up signal handlers for SIGINT/SIGTERM that call
+    /// reactor::stop(). The reactor will then execute callbacks installed by
+    /// reactor::at_exit().
+    ///
+    /// When false, Seastar will not set up signal handlers for SIGINT/SIGTERM
+    /// automatically. The default behavior (terminate the program) will be kept.
+    /// You can adjust the behavior of SIGINT/SIGTERM by installing signal handlers
+    /// via reactor::handle_signal().
+    bool auto_handle_sigint_sigterm = true;  ///< automatically terminate on SIGINT/SIGTERM
+};
+
 namespace alien {
 class message_queue;
 }
@@ -379,6 +398,7 @@ public:
         uint64_t fstream_read_ahead_discarded_bytes = 0;
     };
 private:
+    reactor_config _cfg;
     file_desc _notify_eventfd;
     file_desc _task_quota_timer;
 #ifdef HAVE_OSV
@@ -567,8 +587,8 @@ private:
     void reset_preemption_monitor();
     void service_highres_timer();
 public:
-    static boost::program_options::options_description get_options_description(std::chrono::duration<double> default_task_quota);
-    explicit reactor(unsigned id, reactor_backend_selector rbs);
+    static boost::program_options::options_description get_options_description(reactor_config cfg);
+    explicit reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg);
     reactor(const reactor&) = delete;
     ~reactor();
     void operator=(const reactor&) = delete;
@@ -850,7 +870,7 @@ class smp {
 public:
     static boost::program_options::options_description get_options_description();
     static void register_network_stacks();
-    static void configure(boost::program_options::variables_map vm);
+    static void configure(boost::program_options::variables_map vm, reactor_config cfg = {});
     static void cleanup();
     static void cleanup_cpu();
     static void arrive_at_event_loop_end();
@@ -910,7 +930,7 @@ public:
 private:
     static void start_all_queues();
     static void pin(unsigned cpu_id);
-    static void allocate_reactor(unsigned id, reactor_backend_selector rbs);
+    static void allocate_reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg);
     static void create_thread(std::function<void ()> thread_loop);
 public:
     static unsigned count;

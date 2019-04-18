@@ -1268,8 +1268,9 @@ public:
     }
 };
 
-reactor::reactor(unsigned id, reactor_backend_selector rbs)
-    : _notify_eventfd(file_desc::eventfd(0, EFD_CLOEXEC))
+reactor::reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg)
+    : _cfg(cfg)
+    , _notify_eventfd(file_desc::eventfd(0, EFD_CLOEXEC))
     , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
     , _backend(rbs.create(this))
     , _id(id)
@@ -4147,7 +4148,7 @@ int reactor::run() {
 
     start_aio_eventfd_loop();
 
-    if (_id == 0) {
+    if (_id == 0 && _cfg.auto_handle_sigint_sigterm) {
        if (_handle_sigint) {
           _signals.handle_signal_once(SIGINT, [this] { stop(); });
        }
@@ -4796,7 +4797,7 @@ network_stack_registry::create(sstring name, options opts) {
 }
 
 boost::program_options::options_description
-reactor::get_options_description(std::chrono::duration<double> default_task_quota) {
+reactor::get_options_description(reactor_config cfg) {
     namespace bpo = boost::program_options;
     bpo::options_description opts("Core options");
     auto net_stack_names = network_stack_registry::list();
@@ -4804,13 +4805,12 @@ reactor::get_options_description(std::chrono::duration<double> default_task_quot
         ("network-stack", bpo::value<std::string>(),
                 format("select network stack (valid values: {})",
                         format_separated(net_stack_names.begin(), net_stack_names.end(), ", ")).c_str())
-        ("no-handle-interrupt", "ignore SIGINT (for gdb)")
         ("poll-mode", "poll continuously (100% cpu use)")
         ("idle-poll-time-us", bpo::value<unsigned>()->default_value(calculate_poll_time() / 1us),
                 "idle polling time in microseconds (reduce for overprovisioned environments or laptops)")
         ("poll-aio", bpo::value<bool>()->default_value(true),
                 "busy-poll for disk I/O (reduces latency and increases throughput)")
-        ("task-quota-ms", bpo::value<double>()->default_value(default_task_quota / 1ms), "Max time (ms) between polls")
+        ("task-quota-ms", bpo::value<double>()->default_value(cfg.task_quota / 1ms), "Max time (ms) between polls")
         ("max-task-backlog", bpo::value<unsigned>()->default_value(1000), "Maximum number of task backlog to allow; above this we ignore I/O")
         ("blocked-reactor-notify-ms", bpo::value<unsigned>()->default_value(2000), "threshold in miliseconds over which the reactor is considered blocked if no progress is made")
         ("blocked-reactor-reports-per-minute", bpo::value<unsigned>()->default_value(5), "Maximum number of backtraces reported by stall detector per minute")
@@ -4827,6 +4827,11 @@ reactor::get_options_description(std::chrono::duration<double> default_task_quot
         ("heapprof", "enable seastar heap profiling")
 #endif
         ;
+    if (cfg.auto_handle_sigint_sigterm) {
+        opts.add_options()
+                ("no-handle-interrupt", "ignore SIGINT (for gdb)")
+                ;
+    }
     opts.add(network_stack_registry::options_description());
     return opts;
 }
@@ -4931,7 +4936,7 @@ void smp::arrive_at_event_loop_end() {
     }
 }
 
-void smp::allocate_reactor(unsigned id, reactor_backend_selector rbs) {
+void smp::allocate_reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg) {
     assert(!reactor_holder);
 
     // we cannot just write "local_engin = new reactor" since reactor's constructor
@@ -4940,7 +4945,7 @@ void smp::allocate_reactor(unsigned id, reactor_backend_selector rbs) {
     int r = posix_memalign(&buf, cache_line_size, sizeof(reactor));
     assert(r == 0);
     local_engine = reinterpret_cast<reactor*>(buf);
-    new (buf) reactor(id, std::move(rbs));
+    new (buf) reactor(id, std::move(rbs), cfg);
     reactor_holder.reset(local_engine);
 }
 
@@ -5157,7 +5162,7 @@ void smp::register_network_stacks() {
     register_native_stack();
 }
 
-void smp::configure(boost::program_options::variables_map configuration)
+void smp::configure(boost::program_options::variables_map configuration, reactor_config reactor_cfg)
 {
 #ifndef SEASTAR_NO_EXCEPTION_HACK
     if (configuration["enable-glibc-exception-scaling-workaround"].as<bool>()) {
@@ -5175,6 +5180,10 @@ void smp::configure(boost::program_options::variables_map configuration)
     for (auto sig : {SIGHUP, SIGQUIT, SIGILL, SIGABRT, SIGFPE, SIGSEGV,
             SIGALRM, SIGCONT, SIGSTOP, SIGTSTP, SIGTTIN, SIGTTOU}) {
         sigdelset(&sigs, sig);
+    }
+    if (!reactor_cfg.auto_handle_sigint_sigterm) {
+        sigdelset(&sigs, SIGINT);
+        sigdelset(&sigs, SIGTERM);
     }
     pthread_sigmask(SIG_BLOCK, &sigs, nullptr);
 
@@ -5359,7 +5368,7 @@ void smp::configure(boost::program_options::variables_map configuration)
     unsigned i;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        create_thread([configuration, &disk_config, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity, heapprof_enabled, mbind, backend_selector] {
+        create_thread([configuration, &disk_config, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity, heapprof_enabled, mbind, backend_selector, reactor_cfg] {
             auto thread_name = seastar::format("reactor-{}", i);
             pthread_setname_np(pthread_self(), thread_name.c_str());
             if (thread_affinity) {
@@ -5374,7 +5383,7 @@ void smp::configure(boost::program_options::variables_map configuration)
             }
             auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
             throw_pthread_error(r);
-            allocate_reactor(i, backend_selector);
+            allocate_reactor(i, backend_selector, reactor_cfg);
             _reactors[i] = &engine();
             for (auto& dev_id : disk_config.device_ids()) {
                 alloc_io_queue(i, dev_id);
@@ -5391,7 +5400,7 @@ void smp::configure(boost::program_options::variables_map configuration)
         });
     }
 
-    allocate_reactor(0, backend_selector);
+    allocate_reactor(0, backend_selector, reactor_cfg);
     _reactors[0] = &engine();
     for (auto& dev_id : disk_config.device_ids()) {
         alloc_io_queue(0, dev_id);

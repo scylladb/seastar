@@ -34,6 +34,17 @@ public:
     struct config {
         sstring name = "App";
         std::chrono::duration<double> default_task_quota = std::chrono::microseconds(500);
+        /// \brief Handle SIGINT/SIGTERM by calling reactor::stop()
+        ///
+        /// When true, Seastar will set up signal handlers for SIGINT/SIGTERM that call
+        /// reactor::stop(). The reactor will then execute callbacks installed by
+        /// reactor::at_exit().
+        ///
+        /// When false, Seastar will not set up signal handlers for SIGINT/SIGTERM
+        /// automatically. The default behavior (terminate the program) will be kept.
+        /// You can adjust the behavior of SIGINT/SIGTERM by installing signal handlers
+        /// via reactor::handle_signal().
+        bool auto_handle_sigint_sigterm = true;
         config() {}
     };
 
