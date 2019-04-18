@@ -28,6 +28,14 @@ list (APPEND CMAKE_MODULE_PATH
 
 include (Cooking OPTIONAL)
 
+# This variable impacts the way DPDK is configured by cmake-cooking (if DPDK is enabled), so its definition needs to
+# come before PROJECT.
+set (Seastar_DPDK_MACHINE
+  "native"
+  CACHE
+  STRING
+  "Configure DPDK for this processor architecture (if `Seastar_DPDK` is enabled). A DPDK code name abbreviation (e.g., ivb)")
+
 project (Seastar
   VERSION 1.0
   LANGUAGES CXX)
@@ -701,6 +709,24 @@ if (Seastar_DPDK)
   if (NOT dpdk_FOUND)
     message (FATAL_ERROR "dpdk support is enabled but it is not available!")
   endif ()
+
+  #
+  # The DPDK architecture needs to be transitively applied to consumers of Seastar as well.
+  #
+
+  set (Seastar_ARCH_FOR_native "native")
+  set (Seastar_ARCH_FOR_nhm "nehalem")
+  set (Seastar_ARCH_FOR_wsm "westmere")
+  set (Seastar_ARCH_FOR_snb "sandybridge")
+  set (Seastar_ARCH_FOR_ivb "ivybridge")
+  set (Seastar_ARCH ${Seastar_ARCH_FOR_${Seastar_DPDK_MACHINE}})
+
+  if (NOT Seastar_ARCH)
+    message (FATAL_ERROR "Unrecognized DPDK machine identifier: ${Seastar_DPDK_MACHINE}")
+  endif ()
+
+  target_compile_options (seastar
+    PUBLIC -march=${Seastar_ARCH})
 
   target_compile_definitions (seastar
     PUBLIC SEASTAR_HAVE_DPDK)

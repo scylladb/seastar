@@ -102,12 +102,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
     ${dpdk_PMD_VMXNET3_UIO_LIBRARY}
     ${dpdk_RING_LIBRARY})
 
-  add_library (_dpdk_common INTERFACE IMPORTED)
-
-  set_target_properties (_dpdk_common
-    PROPERTIES
-      INTERFACE_COMPILE_OPTIONS -march=native)
-
   #
   # pmd_vmxnet3_uio
   #
@@ -128,7 +122,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::pmd_i40e
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_PMD_I40E_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
 
   #
@@ -140,7 +133,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::pmd_ixgbe
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_PMD_IXGBE_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
 
   #
@@ -152,7 +144,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::pmd_e1000
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_PMD_E1000_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
 
   #
@@ -164,7 +155,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::pmd_bnxt
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_PMD_BNXT_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
 
   #
@@ -176,7 +166,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::pmd_ring
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_PMD_RING_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
 
   #
@@ -188,7 +177,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::pmd_cxgbe
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_PMD_CXGBE_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
 
   #
@@ -200,7 +188,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::pmd_ena
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_PMD_ENA_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
 
   #
@@ -212,7 +199,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::pmd_enic
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_PMD_ENIC_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
 
   #
@@ -224,7 +210,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::pmd_fm10k
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_PMD_FM10K_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
 
   #
@@ -236,7 +221,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::pmd_nfp
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_PMD_NFP_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
 
   #
@@ -248,7 +232,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::pmd_qede
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_PMD_QEDE_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
 
   #
@@ -260,7 +243,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::pmd_sfc_efx
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_PMD_SFC_EFX_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
 
   #
@@ -272,7 +254,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::hash
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_HASH_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
 
   #
@@ -284,7 +265,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::kvargs
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_KVARGS_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
 
   #
@@ -296,7 +276,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::mbuf
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_MBUF_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR}
       INTERFACE_LINK_LIBRARIES dpdk::eal)
 
@@ -309,7 +288,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::eal
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_EAL_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
 
   #
@@ -321,7 +299,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::ethdev
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_ETHDEV_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR}
       INTERACE_LINK_LIBRARIES dpdk::eal)
 
@@ -334,7 +311,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::mempool
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_MEMPOOL_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
 
   #
@@ -346,7 +322,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::mempool_ring
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_MEMPOOL_RING_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
 
   #
@@ -358,7 +333,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::ring
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_RING_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
 
   #
@@ -370,7 +344,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::cmdline
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_CMDLINE_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
 
   #
@@ -382,7 +355,6 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set_target_properties (dpdk::cfgfile
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_CFGFILE_LIBRARY}
-      INTERFACE_LINK_LIBRARIES _dpdk_common
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
 
   #

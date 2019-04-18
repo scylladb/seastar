@@ -251,6 +251,9 @@ cooking_ingredient (cryptopp
     URL https://github.com/weidai11/cryptopp/archive/CRYPTOPP_5_6_5.tar.gz
     URL_MD5 88224d9c0322f63aa1fb5b8ae78170f0)
 
+
+# Use the "native" profile that DPDK defines in `dpdk/config`, but in `dpdk_configure.cmake` we override
+# CONFIG_RTE_MACHINE with `Seastar_DPDK_MACHINE`.
 set (dpdk_quadruple ${CMAKE_SYSTEM_PROCESSOR}-native-linuxapp-gcc)
 
 set (dpdk_args
@@ -268,6 +271,7 @@ cooking_ingredient (dpdk
         make ${dpdk_args} config
       COMMAND
         ${CMAKE_COMMAND}
+        -DSeastar_DPDK_MACHINE=${Seastar_DPDK_MACHINE}
         -DSeastar_DPDK_CONFIG_FILE_IN=<BINARY_DIR>/.config
         -DSeastar_DPDK_CONFIG_FILE_CHANGES=${CMAKE_CURRENT_SOURCE_DIR}/dpdk_config
         -DSeastar_DPDK_CONFIG_FILE_OUT=<BINARY_DIR>/${dpdk_quadruple}/.config

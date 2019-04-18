@@ -133,6 +133,29 @@ if args.cpp_dialect == '':
     cpp_dialects = ['gnu++17', 'gnu++1z', 'gnu++14', 'gnu++1y']
     args.cpp_dialect = identify_best_dialect(cpp_dialects, compiler=args.cxx)
 
+def infer_dpdk_machine(user_cflags):
+    """Infer the DPDK machine identifier (e.g., 'ivb') from the space-separated
+    string of user cflags by scraping the value of `-march` if it is present.
+
+    The default if no architecture is indicated is 'native'.
+    """
+    arch = 'native'
+
+    # `-march` may be repeated, and we want the last one.
+    for flag in user_cflags.split():
+        if flag.startswith('-march'):
+            arch = flag[7:]
+
+    MAPPING = {
+        'native': 'native',
+        'nehalem': 'nhm',
+        'westmere': 'wsm',
+        'sandybridge': 'snb',
+        'ivybridge': 'ivb',
+    }
+
+    return MAPPING.get(arch, 'native')
+
 MODES = seastar_cmake.SUPPORTED_MODES if args.mode == 'all' else [args.mode]
 
 # For convenience.
@@ -161,6 +184,7 @@ def configure_mode(mode):
         tr(LDFLAGS, 'LD_FLAGS'),
         tr(args.cpp_dialect, 'CXX_DIALECT'),
         tr(args.dpdk, 'DPDK'),
+        tr(infer_dpdk_machine(args.user_cflags), 'DPDK_MACHINE'),
         tr(args.hwloc, 'HWLOC', value_when_none='yes'),
         tr(args.gcc6_concepts, 'GCC6_CONCEPTS'),
         tr(args.alloc_failure_injection, 'ALLOC_FAILURE_INJECTION'),

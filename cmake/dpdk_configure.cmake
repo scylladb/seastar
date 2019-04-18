@@ -38,3 +38,4 @@ foreach (var ${dpdk_config_changes})
 endforeach ()
 
 file (WRITE ${Seastar_DPDK_CONFIG_FILE_OUT} ${dpdk_config})
+file (APPEND ${Seastar_DPDK_CONFIG_FILE_OUT} "CONFIG_RTE_MACHINE=${Seastar_DPDK_MACHINE}")
