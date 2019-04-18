@@ -32,10 +32,10 @@ namespace seastar {
 /// \param size      size of the temporary buffer
 template <typename CharType>
 temporary_buffer<CharType> make_temporary_buffer(compat::polymorphic_allocator<CharType>* allocator, std::size_t size) {
-    CharType *buffer = allocator->allocate(size);
     if (allocator == memory::malloc_allocator) {
-        return temporary_buffer<CharType>(buffer, size);
+        return temporary_buffer<CharType>(size);
     }
+    CharType *buffer = allocator->allocate(size);
     return temporary_buffer<CharType>(buffer, size,
         make_deleter(deleter(), [allocator, buffer, size] () mutable { allocator->deallocate(buffer, size); }));
 }
