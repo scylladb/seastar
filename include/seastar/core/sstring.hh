@@ -272,12 +272,10 @@ public:
     operator std::basic_string<char_type>() const {
         return { str(), size() };
     }
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+
     size_t size() const noexcept {
         return is_internal() ? u.internal.size : u.external.size;
     }
-#pragma GCC diagnostic pop
 
     size_t length() const noexcept {
         return size();

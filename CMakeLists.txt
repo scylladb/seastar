@@ -649,7 +649,13 @@ target_link_libraries (seastar
 target_compile_options (seastar
   PUBLIC
     -std=${Seastar_CXX_DIALECT}
-    -U_FORTIFY_SOURCE)
+    -U_FORTIFY_SOURCE
+    # With std::experimental::optional it is easy to hit
+    # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=88897.  We disable
+    # -Wmaybe-uninitialized in here since otherwise we would have to
+    # disable it on many types used inside optional<>.
+    -Wno-maybe-uninitialized
+)
 
 if (Seastar_EXPERIMENTAL_COROUTINES_TS)
   target_compile_options (seastar PUBLIC -fcoroutines-ts -g)
