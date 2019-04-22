@@ -111,7 +111,7 @@ void report_failed_future(std::exception_ptr ex);
 /// exception of `broken_promise` type is propagated to that abandoned
 /// continuation.
 struct broken_promise : std::logic_error {
-    broken_promise() : logic_error("broken promise") { }
+    broken_promise();
 };
 
 namespace internal {
@@ -222,6 +222,8 @@ struct future_state_base {
 
     bool available() const noexcept { return _u.st == state::result || _u.st >= state::exception_min; }
     bool failed() const noexcept { return _u.st >= state::exception_min; }
+
+    void set_to_broken_promise() noexcept;
 
     void set_exception(std::exception_ptr ex) noexcept {
         assert(_u.st == state::future);
@@ -763,12 +765,7 @@ private:
     // that was abandoned by its promise.
     [[gnu::cold]] [[gnu::noinline]]
     void abandoned() noexcept {
-        try {
-            // Constructing broken_promise may throw (std::logic_error ctor is not noexcept).
-            _local_state.set_exception(std::make_exception_ptr(broken_promise{}));
-        } catch (...) {
-            _local_state.set_exception(std::current_exception());
-        }
+        _local_state.set_to_broken_promise();
     }
 
     template<typename... U>
@@ -1272,16 +1269,7 @@ promise<T...>::~promise() noexcept {
         report_failed_future(_state->get_exception());
     } else if (__builtin_expect(bool(_task), false)) {
         assert(_state && !_state->available());
-        // Encourage the compiler to move this away from the hot paths. __builtin_expect is not enough
-        // to do that. Cold lambdas work (at least for GCC8+).
-        [&] () __attribute__((cold)) {
-            try {
-                // Constructing broken_promise may throw (std::logic_error ctor is not noexcept).
-                _state->set_exception(std::make_exception_ptr(broken_promise{}));
-            } catch (...) {
-                _state->set_exception(std::make_exception_ptr(std::current_exception()));
-            }
-        }();
+        _state->set_to_broken_promise();
         make_ready<urgent::no>();
     }
 }

@@ -5536,6 +5536,17 @@ void report_failed_future(std::exception_ptr eptr) {
     seastar_logger.warn("Exceptional future ignored: {}, backtrace: {}", eptr, current_backtrace());
 }
 
+broken_promise::broken_promise() : logic_error("broken promise") { }
+
+void future_state_base::set_to_broken_promise() noexcept {
+    try {
+        // Constructing broken_promise may throw (std::logic_error ctor is not noexcept).
+        set_exception(std::make_exception_ptr(broken_promise{}));
+    } catch (...) {
+        set_exception(std::current_exception());
+    }
+}
+
 future<> check_direct_io_support(sstring path) {
     struct w {
         sstring path;
