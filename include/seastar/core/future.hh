@@ -257,7 +257,6 @@ struct future_state :  private internal::uninitialized_wrapper<std::tuple<T...>>
     }
     bool available() const noexcept { return _u.st == state::result || _u.st >= state::exception_min; }
     bool failed() const noexcept { return _u.st >= state::exception_min; }
-    void wait();
     void set(const std::tuple<T...>& value) noexcept {
         assert(_u.st == state::future);
         this->uninitialized_set(std::tuple<T...>(value));
