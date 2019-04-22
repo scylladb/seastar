@@ -1277,11 +1277,12 @@ promise<T...>::~promise() noexcept {
         [&] () __attribute__((cold)) {
             try {
                 // Constructing broken_promise may throw (std::logic_error ctor is not noexcept).
-                set_exception(broken_promise{});
+                _state->set_exception(std::make_exception_ptr(broken_promise{}));
             } catch (...) {
-                set_exception(std::current_exception());
+                _state->set_exception(std::make_exception_ptr(std::current_exception()));
             }
         }();
+        make_ready<urgent::no>();
     }
 }
 
