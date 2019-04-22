@@ -200,14 +200,8 @@ static_assert(std::is_empty<uninitialized_wrapper<std::tuple<>>>::value, "This s
 // called) or due to the promise or future being mobved around.
 //
 
-/// \cond internal
-template <typename... T>
-struct future_state :  private internal::uninitialized_wrapper<std::tuple<T...>> {
-    static constexpr bool copy_noexcept = std::is_nothrow_copy_constructible<std::tuple<T...>>::value;
-    static_assert(std::is_nothrow_move_constructible<std::tuple<T...>>::value,
-                  "Types must be no-throw move constructible");
-    static_assert(std::is_nothrow_destructible<std::tuple<T...>>::value,
-                  "Types must be no-throw destructible");
+// non templated base class to reduce code duplication
+struct future_state_base {
     static_assert(std::is_nothrow_copy_constructible<std::exception_ptr>::value,
                   "std::exception_ptr's copy constructor must not throw");
     static_assert(std::is_nothrow_move_constructible<std::exception_ptr>::value,
@@ -225,6 +219,37 @@ struct future_state :  private internal::uninitialized_wrapper<std::tuple<T...>>
         state st;
         std::exception_ptr ex;
     } _u;
+
+    bool available() const noexcept { return _u.st == state::result || _u.st >= state::exception_min; }
+    bool failed() const noexcept { return _u.st >= state::exception_min; }
+
+    void set_exception(std::exception_ptr ex) noexcept {
+        assert(_u.st == state::future);
+        new (&_u.ex) std::exception_ptr(ex);
+        assert(_u.st >= state::exception_min);
+    }
+    std::exception_ptr get_exception() && noexcept {
+        assert(_u.st >= state::exception_min);
+        // Move ex out so future::~future() knows we've handled it
+        auto ex = std::move(_u.ex);
+        _u.ex.~exception_ptr();
+        _u.st = state::invalid;
+        return ex;
+    }
+    std::exception_ptr get_exception() const& noexcept {
+        assert(_u.st >= state::exception_min);
+        return _u.ex;
+    }
+};
+
+/// \cond internal
+template <typename... T>
+struct future_state :  public future_state_base, private internal::uninitialized_wrapper<std::tuple<T...>> {
+    static constexpr bool copy_noexcept = std::is_nothrow_copy_constructible<std::tuple<T...>>::value;
+    static_assert(std::is_nothrow_move_constructible<std::tuple<T...>>::value,
+                  "Types must be no-throw move constructible");
+    static_assert(std::is_nothrow_destructible<std::tuple<T...>>::value,
+                  "Types must be no-throw destructible");
     future_state() noexcept {}
     [[gnu::always_inline]]
     future_state(future_state&& x) noexcept {
@@ -255,8 +280,6 @@ struct future_state :  private internal::uninitialized_wrapper<std::tuple<T...>>
         }
         return *this;
     }
-    bool available() const noexcept { return _u.st == state::result || _u.st >= state::exception_min; }
-    bool failed() const noexcept { return _u.st >= state::exception_min; }
     void set(const std::tuple<T...>& value) noexcept {
         assert(_u.st == state::future);
         this->uninitialized_set(std::tuple<T...>(value));
@@ -272,23 +295,6 @@ struct future_state :  private internal::uninitialized_wrapper<std::tuple<T...>>
         assert(_u.st == state::future);
         this->uninitialized_set(std::tuple<T...>(std::forward<A>(a)...));
         _u.st = state::result;
-    }
-    void set_exception(std::exception_ptr ex) noexcept {
-        assert(_u.st == state::future);
-        new (&_u.ex) std::exception_ptr(ex);
-        assert(_u.st >= state::exception_min);
-    }
-    std::exception_ptr get_exception() && noexcept {
-        assert(_u.st >= state::exception_min);
-        // Move ex out so future::~future() knows we've handled it
-        auto ex = std::move(_u.ex);
-        _u.ex.~exception_ptr();
-        _u.st = state::invalid;
-        return ex;
-    }
-    std::exception_ptr get_exception() const& noexcept {
-        assert(_u.st >= state::exception_min);
-        return _u.ex;
     }
     std::tuple<T...> get_value() && noexcept {
         assert(_u.st == state::result);
