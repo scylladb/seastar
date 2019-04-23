@@ -706,6 +706,10 @@ private:
     explicit future(future_state<T...>&& state) noexcept
             : _promise(nullptr), _local_state(std::move(state)) {
     }
+    promise<T...>* detach_promise() {
+        _promise->_future = nullptr;
+        return std::exchange(_promise, nullptr);
+    }
     [[gnu::always_inline]]
     future_state<T...>* state() noexcept {
         return _promise ? _promise->_state : &_local_state;
@@ -723,9 +727,7 @@ private:
             ::seastar::schedule(std::make_unique<continuation<Func, T...>>(std::move(func), std::move(*state())));
         } else {
             assert(_promise);
-            _promise->schedule(std::move(func));
-            _promise->_future = nullptr;
-            _promise = nullptr;
+            detach_promise()->schedule(std::move(func));
         }
     }
 
@@ -733,8 +735,7 @@ private:
     future_state<T...> get_available_state() noexcept {
         auto st = state();
         if (_promise) {
-            _promise->_future = nullptr;
-            _promise = nullptr;
+            detach_promise();
         }
         return std::move(*st);
     }
@@ -781,8 +782,8 @@ public:
         if (!_promise) {
             _local_state = std::move(x._local_state);
         }
-        x._promise = nullptr;
         if (_promise) {
+            x.detach_promise();
             _promise->_future = this;
         }
     }
@@ -797,11 +798,11 @@ public:
     void operator=(const future&) = delete;
     __attribute__((always_inline))
     ~future() {
-        if (_promise) {
-            _promise->_future = nullptr;
-        }
         if (failed()) {
             report_failed_future(state()->get_exception());
+        }
+        if (_promise) {
+            detach_promise();
         }
     }
     /// \brief gets the value returned by the computation
@@ -871,9 +872,7 @@ private:
         auto thread = thread_impl::get();
         assert(thread);
         thread_wake_task wake_task{thread, this};
-        _promise->schedule(std::unique_ptr<continuation_base<T...>>(&wake_task));
-        _promise->_future = nullptr;
-        _promise = nullptr;
+        detach_promise()->schedule(std::unique_ptr<continuation_base<T...>>(&wake_task));
         thread_impl::switch_out(thread);
     }
 
@@ -1022,9 +1021,7 @@ public:
         if (state()->available()) {
             state()->forward_to(pr);
         } else {
-            _promise->_future = nullptr;
-            *_promise = std::move(pr);
-            _promise = nullptr;
+            *detach_promise() = std::move(pr);
         }
     }
 
@@ -1188,9 +1185,7 @@ public:
     void set_coroutine(task& coroutine) noexcept {
         assert(!state()->available());
         assert(_promise);
-        _promise->set_coroutine(_local_state, coroutine);
-        _promise->_future = nullptr;
-        _promise = nullptr;
+        detach_promise()->set_coroutine(_local_state, coroutine);
     }
 #endif
 private:
@@ -1200,9 +1195,7 @@ private:
             ::seastar::schedule(std::move(callback));
         } else {
             assert(_promise);
-            _promise->schedule(std::move(callback));
-            _promise->_future = nullptr;
-            _promise = nullptr;
+            detach_promise()->schedule(std::move(callback));
         }
 
     }
@@ -1250,9 +1243,9 @@ promise<T...>::promise(promise&& x) noexcept : _future(x._future), _state(x._sta
         _state = &_local_state;
         _local_state = std::move(x._local_state);
     }
-    x._future = nullptr;
     x._state = nullptr;
     if (_future) {
+        _future->detach_promise();
         _future->_promise = this;
     }
 }
@@ -1264,7 +1257,7 @@ promise<T...>::~promise() noexcept {
         assert(_state);
         assert(_state->available() || !_task);
         _future->_local_state = std::move(*_state);
-        _future->_promise = nullptr;
+        _future->detach_promise();
     } else if (_state && _state->failed()) {
         report_failed_future(_state->get_exception());
     } else if (__builtin_expect(bool(_task), false)) {
