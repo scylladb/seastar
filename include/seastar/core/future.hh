@@ -407,36 +407,60 @@ namespace internal {
 template <typename... T, typename U>
 void set_callback(future<T...>& fut, std::unique_ptr<U> callback);
 
-}
+class future_base;
 
-/// \endcond
+class promise_base {
+protected:
+    enum class urgent { no, yes };
+    future_base* _future = nullptr;
+
+    // This points to the future_state that is currently being
+    // used. See comment above the future_state struct definition for
+    // details.
+    future_state_base* _state;
+
+    std::unique_ptr<task> _task;
+
+    promise_base(const promise_base&) = delete;
+    promise_base(future_state_base* state) noexcept : _state(state) {}
+    promise_base(promise_base&& x) noexcept;
+    void check_during_destruction() noexcept;
+
+    void operator=(const promise_base&) = delete;
+    promise_base& operator=(promise_base&& x) noexcept {
+        this->~promise_base();
+        new (this) promise_base(std::move(x));
+        return *this;
+    }
+
+    friend class future_base;
+    template <typename... U> friend class seastar::future;
+};
+}
 
 /// \brief promise - allows a future value to be made available at a later time.
 ///
 ///
 template <typename... T>
-class promise {
-    enum class urgent { no, yes };
-    future<T...>* _future = nullptr;
+class promise : private internal::promise_base {
     future_state<T...> _local_state;
 
-    // This points to the future_state that is currently being
-    // used. See comment above the future_state struct definition for
-    // details.
-    future_state<T...>* _state;
-
-    std::unique_ptr<task> _task;
+    future_state<T...>* get_state() {
+        return static_cast<future_state<T...>*>(_state);
+    }
     static constexpr bool copy_noexcept = future_state<T...>::copy_noexcept;
 public:
     /// \brief Constructs an empty \c promise.
     ///
     /// Creates promise with no associated future yet (see get_future()).
-    promise() noexcept : _state(&_local_state) {}
+    promise() noexcept : promise_base(&_local_state) {}
 
     /// \brief Moves a \c promise object.
     promise(promise&& x) noexcept;
     promise(const promise&) = delete;
-    ~promise() noexcept;
+    ~promise() noexcept {
+        check_during_destruction();
+    }
     promise& operator=(promise&& x) noexcept {
         this->~promise();
         new (this) promise(std::move(x));
@@ -454,7 +478,7 @@ public:
 
     void set_urgent_state(future_state<T...>&& state) noexcept {
         if (_state) {
-            *_state = std::move(state);
+            *get_state() = std::move(state);
             make_ready<urgent::yes>();
         }
     }
@@ -472,8 +496,8 @@ public:
     /// pr.set_value(std::tuple<int, double>(42, 43.0))
     template <typename... A>
     void set_value(A&&... a) {
-        if (_state) {
-            _state->set(std::forward<A>(a)...);
+        if (auto *s = get_state()) {
+            s->set(std::forward<A>(a)...);
             make_ready<urgent::no>();
         }
     }
@@ -669,6 +693,38 @@ concept bool ApplyReturnsAnyFuture = requires (Func f, T... args) {
 
 /// \addtogroup future-module
 /// @{
+namespace internal {
+class future_base {
+protected:
+    promise_base* _promise;
+    future_base() noexcept : _promise(nullptr) {}
+    future_base(promise_base* promise, future_state_base* state) noexcept : _promise(promise) {
+        _promise->_future = this;
+        _promise->_state = state;
+    }
+
+    future_base(future_base&& x, future_state_base* state) noexcept : _promise(x._promise) {
+        if (auto* p = _promise) {
+            x.detach_promise();
+            p->_future = this;
+            p->_state = state;
+        }
+    }
+    ~future_base() noexcept {
+        if (_promise) {
+            detach_promise();
+        }
+    }
+
+    promise_base* detach_promise() noexcept {
+        _promise->_state = nullptr;
+        _promise->_future = nullptr;
+        return std::exchange(_promise, nullptr);
+    }
+
+    friend class promise_base;
+};
+}
 
 /// \brief A representation of a possibly not-yet-computed value.
 ///
@@ -684,26 +740,20 @@ concept bool ApplyReturnsAnyFuture = requires (Func f, T... args) {
 /// scheduling a \c continuation to be executed when the future becomes
 /// available.  Only one such continuation may be scheduled.
 template <typename... T>
-class future {
-    promise<T...>* _promise;
+class future : private internal::future_base {
     future_state<T...> _state;
     static constexpr bool copy_noexcept = future_state<T...>::copy_noexcept;
 private:
-    future(promise<T...>* pr) noexcept : _promise(pr), _state(std::move(pr->_local_state)) {
-        _promise->_future = this;
-        _promise->_state = &_state;
-    }
+    future(promise<T...>* pr) noexcept : future_base(pr, &_state), _state(std::move(pr->_local_state)) { }
     template <typename... A>
-    future(ready_future_marker m, A&&... a) : _promise(nullptr), _state(m, std::forward<A>(a)...) { }
-    future(exception_future_marker m, std::exception_ptr ex) noexcept : _promise(nullptr), _state(m, std::move(ex)) { }
+    future(ready_future_marker m, A&&... a) : _state(m, std::forward<A>(a)...) { }
+    future(exception_future_marker m, std::exception_ptr ex) noexcept : _state(m, std::move(ex)) { }
     [[gnu::always_inline]]
     explicit future(future_state<T...>&& state) noexcept
-            : _promise(nullptr), _state(std::move(state)) {
+            : _state(std::move(state)) {
     }
     promise<T...>* detach_promise() {
-        _promise->_state = nullptr;
-        _promise->_future = nullptr;
-        return std::exchange(_promise, nullptr);
+        return static_cast<promise<T...>*>(future_base::detach_promise());
     }
     template <typename Func>
     void schedule(Func&& func) {
@@ -764,13 +814,7 @@ public:
     using promise_type = promise<T...>;
     /// \brief Moves the future into a new object.
     [[gnu::always_inline]]
-    future(future&& x) noexcept : _promise(x._promise), _state(std::move(x._state)) {
-        if (auto *p = _promise) {
-            x.detach_promise();
-            p->_future = this;
-            p->_state = &_state;
-        }
-    }
+    future(future&& x) noexcept : future_base(std::move(x), &_state), _state(std::move(x._state)) { }
     future(const future&) = delete;
     future& operator=(future&& x) noexcept {
         this->~future();
@@ -782,9 +826,6 @@ public:
     ~future() {
         if (failed()) {
             report_failed_future(_state.get_exception());
-        }
-        if (_promise) {
-            detach_promise();
         }
     }
     /// \brief gets the value returned by the computation
@@ -1200,7 +1241,7 @@ template <typename... T>
 inline
 future<T...>
 promise<T...>::get_future() noexcept {
-    assert(!_future && _state && !_task);
+    assert(!this->_future && this->_state && !this->_task);
     return future<T...>(this);
 }
 
@@ -1220,31 +1261,10 @@ void promise<T...>::make_ready() noexcept {
 
 template <typename... T>
 inline
-promise<T...>::promise(promise&& x) noexcept : _future(x._future), _state(x._state), _task(std::move(x._task)) {
-    if (_state == &x._local_state) {
-        _state = &_local_state;
+promise<T...>::promise(promise&& x) noexcept : promise_base(std::move(x)) {
+    if (this->_state == &x._local_state) {
+        this->_state = &_local_state;
         _local_state = std::move(x._local_state);
-    }
-    x._state = nullptr;
-    if (auto *fut = _future) {
-        fut->detach_promise();
-        fut->_promise = this;
-    }
-}
-
-template <typename... T>
-inline
-promise<T...>::~promise() noexcept {
-    if (_future) {
-        assert(_state);
-        assert(_state->available() || !_task);
-        _future->detach_promise();
-    } else if (_state && _state->failed()) {
-        report_failed_future(_state->get_exception());
-    } else if (__builtin_expect(bool(_task), false)) {
-        assert(_state && !_state->available());
-        _state->set_to_broken_promise();
-        make_ready<urgent::no>();
     }
 }
 
