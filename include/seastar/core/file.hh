@@ -27,9 +27,9 @@
 #include <seastar/core/align.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/fair_queue.hh>
+#include <seastar/core/file-types.hh>
 #include <seastar/util/std-compat.hh>
 #include <system_error>
-#include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/ioctl.h>
 #include <linux/fs.h>
@@ -41,32 +41,6 @@ namespace seastar {
 /// \addtogroup fileio-module
 /// @{
 
-/// Enumeration describing the type of a directory entry being listed.
-///
-/// \see file::list_directory()
-enum class directory_entry_type {
-    unknown,
-    block_device,
-    char_device,
-    directory,
-    fifo,
-    link,
-    regular,
-    socket,
-};
-
-/// Enumeration describing the type of a particular filesystem
-enum class fs_type {
-    other,
-    xfs,
-    ext2,
-    ext3,
-    ext4,
-    btrfs,
-    hfs,
-    tmpfs,
-};
-
 /// A directory entry being listed.
 struct directory_entry {
     /// Name of the file in a directory entry.  Will never be "." or "..".  Only the last component is included.
@@ -74,25 +48,6 @@ struct directory_entry {
     /// Type of the directory entry, if known.
     compat::optional<directory_entry_type> type;
 };
-
-// Access flags for files/directories
-enum class access_flags {
-    exists = F_OK,
-    read = R_OK,
-    write = W_OK,
-    execute = X_OK,
-
-    // alias for directory access
-    lookup = execute,
-};
-
-inline access_flags operator|(access_flags a, access_flags b) {
-    return access_flags(std::underlying_type_t<access_flags>(a) | std::underlying_type_t<access_flags>(b));
-}
-
-inline access_flags operator&(access_flags a, access_flags b) {
-    return access_flags(std::underlying_type_t<access_flags>(a) & std::underlying_type_t<access_flags>(b));
-}
 
 /// Filesystem object stat information
 struct stat_data {

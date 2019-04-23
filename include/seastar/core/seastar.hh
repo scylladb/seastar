@@ -43,6 +43,7 @@
 
 #include <seastar/core/sstring.hh>
 #include <seastar/core/future.hh>
+#include <seastar/core/file-types.hh>
 #include <seastar/util/bool_class.hh>
 
 namespace seastar {
@@ -61,9 +62,6 @@ enum class transport;
 // file.hh
 class file;
 struct file_open_options;
-enum class open_flags;
-enum class access_flags;
-enum class fs_type;
 struct stat_data;
 
 // Networking API
