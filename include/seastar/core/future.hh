@@ -184,20 +184,28 @@ static_assert(std::is_empty<uninitialized_wrapper<std::tuple<>>>::value, "This s
 
 //
 // A future/promise pair maintain one logical value (a future_state).
-// To minimize allocations, the value is stored in exactly one of three
-// locations:
+// There are up to three places that can store it, but only one is
+// active at any time.
 //
-// - in the promise (so long as it exists, and before a .then() is called)
+// - in the promise _local_state member variable
+//
+//   This is necessary because a promise is created first and there
+//   would be nowhere else to put the value.
+//
+// - in the future _state variable
+//
+//   This is used anytime a future exists and then has not been called
+//   yet. This guarantees a simple access to the value for any code
+//   that already has a future.
 //
 // - in the task associated with the .then() clause (after .then() is called,
 //   if a value was not set)
 //
-// - in the future (if the promise was destroyed, or if it never existed, as
-//   with make_ready_future()), before .then() is called
 //
-// Both promise and future maintain a pointer to the state, which is modified
-// the the state moves to a new location due to events (such as .then() being
-// called) or due to the promise or future being mobved around.
+// The promise maintains a pointer to the state, which is modified as
+// the state moves to a new location due to events (such as .then() or
+// get_future being called) or due to the promise or future being
+// moved around.
 //
 
 // non templated base class to reduce code duplication
@@ -397,7 +405,12 @@ class promise {
     enum class urgent { no, yes };
     future<T...>* _future = nullptr;
     future_state<T...> _local_state;
+
+    // This points to the future_state that is currently being
+    // used. See comment above the future_state struct definition for
+    // details.
     future_state<T...>* _state;
+
     std::unique_ptr<task> _task;
     static constexpr bool copy_noexcept = future_state<T...>::copy_noexcept;
 public:
@@ -449,9 +462,10 @@ public:
     /// future.  May be called either before or after \c get_future().
     template <typename... A>
     void set_value(A&&... a) noexcept {
-        assert(_state);
-        _state->set(std::forward<A>(a)...);
-        make_ready<urgent::no>();
+        if (_state) {
+            _state->set(std::forward<A>(a)...);
+            make_ready<urgent::no>();
+        }
     }
 
     /// \brief Marks the promise as failed
@@ -480,9 +494,10 @@ public:
 private:
     template<urgent Urgent>
     void do_set_value(std::tuple<T...> result) noexcept {
-        assert(_state);
-        _state->set(std::move(result));
-        make_ready<Urgent>();
+        if (_state) {
+            _state->set(std::move(result));
+            make_ready<Urgent>();
+        }
     }
 
     void set_urgent_value(const std::tuple<T...>& result) noexcept(copy_noexcept) {
@@ -495,9 +510,10 @@ private:
 
     template<urgent Urgent>
     void do_set_exception(std::exception_ptr ex) noexcept {
-        assert(_state);
-        _state->set_exception(std::move(ex));
-        make_ready<Urgent>();
+        if (_state) {
+            _state->set_exception(std::move(ex));
+            make_ready<Urgent>();
+        }
     }
 
     void set_urgent_exception(std::exception_ptr ex) noexcept {
@@ -685,46 +701,40 @@ concept bool ApplyReturnsAnyFuture = requires (Func f, T... args) {
 template <typename... T>
 class future {
     promise<T...>* _promise;
-    future_state<T...> _local_state;  // valid if !_promise
+    future_state<T...> _state;
     static constexpr bool copy_noexcept = future_state<T...>::copy_noexcept;
 private:
-    future(promise<T...>* pr) noexcept : _promise(pr) {
+    future(promise<T...>* pr) noexcept : _promise(pr), _state(std::move(pr->_local_state)) {
         _promise->_future = this;
+        _promise->_state = &_state;
     }
     template <typename... A>
     future(ready_future_marker, A&&... a) : _promise(nullptr) {
-        _local_state.set(std::forward<A>(a)...);
+        _state.set(std::forward<A>(a)...);
     }
     template <typename... A>
     future(ready_future_from_tuple_marker, std::tuple<A...>&& data) : _promise(nullptr) {
-        _local_state.set(std::move(data));
+        _state.set(std::move(data));
     }
     future(exception_future_marker, std::exception_ptr ex) noexcept : _promise(nullptr) {
-        _local_state.set_exception(std::move(ex));
+        _state.set_exception(std::move(ex));
     }
     [[gnu::always_inline]]
     explicit future(future_state<T...>&& state) noexcept
-            : _promise(nullptr), _local_state(std::move(state)) {
+            : _promise(nullptr), _state(std::move(state)) {
     }
     promise<T...>* detach_promise() {
+        _promise->_state = nullptr;
         _promise->_future = nullptr;
         return std::exchange(_promise, nullptr);
     }
-    [[gnu::always_inline]]
-    future_state<T...>* state() noexcept {
-        return _promise ? _promise->_state : &_local_state;
-    }
-    [[gnu::always_inline]]
-    const future_state<T...>* state() const noexcept {
-        return _promise ? _promise->_state : &_local_state;
-    }
     template <typename Func>
     void schedule(Func&& func) {
-        if (state()->available() || !_promise) {
-            if (__builtin_expect(!state()->available() && !_promise, false)) {
+        if (_state.available() || !_promise) {
+            if (__builtin_expect(!_state.available() && !_promise, false)) {
                 abandoned();
             }
-            ::seastar::schedule(std::make_unique<continuation<Func, T...>>(std::move(func), std::move(*state())));
+            ::seastar::schedule(std::make_unique<continuation<Func, T...>>(std::move(func), std::move(_state)));
         } else {
             assert(_promise);
             detach_promise()->schedule(std::move(func));
@@ -733,11 +743,10 @@ private:
 
     [[gnu::always_inline]]
     future_state<T...> get_available_state() noexcept {
-        auto st = state();
         if (_promise) {
             detach_promise();
         }
-        return std::move(*st);
+        return std::move(_state);
     }
 
     [[gnu::noinline]]
@@ -766,7 +775,7 @@ private:
     // that was abandoned by its promise.
     [[gnu::cold]] [[gnu::noinline]]
     void abandoned() noexcept {
-        _local_state.set_to_broken_promise();
+        _state.set_to_broken_promise();
     }
 
     template<typename... U>
@@ -779,12 +788,11 @@ public:
     /// \brief Moves the future into a new object.
     [[gnu::always_inline]]
     future(future&& x) noexcept : _promise(x._promise) {
-        if (!_promise) {
-            _local_state = std::move(x._local_state);
-        }
+        _state = std::move(x._state);
         if (_promise) {
             x.detach_promise();
             _promise->_future = this;
+            _promise->_state = &_state;
         }
     }
     future(const future&) = delete;
@@ -799,7 +807,7 @@ public:
     __attribute__((always_inline))
     ~future() {
         if (failed()) {
-            report_failed_future(state()->get_exception());
+            report_failed_future(_state.get_exception());
         }
         if (_promise) {
             detach_promise();
@@ -816,7 +824,7 @@ public:
     /// be paused until the future becomes available.
     [[gnu::always_inline]]
     std::tuple<T...> get() {
-        if (!state()->available()) {
+        if (!_state.available()) {
             do_wait();
         }
         return get_available_state().get();
@@ -845,7 +853,7 @@ public:
     /// thread until the future is availble. Other threads and
     /// continuations continue to execute; only the thread is blocked.
     void wait() noexcept {
-        if (!state()->available()) {
+        if (!_state.available()) {
             do_wait();
         }
     }
@@ -858,7 +866,7 @@ private:
                 : _thread(thread), _waiting_for(waiting_for) {
         }
         virtual void run_and_dispose() noexcept override {
-            *_waiting_for->state() = std::move(this->_state);
+            _waiting_for->_state = std::move(this->_state);
             thread_impl::switch_in(_thread);
             // no need to delete, since this is always allocated on
             // _thread's stack.
@@ -882,7 +890,7 @@ public:
     /// \return \c true if the future has a value, or has failed.
     [[gnu::always_inline]]
     bool available() const noexcept {
-        return state()->available();
+        return _state.available();
     }
 
     /// \brief Checks whether the future has failed.
@@ -890,7 +898,7 @@ public:
     /// \return \c true if the future is availble and has failed.
     [[gnu::always_inline]]
     bool failed() noexcept {
-        return state()->failed();
+        return _state.failed();
     }
 
     /// \brief Schedule a block of code to run when the future is ready.
@@ -1018,8 +1026,8 @@ public:
     /// \param pr a promise that will be fulfilled with the results of this
     /// future.
     void forward_to(promise<T...>&& pr) noexcept {
-        if (state()->available()) {
-            state()->forward_to(pr);
+        if (_state.available()) {
+            _state.forward_to(pr);
         } else {
             *detach_promise() = std::move(pr);
         }
@@ -1178,7 +1186,7 @@ public:
     /// Use with caution since usually ignoring exception is not what
     /// you want
     void ignore_ready_future() noexcept {
-        state()->ignore();
+        _state.ignore();
     }
 
 #if SEASTAR_COROUTINES_TS
@@ -1190,7 +1198,7 @@ public:
 #endif
 private:
     void set_callback(std::unique_ptr<continuation_base<T...>> callback) {
-        if (state()->available()) {
+        if (_state.available()) {
             callback->set_state(get_available_state());
             ::seastar::schedule(std::move(callback));
         } else {
@@ -1256,7 +1264,6 @@ promise<T...>::~promise() noexcept {
     if (_future) {
         assert(_state);
         assert(_state->available() || !_task);
-        _future->_local_state = std::move(*_state);
         _future->detach_promise();
     } else if (_state && _state->failed()) {
         report_failed_future(_state->get_exception());
