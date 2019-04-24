@@ -63,7 +63,7 @@ public:
     int frees;
     void* do_allocate(std::size_t bytes, std::size_t alignment) override { allocs++; return malloc(bytes); }
     void do_deallocate(void *ptr, std::size_t bytes, std::size_t alignment) override { frees++; return free(ptr); }
-    bool do_is_equal(const compat::memory_resource& __other) const noexcept { abort(); }
+    virtual bool do_is_equal(const compat::memory_resource& __other) const noexcept override { abort(); }
 };
 
 my_malloc_allocator malloc_allocator;
