@@ -66,7 +66,7 @@ future<> assert_split(StreamConstructor stream_maker, std::initializer_list<T> w
         std::vector<std::string> expected_split) {
     static int i = 0;
     BOOST_TEST_MESSAGE("checking split: " << i++);
-    auto sh_write_calls = make_lw_shared<std::initializer_list<T>>(std::move(write_calls));
+    auto sh_write_calls = make_lw_shared<std::vector<T>>(std::move(write_calls));
     auto sh_expected_splits = make_lw_shared<std::vector<std::string>>(std::move(expected_split));
     auto v = make_shared<std::vector<packet>>();
     auto out = stream_maker(data_sink(std::make_unique<vector_data_sink>(*v)));
