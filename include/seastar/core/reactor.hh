@@ -269,32 +269,6 @@ private:
 
 class reactor_backend_selector;
 
-enum class open_flags {
-    rw = O_RDWR,
-    ro = O_RDONLY,
-    wo = O_WRONLY,
-    create = O_CREAT,
-    truncate = O_TRUNC,
-    exclusive = O_EXCL,
-    dsync = O_DSYNC,
-};
-
-inline open_flags operator|(open_flags a, open_flags b) {
-    return open_flags(std::underlying_type_t<open_flags>(a) | std::underlying_type_t<open_flags>(b));
-}
-
-inline void operator|=(open_flags& a, open_flags b) {
-    a = (a | b);
-}
-
-inline open_flags operator&(open_flags a, open_flags b) {
-    return open_flags(std::underlying_type_t<open_flags>(a) & std::underlying_type_t<open_flags>(b));
-}
-
-inline void operator&=(open_flags& a, open_flags b) {
-    a = (a & b);
-}
-
 class reactor_backend;
 
 namespace internal {
@@ -639,8 +613,8 @@ public:
 
     future<file> open_file_dma(sstring name, open_flags flags, file_open_options options = {});
     future<file> open_directory(sstring name);
-    future<> make_directory(sstring name);
-    future<> touch_directory(sstring name);
+    future<> make_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions);
+    future<> touch_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions);
     future<compat::optional<directory_entry_type>>  file_type(sstring name);
     future<stat_data> file_stat(sstring pathname, follow_symlink);
     future<uint64_t> file_size(sstring pathname);
@@ -653,6 +627,7 @@ public:
     future<> remove_file(sstring pathname);
     future<> rename_file(sstring old_pathname, sstring new_pathname);
     future<> link_file(sstring oldpath, sstring newpath);
+    future<> chmod(sstring name, file_permissions permissions);
 
     // In the following three methods, prepare_io is not guaranteed to execute in the same processor
     // in which it was generated. Therefore, care must be taken to avoid the use of objects that could

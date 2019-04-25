@@ -2867,7 +2867,6 @@ file::file(int fd, file_open_options options)
 
 future<file>
 reactor::open_file_dma(sstring name, open_flags flags, file_open_options options) {
-    static constexpr mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH; // 0644
     return _thread_pool->submit<syscall_result<int>>([name, flags, options, strict_o_direct = _strict_o_direct] {
         // We want O_DIRECT, except in two cases:
         //   - tmpfs (which doesn't support it, but works fine anyway)
@@ -2884,6 +2883,7 @@ reactor::open_file_dma(sstring name, open_flags flags, file_open_options options
             return buf.f_type == 0x01021994; // TMPFS_MAGIC
         };
         auto open_flags = O_CLOEXEC | static_cast<int>(flags);
+        auto mode = static_cast<mode_t>(options.create_permissions);
         int fd = ::open(name.c_str(), open_flags, mode);
         if (fd == -1) {
             return wrap_syscall<int>(fd);
@@ -2936,6 +2936,20 @@ reactor::link_file(sstring oldpath, sstring newpath) {
         return wrap_syscall<int>(::link(oldpath.c_str(), newpath.c_str()));
     }).then([oldpath, newpath] (syscall_result<int> sr) {
         sr.throw_fs_exception_if_error("link failed", oldpath, newpath);
+        return make_ready_future<>();
+    });
+}
+
+future<>
+reactor::chmod(sstring name, file_permissions permissions) {
+    auto mode = static_cast<mode_t>(permissions);
+    return _thread_pool->submit<syscall_result<int>>([name, mode] {
+        return wrap_syscall<int>(::chmod(name.c_str(), mode));
+    }).then([name, mode] (syscall_result<int> sr) {
+        if (sr.result == -1) {
+            auto reason = format("chmod(0{:o}) failed", mode);
+            sr.throw_fs_exception(reason, fs::path(name));
+        }
         return make_ready_future<>();
     });
 }
@@ -3094,22 +3108,25 @@ reactor::open_directory(sstring name) {
 }
 
 future<>
-reactor::make_directory(sstring name) {
-    return _thread_pool->submit<syscall_result<int>>([name] {
-        return wrap_syscall<int>(::mkdir(name.c_str(), S_IRWXU));
+reactor::make_directory(sstring name, file_permissions permissions) {
+    return _thread_pool->submit<syscall_result<int>>([=] {
+        auto mode = static_cast<mode_t>(permissions);
+        return wrap_syscall<int>(::mkdir(name.c_str(), mode));
     }).then([name] (syscall_result<int> sr) {
         sr.throw_fs_exception_if_error("mkdir failed", name);
     });
 }
 
 future<>
-reactor::touch_directory(sstring name) {
-    return engine()._thread_pool->submit<syscall_result<int>>([name] {
-        return wrap_syscall<int>(::mkdir(name.c_str(), S_IRWXU));
-    }).then([name] (syscall_result<int> sr) {
-        if (sr.error != EEXIST) {
-            sr.throw_fs_exception_if_error("mkdir failed", name);
+reactor::touch_directory(sstring name, file_permissions permissions) {
+    return engine()._thread_pool->submit<syscall_result<int>>([=] {
+        auto mode = static_cast<mode_t>(permissions);
+        return wrap_syscall<int>(::mkdir(name.c_str(), mode));
+    }).then([this, name] (syscall_result<int> sr) {
+        if (sr.result == -1 && sr.error != EEXIST) {
+            sr.throw_fs_exception("mkdir failed", fs::path(name));
         }
+        return make_ready_future<>();
     });
 }
 
@@ -5586,12 +5603,12 @@ future<file> open_directory(sstring name) {
     return engine().open_directory(std::move(name));
 }
 
-future<> make_directory(sstring name) {
-    return engine().make_directory(std::move(name));
+future<> make_directory(sstring name, file_permissions permissions) {
+    return engine().make_directory(std::move(name), permissions);
 }
 
-future<> touch_directory(sstring name) {
-    return engine().touch_directory(std::move(name));
+future<> touch_directory(sstring name, file_permissions permissions) {
+    return engine().touch_directory(std::move(name), permissions);
 }
 
 future<> sync_directory(sstring name) {
@@ -5604,7 +5621,7 @@ future<> sync_directory(sstring name) {
     });
 }
 
-future<> do_recursive_touch_directory(sstring base, sstring name) {
+static future<> do_recursive_touch_directory(sstring base, sstring name, file_permissions permissions) {
     static const sstring::value_type separator = '/';
 
     if (name.empty()) {
@@ -5614,8 +5631,14 @@ future<> do_recursive_touch_directory(sstring base, sstring name) {
     size_t pos = std::min(name.find(separator), name.size() - 1);
     base += name.substr(0 , pos + 1);
     name = name.substr(pos + 1);
-    return touch_directory(base).then([base, name] {
-        return do_recursive_touch_directory(base, name);
+    if (name.length() == 1 && name[0] == separator) {
+        name.reset();
+    }
+    // use the optional permissions only for last component,
+    // other directories in the patch will always be created using the default_dir_permissions
+    auto f = name.empty() ? touch_directory(base, permissions) : touch_directory(base);
+    return f.then([=] {
+        return do_recursive_touch_directory(base, std::move(name), permissions);
     }).then([base] {
         // We will now flush the directory that holds the entry we potentially
         // created. Technically speaking, we only need to touch when we did
@@ -5630,14 +5653,14 @@ future<> do_recursive_touch_directory(sstring base, sstring name) {
 }
 /// \endcond
 
-future<> recursive_touch_directory(sstring name) {
+future<> recursive_touch_directory(sstring name, file_permissions permissions) {
     // If the name is empty,  it will be of the type a/b/c, which should be interpreted as
     // a relative path. This means we have to flush our current directory
     sstring base = "";
     if (name[0] != '/' || name[0] == '.') {
         base = "./";
     }
-    return do_recursive_touch_directory(base, name);
+    return do_recursive_touch_directory(std::move(base), std::move(name), permissions);
 }
 
 future<> remove_file(sstring pathname) {
@@ -5682,6 +5705,10 @@ future<bool> file_exists(sstring name) {
 
 future<> link_file(sstring oldpath, sstring newpath) {
     return engine().link_file(std::move(oldpath), std::move(newpath));
+}
+
+future<> chmod(sstring name, file_permissions permissions) {
+    return engine().chmod(std::move(name), permissions);
 }
 
 server_socket listen(socket_address sa) {

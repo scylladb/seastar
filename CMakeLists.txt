@@ -380,6 +380,7 @@ add_library (seastar STATIC
   include/seastar/core/expiring_fifo.hh
   include/seastar/core/fair_queue.hh
   include/seastar/core/file.hh
+  include/seastar/core/file-types.hh
   include/seastar/core/fsqual.hh
   include/seastar/core/fstream.hh
   include/seastar/core/function_traits.hh

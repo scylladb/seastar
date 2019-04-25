@@ -291,3 +291,161 @@ SEASTAR_THREAD_TEST_CASE(test_sanitize_iovecs) {
                                actual_iovecs.begin(), actual_iovecs.end(), iovec_equal));
     }
 }
+
+SEASTAR_THREAD_TEST_CASE(test_chmod) {
+    auto oflags = open_flags::rw | open_flags::create;
+    sstring filename = "testfile.tmp";
+    if (file_exists(filename).get0()) {
+        remove_file(filename).get();
+    }
+
+    auto orig_umask = umask(0);
+
+    // test default_file_permissions
+    auto f = open_file_dma(filename, oflags).get0();
+    f.close().get();
+    auto sd = file_stat(filename).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
+
+    // test chmod with new_permissions
+    auto new_permissions = file_permissions::user_read | file_permissions::group_read | file_permissions::others_read;
+    BOOST_REQUIRE(new_permissions != file_permissions::default_file_permissions);
+    BOOST_REQUIRE(file_exists(filename).get0());
+    chmod(filename, new_permissions).get();
+    sd = file_stat(filename).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(new_permissions));
+    remove_file(filename).get();
+
+    umask(orig_umask);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_open_file_dma_permissions) {
+    auto oflags = open_flags::rw | open_flags::create;
+    sstring filename = "testfile.tmp";
+    if (file_exists(filename).get0()) {
+        remove_file(filename).get();
+    }
+
+    auto orig_umask = umask(0);
+
+    // test default_file_permissions
+    auto f = open_file_dma(filename, oflags).get0();
+    f.close().get();
+    auto sd = file_stat(filename).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
+    remove_file(filename).get();
+
+    // test options.create_permissions
+    auto options = file_open_options();
+    options.create_permissions = file_permissions::user_read | file_permissions::group_read | file_permissions::others_read;
+    BOOST_REQUIRE(options.create_permissions != file_permissions::default_file_permissions);
+    f = open_file_dma(filename, oflags, options).get0();
+    f.close().get();
+    sd = file_stat(filename).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(options.create_permissions));
+    remove_file(filename).get();
+
+    umask(orig_umask);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_make_directory_permissions) {
+    sstring dirname = "testdir.tmp";
+    if (file_exists(dirname).get0()) {
+        remove_file(dirname).get();
+    }
+
+    auto orig_umask = umask(0);
+
+    // test default_dir_permissions with make_directory
+    make_directory(dirname).get();
+    auto sd = file_stat(dirname).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
+    remove_file(dirname).get();
+
+    // test make_directory
+    auto create_permissions = file_permissions::user_read | file_permissions::group_read | file_permissions::others_read;
+    BOOST_REQUIRE(create_permissions != file_permissions::default_dir_permissions);
+    make_directory(dirname, create_permissions).get();
+    sd = file_stat(dirname).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(create_permissions));
+    remove_file(dirname).get();
+
+    umask(orig_umask);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_touch_directory_permissions) {
+    sstring dirname = "testdir.tmp";
+    if (file_exists(dirname).get0()) {
+        remove_file(dirname).get();
+    }
+
+    auto orig_umask = umask(0);
+
+    // test default_dir_permissions with touch_directory
+    touch_directory(dirname).get();
+    auto sd = file_stat(dirname).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
+    remove_file(dirname).get();
+
+    // test touch_directory, dir creation
+    auto create_permissions = file_permissions::user_read | file_permissions::group_read | file_permissions::others_read;
+    BOOST_REQUIRE(create_permissions != file_permissions::default_dir_permissions);
+    BOOST_REQUIRE(!file_exists(dirname).get0());
+    touch_directory(dirname, create_permissions).get();
+    sd = file_stat(dirname).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(create_permissions));
+
+    // test touch_directory of existing dir, dir mode need not change
+    BOOST_REQUIRE(file_exists(dirname).get0());
+    touch_directory(dirname, file_permissions::default_dir_permissions).get();
+    sd = file_stat(dirname).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(create_permissions));
+    remove_file(dirname).get();
+
+    umask(orig_umask);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_recursive_touch_directory_permissions) {
+    sstring base_dirname = "testbasedir.tmp";
+    sstring sub_dirname = "testsubdir.tmp";
+    sstring dirpath = base_dirname + "/" + sub_dirname;
+    if (file_exists(dirpath).get0()) {
+        remove_file(dirpath).get();
+    }
+    if (file_exists(base_dirname).get0()) {
+        remove_file(base_dirname).get();
+    }
+
+    auto orig_umask = umask(0);
+
+    // test default_dir_permissions with recursive_touch_directory
+    recursive_touch_directory(dirpath).get();
+    auto sd = file_stat(base_dirname).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
+    sd = file_stat(dirpath).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
+    remove_file(dirpath).get();
+
+    // test recursive_touch_directory, dir creation
+    auto create_permissions = file_permissions::user_read | file_permissions::group_read | file_permissions::others_read;
+    BOOST_REQUIRE(create_permissions != file_permissions::default_dir_permissions);
+    BOOST_REQUIRE(file_exists(base_dirname).get0());
+    BOOST_REQUIRE(!file_exists(dirpath).get0());
+    recursive_touch_directory(dirpath, create_permissions).get();
+    sd = file_stat(base_dirname).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
+    sd = file_stat(dirpath).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(create_permissions));
+
+    // test recursive_touch_directory of existing dir, dir mode need not change
+    BOOST_REQUIRE(file_exists(dirpath).get0());
+    recursive_touch_directory(dirpath, file_permissions::default_dir_permissions).get();
+    sd = file_stat(base_dirname).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
+    sd = file_stat(dirpath).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(create_permissions));
+    remove_file(dirpath).get();
+    remove_file(base_dirname).get();
+
+    umask(orig_umask);
+}

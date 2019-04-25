@@ -43,6 +43,7 @@
 
 #include <seastar/core/sstring.hh>
 #include <seastar/core/future.hh>
+#include <seastar/core/file-types.hh>
 #include <seastar/util/bool_class.hh>
 
 namespace seastar {
@@ -61,9 +62,6 @@ enum class transport;
 // file.hh
 class file;
 struct file_open_options;
-enum class open_flags;
-enum class access_flags;
-enum class fs_type;
 struct stat_data;
 
 // Networking API
@@ -203,11 +201,12 @@ future<file> open_directory(sstring name);
 /// Creates a new directory.
 ///
 /// \param name name of the directory to create
+/// \param permissions optional file permissions of the directory to create.
 ///
 /// \note
 /// The directory is not guaranteed to be stable on disk, unless the
 /// containing directory is sync'ed.
-future<> make_directory(sstring name);
+future<> make_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions);
 
 /// Ensures a directory exists
 ///
@@ -215,22 +214,27 @@ future<> make_directory(sstring name);
 /// the last component of the directory name is created.
 ///
 /// \param name name of the directory to potentially create
+/// \param permissions optional file permissions of the directory to create.
 ///
 /// \note
 /// The directory is not guaranteed to be stable on disk, unless the
 /// containing directory is sync'ed.
-future<> touch_directory(sstring name);
+/// If the directory exists, the provided permissions are not applied.
+future<> touch_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions);
 
 /// Recursively ensures a directory exists
 ///
 /// Checks whether each component of a directory exists, and if not, creates it.
 ///
 /// \param name name of the directory to potentially create
-/// \param separator character used as directory separator
+/// \param permissions optional file permissions of the directory to create.
 ///
 /// \note
 /// This function fsyncs each component created, and is therefore guaranteed to be stable on disk.
-future<> recursive_touch_directory(sstring name);
+/// The provided permissions are applied only on the last component in the path, if it needs to be created,
+/// if intermediate directories do not exist, they are created with the default_dir_permissions.
+/// If any directory exists, the provided permissions are not applied.
+future<> recursive_touch_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions);
 
 /// Synchronizes a directory to disk
 ///
@@ -310,6 +314,13 @@ future<bool> file_exists(sstring name);
 /// \param newpath name of link
 ///
 future<> link_file(sstring oldpath, sstring newpath);
+
+/// Changes the permissions mode of a file or directory
+///
+/// \param name name of the file ot directory to change
+/// \param permissions permissions to set
+///
+future<> chmod(sstring name, file_permissions permissions);
 
 /// Return information about the filesystem where a file is located.
 ///
