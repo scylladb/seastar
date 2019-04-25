@@ -618,13 +618,15 @@ target_link_libraries (seastar
 target_compile_options (seastar
   PUBLIC
     -std=${Seastar_CXX_DIALECT}
-    -U_FORTIFY_SOURCE
-)
+    -U_FORTIFY_SOURCE)
 
+function (seastar_supports_flag flag var)
+  set (CMAKE_REQUIRED_FLAGS ${flag})
+  check_cxx_source_compiles ("int main() { return 0; }" result)
+  set (${var} ${result} PARENT_SCOPE)
+endfunction ()
 
-set (CMAKE_REQUIRED_FLAGS "-Wno-maybe-uninitialized -Werror")
-check_cxx_source_compiles ("int main() { return 0; }" MaybeUninitialized_FOUND)
-
+seastar_supports_flag ("-Wno-maybe-uninitialized -Werror" MaybeUninitialized_FOUND)
 if (MaybeUninitialized_FOUND)
   target_compile_options (seastar
     PUBLIC
@@ -632,8 +634,7 @@ if (MaybeUninitialized_FOUND)
       # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=88897.  We disable
       # -Wmaybe-uninitialized in here since otherwise we would have to
       # disable it on many types used inside optional<>.
-      -Wno-maybe-uninitialized
-  )
+      -Wno-maybe-uninitialized)
 endif ()
 
 if (Seastar_EXPERIMENTAL_COROUTINES_TS)
