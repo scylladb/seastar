@@ -111,7 +111,7 @@ void report_failed_future(std::exception_ptr ex);
 /// exception of `broken_promise` type is propagated to that abandoned
 /// continuation.
 struct broken_promise : std::logic_error {
-    broken_promise() : logic_error("broken promise") { }
+    broken_promise();
 };
 
 namespace internal {
@@ -200,14 +200,8 @@ static_assert(std::is_empty<uninitialized_wrapper<std::tuple<>>>::value, "This s
 // called) or due to the promise or future being mobved around.
 //
 
-/// \cond internal
-template <typename... T>
-struct future_state :  private internal::uninitialized_wrapper<std::tuple<T...>> {
-    static constexpr bool copy_noexcept = std::is_nothrow_copy_constructible<std::tuple<T...>>::value;
-    static_assert(std::is_nothrow_move_constructible<std::tuple<T...>>::value,
-                  "Types must be no-throw move constructible");
-    static_assert(std::is_nothrow_destructible<std::tuple<T...>>::value,
-                  "Types must be no-throw destructible");
+// non templated base class to reduce code duplication
+struct future_state_base {
     static_assert(std::is_nothrow_copy_constructible<std::exception_ptr>::value,
                   "std::exception_ptr's copy constructor must not throw");
     static_assert(std::is_nothrow_move_constructible<std::exception_ptr>::value,
@@ -225,6 +219,39 @@ struct future_state :  private internal::uninitialized_wrapper<std::tuple<T...>>
         state st;
         std::exception_ptr ex;
     } _u;
+
+    bool available() const noexcept { return _u.st == state::result || _u.st >= state::exception_min; }
+    bool failed() const noexcept { return _u.st >= state::exception_min; }
+
+    void set_to_broken_promise() noexcept;
+
+    void set_exception(std::exception_ptr ex) noexcept {
+        assert(_u.st == state::future);
+        new (&_u.ex) std::exception_ptr(ex);
+        assert(_u.st >= state::exception_min);
+    }
+    std::exception_ptr get_exception() && noexcept {
+        assert(_u.st >= state::exception_min);
+        // Move ex out so future::~future() knows we've handled it
+        auto ex = std::move(_u.ex);
+        _u.ex.~exception_ptr();
+        _u.st = state::invalid;
+        return ex;
+    }
+    std::exception_ptr get_exception() const& noexcept {
+        assert(_u.st >= state::exception_min);
+        return _u.ex;
+    }
+};
+
+/// \cond internal
+template <typename... T>
+struct future_state :  public future_state_base, private internal::uninitialized_wrapper<std::tuple<T...>> {
+    static constexpr bool copy_noexcept = std::is_nothrow_copy_constructible<std::tuple<T...>>::value;
+    static_assert(std::is_nothrow_move_constructible<std::tuple<T...>>::value,
+                  "Types must be no-throw move constructible");
+    static_assert(std::is_nothrow_destructible<std::tuple<T...>>::value,
+                  "Types must be no-throw destructible");
     future_state() noexcept {}
     [[gnu::always_inline]]
     future_state(future_state&& x) noexcept {
@@ -255,9 +282,6 @@ struct future_state :  private internal::uninitialized_wrapper<std::tuple<T...>>
         }
         return *this;
     }
-    bool available() const noexcept { return _u.st == state::result || _u.st >= state::exception_min; }
-    bool failed() const noexcept { return _u.st >= state::exception_min; }
-    void wait();
     void set(const std::tuple<T...>& value) noexcept {
         assert(_u.st == state::future);
         this->uninitialized_set(std::tuple<T...>(value));
@@ -273,23 +297,6 @@ struct future_state :  private internal::uninitialized_wrapper<std::tuple<T...>>
         assert(_u.st == state::future);
         this->uninitialized_set(std::tuple<T...>(std::forward<A>(a)...));
         _u.st = state::result;
-    }
-    void set_exception(std::exception_ptr ex) noexcept {
-        assert(_u.st == state::future);
-        new (&_u.ex) std::exception_ptr(ex);
-        assert(_u.st >= state::exception_min);
-    }
-    std::exception_ptr get_exception() && noexcept {
-        assert(_u.st >= state::exception_min);
-        // Move ex out so future::~future() knows we've handled it
-        auto ex = std::move(_u.ex);
-        _u.ex.~exception_ptr();
-        _u.st = state::invalid;
-        return ex;
-    }
-    std::exception_ptr get_exception() const& noexcept {
-        assert(_u.st >= state::exception_min);
-        return _u.ex;
     }
     std::tuple<T...> get_value() && noexcept {
         assert(_u.st == state::result);
@@ -758,12 +765,7 @@ private:
     // that was abandoned by its promise.
     [[gnu::cold]] [[gnu::noinline]]
     void abandoned() noexcept {
-        try {
-            // Constructing broken_promise may throw (std::logic_error ctor is not noexcept).
-            _local_state.set_exception(std::make_exception_ptr(broken_promise{}));
-        } catch (...) {
-            _local_state.set_exception(std::current_exception());
-        }
+        _local_state.set_to_broken_promise();
     }
 
     template<typename... U>
@@ -1267,16 +1269,8 @@ promise<T...>::~promise() noexcept {
         report_failed_future(_state->get_exception());
     } else if (__builtin_expect(bool(_task), false)) {
         assert(_state && !_state->available());
-        // Encourage the compiler to move this away from the hot paths. __builtin_expect is not enough
-        // to do that. Cold lambdas work (at least for GCC8+).
-        [&] () __attribute__((cold)) {
-            try {
-                // Constructing broken_promise may throw (std::logic_error ctor is not noexcept).
-                set_exception(broken_promise{});
-            } catch (...) {
-                set_exception(std::current_exception());
-            }
-        }();
+        _state->set_to_broken_promise();
+        make_ready<urgent::no>();
     }
 }
 
