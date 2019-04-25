@@ -691,6 +691,12 @@ SEASTAR_TEST_CASE(futurize_apply_void_future_ok) {
     });
 }
 
+SEASTAR_TEST_CASE(test_unused_shared_future_is_not_a_broken_future) {
+    promise<> p;
+    shared_future<> s(p.get_future());
+    return make_ready_future<>();
+}
+
 SEASTAR_TEST_CASE(test_shared_future_propagates_value_to_all) {
     return seastar::async([] {
         promise<shared_ptr<int>> p; // shared_ptr<> to check it deals with emptyable types
