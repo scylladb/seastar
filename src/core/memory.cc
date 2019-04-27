@@ -1231,6 +1231,12 @@ size_t object_size(void* ptr) {
     return cpu_pages::all_cpus[object_cpu_id(ptr)]->object_size(ptr);
 }
 
+// Mark as cold so that GCC8+ can move to .text.unlikely.
+[[gnu::cold]]
+static void init_cpu_mem_ptr(cpu_pages*& cpu_mem_ptr) {
+    cpu_mem_ptr = &cpu_mem;
+};
+
 [[gnu::always_inline]]
 static inline cpu_pages& get_cpu_mem()
 {
@@ -1244,11 +1250,7 @@ static inline cpu_pages& get_cpu_mem()
     // whether the object has already been constructed.
     static thread_local cpu_pages* cpu_mem_ptr;
     if (__builtin_expect(!bool(cpu_mem_ptr), false)) {
-        // Mark as cold so that GCC8+ can move this part of the function
-        // to .text.unlikely.
-        [&] () __attribute__((cold)) {
-            cpu_mem_ptr = &cpu_mem;
-        }();
+        init_cpu_mem_ptr(cpu_mem_ptr);
     }
     return *cpu_mem_ptr;
 }
