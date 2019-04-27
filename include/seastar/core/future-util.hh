@@ -577,7 +577,7 @@ future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) {
             });
         }
         if (f.failed()) {
-            return std::move(f);
+            return f;
         }
     }
 }
