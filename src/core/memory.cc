@@ -1522,6 +1522,9 @@ void* malloc(size_t n) throw () {
 extern "C"
 [[gnu::alias("malloc")]]
 [[gnu::visibility("default")]]
+[[gnu::malloc]]
+[[gnu::alloc_size(1)]]
+[[gnu::leaf]]
 void* __libc_malloc(size_t n) throw ();
 
 extern "C"
@@ -1536,6 +1539,7 @@ void free(void* ptr) {
 extern "C"
 [[gnu::alias("free")]]
 [[gnu::visibility("default")]]
+[[gnu::leaf]]
 void __libc_free(void* obj) throw ();
 
 extern "C"
@@ -1557,6 +1561,9 @@ void* calloc(size_t nmemb, size_t size) {
 extern "C"
 [[gnu::alias("calloc")]]
 [[gnu::visibility("default")]]
+[[gnu::alloc_size(1, 2)]]
+[[gnu::malloc]]
+[[gnu::leaf]]
 void* __libc_calloc(size_t n, size_t m) throw ();
 
 extern "C"
@@ -1591,12 +1598,16 @@ void* realloc(void* ptr, size_t size) {
 extern "C"
 [[gnu::alias("realloc")]]
 [[gnu::visibility("default")]]
+[[gnu::alloc_size(2)]]
+[[gnu::leaf]]
 void* __libc_realloc(void* obj, size_t size) throw ();
 
 extern "C"
 [[gnu::visibility("default")]]
 [[gnu::used]]
-int posix_memalign(void** ptr, size_t align, size_t size) {
+[[gnu::leaf]]
+[[gnu::nonnull(1)]]
+int posix_memalign(void** ptr, size_t align, size_t size) throw () {
     if (try_trigger_error_injector()) {
         return ENOMEM;
     }
@@ -1610,11 +1621,13 @@ int posix_memalign(void** ptr, size_t align, size_t size) {
 extern "C"
 [[gnu::alias("posix_memalign")]]
 [[gnu::visibility("default")]]
+[[gnu::leaf]]
+[[gnu::nonnull(1)]]
 int __libc_posix_memalign(void** ptr, size_t align, size_t size) throw ();
 
 extern "C"
 [[gnu::visibility("default")]]
-void* memalign(size_t align, size_t size) {
+void* memalign(size_t align, size_t size) throw () {
     if (try_trigger_error_injector()) {
         return nullptr;
     }
@@ -1624,7 +1637,7 @@ void* memalign(size_t align, size_t size) {
 
 extern "C"
 [[gnu::visibility("default")]]
-void *aligned_alloc(size_t align, size_t size) {
+void *aligned_alloc(size_t align, size_t size) throw () {
     if (try_trigger_error_injector()) {
         return nullptr;
     }
@@ -1634,18 +1647,19 @@ void *aligned_alloc(size_t align, size_t size) {
 extern "C"
 [[gnu::alias("memalign")]]
 [[gnu::visibility("default")]]
-void* __libc_memalign(size_t align, size_t size);
+[[gnu::malloc]]
+void* __libc_memalign(size_t align, size_t size) throw ();
 
 extern "C"
 [[gnu::visibility("default")]]
-void cfree(void* obj) {
+void cfree(void* obj) throw () {
     return ::free(obj);
 }
 
 extern "C"
 [[gnu::alias("cfree")]]
 [[gnu::visibility("default")]]
-void __libc_cfree(void* obj);
+void __libc_cfree(void* obj) throw ();
 
 extern "C"
 [[gnu::visibility("default")]]
