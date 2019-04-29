@@ -226,44 +226,12 @@ set (Seastar_GEN_BINARY_DIR ${Seastar_BINARY_DIR}/gen)
 # Dependencies.
 #
 
-##
-## Public dependencies.
-##
-
-find_package (Boost 1.64.0 REQUIRED
-  COMPONENTS
-    filesystem
-    program_options
-    thread
-  OPTIONAL_COMPONENTS unit_test_framework)
-
-find_package (c-ares 1.13.0 REQUIRED MODULE)
-find_package (cryptopp 5.6.5 REQUIRED)
-# No version information published.
-find_package (dpdk)
-find_package (fmt 5.0.0 REQUIRED)
-find_package (lz4 1.7.3 REQUIRED)
-
-##
-## Private and private/public dependencies.
-##
-
-find_package (Concepts)
-find_package (GnuTLS 3.3.26 REQUIRED)
-find_package (LinuxMembarrier)
-find_package (Protobuf 2.5.0 REQUIRED)
-find_package (Sanitizers)
-find_package (StdAtomic REQUIRED)
+include (SeastarDependencies)
 set (StdFilesystem_CXX_DIALECT ${Seastar_CXX_DIALECT})
-find_package (StdFilesystem REQUIRED)
-find_package (hwloc 1.11.2)
-# No version information published.
-find_package (lksctp-tools REQUIRED)
-# No version information published.
-find_package (numactl)
+seastar_find_dependencies ()
+
+# Private build dependencies not visible to consumers
 find_package (ragel 6.10 REQUIRED)
-find_package (rt REQUIRED)
-find_package (yaml-cpp 0.5.1 REQUIRED)
 
 #
 # Code generation helpers.
@@ -1031,6 +999,7 @@ if (Seastar_INSTALL)
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findragel.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findrt.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findyaml-cpp.cmake
+      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/SeastarDependencies.cmake
     DESTINATION ${install_cmakedir})
 
   install (
