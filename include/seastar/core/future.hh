@@ -221,7 +221,15 @@ struct future_state_base {
                 st = x.st;
             } else {
                 new (&ex) std::exception_ptr(std::move(x.ex));
+                // Unfortunately in libstdc++ ~exception_ptr is defined out of line. We know that it does nothing for
+                // moved out values, so we omit calling it. This is critical for the code quality produced for this
+                // function. Without the out of line call, gcc can figure out that both sides of the if produce
+                // identical code and merges them.
+                // We don't make any assumptions about other c++ libraries.
+                // There is request with gcc to define it inline: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=90295
+#ifndef __GLIBCXX__
                 x.ex.~exception_ptr();
+#endif
             }
             x.st = state::invalid;
         }
