@@ -3122,7 +3122,7 @@ reactor::touch_directory(sstring name, file_permissions permissions) {
     return engine()._thread_pool->submit<syscall_result<int>>([=] {
         auto mode = static_cast<mode_t>(permissions);
         return wrap_syscall<int>(::mkdir(name.c_str(), mode));
-    }).then([this, name] (syscall_result<int> sr) {
+    }).then([name] (syscall_result<int> sr) {
         if (sr.result == -1 && sr.error != EEXIST) {
             sr.throw_fs_exception("mkdir failed", fs::path(name));
         }
