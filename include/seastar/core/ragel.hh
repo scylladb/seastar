@@ -120,8 +120,7 @@ protected:
     }
     void postpop() {}
     sstring get_str() {
-        auto s = std::move(_builder).get();
-        return std::move(s);
+        return std::move(_builder).get();
     }
 public:
     using unconsumed_remainder = compat::optional<temporary_buffer<char>>;

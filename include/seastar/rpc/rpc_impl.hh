@@ -572,7 +572,7 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
             f = f.handle_exception_type([] (semaphore_timed_out&) { /* ignore */ });
         }
 
-        return std::move(f);
+        return f;
     };
 }
 
