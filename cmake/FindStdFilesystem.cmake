@@ -78,5 +78,5 @@ if (StdFilesystem_FOUND AND NOT (TARGET StdFilesystem::filesystem))
 
   set_target_properties (StdFilesystem::filesystem
     PROPERTIES
-      INTERFACE_LINK_LIBRARIES "${StdFilesystem_LIBRARIES})"
+      INTERFACE_LINK_LIBRARIES "${StdFilesystem_LIBRARIES}")
 endif ()
