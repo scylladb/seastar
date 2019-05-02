@@ -115,7 +115,7 @@ struct evaluation_directory {
             if (fs::exists(sys_file / "slaves")) {
                 for (auto& dev : fs::directory_iterator(sys_file / "slaves")) {
                     is_leaf = false;
-                    scan_device(read_first_line(dev / "dev"));
+                    scan_device(read_first_line(dev.path() / "dev"));
                 }
             }
 
