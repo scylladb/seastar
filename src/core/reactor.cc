@@ -3000,7 +3000,9 @@ reactor::file_type(sstring name) {
 
 static std::chrono::system_clock::time_point
 timespec_to_time_point(const timespec& ts) {
-    return std::chrono::system_clock::time_point(ts.tv_sec * 1s + ts.tv_nsec * 1ns);
+    auto d = std::chrono::duration_cast<std::chrono::system_clock::duration>(
+            ts.tv_sec * 1s + ts.tv_nsec * 1ns);
+    return std::chrono::system_clock::time_point(d);
 }
 
 future<stat_data>
