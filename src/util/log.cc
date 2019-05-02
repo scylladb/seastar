@@ -92,7 +92,7 @@ static void print_space_and_real_timestamp(std::ostream& os) {
         std::string s;
     };
     static thread_local a_second this_second;
-    using clock = std::chrono::high_resolution_clock;
+    using clock = std::chrono::system_clock;
     auto n = clock::now();
     auto t = clock::to_time_t(n);
     if (this_second.t != t) {
