@@ -60,7 +60,7 @@ static auto parse(packet&& p) {
 }
 
 auto for_each_fragment_size = [] (auto&& func) {
-    auto buffer_sizes = { 100000, 1000, 100, 10, 5, 2, 1 };
+    static std::vector<int> buffer_sizes = { 100000, 1000, 100, 10, 5, 2, 1 };
     return do_for_each(buffer_sizes.begin(), buffer_sizes.end(), [func] (size_t buffer_size) {
         return func([buffer_size] (std::vector<std::string> chunks) {
             return make_packet(chunks, buffer_size);
