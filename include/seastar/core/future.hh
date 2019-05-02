@@ -171,13 +171,25 @@ template <typename T> struct uninitialized_wrapper_base<T, true> : private T {
     }
 };
 
+template <typename T>
+constexpr bool can_inherit =
+#ifdef _LIBCPP_VERSION
+// We expect std::tuple<> to be trivially constructible and
+// destructible. That is not the case with libc++
+// (https://bugs.llvm.org/show_bug.cgi?id=41714).  We could avoid this
+// optimization when using libc++ and relax the asserts, but
+// inspection suggests that std::tuple<> is trivial, it is just not
+// marked as such.
+        std::is_same<std::tuple<>, T>::value ||
+#endif
+        (std::is_trivially_destructible<T>::value && std::is_trivially_constructible<T>::value &&
+                std::is_class<T>::value && !std::is_final<T>::value);
+
 // The objective is to avoid extra space for empty types like std::tuple<>. We could use std::is_empty_v, but it is
 // better to check that both the constructor and destructor can be skipped.
 template <typename T>
 struct uninitialized_wrapper
-    : public uninitialized_wrapper_base<T, std::is_trivially_destructible<T>::value &&
-                                                   std::is_trivially_constructible<T>::value &&
-                                                   std::is_class<T>::value && !std::is_final<T>::value> {};
+    : public uninitialized_wrapper_base<T, can_inherit<T>> {};
 
 static_assert(std::is_empty<uninitialized_wrapper<std::tuple<>>>::value, "This should still be empty");
 }
