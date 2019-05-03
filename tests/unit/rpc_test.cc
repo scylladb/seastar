@@ -552,7 +552,7 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
     using namespace seastar::rpc;
 
     auto linearize = [&] (const auto& buffer) {
-        return visit(buffer.bufs,
+        return seastar::visit(buffer.bufs,
             [] (const temporary_buffer<char>& buf) {
                 return buf.clone();
             },
@@ -584,7 +584,7 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
     auto clone = [&] (const auto& buffer) {
         auto c = std::decay_t<decltype(buffer)>();
         c.size = buffer.size;
-        c.bufs = visit(buffer.bufs,
+        c.bufs = seastar::visit(buffer.bufs,
             [] (const temporary_buffer<char>& buf) -> decltype(c.bufs) {
                 return buf.clone();
             },
@@ -709,7 +709,7 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
     };
 
     auto sanity_check = [&] (const auto& buffer) {
-        auto actual_size = visit(buffer.bufs,
+        auto actual_size = seastar::visit(buffer.bufs,
             [] (const temporary_buffer<char>& buf) {
                 return buf.size();
             },
@@ -731,7 +731,7 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
         // Remove headroom
         BOOST_CHECK_GE(compressed.size, headroom);
         compressed.size -= headroom;
-        visit(compressed.bufs,
+        seastar::visit(compressed.bufs,
             [&] (temporary_buffer<char>& buf) {
                 BOOST_CHECK_GE(buf.size(), headroom);
                 buf.trim_front(headroom);

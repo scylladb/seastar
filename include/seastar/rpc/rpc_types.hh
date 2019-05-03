@@ -27,7 +27,7 @@
 #include <boost/any.hpp>
 #include <boost/type.hpp>
 #include <seastar/util/std-compat.hh>
-#include <boost/variant.hpp>
+#include <seastar/util/variant_utils.hh>
 #include <seastar/core/timer.hh>
 #include <seastar/core/simple-stream.hh>
 #include <seastar/core/lowres_clock.hh>
