@@ -1524,7 +1524,9 @@ extern "C"
 [[gnu::visibility("default")]]
 [[gnu::malloc]]
 [[gnu::alloc_size(1)]]
+#ifndef __clang__
 [[gnu::leaf]]
+#endif
 void* __libc_malloc(size_t n) throw ();
 
 extern "C"
@@ -1539,7 +1541,9 @@ void free(void* ptr) {
 extern "C"
 [[gnu::alias("free")]]
 [[gnu::visibility("default")]]
+#ifndef __clang__
 [[gnu::leaf]]
+#endif
 void __libc_free(void* obj) throw ();
 
 extern "C"
@@ -1563,7 +1567,9 @@ extern "C"
 [[gnu::visibility("default")]]
 [[gnu::alloc_size(1, 2)]]
 [[gnu::malloc]]
+#ifndef __clang__
 [[gnu::leaf]]
+#endif
 void* __libc_calloc(size_t n, size_t m) throw ();
 
 extern "C"
@@ -1599,13 +1605,17 @@ extern "C"
 [[gnu::alias("realloc")]]
 [[gnu::visibility("default")]]
 [[gnu::alloc_size(2)]]
+#ifndef __clang__
 [[gnu::leaf]]
+#endif
 void* __libc_realloc(void* obj, size_t size) throw ();
 
 extern "C"
 [[gnu::visibility("default")]]
 [[gnu::used]]
+#ifndef __clang__
 [[gnu::leaf]]
+#endif
 [[gnu::nonnull(1)]]
 int posix_memalign(void** ptr, size_t align, size_t size) throw () {
     if (try_trigger_error_injector()) {
@@ -1621,7 +1631,9 @@ int posix_memalign(void** ptr, size_t align, size_t size) throw () {
 extern "C"
 [[gnu::alias("posix_memalign")]]
 [[gnu::visibility("default")]]
+#ifndef __clang__
 [[gnu::leaf]]
+#endif
 [[gnu::nonnull(1)]]
 int __libc_posix_memalign(void** ptr, size_t align, size_t size) throw ();
 
