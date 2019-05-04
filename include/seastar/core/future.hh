@@ -216,9 +216,30 @@ struct future_state_base {
     union any {
         any() { st = state::future; }
         ~any() {}
+        any(any&& x) {
+            if (x.st < state::exception_min) {
+                st = x.st;
+            } else {
+                new (&ex) std::exception_ptr(std::move(x.ex));
+                // Unfortunately in libstdc++ ~exception_ptr is defined out of line. We know that it does nothing for
+                // moved out values, so we omit calling it. This is critical for the code quality produced for this
+                // function. Without the out of line call, gcc can figure out that both sides of the if produce
+                // identical code and merges them.
+                // We don't make any assumptions about other c++ libraries.
+                // There is request with gcc to define it inline: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=90295
+#ifndef __GLIBCXX__
+                x.ex.~exception_ptr();
+#endif
+            }
+            x.st = state::invalid;
+        }
         state st;
         std::exception_ptr ex;
     } _u;
+
+    future_state_base() noexcept { }
+
+    future_state_base(future_state_base&& x) noexcept : _u(std::move(x._u)) { }
 
     bool available() const noexcept { return _u.st == state::result || _u.st >= state::exception_min; }
     bool failed() const noexcept { return _u.st >= state::exception_min; }
@@ -254,14 +275,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
                   "Types must be no-throw destructible");
     future_state() noexcept {}
     [[gnu::always_inline]]
-    future_state(future_state&& x) noexcept {
-        if (x._u.st < state::exception_min) {
-            _u.st = x._u.st;
-        } else {
-            new (&_u.ex) std::exception_ptr(std::move(x._u.ex));
-            x._u.ex.~exception_ptr();
-        }
-        x._u.st = state::invalid;
+    future_state(future_state&& x) noexcept : future_state_base(std::move(x)) {
         if (_u.st == state::result) {
             this->uninitialized_set(std::move(x.uninitialized_get()));
             x.uninitialized_get().~tuple();
