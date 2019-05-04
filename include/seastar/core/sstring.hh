@@ -185,7 +185,13 @@ public:
         }
     }
     basic_sstring(basic_sstring&& x) noexcept {
+#pragma GCC diagnostic push
+        // Is a small-string construction is followed by this move constructor, then the trailing bytes
+        // of x.u are not initialized, but copied. gcc complains, but it is both legitimate to copy
+        // these bytes, and more efficient than a variable-size copy
+#pragma GCC diagnostic ignored "-Wuninitialized"
         u = x.u;
+#pragma GCC diagnostic pop
         x.u.internal.size = 0;
         x.u.internal.str[0] = '\0';
     }
