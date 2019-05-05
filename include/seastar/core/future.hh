@@ -310,10 +310,8 @@ struct future_state :  public future_state_base, private internal::uninitialized
         }
     }
     future_state& operator=(future_state&& x) noexcept {
-        if (this != &x) {
-            this->~future_state();
-            new (this) future_state(std::move(x));
-        }
+        this->~future_state();
+        new (this) future_state(std::move(x));
         return *this;
     }
     template <typename... A>
@@ -437,10 +435,8 @@ public:
     promise(const promise&) = delete;
     ~promise() noexcept;
     promise& operator=(promise&& x) noexcept {
-        if (this != &x) {
-            this->~promise();
-            new (this) promise(std::move(x));
-        }
+        this->~promise();
+        new (this) promise(std::move(x));
         return *this;
     }
     void operator=(const promise&) = delete;
@@ -790,10 +786,8 @@ public:
     }
     future(const future&) = delete;
     future& operator=(future&& x) noexcept {
-        if (this != &x) {
-            this->~future();
-            new (this) future(std::move(x));
-        }
+        this->~future();
+        new (this) future(std::move(x));
         return *this;
     }
     void operator=(const future&) = delete;
