@@ -764,8 +764,7 @@ public:
     using promise_type = promise<T...>;
     /// \brief Moves the future into a new object.
     [[gnu::always_inline]]
-    future(future&& x) noexcept : _promise(x._promise) {
-        _state = std::move(x._state);
+    future(future&& x) noexcept : _promise(x._promise), _state(std::move(x._state)) {
         if (_promise) {
             x.detach_promise();
             _promise->_future = this;
