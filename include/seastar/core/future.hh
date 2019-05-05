@@ -765,10 +765,10 @@ public:
     /// \brief Moves the future into a new object.
     [[gnu::always_inline]]
     future(future&& x) noexcept : _promise(x._promise), _state(std::move(x._state)) {
-        if (_promise) {
+        if (auto *p = _promise) {
             x.detach_promise();
-            _promise->_future = this;
-            _promise->_state = &_state;
+            p->_future = this;
+            p->_state = &_state;
         }
     }
     future(const future&) = delete;
