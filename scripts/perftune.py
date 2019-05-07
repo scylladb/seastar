@@ -240,6 +240,9 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         sq = 1
         mq = 2
 
+        # Note: no_irq_restrictions should always have the greatest value in the enum since it's the least restricting mode.
+        no_irq_restrictions = 9999
+
         @staticmethod
         def names():
             return PerfTunerBase.SupportedModes.__members__.keys()
@@ -272,6 +275,9 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         elif mq_mode == PerfTunerBase.SupportedModes.mq:
             # all available cores
             irqs_cpu_mask = cpu_mask
+        elif mq_mode == PerfTunerBase.SupportedModes.no_irq_restrictions:
+            # all available cores
+            irqs_cpu_mask = cpu_mask
         else:
             raise Exception("Unsupported mode: {}".format(mq_mode))
 
@@ -286,9 +292,9 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         mq_mode = PerfTunerBase.SupportedModes(mq_mode)
         irqs_cpu_mask = 0
 
-        if mq_mode != PerfTunerBase.SupportedModes.mq:
+        if mq_mode != PerfTunerBase.SupportedModes.mq and mq_mode != PerfTunerBase.SupportedModes.no_irq_restrictions:
             irqs_cpu_mask = run_hwloc_calc([cpu_mask, "~{}".format(PerfTunerBase.compute_cpu_mask_for_mode(mq_mode, cpu_mask))])
-        else: # mq_mode == PerfTunerBase.SupportedModes.mq
+        else: # mq_mode == PerfTunerBase.SupportedModes.mq or mq_mode == PerfTunerBase.SupportedModes.no_irq_restrictions
             # distribute equally between all available cores
             irqs_cpu_mask = cpu_mask
 
