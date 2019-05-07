@@ -1255,24 +1255,6 @@ static inline cpu_pages& get_cpu_mem()
     return *cpu_mem_ptr;
 }
 
-void* allocate(size_t size) {
-    if (size <= sizeof(free_object)) {
-        size = sizeof(free_object);
-    }
-    void* ptr;
-    if (size <= max_small_allocation) {
-        size = object_size_with_alloc_site(size);
-        ptr = get_cpu_mem().allocate_small(size);
-    } else {
-        ptr = allocate_large(size);
-    }
-    if (!ptr) {
-        on_allocation_failure(size);
-    }
-    ++g_allocs;
-    return ptr;
-}
-
 void* allocate_aligned(size_t align, size_t size) {
     if (size <= sizeof(free_object)) {
         size = std::max(sizeof(free_object), align);
@@ -1293,6 +1275,19 @@ void* allocate_aligned(size_t align, size_t size) {
     return ptr;
 }
 
+// Pointers returned by new have to be aligned to
+// __STDCPP_DEFAULT_NEW_ALIGNMENT__ in c++17. In c++14 there is
+// nothing specific to new, so we use std::max_align_t.
+#ifdef __STDCPP_DEFAULT_NEW_ALIGNMENT__
+constexpr size_t new_alignment = __STDCPP_DEFAULT_NEW_ALIGNMENT__;
+#else
+constexpr size_t new_alignment = alignof(std::max_align_t);
+#endif
+
+void* allocate(size_t size) {
+    return allocate_aligned(new_alignment, size);
+}
+
 void free(void* obj) {
     if (get_cpu_mem().try_cross_cpu_free(obj)) {
         return;
@@ -1301,7 +1296,15 @@ void free(void* obj) {
     get_cpu_mem().free(obj);
 }
 
-void free(void* obj, size_t size) {
+void free_aligned(void* obj, size_t align, size_t size) {
+    if (size <= sizeof(free_object)) {
+        size = sizeof(free_object);
+    }
+    if (size <= max_small_allocation && align <= page_size) {
+        // Our small allocator only guarantees alignment for power-of-two
+        // allocations which are not larger than a page.
+        size = 1 << log2ceil(object_size_with_alloc_site(size));
+    }
     if (get_cpu_mem().try_cross_cpu_free(obj)) {
         return;
     }
@@ -1309,11 +1312,8 @@ void free(void* obj, size_t size) {
     get_cpu_mem().free(obj, size);
 }
 
-void free_aligned(void* obj, size_t align, size_t size) {
-    if (size <= sizeof(free_object)) {
-        size = sizeof(free_object);
-    }
-    free(obj, size);
+void free(void* obj, size_t size) {
+    free_aligned(obj, new_alignment, size);
 }
 
 void shrink(void* obj, size_t new_size) {
