@@ -247,6 +247,17 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         def names():
             return PerfTunerBase.SupportedModes.__members__.keys()
 
+        @staticmethod
+        def combine(modes):
+            """
+            :param modes: a set of modes of the PerfTunerBase.SupportedModes type
+            :return: the mode that is the "common ground" for a given set of modes.
+            """
+
+            # Perform an explicit cast in order to verify that the values in the 'modes' are compatible with the
+            # expected PerfTunerBase.SupportedModes type.
+            return min([PerfTunerBase.SupportedModes(m) for m in modes])
+
     @staticmethod
     def cpu_mask_is_zero(cpu_mask):
         """
@@ -1208,7 +1219,7 @@ try:
 
     # Set the minimum mode among all tuners
     if not args.irq_cpu_mask:
-        mode = min([tuner.mode for tuner in tuners])
+        mode = PerfTunerBase.SupportedModes.combine([tuner.mode for tuner in tuners])
         for tuner in tuners:
             tuner.mode = mode
 
