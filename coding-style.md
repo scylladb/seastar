@@ -133,3 +133,18 @@ If a line becomes excessively long (>120 characters?), or is just complicated, b
 
 Of course, long lines or complex conditions may indicate that refactoring is in order.
 
+## Generic lambdas and types
+
+Generic lambdas (`[] (auto param)`) are discouraged where the type is known. Generic
+lambdas reduce the compiler's and other tools' ability to reason about the code.
+In case the actual type of `param` doesn't match the programmers expectations,
+the compiler will only detect an error in the lambda body, or perhaps
+even lower down the stack if more generic functions are called. In the case of an
+IDE, most of its functionality is disabled in a generic lambda, since it can't
+assume anything about that parameter.
+
+Of course, when there is a need to support multiple types, genericity is the correct
+tool. Even then, type parameters should be constrained with concepts, in order to
+catch type mismatches early rather than deep in the instantiation chain.
+
+
