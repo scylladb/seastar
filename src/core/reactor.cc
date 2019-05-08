@@ -62,7 +62,6 @@
 #include <boost/range/numeric.hpp>
 #include <boost/range/algorithm/sort.hpp>
 #include <boost/range/algorithm/remove_if.hpp>
-#include <boost/range/algorithm/find_if.hpp>
 #include <boost/algorithm/clamp.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/adaptor/map.hpp>
@@ -4515,64 +4514,6 @@ unsigned syscall_work_queue::complete() {
     return nr;
 }
 
-
-struct smp_service_group_impl {
-    std::vector<semaphore> clients;   // one client per server shard
-};
-
-static semaphore smp_service_group_management_sem{1};
-static thread_local std::vector<smp_service_group_impl> smp_service_groups;
-
-future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc) {
-    ssgc.max_nonlocal_requests = std::max(ssgc.max_nonlocal_requests, smp::count - 1);
-    return smp::submit_to(0, [ssgc] {
-        return with_semaphore(smp_service_group_management_sem, 1, [ssgc] {
-            auto it = boost::range::find_if(smp_service_groups, [&] (smp_service_group_impl& ssgi) { return ssgi.clients.empty(); });
-            size_t id = it - smp_service_groups.begin();
-            return smp::invoke_on_all([ssgc, id] {
-                if (id >= smp_service_groups.size()) {
-                    smp_service_groups.resize(id + 1); // may throw
-                }
-                smp_service_groups[id].clients.reserve(smp::count); // may throw
-                auto per_client = smp::count > 1 ? ssgc.max_nonlocal_requests / (smp::count - 1) : 0u;
-                for (unsigned i = 0; i != smp::count; ++i) {
-                    smp_service_groups[id].clients.emplace_back(per_client);
-                }
-            }).handle_exception([id] (std::exception_ptr e) {
-                // rollback
-                return smp::invoke_on_all([id] {
-                    if (smp_service_groups.size() > id) {
-                        smp_service_groups[id].clients.clear();
-                    }
-                }).then([e = std::move(e)] () mutable {
-                    std::rethrow_exception(std::move(e));
-                });
-            }).then([id] {
-                return smp_service_group(id);
-            });
-        });
-    });
-}
-
-future<> destroy_smp_service_group(smp_service_group ssg) {
-    return smp::submit_to(0, [ssg] {
-        return with_semaphore(smp_service_group_management_sem, 1, [ssg] {
-            auto id = internal::smp_service_group_id(ssg);
-            return smp::invoke_on_all([id] {
-                smp_service_groups[id].clients.clear();
-            });
-        });
-    });
-}
-
-void init_default_smp_service_group() {
-    auto& ssg0 = smp_service_groups.emplace_back();
-    ssg0.clients.reserve(smp::count);
-    for (unsigned i = 0; i != smp::count; ++i) {
-        ssg0.clients.emplace_back(semaphore::max_counter());
-    }
-}
-
 smp_message_queue::smp_message_queue(reactor* from, reactor* to)
     : _pending(to)
     , _completed(from)
@@ -4611,19 +4552,12 @@ bool smp_message_queue::pure_poll_tx() const {
     return !const_cast<lf_queue&>(_completed).empty();
 }
 
-void smp_message_queue::submit_item(shard_id t, std::unique_ptr<smp_message_queue::work_item> item) {
-  // matching signal() in process_completions()
-  auto ssg_id = internal::smp_service_group_id(item->ssg);
-  auto& sem = smp_service_groups[ssg_id].clients[t];
-  get_units(sem, 1).then([this, item = std::move(item)] (semaphore_units<> u) mutable {
+void smp_message_queue::submit_item(std::unique_ptr<smp_message_queue::work_item> item) {
     _tx.a.pending_fifo.push_back(item.get());
-    // no exceptions from this point
     item.release();
-    u.release();
     if (_tx.a.pending_fifo.size() >= batch_size) {
         move_pending();
     }
-  });
 }
 
 void smp_message_queue::respond(work_item* item) {
@@ -4696,11 +4630,9 @@ size_t smp_message_queue::process_queue(lf_queue& q, Func process) {
     return nr + 1;
 }
 
-size_t smp_message_queue::process_completions(shard_id t) {
-    auto nr = process_queue<prefetch_cnt*2>(_completed, [t] (work_item* wi) {
+size_t smp_message_queue::process_completions() {
+    auto nr = process_queue<prefetch_cnt*2>(_completed, [] (work_item* wi) {
         wi->complete();
-        auto ssg_id = smp_service_group_id(wi->ssg);
-        smp_service_groups[ssg_id].clients[t].signal();
         delete wi;
     });
     _current_queue_length -= nr;
@@ -5470,7 +5402,6 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
             }
             auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
             throw_pthread_error(r);
-            init_default_smp_service_group();
             allocate_reactor(i, backend_selector, reactor_cfg);
             _reactors[i] = &engine();
             for (auto& dev_id : disk_config.device_ids()) {
@@ -5488,7 +5419,6 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
         });
     }
 
-    init_default_smp_service_group();
     allocate_reactor(0, backend_selector, reactor_cfg);
     _reactors[0] = &engine();
     for (auto& dev_id : disk_config.device_ids()) {
@@ -5535,7 +5465,7 @@ bool smp::poll_queues() {
             got += rxq.process_incoming();
             auto& txq = _qs[i][engine()._id];
             txq.flush_request_batch();
-            got += txq.process_completions(i);
+            got += txq.process_completions();
         }
     }
     return got != 0;

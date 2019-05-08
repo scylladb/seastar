@@ -151,87 +151,6 @@ void register_network_stack(sstring name, boost::program_options::options_descri
 class thread_pool;
 class smp;
 
-class smp_service_group;
-struct smp_service_group_config;
-
-namespace internal {
-
-unsigned smp_service_group_id(smp_service_group ssg);
-
-}
-
-/// Returns the default smp_service_group. This smp_service_group
-/// does not impose any limits on concurrency in the target shard.
-/// This makes is deadlock-safe, but can consume unbounded resources,
-/// and should therefore only be used when initiator concurrency is
-/// very low (e.g. administrative tasks).
-smp_service_group default_smp_service_group();
-
-/// Creates an smp_service_group with the specified configuration.
-///
-/// The smp_service_group is global, and after this call completes,
-/// the returned value can be used on any shard.
-future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc);
-
-/// Destroy an smp_service_group.
-///
-/// Frees all resources used by an smp_service_group. It must not
-/// be used again once this function is called.
-future<> destroy_smp_service_group(smp_service_group ssg);
-
-/// A resource controller for cross-shard calls.
-///
-/// An smp_service_group allows you to limit the concurrency of
-/// smp::submit_to() and similar calls. While it's easy to limit
-/// the caller's concurrency (for example, by using a semaphore),
-/// the concurrency at the remote end can be multiplied by a factor
-/// of smp::count-1, which can be large.
-///
-/// The class is called a service _group_ because it can be used
-/// to group similar calls that share resource usage characteristics,
-/// need not be isolated from each other, but do need to be isolated
-/// from other groups. Calls in a group should not nest; doing so
-/// can result in ABA deadlocks.
-///
-/// Nested submit_to() calls must form a directed acyclic graph
-/// when considering their smp_service_groups as nodes. For example,
-/// if a call using ssg1 then invokes another call using ssg2, the
-/// internal call may not call again via either ssg1 or ssg2, or it
-/// may form a cycle (and risking an ABBA deadlock). Create a
-/// new smp_service_group_instead.
-class smp_service_group {
-    unsigned _id;
-private:
-    explicit smp_service_group(unsigned id) : _id(id) {}
-
-    friend unsigned internal::smp_service_group_id(smp_service_group ssg);
-    friend smp_service_group default_smp_service_group();
-    friend future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc);
-};
-
-inline
-smp_service_group default_smp_service_group() {
-    return smp_service_group(0);
-}
-
-inline
-unsigned
-internal::smp_service_group_id(smp_service_group ssg) {
-    return ssg._id;
-}
-
-
-/// Configuration for smp_service_group objects.
-///
-/// \see create_smp_service_group()
-struct smp_service_group_config {
-    /// The maximum number of non-local requests that execute on a shard concurrently
-    ///
-    /// Will be adjusted upwards to allow at least one request per non-local shard.
-    unsigned max_nonlocal_requests = 0;
-};
-
-
 class smp_message_queue {
     static constexpr size_t queue_length = 128;
     static constexpr size_t batch_size = 16;
@@ -266,8 +185,6 @@ class smp_message_queue {
         size_t _last_rcv_batch = 0;
     };
     struct work_item {
-        explicit work_item(smp_service_group ssg) : ssg(ssg) {}
-        smp_service_group ssg;
         scheduling_group sg = current_scheduling_group();
         virtual ~work_item() {}
         virtual void process() = 0;
@@ -283,7 +200,7 @@ class smp_message_queue {
         compat::optional<value_type> _result;
         std::exception_ptr _ex; // if !_result
         typename futurator::promise_type _promise; // used on local side
-        async_work_item(smp_message_queue& queue, smp_service_group ssg, Func&& func) : work_item(ssg), _queue(queue), _func(std::move(func)) {}
+        async_work_item(smp_message_queue& queue, Func&& func) : _queue(queue), _func(std::move(func)) {}
         virtual void process() override {
             try {
               with_scheduling_group(this->sg, [this] {
@@ -324,21 +241,21 @@ public:
     smp_message_queue(reactor* from, reactor* to);
     ~smp_message_queue();
     template <typename Func>
-    futurize_t<std::result_of_t<Func()>> submit(shard_id t, smp_service_group ssg, Func&& func) {
-        auto wi = std::make_unique<async_work_item<Func>>(*this, ssg, std::forward<Func>(func));
+    futurize_t<std::result_of_t<Func()>> submit(Func&& func) {
+        auto wi = std::make_unique<async_work_item<Func>>(*this, std::forward<Func>(func));
         auto fut = wi->get_future();
-        submit_item(t, std::move(wi));
+        submit_item(std::move(wi));
         return fut;
     }
     void start(unsigned cpuid);
     template<size_t PrefetchCnt, typename Func>
     size_t process_queue(lf_queue& q, Func process);
     size_t process_incoming();
-    size_t process_completions(shard_id t);
+    size_t process_completions();
     void stop();
 private:
     void work();
-    void submit_item(shard_id t, std::unique_ptr<work_item> wi);
+    void submit_item(std::unique_ptr<work_item> wi);
     void respond(work_item* wi);
     void move_pending();
     void flush_request_batch();
@@ -939,14 +856,13 @@ public:
     ///
     /// \param t designates the core to run the function on (may be a remote
     ///          core or the local core).
-    /// \param ssg an smp_service_group that controls resource allocation for this call.
     /// \param func a callable to run on core \c t.  If \c func is a temporary object,
     ///          its lifetime will be extended by moving it.  If @func is a reference,
     ///          the caller must guarantee that it will survive the call.
     /// \return whatever \c func returns, as a future<> (if \c func does not return a future,
     ///         submit_to() will wrap it in a future<>).
     template <typename Func>
-    static futurize_t<std::result_of_t<Func()>> submit_to(unsigned t, smp_service_group ssg, Func&& func) {
+    static futurize_t<std::result_of_t<Func()>> submit_to(unsigned t, Func&& func) {
         using ret_type = std::result_of_t<Func()>;
         if (t == engine().cpu_id()) {
             try {
@@ -967,23 +883,8 @@ public:
                 return futurize<std::result_of_t<Func()>>::make_exception_future(std::current_exception());
             }
         } else {
-            return _qs[t][engine().cpu_id()].submit(t, ssg, std::forward<Func>(func));
+            return _qs[t][engine().cpu_id()].submit(std::forward<Func>(func));
         }
-    }
-    /// Runs a function on a remote core.
-    ///
-    /// Uses default_smp_service_group() to control resource allocation.
-    ///
-    /// \param t designates the core to run the function on (may be a remote
-    ///          core or the local core).
-    /// \param func a callable to run on core \c t.  If \c func is a temporary object,
-    ///          its lifetime will be extended by moving it.  If @func is a reference,
-    ///          the caller must guarantee that it will survive the call.
-    /// \return whatever \c func returns, as a future<> (if \c func does not return a future,
-    ///         submit_to() will wrap it in a future<>).
-    template <typename Func>
-    static futurize_t<std::result_of_t<Func()>> submit_to(unsigned t, Func&& func) {
-        return submit_to(t, default_smp_service_group(), std::forward<Func>(func));
     }
     static bool poll_queues();
     static bool pure_poll_queues();
