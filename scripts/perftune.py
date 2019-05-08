@@ -738,6 +738,26 @@ class NetPerfTuner(PerfTunerBase):
         else:
             return PerfTunerBase.SupportedModes.sq_split
 
+class SystemPerfTuner(PerfTunerBase):
+    def __init__(self, args):
+        super().__init__(args)
+
+    def tune(self):
+        # TODO: add tuning here
+        pass
+
+
+#### Protected methods ##########################
+    def _get_def_mode(self):
+        """ 
+        This tuner doesn't apply any restriction to the final tune mode for now.
+        """
+        return PerfTunerBase.SupportedModes.no_irq_restrictions
+
+    def _get_irqs(self):
+        return []
+
+
 #################################################
 class DiskPerfTuner(PerfTunerBase):
     class SupportedDiskTypes(enum.IntEnum):
@@ -1060,6 +1080,7 @@ class DiskPerfTuner(PerfTunerBase):
 class TuneModes(enum.Enum):
     disks = 0
     net = 1
+    system = 2
 
     @staticmethod
     def names():
@@ -1216,6 +1237,9 @@ try:
 
     if TuneModes.net.name in args.tune:
         tuners.append(NetPerfTuner(args))
+
+    if TuneModes.system.name in args.tune:
+        tuners.append(SystemPerfTuner(args))
 
     # Set the minimum mode among all tuners
     if not args.irq_cpu_mask:
