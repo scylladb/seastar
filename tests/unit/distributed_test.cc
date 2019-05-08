@@ -28,6 +28,7 @@
 #include <seastar/core/print.hh>
 
 using namespace seastar;
+using namespace std::chrono_literals;
 
 struct async_service : public seastar::async_sharded_service<async_service> {
     thread_local static bool deleted;
@@ -164,6 +165,63 @@ future<> test_invoke_on_others() {
     });
 }
 
+
+struct remote_worker {
+    unsigned current = 0;
+    unsigned max_concurrent_observed = 0;
+    future<> do_work() {
+        ++current;
+        max_concurrent_observed = std::max(current, max_concurrent_observed);
+        return sleep(10ms).then([this] {
+            max_concurrent_observed = std::max(current, max_concurrent_observed);
+            --current;
+        });
+    }
+    future<> do_remote_work(shard_id t, smp_service_group ssg) {
+        return smp::submit_to(t,  ssg, [this] {
+            return do_work();
+        });
+    }
+};
+
+future<> test_smp_service_groups() {
+    return async([] {
+        smp_service_group_config ssgc1;
+        ssgc1.max_nonlocal_requests = 1;
+        auto ssg1 = create_smp_service_group(ssgc1).get0();
+        smp_service_group_config ssgc2;
+        ssgc2.max_nonlocal_requests = 1000;
+        auto ssg2 = create_smp_service_group(ssgc2).get0();
+        shard_id other_shard = smp::count - 1;
+        remote_worker rm1;
+        remote_worker rm2;
+        auto bunch1 = parallel_for_each(boost::irange(0, 20), [&] (int ignore) { return rm1.do_remote_work(other_shard, ssg1); });
+        auto bunch2 = parallel_for_each(boost::irange(0, 2000), [&] (int ignore) { return rm2.do_remote_work(other_shard, ssg2); });
+        bunch1.get();
+        bunch2.get();
+        if (smp::count > 1) {
+            assert(rm1.max_concurrent_observed == 1);
+            assert(rm2.max_concurrent_observed >= 1000 / (smp::count - 1) && rm2.max_concurrent_observed <= 1000);
+        }
+        destroy_smp_service_group(ssg1).get();
+        destroy_smp_service_group(ssg2).get();
+    });
+}
+
+future<> test_smp_service_groups_re_construction() {
+    // During development of the feature, we saw a bug where the vector
+    // holding the groups did not expand correctly. This test triggers the
+    // bug.
+    return async([] {
+        auto ssg1 = create_smp_service_group({}).get0();
+        auto ssg2 = create_smp_service_group({}).get0();
+        destroy_smp_service_group(ssg1).get();
+        auto ssg3 = create_smp_service_group({}).get0();
+        destroy_smp_service_group(ssg2).get();
+        destroy_smp_service_group(ssg3).get();
+    });
+}
+
 int main(int argc, char** argv) {
     app_template app;
     return app.run(argc, argv, [] {
@@ -177,6 +235,10 @@ int main(int argc, char** argv) {
             return test_async();
         }).then([] {
             return test_invoke_on_others();
+        }).then([] {
+            return test_smp_service_groups();
+        }).then([] {
+            return test_smp_service_groups_re_construction();
         });
     });
 }
