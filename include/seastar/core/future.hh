@@ -347,11 +347,8 @@ struct future_state :  public future_state_base, private internal::uninitialized
     std::tuple<T...> get() && {
         assert(_u.st != state::future);
         if (_u.st >= state::exception_min) {
-            auto ex = std::move(_u.ex);
-            _u.ex.~exception_ptr();
             // Move ex out so future::~future() knows we've handled it
-            _u.st = state::invalid;
-            std::rethrow_exception(std::move(ex));
+            std::rethrow_exception(std::move(*this).get_exception());
         }
         return std::move(this->uninitialized_get());
     }
