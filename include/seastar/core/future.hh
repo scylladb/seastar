@@ -244,20 +244,25 @@ struct future_state_base {
             set_exception(std::move(e));
         }
         ~any() {}
+        std::exception_ptr take_exception() {
+            std::exception_ptr ret(std::move(ex));
+            // Unfortunately in libstdc++ ~exception_ptr is defined out of line. We know that it does nothing for
+            // moved out values, so we omit calling it. This is critical for the code quality produced for this
+            // function. Without the out of line call, gcc can figure out that both sides of the if produce
+            // identical code and merges them.if
+            // We don't make any assumptions about other c++ libraries.
+            // There is request with gcc to define it inline: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=90295
+#ifndef __GLIBCXX__
+            ex.~exception_ptr();
+#endif
+            st = state::invalid;
+            return ret;
+        }
         any(any&& x) {
             if (x.st < state::exception_min) {
                 st = x.st;
             } else {
-                new (&ex) std::exception_ptr(std::move(x.ex));
-                // Unfortunately in libstdc++ ~exception_ptr is defined out of line. We know that it does nothing for
-                // moved out values, so we omit calling it. This is critical for the code quality produced for this
-                // function. Without the out of line call, gcc can figure out that both sides of the if produce
-                // identical code and merges them.
-                // We don't make any assumptions about other c++ libraries.
-                // There is request with gcc to define it inline: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=90295
-#ifndef __GLIBCXX__
-                x.ex.~exception_ptr();
-#endif
+                new (&ex) std::exception_ptr(x.take_exception());
             }
             x.st = state::invalid;
         }
@@ -282,10 +287,7 @@ struct future_state_base {
     std::exception_ptr get_exception() && noexcept {
         assert(_u.st >= state::exception_min);
         // Move ex out so future::~future() knows we've handled it
-        auto ex = std::move(_u.ex);
-        _u.ex.~exception_ptr();
-        _u.st = state::invalid;
-        return ex;
+        return _u.take_exception();
     }
     const std::exception_ptr& get_exception() const& noexcept {
         assert(_u.st >= state::exception_min);
