@@ -101,7 +101,7 @@ future<T...> make_exception_future(std::exception_ptr value) noexcept;
 /// \cond internal
 void engine_exit(std::exception_ptr eptr = {});
 
-void report_failed_future(std::exception_ptr ex) noexcept;
+void report_failed_future(const std::exception_ptr& ex) noexcept;
 /// \endcond
 
 /// \brief Exception type for broken promises
@@ -275,7 +275,7 @@ struct future_state_base {
 
     void set_to_broken_promise() noexcept;
 
-    void set_exception(std::exception_ptr ex) noexcept {
+    void set_exception(std::exception_ptr&& ex) noexcept {
         assert(_u.st == state::future);
         _u.set_exception(std::move(ex));
     }
@@ -287,7 +287,7 @@ struct future_state_base {
         _u.st = state::invalid;
         return ex;
     }
-    std::exception_ptr get_exception() const& noexcept {
+    const std::exception_ptr& get_exception() const& noexcept {
         assert(_u.st >= state::exception_min);
         return _u.ex;
     }
@@ -483,11 +483,15 @@ public:
     ///
     /// Forwards the exception argument to the future and makes it
     /// available.  May be called either before or after \c get_future().
-    void set_exception(std::exception_ptr ex) noexcept {
+    void set_exception(std::exception_ptr&& ex) noexcept {
         if (_state) {
             _state->set_exception(std::move(ex));
             make_ready<urgent::no>();
         }
+    }
+
+    void set_exception(const std::exception_ptr& ex) noexcept {
+        set_exception(std::exception_ptr(ex));
     }
 
     /// \brief Marks the promise as failed
@@ -495,7 +499,7 @@ public:
     /// Forwards the exception argument to the future and makes it
     /// available.  May be called either before or after \c get_future().
     template<typename Exception>
-    void set_exception(Exception&& e) noexcept {
+    std::enable_if_t<!std::is_same<std::remove_reference_t<Exception>, std::exception_ptr>::value, void> set_exception(Exception&& e) noexcept {
         set_exception(make_exception_ptr(std::forward<Exception>(e)));
     }
 
