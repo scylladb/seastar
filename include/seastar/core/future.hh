@@ -101,7 +101,7 @@ future<T...> make_exception_future(std::exception_ptr value) noexcept;
 /// \cond internal
 void engine_exit(std::exception_ptr eptr = {});
 
-void report_failed_future(std::exception_ptr ex);
+void report_failed_future(std::exception_ptr ex) noexcept;
 /// \endcond
 
 /// \brief Exception type for broken promises

@@ -4839,11 +4839,11 @@ future<size_t> readable_eventfd::wait() {
     });
 }
 
-void schedule(std::unique_ptr<task> t) {
+void schedule(std::unique_ptr<task> t) noexcept {
     engine().add_task(std::move(t));
 }
 
-void schedule_urgent(std::unique_ptr<task> t) {
+void schedule_urgent(std::unique_ptr<task> t) noexcept {
     engine().add_urgent_task(std::move(t));
 }
 
@@ -5653,7 +5653,7 @@ void engine_exit(std::exception_ptr eptr) {
     engine().exit(1);
 }
 
-void report_failed_future(std::exception_ptr eptr) {
+void report_failed_future(std::exception_ptr eptr) noexcept {
     seastar_logger.warn("Exceptional future ignored: {}, backtrace: {}", eptr, current_backtrace());
 }
 
