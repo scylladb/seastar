@@ -69,10 +69,6 @@ action extend_field  {
 }
 
 action done {
-    g.mark_start(p);
-    g.mark_end(pe);
-    _req->content = get_str();
-    _req->content_length = _req->content.size();
     done = true;
     fbreak;
 }

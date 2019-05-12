@@ -159,6 +159,29 @@ future<> connection::read() {
         return _read_buf.close();
     });
 }
+
+// Check if the request has a body, and if so read it. This function modifies
+// the request object with the newly read body, and returns the object for
+// further processing.
+// FIXME: reading the entire request body into a string req->_content is a
+// bad idea, because it may be very big. Instead, we should present to the
+// handler a req->_content_stream, an input stream that reads from the request
+// body - via a specialized input streams which reads exactly up to
+// Content-Length or decodes chunked-encoding.
+// FIXME: We currently support the case that there is a "Content-Length:"
+// header - chunked encoding is not yet supported.
+static future<std::unique_ptr<httpd::request>>
+read_request_body(input_stream<char>& buf, std::unique_ptr<httpd::request> req) {
+    req->content_length = strtol(req->get_header("Content-Length").c_str(), nullptr, 10);
+    if (!req->content_length) {
+        return make_ready_future<std::unique_ptr<httpd::request>>(std::move(req));
+    }
+    return buf.read_exactly(req->content_length).then([req = std::move(req)] (temporary_buffer<char> body) mutable {
+        req->content = seastar::to_sstring(std::move(body));
+        return make_ready_future<std::unique_ptr<httpd::request>>(std::move(req));
+    });
+}
+
 future<> connection::read_one() {
     _parser.init();
     return _read_buf.consume(_parser).then([this] () mutable {
@@ -168,11 +191,12 @@ future<> connection::read_one() {
         }
         ++_server._requests_served;
         std::unique_ptr<httpd::request> req = _parser.get_parsed_request();
-
-        return _replies.not_full().then([req = std::move(req), this] () mutable {
-            return generate_reply(std::move(req));
-        }).then([this](bool done) {
-            _done = done;
+        return read_request_body(_read_buf, std::move(req)).then([this] (std::unique_ptr<httpd::request> req) {
+            return _replies.not_full().then([req = std::move(req), this] () mutable {
+                return generate_reply(std::move(req));
+            }).then([this](bool done) {
+                _done = done;
+            });
         });
     });
 }
