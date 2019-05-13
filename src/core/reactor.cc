@@ -653,6 +653,15 @@ public:
 };
 #endif /* HAVE_OSV */
 
+void setup_aio_context(size_t nr, linux_abi::aio_context_t* io_context) {
+    auto r = io_setup(nr, io_context);
+    if (r < 0) {
+        char buf[1024];
+        char *msg = strerror_r(errno, buf, sizeof(buf));
+        throw std::runtime_error(fmt::format("Could not setup Async I/O: {}. The most common cause is not enough request capacity in /proc/sys/fs/aio-max-nr. Try increasing that number or reducing the amount of logical CPUs available for your application", msg));
+    }
+}
+
 class reactor_backend_aio : public reactor_backend {
     static constexpr size_t max_polls = 10000;
     reactor* _r;
@@ -660,8 +669,7 @@ class reactor_backend_aio : public reactor_backend {
     // signals), the other for non-preempting events (fd poll).
     struct context {
         explicit context(size_t nr) : iocbs(new iocb*[nr]) {
-            auto r = io_setup(nr, &io_context);
-            throw_system_error_on(r == -1);
+            setup_aio_context(nr, &io_context);
         }
         ~context() {
             io_destroy(io_context);
@@ -1207,7 +1215,7 @@ struct reactor::task_queue::indirect_compare {
 static bool detect_aio_poll() {
     auto fd = file_desc::eventfd(0, 0);
     aio_context_t ioc{};
-    io_setup(1, &ioc);
+    setup_aio_context(1, &ioc);
     auto cleanup = defer([&] { io_destroy(ioc); });
     linux_abi::iocb iocb = internal::make_poll_iocb(fd.get(), POLLIN|POLLOUT);
     linux_abi::iocb* a[1] = { &iocb };
@@ -1294,15 +1302,15 @@ reactor::reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg)
     for (unsigned i = 0; i != max_aio; ++i) {
         _free_iocbs.push(&_iocb_pool[i]);
     }
-    auto r = io_setup(max_aio, &_io_context);
-    assert(r >= 0);
+
+    setup_aio_context(max_aio, &_io_context);
 #ifdef HAVE_OSV
     _timer_thread.start();
 #else
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask, alarm_signal());
-    r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
+    auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
     assert(r == 0);
     sigemptyset(&mask);
     sigaddset(&mask, cpu_stall_detector::signal_number());
@@ -5457,6 +5465,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
         create_thread([configuration, &disk_config, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity, heapprof_enabled, mbind, backend_selector, reactor_cfg] {
+          try {
             auto thread_name = seastar::format("reactor-{}", i);
             pthread_setname_np(pthread_self(), thread_name.c_str());
             if (thread_affinity) {
@@ -5486,11 +5495,21 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
             inited.wait();
             engine().configure(configuration);
             engine().run();
+          } catch (const std::exception& e) {
+              seastar_logger.error(e.what());
+              _exit(1);
+          }
         });
     }
 
     init_default_smp_service_group();
-    allocate_reactor(0, backend_selector, reactor_cfg);
+    try {
+        allocate_reactor(0, backend_selector, reactor_cfg);
+    } catch (const std::exception& e) {
+        seastar_logger.error(e.what());
+        _exit(1);
+    }
+
     _reactors[0] = &engine();
     for (auto& dev_id : disk_config.device_ids()) {
         alloc_io_queue(0, dev_id);
