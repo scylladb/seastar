@@ -17,6 +17,7 @@ import subprocess
 import sys
 import urllib.request
 import yaml
+import platform
 
 def run_one_command(prog_args, my_stderr=None, check=True):
     proc = subprocess.Popen(prog_args, stdout = subprocess.PIPE, stderr = my_stderr)
@@ -738,14 +739,51 @@ class NetPerfTuner(PerfTunerBase):
         else:
             return PerfTunerBase.SupportedModes.sq_split
 
+class ClocksourceManager:
+    class PreferredClockSourceNotAvailableException(Exception):
+        pass
+
+    def __init__(self):
+        self._preferred = {"x86_64": "tsc"}
+        self._arch = platform.machine()
+        self._available_clocksources_file = "/sys/devices/system/clocksource/clocksource0/available_clocksource"
+        self._current_clocksource_file = "/sys/devices/system/clocksource/clocksource0/current_clocksource"
+        self._recommendation_if_unavailable = { "x86_64": "The tsc clocksource is not available. Consider using a hardware platform where the tsc clocksource is available, or try forcing it withe the tsc=reliable boot option" }
+
+    def _available_clocksources(self):
+        return open(self._available_clocksources_file).readline().split()
+
+    def _current_clocksource(self):
+        return open(self._current_clocksource_file).readline().strip()
+
+    def enforce_preferred_clocksource(self):
+        fwriteln(self._current_clocksource_file, self._preferred[self._arch], "Setting clocksource to {}".format(self._preferred[self._arch]))
+
+    def preferred(self):
+        return self._preferred[self._arch]
+
+    def setting_available(self):
+        return self._arch in self._preferred
+
+    def preferred_clocksource_available(self):
+        return self._preferred[self._arch] in self._available_clocksources()
+
+    def recommendation_if_unavailable(self):
+        return self._recommendation_if_unavailable[self._arch]
+
 class SystemPerfTuner(PerfTunerBase):
     def __init__(self, args):
         super().__init__(args)
+        self._clocksource_manager = ClocksourceManager()
 
     def tune(self):
-        # TODO: add tuning here
-        pass
-
+        if self.args.tune_clock:
+            if not self._clocksource_manager.setting_available():
+                print("Clocksource setting not available or not needed for this architecture. Not tuning");
+            elif not self._clocksource_manager.preferred_clocksource_available():
+                print(self._clocksource_manager.recommendation_if_unavailable())
+            else:
+                self._clocksource_manager.enforce_preferred_clocksource()
 
 #### Protected methods ##########################
     def _get_def_mode(self):
@@ -1119,9 +1157,11 @@ Default values:
 
  --nic NIC       - default: eth0
  --cpu-mask MASK - default: all available cores mask
+ --tune-clock    - default: false
 ''')
 argp.add_argument('--mode', choices=PerfTunerBase.SupportedModes.names(), help='configuration mode')
 argp.add_argument('--nic', help='network interface name, by default uses \'eth0\'')
+argp.add_argument('--tune-clock', action='store_true', help='Force tuning of the system clocksource')
 argp.add_argument('--get-cpu-mask', action='store_true', help="print the CPU mask to be used for compute")
 argp.add_argument('--verbose', action='store_true', help="be more verbose about operations and their result")
 argp.add_argument('--tune', choices=TuneModes.names(), help="components to configure (may be given more than once)", action='append', default=[])
@@ -1157,6 +1197,9 @@ def parse_options_file(prog_args):
     if 'nic' in y and not prog_args.nic:
         prog_args.nic = y['nic']
 
+    if 'tune_clock' in y and not prog_args.tune_clock:
+        prog_args.tune_clock= y['tune_clock']
+
     if 'tune' in y:
         if set(y['tune']) <= set(TuneModes.names()):
             prog_args.tune.extend(y['tune'])
@@ -1183,6 +1226,9 @@ def dump_config(prog_args):
 
     if prog_args.nic:
         prog_options['nic'] = prog_args.nic
+
+    if prog_args.tune_clock:
+        prog_options['tune_clock'] = prog_args.tune_clock
 
     if prog_args.tune:
         prog_options['tune'] = prog_args.tune
