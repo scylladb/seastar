@@ -21,6 +21,23 @@
 #
 
 #
+# CMake bundles `FindBoost.cmake`, which is coupled to the Boost version. If
+# we're on a system without a recent enough version of `FindBoost.cmake`, then
+# we need to use the one bundled with Seastar.
+#
+# The "real" FIND_PACKAGE invocation for Boost is inside SEASTAR_FIND_DEPENDENCIES.
+#
+
+# This is the minimum version of Boost we need the CMake-bundled `FindBoost.cmake` to know about.
+find_package (Boost 1.64 MODULE QUIET COMPONENTS filesystem)
+
+# The imported target is undefined when the version of Boost requested is not
+# supported by the find-module.
+if (NOT (TARGET Boost::filesystem))
+  list (APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/bundled_boost)
+endif ()
+
+#
 # Iterate through the dependency list defined below and execute `find_package`
 # with the corresponding configuration for each 3rd-party dependency.
 #
