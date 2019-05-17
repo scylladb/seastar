@@ -356,17 +356,6 @@ struct future_state :  public future_state_base, private internal::uninitialized
     static get0_return_type get0(std::tuple<T...>&& x) {
         return internal::get0_return_type<T...>::get0(std::move(x));
     }
-    void forward_to(promise<T...>& pr) noexcept {
-        assert(_u.st != state::future);
-        if (_u.st >= state::exception_min) {
-            pr.set_urgent_exception(std::move(_u.ex));
-            _u.ex.~exception_ptr();
-        } else {
-            pr.set_urgent_value(std::move(this->uninitialized_get()));
-            this->uninitialized_get().~tuple();
-        }
-        _u.st = state::invalid;
-    }
 };
 
 static_assert(sizeof(future_state<>) <= 8, "future_state<> is too large");
@@ -448,6 +437,13 @@ public:
     /// on the promise, the future will be become ready, and if a continuation
     /// was attached to the future, it will run.
     future<T...> get_future() noexcept;
+
+    void set_urgent_state(future_state<T...>&& state) noexcept {
+        if (_state) {
+            *_state = std::move(state);
+            make_ready<urgent::yes>();
+        }
+    }
 
     /// \brief Sets the promises value
     ///
@@ -1014,7 +1010,7 @@ public:
     /// future.
     void forward_to(promise<T...>&& pr) noexcept {
         if (_state.available()) {
-            _state.forward_to(pr);
+            pr.set_urgent_state(std::move(_state));
         } else {
             *detach_promise() = std::move(pr);
         }

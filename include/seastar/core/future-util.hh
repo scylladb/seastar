@@ -453,7 +453,7 @@ public:
         std::unique_ptr<do_until_state> zis{this};
         if (_state.available()) {
             if (_state.failed()) {
-                _state.forward_to(_promise);
+                _promise.set_urgent_state(std::move(_state));
                 return;
             }
             _state = {}; // allow next cycle to overrun state

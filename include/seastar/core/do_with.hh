@@ -51,7 +51,7 @@ class do_with_state final : public continuation_base_from_future<Future>::type {
 public:
     explicit do_with_state(HeldState&& held) : _held(std::move(held)) {}
     virtual void run_and_dispose() noexcept override {
-        std::move(this->_state).forward_to(_pr);
+        _pr.set_urgent_state(std::move(this->_state));
         delete this;
     }
     HeldState& data() {
