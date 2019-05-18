@@ -1941,11 +1941,6 @@ reactor::submit_io(io_desc* desc, Func prepare_io) {
 size_t
 reactor::handle_aio_error(linux_abi::iocb* iocb, int ec) {
     switch (ec) {
-        case EINVAL:
-        case EOPNOTSUPP:
-            aio_nowait_supported = false;
-            set_nowait(*iocb, false);
-            return 0;
         case EAGAIN:
             return 0;
         case EBADF: {
