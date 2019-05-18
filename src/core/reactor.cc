@@ -49,6 +49,7 @@
 #include "core/file-impl.hh"
 #include "syscall_work_queue.hh"
 #include "cgroup.hh"
+#include "uname.hh"
 #include <cassert>
 #include <unistd.h>
 #include <fcntl.h>
