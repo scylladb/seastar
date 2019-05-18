@@ -431,6 +431,9 @@ constexpr std::chrono::milliseconds lowres_clock_impl::_granularity;
 constexpr unsigned reactor::max_queues;
 constexpr unsigned reactor::max_aio_per_queue;
 
+// Broken in Linux < 5.1, fix is a89afe58f1a74aac768a5eb77af95ef4ee15beaa
+static bool aio_nowait_supported = kernel_uname().whitelisted({"5.1", "5.0.8", "4.19.35", "4.14.112"});
+
 static bool sched_debug() {
     return false;
 }
@@ -1741,6 +1744,7 @@ void reactor::configure(boost::program_options::variables_map vm) {
     }
     set_bypass_fsync(vm["unsafe-bypass-fsync"].as<bool>());
     _force_io_getevents_syscall = vm["force-aio-syscalls"].as<bool>();
+    aio_nowait_supported = vm["linux-aio-nowait"].as<bool>();
 }
 
 future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd,
@@ -1886,9 +1890,6 @@ void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd, promise
         pfd.*pr = promise<>();
     }
 }
-
-// Broken in Linux < 5.1, fix is a89afe58f1a74aac768a5eb77af95ef4ee15beaa
-static bool aio_nowait_supported = kernel_uname().whitelisted({"5.1", "5.0.8", "4.19.35", "4.14.112"});
 
 class io_desc {
     promise<io_event> _pr;
@@ -4879,6 +4880,9 @@ reactor::get_options_description(reactor_config cfg) {
         ("blocked-reactor-notify-ms", bpo::value<unsigned>()->default_value(2000), "threshold in miliseconds over which the reactor is considered blocked if no progress is made")
         ("blocked-reactor-reports-per-minute", bpo::value<unsigned>()->default_value(5), "Maximum number of backtraces reported by stall detector per minute")
         ("relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
+        ("linux-aio-nowait",
+                bpo::value<bool>()->default_value(aio_nowait_supported),
+                "use the Linux NOWAIT AIO feature, which reduces reactor stalls due to aio (autodetected)")
         ("unsafe-bypass-fsync", bpo::value<bool>()->default_value(false), "Bypass fsync(), may result in data loss. Use for testing on consumer drives")
         ("overprovisioned", "run in an overprovisioned environment (such as docker or a laptop); equivalent to --idle-poll-time-us 0 --thread-affinity 0 --poll-aio 0")
         ("abort-on-seastar-bad-alloc", "abort when seastar allocator cannot allocate memory")
