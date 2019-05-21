@@ -153,5 +153,7 @@ public:
     }
 };
 
+extern template class timer<lowres_clock>;
+
 }
 

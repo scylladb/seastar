@@ -92,5 +92,7 @@ public:
     friend class timer_set<timer, &timer::_link>;
 };
 
+extern template class timer<steady_clock_type>;
+
 }
 

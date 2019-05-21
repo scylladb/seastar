@@ -1026,42 +1026,6 @@ size_t iovec_len(const iovec* begin, size_t len)
     return ret;
 }
 
-template <typename Clock>
-inline
-timer<Clock>::~timer() {
-    if (_queued) {
-        engine().del_timer(this);
-    }
-}
-
-template <typename Clock>
-inline
-void timer<Clock>::arm(time_point until, compat::optional<duration> period) {
-    arm_state(until, period);
-    engine().add_timer(this);
-}
-
-template <typename Clock>
-inline
-void timer<Clock>::readd_periodic() {
-    arm_state(Clock::now() + _period.value(), {_period.value()});
-    engine().queue_timer(this);
-}
-
-template <typename Clock>
-inline
-bool timer<Clock>::cancel() {
-    if (!_armed) {
-        return false;
-    }
-    _armed = false;
-    if (_queued) {
-        engine().del_timer(this);
-        _queued = false;
-    }
-    return true;
-}
-
 extern logger seastar_logger;
 
 }
