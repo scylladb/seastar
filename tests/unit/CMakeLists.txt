@@ -382,6 +382,10 @@ seastar_add_app_test (thread_context_switch
 seastar_add_app_test (timer
   SOURCES timer_test.cc)
 
+seastar_add_test (uname
+  KIND BOOST
+  SOURCES uname_test.cc)
+
 set (tls_certificate_files
   catest.key
   catest.pem
