@@ -67,7 +67,6 @@ public:
     explicit timer(callback_t&& callback) : _callback{std::move(callback)} {
     }
     ~timer();
-    future<> expired();
     void set_callback(callback_t&& callback) {
         _callback = std::move(callback);
     }
