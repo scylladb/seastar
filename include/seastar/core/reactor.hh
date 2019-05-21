@@ -1028,11 +1028,6 @@ size_t iovec_len(const iovec* begin, size_t len)
 
 template <typename Clock>
 inline
-timer<Clock>::timer(callback_t&& callback) : _callback(std::move(callback)) {
-}
-
-template <typename Clock>
-inline
 timer<Clock>::~timer() {
     if (_queued) {
         engine().del_timer(this);
@@ -1041,47 +1036,9 @@ timer<Clock>::~timer() {
 
 template <typename Clock>
 inline
-void timer<Clock>::set_callback(callback_t&& callback) {
-    _callback = std::move(callback);
-}
-
-template <typename Clock>
-inline
-void timer<Clock>::arm_state(time_point until, compat::optional<duration> period) {
-    assert(!_armed);
-    _period = period;
-    _armed = true;
-    _expired = false;
-    _expiry = until;
-    _queued = true;
-}
-
-template <typename Clock>
-inline
 void timer<Clock>::arm(time_point until, compat::optional<duration> period) {
     arm_state(until, period);
     engine().add_timer(this);
-}
-
-template <typename Clock>
-inline
-void timer<Clock>::rearm(time_point until, compat::optional<duration> period) {
-    if (_armed) {
-        cancel();
-    }
-    arm(until, period);
-}
-
-template <typename Clock>
-inline
-void timer<Clock>::arm(duration delta) {
-    return arm(Clock::now() + delta);
-}
-
-template <typename Clock>
-inline
-void timer<Clock>::arm_periodic(duration delta) {
-    arm(Clock::now() + delta, {delta});
 }
 
 template <typename Clock>
@@ -1103,12 +1060,6 @@ bool timer<Clock>::cancel() {
         _queued = false;
     }
     return true;
-}
-
-template <typename Clock>
-inline
-typename timer<Clock>::time_point timer<Clock>::get_timeout() {
-    return _expiry;
 }
 
 extern logger seastar_logger;
