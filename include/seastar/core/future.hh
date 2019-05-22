@@ -235,6 +235,14 @@ struct future_state_base {
     };
     union any {
         any() { st = state::future; }
+        any(state s) { st = s; }
+        void set_exception(std::exception_ptr&& e) {
+            new (&ex) std::exception_ptr(std::move(e));
+            assert(st >= state::exception_min);
+        }
+        any(std::exception_ptr&& e) {
+            set_exception(std::move(e));
+        }
         ~any() {}
         any(any&& x) {
             if (x.st < state::exception_min) {
@@ -258,7 +266,8 @@ struct future_state_base {
     } _u;
 
     future_state_base() noexcept { }
-
+    future_state_base(state st) noexcept : _u(st) { }
+    future_state_base(std::exception_ptr&& ex) noexcept : _u(std::move(ex)) { }
     future_state_base(future_state_base&& x) noexcept : _u(std::move(x._u)) { }
 
     bool available() const noexcept { return _u.st == state::result || _u.st >= state::exception_min; }
@@ -268,8 +277,7 @@ struct future_state_base {
 
     void set_exception(std::exception_ptr ex) noexcept {
         assert(_u.st == state::future);
-        new (&_u.ex) std::exception_ptr(ex);
-        assert(_u.st >= state::exception_min);
+        _u.set_exception(std::move(ex));
     }
     std::exception_ptr get_exception() && noexcept {
         assert(_u.st >= state::exception_min);
@@ -284,6 +292,9 @@ struct future_state_base {
         return _u.ex;
     }
 };
+
+struct ready_future_marker {};
+struct exception_future_marker {};
 
 /// \cond internal
 template <typename... T>
@@ -315,11 +326,15 @@ struct future_state :  public future_state_base, private internal::uninitialized
         return *this;
     }
     template <typename... A>
+    future_state(ready_future_marker, A&&... a) : future_state_base(state::result) {
+        this->uninitialized_set(std::tuple<T...>(std::forward<A>(a)...));
+    }
+    template <typename... A>
     void set(A&&... a) {
         assert(_u.st == state::future);
-        this->uninitialized_set(std::tuple<T...>(std::forward<A>(a)...));
-        _u.st = state::result;
+        new (this) future_state(ready_future_marker(), std::forward<A>(a)...);
     }
+    future_state(exception_future_marker m, std::exception_ptr&& ex) : future_state_base(std::move(ex)) { }
     std::tuple<T...> get_value() && noexcept {
         assert(_u.st == state::result);
         return std::move(this->uninitialized_get());
@@ -536,9 +551,6 @@ template <typename... T> struct is_future : std::false_type {};
 /// \addtogroup future-util
 template <typename... T> struct is_future<future<T...>> : std::true_type {};
 
-struct ready_future_marker {};
-struct exception_future_marker {};
-
 /// \endcond
 
 
@@ -679,12 +691,8 @@ private:
         _promise->_state = &_state;
     }
     template <typename... A>
-    future(ready_future_marker, A&&... a) : _promise(nullptr) {
-        _state.set(std::forward<A>(a)...);
-    }
-    future(exception_future_marker, std::exception_ptr ex) noexcept : _promise(nullptr) {
-        _state.set_exception(std::move(ex));
-    }
+    future(ready_future_marker m, A&&... a) : _promise(nullptr), _state(m, std::forward<A>(a)...) { }
+    future(exception_future_marker m, std::exception_ptr ex) noexcept : _promise(nullptr), _state(m, std::move(ex)) { }
     [[gnu::always_inline]]
     explicit future(future_state<T...>&& state) noexcept
             : _promise(nullptr), _state(std::move(state)) {
