@@ -469,6 +469,46 @@ void lowres_clock_impl::update() {
     counters::_system_now.store(system_count, std::memory_order_relaxed);
 }
 
+template <typename Clock>
+inline
+timer<Clock>::~timer() {
+    if (_queued) {
+        engine().del_timer(this);
+    }
+}
+
+template <typename Clock>
+inline
+void timer<Clock>::arm(time_point until, compat::optional<duration> period) {
+    arm_state(until, period);
+    engine().add_timer(this);
+}
+
+template <typename Clock>
+inline
+void timer<Clock>::readd_periodic() {
+    arm_state(Clock::now() + _period.value(), {_period.value()});
+    engine().queue_timer(this);
+}
+
+template <typename Clock>
+inline
+bool timer<Clock>::cancel() {
+    if (!_armed) {
+        return false;
+    }
+    _armed = false;
+    if (_queued) {
+        engine().del_timer(this);
+        _queued = false;
+    }
+    return true;
+}
+
+template class timer<steady_clock_type>;
+template class timer<lowres_clock>;
+template class timer<manual_clock>;
+
 class thread_pool {
     reactor* _reactor;
     uint64_t _aio_threaded_fallbacks = 0;
