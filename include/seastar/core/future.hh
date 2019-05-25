@@ -316,16 +316,6 @@ struct future_state :  public future_state_base, private internal::uninitialized
         }
         return *this;
     }
-    void set(const std::tuple<T...>& value) noexcept {
-        assert(_u.st == state::future);
-        this->uninitialized_set(std::tuple<T...>(value));
-        _u.st = state::result;
-    }
-    void set(std::tuple<T...>&& value) noexcept {
-        assert(_u.st == state::future);
-        this->uninitialized_set(std::tuple<T...>(std::move(value)));
-        _u.st = state::result;
-    }
     template <typename... A>
     void set(A&&... a) {
         assert(_u.st == state::future);
@@ -487,11 +477,8 @@ public:
     /// Forwards the arguments and makes them available to the associated
     /// future.  May be called either before or after \c get_future().
     template <typename... A>
-    void set_value(A&&... a) noexcept {
-        if (_state) {
-            _state->set(std::forward<A>(a)...);
-            make_ready<urgent::no>();
-        }
+    void set_value(A&&... a) {
+        set_value(std::tuple<T...>(std::forward<A>(a)...));
     }
 
     /// \brief Marks the promise as failed

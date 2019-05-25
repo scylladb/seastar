@@ -39,6 +39,37 @@ public:
     expected_exception() : runtime_error("expected") {}
 };
 
+SEASTAR_TEST_CASE(test_set_future_state_with_tuple) {
+    future_state<int> s1;
+    promise<int> p1;
+    const std::tuple<int> v1(42);
+    s1.set(v1);
+    p1.set_value(v1);
+
+    future_state<int, int> s2;
+    promise<int, int> p2;
+    const std::tuple<int, int> v2(41, 42);
+    s2.set(v2);
+    p2.set_value(v2);
+
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_set_value_throw_in_copy) {
+    struct throw_in_copy {
+        throw_in_copy() noexcept = default;
+        throw_in_copy(throw_in_copy&& x) noexcept {
+        }
+        throw_in_copy(const throw_in_copy& x) {
+            throw 42;
+        }
+    };
+    promise<throw_in_copy> p1;
+    throw_in_copy v;
+    BOOST_REQUIRE_THROW(p1.set_value(v), int);
+    return make_ready_future<>();
+}
+
 SEASTAR_TEST_CASE(test_finally_is_called_on_success_and_failure) {
     auto finally1 = make_shared<bool>();
     auto finally2 = make_shared<bool>();
