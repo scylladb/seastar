@@ -383,9 +383,6 @@ protected:
 public:
     continuation_base() = default;
     explicit continuation_base(future_state<T...>&& state) : _state(std::move(state)) {}
-    void set_state(std::tuple<T...>&& state) {
-        _state.set(std::move(state));
-    }
     void set_state(future_state<T...>&& state) {
         _state = std::move(state);
     }
