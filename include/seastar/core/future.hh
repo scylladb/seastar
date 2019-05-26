@@ -567,7 +567,6 @@ template <typename... T> struct is_future : std::false_type {};
 template <typename... T> struct is_future<future<T...>> : std::true_type {};
 
 struct ready_future_marker {};
-struct ready_future_from_tuple_marker {};
 struct exception_future_marker {};
 
 /// \endcond
@@ -712,10 +711,6 @@ private:
     template <typename... A>
     future(ready_future_marker, A&&... a) : _promise(nullptr) {
         _state.set(std::forward<A>(a)...);
-    }
-    template <typename... A>
-    future(ready_future_from_tuple_marker, std::tuple<A...>&& data) : _promise(nullptr) {
-        _state.set(std::move(data));
     }
     future(exception_future_marker, std::exception_ptr ex) noexcept : _promise(nullptr) {
         _state.set_exception(std::move(ex));
