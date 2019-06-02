@@ -458,7 +458,10 @@ public:
     /// pr.set_value(std::tuple<int, double>(42, 43.0))
     template <typename... A>
     void set_value(A&&... a) {
-        do_set_value<urgent::no>(std::forward<A>(a)...);
+        if (_state) {
+            _state->set(std::forward<A>(a)...);
+            make_ready<urgent::no>();
+        }
     }
 
     /// \brief Marks the promise as failed
@@ -466,7 +469,10 @@ public:
     /// Forwards the exception argument to the future and makes it
     /// available.  May be called either before or after \c get_future().
     void set_exception(std::exception_ptr ex) noexcept {
-        do_set_exception<urgent::no>(std::move(ex));
+        if (_state) {
+            _state->set_exception(std::move(ex));
+            make_ready<urgent::no>();
+        }
     }
 
     /// \brief Marks the promise as failed
@@ -484,31 +490,6 @@ public:
         _task = std::unique_ptr<task>(&coroutine);
     }
 #endif
-private:
-    template<urgent Urgent, typename... A>
-    void do_set_value(A&&... a) {
-        if (_state) {
-            _state->set(std::forward<A>(a)...);
-            make_ready<Urgent>();
-        }
-    }
-
-    template <typename... A>
-    void set_urgent_value(A&&... a) {
-        do_set_value<urgent::yes>(std::forward<A>(a)...);
-    }
-
-    template<urgent Urgent>
-    void do_set_exception(std::exception_ptr ex) noexcept {
-        if (_state) {
-            _state->set_exception(std::move(ex));
-            make_ready<Urgent>();
-        }
-    }
-
-    void set_urgent_exception(std::exception_ptr ex) noexcept {
-        do_set_exception<urgent::yes>(std::move(ex));
-    }
 private:
     template <typename Func>
     void schedule(Func&& func) {
