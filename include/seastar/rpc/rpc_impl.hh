@@ -737,6 +737,9 @@ future<compat::optional<std::tuple<In...>>> source_impl<Serializer, In...>::oper
     // refill buffers from remote cpu
     return smp::submit_to(this->_con->get_owner_shard(), [this] () -> future<> {
         connection* con = this->_con->get();
+        if (con->_source_closed) {
+            return make_exception_future<>(stream_closed());
+        }
         return con->stream_receive(this->_bufs).then_wrapped([this, con] (future<>&& f) {
             if (f.failed()) {
                 return con->close_source().then_wrapped([ex = f.get_exception()] (future<> f){

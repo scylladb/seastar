@@ -456,10 +456,6 @@ namespace rpc {
   }
 
   future<> connection::stream_receive(circular_buffer<foreign_ptr<std::unique_ptr<rcv_buf>>>& bufs) {
-      if (_source_closed) {
-          return make_exception_future<>(stream_closed());
-      }
-
       return _stream_queue.not_empty().then([this, &bufs] {
           bool eof = !_stream_queue.consume([&bufs] (rcv_buf&& b) {
               if (b.size == -1U) { // max fragment length marks an end of a stream

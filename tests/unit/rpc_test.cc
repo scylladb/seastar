@@ -336,6 +336,15 @@ future<stream_test_result> stream_test_func(test_rpc_proto& proto, make_socket_f
                         r.server_sum += std::get<0>(*data);
                     } else {
                         r.server_source_closed = true;
+                        try {
+                          // check that reading after eos does not crash
+                          // and throws correct exception
+                           source().get();
+                        } catch (rpc::stream_closed& ex) {
+                          // expected
+                        } catch (...) {
+                           BOOST_FAIL("wrong exception on reading from a stream after eos");
+                        }
                     }
                 }
             });
