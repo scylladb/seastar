@@ -61,3 +61,19 @@ BOOST_AUTO_TEST_CASE(test_deleter_append_does_not_free_shared_object) {
     }
     BOOST_REQUIRE(TestObject::deletions_called == 3);
 }
+
+BOOST_AUTO_TEST_CASE(test_deleter_append_same_shared_object_twice) {
+    TestObject::deletions_called = 0;
+    {
+        deleter tested;
+        {
+            deleter del1 = make_object_deleter(TestObject());
+            auto del2 = del1.share();
+
+            tested.append(std::move(del1));
+            tested.append(std::move(del2));
+        }
+        BOOST_REQUIRE(TestObject::deletions_called == 0);
+    }
+    BOOST_REQUIRE(TestObject::deletions_called == 1);
+}
