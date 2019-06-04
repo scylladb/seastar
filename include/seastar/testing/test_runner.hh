@@ -24,6 +24,7 @@
 #include <memory>
 #include <functional>
 #include <atomic>
+#include <random>
 #include <seastar/core/future.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/testing/exchanger.hh>
@@ -31,6 +32,8 @@
 namespace seastar {
 
 namespace testing {
+
+extern thread_local std::default_random_engine local_random_engine;
 
 class test_runner {
 private:

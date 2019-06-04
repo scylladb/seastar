@@ -19,8 +19,6 @@
  * Copyright (C) 2016 ScyllaDB
  */
 
-#include <random>
-
 #include "loopback_socket.hh"
 #include <seastar/rpc/rpc.hh>
 #include <seastar/rpc/rpc_types.hh>
@@ -29,6 +27,7 @@
 #include <seastar/rpc/multi_algo_compressor_factory.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include <seastar/testing/test_runner.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/util/defer.hh>
@@ -613,7 +612,7 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
 
     std::vector<std::tuple<sstring, size_t, snd_buf>> inputs;
 
-    auto eng = std::default_random_engine{std::random_device{}()};
+    auto& eng = testing::local_random_engine;
     auto dist = std::uniform_int_distribution<char>();
 
     auto snd = snd_buf(1);

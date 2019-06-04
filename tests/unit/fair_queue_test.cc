@@ -23,6 +23,8 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/testing/test_case.hh>
+#include <seastar/testing/thread_test_case.hh>
+#include <seastar/testing/test_runner.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/fair_queue.hh>
@@ -31,7 +33,6 @@
 #include <seastar/core/sleep.hh>
 #include <seastar/core/print.hh>
 #include <boost/range/irange.hpp>
-#include <random>
 #include <chrono>
 
 using namespace seastar;
@@ -339,8 +340,7 @@ SEASTAR_TEST_CASE(test_fair_queue_random_run) {
     auto a = env->register_priority_class(1);
     auto b = env->register_priority_class(1);
 
-    auto seed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-    std::default_random_engine generator(seed);
+    std::default_random_engine& generator = testing::local_random_engine;
     // multiples of 100usec - which is the approximate length of the request. We will
     // put a minimum of 10. Below that, it is hard to guarantee anything. The maximum is
     // about 50 seconds.

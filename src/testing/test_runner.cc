@@ -31,6 +31,8 @@ namespace seastar {
 
 namespace testing {
 
+thread_local std::default_random_engine local_random_engine;
+
 static test_runner instance;
 
 struct stop_execution : public std::exception {};
@@ -60,8 +62,21 @@ test_runner::start(int ac, char** av) {
 
     _thread = std::make_unique<posix_thread>([this, ac, av]() mutable {
         app_template app;
-        auto exit_code = app.run_deprecated(ac, av, [this] {
-            do_until([this] { return _done; }, [this] {
+        app.add_options()
+            ("random-seed", boost::program_options::value<unsigned>(), "Random number generator seed");
+        auto exit_code = app.run_deprecated(ac, av, [this, &app] {
+            auto init = [&app] {
+                auto conf_seed = app.configuration()["random-seed"];
+                auto seed = conf_seed.empty() ? std::random_device()():  conf_seed.as<unsigned>();
+                std::cout << "random-seed=" << seed << '\n';
+                return smp::invoke_on_all([seed] {
+                    auto local_seed = seed + engine().cpu_id();
+                    local_random_engine.seed(local_seed);
+                });
+            };
+
+            return init().then([this] {
+              return do_until([this] { return _done; }, [this] {
                 // this will block the reactor briefly, but we don't care
                 try {
                     auto func = _task.take();
@@ -72,6 +87,7 @@ test_runner::start(int ac, char** av) {
                     return make_ready_future<>();
                 }
             }).or_terminate();
+          });
         });
 
         if (exit_code) {

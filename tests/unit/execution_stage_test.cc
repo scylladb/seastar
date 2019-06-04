@@ -20,21 +20,19 @@
  */
 
 #include <algorithm>
-#include <random>
 #include <vector>
 #include <chrono>
 
 #include <seastar/core/thread.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include <seastar/testing/test_runner.hh>
 #include <seastar/core/execution_stage.hh>
 #include <seastar/core/sleep.hh>
 
 using namespace std::chrono_literals;
 
 using namespace seastar;
-
-static std::random_device rd;
 
 SEASTAR_TEST_CASE(test_create_stage_from_lvalue_function_object) {
     return seastar::async([] {
@@ -69,7 +67,7 @@ void test_simple_execution_stage(Function&& func, Verify&& verify) {
     auto stage = seastar::make_execution_stage("test", std::forward<Function>(func));
 
     std::vector<int> vs;
-    std::default_random_engine gen(rd());
+    std::default_random_engine& gen = testing::local_random_engine;
     std::uniform_int_distribution<> dist(0, 100'000);
     std::generate_n(std::back_inserter(vs), 1'000, [&] { return dist(gen); });
 

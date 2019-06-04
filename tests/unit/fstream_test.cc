@@ -29,10 +29,10 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/testing/test_case.hh>
+#include <seastar/testing/test_runner.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/print.hh>
 #include <seastar/util/defer.hh>
-#include <random>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/algorithm/cxx11/any_of.hpp>
 #include "mock_file.hh"
@@ -271,7 +271,7 @@ SEASTAR_TEST_CASE(test_input_stream_esp_around_eof) {
     return seastar::async([] {
         auto flen = uint64_t(5341);
         auto rdist = std::uniform_int_distribution<char>();
-        auto reng = std::default_random_engine();
+        auto reng = testing::local_random_engine;
         auto data = boost::copy_range<std::vector<uint8_t>>(
                 boost::irange<uint64_t>(0, flen)
                 | boost::adaptors::transformed([&] (int x) { return rdist(reng); }));

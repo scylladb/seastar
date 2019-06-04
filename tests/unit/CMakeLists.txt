@@ -231,9 +231,7 @@ else ()
 endif ()
 
 seastar_add_test (allocator
-  KIND CUSTOM
   SOURCES allocator_test.cc
-  LIBRARIES seastar_private
   RUN_ARGS ${allocator_test_args})
 
 seastar_add_app_test (alien
