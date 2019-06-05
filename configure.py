@@ -156,7 +156,7 @@ MODES = seastar_cmake.SUPPORTED_MODES if args.mode == 'all' else [args.mode]
 # For convenience.
 tr = seastar_cmake.translate_arg
 
-MODE_TO_CMAKE_BUILD_TYPE = {'release' : 'RelWithDebInfo', 'debug' : 'Debug', 'dev' : 'Dev' }
+MODE_TO_CMAKE_BUILD_TYPE = {'release' : 'RelWithDebInfo', 'debug' : 'Debug', 'dev' : 'Dev', 'sanitize' : 'Sanitize' }
 
 def configure_mode(mode):
     BUILD_PATH = seastar_cmake.BUILD_PATHS[mode]

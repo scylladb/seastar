@@ -90,11 +90,45 @@ mark_as_advanced (
     CMAKE_EXE_LINKER_FLAGS_DEV
     CMAKE_SHARED_LINKER_FLAGS_DEV)
 
+set (CMAKE_CXX_FLAGS_SANITIZE
+  "-Os -g"
+  CACHE
+  STRING
+  "Flags used by the C++ compiler during sanitize builds."
+  FORCE)
+
+set (CMAKE_C_FLAGS_SANITIZE
+  "-O1"
+  CACHE
+  STRING
+  "Flags used by the C compiler during sanitize builds."
+  FORCE)
+
+set (CMAKE_EXE_LINKER_FLAGS_SANITIZE
+  ""
+  CACHE
+  STRING
+  "Flags used for linking binaries during sanitize builds."
+  FORCE)
+
+set (CMAKE_SHARED_LINKER_FLAGS_SANITIZE
+  ""
+  CACHE
+  STRING
+  "Flags used by the shared libraries linker during sanitize builds."
+  FORCE)
+
+mark_as_advanced (
+    CMAKE_CXX_FLAGS_SANITIZE
+    CMAKE_C_FLAGS_SANITIZE
+    CMAKE_EXE_LINKER_FLAGS_SANITIZE
+    CMAKE_SHARED_LINKER_FLAGS_SANITIZE)
+
 set (CMAKE_BUILD_TYPE
   "${CMAKE_BUILD_TYPE}"
   CACHE
   STRING
-  "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel Dev."
+  "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel Dev Sanitize."
   FORCE)
 
 if (NOT CMAKE_BUILD_TYPE)
@@ -573,16 +607,14 @@ if (Seastar_COMPRESS_DEBUG)
   list (APPEND Seastar_PRIVATE_CXX_FLAGS -gz)
 endif()
 
-if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (CMAKE_BUILD_TYPE STREQUAL "Sanitize"))
   if (NOT Sanitizers_FOUND)
-    message (FATAL_ERROR "Sanitizers are required for debug mode!")
+    message (FATAL_ERROR "Sanitizers are required for debug and sanitize modes!")
   endif ()
 endif ()
 
 target_link_libraries (seastar
   PUBLIC
-    debug Sanitizers::address
-    debug Sanitizers::undefined_behavior
     Boost::boost
     Boost::program_options
     Boost::thread
@@ -600,6 +632,13 @@ target_link_libraries (seastar
     protobuf::libprotobuf
     rt::rt
     yaml-cpp::yaml-cpp)
+
+if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (CMAKE_BUILD_TYPE STREQUAL "Sanitize"))
+  target_link_libraries (seastar
+    PUBLIC
+      Sanitizers::address
+      Sanitizers::undefined_behavior)
+endif ()
 
 #
 # We want asserts enabled on all modes, but cmake defaults to passing
@@ -750,7 +789,7 @@ if (lz4_HAVE_COMPRESS_DEFAULT)
   list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_LZ4_COMPRESS_DEFAULT)
 endif ()
 
-if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (CMAKE_BUILD_TYPE STREQUAL "Sanitize"))
   target_compile_definitions (seastar
     PUBLIC
       SEASTAR_DEBUG

@@ -45,6 +45,26 @@ $ ./configure.py --mode=dev --cook fmt
 
 `--cook` can be repeated many times for selecting multiple dependencies.
 
+
+Build modes
+----------------------------------------------------------------------------
+
+The configure.py script is a wrapper around cmake. The --mode argument
+maps to CMAKE_BUILD_TYPE, and supports the following modes
+
+* release: maps to RelWithDebInfo
+
+* debug: maps to Debug
+
+* dev: maps to a custom Dev mode. It has minimum optimizations (-O1)
+  and no debug info. The objective is to be offer a fast build and
+  test iteration.
+
+* sanitize: maps to a custom Sanitize mode. This has optimizations and
+  debug checks. In particular, it enables the address sanitizer. It is
+  a good mode for running tests that are too slow to run in debug
+  mode.
+
 Using Seastar from its build directory (without installation)
 ----------------------------------------------------------------------------
 
