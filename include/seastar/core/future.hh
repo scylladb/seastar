@@ -456,29 +456,20 @@ public:
     /// was attached to the future, it will run.
     future<T...> get_future() noexcept;
 
-    /// \brief Sets the promise's value (as tuple; by copying)
-    ///
-    /// Copies the tuple argument and makes it available to the associated
-    /// future.  May be called either before or after \c get_future().
-    void set_value(const std::tuple<T...>& result) noexcept(copy_noexcept) {
-        do_set_value<urgent::no>(result);
-    }
-
-    /// \brief Sets the promises value (as tuple; by moving)
-    ///
-    /// Moves the tuple argument and makes it available to the associated
-    /// future.  May be called either before or after \c get_future().
-    void set_value(std::tuple<T...>&& result) noexcept {
-        do_set_value<urgent::no>(std::move(result));
-    }
-
-    /// \brief Sets the promises value (variadic)
+    /// \brief Sets the promises value
     ///
     /// Forwards the arguments and makes them available to the associated
     /// future.  May be called either before or after \c get_future().
+    ///
+    /// The arguments can have either the types the promise is
+    /// templated with, or a corresponding std::tuple. That is, given
+    /// a promise<int, double>, both calls are valid:
+    ///
+    /// pr.set_value(42, 43.0);
+    /// pr.set_value(std::tuple<int, double>(42, 43.0))
     template <typename... A>
     void set_value(A&&... a) {
-        set_value(std::tuple<T...>(std::forward<A>(a)...));
+        do_set_value<urgent::no>(std::forward<A>(a)...);
     }
 
     /// \brief Marks the promise as failed
@@ -505,20 +496,17 @@ public:
     }
 #endif
 private:
-    template<urgent Urgent>
-    void do_set_value(std::tuple<T...> result) noexcept {
+    template<urgent Urgent, typename... A>
+    void do_set_value(A&&... a) {
         if (_state) {
-            _state->set(std::move(result));
+            _state->set(std::forward<A>(a)...);
             make_ready<Urgent>();
         }
     }
 
-    void set_urgent_value(const std::tuple<T...>& result) noexcept(copy_noexcept) {
-        do_set_value<urgent::yes>(result);
-    }
-
-    void set_urgent_value(std::tuple<T...>&& result) noexcept {
-        do_set_value<urgent::yes>(std::move(result));
+    template <typename... A>
+    void set_urgent_value(A&&... a) {
+        do_set_value<urgent::yes>(std::forward<A>(a)...);
     }
 
     template<urgent Urgent>
