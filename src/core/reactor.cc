@@ -4839,11 +4839,11 @@ future<size_t> readable_eventfd::wait() {
     });
 }
 
-void schedule(std::unique_ptr<task> t) {
+void schedule(std::unique_ptr<task>&& t) noexcept {
     engine().add_task(std::move(t));
 }
 
-void schedule_urgent(std::unique_ptr<task> t) {
+void schedule_urgent(std::unique_ptr<task>&& t) noexcept {
     engine().add_urgent_task(std::move(t));
 }
 
@@ -5653,11 +5653,34 @@ void engine_exit(std::exception_ptr eptr) {
     engine().exit(1);
 }
 
-void report_failed_future(std::exception_ptr eptr) {
+void report_failed_future(const std::exception_ptr& eptr) noexcept {
     seastar_logger.warn("Exceptional future ignored: {}, backtrace: {}", eptr, current_backtrace());
 }
 
 broken_promise::broken_promise() : logic_error("broken promise") { }
+
+promise_base::promise_base(promise_base&& x) noexcept
+    : _future(x._future), _state(x._state), _task(std::move(x._task)) {
+    x._state = nullptr;
+    if (auto* fut = _future) {
+        fut->detach_promise();
+        fut->_promise = this;
+    }
+}
+
+void promise_base::check_during_destruction() noexcept {
+    if (_future) {
+        assert(_state);
+        assert(_state->available() || !_task);
+        _future->detach_promise();
+    } else if (_state && _state->failed()) {
+        report_failed_future(_state->get_exception());
+    } else if (__builtin_expect(bool(_task), false)) {
+        assert(_state && !_state->available());
+        _state->set_to_broken_promise();
+        ::seastar::schedule(std::move(_task));
+    }
+}
 
 void future_state_base::set_to_broken_promise() noexcept {
     try {

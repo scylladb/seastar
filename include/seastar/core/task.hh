@@ -35,8 +35,8 @@ public:
     scheduling_group group() const { return _sg; }
 };
 
-void schedule(std::unique_ptr<task> t);
-void schedule_urgent(std::unique_ptr<task> t);
+void schedule(std::unique_ptr<task>&& t) noexcept;
+void schedule_urgent(std::unique_ptr<task>&& t) noexcept;
 
 template <typename Func>
 class lambda_task final : public task {

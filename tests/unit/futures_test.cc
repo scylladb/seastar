@@ -39,6 +39,73 @@ public:
     expected_exception() : runtime_error("expected") {}
 };
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wself-move"
+#endif
+SEASTAR_TEST_CASE(test_self_move) {
+    future_state<std::unique_ptr<int>> s1;
+    s1.set(std::make_unique<int>(42));
+    s1 = std::move(s1); // no crash, but the value of s1 is not defined.
+
+    future_state<std::unique_ptr<int>> s2;
+    s2.set(std::make_unique<int>(42));
+    std::swap(s2, s2);
+    BOOST_REQUIRE_EQUAL(*std::get<0>(std::move(s2).get()), 42);
+
+    promise<std::unique_ptr<int>> p1;
+    p1.set_value(std::make_unique<int>(42));
+    p1 = std::move(p1); // no crash, but the value of p1 is not defined.
+
+    promise<std::unique_ptr<int>> p2;
+    p2.set_value(std::make_unique<int>(42));
+    std::swap(p2, p2);
+    BOOST_REQUIRE_EQUAL(*p2.get_future().get0(), 42);
+
+    auto  f1 = make_ready_future<std::unique_ptr<int>>(std::make_unique<int>(42));
+    f1 = std::move(f1); // no crash, but the value of f1 is not defined.
+
+    auto f2 = make_ready_future<std::unique_ptr<int>>(std::make_unique<int>(42));
+    std::swap(f2, f2);
+    BOOST_REQUIRE_EQUAL(*f2.get0(), 42);
+
+    return make_ready_future<>();
+}
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
+
+SEASTAR_TEST_CASE(test_set_future_state_with_tuple) {
+    future_state<int> s1;
+    promise<int> p1;
+    const std::tuple<int> v1(42);
+    s1.set(v1);
+    p1.set_value(v1);
+
+    future_state<int, int> s2;
+    promise<int, int> p2;
+    const std::tuple<int, int> v2(41, 42);
+    s2.set(v2);
+    p2.set_value(v2);
+
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_set_value_throw_in_copy) {
+    struct throw_in_copy {
+        throw_in_copy() noexcept = default;
+        throw_in_copy(throw_in_copy&& x) noexcept {
+        }
+        throw_in_copy(const throw_in_copy& x) {
+            throw 42;
+        }
+    };
+    promise<throw_in_copy> p1;
+    throw_in_copy v;
+    BOOST_REQUIRE_THROW(p1.set_value(v), int);
+    return make_ready_future<>();
+}
+
 SEASTAR_TEST_CASE(test_finally_is_called_on_success_and_failure) {
     auto finally1 = make_shared<bool>();
     auto finally2 = make_shared<bool>();
