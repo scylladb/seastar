@@ -972,7 +972,7 @@ class DiskPerfTuner(PerfTunerBase):
             return []
 
         try:
-            udev_obj = pyudev.Device.from_device_number(self.__pyudev_ctx, 'block', os.stat(directory).st_dev)
+            udev_obj = pyudev.Devices.from_device_number(self.__pyudev_ctx, 'block', os.stat(directory).st_dev)
             return self.__get_phys_devices(udev_obj)
         except:
             # handle cases like ecryptfs where the directory is mounted to another directory and not to some block device
@@ -1006,7 +1006,7 @@ class DiskPerfTuner(PerfTunerBase):
                 if device in disk2irqs.keys():
                     continue
 
-                udev_obj = pyudev.Device.from_device_file(self.__pyudev_ctx, "/dev/{}".format(device))
+                udev_obj = pyudev.Devices.from_device_file(self.__pyudev_ctx, "/dev/{}".format(device))
                 dev_sys_path = udev_obj.sys_path
                 split_sys_path = list(pathlib.PurePath(dev_sys_path).parts)
 
