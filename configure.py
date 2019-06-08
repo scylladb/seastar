@@ -95,11 +95,6 @@ add_tristate(
     help = 'allocation failure injection')
 add_tristate(
     arg_parser,
-    name = 'exception-scalability-workaround',
-    dest = 'exception_workaround',
-    help = 'a workaround for C++ exception scalability issues by overriding the definition of `dl_iterate_phdr`')
-add_tristate(
-    arg_parser,
     name = 'experimental-coroutines-ts',
     dest = "coroutines_ts",
     help = 'experimental support for Coroutines TS')
@@ -188,7 +183,6 @@ def configure_mode(mode):
         tr(args.hwloc, 'HWLOC', value_when_none='yes'),
         tr(args.gcc6_concepts, 'GCC6_CONCEPTS'),
         tr(args.alloc_failure_injection, 'ALLOC_FAILURE_INJECTION'),
-        tr(args.exception_workaround, 'EXCEPTION_SCALABILITY_WORKAROUND', value_when_none='yes'),
         tr(args.alloc_page_size, 'ALLOC_PAGE_SIZE'),
         tr(args.cpp17_goodies, 'STD_OPTIONAL_VARIANT_STRINGVIEW'),
         tr(args.split_dwarf, 'SPLIT_DWARF'),
