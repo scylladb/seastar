@@ -60,9 +60,14 @@ template <typename Protocol>
 future<connected_socket, socket_address>
 native_server_socket_impl<Protocol>::accept() {
     return _listener.accept().then([] (typename Protocol::connection conn) {
+        // Save "conn" contents before call below function
+        // "conn" is moved in 1st argument, and used in 2nd argument
+        // It causes trouble on Arm which passes arguments from left to right
+        auto ip = conn.foreign_ip().ip;
+        auto port = conn.foreign_port();
         return make_ready_future<connected_socket, socket_address>(
                 connected_socket(std::make_unique<native_connected_socket_impl<Protocol>>(make_lw_shared(std::move(conn)))),
-                make_ipv4_address(conn.foreign_ip().ip, conn.foreign_port()));
+                make_ipv4_address(ip, port));
     });
 }
 
