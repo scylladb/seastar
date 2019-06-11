@@ -4691,6 +4691,13 @@ smp_message_queue::lf_queue::maybe_wakeup() {
     }
 }
 
+smp_message_queue::lf_queue::~lf_queue() {
+    consume_all([] (work_item* ptr) {
+        delete ptr;
+    });
+}
+
+
 template<size_t PrefetchCnt, typename Func>
 size_t smp_message_queue::process_queue(lf_queue& q, Func process) {
     // copy batch to local memory in order to minimize

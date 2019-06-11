@@ -246,6 +246,7 @@ class smp_message_queue {
     struct lf_queue : lf_queue_remote, lf_queue_base {
         lf_queue(reactor* remote) : lf_queue_remote{remote} {}
         void maybe_wakeup();
+        ~lf_queue();
     };
     lf_queue _pending;
     lf_queue _completed;
