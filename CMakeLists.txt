@@ -135,10 +135,6 @@ option (Seastar_DPDK
   "Enable DPDK support."
   OFF)
 
-option (Seastar_EXCEPTION_SCALABILITY_WORKAROUND
-  "Enable a workaround for C++ exception scalability issues by overriding the definition of `dl_iterate_phdr`. Disabled for non-release builds."
-  ON)
-
 option (Seastar_EXCLUDE_APPS_FROM_ALL
   "When enabled alongside Seastar_APPS, do not build applications by default."
   OFF)
@@ -720,10 +716,6 @@ if (Seastar_DPDK)
 
   target_link_libraries (seastar
     PUBLIC dpdk::dpdk)
-endif ()
-
-if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (NOT Seastar_EXCEPTION_SCALABILITY_WORKAROUND))
-  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_NO_EXCEPTION_HACK)
 endif ()
 
 if (Seastar_HWLOC)
