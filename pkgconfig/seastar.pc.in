@@ -36,7 +36,7 @@ numactl_libs=$<JOIN:@numactl_LIBRARIES@, >
 
 # Us.
 seastar_cflags=${seastar_include_flags} $<JOIN:$<TARGET_PROPERTY:seastar,INTERFACE_COMPILE_OPTIONS>, > -D$<JOIN:$<TARGET_PROPERTY:seastar,INTERFACE_COMPILE_DEFINITIONS>, -D>
-seastar_libs=${libdir}/$<TARGET_FILE_NAME:seastar> @Seastar_SPLIT_DWARF_FLAG@
+seastar_libs=${libdir}/$<TARGET_FILE_NAME:seastar> @Seastar_SPLIT_DWARF_FLAG@ $<JOIN:@Sanitizers_COMPILER_OPTIONS@, >
 
 Requires: liblz4 >= 1.7.3
 Requires.private: gnutls >= 3.2.26, protobuf >= 2.5.0, hwloc >= 1.11.2, yaml-cpp >= 0.5.1
