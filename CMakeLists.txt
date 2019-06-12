@@ -634,6 +634,7 @@ target_link_libraries (seastar
     yaml-cpp::yaml-cpp)
 
 if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (CMAKE_BUILD_TYPE STREQUAL "Sanitize"))
+  set (Seastar_Sanitizers_OPTIONS ${Sanitizers_COMPILER_OPTIONS})
   target_link_libraries (seastar
     PUBLIC
       Sanitizers::address
