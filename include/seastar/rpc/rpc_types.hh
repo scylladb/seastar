@@ -270,6 +270,7 @@ public:
         virtual ~impl() {};
         virtual future<> operator()(const Out&... args) = 0;
         virtual future<> close() = 0;
+        virtual future<> flush() = 0;
         friend sink;
     };
 
@@ -283,6 +284,13 @@ public:
     }
     future<> close() {
         return _impl->close();
+    }
+    // Calling this function makes sure that any data buffered
+    // by the stream sink will be flushed to the network.
+    // It does not mean the data was received by the corresponding
+    // source.
+    future<> flush() {
+        return _impl->flush();
     }
     connection_id get_id() const;
 };

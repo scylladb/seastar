@@ -317,6 +317,7 @@ public:
     sink_impl(xshard_connection_ptr con) : sink<Out...>::impl(std::move(con)) { this->_con->get()->_sink_closed = false; }
     future<> operator()(const Out&... args) override;
     future<> close() override;
+    future<> flush() override;
 };
 
 // receive data In...

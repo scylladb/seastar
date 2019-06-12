@@ -326,6 +326,7 @@ future<stream_test_result> stream_test_func(test_rpc_proto& proto, make_socket_f
                     sink("seastar").get();
                     sleep(std::chrono::milliseconds(1)).get();
                 }
+                sink.flush().get();
                 sink.close().get();
             });
             auto source_loop = seastar::async([source, &r] () mutable {
