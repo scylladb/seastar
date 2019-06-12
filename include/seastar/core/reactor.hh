@@ -941,9 +941,12 @@ public:
     /// \param t designates the core to run the function on (may be a remote
     ///          core or the local core).
     /// \param ssg an smp_service_group that controls resource allocation for this call.
-    /// \param func a callable to run on core \c t.  If \c func is a temporary object,
-    ///          its lifetime will be extended by moving it.  If @func is a reference,
-    ///          the caller must guarantee that it will survive the call.
+    /// \param func a callable to run on core \c t.
+    ///          If \c func is a temporary object, its lifetime will be
+    ///          extended by moving. This movement and the eventual
+    ///          destruction of func are both done in the _calling_ core.
+    ///          If \c func is a reference, the caller must guarantee that
+    ///          it will survive the call.
     /// \return whatever \c func returns, as a future<> (if \c func does not return a future,
     ///         submit_to() will wrap it in a future<>).
     template <typename Func>
@@ -977,9 +980,12 @@ public:
     ///
     /// \param t designates the core to run the function on (may be a remote
     ///          core or the local core).
-    /// \param func a callable to run on core \c t.  If \c func is a temporary object,
-    ///          its lifetime will be extended by moving it.  If @func is a reference,
-    ///          the caller must guarantee that it will survive the call.
+    /// \param func a callable to run on core \c t.
+    ///          If \c func is a temporary object, its lifetime will be
+    ///          extended by moving. This movement and the eventual
+    ///          destruction of func are both done in the _calling_ core.
+    ///          If \c func is a reference, the caller must guarantee that
+    ///          it will survive the call.
     /// \return whatever \c func returns, as a future<> (if \c func does not return a future,
     ///         submit_to() will wrap it in a future<>).
     template <typename Func>
