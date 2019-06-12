@@ -704,7 +704,10 @@ private:
     void destroy(PtrType p, unsigned cpu) {
         if (p && engine().cpu_id() != cpu) {
             smp::submit_to(cpu, [v = std::move(p)] () mutable {
-                auto local(std::move(v));
+                // Destroy the contained pointer. We do this explicitly
+                // in the current shard, because the lambda is destroyed
+                // in the shard that submitted the task.
+                v = {};
             });
         }
     }
