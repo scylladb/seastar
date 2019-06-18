@@ -651,6 +651,10 @@ public:
     ~reactor();
     void operator=(const reactor&) = delete;
 
+    sched_clock::duration uptime() {
+        return sched_clock::now() - _start_time;
+    }
+
     io_queue& get_io_queue(dev_t devid = 0) {
         auto queue = _io_queues.find(devid);
         if (queue == _io_queues.end()) {
