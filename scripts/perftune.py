@@ -991,7 +991,7 @@ class DiskPerfTuner(PerfTunerBase):
     def __get_phys_devices(self, udev_obj):
         # if device is a virtual device - the underlying physical devices are going to be its slaves
         if re.search(r'virtual', udev_obj.sys_path):
-            return list(itertools.chain.from_iterable([ self.__get_phys_devices(pyudev.Device.from_device_file(self.__pyudev_ctx, "/dev/{}".format(slave))) for slave in os.listdir(os.path.join(udev_obj.sys_path, 'slaves')) ]))
+            return list(itertools.chain.from_iterable([ self.__get_phys_devices(pyudev.Devices.from_device_file(self.__pyudev_ctx, "/dev/{}".format(slave))) for slave in os.listdir(os.path.join(udev_obj.sys_path, 'slaves')) ]))
         else:
             # device node is something like /dev/sda1 - we need only the part without /dev/
             return [ re.match(r'/dev/(\S+\d*)', udev_obj.device_node).group(1) ]
@@ -1039,7 +1039,7 @@ class DiskPerfTuner(PerfTunerBase):
         :param dev_node Device node file name, e.g. /dev/sda1
         :param path_creator A functor that creates a feature file name given a device system file name
         """
-        udev = pyudev.Device.from_device_file(pyudev.Context(), dev_node)
+        udev = pyudev.Devices.from_device_file(pyudev.Context(), dev_node)
         feature_file = path_creator(udev.sys_path)
 
         if os.path.exists(feature_file):
