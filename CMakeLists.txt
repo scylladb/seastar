@@ -754,8 +754,9 @@ if (Seastar_DPDK)
   target_compile_definitions (seastar
     PUBLIC SEASTAR_HAVE_DPDK)
 
+  # No pmd driver code will be pulled in without "--whole-archive"
   target_link_libraries (seastar
-    PUBLIC dpdk::dpdk)
+    PUBLIC -Wl,--whole-archive dpdk::dpdk -Wl,--no-whole-archive)
 endif ()
 
 if (Seastar_HWLOC)
