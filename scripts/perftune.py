@@ -418,7 +418,7 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         """
         try:
             aws_instance_type = urllib.request.urlopen("http://169.254.169.254/latest/meta-data/instance-type", timeout=0.1).read().decode()
-            if re.match(r'^i3\.(\w(?!metal))+$', aws_instance_type):
+            if re.match(r'^i3\.((?!metal)\w)+$', aws_instance_type):
                 self.__is_aws_i3_nonmetal_instance = True
             else:
                 self.__is_aws_i3_nonmetal_instance = False
