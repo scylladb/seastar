@@ -61,6 +61,7 @@
 #include <seastar/core/aligned_buffer.hh>
 #include <unordered_set>
 #include <iostream>
+#include <thread>
 
 #include <dlfcn.h>
 
@@ -179,21 +180,51 @@ class page_list;
 
 static std::atomic<bool> live_cpus[max_cpus];
 
-static thread_local uint64_t g_allocs;
-static thread_local uint64_t g_frees;
-static thread_local uint64_t g_cross_cpu_frees;
-static thread_local uint64_t g_reclaims;
-static thread_local uint64_t g_large_allocs;
-static thread_local uint64_t g_foreign_mallocs;
-static thread_local uint64_t g_foreign_frees;
-static thread_local uint64_t g_foreign_cross_frees;
-
 using std::optional;
 
 // is_reactor_thread gets set to true when memory::configure() gets called
 // it is used to identify seastar threads and hence use system memory allocator
 // for those threads
 static thread_local bool is_reactor_thread = false;
+
+
+namespace alloc_stats {
+
+enum class types { allocs, frees, cross_cpu_frees, reclaims, large_allocs, foreign_mallocs, foreign_frees, foreign_cross_frees, enum_size };
+
+using stats_array = std::array<uint64_t, static_cast<std::size_t>(types::enum_size)>;
+using stats_atomic_array = std::array<std::atomic_uint64_t, static_cast<std::size_t>(types::enum_size)>;
+
+thread_local stats_array stats;
+std::array<stats_atomic_array, max_cpus> alien_stats{};
+
+static uint64_t increment(types stat_type, uint64_t size=1)
+{
+    auto i = static_cast<std::size_t>(stat_type);
+    // fast path, reactor threads takes thread local statistics
+    if (is_reactor_thread) {
+        auto tmp = stats[i];
+        stats[i]+=size;
+        return tmp;
+    } else {
+        auto hash = std::hash<std::thread::id>()(std::this_thread::get_id());
+        return alien_stats[hash % alien_stats.size()][i].fetch_add(size);
+    }
+}
+
+static uint64_t get(types stat_type)
+{
+    auto i = static_cast<std::size_t>(stat_type);
+    // fast path, reactor threads takes thread local statistics
+    if (is_reactor_thread) {
+        return stats[i];
+    } else {
+        auto hash = std::hash<std::thread::id>()(std::this_thread::get_id());
+        return alien_stats[hash % alien_stats.size()][i].load();
+    }
+}
+
+}
 
 // original memory allocator support
 // note: allocations before calling the constructor would use seastar allocator
@@ -696,7 +727,7 @@ cpu_pages::allocate_large_and_trim(unsigned n_pages) {
 
 void
 cpu_pages::warn_large_allocation(size_t size) {
-    ++g_large_allocs;
+    alloc_stats::increment(alloc_stats::types::large_allocs);
     seastar_memory_logger.warn("oversized allocation: {} bytes. This is non-fatal, but could lead to latency and/or fragmentation issues. Please report: at {}", size, current_backtrace());
     large_allocation_warning_threshold *= 1.618; // prevent spam
 }
@@ -828,7 +859,7 @@ void cpu_pages::free_cross_cpu(unsigned cpu_id, void* ptr) {
     do {
         p->next = old;
     } while (!list.compare_exchange_weak(old, p, std::memory_order_release, std::memory_order_relaxed));
-    ++g_cross_cpu_frees;
+    alloc_stats::increment(alloc_stats::types::cross_cpu_frees);
 }
 
 bool cpu_pages::drain_cross_cpu_freelist() {
@@ -838,7 +869,7 @@ bool cpu_pages::drain_cross_cpu_freelist() {
     auto p = xcpu_freelist.exchange(nullptr, std::memory_order_acquire);
     while (p) {
         auto n = p->next;
-        ++g_frees;
+        alloc_stats::increment(alloc_stats::types::frees);
         free(p);
         p = n;
     }
@@ -891,9 +922,9 @@ cpu_pages::try_foreign_free(void* ptr) {
     }
     if (!is_seastar_memory(ptr)) {
         if (is_reactor_thread) {
-            g_foreign_cross_frees++;
+            alloc_stats::increment(alloc_stats::types::foreign_cross_frees);
         } else {
-            g_foreign_frees++;
+            alloc_stats::increment(alloc_stats::types::foreign_frees);
         }
         original_free_func(ptr);
         return true;
@@ -1065,7 +1096,7 @@ reclaiming_result cpu_pages::run_reclaimers(reclaimer_scope scope, size_t n_page
     reclaiming_result result = reclaiming_result::reclaimed_nothing;
     while (nr_free_pages < target) {
         bool made_progress = false;
-        ++g_reclaims;
+        alloc_stats::increment(alloc_stats::types::reclaims);
         for (auto&& r : reclaimers) {
             if (r->scope() >= scope) {
                 made_progress |= r->do_reclaim((target - nr_free_pages) * page_size) == reclaiming_result::reclaimed_something;
@@ -1301,7 +1332,7 @@ void* allocate(size_t size) {
     // original_malloc_func might be null for allocations before main
     // in constructors before original_malloc_func ctor is called
     if (!is_reactor_thread && original_malloc_func) {
-        g_foreign_mallocs++;
+        alloc_stats::increment(alloc_stats::types::foreign_mallocs);
         return original_malloc_func(size);
     }
     if (size <= sizeof(free_object)) {
@@ -1321,7 +1352,7 @@ void* allocate(size_t size) {
         std::memset(ptr, debug_allocation_pattern, size);
 #endif
     }
-    ++g_allocs;
+    alloc_stats::increment(alloc_stats::types::allocs);
     return ptr;
 }
 
@@ -1329,7 +1360,7 @@ void* allocate_aligned(size_t align, size_t size) {
     // original_realloc_func might be null for allocations before main
     // in constructors before original_realloc_func ctor is called
     if (!is_reactor_thread && original_aligned_alloc_func) {
-        g_foreign_mallocs++;
+        alloc_stats::increment(alloc_stats::types::foreign_mallocs);
         return original_aligned_alloc_func(align, size);
     }
     if (size <= sizeof(free_object)) {
@@ -1351,7 +1382,7 @@ void* allocate_aligned(size_t align, size_t size) {
         std::memset(ptr, debug_allocation_pattern, size);
 #endif
     }
-    ++g_allocs;
+    alloc_stats::increment(alloc_stats::types::allocs);
     return ptr;
 }
 
@@ -1359,7 +1390,7 @@ void free(void* obj) {
     if (cpu_pages::try_foreign_free(obj)) {
         return;
     }
-    ++g_frees;
+    alloc_stats::increment(alloc_stats::types::frees);
     get_cpu_mem().free(obj);
 }
 
@@ -1367,7 +1398,7 @@ void free(void* obj, size_t size) {
     if (cpu_pages::try_foreign_free(obj)) {
         return;
     }
-    ++g_frees;
+    alloc_stats::increment(alloc_stats::types::frees);
     get_cpu_mem().free(obj, size);
 }
 
@@ -1383,8 +1414,8 @@ void free_aligned(void* obj, size_t align, size_t size) {
 }
 
 void shrink(void* obj, size_t new_size) {
-    ++g_frees;
-    ++g_allocs; // keep them balanced
+    alloc_stats::increment(alloc_stats::types::frees);
+    alloc_stats::increment(alloc_stats::types::allocs); // keep them balanced
     cpu_mem.shrink(obj, new_size);
 }
 
@@ -1469,9 +1500,9 @@ void configure(std::vector<resource::memory> m, bool mbind,
 }
 
 statistics stats() {
-    return statistics{g_allocs, g_frees, g_cross_cpu_frees,
-        cpu_mem.nr_pages * page_size, cpu_mem.nr_free_pages * page_size, g_reclaims, g_large_allocs,
-        g_foreign_mallocs, g_foreign_frees, g_foreign_cross_frees};
+    return statistics{alloc_stats::get(alloc_stats::types::allocs), alloc_stats::get(alloc_stats::types::frees), alloc_stats::get(alloc_stats::types::cross_cpu_frees),
+        cpu_mem.nr_pages * page_size, cpu_mem.nr_free_pages * page_size, alloc_stats::get(alloc_stats::types::reclaims), alloc_stats::get(alloc_stats::types::large_allocs),
+        alloc_stats::get(alloc_stats::types::foreign_mallocs), alloc_stats::get(alloc_stats::types::foreign_frees), alloc_stats::get(alloc_stats::types::foreign_cross_frees)};
 }
 
 bool drain_cross_cpu_freelist() {
