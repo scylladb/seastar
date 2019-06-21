@@ -19,8 +19,8 @@ import urllib.request
 import yaml
 import platform
 
-def run_one_command(prog_args, my_stderr=None, check=True):
-    proc = subprocess.Popen(prog_args, stdout = subprocess.PIPE, stderr = my_stderr)
+def run_one_command(prog_args, stderr=None, check=True):
+    proc = subprocess.Popen(prog_args, stdout = subprocess.PIPE, stderr = stderr)
     outs, errs = proc.communicate()
     outs = str(outs, 'utf-8')
 
