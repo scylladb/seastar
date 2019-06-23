@@ -440,7 +440,9 @@ protected:
 
 /// \brief promise - allows a future value to be made available at a later time.
 ///
-///
+/// \tparam T A list of types to be carried as the result of the associated future.
+///           A list with two or more types is deprecated; use
+///           \c promise<std::tuple<T...>> instead.
 template <typename... T>
 class promise : private internal::promise_base {
     future_state<T...> _local_state;
@@ -724,6 +726,22 @@ protected:
 
     friend class promise_base;
 };
+
+template <bool IsVariadic>
+struct warn_variadic_future {
+    // Non-varidic case, do nothing
+    void check_deprecation() {}
+};
+
+
+// Note: placing the deprecated attribute on the class specialization has no effect.
+template <>
+struct warn_variadic_future<true> {
+    // Variadic case, has deprecation attribute
+    [[deprecated("Variadic future<> with more than one template parmeter is deprecated, replace with future<std::tuple<...>>")]]
+    void check_deprecation() {}
+};
+
 }
 
 /// \brief A representation of a possibly not-yet-computed value.
@@ -739,8 +757,16 @@ protected:
 /// methods in \c future allow querying the state and, most importantly,
 /// scheduling a \c continuation to be executed when the future becomes
 /// available.  Only one such continuation may be scheduled.
+///
+/// \tparam T A list of types to be carried as the result of the future,
+///           similar to \c std::tuple<T...>. An empty list (\c future<>)
+///           means that there is no result, and an available future only
+///           contains a success/failure indication (and in the case of a
+///           failure, an exception).
+///           A list with two or more types is deprecated; use
+///           \c future<std::tuple<T...>> instead.
 template <typename... T>
-class future : private internal::future_base {
+class future : private internal::future_base, internal::warn_variadic_future<(sizeof...(T) > 1)> {
     future_state<T...> _state;
     static constexpr bool copy_noexcept = future_state<T...>::copy_noexcept;
 private:
@@ -751,6 +777,7 @@ private:
     [[gnu::always_inline]]
     explicit future(future_state<T...>&& state) noexcept
             : _state(std::move(state)) {
+        this->check_deprecation();
     }
     promise<T...>* detach_promise() {
         return static_cast<promise<T...>*>(future_base::detach_promise());
