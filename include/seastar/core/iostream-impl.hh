@@ -37,7 +37,7 @@ inline future<temporary_buffer<char>> data_source_impl::skip(uint64_t n)
             return get().then([&] (temporary_buffer<char> buffer) -> compat::optional<temporary_buffer<char>> {
                 if (buffer.size() >= n) {
                     buffer.trim_front(n);
-                    return std::move(buffer);
+                    return buffer;
                 }
                 n -= buffer.size();
                 return { };

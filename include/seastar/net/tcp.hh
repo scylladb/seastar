@@ -2089,7 +2089,7 @@ compat::optional<typename InetTraits::l4packet> tcp<InetTraits>::tcb::get_packet
         // Finally - we can't send more until window is opened again.
         output();
     }
-    return std::move(p);
+    return p;
 }
 
 template <typename InetTraits>
