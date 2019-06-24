@@ -89,7 +89,7 @@ public:
 class no_sharded_instance_exception : public std::exception {
 public:
     virtual const char* what() const noexcept override {
-        return "sharded instance does not exists";
+        return "sharded instance does not exist";
     }
 };
 
