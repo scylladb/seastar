@@ -276,6 +276,17 @@ struct future_state_base {
     future_state_base(std::exception_ptr&& ex) noexcept : _u(std::move(ex)) { }
     future_state_base(future_state_base&& x) noexcept : _u(std::move(x._u)) { }
 
+    // We never need to destruct this polymorphicly, so we can make it
+    // protected instead of virtual.
+protected:
+    ~future_state_base() noexcept {
+        if (failed()) {
+            report_failed_future(_u.take_exception());
+        }
+    }
+
+public:
+
     bool available() const noexcept { return _u.st == state::result || _u.st >= state::exception_min; }
     bool failed() const noexcept { return __builtin_expect(_u.st >= state::exception_min, false); }
 
@@ -319,8 +330,6 @@ struct future_state :  public future_state_base, private internal::uninitialized
     ~future_state() noexcept {
         if (_u.st == state::result) {
             this->uninitialized_get().~tuple();
-        } else if (_u.st >= state::exception_min) {
-            _u.ex.~exception_ptr();
         }
     }
     future_state& operator=(future_state&& x) noexcept {
@@ -861,12 +870,6 @@ public:
         return *this;
     }
     void operator=(const future&) = delete;
-    __attribute__((always_inline))
-    ~future() {
-        if (failed()) {
-            report_failed_future(_state.get_exception());
-        }
-    }
     /// \brief gets the value returned by the computation
     ///
     /// Requires that the future be available.  If the value
