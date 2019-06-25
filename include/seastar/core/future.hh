@@ -430,6 +430,26 @@ protected:
     void operator=(const promise_base&) = delete;
     promise_base& operator=(promise_base&& x) = delete;
 
+    template<urgent Urgent>
+    __attribute__((always_inline))
+    void make_ready() noexcept;
+
+    void set_exception(std::exception_ptr&& ex) noexcept {
+        if (_state) {
+            _state->set_exception(std::move(ex));
+            make_ready<urgent::no>();
+        }
+    }
+
+    void set_exception(const std::exception_ptr& ex) noexcept {
+        set_exception(std::exception_ptr(ex));
+    }
+
+    template<typename Exception>
+    std::enable_if_t<!std::is_same<std::remove_reference_t<Exception>, std::exception_ptr>::value, void> set_exception(Exception&& e) noexcept {
+        set_exception(make_exception_ptr(std::forward<Exception>(e)));
+    }
+
     friend class future_base;
     template <typename... U> friend class seastar::future;
 };
@@ -507,14 +527,11 @@ public:
     /// Forwards the exception argument to the future and makes it
     /// available.  May be called either before or after \c get_future().
     void set_exception(std::exception_ptr&& ex) noexcept {
-        if (_state) {
-            _state->set_exception(std::move(ex));
-            make_ready<urgent::no>();
-        }
+        internal::promise_base::set_exception(std::move(ex));
     }
 
     void set_exception(const std::exception_ptr& ex) noexcept {
-        set_exception(std::exception_ptr(ex));
+        internal::promise_base::set_exception(ex);
     }
 
     /// \brief Marks the promise as failed
@@ -523,7 +540,7 @@ public:
     /// available.  May be called either before or after \c get_future().
     template<typename Exception>
     std::enable_if_t<!std::is_same<std::remove_reference_t<Exception>, std::exception_ptr>::value, void> set_exception(Exception&& e) noexcept {
-        set_exception(make_exception_ptr(std::forward<Exception>(e)));
+        internal::promise_base::set_exception(std::forward<Exception>(e));
     }
 
 #if SEASTAR_COROUTINES_TS
@@ -543,9 +560,6 @@ private:
         _state = &callback->_state;
         _task = std::move(callback);
     }
-    template<urgent Urgent>
-    __attribute__((always_inline))
-    void make_ready() noexcept;
 
     template <typename... U>
     friend class future;
@@ -1270,10 +1284,9 @@ promise<T...>::get_future() noexcept {
     return future<T...>(this);
 }
 
-template <typename... T>
-template<typename promise<T...>::urgent Urgent>
+template<internal::promise_base::urgent Urgent>
 inline
-void promise<T...>::make_ready() noexcept {
+void internal::promise_base::make_ready() noexcept {
     if (_task) {
         _state = nullptr;
         if (Urgent == urgent::yes && !need_preempt()) {
