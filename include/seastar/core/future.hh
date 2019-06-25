@@ -434,7 +434,10 @@ protected:
     promise_base(const promise_base&) = delete;
     promise_base(future_state_base* state) noexcept : _state(state) {}
     promise_base(promise_base&& x) noexcept;
-    void check_during_destruction() noexcept;
+
+    // We never need to destruct this polymorphicly, so we can make it
+    // protected instead of virtual
+    ~promise_base() noexcept;
 
     void operator=(const promise_base&) = delete;
     promise_base& operator=(promise_base&& x) = delete;
@@ -487,9 +490,6 @@ public:
     /// \brief Moves a \c promise object.
     promise(promise&& x) noexcept;
     promise(const promise&) = delete;
-    ~promise() noexcept {
-        check_during_destruction();
-    }
     promise& operator=(promise&& x) noexcept {
         this->~promise();
         new (this) promise(std::move(x));

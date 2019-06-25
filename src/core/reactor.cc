@@ -5820,7 +5820,7 @@ promise_base::promise_base(promise_base&& x) noexcept
     }
 }
 
-void promise_base::check_during_destruction() noexcept {
+promise_base::~promise_base() noexcept {
     if (_future) {
         assert(_state);
         assert(_state->available() || !_task);
