@@ -703,7 +703,7 @@ public:
     future<file> open_directory(sstring name);
     future<> make_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions);
     future<> touch_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions);
-    future<compat::optional<directory_entry_type>>  file_type(sstring name);
+    future<compat::optional<directory_entry_type>>  file_type(sstring name, follow_symlink = follow_symlink::yes);
     future<stat_data> file_stat(sstring pathname, follow_symlink);
     future<uint64_t> file_size(sstring pathname);
     future<bool> file_accessible(sstring pathname, access_flags flags);

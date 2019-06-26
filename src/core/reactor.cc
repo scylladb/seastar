@@ -2998,10 +2998,11 @@ directory_entry_type stat_to_entry_type(__mode_t type) {
 }
 
 future<compat::optional<directory_entry_type>>
-reactor::file_type(sstring name) {
-    return _thread_pool->submit<syscall_result_extra<struct stat>>([name] {
+reactor::file_type(sstring name, follow_symlink follow) {
+    return _thread_pool->submit<syscall_result_extra<struct stat>>([name, follow] {
         struct stat st;
-        auto ret = stat(name.c_str(), &st);
+        auto stat_syscall = follow ? stat : lstat;
+        auto ret = stat_syscall(name.c_str(), &st);
         return wrap_syscall(ret, st);
     }).then([name] (syscall_result_extra<struct stat> sr) {
         if (long(sr.result) == -1) {
