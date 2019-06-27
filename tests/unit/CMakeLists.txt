@@ -295,6 +295,9 @@ seastar_add_test (fstream
 seastar_add_test (futures
   SOURCES futures_test.cc)
 
+seastar_add_test (sharded
+  SOURCES sharded_test.cc)
+
 seastar_add_test (httpd
   SOURCES
     httpd_test.cc
