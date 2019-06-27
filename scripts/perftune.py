@@ -839,6 +839,17 @@ class DiskPerfTuner(PerfTunerBase):
         nvme_disks, nvme_irqs = self.__disks_info_by_type(DiskPerfTuner.SupportedDiskTypes.nvme)
         if nvme_disks:
             print("Setting NVMe disks: {}...".format(", ".join(nvme_disks)))
+            # Linux kernel is going to use IRQD_AFFINITY_MANAGED mode for NVMe IRQs
+            # on most systems (currently only AWS i3 non-metal are known to have a
+            # different configuration). SMP affinity of an IRQ in this mode may not be
+            # changed and an attempt to modify it is going to fail. However right now
+            # the only way to determine that IRQD_AFFINITY_MANAGED mode has been used
+            # is to attempt to modify IRQ SMP affinity (and fail) therefore we prefer
+            # to always do it.
+            #
+            # What we don't want however is to see annoying errors every time we
+            # detect that IRQD_AFFINITY_MANAGED was actually used. Therefore we will only log
+            # them in the "verbose" mode or when we run on an i3.nonmetal AWS instance.
             distribute_irqs(nvme_irqs, self.args.cpu_mask,
                             log_errors=(self.is_aws_i3_non_metal_instance or self.args.verbose))
             self.__tune_disks(nvme_disks)
