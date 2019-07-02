@@ -254,7 +254,11 @@ cooking_ingredient (cryptopp
 
 # Use the "native" profile that DPDK defines in `dpdk/config`, but in `dpdk_configure.cmake` we override
 # CONFIG_RTE_MACHINE with `Seastar_DPDK_MACHINE`.
-set (dpdk_quadruple ${CMAKE_SYSTEM_PROCESSOR}-native-linuxapp-gcc)
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+  set (dpdk_quadruple arm64-armv8a-linuxapp-gcc)
+else()
+  set (dpdk_quadruple ${CMAKE_SYSTEM_PROCESSOR}-native-linuxapp-gcc)
+endif()
 
 set (dpdk_args
   EXTRA_CFLAGS=-Wno-error

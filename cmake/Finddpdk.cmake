@@ -55,37 +55,47 @@ find_library (dpdk_BUS_VDEV_LIBRARY rte_bus_vdev)
 
 include (FindPackageHandleStandardArgs)
 
+set (dpdk_REQUIRED
+  dpdk_INCLUDE_DIR
+  dpdk_PMD_VMXNET3_UIO_LIBRARY
+  dpdk_PMD_I40E_LIBRARY
+  dpdk_PMD_IXGBE_LIBRARY
+  dpdk_PMD_E1000_LIBRARY
+  dpdk_PMD_BNXT_LIBRARY
+  dpdk_PMD_RING_LIBRARY
+  dpdk_PMD_CXGBE_LIBRARY
+  dpdk_PMD_ENA_LIBRARY
+  dpdk_PMD_ENIC_LIBRARY
+  dpdk_PMD_NFP_LIBRARY
+  dpdk_PMD_QEDE_LIBRARY
+  dpdk_RING_LIBRARY
+  dpdk_KVARGS_LIBRARY
+  dpdk_MEMPOOL_LIBRARY
+  dpdk_MEMPOOL_RING_LIBRARY
+  dpdk_HASH_LIBRARY
+  dpdk_CMDLINE_LIBRARY
+  dpdk_MBUF_LIBRARY
+  dpdk_CFGFILE_LIBRARY
+  dpdk_EAL_LIBRARY
+  dpdk_ETHDEV_LIBRARY
+  dpdk_NET_LIBRARY
+  dpdk_TIMER_LIBRARY
+  dpdk_PCI_LIBRARY
+  dpdk_BUS_PCI_LIBRARY
+  dpdk_BUS_VDEV_LIBRARY)
+
+# fm10k, sfc_efx driver can only build on x86
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+  set (dpdk_REQUIRED
+    ${dpdk_REQUIRED}
+    dpdk_PMD_FM10K_LIBRARY
+    dpdk_PMD_SFC_EFX_LIBRARY)
+endif()
+
 find_package_handle_standard_args (dpdk
   REQUIRED_VARS
-    dpdk_INCLUDE_DIR
-    dpdk_PMD_VMXNET3_UIO_LIBRARY
-    dpdk_PMD_I40E_LIBRARY
-    dpdk_PMD_IXGBE_LIBRARY
-    dpdk_PMD_E1000_LIBRARY
-    dpdk_PMD_BNXT_LIBRARY
-    dpdk_PMD_RING_LIBRARY
-    dpdk_PMD_CXGBE_LIBRARY
-    dpdk_PMD_ENA_LIBRARY
-    dpdk_PMD_ENIC_LIBRARY
-    dpdk_PMD_FM10K_LIBRARY
-    dpdk_PMD_NFP_LIBRARY
-    dpdk_PMD_QEDE_LIBRARY
-    dpdk_RING_LIBRARY
-    dpdk_KVARGS_LIBRARY
-    dpdk_MEMPOOL_LIBRARY
-    dpdk_MEMPOOL_RING_LIBRARY
-    dpdk_PMD_SFC_EFX_LIBRARY
-    dpdk_HASH_LIBRARY
-    dpdk_CMDLINE_LIBRARY
-    dpdk_MBUF_LIBRARY
-    dpdk_CFGFILE_LIBRARY
-    dpdk_EAL_LIBRARY
-    dpdk_ETHDEV_LIBRARY
-    dpdk_NET_LIBRARY
-    dpdk_TIMER_LIBRARY
-    dpdk_PCI_LIBRARY
-    dpdk_BUS_PCI_LIBRARY
-    dpdk_BUS_VDEV_LIBRARY)
+    ${dpdk_REQUIRED}
+)
 
 if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
   set (dpdk_LIBRARIES
@@ -102,14 +112,22 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
     ${dpdk_PMD_E1000_LIBRARY}
     ${dpdk_PMD_ENA_LIBRARY}
     ${dpdk_PMD_ENIC_LIBRARY}
-    ${dpdk_PMD_FM10K_LIBRARY}
     ${dpdk_PMD_QEDE_LIBRARY}
     ${dpdk_PMD_I40E_LIBRARY}
     ${dpdk_PMD_IXGBE_LIBRARY}
     ${dpdk_PMD_NFP_LIBRARY}
     ${dpdk_PMD_RING_LIBRARY}
-    ${dpdk_PMD_SFC_EFX_LIBRARY}
-    ${dpdk_PMD_VMXNET3_UIO_LIBRARY}
+    ${dpdk_PMD_VMXNET3_UIO_LIBRARY})
+
+  if (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+    set (dpdk_LIBRARIES
+      ${dpdk_LIBRARIES}
+      ${dpdk_PMD_FM10K_LIBRARY}
+      ${dpdk_PMD_SFC_EFX_LIBRARY})
+  endif()
+
+  set (dpdk_LIBRARIES
+    ${dpdk_LIBRARIES}
     ${dpdk_RING_LIBRARY}
     ${dpdk_NET_LIBRARY}
     ${dpdk_TIMER_LIBRARY}
@@ -449,13 +467,11 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
     dpdk::pmd_e1000
     dpdk::pmd_ena
     dpdk::pmd_enic
-    dpdk::pmd_fm10k
     dpdk::pmd_qede
     dpdk::pmd_i40e
     dpdk::pmd_ixgbe
     dpdk::pmd_nfp
     dpdk::pmd_ring
-    dpdk::pmd_sfc_efx
     dpdk::pmd_vmxnet3_uio
     dpdk::ring
     dpdk::net
@@ -463,6 +479,13 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
     dpdk::pci
     dpdk::bus_pci
     dpdk::bus_vdev)
+
+  if (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+    set (_dpdk_libraries
+      ${_dpdk_libraries}
+      dpdk::pmd_fm10k
+      dpdk::pmd_sfc_efx)
+  endif()
 
   set_target_properties (dpdk::dpdk
     PROPERTIES

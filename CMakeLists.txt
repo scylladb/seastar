@@ -742,6 +742,7 @@ if (Seastar_DPDK)
   set (Seastar_ARCH_FOR_wsm "westmere")
   set (Seastar_ARCH_FOR_snb "sandybridge")
   set (Seastar_ARCH_FOR_ivb "ivybridge")
+  set (Seastar_ARCH_FOR_armv8a "armv8-a")
   set (Seastar_ARCH ${Seastar_ARCH_FOR_${Seastar_DPDK_MACHINE}})
 
   if (NOT Seastar_ARCH)

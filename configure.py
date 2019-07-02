@@ -137,9 +137,10 @@ def infer_dpdk_machine(user_cflags):
     arch = 'native'
 
     # `-march` may be repeated, and we want the last one.
+    # strip features, leave only the arch: armv8-a+crc+crypto -> armv8-a
     for flag in user_cflags.split():
         if flag.startswith('-march'):
-            arch = flag[7:]
+            arch = flag[7:].split('+')[0]
 
     MAPPING = {
         'native': 'native',
@@ -147,6 +148,7 @@ def infer_dpdk_machine(user_cflags):
         'westmere': 'wsm',
         'sandybridge': 'snb',
         'ivybridge': 'ivb',
+        'armv8-a': 'armv8a',
     }
 
     return MAPPING.get(arch, 'native')
