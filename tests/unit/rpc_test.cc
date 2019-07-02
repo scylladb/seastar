@@ -603,7 +603,7 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
                 for (auto& b : bufs) {
                     c.emplace_back(b.clone());
                 }
-                return c;
+                return SEASTAR_COPY_ELISION(c);
             }
         );
         return c;

@@ -2089,7 +2089,7 @@ compat::optional<typename InetTraits::l4packet> tcp<InetTraits>::tcb::get_packet
         // Finally - we can't send more until window is opened again.
         output();
     }
-    return p;
+    return SEASTAR_COPY_ELISION(p);
 }
 
 template <typename InetTraits>
