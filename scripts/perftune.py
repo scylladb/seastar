@@ -18,8 +18,15 @@ import sys
 import urllib.request
 import yaml
 import platform
+import shlex
 
-def run_one_command(prog_args, stderr=None, check=True):
+dry_run_mode = False
+def perftune_print(log_msg, *args, **kwargs):
+    if dry_run_mode:
+        log_msg = "# " + log_msg
+    print(log_msg, *args, **kwargs)
+
+def __run_one_command(prog_args, stderr=None, check=True):
     proc = subprocess.Popen(prog_args, stdout = subprocess.PIPE, stderr = stderr)
     outs, errs = proc.communicate()
     outs = str(outs, 'utf-8')
@@ -29,24 +36,36 @@ def run_one_command(prog_args, stderr=None, check=True):
 
     return outs
 
+def run_one_command(prog_args, stderr=None, check=True):
+    if dry_run_mode:
+        print(" ".join([shlex.quote(x) for x in prog_args]))
+    else:
+        __run_one_command(prog_args, stderr=stderr, check=check)
+
+def run_read_only_command(prog_args, stderr=None, check=True):
+    return __run_one_command(prog_args, stderr=stderr, check=check)
+
 def run_hwloc_distrib(prog_args):
     """
     Returns a list of strings - each representing a single line of hwloc-distrib output.
     """
-    return run_one_command(['hwloc-distrib'] + prog_args).splitlines()
+    return run_read_only_command(['hwloc-distrib'] + prog_args).splitlines()
 
 def run_hwloc_calc(prog_args):
     """
     Returns a single string with the result of the execution.
     """
-    return run_one_command(['hwloc-calc'] + prog_args).rstrip()
+    return run_read_only_command(['hwloc-calc'] + prog_args).rstrip()
 
 def fwriteln(fname, line, log_message, log_errors=True):
     try:
-        with open(fname, 'w') as f:
-            f.write(line)
-
-        print(log_message)
+        if dry_run_mode:
+            print("echo {} > {}".format(line, fname))
+            return
+        else:
+            with open(fname, 'w') as f:
+                f.write(line)
+            print(log_message)
     except:
         if log_errors:
             print("{}: failed to write into {}: {}".format(log_message, fname, sys.exc_info()))
@@ -85,7 +104,7 @@ def distribute_irqs(irqs, cpu_mask, log_errors=True):
         set_one_mask("/proc/irq/{}/smp_affinity".format(irqs[i]), mask, log_errors=log_errors)
 
 def is_process_running(name):
-    return len(list(filter(lambda ps_line : not re.search('<defunct>', ps_line), run_one_command(['ps', '--no-headers', '-C', name], check=False).splitlines()))) > 0
+    return len(list(filter(lambda ps_line : not re.search('<defunct>', ps_line), run_read_only_command(['ps', '--no-headers', '-C', name], check=False).splitlines()))) > 0
 
 def restart_irqbalance(banned_irqs):
     """
@@ -103,7 +122,7 @@ def restart_irqbalance(banned_irqs):
 
     # return early if irqbalance is not running
     if not is_process_running('irqbalance'):
-        print("irqbalance is not running")
+        perftune_print("irqbalance is not running")
         return
 
     # If this file exists - this a "new (systemd) style" irqbalance packaging.
@@ -122,24 +141,25 @@ def restart_irqbalance(banned_irqs):
             with open('/proc/1/comm', 'r') as comm:
                 systemd = 'systemd' in comm.read()
         else:
-            print("Unknown system configuration - not restarting irqbalance!")
-            print("You have to prevent it from moving IRQs {} manually!".format(banned_irqs_list))
+            perftune_print("Unknown system configuration - not restarting irqbalance!")
+            perftune_print("You have to prevent it from moving IRQs {} manually!".format(banned_irqs_list))
             return
 
     orig_file = "{}.scylla.orig".format(config_file)
 
     # Save the original file
-    if not os.path.exists(orig_file):
-        print("Saving the original irqbalance configuration is in {}".format(orig_file))
-        shutil.copyfile(config_file, orig_file)
-    else:
-        print("File {} already exists - not overwriting.".format(orig_file))
+    if not dry_run_mode:
+        if not os.path.exists(orig_file):
+            print("Saving the original irqbalance configuration is in {}".format(orig_file))
+            shutil.copyfile(config_file, orig_file)
+        else:
+            print("File {} already exists - not overwriting.".format(orig_file))
 
     # Read the config file lines
     cfile_lines = open(config_file, 'r').readlines()
 
     # Build the new config_file contents with the new options configuration
-    print("Restarting irqbalance: going to ban the following IRQ numbers: {} ...".format(", ".join(banned_irqs_list)))
+    perftune_print("Restarting irqbalance: going to ban the following IRQ numbers: {} ...".format(", ".join(banned_irqs_list)))
 
     # Search for the original options line
     opt_lines = list(filter(lambda line : re.search("^\s*{}".format(options_key), line), cfile_lines))
@@ -148,6 +168,7 @@ def restart_irqbalance(banned_irqs):
     elif len(opt_lines) == 1:
         # cut the last "
         new_options = re.sub("\"\s*$", "", opt_lines[0].rstrip())
+        opt_lines = opt_lines[0].strip()
     else:
         raise Exception("Invalid format in {}: more than one lines with {} key".format(config_file, options_key))
 
@@ -159,18 +180,23 @@ def restart_irqbalance(banned_irqs):
 
     new_options += "\""
 
-    with open(config_file, 'w') as cfile:
-        for line in cfile_lines:
-            if not re.search("^\s*{}".format(options_key), line):
-                cfile.write(line)
+    if dry_run_mode:
+        if opt_lines:
+            print("sed -i 's/^{}/#{}/g' {}".format(options_key, options_key, config_file))
+        print("echo {} | tee -a {}".format(new_options, config_file))
+    else:
+        with open(config_file, 'w') as cfile:
+            for line in cfile_lines:
+                if not re.search("^\s*{}".format(options_key), line):
+                    cfile.write(line)
 
-        cfile.write(new_options + "\n")
+            cfile.write(new_options + "\n")
 
     if systemd:
-        print("Restarting irqbalance via systemctl...")
+        perftune_print("Restarting irqbalance via systemctl...")
         run_one_command(['systemctl', 'try-restart', 'irqbalance'])
     else:
-        print("Restarting irqbalance directly (init.d)...")
+        perftune_print("Restarting irqbalance directly (init.d)...")
         run_one_command(['/etc/init.d/irqbalance', 'restart'])
 
 def learn_irqs_from_proc_interrupts(pattern, irq2procline):
@@ -452,10 +478,10 @@ class NetPerfTuner(PerfTunerBase):
         Tune the networking server configuration.
         """
         if self.nic_is_hw_iface:
-            print("Setting a physical interface {}...".format(self.nic))
+            perftune_print("Setting a physical interface {}...".format(self.nic))
             self.__setup_one_hw_iface(self.nic)
         else:
-            print("Setting {} bonding interface...".format(self.nic))
+            perftune_print("Setting {} bonding interface...".format(self.nic))
             self.__setup_bonding_iface()
 
         # Increase the socket listen() backlog
@@ -529,7 +555,7 @@ class NetPerfTuner(PerfTunerBase):
             return
 
         # Enable RFS
-        print("Setting net.core.rps_sock_flow_entries to {}".format(self.__rfs_table_size))
+        perftune_print("Setting net.core.rps_sock_flow_entries to {}".format(self.__rfs_table_size))
         run_one_command(['sysctl', '-w', 'net.core.rps_sock_flow_entries={}'.format(self.__rfs_table_size)])
 
         # Set each RPS queue limit
@@ -538,12 +564,17 @@ class NetPerfTuner(PerfTunerBase):
             fwriteln(rfs_limit_cnt, "{}".format(one_q_limit), log_message=msg)
 
         # Enable ntuple filtering HW offload on the NIC
-        print("Trying to enable ntuple filtering HW offload for {}...".format(iface), end='')
-        try:
-            run_one_command(['ethtool','-K', iface, 'ntuple', 'on'], stderr=subprocess.DEVNULL)
-            print("ok")
-        except:
-            print("not supported")
+        ethtool_msg = "Enable ntuple filtering HW offload for {}...".format(iface)
+        if dry_run_mode:
+                perftune_print(ethtool_msg)
+                run_one_command(['ethtool','-K', iface, 'ntuple', 'on'], stderr=subprocess.DEVNULL)
+        else:
+            try:
+                print("Trying to enable ntuple filtering HW offload for {}...".format(iface), end='')
+                run_one_command(['ethtool','-K', iface, 'ntuple', 'on'], stderr=subprocess.DEVNULL)
+                print("ok")
+            except:
+                print("not supported")
 
     def __setup_rps(self, iface, mask):
         for one_rps_cpus in self.__get_rps_cpus(iface):
@@ -663,12 +694,12 @@ class NetPerfTuner(PerfTunerBase):
         # For such NICs we've sorted IRQs list so that IRQs that handle Rx are all at the head of the list.
         if max_num_rx_queues < len(all_irqs):
             num_rx_queues = self.__get_rx_queue_count(iface)
-            print("Distributing IRQs handling Rx:")
+            perftune_print("Distributing IRQs handling Rx:")
             distribute_irqs(all_irqs[0:num_rx_queues], self.irqs_cpu_mask)
-            print("Distributing the rest of IRQs")
+            perftune_print("Distributing the rest of IRQs")
             distribute_irqs(all_irqs[num_rx_queues:], self.irqs_cpu_mask)
         else:
-            print("Distributing all IRQs")
+            perftune_print("Distributing all IRQs")
             distribute_irqs(all_irqs, self.irqs_cpu_mask)
 
         self.__setup_rps(iface, self.compute_cpu_mask)
@@ -677,10 +708,10 @@ class NetPerfTuner(PerfTunerBase):
     def __setup_bonding_iface(self):
         for slave in self.slaves:
             if self.__dev_is_hw_iface(slave):
-                print("Setting up {}...".format(slave))
+                perftune_print("Setting up {}...".format(slave))
                 self.__setup_one_hw_iface(slave)
             else:
-                print("Skipping {} (not a physical slave device?)".format(slave))
+                perftune_print("Skipping {} (not a physical slave device?)".format(slave))
 
     def __max_rx_queue_count(self, iface):
         """
@@ -699,7 +730,7 @@ class NetPerfTuner(PerfTunerBase):
         driver_to_max_rss = {'ixgbe': 16, 'ixgbevf': 4, 'i40e': 64, 'i40evf': 16}
 
         driver_name = ''
-        ethtool_i_lines = run_one_command(['ethtool', '-i', iface]).splitlines()
+        ethtool_i_lines = run_read_only_command(['ethtool', '-i', iface]).splitlines()
         driver_re = re.compile("driver:")
         driver_lines = list(filter(lambda one_line: driver_re.search(one_line), ethtool_i_lines))
 
@@ -743,7 +774,8 @@ class ClocksourceManager:
     class PreferredClockSourceNotAvailableException(Exception):
         pass
 
-    def __init__(self):
+    def __init__(self, args):
+        self.__args = args
         self._preferred = {"x86_64": "tsc"}
         self._arch = platform.machine()
         self._available_clocksources_file = "/sys/devices/system/clocksource/clocksource0/available_clocksource"
@@ -774,14 +806,14 @@ class ClocksourceManager:
 class SystemPerfTuner(PerfTunerBase):
     def __init__(self, args):
         super().__init__(args)
-        self._clocksource_manager = ClocksourceManager()
+        self._clocksource_manager = ClocksourceManager(args)
 
     def tune(self):
         if self.args.tune_clock:
             if not self._clocksource_manager.setting_available():
-                print("Clocksource setting not available or not needed for this architecture. Not tuning");
+                perftune_print("Clocksource setting not available or not needed for this architecture. Not tuning");
             elif not self._clocksource_manager.preferred_clocksource_available():
-                print(self._clocksource_manager.recommendation_if_unavailable())
+                perftune_print(self._clocksource_manager.recommendation_if_unavailable())
             else:
                 self._clocksource_manager.enforce_preferred_clocksource()
 
@@ -830,15 +862,14 @@ class DiskPerfTuner(PerfTunerBase):
 
         non_nvme_disks, non_nvme_irqs = self.__disks_info_by_type(DiskPerfTuner.SupportedDiskTypes.non_nvme)
         if non_nvme_disks:
-            print("Setting non-NVMe disks: {}...".format(", ".join(non_nvme_disks)))
+            perftune_print("Setting non-NVMe disks: {}...".format(", ".join(non_nvme_disks)))
             distribute_irqs(non_nvme_irqs, mode_cpu_mask)
             self.__tune_disks(non_nvme_disks)
         else:
-            print("No non-NVMe disks to tune")
+            perftune_print("No non-NVMe disks to tune")
 
         nvme_disks, nvme_irqs = self.__disks_info_by_type(DiskPerfTuner.SupportedDiskTypes.nvme)
         if nvme_disks:
-            print("Setting NVMe disks: {}...".format(", ".join(nvme_disks)))
             # Linux kernel is going to use IRQD_AFFINITY_MANAGED mode for NVMe IRQs
             # on most systems (currently only AWS i3 non-metal are known to have a
             # different configuration). SMP affinity of an IRQ in this mode may not be
@@ -850,11 +881,12 @@ class DiskPerfTuner(PerfTunerBase):
             # What we don't want however is to see annoying errors every time we
             # detect that IRQD_AFFINITY_MANAGED was actually used. Therefore we will only log
             # them in the "verbose" mode or when we run on an i3.nonmetal AWS instance.
+            perftune_print("Setting NVMe disks: {}...".format(", ".join(nvme_disks)))
             distribute_irqs(nvme_irqs, self.args.cpu_mask,
                             log_errors=(self.is_aws_i3_non_metal_instance or self.args.verbose))
             self.__tune_disks(nvme_disks)
         else:
-            print("No NVMe disks to tune")
+            perftune_print("No NVMe disks to tune")
 
 #### Protected methods ##########################
     def _get_def_mode(self):
@@ -978,7 +1010,7 @@ class DiskPerfTuner(PerfTunerBase):
         """
         if not os.path.exists(directory):
             if not recur:
-                print("{} doesn't exist - skipping".format(directory))
+                perftune_print("{} doesn't exist - skipping".format(directory))
 
             return []
 
@@ -987,7 +1019,7 @@ class DiskPerfTuner(PerfTunerBase):
             return self.__get_phys_devices(udev_obj)
         except:
             # handle cases like ecryptfs where the directory is mounted to another directory and not to some block device
-            filesystem = run_one_command(['df', '-P', directory]).splitlines()[-1].split()[0].strip()
+            filesystem = run_read_only_command(['df', '-P', directory]).splitlines()[-1].split()[0].strip()
             if not re.search(r'^/dev/', filesystem):
                 devs = self.__learn_directory(filesystem, True)
             else:
@@ -995,7 +1027,7 @@ class DiskPerfTuner(PerfTunerBase):
 
             # log error only for the original directory
             if not recur and not devs:
-                print("Can't get a block device for {} - skipping".format(directory))
+                perftune_print("Can't get a block device for {} - skipping".format(directory))
 
             return devs
 
@@ -1114,12 +1146,12 @@ class DiskPerfTuner(PerfTunerBase):
         io_scheduler = self.__get_io_scheduler(dev_node)
 
         if not io_scheduler:
-            print("Not setting I/O Scheduler for {} - required schedulers ({}) are not supported".format(device, list(self.__io_schedulers)))
+            perftune_print("Not setting I/O Scheduler for {} - required schedulers ({}) are not supported".format(device, list(self.__io_schedulers)))
         elif not self.__tune_io_scheduler(dev_node, io_scheduler):
-            print("Not setting I/O Scheduler for {} - feature not present".format(device))
+            perftune_print("Not setting I/O Scheduler for {} - feature not present".format(device))
 
         if not self.__tune_nomerges(dev_node):
-            print("Not setting 'nomerges' for {} - feature not present".format(device))
+            perftune_print("Not setting 'nomerges' for {} - feature not present".format(device))
 
     def __tune_disks(self, disks):
         for disk in disks:
@@ -1182,6 +1214,7 @@ argp.add_argument('--dir', help="directory to optimize (may appear more than onc
 argp.add_argument('--dev', help="device to optimize (may appear more than once), e.g. sda1", action='append', dest='devs', default=[])
 argp.add_argument('--options-file', help="configuration YAML file")
 argp.add_argument('--dump-options-file', action='store_true', help="Print the configuration YAML file containing the current configuration")
+argp.add_argument('--dry-run', action='store_true', help="Don't take any action, just recommend what to do.")
 
 def parse_cpu_mask_from_yaml(y, field_name, fname):
     hex_32bit_pattern='0x[0-9a-fA-F]{1,8}'
@@ -1256,10 +1289,11 @@ def dump_config(prog_args):
     if prog_args.devs:
         prog_options['dev'] = prog_args.devs
 
-    print(yaml.dump(prog_options, default_flow_style=False))
+    perftune_print(yaml.dump(prog_options, default_flow_style=False))
 ################################################################################
 
 args = argp.parse_args()
+dry_run_mode = args.dry_run
 parse_options_file(args)
 
 # if nothing needs to be configured - quit
@@ -1306,7 +1340,7 @@ try:
 
     if args.get_cpu_mask:
         # Print the compute mask from the first tuner - it's going to be the same in all of them
-        print(tuners[0].compute_cpu_mask)
+        perftune_print(tuners[0].compute_cpu_mask)
     else:
         # Tune the system
         restart_irqbalance(itertools.chain.from_iterable([ tuner.irqs for tuner in tuners ]))
