@@ -281,6 +281,7 @@ struct listen_options {
     bool reuse_address = false;
     server_socket::load_balancing_algorithm lba = server_socket::load_balancing_algorithm::default_;
     transport proto = transport::TCP;
+    int listen_backlog = 100;
 };
 
 class network_stack {

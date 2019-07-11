@@ -1838,7 +1838,7 @@ reactor::posix_listen(socket_address sa, listen_options opts) {
 
     try {
         fd.bind(sa.u.sa, sizeof(sa.u.sas));
-        fd.listen(100);
+        fd.listen(opts.listen_backlog);
     } catch (const std::system_error& s) {
         throw std::system_error(s.code(), fmt::format("posix_listen failed for address {}", sa));
     }
