@@ -154,6 +154,9 @@ struct convert<seastar::mountpoint_params> {
 
 namespace seastar {
 
+seastar::logger seastar_logger("seastar");
+seastar::logger sched_logger("scheduler");
+
 io_priority_class
 reactor::register_one_priority_class(sstring name, uint32_t shares) {
     return io_queue::register_one_priority_class(std::move(name), shares);
@@ -163,6 +166,47 @@ future<>
 reactor::update_shares_for_class(io_priority_class pc, uint32_t shares) {
     return parallel_for_each(_io_queues, [pc, shares] (auto& queue) {
         return queue.second->update_shares_for_class(pc, shares);
+    });
+}
+
+future<>
+reactor::rename_priority_class(io_priority_class pc, sstring new_name) {
+
+    return futurize<void>().apply([pc, new_name] () {
+        // Taking the lock here will prevent from newly registered classes
+        // to register under the old name (and will prevent undefined
+        // behavior since this array is shared cross shards. However, it
+        // doesn't prevent the case where a newly registered class (that
+        // got registered right after the lock release) will be unnecessarily
+        // renamed. This is not a real problem and it is a lot better than
+        // holding the lock until all cross shard activity is over.
+
+        try {
+            std::lock_guard<std::mutex>(io_queue::_register_lock);
+            for (unsigned i = 0; i < io_queue::_max_classes; ++i) {
+               if (!io_queue::_registered_shares[i]) {
+                   break;
+               }
+               if (io_queue::_registered_names[i] == new_name) {
+                   if (i == pc.id()) {
+                       return make_ready_future();
+                   } else {
+                       throw std::runtime_error(format("rename priority class: an attempt was made to rename a priority class to an"
+                               " already existing name ({})", new_name));
+                   }
+               }
+            }
+            io_queue::_registered_names[pc.id()] = new_name;
+        } catch (...) {
+            sched_logger.error("exception while trying to rename priority group with id {} to \"{}\" ({})",
+                    pc.id(), new_name, std::current_exception());
+            std::rethrow_exception(std::current_exception());
+        }
+        return smp::invoke_on_all([pc, new_name] {
+            for (auto&& queue : engine()._io_queues) {
+                queue.second->rename_priority_class(pc, new_name);
+            }
+        });
     });
 }
 
@@ -419,9 +463,6 @@ using namespace net;
 
 using namespace internal;
 using namespace internal::linux_abi;
-
-seastar::logger seastar_logger("seastar");
-seastar::logger sched_logger("scheduler");
 
 std::atomic<lowres_clock_impl::steady_rep> lowres_clock_impl::counters::_steady_now;
 std::atomic<lowres_clock_impl::system_rep> lowres_clock_impl::counters::_system_now;
@@ -2181,6 +2222,25 @@ io_queue::priority_class_data::priority_class_data(sstring name, sstring mountpo
     , nr_queued(0)
     , queue_time(1s)
 {
+    register_stats(name, mountpoint, owner);
+}
+
+void
+io_queue::priority_class_data::rename(sstring new_name, sstring mountpoint, shard_id owner) {
+    try {
+        register_stats(new_name, mountpoint, owner);
+    } catch (metrics::double_registration &e) {
+        // we need to ignore this exception, since it can happen that
+        // a class that was already created with the new name will be
+        // renamed again (this will cause a double registration exception
+        // to be thrown).
+    }
+
+}
+
+void
+io_queue::priority_class_data::register_stats(sstring name, sstring mountpoint, shard_id owner) {
+    seastar::metrics::metric_groups new_metrics;
     namespace sm = seastar::metrics;
     auto shard = sm::impl::shard();
 
@@ -2189,7 +2249,7 @@ io_queue::priority_class_data::priority_class_data(sstring name, sstring mountpo
 
     auto class_label_type = sm::label("class");
     auto class_label = class_label_type(name);
-    _metric_groups.add_group("io_queue", {
+    new_metrics.add_group("io_queue", {
             sm::make_derive("total_bytes", bytes, sm::description("Total bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
             sm::make_derive("total_operations", ops, sm::description("Total bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
             // Note: The counter below is not the same as reactor's queued-io-requests
@@ -2209,6 +2269,7 @@ io_queue::priority_class_data::priority_class_data(sstring name, sstring mountpo
                 return this->ptr->shares();
             }, sm::description("current amount of shares"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label})
     });
+    _metric_groups = std::exchange(new_metrics, {});
 }
 
 io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc, shard_id owner) {
@@ -2222,7 +2283,12 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
     }
     if (do_insert || !_priority_classes[owner][id]) {
         auto shares = _registered_shares.at(id);
-        auto name = _registered_names.at(id);
+        sstring name;
+        {
+            std::lock_guard<std::mutex> lock(_register_lock);
+            name = _registered_names.at(id);
+        }
+
         // A note on naming:
         //
         // We could just add the owner as the instance id and have something like:
@@ -2289,6 +2355,16 @@ io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares)
         auto& pclass = find_or_create_class(pc, owner);
         _fq.update_shares(pclass.ptr, new_shares);
     });
+}
+
+void
+io_queue::rename_priority_class(io_priority_class pc, sstring new_name) {
+    for (unsigned owner = 0; owner < _priority_classes.size(); owner++) {
+        if (_priority_classes[owner].size() > pc.id() &&
+                _priority_classes[owner][pc.id()]) {
+            _priority_classes[owner][pc.id()]->rename(new_name, _config.mountpoint, owner);
+        }
+    }
 }
 
 file_impl* file_impl::get_file_impl(file& f) {
@@ -6007,6 +6083,11 @@ create_scheduling_group(sstring name, float shares) {
     }).then([sg] {
         return make_ready_future<scheduling_group>(sg);
     });
+}
+
+future<>
+rename_priority_class(io_priority_class pc, sstring new_name) {
+    return reactor::rename_priority_class(pc, new_name);
 }
 
 future<>

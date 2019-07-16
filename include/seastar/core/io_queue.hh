@@ -30,6 +30,19 @@
 
 namespace seastar {
 
+/// Renames an io priority class
+///
+/// Renames an \ref io_priority_class previously created with register_one_priority_class().
+///
+/// The operation is global and affects all shards.
+/// The operation affects the exported statistics labels.
+///
+/// \param pc The io priority class to be renamed
+/// \param new_name The new name for the io priority class
+/// \return a future that is ready when the io priority class have been renamed
+future<>
+rename_priority_class(io_priority_class pc, sstring new_name);
+
 namespace internal {
 namespace linux_abi {
 
@@ -52,6 +65,9 @@ private:
         std::chrono::duration<double> queue_time;
         metrics::metric_groups _metric_groups;
         priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr, shard_id owner);
+        void rename(sstring new_name, sstring mountpoint, shard_id owner);
+    private:
+        void register_stats(sstring name, sstring mountpoint, shard_id owner);
     };
 
     std::vector<std::vector<lw_shared_ptr<priority_class_data>>> _priority_classes;
@@ -132,6 +148,7 @@ public:
     }
 
     future<> update_shares_for_class(io_priority_class pc, size_t new_shares);
+    void rename_priority_class(io_priority_class pc, sstring new_name);
 
     friend class reactor;
 private:

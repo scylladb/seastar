@@ -29,6 +29,8 @@
 namespace seastar {
 namespace metrics {
 
+double_registration::double_registration(std::string what): std::runtime_error(what) {}
+
 metric_groups::metric_groups() noexcept : _impl(impl::create_metric_groups()) {
 }
 
@@ -328,7 +330,7 @@ void impl::add_registration(const metric_id& id, data_type type, metric_function
     if (_value_map.find(name) != _value_map.end()) {
         auto& metric = _value_map[name];
         if (metric.find(id.labels()) != metric.end()) {
-            throw std::runtime_error("registering metrics twice for metrics: " + name);
+            throw double_registration("registering metrics twice for metrics: " + name);
         }
         if (metric.info().type != type) {
             throw std::runtime_error("registering metrics " + name + " registered with different type.");
