@@ -1193,10 +1193,16 @@ reactor::task_queue::task_queue(unsigned id, sstring name, float shares)
         , _reciprocal_shares_times_2_power_32((uint64_t(1) << 32) / _shares)
         , _id(id)
         , _name(name) {
+    register_stats();
+}
+
+void
+reactor::task_queue::register_stats() {
+    seastar::metrics::metric_groups new_metrics;
     namespace sm = seastar::metrics;
     static auto group = sm::label("group");
     auto group_label = group(_name);
-    _metrics.add_group("scheduler", {
+    new_metrics.add_group("scheduler", {
         sm::make_counter("runtime_ms", [this] {
             return std::chrono::duration_cast<std::chrono::milliseconds>(_runtime).count();
         }, sm::description("Accumulated runtime of this task queue; an increment rate of 1000ms per second indicates full utilization"),
@@ -1215,6 +1221,15 @@ reactor::task_queue::task_queue(unsigned id, sstring name, float shares)
         }, sm::description("Total amount in milliseconds we were in violation of the task quota"),
            {group_label}),
     });
+    _metrics = std::exchange(new_metrics, {});
+}
+
+void
+reactor::task_queue::rename(sstring new_name) {
+    if (_name != new_name) {
+        _name = new_name;
+        register_stats();
+    }
 }
 
 #ifdef __clang__
@@ -6009,6 +6024,15 @@ destroy_scheduling_group(scheduling_group sg) {
     });
 }
 
+future<>
+rename_scheduling_group(scheduling_group sg, sstring new_name) {
+    if (sg == default_scheduling_group()) {
+        throw_with_backtrace<std::runtime_error>("Attempt to rename the default scheduling group");
+    }
+    return smp::invoke_on_all([sg, new_name] {
+        engine()._task_queues[sg._id]->rename(new_name);
+    });
+}
 
 namespace internal {
 

@@ -68,6 +68,18 @@ future<scheduling_group> create_scheduling_group(sstring name, float shares);
 /// \return a future that is ready when the scheduling group has been torn down
 future<> destroy_scheduling_group(scheduling_group sg);
 
+/// Rename scheduling group.
+///
+/// Renames a \ref scheduling_group previously created with create_scheduling_group().
+///
+/// The operation is global and affects all shards.
+/// The operation affects the exported statistics labels.
+///
+/// \param sg The scheduling group to be renamed
+/// \param new_name The new name for the scheduling group.
+/// \return a future that is ready when the scheduling group has been renamed
+future<> rename_scheduling_group(scheduling_group sg, sstring new_name);
+
 /// \brief Identifies function calls that are accounted as a group
 ///
 /// A `scheduling_group` is a tag that can be used to mark a function call.
@@ -99,6 +111,7 @@ public:
     void set_shares(float shares);
     friend future<scheduling_group> create_scheduling_group(sstring name, float shares);
     friend future<> destroy_scheduling_group(scheduling_group sg);
+    friend future<> rename_scheduling_group(scheduling_group sg, sstring new_name);
     friend class reactor;
     friend unsigned internal::scheduling_group_index(scheduling_group sg);
     friend scheduling_group internal::scheduling_group_from_index(unsigned index);

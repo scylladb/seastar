@@ -530,6 +530,9 @@ private:
         struct indirect_compare;
         sched_clock::duration _time_spent_on_task_quota_violations = {};
         seastar::metrics::metric_groups _metrics;
+        void rename(sstring new_name);
+    private:
+        void register_stats();
     };
     boost::container::static_vector<std::unique_ptr<task_queue>, max_scheduling_groups()> _task_queues;
     int64_t _last_vruntime = 0;
@@ -859,6 +862,7 @@ private:
     metrics::metric_groups _metric_groups;
     friend future<scheduling_group> create_scheduling_group(sstring name, float shares);
     friend future<> seastar::destroy_scheduling_group(scheduling_group);
+    friend future<> seastar::rename_scheduling_group(scheduling_group sg, sstring new_name);
 public:
     bool wait_and_process(int timeout = 0, const sigset_t* active_sigmask = nullptr);
     future<> readable(pollable_fd_state& fd);
