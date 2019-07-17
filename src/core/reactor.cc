@@ -1585,13 +1585,13 @@ void cpu_stall_detector::on_signal() {
 
 void cpu_stall_detector::report_suppressions(std::chrono::steady_clock::time_point now) {
     if (now > _minute_mark + 60s) {
-        if (_reported) {
-            auto supressed = _reported - _max_reports_per_minute;
+        if (_reported > _max_reports_per_minute) {
+            auto suppressed = _reported - _max_reports_per_minute;
             backtrace_buffer buf;
             // Reuse backtrace buffer infrastructure so we don't have to allocate here
-            buf.append("Rate-limit: supressed ");
-            buf.append_decimal(_reported - _max_reports_per_minute);
-            supressed == 1 ? buf.append(" backtrace") : buf.append(" backtraces");
+            buf.append("Rate-limit: suppressed ");
+            buf.append_decimal(suppressed);
+            suppressed == 1 ? buf.append(" backtrace") : buf.append(" backtraces");
             buf.append(" on shard ");
             buf.append_decimal(_shard_id);
             buf.append("\n");
