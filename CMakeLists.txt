@@ -98,7 +98,7 @@ set (CMAKE_CXX_FLAGS_SANITIZE
   FORCE)
 
 set (CMAKE_C_FLAGS_SANITIZE
-  "-O1"
+  "-Os -g"
   CACHE
   STRING
   "Flags used by the C compiler during sanitize builds."
