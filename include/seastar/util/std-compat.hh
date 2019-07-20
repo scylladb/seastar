@@ -129,6 +129,19 @@ public:
 
 #endif
 
+// Defining SEASTAR_ASAN_ENABLED in here is a bit of a hack, but
+// convenient since it is build system independent and in practice
+// everything includes this header.
+
+#ifndef __has_feature
+#define __has_feature(x) 0
+#endif
+
+// clang uses __has_feature, gcc defines __SANITIZE_ADDRESS__
+#if __has_feature(address_sanitizer) || defined(__SANITIZE_ADDRESS__)
+#define SEASTAR_ASAN_ENABLED
+#endif
+
 namespace seastar {
 
 /// \cond internal
