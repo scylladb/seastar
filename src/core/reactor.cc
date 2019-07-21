@@ -2626,6 +2626,9 @@ append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, ope
 }
 
 append_challenged_posix_file_impl::~append_challenged_posix_file_impl() {
+    // If the file has not been closed we risk having running tasks
+    // that will try to access freed memory.
+    assert(_closing_state == state::closed);
 }
 
 bool
@@ -2713,7 +2716,7 @@ append_challenged_posix_file_impl::process_queue() noexcept {
     }
     if (may_quit()) {
         _completed.set_value();
-        _done = false; // prevents _completed to be signaled again in case of recursion
+        _closing_state = state::closing; // prevents _completed to be signaled again in case of recursion
     }
 }
 
@@ -2725,7 +2728,8 @@ append_challenged_posix_file_impl::enqueue(op&& op) {
 
 bool
 append_challenged_posix_file_impl::may_quit() const noexcept {
-    return _done && _q.empty() && !_current_non_size_changing_ops && !_current_size_changing_ops;
+    return _closing_state == state::draining && _q.empty() && !_current_non_size_changing_ops &&
+           !_current_size_changing_ops;
 }
 
 void
@@ -2914,7 +2918,7 @@ append_challenged_posix_file_impl::size() {
 future<>
 append_challenged_posix_file_impl::close() noexcept {
     // Caller should have drained all pending I/O
-    _done = true;
+    _closing_state = state::draining;
     process_queue();
     return _completed.get_future().then([this] {
         if (_logical_size != _committed_size) {
@@ -2923,7 +2927,7 @@ append_challenged_posix_file_impl::close() noexcept {
                 _committed_size = _logical_size;
             }
         }
-        return posix_file_impl::close();
+        return posix_file_impl::close().finally([this] { _closing_state = state::closed; });
     });
 }
 

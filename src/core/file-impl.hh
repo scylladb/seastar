@@ -143,8 +143,11 @@ class append_challenged_posix_file_impl : public posix_file_impl, public enable_
     unsigned _current_non_size_changing_ops = 0;
     unsigned _current_size_changing_ops = 0;
     bool _fsync_is_exclusive = true;
-    // Set when the user closes the file
-    bool _done = false;
+
+    // Set when the user is closing the file
+    enum class state { open, draining, closing, closed };
+    state _closing_state = state::open;
+
     bool _sloppy_size = false;
     // Fulfiled when _done and I/O is complete
     promise<> _completed;
