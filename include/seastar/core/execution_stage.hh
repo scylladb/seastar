@@ -212,6 +212,7 @@ class concrete_execution_stage final : public execution_stage {
                   "Function arguments need to be nothrow move constructible");
 
     static constexpr size_t flush_threshold = 128;
+    static constexpr size_t max_queue_length = 1024;
 
     using return_type = futurize_t<ReturnType>;
     using promise_type = typename return_type::promise_type;
@@ -284,6 +285,9 @@ public:
     /// \param args arguments passed to the stage's function
     /// \return future containing the result of the call to the stage's function
     return_type operator()(typename internal::wrap_for_es<Args>::type... args) {
+        if (_queue.size() >= max_queue_length) {
+            do_flush();
+        }
         _queue.emplace_back(std::move(args)...);
         _empty = false;
         _stats.function_calls_enqueued++;
