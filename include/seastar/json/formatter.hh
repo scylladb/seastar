@@ -326,12 +326,6 @@ public:
     static future<> write(output_stream<char>& s, unsigned long l) {
       return s.write(to_json(l));
      }
-
-
-private:
-
-    static constexpr const char* TIME_FORMAT = "%a %b %d %I:%M:%S %Z %Y";
-
 };
 
 }
