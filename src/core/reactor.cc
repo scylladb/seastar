@@ -1535,6 +1535,11 @@ inline Integral increment_nonatomically(std::atomic<Integral>& value) {
 cpu_stall_detector::cpu_stall_detector(reactor* r, cpu_stall_detector_config cfg)
         : _r(r)
         , _shard_id(_r->cpu_id()) {
+    // glib's backtrace() calls dlopen("libgcc_s.so.1") once to resolve unwind related symbols.
+    // If first stall detector invocation happens during another dlopen() call the calling thread
+    // will deadlock. The dummy call here makes sure that backtrace's initialization happens in
+    // a safe place.
+    backtrace([] (frame) {});
     update_config(cfg);
     struct sigevent sev = {};
     sev.sigev_notify = SIGEV_THREAD_ID;
