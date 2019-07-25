@@ -44,6 +44,7 @@
 #include <sys/uio.h>
 
 #include <seastar/net/socket_defs.hh>
+#include <seastar/util/std-compat.hh>
 
 namespace seastar {
 
@@ -127,6 +128,15 @@ public:
     }
     file_desc accept(sockaddr& sa, socklen_t& sl, int flags = 0) {
         auto ret = ::accept4(_fd, &sa, &sl, flags);
+        throw_system_error_on(ret == -1, "accept4");
+        return file_desc(ret);
+    }
+    // return nullopt if no connection is availbale to be accepted
+    compat::optional<file_desc> try_accept(sockaddr& sa, socklen_t& sl, int flags = 0) {
+        auto ret = ::accept4(_fd, &sa, &sl, flags);
+        if (ret == -1 && errno == EAGAIN) {
+            return {};
+        }
         throw_system_error_on(ret == -1, "accept4");
         return file_desc(ret);
     }

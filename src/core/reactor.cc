@@ -212,11 +212,21 @@ reactor::rename_priority_class(io_priority_class pc, sstring new_name) {
 
 future<pollable_fd, socket_address>
 reactor::accept(pollable_fd_state& listenfd) {
-    return readable_or_writeable(listenfd).then([&listenfd] () mutable {
+    return readable_or_writeable(listenfd).then([this, &listenfd] () mutable {
         socket_address sa;
         socklen_t sl = sizeof(&sa.u.sas);
-        file_desc fd = listenfd.fd.accept(sa.u.sa, sl, SOCK_NONBLOCK | SOCK_CLOEXEC);
-        pollable_fd pfd(std::move(fd), pollable_fd::speculation(EPOLLOUT));
+        auto maybe_fd = listenfd.fd.try_accept(sa.u.sa, sl, SOCK_NONBLOCK | SOCK_CLOEXEC);
+        if (!maybe_fd) {
+            // We speculated that we will have an another connection, but got a false
+            // positive. Try again without speculation.
+            return accept(listenfd);
+        }
+        // Speculate that there is another connection on this listening socket, to avoid
+        // a task-quota delay. Usually this will fail, but accept is a rare-enough operation
+        // that it is worth the false positive in order to withstand a connection storm
+        // without having to accept at a rate of 1 per task quota.
+        listenfd.speculate_epoll(EPOLLIN);
+        pollable_fd pfd(std::move(*maybe_fd), pollable_fd::speculation(EPOLLOUT));
         return make_ready_future<pollable_fd, socket_address>(std::move(pfd), std::move(sa));
     });
 }
