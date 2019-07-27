@@ -975,7 +975,9 @@ future<> server::connection::send_unknown_verb_reply(compat::optional<rpc_clock_
 
   void server::accept() {
       keep_doing([this] () mutable {
-          return _ss.accept().then([this] (connected_socket fd, socket_address addr) mutable {
+          return _ss.accept().then([this] (accept_result ar) mutable {
+              auto fd = std::move(ar.connection);
+              auto addr = std::move(ar.remote_address);
               fd.set_nodelay(_options.tcp_nodelay);
               connection_id id = _options.streaming_domain ?
                       connection_id::make_id(_next_client_id++, uint16_t(engine().cpu_id())) :
