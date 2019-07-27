@@ -28,7 +28,8 @@
 namespace seastar {
 
 struct listen_options;
-class server_socket;
+inline namespace api_v1 { class server_socket; }
+namespace api_v2 { class server_socket; }
 class connected_socket;
 
 namespace net {

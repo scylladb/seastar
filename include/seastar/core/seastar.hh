@@ -53,7 +53,8 @@ template <class CharType> class input_stream;
 template <class CharType> class output_stream;
 
 // reactor.hh
-class server_socket;
+namespace api_v2 { class server_socket; }
+inline namespace api_v1 { class server_socket; }
 class connected_socket;
 class socket_address;
 struct listen_options;

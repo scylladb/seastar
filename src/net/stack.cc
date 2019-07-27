@@ -140,10 +140,35 @@ void socket::shutdown() {
     _si->shutdown();
 }
 
+namespace internal {
+
+class api_v1_to_v2_server_socket_impl_adapter : public net::api_v2::server_socket_impl {
+    std::unique_ptr<net::api_v1::server_socket_impl> _v1;
+public:
+    explicit api_v1_to_v2_server_socket_impl_adapter(std::unique_ptr<net::api_v1::server_socket_impl> v1)
+            : _v1(std::move(v1)) {
+    }
+    virtual future<accept_result> accept() override {
+        return _v1->accept().then([] (connected_socket cs, socket_address sa) {
+            return accept_result{std::move(cs), std::move(sa)};
+        });
+    }
+    virtual void abort_accept() override {
+        return _v1->abort_accept();
+    }
+    virtual socket_address local_address() const override {
+        return _v1->local_address();
+    }
+};
+
+}
+
+namespace api_v2 {
+
 server_socket::server_socket() {
 }
 
-server_socket::server_socket(std::unique_ptr<net::server_socket_impl> ssi)
+server_socket::server_socket(std::unique_ptr<net::api_v2::server_socket_impl> ssi)
         : _ssi(std::move(ssi)) {
 }
 server_socket::server_socket(server_socket&& ss) noexcept = default;
@@ -152,9 +177,9 @@ server_socket& server_socket::operator=(server_socket&& cs) noexcept = default;
 server_socket::~server_socket() {
 }
 
-future<connected_socket, socket_address> server_socket::accept() {
+future<accept_result> server_socket::accept() {
     if (_aborted) {
-        return make_exception_future<connected_socket, socket_address>(std::system_error(ECONNABORTED, std::system_category()));
+        return make_exception_future<accept_result>(std::system_error(ECONNABORTED, std::system_category()));
     }
     return _ssi->accept();
 }
@@ -166,6 +191,46 @@ void server_socket::abort_accept() {
 
 socket_address server_socket::local_address() const {
     return _ssi->local_address();
+}
+
+}
+
+namespace api_v1 {
+
+server_socket::server_socket() {
+}
+
+api_v2::server_socket
+server_socket::make_v2_server_socket(std::unique_ptr<net::api_v1::server_socket_impl> ssi_v1) {
+    auto ssi_v2 = std::make_unique<internal::api_v1_to_v2_server_socket_impl_adapter>(std::move(ssi_v1));
+    return api_v2::server_socket(std::move(ssi_v2));
+}
+
+server_socket::server_socket(std::unique_ptr<net::api_v1::server_socket_impl> ssi)
+        : _impl(make_v2_server_socket(std::move(ssi))) {
+}
+
+server_socket::server_socket(server_socket&& ss) noexcept = default;
+server_socket& server_socket::operator=(server_socket&& cs) noexcept = default;
+
+server_socket::~server_socket() {
+}
+
+future<connected_socket, socket_address> server_socket::accept() {
+    return _impl.accept().then([] (accept_result ar) {
+        return make_ready_future<connected_socket, socket_address>(std::move(ar.connection), std::move(ar.remote_address));
+    });
+}
+
+
+void server_socket::abort_accept() {
+    return _impl.abort_accept();
+}
+
+socket_address server_socket::local_address() const {
+    return _impl.local_address();
+}
+
 }
 
 socket_address::socket_address()
