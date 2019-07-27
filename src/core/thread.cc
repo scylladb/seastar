@@ -149,12 +149,11 @@ inline void jmp_buf_link::final_switch_out()
 #endif
 
 thread_context::thread_context(thread_attributes attr, noncopyable_function<void ()> func)
-        : _attr(std::move(attr))
+        : task(attr.sched_group.value_or(current_scheduling_group()))
 #ifdef SEASTAR_THREAD_STACK_GUARDS
         , _stack_size(base_stack_size + getpagesize())
 #endif
-        , _func(std::move(func))
-        , _scheduling_group(_attr.sched_group.value_or(current_scheduling_group())) {
+        , _func(std::move(func)) {
     setup();
     _all_threads.push_front(*this);
 }
@@ -235,16 +234,19 @@ thread_context::should_yield() const {
 thread_local thread_context::all_thread_list thread_context::_all_threads;
 
 void
+thread_context::run_and_dispose() noexcept {
+    switch_in();
+}
+
+void
 thread_context::yield() {
-    schedule(make_task(_scheduling_group, [this] {
-        switch_in();
-    }));
+    schedule(std::unique_ptr<task>(this));
     switch_out();
 }
 
 void
 thread_context::reschedule() {
-    _sched_promise->set_value();
+    schedule(std::unique_ptr<task>(this));
 }
 
 void
@@ -268,7 +270,7 @@ thread_context::main() {
     #warning "Backtracing from seastar threads may be broken"
 #endif
     _context.initial_switch_in_completed();
-    if (_scheduling_group != current_scheduling_group()) {
+    if (group() != current_scheduling_group()) {
         yield();
     }
     try {
@@ -303,7 +305,7 @@ void init() {
 
 scheduling_group
 sched_group(const thread_context* thread) {
-    return thread->_scheduling_group;
+    return thread->group();
 }
 
 }

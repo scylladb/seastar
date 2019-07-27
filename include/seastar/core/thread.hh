@@ -89,14 +89,13 @@ extern thread_local jmp_buf_link g_unthreaded_context;
 // Internal class holding thread state.  We can't hold this in
 // \c thread itself because \c thread is movable, and we want pointers
 // to this state to be captured.
-class thread_context {
+class thread_context : private task {
     struct stack_deleter {
         void operator()(char *ptr) const noexcept;
     };
     using stack_holder = std::unique_ptr<char[], stack_deleter>;
     static constexpr size_t base_stack_size = 128*1024;
 
-    thread_attributes _attr;
 #ifdef SEASTAR_THREAD_STACK_GUARDS
     const size_t _stack_size;
 #else
@@ -105,10 +104,8 @@ class thread_context {
     stack_holder _stack{make_stack()};
     noncopyable_function<void ()> _func;
     jmp_buf_link _context;
-    scheduling_group _scheduling_group;
     promise<> _done;
     bool _joined = false;
-    compat::optional<promise<>> _sched_promise;
 
     boost::intrusive::list_member_hook<> _all_link;
     using all_thread_list = boost::intrusive::list<thread_context,
@@ -122,6 +119,7 @@ private:
     void setup();
     void main();
     stack_holder make_stack();
+    virtual void run_and_dispose() noexcept override; // from task class
 public:
     thread_context(thread_attributes attr, noncopyable_function<void ()> func);
     ~thread_context();
