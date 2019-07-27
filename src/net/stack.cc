@@ -210,10 +210,23 @@ server_socket::server_socket(std::unique_ptr<net::api_v1::server_socket_impl> ss
         : _impl(make_v2_server_socket(std::move(ssi))) {
 }
 
+server_socket::server_socket(std::unique_ptr<net::api_v2::server_socket_impl> ssi)
+        : _impl(api_v2::server_socket(std::move(ssi))) {
+}
+
 server_socket::server_socket(server_socket&& ss) noexcept = default;
+
+server_socket::server_socket(api_v2::server_socket&& ss)
+        : _impl(std::move(ss)) {
+}
+
 server_socket& server_socket::operator=(server_socket&& cs) noexcept = default;
 
 server_socket::~server_socket() {
+}
+
+server_socket::operator api_v2::server_socket() && {
+    return std::move(_impl);
 }
 
 future<connected_socket, socket_address> server_socket::accept() {

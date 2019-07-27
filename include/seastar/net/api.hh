@@ -297,8 +297,11 @@ public:
     using load_balancing_algorithm = api_v2::server_socket::load_balancing_algorithm;
     server_socket();
     explicit server_socket(std::unique_ptr<net::api_v1::server_socket_impl> ssi);
+    explicit server_socket(std::unique_ptr<net::api_v2::server_socket_impl> ssi);
     server_socket(server_socket&& ss) noexcept;
+    server_socket(api_v2::server_socket&& ss);
     ~server_socket();
+    operator api_v2::server_socket() &&;
     server_socket& operator=(server_socket&& cs) noexcept;
     future<connected_socket, socket_address> accept();
     void abort_accept();
