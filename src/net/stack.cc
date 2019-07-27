@@ -163,7 +163,7 @@ public:
 
 }
 
-namespace api_v2 {
+SEASTAR_INCLUDE_API_V2 namespace api_v2 {
 
 server_socket::server_socket() {
 }
@@ -195,7 +195,7 @@ socket_address server_socket::local_address() const {
 
 }
 
-namespace api_v1 {
+SEASTAR_INCLUDE_API_V1 namespace api_v1 {
 
 server_socket::server_socket() {
 }

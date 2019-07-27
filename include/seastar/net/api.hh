@@ -31,6 +31,7 @@
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/util/std-compat.hh>
+#include "../core/internal/api-level.hh"
 #include <sys/types.h>
 
 namespace seastar {
@@ -75,8 +76,8 @@ using keepalive_params = compat::variant<tcp_keepalive_params, sctp_keepalive_pa
 /// \cond internal
 class connected_socket_impl;
 class socket_impl;
-inline namespace api_v1 { class server_socket_impl; }
-namespace api_v2 { class server_socket_impl; }
+SEASTAR_INCLUDE_API_V1 namespace api_v1 { class server_socket_impl; }
+SEASTAR_INCLUDE_API_V2 namespace api_v2 { class server_socket_impl; }
 class udp_channel_impl;
 class get_impl;
 /// \endcond
@@ -237,7 +238,7 @@ struct accept_result {
     socket_address remote_address;  ///< The address of the peer that connected to us
 };
 
-namespace api_v2 {
+SEASTAR_INCLUDE_API_V2 namespace api_v2 {
 
 /// A listening socket, waiting to accept incoming network connections.
 class server_socket {
@@ -287,7 +288,7 @@ public:
 
 }
 
-inline namespace api_v1 {
+SEASTAR_INCLUDE_API_V1 namespace api_v1 {
 
 class server_socket {
     api_v2::server_socket _impl;

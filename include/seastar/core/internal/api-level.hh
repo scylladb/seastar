@@ -16,35 +16,24 @@
  * under the License.
  */
 /*
- * Copyright (C) 2014 Cloudius Systems, Ltd.
+ * Copyright (C) 2019 ScyllaDB
  */
-
-// tcp/network-stack integration
 
 #pragma once
 
-#include <seastar/core/future.hh>
-#include "../core/internal/api-level.hh"
+// For IDEs that don't see SEASTAR_API_LEVEL, generate a nice default
+#ifndef SEASTAR_API_LEVEL
+#define SEASTAR_API_LEVEL 2
+#endif
 
-namespace seastar {
+#if SEASTAR_API_LEVEL >= 2
 
-struct listen_options;
-SEASTAR_INCLUDE_API_V1 namespace api_v1 { class server_socket; }
-SEASTAR_INCLUDE_API_V2 namespace api_v2 { class server_socket; }
-class connected_socket;
+#define SEASTAR_INCLUDE_API_V2 inline
+#define SEASTAR_INCLUDE_API_V1
 
-namespace net {
+#else
 
-struct ipv4_traits;
-template <typename InetTraits>
-class tcp;
+#define SEASTAR_INCLUDE_API_V2
+#define SEASTAR_INCLUDE_API_V1 inline
 
-server_socket
-tcpv4_listen(tcp<ipv4_traits>& tcpv4, uint16_t port, listen_options opts);
-
-seastar::socket
-tcpv4_socket(tcp<ipv4_traits>& tcpv4);
-
-}
-
-}
+#endif

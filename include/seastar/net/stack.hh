@@ -23,6 +23,7 @@
 #include <chrono>
 #include <seastar/net/api.hh>
 #include <seastar/core/memory.hh>
+#include "../core/internal/api-level.hh"
 
 namespace seastar {
 
@@ -52,7 +53,7 @@ public:
 };
 
 
-namespace api_v2 {
+SEASTAR_INCLUDE_API_V2 namespace api_v2 {
 
 class server_socket_impl {
 public:
@@ -64,7 +65,7 @@ public:
 
 }
 
-inline namespace api_v1 {
+SEASTAR_INCLUDE_API_V1 namespace api_v1 {
 
 class server_socket_impl {
 public:

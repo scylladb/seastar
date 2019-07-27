@@ -45,6 +45,7 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/file-types.hh>
 #include <seastar/util/bool_class.hh>
+#include "./internal/api-level.hh"
 
 namespace seastar {
 
@@ -53,8 +54,8 @@ template <class CharType> class input_stream;
 template <class CharType> class output_stream;
 
 // reactor.hh
-namespace api_v2 { class server_socket; }
-inline namespace api_v1 { class server_socket; }
+SEASTAR_INCLUDE_API_V2 namespace api_v2 { class server_socket; }
+SEASTAR_INCLUDE_API_V1 namespace api_v1 { class server_socket; }
 class connected_socket;
 class socket_address;
 struct listen_options;
