@@ -181,15 +181,15 @@ public:
     }
 };
 
-class loopback_server_socket_impl : public net::server_socket_impl {
+class loopback_server_socket_impl : public net::api_v2::server_socket_impl {
     lw_shared_ptr<queue<connected_socket>> _pending;
 public:
     explicit loopback_server_socket_impl(lw_shared_ptr<queue<connected_socket>> q)
             : _pending(std::move(q)) {
     }
-    future<connected_socket, socket_address> accept() override {
+    future<accept_result> accept() override {
         return _pending->pop_eventually().then([] (connected_socket&& cs) {
-            return make_ready_future<connected_socket, socket_address>(std::move(cs), socket_address());
+            return make_ready_future<accept_result>(accept_result{std::move(cs), socket_address()});
         });
     }
     void abort_accept() override {
