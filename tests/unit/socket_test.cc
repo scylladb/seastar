@@ -46,12 +46,13 @@ future<> handle_connection(connected_socket s) {
 
 future<> echo_server_loop() {
     return do_with(
-        listen(make_ipv4_address({1234}), listen_options{.reuse_address = true}), [](auto& listener) {
+        api_v2::server_socket(listen(make_ipv4_address({1234}), listen_options{.reuse_address = true})), [](auto& listener) {
               connect(make_ipv4_address({"127.0.0.1", 1234})).then([](connected_socket&& socket) {
                   socket.shutdown_output();
               });
               return listener.accept().then(
-                  [](connected_socket s, socket_address a) {
+                  [](accept_result ar) {
+                      connected_socket s = std::move(ar.connection);
                       return handle_connection(std::move(s));
                   }).then([l = std::move(listener)]() mutable { return l.abort_accept(); });
         });
