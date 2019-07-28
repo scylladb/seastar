@@ -1527,21 +1527,6 @@ void reactor_backend_epoll::start_handling_signal() {
     request_preemption();
 }
 
-// Add to an atomic integral non-atomically and returns the previous value
-template <typename Integral>
-inline Integral add_nonatomically(std::atomic<Integral>& value, Integral inc) {
-    auto tmp = value.load(std::memory_order_relaxed);
-    value.store(tmp + inc, std::memory_order_relaxed);
-    return tmp;
-}
-
-// Increments an atomic integral non-atomically and returns the previous value
-// Akin to value++;
-template <typename Integral>
-inline Integral increment_nonatomically(std::atomic<Integral>& value) {
-    return add_nonatomically(value, Integral(1));
-}
-
 cpu_stall_detector::cpu_stall_detector(reactor* r, cpu_stall_detector_config cfg)
         : _r(r)
         , _shard_id(_r->cpu_id()) {
@@ -3706,7 +3691,7 @@ void reactor::register_metrics() {
             sm::make_gauge("tasks_pending", std::bind(&reactor::pending_task_count, this), sm::description("Number of pending tasks in the queue")),
             // total_operations value:DERIVE:0:U
             sm::make_derive("tasks_processed", std::bind(&reactor::tasks_processed, this), sm::description("Total tasks processed")),
-            sm::make_derive("polls", [this] { return _polls.load(std::memory_order_relaxed); }, sm::description("Number of times pollers were executed")),
+            sm::make_derive("polls", _polls, sm::description("Number of times pollers were executed")),
             sm::make_derive("timers_pending", std::bind(&decltype(_timers)::size, &_timers), sm::description("Number of tasks in the timer-pending queue")),
             sm::make_gauge("utilization", [this] { return (1-_load)  * 100; }, sm::description("CPU utilization")),
             sm::make_derive("cpu_busy_ms", [this] () -> int64_t { return total_busy_time() / 1ms; },
@@ -4379,7 +4364,7 @@ int reactor::run() {
             break;
         }
 
-        increment_nonatomically(_polls);
+        _polls++;
 
         if (check_for_work()) {
             if (idle) {
