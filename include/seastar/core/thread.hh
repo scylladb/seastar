@@ -94,7 +94,14 @@ class thread_context : private task {
         void operator()(char *ptr) const noexcept;
     };
     using stack_holder = std::unique_ptr<char[], stack_deleter>;
+
+    // Both asan and optimizations can increase the stack used by a
+    // function. When both are used, we need more than 128 KiB.
+#if defined(__OPTIMIZE__) && defined(SEASTAR_ASAN_ENABLED)
+    static constexpr size_t base_stack_size = 256*1024;
+#else
     static constexpr size_t base_stack_size = 128*1024;
+#endif
 
 #ifdef SEASTAR_THREAD_STACK_GUARDS
     const size_t _stack_size;
