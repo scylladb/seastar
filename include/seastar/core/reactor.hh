@@ -494,6 +494,7 @@ private:
     promise<> _start_promise;
     semaphore _cpu_started;
     internal::preemption_monitor _preemption_monitor{};
+    uint64_t _global_tasks_processed = 0;
     uint64_t _polls = 0;
     std::unique_ptr<internal::cpu_stall_detector> _cpu_stall_detector;
 

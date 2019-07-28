@@ -1576,11 +1576,17 @@ void cpu_stall_detector::maybe_report() {
 //
 // We can do it a cheaper if we don't report suppressed backtraces.
 void cpu_stall_detector::on_signal() {
-    if (_active.load(std::memory_order_relaxed)) {
+    auto tasks_processed = engine().tasks_processed();
+    auto last_seen = _last_tasks_processed_seen.load(std::memory_order_relaxed);
+    if (!last_seen) {
+        return; // stall detector in not active
+    } else if (last_seen == tasks_processed) { // no task was processed - report
         maybe_report();
         _report_at <<= 1;
-        arm_timer();
+    } else {
+        _last_tasks_processed_seen.store(tasks_processed, std::memory_order_relaxed);
     }
+    arm_timer();
 }
 
 void cpu_stall_detector::report_suppressions(std::chrono::steady_clock::time_point now) {
@@ -1615,13 +1621,13 @@ void cpu_stall_detector::start_task_run(std::chrono::steady_clock::time_point no
         _rearm_timer_at = now + _threshold * _report_at;
         arm_timer();
     }
-    _active.store(true, std::memory_order_relaxed);
+    _last_tasks_processed_seen.store(engine().tasks_processed(), std::memory_order_relaxed);
     std::atomic_signal_fence(std::memory_order_release); // Don't delay this write, so the signal handler can see it
 }
 
 void cpu_stall_detector::end_task_run(std::chrono::steady_clock::time_point now) {
     std::atomic_signal_fence(std::memory_order_acquire); // Don't hoist this write, so the signal handler can see it
-    _active.store(false, std::memory_order_relaxed);
+    _last_tasks_processed_seen.store(0, std::memory_order_relaxed);
 }
 
 void cpu_stall_detector::start_sleep() {
@@ -3676,11 +3682,7 @@ reactor::pending_task_count() const {
 
 uint64_t
 reactor::tasks_processed() const {
-    uint64_t ret = 0;
-    for (auto&& tq : _task_queues) {
-        ret += tq->_tasks_processed;
-    }
-    return ret;
+    return _global_tasks_processed;
 }
 
 void reactor::register_metrics() {
@@ -3783,6 +3785,7 @@ void reactor::run_tasks(task_queue& tq) {
         tsk.release();
         STAP_PROBE(seastar, reactor_run_tasks_single_end);
         ++tq._tasks_processed;
+        ++_global_tasks_processed;
         // check at end of loop, to allow at least one task to run
         if (need_preempt()) {
             if (tasks.size() <= _max_task_backlog) {

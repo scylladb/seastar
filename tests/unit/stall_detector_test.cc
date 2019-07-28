@@ -83,4 +83,22 @@ SEASTAR_THREAD_TEST_CASE(simple_stalls) {
     BOOST_REQUIRE_EQUAL(reports, 5);
 }
 
-
+SEASTAR_THREAD_TEST_CASE(no_poll_no_stall) {
+    std::atomic<unsigned> reports{};
+    temporary_stall_detector_settings tsds(10ms, [&] { ++reports; });
+    spin_some_cooperatively(1ms); // need to yield so that stall detector change from above take effect
+    static constexpr unsigned tasks = 2000;
+    promise<> p;
+    auto f = p.get_future();
+    parallel_for_each(boost::irange(0u, tasks), [&p] (unsigned int i) {
+        later().then([i, &p] {
+            spin(500us);
+            if (i == tasks - 1) {
+                p.set_value();
+            }
+        });
+        return make_ready_future<>();
+    }).get();
+    f.get();
+    BOOST_REQUIRE_EQUAL(reports, 0);
+}
