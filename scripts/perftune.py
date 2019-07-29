@@ -253,6 +253,10 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         self.__is_aws_i3_nonmetal_instance = None
 
 #### Public methods ##########################
+    class CPUMaskIsZeroException(Exception):
+        """Thrown if CPU mask turns out to be zero"""
+        pass
+
     class SupportedModes(enum.IntEnum):
         """
         Modes are ordered from the one that cuts the biggest number of CPUs
@@ -320,8 +324,7 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
             raise Exception("Unsupported mode: {}".format(mq_mode))
 
         if PerfTunerBase.cpu_mask_is_zero(irqs_cpu_mask):
-            raise Exception("Bad configuration mode ({}) and cpu-mask value ({}): this results in a zero-mask for "
-                            "compute".format(mq_mode.name, cpu_mask))
+            raise PerfTunerBase.CPUMaskIsZeroException("Bad configuration mode ({}) and cpu-mask value ({}): this results in a zero-mask for compute".format(mq_mode.name, cpu_mask))
 
         return irqs_cpu_mask
 
@@ -337,8 +340,7 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
             irqs_cpu_mask = cpu_mask
 
         if PerfTunerBase.cpu_mask_is_zero(irqs_cpu_mask):
-            raise Exception("Bad configuration mode ({}) and cpu-mask value ({}): this results in a zero-mask for "
-                            "IRQs".format(mq_mode.name, cpu_mask))
+            raise PerfTunerBase.CPUMaskIsZeroException("Bad configuration mode ({}) and cpu-mask value ({}): this results in a zero-mask for IRQs".format(mq_mode.name, cpu_mask))
 
         return irqs_cpu_mask
 
