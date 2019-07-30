@@ -84,6 +84,7 @@
 #include <seastar/core/prefetch.hh>
 #include <exception>
 #include <regex>
+#include <fstream>
 #ifdef __GNUC__
 #include <iostream>
 #include <system_error>
@@ -1891,6 +1892,23 @@ void reactor_backend_epoll::forget(pollable_fd_state& fd) {
 
 pollable_fd
 reactor::posix_listen(socket_address sa, listen_options opts) {
+    static auto somaxconn = [] {
+        compat::optional<int> result;
+        std::ifstream ifs("/proc/sys/net/core/somaxconn");
+        if (ifs) {
+            result = 0;
+            ifs >> *result;
+        }
+        return result;
+    }();
+    if (somaxconn && *somaxconn < opts.listen_backlog) {
+        fmt::print(
+            "Warning: /proc/sys/net/core/somaxconn is set to {:d} "
+            "which is lower than the backlog parameter {:d} used for listen(), "
+            "please change it with `sysctl -w net.core.somaxconn={:d}`\n",
+            *somaxconn, opts.listen_backlog, opts.listen_backlog);
+    }
+
     file_desc fd = file_desc::socket(sa.u.sa.sa_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, int(opts.proto));
     if (opts.reuse_address) {
         fd.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1);
