@@ -242,12 +242,15 @@ public:
     explicit http_server(const sstring& name) : _stats(*this, name) {
         _date_format_timer.arm_periodic(1s);
     }
-    future<> listen(socket_address addr) {
-        listen_options lo;
-        lo.reuse_address = true;
+    future<> listen(socket_address addr, listen_options lo) {
         _listeners.push_back(engine().listen(addr, lo));
         _stopped = when_all(std::move(_stopped), do_accepts(_listeners.size() - 1)).discard_result();
         return make_ready_future<>();
+    }
+    future<> listen(socket_address addr) {
+        listen_options lo;
+        lo.reuse_address = true;
+        return listen(addr, lo);
     }
     future<> stop() {
         _stopping = true;
@@ -365,6 +368,10 @@ public:
 
     future<> listen(socket_address addr) {
         return _server_dist->invoke_on_all(&http_server::listen, addr);
+    }
+
+    future<> listen(socket_address addr, listen_options lo) {
+        return _server_dist->invoke_on_all(&http_server::listen, addr, lo);
     }
 
     distributed<http_server>& server() {
