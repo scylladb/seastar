@@ -4576,6 +4576,11 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
             _r->_notify_eventfd.read(dummy, 8);
             continue;
         }
+        if (evt.events & (EPOLLHUP | EPOLLERR)) {
+            // treat the events as required events when error occurs, let
+            // send/recv/accept/connect handle the specific error.
+            evt.events = pfd->events_requested;
+        }
         auto events = evt.events & (EPOLLIN | EPOLLOUT);
         auto events_to_remove = events & ~pfd->events_requested;
         if (pfd->events_rw) {
