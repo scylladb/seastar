@@ -253,6 +253,10 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         self.__is_aws_i3_nonmetal_instance = None
 
 #### Public methods ##########################
+    class CPUMaskIsZeroException(Exception):
+        """Thrown if CPU mask turns out to be zero"""
+        pass
+
     class SupportedModes(enum.IntEnum):
         """
         Modes are ordered from the one that cuts the biggest number of CPUs
@@ -320,8 +324,7 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
             raise Exception("Unsupported mode: {}".format(mq_mode))
 
         if PerfTunerBase.cpu_mask_is_zero(irqs_cpu_mask):
-            raise Exception("Bad configuration mode ({}) and cpu-mask value ({}): this results in a zero-mask for "
-                            "compute".format(mq_mode.name, cpu_mask))
+            raise PerfTunerBase.CPUMaskIsZeroException("Bad configuration mode ({}) and cpu-mask value ({}): this results in a zero-mask for compute".format(mq_mode.name, cpu_mask))
 
         return irqs_cpu_mask
 
@@ -337,8 +340,7 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
             irqs_cpu_mask = cpu_mask
 
         if PerfTunerBase.cpu_mask_is_zero(irqs_cpu_mask):
-            raise Exception("Bad configuration mode ({}) and cpu-mask value ({}): this results in a zero-mask for "
-                            "IRQs".format(mq_mode.name, cpu_mask))
+            raise PerfTunerBase.CPUMaskIsZeroException("Bad configuration mode ({}) and cpu-mask value ({}): this results in a zero-mask for IRQs".format(mq_mode.name, cpu_mask))
 
         return irqs_cpu_mask
 
@@ -1206,6 +1208,7 @@ argp.add_argument('--mode', choices=PerfTunerBase.SupportedModes.names(), help='
 argp.add_argument('--nic', help='network interface name, by default uses \'eth0\'')
 argp.add_argument('--tune-clock', action='store_true', help='Force tuning of the system clocksource')
 argp.add_argument('--get-cpu-mask', action='store_true', help="print the CPU mask to be used for compute")
+argp.add_argument('--get-cpu-mask-quiet', action='store_true', help="print the CPU mask to be used for compute, print the zero CPU set if that's what it turns out to be")
 argp.add_argument('--verbose', action='store_true', help="be more verbose about operations and their result")
 argp.add_argument('--tune', choices=TuneModes.names(), help="components to configure (may be given more than once)", action='append', default=[])
 argp.add_argument('--cpu-mask', help="mask of cores to use, by default use all available cores", metavar='MASK')
@@ -1338,7 +1341,7 @@ try:
         for tuner in tuners:
             tuner.mode = mode
 
-    if args.get_cpu_mask:
+    if args.get_cpu_mask or args.get_cpu_mask_quiet:
         # Print the compute mask from the first tuner - it's going to be the same in all of them
         perftune_print(tuners[0].compute_cpu_mask)
     else:
@@ -1347,6 +1350,12 @@ try:
 
         for tuner in tuners:
             tuner.tune()
+except PerfTunerBase.CPUMaskIsZeroException as e:
+    # Print a zero CPU set if --get-cpu-mask-quiet was requested.
+    if args.get_cpu_mask_quiet:
+        perftune_print("0x0")
+    else:
+        sys.exit("ERROR: {}. Your system can't be tuned until the issue is fixed.".format(e))
 except Exception as e:
     sys.exit("ERROR: {}. Your system can't be tuned until the issue is fixed.".format(e))
 
