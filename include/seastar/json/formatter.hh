@@ -104,7 +104,8 @@ class formatter {
                         return write(stream, m);
                     });
                 }).then([&stream, s] {
-                   stream.write(end(s));
+                    // FIXME: future is discarded
+                    (void)stream.write(end(s));
                 });
             });
         });

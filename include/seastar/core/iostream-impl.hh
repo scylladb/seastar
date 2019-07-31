@@ -457,7 +457,8 @@ output_stream<CharType>::poll_flush() {
         f = _fd.put(std::move(_zc_bufs));
     }
 
-    f.then([this] {
+    // FIXME: future is discarded
+    (void)f.then([this] {
         return _fd.flush();
     }).then_wrapped([this] (future<> f) {
         try {

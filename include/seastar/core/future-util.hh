@@ -139,7 +139,8 @@ parallel_for_each(Iterator begin, Iterator end, Func&& func) {
                 state = make_lw_shared<parallel_for_each_state>();
               }();
             }
-            f.then_wrapped([state] (future<> f) {
+            // Moving fiber to the background.
+            (void)f.then_wrapped([state] (future<> f) {
                 if (f.failed()) {
                     // We can only store one exception.  For more, use when_all().
                     if (!state->ex) {
@@ -1159,7 +1160,8 @@ future<T...> with_timeout(std::chrono::time_point<Clock, Duration> timeout, futu
         pr.set_exception(std::make_exception_ptr(ExceptionFactory::timeout()));
     });
     timer.arm(timeout);
-    f.then_wrapped([pr = std::move(pr), timer = std::move(timer)] (auto&& f) mutable {
+    // Future is returned indirectly.
+    (void)f.then_wrapped([pr = std::move(pr), timer = std::move(timer)] (auto&& f) mutable {
         if (timer.cancel()) {
             f.forward_to(std::move(*pr));
         } else {

@@ -235,6 +235,10 @@ set (Seastar_TEST_TIMEOUT
   STRING
   "Maximum allowed time for a test to run, in seconds.")
 
+option (Seastar_UNUSED_RESULT_ERROR
+  "Make [[nodiscard]] violations an error (instead of a warning)."
+  OFF)
+
 # When Seastar is embedded with `add_subdirectory`, disable the non-library targets.
 if (NOT (CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR))
   set (Seastar_APPS OFF)
@@ -790,6 +794,17 @@ endif ()
 
 if (lz4_HAVE_COMPRESS_DEFAULT)
   list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_LZ4_COMPRESS_DEFAULT)
+endif ()
+
+seastar_supports_flag ("-Werror=unused-result" ErrorUnused_FOUND)
+if (ErrorUnused_FOUND)
+  if (Seastar_UNUSED_RESULT_ERROR)
+    target_compile_options (seastar
+      PUBLIC -Werror=unused-result)
+  else()
+    target_compile_options (seastar
+      PUBLIC -Wno-error=unused-result)
+  endif ()
 endif ()
 
 if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (CMAKE_BUILD_TYPE STREQUAL "Sanitize"))

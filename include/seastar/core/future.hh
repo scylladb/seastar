@@ -33,6 +33,7 @@
 #include <cstdlib>
 #include <seastar/core/function_traits.hh>
 #include <seastar/util/alloc_failure_injector.hh>
+#include <seastar/util/attribute-compat.hh>
 #include <seastar/util/gcc6-concepts.hh>
 #include <seastar/util/noncopyable_function.hh>
 
@@ -766,7 +767,7 @@ struct warn_variadic_future<true> {
 ///           A list with two or more types is deprecated; use
 ///           \c future<std::tuple<T...>> instead.
 template <typename... T>
-class future : private internal::future_base, internal::warn_variadic_future<(sizeof...(T) > 1)> {
+class SEASTAR_NODISCARD future : private internal::future_base, internal::warn_variadic_future<(sizeof...(T) > 1)> {
     future_state<T...> _state;
     static constexpr bool copy_noexcept = future_state<T...>::copy_noexcept;
 private:

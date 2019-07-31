@@ -219,14 +219,16 @@ arp_for<L3>::lookup(const l3addr& paddr) {
 
     if (first_request) {
         res._timeout_timer.set_callback([paddr, this, &res] {
-            send_query(paddr);
+            // FIXME: future is discarded
+            (void)send_query(paddr);
             for (auto& w : res._waiters) {
                 w.set_exception(arp_timeout_error());
             }
             res._waiters.clear();
         });
         res._timeout_timer.arm_periodic(std::chrono::seconds(1));
-        send_query(paddr);
+        // FIXME: future is discarded
+        (void)send_query(paddr);
     }
 
     if (res._waiters.size() >= max_waiters) {

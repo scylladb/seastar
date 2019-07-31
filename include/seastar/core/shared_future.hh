@@ -164,6 +164,7 @@ public:
     shared_future(future_type&& f)
         : _state(make_lw_shared<shared_state>())
     {
+        // future's result is forwarded to `_state`.
         f.then_wrapped([s = _state] (future_type&& f) mutable {
             s->resolve(std::move(f));
         });

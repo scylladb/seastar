@@ -445,7 +445,8 @@ private:
         void output() {
             if (!_poll_active) {
                 _poll_active = true;
-                _tcp.poll_tcb(_foreign_ip, this->shared_from_this()).then_wrapped([this] (auto&& f) {
+                // FIXME: future is discarded
+                (void)_tcp.poll_tcb(_foreign_ip, this->shared_from_this()).then_wrapped([this] (auto&& f) {
                     try {
                         f.get();
                     } catch(arp_queue_full_error& ex) {
@@ -933,7 +934,8 @@ void tcp<InetTraits>::received(packet p, ipaddr from, ipaddr to) {
 template <typename InetTraits>
 void tcp<InetTraits>::send_packet_without_tcb(ipaddr from, ipaddr to, packet p) {
     if (_queue_space.try_wait(p.len())) { // drop packets that do not fit the queue
-        _inet.get_l2_dst_address(to).then([this, to, p = std::move(p)] (ethernet_address e_dst) mutable {
+        // FIXME: future is discarded
+        (void)_inet.get_l2_dst_address(to).then([this, to, p = std::move(p)] (ethernet_address e_dst) mutable {
                 _packetq.emplace_back(ipv4_traits::l4packet{to, std::move(p), e_dst, ip_protocol_num::tcp});
         });
     }
@@ -1807,7 +1809,7 @@ void tcp<InetTraits>::tcb::close() {
         return;
     }
     // TODO: We should return a future to upper layer
-    wait_for_all_data_acked().then([this, zis = this->shared_from_this()] () mutable {
+    (void)wait_for_all_data_acked().then([this, zis = this->shared_from_this()] () mutable {
         _snd.closed = true;
         tcp_debug("close: unsent_len=%d\n", _snd.unsent_len);
         if (in_state(CLOSE_WAIT)) {

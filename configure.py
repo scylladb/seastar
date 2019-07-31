@@ -98,6 +98,11 @@ add_tristate(
     name = 'experimental-coroutines-ts',
     dest = "coroutines_ts",
     help = 'experimental support for Coroutines TS')
+add_tristate(
+    arg_parser,
+    name = 'unused-result-error',
+    dest = "unused_result_error",
+    help = 'Make [[nodiscard]] violations an error')
 arg_parser.add_argument('--allocator-page-size', dest='alloc_page_size', type=int, help='override allocator page size')
 arg_parser.add_argument('--without-tests', dest='exclude_tests', action='store_true', help='Do not build tests by default')
 arg_parser.add_argument('--without-apps', dest='exclude_apps', action='store_true', help='Do not build applications by default')
@@ -189,6 +194,7 @@ def configure_mode(mode):
         tr(args.cpp17_goodies, 'STD_OPTIONAL_VARIANT_STRINGVIEW'),
         tr(args.split_dwarf, 'SPLIT_DWARF'),
         tr(args.coroutines_ts, 'EXPERIMENTAL_COROUTINES_TS'),
+        tr(args.unused_result_error, 'UNUSED_RESULT_ERROR'),
     ]
 
     ingredients_to_cook = set(args.cook)

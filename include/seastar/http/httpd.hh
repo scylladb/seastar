@@ -276,7 +276,8 @@ public:
             }
             auto cs_sa = f_cs_sa.get();
             auto conn = new connection(*this, std::get<0>(std::move(cs_sa)), std::get<1>(std::move(cs_sa)));
-            conn->process().then_wrapped([conn] (auto&& f) {
+            // FIXME: future is discarded
+            (void)conn->process().then_wrapped([conn] (auto&& f) {
                 delete conn;
                 try {
                     f.get();
@@ -284,7 +285,8 @@ public:
                     std::cerr << "request error " << ex.what() << std::endl;
                 }
             });
-            do_accepts(which);
+            // FIXME: future is discarded
+            (void)do_accepts(which);
         }).then_wrapped([] (auto f) {
             try {
                 f.get();
