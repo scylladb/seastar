@@ -94,7 +94,7 @@ int main(int ac, char** av) {
     timer_test<lowres_clock> t2;
     return app.run_deprecated(ac, av, [&t1, &t2] {
         fmt::print("=== Start High res clock test\n");
-        t1.run().then([&t2] {
+        return t1.run().then([&t2] {
             fmt::print("=== Start Low  res clock test\n");
             return t2.run();
         }).then([] {

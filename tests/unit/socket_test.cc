@@ -47,7 +47,8 @@ future<> handle_connection(connected_socket s) {
 future<> echo_server_loop() {
     return do_with(
         api_v2::server_socket(listen(make_ipv4_address({1234}), listen_options{.reuse_address = true})), [](auto& listener) {
-              connect(make_ipv4_address({"127.0.0.1", 1234})).then([](connected_socket&& socket) {
+              // Connect asynchronously in background.
+              (void)connect(make_ipv4_address({"127.0.0.1", 1234})).then([](connected_socket&& socket) {
                   socket.shutdown_output();
               });
               return listener.accept().then(
