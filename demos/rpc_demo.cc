@@ -158,10 +158,10 @@ int main(int ac, char** av) {
             });
             for (auto i = 0; i < 100; i++) {
                 fmt::print("iteration={:d}\n", i);
-                test1(*client, 5).then([] (){ fmt::print("test1 ended\n");});
-                test2(*client, 1, 2).then([] (int r) { fmt::print("test2 got {:d}\n", r); });
-                test3(*client, x).then([](double x) { fmt::print("sin={:f}\n", x); });
-                test4(*client).then_wrapped([](future<> f) {
+                (void)test1(*client, 5).then([] (){ fmt::print("test1 ended\n");});
+                (void)test2(*client, 1, 2).then([] (int r) { fmt::print("test2 got {:d}\n", r); });
+                (void)test3(*client, x).then([](double x) { fmt::print("sin={:f}\n", x); });
+                (void)test4(*client).then_wrapped([](future<> f) {
                     try {
                         f.get();
                         fmt::print("test4 your should not see this!\n");
@@ -169,16 +169,16 @@ int main(int ac, char** av) {
                         fmt::print("test4 {}\n", x.what());
                     }
                 });
-                test5(*client).then([] { fmt::print("test5 no wait ended\n"); });
-                test6(*client, 1).then([] { fmt::print("test6 ended\n"); });
-                test7(*client, 5, 6).then([] (long r) { fmt::print("test7 got {:d}\n", r); });
-                test9(*client, 1, 2).then([] (long r) { fmt::print("test9 got {:d}\n", r); });
-                test9_1(*client, 1, 2, 3).then([] (long r) { fmt::print("test9.1 got {:d}\n", r); });
-                test9_2(*client, 1, 2, 3, 4).then([] (long r) { fmt::print("test9.2 got {:d}\n", r); });
-                test10(*client).then([] (long r) { fmt::print("test10 got {:d}\n", r); });
-                test10_1(*client).then([] (long r, int rr) { fmt::print("test10_1 got {:d} and {:d}\n", r, rr); });
-                test11(*client).then([] (long r, rpc::optional<int> rr) { fmt::print("test11 got {:d} and {:d}\n", r, bool(rr)); });
-                test_nohandler(*client).then_wrapped([](future<> f) {
+                (void)test5(*client).then([] { fmt::print("test5 no wait ended\n"); });
+                (void)test6(*client, 1).then([] { fmt::print("test6 ended\n"); });
+                (void)test7(*client, 5, 6).then([] (long r) { fmt::print("test7 got {:d}\n", r); });
+                (void)test9(*client, 1, 2).then([] (long r) { fmt::print("test9 got {:d}\n", r); });
+                (void)test9_1(*client, 1, 2, 3).then([] (long r) { fmt::print("test9.1 got {:d}\n", r); });
+                (void)test9_2(*client, 1, 2, 3, 4).then([] (long r) { fmt::print("test9.2 got {:d}\n", r); });
+                (void)test10(*client).then([] (long r) { fmt::print("test10 got {:d}\n", r); });
+                (void)test10_1(*client).then([] (long r, int rr) { fmt::print("test10_1 got {:d} and {:d}\n", r, rr); });
+                (void)test11(*client).then([] (long r, rpc::optional<int> rr) { fmt::print("test11 got {:d} and {:d}\n", r, bool(rr)); });
+                (void)test_nohandler(*client).then_wrapped([](future<> f) {
                     try {
                         f.get();
                         fmt::print("test_nohandler your should not see this!\n");
@@ -188,9 +188,9 @@ int main(int ac, char** av) {
                         fmt::print("incorrect exception!\n");
                     }
                 });
-                test_nohandler_nowait(*client);
+                (void)test_nohandler_nowait(*client);
                 auto c = make_lw_shared<rpc::cancellable>();
-                test13(*client, *c).then_wrapped([](future<> f) {
+                (void)test13(*client, *c).then_wrapped([](future<> f) {
                     try {
                         f.get();
                         fmt::print("test13 shold not get here\n");
@@ -201,7 +201,7 @@ int main(int ac, char** av) {
                     }
                 });
                 c->cancel();
-                test13(*client, *c).then_wrapped([](future<> f) {
+                (void)test13(*client, *c).then_wrapped([](future<> f) {
                     try {
                         f.get();
                         fmt::print("test13 shold not get here\n");
@@ -211,8 +211,8 @@ int main(int ac, char** av) {
                         fmt::print("test13 wrong exception\n");
                     }
                 });
-                sleep(500us).then([c] { c->cancel(); });
-                test_message_to_big(*client, sstring(sstring::initialized_later(), 10'000'001)).then_wrapped([](future<> f) {
+                (void)sleep(500us).then([c] { c->cancel(); });
+                (void)test_message_to_big(*client, sstring(sstring::initialized_later(), 10'000'001)).then_wrapped([](future<> f) {
                     try {
                         f.get();
                         fmt::print("test message to big shold not get here\n");
@@ -224,7 +224,7 @@ int main(int ac, char** av) {
                 });
             }
             // delay a little for a time-sensitive test
-            sleep(400ms).then([test12] () mutable {
+            (void)sleep(400ms).then([test12] () mutable {
                 // server is configured for 10MB max, throw 25MB worth of requests at it.
                 auto now = rpc::rpc_clock_type::now();
                 return parallel_for_each(boost::irange(0, 25), [test12, now] (int idx) mutable {
@@ -239,10 +239,10 @@ int main(int ac, char** av) {
                     fmt::print("test12 completed after {:d} ms (should be ~300)\n", delta.count());
                 });
             });
-            f.finally([] {
-                sleep(1s).then([] {
-                    client->stop().then([] {
-                        engine().exit(0);
+            (void)f.finally([] {
+                return sleep(1s).then([] {
+                    return client->stop().then([] {
+                        return engine().exit(0);
                     });
                 });
             });

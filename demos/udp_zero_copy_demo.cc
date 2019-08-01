@@ -101,18 +101,20 @@ public:
 
         assert(3 * _chunk_size <= _packet_size);
 
-        keep_doing([this] {
+        // Run sender in background.
+        (void)keep_doing([this] {
             return _chan.receive().then([this] (udp_datagram dgram) {
                 auto chunk = next_chunk();
                 lw_shared_ptr<sstring> item;
                 if (_copy) {
                     _packets.clear();
-                    _out->write(chunk, _chunk_size);
+                    // FIXME: future is discarded
+                    (void)_out->write(chunk, _chunk_size);
                     chunk += _chunk_size;
-                    _out->write(chunk, _chunk_size);
+                    (void)_out->write(chunk, _chunk_size);
                     chunk += _chunk_size;
-                    _out->write(chunk, _chunk_size);
-                    _out->flush();
+                    (void)_out->write(chunk, _chunk_size);
+                    (void)_out->flush();
                     assert(_packets.size() == 1);
                     return send(dgram.get_src(), std::move(_packets[0]));
                 } else {
