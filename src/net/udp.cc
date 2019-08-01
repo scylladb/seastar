@@ -193,7 +193,8 @@ void ipv4_udp::send(uint16_t src_port, ipv4_addr dst, packet &&p)
     oi.protocol = ip_protocol_num::udp;
     p.set_offload_info(oi);
 
-    _inet.get_l2_dst_address(dst).then([this, dst, p = std::move(p)] (ethernet_address e_dst) mutable {
+    // FIXME: future is discarded
+    (void)_inet.get_l2_dst_address(dst).then([this, dst, p = std::move(p)] (ethernet_address e_dst) mutable {
         _packetq.emplace_back(ipv4_traits::l4packet{dst, std::move(p), e_dst, ip_protocol_num::udp});
     });
 }

@@ -99,8 +99,11 @@ void create_native_net_device(boost::program_options::variables_map opts) {
 
     auto sem = std::make_shared<semaphore>(0);
     std::shared_ptr<device> sdev(dev.release());
+    // set_local_queue on all shard in the background,
+    // signal when done.
+    // FIXME: handle exceptions
     for (unsigned i = 0; i < smp::count; i++) {
-        smp::submit_to(i, [opts, sdev] {
+        (void)smp::submit_to(i, [opts, sdev] {
             uint16_t qid = engine().cpu_id();
             if (qid < sdev->hw_queues_count()) {
                 auto qp = sdev->init_local_queue(opts, qid);
@@ -119,10 +122,15 @@ void create_native_net_device(boost::program_options::variables_map opts) {
             sem->signal();
         });
     }
-    sem->wait(smp::count).then([opts, sdev] {
-        sdev->link_ready().then([opts, sdev] {
+    // wait for all shards to set their local queue,
+    // then when link is ready, communicate the native_stack to the caller
+    // via `create_native_stack` (that sets the ready_promise value)
+    (void)sem->wait(smp::count).then([opts, sdev] {
+        // FIXME: future is discarded
+        (void)sdev->link_ready().then([opts, sdev] {
             for (unsigned i = 0; i < smp::count; i++) {
-                smp::submit_to(i, [opts, sdev] {
+                // FIXME: future is discarded
+                (void)smp::submit_to(i, [opts, sdev] {
                     create_native_stack(opts, sdev);
                 });
             }
@@ -241,7 +249,7 @@ void native_network_stack::on_dhcp(compat::optional<dhcp::lease> lease, bool is_
         // And the other cpus, which, in the case of initial discovery,
         // will be waiting for us.
         for (unsigned i = 1; i < smp::count; i++) {
-            smp::submit_to(i, [lease, is_renew]() {
+            (void)smp::submit_to(i, [lease, is_renew]() {
                 auto & ns = static_cast<native_network_stack&>(engine().net());
                 ns.on_dhcp(lease, is_renew);
             });
@@ -252,7 +260,8 @@ void native_network_stack::on_dhcp(compat::optional<dhcp::lease> lease, bool is_
             _timer.set_callback(
                     [this, res]() {
                         _config = promise<>();
-                        run_dhcp(true, res);
+                        // callback ignores future result
+                        (void)run_dhcp(true, res);
                     });
             _timer.arm(
                     std::chrono::duration_cast<steady_clock_type::duration>(
@@ -270,7 +279,8 @@ future<> native_network_stack::initialize() {
         // Only run actual discover on main cpu.
         // All other cpus must simply for main thread to complete and signal them.
         if (engine().cpu_id() == 0) {
-            run_dhcp();
+            // FIXME: future is discarded
+            (void)run_dhcp();
         }
         return _config.get_future();
     });
@@ -278,7 +288,8 @@ future<> native_network_stack::initialize() {
 
 void arp_learn(ethernet_address l2, ipv4_address l3)
 {
-    smp::invoke_on_all([l2, l3] {
+    // Run arp_learn on all shard in the background
+    (void)smp::invoke_on_all([l2, l3] {
         auto & ns = static_cast<native_network_stack&>(engine().net());
         ns.arp_learn(l2, l3);
     });
