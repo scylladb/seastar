@@ -128,7 +128,8 @@ public:
     future<> connect(ipv4_addr server_addr) {
         // Establish all the TCP connections first
         for (unsigned i = 0; i < _conn_per_core; i++) {
-            engine().net().connect(make_ipv4_address(server_addr)).then([this] (connected_socket fd) {
+            // Connect in the background, signal _conn_connected when done.
+            (void)engine().net().connect(make_ipv4_address(server_addr)).then([this] (connected_socket fd) {
                 _sockets.push_back(std::move(fd));
                 http_debug("Established connection %6d on cpu %3d\n", _conn_connected.current(), engine().cpu_id());
                 _conn_connected.signal();
@@ -145,11 +146,14 @@ public:
         }
         for (auto&& fd : _sockets) {
             auto conn = new connection(std::move(fd), this);
-            conn->do_req().then_wrapped([this, conn] (auto&& f) {
+            // Run in the background, signal _conn_finished when done.
+            (void)conn->do_req().then_wrapped([this, conn] (auto&& f) {
                 http_debug("Finished connection %6d on cpu %3d\n", _conn_finished.current(), engine().cpu_id());
                 _total_reqs += conn->nr_done();
                 _conn_finished.signal();
                 delete conn;
+                // FIXME: should _conn_finished.signal be called only after this?
+                // nothing seems to synchronize with this background work.
                 try {
                     f.get();
                 } catch (std::exception& ex) {
