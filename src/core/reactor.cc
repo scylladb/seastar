@@ -1816,7 +1816,8 @@ void reactor::configure(boost::program_options::variables_map vm) {
     auto network_stack_ready = vm.count("network-stack")
         ? network_stack_registry::create(sstring(vm["network-stack"].as<std::string>()), vm)
         : network_stack_registry::create(vm);
-    network_stack_ready.then([this] (std::unique_ptr<network_stack> stack) {
+    // FIXME: future is discarded
+    (void)network_stack_ready.then([this] (std::unique_ptr<network_stack> stack) {
         _network_stack_ready_promise.set_value(std::move(stack));
     });
 
@@ -2112,7 +2113,8 @@ reactor::flush_pending_aio() {
     }
     if (!_pending_aio_retry.empty()) {
         auto retries = std::exchange(_pending_aio_retry, {});
-        _thread_pool->submit<syscall_result<int>>([this, retries] () mutable {
+        // FIXME: future is discarded
+        (void)_thread_pool->submit<syscall_result<int>>([this, retries] () mutable {
             auto r = io_submit(_io_context, retries.size(), retries.data());
             return wrap_syscall<int>(r);
         }).then([this, retries] (syscall_result<int> result) {
@@ -2642,7 +2644,8 @@ append_challenged_posix_file_impl::dispatch(op& candidate) noexcept {
     unsigned* op_counter = size_changing(candidate)
             ? &_current_size_changing_ops : &_current_non_size_changing_ops;
     ++*op_counter;
-    candidate.run().then([me = shared_from_this(), op_counter] {
+    // FIXME: future is discarded
+    (void)candidate.run().then([me = shared_from_this(), op_counter] {
         --*op_counter;
         me->process_queue();
     });
@@ -3517,7 +3520,9 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
 
     auto w = make_lw_shared<work>();
     auto ret = w->s.listen(std::move(next));
-    w->s.started().then([w, this] {
+    // List the directory asynchronously in the background.
+    // Caller synchronizes using the returned subscription.
+    (void)w->s.started().then([w, this] {
         auto eofcond = [w] { return w->eof; };
         return do_until(eofcond, [w, this] {
             if (w->current == w->total) {
@@ -3665,8 +3670,11 @@ void reactor::stop() {
     assert(engine()._id == 0);
     smp::cleanup_cpu();
     if (!_stopping) {
-        run_exit_tasks().then([this] {
-            do_with(semaphore(0), [this] (semaphore& sem) {
+        // Run exit tasks locally and then stop all other engines
+        // in the background and wait on semaphore for all to complete.
+        // Finally, set _stopped on cpu 0.
+        (void)run_exit_tasks().then([this] {
+            return do_with(semaphore(0), [this] (semaphore& sem) {
                 // Stop other cpus asynchronously, signal when done.
                 (void)smp::invoke_on_others(0, [] {
                     smp::cleanup_cpu();
@@ -3685,7 +3693,8 @@ void reactor::stop() {
 }
 
 void reactor::exit(int ret) {
-    smp::submit_to(0, [this, ret] { _return = ret; stop(); });
+    // Run stop() asynchronously on cpu 0.
+    (void)smp::submit_to(0, [this, ret] { _return = ret; stop(); });
 }
 
 uint64_t
@@ -3875,7 +3884,8 @@ manual_clock::advance(manual_clock::duration d) {
     _now.fetch_add(d.count());
     if (local_engine) {
         schedule_urgent(make_task(default_scheduling_group(), &manual_clock::expire_timers));
-        smp::invoke_on_all(&manual_clock::expire_timers);
+        // Expire timers on all cores in the background.
+        (void)smp::invoke_on_all(&manual_clock::expire_timers);
     }
 }
 
@@ -4304,15 +4314,17 @@ int reactor::run() {
        _signals.handle_signal_once(SIGTERM, [this] { stop(); });
     }
 
-    _cpu_started.wait(smp::count).then([this] {
-        _network_stack->initialize().then([this] {
+    // Start initialization in the background.
+    // Communicate when done using _start_promise.
+    (void)_cpu_started.wait(smp::count).then([this] {
+        (void)_network_stack->initialize().then([this] {
             _start_promise.set_value();
         });
     });
-    _network_stack_ready_promise.get_future().then([this] (std::unique_ptr<network_stack> stack) {
+    // Wait for network stack in the background and then signal all cpus.
+    (void)_network_stack_ready_promise.get_future().then([this] (std::unique_ptr<network_stack> stack) {
         _network_stack = std::move(stack);
-        // Signal all cpus asynchronously.
-        (void)smp::invoke_on_all([] {
+        return smp::invoke_on_all([] {
             engine()._cpu_started.signal();
         });
     });
@@ -4627,7 +4639,8 @@ syscall_work_queue::syscall_work_queue()
 }
 
 void syscall_work_queue::submit_item(std::unique_ptr<syscall_work_queue::work_item> item) {
-    _queue_has_room.wait().then([this, item = std::move(item)] () mutable {
+    // FIXME: future is discarded
+    (void)_queue_has_room.wait().then([this, item = std::move(item)] () mutable {
         _pending.push(item.release());
         _start_eventfd.signal(1);
     });
@@ -4749,7 +4762,8 @@ void smp_message_queue::submit_item(shard_id t, std::unique_ptr<smp_message_queu
   // matching signal() in process_completions()
   auto ssg_id = internal::smp_service_group_id(item->ssg);
   auto& sem = smp_service_groups[ssg_id].clients[t];
-  get_units(sem, 1).then([this, item = std::move(item)] (semaphore_units<> u) mutable {
+  // FIXME: future is discarded
+  (void)get_units(sem, 1).then([this, item = std::move(item)] (semaphore_units<> u) mutable {
     _tx.a.pending_fifo.push_back(item.get());
     // no exceptions from this point
     item.release();

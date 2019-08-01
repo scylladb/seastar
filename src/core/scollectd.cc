@@ -378,7 +378,8 @@ void impl::start(const sstring & host, const ipv4_addr & addr, const duration pe
         sm::make_gauge("records", sm::description("number of records reported"), [this] {return values().size();}),
     });
 
-    send_notification(
+    // FIXME: future is discarded
+    (void)send_notification(
             type_instance_id("scollectd", per_cpu_plugin_instance,
                     "network"), "daemon started");
     arm();
@@ -479,7 +480,9 @@ void impl::run() {
                     }
                 });
     };
-    do_until(stop_when, send_packet).finally([this, vals = std::move(vals)]() mutable {
+    // No need to wait for future.
+    // The caller has to call impl::stop() to synchronize.
+    (void)do_until(stop_when, send_packet).finally([this, vals = std::move(vals)]() mutable {
         arm();
     });
 }
@@ -533,7 +536,8 @@ void configure(const boost::program_options::variables_map & opts) {
 
     // Now create send loops on each cpu
     for (unsigned c = 0; c < smp::count; c++) {
-        smp::submit_to(c, [=] () {
+        // FIXME: future is discarded
+        (void)smp::submit_to(c, [=] () {
             get_impl().start(host, addr, period);
         });
     }
