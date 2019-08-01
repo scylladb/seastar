@@ -115,7 +115,9 @@ app_template::run(int ac, char ** av, std::function<future<int> ()>&& func) {
     return run_deprecated(ac, av, [func = std::move(func)] () mutable {
         auto func_done = make_lw_shared<promise<>>();
         engine().at_exit([func_done] { return func_done->get_future(); });
-        futurize_apply(func).finally([func_done] {
+        // No need to wait for this future.
+        // func's returned exit_code is communicated via engine().exit()
+        (void)futurize_apply(func).finally([func_done] {
             func_done->set_value();
         }).then([] (int exit_code) {
             return engine().exit(exit_code);
@@ -176,8 +178,10 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
         return 1;
     }
     _configuration = {std::move(configuration)};
-    engine().when_started().then([this] {
-        seastar::metrics::configure(this->configuration()).then([this] {
+    // No need to wait for this future.
+    // func is waited on via engine().run()
+    (void)engine().when_started().then([this] {
+        return seastar::metrics::configure(this->configuration()).then([this] {
             // set scollectd use the metrics configuration, so the later
             // need to be set first
             scollectd::configure( this->configuration());

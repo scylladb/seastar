@@ -161,7 +161,8 @@ std::future<T> submit_to(unsigned shard, Func func) {
     std::promise<T> pr;
     auto fut = pr.get_future();
     run_on(shard, [pr = std::move(pr), func = std::move(func)] () mutable {
-        func().then_wrapped([pr = std::move(pr)] (auto&& result) mutable {
+        // std::future returned via std::promise above.
+        (void)func().then_wrapped([pr = std::move(pr)] (auto&& result) mutable {
             try {
                 internal::return_type_of<Func>::set(pr, result.get());
             } catch (...) {
