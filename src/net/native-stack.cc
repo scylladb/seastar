@@ -99,33 +99,30 @@ void create_native_net_device(boost::program_options::variables_map opts) {
 
     auto sem = std::make_shared<semaphore>(0);
     std::shared_ptr<device> sdev(dev.release());
-    for (unsigned i = 0; i < smp::count; i++) {
-        smp::submit_to(i, [opts, sdev] {
-            uint16_t qid = engine().cpu_id();
-            if (qid < sdev->hw_queues_count()) {
-                auto qp = sdev->init_local_queue(opts, qid);
-                std::map<unsigned, float> cpu_weights;
-                for (unsigned i = sdev->hw_queues_count() + qid % sdev->hw_queues_count(); i < smp::count; i+= sdev->hw_queues_count()) {
-                    cpu_weights[i] = 1;
-                }
-                cpu_weights[qid] = opts["hw-queue-weight"].as<float>();
-                qp->configure_proxies(cpu_weights);
-                sdev->set_local_queue(std::move(qp));
-            } else {
-                auto master = qid % sdev->hw_queues_count();
-                sdev->set_local_queue(create_proxy_net_device(master, sdev.get()));
+    smp::invoke_on_all([opts, sdev] {
+        uint16_t qid = engine().cpu_id();
+        if (qid < sdev->hw_queues_count()) {
+            auto qp = sdev->init_local_queue(opts, qid);
+            std::map<unsigned, float> cpu_weights;
+            for (unsigned i = sdev->hw_queues_count() + qid % sdev->hw_queues_count(); i < smp::count; i+= sdev->hw_queues_count()) {
+                cpu_weights[i] = 1;
             }
-        }).then([sem] {
-            sem->signal();
-        });
-    }
+            cpu_weights[qid] = opts["hw-queue-weight"].as<float>();
+            qp->configure_proxies(cpu_weights);
+            sdev->set_local_queue(std::move(qp));
+        } else {
+            auto master = qid % sdev->hw_queues_count();
+            sdev->set_local_queue(create_proxy_net_device(master, sdev.get()));
+        }
+    }).then([sem] {
+        sem->signal();
+    });
+
     sem->wait(smp::count).then([opts, sdev] {
         sdev->link_ready().then([opts, sdev] {
-            for (unsigned i = 0; i < smp::count; i++) {
-                smp::submit_to(i, [opts, sdev] {
-                    create_native_stack(opts, sdev);
-                });
-            }
+            return smp::invoke_on_all([opts, sdev] {
+                create_native_stack(opts, sdev);
+            });
         });
     });
 }
@@ -239,12 +236,10 @@ void native_network_stack::on_dhcp(bool success, const dhcp::lease & res, bool i
     if (engine().cpu_id() == 0) {
         // And the other cpus, which, in the case of initial discovery,
         // will be waiting for us.
-        for (unsigned i = 1; i < smp::count; i++) {
-            smp::submit_to(i, [success, res, is_renew]() {
-                auto & ns = static_cast<native_network_stack&>(engine().net());
-                ns.on_dhcp(success, res, is_renew);
-            });
-        }
+        (void)smp::invoke_on_others(0, [success, res, is_renew] {
+            auto & ns = static_cast<native_network_stack&>(engine().net());
+            ns.on_dhcp(success, res, is_renew);
+        });
         if (success) {
             // And set up to renew the lease later on.
             _timer.set_callback(
@@ -276,12 +271,10 @@ future<> native_network_stack::initialize() {
 
 void arp_learn(ethernet_address l2, ipv4_address l3)
 {
-    for (unsigned i = 0; i < smp::count; i++) {
-        smp::submit_to(i, [l2, l3] {
-            auto & ns = static_cast<native_network_stack&>(engine().net());
-            ns.arp_learn(l2, l3);
-        });
-    }
+    smp::invoke_on_all([l2, l3] {
+        auto & ns = static_cast<native_network_stack&>(engine().net());
+        ns.arp_learn(l2, l3);
+    });
 }
 
 void create_native_stack(boost::program_options::variables_map opts, std::shared_ptr<device> dev) {
