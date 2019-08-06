@@ -24,6 +24,7 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/posix.hh>
 #include <vector>
+#include <tuple>
 
 namespace seastar {
 
@@ -83,7 +84,7 @@ public:
     future<> readable_or_writeable();
     void abort_reader();
     void abort_writer();
-    future<pollable_fd, socket_address> accept();
+    future<std::tuple<pollable_fd, socket_address>> accept();
     future<size_t> sendmsg(struct msghdr *msg);
     future<size_t> recvmsg(struct msghdr *msg);
     future<size_t> sendto(socket_address addr, const void* buf, size_t len);

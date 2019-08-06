@@ -211,7 +211,7 @@ reactor::rename_priority_class(io_priority_class pc, sstring new_name) {
     });
 }
 
-future<pollable_fd, socket_address>
+future<std::tuple<pollable_fd, socket_address>>
 reactor::accept(pollable_fd_state& listenfd) {
     return readable_or_writeable(listenfd).then([this, &listenfd] () mutable {
         socket_address sa;
@@ -228,7 +228,7 @@ reactor::accept(pollable_fd_state& listenfd) {
         // without having to accept at a rate of 1 per task quota.
         listenfd.speculate_epoll(EPOLLIN);
         pollable_fd pfd(std::move(*maybe_fd), pollable_fd::speculation(EPOLLOUT));
-        return make_ready_future<pollable_fd, socket_address>(std::move(pfd), std::move(sa));
+        return make_ready_future<std::tuple<pollable_fd, socket_address>>(std::make_tuple(std::move(pfd), std::move(sa)));
     });
 }
 
@@ -373,7 +373,7 @@ pollable_fd::abort_writer() {
     engine().abort_writer(*_s);
 }
 
-future<pollable_fd, socket_address> pollable_fd::accept() {
+future<std::tuple<pollable_fd, socket_address>> pollable_fd::accept() {
     return engine().accept(*_s);
 }
 

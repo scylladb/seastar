@@ -695,7 +695,7 @@ public:
     lw_shared_ptr<pollable_fd> make_pollable_fd(socket_address sa, transport proto = transport::TCP);
     future<> posix_connect(lw_shared_ptr<pollable_fd> pfd, socket_address sa, socket_address local);
 
-    future<pollable_fd, socket_address> accept(pollable_fd_state& listen_fd);
+    future<std::tuple<pollable_fd, socket_address>> accept(pollable_fd_state& listen_fd);
 
     future<size_t> read_some(pollable_fd_state& fd, void* buffer, size_t size);
     future<size_t> read_some(pollable_fd_state& fd, const std::vector<iovec>& iov);

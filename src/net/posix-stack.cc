@@ -212,7 +212,9 @@ public:
 template <transport Transport>
 future<accept_result>
 posix_server_socket_impl<Transport>::accept() {
-    return _lfd.accept().then([this] (pollable_fd fd, socket_address sa) {
+    return _lfd.accept().then([this] (std::tuple<pollable_fd, socket_address> fd_sa) {
+        auto& fd = std::get<0>(fd_sa);
+        auto& sa = std::get<1>(fd_sa);
         auto cth = _lba == server_socket::load_balancing_algorithm::connection_distribution ?
                 _conntrack.get_handle() : _conntrack.get_handle(ntoh(sa.as_posix_sockaddr_in().sin_port) % smp::count);
         auto cpu = cth.cpu();
@@ -279,7 +281,9 @@ posix_ap_server_socket_impl<Transport>::abort_accept() {
 template <transport Transport>
 future<accept_result>
 posix_reuseport_server_socket_impl<Transport>::accept() {
-    return _lfd.accept().then([allocator = _allocator] (pollable_fd fd, socket_address sa) {
+    return _lfd.accept().then([allocator = _allocator] (std::tuple<pollable_fd, socket_address> fd_sa) {
+        auto& fd = std::get<0>(fd_sa);
+        auto& sa = std::get<1>(fd_sa);
         std::unique_ptr<connected_socket_impl> csi(
                 new posix_connected_socket_impl<Transport>(make_lw_shared(std::move(fd)), allocator));
         return make_ready_future<accept_result>(
