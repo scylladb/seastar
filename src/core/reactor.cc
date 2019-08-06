@@ -3667,16 +3667,15 @@ void reactor::stop() {
     if (!_stopping) {
         run_exit_tasks().then([this] {
             do_with(semaphore(0), [this] (semaphore& sem) {
-                for (unsigned i = 1; i < smp::count; i++) {
-                    smp::submit_to<>(i, []() {
-                        smp::cleanup_cpu();
-                        return engine().run_exit_tasks().then([] {
-                                engine()._stopped = true;
-                        });
-                    }).then([&sem]() {
-                        sem.signal();
+                // Stop other cpus asynchronously, signal when done.
+                (void)smp::invoke_on_others(0, [] {
+                    smp::cleanup_cpu();
+                    return engine().run_exit_tasks().then([] {
+                        engine()._stopped = true;
                     });
-                }
+                }).then([&sem]() {
+                    sem.signal();
+                });
                 return sem.wait(smp::count - 1).then([this] {
                     _stopped = true;
                 });
