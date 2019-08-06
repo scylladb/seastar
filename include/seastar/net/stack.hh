@@ -23,6 +23,7 @@
 #include <chrono>
 #include <seastar/net/api.hh>
 #include <seastar/core/memory.hh>
+#include "../core/internal/api-level.hh"
 
 namespace seastar {
 
@@ -51,6 +52,21 @@ public:
     virtual void shutdown() = 0;
 };
 
+
+SEASTAR_INCLUDE_API_V2 namespace api_v2 {
+
+class server_socket_impl {
+public:
+    virtual ~server_socket_impl() {}
+    virtual future<accept_result> accept() = 0;
+    virtual void abort_accept() = 0;
+    virtual socket_address local_address() const = 0;
+};
+
+}
+
+SEASTAR_INCLUDE_API_V1 namespace api_v1 {
+
 class server_socket_impl {
 public:
     virtual ~server_socket_impl() {}
@@ -58,6 +74,8 @@ public:
     virtual void abort_accept() = 0;
     virtual socket_address local_address() const = 0;
 };
+
+}
 
 class udp_channel_impl {
 public:

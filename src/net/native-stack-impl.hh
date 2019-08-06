@@ -42,11 +42,11 @@ class native_network_stack;
 
 // native_server_socket_impl
 template <typename Protocol>
-class native_server_socket_impl : public server_socket_impl {
+class native_server_socket_impl : public api_v2::server_socket_impl {
     typename Protocol::listener _listener;
 public:
     native_server_socket_impl(Protocol& proto, uint16_t port, listen_options opt);
-    virtual future<connected_socket, socket_address> accept() override;
+    virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
 };
@@ -57,7 +57,7 @@ native_server_socket_impl<Protocol>::native_server_socket_impl(Protocol& proto, 
 }
 
 template <typename Protocol>
-future<connected_socket, socket_address>
+future<accept_result>
 native_server_socket_impl<Protocol>::accept() {
     return _listener.accept().then([] (typename Protocol::connection conn) {
         // Save "conn" contents before call below function
@@ -65,9 +65,9 @@ native_server_socket_impl<Protocol>::accept() {
         // It causes trouble on Arm which passes arguments from left to right
         auto ip = conn.foreign_ip().ip;
         auto port = conn.foreign_port();
-        return make_ready_future<connected_socket, socket_address>(
+        return make_ready_future<accept_result>(accept_result{
                 connected_socket(std::make_unique<native_connected_socket_impl<Protocol>>(make_lw_shared(std::move(conn)))),
-                make_ipv4_address(ip, port));
+                make_ipv4_address(ip, port)});
     });
 }
 

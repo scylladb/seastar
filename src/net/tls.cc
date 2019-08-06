@@ -1114,18 +1114,18 @@ private:
     }
 };
 
-class server_session : public net::server_socket_impl {
+class server_session : public net::api_v2::server_socket_impl {
 public:
-    server_session(shared_ptr<server_credentials> creds, server_socket sock)
+    server_session(shared_ptr<server_credentials> creds, api_v2::server_socket sock)
             : _creds(std::move(creds)), _sock(std::move(sock)) {
     }
-    future<connected_socket, socket_address> accept() override {
+    future<accept_result> accept() override {
         // We're not actually doing anything very SSL until we get
         // an actual connection. Then we create a "server" session
         // and wrap it up after handshaking.
-        return _sock.accept().then([this](connected_socket s, socket_address addr) {
-            return wrap_server(_creds, std::move(s)).then([addr](connected_socket s) {
-                return make_ready_future<connected_socket, socket_address>(std::move(s), addr);
+        return _sock.accept().then([this](accept_result ar) {
+            return wrap_server(_creds, std::move(ar.connection)).then([addr = std::move(ar.remote_address)](connected_socket s) {
+                return make_ready_future<accept_result>(accept_result{std::move(s), addr});
             });
         });
     }
@@ -1137,7 +1137,7 @@ public:
     }
 private:
     shared_ptr<server_credentials> _creds;
-    server_socket _sock;
+    api_v2::server_socket _sock;
 };
 
 class tls_socket_impl : public net::socket_impl {
@@ -1202,7 +1202,7 @@ server_socket tls::listen(shared_ptr<server_credentials> creds, socket_address s
 }
 
 server_socket tls::listen(shared_ptr<server_credentials> creds, server_socket ss) {
-    server_socket ssls(std::make_unique<server_session>(creds, std::move(ss)));
+    api_v2::server_socket ssls(std::make_unique<server_session>(creds, std::move(ss)));
     return server_socket(std::move(ssls));
 }
 

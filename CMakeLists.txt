@@ -48,6 +48,16 @@ option (Seastar_EXPERIMENTAL_COROUTINES_TS
   "Enable experimental support for Coroutines TS."
   OFF)
 
+set (Seastar_API_LEVEL
+  "2"
+  CACHE
+  STRING
+  "Seastar compatibility API level (2=server_socket::accept() returns accept_result)")
+
+set_property (CACHE Seastar_API_LEVEL
+  PROPERTY
+  STRINGS 1 2)
+
 #
 # Add a dev build type.
 #
@@ -660,6 +670,10 @@ target_compile_options (seastar
   PUBLIC
     -std=${Seastar_CXX_DIALECT}
     -U_FORTIFY_SOURCE)
+
+target_compile_definitions(seastar
+  PUBLIC
+  SEASTAR_API_LEVEL=${Seastar_API_LEVEL})
 
 function (seastar_supports_flag flag var)
   set (CMAKE_REQUIRED_FLAGS ${flag})

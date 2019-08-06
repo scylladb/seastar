@@ -217,7 +217,7 @@ public:
 class http_server_tester;
 
 class http_server {
-    std::vector<server_socket> _listeners;
+    std::vector<api_v2::server_socket> _listeners;
     http_stats _stats;
     uint64_t _total_connections = 0;
     uint64_t _current_connections = 0;
@@ -267,15 +267,15 @@ public:
     future<> do_accepts(int which) {
         ++_connections_being_accepted;
         return _listeners[which].accept().then_wrapped(
-                [this, which] (future<connected_socket, socket_address> f_cs_sa) mutable {
+                [this, which] (future<accept_result> f_ar) mutable {
             --_connections_being_accepted;
-            if (_stopping || f_cs_sa.failed()) {
-                f_cs_sa.ignore_ready_future();
+            if (_stopping || f_ar.failed()) {
+                f_ar.ignore_ready_future();
                 maybe_idle();
                 return;
             }
-            auto cs_sa = f_cs_sa.get();
-            auto conn = new connection(*this, std::get<0>(std::move(cs_sa)), std::get<1>(std::move(cs_sa)));
+            auto ar = f_ar.get0();
+            auto conn = new connection(*this, std::move(ar.connection), std::move(ar.remote_address));
             // FIXME: future is discarded
             (void)conn->process().then_wrapped([conn] (auto&& f) {
                 delete conn;
@@ -327,7 +327,7 @@ private:
 
 class http_server_tester {
 public:
-    static std::vector<server_socket>& listeners(http_server& server) {
+    static std::vector<api_v2::server_socket>& listeners(http_server& server) {
         return server._listeners;
     }
 };

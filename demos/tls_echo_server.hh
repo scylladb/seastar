@@ -42,7 +42,7 @@ struct streams {
 };
 
 class echoserver {
-    server_socket _socket;
+    api_v2::server_socket _socket;
     shared_ptr<tls::server_credentials> _certs;
     seastar::gate _gate;
     bool _stopped = false;
@@ -66,7 +66,9 @@ public:
                     return make_ready_future<stop_iteration>(stop_iteration::yes);
                 }
                 return with_gate(_gate, [this] {
-                    return _socket.accept().then([this](::connected_socket s, socket_address a) {
+                    return _socket.accept().then([this](accept_result ar) {
+                        ::connected_socket s = std::move(ar.connection);
+                        socket_address a = std::move(ar.remote_address);
                         if (_verbose) {
                             std::cout << "Got connection from "<< a << std::endl;
                         }

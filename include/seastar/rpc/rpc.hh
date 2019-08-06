@@ -514,7 +514,7 @@ public:
     };
 private:
     protocol_base* _proto;
-    server_socket _ss;
+    api_v2::server_socket _ss;
     resource_limits _limits;
     rpc_semaphore _resources_available;
     std::unordered_map<connection_id, shared_ptr<connection>> _conns;

@@ -75,13 +75,13 @@ SEASTAR_TEST_CASE(tcp_packet_test) {
     }
 
     return async([] {
-        auto sc = engine().net().listen(ipv6_addr{"::1"}, {});
+        auto sc = api_v2::server_socket(engine().net().listen(ipv6_addr{"::1"}, {}));
         auto la = sc.local_address();
 
         BOOST_REQUIRE(la.addr().is_ipv6());
 
         auto cc = engine().net().connect(la).get0();
-        auto lc = sc.accept().get0();
+        auto lc = std::move(sc.accept().get0().connection);
 
         auto strm = cc.output();
         strm.write("los lobos").get();

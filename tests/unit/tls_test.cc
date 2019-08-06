@@ -158,7 +158,7 @@ SEASTAR_TEST_CASE(test_non_tls) {
     ::listen_options opts;
     opts.reuse_address = true;
     auto addr = ::make_ipv4_address( {0x7f000001, 4712});
-    auto server = engine().listen(addr, opts);
+    auto server = api_v2::server_socket(engine().listen(addr, opts));
 
     auto c = server.accept();
 
@@ -168,7 +168,8 @@ SEASTAR_TEST_CASE(test_non_tls) {
     auto f = connect_to_ssl_addr(b.build_certificate_credentials(), addr);
 
 
-    return c.then([this, f = std::move(f)](::connected_socket s, socket_address) mutable {
+    return c.then([this, f = std::move(f)](accept_result ar) mutable {
+        ::connected_socket s = std::move(ar.connection);
         std::cerr << "Established connection" << std::endl;
         auto sp = std::make_unique<::connected_socket>(std::move(s));
         timer<> t([s = std::ref(*sp)] {
@@ -188,13 +189,13 @@ SEASTAR_TEST_CASE(test_abort_accept_before_handshake) {
         ::listen_options opts;
         opts.reuse_address = true;
         auto addr = ::make_ipv4_address( {0x7f000001, 4712});
-        auto server = tls::listen(certs, addr, opts);
+        auto server = api_v2::server_socket(tls::listen(certs, addr, opts));
         auto c = server.accept();
         BOOST_CHECK(!c.available()); // should not be finished
 
         server.abort_accept();
 
-        return c.then([](auto, auto) { BOOST_FAIL("Should not reach"); }).handle_exception([](auto) {
+        return c.then([](auto) { BOOST_FAIL("Should not reach"); }).handle_exception([](auto) {
             // ok
         }).finally([server = std::move(server)] {});
     });
@@ -237,7 +238,7 @@ SEASTAR_TEST_CASE(test_abort_accept_on_server_before_handshake) {
         ::listen_options opts;
         opts.reuse_address = true;
         auto addr = ::make_ipv4_address( {0x7f000001, 4712});
-        auto server = engine().listen(addr, opts);
+        auto server = api_v2::server_socket(engine().listen(addr, opts));
         auto sa = server.accept();
 
         tls::credentials_builder b;
@@ -282,7 +283,7 @@ struct streams {
 static const sstring message = "hej lilla fisk du kan dansa fint";
 
 class echoserver {
-    ::server_socket _socket;
+    ::api_v2::server_socket _socket;
     ::shared_ptr<tls::server_credentials> _certs;
     seastar::gate _gate;
     bool _stopped = false;
@@ -310,7 +311,8 @@ public:
             _socket = tls::listen(_certs, addr, opts);
 
             with_gate(_gate, [this] {
-                return _socket.accept().then([this](::connected_socket s, socket_address) {
+                return _socket.accept().then([this](accept_result ar) {
+                    ::connected_socket s = std::move(ar.connection);
                     auto strms = ::make_lw_shared<streams>(std::move(s));
                     return repeat([strms, this]() {
                         return strms->in.read_exactly(_size).then([strms](temporary_buffer<char> buf) {

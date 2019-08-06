@@ -31,11 +31,13 @@
 #include <seastar/net/socket_defs.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/net/api.hh>
+#include "../core/internal/api-level.hh"
 
 namespace seastar {
 
 class socket;
-class server_socket;
+SEASTAR_INCLUDE_API_V1 namespace api_v1 { class server_socket; }
+SEASTAR_INCLUDE_API_V2 namespace api_v2 { class server_socket; }
 class connected_socket;
 class socket_address;
 
