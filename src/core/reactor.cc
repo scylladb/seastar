@@ -4311,11 +4311,10 @@ int reactor::run() {
     });
     _network_stack_ready_promise.get_future().then([this] (std::unique_ptr<network_stack> stack) {
         _network_stack = std::move(stack);
-        for (unsigned c = 0; c < smp::count; c++) {
-            smp::submit_to(c, [] {
-                    engine()._cpu_started.signal();
-            });
-        }
+        // Signal all cpus asynchronously.
+        (void)smp::invoke_on_all([] {
+            engine()._cpu_started.signal();
+        });
     });
 
     poller syscall_poller(std::make_unique<syscall_pollfn>(*this));
