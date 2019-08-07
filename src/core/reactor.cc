@@ -45,6 +45,7 @@
 #include <seastar/core/report_exception.hh>
 #include <seastar/core/stall_sampler.hh>
 #include <seastar/core/thread_cputime_clock.hh>
+#include <seastar/core/abort_on_ebadf.hh>
 #include <seastar/util/log.hh>
 #include "core/file-impl.hh"
 #include "syscall_work_queue.hh"
@@ -496,6 +497,16 @@ sched_print(const char* fmt, Args&&... args) {
     if (sched_debug()) {
         sched_logger.trace(fmt, std::forward<Args>(args)...);
     }
+}
+
+static std::atomic<bool> abort_on_ebadf = { false };
+
+void set_abort_on_ebadf(bool do_abort) {
+    abort_on_ebadf.store(do_abort);
+}
+
+bool is_abort_on_ebadf_enabled() {
+    return abort_on_ebadf.load();
 }
 
 timespec to_timespec(steady_clock_type::time_point t) {
