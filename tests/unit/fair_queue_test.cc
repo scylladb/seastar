@@ -75,7 +75,8 @@ struct test_env {
         fq.queue(cl, fqdesc, [this, index, req = std::move(req)] () mutable noexcept {
             try {
                 results[index]++;
-                sleep(100us).then_wrapped([this, req = std::move(req)] (future<> f) mutable {
+                // Run in the background.
+                (void)sleep(100us).then_wrapped([this, req = std::move(req)] (future<> f) mutable {
                     f.forward_to(std::move(req->pr));
                     fq.notify_requests_finished(req->fqdesc);
                     fq.dispatch_requests();

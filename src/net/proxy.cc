@@ -59,7 +59,8 @@ uint32_t proxy_net_device::send(circular_buffer<packet>& p)
     if (!_moving.empty()) {
         qp* dev = &_dev->queue_for_cpu(_cpu);
         auto cpu = engine().cpu_id();
-        smp::submit_to(_cpu, [this, dev, cpu]() mutable {
+        // FIXME: future is discarded
+        (void)smp::submit_to(_cpu, [this, dev, cpu]() mutable {
             for(size_t i = 0; i < _moving.size(); i++) {
                 dev->proxy_send(_moving[i].free_on_cpu(cpu, [this] { _send_depth--; }));
             }

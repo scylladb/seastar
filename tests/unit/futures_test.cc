@@ -572,7 +572,7 @@ SEASTAR_TEST_CASE(test_high_priority_task_runs_before_ready_continuations) {
         engine().add_high_priority_task(make_task([flag] {
             *flag = true;
         }));
-        make_ready_future().then([flag] {
+        return make_ready_future().then([flag] {
             BOOST_REQUIRE(*flag);
         });
     });
