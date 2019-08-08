@@ -620,7 +620,10 @@ namespace rpc {
 
   client::client(const logger& l, void* s, client_options ops, socket socket, const socket_address& addr, const socket_address& local)
   : rpc::connection(l, s), _socket(std::move(socket)), _server_addr(addr), _options(ops) {
-      _socket.connect(addr, local).then([this, ops = std::move(ops)] (connected_socket fd) {
+      // Run client in the background.
+      // Communicate result via _stopped.
+      // The caller has to call client::stop() to synchronize.
+      (void)_socket.connect(addr, local).then([this, ops = std::move(ops)] (connected_socket fd) {
           fd.set_nodelay(ops.tcp_nodelay);
           if (ops.keepalive) {
               fd.set_keepalive(true);
@@ -859,7 +862,9 @@ future<> server::connection::send_unknown_verb_reply(compat::optional<rpc_clock_
         write_le<uint32_t>(p + 4, uint32_t(8));
         write_le<uint64_t>(p + 8, type);
         try {
-            with_gate(_server._reply_gate, [this, timeout, msg_id, data = std::move(data), permit = std::move(permit)] () mutable {
+            // Send asynchronously.
+            // This is safe since connection::stop() will wait for background work.
+            (void)with_gate(_server._reply_gate, [this, timeout, msg_id, data = std::move(data), permit = std::move(permit)] () mutable {
                 // workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=83268
                 auto c = shared_from_this();
                 return respond(-msg_id, std::move(data), timeout).then([c = std::move(c), permit = std::move(permit)] {});
@@ -974,7 +979,10 @@ future<> server::connection::send_unknown_verb_reply(compat::optional<rpc_clock_
   {}
 
   void server::accept() {
-      keep_doing([this] () mutable {
+      // Run asynchronously in background.
+      // Communicate result via __ss_stopped.
+      // The caller has to call server::stop() to synchronize.
+      (void)keep_doing([this] () mutable {
           return _ss.accept().then([this] (accept_result ar) mutable {
               auto fd = std::move(ar.connection);
               auto addr = std::move(ar.remote_address);
@@ -985,7 +993,8 @@ future<> server::connection::send_unknown_verb_reply(compat::optional<rpc_clock_
               auto conn = _proto->make_server_connection(*this, std::move(fd), std::move(addr), id);
               auto r = _conns.emplace(id, conn);
               assert(r.second);
-              conn->process();
+              // Process asynchronously in background.
+              (void)conn->process();
           });
       }).then_wrapped([this] (future<>&& f){
           try {
