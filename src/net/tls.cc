@@ -965,14 +965,14 @@ public:
         if (!std::exchange(_shutdown, true)) {
             auto me = shared_from_this();
             // running in background. try to bye-handshake us nicely, but after 10s we forcefully close.
-            (void)with_timeout(timer<>::clock::now() + std::chrono::seconds(10), shutdown()).finally([this] {
+            with_timeout(timer<>::clock::now() + std::chrono::seconds(10), shutdown()).finally([this] {
                 _eof = true;
                 try {
-                    (void)_in.close().handle_exception([](std::exception_ptr) {}); // should wake any waiters
+                    _in.close().handle_exception([](std::exception_ptr) {}); // should wake any waiters
                 } catch (...) {
                 }
                 try {
-                    (void)_out.close().handle_exception([](std::exception_ptr) {});
+                    _out.close().handle_exception([](std::exception_ptr) {});
                 } catch (...) {
                 }
                 // make sure to wait for handshake attempt to leave semaphores. Must be in same order as

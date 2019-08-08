@@ -93,17 +93,16 @@ SEASTAR_TEST_CASE(test1) {
     return open_file_dma("testfile.tmp", open_flags::rw | open_flags::create).then([] (file f) {
         auto ft = new file_test{std::move(f)};
         for (size_t i = 0; i < max; ++i) {
-            // Don't wait for future, use semaphore to signal when done instead.
-            (void)ft->par.wait().then([ft, i] {
+            ft->par.wait().then([ft, i] {
                 auto wbuf = allocate_aligned_buffer<unsigned char>(4096, 4096);
                 std::fill(wbuf.get(), wbuf.get() + 4096, i);
                 auto wb = wbuf.get();
-                (void)ft->f.dma_write(i * 4096, wb, 4096).then(
+                ft->f.dma_write(i * 4096, wb, 4096).then(
                         [ft, i, wbuf = std::move(wbuf)] (size_t ret) mutable {
                     BOOST_REQUIRE(ret == 4096);
                     auto rbuf = allocate_aligned_buffer<unsigned char>(4096, 4096);
                     auto rb = rbuf.get();
-                    (void)ft->f.dma_read(i * 4096, rb, 4096).then(
+                    ft->f.dma_read(i * 4096, rb, 4096).then(
                             [ft, rbuf = std::move(rbuf), wbuf = std::move(wbuf)] (size_t ret) mutable {
                         BOOST_REQUIRE(ret == 4096);
                         BOOST_REQUIRE(std::equal(rbuf.get(), rbuf.get() + 4096, wbuf.get()));
@@ -163,8 +162,7 @@ SEASTAR_TEST_CASE(parallel_write_fsync) {
                     return written <= fsynced_at + max_write_ahead_of_fsync;
                 }).get();
                 auto buf = temporary_buffer<char>::aligned(f.memory_dma_alignment(), buffer_size);
-                // Write asynchronously, signal when done.
-                (void)f.dma_write(written, buf.get(), buf.size()).then([&fsync_semaphore, &write_semaphore, buf = std::move(buf)] (size_t w) {
+                f.dma_write(written, buf.get(), buf.size()).then([&fsync_semaphore, &write_semaphore, buf = std::move(buf)] (size_t w) {
                     fsync_semaphore.signal(buf.size());
                     write_semaphore.signal();
                 });

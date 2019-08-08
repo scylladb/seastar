@@ -44,8 +44,7 @@ public:
         });
         _stats_timer.arm_periodic(1s);
 
-        // Run server in background.
-        (void)keep_doing([this] {
+        keep_doing([this] {
             return _chan.receive().then([this] (udp_datagram dgram) {
                 return _chan.send(dgram.get_src(), std::move(dgram.get_data())).then([this] {
                     _n_sent++;
@@ -69,12 +68,11 @@ int main(int ac, char ** av) {
         auto&& config = app.configuration();
         uint16_t port = config["port"].as<uint16_t>();
         auto server = new distributed<udp_server>;
-        // Run server in background.
-        (void)server->start().then([server = std::move(server), port] () mutable {
+        server->start().then([server = std::move(server), port] () mutable {
             engine().at_exit([server] {
                 return server->stop();
             });
-            return server->invoke_on_all(&udp_server::start, port);
+            server->invoke_on_all(&udp_server::start, port);
         }).then([port] {
             std::cout << "Seastar UDP server listening on port " << port << " ...\n";
         });

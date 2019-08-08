@@ -52,8 +52,7 @@ public:
         });
         _stats_timer.arm_periodic(1s);
 
-        // Run sender in background.
-        (void)keep_doing([this, server_addr] {
+        keep_doing([this, server_addr] {
             return _chan.send(server_addr, "hello!\n")
                 .then_wrapped([this] (auto&& f) {
                     try {
@@ -65,8 +64,7 @@ public:
                 });
         });
 
-        // Run receiver in background.
-        (void)keep_doing([this] {
+        keep_doing([this] {
             return _chan.receive().then([this] (auto) {
                 n_received++;
             });

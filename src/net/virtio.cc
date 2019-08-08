@@ -550,9 +550,7 @@ protected:
             return _ring.getconfig();
         }
         void run() {
-            // FIXME: future is discarded
-            // At least catch errors and warn about them.
-            (void)keep_doing([this] { return prepare_buffers(); });
+            keep_doing([this] { return prepare_buffers(); });
         }
         void wake_notifier_wait() {
             _ring.wake_notifier_wait();

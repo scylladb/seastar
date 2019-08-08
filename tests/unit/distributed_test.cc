@@ -37,8 +37,7 @@ struct async_service : public seastar::async_sharded_service<async_service> {
     }
     void run() {
         auto ref = shared_from_this();
-        // Wait a while and check.
-        (void)sleep(std::chrono::milliseconds(100 + 100 * engine().cpu_id())).then([this, ref] {
+        sleep(std::chrono::milliseconds(100 + 100 * engine().cpu_id())).then([this, ref] {
            check();
         });
     }

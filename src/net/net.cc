@@ -304,8 +304,7 @@ void interface::forward(unsigned cpuid, packet p) {
     if (queue_depth < 1000) {
         queue_depth++;
         auto src_cpu = engine().cpu_id();
-        // FIXME: future is discarded
-        (void)smp::submit_to(cpuid, [this, p = std::move(p), src_cpu]() mutable {
+        smp::submit_to(cpuid, [this, p = std::move(p), src_cpu]() mutable {
             _dev->l2receive(p.free_on_cpu(src_cpu));
         }).then([] {
             queue_depth--;
