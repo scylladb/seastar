@@ -298,7 +298,7 @@ public:
         : _fd(std::move(fd)), _size(size), _trim_to_size(trim_to_size), _batch_flushes(batch_flushes) {}
     output_stream(output_stream&&) = default;
     output_stream& operator=(output_stream&&) = default;
-    ~output_stream() { assert(!_in_batch); }
+    ~output_stream() { assert(!_in_batch && "Was this stream properly closed?"); }
     future<> write(const char_type* buf, size_t n);
     future<> write(const char_type* buf);
 
@@ -310,6 +310,10 @@ public:
     future<> write(scattered_message<char_type> msg);
     future<> write(temporary_buffer<char_type>);
     future<> flush();
+
+    /// Flushes the stream before closing it (and the underlying data sink) to
+    /// any further writes.  The resulting future must be waited on before
+    /// destroying this object.
     future<> close();
 
     /// Detaches the underlying \c data_sink from the \c output_stream.
