@@ -61,8 +61,7 @@ public:
 
             _socket = tls::listen(_certs, addr, opts);
 
-            // Listen in background.
-            (void)repeat([this] {
+            repeat([this] {
                 if (_stopped) {
                     return make_ready_future<stop_iteration>(stop_iteration::yes);
                 }

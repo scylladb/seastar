@@ -341,9 +341,8 @@ public:
         if (src_cpu == 0) {
             return process_packet(std::move(p), dhp, opt_off);
         }
-        // FIXME: future is discarded
-        (void)smp::submit_to(0, [this, p = std::move(p), src_cpu, dhp, opt_off]() mutable {
-            return process_packet(p.free_on_cpu(src_cpu), dhp, opt_off);
+        smp::submit_to(0, [this, p = std::move(p), src_cpu, dhp, opt_off]() mutable {
+            process_packet(p.free_on_cpu(src_cpu), dhp, opt_off);
         });
         return make_ready_future<>();
     }
@@ -360,13 +359,12 @@ public:
         });
 
         log() << "sending discover" << std::endl;
-        (void)send_discover(l.ip); // FIXME: ignoring return
+        send_discover(l.ip); // FIXME: ignoring return
         if (timeout.count()) {
             _timer.arm(timeout);
         }
         _retry_timer.set_callback([this, l] {
-            // FIXME: ignoring return
-            (void)send_discover(l.ip);
+            send_discover(l.ip);
         });
         _retry_timer.arm_periodic(1s);
         return _result.get_future();
@@ -381,8 +379,7 @@ public:
 
         pkt = hton(pkt);
 
-        // FIXME: future is discarded
-        (void)_sock.send({0xffffffff, server_port}, packet(reinterpret_cast<char *>(&pkt), sizeof(pkt)));
+        _sock.send({0xffffffff, server_port}, packet(reinterpret_cast<char *>(&pkt), sizeof(pkt)));
 
         return make_ready_future<>();
     }

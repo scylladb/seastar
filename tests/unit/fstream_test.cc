@@ -53,8 +53,7 @@ struct reader {
 SEASTAR_TEST_CASE(test_fstream) {
     auto sem = make_lw_shared<semaphore>(0);
 
-        // Run in background, signal when done.
-        (void)open_file_dma("testfile.tmp",
+        open_file_dma("testfile.tmp",
                       open_flags::rw | open_flags::create | open_flags::truncate).then([sem] (file f) {
             auto w = make_shared<writer>(std::move(f));
             auto buf = static_cast<char*>(::malloc(4096));
@@ -62,7 +61,7 @@ SEASTAR_TEST_CASE(test_fstream) {
             buf[0] = '[';
             buf[1] = 'A';
             buf[4095] = ']';
-            return w->out.write(buf, 4096).then([buf, w] {
+            w->out.write(buf, 4096).then([buf, w] {
                 ::free(buf);
                 return make_ready_future<>();
             }).then([w] {
@@ -177,8 +176,7 @@ SEASTAR_TEST_CASE(test_consume_skip_bytes) {
 SEASTAR_TEST_CASE(test_fstream_unaligned) {
     auto sem = make_lw_shared<semaphore>(0);
 
-    // Run in background, signal when done.
-    (void)open_file_dma("testfile.tmp",
+    open_file_dma("testfile.tmp",
                   open_flags::rw | open_flags::create | open_flags::truncate).then([sem] (file f) {
         auto w = make_shared<writer>(std::move(f));
         auto buf = static_cast<char*>(::malloc(40));
@@ -186,7 +184,7 @@ SEASTAR_TEST_CASE(test_fstream_unaligned) {
         buf[0] = '[';
         buf[1] = 'A';
         buf[39] = ']';
-        return w->out.write(buf, 40).then([buf, w] {
+        w->out.write(buf, 40).then([buf, w] {
             ::free(buf);
             return w->out.close().then([w] {});
         }).then([] {

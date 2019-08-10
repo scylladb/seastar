@@ -161,7 +161,7 @@ public:
         _rx->shutdown();
     }
     void shutdown_output() override {
-        (void)smp::submit_to(_tx.get_owner_shard(), [this] {
+        smp::submit_to(_tx.get_owner_shard(), [this] {
             // FIXME: who holds to _tx?
             _tx->shutdown();
         });
@@ -257,7 +257,7 @@ public:
 
     void shutdown() {
         _b1->shutdown();
-        (void)smp::submit_to(_b2.get_owner_shard(), [b2 = std::move(_b2)] {
+        smp::submit_to(_b2.get_owner_shard(), [b2 = std::move(_b2)] {
             b2->shutdown();
         });
     }
