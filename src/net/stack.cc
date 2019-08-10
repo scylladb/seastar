@@ -140,6 +140,8 @@ void socket::shutdown() {
     _si->shutdown();
 }
 
+#if SEASTAR_API_LEVEL <= 1
+
 namespace internal {
 
 class api_v1_to_v2_server_socket_impl_adapter : public net::api_v2::server_socket_impl {
@@ -162,6 +164,8 @@ public:
 };
 
 }
+
+#endif
 
 SEASTAR_INCLUDE_API_V2 namespace api_v2 {
 
@@ -194,6 +198,8 @@ socket_address server_socket::local_address() const {
 }
 
 }
+
+#if SEASTAR_API_LEVEL <= 1
 
 SEASTAR_INCLUDE_API_V1 namespace api_v1 {
 
@@ -245,6 +251,9 @@ socket_address server_socket::local_address() const {
 }
 
 }
+
+
+#endif
 
 socket_address::socket_address()
     : socket_address(ipv4_addr())
