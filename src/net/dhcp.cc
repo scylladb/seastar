@@ -310,7 +310,7 @@ public:
             log() << " nm: " << info.netmask << std::endl;
             log() << " gw: " << info.gateway << std::endl;
             _state = state::DONE;
-            _result.set_value(true, info);
+            _result.set_value(info);
             break;
         default:
             break;
@@ -347,7 +347,7 @@ public:
         return make_ready_future<>();
     }
 
-    future<bool, lease> run(const lease & l,
+    future<compat::optional<lease>> run(const lease & l,
             const steady_clock_type::duration & timeout) {
 
         _state = state::NONE;
@@ -355,7 +355,7 @@ public:
             _state = state::FAIL;
             log() << "timeout" << std::endl;
             _retry_timer.cancel();
-            _result.set_value(false, lease());
+            _result.set_value(compat::nullopt);
         });
 
         log() << "sending discover" << std::endl;
@@ -425,7 +425,7 @@ public:
     }
 
 private:
-    promise<bool, lease> _result;
+    promise<compat::optional<lease>> _result;
     state _state = state::NONE;
     timer<> _timer;
     timer<> _retry_timer;

@@ -142,7 +142,7 @@ private:
     timer<> _timer;
 
     future<> run_dhcp(bool is_renew = false, const dhcp::lease & res = dhcp::lease());
-    void on_dhcp(bool, const dhcp::lease &, bool);
+    void on_dhcp(compat::optional<dhcp::lease> lease, bool is_renew);
     void set_ipv4_packet_filter(ip_packet_filter* filter) {
         _inet.set_packet_filter(filter);
     }
@@ -216,17 +216,18 @@ future<> native_network_stack::run_dhcp(bool is_renew, const dhcp::lease& res) {
         ns.set_ipv4_packet_filter(f);
     }).then([this, d = std::move(d), is_renew, res]() mutable {
         net::dhcp::result_type fut = is_renew ? d.renew(res) : d.discover();
-        return fut.then([this, is_renew](bool success, const dhcp::lease & res) {
+        return fut.then([this, is_renew](compat::optional<dhcp::lease> lease) {
             return smp::invoke_on_all([] {
                 auto & ns = static_cast<native_network_stack&>(engine().net());
                 ns.set_ipv4_packet_filter(nullptr);
-            }).then(std::bind(&net::native_network_stack::on_dhcp, this, success, res, is_renew));
+            }).then(std::bind(&net::native_network_stack::on_dhcp, this, lease, is_renew));
         }).finally([d = std::move(d)] {});
     });
 }
 
-void native_network_stack::on_dhcp(bool success, const dhcp::lease & res, bool is_renew) {
-    if (success) {
+void native_network_stack::on_dhcp(compat::optional<dhcp::lease> lease, bool is_renew) {
+    if (lease) {
+        auto& res = *lease;
         _inet.set_host_address(res.ip);
         _inet.set_gw_address(res.gateway);
         _inet.set_netmask_address(res.netmask);
@@ -240,13 +241,14 @@ void native_network_stack::on_dhcp(bool success, const dhcp::lease & res, bool i
         // And the other cpus, which, in the case of initial discovery,
         // will be waiting for us.
         for (unsigned i = 1; i < smp::count; i++) {
-            smp::submit_to(i, [success, res, is_renew]() {
+            smp::submit_to(i, [lease, is_renew]() {
                 auto & ns = static_cast<native_network_stack&>(engine().net());
-                ns.on_dhcp(success, res, is_renew);
+                ns.on_dhcp(lease, is_renew);
             });
         }
-        if (success) {
+        if (lease) {
             // And set up to renew the lease later on.
+            auto& res = *lease;
             _timer.set_callback(
                     [this, res]() {
                         _config = promise<>();
