@@ -373,9 +373,9 @@ private:
 private:
     future<> negotiate_protocol(input_stream<char>& in);
     void negotiate(feature_map server_features);
-    future<int64_t, compat::optional<rcv_buf>>
+    future<std::tuple<int64_t, compat::optional<rcv_buf>>>
     read_response_frame(input_stream<char>& in);
-    future<int64_t, compat::optional<rcv_buf>>
+    future<std::tuple<int64_t, compat::optional<rcv_buf>>>
     read_response_frame_compressed(input_stream<char>& in);
     void send_loop() {
         if (is_stream()) {
@@ -464,7 +464,7 @@ public:
         compat::optional<isolation_config> _isolation_config;
     private:
         future<> negotiate_protocol(input_stream<char>& in);
-        future<compat::optional<uint64_t>, uint64_t, int64_t, compat::optional<rcv_buf>>
+        future<std::tuple<compat::optional<uint64_t>, uint64_t, int64_t, compat::optional<rcv_buf>>>
         read_request_frame_compressed(input_stream<char>& in);
         future<feature_map> negotiate(feature_map requested);
         void send_loop() {

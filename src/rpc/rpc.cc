@@ -532,7 +532,8 @@ namespace rpc {
 
   struct response_frame {
       using opt_buf_type = compat::optional<rcv_buf>;
-      using return_type = future<int64_t, opt_buf_type>;
+      using header_and_buffer_type = std::tuple<int64_t, opt_buf_type>;
+      using return_type = future<header_and_buffer_type>;
       using header_type = std::tuple<int64_t, uint32_t>;
       static size_t header_size() {
           return 12;
@@ -541,7 +542,7 @@ namespace rpc {
           return "client";
       }
       static auto empty_value() {
-          return make_ready_future<int64_t, opt_buf_type>(0, compat::nullopt);
+          return make_ready_future<header_and_buffer_type>(header_and_buffer_type(0, compat::nullopt));
       }
       static header_type decode_header(const char* ptr) {
           auto msgid = read_le<int64_t>(ptr);
@@ -552,17 +553,17 @@ namespace rpc {
           return std::get<1>(t);
       }
       static auto make_value(const header_type& t, rcv_buf data) {
-          return make_ready_future<int64_t, opt_buf_type>(std::get<0>(t), std::move(data));
+          return make_ready_future<header_and_buffer_type>(header_and_buffer_type(std::get<0>(t), std::move(data)));
       }
   };
 
 
-  future<int64_t, compat::optional<rcv_buf>>
+  future<response_frame::header_and_buffer_type>
   client::read_response_frame(input_stream<char>& in) {
       return read_frame<response_frame>(_server_addr, in);
   }
 
-  future<int64_t, compat::optional<rcv_buf>>
+  future<response_frame::header_and_buffer_type>
   client::read_response_frame_compressed(input_stream<char>& in) {
       return read_frame_compressed<response_frame>(_server_addr, _compressor, in);
   }
@@ -652,7 +653,9 @@ namespace rpc {
                   if (is_stream()) {
                       return handle_stream_frame();
                   }
-                  return read_response_frame_compressed(_read_buf).then([this] (int64_t msg_id, compat::optional<rcv_buf> data) {
+                  return read_response_frame_compressed(_read_buf).then([this] (std::tuple<int64_t, compat::optional<rcv_buf>> msg_id_and_data) {
+                      auto& msg_id = std::get<0>(msg_id_and_data);
+                      auto& data = std::get<1>(msg_id_and_data);
                       auto it = _outstanding.find(std::abs(msg_id));
                       if (!data) {
                           _error = true;
@@ -794,7 +797,8 @@ namespace rpc {
 
   struct request_frame {
       using opt_buf_type = compat::optional<rcv_buf>;
-      using return_type = future<compat::optional<uint64_t>, uint64_t, int64_t, opt_buf_type>;
+      using header_and_buffer_type = std::tuple<compat::optional<uint64_t>, uint64_t, int64_t, opt_buf_type>;
+      using return_type = future<header_and_buffer_type>;
       using header_type = std::tuple<compat::optional<uint64_t>, uint64_t, int64_t, uint32_t>;
       static size_t header_size() {
           return 20;
@@ -803,7 +807,7 @@ namespace rpc {
           return "server";
       }
       static auto empty_value() {
-          return make_ready_future<compat::optional<uint64_t>, uint64_t, int64_t, opt_buf_type>(compat::nullopt, uint64_t(0), 0, compat::nullopt);
+          return make_ready_future<header_and_buffer_type>(header_and_buffer_type(compat::nullopt, uint64_t(0), 0, compat::nullopt));
       }
       static header_type decode_header(const char* ptr) {
           auto type = read_le<uint64_t>(ptr);
@@ -815,7 +819,7 @@ namespace rpc {
           return std::get<3>(t);
       }
       static auto make_value(const header_type& t, rcv_buf data) {
-          return make_ready_future<compat::optional<uint64_t>, uint64_t, int64_t, opt_buf_type>(std::get<0>(t), std::get<1>(t), std::get<2>(t), std::move(data));
+          return make_ready_future<header_and_buffer_type>(header_and_buffer_type(std::get<0>(t), std::get<1>(t), std::get<2>(t), std::move(data)));
       }
   };
 
@@ -831,7 +835,7 @@ namespace rpc {
       }
   };
 
-  future<compat::optional<uint64_t>, uint64_t, int64_t, compat::optional<rcv_buf>>
+  future<request_frame::header_and_buffer_type>
   server::connection::read_request_frame_compressed(input_stream<char>& in) {
       if (_timeout_negotiated) {
           return read_frame_compressed<request_frame_with_timeout>(_info.addr, _compressor, in);
@@ -877,7 +881,11 @@ future<> server::connection::send_unknown_verb_reply(compat::optional<rpc_clock_
               if (is_stream()) {
                   return handle_stream_frame();
               }
-              return read_request_frame_compressed(_read_buf).then([this] (compat::optional<uint64_t> expire, uint64_t type, int64_t msg_id, compat::optional<rcv_buf> data) {
+              return read_request_frame_compressed(_read_buf).then([this] (request_frame::header_and_buffer_type header_and_buffer) {
+                  auto& expire = std::get<0>(header_and_buffer);
+                  auto& type = std::get<1>(header_and_buffer);
+                  auto& msg_id = std::get<2>(header_and_buffer);
+                  auto& data = std::get<3>(header_and_buffer);
                   if (!data) {
                       _error = true;
                       return make_ready_future<>();
