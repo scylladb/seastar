@@ -835,6 +835,27 @@ struct warn_variadic_future<true> {
 /// scheduling a \c continuation to be executed when the future becomes
 /// available.  Only one such continuation may be scheduled.
 ///
+/// A \ref future should not be discarded before it is waited upon and
+/// its result is extracted. Discarding a \ref future means that the
+/// computed value becomes inaccessible, but more importantly, any
+/// exceptions raised from the computation will disappear unchecked as
+/// well. Another very important consequence is potentially unbounded
+/// resource consumption due to the launcher of the deserted
+/// continuation not being able track the amount of in-progress
+/// continuations, nor their individual resource consumption.
+/// To prevent accidental discarding of futures, \ref future is
+/// declared `[[nodiscard]]` if the compiler supports it. Also, when a
+/// discarded \ref future resolves with an error a warning is logged
+/// (at runtime).
+/// That said there can be legitimate cases where a \ref future is
+/// discarded. The most prominent example is launching a new
+/// [fiber](\ref fiber-module), or in other words, moving a continuation
+/// chain to the background (off the current [fiber](\ref fiber-module)).
+/// Even if a \ref future is discarded purposefully, it is still strongly
+/// advisable to wait on it indirectly (via a \ref gate or
+/// \ref semaphore), control their concurrency, their resource consumption
+/// and handle any errors raised from them.
+///
 /// \tparam T A list of types to be carried as the result of the future,
 ///           similar to \c std::tuple<T...>. An empty list (\c future<>)
 ///           means that there is no result, and an available future only
