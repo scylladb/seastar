@@ -428,11 +428,7 @@ protected:
     void check_during_destruction() noexcept;
 
     void operator=(const promise_base&) = delete;
-    promise_base& operator=(promise_base&& x) noexcept {
-        this->~promise_base();
-        new (this) promise_base(std::move(x));
-        return *this;
-    }
+    promise_base& operator=(promise_base&& x) = delete;
 
     friend class future_base;
     template <typename... U> friend class seastar::future;
