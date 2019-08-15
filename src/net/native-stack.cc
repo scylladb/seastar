@@ -278,12 +278,10 @@ future<> native_network_stack::initialize() {
 
 void arp_learn(ethernet_address l2, ipv4_address l3)
 {
-    for (unsigned i = 0; i < smp::count; i++) {
-        smp::submit_to(i, [l2, l3] {
-            auto & ns = static_cast<native_network_stack&>(engine().net());
-            ns.arp_learn(l2, l3);
-        });
-    }
+    smp::invoke_on_all([l2, l3] {
+        auto & ns = static_cast<native_network_stack&>(engine().net());
+        ns.arp_learn(l2, l3);
+    });
 }
 
 void create_native_stack(boost::program_options::variables_map opts, std::shared_ptr<device> dev) {
