@@ -254,9 +254,9 @@ future<> recursive_touch_directory(sstring name, file_permissions permissions = 
 future<> sync_directory(sstring name);
 
 
-/// Removes (unlinks) a file.
+/// Removes (unlinks) a file or an empty directory
 ///
-/// \param name name of the file to remove
+/// \param name name of the file or the directory to remove
 ///
 /// \note
 /// The removal is not guaranteed to be stable on disk, unless the
