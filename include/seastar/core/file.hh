@@ -263,7 +263,7 @@ public:
                 buf.trim(len);
             }
 
-            return std::move(buf);
+            return SEASTAR_COPY_ELISION(buf);
         });
     }
 
@@ -291,7 +291,7 @@ public:
                 throw eof_error();
             }
 
-            return std::move(buf);
+            return SEASTAR_COPY_ELISION(buf);
         });
     }
 
