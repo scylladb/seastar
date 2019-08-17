@@ -54,7 +54,7 @@ SEASTAR_TEST_CASE(test_semaphore_consume) {
 
 SEASTAR_TEST_CASE(test_semaphore_1) {
     return do_with(std::make_pair(semaphore(0), 0), [] (std::pair<semaphore, int>& x) {
-        x.first.wait().then([&x] {
+        (void)x.first.wait().then([&x] {
             x.second++;
         });
         x.first.signal();
@@ -66,7 +66,7 @@ SEASTAR_TEST_CASE(test_semaphore_1) {
 
 SEASTAR_TEST_CASE(test_semaphore_2) {
     return do_with(std::make_pair(semaphore(0), 0), [] (std::pair<semaphore, int>& x) {
-        x.first.wait().then([&x] {
+        (void)x.first.wait().then([&x] {
             x.second++;
         });
         return sleep(10ms).then([&x] {
@@ -77,10 +77,10 @@ SEASTAR_TEST_CASE(test_semaphore_2) {
 
 SEASTAR_TEST_CASE(test_semaphore_timeout_1) {
     return do_with(std::make_pair(semaphore(0), 0), [] (std::pair<semaphore, int>& x) {
-        x.first.wait(100ms).then([&x] {
+        (void)x.first.wait(100ms).then([&x] {
             x.second++;
         });
-        sleep(3ms).then([&x] {
+        (void)sleep(3ms).then([&x] {
             x.first.signal();
         });
         return sleep(200ms).then([&x] {
@@ -91,10 +91,10 @@ SEASTAR_TEST_CASE(test_semaphore_timeout_1) {
 
 SEASTAR_TEST_CASE(test_semaphore_timeout_2) {
     return do_with(std::make_pair(semaphore(0), 0), [] (std::pair<semaphore, int>& x) {
-        x.first.wait(3ms).then([&x] {
+        (void)x.first.wait(3ms).then([&x] {
             x.second++;
         });
-        sleep(100ms).then([&x] {
+        (void)sleep(100ms).then([&x] {
             x.first.signal();
         });
         return sleep(200ms).then([&x] {
@@ -105,13 +105,13 @@ SEASTAR_TEST_CASE(test_semaphore_timeout_2) {
 
 SEASTAR_TEST_CASE(test_semaphore_mix_1) {
     return do_with(std::make_pair(semaphore(0), 0), [] (std::pair<semaphore, int>& x) {
-        x.first.wait(30ms).then([&x] {
+        (void)x.first.wait(30ms).then([&x] {
             x.second++;
         });
-        x.first.wait().then([&x] {
+        (void)x.first.wait().then([&x] {
             x.second = 10;
         });
-        sleep(100ms).then([&x] {
+        (void)sleep(100ms).then([&x] {
             x.first.signal();
         });
         return sleep(200ms).then([&x] {

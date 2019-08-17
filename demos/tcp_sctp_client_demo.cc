@@ -137,7 +137,7 @@ public:
         auto started = lowres_clock::now();
         return conn->ping(_pings_per_connection).then([started] {
             auto finished = lowres_clock::now();
-            clients.invoke_on(0, &client::ping_report, started, finished);
+            (void)clients.invoke_on(0, &client::ping_report, started, finished);
         });
     }
 
@@ -145,7 +145,7 @@ public:
         auto started = lowres_clock::now();
         return conn->rxrx().then([started] (size_t bytes) {
             auto finished = lowres_clock::now();
-            clients.invoke_on(0, &client::rxtx_report, started, finished, bytes);
+            (void)clients.invoke_on(0, &client::rxtx_report, started, finished, bytes);
         });
     }
 
@@ -153,7 +153,7 @@ public:
         auto started = lowres_clock::now();
         return conn->txtx().then([started] (size_t bytes) {
             auto finished = lowres_clock::now();
-            clients.invoke_on(0, &client::rxtx_report, started, finished, bytes);
+            (void)clients.invoke_on(0, &client::rxtx_report, started, finished, bytes);
         });
     }
 
@@ -173,7 +173,7 @@ public:
             fprint(std::cout, "Total Time(Secs): %f\n", secs);
             fprint(std::cout, "Requests/Sec: %f\n",
                 static_cast<double>(_total_pings) / secs);
-            clients.stop().then([] {
+            (void)clients.stop().then([] {
                 engine().exit(0);
             });
         }
@@ -196,7 +196,7 @@ public:
             fprint(std::cout, "Total Time(Secs): %f\n", secs);
             fprint(std::cout, "Bandwidth(Gbits/Sec): %f\n",
                 static_cast<double>((_processed_bytes * 8)) / (1000 * 1000 * 1000) / secs);
-            clients.stop().then([] {
+            (void)clients.stop().then([] {
                 engine().exit(0);
             });
         }
@@ -210,9 +210,9 @@ public:
 
         for (unsigned i = 0; i < ncon; i++) {
             socket_address local = socket_address(::sockaddr_in{AF_INET, INADDR_ANY, {0}});
-            engine().net().connect(make_ipv4_address(server_addr), local, protocol).then([this, test] (connected_socket fd) {
+            (void)engine().net().connect(make_ipv4_address(server_addr), local, protocol).then([this, test] (connected_socket fd) {
                 auto conn = new connection(std::move(fd));
-                (this->*tests.at(test))(conn).then_wrapped([conn] (auto&& f) {
+                (void)(this->*tests.at(test))(conn).then_wrapped([conn] (auto&& f) {
                     delete conn;
                     try {
                         f.get();
@@ -264,8 +264,8 @@ int main(int ac, char ** av) {
             return engine().exit(1);
         }
 
-        clients.start().then([server, test, ncon] () {
-            clients.invoke_on_all(&client::start, ipv4_addr{server}, test, ncon);
+        (void)clients.start().then([server, test, ncon] () {
+            return clients.invoke_on_all(&client::start, ipv4_addr{server}, test, ncon);
         });
     });
 }
