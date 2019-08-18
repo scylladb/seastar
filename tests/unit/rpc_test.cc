@@ -784,3 +784,80 @@ SEASTAR_THREAD_TEST_CASE(test_lz4_compressor) {
 SEASTAR_THREAD_TEST_CASE(test_lz4_fragmented_compressor) {
     test_compressor([] { return std::make_unique<rpc::lz4_fragmented_compressor>(); });
 }
+
+// Test reproducing issue #671: If timeout is time_point::max(), translating
+// it to relative timeout in the sender and then back in the receiver, when
+// these calculations happen across a millisecond boundary, overflowed the
+// integer and mislead the receiver to think the requested timeout was
+// negative, and cause it drop its response, so the RPC call never completed.
+SEASTAR_TEST_CASE(test_max_absolute_timeout) {
+    // The typical failure of this test is a hang. So we use semaphore to
+    // stop the test either when it succeeds, or after a long enough hang.
+    auto success = make_lw_shared<bool>(false);
+    auto done = make_lw_shared<semaphore>(0);
+    (void) seastar::sleep(std::chrono::seconds(3)).then([done] {
+        done->signal();
+    });
+    (void) with_rpc_env({}, rpc::server_options(), true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+        return seastar::async([&proto, make_socket] {
+            rpc::client_options co;
+            co.send_timeout_data = 1;
+            test_rpc_proto::client c1(proto, co, make_socket(), ipv4_addr());
+            auto sum = proto.register_handler(1, [](int a, int b) {
+                return make_ready_future<int>(a+b);
+            });
+            // The bug only reproduces if the calculation done on the sender
+            // and receiver sides, happened across a millisecond boundary.
+            // We can't control when it happens, so we just need to loop many
+            // times, at least many milliseconds, to increase the probability
+            // that we catch the bug. Experimentally, if we loop for 200ms, we
+            // catch the bug in #671 virtually every time.
+            auto until = seastar::lowres_clock::now() + std::chrono::milliseconds(200);
+            while (seastar::lowres_clock::now() <= until) {
+                auto result = sum(c1, rpc::rpc_clock_type::time_point::max(), 2, 3).get0();
+                BOOST_REQUIRE_EQUAL(result, 2 + 3);
+            }
+            c1.stop().get();
+        });
+    }).then([success, done] {
+        *success = true;
+        done->signal();
+    });
+    return done->wait().then([done, success] {
+        BOOST_REQUIRE(*success);
+    });
+}
+
+// Similar to the above test: Test that a relative timeout duration::max()
+// also works, and again doesn't cause the timeout wrapping around to the
+// past and causing dropped responses.
+SEASTAR_TEST_CASE(test_max_relative_timeout) {
+    // The typical failure of this test is a hang. So we use semaphore to
+    // stop the test either when it succeeds, or after a long enough hang.
+    auto success = make_lw_shared<bool>(false);
+    auto done = make_lw_shared<semaphore>(0);
+    (void) seastar::sleep(std::chrono::seconds(3)).then([done] {
+        done->signal();
+    });
+    (void) with_rpc_env({}, rpc::server_options(), true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+        return seastar::async([&proto, make_socket] {
+            rpc::client_options co;
+            co.send_timeout_data = 1;
+            test_rpc_proto::client c1(proto, co, make_socket(), ipv4_addr());
+            auto sum = proto.register_handler(1, [](int a, int b) {
+                return make_ready_future<int>(a+b);
+            });
+            // The following call used to always hang, when max()+now()
+            // overflowed and appeared to be a negative timeout.
+            auto result = sum(c1, rpc::rpc_clock_type::duration::max(), 2, 3).get0();
+            BOOST_REQUIRE_EQUAL(result, 2 + 3);
+            c1.stop().get();
+        });
+    }).then([success, done] {
+        *success = true;
+        done->signal();
+    });
+    return done->wait().then([done, success] {
+        BOOST_REQUIRE(*success);
+    });
+}

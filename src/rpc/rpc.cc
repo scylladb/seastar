@@ -897,7 +897,7 @@ future<> server::connection::send_unknown_verb_reply(compat::optional<rpc_clock_
                   } else {
                       compat::optional<rpc_clock_type::time_point> timeout;
                       if (expire && *expire) {
-                          timeout = rpc_clock_type::now() + std::chrono::milliseconds(*expire);
+                          timeout = relative_timeout_to_absolute(std::chrono::milliseconds(*expire));
                       }
                       auto h = _server._proto->get_handler(type);
                       // If the new method of per-connection scheduling group was used, honor it.

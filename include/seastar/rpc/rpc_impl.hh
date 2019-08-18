@@ -423,6 +423,15 @@ inline auto wait_for_reply(no_wait_type, compat::optional<rpc_clock_type::time_p
     return make_ready_future<>();
 }
 
+// Convert a relative timeout (a duration) to an absolute one (time_point).
+// Do the calculation safely so that a very large duration will be capped by
+// time_point::max, instead of wrapping around to ancient history.
+inline rpc_clock_type::time_point
+relative_timeout_to_absolute(rpc_clock_type::duration relative) {
+    rpc_clock_type::time_point now = rpc_clock_type::now();
+    return now + std::min(relative, rpc_clock_type::time_point::max() - now);
+}
+
 // Returns lambda that can be used to send rpc messages.
 // The lambda gets client connection and rpc parameters as arguments, marshalls them sends
 // to a server and waits for a reply. After receiving reply it unmarshalls it and signal completion
@@ -460,7 +469,7 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
             return send(dst, timeout, nullptr, args...);
         }
         auto operator()(rpc::client& dst, rpc_clock_type::duration timeout, const InArgs&... args) {
-            return send(dst, rpc_clock_type::now() + timeout, nullptr, args...);
+            return send(dst, relative_timeout_to_absolute(timeout), nullptr, args...);
         }
         auto operator()(rpc::client& dst, cancellable& cancel, const InArgs&... args) {
             return send(dst, {}, &cancel, args...);
