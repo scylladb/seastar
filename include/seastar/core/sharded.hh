@@ -573,17 +573,19 @@ sharded<Service>::start_single(Args&&... args) {
 namespace internal {
 
 // Helper check if Service::stop exists
+
 struct sharded_has_stop {
     // If a member names "stop" exists, try to call it, even if it doesn't
     // have the correct signature. This is so that we don't ignore a function
     // named stop() just because the signature is incorrect, and instead
     // force the user to resolve the ambiguity.
     template <typename Service>
-    constexpr static auto check(Service*) -> std::enable_if_t<(sizeof(&Service::stop) >= 0), bool> {
+    constexpr static auto check(int) -> std::enable_if_t<(sizeof(&Service::stop) >= 0), bool> {
         return true;
     }
 
     // Fallback in case Service::stop doesn't exist.
+    template<typename>
     static constexpr auto check(...) -> bool {
         return false;
     }
@@ -613,7 +615,7 @@ template <typename Service>
 inline
 future<>
 stop_sharded_instance(Service& instance) {
-    constexpr bool has_stop = internal::sharded_has_stop::check(&instance);
+    constexpr bool has_stop = internal::sharded_has_stop::check<Service>(0);
     return internal::sharded_call_stop<has_stop>::call(instance);
 }
 
