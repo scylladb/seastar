@@ -438,6 +438,7 @@ protected:
     template <typename... U> friend class seastar::future;
 };
 }
+/// \endcond
 
 /// \brief promise - allows a future value to be made available at a later time.
 ///
