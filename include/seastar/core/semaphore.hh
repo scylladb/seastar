@@ -399,11 +399,11 @@ get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, typename 
 ///      \ref seaphore_units object is alive.
 ///
 /// \related semaphore
-template<typename ExceptionFactory>
-future<semaphore_units<ExceptionFactory>>
-get_units(basic_semaphore<ExceptionFactory>& sem, size_t units, typename basic_semaphore<ExceptionFactory>::duration timeout) {
+template<typename ExceptionFactory, typename Clock>
+future<semaphore_units<ExceptionFactory, Clock>>
+get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, typename basic_semaphore<ExceptionFactory, Clock>::duration timeout) {
     return sem.wait(timeout, units).then([&sem, units] {
-        return semaphore_units<ExceptionFactory>{ sem, units };
+        return semaphore_units<ExceptionFactory, Clock>{ sem, units };
     });
 }
 
@@ -482,10 +482,10 @@ with_semaphore(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, Func
 ///       the future returned by with_semaphore() resolves.
 ///
 /// \related semaphore
-template <typename ExceptionFactory, typename Func>
+template <typename ExceptionFactory, typename Clock, typename Func>
 inline
 futurize_t<std::result_of_t<Func()>>
-with_semaphore(basic_semaphore<ExceptionFactory>& sem, size_t units, typename basic_semaphore<ExceptionFactory>::duration timeout, Func&& func) {
+with_semaphore(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, typename basic_semaphore<ExceptionFactory, Clock>::duration timeout, Func&& func) {
     return get_units(sem, units, timeout).then([func = std::forward<Func>(func)] (auto units) mutable {
         return futurize_apply(std::forward<Func>(func)).finally([units = std::move(units)] {});
     });
