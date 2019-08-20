@@ -241,8 +241,10 @@ private:
     virtual void do_flush() noexcept override {
         while (!_queue.empty()) {
             auto& wi = _queue.front();
-            futurize<ReturnType>::apply(_function, unwrap(std::move(wi._in))).forward_to(std::move(wi._ready));
+            auto wi_in = std::move(wi._in);
+            auto wi_ready = std::move(wi._ready);
             _queue.pop_front();
+            futurize<ReturnType>::apply(_function, unwrap(std::move(wi_in))).forward_to(std::move(wi_ready));
             _stats.function_calls_executed++;
 
             if (need_preempt()) {
