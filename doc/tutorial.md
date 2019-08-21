@@ -1462,9 +1462,74 @@ It is often a mistake to silently ignore an exception, so if the future we're ig
 
 The ```handle_connection()``` function itself is straightforward --- it repeatedly calls ```read()``` read on the input stream, to receive a ```temporary_buffer``` with some data, and then moves this temporary buffer into a ```write()``` call on the output stream. The buffer will eventually be freed, automatically, when the ```write()``` is done with it. When ```read()``` eventually returns an empty buffer signifying the end of input, we stop ```repeat```'s iteration by returning a ```stop_iteration::yes```.
 
-# Sharded servers
+# Sharded services
 
-Discuss `sharded<>`, its benefits over directly using smp::submit_to() as above, etc.
+In the previous section we saw that a Seastar application usually needs to run its code on all available CPU cores. We saw that the `seastar::smp::submit_to()` function allows the main function, which initially runs only on the first core, to start the server's code on all `seastar::smp::count` cores.
+
+However, usually one needs not just to run code on each core, but also to have an object that contains the state of this code. Additionally, one may like to interact with those different objects, and also have a mechanism to stop the service running on the different cores.
+
+The `seastar::sharded<T>` template provides a structured way create such a _sharded service_. It creates a separate object of type `T` in each core, and provides mechanisms to interact with those copies, to start some code on each, and finally to cleanly stop the service.
+
+To use `seastar::sharded`, first create a class for the object holding the state of the service on a single core. For example:
+
+```cpp
+#include <seastar/core/future.hh>
+#include <iostream>
+
+class my_service {
+public:
+    std::string _str;
+    my_service(const std::string& str) : _str(str) { }
+    seastar::future<> run() {
+        std::cerr << "running on " << seastar::engine().cpu_id() <<
+            ", _str = " << _str << \n";
+        return seastar::make_ready_future<>();
+    }
+    seastar::future<> stop() {
+        return seastar::make_ready_future<>();
+    }
+};
+```
+
+The only mandatory method in this object is `stop()`, which will be called in each core when we want to stop the sharded service and want to wait until it stops on all cores.
+
+Now let's see how to use it:
+
+```cpp
+#include <seastar/core/sharded.hh>
+
+seastar::sharded<my_service> s;
+
+seastar::future<> f() {
+    return s.start(std::string("hello")).then([] {
+        return s.invoke_on_all([] (my_service& local_service) {
+            return local_service.run();
+        });
+    }).then([] {
+        return s.stop();
+    });
+}
+```
+
+The `s.start()` starts the service by creating a `my_service` object on each of the cores. The arguments to `s.start()`, if any (in this example, `std::string("hello")`), are passed to `my_service`'s constructor.
+
+But `s.start()` did not start running any code yet (besides the object's constructor). For that, we have the `s.invoke_on_all()` which runs the given lambda on all the cores - giving each lambda the local `my_service` object on that core. In this example, we have a `run()` method on each object, so we run that.
+
+Finally, at the end of the run we want to give the service on all cores a chance to shut down cleanly, so we call `s.stop()`. This will call the `stop()` method on each core's object, and wait for all of them to finish. Calling `s.stop()` before destroying `s` is mandatory - Seastar will warn you if you forget to do it.
+
+In addition to `invoke_on_all()` which runs the same code on all shards, another feature a sharded service often needs is for one shard to invoke code another specific shard. This is done by calling the sharded service's `invoke_on()` method. For example:
+
+```cpp
+seastar::sharded<my_service> s;
+...
+return s.invoke_on(0, [] (my_service& local_service) {
+    std::cerr << "invoked on " << seastar::engine().cpu_id() <<
+        ", _str = " << local_service._str << "\n";
+});
+```
+
+This runs the lambda function on shard 0, with a reference to the local `my_service` object on that shard. 
+
 
 # Shutting down cleanly
 
