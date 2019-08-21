@@ -5869,8 +5869,11 @@ future<> check_direct_io_support(sstring path) {
         auto w = w::parse(path, type);
         return open_file_dma(w.path, w.flags).then_wrapped([path = w.path, cleanup = std::move(w.cleanup)] (future<file> f) {
             try {
-                f.get0();
-                return cleanup();
+                auto fd = f.get0();
+                return cleanup().finally([fd = std::move(fd)] () mutable {
+                    auto closing = fd.close();
+                    return closing.finally([fd = std::move(fd)] { });
+                });
             } catch (std::system_error& e) {
                 if (e.code() == std::error_code(EINVAL, std::system_category())) {
                     report_exception(format("Could not open file at {}. Does your filesystem support O_DIRECT?", path), std::current_exception());
