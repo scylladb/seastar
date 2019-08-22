@@ -1235,9 +1235,9 @@ public:
 
 #if SEASTAR_COROUTINES_TS
     void set_coroutine(task& coroutine) noexcept {
-        assert(!state()->available());
+        assert(!_state.available());
         assert(_promise);
-        detach_promise()->set_coroutine(_local_state, coroutine);
+        detach_promise()->set_coroutine(_state, coroutine);
     }
 #endif
 private:
