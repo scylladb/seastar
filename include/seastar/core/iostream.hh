@@ -266,6 +266,9 @@ private:
 //
 // The data sink will not receive empty chunks.
 //
+// \note All methods must be called sequentially.  That is, no method
+// may be invoked before the previous method's returned future is
+// resolved.
 template <typename CharType>
 class output_stream final {
     static_assert(sizeof(CharType) == 1, "must buffer stream of bytes");
