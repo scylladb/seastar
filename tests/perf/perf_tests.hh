@@ -185,7 +185,7 @@ protected:
             measure_time.start_run();
             while (!stop_iteration()) {
                 if_constexpr_<std::is_void<decltype(_test->run())>::value>([&] (auto&&...) {
-                    _test->run();
+                    (void)_test->run();
                     this->next_iteration(1);
                 }, [&] (auto&&... dependency) {
                     // We need `dependency` to make sure the compiler won't be able to instantiate anything
