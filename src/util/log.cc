@@ -247,6 +247,10 @@ bool logger::is_shard_zero() {
     return engine().cpu_id() == 0;
 }
 
+void logger::flush() {
+    std::cout.flush();
+}
+
 void
 logger_registry::set_all_loggers_level(log_level level) {
     std::lock_guard<std::mutex> g(_mutex);

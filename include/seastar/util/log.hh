@@ -218,6 +218,10 @@ public:
     ///       this should be rare (will have to fill the pipe buffer
     ///       before syslogd can clear it) but can happen.
     static void set_syslog_enabled(bool enabled);
+
+    /// Flush the logger output.
+    ///
+    static void flush();
 };
 
 /// \brief used to keep a static registry of loggers
