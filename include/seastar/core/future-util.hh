@@ -88,6 +88,26 @@ with_scheduling_group(scheduling_group sg, Func func, Args&&... args) {
     }
 }
 
+namespace internal {
+
+template <typename Iterator, typename IteratorCategory>
+inline
+size_t
+iterator_range_estimate_vector_capacity(Iterator begin, Iterator end, IteratorCategory category) {
+    // For InputIterators we can't estimate needed capacity
+    return 0;
+}
+
+template <typename Iterator>
+inline
+size_t
+iterator_range_estimate_vector_capacity(Iterator begin, Iterator end, std::forward_iterator_tag category) {
+    // May be linear time below random_access_iterator_tag, but still better than reallocation
+    return std::distance(begin, end);
+}
+
+}
+
 /// \cond internal
 
 struct parallel_for_each_state {
@@ -830,22 +850,6 @@ inline auto when_all(FutOrFuncs&&... fut_or_funcs) {
 /// \cond internal
 namespace internal {
 
-template <typename Iterator, typename IteratorCategory>
-inline
-size_t
-when_all_estimate_vector_capacity(Iterator begin, Iterator end, IteratorCategory category) {
-    // For InputIterators we can't estimate needed capacity
-    return 0;
-}
-
-template <typename Iterator>
-inline
-size_t
-when_all_estimate_vector_capacity(Iterator begin, Iterator end, std::forward_iterator_tag category) {
-    // May be linear time below random_access_iterator_tag, but still better than reallocation
-    return std::distance(begin, end);
-}
-
 template<typename Future>
 struct identity_futures_vector {
     using future_type = future<std::vector<Future>>;
@@ -879,7 +883,7 @@ inline auto
 do_when_all(FutureIterator begin, FutureIterator end) {
     using itraits = std::iterator_traits<FutureIterator>;
     std::vector<typename itraits::value_type> ret;
-    ret.reserve(when_all_estimate_vector_capacity(begin, end, typename itraits::iterator_category()));
+    ret.reserve(iterator_range_estimate_vector_capacity(begin, end, typename itraits::iterator_category()));
     // Important to invoke the *begin here, in case it's a function iterator,
     // so we launch all computation in parallel.
     std::move(begin, end, std::back_inserter(ret));
