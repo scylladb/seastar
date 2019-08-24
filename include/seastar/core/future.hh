@@ -277,7 +277,7 @@ struct future_state_base {
     future_state_base(future_state_base&& x) noexcept : _u(std::move(x._u)) { }
 
     bool available() const noexcept { return _u.st == state::result || _u.st >= state::exception_min; }
-    bool failed() const noexcept { return _u.st >= state::exception_min; }
+    bool failed() const noexcept { return __builtin_expect(_u.st >= state::exception_min, false); }
 
     void set_to_broken_promise() noexcept;
 
