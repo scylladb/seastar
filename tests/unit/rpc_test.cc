@@ -795,9 +795,10 @@ SEASTAR_TEST_CASE(test_max_absolute_timeout) {
     // stop the test either when it succeeds, or after a long enough hang.
     auto success = make_lw_shared<bool>(false);
     auto done = make_lw_shared<semaphore>(0);
-    (void) seastar::sleep(std::chrono::seconds(3)).then([done] {
-        done->signal();
-    });
+    auto abrt = make_lw_shared<abort_source>();
+    (void) seastar::sleep_abortable(std::chrono::seconds(3), *abrt).then([done, success] {
+        done->signal(1);
+    }).handle_exception([] (std::exception_ptr) {});
     (void) with_rpc_env({}, rpc::server_options(), true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return seastar::async([&proto, make_socket] {
             rpc::client_options co;
@@ -819,8 +820,9 @@ SEASTAR_TEST_CASE(test_max_absolute_timeout) {
             }
             c1.stop().get();
         });
-    }).then([success, done] {
+    }).then([success, done, abrt] {
         *success = true;
+        abrt->request_abort();
         done->signal();
     });
     return done->wait().then([done, success] {
@@ -836,9 +838,10 @@ SEASTAR_TEST_CASE(test_max_relative_timeout) {
     // stop the test either when it succeeds, or after a long enough hang.
     auto success = make_lw_shared<bool>(false);
     auto done = make_lw_shared<semaphore>(0);
-    (void) seastar::sleep(std::chrono::seconds(3)).then([done] {
-        done->signal();
-    });
+    auto abrt = make_lw_shared<abort_source>();
+    (void) seastar::sleep_abortable(std::chrono::seconds(3), *abrt).then([done, success] {
+        done->signal(1);
+    }).handle_exception([] (std::exception_ptr) {});
     (void) with_rpc_env({}, rpc::server_options(), true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return seastar::async([&proto, make_socket] {
             rpc::client_options co;
@@ -853,8 +856,9 @@ SEASTAR_TEST_CASE(test_max_relative_timeout) {
             BOOST_REQUIRE_EQUAL(result, 2 + 3);
             c1.stop().get();
         });
-    }).then([success, done] {
+    }).then([success, done, abrt] {
         *success = true;
+        abrt->request_abort();
         done->signal();
     });
     return done->wait().then([done, success] {
