@@ -2253,7 +2253,8 @@ std::unique_ptr<qp> dpdk_device::init_local_queue(boost::program_options::variab
                                  _stats_plugin_name + "-" + _stats_plugin_inst);
     }
 
-    smp::submit_to(_home_cpu, [this] () mutable {
+    // FIXME: future is discarded
+    (void)smp::submit_to(_home_cpu, [this] () mutable {
         if (++_queues_ready == _num_queues) {
             init_port_fini();
         }
