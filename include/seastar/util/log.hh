@@ -210,6 +210,9 @@ public:
         _level.store(level, std::memory_order_relaxed);
     }
 
+    /// Set output stream, default is std::cerr
+    static void set_ostream(std::ostream& out);
+
     /// Also output to stdout. default is true
     static void set_stdout_enabled(bool enabled);
 

@@ -242,6 +242,11 @@ void logger::failed_to_log(std::exception_ptr ex)
 }
 
 void
+logger::set_ostream(std::ostream& out) {
+    _out = &out;
+}
+
+void
 logger::set_stdout_enabled(bool enabled) {
     _stdout.store(enabled, std::memory_order_relaxed);
 }
