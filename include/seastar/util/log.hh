@@ -77,6 +77,7 @@ class logger_registry;
 class logger {
     sstring _name;
     std::atomic<log_level> _level = { log_level::info };
+    static std::ostream* _out;
     static std::atomic<bool> _stdout;
     static std::atomic<bool> _syslog;
 private:
