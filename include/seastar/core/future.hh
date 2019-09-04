@@ -376,8 +376,17 @@ struct future_state :  public future_state_base, private internal::uninitialized
         return this->uninitialized_get();
     }
     void ignore() noexcept {
-        assert(_u.st != state::future);
-        this->~future_state();
+        switch (_u.st) {
+        case state::invalid:
+        case state::future:
+            assert(0 && "invalid state for ignore");
+        case state::result:
+            this->~future_state();
+            break;
+        default:
+            // Ignore the exception
+            _u.take_exception();
+        }
         _u.st = state::invalid;
     }
     using get0_return_type = typename internal::get0_return_type<T...>::type;
