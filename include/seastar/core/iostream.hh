@@ -220,7 +220,7 @@ public:
     template <typename Consumer>
     GCC6_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
     future<> consume(Consumer& c);
-    bool eof() { return _eof; }
+    bool eof() const { return _eof; }
     /// Returns some data from the stream, or an empty buffer on end of
     /// stream.
     future<tmp_buf> read();
