@@ -977,6 +977,9 @@ future<> server::connection::send_unknown_verb_reply(compat::optional<rpc_clock_
           : _proto(proto), _ss(std::move(ss)), _limits(limits), _resources_available(limits.max_memory), _options(opts)
   {
       if (_options.streaming_domain) {
+          if (_servers.find(*_options.streaming_domain) != _servers.end()) {
+              throw std::runtime_error(format("An RPC server with the streaming domain {} is already exist", *_options.streaming_domain));
+          }
           _servers[*_options.streaming_domain] = this;
       }
       accept();
