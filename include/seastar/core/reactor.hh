@@ -528,6 +528,12 @@ private:
         uint64_t _tasks_processed = 0;
         circular_buffer<std::unique_ptr<task>> _q;
         sstring _name;
+        /**
+         * This array holds pointers to the scheduling group specific
+         * data. The pointer is not use as is but is cast to a reference
+         * to the appropriate type that is actually pointed to.
+         */
+        std::vector<void*> _scheduling_group_specific_vals;
         int64_t to_vruntime(sched_clock::duration runtime) const;
         void set_shares(float shares);
         struct indirect_compare;
@@ -538,6 +544,7 @@ private:
         void register_stats();
     };
     boost::container::static_vector<std::unique_ptr<task_queue>, max_scheduling_groups()> _task_queues;
+    std::vector<scheduling_group_key_config> _scheduling_group_key_configs;
     int64_t _last_vruntime = 0;
     task_queue_list _active_task_queues;
     task_queue_list _activating_task_queues;
@@ -642,8 +649,20 @@ private:
     void insert_activating_task_queues();
     void account_runtime(task_queue& tq, sched_clock::duration runtime);
     void account_idle(sched_clock::duration idletime);
-    void init_scheduling_group(scheduling_group sg, sstring name, float shares);
-    void destroy_scheduling_group(scheduling_group sg);
+    void allocate_scheduling_group_specific_data(scheduling_group sg, scheduling_group_key key);
+    future<> init_scheduling_group(scheduling_group sg, sstring name, float shares);
+    future<> init_new_scheduling_group_key(scheduling_group_key key, scheduling_group_key_config cfg);
+    future<> destroy_scheduling_group(scheduling_group sg);
+    [[noreturn]] void no_such_scheduling_group(scheduling_group sg);
+    void* get_scheduling_group_specific_value(scheduling_group sg, scheduling_group_key key) {
+        if (!_task_queues[sg._id]) {
+            no_such_scheduling_group(sg);
+        }
+        return _task_queues[sg._id]->_scheduling_group_specific_vals[key.id()];
+    }
+    void* get_scheduling_group_specific_value(scheduling_group_key key) {
+        return get_scheduling_group_specific_value(*internal::current_scheduling_group_ptr(), key);
+    }
     uint64_t tasks_processed() const;
     uint64_t min_vruntime() const;
     void request_preemption();
@@ -867,6 +886,24 @@ private:
     friend future<scheduling_group> create_scheduling_group(sstring name, float shares);
     friend future<> seastar::destroy_scheduling_group(scheduling_group);
     friend future<> seastar::rename_scheduling_group(scheduling_group sg, sstring new_name);
+    friend future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg);
+
+    template<typename T>
+    friend T& scheduling_group_get_specific(scheduling_group sg, scheduling_group_key key);
+    template<typename T>
+    friend T& scheduling_group_get_specific(scheduling_group_key key);
+    template<typename SpecificValType, typename Mapper, typename Reducer, typename Initial>
+        GCC6_CONCEPT( requires requires(SpecificValType specific_val, Mapper mapper, Reducer reducer, Initial initial) {
+            {reducer(initial, mapper(specific_val))} -> Initial;
+        })
+    friend future<typename function_traits<Reducer>::return_type>
+    map_reduce_scheduling_group_specific(Mapper mapper, Reducer reducer, Initial initial_val, scheduling_group_key key);
+    template<typename SpecificValType, typename Reducer, typename Initial>
+    GCC6_CONCEPT( requires requires(SpecificValType specific_val, Reducer reducer, Initial initial) {
+        {reducer(initial, specific_val)} -> Initial;
+    })
+    friend future<typename function_traits<Reducer>::return_type>
+        reduce_scheduling_group_specific(Reducer reducer, Initial initial_val, scheduling_group_key key);
 public:
     bool wait_and_process(int timeout = 0, const sigset_t* active_sigmask = nullptr);
     future<> readable(pollable_fd_state& fd);
