@@ -254,6 +254,8 @@ public:
             return _factory.make_new_client_connection(_b1, std::move(b2));
         });
     }
+    virtual void set_reuseaddr(bool reuseaddr) override {}
+    virtual bool get_reuseaddr() const override { return false; };
 
     void shutdown() {
         _b1->shutdown();
