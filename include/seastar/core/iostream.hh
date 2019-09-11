@@ -262,17 +262,17 @@ private:
     future<temporary_buffer<CharType>> read_exactly_part(size_t n, tmp_buf buf, size_t completed);
 };
 
-// Facilitates data buffering before it's handed over to data_sink.
-//
-// When trim_to_size is true it's guaranteed that data sink will not receive
-// chunks larger than the configured size, which could be the case when a
-// single write call is made with data larger than the configured size.
-//
-// The data sink will not receive empty chunks.
-//
-// \note All methods must be called sequentially.  That is, no method
-// may be invoked before the previous method's returned future is
-// resolved.
+/// Facilitates data buffering before it's handed over to data_sink.
+///
+/// When trim_to_size is true it's guaranteed that data sink will not receive
+/// chunks larger than the configured size, which could be the case when a
+/// single write call is made with data larger than the configured size.
+///
+/// The data sink will not receive empty chunks.
+///
+/// \note All methods must be called sequentially.  That is, no method
+/// may be invoked before the previous method's returned future is
+/// resolved.
 template <typename CharType>
 class output_stream final {
     static_assert(sizeof(CharType) == 1, "must buffer stream of bytes");
