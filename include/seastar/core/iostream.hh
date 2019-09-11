@@ -192,6 +192,10 @@ concept bool ObsoleteInputStreamConsumer = requires (Consumer c) {
 };
 )
 
+/// Buffers data from a data_source and provides a stream interface to the user.
+///
+/// \note All methods must be called sequentially.  That is, no method may be
+/// invoked before the previous method's returned future is resolved.
 template <typename CharType>
 class input_stream final {
     static_assert(sizeof(CharType) == 1, "must buffer stream of bytes");
