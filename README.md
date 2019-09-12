@@ -52,12 +52,12 @@ Build modes
 The configure.py script is a wrapper around cmake. The --mode argument
 maps to CMAKE_BUILD_TYPE, and supports the following modes
 
-          | CMake mode        | Debug info | Optimizations  | Sanitizers   | Allocator | Checks   | Use for                                |
- ---------+-------------------+------------+----------------+--------------+-----------+----------+----------------------------------------|
- debug    | Debug             | Yes        | -O0            | ASAN, UBSAN  | System    | All      | gdb                                    |
- release  | RelWithDebInfo    | Yes        | -O3            | None         | Seastar   | Asserts  | production                             |
- dev      | Dev (Custom)      | No         | -O1            | None         | Seastar   | Asserts  | build and test cycle                   |
- sanitize | Sanitize (Custom) | Yes        | -Os            | ASAN, UBSAN  | System    | All      | second level of tests, track down bugs |
+ Type     | CMake mode        | Debug info | Optimizations | Sanitizers   | Allocator | Checks   | Use for
+ ---------|-------------------|------------|---------------|--------------|-----------|----------|---------------------------------
+ debug    | Debug             | Yes        | -O0           | ASAN, UBSAN  | System    | All      | gdb
+ release  | RelWithDebInfo    | Yes        | -O3           | None         | Seastar   | Asserts  | production
+ dev      | Dev (Custom)      | No         | -O1           | None         | Seastar   | Asserts  | build and test cycle
+ sanitize | Sanitize (Custom) | Yes        | -Os           | ASAN, UBSAN  | System    | All      | second level of tests, track down bugs
 
 Note that seastar is more sensitive to allocators and optimizations than
 usual. A quick rule of the thumb of the relative performances is that
