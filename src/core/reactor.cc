@@ -2025,6 +2025,22 @@ void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd, promise
 
 class io_desc {
     promise<io_event> _pr;
+public:
+    virtual ~io_desc() = default;
+    virtual void set_exception(std::exception_ptr eptr) {
+        _pr.set_exception(std::move(eptr));
+    }
+
+    virtual void set_value(io_event& ev) {
+        _pr.set_value(ev);
+    }
+
+    future<io_event> get_future() {
+        return _pr.get_future();
+    }
+};
+
+class io_desc_read_write final : public io_desc {
     io_queue* _ioq_ptr;
     fair_queue_request_descriptor _fq_desc;
 private:
@@ -2032,7 +2048,7 @@ private:
         _ioq_ptr->notify_requests_finished(_fq_desc);
     }
 public:
-    io_desc(io_queue* ioq, unsigned weight, unsigned size)
+    io_desc_read_write(io_queue* ioq, unsigned weight, unsigned size)
         : _ioq_ptr(ioq)
         , _fq_desc(fair_queue_request_descriptor{weight, size})
     {}
@@ -2041,18 +2057,14 @@ public:
         return _fq_desc;
     }
 
-    void set_exception(std::exception_ptr eptr) {
+    virtual void set_exception(std::exception_ptr eptr) {
         notify_requests_finished();
-        _pr.set_exception(std::move(eptr));
+        io_desc::set_exception(std::move(eptr));
     }
 
     void set_value(io_event& ev) {
         notify_requests_finished();
-        _pr.set_value(ev);
-    }
-
-    future<io_event> get_future() {
-        return _pr.get_future();
+        io_desc::set_value(ev);
     }
 };
 
@@ -2366,7 +2378,7 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, io_queue::reque
             weight = io_queue::read_request_base_count;
             size = io_queue::read_request_base_count * len;
         }
-        auto desc = std::make_unique<io_desc>(this, weight, size);
+        auto desc = std::make_unique<io_desc_read_write>(this, weight, size);
         auto fq_desc = desc->fq_descriptor();
         auto fut = desc->get_future();
         _fq.queue(pclass.ptr, std::move(fq_desc), [&pclass, start, prepare_io = std::move(prepare_io), desc = std::move(desc), len, this] () mutable noexcept {
