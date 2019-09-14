@@ -1860,6 +1860,7 @@ void reactor::configure(boost::program_options::variables_map vm) {
     set_bypass_fsync(vm["unsafe-bypass-fsync"].as<bool>());
     _force_io_getevents_syscall = vm["force-aio-syscalls"].as<bool>();
     aio_nowait_supported = vm["linux-aio-nowait"].as<bool>();
+    _have_aio_fsync = vm["aio-fsync"].as<bool>();
 }
 
 future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd,
@@ -3300,6 +3301,20 @@ reactor::fdatasync(int fd) {
     ++_fsyncs;
     if (_bypass_fsync) {
         return make_ready_future<>();
+    }
+    if (_have_aio_fsync) {
+        try {
+            auto desc = std::make_unique<io_desc>();
+            auto fut = desc->get_future();
+            submit_io(desc.release(), [fd] (linux_abi::iocb& iocb) {
+                iocb = make_fdsync_iocb(fd);
+            });
+            return fut.then([] (linux_abi::io_event event) {
+                throw_kernel_error(event.res);
+            });
+        } catch (...) {
+            return make_exception_future<>(std::current_exception());
+        }
     }
     return _thread_pool->submit<syscall_result<int>>([fd] {
         return wrap_syscall<int>(::fdatasync(fd));
@@ -5066,6 +5081,10 @@ network_stack_registry::create(sstring name, options opts) {
     return _map()[name](opts);
 }
 
+static bool kernel_supports_aio_fsync() {
+    return kernel_uname().whitelisted({"4.18"});
+}
+
 boost::program_options::options_description
 reactor::get_options_description(reactor_config cfg) {
     namespace bpo = boost::program_options;
@@ -5096,6 +5115,8 @@ reactor::get_options_description(reactor_config cfg) {
                 " This makes strace output more useful, but slows down the application")
         ("reactor-backend", bpo::value<reactor_backend_selector>()->default_value(reactor_backend_selector::default_backend()),
                 format("Internal reactor implementation ({})", reactor_backend_selector::available()).c_str())
+        ("aio-fsync", bpo::value<bool>()->default_value(kernel_supports_aio_fsync()),
+                "Use Linux aio for fsync() calls. This reduces latency; requires Linux 4.18 or later.")
 #ifdef SEASTAR_HEAPPROF
         ("heapprof", "enable seastar heap profiling")
 #endif
