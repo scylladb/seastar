@@ -176,6 +176,15 @@ make_poll_iocb(int fd, uint32_t events) {
 }
 
 inline
+linux_abi::iocb
+make_fdsync_iocb(int fd) {
+    linux_abi::iocb iocb{};
+    iocb.aio_lio_opcode = linux_abi::iocb_cmd::FDSYNC;
+    iocb.aio_fildes = fd;
+    return iocb;
+}
+
+inline
 void
 set_user_data(linux_abi::iocb& iocb, void* data) {
     iocb.aio_data = reinterpret_cast<uintptr_t>(data);
