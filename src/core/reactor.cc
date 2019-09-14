@@ -2027,6 +2027,10 @@ class io_desc {
     promise<io_event> _pr;
     io_queue* _ioq_ptr;
     fair_queue_request_descriptor _fq_desc;
+private:
+    void notify_requests_finished() {
+        _ioq_ptr->notify_requests_finished(_fq_desc);
+    }
 public:
     io_desc(io_queue* ioq, unsigned weight, unsigned size)
         : _ioq_ptr(ioq)
@@ -2037,15 +2041,13 @@ public:
         return _fq_desc;
     }
 
-    void notify_requests_finished() {
-        _ioq_ptr->notify_requests_finished(_fq_desc);
-    }
-
     void set_exception(std::exception_ptr eptr) {
+        notify_requests_finished();
         _pr.set_exception(std::move(eptr));
     }
 
     void set_value(io_event& ev) {
+        notify_requests_finished();
         _pr.set_value(ev);
     }
 
@@ -2084,7 +2086,6 @@ reactor::handle_aio_error(linux_abi::iocb* iocb, int ec) {
             } catch (...) {
                 desc->set_exception(std::current_exception());
             }
-            desc->notify_requests_finished();
             delete desc;
             // if EBADF, it means that the first request has a bad fd, so
             // we will only remove it from _pending_aio and try again.
@@ -2187,7 +2188,6 @@ bool reactor::process_io()
         _free_iocbs.push(iocb);
         auto desc = reinterpret_cast<io_desc*>(ev[i].data);
         desc->set_value(ev[i]);
-        desc->notify_requests_finished();
         delete desc;
     }
     return n;
@@ -2379,7 +2379,6 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, io_queue::reque
                 desc.release();
             } catch (...) {
                 desc->set_exception(std::current_exception());
-                notify_requests_finished(desc->fq_descriptor());
             }
         });
         return fut;
