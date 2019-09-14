@@ -3948,10 +3948,7 @@ public:
         // is only possible if there are no in-flight aios. If there are, we need to keep polling.
         //
         // Alternatively, if we enabled _aio_eventfd, we can always enter
-        unsigned executing = 0;
-        for (auto& ioq : _r.my_io_queues) {
-            executing += ioq->requests_currently_executing();
-        }
+        unsigned executing = max_aio - _r._free_iocbs.size();
         return executing == 0 || _r._aio_eventfd;
     }
     virtual void exit_interrupt_mode() override {
@@ -4320,7 +4317,6 @@ int reactor::run() {
     register_metrics();
 
     compat::optional<poller> io_poller = {};
-    compat::optional<poller> aio_poller = {};
     compat::optional<poller> smp_poller = {};
 
     // I/O Performance greatly increases if the smp poller runs before the I/O poller. This is
@@ -4329,12 +4325,10 @@ int reactor::run() {
     if (smp::count > 1) {
         smp_poller = poller(std::make_unique<smp_pollfn>(*this));
     }
-    if (my_io_queues.size() > 0) {
 #ifndef HAVE_OSV
-        io_poller = poller(std::make_unique<io_pollfn>(*this));
+    io_poller = poller(std::make_unique<io_pollfn>(*this));
 #endif
-        aio_poller = poller(std::make_unique<aio_batch_submit_pollfn>(*this));
-    }
+    poller aio_poller(std::make_unique<aio_batch_submit_pollfn>(*this));
 
     poller batch_flush_poller(std::make_unique<batch_flush_pollfn>(*this));
     poller execution_stage_poller(std::make_unique<execution_stage_pollfn>());
