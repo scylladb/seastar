@@ -3295,6 +3295,20 @@ reactor::touch_directory(sstring name, file_permissions permissions) {
     });
 }
 
+future<>
+reactor::fdatasync(int fd) {
+    ++_fsyncs;
+    if (_bypass_fsync) {
+        return make_ready_future<>();
+    }
+    return _thread_pool->submit<syscall_result<int>>([fd] {
+        return wrap_syscall<int>(::fdatasync(fd));
+    }).then([] (syscall_result<int> sr) {
+        sr.throw_if_error();
+        return make_ready_future<>();
+    });
+}
+
 file_handle::file_handle(const file_handle& x)
         : _impl(x._impl ? x._impl->clone() : std::unique_ptr<file_handle_impl>()) {
 }
@@ -3373,16 +3387,10 @@ posix_file_handle_impl::to_file() && {
 
 future<>
 posix_file_impl::flush(void) {
-    ++engine()._fsyncs;
-    if (engine()._bypass_fsync || (_open_flags & open_flags::dsync) != open_flags{}) {
+    if ((_open_flags & open_flags::dsync) != open_flags{}) {
         return make_ready_future<>();
     }
-    return engine()._thread_pool->submit<syscall_result<int>>([this] {
-        return wrap_syscall<int>(::fdatasync(_fd));
-    }).then([] (syscall_result<int> sr) {
-        sr.throw_if_error();
-        return make_ready_future<>();
-    });
+    return engine().fdatasync(_fd);
 }
 
 future<struct stat>

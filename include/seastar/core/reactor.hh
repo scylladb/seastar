@@ -836,6 +836,8 @@ private:
 
     bool process_io();
 
+    future<> fdatasync(int fd);
+
     void add_timer(timer<steady_clock_type>*);
     bool queue_timer(timer<steady_clock_type>*);
     void del_timer(timer<steady_clock_type>*);
