@@ -92,6 +92,7 @@ struct resource_limits {
 struct client_options {
     compat::optional<net::tcp_keepalive_params> keepalive;
     bool tcp_nodelay = true;
+    bool reuseaddr = false;
     compressor::factory* compressor_factory = nullptr;
     bool send_timeout_data = true;
     connection_id stream_parent = invalid_connection_id;
