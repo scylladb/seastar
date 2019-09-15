@@ -158,7 +158,7 @@ rcv_buf lz4_compressor::decompress(rcv_buf data) {
         src_size -= sizeof(uint32_t);
 
         auto dst = reusable_buffer_compressed_data.with_reserved<rcv_buf>(dst_size, [&] (char* dst) {
-            if (LZ4_decompress_fast(src, dst, dst_size) < 0) {
+            if (LZ4_decompress_safe(src, dst, src_size, dst_size) < 0) {
                 throw std::runtime_error("RPC frame LZ4 decompression failure");
             }
             return dst_size;
