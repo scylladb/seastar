@@ -166,12 +166,12 @@ class posix_socket_impl final : public socket_impl {
         return repeat([this, sa, local, proto, attempts = 0, requested_port = ntoh(local.as_posix_sockaddr_in().sin_port)] () mutable {
             uint16_t port = attempts++ < 5 && requested_port == 0 && proto == transport::TCP ? u(random_engine) * smp::count + engine().cpu_id() : requested_port;
             local.as_posix_sockaddr_in().sin_port = hton(port);
-            return futurize_apply([this, sa, local] { return engine().posix_connect(_fd, sa, local); }).then_wrapped([] (future<> f) {
+            return futurize_apply([this, sa, local] { return engine().posix_connect(_fd, sa, local); }).then_wrapped([port, requested_port] (future<> f) {
                 try {
                     f.get();
                     return stop_iteration::yes;
                 } catch (std::system_error& err) {
-                    if (err.code().value() == EADDRINUSE) {
+                    if (port != requested_port && err.code().value() == EADDRINUSE) {
                         return stop_iteration::no;
                     }
                     throw;
