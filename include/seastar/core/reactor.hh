@@ -571,6 +571,7 @@ private:
     bool _strict_o_direct = true;
     bool _force_io_getevents_syscall = false;
     bool _bypass_fsync = false;
+    bool _have_aio_fsync = false;
     std::atomic<bool> _dying{false};
 private:
     static std::chrono::nanoseconds calculate_poll_time();
@@ -835,6 +836,8 @@ private:
     future<> write_all_part(pollable_fd_state& fd, const void* buffer, size_t size, size_t completed);
 
     bool process_io();
+
+    future<> fdatasync(int fd);
 
     void add_timer(timer<steady_clock_type>*);
     bool queue_timer(timer<steady_clock_type>*);

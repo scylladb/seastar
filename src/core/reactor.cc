@@ -1860,6 +1860,7 @@ void reactor::configure(boost::program_options::variables_map vm) {
     set_bypass_fsync(vm["unsafe-bypass-fsync"].as<bool>());
     _force_io_getevents_syscall = vm["force-aio-syscalls"].as<bool>();
     aio_nowait_supported = vm["linux-aio-nowait"].as<bool>();
+    _have_aio_fsync = vm["aio-fsync"].as<bool>();
 }
 
 future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd,
@@ -2025,10 +2026,30 @@ void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd, promise
 
 class io_desc {
     promise<io_event> _pr;
+public:
+    virtual ~io_desc() = default;
+    virtual void set_exception(std::exception_ptr eptr) {
+        _pr.set_exception(std::move(eptr));
+    }
+
+    virtual void set_value(io_event& ev) {
+        _pr.set_value(ev);
+    }
+
+    future<io_event> get_future() {
+        return _pr.get_future();
+    }
+};
+
+class io_desc_read_write final : public io_desc {
     io_queue* _ioq_ptr;
     fair_queue_request_descriptor _fq_desc;
+private:
+    void notify_requests_finished() {
+        _ioq_ptr->notify_requests_finished(_fq_desc);
+    }
 public:
-    io_desc(io_queue* ioq, unsigned weight, unsigned size)
+    io_desc_read_write(io_queue* ioq, unsigned weight, unsigned size)
         : _ioq_ptr(ioq)
         , _fq_desc(fair_queue_request_descriptor{weight, size})
     {}
@@ -2037,20 +2058,14 @@ public:
         return _fq_desc;
     }
 
-    void notify_requests_finished() {
-        _ioq_ptr->notify_requests_finished(_fq_desc);
-    }
-
-    void set_exception(std::exception_ptr eptr) {
-        _pr.set_exception(std::move(eptr));
+    virtual void set_exception(std::exception_ptr eptr) {
+        notify_requests_finished();
+        io_desc::set_exception(std::move(eptr));
     }
 
     void set_value(io_event& ev) {
-        _pr.set_value(ev);
-    }
-
-    future<io_event> get_future() {
-        return _pr.get_future();
+        notify_requests_finished();
+        io_desc::set_value(ev);
     }
 };
 
@@ -2084,7 +2099,6 @@ reactor::handle_aio_error(linux_abi::iocb* iocb, int ec) {
             } catch (...) {
                 desc->set_exception(std::current_exception());
             }
-            desc->notify_requests_finished();
             delete desc;
             // if EBADF, it means that the first request has a bad fd, so
             // we will only remove it from _pending_aio and try again.
@@ -2187,7 +2201,6 @@ bool reactor::process_io()
         _free_iocbs.push(iocb);
         auto desc = reinterpret_cast<io_desc*>(ev[i].data);
         desc->set_value(ev[i]);
-        desc->notify_requests_finished();
         delete desc;
     }
     return n;
@@ -2366,7 +2379,7 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, io_queue::reque
             weight = io_queue::read_request_base_count;
             size = io_queue::read_request_base_count * len;
         }
-        auto desc = std::make_unique<io_desc>(this, weight, size);
+        auto desc = std::make_unique<io_desc_read_write>(this, weight, size);
         auto fq_desc = desc->fq_descriptor();
         auto fut = desc->get_future();
         _fq.queue(pclass.ptr, std::move(fq_desc), [&pclass, start, prepare_io = std::move(prepare_io), desc = std::move(desc), len, this] () mutable noexcept {
@@ -2379,7 +2392,6 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, io_queue::reque
                 desc.release();
             } catch (...) {
                 desc->set_exception(std::current_exception());
-                notify_requests_finished(desc->fq_descriptor());
             }
         });
         return fut;
@@ -3284,6 +3296,34 @@ reactor::touch_directory(sstring name, file_permissions permissions) {
     });
 }
 
+future<>
+reactor::fdatasync(int fd) {
+    ++_fsyncs;
+    if (_bypass_fsync) {
+        return make_ready_future<>();
+    }
+    if (_have_aio_fsync) {
+        try {
+            auto desc = std::make_unique<io_desc>();
+            auto fut = desc->get_future();
+            submit_io(desc.release(), [fd] (linux_abi::iocb& iocb) {
+                iocb = make_fdsync_iocb(fd);
+            });
+            return fut.then([] (linux_abi::io_event event) {
+                throw_kernel_error(event.res);
+            });
+        } catch (...) {
+            return make_exception_future<>(std::current_exception());
+        }
+    }
+    return _thread_pool->submit<syscall_result<int>>([fd] {
+        return wrap_syscall<int>(::fdatasync(fd));
+    }).then([] (syscall_result<int> sr) {
+        sr.throw_if_error();
+        return make_ready_future<>();
+    });
+}
+
 file_handle::file_handle(const file_handle& x)
         : _impl(x._impl ? x._impl->clone() : std::unique_ptr<file_handle_impl>()) {
 }
@@ -3362,16 +3402,10 @@ posix_file_handle_impl::to_file() && {
 
 future<>
 posix_file_impl::flush(void) {
-    ++engine()._fsyncs;
-    if (engine()._bypass_fsync || (_open_flags & open_flags::dsync) != open_flags{}) {
+    if ((_open_flags & open_flags::dsync) != open_flags{}) {
         return make_ready_future<>();
     }
-    return engine()._thread_pool->submit<syscall_result<int>>([this] {
-        return wrap_syscall<int>(::fdatasync(_fd));
-    }).then([] (syscall_result<int> sr) {
-        sr.throw_if_error();
-        return make_ready_future<>();
-    });
+    return engine().fdatasync(_fd);
 }
 
 future<struct stat>
@@ -3929,10 +3963,7 @@ public:
         // is only possible if there are no in-flight aios. If there are, we need to keep polling.
         //
         // Alternatively, if we enabled _aio_eventfd, we can always enter
-        unsigned executing = 0;
-        for (auto& ioq : _r.my_io_queues) {
-            executing += ioq->requests_currently_executing();
-        }
+        unsigned executing = max_aio - _r._free_iocbs.size();
         return executing == 0 || _r._aio_eventfd;
     }
     virtual void exit_interrupt_mode() override {
@@ -4301,7 +4332,6 @@ int reactor::run() {
     register_metrics();
 
     compat::optional<poller> io_poller = {};
-    compat::optional<poller> aio_poller = {};
     compat::optional<poller> smp_poller = {};
 
     // I/O Performance greatly increases if the smp poller runs before the I/O poller. This is
@@ -4310,12 +4340,10 @@ int reactor::run() {
     if (smp::count > 1) {
         smp_poller = poller(std::make_unique<smp_pollfn>(*this));
     }
-    if (my_io_queues.size() > 0) {
 #ifndef HAVE_OSV
-        io_poller = poller(std::make_unique<io_pollfn>(*this));
+    io_poller = poller(std::make_unique<io_pollfn>(*this));
 #endif
-        aio_poller = poller(std::make_unique<aio_batch_submit_pollfn>(*this));
-    }
+    poller aio_poller(std::make_unique<aio_batch_submit_pollfn>(*this));
 
     poller batch_flush_poller(std::make_unique<batch_flush_pollfn>(*this));
     poller execution_stage_poller(std::make_unique<execution_stage_pollfn>());
@@ -5053,6 +5081,10 @@ network_stack_registry::create(sstring name, options opts) {
     return _map()[name](opts);
 }
 
+static bool kernel_supports_aio_fsync() {
+    return kernel_uname().whitelisted({"4.18"});
+}
+
 boost::program_options::options_description
 reactor::get_options_description(reactor_config cfg) {
     namespace bpo = boost::program_options;
@@ -5083,6 +5115,8 @@ reactor::get_options_description(reactor_config cfg) {
                 " This makes strace output more useful, but slows down the application")
         ("reactor-backend", bpo::value<reactor_backend_selector>()->default_value(reactor_backend_selector::default_backend()),
                 format("Internal reactor implementation ({})", reactor_backend_selector::available()).c_str())
+        ("aio-fsync", bpo::value<bool>()->default_value(kernel_supports_aio_fsync()),
+                "Use Linux aio for fsync() calls. This reduces latency; requires Linux 4.18 or later.")
 #ifdef SEASTAR_HEAPPROF
         ("heapprof", "enable seastar heap profiling")
 #endif
