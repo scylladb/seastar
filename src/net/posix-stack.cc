@@ -159,19 +159,22 @@ using posix_connected_sctp_socket_impl = posix_connected_socket_impl<transport::
 class posix_socket_impl final : public socket_impl {
     lw_shared_ptr<pollable_fd> _fd;
     compat::polymorphic_allocator<char>* _allocator;
+    bool _reuseaddr = false;
 
     future<> find_port_and_connect(socket_address sa, socket_address local, transport proto = transport::TCP) {
         static thread_local std::default_random_engine random_engine{std::random_device{}()};
         static thread_local std::uniform_int_distribution<uint16_t> u(49152/smp::count + 1, 65535/smp::count - 1);
         return repeat([this, sa, local, proto, attempts = 0, requested_port = ntoh(local.as_posix_sockaddr_in().sin_port)] () mutable {
+            _fd = engine().make_pollable_fd(sa, proto);
+            _fd->get_file_desc().setsockopt(SOL_SOCKET, SO_REUSEADDR, int(_reuseaddr));
             uint16_t port = attempts++ < 5 && requested_port == 0 && proto == transport::TCP ? u(random_engine) * smp::count + engine().cpu_id() : requested_port;
             local.as_posix_sockaddr_in().sin_port = hton(port);
-            return futurize_apply([this, sa, local] { return engine().posix_connect(_fd, sa, local); }).then_wrapped([] (future<> f) {
+            return futurize_apply([this, sa, local] { return engine().posix_connect(_fd, sa, local); }).then_wrapped([port, requested_port] (future<> f) {
                 try {
                     f.get();
                     return stop_iteration::yes;
                 } catch (std::system_error& err) {
-                    if (err.code().value() == EADDRINUSE) {
+                    if (port != requested_port && (err.code().value() == EADDRINUSE || err.code().value() == EADDRNOTAVAIL)) {
                         return stop_iteration::no;
                     }
                     throw;
@@ -184,16 +187,30 @@ public:
     explicit posix_socket_impl(compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _allocator(allocator) {}
 
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
-        _fd = engine().make_pollable_fd(sa, proto);
-        return find_port_and_connect(sa, local, proto).then([fd = _fd, proto, allocator = _allocator] () mutable {
+        return find_port_and_connect(sa, local, proto).then([this, proto, allocator = _allocator] () mutable {
             std::unique_ptr<connected_socket_impl> csi;
             if (proto == transport::TCP) {
-                csi.reset(new posix_connected_tcp_socket_impl(std::move(fd), allocator));
+                csi.reset(new posix_connected_tcp_socket_impl(_fd, allocator));
             } else {
-                csi.reset(new posix_connected_sctp_socket_impl(std::move(fd), allocator));
+                csi.reset(new posix_connected_sctp_socket_impl(_fd, allocator));
             }
             return make_ready_future<connected_socket>(connected_socket(std::move(csi)));
         });
+    }
+
+    void set_reuseaddr(bool reuseaddr) override {
+        _reuseaddr = reuseaddr;
+        if (_fd) {
+            _fd->get_file_desc().setsockopt(SOL_SOCKET, SO_REUSEADDR, int(reuseaddr));
+        }
+    }
+
+    bool get_reuseaddr() const override {
+        if(_fd) {
+            return _fd->get_file_desc().getsockopt<int>(SOL_SOCKET, SO_REUSEADDR);
+        } else {
+            return _reuseaddr;
+        }
     }
 
     virtual void shutdown() override {

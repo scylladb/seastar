@@ -111,6 +111,8 @@ public:
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
         return _connect ? _socket.connect(sa, local, proto) : _p.get_future();
     }
+    virtual void set_reuseaddr(bool reuseaddr) override {}
+    virtual bool get_reuseaddr() const override { return false; };
     virtual void shutdown() override {
         if (_connect) {
             _socket.shutdown();

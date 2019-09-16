@@ -125,6 +125,16 @@ public:
         });
     }
 
+    virtual void set_reuseaddr(bool reuseaddr) override {
+        // FIXME: implement
+        std::cerr << "Reuseaddr is not supported by native stack" << std::endl;
+    }
+
+    virtual bool get_reuseaddr() const override {
+        // FIXME: implement
+        return false;
+    }
+
     virtual void shutdown() override {
         if (_conn) {
             _conn->shutdown_connect();

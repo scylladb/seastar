@@ -136,6 +136,14 @@ future<connected_socket> socket::connect(socket_address sa, socket_address local
     return _si->connect(sa, local, proto);
 }
 
+void socket::set_reuseaddr(bool reuseaddr) {
+    _si->set_reuseaddr(reuseaddr);
+}
+
+bool socket::get_reuseaddr() const {
+    return _si->get_reuseaddr();
+}
+
 void socket::shutdown() {
     _si->shutdown();
 }
