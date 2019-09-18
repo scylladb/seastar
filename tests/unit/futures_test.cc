@@ -1149,3 +1149,14 @@ SEASTAR_THREAD_TEST_CASE(test_broken_promises) {
     }
     BOOST_CHECK_THROW(f->get(), broken_promise);
 }
+
+SEASTAR_TEST_CASE(test_warn_on_broken_promise_with_no_future) {
+    // Example code where we expect a "Exceptional future ignored"
+    // warning. We can't directly test that the warning is issued, but
+    // this example functions as documentation.
+    promise<> p;
+    // Intentionally destroy the future
+    (void)p.get_future();
+    p.set_exception(std::runtime_error("foo"));
+    return make_ready_future<>();
+}

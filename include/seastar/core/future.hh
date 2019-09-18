@@ -465,6 +465,15 @@ protected:
         if (_state) {
             _state->set_exception(std::move(ex));
             make_ready<urgent::no>();
+        } else {
+            // We get here if promise::get_future is called and the
+            // returned future is destroyed without creating a
+            // continuation.
+            // In older versions of seastar we would store a local
+            // copy of ex and warn in the promise destructor.
+            // Since there isn't any way for the user to clear
+            // the exception, we issue the warning from here.
+            report_failed_future(ex);
         }
     }
 
