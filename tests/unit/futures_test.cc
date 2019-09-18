@@ -784,6 +784,21 @@ SEASTAR_TEST_CASE(test_shared_future_propagates_errors_to_all) {
     });
 }
 
+SEASTAR_TEST_CASE(test_ignored_future_warning) {
+    // This doesn't warn:
+    promise<> p;
+    p.set_exception(expected_exception());
+    future<> f = p.get_future();
+    f.ignore_ready_future();
+
+    // And by analogy, neither should this
+    shared_promise<> p2;
+    p2.set_exception(expected_exception());
+    future<> f2 = p2.get_shared_future();
+    f2.ignore_ready_future();
+    return make_ready_future<>();
+}
+
 SEASTAR_TEST_CASE(test_futurize_from_tuple) {
     std::tuple<int> v1 = std::make_tuple(3);
     std::tuple<> v2 = {};

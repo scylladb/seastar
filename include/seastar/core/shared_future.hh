@@ -113,6 +113,14 @@ private:
         expiring_fifo<promise_type, promise_expiry, clock> _peers;
 
     public:
+        ~shared_state() {
+            // Don't warn if the shared future is exceptional. Any
+            // warnings will be reported by the futures returned by
+            // get_future.
+            if (_original_future.failed()) {
+                _original_future.ignore_ready_future();
+            }
+        }
         explicit shared_state(future_type f) : _original_future(std::move(f)) { }
         void resolve(future_type&& f) noexcept {
             _original_future = std::move(f);
