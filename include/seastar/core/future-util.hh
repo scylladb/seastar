@@ -406,7 +406,7 @@ struct repeat_until_value_type_helper<future<compat::optional<T>>> {
 /// Return value of repeat_until_value()
 template <typename AsyncAction>
 using repeat_until_value_return_type
-        = typename repeat_until_value_type_helper<std::result_of_t<AsyncAction()>>::future_type;
+        = typename repeat_until_value_type_helper<typename futurize<std::result_of_t<AsyncAction()>>::type>::future_type;
 
 namespace internal {
 
@@ -456,26 +456,27 @@ public:
 };
 
 }
-    
+
 /// Invokes given action until it fails or the function requests iteration to stop by returning
-/// an engaged \c future<compat::optional<T>>.  The value is extracted from the
-/// \c optional, and returned, as a future, from repeat_until_value().
+/// an engaged \c future<compat::optional<T>> or compat::optional<T>.  The value is extracted
+/// from the \c optional, and returned, as a future, from repeat_until_value().
 ///
-/// \param action a callable taking no arguments, returning a future<compat::optional<T>>.
-///               Will be called again as soon as the future resolves, unless the
-///               future fails, action throws, or it resolves with an engaged \c optional.
-///               If \c action is an r-value it can be moved in the middle of iteration.
+/// \param action a callable taking no arguments, returning a future<compat::optional<T>>
+///               or compat::optional<T>.  Will be called again as soon as the future
+///               resolves, unless the future fails, action throws, or it resolves with
+///               an engaged \c optional.  If \c action is an r-value it can be moved
+///               in the middle of iteration.
 /// \return a ready future if we stopped successfully, or a failed future if
 ///         a call to to \c action failed.  The \c optional's value is returned.
 template<typename AsyncAction>
 GCC6_CONCEPT( requires requires (AsyncAction aa) {
-    requires is_future<decltype(aa())>::value;
-    bool(aa().get0());
-    aa().get0().value();
+    bool(futurize<std::result_of_t<AsyncAction()>>::apply(aa).get0());
+    futurize<std::result_of_t<AsyncAction()>>::apply(aa).get0().value();
 } )
 repeat_until_value_return_type<AsyncAction>
 repeat_until_value(AsyncAction action) {
-    using type_helper = repeat_until_value_type_helper<std::result_of_t<AsyncAction()>>;
+    using futurator = futurize<std::result_of_t<AsyncAction()>>;
+    using type_helper = repeat_until_value_type_helper<typename futurator::type>;
     // the "T" in the documentation
     using value_type = typename type_helper::value_type;
     using optional_type = typename type_helper::optional_type;
