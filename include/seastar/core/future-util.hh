@@ -412,6 +412,7 @@ namespace internal {
 
 template <typename AsyncAction, typename T>
 class repeat_until_value_state final : public continuation_base<compat::optional<T>> {
+    using futurator = futurize<std::result_of_t<AsyncAction()>>;
     promise<T> _promise;
     AsyncAction _action;
 public:
@@ -435,7 +436,7 @@ public:
         }
         try {
             do {
-                auto f = _action();
+                auto f = futurator::apply(_action);
                 if (!f.available()) {
                     internal::set_callback(f, std::move(zis));
                     return;
@@ -480,15 +481,13 @@ repeat_until_value(AsyncAction action) {
     // the "T" in the documentation
     using value_type = typename type_helper::value_type;
     using optional_type = typename type_helper::optional_type;
-    using futurized_action_type = typename internal::futurized_action<AsyncAction>::type;
-    auto futurized_action = futurized_action_type(std::move(action));
     do {
-        auto f = futurized_action();
+        auto f = futurator::apply(action);
 
         if (!f.available()) {
           return [&] () noexcept {
             memory::disable_failure_guard dfg;
-            auto state = std::make_unique<internal::repeat_until_value_state<futurized_action_type, value_type>>(std::move(futurized_action));
+            auto state = std::make_unique<internal::repeat_until_value_state<AsyncAction, value_type>>(std::move(action));
             auto ret = state->get_future();
             internal::set_callback(f, std::move(state));
             return ret;
@@ -506,7 +505,7 @@ repeat_until_value(AsyncAction action) {
     } while (!need_preempt());
 
     try {
-        auto state = std::make_unique<internal::repeat_until_value_state<futurized_action_type, value_type>>(compat::nullopt, std::move(futurized_action));
+        auto state = std::make_unique<internal::repeat_until_value_state<AsyncAction, value_type>>(compat::nullopt, std::move(action));
         auto f = state->get_future();
         schedule(std::move(state));
         return f;

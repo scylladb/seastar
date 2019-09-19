@@ -825,6 +825,15 @@ SEASTAR_TEST_CASE(test_repeat_until_value_implicit_future) {
     });
 }
 
+SEASTAR_TEST_CASE(test_repeat_until_value_exception) {
+    return repeat_until_value([] {
+        throw expected_exception();
+        return compat::optional<int>(43);
+    }).then_wrapped([] (future<int> f) {
+        check_fails_with_expected(std::move(f));
+    });
+}
+
 SEASTAR_TEST_CASE(test_when_allx) {
     return when_all(later(), later(), make_ready_future()).discard_result();
 }
