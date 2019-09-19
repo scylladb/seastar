@@ -401,8 +401,6 @@ struct repeat_until_value_type_helper<future<compat::optional<T>>> {
     using optional_type = compat::optional<T>;
     /// Return type of repeat_until_value()
     using future_type = future<value_type>;
-    /// Return type of \c AsyncAction
-    using future_optional_type = future<optional_type>;
 };
 
 /// Return value of repeat_until_value()
