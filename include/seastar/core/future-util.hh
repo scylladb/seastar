@@ -270,6 +270,7 @@ namespace internal {
 
 template <typename AsyncAction>
 class repeater final : public continuation_base<stop_iteration> {
+    using futurator = futurize<std::result_of_t<AsyncAction()>>;
     promise<> _promise;
     AsyncAction _action;
 public:
@@ -292,7 +293,7 @@ public:
         }
         try {
             do {
-                auto f = _action();
+                auto f = futurator::apply(_action);
                 if (!f.available()) {
                     internal::set_callback(f, std::move(zis));
                     return;
@@ -310,30 +311,6 @@ public:
         schedule(std::move(zis));
     }
 };
-
-template <typename AsyncAction, bool ReturnsFuture = true>
-struct futurized_action_helper {
-    using type = AsyncAction;
-};
-
-template <typename AsyncAction>
-struct futurized_action_helper<AsyncAction, false> {
-    struct wrapper {
-        AsyncAction action;
-        using orig_ret = std::result_of_t<AsyncAction()>;
-        explicit wrapper(AsyncAction&& action) : action(std::move(action)) {}
-        futurize_t<orig_ret> operator()() {
-            return futurize<orig_ret>::convert(action());
-        };
-    };
-    using type = wrapper;
-};
-
-template <typename AsyncAction>
-struct futurized_action {
-    using type = typename futurized_action_helper<AsyncAction, is_future<std::result_of_t<AsyncAction()>>::value>::type;
-};
-
 
 }
 
@@ -354,17 +331,15 @@ inline
 future<> repeat(AsyncAction action) {
     using futurator = futurize<std::result_of_t<AsyncAction()>>;
     static_assert(std::is_same<future<stop_iteration>, typename futurator::type>::value, "bad AsyncAction signature");
-    using futurized_action_type = typename internal::futurized_action<AsyncAction>::type;
-    auto futurized_action = futurized_action_type(std::move(action));
     try {
         do {
             // Do not type-erase here in case this is a short repeat()
-            auto f = futurized_action();
+            auto f = futurator::apply(action);
 
             if (!f.available()) {
               return [&] () noexcept {
                 memory::disable_failure_guard dfg;
-                auto repeater = std::make_unique<internal::repeater<futurized_action_type>>(std::move(futurized_action));
+                auto repeater = std::make_unique<internal::repeater<AsyncAction>>(std::move(action));
                 auto ret = repeater->get_future();
                 internal::set_callback(f, std::move(repeater));
                 return ret;
@@ -376,7 +351,7 @@ future<> repeat(AsyncAction action) {
             }
         } while (!need_preempt());
 
-        auto repeater = std::make_unique<internal::repeater<futurized_action_type>>(stop_iteration::no, std::move(futurized_action));
+        auto repeater = std::make_unique<internal::repeater<AsyncAction>>(stop_iteration::no, std::move(action));
         auto ret = repeater->get_future();
         schedule(std::move(repeater));
         return ret;
