@@ -323,6 +323,34 @@ public:
     template<typename Serializer, typename... Out> sink<Out...> make_sink();
 };
 
+/// Used to return multiple values in rpc without variadic futures
+///
+/// If you wish to return multiple values from an rpc procedure, use a
+/// signature `future<rpc::tuple<return type list> (argument list)>>`. This
+/// will be marshalled by rpc, so you do not need to have your Serializer
+/// serialize/deserialize this tuple type. The serialization format is
+/// compatible with the deprecated variadic future support, and is compatible
+/// with adding new return types in a backwards compatible way provided new
+/// parameters are appended only, and wrapped with rpc::optional:
+/// `future<rpc::tuple<existing return type list, rpc::optional<new_return_type>>> (argument list)`
+///
+/// You may also use another tuple type, such as std::tuple. In this case,
+/// your Serializer type must recognize your tuple type and provide serialization
+/// and deserialization for it.
+template <typename... T>
+class tuple : public std::tuple<T...> {
+public:
+    using std::tuple<T...>::tuple;
+    tuple(std::tuple<T...>&& x) : std::tuple<T...>(std::move(x)) {}
+};
+
+#if __cplusplus >= 201703L
+
+template <typename... T>
+tuple(T&&...) ->  tuple<T...>;
+
+#endif
+
 } // namespace rpc
 
 }
@@ -336,4 +364,13 @@ struct hash<seastar::rpc::connection_id> {
         return h;
     }
 };
+
+template <typename... T>
+struct tuple_size<seastar::rpc::tuple<T...>> : tuple_size<tuple<T...>> {
+};
+
+template <size_t I, typename... T>
+struct tuple_element<I, seastar::rpc::tuple<T...>> : tuple_element<I, tuple<T...>> {
+};
+
 }

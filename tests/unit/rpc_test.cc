@@ -867,3 +867,61 @@ SEASTAR_TEST_CASE(test_max_relative_timeout) {
         BOOST_REQUIRE(*success);
     });
 }
+
+SEASTAR_TEST_CASE(test_rpc_tuple) {
+    return with_rpc_env({}, rpc::server_options(), true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+        return seastar::async([&proto, make_socket] {
+            test_rpc_proto::client c1(proto, rpc::client_options{}, make_socket(), ipv4_addr());
+            auto stop = defer([&] { c1.stop().get(); });
+            auto f1 = proto.register_handler(1, [] () {
+                return make_ready_future<rpc::tuple<int, long>>(rpc::tuple<int, long>(1, 0x7'0000'0000L));
+            });
+            auto result = f1(c1).get0();
+            BOOST_REQUIRE_EQUAL(std::get<0>(result), 1);
+            BOOST_REQUIRE_EQUAL(std::get<1>(result), 0x7'0000'0000L);
+        });
+    });
+}
+
+SEASTAR_TEST_CASE(test_rpc_nonvariadic_client_variadic_server) {
+    return with_rpc_env({}, rpc::server_options(), true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+        return seastar::async([&proto, make_socket] {
+            test_rpc_proto::client c1(proto, rpc::client_options{}, make_socket(), ipv4_addr());
+            auto stop = defer([&] { c1.stop().get(); });
+            // Server is variadic
+            (void)proto.register_handler(1, [] () {
+                return make_ready_future<int, long>(1, 0x7'0000'0000L);
+            });
+            // Client is non-variadic
+            auto f1 = proto.make_client<future<rpc::tuple<int, long>> ()>(1);
+            auto result = f1(c1).get0();
+            BOOST_REQUIRE_EQUAL(std::get<0>(result), 1);
+            BOOST_REQUIRE_EQUAL(std::get<1>(result), 0x7'0000'0000L);
+        });
+    });
+}
+
+SEASTAR_TEST_CASE(test_rpc_variadic_client_nonvariadic_server) {
+    return with_rpc_env({}, rpc::server_options(), true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+        return seastar::async([&proto, make_socket] {
+            test_rpc_proto::client c1(proto, rpc::client_options{}, make_socket(), ipv4_addr());
+            auto stop = defer([&] { c1.stop().get(); });
+            // Server is nonvariadic
+            (void)proto.register_handler(1, [] () {
+                return make_ready_future<rpc::tuple<int, long>>(rpc::tuple<int, long>(1, 0x7'0000'0000L));
+            });
+            // Client is variadic
+            auto f1 = proto.make_client<future<int, long> ()>(1);
+            auto result = f1(c1).get();
+            BOOST_REQUIRE_EQUAL(std::get<0>(result), 1);
+            BOOST_REQUIRE_EQUAL(std::get<1>(result), 0x7'0000'0000L);
+        });
+    });
+}
+
+#if __cplusplus >= 201703
+
+static_assert(std::is_same_v<decltype(rpc::tuple(1U, 1L)), rpc::tuple<unsigned, long>>, "rpc::tuple deduction guid not working");
+
+#endif
+

@@ -207,6 +207,9 @@ struct serialize_helper<true> {
     }
 };
 
+template <typename Serializer, typename Output, typename... T>
+inline void do_marshall(Serializer& serializer, Output& out, const T&... args);
+
 template <typename Serializer, typename Output>
 struct marshall_one {
     template <typename T> struct helper {
@@ -232,6 +235,14 @@ struct marshall_one {
     template <typename... T> struct helper<source<T...>> {
         static void doit(Serializer& serializer, Output& out, const source<T...>& arg) {
             put_connection_id(arg.get_id(), out);
+        }
+    };
+    template <typename... T> struct helper<tuple<T...>> {
+        static void doit(Serializer& serializer, Output& out, const tuple<T...>& arg) {
+            auto do_do_marshall = [&serializer, &out] (const auto&... args) {
+                do_marshall(serializer, out, args...);
+            };
+            apply(do_do_marshall, arg);
         }
     };
 };
@@ -302,6 +313,11 @@ struct unmarshal_one {
     template<typename... T> struct helper<source<T...>> {
         static source<T...> doit(connection& c, Input& in) {
             return source<T...>(make_shared<source_impl<Serializer, T...>>(c.get_stream(get_connection_id(in))));
+        }
+    };
+    template <typename... T> struct helper<tuple<T...>> {
+        static tuple<T...> doit(connection& c, Input& in) {
+            return do_unmarshall<Serializer, Input, T...>(c, in);
         }
     };
 };
