@@ -81,6 +81,35 @@ std::ostream& operator<<(std::ostream& os, logger_timestamp_style lts) {
     return os;
 }
 
+void validate(boost::any& v,
+              const std::vector<std::string>& values,
+              logger_ostream_type* target_type, int) {
+    using namespace boost::program_options;
+    validators::check_first_occurrence(v);
+    auto s = validators::get_single_string(values);
+    if (s == "none") {
+        v = logger_ostream_type::none;
+        return;
+    } else if (s == "stdout") {
+        v = logger_ostream_type::stdout;
+        return;
+    } else if (s == "stderr") {
+        v = logger_ostream_type::stderr;
+        return;
+    }
+    throw validation_error(validation_error::invalid_option_value);
+}
+
+std::ostream& operator<<(std::ostream& os, logger_ostream_type lot) {
+    switch (lot) {
+    case logger_ostream_type::none: return os << "none";
+    case logger_ostream_type::stdout: return os << "stdout";
+    case logger_ostream_type::stderr: return os << "stderr";
+    default: abort();
+    }
+    return os;
+}
+
 struct timestamp_tag {};
 
 static void print_no_timestamp(std::ostream& os) {
@@ -326,7 +355,19 @@ void apply_logging_settings(const logging_settings& s) {
         }
     }
 
-    logger::set_ostream_enabled(s.stdout_enabled);
+    switch (s.logger_ostream) {
+    case logger_ostream_type::none:
+        logger::set_ostream_enabled(false);
+        break;
+    case logger_ostream_type::stdout:
+        logger::set_ostream(std::cout);
+        logger::set_ostream_enabled(true);
+        break;
+    case logger_ostream_type::stderr:
+        logger::set_ostream(std::cerr);
+        logger::set_ostream_enabled(true);
+        break;
+    }
     logger::set_syslog_enabled(s.syslog_enabled);
 
     switch (s.stdout_timestamp_style) {
@@ -389,7 +430,7 @@ bpo::options_description get_options_description() {
             )
             ("logger-stdout-timestamps", bpo::value<logger_timestamp_style>()->default_value(logger_timestamp_style::real),
                     "Select timestamp style for stdout logs: none|boot|real")
-            ("log-to-stdout", bpo::value<bool>()->default_value(true), "Send log output to stdout.")
+            ("log-to-stdout", bpo::value<logger_ostream_type>()->default_value(logger_ostream_type::stderr), "Send log output to: none|stdout|stderr")
             ("log-to-syslog", bpo::value<bool>()->default_value(false), "Send log output to syslog.")
             ("help-loggers", bpo::bool_switch(), "Print a list of logger names and exit.");
 
@@ -417,11 +458,10 @@ logging_settings extract_settings(const boost::program_options::variables_map& v
     return logging_settings{
         std::move(levels),
         parse_log_level(vars["default-log-level"].as<sstring>()),
-        vars["log-to-stdout"].as<bool>(),
+        vars["log-to-stdout"].as<logger_ostream_type>(),
         vars["log-to-syslog"].as<bool>(),
         vars["logger-stdout-timestamps"].as<logger_timestamp_style>()
     };
-
 }
 
 }

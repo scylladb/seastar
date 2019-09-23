@@ -287,10 +287,16 @@ enum class logger_timestamp_style {
     real,
 };
 
+enum class logger_ostream_type {
+    none,
+    stdout,
+    stderr,
+};
+
 struct logging_settings final {
     std::unordered_map<sstring, log_level> logger_levels;
     log_level default_level;
-    bool stdout_enabled;
+    logger_ostream_type logger_ostream = logger_ostream_type::stderr;
     bool syslog_enabled;
     logger_timestamp_style stdout_timestamp_style = logger_timestamp_style::real;
 };
