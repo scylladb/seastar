@@ -127,18 +127,20 @@ public:
         throw_system_error_on(fd == -1, "dup");
         return file_desc(fd);
     }
-    file_desc accept(sockaddr& sa, socklen_t& sl, int flags = 0) {
-        auto ret = ::accept4(_fd, &sa, &sl, flags);
+    file_desc accept(socket_address& sa, socklen_t& sl, int flags = 0) {
+        auto ret = ::accept4(_fd, &sa.as_posix_sockaddr(), &sl, flags);
         throw_system_error_on(ret == -1, "accept4");
+        sa.addr_length = sl;
         return file_desc(ret);
     }
     // return nullopt if no connection is availbale to be accepted
-    compat::optional<file_desc> try_accept(sockaddr& sa, socklen_t& sl, int flags = 0) {
-        auto ret = ::accept4(_fd, &sa, &sl, flags);
+    compat::optional<file_desc> try_accept(socket_address& sa, socklen_t& sl, int flags = 0) {
+        auto ret = ::accept4(_fd, &sa.as_posix_sockaddr(), &sl, flags);
         if (ret == -1 && errno == EAGAIN) {
             return {};
         }
         throw_system_error_on(ret == -1, "accept4");
+        sa.addr_length = sl;
         return file_desc(ret);
     }
     void shutdown(int how) {
@@ -240,7 +242,7 @@ public:
         return { size_t(r) };
     }
     boost::optional<size_t> sendto(socket_address& addr, const void* buf, size_t len, int flags) {
-        auto r = ::sendto(_fd, buf, len, flags, &addr.u.sa, sizeof(addr.u.sas));
+        auto r = ::sendto(_fd, buf, len, flags, &addr.u.sa, addr.length());
         if (r == -1 && errno == EAGAIN) {
             return {};
         }
@@ -268,8 +270,7 @@ public:
     }
     socket_address get_address() {
         socket_address addr;
-        auto len = (socklen_t) sizeof(addr.u.sas);
-        auto r = ::getsockname(_fd, &addr.u.sa, &len);
+        auto r = ::getsockname(_fd, &addr.u.sa, &addr.addr_length);
         throw_system_error_on(r == -1, "getsockname");
         return addr;
     }

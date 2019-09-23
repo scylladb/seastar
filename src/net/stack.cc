@@ -264,8 +264,11 @@ socket_address server_socket::local_address() const {
 #endif
 
 socket_address::socket_address()
-    : socket_address(ipv4_addr())
-{}
+    : socket_address(ipv4_addr()) {
+    // override the addr_length, as we (probably) want to use the constructed object
+    // in accept() or get_address()
+    addr_length = sizeof(::sockaddr_storage);
+}
 
 socket_address::socket_address(uint16_t p)
     : socket_address(ipv4_addr(p))
@@ -273,6 +276,7 @@ socket_address::socket_address(uint16_t p)
 
 socket_address::socket_address(ipv4_addr addr)
 {
+    addr_length = sizeof(::sockaddr_in);
     u.in.sin_family = AF_INET;
     u.in.sin_port = htons(addr.port);
     u.in.sin_addr.s_addr = htonl(addr.ip);
@@ -280,6 +284,7 @@ socket_address::socket_address(ipv4_addr addr)
 
 socket_address::socket_address(const ipv6_addr& addr)
 {
+    addr_length = sizeof(::sockaddr_in6);
     u.in6.sin6_family = AF_INET6;
     u.in6.sin6_port = htons(addr.port);
     std::copy(addr.ip.begin(), addr.ip.end(), u.in6.sin6_addr.s6_addr);
@@ -289,10 +294,30 @@ socket_address::socket_address(uint32_t ipv4, uint16_t p)
     : socket_address(make_ipv4_address(ipv4, p))
 {}
 
+static int adjusted_path_length(const socket_address& a) {
+    int l = std::max(0, (int)a.addr_length-(int)((size_t) (((struct sockaddr_un *) 0)->sun_path)));
+    // "un-count" a trailing null in filesystem-namespace paths
+    if (a.u.un.sun_path[0]!='\0' && (l > 1) && a.u.un.sun_path[l-1]=='\0') {
+        --l;
+    }
+    return l;
+}
+
 bool socket_address::operator==(const socket_address& a) const {
     if (u.sa.sa_family != a.u.sa.sa_family) {
         return false;
     }
+    if (u.sa.sa_family == AF_UNIX) {
+        // tolerate counting/not counting a terminating null in filesystem-namespace paths
+        int adjusted_len = adjusted_path_length(*this);
+        int a_adjusted_len = adjusted_path_length(a);
+        if (adjusted_len != a_adjusted_len) {
+            return false;
+        }
+        return (memcmp(u.un.sun_path, a.u.un.sun_path, adjusted_len) == 0);
+    }
+
+    // an INET address
     if (u.in.sin_port != a.u.in.sin_port) {
         return false;
     }
@@ -300,6 +325,7 @@ bool socket_address::operator==(const socket_address& a) const {
     case AF_INET:
         return u.in.sin_addr.s_addr == a.u.in.sin_addr.s_addr;
     case AF_INET6:
+        // handled below
         break;
     default:
         return false;

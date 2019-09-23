@@ -495,6 +495,7 @@ add_library (seastar STATIC
   include/seastar/net/tls.hh
   include/seastar/net/toeplitz.hh
   include/seastar/net/udp.hh
+  include/seastar/net/unix_address.hh
   include/seastar/net/virtio-interface.hh
   include/seastar/net/virtio.hh
   include/seastar/rpc/lz4_compressor.hh
@@ -577,10 +578,12 @@ add_library (seastar STATIC
   src/net/packet.cc
   src/net/posix-stack.cc
   src/net/proxy.cc
+  src/net/socket_address.cc
   src/net/stack.cc
   src/net/tcp.cc
   src/net/tls.cc
   src/net/udp.cc
+  src/net/unix_address.cc
   src/net/virtio.cc
   src/rpc/lz4_compressor.cc
   src/rpc/lz4_fragmented_compressor.cc

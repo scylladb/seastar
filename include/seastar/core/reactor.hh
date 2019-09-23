@@ -695,7 +695,8 @@ public:
 
     bool posix_reuseport_available() const { return _reuseport; }
 
-    lw_shared_ptr<pollable_fd> make_pollable_fd(socket_address sa, transport proto = transport::TCP);
+    lw_shared_ptr<pollable_fd> make_pollable_fd(socket_address sa, int proto);
+
     future<> posix_connect(lw_shared_ptr<pollable_fd> pfd, socket_address sa, socket_address local);
 
     future<std::tuple<pollable_fd, socket_address>> accept(pollable_fd_state& listen_fd);

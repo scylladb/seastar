@@ -23,8 +23,11 @@
 #include <iosfwd>
 #include <array>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <netinet/ip.h>
 #include <seastar/net/byteorder.hh>
+#include <seastar/net/unix_address.hh>
+#include <cassert>
 
 namespace seastar {
 
@@ -37,22 +40,25 @@ struct ipv6_addr;
 
 class socket_address {
 public:
+    socklen_t addr_length; ///!< actual size of the relevant 'u' member
     union {
         ::sockaddr_storage sas;
         ::sockaddr sa;
         ::sockaddr_in in;
         ::sockaddr_in6 in6;
+        ::sockaddr_un un;
     } u;
-    socket_address(const sockaddr_in& sa) {
+    socket_address(const sockaddr_in& sa) : addr_length{sizeof(::sockaddr_in)} {
         u.in = sa;
     }
-    socket_address(const sockaddr_in6& sa) {
+    socket_address(const sockaddr_in6& sa) : addr_length{sizeof(::sockaddr_in6)} {
         u.in6 = sa;
     }
     socket_address(uint16_t);
     socket_address(ipv4_addr);
     socket_address(const ipv6_addr&);
     socket_address(const net::inet_address&, uint16_t p = 0);
+    explicit socket_address(const unix_domain_addr&);
     socket_address();
     ::sockaddr& as_posix_sockaddr() { return u.sa; }
     ::sockaddr_in& as_posix_sockaddr_in() { return u.in; }
@@ -62,6 +68,16 @@ public:
     const ::sockaddr_in6& as_posix_sockaddr_in6() const { return u.in6; }
 
     socket_address(uint32_t, uint16_t p = 0);
+
+    socklen_t length() const { return addr_length; };
+
+    bool is_af_unix() const {
+        return u.sa.sa_family == AF_UNIX;
+    }
+
+    sa_family_t family() const {
+        return u.sa.sa_family;
+    }
 
     net::inet_address addr() const;
     ::in_port_t port() const;
@@ -79,7 +95,6 @@ enum class transport {
     TCP = IPPROTO_TCP,
     SCTP = IPPROTO_SCTP
 };
-
 
 struct ipv4_addr {
     uint32_t ip;
@@ -140,6 +155,14 @@ struct hash<seastar::socket_address> {
 template<>
 struct hash<seastar::ipv4_addr> {
     size_t operator()(const seastar::ipv4_addr&) const;
+};
+template<>
+struct hash<seastar::unix_domain_addr> {
+    size_t operator()(const seastar::unix_domain_addr&) const;
+};
+template<>
+struct hash<::sockaddr_un> {
+    size_t operator()(const ::sockaddr_un&) const;
 };
 
 }

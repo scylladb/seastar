@@ -36,6 +36,17 @@ using namespace seastar;
 
 template <transport Transport>
 class posix_connected_socket_operations;
+template<>
+thread_local  typename  posix_ap_server_socket_impl<transport::SCTP>::sockets_map_t posix_ap_server_socket_impl<transport::SCTP>::sockets{};
+template<>
+thread_local  typename  posix_ap_server_socket_impl<transport::TCP>::sockets_map_t posix_ap_server_socket_impl<transport::TCP>::sockets{};
+template<>
+thread_local  typename posix_ap_server_socket_impl<transport::SCTP>::conn_map_t posix_ap_server_socket_impl<transport::SCTP>::conn_q{};
+template<>
+thread_local  typename posix_ap_server_socket_impl<transport::TCP>::conn_map_t posix_ap_server_socket_impl<transport::TCP>::conn_q{};
+
+thread_local  std::unordered_map<socket_address, promise<accept_result>> posix_ap_server_unix_socket_impl::sockets{};
+thread_local  std::unordered_multimap<socket_address, typename posix_ap_server_unix_socket_impl::connection> posix_ap_server_unix_socket_impl::conn_q{};
 
 template <>
 class posix_connected_socket_operations<transport::TCP> {
@@ -153,8 +164,51 @@ public:
     friend class posix_ap_network_stack;
     friend class posix_socket_impl;
 };
+
 using posix_connected_tcp_socket_impl = posix_connected_socket_impl<transport::TCP>;
 using posix_connected_sctp_socket_impl = posix_connected_socket_impl<transport::SCTP>;
+
+class posix_connected_unix_socket_impl final : public connected_socket_impl {
+    lw_shared_ptr<pollable_fd> _fd;
+    conntrack::handle _handle;
+    compat::polymorphic_allocator<char>* _allocator;
+    explicit posix_connected_unix_socket_impl(lw_shared_ptr<pollable_fd> fd, compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) :
+        _fd(std::move(fd)), _allocator(allocator) {}
+    explicit posix_connected_unix_socket_impl(lw_shared_ptr<pollable_fd> fd, conntrack::handle&& handle,
+        compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _fd(std::move(fd)), _handle(std::move(handle)), _allocator(allocator) {}
+public:
+    virtual data_source source() override {
+        return data_source(std::make_unique< posix_data_source_impl>(_fd, _allocator));
+    }
+    virtual data_sink sink() override {
+        return data_sink(std::make_unique< posix_data_sink_impl>(_fd));
+    }
+    virtual void shutdown_input() override {
+        _fd->shutdown(SHUT_RD);
+    }
+    virtual void shutdown_output() override {
+        _fd->shutdown(SHUT_WR);
+    }
+    virtual void set_nodelay(bool nodelay) override {
+        assert(nodelay); // make sure nobody actually tries to use this non-existing functionality
+    }
+    virtual bool get_nodelay() const override {
+        return true;
+    }
+    void set_keepalive(bool keepalive) override {}
+    bool get_keepalive() const override {
+        return false;
+    }
+    void set_keepalive_parameters(const keepalive_params& p) override {}
+    keepalive_params get_keepalive_parameters() const override {
+        return keepalive_params{};
+    }
+    friend class posix_server_unix_socket_impl;
+    friend class posix_ap_server_unix_socket_impl;
+    friend class posix_network_stack;
+    friend class posix_ap_network_stack;
+    friend class posix_socket_impl;
+};
 
 class posix_socket_impl final : public socket_impl {
     lw_shared_ptr<pollable_fd> _fd;
@@ -165,7 +219,7 @@ class posix_socket_impl final : public socket_impl {
         static thread_local std::default_random_engine random_engine{std::random_device{}()};
         static thread_local std::uniform_int_distribution<uint16_t> u(49152/smp::count + 1, 65535/smp::count - 1);
         return repeat([this, sa, local, proto, attempts = 0, requested_port = ntoh(local.as_posix_sockaddr_in().sin_port)] () mutable {
-            _fd = engine().make_pollable_fd(sa, proto);
+            _fd = engine().make_pollable_fd(sa, int(proto));
             _fd->get_file_desc().setsockopt(SOL_SOCKET, SO_REUSEADDR, int(_reuseaddr));
             uint16_t port = attempts++ < 5 && requested_port == 0 && proto == transport::TCP ? u(random_engine) * smp::count + engine().cpu_id() : requested_port;
             local.as_posix_sockaddr_in().sin_port = hton(port);
@@ -183,10 +237,31 @@ class posix_socket_impl final : public socket_impl {
         });
     }
 
+    /// an aux function to handle unix-domain-specific requests
+    future<connected_socket> connect_unix_domain(socket_address sa, socket_address local) {
+        // note that if the 'local' address was not set by the client, it was created as an INET address
+        if (!local.is_af_unix()) {
+            local = socket_address{unix_domain_addr{std::string{}}};
+        }
+
+        _fd = engine().make_pollable_fd(sa, 0);
+        return engine().posix_connect(_fd, sa, local).then(
+            [fd = _fd, allocator = _allocator](){
+                // a problem with 'private' interaction with 'unique_ptr'
+                std::unique_ptr<connected_socket_impl> csi;
+                csi.reset(new posix_connected_unix_socket_impl{std::move(fd), allocator});
+                return make_ready_future<connected_socket>(connected_socket(std::move(csi)));
+            }
+        );
+    }
+
 public:
     explicit posix_socket_impl(compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _allocator(allocator) {}
 
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
+        if (sa.is_af_unix()) {
+            return connect_unix_domain(sa, local);
+        }
         return find_port_and_connect(sa, local, proto).then([this, proto, allocator = _allocator] () mutable {
             std::unique_ptr<connected_socket_impl> csi;
             if (proto == transport::TCP) {
@@ -259,6 +334,75 @@ posix_server_socket_impl<Transport>::abort_accept() {
 template <transport Transport>
 socket_address posix_server_socket_impl<Transport>::local_address() const {
     return _lfd.get_file_desc().get_address();
+}
+
+future<accept_result>
+posix_server_unix_socket_impl::accept() {
+    return _lfd.accept().then([this] (std::tuple<pollable_fd, socket_address> fd_sa) {
+        // select a core to handle the incoming connection:
+        auto& fd = std::get<0>(fd_sa);
+        auto& partner_sa = std::get<1>(fd_sa);
+
+        auto cth = _conntrack.get_handle();
+        auto cpu = cth.cpu();
+
+        if (cpu == engine().cpu_id()) {
+            std::unique_ptr<posix_connected_unix_socket_impl> csi(
+                    new posix_connected_unix_socket_impl(make_lw_shared(std::move(fd)), std::move(cth), _allocator));
+            return make_ready_future<accept_result>(
+                    accept_result{connected_socket(std::move(csi)), partner_sa});
+        } else {
+            //  target core (running the 'AP' version of the stack) will add the new connection to a container of incoming
+            //  connections - unless that core is already blocking on a 'mock accept()', waiting for this connection to
+            //  be (really) accept()ed by core #0 (which is runnin the "real" stack).
+            (void)smp::submit_to(cpu, [ssa = _sa, fd = std::move(fd.get_file_desc()), partner_sa, cth = std::move(cth), allocator = _allocator] () mutable {
+                posix_ap_server_unix_socket_impl::move_connected_unix_socket(ssa, pollable_fd(std::move(fd)), partner_sa, std::move(cth), allocator);
+            });
+            return accept();
+        }
+    });
+}
+
+void posix_server_unix_socket_impl::abort_accept() {
+    _lfd.abort_reader();
+}
+
+socket_address posix_server_unix_socket_impl::local_address() const {
+    return _lfd.get_file_desc().get_address();
+}
+
+future<accept_result> posix_ap_server_unix_socket_impl::accept() {
+    auto conni = conn_q.find(local_address());
+    if (conni != conn_q.end()) {
+        //  already accepted by core #0 and 'moved' to this core
+        connection c = std::move(conni->second);
+        conn_q.erase(conni);
+        try {
+            std::unique_ptr<connected_socket_impl> csi(
+                    new posix_connected_unix_socket_impl{make_lw_shared(std::move(c.fd)), std::move(c.connection_tracking_handle)});
+            return make_ready_future<accept_result>(accept_result{connected_socket(std::move(csi)), std::move(c.addr)});
+        } catch (...) {
+            return make_exception_future<accept_result>(std::current_exception());
+        }
+    } else {
+        //  we will have to wait for the connection request to be operating-system-accepted by core #0
+        try {
+            auto i = sockets.emplace(std::piecewise_construct, std::make_tuple(local_address()), std::make_tuple());
+            assert(i.second);
+            return i.first->second.get_future();
+        } catch (...) {
+            return make_exception_future<accept_result>(std::current_exception());
+        }
+    }
+}
+
+void posix_ap_server_unix_socket_impl::abort_accept() {
+    conn_q.erase(local_address());
+    auto i = sockets.find(local_address());
+    if (i != sockets.end()) {
+        i->second.set_exception(std::system_error(ECONNABORTED, std::system_category()));
+        sockets.erase(i);
+    }
 }
 
 template <transport Transport>
@@ -337,6 +481,22 @@ posix_ap_server_socket_impl<Transport>::move_connected_socket(socket_address sa,
     }
 }
 
+void
+posix_ap_server_unix_socket_impl::move_connected_unix_socket(socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle cth, compat::polymorphic_allocator<char>* allocator) {
+    auto i = sockets.find(sa);
+    if (i != sockets.end()) {
+        try {
+            std::unique_ptr<connected_socket_impl> csi(new posix_connected_unix_socket_impl(make_lw_shared(std::move(fd)), std::move(cth), allocator));
+            i->second.set_value(accept_result{connected_socket(std::move(csi)), std::move(addr)});
+        } catch (...) {
+            i->second.set_exception(std::current_exception());
+        }
+        sockets.erase(i);
+    } else {
+        conn_q.emplace(std::piecewise_construct, std::make_tuple(sa), std::make_tuple(std::move(fd), std::move(addr), std::move(cth)));
+    }
+}
+
 future<temporary_buffer<char>>
 posix_data_source_impl::get() {
     return _fd->read_some(_buf.get_write(), _buf_size).then([this] (size_t size) {
@@ -390,6 +550,9 @@ posix_data_sink_impl::close() {
 server_socket
 posix_network_stack::listen(socket_address sa, listen_options opt) {
     using server_socket = seastar::api_v2::server_socket;
+    if (sa.is_af_unix()) {
+        return server_socket(std::make_unique<posix_server_unix_socket_impl>(sa, engine().posix_listen(sa, opt), opt.lba, _allocator));
+    }
     if (opt.proto == transport::TCP) {
         return _reuseport ?
             server_socket(std::make_unique<posix_reuseport_server_tcp_socket_impl>(sa, engine().posix_listen(sa, opt), _allocator))
@@ -407,14 +570,12 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
     return ::seastar::socket(std::make_unique<posix_socket_impl>(_allocator));
 }
 
-template<transport Transport>
-thread_local std::unordered_map<socket_address, promise<accept_result>> posix_ap_server_socket_impl<Transport>::sockets;
-template<transport Transport>
-thread_local std::unordered_multimap<socket_address, typename posix_ap_server_socket_impl<Transport>::connection> posix_ap_server_socket_impl<Transport>::conn_q;
-
 server_socket
 posix_ap_network_stack::listen(socket_address sa, listen_options opt) {
     using server_socket = seastar::api_v2::server_socket;
+    if (sa.is_af_unix()) {
+        return server_socket(std::make_unique<posix_ap_server_unix_socket_impl>(sa));
+    }
     if (opt.proto == transport::TCP) {
         return _reuseport ?
             server_socket(std::make_unique<posix_reuseport_server_tcp_socket_impl>(sa, engine().posix_listen(sa, opt)))
@@ -517,6 +678,7 @@ public:
     }
     virtual bool is_closed() const override { return _closed; }
     socket_address local_address() const override {
+        assert(_address.u.sas.ss_family != AF_INET6 || (_address.addr_length > 20));
         return _address;
     }
 };
