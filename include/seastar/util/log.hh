@@ -64,7 +64,7 @@ namespace seastar {
 class logger;
 class logger_registry;
 
-/// \brief Logger class for stdout or syslog.
+/// \brief Logger class for ostream or syslog.
 ///
 /// Java style api for logging.
 /// \code {.cpp}
@@ -78,7 +78,7 @@ class logger {
     sstring _name;
     std::atomic<log_level> _level = { log_level::info };
     static std::ostream* _out;
-    static std::atomic<bool> _stdout;
+    static std::atomic<bool> _ostream;
     static std::atomic<bool> _syslog;
 private:
     struct stringer {
@@ -213,7 +213,11 @@ public:
     /// Set output stream, default is std::cerr
     static void set_ostream(std::ostream& out);
 
+    /// Also output to ostream. default is true
+    static void set_ostream_enabled(bool enabled);
+
     /// Also output to stdout. default is true
+    [[deprecated("Use set_ostream_enabled instead")]]
     static void set_stdout_enabled(bool enabled);
 
     /// Also output to syslog. default is false

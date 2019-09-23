@@ -148,7 +148,7 @@ std::istream& operator>>(std::istream& in, log_level& level) {
 }
 
 std::ostream* logger::_out = &std::cerr;
-std::atomic<bool> logger::_stdout = { true };
+std::atomic<bool> logger::_ostream = { true };
 std::atomic<bool> logger::_syslog = { false };
 
 logger::logger(sstring name) : _name(std::move(name)) {
@@ -165,9 +165,9 @@ logger::~logger() {
 
 void
 logger::really_do_log(log_level level, const char* fmt, const stringer* stringers, size_t stringers_size) {
-    bool is_stdout_enabled = _stdout.load(std::memory_order_relaxed);
+    bool is_ostream_enabled = _ostream.load(std::memory_order_relaxed);
     bool is_syslog_enabled = _syslog.load(std::memory_order_relaxed);
-    if(!is_stdout_enabled && !is_syslog_enabled) {
+    if(!is_ostream_enabled && !is_syslog_enabled) {
       return;
     }
     std::ostringstream out, log;
@@ -207,7 +207,7 @@ logger::really_do_log(log_level level, const char* fmt, const stringer* stringer
       }
       out << "\n";
     };
-    if (is_stdout_enabled) {
+    if (is_ostream_enabled) {
         out << level_map[int(level)] << space_and_current_timestamp();
         print_once(out);
         *_out << out.str();
@@ -247,8 +247,13 @@ logger::set_ostream(std::ostream& out) {
 }
 
 void
+logger::set_ostream_enabled(bool enabled) {
+    _ostream.store(enabled, std::memory_order_relaxed);
+}
+
+void
 logger::set_stdout_enabled(bool enabled) {
-    _stdout.store(enabled, std::memory_order_relaxed);
+    _ostream.store(enabled, std::memory_order_relaxed);
 }
 
 void
@@ -321,7 +326,7 @@ void apply_logging_settings(const logging_settings& s) {
         }
     }
 
-    logger::set_stdout_enabled(s.stdout_enabled);
+    logger::set_ostream_enabled(s.stdout_enabled);
     logger::set_syslog_enabled(s.syslog_enabled);
 
     switch (s.stdout_timestamp_style) {
