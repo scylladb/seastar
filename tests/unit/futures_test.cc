@@ -823,6 +823,32 @@ SEASTAR_TEST_CASE(test_repeat_until_value) {
     });
 }
 
+SEASTAR_TEST_CASE(test_repeat_until_value_implicit_future) {
+    // Same as above, but returning compat::optional<int> instead of future<compat::optional<int>>
+    return do_with(int(), [] (int& counter) {
+        return repeat_until_value([&counter] {
+            if (counter == 10000) {
+                return compat::optional<int>(counter);
+            } else {
+                ++counter;
+                return compat::optional<int>(compat::nullopt);
+            }
+        }).then([&counter] (int result) {
+            BOOST_REQUIRE(counter == 10000);
+            BOOST_REQUIRE(result == counter);
+        });
+    });
+}
+
+SEASTAR_TEST_CASE(test_repeat_until_value_exception) {
+    return repeat_until_value([] {
+        throw expected_exception();
+        return compat::optional<int>(43);
+    }).then_wrapped([] (future<int> f) {
+        check_fails_with_expected(std::move(f));
+    });
+}
+
 SEASTAR_TEST_CASE(test_when_allx) {
     return when_all(later(), later(), make_ready_future()).discard_result();
 }
