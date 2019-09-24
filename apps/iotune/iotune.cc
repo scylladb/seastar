@@ -630,7 +630,12 @@ int main(int ac, char** av) {
                 ::iotune_multi_shard_context iotune_tests(test_directory);
                 iotune_tests.start().get();
                 auto stop = defer([&iotune_tests] {
-                    iotune_tests.stop().get();
+                    try {
+                        iotune_tests.stop().get();
+                    } catch (...) {
+                        fmt::print("Error occurred during iotune context shutdown: {}", std::current_exception());
+                        abort();
+                    }
                 });
 
                 iotune_tests.create_data_file().get();
