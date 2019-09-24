@@ -430,7 +430,7 @@ public:
     }
 
     future<> stop() {
-        return make_ready_future<>();
+        return _file.close();
     }
 };
 
