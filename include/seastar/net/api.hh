@@ -228,10 +228,10 @@ public:
     future<connected_socket> connect(socket_address sa, socket_address local = socket_address(::sockaddr_in{AF_INET, INADDR_ANY, {0}}), transport proto = transport::TCP);
 
     /// Sets SO_REUSEADDR option (enable reuseaddr option on a socket)
-    virtual void set_reuseaddr(bool reuseaddr);
+    void set_reuseaddr(bool reuseaddr);
     /// Gets O_REUSEADDR option
     /// \return whether the reuseaddr option is enabled or not
-    virtual bool get_reuseaddr() const;
+    bool get_reuseaddr() const;
     /// Stops any in-flight connection attempt.
     ///
     /// Cancels the connection attempt if it's still in progress, and
