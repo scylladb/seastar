@@ -191,6 +191,9 @@ future<> connection::read_one() {
         }
         ++_server._requests_served;
         std::unique_ptr<httpd::request> req = _parser.get_parsed_request();
+        if (_server._credentials) {
+            req->protocol_name = "https";
+        }
         return read_request_body(_read_buf, std::move(req)).then([this] (std::unique_ptr<httpd::request> req) {
             return _replies.not_full().then([req = std::move(req), this] () mutable {
                 return generate_reply(std::move(req));
