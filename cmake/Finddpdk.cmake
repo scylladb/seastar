@@ -135,6 +135,11 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
     ${dpdk_BUS_PCI_LIBRARY}
     ${dpdk_BUS_VDEV_LIBRARY})
 
+  # ensure that all dpdk libraries are linked in with --whole-archive
+  set (dpdk_LIBRARIES -Wl,--whole-archive ${dpdk_LIBRARIES} -Wl,--no-whole-archive)
+  # additional variable with commas replaced to use in ".pc.in" genex expansion
+  string(REPLACE "," "$<COMMA>" genex_dpdk_LIBRARIES "${dpdk_LIBRARIES}")
+
   #
   # pmd_vmxnet3_uio
   #
