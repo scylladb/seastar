@@ -363,9 +363,14 @@ seastar_generate_protobuf (
   IN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/src/proto/metrics2.proto
   OUT_DIR ${Seastar_GEN_BINARY_DIR}/src/proto)
 
+if (Seastar_DPDK)
+  set (seastar_dpdk_obj seastar-dpdk.o)
+endif ()
+
 add_library (seastar STATIC
   ${http_request_parser_file}
   ${proto_metrics2_files}
+  ${seastar_dpdk_obj}
   include/seastar/core/abort_source.hh
   include/seastar/core/alien.hh
   include/seastar/core/align.hh
@@ -776,9 +781,17 @@ if (Seastar_DPDK)
   target_compile_definitions (seastar
     PUBLIC SEASTAR_HAVE_DPDK)
 
-  # No pmd driver code will be pulled in without "--whole-archive"
+  # No pmd driver code will be pulled in without "--whole-archive". To
+  # avoid exposing that to seastar users, combine dpdk into a single
+  # .o file.
+  add_custom_command (
+    OUTPUT seastar-dpdk.o
+    COMMAND ld -r -o seastar-dpdk.o --whole-archive ${dpdk_LIBRARIES} --no-whole-archive
+  )
+
+  # This just provides the include path to cmake
   target_link_libraries (seastar
-    PUBLIC -Wl,--whole-archive dpdk::dpdk -Wl,--no-whole-archive)
+    PUBLIC dpdk::dpdk)
 endif ()
 
 if (Seastar_HWLOC)
