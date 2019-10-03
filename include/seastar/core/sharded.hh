@@ -815,7 +815,12 @@ public:
     /// Checks whether the wrapped pointer is non-null.
     operator bool() const { return static_cast<bool>(_value); }
     /// Move-assigns a \c foreign_ptr<>.
-    foreign_ptr& operator=(foreign_ptr&& other) = default;
+    foreign_ptr& operator=(foreign_ptr&& other) noexcept(std::is_nothrow_move_constructible<PtrType>::value) {
+         destroy(std::move(_value), _cpu);
+        _value = std::move(other._value);
+        _cpu = other._cpu;
+        return *this;
+    }
     /// Releases the owned pointer
     ///
     /// Warning: the caller is now responsible for destroying the
