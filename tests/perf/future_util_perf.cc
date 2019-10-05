@@ -22,7 +22,7 @@
 #include <boost/range.hpp>
 #include <boost/range/irange.hpp>
 
-#include "perf_tests.hh"
+#include <seastar/testing/perf_tests.hh>
 
 struct parallel_for_each {
     std::vector<int> empty_range;

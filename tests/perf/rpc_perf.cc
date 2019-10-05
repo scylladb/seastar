@@ -24,7 +24,7 @@
 #include <seastar/rpc/lz4_compressor.hh>
 #include <seastar/rpc/lz4_fragmented_compressor.hh>
 
-#include "perf_tests.hh"
+#include <seastar/testing/perf_tests.hh>
 
 template<typename Compressor>
 struct compression {

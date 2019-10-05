@@ -899,6 +899,19 @@ if (Seastar_INSTALL OR Seastar_TESTING)
     PUBLIC
       Boost::unit_test_framework
       seastar)
+
+  add_library(seastar_perf_testing
+    include/seastar/testing/perf_tests.hh
+    tests/perf/perf_tests.cc)
+  add_library (Seastar::seastar_perf_testing ALIAS seastar_perf_testing)
+  target_compile_definitions (seastar_perf_testing
+    PRIVATE ${Seastar_PRIVATE_COMPILE_DEFINITIONS})
+  target_compile_options (seastar_perf_testing
+    PRIVATE ${Seastar_PRIVATE_CXX_FLAGS})
+  target_link_libraries (seastar_perf_testing
+    PUBLIC
+    seastar)
+
 endif ()
 
 #
@@ -1033,6 +1046,7 @@ if (Seastar_INSTALL)
     TARGETS
       seastar
       seastar_testing
+      seastar_perf_testing
     EXPORT seastar-export
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})

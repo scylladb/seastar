@@ -19,7 +19,7 @@
  * Copyright (C) 2018 ScyllaDB Ltd.
  */
 
-#include "perf_tests.hh"
+#include <seastar/testing/perf_tests.hh>
 
 #include <fstream>
 #include <regex>

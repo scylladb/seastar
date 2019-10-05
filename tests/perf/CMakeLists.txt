@@ -20,15 +20,6 @@
 # Copyright (C) 2018 Scylladb, Ltd.
 #
 
-add_library (seastar_perf_testing
-  perf_tests.hh
-  perf_tests.cc)
-
-target_link_libraries (seastar_perf_testing
-  PUBLIC
-    fmt::fmt
-    seastar_private)
-
 # Logical target for all perf tests.
 add_custom_target (perf_tests)
 
