@@ -563,42 +563,42 @@ future<> write_text_representation(output_stream<char>& out, const config& ctx, 
             found = false;
             metric_family.foreach_metric([&out, &ctx, &found, &name, &metric_family, &filter](auto value, auto value_info) mutable {
                 if (filter(value_info.id.labels())) {
-                std::stringstream s;
-                if (!found) {
-                    if (metric_family.metadata().d.str() != "") {
-                        s << "# HELP " << name << " " <<  metric_family.metadata().d.str() << "\n";
+                    std::stringstream s;
+                    if (!found) {
+                        if (metric_family.metadata().d.str() != "") {
+                            s << "# HELP " << name << " " <<  metric_family.metadata().d.str() << "\n";
+                        }
+                        s << "# TYPE " << name << " " << to_str(metric_family.metadata().type) << "\n";
+                        found = true;
                     }
-                    s << "# TYPE " << name << " " << to_str(metric_family.metadata().type) << "\n";
-                    found = true;
-                }
-                if (value.type() == mi::data_type::HISTOGRAM) {
-                    auto&& h = value.get_histogram();
-                    std::map<sstring, sstring> labels = value_info.id.labels();
-                    add_name(s, name + "_sum", labels, ctx);
-                    s << h.sample_sum;
-                    s << "\n";
-                    add_name(s, name + "_count", labels, ctx);
-                    s << h.sample_count;
-                    s << "\n";
+                    if (value.type() == mi::data_type::HISTOGRAM) {
+                        auto&& h = value.get_histogram();
+                        std::map<sstring, sstring> labels = value_info.id.labels();
+                        add_name(s, name + "_sum", labels, ctx);
+                        s << h.sample_sum;
+                        s << "\n";
+                        add_name(s, name + "_count", labels, ctx);
+                        s << h.sample_count;
+                        s << "\n";
 
-                    auto& le = labels["le"];
-                    auto bucket = name + "_bucket";
-                    for (auto  i : h.buckets) {
-                         le = std::to_string(i.upper_bound);
+                        auto& le = labels["le"];
+                        auto bucket = name + "_bucket";
+                        for (auto  i : h.buckets) {
+                             le = std::to_string(i.upper_bound);
+                            add_name(s, bucket, labels, ctx);
+                            s << i.count;
+                            s << "\n";
+                        }
+                        labels["le"] = "+Inf";
                         add_name(s, bucket, labels, ctx);
-                        s << i.count;
+                        s << h.sample_count;
+                        s << "\n";
+                    } else {
+                        add_name(s, name, value_info.id.labels(), ctx);
+                        s << to_str(value);
                         s << "\n";
                     }
-                    labels["le"] = "+Inf";
-                    add_name(s, bucket, labels, ctx);
-                    s << h.sample_count;
-                    s << "\n";
-                } else {
-                    add_name(s, name, value_info.id.labels(), ctx);
-                    s << to_str(value);
-                    s << "\n";
-                }
-                out.write(s.str()).get();
+                    out.write(s.str()).get();
                 }
                 thread::maybe_yield();
             });
