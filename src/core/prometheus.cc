@@ -302,7 +302,6 @@ static future<> get_map_value(metrics_families_per_shard& vec) {
     });
 }
 
-
 /*!
  * \brief a facade class for metric family
  */
@@ -556,13 +555,14 @@ metric_family_range get_range(const metrics_families_per_shard& mf, const sstrin
 
 }
 
-future<> write_text_representation(output_stream<char>& out, const config& ctx, const metric_family_range& m) {
-    return seastar::async([&ctx, &out, &m] () mutable {
+future<> write_text_representation(output_stream<char>& out, const config& ctx, const metric_family_range& m, std::function<bool(const mi::labels_type&)> filter) {
+    return seastar::async([&ctx, &out, &m, filter] () mutable {
         bool found = false;
         for (metric_family& metric_family : m) {
             auto name = ctx.prefix + "_" + metric_family.name();
             found = false;
-            metric_family.foreach_metric([&out, &ctx, &found, &name, &metric_family](auto value, auto value_info) mutable {
+            metric_family.foreach_metric([&out, &ctx, &found, &name, &metric_family, &filter](auto value, auto value_info) mutable {
+                if (filter(value_info.id.labels())) {
                 std::stringstream s;
                 if (!found) {
                     if (metric_family.metadata().d.str() != "") {
@@ -599,6 +599,7 @@ future<> write_text_representation(output_stream<char>& out, const config& ctx, 
                     s << "\n";
                 }
                 out.write(s.str()).get();
+                }
                 thread::maybe_yield();
             });
         }
@@ -637,15 +638,24 @@ bool is_accept_text(const std::string& accept) {
     return true;
 }
 
-class metrics_handler : public handler_base  {
-    sstring _prefix;
-    config _ctx;
+/*!
+ * \brief a helper class for label comparison
+ * it currently support prefix matching using wildcard
+ * but can be extended in the future
+ */
+class label_matcher {
+    sstring _match;
+    bool _prefix;
+public:
+    label_matcher(const sstring& name) : _match(name) {
+        _prefix  = trim_asterisk(_match);
+    }
 
     /*!
      * \brief tries to trim an asterisk from the end of the string
      * return true if an asterisk exists.
      */
-    bool trim_asterisk(sstring& name) {
+    static bool trim_asterisk(sstring& name) {
         if (name.size() && name.back() == '*') {
             name.resize(name.length() - 1);
             return true;
@@ -657,22 +667,53 @@ class metrics_handler : public handler_base  {
         }
         return false;
     }
+
+    bool match(const sstring& val) const {
+        return (_prefix) ? boost::starts_with(val, _match) : val == _match;
+    }
+};
+
+class metrics_handler : public handler_base  {
+    sstring _prefix;
+    config _ctx;
+
+    static std::function<bool(const mi::labels_type&)> _true_function;
 public:
     metrics_handler(config ctx) : _ctx(ctx) {}
+
+    std::function<bool(const mi::labels_type&)> make_label_filter(const httpd::request& req) {
+        std::unordered_map<sstring, label_matcher> matcher;
+        auto labels = mi::get_local_impl()->get_labels();
+        for (auto&& qp : req.query_parameters) {
+            if (labels.find(qp.first) != labels.end()) {
+                matcher.emplace(qp.first, label_matcher(qp.second));
+            }
+        }
+        return (matcher.empty()) ? _true_function : [matcher](const mi::labels_type& labels) {
+            for (auto&& m : matcher) {
+                auto l = labels.find(m.first);
+                if (l == labels.end() || !m.second.match(l->second)) {
+                    return false;
+                }
+            }
+            return true;
+        };
+    }
 
     future<std::unique_ptr<httpd::reply>> handle(const sstring& path,
         std::unique_ptr<httpd::request> req, std::unique_ptr<httpd::reply> rep) override {
         auto text = is_accept_text(req->get_header("Accept"));
         sstring metric_family_name = req->get_query_param("name");
-        bool prefix = trim_asterisk(metric_family_name);
+        bool prefix = label_matcher::trim_asterisk(metric_family_name);
+        std::function<bool(const mi::labels_type&)> filter = make_label_filter(*req);
 
-        rep->write_body((text) ? "txt" : "proto", [this, text, metric_family_name, prefix] (output_stream<char>&& s) {
-            return do_with(metrics_families_per_shard(), output_stream<char>(std::move(s)),
-                    [this, text, prefix, &metric_family_name] (metrics_families_per_shard& families, output_stream<char>& s) mutable {
-                return get_map_value(families).then([&s, &families, this, text, prefix, &metric_family_name]() mutable {
+        rep->write_body((text) ? "txt" : "proto", [this, text, metric_family_name, prefix, filter=std::move(filter)] (output_stream<char>&& s) {
+            return do_with(metrics_families_per_shard(), output_stream<char>(std::move(s)), std::function<bool(const mi::labels_type&)>(std::move(filter)),
+                    [this, text, prefix, &metric_family_name] (metrics_families_per_shard& families, output_stream<char>& s, std::function<bool(const mi::labels_type&)>& filter) mutable {
+                return get_map_value(families).then([&s, &families, this, text, prefix, &metric_family_name, &filter]() mutable {
                     return do_with(get_range(families, metric_family_name, prefix),
-                            [&s, this, text](metric_family_range& m) {
-                        return (text) ? write_text_representation(s, _ctx, m) :
+                            [&s, this, text, &filter](metric_family_range& m) {
+                        return (text) ? write_text_representation(s, _ctx, m, filter) :
                                 write_protobuf_representation(s, _ctx, m);
                     });
                 }).finally([&s] () mutable {
@@ -684,7 +725,9 @@ public:
     }
 };
 
-
+std::function<bool(const mi::labels_type&)> metrics_handler::_true_function = [](const mi::labels_type&) {
+    return true;
+};
 
 future<> add_prometheus_routes(http_server& server, config ctx) {
     server._routes.put(GET, "/metrics", new metrics_handler(ctx));
