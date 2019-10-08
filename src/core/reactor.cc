@@ -48,6 +48,7 @@
 #include <seastar/core/abort_on_ebadf.hh>
 #include <seastar/util/log.hh>
 #include "core/file-impl.hh"
+#include "core/io_desc.hh"
 #include "syscall_work_queue.hh"
 #include "cgroup.hh"
 #include "uname.hh"
@@ -2031,23 +2032,6 @@ void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd, promise
         pfd.*pr = promise<>();
     }
 }
-
-class io_desc {
-    promise<io_event> _pr;
-public:
-    virtual ~io_desc() = default;
-    virtual void set_exception(std::exception_ptr eptr) {
-        _pr.set_exception(std::move(eptr));
-    }
-
-    virtual void set_value(io_event& ev) {
-        _pr.set_value(ev);
-    }
-
-    future<io_event> get_future() {
-        return _pr.get_future();
-    }
-};
 
 class io_desc_read_write final : public io_desc {
     io_queue* _ioq_ptr;
