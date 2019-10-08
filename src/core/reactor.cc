@@ -2858,32 +2858,6 @@ posix_file_handle_impl::to_file() && {
     return ret;
 }
 
-blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options options, io_queue *ioq)
-        : posix_file_impl(fd, f, options, ioq) {
-}
-
-future<>
-blockdev_file_impl::truncate(uint64_t length) {
-    return make_ready_future<>();
-}
-
-future<>
-blockdev_file_impl::discard(uint64_t offset, uint64_t length) {
-    return engine()._thread_pool->submit<syscall_result<int>>([this, offset, length] () mutable {
-        uint64_t range[2] { offset, length };
-        return wrap_syscall<int>(::ioctl(_fd, BLKDISCARD, &range));
-    }).then([] (syscall_result<int> sr) {
-        sr.throw_if_error();
-        return make_ready_future<>();
-    });
-}
-
-future<>
-blockdev_file_impl::allocate(uint64_t position, uint64_t length) {
-    // nothing to do for block device
-    return make_ready_future<>();
-}
-
 void reactor::enable_timer(steady_clock_type::time_point when)
 {
 #ifndef HAVE_OSV
