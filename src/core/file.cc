@@ -814,4 +814,28 @@ append_challenged_posix_file_impl::close() noexcept {
     });
 }
 
+posix_file_handle_impl::~posix_file_handle_impl() {
+    if (_refcount && _refcount->fetch_add(-1, std::memory_order_relaxed) == 1) {
+        ::close(_fd);
+        delete _refcount;
+    }
+}
+
+std::unique_ptr<seastar::file_handle_impl>
+posix_file_handle_impl::clone() const {
+    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _io_queue);
+    if (_refcount) {
+        _refcount->fetch_add(1, std::memory_order_relaxed);
+    }
+    return ret;
+}
+
+shared_ptr<file_impl>
+posix_file_handle_impl::to_file() && {
+    auto ret = ::seastar::make_shared<posix_file_impl>(_fd, _open_flags, _refcount, _io_queue);
+    _fd = -1;
+    _refcount = nullptr;
+    return ret;
+}
+
 }
