@@ -2077,9 +2077,8 @@ public:
     }
 };
 
-template <typename Func>
 void
-reactor::submit_io(io_desc* desc, Func prepare_io) {
+reactor::submit_io(io_desc* desc, noncopyable_function<void (linux_abi::iocb&)> prepare_io) {
     iocb& io = *_free_iocbs.top();
     _free_iocbs.pop();
     prepare_io(io);
@@ -2172,17 +2171,15 @@ const io_priority_class& default_priority_class() {
     return shard_default_class;
 }
 
-template <typename Func>
 future<io_event>
-reactor::submit_io_read(io_queue* ioq, const io_priority_class& pc, size_t len, Func prepare_io) {
+reactor::submit_io_read(io_queue* ioq, const io_priority_class& pc, size_t len, noncopyable_function<void (internal::linux_abi::iocb&)> prepare_io) {
     ++_io_stats.aio_reads;
     _io_stats.aio_read_bytes += len;
     return ioq->queue_request(pc, len, io_queue::request_type::read, std::move(prepare_io));
 }
 
-template <typename Func>
 future<io_event>
-reactor::submit_io_write(io_queue* ioq, const io_priority_class& pc, size_t len, Func prepare_io) {
+reactor::submit_io_write(io_queue* ioq, const io_priority_class& pc, size_t len, noncopyable_function<void (internal::linux_abi::iocb&)> prepare_io) {
     ++_io_stats.aio_writes;
     _io_stats.aio_write_bytes += len;
     return ioq->queue_request(pc, len, io_queue::request_type::write, std::move(prepare_io));
@@ -2369,11 +2366,10 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
     return *_priority_classes[owner][id];
 }
 
-template <typename Func>
 future<io_event>
-io_queue::queue_request(const io_priority_class& pc, size_t len, io_queue::request_type req_type, Func prepare_io) {
+io_queue::queue_request(const io_priority_class& pc, size_t len, io_queue::request_type req_type, noncopyable_function<void (internal::linux_abi::iocb&)> prepare_io) {
     auto start = std::chrono::steady_clock::now();
-    return smp::submit_to(coordinator(), [start, &pc, len, req_type, prepare_io = std::move(prepare_io), owner = engine().cpu_id(), this] {
+    return smp::submit_to(coordinator(), [start, &pc, len, req_type, prepare_io = std::move(prepare_io), owner = engine().cpu_id(), this] () mutable {
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc, owner);
