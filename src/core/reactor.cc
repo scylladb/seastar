@@ -50,6 +50,7 @@
 #include <seastar/util/log.hh>
 #include "core/file-impl.hh"
 #include "core/io_desc.hh"
+#include "core/syscall_result.hh"
 #include "syscall_work_queue.hh"
 #include "cgroup.hh"
 #include "uname.hh"
@@ -613,64 +614,6 @@ public:
 private:
     void work(sstring thread_name);
 };
-
-template <typename T>
-struct syscall_result {
-    T result;
-    int error;
-    syscall_result(T result, int error) : result{std::move(result)}, error{error} {
-    }
-    void throw_if_error() const {
-        if (long(result) == -1) {
-            throw std::system_error(ec());
-        }
-    }
-
-    void throw_fs_exception(const sstring& reason, const fs::path& path) const {
-        throw fs::filesystem_error(reason, path, ec());
-    }
-
-    void throw_fs_exception(const sstring& reason, const fs::path& path1, const fs::path& path2) const {
-        throw fs::filesystem_error(reason, path1, path2, ec());
-    }
-
-    void throw_fs_exception_if_error(const sstring& reason, const sstring& path) const {
-        if (long(result) == -1) {
-            throw_fs_exception(reason, fs::path(path));
-        }
-    }
-
-    void throw_fs_exception_if_error(const sstring& reason, const sstring& path1, const sstring& path2) const {
-        if (long(result) == -1) {
-            throw_fs_exception(reason, fs::path(path1), fs::path(path2));
-        }
-    }
-protected:
-    std::error_code ec() const {
-        return std::error_code(error, std::system_category());
-    }
-};
-
-// Wrapper for a system call result containing the return value,
-// an output parameter that was returned from the syscall, and errno.
-template <typename Extra>
-struct syscall_result_extra : public syscall_result<int> {
-    Extra extra;
-    syscall_result_extra(int result, int error, Extra e) : syscall_result<int>{result, error}, extra{std::move(e)} {
-    }
-};
-
-template <typename T>
-syscall_result<T>
-wrap_syscall(T result) {
-    return syscall_result<T>{std::move(result), errno};
-}
-
-template <typename Extra>
-syscall_result_extra<Extra>
-wrap_syscall(int result, const Extra& extra) {
-    return syscall_result_extra<Extra>{result, errno, extra};
-}
 
 inline int alarm_signal() {
     // We don't want to use SIGALRM, because the boost unit test library
