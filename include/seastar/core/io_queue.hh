@@ -26,7 +26,8 @@
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/future.hh>
-#include <unordered_map>
+#include <mutex>
+#include <array>
 
 namespace seastar {
 
@@ -47,6 +48,7 @@ namespace internal {
 namespace linux_abi {
 
 struct io_event;
+struct iocb;
 
 }
 }
@@ -109,9 +111,8 @@ public:
     io_queue(config cfg);
     ~io_queue();
 
-    template <typename Func>
     future<internal::linux_abi::io_event>
-    queue_request(const io_priority_class& pc, size_t len, request_type req_type, Func do_io);
+    queue_request(const io_priority_class& pc, size_t len, request_type req_type, noncopyable_function<void (internal::linux_abi::iocb&)> do_io);
 
     size_t capacity() const {
         return _config.capacity;

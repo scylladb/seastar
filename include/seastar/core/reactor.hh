@@ -366,6 +366,7 @@ class cpu_stall_detector;
 }
 
 class io_desc;
+class io_queue;
 class disk_config_params;
 
 class reactor {
@@ -748,13 +749,16 @@ public:
     // In the following three methods, prepare_io is not guaranteed to execute in the same processor
     // in which it was generated. Therefore, care must be taken to avoid the use of objects that could
     // be destroyed within or at exit of prepare_io.
-    template <typename Func>
-    void submit_io(io_desc* desc, Func prepare_io);
-
-    template <typename Func>
-    future<internal::linux_abi::io_event> submit_io_read(io_queue* ioq, const io_priority_class& priority_class, size_t len, Func prepare_io);
-    template <typename Func>
-    future<internal::linux_abi::io_event> submit_io_write(io_queue* ioq, const io_priority_class& priority_class, size_t len, Func prepare_io);
+    void submit_io(io_desc* desc,
+            noncopyable_function<void (internal::linux_abi::iocb&)> prepare_io);
+    future<internal::linux_abi::io_event> submit_io_read(io_queue* ioq,
+            const io_priority_class& priority_class,
+            size_t len,
+            noncopyable_function<void (internal::linux_abi::iocb&)> prepare_io);
+    future<internal::linux_abi::io_event> submit_io_write(io_queue* ioq,
+            const io_priority_class& priority_class,
+            size_t len,
+            noncopyable_function<void (internal::linux_abi::iocb&)> prepare_io);
 
     inline void handle_io_result(const internal::linux_abi::io_event& ev) {
         auto res = long(ev.res);
@@ -1100,8 +1104,3 @@ size_t iovec_len(const iovec* begin, size_t len)
 extern logger seastar_logger;
 
 }
-
-// FIXME: we can't include this on the top because io_queue depends on class smp,
-// which is defined in reactor.hh. In any case io_queue.hh needs to be made private.
-// We include it here because reactor::get_io_queue() exists and returns an io_queue.
-#include <seastar/core/io_queue.hh>
