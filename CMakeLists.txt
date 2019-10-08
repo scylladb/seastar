@@ -551,6 +551,7 @@ add_library (seastar STATIC
   src/core/thread.cc
   src/core/uname.cc
   src/core/vla.hh
+  src/core/io_queue.cc
   src/http/api_docs.cc
   src/http/common.cc
   src/http/file_handler.cc

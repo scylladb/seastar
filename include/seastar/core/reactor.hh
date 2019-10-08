@@ -366,6 +366,7 @@ class cpu_stall_detector;
 }
 
 class io_desc;
+class io_queue;
 class disk_config_params;
 
 class reactor {
@@ -1066,8 +1067,3 @@ size_t iovec_len(const iovec* begin, size_t len)
 extern logger seastar_logger;
 
 }
-
-// FIXME: we can't include this on the top because io_queue depends on class smp,
-// which is defined in reactor.hh. In any case io_queue.hh needs to be made private.
-// We include it here because reactor::get_io_queue() exists and returns an io_queue.
-#include <seastar/core/io_queue.hh>

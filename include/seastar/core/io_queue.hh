@@ -26,7 +26,8 @@
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/future.hh>
-#include <unordered_map>
+#include <mutex>
+#include <array>
 
 namespace seastar {
 
@@ -47,6 +48,7 @@ namespace internal {
 namespace linux_abi {
 
 struct io_event;
+struct iocb;
 
 }
 }
