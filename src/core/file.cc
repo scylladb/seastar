@@ -38,6 +38,7 @@
 #include "core/file-impl.hh"
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"
+#include "core/uname.hh"
 
 namespace seastar {
 
@@ -836,6 +837,100 @@ posix_file_handle_impl::to_file() && {
     _fd = -1;
     _refcount = nullptr;
     return ret;
+}
+
+// Some kernels can append to xfs filesystems, some cannot; determine
+// from kernel version.
+static
+unsigned
+xfs_concurrency_from_kernel_version() {
+    // try to see if this is a mainline kernel with xfs append fixed (3.15+)
+    // or a RHEL kernel with the backported fix (3.10.0-325.el7+)
+    if (kernel_uname().whitelisted({"3.15", "3.10.0-325.el7"})) {
+            // Can append, but not concurrently
+            return 1;
+    }
+    // Cannot append at all; need ftrucnate().
+    return 0;
+}
+
+inline
+shared_ptr<file_impl>
+make_file_impl(int fd, file_open_options options) {
+    struct stat st;
+    auto r = ::fstat(fd, &st);
+    throw_system_error_on(r == -1);
+
+    r = ::ioctl(fd, BLKGETSIZE);
+    io_queue& io_queue = engine().get_io_queue(st.st_dev);
+
+    // FIXME: obtain these flags from somewhere else
+    auto flags = ::fcntl(fd, F_GETFL);
+    throw_system_error_on(flags == -1);
+
+    if (r != -1) {
+        return make_shared<blockdev_file_impl>(fd, open_flags(flags), options, &io_queue);
+    } else {
+        if ((flags & O_ACCMODE) == O_RDONLY) {
+            return make_shared<posix_file_impl>(fd, open_flags(flags), options, &io_queue);
+        }
+        if (S_ISDIR(st.st_mode)) {
+            return make_shared<posix_file_impl>(fd, open_flags(flags), options, &io_queue);
+        }
+        struct append_support {
+            bool append_challenged;
+            unsigned append_concurrency;
+            bool fsync_is_exclusive;
+        };
+        static thread_local std::unordered_map<decltype(st.st_dev), append_support> s_fstype;
+        if (!s_fstype.count(st.st_dev)) {
+            struct statfs sfs;
+            auto r = ::fstatfs(fd, &sfs);
+            throw_system_error_on(r == -1);
+            append_support as;
+            switch (sfs.f_type) {
+            case 0x58465342: /* XFS */
+                as.append_challenged = true;
+                static auto xc = xfs_concurrency_from_kernel_version();
+                as.append_concurrency = xc;
+                as.fsync_is_exclusive = true;
+                break;
+            case 0x6969: /* NFS */
+                as.append_challenged = false;
+                as.append_concurrency = 0;
+                as.fsync_is_exclusive = false;
+                break;
+            case 0xEF53: /* EXT4 */
+                as.append_challenged = true;
+                as.append_concurrency = 0;
+                as.fsync_is_exclusive = false;
+                break;
+            default:
+                as.append_challenged = true;
+                as.append_concurrency = 0;
+                as.fsync_is_exclusive = true;
+            }
+            s_fstype[st.st_dev] = as;
+        }
+        auto as = s_fstype[st.st_dev];
+        if (!as.append_challenged) {
+            return make_shared<posix_file_impl>(fd, open_flags(flags), options, &io_queue);
+        }
+        return make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), options, as.append_concurrency, as.fsync_is_exclusive, &io_queue);
+    }
+}
+
+file::file(int fd, file_open_options options)
+        : _file_impl(make_file_impl(fd, options)) {
+}
+
+file::file(seastar::file_handle&& handle)
+        : _file_impl(std::move(std::move(handle).to_file()._file_impl)) {
+}
+
+seastar::file_handle
+file::dup() {
+    return seastar::file_handle(_file_impl->dup());
 }
 
 }
