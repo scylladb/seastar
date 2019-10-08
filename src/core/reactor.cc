@@ -2089,10 +2089,6 @@ bool reactor::process_io()
     return n;
 }
 
-file_impl* file_impl::get_file_impl(file& f) {
-    return f._file_impl.get();
-}
-
 namespace internal {
 
 size_t sanitize_iovecs(std::vector<iovec>& iov, size_t disk_alignment) noexcept {
@@ -2408,11 +2404,6 @@ reactor::fdatasync(int fd) {
         sr.throw_if_error();
         return make_ready_future<>();
     });
-}
-
-std::unique_ptr<seastar::file_handle_impl>
-file_impl::dup() {
-    throw std::runtime_error("this file type cannot be duplicated");
 }
 
 void reactor::enable_timer(steady_clock_type::time_point when)

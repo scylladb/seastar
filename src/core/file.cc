@@ -933,4 +933,13 @@ file::dup() {
     return seastar::file_handle(_file_impl->dup());
 }
 
+file_impl* file_impl::get_file_impl(file& f) {
+    return f._file_impl.get();
+}
+
+std::unique_ptr<seastar::file_handle_impl>
+file_impl::dup() {
+    throw std::runtime_error("this file type cannot be duplicated");
+}
+
 }
