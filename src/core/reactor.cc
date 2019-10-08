@@ -51,6 +51,7 @@
 #include "core/file-impl.hh"
 #include "core/io_desc.hh"
 #include "core/syscall_result.hh"
+#include "core/thread_pool.hh"
 #include "syscall_work_queue.hh"
 #include "cgroup.hh"
 #include "uname.hh"
@@ -574,46 +575,6 @@ bool timer<Clock>::cancel() {
 template class timer<steady_clock_type>;
 template class timer<lowres_clock>;
 template class timer<manual_clock>;
-
-class thread_pool {
-    reactor* _reactor;
-    uint64_t _aio_threaded_fallbacks = 0;
-#ifndef HAVE_OSV
-    syscall_work_queue inter_thread_wq;
-    posix_thread _worker_thread;
-    std::atomic<bool> _stopped = { false };
-    std::atomic<bool> _main_thread_idle = { false };
-public:
-    explicit thread_pool(reactor* r, sstring thread_name);
-    ~thread_pool();
-    template <typename T, typename Func>
-    future<T> submit(Func func) {
-        ++_aio_threaded_fallbacks;
-        return inter_thread_wq.submit<T>(std::move(func));
-    }
-    uint64_t operation_count() const { return _aio_threaded_fallbacks; }
-
-    unsigned complete() { return inter_thread_wq.complete(); }
-    // Before we enter interrupt mode, we must make sure that the syscall thread will properly
-    // generate signals to wake us up. This means we need to make sure that all modifications to
-    // the pending and completed fields in the inter_thread_wq are visible to all threads.
-    //
-    // Simple release-acquire won't do because we also need to serialize all writes that happens
-    // before the syscall thread loads this value, so we'll need full seq_cst.
-    void enter_interrupt_mode() { _main_thread_idle.store(true, std::memory_order_seq_cst); }
-    // When we exit interrupt mode, however, we can safely used relaxed order. If any reordering
-    // takes place, we'll get an extra signal and complete will be called one extra time, which is
-    // harmless.
-    void exit_interrupt_mode() { _main_thread_idle.store(false, std::memory_order_relaxed); }
-
-#else
-public:
-    template <typename T, typename Func>
-    future<T> submit(Func func) { std::cout << "thread_pool not yet implemented on osv\n"; abort(); }
-#endif
-private:
-    void work(sstring thread_name);
-};
 
 inline int alarm_signal() {
     // We don't want to use SIGALRM, because the boost unit test library
@@ -4631,48 +4592,6 @@ void smp_message_queue::start(unsigned cpuid) {
             sm::make_derive("total_completed_messages", _compl, sm::description("Total number of messages completed"), {sm::shard_label(instance)})(sm::metric_disabled)
     });
 }
-
-/* not yet implemented for OSv. TODO: do the notification like we do class smp. */
-#ifndef HAVE_OSV
-thread_pool::thread_pool(reactor* r, sstring name) : _reactor(r), _worker_thread([this, name] { work(name); }) {
-}
-
-void thread_pool::work(sstring name) {
-    pthread_setname_np(pthread_self(), name.c_str());
-    sigset_t mask;
-    sigfillset(&mask);
-    auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
-    throw_pthread_error(r);
-    std::array<syscall_work_queue::work_item*, syscall_work_queue::queue_length> tmp_buf;
-    while (true) {
-        uint64_t count;
-        auto r = ::read(inter_thread_wq._start_eventfd.get_read_fd(), &count, sizeof(count));
-        assert(r == sizeof(count));
-        if (_stopped.load(std::memory_order_relaxed)) {
-            break;
-        }
-        auto end = tmp_buf.data();
-        inter_thread_wq._pending.consume_all([&] (syscall_work_queue::work_item* wi) {
-            *end++ = wi;
-        });
-        for (auto p = tmp_buf.data(); p != end; ++p) {
-            auto wi = *p;
-            wi->process();
-            inter_thread_wq._completed.push(wi);
-        }
-        if (_main_thread_idle.load(std::memory_order_seq_cst)) {
-            uint64_t one = 1;
-            ::write(_reactor->_notify_eventfd.get(), &one, 8);
-        }
-    }
-}
-
-thread_pool::~thread_pool() {
-    _stopped.store(true, std::memory_order_relaxed);
-    inter_thread_wq._start_eventfd.signal(1);
-    _worker_thread.join();
-}
-#endif
 
 readable_eventfd writeable_eventfd::read_side() {
     return readable_eventfd(_fd.dup());
