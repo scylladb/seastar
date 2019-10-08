@@ -3093,30 +3093,6 @@ reactor::fdatasync(int fd) {
     });
 }
 
-file_handle::file_handle(const file_handle& x)
-        : _impl(x._impl ? x._impl->clone() : std::unique_ptr<file_handle_impl>()) {
-}
-
-file_handle::file_handle(file_handle&& x) noexcept = default;
-
-file_handle&
-file_handle::operator=(const file_handle& x) {
-    return operator=(file_handle(x));
-}
-
-file_handle&
-file_handle::operator=(file_handle&&) noexcept = default;
-
-file
-file_handle::to_file() const & {
-    return file_handle(*this).to_file();
-}
-
-file
-file_handle::to_file() && {
-    return file(std::move(*_impl).to_file());
-}
-
 file::file(seastar::file_handle&& handle)
         : _file_impl(std::move(std::move(handle).to_file()._file_impl)) {
 }
