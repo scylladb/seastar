@@ -51,6 +51,13 @@ private:
         new (&to->_storage.indirect) void_ptr(from->_storage.indirect);
     }
 
+    static void trivial_direct_move(noncopyable_function_base* from, noncopyable_function_base* to) {
+        to->_storage = from->_storage;
+    }
+
+    static void trivial_direct_destroy(noncopyable_function_base* func) {
+    }
+
 private:
     storage _storage;
 
@@ -91,13 +98,21 @@ private:
             new (access(to)) Func(std::move(*access(from)));
             destroy(from);
         }
+        static constexpr move_type select_move_thunk() {
+            bool can_trivially_move = std::is_trivially_move_constructible<Func>::value
+                    && std::is_trivially_destructible<Func>::value;
+            return can_trivially_move ? trivial_direct_move : move;
+        }
         static void destroy(noncopyable_function_base* func) {
             access(func)->~Func();
+        }
+        static constexpr destroy_type select_destroy_thunk() {
+            return std::is_trivially_destructible<Func>::value ? trivial_direct_destroy : destroy;
         }
         static void initialize(Func&& from, noncopyable_function* to) {
             new (access(to)) Func(std::move(from));
         }
-        static constexpr vtable make_vtable() { return { call, move, destroy }; }
+        static constexpr vtable make_vtable() { return { call, select_move_thunk(), select_destroy_thunk() }; }
         static const vtable s_vtable;
     };
     template <typename Func>
