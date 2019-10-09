@@ -49,3 +49,52 @@ SEASTAR_THREAD_TEST_CASE(invoke_on_during_stop_test) {
     s.start().get();
     s.stop().get();
 }
+
+class mydata {
+public:
+    int x = 1;
+    future<> stop() {
+        return make_ready_future<>();
+    }
+};
+
+SEASTAR_THREAD_TEST_CASE(invoke_map_returns_non_future_value) {
+    seastar::sharded<mydata> s;
+    s.start().get();
+    s.map([] (mydata& m) {
+        return m.x;
+    }).then([] (std::vector<int> results) {
+        for (auto& x : results) {
+            assert(x == 1);
+        }
+    }).get();
+    s.stop().get();
+};
+
+SEASTAR_THREAD_TEST_CASE(invoke_map_returns_future_value) {
+    seastar::sharded<mydata> s;
+    s.start().get();
+    s.map([] (mydata& m) {
+        return make_ready_future<int>(m.x);
+    }).then([] (std::vector<int> results) {
+        for (auto& x : results) {
+            assert(x == 1);
+        }
+    }).get();
+    s.stop().get();
+}
+
+SEASTAR_THREAD_TEST_CASE(invoke_map_returns_future_value_from_thread) {
+    seastar::sharded<mydata> s;
+    s.start().get();
+    s.map([] (mydata& m) {
+        return seastar::async([&m] {
+            return m.x;
+        });
+    }).then([] (std::vector<int> results) {
+        for (auto& x : results) {
+            assert(x == 1);
+        }
+    }).get();
+    s.stop().get();
+}
