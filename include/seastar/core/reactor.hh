@@ -1086,6 +1086,13 @@ size_t iovec_len(const iovec* begin, size_t len)
     return ret;
 }
 
+inline int alarm_signal() {
+    // We don't want to use SIGALRM, because the boost unit test library
+    // also plays with it.
+    return SIGRTMIN;
+}
+
+
 extern logger seastar_logger;
 
 }

@@ -577,12 +577,6 @@ template class timer<steady_clock_type>;
 template class timer<lowres_clock>;
 template class timer<manual_clock>;
 
-inline int alarm_signal() {
-    // We don't want to use SIGALRM, because the boost unit test library
-    // also plays with it.
-    return SIGRTMIN;
-}
-
 reactor_backend_epoll::reactor_backend_epoll(reactor* r)
         : _r(r), _epollfd(file_desc::epoll_create(EPOLL_CLOEXEC)) {
     ::epoll_event event;
