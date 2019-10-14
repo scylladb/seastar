@@ -583,15 +583,6 @@ inline int alarm_signal() {
     return SIGRTMIN;
 }
 
-void setup_aio_context(size_t nr, linux_abi::aio_context_t* io_context) {
-    auto r = io_setup(nr, io_context);
-    if (r < 0) {
-        char buf[1024];
-        char *msg = strerror_r(errno, buf, sizeof(buf));
-        throw std::runtime_error(fmt::format("Could not setup Async I/O: {}. The most common cause is not enough request capacity in /proc/sys/fs/aio-max-nr. Try increasing that number or reducing the amount of logical CPUs available for your application", msg));
-    }
-}
-
 reactor_backend_aio::context::context(size_t nr) : iocbs(new iocb*[nr]) {
     setup_aio_context(nr, &io_context);
 }

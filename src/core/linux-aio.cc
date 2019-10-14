@@ -20,11 +20,13 @@
  */
 
 #include <seastar/core/linux-aio.hh>
+#include <seastar/core/print.hh>
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <atomic>
 #include <algorithm>
 #include <errno.h>
+#include <string.h>
 
 namespace seastar {
 
@@ -149,6 +151,15 @@ int io_pgetevents(aio_context_t io_context, long min_nr, long nr, io_event* even
     errno = ENOSYS;
     return -1;
 #endif
+}
+
+void setup_aio_context(size_t nr, linux_abi::aio_context_t* io_context) {
+    auto r = io_setup(nr, io_context);
+    if (r < 0) {
+        char buf[1024];
+        char *msg = strerror_r(errno, buf, sizeof(buf));
+        throw std::runtime_error(fmt::format("Could not setup Async I/O: {}. The most common cause is not enough request capacity in /proc/sys/fs/aio-max-nr. Try increasing that number or reducing the amount of logical CPUs available for your application", msg));
+    }
 }
 
 }
