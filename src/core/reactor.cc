@@ -613,69 +613,6 @@ void setup_aio_context(size_t nr, linux_abi::aio_context_t* io_context) {
     }
 }
 
-class reactor_backend_aio : public reactor_backend {
-    static constexpr size_t max_polls = 10000;
-    reactor* _r;
-    // We use two aio contexts, one for preempting events (the timer tick and
-    // signals), the other for non-preempting events (fd poll).
-    struct context {
-        explicit context(size_t nr);
-        ~context();
-        linux_abi::aio_context_t io_context{};
-        std::unique_ptr<linux_abi::iocb*[]> iocbs;
-        iocb** last = iocbs.get();
-        void replenish(linux_abi::iocb* iocb, bool& flag);
-        void queue(linux_abi::iocb* iocb);
-        void flush();
-    };
-    context _preempting_io{2}; // Used for the timer tick and the high resolution timer
-    context _polling_io{max_polls}; // FIXME: unify with disk aio_context
-    file_desc _steady_clock_timer = make_timerfd();
-    linux_abi::iocb _task_quota_timer_iocb;
-    linux_abi::iocb _timerfd_iocb;
-    linux_abi::iocb _smp_wakeup_iocb;
-    bool _task_quota_timer_in_preempting_io = false;
-    bool _timerfd_in_preempting_io = false;
-    bool _timerfd_in_polling_io = false;
-    bool _smp_wakeup_in_polling_io = false;
-    std::stack<std::unique_ptr<linux_abi::iocb>> _iocb_pool;
-private:
-    linux_abi::iocb* new_iocb();
-    void free_iocb(linux_abi::iocb* iocb);
-    static file_desc make_timerfd();
-    void process_task_quota_timer();
-    void process_timerfd();
-    void process_smp_wakeup();
-    bool service_preempting_io();
-    bool await_events(int timeout, const sigset_t* active_sigmask);
-    static void signal_received(int signo, siginfo_t* siginfo, void* ignore);
-private:
-    class io_poll_poller : public reactor::pollfn {
-        reactor_backend_aio* _backend;
-    public:
-        explicit io_poll_poller(reactor_backend_aio* b);
-        virtual bool poll() override;
-        virtual bool pure_poll() override;
-        virtual bool try_enter_interrupt_mode() override;
-        virtual void exit_interrupt_mode() override;
-    };
-public:
-    explicit reactor_backend_aio(reactor* r);
-    virtual bool wait_and_process(int timeout, const sigset_t* active_sigmask) override;
-    future<> poll(pollable_fd_state& fd, promise<> pollable_fd_state::*promise_field, int events);
-    virtual future<> readable(pollable_fd_state& fd) override;
-    virtual future<> writeable(pollable_fd_state& fd) override;
-    virtual future<> readable_or_writeable(pollable_fd_state& fd) override;
-    virtual void forget(pollable_fd_state& fd) override;
-    virtual void handle_signal(int signo) override;
-    virtual void start_tick() override;
-    virtual void stop_tick() override;
-    virtual void arm_highres_timer(const ::itimerspec& its) override;
-    virtual void reset_preemption_monitor() override;
-    virtual void request_preemption() override;
-    virtual void start_handling_signal() override;
-};
-
 reactor_backend_aio::context::context(size_t nr) : iocbs(new iocb*[nr]) {
     setup_aio_context(nr, &io_context);
 }
