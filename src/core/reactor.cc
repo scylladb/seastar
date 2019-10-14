@@ -619,31 +619,14 @@ class reactor_backend_aio : public reactor_backend {
     // We use two aio contexts, one for preempting events (the timer tick and
     // signals), the other for non-preempting events (fd poll).
     struct context {
-        explicit context(size_t nr) : iocbs(new iocb*[nr]) {
-            setup_aio_context(nr, &io_context);
-        }
-        ~context() {
-            io_destroy(io_context);
-        }
+        explicit context(size_t nr);
+        ~context();
         linux_abi::aio_context_t io_context{};
         std::unique_ptr<linux_abi::iocb*[]> iocbs;
         iocb** last = iocbs.get();
-        void replenish(linux_abi::iocb* iocb, bool& flag) {
-            if (!flag) {
-                flag = true;
-                queue(iocb);
-            }
-        }
-        void queue(linux_abi::iocb* iocb) {
-            *last++ = iocb;
-        }
-        void flush() {
-            if (last != iocbs.get()) {
-                auto nr = last - iocbs.get();
-                last = iocbs.get();
-                io_submit(io_context, nr, iocbs.get());
-            }
-        }
+        void replenish(linux_abi::iocb* iocb, bool& flag);
+        void queue(linux_abi::iocb* iocb);
+        void flush();
     };
     context _preempting_io{2}; // Used for the timer tick and the high resolution timer
     context _polling_io{max_polls}; // FIXME: unify with disk aio_context
@@ -871,6 +854,33 @@ public:
         // implementation of request_preemption is not signal safe, so do nothing.
     }
 };
+
+reactor_backend_aio::context::context(size_t nr) : iocbs(new iocb*[nr]) {
+    setup_aio_context(nr, &io_context);
+}
+
+reactor_backend_aio::context::~context() {
+    io_destroy(io_context);
+}
+
+void reactor_backend_aio::context::replenish(linux_abi::iocb* iocb, bool& flag) {
+    if (!flag) {
+        flag = true;
+        queue(iocb);
+    }
+}
+
+void reactor_backend_aio::context::queue(linux_abi::iocb* iocb) {
+    *last++ = iocb;
+}
+
+void reactor_backend_aio::context::flush() {
+    if (last != iocbs.get()) {
+        auto nr = last - iocbs.get();
+        last = iocbs.get();
+        io_submit(io_context, nr, iocbs.get());
+    }
+}
 
 reactor_backend_epoll::reactor_backend_epoll(reactor* r)
         : _r(r), _epollfd(file_desc::epoll_create(EPOLL_CLOEXEC)) {
