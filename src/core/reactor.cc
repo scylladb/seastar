@@ -653,17 +653,11 @@ private:
     class io_poll_poller : public reactor::pollfn {
         reactor_backend_aio* _backend;
     public:
-        explicit io_poll_poller(reactor_backend_aio* b) : _backend(b) {}
-        virtual bool poll() override {
-            return _backend->wait_and_process(0, nullptr);
-        }
-        virtual bool pure_poll() override {
-            return _backend->wait_and_process(0, nullptr);
-        }
-        virtual bool try_enter_interrupt_mode() override {
-            return true;
-        }
-        virtual void exit_interrupt_mode() override {}
+        explicit io_poll_poller(reactor_backend_aio* b);
+        virtual bool poll() override;
+        virtual bool pure_poll() override;
+        virtual bool try_enter_interrupt_mode() override;
+        virtual void exit_interrupt_mode() override;
     };
 public:
     explicit reactor_backend_aio(reactor* r);
@@ -707,6 +701,24 @@ void reactor_backend_aio::context::flush() {
         last = iocbs.get();
         io_submit(io_context, nr, iocbs.get());
     }
+}
+
+reactor_backend_aio::io_poll_poller::io_poll_poller(reactor_backend_aio* b) : _backend(b) {
+}
+
+bool reactor_backend_aio::io_poll_poller::poll() {
+    return _backend->wait_and_process(0, nullptr);
+}
+
+bool reactor_backend_aio::io_poll_poller::pure_poll() {
+    return _backend->wait_and_process(0, nullptr);
+}
+
+bool reactor_backend_aio::io_poll_poller::try_enter_interrupt_mode() {
+    return true;
+}
+
+void reactor_backend_aio::io_poll_poller::exit_interrupt_mode() {
 }
 
 linux_abi::iocb* reactor_backend_aio::new_iocb() {
