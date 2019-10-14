@@ -535,6 +535,7 @@ add_library (seastar STATIC
   include/seastar/util/variant_utils.hh
   src/core/alien.cc
   src/core/file.cc
+  src/core/fair_queue.cc
   src/core/thread_pool.cc
   src/core/app-template.cc
   src/core/dpdk_rte.cc
