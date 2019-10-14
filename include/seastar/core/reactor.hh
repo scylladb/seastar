@@ -79,6 +79,7 @@
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/scheduling.hh>
 #include "internal/pollable_fd.hh"
+#include "internal/poll.hh"
 
 #ifdef HAVE_OSV
 #include <osv/sched.hh>
@@ -372,25 +373,9 @@ class disk_config_params;
 class reactor {
     using sched_clock = std::chrono::steady_clock;
 private:
-    struct pollfn {
-        virtual ~pollfn() {}
-        // Returns true if work was done (false = idle)
-        virtual bool poll() = 0;
-        // Checks if work needs to be done, but without actually doing any
-        // returns true if works needs to be done (false = idle)
-        virtual bool pure_poll() = 0;
-        // Tries to enter interrupt mode.
-        //
-        // If it returns true, then events from this poller will wake
-        // a sleeping idle loop, and exit_interrupt_mode() must be called
-        // to return to normal polling.
-        //
-        // If it returns false, the sleeping idle loop may not be entered.
-        virtual bool try_enter_interrupt_mode() { return false; }
-        virtual void exit_interrupt_mode() {}
-    };
     struct task_queue;
     using task_queue_list = circular_buffer_fixed_capacity<task_queue*, max_scheduling_groups()>;
+    using pollfn = seastar::pollfn;
 
     class io_pollfn;
     class signal_pollfn;
