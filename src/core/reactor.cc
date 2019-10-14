@@ -583,39 +583,6 @@ inline int alarm_signal() {
     return SIGRTMIN;
 }
 
-// reactor backend using file-descriptor & epoll, suitable for running on
-// Linux. Can wait on multiple file descriptors, and converts other events
-// (such as timers, signals, inter-thread notifications) into file descriptors
-// using mechanisms like timerfd, signalfd and eventfd respectively.
-class reactor_backend_epoll : public reactor_backend {
-    reactor* _r;
-    std::thread _task_quota_timer_thread;
-    timer_t _steady_clock_timer = {};
-    bool _timer_enabled = false;
-private:
-    file_desc _epollfd;
-    future<> get_epoll_future(pollable_fd_state& fd,
-            promise<> pollable_fd_state::* pr, int event);
-    void complete_epoll_event(pollable_fd_state& fd,
-            promise<> pollable_fd_state::* pr, int events, int event);
-    static void signal_received(int signo, siginfo_t* siginfo, void* ignore);
-public:
-    explicit reactor_backend_epoll(reactor* r);
-    virtual ~reactor_backend_epoll() override;
-    virtual bool wait_and_process(int timeout, const sigset_t* active_sigmask) override;
-    virtual future<> readable(pollable_fd_state& fd) override;
-    virtual future<> writeable(pollable_fd_state& fd) override;
-    virtual future<> readable_or_writeable(pollable_fd_state& fd) override;
-    virtual void forget(pollable_fd_state& fd) override;
-    virtual void handle_signal(int signo) override;
-    virtual void start_tick() override;
-    virtual void stop_tick() override;
-    virtual void arm_highres_timer(const ::itimerspec& ts) override;
-    virtual void reset_preemption_monitor() override;
-    virtual void request_preemption() override;
-    virtual void start_handling_signal() override;
-};
-
 #ifdef HAVE_OSV
 // reactor_backend using OSv-specific features, without any file descriptors.
 // This implementation cannot currently wait on file descriptors, but unlike
