@@ -31,6 +31,10 @@
 #include <thread>
 #include <stack>
 
+#ifdef HAVE_OSV
+#include <osv/newpoll.hh>
+#endif
+
 namespace seastar {
 
 class reactor;
@@ -160,5 +164,27 @@ public:
     virtual void request_preemption() override;
     virtual void start_handling_signal() override;
 };
+
+#ifdef HAVE_OSV
+// reactor_backend using OSv-specific features, without any file descriptors.
+// This implementation cannot currently wait on file descriptors, but unlike
+// reactor_backend_epoll it doesn't need file descriptors for waiting on a
+// timer, for example, so file descriptors are not necessary.
+class reactor_backend_osv : public reactor_backend {
+private:
+    osv::newpoll::poller _poller;
+    future<> get_poller_future(reactor_notifier_osv *n);
+    promise<> _timer_promise;
+public:
+    reactor_backend_osv();
+    virtual ~reactor_backend_osv() override { }
+    virtual bool wait_and_process() override;
+    virtual future<> readable(pollable_fd_state& fd) override;
+    virtual future<> writeable(pollable_fd_state& fd) override;
+    virtual void forget(pollable_fd_state& fd) override;
+    void enable_timer(steady_clock_type::time_point when);
+};
+#endif /* HAVE_OSV */
+
 
 }
