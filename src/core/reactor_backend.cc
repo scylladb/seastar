@@ -23,6 +23,7 @@
 #include <seastar/core/reactor.hh>
 #include <chrono>
 #include <sys/poll.h>
+#include <sys/syscall.h>
 
 namespace seastar {
 
@@ -292,6 +293,183 @@ void reactor_backend_aio::request_preemption() {
 void reactor_backend_aio::start_handling_signal() {
     // The aio backend only uses SIGHUP/SIGTERM/SIGINT. We don't need to handle them right away and our
     // implementation of request_preemption is not signal safe, so do nothing.
+}
+
+reactor_backend_epoll::reactor_backend_epoll(reactor* r)
+        : _r(r), _epollfd(file_desc::epoll_create(EPOLL_CLOEXEC)) {
+    ::epoll_event event;
+    event.events = EPOLLIN;
+    event.data.ptr = nullptr;
+    auto ret = ::epoll_ctl(_epollfd.get(), EPOLL_CTL_ADD, _r->_notify_eventfd.get(), &event);
+    throw_system_error_on(ret == -1);
+
+    struct sigevent sev;
+    sev.sigev_notify = SIGEV_THREAD_ID;
+    sev._sigev_un._tid = syscall(SYS_gettid);
+    sev.sigev_signo = alarm_signal();
+    ret = timer_create(CLOCK_MONOTONIC, &sev, &_steady_clock_timer);
+    assert(ret >= 0);
+}
+
+reactor_backend_epoll::~reactor_backend_epoll() {
+    timer_delete(_steady_clock_timer);
+}
+
+void reactor_backend_epoll::start_tick() {
+    _task_quota_timer_thread = std::thread(&reactor::task_quota_timer_thread_fn, _r);
+
+    ::sched_param sp;
+    sp.sched_priority = 1;
+    auto sched_ok = pthread_setschedparam(_task_quota_timer_thread.native_handle(), SCHED_FIFO, &sp);
+    if (sched_ok != 0 && _r->_id == 0) {
+        seastar_logger.warn("Unable to set SCHED_FIFO scheduling policy for timer thread; latency impact possible. Try adding CAP_SYS_NICE");
+    }
+}
+
+void reactor_backend_epoll::stop_tick() {
+    _r->_dying.store(true, std::memory_order_relaxed);
+    _r->_task_quota_timer.timerfd_settime(0, seastar::posix::to_relative_itimerspec(1ns, 1ms)); // Make the timer fire soon
+    _task_quota_timer_thread.join();
+}
+
+void reactor_backend_epoll::arm_highres_timer(const ::itimerspec& its) {
+    auto ret = timer_settime(_steady_clock_timer, TIMER_ABSTIME, &its, NULL);
+    throw_system_error_on(ret == -1);
+    if (!_timer_enabled) {
+        _timer_enabled = true;
+        _r->_signals.handle_signal(alarm_signal(), [r = _r] {
+            r->service_highres_timer();
+        });
+    }
+}
+
+void reactor_backend_epoll::handle_signal(int signo) {
+    struct sigaction sa;
+    sa.sa_sigaction = signal_received;
+    sa.sa_mask = make_empty_sigset_mask();
+    sa.sa_flags = SA_SIGINFO | SA_RESTART;
+    auto r = ::sigaction(signo, &sa, nullptr);
+    throw_system_error_on(r == -1);
+    auto mask = make_sigset_mask(signo);
+    r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
+    throw_pthread_error(r);
+}
+
+bool
+reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigmask) {
+    std::array<epoll_event, 128> eevt;
+    int nr = ::epoll_pwait(_epollfd.get(), eevt.data(), eevt.size(), timeout, active_sigmask);
+    if (nr == -1 && errno == EINTR) {
+        return false; // gdb can cause this
+    }
+    assert(nr != -1);
+    for (int i = 0; i < nr; ++i) {
+        auto& evt = eevt[i];
+        auto pfd = reinterpret_cast<pollable_fd_state*>(evt.data.ptr);
+        if (!pfd) {
+            char dummy[8];
+            _r->_notify_eventfd.read(dummy, 8);
+            continue;
+        }
+        if (evt.events & (EPOLLHUP | EPOLLERR)) {
+            // treat the events as required events when error occurs, let
+            // send/recv/accept/connect handle the specific error.
+            evt.events = pfd->events_requested;
+        }
+        auto events = evt.events & (EPOLLIN | EPOLLOUT);
+        auto events_to_remove = events & ~pfd->events_requested;
+        if (pfd->events_rw) {
+            // accept() signals normal completions via EPOLLIN, but errors (due to shutdown())
+            // via EPOLLOUT|EPOLLHUP, so we have to wait for both EPOLLIN and EPOLLOUT with the
+            // same future
+            complete_epoll_event(*pfd, &pollable_fd_state::pollin, events, EPOLLIN|EPOLLOUT);
+        } else {
+            // Normal processing where EPOLLIN and EPOLLOUT are waited for via different
+            // futures.
+            complete_epoll_event(*pfd, &pollable_fd_state::pollin, events, EPOLLIN);
+            complete_epoll_event(*pfd, &pollable_fd_state::pollout, events, EPOLLOUT);
+        }
+        if (events_to_remove) {
+            pfd->events_epoll &= ~events_to_remove;
+            evt.events = pfd->events_epoll;
+            auto op = evt.events ? EPOLL_CTL_MOD : EPOLL_CTL_DEL;
+            ::epoll_ctl(_epollfd.get(), op, pfd->fd.get(), &evt);
+        }
+    }
+    return nr;
+}
+
+void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd, promise<> pollable_fd_state::*pr,
+        int events, int event) {
+    if (pfd.events_requested & events & event) {
+        pfd.events_requested &= ~event;
+        pfd.events_known &= ~event;
+        (pfd.*pr).set_value();
+        pfd.*pr = promise<>();
+    }
+}
+
+void reactor_backend_epoll::signal_received(int signo, siginfo_t* siginfo, void* ignore) {
+    if (engine_is_ready()) {
+        engine()._signals.action(signo, siginfo, ignore);
+    } else {
+        reactor::signals::failed_to_handle(signo);
+    }
+}
+
+future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd,
+        promise<> pollable_fd_state::*pr, int event) {
+    if (pfd.events_known & event) {
+        pfd.events_known &= ~event;
+        return make_ready_future();
+    }
+    pfd.events_rw = event == (EPOLLIN | EPOLLOUT);
+    pfd.events_requested |= event;
+    if ((pfd.events_epoll & event) != event) {
+        auto ctl = pfd.events_epoll ? EPOLL_CTL_MOD : EPOLL_CTL_ADD;
+        pfd.events_epoll |= event;
+        ::epoll_event eevt;
+        eevt.events = pfd.events_epoll;
+        eevt.data.ptr = &pfd;
+        int r = ::epoll_ctl(_epollfd.get(), ctl, pfd.fd.get(), &eevt);
+        assert(r == 0);
+        engine().start_epoll();
+    }
+    pfd.*pr = promise<>();
+    return (pfd.*pr).get_future();
+}
+
+future<> reactor_backend_epoll::readable(pollable_fd_state& fd) {
+    return get_epoll_future(fd, &pollable_fd_state::pollin, EPOLLIN);
+}
+
+future<> reactor_backend_epoll::writeable(pollable_fd_state& fd) {
+    return get_epoll_future(fd, &pollable_fd_state::pollout, EPOLLOUT);
+}
+
+future<> reactor_backend_epoll::readable_or_writeable(pollable_fd_state& fd) {
+    return get_epoll_future(fd, &pollable_fd_state::pollin, EPOLLIN | EPOLLOUT);
+}
+
+void reactor_backend_epoll::forget(pollable_fd_state& fd) {
+    if (fd.events_epoll) {
+        ::epoll_ctl(_epollfd.get(), EPOLL_CTL_DEL, fd.fd.get(), nullptr);
+    }
+}
+
+void
+reactor_backend_epoll::request_preemption() {
+    _r->_preemption_monitor.head.store(1, std::memory_order_relaxed);
+}
+
+void reactor_backend_epoll::start_handling_signal() {
+    // The epoll backend uses signals for the high resolution timer. That is used for thread_scheduling_group, so we
+    // request preemption so when we receive a signal.
+    request_preemption();
+}
+
+void reactor_backend_epoll::reset_preemption_monitor() {
+    _r->_preemption_monitor.head.store(0, std::memory_order_relaxed);
 }
 
 }
