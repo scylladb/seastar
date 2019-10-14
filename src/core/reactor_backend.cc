@@ -25,6 +25,10 @@
 #include <sys/poll.h>
 #include <sys/syscall.h>
 
+#ifdef HAVE_OSV
+#include <osv/newpoll.hh>
+#endif
+
 namespace seastar {
 
 using namespace std::chrono_literals;
@@ -471,5 +475,47 @@ void reactor_backend_epoll::start_handling_signal() {
 void reactor_backend_epoll::reset_preemption_monitor() {
     _r->_preemption_monitor.head.store(0, std::memory_order_relaxed);
 }
+
+#ifdef HAVE_OSV
+reactor_backend_osv::reactor_backend_osv() {
+}
+
+bool
+reactor_backend_osv::wait_and_process() {
+    _poller.process();
+    // osv::poller::process runs pollable's callbacks, but does not currently
+    // have a timer expiration callback - instead if gives us an expired()
+    // function we need to check:
+    if (_poller.expired()) {
+        _timer_promise.set_value();
+        _timer_promise = promise<>();
+    }
+    return true;
+}
+
+future<>
+reactor_backend_osv::readable(pollable_fd_state& fd) {
+    std::cout << "reactor_backend_osv does not support file descriptors - readable() shouldn't have been called!\n";
+    abort();
+}
+
+future<>
+reactor_backend_osv::writeable(pollable_fd_state& fd) {
+    std::cout << "reactor_backend_osv does not support file descriptors - writeable() shouldn't have been called!\n";
+    abort();
+}
+
+void
+reactor_backend_osv::forget(pollable_fd_state& fd) {
+    std::cout << "reactor_backend_osv does not support file descriptors - forget() shouldn't have been called!\n";
+    abort();
+}
+
+void
+reactor_backend_osv::enable_timer(steady_clock_type::time_point when) {
+    _poller.set_timer(when);
+}
+
+#endif
 
 }
