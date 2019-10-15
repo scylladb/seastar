@@ -78,6 +78,7 @@
 #include <seastar/core/manual_clock.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/scheduling.hh>
+#include <seastar/core/smp.hh>
 #include "internal/pollable_fd.hh"
 #include "internal/poll.hh"
 
@@ -152,14 +153,6 @@ void register_network_stack(sstring name, boost::program_options::options_descri
 class thread_pool;
 class smp;
 
-class smp_service_group;
-struct smp_service_group_config;
-
-namespace internal {
-
-unsigned smp_service_group_id(smp_service_group ssg);
-
-}
 
 /// Returns the default smp_service_group. This smp_service_group
 /// does not impose any limits on concurrency in the target shard.
@@ -180,58 +173,10 @@ future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc
 /// be used again once this function is called.
 future<> destroy_smp_service_group(smp_service_group ssg);
 
-/// A resource controller for cross-shard calls.
-///
-/// An smp_service_group allows you to limit the concurrency of
-/// smp::submit_to() and similar calls. While it's easy to limit
-/// the caller's concurrency (for example, by using a semaphore),
-/// the concurrency at the remote end can be multiplied by a factor
-/// of smp::count-1, which can be large.
-///
-/// The class is called a service _group_ because it can be used
-/// to group similar calls that share resource usage characteristics,
-/// need not be isolated from each other, but do need to be isolated
-/// from other groups. Calls in a group should not nest; doing so
-/// can result in ABA deadlocks.
-///
-/// Nested submit_to() calls must form a directed acyclic graph
-/// when considering their smp_service_groups as nodes. For example,
-/// if a call using ssg1 then invokes another call using ssg2, the
-/// internal call may not call again via either ssg1 or ssg2, or it
-/// may form a cycle (and risking an ABBA deadlock). Create a
-/// new smp_service_group_instead.
-class smp_service_group {
-    unsigned _id;
-private:
-    explicit smp_service_group(unsigned id) : _id(id) {}
-
-    friend unsigned internal::smp_service_group_id(smp_service_group ssg);
-    friend smp_service_group default_smp_service_group();
-    friend future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc);
-};
-
 inline
 smp_service_group default_smp_service_group() {
     return smp_service_group(0);
 }
-
-inline
-unsigned
-internal::smp_service_group_id(smp_service_group ssg) {
-    return ssg._id;
-}
-
-
-/// Configuration for smp_service_group objects.
-///
-/// \see create_smp_service_group()
-struct smp_service_group_config {
-    /// The maximum number of non-local requests that execute on a shard concurrently
-    ///
-    /// Will be adjusted upwards to allow at least one request per non-local shard.
-    unsigned max_nonlocal_requests = 0;
-};
-
 
 class smp_message_queue {
     static constexpr size_t queue_length = 128;
