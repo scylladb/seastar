@@ -154,30 +154,6 @@ class thread_pool;
 class smp;
 
 
-/// Returns the default smp_service_group. This smp_service_group
-/// does not impose any limits on concurrency in the target shard.
-/// This makes is deadlock-safe, but can consume unbounded resources,
-/// and should therefore only be used when initiator concurrency is
-/// very low (e.g. administrative tasks).
-smp_service_group default_smp_service_group();
-
-/// Creates an smp_service_group with the specified configuration.
-///
-/// The smp_service_group is global, and after this call completes,
-/// the returned value can be used on any shard.
-future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc);
-
-/// Destroy an smp_service_group.
-///
-/// Frees all resources used by an smp_service_group. It must not
-/// be used again once this function is called.
-future<> destroy_smp_service_group(smp_service_group ssg);
-
-inline
-smp_service_group default_smp_service_group() {
-    return smp_service_group(0);
-}
-
 class smp_message_queue {
     static constexpr size_t queue_length = 128;
     static constexpr size_t batch_size = 16;
