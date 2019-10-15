@@ -22,10 +22,13 @@
 #pragma once
 
 #include <seastar/core/future.hh>
+#include <seastar/core/semaphore.hh>
 
 /// \file
 
 namespace seastar {
+
+using shard_id = unsigned;
 
 class smp_service_group;
 
@@ -104,5 +107,9 @@ inline
 smp_service_group default_smp_service_group() {
     return smp_service_group(0);
 }
+
+void init_default_smp_service_group();
+
+semaphore& get_smp_service_groups_semaphore(unsigned ssg_id, shard_id t);
 
 }
