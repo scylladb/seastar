@@ -23,6 +23,9 @@
 
 #include <seastar/core/future.hh>
 #include <seastar/core/semaphore.hh>
+#include <seastar/core/metrics.hh>
+#include <boost/lockfree/spsc_queue.hpp>
+#include <deque>
 
 /// \file
 
@@ -111,5 +114,127 @@ smp_service_group default_smp_service_group() {
 void init_default_smp_service_group();
 
 semaphore& get_smp_service_groups_semaphore(unsigned ssg_id, shard_id t);
+
+class smp_message_queue {
+    static constexpr size_t queue_length = 128;
+    static constexpr size_t batch_size = 16;
+    static constexpr size_t prefetch_cnt = 2;
+    struct work_item;
+    struct lf_queue_remote {
+        reactor* remote;
+    };
+    using lf_queue_base = boost::lockfree::spsc_queue<work_item*,
+                            boost::lockfree::capacity<queue_length>>;
+    // use inheritence to control placement order
+    struct lf_queue : lf_queue_remote, lf_queue_base {
+        lf_queue(reactor* remote) : lf_queue_remote{remote} {}
+        void maybe_wakeup();
+        ~lf_queue();
+    };
+    lf_queue _pending;
+    lf_queue _completed;
+    struct alignas(seastar::cache_line_size) {
+        size_t _sent = 0;
+        size_t _compl = 0;
+        size_t _last_snt_batch = 0;
+        size_t _last_cmpl_batch = 0;
+        size_t _current_queue_length = 0;
+    };
+    // keep this between two structures with statistics
+    // this makes sure that they have at least one cache line
+    // between them, so hw prefetcher will not accidentally prefetch
+    // cache line used by another cpu.
+    metrics::metric_groups _metrics;
+    struct alignas(seastar::cache_line_size) {
+        size_t _received = 0;
+        size_t _last_rcv_batch = 0;
+    };
+    struct work_item {
+        explicit work_item(smp_service_group ssg) : ssg(ssg) {}
+        smp_service_group ssg;
+        scheduling_group sg = current_scheduling_group();
+        virtual ~work_item() {}
+        virtual void process() = 0;
+        virtual void complete() = 0;
+    };
+    template <typename Func>
+    struct async_work_item : work_item {
+        smp_message_queue& _queue;
+        Func _func;
+        using futurator = futurize<std::result_of_t<Func()>>;
+        using future_type = typename futurator::type;
+        using value_type = typename future_type::value_type;
+        compat::optional<value_type> _result;
+        std::exception_ptr _ex; // if !_result
+        typename futurator::promise_type _promise; // used on local side
+        async_work_item(smp_message_queue& queue, smp_service_group ssg, Func&& func) : work_item(ssg), _queue(queue), _func(std::move(func)) {}
+        virtual void process() override {
+            try {
+              // Run _func asynchronously and set either _result or _ex.
+              // Respond to _queue when done.
+              // Caller must get the future returned by get_future() to synchronize and retrieve the result.
+              (void)with_scheduling_group(this->sg, [this] {
+                return futurator::apply(this->_func).then_wrapped([this] (auto f) {
+                    if (f.failed()) {
+                        _ex = f.get_exception();
+                    } else {
+                        _result = f.get();
+                    }
+                    _queue.respond(this);
+                });
+              });
+            } catch (...) {
+                _ex = std::current_exception();
+                _queue.respond(this);
+            }
+        }
+        virtual void complete() override {
+            if (_result) {
+                _promise.set_value(std::move(*_result));
+            } else {
+                // FIXME: _ex was allocated on another cpu
+                _promise.set_exception(std::move(_ex));
+            }
+        }
+        future_type get_future() { return _promise.get_future(); }
+    };
+    union tx_side {
+        tx_side() {}
+        ~tx_side() {}
+        void init() { new (&a) aa; }
+        struct aa {
+            std::deque<work_item*> pending_fifo;
+        } a;
+    } _tx;
+    std::vector<work_item*> _completed_fifo;
+public:
+    smp_message_queue(reactor* from, reactor* to);
+    ~smp_message_queue();
+    template <typename Func>
+    futurize_t<std::result_of_t<Func()>> submit(shard_id t, smp_service_group ssg, Func&& func) {
+        auto wi = std::make_unique<async_work_item<Func>>(*this, ssg, std::forward<Func>(func));
+        auto fut = wi->get_future();
+        submit_item(t, std::move(wi));
+        return fut;
+    }
+    void start(unsigned cpuid);
+    template<size_t PrefetchCnt, typename Func>
+    size_t process_queue(lf_queue& q, Func process);
+    size_t process_incoming();
+    size_t process_completions(shard_id t);
+    void stop();
+private:
+    void work();
+    void submit_item(shard_id t, std::unique_ptr<work_item> wi);
+    void respond(work_item* wi);
+    void move_pending();
+    void flush_request_batch();
+    void flush_response_batch();
+    bool has_unflushed_responses() const;
+    bool pure_poll_rx() const;
+    bool pure_poll_tx() const;
+
+    friend class smp;
+};
 
 }
