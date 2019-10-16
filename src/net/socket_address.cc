@@ -43,7 +43,7 @@ size_t std::hash<seastar::socket_address>::operator()(const seastar::socket_addr
 namespace seastar {
 
 socket_address::socket_address(const net::inet_address& a, uint16_t p)
-    : socket_address(a.is_ipv6() ? socket_address(ipv6_addr(a, p)) : socket_address(ipv4_addr(a, p)))
+    : socket_address(a.is_ipv6() ? socket_address(ipv6_addr(a, p), a.scope()) : socket_address(ipv4_addr(a, p)))
 {}
 
 socket_address::socket_address(const unix_domain_addr& s) {

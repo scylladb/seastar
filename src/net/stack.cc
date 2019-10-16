@@ -282,13 +282,19 @@ socket_address::socket_address(ipv4_addr addr)
     u.in.sin_addr.s_addr = htonl(addr.ip);
 }
 
-socket_address::socket_address(const ipv6_addr& addr)
+socket_address::socket_address(const ipv6_addr& addr, uint32_t scope)
 {
     addr_length = sizeof(::sockaddr_in6);
     u.in6.sin6_family = AF_INET6;
     u.in6.sin6_port = htons(addr.port);
+    u.in6.sin6_flowinfo = 0;
+    u.in6.sin6_scope_id = scope;
     std::copy(addr.ip.begin(), addr.ip.end(), u.in6.sin6_addr.s6_addr);
 }
+
+socket_address::socket_address(const ipv6_addr& addr)
+    : socket_address(addr, net::inet_address::invalid_scope)
+{}
 
 socket_address::socket_address(uint32_t ipv4, uint16_t p)
     : socket_address(make_ipv4_address(ipv4, p))
