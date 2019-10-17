@@ -225,7 +225,11 @@ public:
 
     virtual uint64_t get_pos() {
         if (_position >= _size_limit) {
-            throw invalid_position();
+            // Wrap around if reaching EOF. The write bandwidth is lower,
+            // and we also split the write bandwidth among shards, while we
+            // read only from shard 0, so shard 0's file may not be large
+            // enough to read from.
+            _position = 0;
         }
         auto pos = _position;
         _position += _buffer_size;
