@@ -1014,6 +1014,13 @@ cpu_stall_detector::cpu_stall_detector(reactor* r, cpu_stall_detector_config cfg
     if (err) {
         throw std::system_error(std::error_code(err, std::system_category()));
     }
+
+    namespace sm = seastar::metrics;
+
+    _metrics.add_group("stall_detector", {
+            sm::make_derive("reported", _total_reported, sm::description("Total number of reported stalls, look in the traces for the exact reason"))});
+
+
     // note: if something is added here that can, it should take care to destroy _timer.
 }
 
@@ -1181,6 +1188,7 @@ void
 cpu_stall_detector::generate_trace() {
     auto delta = std::chrono::steady_clock::now() - _run_started_at;
 
+    _total_reported++;
     if (_config.report) {
         _config.report();
         return;

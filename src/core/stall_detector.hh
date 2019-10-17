@@ -27,6 +27,7 @@
 #include <chrono>
 #include <functional>
 #include <seastar/core/posix.hh>
+#include <seastar/core/metrics_registration.hh>
 
 namespace seastar {
 
@@ -49,6 +50,7 @@ class cpu_stall_detector {
     unsigned _stall_detector_reports_per_minute;
     std::atomic<uint64_t> _stall_detector_missed_ticks = { 0 };
     unsigned _reported = 0;
+    unsigned _total_reported = 0;
     unsigned _max_reports_per_minute;
     unsigned _shard_id;
     unsigned _thread_id;
@@ -59,6 +61,7 @@ class cpu_stall_detector {
     std::chrono::steady_clock::duration _threshold;
     std::chrono::steady_clock::duration _slack;
     cpu_stall_detector_config _config;
+    seastar::metrics::metric_groups _metrics;
     friend reactor;
 private:
     void maybe_report();
