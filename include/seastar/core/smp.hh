@@ -24,8 +24,14 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/metrics.hh>
+#include <seastar/core/posix.hh>
+#include <seastar/core/reactor_config.hh>
 #include <boost/lockfree/spsc_queue.hpp>
+#include <boost/thread/barrier.hpp>
+#include <boost/range/irange.hpp>
+#include <boost/program_options.hpp>
 #include <deque>
+#include <thread>
 
 /// \file
 
@@ -34,6 +40,7 @@ namespace seastar {
 using shard_id = unsigned;
 
 class smp_service_group;
+class reactor_backend_selector;
 
 namespace internal {
 
@@ -238,6 +245,124 @@ private:
     bool pure_poll_tx() const;
 
     friend class smp;
+};
+
+class smp {
+    static std::vector<posix_thread> _threads;
+    static std::vector<std::function<void ()>> _thread_loops; // for dpdk
+    static compat::optional<boost::barrier> _all_event_loops_done;
+    static std::vector<reactor*> _reactors;
+    struct qs_deleter {
+      void operator()(smp_message_queue** qs) const;
+    };
+    static std::unique_ptr<smp_message_queue*[], qs_deleter> _qs;
+    static std::thread::id _tmain;
+    static bool _using_dpdk;
+
+    template <typename Func>
+    using returns_future = is_future<std::result_of_t<Func()>>;
+    template <typename Func>
+    using returns_void = std::is_same<std::result_of_t<Func()>, void>;
+public:
+    static boost::program_options::options_description get_options_description();
+    static void register_network_stacks();
+    static void configure(boost::program_options::variables_map vm, reactor_config cfg = {});
+    static void cleanup();
+    static void cleanup_cpu();
+    static void arrive_at_event_loop_end();
+    static void join_all();
+    static bool main_thread() { return std::this_thread::get_id() == _tmain; }
+
+    /// Runs a function on a remote core.
+    ///
+    /// \param t designates the core to run the function on (may be a remote
+    ///          core or the local core).
+    /// \param ssg an smp_service_group that controls resource allocation for this call.
+    /// \param func a callable to run on core \c t.
+    ///          If \c func is a temporary object, its lifetime will be
+    ///          extended by moving. This movement and the eventual
+    ///          destruction of func are both done in the _calling_ core.
+    ///          If \c func is a reference, the caller must guarantee that
+    ///          it will survive the call.
+    /// \return whatever \c func returns, as a future<> (if \c func does not return a future,
+    ///         submit_to() will wrap it in a future<>).
+    template <typename Func>
+    static futurize_t<std::result_of_t<Func()>> submit_to(unsigned t, smp_service_group ssg, Func&& func) {
+        using ret_type = std::result_of_t<Func()>;
+        if (t == this_shard_id()) {
+            try {
+                if (!is_future<ret_type>::value) {
+                    // Non-deferring function, so don't worry about func lifetime
+                    return futurize<ret_type>::apply(std::forward<Func>(func));
+                } else if (std::is_lvalue_reference<Func>::value) {
+                    // func is an lvalue, so caller worries about its lifetime
+                    return futurize<ret_type>::apply(func);
+                } else {
+                    // Deferring call on rvalue function, make sure to preserve it across call
+                    auto w = std::make_unique<std::decay_t<Func>>(std::move(func));
+                    auto ret = futurize<ret_type>::apply(*w);
+                    return ret.finally([w = std::move(w)] {});
+                }
+            } catch (...) {
+                // Consistently return a failed future rather than throwing, to simplify callers
+                return futurize<std::result_of_t<Func()>>::make_exception_future(std::current_exception());
+            }
+        } else {
+            return _qs[t][this_shard_id()].submit(t, ssg, std::forward<Func>(func));
+        }
+    }
+    /// Runs a function on a remote core.
+    ///
+    /// Uses default_smp_service_group() to control resource allocation.
+    ///
+    /// \param t designates the core to run the function on (may be a remote
+    ///          core or the local core).
+    /// \param func a callable to run on core \c t.
+    ///          If \c func is a temporary object, its lifetime will be
+    ///          extended by moving. This movement and the eventual
+    ///          destruction of func are both done in the _calling_ core.
+    ///          If \c func is a reference, the caller must guarantee that
+    ///          it will survive the call.
+    /// \return whatever \c func returns, as a future<> (if \c func does not return a future,
+    ///         submit_to() will wrap it in a future<>).
+    template <typename Func>
+    static futurize_t<std::result_of_t<Func()>> submit_to(unsigned t, Func&& func) {
+        return submit_to(t, default_smp_service_group(), std::forward<Func>(func));
+    }
+    static bool poll_queues();
+    static bool pure_poll_queues();
+    static boost::integer_range<unsigned> all_cpus() {
+        return boost::irange(0u, count);
+    }
+    // Invokes func on all shards.
+    // The returned future resolves when all async invocations finish.
+    // The func may return void or future<>.
+    // Each async invocation will work with a separate copy of func.
+    template<typename Func>
+    static future<> invoke_on_all(Func&& func) {
+        static_assert(std::is_same<future<>, typename futurize<std::result_of_t<Func()>>::type>::value, "bad Func signature");
+        return parallel_for_each(all_cpus(), [&func] (unsigned id) {
+            return smp::submit_to(id, Func(func));
+        });
+    }
+    // Invokes func on all other shards.
+    // The returned future resolves when all async invocations finish.
+    // The func may return void or future<>.
+    // Each async invocation will work with a separate copy of func.
+    template<typename Func>
+    static future<> invoke_on_others(unsigned cpu_id, Func func) {
+        static_assert(std::is_same<future<>, typename futurize<std::result_of_t<Func()>>::type>::value, "bad Func signature");
+        return parallel_for_each(all_cpus(), [cpu_id, func = std::move(func)] (unsigned id) {
+            return id != cpu_id ? smp::submit_to(id, func) : make_ready_future<>();
+        });
+    }
+private:
+    static void start_all_queues();
+    static void pin(unsigned cpu_id);
+    static void allocate_reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg);
+    static void create_thread(std::function<void ()> thread_loop);
+public:
+    static unsigned count;
 };
 
 }
