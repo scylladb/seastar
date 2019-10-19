@@ -774,7 +774,7 @@ public:
     template <typename Func>
     static futurize_t<std::result_of_t<Func()>> submit_to(unsigned t, smp_service_group ssg, Func&& func) {
         using ret_type = std::result_of_t<Func()>;
-        if (t == engine().cpu_id()) {
+        if (t == this_shard_id()) {
             try {
                 if (!is_future<ret_type>::value) {
                     // Non-deferring function, so don't worry about func lifetime
@@ -793,7 +793,7 @@ public:
                 return futurize<std::result_of_t<Func()>>::make_exception_future(std::current_exception());
             }
         } else {
-            return _qs[t][engine().cpu_id()].submit(t, ssg, std::forward<Func>(func));
+            return _qs[t][this_shard_id()].submit(t, ssg, std::forward<Func>(func));
         }
     }
     /// Runs a function on a remote core.
