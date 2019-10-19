@@ -21,6 +21,7 @@
 #include "core/reactor_backend.hh"
 #include <seastar/core/print.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/util/defer.hh>
 #include <chrono>
 #include <sys/poll.h>
 #include <sys/syscall.h>
@@ -517,5 +518,52 @@ reactor_backend_osv::enable_timer(steady_clock_type::time_point when) {
 }
 
 #endif
+
+static bool detect_aio_poll() {
+    auto fd = file_desc::eventfd(0, 0);
+    aio_context_t ioc{};
+    setup_aio_context(1, &ioc);
+    auto cleanup = defer([&] { io_destroy(ioc); });
+    linux_abi::iocb iocb = internal::make_poll_iocb(fd.get(), POLLIN|POLLOUT);
+    linux_abi::iocb* a[1] = { &iocb };
+    auto r = io_submit(ioc, 1, a);
+    if (r != 1) {
+        return false;
+    }
+    uint64_t one = 1;
+    fd.write(&one, 8);
+    io_event ev[1];
+    // We set force_syscall = true (the last parameter) to ensure
+    // the system call exists and is usable. If IOCB_CMD_POLL exists then
+    // io_pgetevents() will also exist, but some versions of docker
+    // have a syscall whitelist that does not include io_pgetevents(),
+    // which causes it to fail with -EPERM. See
+    // https://github.com/moby/moby/issues/38894.
+    r = io_pgetevents(ioc, 1, 1, ev, nullptr, nullptr, true);
+    return r == 1;
+}
+
+
+std::unique_ptr<reactor_backend> reactor_backend_selector::create(reactor* r) {
+    if (_name == "linux-aio") {
+        return std::make_unique<reactor_backend_aio>(r);
+    } else if (_name == "epoll") {
+        return std::make_unique<reactor_backend_epoll>(r);
+    }
+    throw std::logic_error("bad reactor backend");
+}
+
+reactor_backend_selector reactor_backend_selector::default_backend() {
+    return available()[0];
+}
+
+std::vector<reactor_backend_selector> reactor_backend_selector::available() {
+    std::vector<reactor_backend_selector> ret;
+    if (detect_aio_poll()) {
+        ret.push_back(reactor_backend_selector("linux-aio"));
+    }
+    ret.push_back(reactor_backend_selector("epoll"));
+    return ret;
+}
 
 }
