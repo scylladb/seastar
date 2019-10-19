@@ -41,6 +41,9 @@ unsigned smp_service_group_id(smp_service_group ssg);
 
 }
 
+/// Returns shard_id of the of the current shard.
+shard_id this_shard_id();
+
 /// Configuration for smp_service_group objects.
 ///
 /// \see create_smp_service_group()
