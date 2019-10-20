@@ -286,11 +286,7 @@ public:
         }
         return find_port_and_connect(sa, local, proto).then([this, proto, allocator = _allocator] () mutable {
             std::unique_ptr<connected_socket_impl> csi;
-            if (proto == transport::TCP) {
-                csi.reset(new posix_connected_socket_impl(transport::TCP, _fd, allocator));
-            } else {
-                csi.reset(new posix_connected_socket_impl(transport::SCTP, _fd, allocator));
-            }
+            csi.reset(new posix_connected_socket_impl(proto, _fd, allocator));
             return make_ready_future<connected_socket>(connected_socket(std::move(csi)));
         });
     }
@@ -569,17 +565,11 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
     if (sa.is_af_unix()) {
         return server_socket(std::make_unique<posix_server_unix_socket_impl>(sa, engine().posix_listen(sa, opt), opt.lba, _allocator));
     }
-    if (opt.proto == transport::TCP) {
-        return _reuseport ?
-            server_socket(std::make_unique<posix_reuseport_server_socket_impl>(transport::TCP, sa, engine().posix_listen(sa, opt), _allocator))
-            :
-            server_socket(std::make_unique<posix_server_socket_impl>(transport::TCP, sa, engine().posix_listen(sa, opt), opt.lba, _allocator));
-    } else {
-        return _reuseport ?
-            server_socket(std::make_unique<posix_reuseport_server_socket_impl>(transport::SCTP, sa, engine().posix_listen(sa, opt), _allocator))
-            :
-            server_socket(std::make_unique<posix_server_socket_impl>(transport::SCTP, sa, engine().posix_listen(sa, opt), opt.lba, _allocator));
-    }
+    auto tr = static_cast<transport>(opt.proto);
+    return _reuseport ?
+        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(tr, sa, engine().posix_listen(sa, opt), _allocator))
+        :
+        server_socket(std::make_unique<posix_server_socket_impl>(tr, sa, engine().posix_listen(sa, opt), opt.lba, _allocator));
 }
 
 ::seastar::socket posix_network_stack::socket() {
@@ -592,17 +582,11 @@ posix_ap_network_stack::listen(socket_address sa, listen_options opt) {
     if (sa.is_af_unix()) {
         return server_socket(std::make_unique<posix_ap_server_unix_socket_impl>(sa));
     }
-    if (opt.proto == transport::TCP) {
-        return _reuseport ?
-            server_socket(std::make_unique<posix_reuseport_server_socket_impl>(transport::TCP, sa, engine().posix_listen(sa, opt)))
-            :
-            server_socket(std::make_unique<posix_ap_server_socket_impl>(transport::TCP, sa));
-    } else {
-        return _reuseport ?
-            server_socket(std::make_unique<posix_reuseport_server_socket_impl>(transport::SCTP, sa, engine().posix_listen(sa, opt)))
-            :
-            server_socket(std::make_unique<posix_ap_server_socket_impl>(transport::SCTP, sa));
-    }
+    auto tr = static_cast<transport>(opt.proto);
+    return _reuseport ?
+        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(tr, sa, engine().posix_listen(sa, opt)))
+        :
+        server_socket(std::make_unique<posix_ap_server_socket_impl>(tr, sa));
 }
 
 struct cmsg_with_pktinfo {
