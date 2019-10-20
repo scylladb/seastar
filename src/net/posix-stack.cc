@@ -184,7 +184,6 @@ public:
     }
     friend class posix_server_socket_impl;
     friend class posix_ap_server_socket_impl;
-    template <transport Transport>
     friend class posix_reuseport_server_socket_impl;
     friend class posix_network_stack;
     friend class posix_ap_network_stack;
@@ -460,27 +459,24 @@ posix_ap_server_socket_impl::abort_accept() {
     }
 }
 
-template <transport Transport>
 future<accept_result>
-posix_reuseport_server_socket_impl<Transport>::accept() {
-    return _lfd.accept().then([allocator = _allocator] (std::tuple<pollable_fd, socket_address> fd_sa) {
+posix_reuseport_server_socket_impl::accept() {
+    return _lfd.accept().then([allocator = _allocator, tr = _tr] (std::tuple<pollable_fd, socket_address> fd_sa) {
         auto& fd = std::get<0>(fd_sa);
         auto& sa = std::get<1>(fd_sa);
         std::unique_ptr<connected_socket_impl> csi(
-                new posix_connected_socket_impl(Transport, make_lw_shared(std::move(fd)), allocator));
+                new posix_connected_socket_impl(tr, make_lw_shared(std::move(fd)), allocator));
         return make_ready_future<accept_result>(
             accept_result{connected_socket(std::move(csi)), sa});
     });
 }
 
-template <transport Transport>
 void
-posix_reuseport_server_socket_impl<Transport>::abort_accept() {
+posix_reuseport_server_socket_impl::abort_accept() {
     _lfd.abort_reader();
 }
 
-template <transport Transport>
-socket_address posix_reuseport_server_socket_impl<Transport>::local_address() const {
+socket_address posix_reuseport_server_socket_impl::local_address() const {
     return _lfd.get_file_desc().get_address();
 }
 
@@ -575,12 +571,12 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
     }
     if (opt.proto == transport::TCP) {
         return _reuseport ?
-            server_socket(std::make_unique<posix_reuseport_server_tcp_socket_impl>(sa, engine().posix_listen(sa, opt), _allocator))
+            server_socket(std::make_unique<posix_reuseport_server_socket_impl>(transport::TCP, sa, engine().posix_listen(sa, opt), _allocator))
             :
             server_socket(std::make_unique<posix_server_socket_impl>(transport::TCP, sa, engine().posix_listen(sa, opt), opt.lba, _allocator));
     } else {
         return _reuseport ?
-            server_socket(std::make_unique<posix_reuseport_server_sctp_socket_impl>(sa, engine().posix_listen(sa, opt), _allocator))
+            server_socket(std::make_unique<posix_reuseport_server_socket_impl>(transport::SCTP, sa, engine().posix_listen(sa, opt), _allocator))
             :
             server_socket(std::make_unique<posix_server_socket_impl>(transport::SCTP, sa, engine().posix_listen(sa, opt), opt.lba, _allocator));
     }
@@ -598,12 +594,12 @@ posix_ap_network_stack::listen(socket_address sa, listen_options opt) {
     }
     if (opt.proto == transport::TCP) {
         return _reuseport ?
-            server_socket(std::make_unique<posix_reuseport_server_tcp_socket_impl>(sa, engine().posix_listen(sa, opt)))
+            server_socket(std::make_unique<posix_reuseport_server_socket_impl>(transport::TCP, sa, engine().posix_listen(sa, opt)))
             :
             server_socket(std::make_unique<posix_ap_server_socket_impl>(transport::TCP, sa));
     } else {
         return _reuseport ?
-            server_socket(std::make_unique<posix_reuseport_server_sctp_socket_impl>(sa, engine().posix_listen(sa, opt)))
+            server_socket(std::make_unique<posix_reuseport_server_socket_impl>(transport::SCTP, sa, engine().posix_listen(sa, opt)))
             :
             server_socket(std::make_unique<posix_ap_server_socket_impl>(transport::SCTP, sa));
     }

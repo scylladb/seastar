@@ -207,20 +207,18 @@ public:
     virtual socket_address local_address() const override;
 };
 
-template <transport Transport>
 class posix_reuseport_server_socket_impl : public api_v2::server_socket_impl {
     socket_address _sa;
+    transport _tr;
     pollable_fd _lfd;
     compat::polymorphic_allocator<char>* _allocator;
 public:
-    explicit posix_reuseport_server_socket_impl(socket_address sa, pollable_fd lfd,
-        compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _lfd(std::move(lfd)), _allocator(allocator) {}
+    explicit posix_reuseport_server_socket_impl(transport tr, socket_address sa, pollable_fd lfd,
+        compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _tr(tr), _lfd(std::move(lfd)), _allocator(allocator) {}
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
 };
-using posix_reuseport_server_tcp_socket_impl = posix_reuseport_server_socket_impl<transport::TCP>;
-using posix_reuseport_server_sctp_socket_impl = posix_reuseport_server_socket_impl<transport::SCTP>;
 
 class posix_network_stack : public network_stack {
 private:
