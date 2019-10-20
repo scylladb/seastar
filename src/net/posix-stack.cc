@@ -34,8 +34,17 @@ namespace net {
 
 using namespace seastar;
 
-template <transport Transport>
-class posix_connected_socket_operations;
+class posix_connected_socket_operations {
+public:
+    virtual ~posix_connected_socket_operations() = default;
+    virtual void set_nodelay(file_desc& fd, bool nodelay) const = 0;
+    virtual bool get_nodelay(file_desc& fd) const = 0;
+    virtual void set_keepalive(file_desc& _fd, bool keepalive) const = 0;
+    virtual bool get_keepalive(file_desc& _fd) const = 0;
+    virtual void set_keepalive_parameters(file_desc& _fd, const keepalive_params& params) const = 0;
+    virtual keepalive_params get_keepalive_parameters(file_desc& _fd) const = 0;
+};
+
 template<>
 thread_local  typename  posix_ap_server_socket_impl<transport::SCTP>::sockets_map_t posix_ap_server_socket_impl<transport::SCTP>::sockets{};
 template<>
@@ -48,28 +57,27 @@ thread_local  typename posix_ap_server_socket_impl<transport::TCP>::conn_map_t p
 thread_local  std::unordered_map<socket_address, promise<accept_result>> posix_ap_server_unix_socket_impl::sockets{};
 thread_local  std::unordered_multimap<socket_address, typename posix_ap_server_unix_socket_impl::connection> posix_ap_server_unix_socket_impl::conn_q{};
 
-template <>
-class posix_connected_socket_operations<transport::TCP> {
+class posix_tcp_connected_socket_operations : public posix_connected_socket_operations {
 public:
-    void set_nodelay(file_desc& _fd, bool nodelay) {
+    virtual void set_nodelay(file_desc& _fd, bool nodelay) const override {
         _fd.setsockopt(IPPROTO_TCP, TCP_NODELAY, int(nodelay));
     }
-    bool get_nodelay(file_desc& _fd) const {
+    virtual bool get_nodelay(file_desc& _fd) const override {
         return _fd.getsockopt<int>(IPPROTO_TCP, TCP_NODELAY);
     }
-    void set_keepalive(file_desc& _fd, bool keepalive) {
+    virtual void set_keepalive(file_desc& _fd, bool keepalive) const override {
         _fd.setsockopt(SOL_SOCKET, SO_KEEPALIVE, int(keepalive));
     }
-    bool get_keepalive(file_desc& _fd) const {
+    virtual bool get_keepalive(file_desc& _fd) const override {
         return _fd.getsockopt<int>(SOL_SOCKET, SO_KEEPALIVE);
     }
-    void set_keepalive_parameters(file_desc& _fd, const keepalive_params& params) {
+    virtual void set_keepalive_parameters(file_desc& _fd, const keepalive_params& params) const override {
         const tcp_keepalive_params& pms = compat::get<tcp_keepalive_params>(params);
         _fd.setsockopt(IPPROTO_TCP, TCP_KEEPCNT, pms.count);
         _fd.setsockopt(IPPROTO_TCP, TCP_KEEPIDLE, int(pms.idle.count()));
         _fd.setsockopt(IPPROTO_TCP, TCP_KEEPINTVL, int(pms.interval.count()));
     }
-    keepalive_params get_keepalive_parameters(file_desc& _fd) const {
+    virtual keepalive_params get_keepalive_parameters(file_desc& _fd) const override {
         return tcp_keepalive_params {
             std::chrono::seconds(_fd.getsockopt<int>(IPPROTO_TCP, TCP_KEEPIDLE)),
             std::chrono::seconds(_fd.getsockopt<int>(IPPROTO_TCP, TCP_KEEPINTVL)),
@@ -78,16 +86,15 @@ public:
     }
 };
 
-template <>
-class posix_connected_socket_operations<transport::SCTP> {
+class posix_sctp_connected_socket_operations : public posix_connected_socket_operations {
 public:
-    void set_nodelay(file_desc& _fd, bool nodelay) {
+    virtual void set_nodelay(file_desc& _fd, bool nodelay) const {
         _fd.setsockopt(SOL_SCTP, SCTP_NODELAY, int(nodelay));
     }
-    bool get_nodelay(file_desc& _fd) const {
+    virtual bool get_nodelay(file_desc& _fd) const {
         return _fd.getsockopt<int>(SOL_SCTP, SCTP_NODELAY);
     }
-    void set_keepalive(file_desc& _fd, bool keepalive) {
+    virtual void set_keepalive(file_desc& _fd, bool keepalive) const override {
         auto heartbeat = _fd.getsockopt<sctp_paddrparams>(SOL_SCTP, SCTP_PEER_ADDR_PARAMS);
         if (keepalive) {
             heartbeat.spp_flags |= SPP_HB_ENABLE;
@@ -96,17 +103,17 @@ public:
         }
         _fd.setsockopt(SOL_SCTP, SCTP_PEER_ADDR_PARAMS, heartbeat);
     }
-    bool get_keepalive(file_desc& _fd) const {
+    virtual bool get_keepalive(file_desc& _fd) const override {
         return _fd.getsockopt<sctp_paddrparams>(SOL_SCTP, SCTP_PEER_ADDR_PARAMS).spp_flags & SPP_HB_ENABLE;
     }
-    void set_keepalive_parameters(file_desc& _fd, const keepalive_params& kpms) {
+    virtual void set_keepalive_parameters(file_desc& _fd, const keepalive_params& kpms) const override {
         const sctp_keepalive_params& pms = compat::get<sctp_keepalive_params>(kpms);
         auto params = _fd.getsockopt<sctp_paddrparams>(SOL_SCTP, SCTP_PEER_ADDR_PARAMS);
         params.spp_hbinterval = pms.interval.count() * 1000; // in milliseconds
         params.spp_pathmaxrxt = pms.count;
         _fd.setsockopt(SOL_SCTP, SCTP_PEER_ADDR_PARAMS, params);
     }
-    keepalive_params get_keepalive_parameters(file_desc& _fd) const {
+    virtual keepalive_params get_keepalive_parameters(file_desc& _fd) const override {
         auto params = _fd.getsockopt<sctp_paddrparams>(SOL_SCTP, SCTP_PEER_ADDR_PARAMS);
         return sctp_keepalive_params {
             std::chrono::seconds(params.spp_hbinterval/1000), // in seconds
@@ -115,10 +122,21 @@ public:
     }
 };
 
+static const posix_connected_socket_operations*
+get_af_inet_posix_connected_socket_ops(transport tr) {
+    static posix_tcp_connected_socket_operations tcp_ops;
+    static posix_sctp_connected_socket_operations sctp_ops;
+    switch (tr) {
+    case transport::TCP: return &tcp_ops;
+    case transport::SCTP: return &sctp_ops;
+    default: abort();
+    }
+}
+
 template <transport Transport>
-class posix_connected_socket_impl final : public connected_socket_impl, posix_connected_socket_operations<Transport> {
+class posix_connected_socket_impl final : public connected_socket_impl {
     lw_shared_ptr<pollable_fd> _fd;
-    using _ops = posix_connected_socket_operations<Transport>;
+    const posix_connected_socket_operations* _ops = get_af_inet_posix_connected_socket_ops(Transport);
     conntrack::handle _handle;
     compat::polymorphic_allocator<char>* _allocator;
 private:
@@ -140,22 +158,22 @@ public:
         _fd->shutdown(SHUT_WR);
     }
     virtual void set_nodelay(bool nodelay) override {
-        return _ops::set_nodelay(_fd->get_file_desc(), nodelay);
+        return _ops->set_nodelay(_fd->get_file_desc(), nodelay);
     }
     virtual bool get_nodelay() const override {
-        return _ops::get_nodelay(_fd->get_file_desc());
+        return _ops->get_nodelay(_fd->get_file_desc());
     }
     void set_keepalive(bool keepalive) override {
-        return _ops::set_keepalive(_fd->get_file_desc(), keepalive);
+        return _ops->set_keepalive(_fd->get_file_desc(), keepalive);
     }
     bool get_keepalive() const override {
-        return _ops::get_keepalive(_fd->get_file_desc());
+        return _ops->get_keepalive(_fd->get_file_desc());
     }
     void set_keepalive_parameters(const keepalive_params& p) override {
-        return _ops::set_keepalive_parameters(_fd->get_file_desc(), p);
+        return _ops->set_keepalive_parameters(_fd->get_file_desc(), p);
     }
     keepalive_params get_keepalive_parameters() const override {
-        return _ops::get_keepalive_parameters(_fd->get_file_desc());
+        return _ops->get_keepalive_parameters(_fd->get_file_desc());
     }
     friend class posix_server_socket_impl<Transport>;
     friend class posix_ap_server_socket_impl<Transport>;
