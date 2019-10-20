@@ -148,13 +148,22 @@ public:
 };
 
 static const posix_connected_socket_operations*
-get_af_inet_posix_connected_socket_ops(int protocol) {
+get_posix_connected_socket_ops(sa_family_t family, int protocol) {
     static posix_tcp_connected_socket_operations tcp_ops;
     static posix_sctp_connected_socket_operations sctp_ops;
-    switch (protocol) {
-    case IPPROTO_TCP: return &tcp_ops;
-    case IPPROTO_SCTP: return &sctp_ops;
-    default: abort();
+    static posix_unix_stream_connected_socket_operations unix_ops;
+    switch (family) {
+    case AF_INET:
+    case AF_INET6:
+        switch (protocol) {
+        case IPPROTO_TCP: return &tcp_ops;
+        case IPPROTO_SCTP: return &sctp_ops;
+        default: abort();
+        }
+    case AF_UNIX:
+        return &unix_ops;
+    default:
+        abort();
     }
 }
 
@@ -164,11 +173,11 @@ class posix_connected_socket_impl final : public connected_socket_impl {
     conntrack::handle _handle;
     compat::polymorphic_allocator<char>* _allocator;
 private:
-    explicit posix_connected_socket_impl(int protocol, lw_shared_ptr<pollable_fd> fd, compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) :
-        _fd(std::move(fd)), _ops(get_af_inet_posix_connected_socket_ops(protocol)), _allocator(allocator) {}
-    explicit posix_connected_socket_impl(int protocol, lw_shared_ptr<pollable_fd> fd, conntrack::handle&& handle,
+    explicit posix_connected_socket_impl(sa_family_t family, int protocol, lw_shared_ptr<pollable_fd> fd, compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) :
+        _fd(std::move(fd)), _ops(get_posix_connected_socket_ops(family, protocol)), _allocator(allocator) {}
+    explicit posix_connected_socket_impl(sa_family_t family, int protocol, lw_shared_ptr<pollable_fd> fd, conntrack::handle&& handle,
         compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _fd(std::move(fd))
-                , _ops(get_af_inet_posix_connected_socket_ops(protocol)), _handle(std::move(handle)), _allocator(allocator) {}
+                , _ops(get_posix_connected_socket_ops(family, protocol)), _handle(std::move(handle)), _allocator(allocator) {}
 public:
     virtual data_source source() override {
         return data_source(std::make_unique< posix_data_source_impl>(_fd, _allocator));
@@ -208,13 +217,11 @@ public:
     friend class posix_socket_impl;
 };
 
-static posix_unix_stream_connected_socket_operations posix_unix_stream_connected_socket_ops;
-
 class posix_connected_unix_socket_impl final : public connected_socket_impl {
     lw_shared_ptr<pollable_fd> _fd;
     conntrack::handle _handle;
     compat::polymorphic_allocator<char>* _allocator;
-    const posix_connected_socket_operations* _ops = &posix_unix_stream_connected_socket_ops;
+    const posix_connected_socket_operations* _ops = get_posix_connected_socket_ops(AF_UNIX, 0);
     explicit posix_connected_unix_socket_impl(lw_shared_ptr<pollable_fd> fd, compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) :
         _fd(std::move(fd)), _allocator(allocator) {}
     explicit posix_connected_unix_socket_impl(lw_shared_ptr<pollable_fd> fd, conntrack::handle&& handle,
@@ -309,9 +316,9 @@ public:
         if (sa.is_af_unix()) {
             return connect_unix_domain(sa, local);
         }
-        return find_port_and_connect(sa, local, proto).then([this, proto, allocator = _allocator] () mutable {
+        return find_port_and_connect(sa, local, proto).then([this, sa, proto, allocator = _allocator] () mutable {
             std::unique_ptr<connected_socket_impl> csi;
-            csi.reset(new posix_connected_socket_impl(static_cast<int>(proto), _fd, allocator));
+            csi.reset(new posix_connected_socket_impl(sa.family(), static_cast<int>(proto), _fd, allocator));
             return make_ready_future<connected_socket>(connected_socket(std::move(csi)));
         });
     }
@@ -354,7 +361,7 @@ posix_server_socket_impl::accept() {
         auto cpu = cth.cpu();
         if (cpu == engine().cpu_id()) {
             std::unique_ptr<connected_socket_impl> csi(
-                    new posix_connected_socket_impl(_protocol, make_lw_shared(std::move(fd)), std::move(cth), _allocator));
+                    new posix_connected_socket_impl(sa.family(), _protocol, make_lw_shared(std::move(fd)), std::move(cth), _allocator));
             return make_ready_future<accept_result>(
                     accept_result{connected_socket(std::move(csi)), sa});
         } else {
@@ -453,7 +460,7 @@ future<accept_result> posix_ap_server_socket_impl::accept() {
         conn_q.erase(conni);
         try {
             std::unique_ptr<connected_socket_impl> csi(
-                    new posix_connected_socket_impl(_protocol, make_lw_shared(std::move(c.fd)), std::move(c.connection_tracking_handle)));
+                    new posix_connected_socket_impl(_sa.family(), _protocol, make_lw_shared(std::move(c.fd)), std::move(c.connection_tracking_handle)));
             return make_ready_future<accept_result>(accept_result{connected_socket(std::move(csi)), std::move(c.addr)});
         } catch (...) {
             return make_exception_future<accept_result>(std::current_exception());
@@ -486,7 +493,7 @@ posix_reuseport_server_socket_impl::accept() {
         auto& fd = std::get<0>(fd_sa);
         auto& sa = std::get<1>(fd_sa);
         std::unique_ptr<connected_socket_impl> csi(
-                new posix_connected_socket_impl(protocol, make_lw_shared(std::move(fd)), allocator));
+                new posix_connected_socket_impl(sa.family(), protocol, make_lw_shared(std::move(fd)), allocator));
         return make_ready_future<accept_result>(
             accept_result{connected_socket(std::move(csi)), sa});
     });
@@ -507,7 +514,7 @@ posix_ap_server_socket_impl::move_connected_socket(int protocol, socket_address 
     auto i = sockets.find(t_sa);
     if (i != sockets.end()) {
         try {
-            std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl(protocol, make_lw_shared(std::move(fd)), std::move(cth), allocator));
+            std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl(sa.family(), protocol, make_lw_shared(std::move(fd)), std::move(cth), allocator));
             i->second.set_value(accept_result{connected_socket(std::move(csi)), std::move(addr)});
         } catch (...) {
             i->second.set_exception(std::current_exception());
