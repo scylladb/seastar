@@ -129,6 +129,24 @@ public:
     }
 };
 
+class posix_unix_stream_connected_socket_operations : public posix_connected_socket_operations {
+public:
+    virtual void set_nodelay(file_desc& fd, bool nodelay) const override {
+        assert(nodelay); // make sure nobody actually tries to use this non-existing functionality
+    }
+    virtual bool get_nodelay(file_desc& fd) const override {
+        return true;
+    }
+    virtual void set_keepalive(file_desc& fd, bool keepalive) const override {}
+    virtual bool get_keepalive(file_desc& fd) const override {
+        return false;
+    }
+    virtual void set_keepalive_parameters(file_desc& fd, const keepalive_params& p) const override {}
+    virtual keepalive_params get_keepalive_parameters(file_desc& fd) const override {
+        return keepalive_params{};
+    }
+};
+
 static const posix_connected_socket_operations*
 get_af_inet_posix_connected_socket_ops(int protocol) {
     static posix_tcp_connected_socket_operations tcp_ops;
@@ -190,10 +208,13 @@ public:
     friend class posix_socket_impl;
 };
 
+static posix_unix_stream_connected_socket_operations posix_unix_stream_connected_socket_ops;
+
 class posix_connected_unix_socket_impl final : public connected_socket_impl {
     lw_shared_ptr<pollable_fd> _fd;
     conntrack::handle _handle;
     compat::polymorphic_allocator<char>* _allocator;
+    const posix_connected_socket_operations* _ops = &posix_unix_stream_connected_socket_ops;
     explicit posix_connected_unix_socket_impl(lw_shared_ptr<pollable_fd> fd, compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) :
         _fd(std::move(fd)), _allocator(allocator) {}
     explicit posix_connected_unix_socket_impl(lw_shared_ptr<pollable_fd> fd, conntrack::handle&& handle,
@@ -212,18 +233,22 @@ public:
         _fd->shutdown(SHUT_WR);
     }
     virtual void set_nodelay(bool nodelay) override {
-        assert(nodelay); // make sure nobody actually tries to use this non-existing functionality
+        _ops->set_nodelay(_fd->get_file_desc(), nodelay);
     }
     virtual bool get_nodelay() const override {
-        return true;
+        return _ops->get_nodelay(_fd->get_file_desc());
     }
-    void set_keepalive(bool keepalive) override {}
+    void set_keepalive(bool keepalive) override {
+        _ops->set_keepalive(_fd->get_file_desc(), keepalive);
+    }
     bool get_keepalive() const override {
-        return false;
+        return _ops->get_keepalive(_fd->get_file_desc());
     }
-    void set_keepalive_parameters(const keepalive_params& p) override {}
+    void set_keepalive_parameters(const keepalive_params& p) override {
+        _ops->set_keepalive_parameters(_fd->get_file_desc(), p);
+    }
     keepalive_params get_keepalive_parameters() const override {
-        return keepalive_params{};
+        return _ops->get_keepalive_parameters(_fd->get_file_desc());
     }
     friend class posix_server_unix_socket_impl;
     friend class posix_ap_server_unix_socket_impl;
