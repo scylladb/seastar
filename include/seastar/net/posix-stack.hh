@@ -127,31 +127,33 @@ public:
     future<> close() override;
 };
 
-template <transport Transport>
 class posix_ap_server_socket_impl : public api_v2::server_socket_impl {
+    using transport_and_socket_address = std::tuple<transport, socket_address>;
     struct connection {
         pollable_fd fd;
         socket_address addr;
         conntrack::handle connection_tracking_handle;
         connection(pollable_fd xfd, socket_address xaddr, conntrack::handle cth) : fd(std::move(xfd)), addr(xaddr), connection_tracking_handle(std::move(cth)) {}
     };
-    using sockets_map_t = std::unordered_map<socket_address, promise<accept_result>>;
-    using conn_map_t = std::unordered_multimap<socket_address, posix_ap_server_socket_impl<Transport>::connection>;
+    using sockets_map_t = std::unordered_map<transport_and_socket_address, promise<accept_result>>;
+    using conn_map_t = std::unordered_multimap<transport_and_socket_address, connection>;
     static thread_local sockets_map_t sockets;
     static thread_local conn_map_t conn_q;
+    transport _tr;
     socket_address _sa;
     compat::polymorphic_allocator<char>* _allocator;
 public:
-    explicit posix_ap_server_socket_impl(socket_address sa, compat::polymorphic_allocator<char>* allocator = memory::malloc_allocator) : _sa(sa), _allocator(allocator) {}
+    explicit posix_ap_server_socket_impl(transport tr, socket_address sa, compat::polymorphic_allocator<char>* allocator = memory::malloc_allocator) : _tr(tr), _sa(sa), _allocator(allocator) {}
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     socket_address local_address() const override {
         return _sa;
     }
-    static void move_connected_socket(socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, compat::polymorphic_allocator<char>* allocator);
+    static void move_connected_socket(transport tr, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, compat::polymorphic_allocator<char>* allocator);
+
+    template <typename T>
+    friend class std::hash;
 };
-using posix_tcp_ap_server_socket_impl = posix_ap_server_socket_impl<transport::TCP>;
-using posix_sctp_ap_server_socket_impl = posix_ap_server_socket_impl<transport::SCTP>;
 
 // the non-templated UNIX-domain version:
 
