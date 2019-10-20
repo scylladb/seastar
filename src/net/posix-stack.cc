@@ -182,7 +182,6 @@ public:
     keepalive_params get_keepalive_parameters() const override {
         return _ops->get_keepalive_parameters(_fd->get_file_desc());
     }
-    template <transport Transport>
     friend class posix_server_socket_impl;
     friend class posix_ap_server_socket_impl;
     template <transport Transport>
@@ -325,9 +324,8 @@ public:
     }
 };
 
-template <transport Transport>
 future<accept_result>
-posix_server_socket_impl<Transport>::accept() {
+posix_server_socket_impl::accept() {
     return _lfd.accept().then([this] (std::tuple<pollable_fd, socket_address> fd_sa) {
         auto& fd = std::get<0>(fd_sa);
         auto& sa = std::get<1>(fd_sa);
@@ -336,27 +334,25 @@ posix_server_socket_impl<Transport>::accept() {
         auto cpu = cth.cpu();
         if (cpu == engine().cpu_id()) {
             std::unique_ptr<connected_socket_impl> csi(
-                    new posix_connected_socket_impl(Transport, make_lw_shared(std::move(fd)), std::move(cth), _allocator));
+                    new posix_connected_socket_impl(_tr, make_lw_shared(std::move(fd)), std::move(cth), _allocator));
             return make_ready_future<accept_result>(
                     accept_result{connected_socket(std::move(csi)), sa});
         } else {
             // FIXME: future is discarded
-            (void)smp::submit_to(cpu, [ssa = _sa, fd = std::move(fd.get_file_desc()), sa, cth = std::move(cth), allocator = _allocator] () mutable {
-                posix_ap_server_socket_impl::move_connected_socket(Transport, ssa, pollable_fd(std::move(fd)), sa, std::move(cth), allocator);
+            (void)smp::submit_to(cpu, [tr = _tr, ssa = _sa, fd = std::move(fd.get_file_desc()), sa, cth = std::move(cth), allocator = _allocator] () mutable {
+                posix_ap_server_socket_impl::move_connected_socket(tr, ssa, pollable_fd(std::move(fd)), sa, std::move(cth), allocator);
             });
             return accept();
         }
     });
 }
 
-template <transport Transport>
 void
-posix_server_socket_impl<Transport>::abort_accept() {
+posix_server_socket_impl::abort_accept() {
     _lfd.abort_reader();
 }
 
-template <transport Transport>
-socket_address posix_server_socket_impl<Transport>::local_address() const {
+socket_address posix_server_socket_impl::local_address() const {
     return _lfd.get_file_desc().get_address();
 }
 
@@ -581,12 +577,12 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
         return _reuseport ?
             server_socket(std::make_unique<posix_reuseport_server_tcp_socket_impl>(sa, engine().posix_listen(sa, opt), _allocator))
             :
-            server_socket(std::make_unique<posix_server_tcp_socket_impl>(sa, engine().posix_listen(sa, opt), opt.lba, _allocator));
+            server_socket(std::make_unique<posix_server_socket_impl>(transport::TCP, sa, engine().posix_listen(sa, opt), opt.lba, _allocator));
     } else {
         return _reuseport ?
             server_socket(std::make_unique<posix_reuseport_server_sctp_socket_impl>(sa, engine().posix_listen(sa, opt), _allocator))
             :
-            server_socket(std::make_unique<posix_server_sctp_socket_impl>(sa, engine().posix_listen(sa, opt), opt.lba, _allocator));
+            server_socket(std::make_unique<posix_server_socket_impl>(transport::SCTP, sa, engine().posix_listen(sa, opt), opt.lba, _allocator));
     }
 }
 

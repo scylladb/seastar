@@ -178,22 +178,20 @@ public:
     static void move_connected_unix_socket(socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, compat::polymorphic_allocator<char>* allocator);
 };
 
-template <transport Transport>
 class posix_server_socket_impl : public api_v2::server_socket_impl {
     socket_address _sa;
+    transport _tr;
     pollable_fd _lfd;
     conntrack _conntrack;
     server_socket::load_balancing_algorithm _lba;
     compat::polymorphic_allocator<char>* _allocator;
 public:
-    explicit posix_server_socket_impl(socket_address sa, pollable_fd lfd, server_socket::load_balancing_algorithm lba,
-        compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _lfd(std::move(lfd)), _lba(lba), _allocator(allocator) {}
+    explicit posix_server_socket_impl(transport tr, socket_address sa, pollable_fd lfd, server_socket::load_balancing_algorithm lba,
+        compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _tr(tr), _lfd(std::move(lfd)), _lba(lba), _allocator(allocator) {}
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
 };
-using posix_server_tcp_socket_impl = posix_server_socket_impl<transport::TCP>;
-using posix_server_sctp_socket_impl = posix_server_socket_impl<transport::SCTP>;
 
 class posix_server_unix_socket_impl : public api_v2::server_socket_impl {
     socket_address _sa;
