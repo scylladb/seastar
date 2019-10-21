@@ -815,71 +815,6 @@ struct reactor::task_queue::indirect_compare {
     }
 };
 
-static bool detect_aio_poll() {
-    auto fd = file_desc::eventfd(0, 0);
-    aio_context_t ioc{};
-    setup_aio_context(1, &ioc);
-    auto cleanup = defer([&] { io_destroy(ioc); });
-    linux_abi::iocb iocb = internal::make_poll_iocb(fd.get(), POLLIN|POLLOUT);
-    linux_abi::iocb* a[1] = { &iocb };
-    auto r = io_submit(ioc, 1, a);
-    if (r != 1) {
-        return false;
-    }
-    uint64_t one = 1;
-    fd.write(&one, 8);
-    io_event ev[1];
-    // We set force_syscall = true (the last parameter) to ensure
-    // the system call exists and is usable. If IOCB_CMD_POLL exists then
-    // io_pgetevents() will also exist, but some versions of docker
-    // have a syscall whitelist that does not include io_pgetevents(),
-    // which causes it to fail with -EPERM. See
-    // https://github.com/moby/moby/issues/38894.
-    r = io_pgetevents(ioc, 1, 1, ev, nullptr, nullptr, true);
-    return r == 1;
-}
-
-class reactor_backend_selector {
-    std::string _name;
-private:
-    explicit reactor_backend_selector(std::string name) : _name(std::move(name)) {}
-public:
-    std::unique_ptr<reactor_backend> create(reactor* r) {
-        if (_name == "linux-aio") {
-            return std::make_unique<reactor_backend_aio>(r);
-        } else if (_name == "epoll") {
-            return std::make_unique<reactor_backend_epoll>(r);
-        }
-        throw std::logic_error("bad reactor backend");
-    }
-    static reactor_backend_selector default_backend() {
-        return available()[0];
-    }
-    static std::vector<reactor_backend_selector> available() {
-        std::vector<reactor_backend_selector> ret;
-        if (detect_aio_poll()) {
-            ret.push_back(reactor_backend_selector("linux-aio"));
-        }
-        ret.push_back(reactor_backend_selector("epoll"));
-        return ret;
-    }
-    friend std::ostream& operator<<(std::ostream& os, const reactor_backend_selector& rbs) {
-        return os << rbs._name;
-    }
-    friend void validate(boost::any& v, const std::vector<std::string> values, reactor_backend_selector* rbs, int) {
-        namespace bpo = boost::program_options;
-        bpo::validators::check_first_occurrence(v);
-        auto s = bpo::validators::get_single_string(values);
-        for (auto&& x : available()) {
-            if (s == x._name) {
-                v = std::move(x);
-                return;
-            }
-        }
-        throw bpo::validation_error(bpo::validation_error::invalid_option_value);
-    }
-};
-
 reactor::reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg)
     : _cfg(cfg)
     , _notify_eventfd(file_desc::eventfd(0, EFD_CLOEXEC))
@@ -2947,64 +2882,6 @@ unsigned syscall_work_queue::complete() {
 }
 
 
-struct smp_service_group_impl {
-    std::vector<semaphore> clients;   // one client per server shard
-};
-
-static semaphore smp_service_group_management_sem{1};
-static thread_local std::vector<smp_service_group_impl> smp_service_groups;
-
-future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc) {
-    ssgc.max_nonlocal_requests = std::max(ssgc.max_nonlocal_requests, smp::count - 1);
-    return smp::submit_to(0, [ssgc] {
-        return with_semaphore(smp_service_group_management_sem, 1, [ssgc] {
-            auto it = boost::range::find_if(smp_service_groups, [&] (smp_service_group_impl& ssgi) { return ssgi.clients.empty(); });
-            size_t id = it - smp_service_groups.begin();
-            return smp::invoke_on_all([ssgc, id] {
-                if (id >= smp_service_groups.size()) {
-                    smp_service_groups.resize(id + 1); // may throw
-                }
-                smp_service_groups[id].clients.reserve(smp::count); // may throw
-                auto per_client = smp::count > 1 ? ssgc.max_nonlocal_requests / (smp::count - 1) : 0u;
-                for (unsigned i = 0; i != smp::count; ++i) {
-                    smp_service_groups[id].clients.emplace_back(per_client);
-                }
-            }).handle_exception([id] (std::exception_ptr e) {
-                // rollback
-                return smp::invoke_on_all([id] {
-                    if (smp_service_groups.size() > id) {
-                        smp_service_groups[id].clients.clear();
-                    }
-                }).then([e = std::move(e)] () mutable {
-                    std::rethrow_exception(std::move(e));
-                });
-            }).then([id] {
-                return smp_service_group(id);
-            });
-        });
-    });
-}
-
-future<> destroy_smp_service_group(smp_service_group ssg) {
-    return smp::submit_to(0, [ssg] {
-        return with_semaphore(smp_service_group_management_sem, 1, [ssg] {
-            auto id = internal::smp_service_group_id(ssg);
-            return smp::invoke_on_all([id] {
-                smp_service_groups[id].clients.clear();
-            });
-        });
-    });
-}
-
-void init_default_smp_service_group() {
-    smp_service_groups.emplace_back();
-    auto& ssg0 = smp_service_groups.back();
-    ssg0.clients.reserve(smp::count);
-    for (unsigned i = 0; i != smp::count; ++i) {
-        ssg0.clients.emplace_back(semaphore::max_counter());
-    }
-}
-
 smp_message_queue::smp_message_queue(reactor* from, reactor* to)
     : _pending(to)
     , _completed(from)
@@ -3046,7 +2923,7 @@ bool smp_message_queue::pure_poll_tx() const {
 void smp_message_queue::submit_item(shard_id t, std::unique_ptr<smp_message_queue::work_item> item) {
   // matching signal() in process_completions()
   auto ssg_id = internal::smp_service_group_id(item->ssg);
-  auto& sem = smp_service_groups[ssg_id].clients[t];
+  auto& sem = get_smp_service_groups_semaphore(ssg_id, t);
   // FIXME: future is discarded
   (void)get_units(sem, 1).then([this, item = std::move(item)] (semaphore_units<> u) mutable {
     _tx.a.pending_fifo.push_back(item.get());
@@ -3140,7 +3017,7 @@ size_t smp_message_queue::process_completions(shard_id t) {
     auto nr = process_queue<prefetch_cnt*2>(_completed, [t] (work_item* wi) {
         wi->complete();
         auto ssg_id = smp_service_group_id(wi->ssg);
-        smp_service_groups[ssg_id].clients[t].signal();
+        get_smp_service_groups_semaphore(ssg_id, t).signal();
         delete wi;
     });
     _current_queue_length -= nr;

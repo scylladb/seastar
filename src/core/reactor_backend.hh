@@ -30,6 +30,8 @@
 #include <signal.h>
 #include <thread>
 #include <stack>
+#include <boost/any.hpp>
+#include <boost/program_options.hpp>
 
 #ifdef HAVE_OSV
 #include <osv/newpoll.hh>
@@ -186,5 +188,29 @@ public:
 };
 #endif /* HAVE_OSV */
 
+class reactor_backend_selector {
+    std::string _name;
+private:
+    explicit reactor_backend_selector(std::string name) : _name(std::move(name)) {}
+public:
+    std::unique_ptr<reactor_backend> create(reactor* r);
+    static reactor_backend_selector default_backend();
+    static std::vector<reactor_backend_selector> available();
+    friend std::ostream& operator<<(std::ostream& os, const reactor_backend_selector& rbs) {
+        return os << rbs._name;
+    }
+    friend void validate(boost::any& v, const std::vector<std::string> values, reactor_backend_selector* rbs, int) {
+        namespace bpo = boost::program_options;
+        bpo::validators::check_first_occurrence(v);
+        auto s = bpo::validators::get_single_string(values);
+        for (auto&& x : available()) {
+            if (s == x._name) {
+                v = std::move(x);
+                return;
+            }
+        }
+        throw bpo::validation_error(bpo::validation_error::invalid_option_value);
+    }
+};
 
 }
