@@ -127,100 +127,61 @@ public:
     future<> close() override;
 };
 
-template <transport Transport>
 class posix_ap_server_socket_impl : public api_v2::server_socket_impl {
+    using protocol_and_socket_address = std::tuple<int, socket_address>;
     struct connection {
         pollable_fd fd;
         socket_address addr;
         conntrack::handle connection_tracking_handle;
         connection(pollable_fd xfd, socket_address xaddr, conntrack::handle cth) : fd(std::move(xfd)), addr(xaddr), connection_tracking_handle(std::move(cth)) {}
     };
-    using sockets_map_t = std::unordered_map<socket_address, promise<accept_result>>;
-    using conn_map_t = std::unordered_multimap<socket_address, posix_ap_server_socket_impl<Transport>::connection>;
+    using sockets_map_t = std::unordered_map<protocol_and_socket_address, promise<accept_result>>;
+    using conn_map_t = std::unordered_multimap<protocol_and_socket_address, connection>;
     static thread_local sockets_map_t sockets;
     static thread_local conn_map_t conn_q;
+    int _protocol;
     socket_address _sa;
     compat::polymorphic_allocator<char>* _allocator;
 public:
-    explicit posix_ap_server_socket_impl(socket_address sa, compat::polymorphic_allocator<char>* allocator = memory::malloc_allocator) : _sa(sa), _allocator(allocator) {}
+    explicit posix_ap_server_socket_impl(int protocol, socket_address sa, compat::polymorphic_allocator<char>* allocator = memory::malloc_allocator) : _protocol(protocol), _sa(sa), _allocator(allocator) {}
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     socket_address local_address() const override {
         return _sa;
     }
-    static void move_connected_socket(socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, compat::polymorphic_allocator<char>* allocator);
-};
-using posix_tcp_ap_server_socket_impl = posix_ap_server_socket_impl<transport::TCP>;
-using posix_sctp_ap_server_socket_impl = posix_ap_server_socket_impl<transport::SCTP>;
+    static void move_connected_socket(int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, compat::polymorphic_allocator<char>* allocator);
 
-// the non-templated UNIX-domain version:
-
-class posix_ap_server_unix_socket_impl : public api_v2::server_socket_impl {
-    struct connection {
-        pollable_fd fd;
-        socket_address addr;
-        conntrack::handle connection_tracking_handle;
-        connection(pollable_fd xfd, socket_address xaddr, conntrack::handle cth) : fd(std::move(xfd)), addr(xaddr), connection_tracking_handle(std::move(cth)) {}
-    };
-    static thread_local std::unordered_map<socket_address, promise<accept_result>> sockets;
-    static thread_local std::unordered_multimap<socket_address, connection> conn_q;
-    socket_address _sa;
-    compat::polymorphic_allocator<char>* _allocator;
-public:
-    explicit posix_ap_server_unix_socket_impl(socket_address sa, compat::polymorphic_allocator<char>* allocator = memory::malloc_allocator) : _sa(sa), _allocator(allocator) {};
-    virtual future<accept_result> accept() override;
-    virtual void abort_accept() override;
-    socket_address local_address() const override {
-        return _sa;
-    }
-    static void move_connected_unix_socket(socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, compat::polymorphic_allocator<char>* allocator);
+    template <typename T>
+    friend class std::hash;
 };
 
-template <transport Transport>
 class posix_server_socket_impl : public api_v2::server_socket_impl {
     socket_address _sa;
+    int _protocol;
     pollable_fd _lfd;
     conntrack _conntrack;
     server_socket::load_balancing_algorithm _lba;
     compat::polymorphic_allocator<char>* _allocator;
 public:
-    explicit posix_server_socket_impl(socket_address sa, pollable_fd lfd, server_socket::load_balancing_algorithm lba,
-        compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _lfd(std::move(lfd)), _lba(lba), _allocator(allocator) {}
-    virtual future<accept_result> accept() override;
-    virtual void abort_accept() override;
-    virtual socket_address local_address() const override;
-};
-using posix_server_tcp_socket_impl = posix_server_socket_impl<transport::TCP>;
-using posix_server_sctp_socket_impl = posix_server_socket_impl<transport::SCTP>;
-
-class posix_server_unix_socket_impl : public api_v2::server_socket_impl {
-    socket_address _sa;
-    pollable_fd _lfd;
-    conntrack _conntrack;
-    server_socket::load_balancing_algorithm _lba;
-    compat::polymorphic_allocator<char>* _allocator;
-public:
-    explicit posix_server_unix_socket_impl(socket_address sa, pollable_fd lfd, server_socket::load_balancing_algorithm lba,
-        compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _lfd(std::move(lfd)), _lba(lba), _allocator(allocator) {}
+    explicit posix_server_socket_impl(int protocol, socket_address sa, pollable_fd lfd, server_socket::load_balancing_algorithm lba,
+        compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _lba(lba), _allocator(allocator) {}
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
 };
 
-template <transport Transport>
 class posix_reuseport_server_socket_impl : public api_v2::server_socket_impl {
     socket_address _sa;
+    int _protocol;
     pollable_fd _lfd;
     compat::polymorphic_allocator<char>* _allocator;
 public:
-    explicit posix_reuseport_server_socket_impl(socket_address sa, pollable_fd lfd,
-        compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _lfd(std::move(lfd)), _allocator(allocator) {}
+    explicit posix_reuseport_server_socket_impl(int protocol, socket_address sa, pollable_fd lfd,
+        compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _allocator(allocator) {}
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
 };
-using posix_reuseport_server_tcp_socket_impl = posix_reuseport_server_socket_impl<transport::TCP>;
-using posix_reuseport_server_sctp_socket_impl = posix_reuseport_server_socket_impl<transport::SCTP>;
 
 class posix_network_stack : public network_stack {
 private:

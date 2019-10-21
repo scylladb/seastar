@@ -165,4 +165,11 @@ struct hash<::sockaddr_un> {
     size_t operator()(const ::sockaddr_un&) const;
 };
 
+template <>
+struct hash<seastar::transport> {
+    size_t operator()(seastar::transport tr) const {
+        return static_cast<size_t>(tr);
+    }
+};
+
 }
