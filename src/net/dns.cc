@@ -240,13 +240,9 @@ public:
         dns_log.debug("Query name {} ({})", name, family);
 
         if (!family) {
-            ::in_addr in;
-            ::in6_addr in6;
-            if (::inet_pton(AF_INET, name.c_str(), &in)) {
-                return make_ready_future<hostent>(hostent{ {name}, {net::inet_address(in)}});
-            }
-            if (::inet_pton(AF_INET6, name.c_str(), &in6)) {
-                return make_ready_future<hostent>(hostent{ {name}, {net::inet_address(in6)}});
+            auto res = inet_address::parse_numerical(name);
+            if (res) {
+                return make_ready_future<hostent>(hostent{ {name}, {*res}});
             }
         }
 

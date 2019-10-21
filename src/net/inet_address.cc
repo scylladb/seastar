@@ -46,8 +46,8 @@ seastar::net::inet_address::inet_address(::in6_addr i, uint32_t scope)
                 : _in_family(family::INET6), _in6(i), _scope(scope) {
 }
 
-seastar::net::inet_address::inet_address(const sstring& addr)
-                : inet_address([&addr] {
+seastar::compat::optional<seastar::net::inet_address> 
+seastar::net::inet_address::parse_numerical(const sstring& addr) {
     inet_address in;
     if (::inet_pton(AF_INET, addr.c_str(), &in._in)) {
         in._in_family = family::INET;
@@ -56,6 +56,15 @@ seastar::net::inet_address::inet_address(const sstring& addr)
     if (::inet_pton(AF_INET6, addr.c_str(), &in._in6)) {
         in._in_family = family::INET6;
         return in;
+    }
+    return {};
+}
+
+seastar::net::inet_address::inet_address(const sstring& addr)
+                : inet_address([&addr] {
+    auto res = parse_numerical(addr);                        
+    if (res) {
+        return std::move(*res);
     }
     throw std::invalid_argument(addr);
 }())
