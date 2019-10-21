@@ -53,6 +53,27 @@ seastar::net::inet_address::parse_numerical(const sstring& addr) {
         in._in_family = family::INET;
         return in;
     }
+    auto i = addr.find_last_of('%');
+    if (i != sstring::npos) {
+        auto ext = addr.substr(i + 1);
+        auto src = addr.substr(0, i);
+        auto res = parse_numerical(src);
+
+        if (res) {
+            uint32_t index = std::numeric_limits<uint32_t>::max();
+            try {
+                index = std::stoul(ext);
+            } catch (...) {
+            }
+            for (auto& nwif : engine().net().network_interfaces()) {
+                if (nwif.index() == index || nwif.name() == ext || nwif.display_name() == ext) {
+                    res->_scope = nwif.index();
+                    break;
+                }
+            }
+            return *res;
+        }
+    }
     if (::inet_pton(AF_INET6, addr.c_str(), &in._in6)) {
         in._in_family = family::INET6;
         return in;
