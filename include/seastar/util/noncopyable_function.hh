@@ -51,8 +51,12 @@ private:
         new (&to->_storage.indirect) void_ptr(from->_storage.indirect);
     }
 
+    template <size_t N>
     static void trivial_direct_move(noncopyable_function_base* from, noncopyable_function_base* to) {
-        to->_storage = from->_storage;
+        // Avoid including <algorithm> just for this
+        for (unsigned i = 0; i != N; ++i) {
+            to->_storage.direct[i] = from->_storage.direct[i];
+        }
     }
 
     static void trivial_direct_destroy(noncopyable_function_base* func) {
@@ -101,7 +105,7 @@ private:
         static constexpr move_type select_move_thunk() {
             bool can_trivially_move = std::is_trivially_move_constructible<Func>::value
                     && std::is_trivially_destructible<Func>::value;
-            return can_trivially_move ? trivial_direct_move : move;
+            return can_trivially_move ? trivial_direct_move<sizeof(Func)> : move;
         }
         static void destroy(noncopyable_function_base* func) {
             access(func)->~Func();
