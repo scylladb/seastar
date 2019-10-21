@@ -96,6 +96,22 @@ public:
     virtual void close() = 0;
 };
 
+class network_interface_impl {
+public:
+    virtual uint32_t index() const = 0;
+    virtual uint32_t mtu() const = 0;
+
+    virtual const sstring& name() const = 0;
+    virtual const sstring& display_name() const = 0;
+    virtual const std::vector<net::inet_address>& addresses() const = 0;
+    virtual const std::vector<uint8_t> hardware_address() const = 0;
+
+    virtual bool is_loopback() const = 0;
+    virtual bool is_virtual() const = 0;
+    virtual bool is_up() const = 0;
+    virtual bool supports_ipv6() const = 0;
+};
+
 /// \endcond
 
 }

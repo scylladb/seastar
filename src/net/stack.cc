@@ -343,6 +343,54 @@ bool socket_address::operator==(const socket_address& a) const {
     return IN6_ARE_ADDR_EQUAL(&in1, &in2);
 }
 
+network_interface::network_interface(shared_ptr<net::network_interface_impl> impl)
+    : _impl(std::move(impl))
+{}
+
+network_interface::network_interface(network_interface&&) = default;
+network_interface& network_interface::operator=(network_interface&&) = default;
+    
+uint32_t network_interface::index() const {
+    return _impl->index();
+}
+
+uint32_t network_interface::mtu() const {
+    return _impl->mtu();
+}
+
+const sstring& network_interface::name() const {
+    return _impl->name();
+}
+
+const sstring& network_interface::display_name() const {
+    return _impl->display_name();
+}
+
+const std::vector<net::inet_address>& network_interface::addresses() const {
+    return _impl->addresses();
+}
+
+const std::vector<uint8_t> network_interface::hardware_address() const {
+    return _impl->hardware_address();
+}
+
+bool network_interface::is_loopback() const {
+    return _impl->is_loopback();
+}
+
+bool network_interface::is_virtual() const {
+    return _impl->is_virtual();
+}
+
+bool network_interface::is_up() const {
+    return _impl->is_up();
+}
+
+bool network_interface::supports_ipv6() const {
+    return _impl->supports_ipv6();
+}
+
+
 future<connected_socket>
 network_stack::connect(socket_address sa, socket_address local, transport proto) {
     if (local == socket_address()) {
@@ -351,6 +399,10 @@ network_stack::connect(socket_address sa, socket_address local, transport proto)
     return do_with(socket(), [sa, local, proto](::seastar::socket& s) {
         return s.connect(sa, local, proto);
     });
+}
+
+std::vector<network_interface> network_stack::network_interfaces() {
+    return {};
 }
 
 }
