@@ -263,11 +263,13 @@ socket_address server_socket::local_address() const {
 
 #endif
 
-socket_address::socket_address()
-    : socket_address(ipv4_addr()) {
-    // override the addr_length, as we (probably) want to use the constructed object
+socket_address::socket_address() 
+    // set max addr_length, as we (probably) want to use the constructed object
     // in accept() or get_address()
-    addr_length = sizeof(::sockaddr_storage);
+    : addr_length(sizeof(::sockaddr_storage))
+{
+    static_assert(AF_UNSPEC == 0, "just checking");
+    memset(&u, 0, sizeof(u));
 }
 
 socket_address::socket_address(uint16_t p)
@@ -300,6 +302,10 @@ socket_address::socket_address(uint32_t ipv4, uint16_t p)
     : socket_address(make_ipv4_address(ipv4, p))
 {}
 
+bool socket_address::is_unspecified() const {
+    return u.sa.sa_family == AF_UNSPEC;
+}
+
 static int adjusted_path_length(const socket_address& a) {
     int l = std::max(0, (int)a.addr_length-(int)((size_t) (((struct sockaddr_un *) 0)->sun_path)));
     // "un-count" a trailing null in filesystem-namespace paths
@@ -330,6 +336,7 @@ bool socket_address::operator==(const socket_address& a) const {
     switch (u.sa.sa_family) {
     case AF_INET:
         return u.in.sin_addr.s_addr == a.u.in.sin_addr.s_addr;
+    case AF_UNSPEC:
     case AF_INET6:
         // handled below
         break;
@@ -393,9 +400,6 @@ bool network_interface::supports_ipv6() const {
 
 future<connected_socket>
 network_stack::connect(socket_address sa, socket_address local, transport proto) {
-    if (local == socket_address()) {
-        local = net::inet_address(sa.addr().in_family());
-    }
     return do_with(socket(), [sa, local, proto](::seastar::socket& s) {
         return s.connect(sa, local, proto);
     });

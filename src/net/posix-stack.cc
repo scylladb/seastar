@@ -224,6 +224,10 @@ class posix_socket_impl final : public socket_impl {
     future<> find_port_and_connect(socket_address sa, socket_address local, transport proto = transport::TCP) {
         static thread_local std::default_random_engine random_engine{std::random_device{}()};
         static thread_local std::uniform_int_distribution<uint16_t> u(49152/smp::count + 1, 65535/smp::count - 1);
+        // If no explicit local address, set to dest address family wildcard. 
+        if (local.is_unspecified()) {
+            local = net::inet_address(sa.addr().in_family());
+        }
         return repeat([this, sa, local, proto, attempts = 0, requested_port = ntoh(local.as_posix_sockaddr_in().sin_port)] () mutable {
             _fd = engine().make_pollable_fd(sa, int(proto));
             _fd->get_file_desc().setsockopt(SOL_SOCKET, SO_REUSEADDR, int(_reuseaddr));
@@ -245,8 +249,8 @@ class posix_socket_impl final : public socket_impl {
 
     /// an aux function to handle unix-domain-specific requests
     future<connected_socket> connect_unix_domain(socket_address sa, socket_address local) {
-        // note that if the 'local' address was not set by the client, it was created as an INET address
-        if (!local.is_af_unix()) {
+        // note that if the 'local' address was not set by the client, it was created as an undefined address
+        if (local.is_unspecified()) {
             local = socket_address{unix_domain_addr{std::string{}}};
         }
 
@@ -556,6 +560,10 @@ posix_data_sink_impl::close() {
 server_socket
 posix_network_stack::listen(socket_address sa, listen_options opt) {
     using server_socket = seastar::api_v2::server_socket;
+    // allow unspecified bind address -> default to ipv4 wildcard
+    if (sa.is_unspecified()) {
+        sa = inet_address(inet_address::family::INET);
+    }
     if (sa.is_af_unix()) {
         return server_socket(std::make_unique<posix_server_unix_socket_impl>(sa, engine().posix_listen(sa, opt), opt.lba, _allocator));
     }
@@ -579,6 +587,10 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
 server_socket
 posix_ap_network_stack::listen(socket_address sa, listen_options opt) {
     using server_socket = seastar::api_v2::server_socket;
+    // allow unspecified bind address -> default to ipv4 wildcard
+    if (sa.is_unspecified()) {
+        sa = inet_address(inet_address::family::INET);
+    }
     if (sa.is_af_unix()) {
         return server_socket(std::make_unique<posix_ap_server_unix_socket_impl>(sa));
     }
@@ -658,7 +670,7 @@ private:
 public:
     posix_udp_channel(const socket_address& bind_address)
             : _closed(false) {
-        auto sa = bind_address;
+        auto sa = bind_address.is_unspecified() ? socket_address(inet_address(inet_address::family::INET)) : bind_address;
         file_desc fd = file_desc::socket(sa.u.sa.sa_family, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
         fd.setsockopt(SOL_IP, IP_PKTINFO, true);
         if (engine().posix_reuseport_available()) {

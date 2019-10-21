@@ -227,7 +227,7 @@ public:
     /// Attempts to establish the connection.
     ///
     /// \return a \ref connected_socket representing the connection.
-    future<connected_socket> connect(socket_address sa, socket_address local = socket_address(::sockaddr_in{AF_INET, INADDR_ANY, {0}}), transport proto = transport::TCP);
+    future<connected_socket> connect(socket_address sa, socket_address local = {}, transport proto = transport::TCP);
 
     /// Sets SO_REUSEADDR option (enable reuseaddr option on a socket)
     void set_reuseaddr(bool reuseaddr);

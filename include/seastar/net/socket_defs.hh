@@ -60,7 +60,12 @@ public:
     socket_address(const ipv6_addr&, uint32_t scope);
     socket_address(const net::inet_address&, uint16_t p = 0);
     explicit socket_address(const unix_domain_addr&);
+    /** creates an uninitialized socket_address. this can be written into, or used as
+     *  "unspecified" for such addresses as bind(addr) or local address in socket::connect
+     *  (i.e. system picks)
+     */ 
     socket_address();
+
     ::sockaddr& as_posix_sockaddr() { return u.sa; }
     ::sockaddr_in& as_posix_sockaddr_in() { return u.in; }
     ::sockaddr_in6& as_posix_sockaddr_in6() { return u.in6; }
@@ -75,6 +80,8 @@ public:
     bool is_af_unix() const {
         return u.sa.sa_family == AF_UNIX;
     }
+
+    bool is_unspecified() const;
 
     sa_family_t family() const {
         return u.sa.sa_family;
