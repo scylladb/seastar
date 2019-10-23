@@ -172,6 +172,11 @@ public:
         _inet.learn(l2, l3);
     }
     friend class native_server_socket_impl<tcp4>;
+
+    class native_network_interface;
+    friend class native_network_interface;
+
+    std::vector<network_interface> network_interfaces() override;
 };
 
 thread_local promise<std::unique_ptr<network_stack>> native_network_stack::ready_promise;
@@ -205,7 +210,7 @@ native_network_stack::native_network_stack(boost::program_options::variables_map
 
 server_socket
 native_network_stack::listen(socket_address sa, listen_options opts) {
-    assert(sa.as_posix_sockaddr().sa_family == AF_INET);
+    assert(sa.family() == AF_INET || sa.is_unspecified());
     return tcpv4_listen(_inet.get_tcp(), ntohs(sa.as_posix_sockaddr_in().sin_port), opts);
 }
 
@@ -339,6 +344,64 @@ boost::program_options::options_description nns_options() {
 void register_native_stack() {
     register_network_stack("native", nns_options(), native_network_stack::create);
 }
+
+class native_network_stack::native_network_interface : public net::network_interface_impl {
+    const native_network_stack& _stack;
+    std::vector<net::inet_address> _addresses;
+    std::vector<uint8_t> _hardware_address;
+public:
+    native_network_interface(const native_network_stack& stack)
+        : _stack(stack)
+        , _addresses(1, _stack._inet.host_address())
+        , _hardware_address(_stack._inet.netif()->hw_address().mac.begin(), _stack._inet.netif()->hw_address().mac.end())
+    {}
+    native_network_interface(const native_network_interface&) = default;
+
+    uint32_t index() const override {
+        return 0;
+    }
+    uint32_t mtu() const override {
+        return _stack._inet.netif()->hw_features().mtu;
+    }
+    const sstring& name() const override {
+        static const sstring name = "if0";
+        return name;
+    }
+    const sstring& display_name() const override {
+        return name();
+    }
+    const std::vector<net::inet_address>& addresses() const override {
+        return _addresses;            
+    }
+    const std::vector<uint8_t> hardware_address() const override {
+        return _hardware_address;
+    }
+    bool is_loopback() const override {
+        return false;   
+    }
+    bool is_virtual() const override {
+        return false;
+    }
+    bool is_up() const override {
+        return true;
+    }
+    bool supports_ipv6() const override {
+        return false;
+    }
+};
+
+std::vector<network_interface> native_network_stack::network_interfaces() {
+    if (!_inet.netif()) {
+        return {};
+    }
+
+    static const native_network_interface nwif(*this);
+
+    std::vector<network_interface> res;
+    res.emplace_back(make_shared<native_network_interface>(nwif));
+    return res;
+}
+
 }
 
 }

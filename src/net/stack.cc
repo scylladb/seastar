@@ -263,11 +263,13 @@ socket_address server_socket::local_address() const {
 
 #endif
 
-socket_address::socket_address()
-    : socket_address(ipv4_addr()) {
-    // override the addr_length, as we (probably) want to use the constructed object
+socket_address::socket_address() 
+    // set max addr_length, as we (probably) want to use the constructed object
     // in accept() or get_address()
-    addr_length = sizeof(::sockaddr_storage);
+    : addr_length(sizeof(::sockaddr_storage))
+{
+    static_assert(AF_UNSPEC == 0, "just checking");
+    memset(&u, 0, sizeof(u));
 }
 
 socket_address::socket_address(uint16_t p)
@@ -282,17 +284,27 @@ socket_address::socket_address(ipv4_addr addr)
     u.in.sin_addr.s_addr = htonl(addr.ip);
 }
 
-socket_address::socket_address(const ipv6_addr& addr)
+socket_address::socket_address(const ipv6_addr& addr, uint32_t scope)
 {
     addr_length = sizeof(::sockaddr_in6);
     u.in6.sin6_family = AF_INET6;
     u.in6.sin6_port = htons(addr.port);
+    u.in6.sin6_flowinfo = 0;
+    u.in6.sin6_scope_id = scope;
     std::copy(addr.ip.begin(), addr.ip.end(), u.in6.sin6_addr.s6_addr);
 }
+
+socket_address::socket_address(const ipv6_addr& addr)
+    : socket_address(addr, net::inet_address::invalid_scope)
+{}
 
 socket_address::socket_address(uint32_t ipv4, uint16_t p)
     : socket_address(make_ipv4_address(ipv4, p))
 {}
+
+bool socket_address::is_unspecified() const {
+    return u.sa.sa_family == AF_UNSPEC;
+}
 
 static int adjusted_path_length(const socket_address& a) {
     int l = std::max(0, (int)a.addr_length-(int)((size_t) (((struct sockaddr_un *) 0)->sun_path)));
@@ -324,6 +336,7 @@ bool socket_address::operator==(const socket_address& a) const {
     switch (u.sa.sa_family) {
     case AF_INET:
         return u.in.sin_addr.s_addr == a.u.in.sin_addr.s_addr;
+    case AF_UNSPEC:
     case AF_INET6:
         // handled below
         break;
@@ -337,14 +350,63 @@ bool socket_address::operator==(const socket_address& a) const {
     return IN6_ARE_ADDR_EQUAL(&in1, &in2);
 }
 
+network_interface::network_interface(shared_ptr<net::network_interface_impl> impl)
+    : _impl(std::move(impl))
+{}
+
+network_interface::network_interface(network_interface&&) = default;
+network_interface& network_interface::operator=(network_interface&&) = default;
+    
+uint32_t network_interface::index() const {
+    return _impl->index();
+}
+
+uint32_t network_interface::mtu() const {
+    return _impl->mtu();
+}
+
+const sstring& network_interface::name() const {
+    return _impl->name();
+}
+
+const sstring& network_interface::display_name() const {
+    return _impl->display_name();
+}
+
+const std::vector<net::inet_address>& network_interface::addresses() const {
+    return _impl->addresses();
+}
+
+const std::vector<uint8_t> network_interface::hardware_address() const {
+    return _impl->hardware_address();
+}
+
+bool network_interface::is_loopback() const {
+    return _impl->is_loopback();
+}
+
+bool network_interface::is_virtual() const {
+    return _impl->is_virtual();
+}
+
+bool network_interface::is_up() const {
+    return _impl->is_up();
+}
+
+bool network_interface::supports_ipv6() const {
+    return _impl->supports_ipv6();
+}
+
+
 future<connected_socket>
 network_stack::connect(socket_address sa, socket_address local, transport proto) {
-    if (local == socket_address()) {
-        local = net::inet_address(sa.addr().in_family());
-    }
     return do_with(socket(), [sa, local, proto](::seastar::socket& s) {
         return s.connect(sa, local, proto);
     });
+}
+
+std::vector<network_interface> network_stack::network_interfaces() {
+    return {};
 }
 
 }

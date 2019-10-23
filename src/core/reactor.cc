@@ -1288,7 +1288,6 @@ reactor::posix_listen(socket_address sa, listen_options opts) {
         // no type-safe way to create listen_opts with proto=0
         specific_protocol = 0;
     }
-
     static auto somaxconn = [] {
         compat::optional<int> result;
         std::ifstream ifs("/proc/sys/net/core/somaxconn");

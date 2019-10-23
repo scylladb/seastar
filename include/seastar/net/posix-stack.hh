@@ -198,6 +198,7 @@ public:
     }
     virtual bool has_per_core_namespace() override { return _reuseport; };
     bool supports_ipv6() const override;
+    std::vector<network_interface> network_interfaces() override;
 };
 
 class posix_ap_network_stack : public posix_network_stack {

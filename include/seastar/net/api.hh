@@ -137,6 +137,8 @@ public:
     void close();
 };
 
+class network_interface_impl;
+
 } /* namespace net */
 
 /// \addtogroup networking-module
@@ -225,7 +227,7 @@ public:
     /// Attempts to establish the connection.
     ///
     /// \return a \ref connected_socket representing the connection.
-    future<connected_socket> connect(socket_address sa, socket_address local = socket_address(::sockaddr_in{AF_INET, INADDR_ANY, {0}}), transport proto = transport::TCP);
+    future<connected_socket> connect(socket_address sa, socket_address local = {}, transport proto = transport::TCP);
 
     /// Sets SO_REUSEADDR option (enable reuseaddr option on a socket)
     void set_reuseaddr(bool reuseaddr);
@@ -336,6 +338,29 @@ struct listen_options {
     int listen_backlog = 100;
 };
 
+class network_interface {
+private:
+    shared_ptr<net::network_interface_impl> _impl;
+public:
+    network_interface(shared_ptr<net::network_interface_impl>);
+    network_interface(network_interface&&);
+
+    network_interface& operator=(network_interface&&);
+
+    uint32_t index() const;
+    uint32_t mtu() const;
+
+    const sstring& name() const;
+    const sstring& display_name() const;
+    const std::vector<net::inet_address>& addresses() const;
+    const std::vector<uint8_t> hardware_address() const;
+
+    bool is_loopback() const;
+    bool is_virtual() const;
+    bool is_up() const;
+    bool supports_ipv6() const;
+};
+
 class network_stack {
 public:
     virtual ~network_stack() {}
@@ -354,6 +379,13 @@ public:
     virtual bool supports_ipv6() const {
         return false;
     }
+
+    /** 
+     * Returns available network interfaces. This represents a 
+     * snapshot of interfaces available at call time, hence the
+     * return by value.
+     */
+    virtual std::vector<network_interface> network_interfaces();
 };
 
 }
