@@ -145,4 +145,13 @@ fmt_print(std::ostream& os, const char* format, A&&... a) {
     return os;
 }
 
+template <typename... A>
+void
+assert_fmt(bool condition, const char* format, A&&... a) {
+    if (__builtin_expect(condition, false)) {
+        fmt::print(std::cerr, format, std::forward<A>(a)...);
+        std::terminate();
+    }
+}
+
 }
