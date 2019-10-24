@@ -1043,7 +1043,7 @@ public:
     ///
     /// \return \c true if the future is availble and has failed.
     [[gnu::always_inline]]
-    bool failed() noexcept {
+    bool failed() const noexcept {
         return _state.failed();
     }
 
