@@ -302,7 +302,7 @@ public:
                     _promise.set_value();
                     return;
                 }
-            } while (!__builtin_expect(need_preempt(), NEED_PREEMPT_EXPECTED));
+            } while (!need_preempt());
         } catch (...) {
             _promise.set_exception(std::current_exception());
             return;
@@ -349,7 +349,7 @@ future<> repeat(AsyncAction action) {
             if (f.get0() == stop_iteration::yes) {
                 return make_ready_future<>();
             }
-        } while (!__builtin_expect(need_preempt(), NEED_PREEMPT_EXPECTED));
+        } while (!need_preempt());
 
         auto repeater = std::make_unique<internal::repeater<AsyncAction>>(stop_iteration::no, std::move(action));
         auto ret = repeater->get_future();
@@ -421,7 +421,7 @@ public:
                     _promise.set_value(std::make_tuple(std::move(*ret)));
                     return;
                 }
-            } while (!__builtin_expect(need_preempt(), NEED_PREEMPT_EXPECTED));
+            } while (!need_preempt());
         } catch (...) {
             _promise.set_exception(std::current_exception());
             return;
@@ -477,7 +477,7 @@ repeat_until_value(AsyncAction action) {
         if (optional) {
             return make_ready_future<value_type>(std::move(optional.value()));
         }
-    } while (!__builtin_expect(need_preempt(), NEED_PREEMPT_EXPECTED));
+    } while (!need_preempt());
 
     try {
         auto state = std::make_unique<internal::repeat_until_value_state<AsyncAction, value_type>>(compat::nullopt, std::move(action));
@@ -523,7 +523,7 @@ public:
                     f.forward_to(std::move(_promise));
                     return;
                 }
-            } while (!__builtin_expect(need_preempt(), NEED_PREEMPT_EXPECTED));
+            } while (!need_preempt());
         } catch (...) {
             _promise.set_exception(std::current_exception());
             return;
@@ -567,7 +567,7 @@ future<> do_until(StopCondition stop_cond, AsyncAction action) {
         if (f.failed()) {
             return f;
         }
-    } while (!__builtin_expect(need_preempt(), NEED_PREEMPT_EXPECTED));
+    } while (!need_preempt());
 
     auto task = std::make_unique<do_until_state<StopCondition, AsyncAction>>(std::move(stop_cond), std::move(action));
     auto f = task->get_future();
@@ -620,7 +620,7 @@ future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) {
         if (begin == end) {
             return f;
         }
-        if (!f.available() || __builtin_expect(need_preempt(), NEED_PREEMPT_EXPECTED)) {
+        if (!f.available() || need_preempt()) {
             return std::move(f).then([action = std::move(action),
                     begin = std::move(begin), end = std::move(end)] () mutable {
                 return do_for_each(std::move(begin), std::move(end), std::move(action));

@@ -22,12 +22,6 @@
 #pragma once
 #include <atomic>
 
-#ifndef SEASTAR_DEBUG
-#define NEED_PREEMPT_EXPECTED false
-#else
-#define NEED_PREEMPT_EXPECTED true
-#endif
-
 namespace seastar {
 
 namespace internal {
@@ -44,8 +38,8 @@ struct preemption_monitor {
 
 extern __thread const internal::preemption_monitor* g_need_preempt;
 
-inline bool need_preempt() noexcept {
 #ifndef SEASTAR_DEBUG
+inline bool _need_preempt() noexcept {
     // prevent compiler from eliminating loads in a loop
     std::atomic_signal_fence(std::memory_order_seq_cst);
     auto np = g_need_preempt;
@@ -56,9 +50,10 @@ inline bool need_preempt() noexcept {
     // Possible optimization: read head and tail in a single 64-bit load,
     // and find a funky way to compare the two 32-bit halves.
     return __builtin_expect(head != tail, false);
-#else
-    return true;
-#endif
 }
+#define need_preempt() __builtin_expect(_need_preempt(), false)
+#else
+#define need_preempt() true
+#endif // not SEASTAR_DEBUG
 
 }
