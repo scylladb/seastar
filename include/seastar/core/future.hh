@@ -1061,7 +1061,7 @@ private:
     Result
     then_impl(Func&& func) noexcept {
         using futurator = futurize<std::result_of_t<Func(T&&...)>>;
-        if (available() && !need_preempt()) {
+        if (available() && !__builtin_expect(need_preempt(), NEED_PREEMPT_EXPECTED)) {
             if (failed()) {
                 return futurator::make_exception_future(get_available_state().get_exception());
             } else {
@@ -1121,7 +1121,7 @@ private:
     Result
     then_wrapped_impl(Func&& func) noexcept {
         using futurator = futurize<std::result_of_t<Func(future)>>;
-        if (available() && !need_preempt()) {
+        if (available() && !__builtin_expect(need_preempt(), NEED_PREEMPT_EXPECTED)) {
             return futurator::apply(std::forward<Func>(func), future(get_available_state()));
         }
         typename futurator::type fut(future_for_get_promise_marker{});
@@ -1379,7 +1379,7 @@ inline
 void internal::promise_base::make_ready() noexcept {
     if (_task) {
         _state = nullptr;
-        if (Urgent == urgent::yes && !need_preempt()) {
+        if (Urgent == urgent::yes && !__builtin_expect(need_preempt(), NEED_PREEMPT_EXPECTED)) {
             ::seastar::schedule_urgent(std::move(_task));
         } else {
             ::seastar::schedule(std::move(_task));

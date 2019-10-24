@@ -22,6 +22,12 @@
 #pragma once
 #include <atomic>
 
+#ifndef SEASTAR_DEBUG
+#define NEED_PREEMPT_EXPECTED false
+#else
+#define NEED_PREEMPT_EXPECTED true
+#endif
+
 namespace seastar {
 
 namespace internal {
