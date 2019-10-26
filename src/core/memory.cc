@@ -1588,6 +1588,7 @@ int __libc_posix_memalign(void** ptr, size_t align, size_t size) throw ();
 
 extern "C"
 [[gnu::visibility("default")]]
+[[gnu::malloc]]
 void* memalign(size_t align, size_t size) throw () {
     if (try_trigger_error_injector()) {
         return nullptr;
