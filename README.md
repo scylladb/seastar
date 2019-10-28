@@ -192,3 +192,10 @@ Recommended hardware configuration for SeaStar
        Both memaslap (memcached) and WRK (httpd) cannot over load their matching
        server counter parts. We recommend running the client on different machine
        than the servers and use several of them.
+
+Projects using Seastar
+----------------------------------------------
+
+* [cpv-cql-driver](https://github.com/cpv-project/cpv-cql-driver): C++ driver for Cassandra/Scylla based on seastar framework
+* [cpv-framework](https://github.com/cpv-project/cpv-framework): A web framework written in c++ based on seastar framework
+
