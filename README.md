@@ -198,4 +198,5 @@ Projects using Seastar
 
 * [cpv-cql-driver](https://github.com/cpv-project/cpv-cql-driver): C++ driver for Cassandra/Scylla based on seastar framework
 * [cpv-framework](https://github.com/cpv-project/cpv-framework): A web framework written in c++ based on seastar framework
-
+* [redpanda](https://vectorized.io/): A Kafka replacement for mission critical systems
+* [smf](https://github.com/smfrpc/smf): The fastest RPC in the West
