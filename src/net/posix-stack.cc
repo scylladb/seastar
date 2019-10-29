@@ -24,6 +24,7 @@
 #include <linux/if.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
+#include <net/route.h>
 
 #include <seastar/net/posix-stack.hh>
 #include <seastar/net/net.hh>
@@ -220,6 +221,114 @@ public:
     friend class posix_socket_impl;
 };
 
+static void resolve_outgoing_address(socket_address& a) {
+    if (a.family() != AF_INET6
+        || a.as_posix_sockaddr_in6().sin6_scope_id != inet_address::invalid_scope
+        || !IN6_IS_ADDR_LINKLOCAL(&a.as_posix_sockaddr_in6().sin6_addr)
+    ) {
+        return;
+    }
+
+    FILE *f;
+
+    if (!(f = fopen("/proc/net/ipv6_route", "r"))) {
+        throw std::system_error(errno, std::system_category(), "resolve_address");
+    }
+
+    auto holder = std::unique_ptr<FILE, int(*)(FILE *)>(f, &::fclose);
+
+    /**
+      Here all configured IPv6 routes are shown in a special format. The example displays for loopback interface only. The meaning is shown below (see net/ipv6/route.c for more).
+
+    # cat /proc/net/ipv6_route
+    00000000000000000000000000000000 00 00000000000000000000000000000000 00 00000000000000000000000000000000 ffffffff 00000001 00000001 00200200 lo
+    +------------------------------+ ++ +------------------------------+ ++ +------------------------------+ +------+ +------+ +------+ +------+ ++
+    |                                |  |                                |  |                                |        |        |        |        |
+    1                                2  3                                4  5                                6        7        8        9        10
+
+    1: IPv6 destination network displayed in 32 hexadecimal chars without colons as separator
+
+    2: IPv6 destination prefix length in hexadecimal
+
+    3: IPv6 source network displayed in 32 hexadecimal chars without colons as separator
+
+    4: IPv6 source prefix length in hexadecimal
+
+    5: IPv6 next hop displayed in 32 hexadecimal chars without colons as separator
+
+    6: Metric in hexadecimal
+
+    7: Reference counter
+
+    8: Use counter
+
+    9: Flags
+
+    10: Device name
+
+    */
+
+    uint32_t prefix_len, src_prefix_len;
+    unsigned long flags;
+    char device[16];
+    char dest_str[40];
+
+    for (;;) {
+        auto n = fscanf(f, "%4s%4s%4s%4s%4s%4s%4s%4s %02x "
+                            "%*4s%*4s%*4s%*4s%*4s%*4s%*4s%*4s %02x "
+                            "%*4s%*4s%*4s%*4s%*4s%*4s%*4s%*4s "
+                            "%*08x %*08x %*08x %08lx %8s",
+                            &dest_str[0], &dest_str[5], &dest_str[10], &dest_str[15],
+                            &dest_str[20], &dest_str[25], &dest_str[30], &dest_str[35],
+                            &prefix_len,
+                            &src_prefix_len,
+                            &flags, device);
+        if (n != 12) {
+            break;
+        }
+
+        if ((prefix_len < 0 || prefix_len > 128)  || (src_prefix_len != 0)
+            || (flags & (RTF_POLICY | RTF_FLOW))
+            || ((flags & RTF_REJECT) && prefix_len == 0) /* reject all */) {
+            continue;
+        }
+
+        dest_str[4] = dest_str[9] = dest_str[14] = dest_str[19] = dest_str[24] = dest_str[29] = dest_str[34] = ':';
+        dest_str[39] = '\0';
+
+        struct in6_addr addr;
+        if (inet_pton(AF_INET6, dest_str, &addr) < 0) {
+            /* not an Ipv6 address */
+            continue;
+        }
+
+        auto bytes = prefix_len / 8;
+        auto bits = prefix_len % 8;
+
+        auto& src = a.as_posix_sockaddr_in6().sin6_addr;
+
+        if (bytes > 0 && memcmp(&src, &addr, bytes)) {
+            continue;
+        }
+        if (bits > 0) {
+            auto c1 = src.s6_addr[bytes];
+            auto c2 = addr.s6_addr[bytes];
+            auto mask = 0xffu << (8 - bits);
+            if ((c1 & mask) != (c2 & mask)) {
+                continue;
+            }
+        }
+
+        // found the route.
+        for (auto& nif : engine().net().network_interfaces()) {
+            if (nif.name() == device || nif.display_name() == device) {
+                a.as_posix_sockaddr_in6().sin6_scope_id = nif.index();
+                return;
+            }
+        }
+    }
+}
+
 class posix_socket_impl final : public socket_impl {
     lw_shared_ptr<pollable_fd> _fd;
     compat::polymorphic_allocator<char>* _allocator;
@@ -232,6 +341,7 @@ class posix_socket_impl final : public socket_impl {
         if (local.is_unspecified()) {
             local = net::inet_address(sa.addr().in_family());
         }
+        resolve_outgoing_address(sa);
         return repeat([this, sa, local, proto, attempts = 0, requested_port = ntoh(local.as_posix_sockaddr_in().sin_port)] () mutable {
             _fd = engine().make_pollable_fd(sa, int(proto));
             _fd->get_file_desc().setsockopt(SOL_SOCKET, SO_REUSEADDR, int(_reuseaddr));
@@ -557,6 +667,7 @@ private:
             _iovecs = to_iovec(_p);
             _hdr.msg_iov = _iovecs.data();
             _hdr.msg_iovlen = _iovecs.size();
+            resolve_outgoing_address(_dst);
         }
     };
     std::unique_ptr<pollable_fd> _fd;
@@ -600,7 +711,9 @@ public:
 
 future<> posix_udp_channel::send(const socket_address& dst, const char *message) {
     auto len = strlen(message);
-    return _fd->sendto(dst, message, len)
+    auto a = dst;
+    resolve_outgoing_address(a);
+    return _fd->sendto(a, message, len)
             .then([len] (size_t size) { assert(size == len); });
 }
 
