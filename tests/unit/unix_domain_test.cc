@@ -110,7 +110,7 @@ future<> ud_server_client::client_round() {
             [this,&out,&inp](){ return out.flush(); }).then(
             [this,&out,&inp](){ return inp.read(); }).then(
             [this,&out,&inp](auto bb){
-                BOOST_REQUIRE_EQUAL(bb.get(), "+"s+test_message);
+                BOOST_REQUIRE_EQUAL(compat::string_view(bb.begin(), bb.size()), "+"s+test_message);
                 return inp.close();
             }).then([&out](){return out.close();}).then(
             [&out,&inp]{ return make_ready_future<>(); });
