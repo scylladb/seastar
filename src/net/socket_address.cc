@@ -51,7 +51,7 @@ socket_address::socket_address(const unix_domain_addr& s) {
     memset(u.un.sun_path, '\0', sizeof(u.un.sun_path));
     auto path_length = std::min((int)sizeof(u.un.sun_path), s.path_length());
     memcpy(u.un.sun_path, s.path_bytes(), path_length);
-    addr_length = path_length + ((size_t) (((struct ::sockaddr_un *) 0)->sun_path));
+    addr_length = path_length + offsetof(struct ::sockaddr_un, sun_path);
 }
 
 std::string unix_domain_addr_text(const socket_address& sa) {
