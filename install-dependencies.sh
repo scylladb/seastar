@@ -44,6 +44,7 @@ debian_packages=(
     libc-ares-dev
     stow
     g++
+    libfmt-dev
 )
 
 # seastar doesn't directly depend on these packages. They are
