@@ -158,7 +158,7 @@ logger::~logger() {
 }
 
 void
-logger::really_do_log(log_level level, const char* fmt, const stringer* s, size_t n) {
+logger::really_do_log(log_level level, const char* fmt, const stringer* stringers, size_t stringers_size) {
     bool is_stdout_enabled = _stdout.load(std::memory_order_relaxed);
     bool is_syslog_enabled = _syslog.load(std::memory_order_relaxed);
     if(!is_stdout_enabled && !is_syslog_enabled) {
@@ -179,6 +179,8 @@ logger::really_do_log(log_level level, const char* fmt, const stringer* s, size_
         out << " " << _name << " - ";
       }
       const char* p = fmt;
+      size_t n = stringers_size;
+      const stringer* s = stringers;
       while (*p != '\0') {
         if (*p == '{' && *(p+1) == '}') {
             p += 2;
