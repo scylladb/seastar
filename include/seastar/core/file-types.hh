@@ -36,19 +36,19 @@ enum class open_flags {
     dsync = O_DSYNC,
 };
 
-inline open_flags operator|(open_flags a, open_flags b) {
+inline constexpr open_flags operator|(open_flags a, open_flags b) {
     return open_flags(std::underlying_type_t<open_flags>(a) | std::underlying_type_t<open_flags>(b));
 }
 
-inline void operator|=(open_flags& a, open_flags b) {
+inline constexpr void operator|=(open_flags& a, open_flags b) {
     a = (a | b);
 }
 
-inline open_flags operator&(open_flags a, open_flags b) {
+inline constexpr open_flags operator&(open_flags a, open_flags b) {
     return open_flags(std::underlying_type_t<open_flags>(a) & std::underlying_type_t<open_flags>(b));
 }
 
-inline void operator&=(open_flags& a, open_flags b) {
+inline constexpr void operator&=(open_flags& a, open_flags b) {
     a = (a & b);
 }
 
