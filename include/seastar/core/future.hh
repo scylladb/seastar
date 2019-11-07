@@ -152,7 +152,7 @@ struct uninitialized_wrapper_base<T, false> {
     } _v;
 
 public:
-    void uninitialized_set(T v) {
+    void uninitialized_set(T&& v) {
         new (&_v.value) T(std::move(v));
     }
     T& uninitialized_get() {
@@ -164,7 +164,7 @@ public:
 };
 
 template <typename T> struct uninitialized_wrapper_base<T, true> : private T {
-    void uninitialized_set(T v) {
+    void uninitialized_set(T&& v) {
         new (this) T(std::move(v));
     }
     T& uninitialized_get() {
