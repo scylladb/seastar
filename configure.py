@@ -23,6 +23,7 @@ import seastar_cmake
 import subprocess
 import sys
 import tempfile
+import platform
 
 tempfile.tempdir = "./build/tmp"
 
@@ -141,7 +142,11 @@ def infer_dpdk_machine(user_cflags):
 
     The default if no architecture is indicated is 'native'.
     """
-    arch = 'native'
+    if platform.machine()=='aarch64':
+        arch = 'armv8-a'
+    else:
+        arch = 'native'
+    
 
     # `-march` may be repeated, and we want the last one.
     # strip features, leave only the arch: armv8-a+crc+crypto -> armv8-a
