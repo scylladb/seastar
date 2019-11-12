@@ -23,6 +23,7 @@ import seastar_cmake
 import subprocess
 import sys
 import tempfile
+import platform
 
 tempfile.tempdir = "./build/tmp"
 
@@ -31,6 +32,14 @@ def add_tristate(arg_parser, name, dest, help):
                             help = 'Enable ' + help)
     arg_parser.add_argument('--disable-' + name, dest = dest, action = 'store_false', default = None,
                             help = 'Disable ' + help)
+
+def default_target_arch():
+    if platform.machine() in ['i386', 'i686', 'x86_64']:
+        return 'westmere'   
+    elif platform.machine() == 'aarch64':
+        return 'armv8-a+crc+crypto'
+    else:
+        return ''
 
 def try_compile(compiler, source = '', flags = []):
     return try_compile_and_link(compiler, source, flags = flags + ['-c'])
@@ -63,6 +72,8 @@ arg_parser.add_argument('--cflags', action = 'store', dest = 'user_cflags', defa
                         help = 'Extra flags for the C++ compiler')
 arg_parser.add_argument('--ldflags', action = 'store', dest = 'user_ldflags', default = '',
                         help = 'Extra flags for the linker')
+arg_parser.add_argument('--target', action='store', dest='target', default=default_target_arch(),
+                        help='Target architecture (-march)')
 arg_parser.add_argument('--optflags', action = 'store', dest = 'user_optflags', default = '',
                         help = 'Extra optimization flags for the release mode')
 arg_parser.add_argument('--api-level', action='store', dest='api_level', default='2',
@@ -115,6 +126,8 @@ arg_parser.add_argument('--use-std-optional-variant-stringview', dest='cpp17_goo
                         help='Use C++17 std types for optional, variant, and string_view. Requires C++17 dialect and GCC >= 8.1.1-5')
 arg_parser.add_argument('--prefix', dest='install_prefix', default='/usr/local', help='Root installation path of Seastar files')
 args = arg_parser.parse_args()
+
+args.user_cflags += ' -march=' + args.target
 
 def identify_best_dialect(dialects, compiler):
     """Returns the first C++ dialect accepted by the compiler in the sequence,
