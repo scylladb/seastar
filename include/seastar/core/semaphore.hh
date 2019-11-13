@@ -125,6 +125,7 @@ public:
     ///
     /// \param count number of initial units present in the counter.
     basic_semaphore(size_t count) : _count(count) {}
+    basic_semaphore(size_t count, exception_factory&& factory) : exception_factory(std::move(factory)), _count(count) {}
     /// Waits until at least a specific number of units are available in the
     /// counter, and reduces the counter by that amount of units.
     ///
