@@ -526,6 +526,7 @@ with_semaphore(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, type
 /// default basic_semaphore specialization that throws semaphore specific exceptions
 /// on error conditions.
 using semaphore = basic_semaphore<semaphore_default_exception_factory>;
+using named_semaphore = basic_semaphore<named_semaphore_exception_factory>;
 
 /// @}
 
