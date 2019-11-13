@@ -247,3 +247,23 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_units_splitting) {
     BOOST_REQUIRE_THROW(units.split(10), std::invalid_argument);
     BOOST_REQUIRE_EQUAL(sm.available_units(), 0);
 }
+
+SEASTAR_THREAD_TEST_CASE(test_named_semaphore_error) {
+    auto sem = make_lw_shared<named_semaphore>(0, named_semaphore_exception_factory{"name_of_the_semaphore"});
+    auto check_result = [sem] (future<> f) {
+        try {
+            f.get();
+            BOOST_FAIL("Expecting an exception");
+        } catch (broken_named_semaphore& ex) {
+            BOOST_REQUIRE_NE(std::string(ex.what()).find("name_of_the_semaphore"), std::string::npos);
+        } catch (...) {
+            BOOST_FAIL("Expected an instance of broken_named_semaphore with proper semaphore name");
+        }
+        return make_ready_future<>();
+    };
+    auto ret = sem->wait().then_wrapped(check_result);
+    sem->broken();
+    sem->wait().then_wrapped(check_result).then([ret = std::move(ret)] () mutable {
+        return std::move(ret);
+    }).get();
+}
