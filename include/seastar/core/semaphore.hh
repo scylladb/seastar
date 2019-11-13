@@ -83,15 +83,16 @@ struct semaphore_default_exception_factory {
 /// as a cancellation point.
 ///
 /// \tparam ExceptionFactory template parameter allows modifying a semaphore to throw
-/// customized exceptions on timeout/broken(). It has to provide two static functions
+/// customized exceptions on timeout/broken(). It has to provide two functions
 /// ExceptionFactory::timeout() and ExceptionFactory::broken() which return corresponding
 /// exception object.
 template<typename ExceptionFactory, typename Clock = typename timer<>::clock>
-class basic_semaphore {
+class basic_semaphore : private ExceptionFactory {
 public:
     using duration = typename timer<Clock>::duration;
     using clock = typename timer<Clock>::clock;
     using time_point = typename timer<Clock>::time_point;
+    using exception_factory = ExceptionFactory;
 private:
     ssize_t _count;
     std::exception_ptr _ex;
@@ -100,9 +101,9 @@ private:
         size_t nr;
         entry(promise<>&& pr_, size_t nr_) : pr(std::move(pr_)), nr(nr_) {}
     };
-    struct expiry_handler {
+    struct expiry_handler : private exception_factory {
         void operator()(entry& e) noexcept {
-            e.pr.set_exception(ExceptionFactory::timeout());
+            e.pr.set_exception(exception_factory::timeout());
         }
     };
     expiring_fifo<entry, expiry_handler, clock> _wait_list;
@@ -251,7 +252,7 @@ public:
     /// Signal to waiters that an error occurred.  \ref wait() will see
     /// an exceptional future<> containing a \ref broken_semaphore exception.
     /// The future is made available immediately.
-    void broken() { broken(std::make_exception_ptr(ExceptionFactory::broken())); }
+    void broken() { broken(std::make_exception_ptr(exception_factory::broken())); }
 
     /// Signal to waiters that an error occurred.  \ref wait() will see
     /// an exceptional future<> containing the provided exception parameter.
