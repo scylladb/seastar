@@ -68,6 +68,36 @@ struct semaphore_default_exception_factory {
     }
 };
 
+class named_semaphore_timed_out : public semaphore_timed_out {
+    sstring _msg;
+public:
+    named_semaphore_timed_out(compat::string_view msg);
+    virtual const char* what() const noexcept {
+        return _msg.c_str();
+    }
+};
+
+class broken_named_semaphore : public broken_semaphore {
+    sstring _msg;
+public:
+    broken_named_semaphore(compat::string_view msg);
+    virtual const char* what() const noexcept {
+        return _msg.c_str();
+    }
+};
+
+// A factory of semaphore exceptions that contain additional context: the semaphore name
+// auto sem = named_semaphore(0, named_semaphore_exception_factory{"file_opening_limit_semaphore"});
+struct named_semaphore_exception_factory {
+    sstring name;
+    named_semaphore_timed_out timeout() {
+        return named_semaphore_timed_out(name);
+    }
+    broken_named_semaphore broken() {
+        return broken_named_semaphore(name);
+    }
+};
+
 /// \brief Counted resource guard.
 ///
 /// This is a standard computer science semaphore, adapted
@@ -83,15 +113,16 @@ struct semaphore_default_exception_factory {
 /// as a cancellation point.
 ///
 /// \tparam ExceptionFactory template parameter allows modifying a semaphore to throw
-/// customized exceptions on timeout/broken(). It has to provide two static functions
+/// customized exceptions on timeout/broken(). It has to provide two functions
 /// ExceptionFactory::timeout() and ExceptionFactory::broken() which return corresponding
 /// exception object.
 template<typename ExceptionFactory, typename Clock = typename timer<>::clock>
-class basic_semaphore {
+class basic_semaphore : private ExceptionFactory {
 public:
     using duration = typename timer<Clock>::duration;
     using clock = typename timer<Clock>::clock;
     using time_point = typename timer<Clock>::time_point;
+    using exception_factory = ExceptionFactory;
 private:
     ssize_t _count;
     std::exception_ptr _ex;
@@ -100,9 +131,9 @@ private:
         size_t nr;
         entry(promise<>&& pr_, size_t nr_) : pr(std::move(pr_)), nr(nr_) {}
     };
-    struct expiry_handler {
+    struct expiry_handler : private exception_factory {
         void operator()(entry& e) noexcept {
-            e.pr.set_exception(ExceptionFactory::timeout());
+            e.pr.set_exception(exception_factory::timeout());
         }
     };
     expiring_fifo<entry, expiry_handler, clock> _wait_list;
@@ -124,6 +155,7 @@ public:
     ///
     /// \param count number of initial units present in the counter.
     basic_semaphore(size_t count) : _count(count) {}
+    basic_semaphore(size_t count, exception_factory&& factory) : exception_factory(std::move(factory)), _count(count) {}
     /// Waits until at least a specific number of units are available in the
     /// counter, and reduces the counter by that amount of units.
     ///
@@ -251,7 +283,7 @@ public:
     /// Signal to waiters that an error occurred.  \ref wait() will see
     /// an exceptional future<> containing a \ref broken_semaphore exception.
     /// The future is made available immediately.
-    void broken() { broken(std::make_exception_ptr(ExceptionFactory::broken())); }
+    void broken() { broken(std::make_exception_ptr(exception_factory::broken())); }
 
     /// Signal to waiters that an error occurred.  \ref wait() will see
     /// an exceptional future<> containing the provided exception parameter.
@@ -494,6 +526,7 @@ with_semaphore(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, type
 /// default basic_semaphore specialization that throws semaphore specific exceptions
 /// on error conditions.
 using semaphore = basic_semaphore<semaphore_default_exception_factory>;
+using named_semaphore = basic_semaphore<named_semaphore_exception_factory>;
 
 /// @}
 
