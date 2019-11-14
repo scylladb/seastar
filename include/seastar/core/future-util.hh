@@ -163,7 +163,7 @@ public:
     void add_exception(std::exception_ptr ex) {
         _ex = std::move(ex);
     }
-    void add_future(future<> f) {
+    void add_future(future<>&& f) {
         _incomplete.push_back(std::move(f));
     }
     future<> get_future() {
