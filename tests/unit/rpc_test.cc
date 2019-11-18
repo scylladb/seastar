@@ -930,6 +930,9 @@ SEASTAR_TEST_CASE(test_handler_registration) {
             proto.register_handler(1, handler);
             BOOST_REQUIRE(proto.has_handler(1));
 
+            // cannot register handler if already registered
+            BOOST_REQUIRE_THROW(proto.register_handler(1, handler), std::runtime_error);
+
             // unregistered handler should not be found
             proto.unregister_handler(1);
             BOOST_REQUIRE(!proto.has_handler(1));

@@ -37,6 +37,7 @@
 #include <seastar/core/queue.hh>
 #include <seastar/core/weak_ptr.hh>
 #include <seastar/core/scheduling.hh>
+#include <seastar/util/backtrace.hh>
 
 namespace seastar {
 
@@ -662,7 +663,10 @@ private:
     auto make_client(signature<Ret(In...)> sig, MsgType t);
 
     void register_receiver(MsgType t, rpc_handler&& handler) {
-        _handlers.emplace(t, std::move(handler));
+        auto r = _handlers.emplace(t, std::move(handler));
+        if (!r.second) {
+            throw_with_backtrace<std::runtime_error>("registered handler already exists");
+        }
     }
 };
 }
