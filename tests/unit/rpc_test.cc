@@ -919,6 +919,28 @@ SEASTAR_TEST_CASE(test_rpc_variadic_client_nonvariadic_server) {
     });
 }
 
+SEASTAR_TEST_CASE(test_handler_registration) {
+    return with_rpc_env({}, {}, false, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+        return seastar::async([&proto, make_socket] {
+            // non-existing handler should not be found
+            BOOST_REQUIRE(!proto.has_handler(1));
+
+            // existing handler should be found
+            auto handler = [] () { return make_ready_future<>(); };
+            proto.register_handler(1, handler);
+            BOOST_REQUIRE(proto.has_handler(1));
+
+            // unregistered handler should not be found
+            proto.unregister_handler(1);
+            BOOST_REQUIRE(!proto.has_handler(1));
+
+            // re-registering a handler should succeed
+            proto.register_handler(1, handler);
+            BOOST_REQUIRE(proto.has_handler(1));
+        });
+    });
+}
+
 #if __cplusplus >= 201703
 
 static_assert(std::is_same_v<decltype(rpc::tuple(1U, 1L)), rpc::tuple<unsigned, long>>, "rpc::tuple deduction guid not working");
