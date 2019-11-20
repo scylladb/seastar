@@ -71,6 +71,10 @@ SEASTAR_TEST_CASE(match_ipv6_scope) {
         net::inet_address na(text);
 
         BOOST_REQUIRE_EQUAL(na.as_ipv6_address(), i->as_ipv6_address());
+        // also verify that the inet_address itself matches        
+        BOOST_REQUIRE_EQUAL(na, *i);
+        // and that inet_address _without_ scope matches.
+        BOOST_REQUIRE_EQUAL(net::inet_address(na.as_ipv6_address()), *i);
         BOOST_REQUIRE_EQUAL(na.scope(), nif.index());
 
         niflog.info("Org: {}, Parsed: {}, Text: {}", *i, na, text);
