@@ -129,7 +129,7 @@ bool operator==(const ::sockaddr_in a, const ::sockaddr_in b);
 namespace seastar {
 
 void register_network_stack(sstring name, boost::program_options::options_description opts,
-    std::function<future<std::unique_ptr<network_stack>>(boost::program_options::variables_map opts)> create,
+    noncopyable_function<future<std::unique_ptr<network_stack>>(boost::program_options::variables_map opts)> create,
     bool make_default = false);
 
 class thread_pool;
@@ -208,8 +208,8 @@ public:
         no_more_work,
         interrupted_by_higher_priority_task
     };
-    using work_waiting_on_reactor = const std::function<bool()>&;
-    using idle_cpu_handler = std::function<idle_cpu_handler_result(work_waiting_on_reactor)>;
+    using work_waiting_on_reactor = const noncopyable_function<bool()>&;
+    using idle_cpu_handler = noncopyable_function<idle_cpu_handler_result(work_waiting_on_reactor)>;
 
     struct io_stats {
         uint64_t aio_reads = 0;
@@ -252,7 +252,7 @@ private:
     std::unordered_map<dev_t, io_queue*> _io_queues;
     friend io_queue;
 
-    std::vector<std::function<future<> ()>> _exit_funcs;
+    std::vector<noncopyable_function<future<> ()>> _exit_funcs;
     unsigned _id = 0;
     bool _stopping = false;
     bool _stopped = false;
@@ -375,7 +375,7 @@ private:
 
 public:
     /// Register a user-defined signal handler
-    void handle_signal(int signo, std::function<void ()>&& handler);
+    void handle_signal(int signo, noncopyable_function<void ()>&& handler);
 
 private:
     class signals {
@@ -385,19 +385,19 @@ private:
 
         bool poll_signal();
         bool pure_poll_signal() const;
-        void handle_signal(int signo, std::function<void ()>&& handler);
-        void handle_signal_once(int signo, std::function<void ()>&& handler);
+        void handle_signal(int signo, noncopyable_function<void ()>&& handler);
+        void handle_signal_once(int signo, noncopyable_function<void ()>&& handler);
         static void action(int signo, siginfo_t* siginfo, void* ignore);
         static void failed_to_handle(int signo);
     private:
         struct signal_handler {
-            signal_handler(int signo, std::function<void ()>&& handler);
-            std::function<void ()> _handler;
+            signal_handler(int signo, noncopyable_function<void ()>&& handler);
+            noncopyable_function<void ()> _handler;
         };
         std::atomic<uint64_t> _pending_signals;
         std::unordered_map<int, signal_handler> _signal_handlers;
 
-        friend void reactor::handle_signal(int, std::function<void ()>&&);
+        friend void reactor::handle_signal(int, noncopyable_function<void ()>&&);
     };
 
     signals _signals;
@@ -543,7 +543,7 @@ public:
         return _stop_requested.wait(timeout, [this] { return _stopping; });
     }
 
-    void at_exit(std::function<future<> ()> func);
+    void at_exit(noncopyable_function<future<> ()> func);
 
     template <typename Func>
     void at_destroy(Func&& func) {
