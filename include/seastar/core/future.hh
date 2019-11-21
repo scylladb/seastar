@@ -1130,7 +1130,7 @@ public:
         return then_wrapped_impl(std::move(func));
 #else
         using futurator = futurize<std::result_of_t<Func(future)>>;
-        return then_wrapped_impl(noncopyable_function<Result (future)>([func = std::forward<Func>(func)] (future f) mutable {
+        return then_wrapped_impl(noncopyable_function<Result (future&&)>([func = std::forward<Func>(func)] (future&& f) mutable {
             return futurator::apply(std::forward<Func>(func), std::move(f));
         }));
 #endif
