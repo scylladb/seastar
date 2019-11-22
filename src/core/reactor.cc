@@ -1242,13 +1242,9 @@ public:
 };
 
 void reactor::configure(boost::program_options::variables_map vm) {
-    auto network_stack_ready = vm.count("network-stack")
+    _network_stack_ready = vm.count("network-stack")
         ? network_stack_registry::create(sstring(vm["network-stack"].as<std::string>()), vm)
         : network_stack_registry::create(vm);
-    // FIXME: future is discarded
-    (void)network_stack_ready.then([this] (std::unique_ptr<network_stack> stack) {
-        _network_stack_ready_promise.set_value(std::move(stack));
-    });
 
     _handle_sigint = !vm.count("no-handle-interrupt");
     auto task_quota = vm["task-quota-ms"].as<double>() * 1ms;
@@ -2585,7 +2581,7 @@ int reactor::run() {
         });
     });
     // Wait for network stack in the background and then signal all cpus.
-    (void)_network_stack_ready_promise.get_future().then([this] (std::unique_ptr<network_stack> stack) {
+    (void)_network_stack_ready->then([this] (std::unique_ptr<network_stack> stack) {
         _network_stack = std::move(stack);
         return smp::invoke_on_all([] {
             engine()._cpu_started.signal();
