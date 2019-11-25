@@ -908,11 +908,15 @@ private:
     }
 
     [[gnu::always_inline]]
-    future_state<T...> get_available_state() noexcept {
+    future_state<T...>&& get_available_state_ref() noexcept {
         if (_promise) {
             detach_promise();
         }
         return std::move(_state);
+    }
+    [[gnu::always_inline]]
+    future_state<T...> get_available_state() noexcept {
+        return get_available_state_ref();
     }
 
     [[gnu::noinline]]
@@ -973,7 +977,7 @@ public:
 
     [[gnu::always_inline]]
      std::exception_ptr get_exception() {
-        return get_available_state().get_exception();
+        return get_available_state_ref().get_exception();
     }
 
     /// Gets the value returned by the computation.
@@ -1079,7 +1083,7 @@ private:
         using futurator = futurize<std::result_of_t<Func(T&&...)>>;
         if (available() && !need_preempt()) {
             if (failed()) {
-                return futurator::make_exception_future(get_available_state().get_exception());
+                return futurator::make_exception_future(get_available_state_ref().get_exception());
             } else {
                 return futurator::apply(std::forward<Func>(func), get_available_state().get_value());
             }
@@ -1138,7 +1142,7 @@ private:
     then_wrapped_impl(Func&& func) noexcept {
         using futurator = futurize<std::result_of_t<Func(future)>>;
         if (available() && !need_preempt()) {
-            return futurator::apply(std::forward<Func>(func), future(get_available_state()));
+            return futurator::apply(std::forward<Func>(func), future(get_available_state_ref()));
         }
         typename futurator::type fut(future_for_get_promise_marker{});
         // If there is a std::bad_alloc in schedule() there is nothing that can be done about it, we cannot break future
@@ -1350,7 +1354,7 @@ public:
 private:
     void set_callback(std::unique_ptr<continuation_base<T...>> callback) {
         if (_state.available()) {
-            callback->set_state(get_available_state());
+            callback->set_state(get_available_state_ref());
             ::seastar::schedule(std::move(callback));
         } else {
             assert(_promise);
