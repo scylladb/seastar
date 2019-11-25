@@ -234,8 +234,16 @@ struct future_state_base {
     enum class state : uintptr_t {
          invalid = 0,
          future = 1,
-         result = 2,
-         exception_min = 3,  // or anything greater
+         // the substate is intended to decouple the run-time prevention
+         // for duplicative result extraction (calling e.g. then() twice
+         // ends up in abandoned()) from the wrapped object's destruction
+         // handling which is orchestrated by future_state. Instead of
+         // creating a temporary future_state just for the sake of setting
+         // the "invalid" in the source instance, result_unavailable can
+         // be set to ensure future_state_base::available() returns false.
+         result_unavailable = 2,
+         result = 3,
+         exception_min = 4,  // or anything greater
     };
     union any {
         any() { st = state::future; }
@@ -269,6 +277,9 @@ struct future_state_base {
                 new (&ex) std::exception_ptr(x.take_exception());
             }
             x.st = state::invalid;
+        }
+        bool has_result() const {
+            return st == state::result || st == state::result_unavailable;
         }
         state st;
         std::exception_ptr ex;
@@ -326,14 +337,14 @@ struct future_state :  public future_state_base, private internal::uninitialized
     future_state() noexcept {}
     [[gnu::always_inline]]
     future_state(future_state&& x) noexcept : future_state_base(std::move(x)) {
-        if (_u.st == state::result) {
+        if (_u.has_result()) {
             this->uninitialized_set(std::move(x.uninitialized_get()));
             x.uninitialized_get().~tuple();
         }
     }
     __attribute__((always_inline))
     ~future_state() noexcept {
-        if (_u.st == state::result) {
+        if (_u.has_result()) {
             this->uninitialized_get().~tuple();
         }
     }
@@ -356,10 +367,24 @@ struct future_state :  public future_state_base, private internal::uninitialized
         assert(_u.st == state::result);
         return std::move(this->uninitialized_get());
     }
+    std::tuple<T...>&& take_value() && noexcept {
+        assert(_u.st == state::result);
+        _u.st = state::result_unavailable;
+        return std::move(this->uninitialized_get());
+    }
     template<typename U = std::tuple<T...>>
     const std::enable_if_t<std::is_copy_constructible<U>::value, U>& get_value() const& noexcept(copy_noexcept) {
         assert(_u.st == state::result);
         return this->uninitialized_get();
+    }
+    std::tuple<T...>&& take() && {
+        assert(_u.st != state::future);
+        if (_u.st >= state::exception_min) {
+            // Move ex out so future::~future() knows we've handled it
+            std::rethrow_exception(std::move(*this).get_exception());
+        }
+        _u.st = state::result_unavailable;
+        return std::move(this->uninitialized_get());
     }
     std::tuple<T...> get() && {
         assert(_u.st != state::future);
@@ -381,6 +406,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
         case state::invalid:
         case state::future:
             assert(0 && "invalid state for ignore");
+        case state::result_unavailable:
         case state::result:
             this->~future_state();
             break;
@@ -914,10 +940,6 @@ private:
         }
         return std::move(_state);
     }
-    [[gnu::always_inline]]
-    future_state<T...> get_available_state() noexcept {
-        return get_available_state_ref();
-    }
 
     [[gnu::noinline]]
     future<T...> rethrow_with_nested() {
@@ -972,7 +994,7 @@ public:
         if (!_state.available()) {
             do_wait();
         }
-        return get_available_state().get();
+        return get_available_state_ref().take();
     }
 
     [[gnu::always_inline]]
@@ -1085,7 +1107,7 @@ private:
             if (failed()) {
                 return futurator::make_exception_future(get_available_state_ref().get_exception());
             } else {
-                return futurator::apply(std::forward<Func>(func), get_available_state().get_value());
+                return futurator::apply(std::forward<Func>(func), get_available_state_ref().take_value());
             }
         }
         typename futurator::type fut(future_for_get_promise_marker{});
