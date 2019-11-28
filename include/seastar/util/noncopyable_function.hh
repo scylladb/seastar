@@ -54,8 +54,13 @@ private:
     template <size_t N>
     static void trivial_direct_move(noncopyable_function_base* from, noncopyable_function_base* to) {
         // Avoid including <algorithm> just for this
+#pragma GCC diagnostic push
+        // GCC 9 triggers a bogus warning stating that from->_storage.direct[0] is unitialized.
+        // skip that for now until it's fixed in some future version of GCC.
+#pragma GCC diagnostic ignored "-Wuninitialized"
         for (unsigned i = 0; i != N; ++i) {
             to->_storage.direct[i] = from->_storage.direct[i];
+#pragma GCC diagnostic pop
         }
     }
 
