@@ -939,6 +939,27 @@ SEASTAR_TEST_CASE(test_with_timeout_when_it_times_out) {
     });
 }
 
+SEASTAR_THREAD_TEST_CASE(test_shared_future_get_future_after_timeout) {
+    // This used to crash because shared_future checked if the list of
+    // pending futures was empty to decide if it had already called
+    // then_wrapped. If all pending futures timed out, it would call
+    // it again.
+    promise<> pr;
+    shared_future<with_clock<manual_clock>> sfut(pr.get_future());
+    future<> fut1 = sfut.get_future(manual_clock::now() + 1s);
+
+    manual_clock::advance(1s);
+
+    check_timed_out(std::move(fut1));
+
+    future<> fut2 = sfut.get_future(manual_clock::now() + 1s);
+    manual_clock::advance(1s);
+    check_timed_out(std::move(fut2));
+
+    future<> fut3 = sfut.get_future(manual_clock::now() + 1s);
+    pr.set_value();
+}
+
 SEASTAR_TEST_CASE(test_custom_exception_factory_in_with_timeout) {
     return seastar::async([] {
         class custom_error : public std::exception {

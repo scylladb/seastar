@@ -290,6 +290,7 @@ protected:
 
 public:
 
+    bool valid() const noexcept { return _u.st != state::invalid; }
     bool available() const noexcept { return _u.st == state::result || _u.st >= state::exception_min; }
     bool failed() const noexcept { return __builtin_expect(_u.st >= state::exception_min, false); }
 
@@ -902,6 +903,7 @@ private:
         } else {
             assert(_promise);
             detach_promise()->schedule(std::move(func));
+            _state._u.st = future_state_base::state::invalid;
         }
     }
 
