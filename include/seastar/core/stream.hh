@@ -156,9 +156,8 @@ template <typename... T>
 inline
 subscription<T...>
 stream<T...>::listen(next_fn next) {
-    auto sub = subscription<T...>(this);
-    sub.start(std::move(next));
-    return sub;
+    start(std::move(next));
+    return subscription<T...>(this);
 }
 
 template <typename... T>
