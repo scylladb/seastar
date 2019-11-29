@@ -66,7 +66,7 @@ private:
     /// \brief Start receiving events from the stream.
     ///
     /// \param next Callback to call for each event
-    void start(std::function<future<> (T...)> next);
+    void start(next_fn next);
 
 public:
     stream() = default;
@@ -123,7 +123,7 @@ public:
     /// \brief Start receiving events from the stream.
     ///
     /// \param next Callback to call for each event
-    void start(std::function<future<> (T...)> next) {
+    void start(next_fn next) {
         return _stream->start(std::move(next));
     }
 
@@ -218,7 +218,7 @@ subscription<T...>::subscription(stream<T...>* s)
 template <typename... T>
 inline
 void
-stream<T...>::start(std::function<future<> (T...)> next) {
+stream<T...>::start(next_fn next) {
     _next = std::move(next);
     _ready.set_value();
 }
