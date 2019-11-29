@@ -54,13 +54,8 @@ private:
     template <size_t N>
     static void trivial_direct_move(noncopyable_function_base* from, noncopyable_function_base* to) {
         // Avoid including <algorithm> just for this
-#pragma GCC diagnostic push
-        // GCC 9 triggers a bogus warning stating that from->_storage.direct[0] is unitialized.
-        // skip that for now until it's fixed in some future version of GCC.
-#pragma GCC diagnostic ignored "-Wuninitialized"
         for (unsigned i = 0; i != N; ++i) {
             to->_storage.direct[i] = from->_storage.direct[i];
-#pragma GCC diagnostic pop
         }
     }
 
@@ -110,7 +105,12 @@ private:
         static constexpr move_type select_move_thunk() {
             bool can_trivially_move = std::is_trivially_move_constructible<Func>::value
                     && std::is_trivially_destructible<Func>::value;
-            return can_trivially_move ? trivial_direct_move<sizeof(Func)> : move;
+            // Empty types have a size of 1, but that byte is not
+            // actually used. Since the type constructor doesn't set
+            // the byte, moving it here would cause an uninitialized
+            // warning.
+            constexpr size_t used_size = std::is_empty<Func>::value ? 0 : sizeof(Func);
+            return can_trivially_move ? trivial_direct_move<used_size> : move;
         }
         static void destroy(noncopyable_function_base* func) {
             access(func)->~Func();
