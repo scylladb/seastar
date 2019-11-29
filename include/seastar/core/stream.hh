@@ -55,7 +55,7 @@ class subscription;
 template <typename... T>
 class stream {
 public:
-    using next_fn = std::function<future<> (T...)>;
+    using next_fn = noncopyable_function<future<> (T...)>;
 
 private:
     subscription<T...>* _sub = nullptr;
