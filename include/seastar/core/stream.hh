@@ -66,28 +66,42 @@ private:
     /// \brief Start receiving events from the stream.
     ///
     /// \param next Callback to call for each event
-    void start(next_fn next);
+    void start(next_fn next) {
+        _next = std::move(next);
+        _ready.set_value();
+    }
 
 public:
     stream() = default;
     stream(const stream&) = delete;
     stream(stream&&) = delete;
-    ~stream();
+    ~stream() {
+        if (_sub) {
+            _sub->_stream = nullptr;
+        }
+    }
     void operator=(const stream&) = delete;
     void operator=(stream&&) = delete;
 
     // Returns a subscription that reads value from this
     // stream.
-    subscription<T...> listen();
+    subscription<T...> listen() {
+        return subscription<T...>(this);
+    }
 
     // Returns a subscription that reads value from this
     // stream, and also sets up the listen function.
-    subscription<T...> listen(next_fn next);
+    subscription<T...> listen(next_fn next) {
+        start(std::move(next));
+        return subscription<T...>(this);
+    }
 
     // Becomes ready when the listener is ready to accept
     // values.  Call only once, when beginning to produce
     // values.
-    future<> started();
+    future<> started() {
+        return _ready.get_future();
+    }
 
     // Produce a value.  Call only after started(), and after
     // a previous produce() is ready.
@@ -96,13 +110,17 @@ public:
     // End the stream.   Call only after started(), and after
     // a previous produce() is ready.  No functions may be called
     // after this.
-    void close();
+    void close() {
+        _done.set_value();
+    }
 
     // Signal an error.   Call only after started(), and after
     // a previous produce() is ready.  No functions may be called
     // after this.
     template <typename E>
-    void set_exception(E ex);
+    void set_exception(E ex) {
+        _done.set_exception(ex);
+    }
 
     friend class subscription<T...>;
 };
@@ -146,37 +164,6 @@ public:
     friend class stream<T...>;
 };
 
-
-template <typename... T>
-inline
-stream<T...>::~stream() {
-    if (_sub) {
-        _sub->_stream = nullptr;
-    }
-}
-
-template <typename... T>
-inline
-subscription<T...>
-stream<T...>::listen() {
-    return subscription<T...>(this);
-}
-
-template <typename... T>
-inline
-subscription<T...>
-stream<T...>::listen(next_fn next) {
-    start(std::move(next));
-    return subscription<T...>(this);
-}
-
-template <typename... T>
-inline
-future<>
-stream<T...>::started() {
-    return _ready.get_future();
-}
-
 template <typename... T>
 inline
 future<>
@@ -199,28 +186,5 @@ stream<T...>::produce(T... data) {
             throw;
         }
     });
-}
-
-template <typename... T>
-inline
-void
-stream<T...>::close() {
-    _done.set_value();
-}
-
-template <typename... T>
-template <typename E>
-inline
-void
-stream<T...>::set_exception(E ex) {
-    _done.set_exception(ex);
-}
-
-template <typename... T>
-inline
-void
-stream<T...>::start(next_fn next) {
-    _next = std::move(next);
-    _ready.set_value();
 }
 }
