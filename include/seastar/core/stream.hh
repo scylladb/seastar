@@ -109,16 +109,26 @@ public:
 
 template <typename... T>
 class subscription {
-public:
-    using next_fn = typename stream<T...>::next_fn;
-private:
     stream<T...>* _stream;
     future<> _done;
-private:
-    explicit subscription(stream<T...>* s);
+    explicit subscription(stream<T...>* s) : _stream(s), _done(s->_done.get_future()) {
+        assert(!_stream->_sub);
+        _stream->_sub = this;
+    }
+
 public:
-    subscription(subscription&& x);
-    ~subscription();
+    using next_fn = typename stream<T...>::next_fn;
+    subscription(subscription&& x) : _stream(x._stream), _done(std::move(x._done)) {
+        x._stream = nullptr;
+        if (_stream) {
+            _stream->_sub = this;
+        }
+    }
+    ~subscription() {
+        if (_stream) {
+            _stream->_sub = nullptr;
+        }
+    }
 
     /// \brief Start receiving events from the stream.
     ///
@@ -208,35 +218,9 @@ stream<T...>::set_exception(E ex) {
 
 template <typename... T>
 inline
-subscription<T...>::subscription(stream<T...>* s)
-        : _stream(s), _done(s->_done.get_future()) {
-    assert(!_stream->_sub);
-    _stream->_sub = this;
-}
-
-template <typename... T>
-inline
 void
 stream<T...>::start(next_fn next) {
     _next = std::move(next);
     _ready.set_value();
-}
-
-template <typename... T>
-inline
-subscription<T...>::~subscription() {
-    if (_stream) {
-        _stream->_sub = nullptr;
-    }
-}
-
-template <typename... T>
-inline
-subscription<T...>::subscription(subscription&& x)
-    : _stream(x._stream), _done(std::move(x._done)) {
-    x._stream = nullptr;
-    if (_stream) {
-        _stream->_sub = this;
-    }
 }
 }
