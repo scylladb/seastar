@@ -45,6 +45,7 @@ debian_packages=(
     stow
     g++
     libfmt-dev
+    diffutils
 )
 
 # seastar doesn't directly depend on these packages. They are
@@ -74,6 +75,7 @@ redhat_packages=(
     yaml-cpp-devel
     c-ares-devel
     stow
+    diffutils
     "${transitive[@]}"
 )
 
