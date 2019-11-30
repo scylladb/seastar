@@ -74,13 +74,13 @@ int main(int ac, char** av) {
             });
         }
     };
-    return app_template().run_deprecated(ac, av, [] {
+    return app_template().run(ac, av, [] {
         return engine().open_directory(".").then([] (file f) {
-            auto l = make_lw_shared<lister>(std::move(f));
-            return l->done().then([l] {
-                // ugly thing to keep *l alive
-                engine().exit(0);
-            });
+            return do_with(lister(std::move(f)), [] (lister& l) {
+              return l.done().then([] {
+                  return 0;
+              });
+           });
         });
     });
 }
