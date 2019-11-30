@@ -897,7 +897,7 @@ private:
     void schedule(Func&& func) {
         if (_state.available() || !_promise) {
             if (__builtin_expect(!_state.available() && !_promise, false)) {
-                abandoned();
+                _state.set_to_broken_promise();
             }
             ::seastar::schedule(std::make_unique<continuation<Func, T...>>(std::move(func), std::move(_state)));
         } else {
@@ -935,13 +935,6 @@ private:
             }
             __builtin_unreachable();
         }
-    }
-
-    // Used when there is to attempt to attach a continuation or a thread to a future
-    // that was abandoned by its promise.
-    [[gnu::cold]] [[gnu::noinline]]
-    void abandoned() noexcept {
-        _state.set_to_broken_promise();
     }
 
     template<typename... U>
@@ -1022,7 +1015,7 @@ private:
     };
     void do_wait() noexcept {
         if (__builtin_expect(!_promise, false)) {
-            abandoned();
+            _state.set_to_broken_promise();
             return;
         }
         auto thread = thread_impl::get();
