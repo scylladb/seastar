@@ -457,11 +457,11 @@ SEASTAR_TEST_CASE(test_rpc_scheduling) {
         return seastar::async([&proto, make_socket] {
             test_rpc_proto::client c1(proto, {}, make_socket(), ipv4_addr());
             auto sg = create_scheduling_group("rpc", 100).get0();
-            auto call = proto.register_handler(1, sg, [sg] () mutable {
-                BOOST_REQUIRE(sg == current_scheduling_group());
-                return make_ready_future<>();
+            auto call_sg_id = proto.register_handler(1, sg, [] () {
+                return make_ready_future<unsigned>(internal::scheduling_group_index(current_scheduling_group()));
             });
-            call(c1).get();
+            auto id = call_sg_id(c1).get0();
+            BOOST_REQUIRE(id == internal::scheduling_group_index(sg));
             c1.stop().get();
         });
     });
@@ -492,18 +492,14 @@ SEASTAR_THREAD_TEST_CASE(test_rpc_scheduling_connection_based) {
             rpc::client_options co2;
             co2.isolation_cookie = "sg2";
             test_rpc_proto::client c2(proto, co2, make_socket(), ipv4_addr());
-            auto call = proto.register_handler(1, [sg1, sg2] (int which) mutable {
-                scheduling_group expected;
-                if (which == 1) {
-                    expected = sg1;
-                } else if (which == 2) {
-                    expected = sg2;
-                }
-                BOOST_REQUIRE(current_scheduling_group() == expected);
-                return make_ready_future<>();
+            auto call_sg_id = proto.register_handler(1, [] () {
+                return make_ready_future<unsigned>(internal::scheduling_group_index(current_scheduling_group()));
             });
-            call(c1, 1).get();
-            call(c2, 2).get();
+            unsigned id;
+            id = call_sg_id(c1).get0();
+            BOOST_REQUIRE(id == internal::scheduling_group_index(sg1));
+            id = call_sg_id(c2).get0();
+            BOOST_REQUIRE(id == internal::scheduling_group_index(sg2));
             c1.stop().get();
             c2.stop().get();
         });
@@ -539,19 +535,16 @@ SEASTAR_THREAD_TEST_CASE(test_rpc_scheduling_connection_based_compatibility) {
             rpc::client_options co3;
             test_rpc_proto::client c3(proto, co3, make_socket(), ipv4_addr());
             // A server that uses sg1 if the client is old
-            auto call = proto.register_handler(1, sg1, [sg1, sg2] (int which) mutable {
-                scheduling_group expected;
-                if (which == 1) {
-                    expected = sg1;
-                } else if (which == 2) {
-                    expected = sg2;
-                }
-                BOOST_REQUIRE(current_scheduling_group() == expected);
-                return make_ready_future<>();
+            auto call_sg_id = proto.register_handler(1, sg1, [] () {
+                return make_ready_future<unsigned>(internal::scheduling_group_index(current_scheduling_group()));
             });
-            call(c1, 1).get();
-            call(c2, 2).get();
-            call(c3, 1).get();
+            unsigned id;
+            id = call_sg_id(c1).get0();
+            BOOST_REQUIRE(id == internal::scheduling_group_index(sg1));
+            id = call_sg_id(c2).get0();
+            BOOST_REQUIRE(id == internal::scheduling_group_index(sg2));
+            id = call_sg_id(c3).get0();
+            BOOST_REQUIRE(id == internal::scheduling_group_index(sg1));
             c1.stop().get();
             c2.stop().get();
             c3.stop().get();
