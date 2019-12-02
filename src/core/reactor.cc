@@ -2024,6 +2024,7 @@ void reactor::register_metrics() {
             sm::make_derive("logging_failures", [] { return logging_failures; }, sm::description("Total number of logging failures")),
             // total_operations value:DERIVE:0:U
             sm::make_derive("cpp_exceptions", _cxx_exceptions, sm::description("Total number of C++ exceptions")),
+            sm::make_derive("abandoned_failed_futures", _abandoned_failed_futures, sm::description("Total number of abandoned failed futures, futures destroyed while still containing an exception")),
     });
 
     auto ioq_group = sm::label("mountpoint");
@@ -3870,6 +3871,7 @@ void engine_exit(std::exception_ptr eptr) {
 }
 
 void report_failed_future(const std::exception_ptr& eptr) noexcept {
+    ++engine()._abandoned_failed_futures;
     seastar_logger.warn("Exceptional future ignored: {}, backtrace: {}", eptr, current_backtrace());
 }
 
