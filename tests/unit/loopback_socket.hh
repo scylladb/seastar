@@ -230,6 +230,11 @@ public:
     void destroy_shard(unsigned shard) {
         _pending[shard] = nullptr;
     }
+    future<> destroy_all_shards() {
+        return smp::invoke_on_all([this] () {
+            destroy_shard(engine().cpu_id());
+        });
+    }
 };
 
 class loopback_socket_impl : public net::socket_impl {
