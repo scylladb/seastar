@@ -3900,6 +3900,21 @@ promise_base::~promise_base() noexcept {
     }
 }
 
+template <promise_base::urgent Urgent>
+void promise_base::make_ready() noexcept {
+    if (_task) {
+        _state = nullptr;
+        if (Urgent == urgent::yes && !need_preempt()) {
+            ::seastar::schedule_urgent(std::move(_task));
+        } else {
+            ::seastar::schedule(std::move(_task));
+        }
+    }
+}
+
+template void promise_base::make_ready<promise_base::urgent::no>() noexcept;
+template void promise_base::make_ready<promise_base::urgent::yes>() noexcept;
+
 void future_state_base::set_to_broken_promise() noexcept {
     try {
         // Constructing broken_promise may throw (std::logic_error ctor is not noexcept).

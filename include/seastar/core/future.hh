@@ -485,7 +485,6 @@ protected:
     promise_base& operator=(promise_base&& x) = delete;
 
     template<urgent Urgent>
-    __attribute__((always_inline))
     void make_ready() noexcept;
 
     void set_exception(std::exception_ptr&& ex) noexcept {
@@ -1414,19 +1413,6 @@ future<T...>
 promise<T...>::get_future() noexcept {
     assert(!this->_future && this->_state && !this->_task);
     return future<T...>(this);
-}
-
-template<internal::promise_base::urgent Urgent>
-inline
-void internal::promise_base::make_ready() noexcept {
-    if (_task) {
-        _state = nullptr;
-        if (Urgent == urgent::yes && !need_preempt()) {
-            ::seastar::schedule_urgent(std::move(_task));
-        } else {
-            ::seastar::schedule(std::move(_task));
-        }
-    }
 }
 
 template <typename... T>
