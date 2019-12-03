@@ -135,6 +135,7 @@ class rpc_test_env {
     struct rpc_test_service {
         test_rpc_proto _proto;
         test_rpc_proto::server _server;
+        std::vector<MsgType> _handlers;
 
         rpc_test_service() = delete;
         explicit rpc_test_service(const rpc_test_config& cfg, loopback_connection_factory& lcf)
@@ -151,11 +152,15 @@ class rpc_test_env {
         }
 
         future<> stop() {
+            for (auto t : _handlers) {
+                proto().unregister_handler(t);
+            }
             return server().stop();
         }
 
         template<typename Func>
         auto register_handler(MsgType t, scheduling_group sg, Func func) {
+            _handlers.emplace_back(t);
             return proto().register_handler(t, sg, std::move(func));
         }
     };
