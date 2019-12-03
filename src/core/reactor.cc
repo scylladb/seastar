@@ -3455,6 +3455,10 @@ public:
                         throw std::runtime_error(fmt::format("Configured number of queues {} is larger than the maximum {}",
                                                  _mountpoints.size(), reactor::max_queues));
                     }
+                    if (d.read_bytes_rate == 0 || d.write_bytes_rate == 0 ||
+                            d.read_req_rate == 0 || d.write_req_rate == 0) {
+                        throw std::runtime_error(fmt::format("R/W bytes and req rates must not be zero"));
+                    }
 
                     // Ideally we wouldn't have I/O Queues and would dispatch from every shard (https://github.com/scylladb/seastar/issues/485)
                     // While we don't do that, we'll just be conservative and try to recommend values of I/O Queues that are close to what we
