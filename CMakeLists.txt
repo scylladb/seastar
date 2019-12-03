@@ -245,6 +245,12 @@ set (Seastar_TEST_TIMEOUT
   STRING
   "Maximum allowed time for a test to run, in seconds.")
 
+set (Seastar_TEST_ENVIRONMENT
+  "UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1"
+  CACHE
+  STRING
+  "Environment variables for running tests")
+
 option (Seastar_UNUSED_RESULT_ERROR
   "Make [[nodiscard]] violations an error (instead of a warning)."
   OFF)
