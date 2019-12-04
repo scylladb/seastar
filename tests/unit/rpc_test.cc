@@ -164,6 +164,13 @@ class rpc_test_env {
             _handlers.emplace_back(t);
             return proto().register_handler(t, sg, std::move(func));
         }
+
+        future<> unregister_handler(MsgType t) {
+            auto it = std::find(_handlers.begin(), _handlers.end(), t);
+            assert(it != _handlers.end());
+            _handlers.erase(it);
+            return proto().unregister_handler(t);
+        }
     };
 
     rpc_test_config _cfg;
@@ -234,6 +241,12 @@ public:
     template<typename Func>
     future<> register_handler(MsgType t, Func func) {
         return register_handler(t, scheduling_group(), std::move(func));
+    }
+
+    future<> unregister_handler(MsgType t) {
+        return _service.invoke_on_all([this, t] (rpc_test_service& s) mutable {
+            return s.unregister_handler(t);
+        });
     }
 
 private:
@@ -1027,6 +1040,83 @@ SEASTAR_TEST_CASE(test_handler_registration) {
         // re-registering a handler should succeed
         proto.register_handler(1, handler);
         BOOST_REQUIRE(proto.has_handler(1));
+    });
+}
+
+SEASTAR_TEST_CASE(test_unregister_handler) {
+    using namespace std::chrono_literals;
+    return rpc_test_env<>::do_with_thread(rpc_test_config(), [] (rpc_test_env<>& env, test_rpc_proto::client& c1) {
+        promise<> handler_called;
+        future<> f_handler_called = handler_called.get_future();
+        bool rpc_executed = false;
+        bool rpc_completed = false;
+
+        auto reset_state = [&f_handler_called, &rpc_executed, &rpc_completed] {
+            if (f_handler_called.available()) {
+                f_handler_called.get();
+            }
+            rpc_executed = false;
+            rpc_completed = false;
+        };
+
+        auto get_handler = [&handler_called, &rpc_executed, &rpc_completed] {
+            return [&handler_called, &rpc_executed, &rpc_completed] {
+                handler_called.set_value();
+                rpc_executed = true;
+                return sleep(1ms).then([&rpc_completed] {
+                    rpc_completed = true;
+                });
+            };
+        };
+
+        // handler should not run if unregistered before being called
+        env.register_handler(1, get_handler()).get();
+        env.unregister_handler(1).get();
+        BOOST_REQUIRE(!f_handler_called.available());
+        BOOST_REQUIRE(!rpc_executed);
+        BOOST_REQUIRE(!rpc_completed);
+
+        // verify normal execution path
+        env.register_handler(1, get_handler()).get();
+        auto call = env.proto().make_client<void ()>(1);
+        call(c1).get();
+        BOOST_REQUIRE(f_handler_called.available());
+        BOOST_REQUIRE(rpc_executed);
+        BOOST_REQUIRE(rpc_completed);
+        reset_state();
+
+        // call should fail after handler is unregistered
+        env.unregister_handler(1).get();
+        try {
+            call(c1).get();
+            BOOST_REQUIRE(false);
+        } catch (rpc::unknown_verb_error&) {
+            // expected
+        } catch (...) {
+            std::cerr << "call failed in an unexpected way: " << std::current_exception() << std::endl;
+            BOOST_REQUIRE(false);
+        }
+        BOOST_REQUIRE(!f_handler_called.available());
+        BOOST_REQUIRE(!rpc_executed);
+        BOOST_REQUIRE(!rpc_completed);
+
+        // unregistered is allowed while call is in flight
+        auto delayed_unregister = [&env] {
+            return sleep(500us).then([&env] {
+                return env.unregister_handler(1);
+            });
+        };
+
+        env.register_handler(1, get_handler()).get();
+        try {
+            when_all_succeed(call(c1), delayed_unregister()).get();
+            reset_state();
+        } catch (rpc::unknown_verb_error&) {
+            // expected
+        } catch (...) {
+            std::cerr << "call failed in an unexpected way: " << std::current_exception() << std::endl;
+            BOOST_REQUIRE(false);
+        }
     });
 }
 
