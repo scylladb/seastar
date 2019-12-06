@@ -19,7 +19,12 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
+#include <fmt/core.h>
+#if FMT_VERSION >= 60000
+#include <fmt/chrono.h>
+#elif FMT_VERSION >= 50000
 #include <fmt/time.h>
+#endif
 
 #include <seastar/util/log.hh>
 #include <seastar/util/log-cli.hh>
