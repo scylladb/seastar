@@ -122,8 +122,15 @@ public:
     }
 };
 
+struct rpc_test_config {
+    rpc::resource_limits resource_limits = {};
+    rpc::server_options server_options = {};
+    bool connect = true;
+    bool inject_error = false;
+};
+
 future<>
-with_rpc_env(rpc::resource_limits resource_limits, rpc::server_options so, bool connect, bool inject_error,
+with_rpc_env(rpc_test_config cfg,
         std::function<future<> (test_rpc_proto& proto, test_rpc_proto::server& server, make_socket_fn make_socket)> test_fn) {
     struct state {
         test_rpc_proto proto{serializer()};
@@ -133,10 +140,10 @@ with_rpc_env(rpc::resource_limits resource_limits, rpc::server_options so, bool 
     return do_with(state(), [=] (state& s) {
         s.servers.resize(smp::count);
         return smp::invoke_on_all([=, &s] {
-            s.servers[engine().cpu_id()] =  std::make_unique<test_rpc_proto::server>(s.proto, so, s.lcf.get_server_socket(), resource_limits);
+            s.servers[engine().cpu_id()] =  std::make_unique<test_rpc_proto::server>(s.proto, cfg.server_options, s.lcf.get_server_socket(), cfg.resource_limits);
         }).then([=, &s] {
-            auto make_socket = [&s, connect, inject_error] () {
-                return seastar::socket(std::make_unique<rpc_socket_impl>(s.lcf, connect, inject_error));
+            auto make_socket = [&s, cfg] () {
+                return seastar::socket(std::make_unique<rpc_socket_impl>(s.lcf, cfg.connect, cfg.inject_error));
             };
             return test_fn(s.proto, *s.servers[0], make_socket).finally([&] {
                 return smp::invoke_on_all([&s] {
@@ -181,7 +188,9 @@ SEASTAR_TEST_CASE(test_rpc_connect) {
                 co.compressor_factory = factory.get();
             }
             co.send_timeout_data = j & 2;
-            auto f = with_rpc_env({}, so, true, false, [co] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+            rpc_test_config cfg;
+            cfg.server_options = so;
+            auto f = with_rpc_env(cfg, [co] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
                 return seastar::async([&proto, make_socket, co] {
                     test_rpc_proto::client c1(proto, co, make_socket(), ipv4_addr());
                     auto sum = proto.register_handler(1, [](int a, int b) {
@@ -215,7 +224,9 @@ SEASTAR_TEST_CASE(test_rpc_connect_multi_compression_algo) {
     static rpc::multi_algo_compressor_factory client({factory2.get(), factory1.get()});
     so.compressor_factory = &server;
     co.compressor_factory = &client;
-    return with_rpc_env({}, so, true, false, [co] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+    rpc_test_config cfg;
+    cfg.server_options = so;
+    return with_rpc_env(cfg, [co] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return seastar::async([&proto, make_socket, co] {
             test_rpc_proto::client c1(proto, co, make_socket(), ipv4_addr());
             auto sum = proto.register_handler(1, [](int a, int b) {
@@ -232,7 +243,9 @@ SEASTAR_TEST_CASE(test_rpc_connect_multi_compression_algo) {
 }
 
 SEASTAR_TEST_CASE(test_rpc_connect_abort) {
-    return with_rpc_env({}, {}, false, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+    rpc_test_config cfg;
+    cfg.connect = false;
+    return with_rpc_env(cfg, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return seastar::async([&proto, make_socket] {
             test_rpc_proto::client c1(proto, {}, make_socket(), ipv4_addr());
             auto f = proto.register_handler(1, []() { return make_ready_future<>(); });
@@ -247,7 +260,7 @@ SEASTAR_TEST_CASE(test_rpc_connect_abort) {
 
 SEASTAR_TEST_CASE(test_rpc_cancel) {
     using namespace std::chrono_literals;
-    return with_rpc_env({}, {}, true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+    return with_rpc_env(rpc_test_config(), [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return seastar::async([&proto, make_socket] {
             test_rpc_proto::client c1(proto, {}, make_socket(), ipv4_addr());
             bool rpc_executed = false;
@@ -283,7 +296,9 @@ SEASTAR_TEST_CASE(test_rpc_cancel) {
 }
 
 SEASTAR_TEST_CASE(test_message_to_big) {
-    return with_rpc_env({0, 1, 100}, {}, true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+    rpc_test_config cfg;
+    cfg.resource_limits = {0, 1, 100};
+    return with_rpc_env(cfg, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return seastar::async([&proto, make_socket] {
             test_rpc_proto::client c(proto, {}, make_socket(), ipv4_addr());
             bool good = true;
@@ -405,7 +420,9 @@ future<stream_test_result> stream_test_func(test_rpc_proto& proto, make_socket_f
 SEASTAR_TEST_CASE(test_stream_simple) {
     rpc::server_options so;
     so.streaming_domain = rpc::streaming_domain_type(1);
-    return with_rpc_env({}, so, true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+    rpc_test_config cfg;
+    cfg.server_options = so;
+    return with_rpc_env(cfg, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return stream_test_func(proto, make_socket, false).then([] (stream_test_result r) {
             BOOST_REQUIRE(r.client_source_closed);
             BOOST_REQUIRE(r.server_source_closed);
@@ -422,7 +439,9 @@ SEASTAR_TEST_CASE(test_stream_simple) {
 SEASTAR_TEST_CASE(test_stream_stop_client) {
     rpc::server_options so;
     so.streaming_domain = rpc::streaming_domain_type(1);
-    return with_rpc_env({}, so, true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+    rpc_test_config cfg;
+    cfg.server_options = so;
+    return with_rpc_env(cfg, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return stream_test_func(proto, make_socket, true).then([] (stream_test_result r) {
             BOOST_REQUIRE(!r.client_source_closed);
             BOOST_REQUIRE(!r.server_source_closed);
@@ -439,7 +458,10 @@ SEASTAR_TEST_CASE(test_stream_stop_client) {
 SEASTAR_TEST_CASE(test_stream_connection_error) {
     rpc::server_options so;
     so.streaming_domain = rpc::streaming_domain_type(1);
-    return with_rpc_env({}, so, true, true, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+    rpc_test_config cfg;
+    cfg.server_options = so;
+    cfg.inject_error = true;
+    return with_rpc_env(cfg, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return stream_test_func(proto, make_socket, false).then([] (stream_test_result r) {
             BOOST_REQUIRE(!r.client_source_closed);
             BOOST_REQUIRE(!r.server_source_closed);
@@ -453,7 +475,7 @@ SEASTAR_TEST_CASE(test_stream_connection_error) {
 }
 
 SEASTAR_TEST_CASE(test_rpc_scheduling) {
-    return with_rpc_env({}, {}, true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+    return with_rpc_env(rpc_test_config(), [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return seastar::async([&proto, make_socket] {
             test_rpc_proto::client c1(proto, {}, make_socket(), ipv4_addr());
             auto sg = create_scheduling_group("rpc", 100).get0();
@@ -484,7 +506,9 @@ SEASTAR_THREAD_TEST_CASE(test_rpc_scheduling_connection_based) {
         cfg.sched_group = sg;
         return cfg;
     };
-    with_rpc_env(limits, {}, true, false, [sg1, sg2] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+    rpc_test_config cfg;
+    cfg.resource_limits = limits;
+    with_rpc_env(cfg, [sg1, sg2] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return async([&proto, make_socket, sg1, sg2] {
             rpc::client_options co1;
             co1.isolation_cookie = "sg1";
@@ -523,7 +547,9 @@ SEASTAR_THREAD_TEST_CASE(test_rpc_scheduling_connection_based_compatibility) {
         cfg.sched_group = sg;
         return cfg;
     };
-    with_rpc_env(limits, {}, true, false, [sg1, sg2] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+    rpc_test_config cfg;
+    cfg.resource_limits = limits;
+    with_rpc_env(cfg, [sg1, sg2] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return async([&proto, make_socket, sg1, sg2] {
             rpc::client_options co1;
             co1.isolation_cookie = "sg1";
@@ -794,7 +820,7 @@ SEASTAR_TEST_CASE(test_max_absolute_timeout) {
     (void) seastar::sleep_abortable(std::chrono::seconds(3), *abrt).then([done, success] {
         done->signal(1);
     }).handle_exception([] (std::exception_ptr) {});
-    (void) with_rpc_env({}, rpc::server_options(), true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+    (void) with_rpc_env(rpc_test_config(), [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return seastar::async([&proto, make_socket] {
             rpc::client_options co;
             co.send_timeout_data = 1;
@@ -837,7 +863,7 @@ SEASTAR_TEST_CASE(test_max_relative_timeout) {
     (void) seastar::sleep_abortable(std::chrono::seconds(3), *abrt).then([done, success] {
         done->signal(1);
     }).handle_exception([] (std::exception_ptr) {});
-    (void) with_rpc_env({}, rpc::server_options(), true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+    (void) with_rpc_env(rpc_test_config(), [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return seastar::async([&proto, make_socket] {
             rpc::client_options co;
             co.send_timeout_data = 1;
@@ -862,7 +888,7 @@ SEASTAR_TEST_CASE(test_max_relative_timeout) {
 }
 
 SEASTAR_TEST_CASE(test_rpc_tuple) {
-    return with_rpc_env({}, rpc::server_options(), true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+    return with_rpc_env(rpc_test_config(), [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return seastar::async([&proto, make_socket] {
             test_rpc_proto::client c1(proto, rpc::client_options{}, make_socket(), ipv4_addr());
             auto stop = defer([&] { c1.stop().get(); });
@@ -877,7 +903,7 @@ SEASTAR_TEST_CASE(test_rpc_tuple) {
 }
 
 SEASTAR_TEST_CASE(test_rpc_nonvariadic_client_variadic_server) {
-    return with_rpc_env({}, rpc::server_options(), true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+    return with_rpc_env(rpc_test_config(), [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return seastar::async([&proto, make_socket] {
             test_rpc_proto::client c1(proto, rpc::client_options{}, make_socket(), ipv4_addr());
             auto stop = defer([&] { c1.stop().get(); });
@@ -895,7 +921,7 @@ SEASTAR_TEST_CASE(test_rpc_nonvariadic_client_variadic_server) {
 }
 
 SEASTAR_TEST_CASE(test_rpc_variadic_client_nonvariadic_server) {
-    return with_rpc_env({}, rpc::server_options(), true, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+    return with_rpc_env(rpc_test_config(), [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return seastar::async([&proto, make_socket] {
             test_rpc_proto::client c1(proto, rpc::client_options{}, make_socket(), ipv4_addr());
             auto stop = defer([&] { c1.stop().get(); });
@@ -913,7 +939,9 @@ SEASTAR_TEST_CASE(test_rpc_variadic_client_nonvariadic_server) {
 }
 
 SEASTAR_TEST_CASE(test_handler_registration) {
-    return with_rpc_env({}, {}, false, false, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
+    rpc_test_config cfg;
+    cfg.connect = false;
+    return with_rpc_env(cfg, [] (test_rpc_proto& proto, test_rpc_proto::server& s, make_socket_fn make_socket) {
         return seastar::async([&proto, make_socket] {
             // non-existing handler should not be found
             BOOST_REQUIRE(!proto.has_handler(1));
