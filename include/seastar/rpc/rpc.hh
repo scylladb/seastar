@@ -556,6 +556,9 @@ class protocol_base {
 public:
     virtual ~protocol_base() {};
     virtual shared_ptr<server::connection> make_server_connection(rpc::server& server, connected_socket fd, socket_address addr, connection_id id) = 0;
+protected:
+    friend class server;
+
     // returns a pointer to rpc handler function and a version of handler's table
     virtual std::pair<rpc_handler*, uint32_t> get_handler(uint64_t msg_id) = 0;
     virtual uint32_t get_handlers_table_version() const = 0;
@@ -646,12 +649,15 @@ public:
         return make_shared<rpc::server::connection>(server, std::move(fd), std::move(addr), _logger, &_serializer, id);
     }
 
+    bool has_handler(uint64_t msg_id);
+
+private:
     std::pair<rpc_handler*, uint32_t> get_handler(uint64_t msg_id) override;
 
     uint32_t get_handlers_table_version() const override {
         return _handlers_version;
     }
-private:
+
     template<typename Ret, typename... In>
     auto make_client(signature<Ret(In...)> sig, MsgType t);
 

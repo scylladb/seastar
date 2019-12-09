@@ -677,6 +677,12 @@ auto protocol<Serializer, MsgType>::register_handler(MsgType t, Func&& func) {
 }
 
 template<typename Serializer, typename MsgType>
+bool protocol<Serializer, MsgType>::has_handler(uint64_t msg_id) {
+    auto it = _handlers.find(MsgType(msg_id));
+    return it != _handlers.end();
+}
+
+template<typename Serializer, typename MsgType>
 std::pair<rpc_handler*, uint32_t> protocol<Serializer, MsgType>::get_handler(uint64_t msg_id) {
     rpc_handler* h = nullptr;
     auto it = _handlers.find(MsgType(msg_id));
