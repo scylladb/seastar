@@ -164,6 +164,32 @@ namespace seastar {
 seastar::logger seastar_logger("seastar");
 seastar::logger sched_logger("scheduler");
 
+reactor::iocb_pool::iocb_pool() {
+    for (unsigned i = 0; i != max_aio; ++i) {
+        _free_iocbs.push(&_iocb_pool[i]);
+    }
+}
+
+inline
+internal::linux_abi::iocb*
+reactor::iocb_pool::get_one() {
+    auto io = _free_iocbs.top();
+    _free_iocbs.pop();
+    return io;
+}
+
+inline
+void
+reactor::iocb_pool::put_one(internal::linux_abi::iocb* io) {
+    _free_iocbs.push(io);
+}
+
+inline
+unsigned
+reactor::iocb_pool::outstanding() const {
+    return max_aio - _free_iocbs.size();
+}
+
 io_priority_class
 reactor::register_one_priority_class(sstring name, uint32_t shares) {
     return io_queue::register_one_priority_class(std::move(name), shares);
@@ -837,9 +863,6 @@ reactor::reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg)
     g_need_preempt = &_preemption_monitor;
     seastar::thread_impl::init();
     _backend->start_tick();
-    for (unsigned i = 0; i != max_aio; ++i) {
-        _free_iocbs.push(&_iocb_pool[i]);
-    }
 
     setup_aio_context(max_aio, &_io_context);
 #ifdef HAVE_OSV
@@ -1397,8 +1420,7 @@ reactor::connect(socket_address sa, socket_address local, transport proto) {
 
 void
 reactor::submit_io(io_desc* desc, noncopyable_function<void (linux_abi::iocb&)> prepare_io) {
-    iocb& io = *_free_iocbs.top();
-    _free_iocbs.pop();
+    iocb& io = *_iocb_pool.get_one();
     prepare_io(io);
     if (_aio_eventfd) {
         set_eventfd_notification(io, _aio_eventfd->get_fd());
@@ -1418,7 +1440,7 @@ reactor::handle_aio_error(linux_abi::iocb* iocb, int ec) {
             return 0;
         case EBADF: {
             auto desc = reinterpret_cast<io_desc*>(get_user_data(*iocb));
-            _free_iocbs.push(iocb);
+            _iocb_pool.put_one(iocb);
             try {
                 throw std::system_error(EBADF, std::system_category());
             } catch (...) {
@@ -1521,7 +1543,7 @@ bool reactor::process_io()
             _pending_aio_retry.push_back(iocb);
             continue;
         }
-        _free_iocbs.push(iocb);
+        _iocb_pool.put_one(iocb);
         auto desc = reinterpret_cast<io_desc*>(ev[i].data);
         desc->set_value(ev[i]);
         delete desc;
@@ -2179,7 +2201,7 @@ public:
         // is only possible if there are no in-flight aios. If there are, we need to keep polling.
         //
         // Alternatively, if we enabled _aio_eventfd, we can always enter
-        unsigned executing = max_aio - _r._free_iocbs.size();
+        unsigned executing = _r._iocb_pool.outstanding();
         return executing == 0 || _r._aio_eventfd;
     }
     virtual void exit_interrupt_mode() override {
