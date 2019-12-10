@@ -168,20 +168,24 @@ reactor::iocb_pool::iocb_pool() {
     for (unsigned i = 0; i != max_aio; ++i) {
         _free_iocbs.push(&_iocb_pool[i]);
     }
+    _sem.signal(max_aio);
 }
 
 inline
-internal::linux_abi::iocb*
+future<internal::linux_abi::iocb*>
 reactor::iocb_pool::get_one() {
-    auto io = _free_iocbs.top();
-    _free_iocbs.pop();
-    return io;
+    return _sem.wait(1).then([this] {
+        auto io = _free_iocbs.top();
+        _free_iocbs.pop();
+        return io;
+    });
 }
 
 inline
 void
 reactor::iocb_pool::put_one(internal::linux_abi::iocb* io) {
     _free_iocbs.push(io);
+    _sem.signal(1);
 }
 
 inline
@@ -1420,7 +1424,10 @@ reactor::connect(socket_address sa, socket_address local, transport proto) {
 
 void
 reactor::submit_io(io_desc* desc, noncopyable_function<void (linux_abi::iocb&)> prepare_io) {
-    iocb& io = *_iocb_pool.get_one();
+  // We can ignore the future returned here, because the submitted aio will be polled
+  // for and completed in process_io().
+  (void)_iocb_pool.get_one().then([this, desc, prepare_io = std::move(prepare_io)] (linux_abi::iocb* iocb) mutable {
+    auto& io = *iocb;
     prepare_io(io);
     if (_aio_eventfd) {
         set_eventfd_notification(io, _aio_eventfd->get_fd());
@@ -1430,6 +1437,7 @@ reactor::submit_io(io_desc* desc, noncopyable_function<void (linux_abi::iocb&)> 
     }
     set_user_data(io, desc);
     _pending_aio.push_back(&io);
+  });
 }
 
 // Returns: number of iocbs consumed (0 or 1)

@@ -249,10 +249,11 @@ private:
 
     class iocb_pool {
         alignas(cache_line_size) std::array<internal::linux_abi::iocb, max_aio> _iocb_pool;
+        semaphore _sem{0};
         std::stack<internal::linux_abi::iocb*, boost::container::static_vector<internal::linux_abi::iocb*, max_aio>> _free_iocbs;
     public:
         iocb_pool();
-        internal::linux_abi::iocb* get_one();
+        future<internal::linux_abi::iocb*> get_one();
         void put_one(internal::linux_abi::iocb* io);
         unsigned outstanding() const;
     };
