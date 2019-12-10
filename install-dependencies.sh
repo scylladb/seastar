@@ -17,6 +17,14 @@
 # under the License.
 #
 
+# os-release may be missing in container environment by default.
+if [ ! -f "/etc/os-release" ]; then
+    # if we are on Arch, provide os-release
+    if [ -x "/usr/sbin/pacman" ]; then
+        /usr/sbin/pacman -Sy --noconfirm filesystem
+    fi
+fi
+
 . /etc/os-release
 
 debian_packages=(
@@ -102,6 +110,9 @@ centos_packages=(
     devtoolset-8-libatomic
 )
 
+# glibc 2.30-3 has sys/sdt.h (systemtap include)
+# some old containers may contain glibc older,
+# so enforce update on that one.
 arch_packages=(
     gcc
     ninja
@@ -119,11 +130,15 @@ arch_packages=(
     lz4
     make
     protobuf
-    systemtap
     libtool
     cmake
     yaml-cpp
     stow
+    c-ares
+    pkgconf
+    fmt
+    python3
+    glibc
 )
 
 opensuse_packages=(
@@ -170,7 +185,7 @@ elif [ "$ID" = "centos" ] || [ "$ID" = "fedora" ]; then
         yum install -y "${centos_packages[@]}" 
     fi
 elif [ "$ID" = "arch" -o "$ID_LIKE" = "arch" ]; then
-    pacman -Sy --needed "${arch_packages[@]}"
+    pacman -Sy --noconfirm --needed "${arch_packages[@]}"
 elif [ "$ID" = "opensuse-leap" ]; then
     zypper install -y "${opensuse_packages[@]}"
 else
