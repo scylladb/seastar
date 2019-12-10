@@ -1,5 +1,6 @@
 #include <seastar/rpc/rpc.hh>
 #include <seastar/core/print.hh>
+#include <seastar/util/defer.hh>
 #include <boost/range/adaptor/map.hpp>
 
 namespace seastar {
@@ -901,20 +902,18 @@ future<> server::connection::send_unknown_verb_reply(compat::optional<rpc_clock_
                           timeout = relative_timeout_to_absolute(std::chrono::milliseconds(*expire));
                       }
                       auto h = _server._proto->get_handler(type);
+                      if (!h) {
+                          return send_unknown_verb_reply(timeout, msg_id, type);
+                      }
+
                       // If the new method of per-connection scheduling group was used, honor it.
                       // Otherwise, use the old per-handler scheduling group.
-                      auto sg = _isolation_config ? _isolation_config->sched_group : h.first ? h.first->sg : scheduling_group();
+                      auto sg = _isolation_config ? _isolation_config->sched_group : h->sg;
                       return with_scheduling_group(sg, [this, timeout, type, msg_id, h, data = std::move(data.value())] () mutable {
-                          // with_scheduling_group may defer and the callback might be unregistered already when the code runs
-                          // verify it by checking that handlers table version did not change, otherwise search for the handler again
-                          if (h.first && h.second != _server._proto->get_handlers_table_version()) {
-                              h = _server._proto->get_handler(type);
-                          }
-                          if (h.first) {
-                              return h.first->func(shared_from_this(), timeout, msg_id, std::move(data));
-                          } else {
-                              return send_unknown_verb_reply(timeout, msg_id, type);
-                          }
+                          return h->func(shared_from_this(), timeout, msg_id, std::move(data)).finally([this, h] {
+                              // If anything between get_handler() and here throws, we leak put_handler
+                              _server._proto->put_handler(h);
+                          });
                       });
                   }
               });

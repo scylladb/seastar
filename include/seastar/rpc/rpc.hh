@@ -37,6 +37,7 @@
 #include <seastar/core/queue.hh>
 #include <seastar/core/weak_ptr.hh>
 #include <seastar/core/scheduling.hh>
+#include <seastar/util/backtrace.hh>
 
 namespace seastar {
 
@@ -550,15 +551,18 @@ using rpc_handler_func = std::function<future<> (shared_ptr<server::connection>,
 struct rpc_handler {
     scheduling_group sg;
     rpc_handler_func func;
+    gate use_gate;
 };
 
 class protocol_base {
 public:
     virtual ~protocol_base() {};
     virtual shared_ptr<server::connection> make_server_connection(rpc::server& server, connected_socket fd, socket_address addr, connection_id id) = 0;
-    // returns a pointer to rpc handler function and a version of handler's table
-    virtual std::pair<rpc_handler*, uint32_t> get_handler(uint64_t msg_id) = 0;
-    virtual uint32_t get_handlers_table_version() const = 0;
+protected:
+    friend class server;
+
+    virtual rpc_handler* get_handler(uint64_t msg_id) = 0;
+    virtual void put_handler(rpc_handler*) = 0;
 };
 
 // MsgType is a type that holds type of a message. The type should be hashable
@@ -608,7 +612,6 @@ public:
     friend server;
 private:
     std::unordered_map<MsgType, rpc_handler> _handlers;
-    uint32_t  _handlers_version = 0;
     Serializer _serializer;
     logger _logger;
 
@@ -629,10 +632,7 @@ public:
     template <typename Func>
     auto register_handler(MsgType t, scheduling_group sg, Func&& func);
 
-    void unregister_handler(MsgType t) {
-        _handlers_version++;
-        _handlers.erase(t);
-    }
+    future<> unregister_handler(MsgType t);
 
     void set_logger(std::function<void(const sstring&)> logger) {
         _logger.set(std::move(logger));
@@ -646,17 +646,20 @@ public:
         return make_shared<rpc::server::connection>(server, std::move(fd), std::move(addr), _logger, &_serializer, id);
     }
 
-    std::pair<rpc_handler*, uint32_t> get_handler(uint64_t msg_id) override;
+    bool has_handler(uint64_t msg_id);
 
-    uint32_t get_handlers_table_version() const override {
-        return _handlers_version;
-    }
 private:
+    rpc_handler* get_handler(uint64_t msg_id) override;
+    void put_handler(rpc_handler*) override;
+
     template<typename Ret, typename... In>
     auto make_client(signature<Ret(In...)> sig, MsgType t);
 
     void register_receiver(MsgType t, rpc_handler&& handler) {
-        _handlers.emplace(t, std::move(handler));
+        auto r = _handlers.emplace(t, std::move(handler));
+        if (!r.second) {
+            throw_with_backtrace<std::runtime_error>("registered handler already exists");
+        }
     }
 };
 }
