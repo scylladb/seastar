@@ -41,11 +41,11 @@ test_runner::~test_runner() {
     finalize();
 }
 
-void
+bool
 test_runner::start(int ac, char** av) {
     bool expected = false;
     if (!_started.compare_exchange_strong(expected, true, std::memory_order_acquire)) {
-        return;
+        return true;
     }
 
     // Don't interfere with seastar signal handling
@@ -60,11 +60,17 @@ test_runner::start(int ac, char** av) {
         abort();
     }
 
-    _thread = std::make_unique<posix_thread>([this, ac, av]() mutable {
+    auto init_outcome = std::make_shared<exchanger<bool>>();
+
+    _thread = std::make_unique<posix_thread>([this, ac, av, init_outcome]() mutable {
         app_template app;
         app.add_options()
-            ("random-seed", boost::program_options::value<unsigned>(), "Random number generator seed");
-        auto exit_code = app.run_deprecated(ac, av, [this, &app] {
+            ("random-seed", boost::program_options::value<unsigned>(), "Random number generator seed")
+            ("fail-on-abandoned-failed-futures", "Fail the test if there are any abandoned failed futures");
+        // We guarantee that only one thread is running.
+        // We only read this after that one thread is joined, so this is safe.
+        _exit_code = app.run(ac, av, [this, &app, init_outcome = init_outcome.get()] {
+            init_outcome->give(true);
             auto init = [&app] {
                 auto conf_seed = app.configuration()["random-seed"];
                 auto seed = conf_seed.empty() ? std::random_device()():  conf_seed.as<unsigned>();
@@ -83,17 +89,24 @@ test_runner::start(int ac, char** av) {
                     return func();
                 } catch (const stop_execution&) {
                     _done = true;
-                    engine().exit(0);
                     return make_ready_future<>();
                 }
-            }).or_terminate();
-          });
+              }).or_terminate();
+            }).then([this, &app] {
+                if (engine().abandoned_failed_futures()) {
+                    std::cerr << "*** " << engine().abandoned_failed_futures() << " abandoned failed future(s) detected\n";
+                    if (app.configuration().count("fail-on-abandoned-failed-futures")) {
+                        std::cerr << "Failing the test because fail was requested by --fail-on-abandoned-failed-futures\n";
+                        return 3;
+                    }
+                }
+                return 0;
+            });
         });
-
-        if (exit_code) {
-            exit(exit_code);
-        }
+        init_outcome->give(!_exit_code);
     });
+
+    return init_outcome->take();
 }
 
 void
@@ -120,12 +133,13 @@ test_runner::run_sync(std::function<future<>()> task) {
     }
 }
 
-void test_runner::finalize() {
+int test_runner::finalize() {
     if (_thread) {
         _task.interrupt(stop_execution());
         _thread->join();
         _thread = nullptr;
     }
+    return _exit_code;
 }
 
 test_runner& global_test_runner() {

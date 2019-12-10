@@ -42,14 +42,16 @@ static bool init_unit_test_suite() {
 #endif
     }
 
-    global_test_runner().start(ts.argc, ts.argv);
-    return true;
+    return global_test_runner().start(ts.argc, ts.argv);
 }
 
 int entry_point(int argc, char** argv) {
-    const int exit_code = ::boost::unit_test::unit_test_main(&init_unit_test_suite, argc, argv);
-    seastar::testing::global_test_runner().finalize();
-    return exit_code;
+    const int boost_exit_code = ::boost::unit_test::unit_test_main(&init_unit_test_suite, argc, argv);
+    const int seastar_exit_code = seastar::testing::global_test_runner().finalize();
+    if (boost_exit_code) {
+        return boost_exit_code;
+    }
+    return seastar_exit_code;
 }
 
 }
