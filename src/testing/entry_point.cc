@@ -36,9 +36,11 @@ static bool init_unit_test_suite() {
     for (seastar_test* test : tests) {
 #if BOOST_VERSION > 105800
         ts.add(boost::unit_test::make_test_case([test] { test->run(); }, test->get_name(),
-                                                test->get_test_file(), 0), 0, 0);
+                                                test->get_test_file(), 0),
+                                                test->get_expected_failures(), 0);
 #else
-        ts.add(boost::unit_test::make_test_case([test] { test->run(); }, test->get_name()), 0, 0);
+        ts.add(boost::unit_test::make_test_case([test] { test->run(); }, test->get_name()),
+                                                test->get_expected_failures(), 0);
 #endif
     }
 

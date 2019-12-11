@@ -27,10 +27,11 @@
 
 #include <seastar/testing/seastar_test.hh>
 
-#define SEASTAR_THREAD_TEST_CASE(name) \
+#define SEASTAR_THREAD_TEST_CASE_EXPECTED_FAILURES(name, failures) \
     struct name : public seastar::testing::seastar_test { \
         const char* get_test_file() override { return __FILE__; } \
         const char* get_name() override { return #name; } \
+        int get_expected_failures() override { return failures; } \
         seastar::future<> run_test_case() override { \
             return seastar::async([this] { \
                 do_run_test_case(); \
@@ -40,3 +41,6 @@
     }; \
     static name name ## _instance; \
     void name::do_run_test_case()
+
+#define SEASTAR_THREAD_TEST_CASE(name) \
+    SEASTAR_THREAD_TEST_CASE_EXPECTED_FAILURES(name, 0)

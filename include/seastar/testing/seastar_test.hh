@@ -40,6 +40,7 @@ public:
     virtual ~seastar_test() {}
     virtual const char* get_test_file() = 0;
     virtual const char* get_name() = 0;
+    virtual int get_expected_failures() { return 0; }
     virtual future<> run_test_case() = 0;
     void run();
 };
