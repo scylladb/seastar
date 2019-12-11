@@ -245,6 +245,19 @@ private:
     static constexpr unsigned max_queues = 8;
     static constexpr unsigned max_aio = max_aio_per_queue * max_queues;
     friend disk_config_params;
+
+
+    class iocb_pool {
+        alignas(cache_line_size) std::array<internal::linux_abi::iocb, max_aio> _iocb_pool;
+        semaphore _sem{0};
+        std::stack<internal::linux_abi::iocb*, boost::container::static_vector<internal::linux_abi::iocb*, max_aio>> _free_iocbs;
+    public:
+        iocb_pool();
+        future<internal::linux_abi::iocb*> get_one();
+        void put_one(internal::linux_abi::iocb* io);
+        unsigned outstanding() const;
+    };
+
     // Not all reactors have IO queues. If the number of IO queues is less than the number of shards,
     // some reactors will talk to foreign io_queues. If this reactor holds a valid IO queue, it will
     // be stored here.
@@ -275,8 +288,7 @@ private:
     timer_set<timer<manual_clock>, &timer<manual_clock>::_link> _manual_timers;
     timer_set<timer<manual_clock>, &timer<manual_clock>::_link>::timer_list_t _expired_manual_timers;
     internal::linux_abi::aio_context_t _io_context;
-    alignas(cache_line_size) std::array<internal::linux_abi::iocb, max_aio> _iocb_pool;
-    std::stack<internal::linux_abi::iocb*, boost::container::static_vector<internal::linux_abi::iocb*, max_aio>> _free_iocbs;
+    iocb_pool _iocb_pool;
     boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _pending_aio;
     boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _pending_aio_retry;
     io_stats _io_stats;
