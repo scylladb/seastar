@@ -408,13 +408,12 @@ struct future_state :  public future_state_base, private internal::uninitialized
             assert(0 && "invalid state for ignore");
         case state::result_unavailable:
         case state::result:
-            this->~future_state();
+            _u.st = state::result_unavailable;
             break;
         default:
             // Ignore the exception
             _u.take_exception();
         }
-        _u.st = state::invalid;
     }
     using get0_return_type = typename internal::get0_return_type<T...>::type;
     static get0_return_type get0(std::tuple<T...>&& x) {
