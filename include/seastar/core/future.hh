@@ -1145,25 +1145,46 @@ public:
     template <typename Func, typename FuncResult = std::result_of_t<Func(future)>>
     GCC6_CONCEPT( requires ::seastar::CanApply<Func, future> )
     futurize_t<FuncResult>
-    then_wrapped(Func&& func) noexcept {
+    then_wrapped(Func&& func) & noexcept {
+        return then_wrapped_maybe_erase<false, FuncResult>(std::forward<Func>(func));
+    }
+
+    template <typename Func, typename FuncResult = std::result_of_t<Func(future&&)>>
+    GCC6_CONCEPT( requires ::seastar::CanApply<Func, future&&> )
+    futurize_t<FuncResult>
+    then_wrapped(Func&& func) && noexcept {
+        return then_wrapped_maybe_erase<true, FuncResult>(std::forward<Func>(func));
+    }
+
+private:
+
+    template <bool AsSelf, typename FuncResult, typename Func>
+    futurize_t<FuncResult>
+    then_wrapped_maybe_erase(Func&& func) noexcept {
 #ifndef SEASTAR_TYPE_ERASE_MORE
-        return then_wrapped_impl<FuncResult>(std::forward<Func>(func));
+        return then_wrapped_common<AsSelf, FuncResult>(std::forward<Func>(func));
 #else
         using futurator = futurize<FuncResult>;
-        return then_wrapped_impl<FuncResult>(noncopyable_function<typename futurator::type (future&&)>([func = std::forward<Func>(func)] (future&& f) mutable {
+        return then_wrapped_common<AsSelf, FuncResult>(noncopyable_function<typename futurator::type (future&&)>([func = std::forward<Func>(func)] (future&& f) mutable {
             return futurator::apply(std::forward<Func>(func), std::move(f));
         }));
 #endif
     }
 
-private:
-
-    template <typename FuncResult, typename Func>
+    template <bool AsSelf, typename FuncResult, typename Func>
     futurize_t<FuncResult>
-    then_wrapped_impl(Func&& func) noexcept {
+    then_wrapped_common(Func&& func) noexcept {
         using futurator = futurize<FuncResult>;
         if (available() && !need_preempt()) {
-            return futurator::apply(std::forward<Func>(func), future(get_available_state_ref()));
+            // TODO: after dropping C++14 support use `if constexpr ()` instead.
+            if (AsSelf) {
+                if (_promise) {
+                    detach_promise();
+                }
+                return futurator::apply(std::forward<Func>(func), std::move(*this));
+            } else {
+                return futurator::apply(std::forward<Func>(func), future(get_available_state_ref()));
+            }
         }
         typename futurator::type fut(future_for_get_promise_marker{});
         // If there is a std::bad_alloc in schedule() there is nothing that can be done about it, we cannot break future
