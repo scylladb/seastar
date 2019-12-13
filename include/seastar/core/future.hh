@@ -1142,15 +1142,15 @@ public:
     /// \param func - function to be called when the future becomes available,
     /// \return a \c future representing the return value of \c func, applied
     ///         to the eventual value of this future.
-    template <typename Func, typename Result = futurize_t<std::result_of_t<Func(future)>>>
+    template <typename Func, typename FuncResult = std::result_of_t<Func(future)>>
     GCC6_CONCEPT( requires ::seastar::CanApply<Func, future> )
-    Result
+    futurize_t<FuncResult>
     then_wrapped(Func&& func) noexcept {
 #ifndef SEASTAR_TYPE_ERASE_MORE
-        return then_wrapped_impl(std::move(func));
+        return then_wrapped_impl<FuncResult>(std::forward<Func>(func));
 #else
-        using futurator = futurize<std::result_of_t<Func(future)>>;
-        return then_wrapped_impl(noncopyable_function<Result (future&&)>([func = std::forward<Func>(func)] (future&& f) mutable {
+        using futurator = futurize<FuncResult>;
+        return then_wrapped_impl<FuncResult>(noncopyable_function<typename futurator::type (future&&)>([func = std::forward<Func>(func)] (future&& f) mutable {
             return futurator::apply(std::forward<Func>(func), std::move(f));
         }));
 #endif
@@ -1158,10 +1158,10 @@ public:
 
 private:
 
-    template <typename Func, typename Result = futurize_t<std::result_of_t<Func(future)>>>
-    Result
+    template <typename FuncResult, typename Func>
+    futurize_t<FuncResult>
     then_wrapped_impl(Func&& func) noexcept {
-        using futurator = futurize<std::result_of_t<Func(future)>>;
+        using futurator = futurize<FuncResult>;
         if (available() && !need_preempt()) {
             return futurator::apply(std::forward<Func>(func), future(get_available_state_ref()));
         }
