@@ -2574,7 +2574,14 @@ void reactor::service_highres_timer() {
 }
 
 int reactor::run() {
+#ifndef SEASTAR_ASAN_ENABLED
+    // SIGSTKSZ is too small when using asan. We also don't need to
+    // handle SIGSEGV ourselves when using asan, so just don't install
+    // a signal handler stack.
     auto signal_stack = install_signal_handler_stack();
+#else
+    (void)install_signal_handler_stack;
+#endif
 
     register_metrics();
 
@@ -3588,7 +3595,12 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     }
     pthread_sigmask(SIG_BLOCK, &sigs, nullptr);
 
+#ifndef SEASTAR_ASAN_ENABLED
+    // We don't need to handle SIGSEGV when asan is enabled.
     install_oneshot_signal_handler<SIGSEGV, sigsegv_action>();
+#else
+    (void)sigsegv_action;
+#endif
     install_oneshot_signal_handler<SIGABRT, sigabrt_action>();
 
 #ifdef SEASTAR_HAVE_DPDK
