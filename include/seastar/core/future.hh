@@ -273,10 +273,10 @@ struct future_state_base {
         any(any&& x) {
             if (x.st < state::exception_min) {
                 st = x.st;
+                x.st = state::invalid;
             } else {
                 new (&ex) std::exception_ptr(x.take_exception());
             }
-            x.st = state::invalid;
         }
         bool has_result() const {
             return st == state::result || st == state::result_unavailable;
