@@ -905,7 +905,7 @@ private:
     future(promise<T...>* pr) noexcept : future_base(pr, &_state), _state(std::move(pr->_local_state)) { }
     template <typename... A>
     future(ready_future_marker m, A&&... a) : _state(m, std::forward<A>(a)...) { }
-    future(exception_future_marker m, std::exception_ptr ex) noexcept : _state(m, std::move(ex)) { }
+    future(exception_future_marker m, std::exception_ptr&& ex) noexcept : _state(m, std::move(ex)) { }
     [[gnu::always_inline]]
     explicit future(future_state<T...>&& state) noexcept
             : _state(std::move(state)) {

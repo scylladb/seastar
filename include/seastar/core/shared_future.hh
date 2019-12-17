@@ -156,7 +156,7 @@ private:
                 _peers.push_back(std::move(p), timeout);
                 return f;
             } else if (_original_future.failed()) {
-                return future_type(exception_future_marker(), _original_future._state.get_exception());
+                return future_type(exception_future_marker(), std::exception_ptr(_original_future._state.get_exception()));
             } else {
                 try {
                     return future_type(ready_future_marker(), _original_future._state.get_value());
