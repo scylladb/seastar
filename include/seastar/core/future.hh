@@ -81,6 +81,8 @@ class future;
 template <typename... T>
 class shared_future;
 
+struct future_state_base;
+
 /// \brief Creates a \ref future in an available, value state.
 ///
 /// Creates a \ref future object that is already resolved.  This
@@ -113,6 +115,9 @@ future<T...> make_exception_future(std::exception_ptr& ex) noexcept {
 void engine_exit(std::exception_ptr eptr = {});
 
 void report_failed_future(const std::exception_ptr& ex) noexcept;
+
+void report_failed_future(const future_state_base& state) noexcept;
+
 /// \endcond
 
 /// \brief Exception type for broken promises
@@ -342,6 +347,15 @@ public:
         assert(_u.st == state::future);
         _u.set_exception(std::move(ex));
     }
+    future_state_base& operator=(future_state_base&& x) noexcept {
+        this->~future_state_base();
+        new (this) future_state_base(std::move(x));
+        return *this;
+    }
+    void set_exception(future_state_base&& state) noexcept {
+        assert(_u.st == state::future);
+        *this = std::move(state);
+    }
     std::exception_ptr get_exception() && noexcept {
         assert(_u.st >= state::exception_min);
         // Move ex out so future::~future() knows we've handled it
@@ -512,9 +526,10 @@ protected:
     template<urgent Urgent>
     void make_ready() noexcept;
 
-    void set_exception(std::exception_ptr&& ex) noexcept {
+    template<typename T>
+    void set_exception_impl(T&& val) noexcept {
         if (_state) {
-            _state->set_exception(std::move(ex));
+            _state->set_exception(std::move(val));
             make_ready<urgent::no>();
         } else {
             // We get here if promise::get_future is called and the
@@ -524,8 +539,16 @@ protected:
             // copy of ex and warn in the promise destructor.
             // Since there isn't any way for the user to clear
             // the exception, we issue the warning from here.
-            report_failed_future(ex);
+            report_failed_future(val);
         }
+    }
+
+    void set_exception(future_state_base&& state) noexcept {
+        set_exception_impl(std::move(state));
+    }
+
+    void set_exception(std::exception_ptr&& ex) noexcept {
+        set_exception_impl(std::move(ex));
     }
 
     void set_exception(const std::exception_ptr& ex) noexcept {
@@ -1143,7 +1166,7 @@ private:
             memory::disable_failure_guard dfg;
             schedule([pr = fut.get_promise(), func = std::forward<Func>(func)] (future_state<T...>&& state) mutable {
                 if (state.failed()) {
-                    pr.set_exception(std::move(state).get_exception());
+                    pr.set_exception(static_cast<future_state_base&&>(std::move(state)));
                 } else {
                     futurator::apply(std::forward<Func>(func), std::move(state).get_value()).forward_to(std::move(pr));
                 }

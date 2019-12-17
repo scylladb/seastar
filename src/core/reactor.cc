@@ -3921,6 +3921,10 @@ void report_failed_future(const std::exception_ptr& eptr) noexcept {
     seastar_logger.warn("Exceptional future ignored: {}, backtrace: {}", eptr, current_backtrace());
 }
 
+void report_failed_future(const future_state_base& state) noexcept {
+    report_failed_future(state._u.ex);
+}
+
 broken_promise::broken_promise() : logic_error("broken promise") { }
 
 promise_base::promise_base(promise_base&& x) noexcept
