@@ -28,6 +28,12 @@
 # The "real" FIND_PACKAGE invocation for Boost is inside SEASTAR_FIND_DEPENDENCIES.
 #
 
+# Be consistent in results from FindBoost.cmake.
+# This is required because cmake-boost may return to Boost_{component}_LIBRARY:
+# - /usr/lib64/libboost_filesystem.so
+# - Boost::filesystem
+set (Boost_NO_BOOST_CMAKE ON)
+
 # This is the minimum version of Boost we need the CMake-bundled `FindBoost.cmake` to know about.
 find_package (Boost 1.64 MODULE QUIET COMPONENTS filesystem)
 
