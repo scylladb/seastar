@@ -97,7 +97,17 @@ future<T...> make_ready_future(A&&... value);
 /// a computation (for example, because the connection is closed and
 /// we cannot read from it).
 template <typename... T>
-future<T...> make_exception_future(std::exception_ptr value) noexcept;
+future<T...> make_exception_future(std::exception_ptr&& value) noexcept;
+
+template <typename... T>
+future<T...> make_exception_future(const std::exception_ptr& ex) noexcept {
+    return make_exception_future<T...>(std::exception_ptr(ex));
+}
+
+template <typename... T>
+future<T...> make_exception_future(std::exception_ptr& ex) noexcept {
+    return make_exception_future<T...>(static_cast<const std::exception_ptr&>(ex));
+}
 
 /// \cond internal
 void engine_exit(std::exception_ptr eptr = {});
@@ -1415,7 +1425,7 @@ private:
     template <typename... U, typename... A>
     friend future<U...> make_ready_future(A&&... value);
     template <typename... U>
-    friend future<U...> make_exception_future(std::exception_ptr ex) noexcept;
+    friend future<U...> make_exception_future(std::exception_ptr&& ex) noexcept;
     template <typename... U, typename Exception>
     friend future<U...> make_exception_future(Exception&& ex) noexcept;
     template <typename... U, typename V>
@@ -1453,7 +1463,7 @@ future<T...> make_ready_future(A&&... value) {
 
 template <typename... T>
 inline
-future<T...> make_exception_future(std::exception_ptr ex) noexcept {
+future<T...> make_exception_future(std::exception_ptr&& ex) noexcept {
     return future<T...>(exception_future_marker(), std::move(ex));
 }
 
