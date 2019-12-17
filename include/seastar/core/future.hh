@@ -388,6 +388,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
         new (this) future_state(ready_future_marker(), std::forward<A>(a)...);
     }
     future_state(exception_future_marker m, std::exception_ptr&& ex) : future_state_base(std::move(ex)) { }
+    future_state(exception_future_marker m, future_state_base&& state) : future_state_base(std::move(state)) { }
     std::tuple<T...>&& get_value() && noexcept {
         assert(_u.st == state::result);
         return std::move(this->uninitialized_get());
@@ -464,6 +465,9 @@ struct continuation final : continuation_base<T...> {
 };
 
 namespace internal {
+
+template <typename... T>
+future<T...> make_exception_future(future_state_base&& state) noexcept;
 
 template <typename... T, typename U>
 void set_callback(future<T...>& fut, std::unique_ptr<U> callback);
@@ -916,6 +920,7 @@ private:
     template <typename... A>
     future(ready_future_marker m, A&&... a) : _state(m, std::forward<A>(a)...) { }
     future(exception_future_marker m, std::exception_ptr&& ex) noexcept : _state(m, std::move(ex)) { }
+    future(exception_future_marker m, future_state_base&& state) noexcept : _state(m, std::move(state)) { }
     [[gnu::always_inline]]
     explicit future(future_state<T...>&& state) noexcept
             : _state(std::move(state)) {
@@ -1114,7 +1119,7 @@ private:
         using futurator = futurize<std::result_of_t<Func(T&&...)>>;
         if (available() && !need_preempt()) {
             if (failed()) {
-                return futurator::make_exception_future(get_available_state_ref().get_exception());
+                return futurator::make_exception_future(static_cast<future_state_base&&>(get_available_state_ref()));
             } else {
                 return futurator::apply(std::forward<Func>(func), get_available_state_ref().take_value());
             }
@@ -1428,6 +1433,8 @@ private:
     friend future<U...> make_exception_future(std::exception_ptr&& ex) noexcept;
     template <typename... U, typename Exception>
     friend future<U...> make_exception_future(Exception&& ex) noexcept;
+    template <typename... U>
+    friend future<U...> internal::make_exception_future(future_state_base&& state) noexcept;
     template <typename... U, typename V>
     friend void internal::set_callback(future<U...>&, std::unique_ptr<V>);
     /// \endcond
@@ -1465,6 +1472,12 @@ template <typename... T>
 inline
 future<T...> make_exception_future(std::exception_ptr&& ex) noexcept {
     return future<T...>(exception_future_marker(), std::move(ex));
+}
+
+template <typename... T>
+inline
+future<T...> internal::make_exception_future(future_state_base&& state) noexcept {
+    return future<T...>(exception_future_marker(), std::move(state));
 }
 
 void log_exception_trace() noexcept;
@@ -1591,7 +1604,9 @@ template <typename Arg>
 inline
 future<T>
 futurize<T>::make_exception_future(Arg&& arg) {
-    return ::seastar::make_exception_future<T>(std::forward<Arg>(arg));
+    using ::seastar::make_exception_future;
+    using ::seastar::internal::make_exception_future;
+    return make_exception_future<T>(std::forward<Arg>(arg));
 }
 
 template <typename... T>
@@ -1599,14 +1614,18 @@ template <typename Arg>
 inline
 future<T...>
 futurize<future<T...>>::make_exception_future(Arg&& arg) {
-    return ::seastar::make_exception_future<T...>(std::forward<Arg>(arg));
+    using ::seastar::make_exception_future;
+    using ::seastar::internal::make_exception_future;
+    return make_exception_future<T...>(std::forward<Arg>(arg));
 }
 
 template <typename Arg>
 inline
 future<>
 futurize<void>::make_exception_future(Arg&& arg) {
-    return ::seastar::make_exception_future<>(std::forward<Arg>(arg));
+    using ::seastar::make_exception_future;
+    using ::seastar::internal::make_exception_future;
+    return make_exception_future<>(std::forward<Arg>(arg));
 }
 
 template <typename T>
