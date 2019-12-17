@@ -3959,6 +3959,10 @@ void promise_base::make_ready() noexcept {
 template void promise_base::make_ready<promise_base::urgent::no>() noexcept;
 template void promise_base::make_ready<promise_base::urgent::yes>() noexcept;
 
+future_state_base future_state_base::current_exception() {
+    return future_state_base(std::current_exception());
+}
+
 void future_state_base::set_to_broken_promise() noexcept {
     try {
         // Constructing broken_promise may throw (std::logic_error ctor is not noexcept).
