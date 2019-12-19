@@ -1229,7 +1229,7 @@ struct tuple_to_future<std::tuple<Elements...>> {
     }
 
     static auto make_failed(std::exception_ptr excp) {
-        return make_exception_future<Elements...>(std::move(excp));
+        return seastar::make_exception_future<Elements...>(std::move(excp));
     }
 };
 
@@ -1297,7 +1297,7 @@ struct extract_values_from_futures_vector {
             }
         }
         if (excp) {
-            return make_exception_future<std::vector<value_type>>(std::move(excp));
+            return seastar::make_exception_future<std::vector<value_type>>(std::move(excp));
         }
         return make_ready_future<std::vector<value_type>>(std::move(values));
     }
@@ -1319,7 +1319,7 @@ struct extract_values_from_futures_vector<future<>> {
             }
         }
         if (excp) {
-            return make_exception_future<>(std::move(excp));
+            return seastar::make_exception_future<>(std::move(excp));
         }
         return make_ready_future<>();
     }
