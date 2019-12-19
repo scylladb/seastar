@@ -3963,6 +3963,9 @@ future_state_base future_state_base::current_exception() {
     return future_state_base(std::current_exception());
 }
 
+template
+future<> current_exception_as_future() noexcept;
+
 void future_state_base::set_to_broken_promise() noexcept {
     try {
         // Constructing broken_promise may throw (std::logic_error ctor is not noexcept).

@@ -132,6 +132,9 @@ class promise_base_with_type;
 template <typename... T>
 future<T...> current_exception_as_future() noexcept;
 
+extern template
+future<> current_exception_as_future() noexcept;
+
 // It doesn't seem to be possible to use std::tuple_element_t with an empty tuple. There is an static_assert in it that
 // fails the build even if it is in the non enabled side of std::conditional.
 template <typename... T>
