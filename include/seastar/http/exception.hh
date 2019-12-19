@@ -20,7 +20,7 @@
  */
 
 #pragma once
-
+#include <seastar/util/log.hh>
 #include <seastar/http/reply.hh>
 #include <seastar/json/json_elements.hh>
 
@@ -124,8 +124,10 @@ public:
         set(e.str(), e.status());
     }
 
-    json_exception(const std::exception& e) {
-        set(e.what(), reply::status_type::internal_server_error);
+    json_exception(std::exception_ptr e) {
+	std::ostringstream exception_description;
+	exception_description << e;
+	set(exception_description.str(), reply::status_type::internal_server_error);
     }
 private:
     void set(const std::string& msg, reply::status_type code) {

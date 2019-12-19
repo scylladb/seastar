@@ -71,14 +71,11 @@ std::unique_ptr<reply> routes::exception_reply(std::exception_ptr eptr) {
         std::rethrow_exception(eptr);
     } catch (const base_exception& e) {
         rep->set_status(e.status(), json_exception(e).to_json());
-    } catch (exception& e) {
-        rep->set_status(reply::status_type::internal_server_error,
-                json_exception(e).to_json());
     } catch (...) {
         rep->set_status(reply::status_type::internal_server_error,
-                json_exception(std::runtime_error(
-                        "Unknown unhandled exception")).to_json());
+                json_exception(std::current_exception()).to_json());
     }
+
     rep->done("json");
     return rep;
 }
