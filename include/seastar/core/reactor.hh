@@ -80,6 +80,7 @@
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/scheduling.hh>
 #include <seastar/core/smp.hh>
+#include <seastar/core/internal/io_request.hh>
 #include "internal/pollable_fd.hh"
 #include "internal/poll.hh"
 
@@ -528,16 +529,15 @@ public:
     // In the following three methods, prepare_io is not guaranteed to execute in the same processor
     // in which it was generated. Therefore, care must be taken to avoid the use of objects that could
     // be destroyed within or at exit of prepare_io.
-    void submit_io(io_desc* desc,
-            noncopyable_function<void (internal::linux_abi::iocb&)> prepare_io);
+    void submit_io(io_desc* desc, internal::io_request req);
     future<internal::linux_abi::io_event> submit_io_read(io_queue* ioq,
             const io_priority_class& priority_class,
             size_t len,
-            noncopyable_function<void (internal::linux_abi::iocb&)> prepare_io);
+            internal::io_request req);
     future<internal::linux_abi::io_event> submit_io_write(io_queue* ioq,
             const io_priority_class& priority_class,
             size_t len,
-            noncopyable_function<void (internal::linux_abi::iocb&)> prepare_io);
+            internal::io_request req);
 
     inline void handle_io_result(const internal::linux_abi::io_event& ev) {
         auto res = long(ev.res);

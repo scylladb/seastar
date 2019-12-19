@@ -31,6 +31,8 @@
 #include <mutex>
 #include <array>
 #include "core/io_desc.hh"
+#include <fmt/format.h>
+#include <fmt/ostream.h>
 
 namespace seastar {
 
@@ -222,32 +224,34 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
 }
 
 future<io_event>
-io_queue::queue_request(const io_priority_class& pc, size_t len, io_queue::request_type req_type, noncopyable_function<void (internal::linux_abi::iocb&)> prepare_io) {
+io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_request req) {
     auto start = std::chrono::steady_clock::now();
-    return smp::submit_to(coordinator(), [start, &pc, len, req_type, prepare_io = std::move(prepare_io), owner = engine().cpu_id(), this] () mutable {
+    return smp::submit_to(coordinator(), [start, &pc, len, req = std::move(req), owner = engine().cpu_id(), this] () mutable {
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc, owner);
         pclass.nr_queued++;
         unsigned weight;
         size_t size;
-        if (req_type == io_queue::request_type::write) {
+        if (req.is_write()) {
             weight = _config.disk_req_write_to_read_multiplier;
             size = _config.disk_bytes_write_to_read_multiplier * len;
-        } else {
+        } else if (req.is_read()) {
             weight = io_queue::read_request_base_count;
             size = io_queue::read_request_base_count * len;
+        } else {
+            throw std::runtime_error(fmt::format("Unrecognized request passing through I/O queue {}", req.opname()));
         }
         auto desc = std::make_unique<io_desc_read_write>(this, weight, size);
         auto fq_desc = desc->fq_descriptor();
         auto fut = desc->get_future();
-        _fq.queue(pclass.ptr, std::move(fq_desc), [&pclass, start, prepare_io = std::move(prepare_io), desc = std::move(desc), len] () mutable noexcept {
+        _fq.queue(pclass.ptr, std::move(fq_desc), [&pclass, start, req = std::move(req), desc = std::move(desc), len] () mutable noexcept {
             try {
                 pclass.nr_queued--;
                 pclass.ops++;
                 pclass.bytes += len;
                 pclass.queue_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start);
-                engine().submit_io(desc.get(), std::move(prepare_io));
+                engine().submit_io(desc.get(), std::move(req));
                 desc.release();
             } catch (...) {
                 desc->set_exception(std::current_exception());

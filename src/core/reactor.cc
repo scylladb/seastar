@@ -1443,13 +1443,49 @@ reactor::connect(socket_address sa, socket_address local, transport proto) {
     return _network_stack->connect(sa, local, proto);
 }
 
+void prepare_iocb(io_request& req, iocb& iocb) {
+    switch (req.opcode()) {
+    case io_request::operation::fdatasync:
+        iocb = make_fdsync_iocb(req.fd());
+        break;
+    case io_request::operation::write:
+        iocb = make_write_iocb(req.fd(), req.pos(), req.address(), req.size());
+        break;
+    case io_request::operation::writev:
+        iocb = make_writev_iocb(req.fd(), req.pos(), reinterpret_cast<const iovec*>(req.address()), req.size());
+        break;
+    case io_request::operation::read:
+        iocb = make_read_iocb(req.fd(), req.pos(), req.address(), req.size());
+        break;
+    case io_request::operation::readv:
+        iocb = make_readv_iocb(req.fd(), req.pos(), reinterpret_cast<const iovec*>(req.address()), req.size());
+        break;
+    }
+}
+
+sstring io_request::opname() const {
+    switch (_op) {
+    case io_request::operation::fdatasync:
+        return "fdatasync";
+    case io_request::operation::write:
+        return "write";
+    case io_request::operation::writev:
+        return "vectored write";
+    case io_request::operation::read:
+        return "read";
+    case io_request::operation::readv:
+        return "vectored read";
+    }
+    std::abort();
+}
+
 void
-reactor::submit_io(io_desc* desc, noncopyable_function<void (linux_abi::iocb&)> prepare_io) {
+reactor::submit_io(io_desc* desc, io_request req) {
   // We can ignore the future returned here, because the submitted aio will be polled
   // for and completed in process_io().
-  (void)_iocb_pool.get_one().then([this, desc, prepare_io = std::move(prepare_io)] (linux_abi::iocb* iocb) mutable {
+  (void)_iocb_pool.get_one().then([this, desc, req = std::move(req)] (linux_abi::iocb* iocb) mutable {
     auto& io = *iocb;
-    prepare_io(io);
+    prepare_iocb(req, io);
     if (_aio_eventfd) {
         set_eventfd_notification(io, _aio_eventfd->get_fd());
     }
@@ -1541,17 +1577,17 @@ const io_priority_class& default_priority_class() {
 }
 
 future<io_event>
-reactor::submit_io_read(io_queue* ioq, const io_priority_class& pc, size_t len, noncopyable_function<void (internal::linux_abi::iocb&)> prepare_io) {
+reactor::submit_io_read(io_queue* ioq, const io_priority_class& pc, size_t len, io_request req) {
     ++_io_stats.aio_reads;
     _io_stats.aio_read_bytes += len;
-    return ioq->queue_request(pc, len, io_queue::request_type::read, std::move(prepare_io));
+    return ioq->queue_request(pc, len, std::move(req));
 }
 
 future<io_event>
-reactor::submit_io_write(io_queue* ioq, const io_priority_class& pc, size_t len, noncopyable_function<void (internal::linux_abi::iocb&)> prepare_io) {
+reactor::submit_io_write(io_queue* ioq, const io_priority_class& pc, size_t len, io_request req) {
     ++_io_stats.aio_writes;
     _io_stats.aio_write_bytes += len;
-    return ioq->queue_request(pc, len, io_queue::request_type::write, std::move(prepare_io));
+    return ioq->queue_request(pc, len, std::move(req));
 }
 
 bool reactor::process_io()
@@ -1882,9 +1918,9 @@ reactor::fdatasync(int fd) {
         try {
             auto desc = std::make_unique<io_desc>();
             auto fut = desc->get_future();
-            submit_io(desc.release(), [fd] (linux_abi::iocb& iocb) {
-                iocb = make_fdsync_iocb(fd);
-            });
+
+            auto req = io_request::make_fdatasync(fd);
+            submit_io(desc.release(), std::move(req));
             return fut.then([] (linux_abi::io_event event) {
                 throw_kernel_error(event.res);
             });
