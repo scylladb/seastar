@@ -188,7 +188,7 @@ public:
         std::unique_ptr<pollfn> _pollfn;
         class registration_task;
         class deregistration_task;
-        registration_task* _registration_task;
+        registration_task* _registration_task = nullptr;
     public:
         template <typename Func> // signature: bool ()
         static poller simple(Func&& poll) {
@@ -201,7 +201,7 @@ public:
         ~poller();
         poller(poller&& x);
         poller& operator=(poller&& x);
-        void do_register();
+        void do_register() noexcept;
         friend class reactor;
     };
     enum class idle_cpu_handler_result {
@@ -305,7 +305,7 @@ private:
         uint8_t _id;
         sched_clock::duration _runtime = {};
         uint64_t _tasks_processed = 0;
-        circular_buffer<std::unique_ptr<task>> _q;
+        circular_buffer<task*> _q;
         sstring _name;
         /**
          * This array holds pointers to the scheduling group specific
@@ -564,10 +564,10 @@ public:
     }
 
 #ifdef SEASTAR_SHUFFLE_TASK_QUEUE
-    void shuffle(std::unique_ptr<task>&, task_queue&);
+    void shuffle(task*&, task_queue&);
 #endif
 
-    void add_task(std::unique_ptr<task>&& t) {
+    void add_task(task* t) noexcept {
         auto sg = t->group();
         auto* q = _task_queues[sg._id].get();
         bool was_empty = q->_q.empty();
@@ -579,7 +579,7 @@ public:
             activate(*q);
         }
     }
-    void add_urgent_task(std::unique_ptr<task>&& t) {
+    void add_urgent_task(task* t) noexcept {
         auto sg = t->group();
         auto* q = _task_queues[sg._id].get();
         bool was_empty = q->_q.empty();
@@ -605,7 +605,7 @@ public:
     }
     void force_poll();
 
-    void add_high_priority_task(std::unique_ptr<task>&&);
+    void add_high_priority_task(task*) noexcept;
 
     network_stack& net() { return *_network_stack; }
     shard_id cpu_id() const { return _id; }

@@ -240,13 +240,13 @@ thread_context::run_and_dispose() noexcept {
 
 void
 thread_context::yield() {
-    schedule(std::unique_ptr<task>(this));
+    schedule(this);
     switch_out();
 }
 
 void
 thread_context::reschedule() {
-    schedule(std::unique_ptr<task>(this));
+    schedule(this);
 }
 
 void

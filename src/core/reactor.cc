@@ -2099,12 +2099,11 @@ void reactor::run_tasks(task_queue& tq) {
     *internal::current_scheduling_group_ptr() = scheduling_group(tq._id);
     auto& tasks = tq._q;
     while (!tasks.empty()) {
-        auto tsk = std::move(tasks.front());
+        auto tsk = tasks.front();
         tasks.pop_front();
         STAP_PROBE(seastar, reactor_run_tasks_single_start);
         task_histogram_add_task(*tsk);
         tsk->run_and_dispose();
-        tsk.release();
         STAP_PROBE(seastar, reactor_run_tasks_single_end);
         ++tq._tasks_processed;
         ++_global_tasks_processed;
@@ -2123,7 +2122,7 @@ void reactor::run_tasks(task_queue& tq) {
 }
 
 #ifdef SEASTAR_SHUFFLE_TASK_QUEUE
-void reactor::shuffle(std::unique_ptr<task>& t, task_queue& q) {
+void reactor::shuffle(task*& t, task_queue& q) {
     static thread_local std::mt19937 gen = std::mt19937(std::default_random_engine()());
     std::uniform_int_distribution<size_t> tasks_dist{0, q._q.size() - 1};
     auto& to_swap = q._q[tasks_dist(gen)];
@@ -2835,7 +2834,7 @@ void reactor::replace_poller(pollfn* old, pollfn* neww) {
 }
 
 reactor::poller::poller(poller&& x)
-        : _pollfn(std::move(x._pollfn)), _registration_task(x._registration_task) {
+        : _pollfn(std::move(x._pollfn)), _registration_task(std::exchange(x._registration_task, nullptr)) {
     if (_pollfn && _registration_task) {
         _registration_task->moved(this);
     }
@@ -2851,15 +2850,14 @@ reactor::poller::operator=(poller&& x) {
 }
 
 void
-reactor::poller::do_register() {
+reactor::poller::do_register() noexcept {
     // We can't just insert a poller into reactor::_pollers, because we
     // may be running inside a poller ourselves, and so in the middle of
     // iterating reactor::_pollers itself.  So we schedule a task to add
     // the poller instead.
-    auto task = std::make_unique<registration_task>(this);
-    auto tmp = task.get();
-    engine().add_task(std::move(task));
-    _registration_task = tmp;
+    auto task = new registration_task(this);
+    engine().add_task(task);
+    _registration_task = task;
 }
 
 reactor::poller::~poller() {
@@ -2878,8 +2876,8 @@ reactor::poller::~poller() {
         } else {
             auto dummy = make_pollfn([] { return false; });
             auto dummy_p = dummy.get();
-            auto task = std::make_unique<deregistration_task>(std::move(dummy));
-            engine().add_task(std::move(task));
+            auto task = new deregistration_task(std::move(dummy));
+            engine().add_task(task);
             engine().replace_poller(_pollfn.get(), dummy_p);
         }
     }
@@ -3129,12 +3127,12 @@ future<size_t> readable_eventfd::wait() {
     });
 }
 
-void schedule(std::unique_ptr<task>&& t) noexcept {
-    engine().add_task(std::move(t));
+void schedule(task* t) noexcept {
+    engine().add_task(t);
 }
 
-void schedule_urgent(std::unique_ptr<task>&& t) noexcept {
-    engine().add_urgent_task(std::move(t));
+void schedule_urgent(task* t) noexcept {
+    engine().add_urgent_task(t);
 }
 
 }
@@ -3928,7 +3926,7 @@ void report_failed_future(const future_state_base& state) noexcept {
 broken_promise::broken_promise() : logic_error("broken promise") { }
 
 promise_base::promise_base(promise_base&& x) noexcept
-    : _future(x._future), _state(x._state), _task(std::move(x._task)) {
+    : _future(x._future), _state(x._state), _task(std::exchange(x._task, nullptr)) {
     x._state = nullptr;
     if (auto* fut = _future) {
         fut->detach_promise();
@@ -3944,7 +3942,7 @@ promise_base::~promise_base() noexcept {
     } else if (__builtin_expect(bool(_task), false)) {
         assert(_state && !_state->available());
         _state->set_to_broken_promise();
-        ::seastar::schedule(std::move(_task));
+        ::seastar::schedule(std::exchange(_task, nullptr));
     }
 }
 
@@ -3953,9 +3951,9 @@ void promise_base::make_ready() noexcept {
     if (_task) {
         _state = nullptr;
         if (Urgent == urgent::yes && !need_preempt()) {
-            ::seastar::schedule_urgent(std::move(_task));
+            ::seastar::schedule_urgent(std::exchange(_task, nullptr));
         } else {
-            ::seastar::schedule(std::move(_task));
+            ::seastar::schedule(std::exchange(_task, nullptr));
         }
     }
 }
@@ -4156,8 +4154,8 @@ future<connected_socket> connect(socket_address sa, socket_address local, transp
     return engine().connect(sa, local, proto);
 }
 
-void reactor::add_high_priority_task(std::unique_ptr<task>&& t) {
-    add_urgent_task(std::move(t));
+void reactor::add_high_priority_task(task* t) noexcept {
+    add_urgent_task(t);
     // break .then() chains
     request_preemption();
 }
