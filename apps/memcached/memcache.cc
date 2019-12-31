@@ -1220,6 +1220,7 @@ class udp_server {
 public:
     static const size_t default_max_datagram_size = 1400;
 private:
+    condition_variable _done;
     sharded_cache& _cache;
     distributed<system_stats>& _system_stats;
     udp_channel _chan;
@@ -1312,14 +1313,21 @@ public:
                     });
                 });
             });
-        }).or_terminate();
+        }).finally([this] {
+            _done.signal();
+        });
     };
 
-    future<> stop() { return make_ready_future<>(); }
+    future<> stop() {
+        _chan.shutdown_input();
+        _chan.shutdown_output();
+        return _done.wait();
+    }
 };
 
 class tcp_server {
 private:
+    condition_variable _done;
     lw_shared_ptr<seastar::api_v2::server_socket> _listener;
     sharded_cache& _cache;
     distributed<system_stats>& _system_stats;
@@ -1371,10 +1379,15 @@ public:
                     return conn->_out.close().finally([conn]{});
                 });
             });
-        }).or_terminate();
+        }).finally([this] {
+            _done.signal();
+        });
     }
 
-    future<> stop() { return make_ready_future<>(); }
+    future<> stop() {
+        _listener->abort_accept();
+        return _done.wait();
+    }
 };
 
 class stats_printer {
