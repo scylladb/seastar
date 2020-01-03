@@ -93,9 +93,7 @@ public:
     // after this.
     template <typename E>
     void set_exception(E ex);
-private:
-    void pause(future<> can_continue);
-    void start();
+
     friend class subscription<T...>;
 };
 
