@@ -496,19 +496,19 @@ reactor_backend_osv::wait_and_process() {
 
 future<>
 reactor_backend_osv::readable(pollable_fd_state& fd) {
-    std::cout << "reactor_backend_osv does not support file descriptors - readable() shouldn't have been called!\n";
+    std::cerr << "reactor_backend_osv does not support file descriptors - readable() shouldn't have been called!\n";
     abort();
 }
 
 future<>
 reactor_backend_osv::writeable(pollable_fd_state& fd) {
-    std::cout << "reactor_backend_osv does not support file descriptors - writeable() shouldn't have been called!\n";
+    std::cerr << "reactor_backend_osv does not support file descriptors - writeable() shouldn't have been called!\n";
     abort();
 }
 
 void
 reactor_backend_osv::forget(pollable_fd_state& fd) {
-    std::cout << "reactor_backend_osv does not support file descriptors - forget() shouldn't have been called!\n";
+    std::cerr << "reactor_backend_osv does not support file descriptors - forget() shouldn't have been called!\n";
     abort();
 }
 

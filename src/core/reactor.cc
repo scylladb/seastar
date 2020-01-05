@@ -1108,7 +1108,7 @@ reactor::task_quota_timer_thread_fn() {
     }
     auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
     if (r) {
-        seastar_logger.info("Thread {}: failed to block signals. Aborting.", thread_name.c_str());
+        seastar_logger.error("Thread {}: failed to block signals. Aborting.", thread_name.c_str());
         abort();
     }
 

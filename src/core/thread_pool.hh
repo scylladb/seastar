@@ -61,7 +61,7 @@ public:
 #else
 public:
     template <typename T, typename Func>
-    future<T> submit(Func func) { std::cout << "thread_pool not yet implemented on osv\n"; abort(); }
+    future<T> submit(Func func) { std::cerr << "thread_pool not yet implemented on osv\n"; abort(); }
 #endif
 private:
     void work(sstring thread_name);
