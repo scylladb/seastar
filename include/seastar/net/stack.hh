@@ -85,7 +85,7 @@ public:
 
 class udp_channel_impl {
 public:
-    virtual ~udp_channel_impl() {};
+    virtual ~udp_channel_impl() {}
     virtual socket_address local_address() const = 0;
     virtual future<udp_datagram> receive() = 0;
     virtual future<> send(const socket_address& dst, const char* msg) = 0;
@@ -98,6 +98,7 @@ public:
 
 class network_interface_impl {
 public:
+    virtual ~network_interface_impl() {}
     virtual uint32_t index() const = 0;
     virtual uint32_t mtu() const = 0;
 
