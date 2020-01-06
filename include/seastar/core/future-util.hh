@@ -593,7 +593,7 @@ future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) {
 ///         \c action failed.
 template<typename Container, typename AsyncAction>
 GCC6_CONCEPT( requires requires (Container c, AsyncAction aa) {
-    { futurize_apply(aa, *c.begin()) } -> future<>
+    { futurize_apply(aa, *c.begin()) } -> future<>;
 } )
 inline
 future<> do_for_each(Container& c, AsyncAction action) {
