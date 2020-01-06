@@ -217,6 +217,20 @@ struct uninitialized_wrapper
     : public uninitialized_wrapper_base<T, can_inherit<T>> {};
 
 static_assert(std::is_empty<uninitialized_wrapper<std::tuple<>>>::value, "This should still be empty");
+
+template <typename T>
+struct is_trivially_move_constructible_and_destructible {
+    static constexpr bool value = std::is_trivially_move_constructible<T>::value && std::is_trivially_destructible<T>::value;
+};
+
+template <bool... v>
+struct all_true : std::false_type {};
+
+template <>
+struct all_true<> : std::true_type {};
+
+template <bool... v>
+struct all_true<true, v...> : public all_true<v...> {};
 }
 
 //
@@ -380,6 +394,8 @@ struct future_for_get_promise_marker {};
 template <typename... T>
 struct future_state :  public future_state_base, private internal::uninitialized_wrapper<std::tuple<T...>> {
     static constexpr bool copy_noexcept = std::is_nothrow_copy_constructible<std::tuple<T...>>::value;
+    static constexpr bool has_trivial_move_and_destroy =
+        internal::all_true<internal::is_trivially_move_constructible_and_destructible<T>::value...>::value;
     static_assert(std::is_nothrow_move_constructible<std::tuple<T...>>::value,
                   "Types must be no-throw move constructible");
     static_assert(std::is_nothrow_destructible<std::tuple<T...>>::value,
@@ -387,7 +403,11 @@ struct future_state :  public future_state_base, private internal::uninitialized
     future_state() noexcept {}
     [[gnu::always_inline]]
     future_state(future_state&& x) noexcept : future_state_base(std::move(x)) {
-        if (_u.has_result()) {
+        if (has_trivial_move_and_destroy) {
+            memcpy(reinterpret_cast<char*>(&this->uninitialized_get()),
+                   &x.uninitialized_get(),
+                   internal::used_size<std::tuple<T...>>::value);
+        } else if (_u.has_result()) {
             this->uninitialized_set(std::move(x.uninitialized_get()));
             x.uninitialized_get().~tuple();
         }
