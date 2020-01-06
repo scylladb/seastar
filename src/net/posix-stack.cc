@@ -287,7 +287,7 @@ static void resolve_outgoing_address(socket_address& a) {
             break;
         }
 
-        if ((prefix_len < 0 || prefix_len > 128)  || (src_prefix_len != 0)
+        if ((prefix_len > 128)  || (src_prefix_len != 0)
             || (flags & (RTF_POLICY | RTF_FLOW))
             || ((flags & RTF_REJECT) && prefix_len == 0) /* reject all */) {
             continue;
