@@ -62,16 +62,7 @@ public:
     promise<> pollout;
     friend class reactor;
     friend class pollable_fd;
-};
 
-class pollable_fd {
-public:
-    using speculation = pollable_fd_state::speculation;
-    pollable_fd(file_desc fd, speculation speculate = speculation())
-        : _s(std::make_unique<pollable_fd_state>(std::move(fd), speculate)) {}
-public:
-    pollable_fd(pollable_fd&&) = default;
-    pollable_fd& operator=(pollable_fd&&) = default;
     future<size_t> read_some(char* buffer, size_t size);
     future<size_t> read_some(uint8_t* buffer, size_t size);
     future<size_t> read_some(const std::vector<iovec>& iov);
@@ -88,13 +79,75 @@ public:
     future<size_t> sendmsg(struct msghdr *msg);
     future<size_t> recvmsg(struct msghdr *msg);
     future<size_t> sendto(socket_address addr, const void* buf, size_t len);
+
+private:
+    void maybe_no_more_recv();
+    void maybe_no_more_send();
+};
+
+class pollable_fd {
+public:
+    using speculation = pollable_fd_state::speculation;
+    pollable_fd(file_desc fd, speculation speculate = speculation())
+        : _s(std::make_unique<pollable_fd_state>(std::move(fd), speculate)) {}
+public:
+    pollable_fd(pollable_fd&&) = default;
+    pollable_fd& operator=(pollable_fd&&) = default;
+    future<size_t> read_some(char* buffer, size_t size) {
+        return _s->read_some(buffer, size);
+    }
+    future<size_t> read_some(uint8_t* buffer, size_t size) {
+        return _s->read_some(buffer, size);
+    }
+    future<size_t> read_some(const std::vector<iovec>& iov) {
+        return _s->read_some(iov);
+    }
+    future<> write_all(const char* buffer, size_t size) {
+        return _s->write_all(buffer, size);
+    }
+    future<> write_all(const uint8_t* buffer, size_t size) {
+        return _s->write_all(buffer, size);
+    }
+    future<size_t> write_some(net::packet& p) {
+        return _s->write_some(p);
+    }
+    future<> write_all(net::packet& p) {
+        return _s->write_all(p);
+    }
+    future<> readable() {
+        return _s->readable();
+    }
+    future<> writeable() {
+        return _s->writeable();
+    }
+    future<> readable_or_writeable() {
+        return _s->readable_or_writeable();
+    }
+    void abort_reader() {
+        return _s->abort_reader();
+    }
+    void abort_writer() {
+        return _s->abort_writer();
+    }
+    future<std::tuple<pollable_fd, socket_address>> accept() {
+        return _s->accept();
+    }
+    future<size_t> sendmsg(struct msghdr *msg) {
+        return _s->sendmsg(msg);
+    }
+    future<size_t> recvmsg(struct msghdr *msg) {
+        return _s->recvmsg(msg);
+    }
+    future<size_t> sendto(socket_address addr, const void* buf, size_t len) {
+        return _s->sendto(addr, buf, len);
+    }
     file_desc& get_file_desc() const { return _s->fd; }
     void shutdown(int how) { _s->fd.shutdown(how); }
     void close() { _s.reset(); }
 protected:
     int get_fd() const { return _s->fd.get(); }
-    void maybe_no_more_recv();
-    void maybe_no_more_send();
+    void maybe_no_more_recv() { return _s->maybe_no_more_recv(); }
+    void maybe_no_more_send() { return _s->maybe_no_more_send(); }
     friend class reactor;
     friend class readable_eventfd;
     friend class writeable_eventfd;
