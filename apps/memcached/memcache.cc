@@ -1220,7 +1220,7 @@ class udp_server {
 public:
     static const size_t default_max_datagram_size = 1400;
 private:
-    condition_variable _done;
+    std::optional<future<>> _task;
     sharded_cache& _cache;
     distributed<system_stats>& _system_stats;
     udp_channel _chan;
@@ -1283,7 +1283,7 @@ public:
     void start() {
         _chan = engine().net().make_udp_channel({_port});
         // Run in the background.
-        (void)keep_doing([this] {
+        _task = keep_doing([this] {
             return _chan.receive().then([this](udp_datagram dgram) {
                 packet& p = dgram.get_data();
                 if (p.len() < sizeof(header)) {
@@ -1313,21 +1313,21 @@ public:
                     });
                 });
             });
-        }).finally([this] {
-            _done.signal();
         });
     };
 
     future<> stop() {
         _chan.shutdown_input();
         _chan.shutdown_output();
-        return _done.wait();
+        return _task->handle_exception([](std::exception_ptr e) {
+            std::cerr << "exception in udp_server " << e << '\n';
+        });
     }
 };
 
 class tcp_server {
 private:
-    condition_variable _done;
+    std::optional<future<>> _task;
     lw_shared_ptr<seastar::api_v2::server_socket> _listener;
     sharded_cache& _cache;
     distributed<system_stats>& _system_stats;
@@ -1366,7 +1366,7 @@ public:
         lo.reuse_address = true;
         _listener = seastar::api_v2::server_socket(engine().listen(make_ipv4_address({_port}), lo));
         // Run in the background until eof has reached on the input connection.
-        (void)keep_doing([this] {
+        _task = keep_doing([this] {
             return _listener->accept().then([this] (accept_result ar) mutable {
                 connected_socket fd = std::move(ar.connection);
                 socket_address addr = std::move(ar.remote_address);
@@ -1379,14 +1379,14 @@ public:
                     return conn->_out.close().finally([conn]{});
                 });
             });
-        }).finally([this] {
-            _done.signal();
         });
     }
 
     future<> stop() {
         _listener->abort_accept();
-        return _done.wait();
+        return _task->handle_exception([](std::exception_ptr e) {
+            std::cerr << "exception in tcp_server " << e << '\n';
+        });
     }
 };
 
