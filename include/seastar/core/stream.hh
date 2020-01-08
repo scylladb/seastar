@@ -104,6 +104,7 @@ public:
 private:
     stream<T...>* _stream;
     next_fn _next;
+    future<> _done;
 private:
     explicit subscription(stream<T...>* s);
 public:
@@ -117,7 +118,9 @@ public:
 
     // Becomes ready when the stream is empty, or when an error
     // happens (in that case, an exception is held).
-    future<> done();
+    future<> done() {
+        return std::move(_done);
+    }
 
     friend class stream<T...>;
 };
@@ -196,7 +199,7 @@ stream<T...>::set_exception(E ex) {
 template <typename... T>
 inline
 subscription<T...>::subscription(stream<T...>* s)
-        : _stream(s) {
+        : _stream(s), _done(s->_done.get_future()) {
     assert(!_stream->_sub);
     _stream->_sub = this;
 }
@@ -220,18 +223,10 @@ subscription<T...>::~subscription() {
 template <typename... T>
 inline
 subscription<T...>::subscription(subscription&& x)
-    : _stream(x._stream), _next(std::move(x._next)) {
+    : _stream(x._stream), _next(std::move(x._next)), _done(std::move(x._done)) {
     x._stream = nullptr;
     if (_stream) {
         _stream->_sub = this;
     }
 }
-
-template <typename... T>
-inline
-future<>
-subscription<T...>::done() {
-    return _stream->_done.get_future();
-}
-
 }

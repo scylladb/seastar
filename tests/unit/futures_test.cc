@@ -75,6 +75,20 @@ SEASTAR_TEST_CASE(test_self_move) {
 #pragma clang diagnostic pop
 #endif
 
+static subscription<int> get_empty_subscription(std::function<future<> (int)> func) {
+    stream<int> s;
+    auto ret = s.listen(func);
+    s.close();
+    return ret;
+}
+
+SEASTAR_TEST_CASE(test_stream) {
+    auto sub = get_empty_subscription([](int x) {
+        return make_ready_future<>();
+    });
+    return sub.done();
+}
+
 SEASTAR_TEST_CASE(test_set_future_state_with_tuple) {
     future_state<int> s1;
     promise<int> p1;
