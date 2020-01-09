@@ -355,7 +355,8 @@ void apply_logging_settings(const logging_settings& s) {
         }
     }
 
-    switch (s.logger_ostream) {
+    logger_ostream_type logger_ostream = s.stdout_enabled ? s.logger_ostream : logger_ostream_type::none;
+    switch (logger_ostream) {
     case logger_ostream_type::none:
         logger::set_ostream_enabled(false);
         break;
@@ -430,7 +431,8 @@ bpo::options_description get_options_description() {
             )
             ("logger-stdout-timestamps", bpo::value<logger_timestamp_style>()->default_value(logger_timestamp_style::real),
                     "Select timestamp style for stdout logs: none|boot|real")
-            ("log-to-stdout", bpo::value<logger_ostream_type>()->default_value(logger_ostream_type::stderr), "Send log output to: none|stdout|stderr")
+            ("log-to-stdout", bpo::value<bool>()->default_value(true), "Send log output to output stream, as selected by --logger-ostream-type")
+            ("logger-ostream-type", bpo::value<logger_ostream_type>()->default_value(logger_ostream_type::stderr), "Send log output to: none|stdout|stderr")
             ("log-to-syslog", bpo::value<bool>()->default_value(false), "Send log output to syslog.")
             ("help-loggers", bpo::bool_switch(), "Print a list of logger names and exit.");
 
@@ -458,9 +460,10 @@ logging_settings extract_settings(const boost::program_options::variables_map& v
     return logging_settings{
         std::move(levels),
         parse_log_level(vars["default-log-level"].as<sstring>()),
-        vars["log-to-stdout"].as<logger_ostream_type>(),
+        vars["log-to-stdout"].as<bool>(),
         vars["log-to-syslog"].as<bool>(),
-        vars["logger-stdout-timestamps"].as<logger_timestamp_style>()
+        vars["logger-stdout-timestamps"].as<logger_timestamp_style>(),
+        vars["logger-ostream-type"].as<logger_ostream_type>(),
     };
 }
 

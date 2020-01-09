@@ -296,9 +296,10 @@ enum class logger_ostream_type {
 struct logging_settings final {
     std::unordered_map<sstring, log_level> logger_levels;
     log_level default_level;
-    logger_ostream_type logger_ostream = logger_ostream_type::stderr;
+    bool stdout_enabled;
     bool syslog_enabled;
     logger_timestamp_style stdout_timestamp_style = logger_timestamp_style::real;
+    logger_ostream_type logger_ostream = logger_ostream_type::stderr;
 };
 
 /// Shortcut for configuring the logging system all at once.
