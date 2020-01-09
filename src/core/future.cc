@@ -64,7 +64,7 @@ template void promise_base::make_ready<promise_base::urgent::no>() noexcept;
 template void promise_base::make_ready<promise_base::urgent::yes>() noexcept;
 
 template
-future<> current_exception_as_future() noexcept;
+future<> internal::current_exception_as_future() noexcept;
 }
 
 /**
