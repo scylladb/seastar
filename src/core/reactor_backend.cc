@@ -192,6 +192,10 @@ reactor_backend_aio::reactor_backend_aio(reactor* r) : _r(r) {
     // expired when it really hasn't, we don't want to block in read(tfd, ...).
     auto tfd = _r->_task_quota_timer.get();
     ::fcntl(tfd, F_SETFL, ::fcntl(tfd, F_GETFL) | O_NONBLOCK);
+
+    sigset_t mask = make_sigset_mask(hrtimer_signal());
+    auto e = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
+    assert(e == 0);
 }
 
 bool reactor_backend_aio::wait_and_process(int timeout, const sigset_t* active_sigmask) {
@@ -302,6 +306,10 @@ reactor_backend_epoll::reactor_backend_epoll(reactor* r)
     sev.sigev_signo = hrtimer_signal();
     ret = timer_create(CLOCK_MONOTONIC, &sev, &_steady_clock_timer);
     assert(ret >= 0);
+
+    _r->_signals.handle_signal(hrtimer_signal(), [r = _r] {
+        r->service_highres_timer();
+    });
 }
 
 reactor_backend_epoll::~reactor_backend_epoll() {
@@ -328,12 +336,6 @@ void reactor_backend_epoll::stop_tick() {
 void reactor_backend_epoll::arm_highres_timer(const ::itimerspec& its) {
     auto ret = timer_settime(_steady_clock_timer, TIMER_ABSTIME, &its, NULL);
     throw_system_error_on(ret == -1);
-    if (!_timer_enabled) {
-        _timer_enabled = true;
-        _r->_signals.handle_signal(hrtimer_signal(), [r = _r] {
-            r->service_highres_timer();
-        });
-    }
 }
 
 bool

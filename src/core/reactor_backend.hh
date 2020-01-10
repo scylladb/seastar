@@ -78,7 +78,6 @@ class reactor_backend_epoll : public reactor_backend {
     reactor* _r;
     std::thread _task_quota_timer_thread;
     timer_t _steady_clock_timer = {};
-    bool _timer_enabled = false;
 private:
     file_desc _epollfd;
     future<> get_epoll_future(pollable_fd_state& fd,

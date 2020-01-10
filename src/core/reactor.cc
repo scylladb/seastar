@@ -860,7 +860,6 @@ reactor::reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg)
     : _cfg(cfg)
     , _notify_eventfd(file_desc::eventfd(0, EFD_CLOEXEC))
     , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
-    , _backend(rbs.create(this))
     , _id(id)
 #ifdef HAVE_OSV
     , _timer_thread(
@@ -872,6 +871,7 @@ reactor::reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg)
     , _io_context(0)
     , _reuseport(posix_reuseport_detect())
     , _thread_pool(std::make_unique<thread_pool>(this, seastar::format("syscall-{}", id))) {
+    _backend = rbs.create(this);
     _task_queues.push_back(std::make_unique<task_queue>(0, "main", 1000));
     _task_queues.push_back(std::make_unique<task_queue>(1, "atexit", 1000));
     _at_destroy_tasks = _task_queues.back().get();
@@ -885,12 +885,8 @@ reactor::reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg)
 #else
     sigset_t mask;
     sigemptyset(&mask);
-    sigaddset(&mask, hrtimer_signal());
-    auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
-    assert(r == 0);
-    sigemptyset(&mask);
     sigaddset(&mask, cpu_stall_detector::signal_number());
-    r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
+    auto r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
     assert(r == 0);
 #endif
     memory::set_reclaim_hook([this] (std::function<void ()> reclaim_fn) {
@@ -2641,9 +2637,6 @@ int reactor::run() {
 
     poller drain_cross_cpu_freelist(std::make_unique<drain_cross_cpu_freelist_pollfn>());
 
-    // expire_lowres_timers must be before sig_poller, because lowres_timer_pollfn
-    // may arm the first highres timer, which can add a new signal to be registerd. If the order
-    // is reversed, then signal_pollfn::exit_interrupt_mode() can re-block the timer signal.
     poller expire_lowres_timers(std::make_unique<lowres_timer_pollfn>(*this));
     poller sig_poller(std::make_unique<signal_pollfn>(*this));
 
