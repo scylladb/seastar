@@ -618,13 +618,24 @@ reactor::signals::~signals() {
 
 reactor::signals::signal_handler::signal_handler(int signo, noncopyable_function<void ()>&& handler)
         : _handler(std::move(handler)) {
-    engine()._backend->handle_signal(signo);
 }
 
 void
 reactor::signals::handle_signal(int signo, noncopyable_function<void ()>&& handler) {
     _signal_handlers.emplace(std::piecewise_construct,
         std::make_tuple(signo), std::make_tuple(signo, std::move(handler)));
+
+    struct sigaction sa;
+    sa.sa_sigaction = [](int sig, siginfo_t *info, void *p) {
+        engine()._backend->signal_received(sig, info, p);
+    };
+    sa.sa_mask = make_empty_sigset_mask();
+    sa.sa_flags = SA_SIGINFO | SA_RESTART;
+    auto r = ::sigaction(signo, &sa, nullptr);
+    throw_system_error_on(r == -1);
+    auto mask = make_sigset_mask(signo);
+    r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
+    throw_pthread_error(r);
 }
 
 void

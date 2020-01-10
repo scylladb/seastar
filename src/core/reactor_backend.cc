@@ -245,18 +245,6 @@ void reactor_backend_aio::forget(pollable_fd_state& fd) {
     // ?
 }
 
-void reactor_backend_aio::handle_signal(int signo) {
-    struct sigaction sa;
-    sa.sa_sigaction = signal_received;
-    sa.sa_mask = make_empty_sigset_mask();
-    sa.sa_flags = SA_SIGINFO | SA_RESTART;
-    auto r = ::sigaction(signo, &sa, nullptr);
-    throw_system_error_on(r == -1);
-    auto mask = make_sigset_mask(signo);
-    r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
-    throw_pthread_error(r);
-}
-
 void reactor_backend_aio::start_tick() {
     // Preempt whenever an event (timer tick or signal) is available on the
     // _preempting_io ring
@@ -346,18 +334,6 @@ void reactor_backend_epoll::arm_highres_timer(const ::itimerspec& its) {
             r->service_highres_timer();
         });
     }
-}
-
-void reactor_backend_epoll::handle_signal(int signo) {
-    struct sigaction sa;
-    sa.sa_sigaction = signal_received;
-    sa.sa_mask = make_empty_sigset_mask();
-    sa.sa_flags = SA_SIGINFO | SA_RESTART;
-    auto r = ::sigaction(signo, &sa, nullptr);
-    throw_system_error_on(r == -1);
-    auto mask = make_sigset_mask(signo);
-    r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
-    throw_pthread_error(r);
 }
 
 bool
