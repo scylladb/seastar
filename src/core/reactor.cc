@@ -874,7 +874,7 @@ reactor::reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg)
 #else
     sigset_t mask;
     sigemptyset(&mask);
-    sigaddset(&mask, alarm_signal());
+    sigaddset(&mask, hrtimer_signal());
     auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
     assert(r == 0);
     sigemptyset(&mask);

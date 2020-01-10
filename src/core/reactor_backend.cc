@@ -311,7 +311,7 @@ reactor_backend_epoll::reactor_backend_epoll(reactor* r)
     struct sigevent sev;
     sev.sigev_notify = SIGEV_THREAD_ID;
     sev._sigev_un._tid = syscall(SYS_gettid);
-    sev.sigev_signo = alarm_signal();
+    sev.sigev_signo = hrtimer_signal();
     ret = timer_create(CLOCK_MONOTONIC, &sev, &_steady_clock_timer);
     assert(ret >= 0);
 }
@@ -342,7 +342,7 @@ void reactor_backend_epoll::arm_highres_timer(const ::itimerspec& its) {
     throw_system_error_on(ret == -1);
     if (!_timer_enabled) {
         _timer_enabled = true;
-        _r->_signals.handle_signal(alarm_signal(), [r = _r] {
+        _r->_signals.handle_signal(hrtimer_signal(), [r = _r] {
             r->service_highres_timer();
         });
     }
