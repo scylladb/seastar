@@ -42,6 +42,7 @@
 #include <seastar/core/print.hh>
 #include <seastar/net/api.hh>
 #include <seastar/net/packet-data-source.hh>
+#include <seastar/util/std-compat.hh>
 #include "ascii.hh"
 #include "memcached.hh"
 #include <unistd.h>
@@ -1220,7 +1221,7 @@ class udp_server {
 public:
     static const size_t default_max_datagram_size = 1400;
 private:
-    std::optional<future<>> _task;
+    compat::optional<future<>> _task;
     sharded_cache& _cache;
     distributed<system_stats>& _system_stats;
     udp_channel _chan;
@@ -1327,7 +1328,7 @@ public:
 
 class tcp_server {
 private:
-    std::optional<future<>> _task;
+    compat::optional<future<>> _task;
     lw_shared_ptr<seastar::api_v2::server_socket> _listener;
     sharded_cache& _cache;
     distributed<system_stats>& _system_stats;
