@@ -96,7 +96,7 @@ auto do_with(T&& rvalue, F&& f) {
         return fut;
     }
     auto ret = task->get_future();
-    internal::set_callback(fut, std::move(task));
+    internal::set_callback(fut, task.release());
     return ret;
 }
 
@@ -154,7 +154,7 @@ do_with(T1&& rv1, T2&& rv2, T3_or_F&& rv3, More&&... more) {
         return fut;
     }
     auto ret = task->get_future();
-    internal::set_callback(fut, std::move(task));
+    internal::set_callback(fut, task.release());
     return ret;
 }
 

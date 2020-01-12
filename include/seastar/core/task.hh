@@ -35,8 +35,8 @@ public:
     scheduling_group group() const { return _sg; }
 };
 
-void schedule(std::unique_ptr<task>&& t) noexcept;
-void schedule_urgent(std::unique_ptr<task>&& t) noexcept;
+void schedule(task* t) noexcept;
+void schedule_urgent(task* t) noexcept;
 
 template <typename Func>
 class lambda_task final : public task {
@@ -52,16 +52,16 @@ public:
 
 template <typename Func>
 inline
-std::unique_ptr<task>
-make_task(Func&& func) {
-    return std::make_unique<lambda_task<Func>>(current_scheduling_group(), std::forward<Func>(func));
+task*
+make_task(Func&& func) noexcept {
+    return new lambda_task<Func>(current_scheduling_group(), std::forward<Func>(func));
 }
 
 template <typename Func>
 inline
-std::unique_ptr<task>
-make_task(scheduling_group sg, Func&& func) {
-    return std::make_unique<lambda_task<Func>>(sg, std::forward<Func>(func));
+task*
+make_task(scheduling_group sg, Func&& func) noexcept {
+    return new lambda_task<Func>(sg, std::forward<Func>(func));
 }
 
 }
