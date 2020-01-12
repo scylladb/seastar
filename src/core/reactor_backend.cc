@@ -192,6 +192,10 @@ reactor_backend_aio::reactor_backend_aio(reactor* r) : _r(r) {
     // expired when it really hasn't, we don't want to block in read(tfd, ...).
     auto tfd = _r->_task_quota_timer.get();
     ::fcntl(tfd, F_SETFL, ::fcntl(tfd, F_GETFL) | O_NONBLOCK);
+
+    sigset_t mask = make_sigset_mask(hrtimer_signal());
+    auto e = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
+    assert(e == 0);
 }
 
 bool reactor_backend_aio::wait_and_process(int timeout, const sigset_t* active_sigmask) {
@@ -243,18 +247,6 @@ future<> reactor_backend_aio::readable_or_writeable(pollable_fd_state& fd) {
 
 void reactor_backend_aio::forget(pollable_fd_state& fd) {
     // ?
-}
-
-void reactor_backend_aio::handle_signal(int signo) {
-    struct sigaction sa;
-    sa.sa_sigaction = signal_received;
-    sa.sa_mask = make_empty_sigset_mask();
-    sa.sa_flags = SA_SIGINFO | SA_RESTART;
-    auto r = ::sigaction(signo, &sa, nullptr);
-    throw_system_error_on(r == -1);
-    auto mask = make_sigset_mask(signo);
-    r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
-    throw_pthread_error(r);
 }
 
 void reactor_backend_aio::start_tick() {
@@ -311,9 +303,13 @@ reactor_backend_epoll::reactor_backend_epoll(reactor* r)
     struct sigevent sev;
     sev.sigev_notify = SIGEV_THREAD_ID;
     sev._sigev_un._tid = syscall(SYS_gettid);
-    sev.sigev_signo = alarm_signal();
+    sev.sigev_signo = hrtimer_signal();
     ret = timer_create(CLOCK_MONOTONIC, &sev, &_steady_clock_timer);
     assert(ret >= 0);
+
+    _r->_signals.handle_signal(hrtimer_signal(), [r = _r] {
+        r->service_highres_timer();
+    });
 }
 
 reactor_backend_epoll::~reactor_backend_epoll() {
@@ -340,24 +336,6 @@ void reactor_backend_epoll::stop_tick() {
 void reactor_backend_epoll::arm_highres_timer(const ::itimerspec& its) {
     auto ret = timer_settime(_steady_clock_timer, TIMER_ABSTIME, &its, NULL);
     throw_system_error_on(ret == -1);
-    if (!_timer_enabled) {
-        _timer_enabled = true;
-        _r->_signals.handle_signal(alarm_signal(), [r = _r] {
-            r->service_highres_timer();
-        });
-    }
-}
-
-void reactor_backend_epoll::handle_signal(int signo) {
-    struct sigaction sa;
-    sa.sa_sigaction = signal_received;
-    sa.sa_mask = make_empty_sigset_mask();
-    sa.sa_flags = SA_SIGINFO | SA_RESTART;
-    auto r = ::sigaction(signo, &sa, nullptr);
-    throw_system_error_on(r == -1);
-    auto mask = make_sigset_mask(signo);
-    r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
-    throw_pthread_error(r);
 }
 
 bool

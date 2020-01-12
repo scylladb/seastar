@@ -61,8 +61,7 @@ public:
     virtual future<> writeable(pollable_fd_state& fd) = 0;
     virtual future<> readable_or_writeable(pollable_fd_state& fd) = 0;
     virtual void forget(pollable_fd_state& fd) = 0;
-    // Calls reactor::signal_received(signo) when relevant
-    virtual void handle_signal(int signo) = 0;
+    virtual void signal_received(int signo, siginfo_t* siginfo, void* ignore) = 0;
     virtual void start_tick() = 0;
     virtual void stop_tick() = 0;
     virtual void arm_highres_timer(const ::itimerspec& ts) = 0;
@@ -79,14 +78,12 @@ class reactor_backend_epoll : public reactor_backend {
     reactor* _r;
     std::thread _task_quota_timer_thread;
     timer_t _steady_clock_timer = {};
-    bool _timer_enabled = false;
 private:
     file_desc _epollfd;
     future<> get_epoll_future(pollable_fd_state& fd,
             promise<> pollable_fd_state::* pr, int event);
     void complete_epoll_event(pollable_fd_state& fd,
             promise<> pollable_fd_state::* pr, int events, int event);
-    static void signal_received(int signo, siginfo_t* siginfo, void* ignore);
 public:
     explicit reactor_backend_epoll(reactor* r);
     virtual ~reactor_backend_epoll() override;
@@ -95,7 +92,7 @@ public:
     virtual future<> writeable(pollable_fd_state& fd) override;
     virtual future<> readable_or_writeable(pollable_fd_state& fd) override;
     virtual void forget(pollable_fd_state& fd) override;
-    virtual void handle_signal(int signo) override;
+    virtual void signal_received(int signo, siginfo_t* siginfo, void* ignore) override;
     virtual void start_tick() override;
     virtual void stop_tick() override;
     virtual void arm_highres_timer(const ::itimerspec& ts) override;
@@ -139,7 +136,6 @@ private:
     void process_smp_wakeup();
     bool service_preempting_io();
     bool await_events(int timeout, const sigset_t* active_sigmask);
-    static void signal_received(int signo, siginfo_t* siginfo, void* ignore);
 private:
     class io_poll_poller : public seastar::pollfn {
         reactor_backend_aio* _backend;
@@ -158,7 +154,7 @@ public:
     virtual future<> writeable(pollable_fd_state& fd) override;
     virtual future<> readable_or_writeable(pollable_fd_state& fd) override;
     virtual void forget(pollable_fd_state& fd) override;
-    virtual void handle_signal(int signo) override;
+    virtual void signal_received(int signo, siginfo_t* siginfo, void* ignore) override;
     virtual void start_tick() override;
     virtual void stop_tick() override;
     virtual void arm_highres_timer(const ::itimerspec& its) override;
