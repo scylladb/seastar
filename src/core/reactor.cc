@@ -871,6 +871,11 @@ reactor::reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg)
     , _io_context(0)
     , _reuseport(posix_reuseport_detect())
     , _thread_pool(std::make_unique<thread_pool>(this, seastar::format("syscall-{}", id))) {
+    /*
+     * The _backend assignment is here, not on the initialization list as
+     * the chosen backend constructor may want to handle signals and thus
+     * needs the _signals._signal_handlers map to be initialized.
+     */
     _backend = rbs.create(this);
     _task_queues.push_back(std::make_unique<task_queue>(0, "main", 1000));
     _task_queues.push_back(std::make_unique<task_queue>(1, "atexit", 1000));
