@@ -174,7 +174,7 @@ std::unique_ptr<metric_groups_def> create_metric_groups() {
 }
 
 metric_groups_impl::~metric_groups_impl() {
-    for (auto i : _registration) {
+    for (const auto& i : _registration) {
         unregister_metric(i);
     }
 }
