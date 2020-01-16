@@ -30,14 +30,20 @@
 using namespace seastar;
 using std::string;
 using namespace std::string_literals;
+using namespace std::chrono_literals;
 
 static logger iplog("unix_domain");
 
 class ud_server_client {
 public:
     ud_server_client(string server_path, compat::optional<string> client_path, int rounds) :
-        server_addr{unix_domain_addr{server_path}}, client_path{client_path}, rounds{rounds},
-        rounds_left{rounds} {}
+        ud_server_client(server_path, client_path, rounds, 0) {};
+
+    ud_server_client(string server_path, compat::optional<string> client_path, int rounds,
+                     int abort_run) :
+        server_addr{unix_domain_addr{server_path}}, client_path{client_path},
+                    rounds{rounds},
+                    rounds_left{rounds}, abort_after{abort_run} {}
 
     future<> run();
     ud_server_client(ud_server_client&&) = default;
@@ -47,23 +53,34 @@ private:
     const string test_message{"are you still the same?"s};
     future<> init_server();
     future<> client_round();
-    //future<> wait_for_data();
     const socket_address server_addr;
 
     const compat::optional<string> client_path;
     api_v2::server_socket server;
     const int rounds;
     int rounds_left;
+    server_socket* lstn_sock;
+    seastar::thread th;
+    int abort_after; // if set - force the listening socket down after that number of rounds
+    bool planned_abort{false}; // set when abort_accept() is called
 };
 
 future<> ud_server_client::init_server() {
     return do_with(engine().listen(server_addr), [this](server_socket& lstn) mutable {
 
+        lstn_sock = &lstn; // required when aborting (on some tests)
+
         //  start the clients here, where we know the server is listening
 
-        (void)async([this]{
+        th = seastar::thread([this]{
             for (int i=0; i<rounds; ++i) {
-                
+                if (abort_after) {
+                    if (--abort_after == 0) {
+                        planned_abort = true;
+                        lstn_sock->abort_accept();
+                        break;
+                    }
+                }
                 (void)client_round().get0();
             } 
         });
@@ -86,13 +103,20 @@ future<> ud_server_client::init_server() {
                         if (bb && bb.size()) {
                             ans = "+"s + string{bb.get(), bb.size()};
                         }
-                        return out.write(ans).then([&out](){out.flush();}).
+                        return out.write(ans).then([&out](){return out.flush();}).
                         then([&out](){return out.close();});
                     }).then([&inp]() { return inp.close(); }).
                     then([]() { return make_ready_future<>(); });
 
                 }).then([]{ return make_ready_future<>();});
             });
+        }).handle_exception([this](auto e) {
+            // OK to get here only if the test was a "planned abort" one
+            if (!planned_abort) {
+                std::rethrow_exception(e);
+            }
+        }).finally([this]{
+            return th.join();
         });
     });
 }
@@ -181,3 +205,18 @@ SEASTAR_TEST_CASE(unixdomain_short) {
         return uds.run();
     });
 }
+
+//  test our ability to abort the accept()'ing on a socket.
+//  The test covers a specific bug in the handling of abort_accept()
+SEASTAR_TEST_CASE(unixdomain_abort) {
+    std::string sockname{"7"s}; // note: no portable & warnings-free option
+    std::ignore = ::unlink(sockname.c_str());
+    ud_server_client uds(sockname, compat::nullopt, 10, 4);
+    return do_with(std::move(uds), [sockname](auto& uds){
+        return uds.run().finally([sockname](){
+            std::ignore = ::unlink(sockname.c_str());
+            return seastar::make_ready_future<>();
+        });
+    });
+}
+
