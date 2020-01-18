@@ -89,6 +89,22 @@ SEASTAR_TEST_CASE(test_stream) {
     return sub.done();
 }
 
+SEASTAR_TEST_CASE(test_stream_drop_sub) {
+    auto s = make_lw_shared<stream<int>>();
+    compat::optional<future<>> ret;
+    {
+        auto sub = s->listen([](int x) {
+            return make_ready_future<>();
+        });
+        *ret = sub.done();
+        // It is ok to drop the subscription when we only want the competition future.
+    }
+    return s->produce(42).then([ret = std::move(*ret), s] () mutable {
+        s->close();
+        return std::move(ret);
+    });
+}
+
 SEASTAR_TEST_CASE(test_set_future_state_with_tuple) {
     future_state<int> s1;
     promise<int> p1;

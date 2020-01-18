@@ -54,11 +54,21 @@ class subscription;
 
 template <typename... T>
 class stream {
+public:
+    using next_fn = std::function<future<> (T...)>;
+
+private:
     subscription<T...>* _sub = nullptr;
     promise<> _done;
     promise<> _ready;
+    next_fn _next;
+
+    /// \brief Start receiving events from the stream.
+    ///
+    /// \param next Callback to call for each event
+    void start(std::function<future<> (T...)> next);
+
 public:
-    using next_fn = std::function<future<> (T...)>;
     stream() = default;
     stream(const stream&) = delete;
     stream(stream&&) = delete;
@@ -103,7 +113,6 @@ public:
     using next_fn = typename stream<T...>::next_fn;
 private:
     stream<T...>* _stream;
-    next_fn _next;
     future<> _done;
 private:
     explicit subscription(stream<T...>* s);
@@ -114,7 +123,9 @@ public:
     /// \brief Start receiving events from the stream.
     ///
     /// \param next Callback to call for each event
-    void start(std::function<future<> (T...)> next);
+    void start(std::function<future<> (T...)> next) {
+        return _stream->start(std::move(next));
+    }
 
     // Becomes ready when the stream is empty, or when an error
     // happens (in that case, an exception is held).
@@ -161,7 +172,7 @@ template <typename... T>
 inline
 future<>
 stream<T...>::produce(T... data) {
-    auto ret = futurize<void>::apply(_sub->_next, std::move(data)...);
+    auto ret = futurize<void>::apply(_next, std::move(data)...);
     if (ret.available() && !ret.failed()) {
         // Native network stack depends on stream::produce() returning
         // a ready future to push packets along without dropping.  As
@@ -207,9 +218,9 @@ subscription<T...>::subscription(stream<T...>* s)
 template <typename... T>
 inline
 void
-subscription<T...>::start(std::function<future<> (T...)> next) {
+stream<T...>::start(std::function<future<> (T...)> next) {
     _next = std::move(next);
-    _stream->_ready.set_value();
+    _ready.set_value();
 }
 
 template <typename... T>
@@ -223,7 +234,7 @@ subscription<T...>::~subscription() {
 template <typename... T>
 inline
 subscription<T...>::subscription(subscription&& x)
-    : _stream(x._stream), _next(std::move(x._next)), _done(std::move(x._done)) {
+    : _stream(x._stream), _done(std::move(x._done)) {
     x._stream = nullptr;
     if (_stream) {
         _stream->_sub = this;
