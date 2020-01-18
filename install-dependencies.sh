@@ -18,14 +18,14 @@
 #
 
 # os-release may be missing in container environment by default.
-if [ ! -f "/etc/os-release" ]; then
-    # if we are on Arch, provide os-release
-    if [ -x "/usr/sbin/pacman" ]; then
-        /usr/sbin/pacman -Sy --noconfirm filesystem
-    fi
+if [ -f "/etc/os-release" ]; then
+    . /etc/os-release
+elif [ -f "/etc/arch-release" ]; then
+    export ID=arch
+else
+    echo "/etc/os-release missing."
+    exit 1
 fi
-
-. /etc/os-release
 
 debian_packages=(
     ninja-build
@@ -110,9 +110,13 @@ centos_packages=(
     devtoolset-8-libatomic
 )
 
-# glibc 2.30-3 has sys/sdt.h (systemtap include)
-# some old containers may contain glibc older,
-# so enforce update on that one.
+# 1) glibc 2.30-3 has sys/sdt.h (systemtap include)
+#    some old containers may contain glibc older,
+#    so enforce update on that one.
+# 2) if problems with signatures, ensure having fresh
+#    archlinux-keyring: pacman -Sy archlinux-keyring && pacman -Syyu
+# 3) aur installations require having sudo and being
+#    a sudoer. makepkg does not work otherwise.
 arch_packages=(
     gcc
     ninja
@@ -139,6 +143,7 @@ arch_packages=(
     fmt
     python3
     glibc
+    filesystem
 )
 
 opensuse_packages=(
@@ -184,8 +189,13 @@ elif [ "$ID" = "centos" ] || [ "$ID" = "fedora" ]; then
         yum install -y epel-release centos-release-scl scl-utils
         yum install -y "${centos_packages[@]}" 
     fi
-elif [ "$ID" = "arch" -o "$ID_LIKE" = "arch" ]; then
-    pacman -Sy --noconfirm --needed "${arch_packages[@]}"
+elif [ "$ID" = "arch" ]; then
+    # main
+    if [ "$EUID" -eq "0" ]; then
+        pacman -Sy --needed --noconfirm "${arch_packages[@]}"
+    else
+        echo "seastar: running without root. Skipping main dependencies (pacman)." 1>&2
+    fi
 elif [ "$ID" = "opensuse-leap" ]; then
     zypper install -y "${opensuse_packages[@]}"
 else
