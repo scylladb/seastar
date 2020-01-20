@@ -110,7 +110,7 @@ public:
     io_queue(config cfg);
     ~io_queue();
 
-    future<internal::linux_abi::io_event>
+    future<size_t>
     queue_request(const io_priority_class& pc, size_t len, internal::io_request req);
 
     size_t capacity() const {

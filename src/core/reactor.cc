@@ -1576,14 +1576,14 @@ const io_priority_class& default_priority_class() {
     return shard_default_class;
 }
 
-future<io_event>
+future<size_t>
 reactor::submit_io_read(io_queue* ioq, const io_priority_class& pc, size_t len, io_request req) {
     ++_io_stats.aio_reads;
     _io_stats.aio_read_bytes += len;
     return ioq->queue_request(pc, len, std::move(req));
 }
 
-future<io_event>
+future<size_t>
 reactor::submit_io_write(io_queue* ioq, const io_priority_class& pc, size_t len, io_request req) {
     ++_io_stats.aio_writes;
     _io_stats.aio_write_bytes += len;
@@ -1610,7 +1610,12 @@ bool reactor::process_io()
         }
         _iocb_pool.put_one(iocb);
         auto desc = reinterpret_cast<io_desc*>(ev[i].data);
-        desc->set_value(ev[i]);
+        try {
+            this->handle_io_result(ev[i].res);
+            desc->set_value(ev[i].res);
+        } catch (...) {
+            desc->set_exception(std::current_exception());
+        }
         delete desc;
     }
     return n;
@@ -1921,9 +1926,7 @@ reactor::fdatasync(int fd) {
 
             auto req = io_request::make_fdatasync(fd);
             submit_io(desc.release(), std::move(req));
-            return fut.then([] (linux_abi::io_event event) {
-                throw_kernel_error(event.res);
-            });
+            return fut.discard_result();
         } catch (...) {
             return make_exception_future<>(std::current_exception());
         }

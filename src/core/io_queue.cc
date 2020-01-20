@@ -61,9 +61,9 @@ public:
         io_desc::set_exception(std::move(eptr));
     }
 
-    void set_value(io_event& ev) {
+    void set_value(ssize_t ret) {
         notify_requests_finished();
-        io_desc::set_value(ev);
+        io_desc::set_value(ret);
     }
 };
 
@@ -223,7 +223,7 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
     return *_priority_classes[owner][id];
 }
 
-future<io_event>
+future<size_t>
 io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_request req) {
     auto start = std::chrono::steady_clock::now();
     return smp::submit_to(coordinator(), [start, &pc, len, req = std::move(req), owner = engine().cpu_id(), this] () mutable {

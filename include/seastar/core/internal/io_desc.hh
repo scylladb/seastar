@@ -27,18 +27,18 @@
 namespace seastar {
 
 class io_desc {
-    promise<seastar::internal::linux_abi::io_event> _pr;
+    promise<size_t> _pr;
 public:
     virtual ~io_desc() = default;
     virtual void set_exception(std::exception_ptr eptr) {
         _pr.set_exception(std::move(eptr));
     }
 
-    virtual void set_value(seastar::internal::linux_abi::io_event& ev) {
-        _pr.set_value(ev);
+    virtual void set_value(ssize_t res) {
+        _pr.set_value(size_t(res));
     }
 
-    future<seastar::internal::linux_abi::io_event> get_future() {
+    future<size_t> get_future() {
         return _pr.get_future();
     }
 };
