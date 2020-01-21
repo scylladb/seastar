@@ -12,7 +12,8 @@ one shard and all other shards will be underutilized.
 Two common ways to distribute work between shards are:
  - do the work at a shard that received it
  - shard that does actual work depends on a data been processed
-   (one way to do it is to hash(data) % smp_count = shard)
+   (one way to do it is to hash(data) % smp_count = shard,
+    another way is to bind shards to different server addresses)
 
 # Load Balancing
 
@@ -40,3 +41,9 @@ are:
    a connection will be processed by a specific shard by choosing its local
    port accordingly (the knowledge about amount of shards in the server is
    needed and can be negotiated by different channel).
+
+- load_balancing_algorithm::fixed
+
+  Destination shard is statically configured in listen_options::fixed_cpu. This
+  allows a client to make sure that a connection to a server address will be
+  established in a specific shard, without any further negotiations.

@@ -161,10 +161,12 @@ class posix_server_socket_impl : public api_v2::server_socket_impl {
     pollable_fd _lfd;
     conntrack _conntrack;
     server_socket::load_balancing_algorithm _lba;
+    shard_id _fixed_cpu;
     compat::polymorphic_allocator<char>* _allocator;
 public:
-    explicit posix_server_socket_impl(int protocol, socket_address sa, pollable_fd lfd, server_socket::load_balancing_algorithm lba,
-        compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _lba(lba), _allocator(allocator) {}
+    explicit posix_server_socket_impl(int protocol, socket_address sa, pollable_fd lfd,
+        server_socket::load_balancing_algorithm lba, shard_id fixed_cpu,
+        compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _lba(lba), _fixed_cpu(fixed_cpu), _allocator(allocator) {}
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;

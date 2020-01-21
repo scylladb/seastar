@@ -268,6 +268,8 @@ public:
         // to a specific shard in a server given it knows how many shards server has by choosing
         // src port number accordingly.
         port,
+        // This algorithm distributes all new connections to listen_options::fixed_cpu shard only.
+        fixed,
         default_ = connection_distribution
     };
     /// Constructs a \c server_socket not corresponding to a connection
@@ -336,6 +338,11 @@ struct listen_options {
     server_socket::load_balancing_algorithm lba = server_socket::load_balancing_algorithm::default_;
     transport proto = transport::TCP;
     int listen_backlog = 100;
+    unsigned fixed_cpu = 0u;
+    void set_fixed_cpu(unsigned cpu) {
+        lba = server_socket::load_balancing_algorithm::fixed;
+        fixed_cpu = cpu;
+    }
 };
 
 class network_interface {
