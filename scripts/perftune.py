@@ -1232,7 +1232,7 @@ def parse_options_file(prog_args):
     if not prog_args.options_file:
         return
 
-    y = yaml.load(open(prog_args.options_file))
+    y = yaml.safe_load(open(prog_args.options_file))
     if y is None:
         return
 
