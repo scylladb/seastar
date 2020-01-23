@@ -180,7 +180,8 @@ thread_context::~thread_context() {
 thread_context::stack_holder
 thread_context::make_stack() {
 #ifdef SEASTAR_THREAD_STACK_GUARDS
-    size_t alignment = getpagesize();
+    size_t page_size = getpagesize();
+    size_t alignment = page_size;
 #else
     size_t alignment = 64; // cache line
 #endif
@@ -193,6 +194,12 @@ thread_context::make_stack() {
     // Avoid ASAN false positive due to garbage on stack
     std::fill_n(stack.get(), stack_size, 0);
 #endif
+
+#ifdef SEASTAR_THREAD_STACK_GUARDS
+    auto mp_status = mprotect(stack.get(), page_size, PROT_READ);
+    throw_system_error_on(mp_status != 0, "mprotect");
+#endif
+
     return stack;
 }
 
@@ -210,12 +217,6 @@ thread_context::setup() {
     auto main = reinterpret_cast<void (*)()>(&thread_context::s_main);
     auto r = getcontext(&initial_context);
     throw_system_error_on(r == -1);
-#ifdef SEASTAR_THREAD_STACK_GUARDS
-    size_t page_size = getpagesize();
-    assert(align_up(_stack.get(), page_size) == _stack.get());
-    auto mp_status = mprotect(_stack.get(), page_size, PROT_READ);
-    throw_system_error_on(mp_status != 0, "mprotect");
-#endif
     initial_context.uc_stack.ss_sp = _stack.get();
     initial_context.uc_stack.ss_size = stack_size;
     initial_context.uc_link = nullptr;
