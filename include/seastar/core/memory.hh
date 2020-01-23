@@ -84,8 +84,6 @@ public:
     ~disable_abort_on_alloc_failure_temporarily() noexcept;
 };
 
-void set_heap_profiling_enabled(bool);
-
 enum class reclaiming_result {
     reclaimed_nothing,
     reclaimed_something
@@ -260,6 +258,20 @@ public:
     void operator=(const scoped_large_allocation_warning_disable&) const = delete;
     void operator=(scoped_large_allocation_warning_disable&&) = delete;
 };
+
+/// Enable/disable heap profiling.
+///
+/// In order to use heap profiling you have to define
+/// `SEASTAR_HEAPPROF`.
+/// Heap profiling data is not currently exposed via an API for
+/// inspection, instead it was designed to be inspected from a
+/// debugger.
+/// For an example script that makes use of the heap profiling data
+/// see [scylla-gdb.py] (https://github.com/scylladb/scylla/blob/e1b22b6a4c56b4f1d0adf65d1a11db4bcb51fe7d/scylla-gdb.py#L1439)
+/// This script can generate either textual representation of the data,
+/// or a zoomable flame graph ([flame graph generation instructions](https://github.com/scylladb/scylla/wiki/Seastar-heap-profiler),
+/// [example flame graph](https://user-images.githubusercontent.com/1389273/72920437-f0cf8a80-3d51-11ea-92f0-f3dbeb698871.png)).
+void set_heap_profiling_enabled(bool);
 
 }
 }
