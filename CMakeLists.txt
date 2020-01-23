@@ -873,7 +873,7 @@ endif ()
 
 if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (CMAKE_BUILD_TYPE STREQUAL "Sanitize") OR (CMAKE_BUILD_TYPE STREQUAL "Dev"))
   target_compile_definitions (seastar
-    PUBLIC
+    PRIVATE
       SEASTAR_THREAD_STACK_GUARDS)
 endif ()
 
