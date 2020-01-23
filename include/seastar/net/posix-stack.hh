@@ -188,6 +188,7 @@ public:
 class posix_network_stack : public network_stack {
 private:
     const bool _reuseport;
+protected:
     compat::polymorphic_allocator<char>* _allocator;
 public:
     explicit posix_network_stack(boost::program_options::variables_map opts, compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) :

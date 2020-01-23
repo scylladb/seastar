@@ -614,13 +614,13 @@ posix_ap_network_stack::listen(socket_address sa, listen_options opt) {
         sa = inet_address(inet_address::family::INET);
     }
     if (sa.is_af_unix()) {
-        return server_socket(std::make_unique<posix_ap_server_socket_impl>(0, sa));
+        return server_socket(std::make_unique<posix_ap_server_socket_impl>(0, sa, _allocator));
     }
     auto protocol = static_cast<int>(opt.proto);
     return _reuseport ?
-        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, engine().posix_listen(sa, opt)))
+        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, engine().posix_listen(sa, opt), _allocator))
         :
-        server_socket(std::make_unique<posix_ap_server_socket_impl>(protocol, sa));
+        server_socket(std::make_unique<posix_ap_server_socket_impl>(protocol, sa, _allocator));
 }
 
 struct cmsg_with_pktinfo {
