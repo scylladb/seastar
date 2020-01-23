@@ -183,7 +183,7 @@ thread_context::make_stack() {
     size_t page_size = getpagesize();
     size_t alignment = page_size;
 #else
-    size_t alignment = 64; // cache line
+    size_t alignment = 16; // ABI requirement on x86_64
 #endif
     void* mem = ::aligned_alloc(alignment, stack_size);
     if (mem == nullptr) {
