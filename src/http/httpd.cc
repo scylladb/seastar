@@ -141,7 +141,7 @@ connection::~connection() {
 
 bool connection::url_decode(const compat::string_view& in, sstring& out) {
     size_t pos = 0;
-    char buff[in.length()];
+    sstring buff(in.length(), 0);
     for (size_t i = 0; i < in.length(); ++i) {
         if (in[i] == '%') {
             if (i + 3 <= in.size()) {
@@ -156,7 +156,8 @@ bool connection::url_decode(const compat::string_view& in, sstring& out) {
             buff[pos++] = in[i];
         }
     }
-    out = sstring(buff, pos);
+    buff.resize(pos);
+    out = buff;
     return true;
 }
 
