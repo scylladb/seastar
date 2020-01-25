@@ -246,7 +246,7 @@ public:
     loopback_socket_impl(loopback_connection_factory& factory, loopback_error_injector* error_injector = nullptr)
             : _factory(factory), _error_injector(error_injector)
     { }
-    future<connected_socket> connect(socket_address sa, socket_address local, seastar::transport proto = seastar::transport::TCP) {
+    future<connected_socket> connect(socket_address sa, socket_address local, seastar::transport proto = seastar::transport::TCP) override {
         auto shard = _factory.next_shard();
         _b1 = make_lw_shared<loopback_buffer>(_error_injector, loopback_buffer::type::SERVER_TX);
         return smp::submit_to(shard, [this, b1 = make_foreign(_b1)] () mutable {
@@ -262,7 +262,7 @@ public:
     virtual void set_reuseaddr(bool reuseaddr) override {}
     virtual bool get_reuseaddr() const override { return false; };
 
-    void shutdown() {
+    void shutdown() override {
         _b1->shutdown();
         (void)smp::submit_to(_b2.get_owner_shard(), [b2 = std::move(_b2)] {
             b2->shutdown();

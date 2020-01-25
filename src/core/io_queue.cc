@@ -241,7 +241,7 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, io_queue::reque
         auto desc = std::make_unique<io_desc_read_write>(this, weight, size);
         auto fq_desc = desc->fq_descriptor();
         auto fut = desc->get_future();
-        _fq.queue(pclass.ptr, std::move(fq_desc), [&pclass, start, prepare_io = std::move(prepare_io), desc = std::move(desc), len, this] () mutable noexcept {
+        _fq.queue(pclass.ptr, std::move(fq_desc), [&pclass, start, prepare_io = std::move(prepare_io), desc = std::move(desc), len] () mutable noexcept {
             try {
                 pclass.nr_queued--;
                 pclass.ops++;

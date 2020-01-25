@@ -77,7 +77,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_after_sg_create) {
             int factor = engine().cpu_id() + 1;
             int expected_sum = ((1 + num_scheduling_groups)*num_scheduling_groups) * factor /2;
             BOOST_REQUIRE_EQUAL(expected_sum, sum);
-        }). then([key1, key2] {
+        }). then([key2] {
             auto ivec_to_int = [] (ivec& v) {
                 return v.size() ? v[0] : 0;
             };
@@ -135,7 +135,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_sg_create) {
             int factor = engine().cpu_id() + 1;
             int expected_sum = ((1 + num_scheduling_groups)*num_scheduling_groups) * factor /2;
             BOOST_REQUIRE_EQUAL(expected_sum, sum);
-        }). then([key1, key2] {
+        }). then([key2] {
             auto ivec_to_int = [] (ivec& v) {
                 return v.size() ? v[0] : 0;
             };
@@ -197,7 +197,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_and_after_sg_create) {
             int factor = engine().cpu_id() + 1;
             int expected_sum = ((1 + num_scheduling_groups)*num_scheduling_groups) * factor /2;
             BOOST_REQUIRE_EQUAL(expected_sum, sum);
-        }). then([key1, key2] {
+        }). then([key2] {
             auto ivec_to_int = [] (ivec& v) {
                 return v.size() ? v[0] : 0;
             };

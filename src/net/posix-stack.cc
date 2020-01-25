@@ -99,10 +99,10 @@ public:
 
 class posix_sctp_connected_socket_operations : public posix_connected_socket_operations {
 public:
-    virtual void set_nodelay(file_desc& _fd, bool nodelay) const {
+    virtual void set_nodelay(file_desc& _fd, bool nodelay) const override {
         _fd.setsockopt(SOL_SCTP, SCTP_NODELAY, int(nodelay));
     }
-    virtual bool get_nodelay(file_desc& _fd) const {
+    virtual bool get_nodelay(file_desc& _fd) const override {
         return _fd.getsockopt<int>(SOL_SCTP, SCTP_NODELAY);
     }
     virtual void set_keepalive(file_desc& _fd, bool keepalive) const override {
@@ -799,7 +799,7 @@ void register_posix_stack() {
 // nw interface stuff
 
 std::vector<network_interface> posix_network_stack::network_interfaces() {
-    class posix_network_interface_impl : public network_interface_impl {
+    class posix_network_interface_impl final : public network_interface_impl {
     public:
         uint32_t _index = 0, _mtu = 0;
         sstring _name, _display_name;
@@ -869,7 +869,7 @@ std::vector<network_interface> posix_network_stack::network_interfaces() {
                     rtgenmsg gen;
                     ifaddrmsg addr; 
                 }; 
-            } req = { 0, };
+            } req = { {0}, };
 
             sockaddr_nl kernel = { 0, }; 
             msghdr rtnl_msg = { 0, };

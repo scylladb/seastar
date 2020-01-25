@@ -92,7 +92,7 @@ test_runner::start(int ac, char** av) {
                     return make_ready_future<>();
                 }
               }).or_terminate();
-            }).then([this, &app] {
+            }).then([&app] {
                 if (engine().abandoned_failed_futures()) {
                     std::cerr << "*** " << engine().abandoned_failed_futures() << " abandoned failed future(s) detected\n";
                     if (app.configuration().count("fail-on-abandoned-failed-futures")) {
