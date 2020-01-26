@@ -139,6 +139,28 @@ connection::~connection() {
     _server.maybe_idle();
 }
 
+bool connection::url_decode(const compat::string_view& in, sstring& out) {
+    size_t pos = 0;
+    sstring buff(in.length(), 0);
+    for (size_t i = 0; i < in.length(); ++i) {
+        if (in[i] == '%') {
+            if (i + 3 <= in.size()) {
+                buff[pos++] = hexstr_to_char(in, i + 1);
+                i += 2;
+            } else {
+                return false;
+            }
+        } else if (in[i] == '+') {
+            buff[pos++] = ' ';
+        } else {
+            buff[pos++] = in[i];
+        }
+    }
+    buff.resize(pos);
+    out = buff;
+    return true;
+}
+
 void connection::on_new_connection() {
     ++_server._total_connections;
     ++_server._current_connections;

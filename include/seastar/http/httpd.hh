@@ -143,26 +143,7 @@ public:
     /**
      * URL_decode a substring and place it in the given out sstring
      */
-    static bool url_decode(const compat::string_view& in, sstring& out) {
-        size_t pos = 0;
-        char buff[in.length()];
-        for (size_t i = 0; i < in.length(); ++i) {
-            if (in[i] == '%') {
-                if (i + 3 <= in.size()) {
-                    buff[pos++] = hexstr_to_char(in, i + 1);
-                    i += 2;
-                } else {
-                    return false;
-                }
-            } else if (in[i] == '+') {
-                buff[pos++] = ' ';
-            } else {
-                buff[pos++] = in[i];
-            }
-        }
-        out = sstring(buff, pos);
-        return true;
-    }
+    static bool url_decode(const compat::string_view& in, sstring& out);
 
     /**
      * Add a single query parameter to the parameter list

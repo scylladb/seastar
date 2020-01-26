@@ -22,6 +22,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/net/api.hh>
 #include <seastar/net/inet_address.hh>
+#include <seastar/core/print.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/util/log.hh>
@@ -188,6 +189,16 @@ SEASTAR_TEST_CASE(unixdomain_abs_bind_2) {
     return do_with(std::move(uds), [](auto& uds){
         return uds.run();
     });
+}
+
+SEASTAR_TEST_CASE(unixdomain_text) {
+    socket_address addr1{unix_domain_addr{"abc"}};
+    BOOST_REQUIRE_EQUAL(format("{}", addr1), "abc");
+    socket_address addr2{unix_domain_addr{""}};
+    BOOST_REQUIRE_EQUAL(format("{}", addr2), "{unnamed}");
+    socket_address addr3{unix_domain_addr{std::string("\0abc", 5)}};
+    BOOST_REQUIRE_EQUAL(format("{}", addr3), "@abc_");
+    return make_ready_future<>();
 }
 
 SEASTAR_TEST_CASE(unixdomain_bind) {
