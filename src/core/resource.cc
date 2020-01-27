@@ -132,20 +132,16 @@ optional<T> read_setting_as(std::string path) {
 /*
  * what cgroup do we belong to?
  *
- * For cgroups V2, /proc/<pid>/cgroup should read "0::<cgroup-dir-path>"
+ * For cgroups V2, /proc/self/cgroup should read "0::<cgroup-dir-path>"
  * Note: true only for V2-only systems, but there is no reason to support
  * a hybrid configuration.
  */
 static optional<fs::path> cgroup2_path_my_pid() {
-    fs::path pid_master{"/proc"};
-    pid_master /= std::to_string(::getpid());
-    pid_master /= "cgroup";
-
     seastar::sstring cline;
     try {
-        cline = read_first_line(pid_master);
+        cline = read_first_line(fs::path{"/proc/self/cgroup"});
     } catch (...) {
-        // '/proc/<pid>/cgroup' must be there. If not - there is an issue
+        // '/proc/self/cgroup' must be there. If not - there is an issue
         // with the system configuration.
         throw std::runtime_error("no cgroup data for our process");
     }
