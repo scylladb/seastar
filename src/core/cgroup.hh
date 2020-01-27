@@ -38,6 +38,8 @@ size_t memory_limit();
 template <typename T>
 optional<T> read_setting_as(std::string path);
 
+template <typename T>
+optional<T> read_setting_V1V2_as(std::string cg1_path, std::string cg2_fname);
 }
 
 }

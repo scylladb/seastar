@@ -96,9 +96,12 @@ void validate(boost::any& v,
 
 namespace cgroup {
 
+namespace fs = seastar::compat::filesystem;
 
 optional<cpuset> cpu_set() {
-    auto cpuset = read_setting_as<std::string>("/sys/fs/cgroup/cpuset/cpuset.cpus");
+    auto cpuset = read_setting_V1V2_as<std::string>(
+                              "cpuset/cpuset.cpus",
+                              "cpuset.cpus.effective");
     if (cpuset) {
         return seastar::parse_cpuset(*cpuset);
     }
@@ -108,10 +111,11 @@ optional<cpuset> cpu_set() {
 }
 
 size_t memory_limit() {
-    return read_setting_as<size_t>("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+    return read_setting_V1V2_as<size_t>(
+                             "memory/memory.limit_in_bytes",
+                             "memory.max")
         .value_or(std::numeric_limits<size_t>::max());
 }
-
 
 template <typename T>
 optional<T> read_setting_as(std::string path) {
@@ -120,6 +124,102 @@ optional<T> read_setting_as(std::string path) {
         return boost::lexical_cast<T>(line);
     } catch (...) {
         seastar_logger.warn("Couldn't read cgroup file {}.", path);
+    }
+
+    return seastar::compat::nullopt;
+}
+
+/*
+ * what cgroup do we belong to?
+ *
+ * For cgroups V2, /proc/<pid>/cgroup should read "0::<cgroup-dir-path>"
+ * Note: true only for V2-only systems, but there is no reason to support
+ * a hybrid configuration.
+ */
+static optional<fs::path> cgroup2_path_my_pid() {
+    fs::path pid_master{"/proc"};
+    pid_master /= std::to_string(::getpid());
+    pid_master /= "cgroup";
+
+    seastar::sstring cline;
+    try {
+        cline = read_first_line(pid_master);
+    } catch (...) {
+        // '/proc/<pid>/cgroup' must be there. If not - there is an issue
+        // with the system configuration.
+        throw std::runtime_error("no cgroup data for our process");
+    }
+
+    // for a V2-only system, we expect exactly one line:
+    // 0::<abs-path-to-cgroup>
+    if (cline.at(0) != '0') {
+        // This is either a v1 system, or system configured with a hybrid of v1 & v2.
+        // We do not support such combinations of v1 and v2 at this point.
+        seastar_logger.info("Not a cgroups-v2-only system");
+        return seastar::compat::nullopt;
+    }
+
+    // the path is guaranteed to start with '0::/'
+    return fs::path{"/sys/fs/cgroup/" + cline.substr(4)};
+}
+
+/*
+ * traverse the cgroups V2 hierarchy bottom-up, starting from our process'
+ * specific cgroup up to /sys/fs/cgroup, looking for the named file.
+ */
+static optional<fs::path> locate_lowest_cgroup2(fs::path lowest_subdir, std::string filename) {
+    // locate the lowest subgroup containing the named file (i.e.
+    // handles the requested control by itself)
+    do {
+        //  does the cgroup settings file exist?
+        auto set_path = lowest_subdir / filename;
+        if (fs::exists(set_path) ) {
+            return set_path;
+        }
+
+        lowest_subdir = lowest_subdir.parent_path();
+    } while (lowest_subdir.compare("/sys/fs"));
+
+    return seastar::compat::nullopt;
+}
+
+/*
+ * Read a settings value from either the cgroups V2 or the corresponding
+ * cgroups V1 files.
+ * For V2, look for the lowest cgroup in our hierarchy that manages the
+ * requested settings.
+ */
+template <typename T>
+optional<T> read_setting_V1V2_as(std::string cg1_path, std::string cg2_fname) {
+    // on v2-systems, cg2_path will be initialized with the leaf cgroup that
+    // controls this process
+    static optional<fs::path> cg2_path{cgroup2_path_my_pid()};
+
+    if (cg2_path) {
+        // this is a v2 system
+        seastar::sstring line;
+        try {
+            line = read_first_line(locate_lowest_cgroup2(*cg2_path, cg2_fname).value());
+        } catch (...) {
+            seastar_logger.warn("Could not read cgroups v2 file ({}).", cg2_fname);
+            return seastar::compat::nullopt;
+        }
+        if (line.compare("max")) {
+            try {
+                return boost::lexical_cast<T>(line);
+            } catch (...) {
+                seastar_logger.warn("Malformed cgroups file ({}) contents.", cg2_fname);
+            }
+        }
+        return seastar::compat::nullopt;
+    }
+
+    // try cgroups v1:
+    try {
+        auto line = read_first_line(fs::path{"/sys/fs/cgroup"} / cg1_path);
+        return boost::lexical_cast<T>(line);
+    } catch (...) {
+        seastar_logger.warn("Could not parse cgroups v1 file ({}).", cg1_path);
     }
 
     return seastar::compat::nullopt;
