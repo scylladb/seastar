@@ -652,6 +652,10 @@ class metrics_handler : public handler_base  {
         }
         // Prometheus uses url encoding for the path so '*' is encoded as '%2A'
         if (boost::algorithm::ends_with(name, "%2A")) {
+            // This assert is obviously true. It is in here just to
+            // silence a bogus gcc warning:
+            // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=89337
+            assert(name.length() >= 3);
             name.resize(name.length() - 3);
             return true;
         }
