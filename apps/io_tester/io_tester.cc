@@ -188,6 +188,10 @@ public:
     future<> start(sstring dir) {
         return do_start(dir);
     }
+
+    future<> stop() {
+        return _file.close();
+    }
 protected:
     sstring type_str() const {
         return std::unordered_map<request_type, sstring>{
@@ -526,7 +530,11 @@ public:
             , _finished(0)
     {}
 
-    future<> stop() { return make_ready_future<>(); }
+    future<> stop() {
+        return parallel_for_each(_cl, [this] (std::unique_ptr<class_data>& cl) {
+            return cl->stop();
+        });
+    }
 
     future<> start() {
         return parallel_for_each(_cl, [this] (std::unique_ptr<class_data>& cl) {
@@ -610,6 +618,7 @@ int main(int ac, char** av) {
                     return c.print_stats();
                 }).get();
             }
+            ctx.stop().get0();
         }).or_terminate();
     });
 }
