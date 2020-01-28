@@ -273,5 +273,15 @@ public:
 /// [example flame graph](https://user-images.githubusercontent.com/1389273/72920437-f0cf8a80-3d51-11ea-92f0-f3dbeb698871.png)).
 void set_heap_profiling_enabled(bool);
 
+/// Enable heap profiling for the duration of the scope.
+///
+/// For more information about heap profiling see
+/// \ref set_heap_profiling_enabled().
+class scoped_heap_profiling {
+public:
+    scoped_heap_profiling() noexcept;
+    ~scoped_heap_profiling();
+};
+
 }
 }

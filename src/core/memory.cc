@@ -474,11 +474,31 @@ void set_heap_profiling_enabled(bool enable) {
     cpu_mem.collect_backtrace = enable;
 }
 
+static thread_local int64_t scoped_heap_profiling_embed_count = 0;
+
+scoped_heap_profiling::scoped_heap_profiling() noexcept {
+    ++scoped_heap_profiling_embed_count;
+    set_heap_profiling_enabled(true);
+}
+
+scoped_heap_profiling::~scoped_heap_profiling() {
+    if (!--scoped_heap_profiling_embed_count) {
+        set_heap_profiling_enabled(false);
+    }
+}
+
 #else
 
 void set_heap_profiling_enabled(bool enable) {
     seastar_logger.warn("Seastar compiled without heap profiling support, heap profiler not supported;"
             " compile with the Seastar_HEAP_PROFILING=ON CMake option to add heap profiling support");
+}
+
+scoped_heap_profiling::scoped_heap_profiling() noexcept {
+    set_heap_profiling_enabled(true); // let it print the warning
+}
+
+scoped_heap_profiling::~scoped_heap_profiling() {
 }
 
 #endif
@@ -1840,6 +1860,13 @@ namespace memory {
 
 void set_heap_profiling_enabled(bool enabled) {
     seastar_logger.warn("Seastar compiled with default allocator, heap profiler not supported");
+}
+
+scoped_heap_profiling::scoped_heap_profiling() noexcept {
+    set_heap_profiling_enabled(true); // let it print the warning
+}
+
+scoped_heap_profiling::~scoped_heap_profiling() {
 }
 
 void enable_abort_on_allocation_failure() {
