@@ -458,6 +458,8 @@ static thread_local cpu_pages cpu_mem;
 std::atomic<unsigned> cpu_pages::cpu_id_gen;
 cpu_pages* cpu_pages::all_cpus[max_cpus];
 
+#ifdef SEASTAR_HEAPPROF
+
 void set_heap_profiling_enabled(bool enable) {
     bool is_enabled = cpu_mem.collect_backtrace;
     if (enable) {
@@ -471,6 +473,15 @@ void set_heap_profiling_enabled(bool enable) {
     }
     cpu_mem.collect_backtrace = enable;
 }
+
+#else
+
+void set_heap_profiling_enabled(bool enable) {
+    seastar_logger.warn("Seastar compiled without heap profiling support, heap profiler not supported;"
+            " compile with the Seastar_HEAP_PROFILING=ON CMake option to add heap profiling support");
+}
+
+#endif
 
 // Smallest index i such that all spans stored in the index are >= pages.
 static inline

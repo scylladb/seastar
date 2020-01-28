@@ -239,6 +239,10 @@ option (Seastar_SPLIT_DWARF
   "Use split dwarf."
   OFF)
 
+option (Seastar_HEAP_PROFILING
+    "Enable heap profiling. No effect when Seastar is compiled with the default allocator."
+    OFF)
+
 set (Seastar_TEST_TIMEOUT
   "300"
   CACHE
@@ -777,6 +781,13 @@ if (Seastar_SPLIT_DWARF AND (NOT (CMAKE_BUILD_TYPE STREQUAL "Dev")))
   set (Seastar_SPLIT_DWARF_FLAG "-Wl,--gdb-index")
   target_link_libraries (seastar PUBLIC ${Seastar_SPLIT_DWARF_FLAG})
   target_compile_options (seastar PUBLIC "-gsplit-dwarf")
+endif ()
+
+if (Seastar_HEAP_PROFILING)
+    set_property (
+      SOURCE "src/core/memory.cc"
+      PROPERTY
+      COMPILE_DEFINITIONS SEASTAR_HEAPPROF)
 endif ()
 
 if (Seastar_DPDK)

@@ -111,6 +111,7 @@ arg_parser.add_argument('--without-apps', dest='exclude_apps', action='store_tru
 arg_parser.add_argument('--without-demos', dest='exclude_demos', action='store_true', help='Do not build demonstrations by default')
 arg_parser.add_argument('--split-dwarf', dest='split_dwarf', action='store_true', default=False,
                         help='use of split dwarf (https://gcc.gnu.org/wiki/DebugFission) to speed up linking')
+arg_parser.add_argument('--heap-profiling', dest='heap_profiling', action='store_true', default=False, help='Enable heap profiling')
 arg_parser.add_argument('--use-std-optional-variant-stringview', dest='cpp17_goodies', action='store', type=int, default=0,
                         help='Use C++17 std types for optional, variant, and string_view. Requires C++17 dialect and GCC >= 8.1.1-5')
 arg_parser.add_argument('--prefix', dest='install_prefix', default='/usr/local', help='Root installation path of Seastar files')
@@ -196,6 +197,7 @@ def configure_mode(mode):
         tr(args.alloc_page_size, 'ALLOC_PAGE_SIZE'),
         tr(args.cpp17_goodies, 'STD_OPTIONAL_VARIANT_STRINGVIEW'),
         tr(args.split_dwarf, 'SPLIT_DWARF'),
+        tr(args.heap_profiling, 'HEAP_PROFILING'),
         tr(args.coroutines_ts, 'EXPERIMENTAL_COROUTINES_TS'),
         tr(args.unused_result_error, 'UNUSED_RESULT_ERROR'),
     ]
