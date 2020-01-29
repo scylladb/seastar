@@ -352,10 +352,12 @@ public:
     static boost::integer_range<unsigned> all_cpus() {
         return boost::irange(0u, count);
     }
-    // Invokes func on all shards.
-    // The returned future resolves when all async invocations finish.
-    // The func may return void or future<>.
-    // Each async invocation will work with a separate copy of func.
+    /// Invokes func on all shards.
+    ///
+    /// \param func the function to be invoked on each shard. May return void or
+    ///         future<>. Each async invocation will work with a separate copy
+    ///         of \c func.
+    /// \returns a future that resolves when all async invocations finish.
     template<typename Func>
     static future<> invoke_on_all(Func&& func) {
         static_assert(std::is_same<future<>, typename futurize<std::result_of_t<Func()>>::type>::value, "bad Func signature");
@@ -363,10 +365,13 @@ public:
             return smp::submit_to(id, Func(func));
         });
     }
-    // Invokes func on all other shards.
-    // The returned future resolves when all async invocations finish.
-    // The func may return void or future<>.
-    // Each async invocation will work with a separate copy of func.
+    /// Invokes func on all other shards.
+    ///
+    /// \param cpu_id the cpu on which **not** to run the function.
+    /// \param func the function to be invoked on each shard. May return void or
+    ///         future<>. Each async invocation will work with a separate copy
+    ///         of \c func.
+    /// \returns a future that resolves when all async invocations finish.
     template<typename Func>
     static future<> invoke_on_others(unsigned cpu_id, Func func) {
         static_assert(std::is_same<future<>, typename futurize<std::result_of_t<Func()>>::type>::value, "bad Func signature");
