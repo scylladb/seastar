@@ -26,6 +26,7 @@
 #include <seastar/core/sleep.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/print.hh>
+#include <seastar/util/defer.hh>
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -223,6 +224,55 @@ future<> test_smp_service_groups_re_construction() {
     });
 }
 
+future<> test_smp_timeout() {
+    return async([] {
+        smp_service_group_config ssgc1;
+        ssgc1.max_nonlocal_requests = 1;
+        auto ssg1 = create_smp_service_group(ssgc1).get0();
+
+        auto _ = defer([ssg1] {
+            destroy_smp_service_group(ssg1).get();
+        });
+
+        const shard_id other_shard = smp::count - 1;
+
+        // Ugly but beats using sleeps.
+        std::mutex mut;
+        std::unique_lock<std::mutex> lk(mut);
+
+        // Submitted to the remote shard.
+        auto fut1 = smp::submit_to(other_shard, ssg1, [&mut] {
+            std::cout << "Running request no. 1" << std::endl;
+            std::unique_lock<std::mutex> lk(mut);
+            std::cout << "Request no. 1 done" << std::endl;
+        });
+        // Consume the only unit from the semaphore.
+        auto fut2 = smp::submit_to(other_shard, ssg1, [] {
+            std::cout << "Running request no. 2 - done" << std::endl;
+        });
+
+        auto fut_timedout = smp::submit_to(other_shard, smp_submit_to_options(ssg1, smp_timeout_clock::now() + 10ms), [] {
+            std::cout << "Running timed-out request - done" << std::endl;
+        });
+
+        {
+            auto notify = defer([lk = std::move(lk)] { });
+
+            try {
+                fut_timedout.get();
+                throw std::runtime_error("smp::submit_to() didn't timeout as expected");
+            } catch (semaphore_timed_out& e) {
+                std::cout << "Expected timeout received: " << e.what() << std::endl;
+            } catch (...) {
+                std::throw_with_nested(std::runtime_error("smp::submit_to() failed with unexpected exception"));
+            }
+        }
+
+        fut1.get();
+        fut2.get();
+    });
+}
+
 int main(int argc, char** argv) {
     app_template app;
     return app.run(argc, argv, [] {
@@ -240,6 +290,8 @@ int main(int argc, char** argv) {
             return test_smp_service_groups();
         }).then([] {
             return test_smp_service_groups_re_construction();
+        }).then([] {
+            return test_smp_timeout();
         });
     });
 }
