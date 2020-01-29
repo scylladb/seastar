@@ -166,19 +166,19 @@ public:
     /// it is destroyed.
     future<> stop();
 
-    // Invoke a type-erased function on all instances of @Service.
-    // The return value becomes ready when all instances have processed
-    // the message.
-    //
-    // \param ssg An \ref smp_service_group that controls concurrency on the server side
-    //            of the call
-    // \param func Function to be invoked on all shards
-    // \return Future that becomes ready once all calls have completed
+    /// Invoke a type-erased function on all instances of @Service.
+    /// The return value becomes ready when all instances have processed
+    /// the message.
+    ///
+    /// \param ssg An \ref smp_service_group that controls concurrency on the server side
+    ///            of the call
+    /// \param func Function to be invoked on all shards
+    /// \return Future that becomes ready once all calls have completed
     future<> invoke_on_all(smp_service_group ssg, std::function<future<> (Service&)> func);
 
-    // Invoke a type-erased function on all instances of @Service.
-    // The return value becomes ready when all instances have processed
-    // the message.
+    /// Invoke a type-erased function on all instances of @Service.
+    /// The return value becomes ready when all instances have processed
+    /// the message.
     future<> invoke_on_all(std::function<future<> (Service&)> func) {
         return invoke_on_all(default_smp_service_group(), std::move(func));
     }
@@ -194,9 +194,9 @@ public:
     template <typename... Args>
     future<> invoke_on_all(smp_service_group ssg, future<> (Service::*func)(Args...), Args... args);
 
-    // Invoke a method on all instances of @Service.
-    // The return value becomes ready when all instances have processed
-    // the message.
+    /// Invoke a method on all instances of @Service.
+    /// The return value becomes ready when all instances have processed
+    /// the message.
     template <typename... Args>
     future<> invoke_on_all(future<> (Service::*func)(Args...), Args... args) {
         return invoke_on_all(default_smp_service_group(), func, std::move(args)...);
