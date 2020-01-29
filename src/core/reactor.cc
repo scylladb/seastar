@@ -3028,12 +3028,12 @@ bool smp_message_queue::pure_poll_tx() const {
     return !const_cast<lf_queue&>(_completed).empty();
 }
 
-void smp_message_queue::submit_item(shard_id t, std::unique_ptr<smp_message_queue::work_item> item) {
+void smp_message_queue::submit_item(shard_id t, smp_timeout_clock::time_point timeout, std::unique_ptr<smp_message_queue::work_item> item) {
   // matching signal() in process_completions()
   auto ssg_id = internal::smp_service_group_id(item->ssg);
   auto& sem = get_smp_service_groups_semaphore(ssg_id, t);
   // Future indirectly forwarded to `item`.
-  (void)get_units(sem, 1).then_wrapped([this, item = std::move(item)] (future<smp_service_group_semaphore_units> units_fut) mutable {
+  (void)get_units(sem, 1, timeout).then_wrapped([this, item = std::move(item)] (future<smp_service_group_semaphore_units> units_fut) mutable {
     if (units_fut.failed()) {
         item->fail_with(units_fut.get_exception());
         ++_compl;
