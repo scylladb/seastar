@@ -190,7 +190,10 @@ public:
     }
 
     future<> stop() {
-        return _file.close();
+        if (_file) {
+            return _file.close();
+        }
+        return make_ready_future<>();
     }
 protected:
     sstring type_str() const {
