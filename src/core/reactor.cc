@@ -3033,7 +3033,7 @@ void smp_message_queue::submit_item(shard_id t, std::unique_ptr<smp_message_queu
   auto ssg_id = internal::smp_service_group_id(item->ssg);
   auto& sem = get_smp_service_groups_semaphore(ssg_id, t);
   // Future indirectly forwarded to `item`.
-  (void)get_units(sem, 1).then_wrapped([this, item = std::move(item)] (future<semaphore_units<>> units_fut) mutable {
+  (void)get_units(sem, 1).then_wrapped([this, item = std::move(item)] (future<smp_service_group_semaphore_units> units_fut) mutable {
     if (units_fut.failed()) {
         item->fail_with(units_fut.get_exception());
         ++_compl;
@@ -3878,7 +3878,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
             }
             auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
             throw_pthread_error(r);
-            init_default_smp_service_group();
+            init_default_smp_service_group(i);
             allocate_reactor(i, backend_selector, reactor_cfg);
             _reactors[i] = &engine();
             for (auto& dev_id : disk_config.device_ids()) {
@@ -3900,7 +3900,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
         });
     }
 
-    init_default_smp_service_group();
+    init_default_smp_service_group(0);
     try {
         allocate_reactor(0, backend_selector, reactor_cfg);
     } catch (const std::exception& e) {

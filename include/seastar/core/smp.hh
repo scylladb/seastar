@@ -121,9 +121,13 @@ smp_service_group default_smp_service_group() {
     return smp_service_group(0);
 }
 
-void init_default_smp_service_group();
+using smp_timeout_clock = lowres_clock;
+using smp_service_group_semaphore = basic_semaphore<named_semaphore_exception_factory, smp_timeout_clock>;
+using smp_service_group_semaphore_units = semaphore_units<named_semaphore_exception_factory, smp_timeout_clock>;
 
-semaphore& get_smp_service_groups_semaphore(unsigned ssg_id, shard_id t);
+void init_default_smp_service_group(shard_id cpu);
+
+smp_service_group_semaphore& get_smp_service_groups_semaphore(unsigned ssg_id, shard_id t);
 
 class smp_message_queue {
     static constexpr size_t queue_length = 128;
