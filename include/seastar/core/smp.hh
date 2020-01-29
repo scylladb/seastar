@@ -163,6 +163,7 @@ class smp_message_queue {
         explicit work_item(smp_service_group ssg) : task(current_scheduling_group()), ssg(ssg) {}
         smp_service_group ssg;
         virtual ~work_item() {}
+        virtual void fail_with(std::exception_ptr) = 0;
         void process();
         virtual void complete() = 0;
     };
@@ -177,6 +178,9 @@ class smp_message_queue {
         std::exception_ptr _ex; // if !_result
         typename futurator::promise_type _promise; // used on local side
         async_work_item(smp_message_queue& queue, smp_service_group ssg, Func&& func) : work_item(ssg), _queue(queue), _func(std::move(func)) {}
+        virtual void fail_with(std::exception_ptr ex) override {
+            _promise.set_exception(std::move(ex));
+        }
         virtual void run_and_dispose() noexcept override {
             // _queue.respond() below forwards the continuation chain back to the
             // calling shard.

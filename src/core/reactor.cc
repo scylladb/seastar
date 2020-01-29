@@ -3032,12 +3032,18 @@ void smp_message_queue::submit_item(shard_id t, std::unique_ptr<smp_message_queu
   // matching signal() in process_completions()
   auto ssg_id = internal::smp_service_group_id(item->ssg);
   auto& sem = get_smp_service_groups_semaphore(ssg_id, t);
-  // FIXME: future is discarded
-  (void)get_units(sem, 1).then([this, item = std::move(item)] (semaphore_units<> u) mutable {
+  // Future indirectly forwarded to `item`.
+  (void)get_units(sem, 1).then_wrapped([this, item = std::move(item)] (future<semaphore_units<>> units_fut) mutable {
+    if (units_fut.failed()) {
+        item->fail_with(units_fut.get_exception());
+        ++_compl;
+        ++_last_cmpl_batch;
+        return;
+    }
     _tx.a.pending_fifo.push_back(item.get());
     // no exceptions from this point
     item.release();
-    u.release();
+    units_fut.get0().release();
     if (_tx.a.pending_fifo.size() >= batch_size) {
         move_pending();
     }
