@@ -131,7 +131,9 @@ private:
         size_t nr;
         entry(promise<>&& pr_, size_t nr_) : pr(std::move(pr_)), nr(nr_) {}
     };
-    struct expiry_handler : private exception_factory {
+    struct expiry_handler : public exception_factory {
+        expiry_handler() = default;
+        expiry_handler(exception_factory&& f) : exception_factory(std::move(f)) { }
         void operator()(entry& e) noexcept {
             e.pr.set_exception(exception_factory::timeout());
         }
@@ -155,7 +157,7 @@ public:
     ///
     /// \param count number of initial units present in the counter.
     basic_semaphore(size_t count) : _count(count) {}
-    basic_semaphore(size_t count, exception_factory&& factory) : exception_factory(std::move(factory)), _count(count) {}
+    basic_semaphore(size_t count, exception_factory&& factory) : exception_factory(factory), _count(count), _wait_list(expiry_handler(std::move(factory))) {}
     /// Waits until at least a specific number of units are available in the
     /// counter, and reduces the counter by that amount of units.
     ///
