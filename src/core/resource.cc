@@ -151,7 +151,7 @@ static optional<fs::path> cgroup2_path_my_pid() {
     if (cline.at(0) != '0') {
         // This is either a v1 system, or system configured with a hybrid of v1 & v2.
         // We do not support such combinations of v1 and v2 at this point.
-        seastar_logger.info("Not a cgroups-v2-only system");
+        seastar_logger.debug("Not a cgroups-v2-only system");
         return seastar::compat::nullopt;
     }
 
