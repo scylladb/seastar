@@ -47,9 +47,9 @@
 #include <seastar/core/thread_cputime_clock.hh>
 #include <seastar/core/abort_on_ebadf.hh>
 #include <seastar/core/io_queue.hh>
+#include <seastar/core/internal/io_desc.hh>
 #include <seastar/util/log.hh>
 #include "core/file-impl.hh"
-#include "core/io_desc.hh"
 #include "core/reactor_backend.hh"
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"

@@ -27,10 +27,10 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/linux-aio.hh>
+#include <seastar/core/internal/io_desc.hh>
 #include <chrono>
 #include <mutex>
 #include <array>
-#include "core/io_desc.hh"
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 
