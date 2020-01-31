@@ -1480,7 +1480,7 @@ sstring io_request::opname() const {
 }
 
 void
-reactor::submit_io(io_desc* desc, io_request req) {
+reactor::submit_io(kernel_completion* desc, io_request req) {
   // We can ignore the future returned here, because the submitted aio will be polled
   // for and completed in process_io().
   (void)_iocb_pool.get_one().then([this, desc, req = std::move(req)] (linux_abi::iocb* iocb) mutable {
@@ -1504,7 +1504,7 @@ reactor::handle_aio_error(linux_abi::iocb* iocb, int ec) {
         case EAGAIN:
             return 0;
         case EBADF: {
-            auto desc = reinterpret_cast<io_desc*>(get_user_data(*iocb));
+            auto desc = reinterpret_cast<kernel_completion*>(get_user_data(*iocb));
             _iocb_pool.put_one(iocb);
             try {
                 throw std::system_error(EBADF, std::system_category());
@@ -1608,7 +1608,7 @@ bool reactor::process_io()
             continue;
         }
         _iocb_pool.put_one(iocb);
-        auto desc = reinterpret_cast<io_desc*>(ev[i].data);
+        auto desc = reinterpret_cast<kernel_completion*>(ev[i].data);
         desc->set_value(ev[i].res);
     }
     return n;
@@ -1915,21 +1915,25 @@ reactor::fdatasync(int fd) {
     if (_have_aio_fsync) {
         try {
             // Does not go through the I/O queue, but has to be deleted
-            struct fsync_io_desc final : public io_desc {
+            struct fsync_io_desc final : public kernel_completion {
+                promise<> _pr;
             public:
                 virtual void set_exception(std::exception_ptr eptr) {
-                    io_desc::set_exception(std::move(eptr));
                     delete this;
                 }
 
                 virtual void set_value(ssize_t res) {
                     try {
                         engine().handle_io_result(res);
-                        io_desc::set_value(res);
+                        _pr.set_value();
                         delete this;
                     } catch (...) {
                         set_exception(std::current_exception());
                     }
+                }
+
+                future<> get_future() {
+                    return _pr.get_future();
                 }
             };
 
@@ -1938,7 +1942,7 @@ reactor::fdatasync(int fd) {
 
             auto req = io_request::make_fdatasync(fd);
             submit_io(desc.release(), std::move(req));
-            return fut.discard_result();
+            return fut;
         } catch (...) {
             return make_exception_future<>(std::current_exception());
         }

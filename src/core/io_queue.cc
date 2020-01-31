@@ -39,9 +39,10 @@ namespace seastar {
 using namespace std::chrono_literals;
 using namespace internal::linux_abi;
 
-class io_desc_read_write final : public io_desc {
+class io_desc_read_write final : public kernel_completion {
     io_queue* _ioq_ptr;
     fair_queue_request_descriptor _fq_desc;
+    promise<size_t> _pr;
 private:
     void notify_requests_finished() {
         _ioq_ptr->notify_requests_finished(_fq_desc);
@@ -58,7 +59,6 @@ public:
 
     virtual void set_exception(std::exception_ptr eptr) {
         notify_requests_finished();
-        io_desc::set_exception(std::move(eptr));
         delete this;
     }
 
@@ -66,11 +66,15 @@ public:
         try {
             engine().handle_io_result(ret);
             notify_requests_finished();
-            io_desc::set_value(ret);
+            _pr.set_value(ret);
             delete this;
         } catch (...) {
             set_exception(std::current_exception());
         }
+    }
+
+    future<size_t> get_future() {
+        return _pr.get_future();
     }
 };
 

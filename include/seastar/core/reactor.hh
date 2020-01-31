@@ -147,7 +147,7 @@ class cpu_stall_detector;
 
 }
 
-class io_desc;
+class kernel_completion;
 class io_queue;
 class disk_config_params;
 
@@ -529,7 +529,7 @@ public:
     // In the following three methods, prepare_io is not guaranteed to execute in the same processor
     // in which it was generated. Therefore, care must be taken to avoid the use of objects that could
     // be destroyed within or at exit of prepare_io.
-    void submit_io(io_desc* desc, internal::io_request req);
+    void submit_io(kernel_completion* desc, internal::io_request req);
     future<size_t> submit_io_read(io_queue* ioq,
             const io_priority_class& priority_class,
             size_t len,
