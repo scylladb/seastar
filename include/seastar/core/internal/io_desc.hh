@@ -28,8 +28,9 @@ namespace seastar {
 
 class io_desc {
     promise<size_t> _pr;
+protected:
+    ~io_desc() = default;
 public:
-    virtual ~io_desc() = default;
     virtual void set_exception(std::exception_ptr eptr) {
         _pr.set_exception(std::move(eptr));
     }

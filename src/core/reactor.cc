@@ -1511,7 +1511,6 @@ reactor::handle_aio_error(linux_abi::iocb* iocb, int ec) {
             } catch (...) {
                 desc->set_exception(std::current_exception());
             }
-            delete desc;
             // if EBADF, it means that the first request has a bad fd, so
             // we will only remove it from _pending_aio and try again.
             return 1;
@@ -1610,13 +1609,7 @@ bool reactor::process_io()
         }
         _iocb_pool.put_one(iocb);
         auto desc = reinterpret_cast<io_desc*>(ev[i].data);
-        try {
-            this->handle_io_result(ev[i].res);
-            desc->set_value(ev[i].res);
-        } catch (...) {
-            desc->set_exception(std::current_exception());
-        }
-        delete desc;
+        desc->set_value(ev[i].res);
     }
     return n;
 }
@@ -1921,7 +1914,26 @@ reactor::fdatasync(int fd) {
     }
     if (_have_aio_fsync) {
         try {
-            auto desc = std::make_unique<io_desc>();
+            // Does not go through the I/O queue, but has to be deleted
+            struct fsync_io_desc final : public io_desc {
+            public:
+                virtual void set_exception(std::exception_ptr eptr) {
+                    io_desc::set_exception(std::move(eptr));
+                    delete this;
+                }
+
+                virtual void set_value(ssize_t res) {
+                    try {
+                        engine().handle_io_result(res);
+                        io_desc::set_value(res);
+                        delete this;
+                    } catch (...) {
+                        set_exception(std::current_exception());
+                    }
+                }
+            };
+
+            auto desc = std::make_unique<fsync_io_desc>();
             auto fut = desc->get_future();
 
             auto req = io_request::make_fdatasync(fd);
