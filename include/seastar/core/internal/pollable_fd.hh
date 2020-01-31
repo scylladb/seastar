@@ -25,6 +25,7 @@
 #include <seastar/core/posix.hh>
 #include <vector>
 #include <tuple>
+#include <seastar/core/internal/io_desc.hh>
 
 namespace seastar {
 
@@ -38,6 +39,20 @@ namespace net {
 class packet;
 
 }
+
+class pollable_fd_state_completion : public kernel_completion {
+    promise<> _pr;
+public:
+    void set_exception(std::exception_ptr ptr) {
+        _pr.set_exception(std::move(ptr));
+    }
+    void set_value(ssize_t res) {
+        _pr.set_value();
+    }
+    future<> get_future() {
+        return _pr.get_future();
+    }
+};
 
 class pollable_fd_state {
 public:
@@ -58,8 +73,10 @@ public:
     int events_requested = 0; // wanted by pollin/pollout promises
     int events_epoll = 0;     // installed in epoll
     int events_known = 0;     // returned from epoll
-    promise<> pollin;
-    promise<> pollout;
+
+    pollable_fd_state_completion pollin;
+    pollable_fd_state_completion pollout;
+
     friend class reactor;
     friend class pollable_fd;
 

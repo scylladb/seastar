@@ -169,8 +169,8 @@ bool reactor_backend_aio::await_events(int timeout, const sigset_t* active_sigma
                 process_smp_wakeup();
                 continue;
             }
-            auto* pr = reinterpret_cast<promise<>*>(uintptr_t(event.data));
-            pr->set_value();
+            auto* desc = reinterpret_cast<kernel_completion*>(uintptr_t(event.data));
+            desc->set_value(event.res);
             free_iocb(iocb);
         }
         // For the next iteration, don't use a timeout, since we may have waited already
@@ -211,7 +211,7 @@ bool reactor_backend_aio::wait_and_process(int timeout, const sigset_t* active_s
     return did_work;
 }
 
-future<> reactor_backend_aio::poll(pollable_fd_state& fd, promise<> pollable_fd_state::*promise_field, int events) {
+future<> reactor_backend_aio::poll(pollable_fd_state& fd, pollable_fd_state_completion* desc, int events) {
     if (!_r->_epoll_poller) {
         _r->_epoll_poller = reactor::poller(std::make_unique<io_poll_poller>(this));
     }
@@ -223,26 +223,26 @@ future<> reactor_backend_aio::poll(pollable_fd_state& fd, promise<> pollable_fd_
         auto iocb = new_iocb(); // FIXME: merge with pollable_fd_state
         *iocb = make_poll_iocb(fd.fd.get(), events);
         fd.events_rw = events == (POLLIN|POLLOUT);
-        auto pr = &(fd.*promise_field);
-        *pr = promise<>();
-        set_user_data(*iocb, pr);
+
+        *desc = pollable_fd_state_completion{};
+        set_user_data(*iocb, desc);
         _polling_io.queue(iocb);
-        return pr->get_future();
+        return desc->get_future();
     } catch (...) {
         return make_exception_future<>(std::current_exception());
     }
 }
 
 future<> reactor_backend_aio::readable(pollable_fd_state& fd) {
-    return poll(fd, &pollable_fd_state::pollin, POLLIN);
+    return poll(fd, &fd.pollin, POLLIN);
 }
 
 future<> reactor_backend_aio::writeable(pollable_fd_state& fd) {
-    return poll(fd, &pollable_fd_state::pollout, POLLOUT);
+    return poll(fd, &fd.pollout, POLLOUT);
 }
 
 future<> reactor_backend_aio::readable_or_writeable(pollable_fd_state& fd) {
-    return poll(fd, &pollable_fd_state::pollin, POLLIN|POLLOUT);
+    return poll(fd, &fd.pollin, POLLIN|POLLOUT);
 }
 
 void reactor_backend_aio::forget(pollable_fd_state& fd) {
@@ -365,12 +365,12 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
             // accept() signals normal completions via EPOLLIN, but errors (due to shutdown())
             // via EPOLLOUT|EPOLLHUP, so we have to wait for both EPOLLIN and EPOLLOUT with the
             // same future
-            complete_epoll_event(*pfd, &pollable_fd_state::pollin, events, EPOLLIN|EPOLLOUT);
+            complete_epoll_event(*pfd, &pfd->pollin, events, EPOLLIN|EPOLLOUT);
         } else {
             // Normal processing where EPOLLIN and EPOLLOUT are waited for via different
             // futures.
-            complete_epoll_event(*pfd, &pollable_fd_state::pollin, events, EPOLLIN);
-            complete_epoll_event(*pfd, &pollable_fd_state::pollout, events, EPOLLOUT);
+            complete_epoll_event(*pfd, &pfd->pollin, events, EPOLLIN);
+            complete_epoll_event(*pfd, &pfd->pollout, events, EPOLLOUT);
         }
         if (events_to_remove) {
             pfd->events_epoll &= ~events_to_remove;
@@ -382,13 +382,13 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
     return nr;
 }
 
-void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd, promise<> pollable_fd_state::*pr,
+void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd,
+        pollable_fd_state_completion* desc,
         int events, int event) {
     if (pfd.events_requested & events & event) {
         pfd.events_requested &= ~event;
         pfd.events_known &= ~event;
-        (pfd.*pr).set_value();
-        pfd.*pr = promise<>();
+        desc->set_value(event);
     }
 }
 
@@ -401,7 +401,7 @@ void reactor_backend_epoll::signal_received(int signo, siginfo_t* siginfo, void*
 }
 
 future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd,
-        promise<> pollable_fd_state::*pr, int event) {
+        pollable_fd_state_completion *desc, int event) {
     if (pfd.events_known & event) {
         pfd.events_known &= ~event;
         return make_ready_future();
@@ -418,20 +418,21 @@ future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd,
         assert(r == 0);
         engine().start_epoll();
     }
-    pfd.*pr = promise<>();
-    return (pfd.*pr).get_future();
+
+    *desc = pollable_fd_state_completion{};
+    return desc->get_future();
 }
 
 future<> reactor_backend_epoll::readable(pollable_fd_state& fd) {
-    return get_epoll_future(fd, &pollable_fd_state::pollin, EPOLLIN);
+    return get_epoll_future(fd, &fd.pollin, EPOLLIN);
 }
 
 future<> reactor_backend_epoll::writeable(pollable_fd_state& fd) {
-    return get_epoll_future(fd, &pollable_fd_state::pollout, EPOLLOUT);
+    return get_epoll_future(fd, &fd.pollout, EPOLLOUT);
 }
 
 future<> reactor_backend_epoll::readable_or_writeable(pollable_fd_state& fd) {
-    return get_epoll_future(fd, &pollable_fd_state::pollin, EPOLLIN | EPOLLOUT);
+    return get_epoll_future(fd, &fd.pollin, EPOLLIN | EPOLLOUT);
 }
 
 void reactor_backend_epoll::forget(pollable_fd_state& fd) {
