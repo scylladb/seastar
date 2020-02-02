@@ -173,7 +173,7 @@ struct remote_worker {
     future<> do_work() {
         ++current;
         max_concurrent_observed = std::max(current, max_concurrent_observed);
-        return sleep(10ms).then([this] {
+        return sleep(30ms).then([this] {
             max_concurrent_observed = std::max(current, max_concurrent_observed);
             --current;
         });
