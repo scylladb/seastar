@@ -179,7 +179,6 @@ class smp_message_queue {
         typename futurator::promise_type _promise; // used on local side
         async_work_item(smp_message_queue& queue, smp_service_group ssg, Func&& func) : work_item(ssg), _queue(queue), _func(std::move(func)) {}
         virtual void process() override {
-            try {
               // Run _func asynchronously and set either _result or _ex.
               // Respond to _queue when done.
               // Caller must get the future returned by get_future() to synchronize and retrieve the result.
@@ -193,10 +192,6 @@ class smp_message_queue {
                     _queue.respond(this);
                 });
               });
-            } catch (...) {
-                _ex = std::current_exception();
-                _queue.respond(this);
-            }
         }
         virtual void complete() override {
             if (_result) {
