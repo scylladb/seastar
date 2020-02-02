@@ -89,7 +89,7 @@ extern thread_local jmp_buf_link g_unthreaded_context;
 // Internal class holding thread state.  We can't hold this in
 // \c thread itself because \c thread is movable, and we want pointers
 // to this state to be captured.
-class thread_context : private task {
+class thread_context final : private task {
     struct stack_deleter {
         void operator()(char *ptr) const noexcept;
     };

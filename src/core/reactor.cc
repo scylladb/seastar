@@ -2812,7 +2812,7 @@ reactor::pure_poll_once() {
     return false;
 }
 
-class reactor::poller::registration_task : public task {
+class reactor::poller::registration_task final : public task {
 private:
     poller* _p;
 public:
@@ -2832,7 +2832,7 @@ public:
     }
 };
 
-class reactor::poller::deregistration_task : public task {
+class reactor::poller::deregistration_task final : public task {
 private:
     std::unique_ptr<pollfn> _p;
 public:

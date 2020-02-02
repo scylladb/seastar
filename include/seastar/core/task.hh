@@ -28,9 +28,14 @@ namespace seastar {
 
 class task {
     scheduling_group _sg;
+protected:
+    // Task destruction is performed by run_and_dispose() via a concrete type,
+    // so no need for a virtual destructor here. Derived classes that implement
+    // run_and_dispose() should be declared final to avoid losing concrete type
+    // information via inheritance.
+    ~task() = default;
 public:
     explicit task(scheduling_group sg = current_scheduling_group()) : _sg(sg) {}
-    virtual ~task() noexcept {}
     virtual void run_and_dispose() noexcept = 0;
     scheduling_group group() const { return _sg; }
 };
