@@ -428,7 +428,7 @@ seastar_add_test (tuple_utils
   KIND BOOST
   SOURCES tuple_utils_test.cc)
 
-seastar_add_test (unixdomain
+seastar_add_test (unix_domain
   SOURCES unix_domain_test.cc)
 
 seastar_add_test (unwind
