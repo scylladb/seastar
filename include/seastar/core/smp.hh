@@ -178,18 +178,18 @@ class smp_message_queue {
         typename futurator::promise_type _promise; // used on local side
         async_work_item(smp_message_queue& queue, smp_service_group ssg, Func&& func) : work_item(ssg), _queue(queue), _func(std::move(func)) {}
         virtual void run_and_dispose() noexcept override {
-              // _queue.respond() below forwards the continuation chain back to the
-              // calling shard.
-              (void)futurator::apply(this->_func).then_wrapped([this] (auto f) {
-                    if (f.failed()) {
-                        _ex = f.get_exception();
-                    } else {
-                        _result = f.get();
-                    }
-                    _queue.respond(this);
-              });
-              // We don't delete the task here as the creator of the work item will
-              // delete it on the origin shard.
+            // _queue.respond() below forwards the continuation chain back to the
+            // calling shard.
+            (void)futurator::apply(this->_func).then_wrapped([this] (auto f) {
+                if (f.failed()) {
+                    _ex = f.get_exception();
+                } else {
+                    _result = f.get();
+                }
+                _queue.respond(this);
+            });
+            // We don't delete the task here as the creator of the work item will
+            // delete it on the origin shard.
         }
         virtual void complete() override {
             if (_result) {
