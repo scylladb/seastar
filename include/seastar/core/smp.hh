@@ -159,12 +159,11 @@ class smp_message_queue {
         size_t _received = 0;
         size_t _last_rcv_batch = 0;
     };
-    struct work_item {
-        explicit work_item(smp_service_group ssg) : ssg(ssg) {}
+    struct work_item : public task {
+        explicit work_item(smp_service_group ssg) : task(current_scheduling_group()), ssg(ssg) {}
         smp_service_group ssg;
-        scheduling_group sg = current_scheduling_group();
         virtual ~work_item() {}
-        virtual void process() = 0;
+        void process();
         virtual void complete() = 0;
     };
     template <typename Func>
@@ -178,20 +177,19 @@ class smp_message_queue {
         std::exception_ptr _ex; // if !_result
         typename futurator::promise_type _promise; // used on local side
         async_work_item(smp_message_queue& queue, smp_service_group ssg, Func&& func) : work_item(ssg), _queue(queue), _func(std::move(func)) {}
-        virtual void process() override {
-              // Run _func asynchronously and set either _result or _ex.
-              // Respond to _queue when done.
-              // Caller must get the future returned by get_future() to synchronize and retrieve the result.
-              (void)with_scheduling_group(this->sg, [this] {
-                return futurator::apply(this->_func).then_wrapped([this] (auto f) {
+        virtual void run_and_dispose() noexcept override {
+              // _queue.respond() below forwards the continuation chain back to the
+              // calling shard.
+              (void)futurator::apply(this->_func).then_wrapped([this] (auto f) {
                     if (f.failed()) {
                         _ex = f.get_exception();
                     } else {
                         _result = f.get();
                     }
                     _queue.respond(this);
-                });
               });
+              // We don't delete the task here as the creator of the work item will
+              // delete it on the origin shard.
         }
         virtual void complete() override {
             if (_result) {

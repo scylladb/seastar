@@ -28,6 +28,10 @@
 
 namespace seastar {
 
+void smp_message_queue::work_item::process() {
+    schedule(this);
+}
+
 struct smp_service_group_impl {
     std::vector<semaphore> clients;   // one client per server shard
 };
