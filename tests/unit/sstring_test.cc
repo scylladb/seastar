@@ -133,3 +133,47 @@ BOOST_AUTO_TEST_CASE(test_ctor_iterator) {
     sstring s(data.begin(), data.end());
     BOOST_REQUIRE_EQUAL(s, "abc");
 }
+
+BOOST_AUTO_TEST_CASE(test_nul_termination) {
+    using stype = basic_sstring<char, uint32_t, 15, true>;
+
+    for (int size = 1; size <= 32; size *= 2) {
+        auto s1 = stype(stype::initialized_later{}, size - 1);
+        BOOST_REQUIRE_EQUAL(s1.c_str()[size - 1], '\0');
+        auto s2 = stype(stype::initialized_later{}, size);
+        BOOST_REQUIRE_EQUAL(s2.c_str()[size], '\0');
+
+        s1 = stype("abcd", size - 1);
+        BOOST_REQUIRE_EQUAL(s1.c_str()[size - 1], '\0');
+        s2 = stype("abcd", size);
+        BOOST_REQUIRE_EQUAL(s2.c_str()[size], '\0');
+
+        s1 = stype(size - 1, ' ');
+        BOOST_REQUIRE_EQUAL(s1.c_str()[size - 1], '\0');
+        s2 = stype(size, ' ');
+        BOOST_REQUIRE_EQUAL(s2.c_str()[size], '\0');
+
+        s2 = s1;
+        BOOST_REQUIRE_EQUAL(s2.c_str()[s1.size()], '\0');
+        s2.resize(s1.size());
+        BOOST_REQUIRE_EQUAL(s2.c_str()[s1.size()], '\0');
+        BOOST_REQUIRE_EQUAL(s1, s2);
+
+        auto new_size = size / 2;
+        s2 = s1;
+        s2.resize(new_size);
+        BOOST_REQUIRE_EQUAL(s2.c_str()[new_size], '\0');
+        BOOST_REQUIRE(!strncmp(s1.c_str(), s2.c_str(), new_size));
+
+        new_size = size * 2;
+        s2 = s1;
+        s2.resize(new_size);
+        BOOST_REQUIRE_EQUAL(s2.c_str()[new_size], '\0');
+        BOOST_REQUIRE(!strncmp(s1.c_str(), s2.c_str(), std::min(s1.size(), s2.size())));
+
+        new_size = size * 2;
+        s2 = s1 + s1;
+        BOOST_REQUIRE_EQUAL(s2.c_str()[s2.size()], '\0');
+        BOOST_REQUIRE(!strncmp(s1.c_str(), s2.c_str(), std::min(s1.size(), s2.size())));
+    }
+}
