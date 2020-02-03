@@ -32,11 +32,6 @@ function (seastar_jenkins_arguments test_name var)
     PARENT_SCOPE)
 endfunction ()
 
-# Distribution tests.
-if (Seastar_INSTALL)
-  add_subdirectory (dist)
-endif ()
-
 # Performance tests.
 add_subdirectory (perf)
 

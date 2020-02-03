@@ -54,7 +54,7 @@ if __name__ == "__main__":
         print(CMAKE_ARGS)
         subprocess.check_call(CMAKE_ARGS, shell=False, cwd=seastar_cmake.ROOT_PATH)
 
-        TRANSLATED_CTEST_ARGS = ['-E', 'Seastar.dist', '--output-on-failure']
+        TRANSLATED_CTEST_ARGS = ['--output-on-failure']
         if args.verbose:
             TRANSLATED_CTEST_ARGS += ['--verbose']
         if args.name:
