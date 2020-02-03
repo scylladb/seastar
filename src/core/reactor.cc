@@ -1603,7 +1603,7 @@ size_t sanitize_iovecs(std::vector<iovec>& iov, size_t disk_alignment) noexcept 
 
 future<file>
 reactor::open_file_dma(sstring name, open_flags flags, file_open_options options) {
-    return _thread_pool->submit<syscall_result<int>>([name, flags, options, strict_o_direct = _strict_o_direct] {
+    return _thread_pool->submit<syscall_result<int>>([name, flags, options, strict_o_direct = _strict_o_direct, bypass_fsync = _bypass_fsync] {
         // We want O_DIRECT, except in two cases:
         //   - tmpfs (which doesn't support it, but works fine anyway)
         //   - strict_o_direct == false (where we forgive it being not supported)
@@ -1619,6 +1619,9 @@ reactor::open_file_dma(sstring name, open_flags flags, file_open_options options
             return buf.f_type == 0x01021994; // TMPFS_MAGIC
         };
         auto open_flags = O_CLOEXEC | static_cast<int>(flags);
+        if (bypass_fsync) {
+            open_flags &= ~O_DSYNC;
+        }
         auto mode = static_cast<mode_t>(options.create_permissions);
         int fd = ::open(name.c_str(), open_flags, mode);
         if (fd == -1) {
