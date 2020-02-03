@@ -187,6 +187,7 @@ public:
 class reactor_backend_selector {
     std::string _name;
 private:
+    static bool has_enough_aio_nr();
     explicit reactor_backend_selector(std::string name) : _name(std::move(name)) {}
 public:
     std::unique_ptr<reactor_backend> create(reactor* r);

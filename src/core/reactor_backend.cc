@@ -25,6 +25,10 @@
 #include <chrono>
 #include <sys/poll.h>
 #include <sys/syscall.h>
+#include <fstream>
+#ifdef __GNUC__
+#include <iostream>
+#endif
 
 #ifdef HAVE_OSV
 #include <osv/newpoll.hh>
@@ -521,6 +525,34 @@ static bool detect_aio_poll() {
     return r == 1;
 }
 
+static bool reactor_backend_selector::has_enough_aio_nr() {
+    static auto aio_max_nr = [] {
+        compat::optional<unsigned> result;
+        std::ifstream ifs("/proc/sys/fs/aio-max-nr");
+        if (ifs) {
+            result = 0;
+            ifs >> *result;
+        }
+        return result;
+    }();
+    static auto aio_nr = [] {
+        compat::optional<unsigned> result;
+        std::ifstream ifs("/proc/sys/fs/aio-nr");
+        if (ifs) {
+            result = 0;
+            ifs >> *result;
+        }
+        return result;
+    }();
+    /* reactor_backend_selector::available() will be execute in early stage,
+     * it's before io_setup() issued, and not per-cpu basis.
+     * So this method calculates:
+     *  Available AIO on the system - (request AIO per-cpu * ncpus)
+     */
+    if (*aio_max_nr - *aio_nr < reactor::max_aio * smp::count)
+        return false;
+    return true;
+}
 
 std::unique_ptr<reactor_backend> reactor_backend_selector::create(reactor* r) {
     if (_name == "linux-aio") {
@@ -537,7 +569,7 @@ reactor_backend_selector reactor_backend_selector::default_backend() {
 
 std::vector<reactor_backend_selector> reactor_backend_selector::available() {
     std::vector<reactor_backend_selector> ret;
-    if (detect_aio_poll()) {
+    if (detect_aio_poll() && has_enough_aio_nr()) {
         ret.push_back(reactor_backend_selector("linux-aio"));
     }
     ret.push_back(reactor_backend_selector("epoll"));
