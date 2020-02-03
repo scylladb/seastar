@@ -534,7 +534,7 @@ public:
     {}
 
     future<> stop() {
-        return parallel_for_each(_cl, [this] (std::unique_ptr<class_data>& cl) {
+        return parallel_for_each(_cl, [] (std::unique_ptr<class_data>& cl) {
             return cl->stop();
         });
     }
