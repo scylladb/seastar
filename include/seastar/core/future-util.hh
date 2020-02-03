@@ -675,7 +675,7 @@ public:
 };
 
 template <typename Future>
-class when_all_state_component : public continuation_base_for_future_t<Future> {
+class when_all_state_component final : public continuation_base_for_future_t<Future> {
     when_all_state_base* _base;
     Future* _final_resting_place;
 public:
