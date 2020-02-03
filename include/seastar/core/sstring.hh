@@ -368,10 +368,16 @@ public:
         } else if (n < size()) {
             if (is_internal()) {
                 u.internal.size = n;
+                if (NulTerminate) {
+                    u.internal.str[n] = '\0';
+                }
             } else if (n + padding() <= sizeof(u.internal.str)) {
                 *this = basic_sstring(u.external.str, n);
             } else {
                 u.external.size = n;
+                if (NulTerminate) {
+                    u.external.str[n] = '\0';
+                }
             }
         }
     }
