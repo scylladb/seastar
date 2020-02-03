@@ -111,7 +111,7 @@ public:
                 return add(name, element);
             });
         }
-        return _s.write(((first)? '"' + name : ",'" + name) + "\":").then([this, &element] {
+        return _s.write(((first)? '"' + name : ",\"" + name) + "\":").then([this, &element] {
             first = false;
             return element.write(_s);
         });
