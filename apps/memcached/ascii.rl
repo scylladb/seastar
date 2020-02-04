@@ -138,7 +138,14 @@ public:
     char* parse(char* p, char* pe, char* eof) {
         sstring_builder::guard g(_builder, p, pe);
         auto str = [this, &g, &p] { g.mark_end(p); return get_str(); };
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmisleading-indentation"
+#endif
         %% write exec;
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
         if (_state != state::error) {
             return p;
         }
