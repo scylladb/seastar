@@ -81,9 +81,9 @@ class reactor_backend_epoll : public reactor_backend {
 private:
     file_desc _epollfd;
     future<> get_epoll_future(pollable_fd_state& fd,
-            promise<> pollable_fd_state::* pr, int event);
+            pollable_fd_state_completion* desc, int event);
     void complete_epoll_event(pollable_fd_state& fd,
-            promise<> pollable_fd_state::* pr, int events, int event);
+            pollable_fd_state_completion* desc, int events, int event);
 public:
     explicit reactor_backend_epoll(reactor* r);
     virtual ~reactor_backend_epoll() override;
@@ -149,7 +149,7 @@ private:
 public:
     explicit reactor_backend_aio(reactor* r);
     virtual bool wait_and_process(int timeout, const sigset_t* active_sigmask) override;
-    future<> poll(pollable_fd_state& fd, promise<> pollable_fd_state::*promise_field, int events);
+    future<> poll(pollable_fd_state& fd, pollable_fd_state_completion* desc, int events);
     virtual future<> readable(pollable_fd_state& fd) override;
     virtual future<> writeable(pollable_fd_state& fd) override;
     virtual future<> readable_or_writeable(pollable_fd_state& fd) override;

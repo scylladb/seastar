@@ -47,9 +47,9 @@
 #include <seastar/core/thread_cputime_clock.hh>
 #include <seastar/core/abort_on_ebadf.hh>
 #include <seastar/core/io_queue.hh>
+#include <seastar/core/internal/io_desc.hh>
 #include <seastar/util/log.hh>
 #include "core/file-impl.hh"
-#include "core/io_desc.hh"
 #include "core/reactor_backend.hh"
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"
@@ -1443,13 +1443,49 @@ reactor::connect(socket_address sa, socket_address local, transport proto) {
     return _network_stack->connect(sa, local, proto);
 }
 
+void prepare_iocb(io_request& req, iocb& iocb) {
+    switch (req.opcode()) {
+    case io_request::operation::fdatasync:
+        iocb = make_fdsync_iocb(req.fd());
+        break;
+    case io_request::operation::write:
+        iocb = make_write_iocb(req.fd(), req.pos(), req.address(), req.size());
+        break;
+    case io_request::operation::writev:
+        iocb = make_writev_iocb(req.fd(), req.pos(), reinterpret_cast<const iovec*>(req.address()), req.size());
+        break;
+    case io_request::operation::read:
+        iocb = make_read_iocb(req.fd(), req.pos(), req.address(), req.size());
+        break;
+    case io_request::operation::readv:
+        iocb = make_readv_iocb(req.fd(), req.pos(), reinterpret_cast<const iovec*>(req.address()), req.size());
+        break;
+    }
+}
+
+sstring io_request::opname() const {
+    switch (_op) {
+    case io_request::operation::fdatasync:
+        return "fdatasync";
+    case io_request::operation::write:
+        return "write";
+    case io_request::operation::writev:
+        return "vectored write";
+    case io_request::operation::read:
+        return "read";
+    case io_request::operation::readv:
+        return "vectored read";
+    }
+    std::abort();
+}
+
 void
-reactor::submit_io(io_desc* desc, noncopyable_function<void (linux_abi::iocb&)> prepare_io) {
+reactor::submit_io(kernel_completion* desc, io_request req) {
   // We can ignore the future returned here, because the submitted aio will be polled
   // for and completed in process_io().
-  (void)_iocb_pool.get_one().then([this, desc, prepare_io = std::move(prepare_io)] (linux_abi::iocb* iocb) mutable {
+  (void)_iocb_pool.get_one().then([this, desc, req = std::move(req)] (linux_abi::iocb* iocb) mutable {
     auto& io = *iocb;
-    prepare_io(io);
+    prepare_iocb(req, io);
     if (_aio_eventfd) {
         set_eventfd_notification(io, _aio_eventfd->get_fd());
     }
@@ -1468,14 +1504,13 @@ reactor::handle_aio_error(linux_abi::iocb* iocb, int ec) {
         case EAGAIN:
             return 0;
         case EBADF: {
-            auto desc = reinterpret_cast<io_desc*>(get_user_data(*iocb));
+            auto desc = reinterpret_cast<kernel_completion*>(get_user_data(*iocb));
             _iocb_pool.put_one(iocb);
             try {
                 throw std::system_error(EBADF, std::system_category());
             } catch (...) {
                 desc->set_exception(std::current_exception());
             }
-            delete desc;
             // if EBADF, it means that the first request has a bad fd, so
             // we will only remove it from _pending_aio and try again.
             return 1;
@@ -1540,18 +1575,18 @@ const io_priority_class& default_priority_class() {
     return shard_default_class;
 }
 
-future<io_event>
-reactor::submit_io_read(io_queue* ioq, const io_priority_class& pc, size_t len, noncopyable_function<void (internal::linux_abi::iocb&)> prepare_io) {
+future<size_t>
+reactor::submit_io_read(io_queue* ioq, const io_priority_class& pc, size_t len, io_request req) {
     ++_io_stats.aio_reads;
     _io_stats.aio_read_bytes += len;
-    return ioq->queue_request(pc, len, io_queue::request_type::read, std::move(prepare_io));
+    return ioq->queue_request(pc, len, std::move(req));
 }
 
-future<io_event>
-reactor::submit_io_write(io_queue* ioq, const io_priority_class& pc, size_t len, noncopyable_function<void (internal::linux_abi::iocb&)> prepare_io) {
+future<size_t>
+reactor::submit_io_write(io_queue* ioq, const io_priority_class& pc, size_t len, io_request req) {
     ++_io_stats.aio_writes;
     _io_stats.aio_write_bytes += len;
-    return ioq->queue_request(pc, len, io_queue::request_type::write, std::move(prepare_io));
+    return ioq->queue_request(pc, len, std::move(req));
 }
 
 bool reactor::process_io()
@@ -1573,9 +1608,8 @@ bool reactor::process_io()
             continue;
         }
         _iocb_pool.put_one(iocb);
-        auto desc = reinterpret_cast<io_desc*>(ev[i].data);
-        desc->set_value(ev[i]);
-        delete desc;
+        auto desc = reinterpret_cast<kernel_completion*>(ev[i].data);
+        desc->set_value(ev[i].res);
     }
     return n;
 }
@@ -1880,14 +1914,35 @@ reactor::fdatasync(int fd) {
     }
     if (_have_aio_fsync) {
         try {
-            auto desc = std::make_unique<io_desc>();
+            // Does not go through the I/O queue, but has to be deleted
+            struct fsync_io_desc final : public kernel_completion {
+                promise<> _pr;
+            public:
+                virtual void set_exception(std::exception_ptr eptr) {
+                    delete this;
+                }
+
+                virtual void set_value(ssize_t res) {
+                    try {
+                        engine().handle_io_result(res);
+                        _pr.set_value();
+                        delete this;
+                    } catch (...) {
+                        set_exception(std::current_exception());
+                    }
+                }
+
+                future<> get_future() {
+                    return _pr.get_future();
+                }
+            };
+
+            auto desc = std::make_unique<fsync_io_desc>();
             auto fut = desc->get_future();
-            submit_io(desc.release(), [fd] (linux_abi::iocb& iocb) {
-                iocb = make_fdsync_iocb(fd);
-            });
-            return fut.then([] (linux_abi::io_event event) {
-                throw_kernel_error(event.res);
-            });
+
+            auto req = io_request::make_fdatasync(fd);
+            submit_io(desc.release(), std::move(req));
+            return fut;
         } catch (...) {
             return make_exception_future<>(std::current_exception());
         }

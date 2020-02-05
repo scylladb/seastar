@@ -321,48 +321,28 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
 
 future<size_t>
 posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& io_priority_class) {
-    return engine().submit_io_write(_io_queue, io_priority_class, len, [fd = _fd, pos, buffer, len] (iocb& io) {
-        io = make_write_iocb(fd, pos, const_cast<void*>(buffer), len);
-    }).then([] (io_event ev) {
-        engine().handle_io_result(ev);
-        return make_ready_future<size_t>(size_t(ev.res));
-    });
+    auto req = internal::io_request::make_write(_fd, pos, buffer, len);
+    return engine().submit_io_write(_io_queue, io_priority_class, len, std::move(req));
 }
 
 future<size_t>
 posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class) {
     auto len = internal::sanitize_iovecs(iov, _disk_write_dma_alignment);
-    auto size = iov.size();
-    auto data = iov.data();
-    return engine().submit_io_write(_io_queue, io_priority_class, len, [fd = _fd, pos, data, size] (iocb& io) {
-        io = make_writev_iocb(fd, pos, data, size);
-    }).then([iov = std::move(iov)] (io_event ev) {
-        engine().handle_io_result(ev);
-        return make_ready_future<size_t>(size_t(ev.res));
-    });
+    auto req = internal::io_request::make_writev(_fd, pos, iov);
+    return engine().submit_io_write(_io_queue, io_priority_class, len, std::move(req)).finally([iov = std::move(iov)] () {});
 }
 
 future<size_t>
 posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& io_priority_class) {
-    return engine().submit_io_read(_io_queue, io_priority_class, len, [fd = _fd, pos, buffer, len] (iocb& io) {
-        io = make_read_iocb(fd, pos, buffer, len);
-    }).then([] (io_event ev) {
-        engine().handle_io_result(ev);
-        return make_ready_future<size_t>(size_t(ev.res));
-    });
+    auto req = internal::io_request::make_read(_fd, pos, buffer, len);
+    return engine().submit_io_read(_io_queue, io_priority_class, len, std::move(req));
 }
 
 future<size_t>
 posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class) {
     auto len = internal::sanitize_iovecs(iov, _disk_read_dma_alignment);
-    auto size = iov.size();
-    auto data = iov.data();
-    return engine().submit_io_read(_io_queue, io_priority_class, len, [fd = _fd, pos, data, size] (iocb& io) {
-        io = make_readv_iocb(fd, pos, data, size);
-    }).then([iov = std::move(iov)] (io_event ev) {
-        engine().handle_io_result(ev);
-        return make_ready_future<size_t>(size_t(ev.res));
-    });
+    auto req = internal::io_request::make_readv(_fd, pos, iov);
+    return engine().submit_io_read(_io_queue, io_priority_class, len, std::move(req)).finally([iov = std::move(iov)] () {});
 }
 
 future<temporary_buffer<uint8_t>>
