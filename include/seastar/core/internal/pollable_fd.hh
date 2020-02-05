@@ -43,9 +43,6 @@ class packet;
 class pollable_fd_state_completion : public kernel_completion {
     promise<> _pr;
 public:
-    void set_exception(std::exception_ptr ptr) {
-        _pr.set_exception(std::move(ptr));
-    }
     void set_value(ssize_t res) {
         _pr.set_value();
     }

@@ -30,7 +30,6 @@ class kernel_completion {
 protected:
     ~kernel_completion() = default;
 public:
-    virtual void set_exception(std::exception_ptr eptr) = 0;
     virtual void set_value(ssize_t res) = 0;
 };
 }

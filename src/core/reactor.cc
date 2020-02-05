@@ -1506,11 +1506,7 @@ reactor::handle_aio_error(linux_abi::iocb* iocb, int ec) {
         case EBADF: {
             auto desc = reinterpret_cast<kernel_completion*>(get_user_data(*iocb));
             _iocb_pool.put_one(iocb);
-            try {
-                throw std::system_error(EBADF, std::system_category());
-            } catch (...) {
-                desc->set_exception(std::current_exception());
-            }
+            desc->set_value(-EBADF);
             // if EBADF, it means that the first request has a bad fd, so
             // we will only remove it from _pending_aio and try again.
             return 1;
@@ -1918,18 +1914,14 @@ reactor::fdatasync(int fd) {
             struct fsync_io_desc final : public kernel_completion {
                 promise<> _pr;
             public:
-                virtual void set_exception(std::exception_ptr eptr) {
-                    delete this;
-                }
-
                 virtual void set_value(ssize_t res) {
                     try {
                         engine().handle_io_result(res);
                         _pr.set_value();
-                        delete this;
                     } catch (...) {
-                        set_exception(std::current_exception());
+                        _pr.set_exception(std::current_exception());
                     }
+                    delete this;
                 }
 
                 future<> get_future() {

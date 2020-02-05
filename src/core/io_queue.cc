@@ -59,6 +59,7 @@ public:
 
     virtual void set_exception(std::exception_ptr eptr) {
         notify_requests_finished();
+        _pr.set_exception(eptr);
         delete this;
     }
 
