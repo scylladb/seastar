@@ -35,12 +35,16 @@ arp_for_protocol::~arp_for_protocol() {
 }
 
 arp::arp(interface* netif) : _netif(netif), _proto(netif, eth_protocol_num::arp, [this] { return get_packet(); })
-    , _rx_packets(_proto.receive([this] (packet p, ethernet_address ea) {
-        return process_packet(std::move(p), ea);
-    },
-    [this](forward_hash& out_hash_data, packet& p, size_t off) {
-        return forward(out_hash_data, p, off);
-    })) {
+{
+    // FIXME: ignored future
+    (void)_proto.receive(
+        [this](packet p, ethernet_address ea) {
+            return process_packet(std::move(p), ea);
+        },
+        [this](forward_hash& out_hash_data, packet& p, size_t off) {
+            return forward(out_hash_data, p, off);
+        })
+        .done();
 }
 
 compat::optional<l3_protocol::l3packet> arp::get_packet() {

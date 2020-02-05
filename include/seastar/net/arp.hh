@@ -51,7 +51,6 @@ public:
 class arp {
     interface* _netif;
     l3_protocol _proto;
-    subscription<packet, ethernet_address> _rx_packets;
     std::unordered_map<uint16_t, arp_for_protocol*> _arp_for_protocol;
     circular_buffer<l3_protocol::l3packet> _packetq;
 private:

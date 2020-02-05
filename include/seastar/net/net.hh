@@ -114,7 +114,6 @@ class interface {
     };
     std::unordered_map<uint16_t, l3_rx_stream> _proto_map;
     std::shared_ptr<device> _dev;
-    subscription<packet> _rx;
     ethernet_address _hw_address;
     net::hw_features _hw_features;
     std::vector<l3_protocol::packet_provider_type> _pkt_providers;

@@ -252,9 +252,12 @@ subscription<packet, ethernet_address> l3_protocol::receive(
 
 interface::interface(std::shared_ptr<device> dev)
     : _dev(dev)
-    , _rx(_dev->receive([this] (packet p) { return dispatch_packet(std::move(p)); }))
     , _hw_address(_dev->hw_address())
     , _hw_features(_dev->hw_features()) {
+    // FIXME: ignored future
+    (void)_dev->receive([this] (packet p) {
+        return dispatch_packet(std::move(p));
+    }).done();
     dev->local_queue().register_packet_provider([this, idx = 0u] () mutable {
             compat::optional<packet> p;
             for (size_t i = 0; i < _pkt_providers.size(); i++) {

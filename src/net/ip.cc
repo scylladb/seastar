@@ -53,16 +53,21 @@ ipv4::ipv4(interface* netif)
     , _gw_address(0)
     , _netmask(0)
     , _l3(netif, eth_protocol_num::ipv4, [this] { return get_packet(); })
-    , _rx_packets(_l3.receive([this] (packet p, ethernet_address ea) {
-        return handle_received_packet(std::move(p), ea); },
-      [this] (forward_hash& out_hash_data, packet& p, size_t off) {
-        return forward(out_hash_data, p, off);}))
     , _tcp(*this)
     , _icmp(*this)
     , _udp(*this)
     , _l4({ { uint8_t(ip_protocol_num::tcp), &_tcp }, { uint8_t(ip_protocol_num::icmp), &_icmp }, { uint8_t(ip_protocol_num::udp), &_udp }})
 {
     namespace sm = seastar::metrics;
+    // FIXME: ignored future
+    (void)_l3.receive(
+        [this](packet p, ethernet_address ea) {
+            return handle_received_packet(std::move(p), ea);
+        },
+        [this](forward_hash& out_hash_data, packet& p, size_t off) {
+            return forward(out_hash_data, p, off);
+        })
+        .done();
 
     _metrics.add_group("ipv4", {
         //
