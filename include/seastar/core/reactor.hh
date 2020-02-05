@@ -452,6 +452,19 @@ private:
     void start_handling_signal();
     void reset_preemption_monitor();
     void service_highres_timer();
+
+    future<std::tuple<pollable_fd, socket_address>>
+    do_accept(pollable_fd_state& listen_fd);
+
+    future<size_t>
+    do_read_some(pollable_fd_state& fd, void* buffer, size_t size);
+    future<size_t>
+    do_read_some(pollable_fd_state& fd, const std::vector<iovec>& iov);
+
+    future<size_t>
+    do_write_some(pollable_fd_state& fd, const void* buffer, size_t size);
+    future<size_t>
+    do_write_some(pollable_fd_state& fd, net::packet& p);
 public:
     static boost::program_options::options_description get_options_description(reactor_config cfg);
     explicit reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg);
@@ -499,13 +512,6 @@ public:
     lw_shared_ptr<pollable_fd> make_pollable_fd(socket_address sa, int proto);
 
     future<> posix_connect(lw_shared_ptr<pollable_fd> pfd, socket_address sa, socket_address local);
-
-    future<std::tuple<pollable_fd, socket_address>> accept(pollable_fd_state& listen_fd);
-
-    future<size_t> read_some(pollable_fd_state& fd, void* buffer, size_t size);
-    future<size_t> read_some(pollable_fd_state& fd, const std::vector<iovec>& iov);
-
-    future<size_t> write_some(pollable_fd_state& fd, const void* buffer, size_t size);
 
     future<> write_all(pollable_fd_state& fd, const void* buffer, size_t size);
 

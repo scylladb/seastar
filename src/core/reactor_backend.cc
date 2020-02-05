@@ -280,6 +280,31 @@ void reactor_backend_aio::forget(pollable_fd_state& fd) noexcept {
     // ?
 }
 
+future<std::tuple<pollable_fd, socket_address>>
+reactor_backend_aio::accept(pollable_fd_state& listenfd) {
+    return engine().do_accept(listenfd);
+}
+
+future<size_t>
+reactor_backend_aio::read_some(pollable_fd_state& fd, void* buffer, size_t len) {
+    return engine().do_read_some(fd, buffer, len);
+}
+
+future<size_t>
+reactor_backend_aio::read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
+    return engine().do_read_some(fd, iov);
+}
+
+future<size_t>
+reactor_backend_aio::write_some(pollable_fd_state& fd, const void* buffer, size_t len) {
+    return engine().do_write_some(fd, buffer, len);
+}
+
+future<size_t>
+reactor_backend_aio::write_some(pollable_fd_state& fd, net::packet& p) {
+    return engine().do_write_some(fd, p);
+}
+
 void reactor_backend_aio::start_tick() {
     // Preempt whenever an event (timer tick or signal) is available on the
     // _preempting_io ring
@@ -502,6 +527,31 @@ void reactor_backend_epoll::forget(pollable_fd_state& fd) noexcept {
     delete efd;
 }
 
+future<std::tuple<pollable_fd, socket_address>>
+reactor_backend_epoll::accept(pollable_fd_state& listenfd) {
+    return engine().do_accept(listenfd);
+}
+
+future<size_t>
+reactor_backend_epoll::read_some(pollable_fd_state& fd, void* buffer, size_t len) {
+    return engine().do_read_some(fd, buffer, len);
+}
+
+future<size_t>
+reactor_backend_epoll::read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
+    return engine().do_read_some(fd, iov);
+}
+
+future<size_t>
+reactor_backend_epoll::write_some(pollable_fd_state& fd, const void* buffer, size_t len) {
+    return engine().do_write_some(fd, buffer, len);
+}
+
+future<size_t>
+reactor_backend_epoll::write_some(pollable_fd_state& fd, net::packet& p) {
+    return engine().do_write_some(fd, p);
+}
+
 void
 reactor_backend_epoll::request_preemption() {
     _r->_preemption_monitor.head.store(1, std::memory_order_relaxed);
@@ -555,6 +605,31 @@ void
 reactor_backend_osv::forget(pollable_fd_state& fd) noexcept {
     std::cerr << "reactor_backend_osv does not support file descriptors - forget() shouldn't have been called!\n";
     abort();
+}
+
+future<std::tuple<pollable_fd, socket_address>>
+reactor_backend_osv::accept(pollable_fd_state& listenfd) {
+    return engine().do_accept(listenfd);
+}
+
+future<size_t>
+reactor_backend_osv::read_some(pollable_fd_state& fd, void* buffer, size_t len) {
+    return engine().do_read_some(fd, buffer, len);
+}
+
+future<size_t>
+reactor_backend_osv::read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
+    return engine().do_read_some(fd, iov);
+}
+
+future<size_t>
+reactor_backend_osv::write_some(pollable_fd_state& fd, const void* buffer, size_t len) {
+    return engine().do_write_some(fd, buffer, len);
+}
+
+future<size_t>
+reactor_backend_osv::write_some(pollable_fd_state& fd, net::packet& p) {
+    return engine().do_write_some(fd, p);
 }
 
 void

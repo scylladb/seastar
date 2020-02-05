@@ -248,7 +248,7 @@ reactor::rename_priority_class(io_priority_class pc, sstring new_name) {
 }
 
 future<std::tuple<pollable_fd, socket_address>>
-reactor::accept(pollable_fd_state& listenfd) {
+reactor::do_accept(pollable_fd_state& listenfd) {
     return readable_or_writeable(listenfd).then([this, &listenfd] () mutable {
         socket_address sa;
         socklen_t& sl = sa.addr_length;
@@ -257,7 +257,7 @@ reactor::accept(pollable_fd_state& listenfd) {
         if (!maybe_fd) {
             // We speculated that we will have an another connection, but got a false
             // positive. Try again without speculation.
-            return accept(listenfd);
+            return do_accept(listenfd);
         }
         // Speculate that there is another connection on this listening socket, to avoid
         // a task-quota delay. Usually this will fail, but accept is a rare-enough operation
@@ -270,11 +270,11 @@ reactor::accept(pollable_fd_state& listenfd) {
 }
 
 future<size_t>
-reactor::read_some(pollable_fd_state& fd, void* buffer, size_t len) {
+reactor::do_read_some(pollable_fd_state& fd, void* buffer, size_t len) {
     return readable(fd).then([this, &fd, buffer, len] () mutable {
         auto r = fd.fd.read(buffer, len);
         if (!r) {
-            return read_some(fd, buffer, len);
+            return do_read_some(fd, buffer, len);
         }
         if (size_t(*r) == len) {
             fd.speculate_epoll(EPOLLIN);
@@ -284,14 +284,14 @@ reactor::read_some(pollable_fd_state& fd, void* buffer, size_t len) {
 }
 
 future<size_t>
-reactor::read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
+reactor::do_read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
     return readable(fd).then([this, &fd, iov = iov] () mutable {
         ::msghdr mh = {};
         mh.msg_iov = &iov[0];
         mh.msg_iovlen = iov.size();
         auto r = fd.fd.recvmsg(&mh, 0);
         if (!r) {
-            return read_some(fd, iov);
+            return do_read_some(fd, iov);
         }
         if (size_t(*r) == iovec_len(iov)) {
             fd.speculate_epoll(EPOLLIN);
@@ -301,11 +301,11 @@ reactor::read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
 }
 
 future<size_t>
-reactor::write_some(pollable_fd_state& fd, const void* buffer, size_t len) {
+reactor::do_write_some(pollable_fd_state& fd, const void* buffer, size_t len) {
     return writeable(fd).then([this, &fd, buffer, len] () mutable {
         auto r = fd.fd.send(buffer, len, MSG_NOSIGNAL);
         if (!r) {
-            return write_some(fd, buffer, len);
+            return do_write_some(fd, buffer, len);
         }
         if (size_t(*r) == len) {
             fd.speculate_epoll(EPOLLOUT);
@@ -319,7 +319,7 @@ reactor::write_all_part(pollable_fd_state& fd, const void* buffer, size_t len, s
     if (completed == len) {
         return make_ready_future<>();
     } else {
-        return write_some(fd, static_cast<const char*>(buffer) + completed, len - completed).then(
+        return _backend->write_some(fd, static_cast<const char*>(buffer) + completed, len - completed).then(
                 [&fd, buffer, len, completed, this] (size_t part) mutable {
             return write_all_part(fd, buffer, len, completed + part);
         });
@@ -333,15 +333,19 @@ reactor::write_all(pollable_fd_state& fd, const void* buffer, size_t len) {
 }
 
 future<size_t> pollable_fd_state::read_some(char* buffer, size_t size) {
-    return engine().read_some(*this, buffer, size);
+    return engine()._backend->read_some(*this, buffer, size);
 }
 
 future<size_t> pollable_fd_state::read_some(uint8_t* buffer, size_t size) {
-    return engine().read_some(*this, buffer, size);
+    return engine()._backend->read_some(*this, buffer, size);
 }
 
 future<size_t> pollable_fd_state::read_some(const std::vector<iovec>& iov) {
-    return engine().read_some(*this, iov);
+    return engine()._backend->read_some(*this, iov);
+}
+
+future<size_t> pollable_fd_state::write_some(net::packet& p) {
+    return engine()._backend->write_some(*this, p);
 }
 
 future<> pollable_fd_state::write_all(const char* buffer, size_t size) {
@@ -352,9 +356,9 @@ future<> pollable_fd_state::write_all(const uint8_t* buffer, size_t size) {
     return engine().write_all(*this, buffer, size);
 }
 
-inline
-future<size_t> pollable_fd_state::write_some(net::packet& p) {
-    return engine().writeable(*this).then([this, &p] () mutable {
+future<size_t>
+reactor::do_write_some(pollable_fd_state& fd, net::packet& p) {
+    return engine().writeable(fd).then([this, &fd, &p] () mutable {
         static_assert(offsetof(iovec, iov_base) == offsetof(net::fragment, base) &&
             sizeof(iovec::iov_base) == sizeof(net::fragment::base) &&
             offsetof(iovec, iov_len) == offsetof(net::fragment, size) &&
@@ -367,12 +371,12 @@ future<size_t> pollable_fd_state::write_some(net::packet& p) {
         msghdr mh = {};
         mh.msg_iov = iov;
         mh.msg_iovlen = std::min<size_t>(p.nr_frags(), IOV_MAX);
-        auto r = fd.sendmsg(&mh, MSG_NOSIGNAL);
+        auto r = fd.fd.sendmsg(&mh, MSG_NOSIGNAL);
         if (!r) {
-            return write_some(p);
+            return do_write_some(fd, p);
         }
         if (size_t(*r) == p.len()) {
-            speculate_epoll(EPOLLOUT);
+            fd.speculate_epoll(EPOLLOUT);
         }
         return make_ready_future<size_t>(*r);
     });
@@ -411,7 +415,7 @@ pollable_fd_state::abort_writer() {
 }
 
 future<std::tuple<pollable_fd, socket_address>> pollable_fd_state::accept() {
-    return engine().accept(*this);
+    return engine()._backend->accept(*this);
 }
 
 future<size_t> pollable_fd_state::recvmsg(struct msghdr *msg) {
