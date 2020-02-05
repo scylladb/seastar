@@ -1506,7 +1506,7 @@ reactor::handle_aio_error(linux_abi::iocb* iocb, int ec) {
         case EBADF: {
             auto desc = reinterpret_cast<kernel_completion*>(get_user_data(*iocb));
             _iocb_pool.put_one(iocb);
-            desc->set_value(-EBADF);
+            desc->complete_with(-EBADF);
             // if EBADF, it means that the first request has a bad fd, so
             // we will only remove it from _pending_aio and try again.
             return 1;
@@ -1605,7 +1605,7 @@ bool reactor::process_io()
         }
         _iocb_pool.put_one(iocb);
         auto desc = reinterpret_cast<kernel_completion*>(ev[i].data);
-        desc->set_value(ev[i].res);
+        desc->complete_with(ev[i].res);
     }
     return n;
 }
@@ -1914,7 +1914,7 @@ reactor::fdatasync(int fd) {
             struct fsync_io_desc final : public kernel_completion {
                 promise<> _pr;
             public:
-                virtual void set_value(ssize_t res) {
+                virtual void complete_with(ssize_t res) {
                     try {
                         engine().handle_io_result(res);
                         _pr.set_value();

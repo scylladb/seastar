@@ -30,6 +30,6 @@ class kernel_completion {
 protected:
     ~kernel_completion() = default;
 public:
-    virtual void set_value(ssize_t res) = 0;
+    virtual void complete_with(ssize_t res) = 0;
 };
 }

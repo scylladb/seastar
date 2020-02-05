@@ -57,13 +57,13 @@ public:
         return _fq_desc;
     }
 
-    virtual void set_exception(std::exception_ptr eptr) {
+    void set_exception(std::exception_ptr eptr) {
         notify_requests_finished();
         _pr.set_exception(eptr);
         delete this;
     }
 
-    void set_value(ssize_t ret) {
+    virtual void complete_with(ssize_t ret) override {
         try {
             engine().handle_io_result(ret);
             notify_requests_finished();

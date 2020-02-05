@@ -170,7 +170,7 @@ bool reactor_backend_aio::await_events(int timeout, const sigset_t* active_sigma
                 continue;
             }
             auto* desc = reinterpret_cast<kernel_completion*>(uintptr_t(event.data));
-            desc->set_value(event.res);
+            desc->complete_with(event.res);
             free_iocb(iocb);
         }
         // For the next iteration, don't use a timeout, since we may have waited already
@@ -388,7 +388,7 @@ void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd,
     if (pfd.events_requested & events & event) {
         pfd.events_requested &= ~event;
         pfd.events_known &= ~event;
-        desc->set_value(event);
+        desc->complete_with(event);
     }
 }
 

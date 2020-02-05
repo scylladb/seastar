@@ -43,7 +43,7 @@ class packet;
 class pollable_fd_state_completion : public kernel_completion {
     promise<> _pr;
 public:
-    void set_value(ssize_t res) {
+    virtual void complete_with(ssize_t res) override {
         _pr.set_value();
     }
     future<> get_future() {
