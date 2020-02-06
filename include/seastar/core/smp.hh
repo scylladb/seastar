@@ -239,10 +239,10 @@ public:
     smp_message_queue(reactor* from, reactor* to);
     ~smp_message_queue();
     template <typename Func>
-    futurize_t<std::result_of_t<Func()>> submit(shard_id t, smp_service_group ssg, Func&& func) {
-        auto wi = std::make_unique<async_work_item<Func>>(*this, ssg, std::forward<Func>(func));
+    futurize_t<std::result_of_t<Func()>> submit(shard_id t, smp_submit_to_options options, Func&& func) {
+        auto wi = std::make_unique<async_work_item<Func>>(*this, options.service_group, std::forward<Func>(func));
         auto fut = wi->get_future();
-        submit_item(t, smp_no_timeout, std::move(wi));
+        submit_item(t, options.timeout, std::move(wi));
         return fut;
     }
     void start(unsigned cpuid);
@@ -295,7 +295,7 @@ public:
     ///
     /// \param t designates the core to run the function on (may be a remote
     ///          core or the local core).
-    /// \param ssg an smp_service_group that controls resource allocation for this call.
+    /// \param options an \ref smp_submit_to_options that contains options for this call.
     /// \param func a callable to run on core \c t.
     ///          If \c func is a temporary object, its lifetime will be
     ///          extended by moving. This movement and the eventual
@@ -305,7 +305,7 @@ public:
     /// \return whatever \c func returns, as a future<> (if \c func does not return a future,
     ///         submit_to() will wrap it in a future<>).
     template <typename Func>
-    static futurize_t<std::result_of_t<Func()>> submit_to(unsigned t, smp_service_group ssg, Func&& func) {
+    static futurize_t<std::result_of_t<Func()>> submit_to(unsigned t, smp_submit_to_options options, Func&& func) {
         using ret_type = std::result_of_t<Func()>;
         if (t == this_shard_id()) {
             try {
@@ -326,7 +326,7 @@ public:
                 return futurize<std::result_of_t<Func()>>::make_exception_future(std::current_exception());
             }
         } else {
-            return _qs[t][this_shard_id()].submit(t, ssg, std::forward<Func>(func));
+            return _qs[t][this_shard_id()].submit(t, options, std::forward<Func>(func));
         }
     }
     /// Runs a function on a remote core.
