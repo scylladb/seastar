@@ -163,6 +163,7 @@ protected:
     friend class reactor;
     friend class readable_eventfd;
     friend class writeable_eventfd;
+    friend class aio_storage_context;
 private:
     pollable_fd_state_ptr _s;
 };

@@ -151,6 +151,35 @@ class kernel_completion;
 class io_queue;
 class disk_config_params;
 
+class aio_storage_context {
+    static constexpr unsigned max_aio = 1024;
+
+    class iocb_pool {
+        alignas(cache_line_size) std::array<internal::linux_abi::iocb, max_aio> _iocb_pool;
+        std::stack<internal::linux_abi::iocb*, boost::container::static_vector<internal::linux_abi::iocb*, max_aio>> _free_iocbs;
+    public:
+        iocb_pool();
+        internal::linux_abi::iocb& get_one();
+        void put_one(internal::linux_abi::iocb* io);
+        unsigned outstanding() const;
+        bool has_capacity() const;
+    };
+
+    reactor* _r;
+    internal::linux_abi::aio_context_t _io_context;
+    boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _submission_queue;
+    iocb_pool _iocb_pool;
+    size_t handle_aio_error(internal::linux_abi::iocb* iocb, int ec);
+    boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _pending_aio_retry;
+public:
+    explicit aio_storage_context(reactor* r);
+    ~aio_storage_context();
+
+    bool reap_completions();
+    bool submit_work();
+    bool can_sleep() const;
+};
+
 class reactor {
     using sched_clock = std::chrono::steady_clock;
 private:
@@ -187,6 +216,7 @@ private:
     friend class reactor_backend_epoll;
     friend class reactor_backend_aio;
     friend class reactor_backend_selector;
+    friend class aio_storage_context;
 public:
     class poller {
         std::unique_ptr<pollfn> _pollfn;
@@ -250,18 +280,6 @@ private:
     static constexpr unsigned max_aio = max_aio_per_queue * max_queues;
     friend disk_config_params;
 
-
-    class iocb_pool {
-        alignas(cache_line_size) std::array<internal::linux_abi::iocb, max_aio> _iocb_pool;
-        std::stack<internal::linux_abi::iocb*, boost::container::static_vector<internal::linux_abi::iocb*, max_aio>> _free_iocbs;
-    public:
-        iocb_pool();
-        internal::linux_abi::iocb& get_one();
-        void put_one(internal::linux_abi::iocb* io);
-        unsigned outstanding() const;
-        bool has_capacity() const;
-    };
-
     // Not all reactors have IO queues. If the number of IO queues is less than the number of shards,
     // some reactors will talk to foreign io_queues. If this reactor holds a valid IO queue, it will
     // be stored here.
@@ -292,11 +310,7 @@ private:
     timer_set<timer<lowres_clock>, &timer<lowres_clock>::_link>::timer_list_t _expired_lowres_timers;
     timer_set<timer<manual_clock>, &timer<manual_clock>::_link> _manual_timers;
     timer_set<timer<manual_clock>, &timer<manual_clock>::_link>::timer_list_t _expired_manual_timers;
-    internal::linux_abi::aio_context_t _io_context;
-    iocb_pool _iocb_pool;
-    boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _submission_queue;
-
-    boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _pending_aio_retry;
+    aio_storage_context _io_context;
     io_stats _io_stats;
     uint64_t _fsyncs = 0;
     uint64_t _cxx_exceptions = 0;

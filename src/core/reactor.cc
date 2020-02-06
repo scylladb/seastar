@@ -164,15 +164,27 @@ namespace seastar {
 seastar::logger seastar_logger("seastar");
 seastar::logger sched_logger("scheduler");
 
-reactor::iocb_pool::iocb_pool() {
+aio_storage_context::iocb_pool::iocb_pool() {
     for (unsigned i = 0; i != max_aio; ++i) {
         _free_iocbs.push(&_iocb_pool[i]);
     }
 }
 
+aio_storage_context::aio_storage_context(reactor* r)
+    : _r(r)
+    , _io_context(0) {
+    static_assert(max_aio >= reactor::max_queues * reactor::max_queues,
+                  "Mismatch between maximum allowed io and what the IO queues can produce");
+    internal::setup_aio_context(max_aio, &_io_context);
+}
+
+aio_storage_context::~aio_storage_context() {
+    internal::io_destroy(_io_context);
+}
+
 inline
 internal::linux_abi::iocb&
-reactor::iocb_pool::get_one() {
+aio_storage_context::iocb_pool::get_one() {
     auto io = _free_iocbs.top();
     _free_iocbs.pop();
     return *io;
@@ -180,19 +192,19 @@ reactor::iocb_pool::get_one() {
 
 inline
 void
-reactor::iocb_pool::put_one(internal::linux_abi::iocb* io) {
+aio_storage_context::iocb_pool::put_one(internal::linux_abi::iocb* io) {
     _free_iocbs.push(io);
 }
 
 inline
 unsigned
-reactor::iocb_pool::outstanding() const {
+aio_storage_context::iocb_pool::outstanding() const {
     return max_aio - _free_iocbs.size();
 }
 
 inline
 bool
-reactor::iocb_pool::has_capacity() const {
+aio_storage_context::iocb_pool::has_capacity() const {
     return !_free_iocbs.empty();
 }
 
@@ -890,7 +902,7 @@ reactor::reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg)
 #endif
     , _cpu_started(0)
     , _cpu_stall_detector(std::make_unique<cpu_stall_detector>(this))
-    , _io_context(0)
+    , _io_context(this)
     , _reuseport(posix_reuseport_detect())
     , _thread_pool(std::make_unique<thread_pool>(this, seastar::format("syscall-{}", id))) {
     /*
@@ -906,7 +918,6 @@ reactor::reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg)
     seastar::thread_impl::init();
     _backend->start_tick();
 
-    setup_aio_context(max_aio, &_io_context);
 #ifdef HAVE_OSV
     _timer_thread.start();
 #else
@@ -940,7 +951,6 @@ reactor::~reactor() {
     eraser(_expired_timers);
     eraser(_expired_lowres_timers);
     eraser(_expired_manual_timers);
-    io_destroy(_io_context);
     for (auto&& tq : _task_queues) {
         if (tq) {
             // The following line will preserve the convention that constructor and destructor functions
@@ -1508,7 +1518,7 @@ reactor::submit_io(kernel_completion* desc, io_request req) {
 
 // Returns: number of iocbs consumed (0 or 1)
 size_t
-reactor::handle_aio_error(linux_abi::iocb* iocb, int ec) {
+aio_storage_context::handle_aio_error(linux_abi::iocb* iocb, int ec) {
     switch (ec) {
         case EAGAIN:
             return 0;
@@ -1521,7 +1531,7 @@ reactor::handle_aio_error(linux_abi::iocb* iocb, int ec) {
             return 1;
         }
         default:
-            ++_io_stats.aio_errors;
+            ++_r->_io_stats.aio_errors;
             throw_system_error_on(true, "io_submit");
             abort();
     }
@@ -1537,17 +1547,24 @@ reactor::flush_pending_aio() {
 
 bool reactor::kernel_submit_work() {
     bool did_work = _backend->kernel_submit_work();
-    size_t pending = _pending_aio.size();
+    did_work |= _io_context.submit_work();
+    return did_work;
+}
+
+bool
+aio_storage_context::submit_work() {
+    size_t pending = _r->_pending_aio.size();
     size_t to_submit = 0;
+    bool did_work = false;
 
     _submission_queue.resize(0);
     while ((pending > to_submit) && _iocb_pool.has_capacity()) {
-        auto& req = _pending_aio[to_submit++];
+        auto& req = _r->_pending_aio[to_submit++];
         auto& io = _iocb_pool.get_one();
         prepare_iocb(req, io);
 
-        if (_aio_eventfd) {
-            set_eventfd_notification(io, _aio_eventfd->get_fd());
+        if (_r->_aio_eventfd) {
+            set_eventfd_notification(io, _r->_aio_eventfd->get_fd());
         }
         if (aio_nowait_supported) {
             set_nowait(io, true);
@@ -1568,12 +1585,12 @@ bool reactor::kernel_submit_work() {
         }
         submitted += nr_consumed;
     }
-    _pending_aio.erase(_pending_aio.begin(), _pending_aio.begin() + submitted);
+    _r->_pending_aio.erase(_r->_pending_aio.begin(), _r->_pending_aio.begin() + submitted);
 
     if (!_pending_aio_retry.empty()) {
         auto retries = std::exchange(_pending_aio_retry, {});
         // FIXME: future is discarded
-        (void)_thread_pool->submit<syscall_result<int>>([this, retries] () mutable {
+        (void)_r->_thread_pool->submit<syscall_result<int>>([this, retries] () mutable {
             auto r = io_submit(_io_context, retries.size(), retries.data());
             return wrap_syscall<int>(r);
         }).then([this, retries] (syscall_result<int> result) {
@@ -1612,12 +1629,11 @@ reactor::submit_io_write(io_queue* ioq, const io_priority_class& pc, size_t len,
     return ioq->queue_request(pc, len, std::move(req));
 }
 
-bool reactor::reap_kernel_completions()
+bool aio_storage_context::reap_completions()
 {
-    bool did_work = _backend->reap_kernel_completions();
     io_event ev[max_aio];
     struct timespec timeout = {0, 0};
-    auto n = io_getevents(_io_context, 1, max_aio, ev, &timeout, _force_io_getevents_syscall);
+    auto n = io_getevents(_io_context, 1, max_aio, ev, &timeout, _r->_force_io_getevents_syscall);
     if (n == -1 && errno == EINTR) {
         n = 0;
     }
@@ -1635,16 +1651,26 @@ bool reactor::reap_kernel_completions()
         auto desc = reinterpret_cast<kernel_completion*>(ev[i].data);
         desc->complete_with(ev[i].res);
     }
-    return did_work | bool(n);
+    return n;
 }
 
-bool reactor::kernel_events_can_sleep() const {
+bool aio_storage_context::can_sleep() const {
     // Because aio depends on polling, it cannot generate events to wake us up, Therefore, sleep
     // is only possible if there are no in-flight aios. If there are, we need to keep polling.
     //
     // Alternatively, if we enabled _aio_eventfd, we can always enter
     unsigned executing = _iocb_pool.outstanding();
-    return executing == 0 || _aio_eventfd;
+    return executing == 0 || _r->_aio_eventfd;
+}
+
+bool reactor::reap_kernel_completions() {
+    bool did_work = _backend->reap_kernel_completions();
+    did_work |= _io_context.reap_completions();
+    return did_work;
+}
+
+bool reactor::kernel_events_can_sleep() const {
+    return _io_context.can_sleep();
 }
 
 namespace internal {
