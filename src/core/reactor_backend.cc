@@ -36,6 +36,17 @@ using namespace std::chrono_literals;
 using namespace internal;
 using namespace internal::linux_abi;
 
+class pollable_fd_state_completion : public kernel_completion {
+    promise<> _pr;
+public:
+    virtual void complete_with(ssize_t res) override {
+        _pr.set_value();
+    }
+    future<> get_future() {
+        return _pr.get_future();
+    }
+};
+
 reactor_backend_aio::context::context(size_t nr) : iocbs(new iocb*[nr]) {
     setup_aio_context(nr, &io_context);
 }
@@ -79,19 +90,6 @@ bool reactor_backend_aio::io_poll_poller::try_enter_interrupt_mode() {
 }
 
 void reactor_backend_aio::io_poll_poller::exit_interrupt_mode() {
-}
-
-linux_abi::iocb* reactor_backend_aio::new_iocb() {
-    if (_iocb_pool.empty()) {
-        return new linux_abi::iocb;
-    }
-    auto ret = _iocb_pool.top().release();
-    _iocb_pool.pop();
-    return ret;
-}
-
-void reactor_backend_aio::free_iocb(linux_abi::iocb* iocb) {
-    _iocb_pool.push(std::unique_ptr<linux_abi::iocb>(iocb));
 }
 
 file_desc reactor_backend_aio::make_timerfd() {
@@ -171,7 +169,6 @@ bool reactor_backend_aio::await_events(int timeout, const sigset_t* active_sigma
             }
             auto* desc = reinterpret_cast<kernel_completion*>(uintptr_t(event.data));
             desc->complete_with(event.res);
-            free_iocb(iocb);
         }
         // For the next iteration, don't use a timeout, since we may have waited already
         ts = {};
@@ -211,7 +208,34 @@ bool reactor_backend_aio::wait_and_process(int timeout, const sigset_t* active_s
     return did_work;
 }
 
-future<> reactor_backend_aio::poll(pollable_fd_state& fd, pollable_fd_state_completion* desc, int events) {
+class aio_pollable_fd_state : public pollable_fd_state {
+    internal::linux_abi::iocb _iocb_pollin;
+    pollable_fd_state_completion _completion_pollin;
+
+    internal::linux_abi::iocb _iocb_pollout;
+    pollable_fd_state_completion _completion_pollout;
+public:
+    pollable_fd_state_completion* get_desc(int events) {
+        if (events & POLLIN) {
+            return &_completion_pollin;
+        }
+        return &_completion_pollout;
+    }
+    internal::linux_abi::iocb* get_iocb(int events) {
+        if (events & POLLIN) {
+            return &_iocb_pollin;
+        }
+        return &_iocb_pollout;
+    }
+    explicit aio_pollable_fd_state(file_desc fd, speculation speculate)
+        : pollable_fd_state(std::move(fd), std::move(speculate))
+    {}
+    future<> get_completion_future(int events) {
+        return get_desc(events)->get_future();
+    }
+};
+
+future<> reactor_backend_aio::poll(pollable_fd_state& fd, int events) {
     if (!_r->_epoll_poller) {
         _r->_epoll_poller = reactor::poller(std::make_unique<io_poll_poller>(this));
     }
@@ -220,29 +244,32 @@ future<> reactor_backend_aio::poll(pollable_fd_state& fd, pollable_fd_state_comp
             fd.events_known &= ~events;
             return make_ready_future<>();
         }
-        auto iocb = new_iocb(); // FIXME: merge with pollable_fd_state
-        *iocb = make_poll_iocb(fd.fd.get(), events);
+
         fd.events_rw = events == (POLLIN|POLLOUT);
 
+        auto* pfd = static_cast<aio_pollable_fd_state*>(&fd);
+        auto* iocb = pfd->get_iocb(events);
+        auto* desc = pfd->get_desc(events);
+        *iocb = make_poll_iocb(fd.fd.get(), events);
         *desc = pollable_fd_state_completion{};
         set_user_data(*iocb, desc);
         _polling_io.queue(iocb);
-        return desc->get_future();
+        return pfd->get_completion_future(events);
     } catch (...) {
         return make_exception_future<>(std::current_exception());
     }
 }
 
 future<> reactor_backend_aio::readable(pollable_fd_state& fd) {
-    return poll(fd, &fd.pollin, POLLIN);
+    return poll(fd, POLLIN);
 }
 
 future<> reactor_backend_aio::writeable(pollable_fd_state& fd) {
-    return poll(fd, &fd.pollout, POLLOUT);
+    return poll(fd, POLLOUT);
 }
 
 future<> reactor_backend_aio::readable_or_writeable(pollable_fd_state& fd) {
-    return poll(fd, &fd.pollin, POLLIN|POLLOUT);
+    return poll(fd, POLLIN|POLLOUT);
 }
 
 void reactor_backend_aio::forget(pollable_fd_state& fd) {
@@ -290,6 +317,11 @@ void reactor_backend_aio::request_preemption() {
 void reactor_backend_aio::start_handling_signal() {
     // The aio backend only uses SIGHUP/SIGTERM/SIGINT. We don't need to handle them right away and our
     // implementation of request_preemption is not signal safe, so do nothing.
+}
+
+std::unique_ptr<pollable_fd_state>
+reactor_backend_aio::make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) {
+    return std::make_unique<aio_pollable_fd_state>(std::move(fd), std::move(speculate));
 }
 
 reactor_backend_epoll::reactor_backend_epoll(reactor* r)
@@ -365,12 +397,12 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
             // accept() signals normal completions via EPOLLIN, but errors (due to shutdown())
             // via EPOLLOUT|EPOLLHUP, so we have to wait for both EPOLLIN and EPOLLOUT with the
             // same future
-            complete_epoll_event(*pfd, &pfd->pollin, events, EPOLLIN|EPOLLOUT);
+            complete_epoll_event(*pfd, events, EPOLLIN|EPOLLOUT);
         } else {
             // Normal processing where EPOLLIN and EPOLLOUT are waited for via different
             // futures.
-            complete_epoll_event(*pfd, &pfd->pollin, events, EPOLLIN);
-            complete_epoll_event(*pfd, &pfd->pollout, events, EPOLLOUT);
+            complete_epoll_event(*pfd, events, EPOLLIN);
+            complete_epoll_event(*pfd, events, EPOLLOUT);
         }
         if (events_to_remove) {
             pfd->events_epoll &= ~events_to_remove;
@@ -382,13 +414,37 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
     return nr;
 }
 
-void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd,
-        pollable_fd_state_completion* desc,
-        int events, int event) {
+class epoll_pollable_fd_state : public pollable_fd_state {
+    pollable_fd_state_completion _pollin;
+    pollable_fd_state_completion _pollout;
+
+    pollable_fd_state_completion* get_desc(int events) {
+        if (events & EPOLLIN) {
+            return &_pollin;
+        }
+        return &_pollout;
+    }
+public:
+    explicit epoll_pollable_fd_state(file_desc fd, speculation speculate)
+        : pollable_fd_state(std::move(fd), std::move(speculate))
+    {}
+    future<> get_completion_future(int event) {
+        auto desc = get_desc(event);
+        *desc = pollable_fd_state_completion{};
+        return desc->get_future();
+    }
+
+    void complete_with(int event) {
+        get_desc(event)->complete_with(event);
+    }
+};
+
+void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd, int events, int event) {
     if (pfd.events_requested & events & event) {
         pfd.events_requested &= ~event;
         pfd.events_known &= ~event;
-        desc->complete_with(event);
+        auto* fd = static_cast<epoll_pollable_fd_state*>(&pfd);
+        return fd->complete_with(event);
     }
 }
 
@@ -400,8 +456,7 @@ void reactor_backend_epoll::signal_received(int signo, siginfo_t* siginfo, void*
     }
 }
 
-future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd,
-        pollable_fd_state_completion *desc, int event) {
+future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd, int event) {
     if (pfd.events_known & event) {
         pfd.events_known &= ~event;
         return make_ready_future();
@@ -419,20 +474,20 @@ future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd,
         engine().start_epoll();
     }
 
-    *desc = pollable_fd_state_completion{};
-    return desc->get_future();
+    auto* fd = static_cast<epoll_pollable_fd_state*>(&pfd);
+    return fd->get_completion_future(event);
 }
 
 future<> reactor_backend_epoll::readable(pollable_fd_state& fd) {
-    return get_epoll_future(fd, &fd.pollin, EPOLLIN);
+    return get_epoll_future(fd, EPOLLIN);
 }
 
 future<> reactor_backend_epoll::writeable(pollable_fd_state& fd) {
-    return get_epoll_future(fd, &fd.pollout, EPOLLOUT);
+    return get_epoll_future(fd, EPOLLOUT);
 }
 
 future<> reactor_backend_epoll::readable_or_writeable(pollable_fd_state& fd) {
-    return get_epoll_future(fd, &fd.pollin, EPOLLIN | EPOLLOUT);
+    return get_epoll_future(fd, EPOLLIN | EPOLLOUT);
 }
 
 void reactor_backend_epoll::forget(pollable_fd_state& fd) {
@@ -450,6 +505,11 @@ void reactor_backend_epoll::start_handling_signal() {
     // The epoll backend uses signals for the high resolution timer. That is used for thread_scheduling_group, so we
     // request preemption so when we receive a signal.
     request_preemption();
+}
+
+std::unique_ptr<pollable_fd_state>
+reactor_backend_epoll::make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) {
+    return std::make_unique<epoll_pollable_fd_state>(std::move(fd), std::move(speculate));
 }
 
 void reactor_backend_epoll::reset_preemption_monitor() {
@@ -496,6 +556,10 @@ reactor_backend_osv::enable_timer(steady_clock_type::time_point when) {
     _poller.set_timer(when);
 }
 
+std::unique_ptr<pollable_fd_state>
+reactor_backend_osv::make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) {
+    return std::make_unique<pollable_fd_state>(std::move(fd), std::move(speculate));
+}
 #endif
 
 static bool detect_aio_poll() {

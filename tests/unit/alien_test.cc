@@ -72,16 +72,20 @@ int main(int argc, char** argv)
     });
 
     seastar::app_template app;
-    seastar::pollable_fd_state alien_done_fds{std::move(alien_done)};
     eventfd_t result = 0;
     app.run(argc, argv, [&] {
         return seastar::now().then([engine_ready_fd] {
             // engine ready!
             ::eventfd_write(engine_ready_fd, ENGINE_READY);
             return seastar::now();
-        }).then([&alien_done_fds, &result]() {
-            // check if alien has dismissed me.
-            return seastar::engine().read_some(alien_done_fds, &result, sizeof(result));
+        }).then([alien_done = std::move(alien_done), &result]() mutable {
+            return do_with(seastar::pollable_fd(std::move(alien_done)), [&result] (pollable_fd& alien_done_fds) {
+                // check if alien has dismissed me.
+                return alien_done_fds.readable().then([&result, &alien_done_fds] {
+                    auto ret = alien_done_fds.get_file_desc().read(&result, sizeof(result));
+                    return make_ready_future<size_t>(*ret);
+                });
+            });
         }).then([&result](size_t n) {
             if (n != sizeof(result)) {
                 throw std::runtime_error("read from eventfd failed");

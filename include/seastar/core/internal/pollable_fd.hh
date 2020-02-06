@@ -40,26 +40,13 @@ class packet;
 
 }
 
-class pollable_fd_state_completion : public kernel_completion {
-    promise<> _pr;
-public:
-    virtual void complete_with(ssize_t res) override {
-        _pr.set_value();
-    }
-    future<> get_future() {
-        return _pr.get_future();
-    }
-};
-
 class pollable_fd_state {
 public:
     struct speculation {
         int events = 0;
         explicit speculation(int epoll_events_guessed = 0) : events(epoll_events_guessed) {}
     };
-    ~pollable_fd_state();
-    explicit pollable_fd_state(file_desc fd, speculation speculate = speculation())
-        : fd(std::move(fd)), events_known(speculate.events) {}
+    virtual ~pollable_fd_state();
     pollable_fd_state(const pollable_fd_state&) = delete;
     void operator=(const pollable_fd_state&) = delete;
     void speculate_epoll(int events) { events_known |= events; }
@@ -70,9 +57,6 @@ public:
     int events_requested = 0; // wanted by pollin/pollout promises
     int events_epoll = 0;     // installed in epoll
     int events_known = 0;     // returned from epoll
-
-    pollable_fd_state_completion pollin;
-    pollable_fd_state_completion pollout;
 
     friend class reactor;
     friend class pollable_fd;
@@ -94,6 +78,9 @@ public:
     future<size_t> recvmsg(struct msghdr *msg);
     future<size_t> sendto(socket_address addr, const void* buf, size_t len);
 
+protected:
+    explicit pollable_fd_state(file_desc fd, speculation speculate = speculation())
+        : fd(std::move(fd)), events_known(speculate.events) {}
 private:
     void maybe_no_more_recv();
     void maybe_no_more_send();
@@ -102,8 +89,7 @@ private:
 class pollable_fd {
 public:
     using speculation = pollable_fd_state::speculation;
-    pollable_fd(file_desc fd, speculation speculate = speculation())
-        : _s(std::make_unique<pollable_fd_state>(std::move(fd), speculate)) {}
+    pollable_fd(file_desc fd, speculation speculate = speculation());
 public:
     pollable_fd(pollable_fd&&) = default;
     pollable_fd& operator=(pollable_fd&&) = default;

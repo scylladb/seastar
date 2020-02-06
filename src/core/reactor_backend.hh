@@ -68,6 +68,8 @@ public:
     virtual void reset_preemption_monitor() = 0;
     virtual void request_preemption() = 0;
     virtual void start_handling_signal() = 0;
+
+    virtual std::unique_ptr<pollable_fd_state> make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) = 0;
 };
 
 // reactor backend using file-descriptor & epoll, suitable for running on
@@ -80,10 +82,8 @@ class reactor_backend_epoll : public reactor_backend {
     timer_t _steady_clock_timer = {};
 private:
     file_desc _epollfd;
-    future<> get_epoll_future(pollable_fd_state& fd,
-            pollable_fd_state_completion* desc, int event);
-    void complete_epoll_event(pollable_fd_state& fd,
-            pollable_fd_state_completion* desc, int events, int event);
+    future<> get_epoll_future(pollable_fd_state& fd, int event);
+    void complete_epoll_event(pollable_fd_state& fd, int events, int event);
 public:
     explicit reactor_backend_epoll(reactor* r);
     virtual ~reactor_backend_epoll() override;
@@ -99,6 +99,9 @@ public:
     virtual void reset_preemption_monitor() override;
     virtual void request_preemption() override;
     virtual void start_handling_signal() override;
+
+    virtual std::unique_ptr<pollable_fd_state>
+    make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override;
 };
 
 class reactor_backend_aio : public reactor_backend {
@@ -126,10 +129,7 @@ class reactor_backend_aio : public reactor_backend {
     bool _timerfd_in_preempting_io = false;
     bool _timerfd_in_polling_io = false;
     bool _smp_wakeup_in_polling_io = false;
-    std::stack<std::unique_ptr<internal::linux_abi::iocb>> _iocb_pool;
 private:
-    internal::linux_abi::iocb* new_iocb();
-    void free_iocb(internal::linux_abi::iocb* iocb);
     static file_desc make_timerfd();
     void process_task_quota_timer();
     void process_timerfd();
@@ -149,7 +149,7 @@ private:
 public:
     explicit reactor_backend_aio(reactor* r);
     virtual bool wait_and_process(int timeout, const sigset_t* active_sigmask) override;
-    future<> poll(pollable_fd_state& fd, pollable_fd_state_completion* desc, int events);
+    future<> poll(pollable_fd_state& fd, int events);
     virtual future<> readable(pollable_fd_state& fd) override;
     virtual future<> writeable(pollable_fd_state& fd) override;
     virtual future<> readable_or_writeable(pollable_fd_state& fd) override;
@@ -161,6 +161,9 @@ public:
     virtual void reset_preemption_monitor() override;
     virtual void request_preemption() override;
     virtual void start_handling_signal() override;
+
+    virtual std::unique_ptr<pollable_fd_state>
+    make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override;
 };
 
 #ifdef HAVE_OSV
@@ -181,6 +184,8 @@ public:
     virtual future<> writeable(pollable_fd_state& fd) override;
     virtual void forget(pollable_fd_state& fd) override;
     void enable_timer(steady_clock_type::time_point when);
+    virtual std::unique_ptr<pollable_fd_state>
+    make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override;
 };
 #endif /* HAVE_OSV */
 

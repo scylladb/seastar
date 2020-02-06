@@ -1391,6 +1391,10 @@ void pollable_fd_state::maybe_no_more_send() {
     }
 }
 
+pollable_fd::pollable_fd(file_desc fd, pollable_fd::speculation speculate)
+    : _s(engine()._backend->make_pollable_fd_state(std::move(fd), speculate))
+{}
+
 lw_shared_ptr<pollable_fd>
 reactor::make_pollable_fd(socket_address sa, int proto) {
     file_desc fd = file_desc::socket(sa.u.sa.sa_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, proto);
