@@ -226,7 +226,7 @@ thread::join() {
 /// \code
 ///    future<int> compute_sum(int a, int b) {
 ///        thread_attributes attr = {};
-///        attr.scheduling_group = some_scheduling_group_ptr;
+///        attr.sched_group = some_scheduling_group_ptr;
 ///        return seastar::async(attr, [a, b] {
 ///            // some blocking code:
 ///            sleep(1s).get();
