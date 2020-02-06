@@ -354,15 +354,46 @@ public:
     }
     /// Invokes func on all shards.
     ///
+    /// \param options the options to forward to the \ref smp::submit_to()
+    ///         called behind the scenes.
     /// \param func the function to be invoked on each shard. May return void or
     ///         future<>. Each async invocation will work with a separate copy
     ///         of \c func.
     /// \returns a future that resolves when all async invocations finish.
     template<typename Func>
-    static future<> invoke_on_all(Func&& func) {
+    static future<> invoke_on_all(smp_submit_to_options options, Func&& func) {
         static_assert(std::is_same<future<>, typename futurize<std::result_of_t<Func()>>::type>::value, "bad Func signature");
-        return parallel_for_each(all_cpus(), [&func] (unsigned id) {
-            return smp::submit_to(id, Func(func));
+        return parallel_for_each(all_cpus(), [options, &func] (unsigned id) {
+            return smp::submit_to(id, options, Func(func));
+        });
+    }
+    /// Invokes func on all shards.
+    ///
+    /// \param func the function to be invoked on each shard. May return void or
+    ///         future<>. Each async invocation will work with a separate copy
+    ///         of \c func.
+    /// \returns a future that resolves when all async invocations finish.
+    ///
+    /// Passes the default \ref smp_submit_to_options to the
+    /// \ref smp::submit_to() called behind the scenes.
+    template<typename Func>
+    static future<> invoke_on_all(Func&& func) {
+        return invoke_on_all(smp_submit_to_options{}, std::forward<Func>(func));
+    }
+    /// Invokes func on all other shards.
+    ///
+    /// \param cpu_id the cpu on which **not** to run the function.
+    /// \param options the options to forward to the \ref smp::submit_to()
+    ///         called behind the scenes.
+    /// \param func the function to be invoked on each shard. May return void or
+    ///         future<>. Each async invocation will work with a separate copy
+    ///         of \c func.
+    /// \returns a future that resolves when all async invocations finish.
+    template<typename Func>
+    static future<> invoke_on_others(unsigned cpu_id, smp_submit_to_options options, Func func) {
+        static_assert(std::is_same<future<>, typename futurize<std::result_of_t<Func()>>::type>::value, "bad Func signature");
+        return parallel_for_each(all_cpus(), [cpu_id, options, func = std::move(func)] (unsigned id) {
+            return id != cpu_id ? smp::submit_to(id, options, func) : make_ready_future<>();
         });
     }
     /// Invokes func on all other shards.
@@ -372,12 +403,12 @@ public:
     ///         future<>. Each async invocation will work with a separate copy
     ///         of \c func.
     /// \returns a future that resolves when all async invocations finish.
+    ///
+    /// Passes the default \ref smp_submit_to_options to the
+    /// \ref smp::submit_to() called behind the scenes.
     template<typename Func>
     static future<> invoke_on_others(unsigned cpu_id, Func func) {
-        static_assert(std::is_same<future<>, typename futurize<std::result_of_t<Func()>>::type>::value, "bad Func signature");
-        return parallel_for_each(all_cpus(), [cpu_id, func = std::move(func)] (unsigned id) {
-            return id != cpu_id ? smp::submit_to(id, func) : make_ready_future<>();
-        });
+        return invoke_on_others(cpu_id, smp_submit_to_options{}, std::move(func));
     }
 private:
     static void start_all_queues();
