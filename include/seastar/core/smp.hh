@@ -127,6 +127,21 @@ using smp_service_group_semaphore_units = semaphore_units<named_semaphore_except
 
 static constexpr smp_timeout_clock::time_point smp_no_timeout = smp_timeout_clock::time_point::max();
 
+/// Options controlling the behaviour of \ref smp::submit_to().
+struct smp_submit_to_options {
+    /// Controls resource allocation.
+    smp_service_group service_group = default_smp_service_group();
+    /// The timeout is relevant only to the time the call spends waiting to be
+    /// processed by the remote shard, and *not* to the time it takes to be
+    /// executed there.
+    smp_timeout_clock::time_point timeout = smp_no_timeout;
+
+    smp_submit_to_options(smp_service_group service_group = default_smp_service_group(), smp_timeout_clock::time_point timeout = smp_no_timeout)
+        : service_group(service_group)
+        , timeout(timeout) {
+    }
+};
+
 void init_default_smp_service_group(shard_id cpu);
 
 smp_service_group_semaphore& get_smp_service_groups_semaphore(unsigned ssg_id, shard_id t);
