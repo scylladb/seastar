@@ -26,12 +26,14 @@
 #include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/core/internal/poll.hh>
 #include <seastar/core/linux-aio.hh>
+#include <seastar/core/cacheline.hh>
 #include <sys/time.h>
 #include <signal.h>
 #include <thread>
 #include <stack>
 #include <boost/any.hpp>
 #include <boost/program_options.hpp>
+#include <boost/container/static_vector.hpp>
 
 #ifdef HAVE_OSV
 #include <osv/newpoll.hh>
@@ -40,6 +42,35 @@
 namespace seastar {
 
 class reactor;
+
+class aio_storage_context {
+    static constexpr unsigned max_aio = 1024;
+
+    class iocb_pool {
+        alignas(cache_line_size) std::array<internal::linux_abi::iocb, max_aio> _iocb_pool;
+        std::stack<internal::linux_abi::iocb*, boost::container::static_vector<internal::linux_abi::iocb*, max_aio>> _free_iocbs;
+    public:
+        iocb_pool();
+        internal::linux_abi::iocb& get_one();
+        void put_one(internal::linux_abi::iocb* io);
+        unsigned outstanding() const;
+        bool has_capacity() const;
+    };
+
+    reactor* _r;
+    internal::linux_abi::aio_context_t _io_context;
+    boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _submission_queue;
+    iocb_pool _iocb_pool;
+    size_t handle_aio_error(internal::linux_abi::iocb* iocb, int ec);
+    boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _pending_aio_retry;
+public:
+    explicit aio_storage_context(reactor* r);
+    ~aio_storage_context();
+
+    bool reap_completions();
+    bool submit_work();
+    bool can_sleep() const;
+};
 
 // The "reactor_backend" interface provides a method of waiting for various
 // basic events on one thread. We have one implementation based on epoll and
@@ -58,6 +89,7 @@ public:
     // we are about to go to sleep.
     virtual bool reap_kernel_completions() = 0;
     virtual bool kernel_submit_work() = 0;
+    virtual bool kernel_events_can_sleep() const = 0;
     virtual void wait_and_process_events(const sigset_t* active_sigmask = nullptr) = 0;
 
     // Methods that allow polling on file descriptors. This will only work on
@@ -100,6 +132,7 @@ private:
     file_desc _epollfd;
     future<> get_epoll_future(pollable_fd_state& fd, int event);
     void complete_epoll_event(pollable_fd_state& fd, int events, int event);
+    aio_storage_context _storage_context;
     bool wait_and_process(int timeout, const sigset_t* active_sigmask);
     bool _need_epoll_events = false;
 public:
@@ -108,6 +141,7 @@ public:
 
     virtual bool reap_kernel_completions() override;
     virtual bool kernel_submit_work() override;
+    virtual bool kernel_events_can_sleep() const override;
     virtual void wait_and_process_events(const sigset_t* active_sigmask) override;
     virtual future<> readable(pollable_fd_state& fd) override;
     virtual future<> writeable(pollable_fd_state& fd) override;
@@ -152,6 +186,7 @@ class reactor_backend_aio : public reactor_backend {
     };
     context _preempting_io{2}; // Used for the timer tick and the high resolution timer
     context _polling_io{max_polls}; // FIXME: unify with disk aio_context
+    aio_storage_context _storage_context;
     file_desc _steady_clock_timer = make_timerfd();
     internal::linux_abi::iocb _task_quota_timer_iocb;
     internal::linux_abi::iocb _timerfd_iocb;
@@ -172,6 +207,7 @@ public:
 
     virtual bool reap_kernel_completions() override;
     virtual bool kernel_submit_work() override;
+    virtual bool kernel_events_can_sleep() const override;
     virtual void wait_and_process_events(const sigset_t* active_sigmask) override;
     future<> poll(pollable_fd_state& fd, int events);
     virtual future<> readable(pollable_fd_state& fd) override;
@@ -216,6 +252,7 @@ public:
 
     virtual bool reap_kernel_completions() override;
     virtual bool kernel_submit_work() override;
+    virtual bool kernel_events_can_sleep() const override;
     virtual void wait_and_process_events(const sigset_t* active_sigmask) override;
     virtual future<> readable(pollable_fd_state& fd) override;
     virtual future<> writeable(pollable_fd_state& fd) override;

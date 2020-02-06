@@ -19,6 +19,8 @@
  * Copyright 2019 ScyllaDB
  */
 #include "core/reactor_backend.hh"
+#include "core/thread_pool.hh"
+#include "core/syscall_result.hh"
 #include <seastar/core/print.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/util/defer.hh>
@@ -48,6 +50,185 @@ public:
         return _pr.get_future();
     }
 };
+
+void prepare_iocb(io_request& req, iocb& iocb) {
+    switch (req.opcode()) {
+    case io_request::operation::fdatasync:
+        iocb = make_fdsync_iocb(req.fd());
+        break;
+    case io_request::operation::write:
+        iocb = make_write_iocb(req.fd(), req.pos(), req.address(), req.size());
+        break;
+    case io_request::operation::writev:
+        iocb = make_writev_iocb(req.fd(), req.pos(), reinterpret_cast<const iovec*>(req.address()), req.size());
+        break;
+    case io_request::operation::read:
+        iocb = make_read_iocb(req.fd(), req.pos(), req.address(), req.size());
+        break;
+    case io_request::operation::readv:
+        iocb = make_readv_iocb(req.fd(), req.pos(), reinterpret_cast<const iovec*>(req.address()), req.size());
+        break;
+    }
+    set_user_data(iocb, req.get_kernel_completion());
+}
+
+aio_storage_context::iocb_pool::iocb_pool() {
+    for (unsigned i = 0; i != max_aio; ++i) {
+        _free_iocbs.push(&_iocb_pool[i]);
+    }
+}
+
+aio_storage_context::aio_storage_context(reactor* r)
+    : _r(r)
+    , _io_context(0) {
+    static_assert(max_aio >= reactor::max_queues * reactor::max_queues,
+                  "Mismatch between maximum allowed io and what the IO queues can produce");
+    internal::setup_aio_context(max_aio, &_io_context);
+}
+
+aio_storage_context::~aio_storage_context() {
+    internal::io_destroy(_io_context);
+}
+
+inline
+internal::linux_abi::iocb&
+aio_storage_context::iocb_pool::get_one() {
+    auto io = _free_iocbs.top();
+    _free_iocbs.pop();
+    return *io;
+}
+
+inline
+void
+aio_storage_context::iocb_pool::put_one(internal::linux_abi::iocb* io) {
+    _free_iocbs.push(io);
+}
+
+inline
+unsigned
+aio_storage_context::iocb_pool::outstanding() const {
+    return max_aio - _free_iocbs.size();
+}
+
+inline
+bool
+aio_storage_context::iocb_pool::has_capacity() const {
+    return !_free_iocbs.empty();
+}
+
+// Returns: number of iocbs consumed (0 or 1)
+size_t
+aio_storage_context::handle_aio_error(linux_abi::iocb* iocb, int ec) {
+    switch (ec) {
+        case EAGAIN:
+            return 0;
+        case EBADF: {
+            auto desc = reinterpret_cast<kernel_completion*>(get_user_data(*iocb));
+            _iocb_pool.put_one(iocb);
+            desc->complete_with(-EBADF);
+            // if EBADF, it means that the first request has a bad fd, so
+            // we will only remove it from _pending_aio and try again.
+            return 1;
+        }
+        default:
+            ++_r->_io_stats.aio_errors;
+            throw_system_error_on(true, "io_submit");
+            abort();
+    }
+}
+
+extern bool aio_nowait_supported;
+
+bool
+aio_storage_context::submit_work() {
+    size_t pending = _r->_pending_aio.size();
+    size_t to_submit = 0;
+    bool did_work = false;
+
+    _submission_queue.resize(0);
+    while ((pending > to_submit) && _iocb_pool.has_capacity()) {
+        auto& req = _r->_pending_aio[to_submit++];
+        auto& io = _iocb_pool.get_one();
+        prepare_iocb(req, io);
+
+        if (_r->_aio_eventfd) {
+            set_eventfd_notification(io, _r->_aio_eventfd->get_fd());
+        }
+        if (aio_nowait_supported) {
+            set_nowait(io, true);
+        }
+        _submission_queue.push_back(&io);
+    }
+
+    size_t submitted = 0;
+    while (to_submit > submitted) {
+        auto nr = to_submit - submitted;
+        auto iocbs = _submission_queue.data() + submitted;
+        auto r = io_submit(_io_context, nr, iocbs);
+        size_t nr_consumed;
+        if (r == -1) {
+            nr_consumed = handle_aio_error(iocbs[0], errno);
+        } else {
+            nr_consumed = size_t(r);
+        }
+        submitted += nr_consumed;
+    }
+    _r->_pending_aio.erase(_r->_pending_aio.begin(), _r->_pending_aio.begin() + submitted);
+
+    if (!_pending_aio_retry.empty()) {
+        auto retries = std::exchange(_pending_aio_retry, {});
+        // FIXME: future is discarded
+        (void)_r->_thread_pool->submit<syscall_result<int>>([this, retries] () mutable {
+            auto r = io_submit(_io_context, retries.size(), retries.data());
+            return wrap_syscall<int>(r);
+        }).then([this, retries] (syscall_result<int> result) {
+            auto iocbs = retries.data();
+            size_t nr_consumed = 0;
+            if (result.result == -1) {
+                nr_consumed = handle_aio_error(iocbs[0], result.error);
+            } else {
+                nr_consumed = result.result;
+            }
+            std::copy(retries.begin() + nr_consumed, retries.end(), std::back_inserter(_pending_aio_retry));
+        });
+        did_work = true;
+    }
+    return did_work;
+}
+
+bool aio_storage_context::reap_completions()
+{
+    io_event ev[max_aio];
+    struct timespec timeout = {0, 0};
+    auto n = io_getevents(_io_context, 1, max_aio, ev, &timeout, _r->_force_io_getevents_syscall);
+    if (n == -1 && errno == EINTR) {
+        n = 0;
+    }
+    assert(n >= 0);
+    unsigned nr_retry = 0;
+    for (size_t i = 0; i < size_t(n); ++i) {
+        auto iocb = get_iocb(ev[i]);
+        if (ev[i].res == -EAGAIN) {
+            ++nr_retry;
+            set_nowait(*iocb, false);
+            _pending_aio_retry.push_back(iocb);
+            continue;
+        }
+        _iocb_pool.put_one(iocb);
+        auto desc = reinterpret_cast<kernel_completion*>(ev[i].data);
+        desc->complete_with(ev[i].res);
+    }
+    return n;
+}
+
+bool aio_storage_context::can_sleep() const {
+    // Because aio depends on polling, it cannot generate events to wake us up, Therefore, sleep
+    // is only possible if there are no in-flight aios. If there are, we need to keep polling.
+    //
+    // Alternatively, if we enabled _aio_eventfd, we can always enter
+    unsigned executing = _iocb_pool.outstanding();
+    return executing == 0 || _r->_aio_eventfd;
+}
 
 reactor_backend_aio::context::context(size_t nr) : iocbs(new iocb*[nr]) {
     setup_aio_context(nr, &io_context);
@@ -167,7 +348,9 @@ void reactor_backend_aio::signal_received(int signo, siginfo_t* siginfo, void* i
     engine()._signals.action(signo, siginfo, ignore);
 }
 
-reactor_backend_aio::reactor_backend_aio(reactor* r) : _r(r) {
+reactor_backend_aio::reactor_backend_aio(reactor* r)
+    : _r(r)
+    , _storage_context(_r) {
     _task_quota_timer_iocb = make_poll_iocb(_r->_task_quota_timer.get(), POLLIN);
     _timerfd_iocb = make_poll_iocb(_steady_clock_timer.get(), POLLIN);
     _smp_wakeup_iocb = make_poll_iocb(_r->_notify_eventfd.get(), POLLIN);
@@ -182,11 +365,19 @@ reactor_backend_aio::reactor_backend_aio(reactor* r) : _r(r) {
 }
 
 bool reactor_backend_aio::reap_kernel_completions() {
-    return await_events(0, nullptr);
+    bool did_work = await_events(0, nullptr);
+    did_work |= _storage_context.reap_completions();
+    return did_work;
 }
 
 bool reactor_backend_aio::kernel_submit_work() {
-    return _polling_io.flush();
+    bool did_work = _polling_io.flush();
+    did_work |= _storage_context.submit_work();
+    return did_work;
+}
+
+bool reactor_backend_aio::kernel_events_can_sleep() const {
+    return _storage_context.can_sleep();
 }
 
 void reactor_backend_aio::wait_and_process_events(const sigset_t* active_sigmask) {
@@ -351,7 +542,9 @@ reactor_backend_aio::make_pollable_fd_state(file_desc fd, pollable_fd::speculati
 }
 
 reactor_backend_epoll::reactor_backend_epoll(reactor* r)
-        : _r(r), _epollfd(file_desc::epoll_create(EPOLL_CLOEXEC)) {
+        : _r(r)
+        , _epollfd(file_desc::epoll_create(EPOLL_CLOEXEC))
+        , _storage_context(_r) {
     ::epoll_event event;
     event.events = EPOLLIN;
     event.data.ptr = nullptr;
@@ -474,14 +667,21 @@ bool reactor_backend_epoll::reap_kernel_completions() {
     // reactor register two pollers for completions and one for submission,
     // since completion is cheaper for other backends like aio. This avoids
     // calling epoll_wait twice.
-    return false;
+    //
+    // We will only reap the io completions
+    return _storage_context.reap_completions();
 }
 
 bool reactor_backend_epoll::kernel_submit_work() {
+    _storage_context.submit_work();
     if (_need_epoll_events) {
         return wait_and_process(0, nullptr);
     }
     return false;
+}
+
+bool reactor_backend_epoll::kernel_events_can_sleep() const {
+    return _storage_context.can_sleep();
 }
 
 void reactor_backend_epoll::wait_and_process_events(const sigset_t* active_sigmask) {
