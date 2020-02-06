@@ -269,6 +269,17 @@ reactor::do_accept(pollable_fd_state& listenfd) {
     });
 }
 
+future<> reactor::do_connect(pollable_fd_state& pfd, socket_address& sa) {
+    pfd.fd.connect(sa.u.sa, sa.length());
+    return pfd.writeable().then([&pfd]() mutable {
+        auto err = pfd.fd.getsockopt<int>(SOL_SOCKET, SO_ERROR);
+        if (err != 0) {
+            throw std::system_error(err, std::system_category());
+        }
+        return make_ready_future<>();
+    });
+}
+
 future<size_t>
 reactor::do_read_some(pollable_fd_state& fd, void* buffer, size_t len) {
     return readable(fd).then([this, &fd, buffer, len] () mutable {
@@ -416,6 +427,10 @@ pollable_fd_state::abort_writer() {
 
 future<std::tuple<pollable_fd, socket_address>> pollable_fd_state::accept() {
     return engine()._backend->accept(*this);
+}
+
+future<> pollable_fd_state::connect(socket_address& sa) {
+    return engine()._backend->connect(*this, sa);
 }
 
 future<size_t> pollable_fd_state::recvmsg(struct msghdr *msg) {
@@ -1428,14 +1443,7 @@ reactor::posix_connect(lw_shared_ptr<pollable_fd> pfd, socket_address sa, socket
         // call bind() only if local address is not wildcard
         pfd->get_file_desc().bind(local.u.sa, local.length());
     }
-    pfd->get_file_desc().connect(sa.u.sa, sa.length());
-    return pfd->writeable().then([pfd]() mutable {
-        auto err = pfd->get_file_desc().getsockopt<int>(SOL_SOCKET, SO_ERROR);
-        if (err != 0) {
-            throw std::system_error(err, std::system_category());
-        }
-        return make_ready_future<>();
-    });
+    return pfd->connect(sa).finally([pfd] {});
 }
 
 server_socket

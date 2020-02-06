@@ -285,6 +285,10 @@ reactor_backend_aio::accept(pollable_fd_state& listenfd) {
     return engine().do_accept(listenfd);
 }
 
+future<> reactor_backend_aio::connect(pollable_fd_state& fd, socket_address& sa) {
+    return engine().do_connect(fd, sa);
+}
+
 future<size_t>
 reactor_backend_aio::read_some(pollable_fd_state& fd, void* buffer, size_t len) {
     return engine().do_read_some(fd, buffer, len);
@@ -532,6 +536,10 @@ reactor_backend_epoll::accept(pollable_fd_state& listenfd) {
     return engine().do_accept(listenfd);
 }
 
+future<> reactor_backend_epoll::connect(pollable_fd_state& fd, socket_address& sa) {
+    return engine().do_connect(fd, sa);
+}
+
 future<size_t>
 reactor_backend_epoll::read_some(pollable_fd_state& fd, void* buffer, size_t len) {
     return engine().do_read_some(fd, buffer, len);
@@ -610,6 +618,10 @@ reactor_backend_osv::forget(pollable_fd_state& fd) noexcept {
 future<std::tuple<pollable_fd, socket_address>>
 reactor_backend_osv::accept(pollable_fd_state& listenfd) {
     return engine().do_accept(listenfd);
+}
+
+future<> reactor_backend_osv::connect(pollable_fd_state& fd, socket_address& sa) {
+    return engine().do_connect(fd, sa);
 }
 
 future<size_t>

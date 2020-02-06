@@ -455,6 +455,7 @@ private:
 
     future<std::tuple<pollable_fd, socket_address>>
     do_accept(pollable_fd_state& listen_fd);
+    future<> do_connect(pollable_fd_state& pfd, socket_address& sa);
 
     future<size_t>
     do_read_some(pollable_fd_state& fd, void* buffer, size_t size);
