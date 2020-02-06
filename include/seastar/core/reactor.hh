@@ -253,13 +253,13 @@ private:
 
     class iocb_pool {
         alignas(cache_line_size) std::array<internal::linux_abi::iocb, max_aio> _iocb_pool;
-        semaphore _sem{0};
         std::stack<internal::linux_abi::iocb*, boost::container::static_vector<internal::linux_abi::iocb*, max_aio>> _free_iocbs;
     public:
         iocb_pool();
-        future<internal::linux_abi::iocb*> get_one();
+        internal::linux_abi::iocb& get_one();
         void put_one(internal::linux_abi::iocb* io);
         unsigned outstanding() const;
+        bool has_capacity() const;
     };
 
     // Not all reactors have IO queues. If the number of IO queues is less than the number of shards,
@@ -294,7 +294,8 @@ private:
     timer_set<timer<manual_clock>, &timer<manual_clock>::_link>::timer_list_t _expired_manual_timers;
     internal::linux_abi::aio_context_t _io_context;
     iocb_pool _iocb_pool;
-    boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _pending_aio;
+    boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _submission_queue;
+
     boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _pending_aio_retry;
     io_stats _io_stats;
     uint64_t _fsyncs = 0;
@@ -327,6 +328,8 @@ private:
     private:
         void register_stats();
     };
+
+    circular_buffer<internal::io_request> _pending_aio;
     boost::container::static_vector<std::unique_ptr<task_queue>, max_scheduling_groups()> _task_queues;
     std::vector<scheduling_group_key_config> _scheduling_group_key_configs;
     int64_t _last_vruntime = 0;

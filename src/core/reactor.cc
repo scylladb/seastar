@@ -168,30 +168,32 @@ reactor::iocb_pool::iocb_pool() {
     for (unsigned i = 0; i != max_aio; ++i) {
         _free_iocbs.push(&_iocb_pool[i]);
     }
-    _sem.signal(max_aio);
 }
 
 inline
-future<internal::linux_abi::iocb*>
+internal::linux_abi::iocb&
 reactor::iocb_pool::get_one() {
-    return _sem.wait(1).then([this] {
-        auto io = _free_iocbs.top();
-        _free_iocbs.pop();
-        return io;
-    });
+    auto io = _free_iocbs.top();
+    _free_iocbs.pop();
+    return *io;
 }
 
 inline
 void
 reactor::iocb_pool::put_one(internal::linux_abi::iocb* io) {
     _free_iocbs.push(io);
-    _sem.signal(1);
 }
 
 inline
 unsigned
 reactor::iocb_pool::outstanding() const {
     return max_aio - _free_iocbs.size();
+}
+
+inline
+bool
+reactor::iocb_pool::has_capacity() const {
+    return !_free_iocbs.empty();
 }
 
 io_priority_class
@@ -1479,6 +1481,7 @@ void prepare_iocb(io_request& req, iocb& iocb) {
         iocb = make_readv_iocb(req.fd(), req.pos(), reinterpret_cast<const iovec*>(req.address()), req.size());
         break;
     }
+    set_user_data(iocb, req.get_kernel_completion());
 }
 
 sstring io_request::opname() const {
@@ -1499,20 +1502,8 @@ sstring io_request::opname() const {
 
 void
 reactor::submit_io(kernel_completion* desc, io_request req) {
-  // We can ignore the future returned here, because the submitted aio will be polled
-  // for and completed in process_io().
-  (void)_iocb_pool.get_one().then([this, desc, req = std::move(req)] (linux_abi::iocb* iocb) mutable {
-    auto& io = *iocb;
-    prepare_iocb(req, io);
-    if (_aio_eventfd) {
-        set_eventfd_notification(io, _aio_eventfd->get_fd());
-    }
-    if (aio_nowait_supported) {
-        set_nowait(io, true);
-    }
-    set_user_data(io, desc);
-    _pending_aio.push_back(&io);
-  });
+    req.attach_kernel_completion(desc);
+    _pending_aio.push_back(std::move(req));
 }
 
 // Returns: number of iocbs consumed (0 or 1)
@@ -1546,9 +1537,28 @@ reactor::flush_pending_aio() {
 
 bool reactor::kernel_submit_work() {
     bool did_work = _backend->kernel_submit_work();
-    while (!_pending_aio.empty()) {
-        auto nr = _pending_aio.size();
-        auto iocbs = _pending_aio.data();
+    size_t pending = _pending_aio.size();
+    size_t to_submit = 0;
+
+    _submission_queue.resize(0);
+    while ((pending > to_submit) && _iocb_pool.has_capacity()) {
+        auto& req = _pending_aio[to_submit++];
+        auto& io = _iocb_pool.get_one();
+        prepare_iocb(req, io);
+
+        if (_aio_eventfd) {
+            set_eventfd_notification(io, _aio_eventfd->get_fd());
+        }
+        if (aio_nowait_supported) {
+            set_nowait(io, true);
+        }
+        _submission_queue.push_back(&io);
+    }
+
+    size_t submitted = 0;
+    while (to_submit > submitted) {
+        auto nr = to_submit - submitted;
+        auto iocbs = _submission_queue.data() + submitted;
         auto r = io_submit(_io_context, nr, iocbs);
         size_t nr_consumed;
         if (r == -1) {
@@ -1556,14 +1566,10 @@ bool reactor::kernel_submit_work() {
         } else {
             nr_consumed = size_t(r);
         }
-
-        did_work = true;
-        if (nr_consumed == nr) {
-            _pending_aio.clear();
-        } else {
-            _pending_aio.erase(_pending_aio.begin(), _pending_aio.begin() + nr_consumed);
-        }
+        submitted += nr_consumed;
     }
+    _pending_aio.erase(_pending_aio.begin(), _pending_aio.begin() + submitted);
+
     if (!_pending_aio_retry.empty()) {
         auto retries = std::exchange(_pending_aio_retry, {});
         // FIXME: future is discarded

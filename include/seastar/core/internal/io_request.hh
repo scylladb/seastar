@@ -23,6 +23,7 @@
 
 #include <seastar/core/sstring.hh>
 #include <seastar/core/linux-aio.hh>
+#include <seastar/core/internal/io_desc.hh>
 
 namespace seastar {
 namespace internal {
@@ -36,6 +37,8 @@ private:
     uint64_t _pos;
     void* _address;
     size_t _size;
+    kernel_completion* _kernel_completion;
+
     io_request(operation op, int fd, uint64_t pos, void* address, size_t size)
         : _op(op)
         , _fd(fd)
@@ -73,6 +76,14 @@ public:
 
     size_t size() const {
         return _size;
+    }
+
+    void attach_kernel_completion(kernel_completion* kc) {
+        _kernel_completion = kc;
+    }
+
+    kernel_completion* get_kernel_completion() const {
+        return _kernel_completion;
     }
 
     static io_request make_read(int fd, uint64_t pos, void* address, size_t size) {
