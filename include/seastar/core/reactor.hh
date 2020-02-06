@@ -158,26 +158,28 @@ private:
     using task_queue_list = circular_buffer_fixed_capacity<task_queue*, max_scheduling_groups()>;
     using pollfn = seastar::pollfn;
 
-    class io_pollfn;
     class signal_pollfn;
-    class aio_batch_submit_pollfn;
     class batch_flush_pollfn;
     class smp_pollfn;
     class drain_cross_cpu_freelist_pollfn;
     class lowres_timer_pollfn;
     class manual_timer_pollfn;
     class epoll_pollfn;
+    class reap_kernel_completions_pollfn;
+    class kernel_submit_work_pollfn;
+    class io_queue_submission_pollfn;
     class syscall_pollfn;
     class execution_stage_pollfn;
-    friend io_pollfn;
     friend signal_pollfn;
-    friend aio_batch_submit_pollfn;
     friend batch_flush_pollfn;
     friend smp_pollfn;
     friend drain_cross_cpu_freelist_pollfn;
     friend lowres_timer_pollfn;
     friend class manual_clock;
     friend class epoll_pollfn;
+    friend class reap_kernel_completions_pollfn;
+    friend class kernel_submit_work_pollfn;
+    friend class io_queue_submission_pollfn;
     friend class syscall_pollfn;
     friend class execution_stage_pollfn;
     friend class file_data_source_impl; // for fstream statistics
@@ -618,7 +620,6 @@ public:
     network_stack& net() { return *_network_stack; }
     shard_id cpu_id() const { return _id; }
 
-    void start_epoll();
     void sleep();
 
     steady_clock_type::duration total_idle_time();
@@ -646,7 +647,9 @@ private:
     void register_metrics();
     future<> write_all_part(pollable_fd_state& fd, const void* buffer, size_t size, size_t completed);
 
-    bool process_io();
+    bool kernel_events_can_sleep() const;
+    bool reap_kernel_completions();
+    bool kernel_submit_work();
 
     future<> fdatasync(int fd);
 
@@ -702,7 +705,6 @@ private:
     friend future<typename function_traits<Reducer>::return_type>
         reduce_scheduling_group_specific(Reducer reducer, Initial initial_val, scheduling_group_key key);
 public:
-    bool wait_and_process(int timeout = 0, const sigset_t* active_sigmask = nullptr);
     future<> readable(pollable_fd_state& fd);
     future<> writeable(pollable_fd_state& fd);
     future<> readable_or_writeable(pollable_fd_state& fd);

@@ -48,12 +48,18 @@ class reactor;
 class reactor_backend {
 public:
     virtual ~reactor_backend() {};
-    // wait_and_process() waits for some events to become available, and
-    // processes one or more of them. If block==false, it doesn't wait,
-    // and just processes events that have already happened, if any.
-    // After the optional wait, just before processing the events, the
-    // pre_process() function is called.
-    virtual bool wait_and_process(int timeout = -1, const sigset_t* active_sigmask = nullptr) = 0;
+    // The methods below are used to communicate with the kernel.
+    // reap_kernel_completions() will complete any previous async
+    // work that is ready to consume.
+    // kernel_submit_work() submit new events that were produced.
+    // Both of those methods are asynchronous and will never block.
+    //
+    // wait_and_process_events on the other hand may block, and is called when
+    // we are about to go to sleep.
+    virtual bool reap_kernel_completions() = 0;
+    virtual bool kernel_submit_work() = 0;
+    virtual void wait_and_process_events(const sigset_t* active_sigmask = nullptr) = 0;
+
     // Methods that allow polling on file descriptors. This will only work on
     // reactor_backend_epoll. Other reactor_backend will probably abort if
     // they are called (which is fine if no file descriptors are waited on):
@@ -94,10 +100,15 @@ private:
     file_desc _epollfd;
     future<> get_epoll_future(pollable_fd_state& fd, int event);
     void complete_epoll_event(pollable_fd_state& fd, int events, int event);
+    bool wait_and_process(int timeout, const sigset_t* active_sigmask);
+    bool _need_epoll_events = false;
 public:
     explicit reactor_backend_epoll(reactor* r);
     virtual ~reactor_backend_epoll() override;
-    virtual bool wait_and_process(int timeout, const sigset_t* active_sigmask) override;
+
+    virtual bool reap_kernel_completions() override;
+    virtual bool kernel_submit_work() override;
+    virtual void wait_and_process_events(const sigset_t* active_sigmask) override;
     virtual future<> readable(pollable_fd_state& fd) override;
     virtual future<> writeable(pollable_fd_state& fd) override;
     virtual future<> readable_or_writeable(pollable_fd_state& fd) override;
@@ -137,7 +148,7 @@ class reactor_backend_aio : public reactor_backend {
         internal::linux_abi::iocb** last = iocbs.get();
         void replenish(internal::linux_abi::iocb* iocb, bool& flag);
         void queue(internal::linux_abi::iocb* iocb);
-        void flush();
+        size_t flush();
     };
     context _preempting_io{2}; // Used for the timer tick and the high resolution timer
     context _polling_io{max_polls}; // FIXME: unify with disk aio_context
@@ -156,19 +167,12 @@ private:
     void process_smp_wakeup();
     bool service_preempting_io();
     bool await_events(int timeout, const sigset_t* active_sigmask);
-private:
-    class io_poll_poller : public seastar::pollfn {
-        reactor_backend_aio* _backend;
-    public:
-        explicit io_poll_poller(reactor_backend_aio* b);
-        virtual bool poll() override;
-        virtual bool pure_poll() override;
-        virtual bool try_enter_interrupt_mode() override;
-        virtual void exit_interrupt_mode() override;
-    };
 public:
     explicit reactor_backend_aio(reactor* r);
-    virtual bool wait_and_process(int timeout, const sigset_t* active_sigmask) override;
+
+    virtual bool reap_kernel_completions() override;
+    virtual bool kernel_submit_work() override;
+    virtual void wait_and_process_events(const sigset_t* active_sigmask) override;
     future<> poll(pollable_fd_state& fd, int events);
     virtual future<> readable(pollable_fd_state& fd) override;
     virtual future<> writeable(pollable_fd_state& fd) override;
@@ -209,7 +213,10 @@ private:
 public:
     reactor_backend_osv();
     virtual ~reactor_backend_osv() override { }
-    virtual bool wait_and_process() override;
+
+    virtual bool reap_kernel_completions() override;
+    virtual bool kernel_submit_work() override;
+    virtual void wait_and_process_events(const sigset_t* active_sigmask) override;
     virtual future<> readable(pollable_fd_state& fd) override;
     virtual future<> writeable(pollable_fd_state& fd) override;
     virtual void forget(pollable_fd_state& fd) noexcept override;
