@@ -86,7 +86,7 @@ saved_backtrace current_backtrace() noexcept {
             v.emplace_back(std::move(f));
         }
     });
-    return saved_backtrace(std::move(v));
+    return saved_backtrace(std::move(v), current_scheduling_group());
 }
 
 size_t saved_backtrace::hash() const {

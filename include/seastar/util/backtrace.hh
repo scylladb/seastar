@@ -27,6 +27,7 @@
 
 #include <seastar/core/sstring.hh>
 #include <seastar/core/print.hh>
+#include <seastar/core/scheduling.hh>
 
 namespace seastar {
 
@@ -65,9 +66,10 @@ public:
     using vector_type = boost::container::static_vector<frame, 64>;
 private:
     vector_type _frames;
+    scheduling_group _sg;
 public:
     saved_backtrace() = default;
-    saved_backtrace(vector_type f) : _frames(std::move(f)) {}
+    saved_backtrace(vector_type f, scheduling_group sg) : _frames(std::move(f)), _sg(sg) {}
     size_t hash() const;
 
     friend std::ostream& operator<<(std::ostream& out, const saved_backtrace&);
