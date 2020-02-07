@@ -4077,13 +4077,10 @@ reactor::calculate_poll_time() {
 
 future<> later() noexcept {
     memory::disable_failure_guard dfg;
-    promise<> p;
-    auto f = p.get_future();
     engine().force_poll();
-    schedule(make_task(default_scheduling_group(), [p = std::move(p)] () mutable {
-        p.set_value();
-    }));
-    return f;
+    auto tsk = make_task(default_scheduling_group(), [] {});
+    schedule(tsk);
+    return tsk->get_future();
 }
 
 void add_to_flush_poller(output_stream<char>* os) {

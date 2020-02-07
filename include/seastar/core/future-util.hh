@@ -49,9 +49,11 @@ extern __thread size_t task_quota;
 namespace internal {
 
 template <typename Func>
-void
+auto
 schedule_in_group(scheduling_group sg, Func func) {
-    schedule(make_task(sg, std::move(func)));
+    auto tsk = make_task(sg, std::move(func));
+    schedule(tsk);
+    return tsk->get_future();
 }
 
 
@@ -80,12 +82,9 @@ with_scheduling_group(scheduling_group sg, Func func, Args&&... args) {
     if (sg.active()) {
         return futurator::invoke(func, std::forward<Args>(args)...);
     } else {
-        typename futurator::promise_type pr;
-        auto f = pr.get_future();
-        internal::schedule_in_group(sg, [pr = std::move(pr), func = std::move(func), args = std::make_tuple(std::forward<Args>(args)...)] () mutable {
-            return futurator::apply(func, std::move(args)).forward_to(std::move(pr));
+        return internal::schedule_in_group(sg, [func = std::move(func), args = std::make_tuple(std::forward<Args>(args)...)] () mutable {
+            return futurator::apply(func, std::move(args));
         });
-        return f;
     }
 }
 
