@@ -42,6 +42,7 @@
 #include <seastar/util/conversions.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/thread.hh>
+#include <seastar/core/make_task.hh>
 #include <seastar/core/systemwide_memory_barrier.hh>
 #include <seastar/core/report_exception.hh>
 #include <seastar/core/stall_sampler.hh>

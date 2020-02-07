@@ -22,27 +22,36 @@
 #pragma once
 
 #include <memory>
-#include <seastar/core/scheduling.hh>
+#include <seastar/core/task.hh>
+#include <seastar/core/future.hh>
 
 namespace seastar {
 
-class task {
-    scheduling_group _sg;
-protected:
-    // Task destruction is performed by run_and_dispose() via a concrete type,
-    // so no need for a virtual destructor here. Derived classes that implement
-    // run_and_dispose() should be declared final to avoid losing concrete type
-    // information via inheritance.
-    ~task() = default;
+template <typename Func>
+class lambda_task final : public task {
+    Func _func;
 public:
-    explicit task(scheduling_group sg = current_scheduling_group()) noexcept : _sg(sg) {}
-    virtual void run_and_dispose() noexcept = 0;
-    /// Returns the next task which is waiting for this task to complete execution, or nullptr.
-    virtual task* waiting_task() noexcept = 0;
-    scheduling_group group() const { return _sg; }
+    lambda_task(scheduling_group sg, const Func& func) : task(sg), _func(func) {}
+    lambda_task(scheduling_group sg, Func&& func) : task(sg), _func(std::move(func)) {}
+    virtual void run_and_dispose() noexcept override {
+        _func();
+        delete this;
+    }
+    virtual task* waiting_task() noexcept override { return nullptr; }
 };
 
-void schedule(task* t) noexcept;
-void schedule_urgent(task* t) noexcept;
+template <typename Func>
+inline
+task*
+make_task(Func&& func) noexcept {
+    return new lambda_task<Func>(current_scheduling_group(), std::forward<Func>(func));
+}
+
+template <typename Func>
+inline
+task*
+make_task(scheduling_group sg, Func&& func) noexcept {
+    return new lambda_task<Func>(sg, std::forward<Func>(func));
+}
 
 }

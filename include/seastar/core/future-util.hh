@@ -29,6 +29,7 @@
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/timer.hh>
+#include <seastar/core/make_task.hh>
 #include <seastar/util/bool_class.hh>
 #include <tuple>
 #include <iterator>
