@@ -1440,6 +1440,24 @@ sstring io_request::opname() const {
         return "read";
     case io_request::operation::readv:
         return "vectored read";
+    case io_request::operation::recv:
+        return "recv";
+    case io_request::operation::recvmsg:
+        return "recvmsg";
+    case io_request::operation::send:
+        return "send";
+    case io_request::operation::sendmsg:
+        return "sendmsg";
+    case io_request::operation::accept:
+        return "accept";
+    case io_request::operation::connect:
+        return "connect";
+    case io_request::operation::poll_add:
+        return "poll add";
+    case io_request::operation::poll_remove:
+        return "poll remove";
+    case io_request::operation::cancel:
+        return "cancel";
     }
     std::abort();
 }

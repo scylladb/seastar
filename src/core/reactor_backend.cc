@@ -60,14 +60,17 @@ void prepare_iocb(io_request& req, iocb& iocb) {
         iocb = make_write_iocb(req.fd(), req.pos(), req.address(), req.size());
         break;
     case io_request::operation::writev:
-        iocb = make_writev_iocb(req.fd(), req.pos(), reinterpret_cast<const iovec*>(req.address()), req.size());
+        iocb = make_writev_iocb(req.fd(), req.pos(), req.iov(), req.size());
         break;
     case io_request::operation::read:
         iocb = make_read_iocb(req.fd(), req.pos(), req.address(), req.size());
         break;
     case io_request::operation::readv:
-        iocb = make_readv_iocb(req.fd(), req.pos(), reinterpret_cast<const iovec*>(req.address()), req.size());
+        iocb = make_readv_iocb(req.fd(), req.pos(), req.iov(), req.size());
         break;
+    default:
+        seastar_logger.error("Invalid operation for iocb: {}", req.opname());
+        std::abort();
     }
     set_user_data(iocb, req.get_kernel_completion());
 }
