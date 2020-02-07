@@ -60,7 +60,7 @@ public:
     virtual future<> readable(pollable_fd_state& fd) = 0;
     virtual future<> writeable(pollable_fd_state& fd) = 0;
     virtual future<> readable_or_writeable(pollable_fd_state& fd) = 0;
-    virtual void forget(pollable_fd_state& fd) = 0;
+    virtual void forget(pollable_fd_state& fd) noexcept = 0;
     virtual void signal_received(int signo, siginfo_t* siginfo, void* ignore) = 0;
     virtual void start_tick() = 0;
     virtual void stop_tick() = 0;
@@ -69,7 +69,7 @@ public:
     virtual void request_preemption() = 0;
     virtual void start_handling_signal() = 0;
 
-    virtual std::unique_ptr<pollable_fd_state> make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) = 0;
+    virtual pollable_fd_state_ptr make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) = 0;
 };
 
 // reactor backend using file-descriptor & epoll, suitable for running on
@@ -91,7 +91,7 @@ public:
     virtual future<> readable(pollable_fd_state& fd) override;
     virtual future<> writeable(pollable_fd_state& fd) override;
     virtual future<> readable_or_writeable(pollable_fd_state& fd) override;
-    virtual void forget(pollable_fd_state& fd) override;
+    virtual void forget(pollable_fd_state& fd) noexcept override;
     virtual void signal_received(int signo, siginfo_t* siginfo, void* ignore) override;
     virtual void start_tick() override;
     virtual void stop_tick() override;
@@ -100,7 +100,7 @@ public:
     virtual void request_preemption() override;
     virtual void start_handling_signal() override;
 
-    virtual std::unique_ptr<pollable_fd_state>
+    virtual pollable_fd_state_ptr
     make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override;
 };
 
@@ -153,7 +153,7 @@ public:
     virtual future<> readable(pollable_fd_state& fd) override;
     virtual future<> writeable(pollable_fd_state& fd) override;
     virtual future<> readable_or_writeable(pollable_fd_state& fd) override;
-    virtual void forget(pollable_fd_state& fd) override;
+    virtual void forget(pollable_fd_state& fd) noexcept override;
     virtual void signal_received(int signo, siginfo_t* siginfo, void* ignore) override;
     virtual void start_tick() override;
     virtual void stop_tick() override;
@@ -162,7 +162,7 @@ public:
     virtual void request_preemption() override;
     virtual void start_handling_signal() override;
 
-    virtual std::unique_ptr<pollable_fd_state>
+    virtual pollable_fd_state_ptr
     make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override;
 };
 
@@ -182,9 +182,9 @@ public:
     virtual bool wait_and_process() override;
     virtual future<> readable(pollable_fd_state& fd) override;
     virtual future<> writeable(pollable_fd_state& fd) override;
-    virtual void forget(pollable_fd_state& fd) override;
+    virtual void forget(pollable_fd_state& fd) noexcept override;
     void enable_timer(steady_clock_type::time_point when);
-    virtual std::unique_ptr<pollable_fd_state>
+    virtual pollable_fd_state_ptr
     make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override;
 };
 #endif /* HAVE_OSV */

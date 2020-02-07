@@ -40,13 +40,21 @@ class packet;
 
 }
 
+class pollable_fd_state;
+
+struct pollable_fd_state_deleter {
+    void operator()(pollable_fd_state* fd) noexcept;
+};
+
+using pollable_fd_state_ptr = std::unique_ptr<pollable_fd_state, pollable_fd_state_deleter>;
+
 class pollable_fd_state {
 public:
+    virtual ~pollable_fd_state() {}
     struct speculation {
         int events = 0;
         explicit speculation(int epoll_events_guessed = 0) : events(epoll_events_guessed) {}
     };
-    virtual ~pollable_fd_state();
     pollable_fd_state(const pollable_fd_state&) = delete;
     void operator=(const pollable_fd_state&) = delete;
     void speculate_epoll(int events) { events_known |= events; }
@@ -152,7 +160,7 @@ protected:
     friend class readable_eventfd;
     friend class writeable_eventfd;
 private:
-    std::unique_ptr<pollable_fd_state> _s;
+    pollable_fd_state_ptr _s;
 };
 
 class writeable_eventfd;

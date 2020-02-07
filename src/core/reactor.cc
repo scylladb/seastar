@@ -955,10 +955,6 @@ future<> reactor::readable_or_writeable(pollable_fd_state& fd) {
     return _backend->readable_or_writeable(fd);
 }
 
-void reactor::forget(pollable_fd_state& fd) {
-    _backend->forget(fd);
-}
-
 void reactor::abort_reader(pollable_fd_state& fd) {
     // TCP will respond to shutdown(SHUT_RD) by returning ECONNABORT on the next read,
     // but UDP responds by returning AGAIN. The no_more_recv flag tells us to convert
@@ -1390,6 +1386,12 @@ void pollable_fd_state::maybe_no_more_send() {
         throw std::system_error(std::error_code(ECONNABORTED, std::system_category()));
     }
 }
+void pollable_fd_state_deleter::operator()(pollable_fd_state* fd) noexcept {
+    if (fd) {
+        engine()._backend->forget(*fd);
+    }
+}
+
 
 pollable_fd::pollable_fd(file_desc fd, pollable_fd::speculation speculate)
     : _s(engine()._backend->make_pollable_fd_state(std::move(fd), speculate))
