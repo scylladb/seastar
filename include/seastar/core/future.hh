@@ -148,6 +148,7 @@ future<> current_exception_as_future() noexcept;
 namespace internal {
 template <class... T>
 class promise_base_with_type;
+class promise_base;
 
 // It doesn't seem to be possible to use std::tuple_element_t with an empty tuple. There is an static_assert in it that
 // fails the build even if it is in the non enabled side of std::conditional.
@@ -531,6 +532,11 @@ public:
     void set_state(future_state<T...>&& state) noexcept {
         _state = std::move(state);
     }
+    // This override of waiting_task() is needed here because there are cases
+    // when backtrace is obtained from the destructor of this class and objects
+    // of derived classes are already destroyed at that time. If we didn't
+    // have this override we would get a "pure virtual function call" exception.
+    virtual task* waiting_task() noexcept override { return nullptr; }
     friend class internal::promise_base_with_type<T...>;
     friend class promise<T...>;
     friend class future<T...>;
@@ -538,10 +544,12 @@ public:
 
 template <typename Promise, typename... T>
 class continuation_base_with_promise : public continuation_base<T...> {
+    friend class internal::promise_base_with_type<T...>;
 protected:
     continuation_base_with_promise(Promise&& pr, future_state<T...>&& state) noexcept
         : continuation_base<T...>(std::move(state)), _pr(std::move(pr)) {}
     continuation_base_with_promise(Promise&& pr) noexcept : _pr(std::move(pr)) {}
+    virtual task* waiting_task() noexcept override;
     Promise _pr;
 };
 
@@ -637,6 +645,10 @@ protected:
 
 private:
     void set_to_current_exception() noexcept;
+
+public:
+    /// Returns the task which is waiting for this promise to resolve, or nullptr.
+    task* waiting_task() const noexcept { return _task; }
 };
 
 /// \brief A promise with type but no local data.
@@ -681,6 +693,9 @@ public:
             make_ready<urgent::no>();
         }
     }
+
+    /// Returns the task which is waiting for this promise to resolve, or nullptr.
+    using internal::promise_base::waiting_task;
 
 #if defined(SEASTAR_COROUTINES_TS) || defined(__cpp_lib_coroutine)
     void set_coroutine(future_state<T...>& state, task& coroutine) noexcept {
@@ -737,6 +752,9 @@ public:
         return *this;
     }
     void operator=(const promise&) = delete;
+
+    /// Returns the task which is waiting for this promise to resolve, or nullptr.
+    using internal::promise_base::waiting_task;
 
     /// \brief Gets the promise's associated future.
     ///
@@ -1046,6 +1064,22 @@ struct warn_variadic_future<true> {
 
 }
 
+template <typename Promise, typename... T>
+task* continuation_base_with_promise<Promise, T...>::waiting_task() noexcept {
+    return _pr.waiting_task();
+}
+
+class thread_wake_task_base {
+protected:
+    thread_context* _thread;
+public:
+    thread_wake_task_base(thread_context* thread)
+        : _thread(thread)
+    {}
+    /// Returns the task which is waiting for this thread to be done, or nullptr.
+    task* waiting_task() noexcept;
+};
+
 /// \brief A representation of a possibly not-yet-computed value.
 ///
 /// A \c future represents a value that has not yet been computed
@@ -1231,18 +1265,20 @@ public:
         }
     }
 private:
-    class thread_wake_task final : public continuation_base<T...> {
-        thread_context* _thread;
+    class thread_wake_task final : public continuation_base<T...>, thread_wake_task_base {
         future* _waiting_for;
     public:
         thread_wake_task(thread_context* thread, future* waiting_for)
-                : _thread(thread), _waiting_for(waiting_for) {
+                : thread_wake_task_base(thread), _waiting_for(waiting_for) {
         }
         virtual void run_and_dispose() noexcept override {
             _waiting_for->_state = std::move(this->_state);
             thread_impl::switch_in(_thread);
             // no need to delete, since this is always allocated on
             // _thread's stack.
+        }
+        virtual task* waiting_task() noexcept override {
+            return thread_wake_task_base::waiting_task();
         }
     };
     void do_wait() noexcept {

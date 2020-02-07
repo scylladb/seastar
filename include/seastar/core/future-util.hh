@@ -120,6 +120,7 @@ private:
     // are complete.
     void wait_for_one() noexcept;
     virtual void run_and_dispose() noexcept override;
+    task* waiting_task() noexcept override { return _result.waiting_task(); }
 public:
     parallel_for_each_state(size_t n);
     void add_future(future<>&& f);
@@ -236,6 +237,7 @@ public:
         _state.set(std::make_tuple(si));
     }
     future<> get_future() { return _promise.get_future(); }
+    task* waiting_task() noexcept override { return _promise.waiting_task(); }
     virtual void run_and_dispose() noexcept override {
         if (_state.failed()) {
             _promise.set_exception(std::move(_state).get_exception());
@@ -355,6 +357,7 @@ public:
         this->_state.set(std::make_tuple(std::move(st)));
     }
     future<T> get_future() { return _promise.get_future(); }
+    task* waiting_task() noexcept override { return _promise.waiting_task(); }
     virtual void run_and_dispose() noexcept override {
         if (this->_state.failed()) {
             _promise.set_exception(std::move(this->_state).get_exception());
@@ -461,6 +464,7 @@ class do_until_state final : public continuation_base<> {
 public:
     explicit do_until_state(StopCondition stop, AsyncAction action) : _stop(std::move(stop)), _action(std::move(action)) {}
     future<> get_future() { return _promise.get_future(); }
+    task* waiting_task() noexcept override { return _promise.waiting_task(); }
     virtual void run_and_dispose() noexcept override {
         if (_state.available()) {
             if (_state.failed()) {
@@ -591,6 +595,9 @@ public:
         }
         _pr.set_value();
     }
+    task* waiting_task() noexcept override {
+        return _pr.waiting_task();
+    }
     future<> get_future() {
         return _pr.get_future();
     }
@@ -716,6 +723,7 @@ public:
     when_all_state_base(size_t nr_remain, const when_all_process_element* processors, void* continuation)
             : _nr_remain(nr_remain), _processors(processors), _continuation(continuation) {
     }
+    virtual task* waiting_task() = 0;
     void complete_one() {
         // We complete in reverse order; if the futures happen to complete
         // in order, then waiting for the last one will find the rest ready
@@ -757,6 +765,7 @@ public:
         }
     }
     when_all_state_component(when_all_state_base *base, Future* future) : _base(base), _final_resting_place(future) {}
+    task* waiting_task() noexcept override { return _base->waiting_task(); }
     virtual void run_and_dispose() noexcept override {
         using futurator = futurize<Future>;
         if (__builtin_expect(this->_state.failed(), false)) {
@@ -792,6 +801,9 @@ public:
     }
     virtual ~when_all_state() {
         ResolvedTupleTransform::set_promise(p, std::move(tuple));
+    }
+    task* waiting_task() noexcept override {
+        return p.waiting_task();
     }
 private:
     template <size_t... Idx>

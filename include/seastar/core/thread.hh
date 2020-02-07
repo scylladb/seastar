@@ -125,6 +125,7 @@ public:
     bool should_yield() const;
     void reschedule();
     void yield();
+    task* waiting_task() noexcept override { return _done.waiting_task(); }
     friend class thread;
     friend void thread_impl::switch_in(thread_context*);
     friend void thread_impl::switch_out(thread_context*);

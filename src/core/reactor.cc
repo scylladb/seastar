@@ -2844,6 +2844,7 @@ public:
         }
         delete this;
     }
+    task* waiting_task() noexcept override { return nullptr; }
     void cancel() {
         _p = nullptr;
     }
@@ -2861,6 +2862,7 @@ public:
         engine().unregister_poller(_p.get());
         delete this;
     }
+    task* waiting_task() noexcept override { return nullptr; }
 };
 
 }

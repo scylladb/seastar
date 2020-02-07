@@ -37,6 +37,8 @@ protected:
 public:
     explicit task(scheduling_group sg = current_scheduling_group()) noexcept : _sg(sg) {}
     virtual void run_and_dispose() noexcept = 0;
+    /// Returns the next task which is waiting for this task to complete execution, or nullptr.
+    virtual task* waiting_task() noexcept = 0;
     scheduling_group group() const { return _sg; }
 };
 
@@ -53,6 +55,7 @@ public:
         _func();
         delete this;
     }
+    virtual task* waiting_task() noexcept override { return nullptr; }
 };
 
 template <typename Func>
