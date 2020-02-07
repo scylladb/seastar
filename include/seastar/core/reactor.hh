@@ -184,6 +184,9 @@ private:
     friend class execution_stage_pollfn;
     friend class file_data_source_impl; // for fstream statistics
     friend class internal::reactor_stall_sampler;
+    friend class preempt_io_context;
+    friend class hrtimer_aio_completion;
+    friend class task_quota_aio_completion;
     friend class reactor_backend_epoll;
     friend class reactor_backend_aio;
     friend class reactor_backend_selector;
