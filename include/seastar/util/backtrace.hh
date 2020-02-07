@@ -23,11 +23,13 @@
 
 #include <execinfo.h>
 #include <iosfwd>
+#include <variant>
 #include <boost/container/static_vector.hpp>
 
 #include <seastar/core/sstring.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/scheduling.hh>
+#include <seastar/core/shared_ptr.hh>
 
 namespace seastar {
 
@@ -61,24 +63,73 @@ void backtrace(Func&& func) noexcept(noexcept(func(frame()))) {
     }
 }
 
-class saved_backtrace {
+// Represents a call stack of a single thread.
+class simple_backtrace {
 public:
     using vector_type = boost::container::static_vector<frame, 64>;
 private:
     vector_type _frames;
-    scheduling_group _sg;
 public:
-    saved_backtrace() = default;
-    saved_backtrace(vector_type f, scheduling_group sg) : _frames(std::move(f)), _sg(sg) {}
+    simple_backtrace() = default;
+    simple_backtrace(vector_type f) : _frames(std::move(f)) {}
     size_t hash() const;
 
-    friend std::ostream& operator<<(std::ostream& out, const saved_backtrace&);
+    friend std::ostream& operator<<(std::ostream& out, const simple_backtrace&);
 
-    bool operator==(const saved_backtrace& o) const {
+    bool operator==(const simple_backtrace& o) const {
         return _frames == o._frames;
     }
 
-    bool operator!=(const saved_backtrace& o) const {
+    bool operator!=(const simple_backtrace& o) const {
+        return !(*this == o);
+    }
+};
+
+using shared_backtrace = seastar::lw_shared_ptr<simple_backtrace>;
+
+// Represents a task object inside a tasktrace.
+class task_entry {
+    const std::type_info* _task_type;
+public:
+    task_entry(const std::type_info& ti)
+        : _task_type(&ti)
+    { }
+
+    friend std::ostream& operator<<(std::ostream& out, const task_entry&);
+
+    bool operator==(const task_entry& o) const {
+        return *_task_type == *o._task_type;
+    }
+
+    bool operator!=(const task_entry& o) const {
+        return !(*this == o);
+    }
+
+    size_t hash() const { return _task_type->hash_code(); }
+};
+
+// Extended backtrace which consists of a backtrace of the currently running task
+// and information about the chain of tasks waiting for the current operation to complete.
+class tasktrace {
+public:
+    using entry = std::variant<shared_backtrace, task_entry>;
+    using vector_type = boost::container::static_vector<entry, 16>;
+private:
+    simple_backtrace _main;
+    vector_type _prev;
+    scheduling_group _sg;
+public:
+    tasktrace() = default;
+    tasktrace(simple_backtrace main, vector_type prev, scheduling_group sg);
+    ~tasktrace();
+
+    size_t hash() const;
+
+    friend std::ostream& operator<<(std::ostream& out, const tasktrace&);
+
+    bool operator==(const tasktrace& o) const;
+
+    bool operator!=(const tasktrace& o) const {
         return !(*this == o);
     }
 };
@@ -88,8 +139,15 @@ public:
 namespace std {
 
 template<>
-struct hash<seastar::saved_backtrace> {
-    size_t operator()(const seastar::saved_backtrace& b) const {
+struct hash<seastar::simple_backtrace> {
+    size_t operator()(const seastar::simple_backtrace& b) const {
+        return b.hash();
+    }
+};
+
+template<>
+struct hash<seastar::tasktrace> {
+    size_t operator()(const seastar::tasktrace& b) const {
         return b.hash();
     }
 };
@@ -98,8 +156,16 @@ struct hash<seastar::saved_backtrace> {
 
 namespace seastar {
 
+using saved_backtrace = tasktrace;
+
 saved_backtrace current_backtrace() noexcept;
-std::ostream& operator<<(std::ostream& out, const saved_backtrace& b);
+
+tasktrace current_tasktrace() noexcept;
+
+// Collects backtrace only within the currently executing task.
+simple_backtrace current_backtrace_tasklocal() noexcept;
+
+std::ostream& operator<<(std::ostream& out, const tasktrace& b);
 
 namespace internal {
 

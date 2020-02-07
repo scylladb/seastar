@@ -19,6 +19,7 @@
  * Copyright 2017 ScyllaDB
  */
 #include <seastar/util/backtrace.hh>
+#include <seastar/util/variant_utils.hh>
 
 #include <link.h>
 #include <sys/types.h>
@@ -28,6 +29,8 @@
 #include <string.h>
 
 #include <seastar/core/print.hh>
+#include <seastar/core/thread.hh>
+#include <seastar/core/reactor.hh>
 
 
 namespace seastar {
@@ -79,22 +82,35 @@ frame decorate(uintptr_t addr) {
     return {&so, addr - so.begin};
 }
 
-saved_backtrace current_backtrace() noexcept {
-    saved_backtrace::vector_type v;
+simple_backtrace current_backtrace_tasklocal() noexcept {
+    simple_backtrace::vector_type v;
     backtrace([&] (frame f) {
         if (v.size() < v.capacity()) {
             v.emplace_back(std::move(f));
         }
     });
-    return saved_backtrace(std::move(v), current_scheduling_group());
+    return simple_backtrace(std::move(v));
 }
 
-size_t saved_backtrace::hash() const {
+size_t simple_backtrace::hash() const {
     size_t h = 0;
     for (auto f : _frames) {
         h = ((h << 5) - h) ^ (f.so->begin + f.addr);
     }
     return h;
+}
+
+size_t tasktrace::hash() const {
+    size_t hash = 0;
+    for (auto&& sb : _prev) {
+        hash *= 31;
+        std::visit(make_visitor([&] (const shared_backtrace& sb) {
+            hash ^= sb->hash();
+        }, [&] (const task_entry& f) {
+            hash ^= f.hash();
+        }), sb);
+    }
+    return hash;
 }
 
 std::ostream& operator<<(std::ostream& out, const frame& f) {
@@ -105,12 +121,68 @@ std::ostream& operator<<(std::ostream& out, const frame& f) {
     return out;
 }
 
-std::ostream& operator<<(std::ostream& out, const saved_backtrace& b) {
+std::ostream& operator<<(std::ostream& out, const simple_backtrace& b) {
     for (auto f : b._frames) {
         out << "   " << f << "\n";
     }
     return out;
 }
 
+std::ostream& operator<<(std::ostream& out, const tasktrace& b) {
+    out << b._main;
+    for (auto&& e : b._prev) {
+        out << "   --------\n";
+        std::visit(make_visitor([&] (const shared_backtrace& sb) {
+            out << sb;
+        }, [&] (const task_entry& f) {
+            out << "   " << f << "\n";
+        }), e);
+    }
+    return out;
+}
+
+std::ostream& operator<<(std::ostream& out, const task_entry& e) {
+    return out << seastar::pretty_type_name(*e._task_type);
+}
+
+tasktrace current_tasktrace() noexcept {
+    auto main = current_backtrace_tasklocal();
+
+    tasktrace::vector_type prev;
+    if (local_engine && g_current_context) {
+        task* tsk = nullptr;
+
+        thread_context* thread = thread_impl::get();
+        if (thread) {
+            tsk = thread->waiting_task();
+        } else {
+            tsk = local_engine->current_task();
+        }
+
+        while (tsk && prev.size() < prev.max_size()) {
+            const std::type_info& ti = typeid(*tsk);
+            prev.push_back(task_entry(ti));
+            tsk = tsk->waiting_task();
+        }
+    }
+
+    return tasktrace(std::move(main), std::move(prev), current_scheduling_group());
+}
+
+saved_backtrace current_backtrace() noexcept {
+    return current_tasktrace();
+}
+
+tasktrace::tasktrace(simple_backtrace main, tasktrace::vector_type prev, scheduling_group sg)
+    : _main(std::move(main))
+    , _prev(std::move(prev))
+    , _sg(sg)
+{ }
+
+bool tasktrace::operator==(const tasktrace& o) const {
+    return _main == o._main && _prev == o._prev;
+}
+
+tasktrace::~tasktrace() {}
 
 } // namespace seastar
