@@ -568,8 +568,14 @@ resources allocate(configuration c) {
     auto cpuset_procs = c.cpu_set ? c.cpu_set->size() : nr_processing_units();
     auto procs = c.cpus.value_or(cpuset_procs);
     ret.cpus.reserve(procs);
-    for (unsigned i = 0; i < procs; ++i) {
-        ret.cpus.push_back(cpu{i, {{mem / procs, 0}}});
+    if (c.cpu_set) {
+        for (auto cpuid : *c.cpu_set) {
+            ret.cpus.push_back(cpu{cpuid, {{mem / procs, 0}}});
+        }
+    } else {
+        for (unsigned i = 0; i < procs; ++i) {
+            ret.cpus.push_back(cpu{i, {{mem / procs, 0}}});
+        }
     }
 
     ret.ioq_topology.emplace(0, allocate_io_queues(c, ret.cpus));
