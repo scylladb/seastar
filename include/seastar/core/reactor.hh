@@ -316,7 +316,7 @@ private:
         void register_stats();
     };
 
-    circular_buffer<internal::io_request> _pending_aio;
+    circular_buffer<internal::io_request> _pending_io;
     boost::container::static_vector<std::unique_ptr<task_queue>, max_scheduling_groups()> _task_queues;
     std::vector<scheduling_group_key_config> _scheduling_group_key_configs;
     int64_t _last_vruntime = 0;

@@ -130,7 +130,7 @@ aio_storage_context::handle_aio_error(linux_abi::iocb* iocb, int ec) {
             _iocb_pool.put_one(iocb);
             desc->complete_with(-EBADF);
             // if EBADF, it means that the first request has a bad fd, so
-            // we will only remove it from _pending_aio and try again.
+            // we will only remove it from _pending_io and try again.
             return 1;
         }
         default:
@@ -144,13 +144,13 @@ extern bool aio_nowait_supported;
 
 bool
 aio_storage_context::submit_work() {
-    size_t pending = _r->_pending_aio.size();
+    size_t pending = _r->_pending_io.size();
     size_t to_submit = 0;
     bool did_work = false;
 
     _submission_queue.resize(0);
     while ((pending > to_submit) && _iocb_pool.has_capacity()) {
-        auto& req = _r->_pending_aio[to_submit++];
+        auto& req = _r->_pending_io[to_submit++];
         auto& io = _iocb_pool.get_one();
         prepare_iocb(req, io);
 
@@ -176,7 +176,7 @@ aio_storage_context::submit_work() {
         }
         submitted += nr_consumed;
     }
-    _r->_pending_aio.erase(_r->_pending_aio.begin(), _r->_pending_aio.begin() + submitted);
+    _r->_pending_io.erase(_r->_pending_io.begin(), _r->_pending_io.begin() + submitted);
 
     if (!_pending_aio_retry.empty()) {
         auto retries = std::exchange(_pending_aio_retry, {});

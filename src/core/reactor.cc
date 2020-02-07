@@ -1465,7 +1465,7 @@ sstring io_request::opname() const {
 void
 reactor::submit_io(kernel_completion* desc, io_request req) {
     req.attach_kernel_completion(desc);
-    _pending_aio.push_back(std::move(req));
+    _pending_io.push_back(std::move(req));
 }
 
 bool
