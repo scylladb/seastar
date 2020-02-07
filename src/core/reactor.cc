@@ -2148,7 +2148,9 @@ void reactor::run_tasks(task_queue& tq) {
         tasks.pop_front();
         STAP_PROBE(seastar, reactor_run_tasks_single_start);
         task_histogram_add_task(*tsk);
+        _current_task = tsk;
         tsk->run_and_dispose();
+        _current_task = nullptr;
         STAP_PROBE(seastar, reactor_run_tasks_single_end);
         ++tq._tasks_processed;
         ++_global_tasks_processed;
