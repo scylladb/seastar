@@ -154,7 +154,7 @@ public:
         return _s->sendto(addr, buf, len);
     }
     file_desc& get_file_desc() const { return _s->fd; }
-    void shutdown(int how) { _s->fd.shutdown(how); }
+    void shutdown(int how);
     void close() { _s.reset(); }
 protected:
     int get_fd() const { return _s->fd.get(); }
