@@ -184,6 +184,7 @@ private:
     friend class internal::reactor_stall_sampler;
     friend class reactor_backend_epoll;
     friend class reactor_backend_aio;
+    friend class reactor_backend_selector;
 public:
     class poller {
         std::unique_ptr<pollfn> _pollfn;
