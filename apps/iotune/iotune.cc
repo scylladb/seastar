@@ -59,11 +59,6 @@ logger iotune_logger("iotune");
 using iotune_clock = std::chrono::steady_clock;
 static thread_local std::default_random_engine random_generator(std::chrono::duration_cast<std::chrono::nanoseconds>(iotune_clock::now().time_since_epoch()).count());
 
-template <typename Type>
-Type read_sys_file_as(fs::path sys_file) {
-    return boost::lexical_cast<Type>(read_first_line(sys_file));
-}
-
 void check_device_properties(fs::path dev_sys_file) {
     auto sched_file = dev_sys_file / "queue" / "scheduler";
     auto sched_string = read_first_line(sched_file);
@@ -85,7 +80,7 @@ void check_device_properties(fs::path dev_sys_file) {
     }
 
     auto nomerges_file = dev_sys_file / "queue" / "nomerges";
-    auto nomerges = read_sys_file_as<unsigned>(nomerges_file);
+    auto nomerges = read_first_line_as<unsigned>(nomerges_file);
     if (nomerges != 2u) {
         iotune_logger.warn("nomerges for {} set to {}. It is recommend to set it to 2 before evaluation so that merges are disabled. Results can be skewed otherwise.",
                 nomerges_file.string(), nomerges);
@@ -129,10 +124,10 @@ struct evaluation_directory {
             } else {
                 check_device_properties(sys_file);
                 auto queue_dir = sys_file / "queue";
-                auto disk_min_io_size = read_sys_file_as<uint64_t>(queue_dir / "minimum_io_size");
+                auto disk_min_io_size = read_first_line_as<uint64_t>(queue_dir / "minimum_io_size");
 
                 _min_data_transfer_size = std::max(_min_data_transfer_size, disk_min_io_size);
-                _max_iodepth += read_sys_file_as<uint64_t>(queue_dir / "nr_requests");
+                _max_iodepth += read_first_line_as<uint64_t>(queue_dir / "nr_requests");
                 _disks_per_array++;
             }
         } catch (std::system_error& se) {
