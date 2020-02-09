@@ -20,6 +20,7 @@
  */
 
 #include <seastar/core/reactor.hh>
+#include <seastar/core/thread_cputime_clock.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <atomic>
@@ -45,8 +46,8 @@ public:
 };
 
 void spin(std::chrono::duration<double> how_much) {
-    auto end = std::chrono::steady_clock::now() + how_much;
-    while (std::chrono::steady_clock::now() < end) {
+    auto end = thread_cputime_clock::now() + how_much;
+    while (thread_cputime_clock::now() < end) {
         // spin!
     }
 }
