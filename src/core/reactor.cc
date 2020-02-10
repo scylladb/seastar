@@ -251,7 +251,7 @@ future<std::tuple<pollable_fd, socket_address>>
 reactor::accept(pollable_fd_state& listenfd) {
     return readable_or_writeable(listenfd).then([this, &listenfd] () mutable {
         socket_address sa;
-        socklen_t sl = sa.length();
+        socklen_t& sl = sa.addr_length;
         listenfd.maybe_no_more_recv();
         auto maybe_fd = listenfd.fd.try_accept(sa, sl, SOCK_NONBLOCK | SOCK_CLOEXEC);
         if (!maybe_fd) {
