@@ -44,7 +44,7 @@ void path_description::set(routes& _routes, handler_base* handler) const {
                 rule->add_param(i.name, i.type == url_component_type::PARAM_UNTIL_END_OF_PATH);
             }
         }
-        _routes.add(rule, operations.method);
+        _cookie = _routes.add_cookie(rule, operations.method);
     }
 }
 
@@ -55,6 +55,15 @@ void path_description::set(routes& _routes,
 
 void path_description::set(routes& _routes, const future_json_function& f) const {
     set(_routes, new function_handler(f));
+}
+
+void path_description::unset(routes& _routes) const {
+    if (params.size() == 0) {
+        _routes.drop(operations.method, path);
+    } else {
+        auto rule = _routes.del_cookie(_cookie, operations.method);
+        delete rule;
+    }
 }
 
 path_description::path_description(const sstring& path, operation_type method,

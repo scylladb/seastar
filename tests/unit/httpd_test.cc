@@ -92,6 +92,44 @@ SEASTAR_TEST_CASE(test_match_rule_order)
     return make_ready_future<>();
 }
 
+SEASTAR_TEST_CASE(test_put_drop_rule)
+{
+    routes rts;
+    handl* h = new handl();
+    parameters params;
+
+    {
+        auto reg = handler_registration(rts, *h, "/hello", operation_type::GET);
+        auto res = rts.get_handler(operation_type::GET, "/hello", params);
+        BOOST_REQUIRE_EQUAL(res, h);
+    }
+
+    auto res = rts.get_handler(operation_type::GET, "/hello", params);
+    httpd::handler_base* nl = nullptr;
+    BOOST_REQUIRE_EQUAL(res, nl);
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_add_del_cookie)
+{
+    routes rts;
+    handl* h = new handl();
+    match_rule mr(h);
+    mr.add_str("/hello");
+    parameters params;
+
+    {
+        auto reg = rule_registration(rts, mr, operation_type::GET);
+        auto res = rts.get_handler(operation_type::GET, "/hello", params);
+        BOOST_REQUIRE_EQUAL(res, h);
+    }
+
+    auto res = rts.get_handler(operation_type::GET, "/hello", params);
+    httpd::handler_base* nl = nullptr;
+    BOOST_REQUIRE_EQUAL(res, nl);
+    return make_ready_future<>();
+}
+
 SEASTAR_TEST_CASE(test_formatter)
 {
     BOOST_REQUIRE_EQUAL(json::formatter::to_json(true), "true");

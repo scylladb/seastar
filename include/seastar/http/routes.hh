@@ -97,6 +97,13 @@ public:
     }
 
     /**
+     * removing a handler from exact match
+     * @param url the url to match (note that url should start with /)
+     * @return the current handler (to be removed by caller)
+     */
+    handler_base* drop(operation_type type, const sstring& url);
+
+    /**
      * add a rule to be used.
      * rules are search only if an exact match was not found.
      * rules are search by the order they were added.
@@ -205,6 +212,26 @@ public:
      *
      */
     void add_alias(const path_description& old_path, const path_description& new_path);
+
+    /**
+     * Add a rule to be used.
+     * @param rule a rule to add
+     * @param type the operation type
+     * @return a cookie using which the rule can be removed
+     */
+    rule_cookie add_cookie(match_rule* rule, operation_type type) {
+        auto pos = _rover++;
+        _rules[type][pos] = rule;
+        return pos;
+    }
+
+    /**
+     * Del a rule by cookie
+     * @param cookie a cookie returned previously by add_cookie
+     * @param type the operation type
+     * @return the pointer to the rule
+     */
+    match_rule* del_cookie(rule_cookie cookie, operation_type type);
 };
 
 /**
@@ -214,6 +241,55 @@ public:
  * @param param the parameter to look for
  */
 void verify_param(const httpd::request& req, const sstring& param);
+
+/**
+ * The handler_registration object facilitates registration and auto
+ * unregistration of an exact-match handler_base into \ref routes "routes"
+ */
+class handler_registration {
+    routes& _routes;
+    const sstring& _url;
+    operation_type _op;
+
+public:
+    /**
+     * Registers the handler_base into routes with routes::put
+     * @param rs the routes object reference
+     * @param handler the desire handler
+     * @param url the url to match
+     * @param type the operation type
+     */
+    handler_registration(routes& rs, handler_base& h, const sstring& url, operation_type op = GET);
+
+    /**
+     * Unregisters the handler from routes with routes::drop
+     */
+    ~handler_registration();
+};
+
+/**
+ * The rule_registration object facilitates registration and auto
+ * unregistration of a match_rule handler into \ref routes "routes"
+ */
+class rule_registration {
+    routes& _routes;
+    operation_type _op;
+    routes::rule_cookie _cookie;
+
+public:
+    /**
+     * Registers the match_rule into routes with routes::add_cookie
+     * @param rs the routes object reference
+     * @param rule a rule to add
+     * @param type the operation type
+     */
+    rule_registration(routes& rs, match_rule& rule, operation_type = GET);
+
+    /**
+     * Unregisters the rule from routes with routes::del_cookie
+     */
+    ~rule_registration();
+};
 
 }
 
