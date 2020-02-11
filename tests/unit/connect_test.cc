@@ -17,7 +17,7 @@ SEASTAR_TEST_CASE(test_connection_attempt_is_shutdown) {
             } catch (...) {}
         });
     unconn.shutdown();
-    return f;
+    return f.finally([unconn = std::move(unconn)] {});
 }
 
 SEASTAR_TEST_CASE(test_unconnected_socket_shutsdown_established_connection) {
