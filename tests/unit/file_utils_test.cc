@@ -150,3 +150,78 @@ SEASTAR_THREAD_TEST_CASE(test_recursive_remove_directory) {
     recursive_remove_directory(base.path()).get();
     BOOST_REQUIRE(!file_exists(base.path().native()).get0());
 }
+
+SEASTAR_TEST_CASE(test_make_tmp_dir) {
+    return make_tmp_dir().then([] (tmp_dir td) {
+        return async([td = std::move(td)] () mutable {
+            const sstring tmp_path = td.get_path().native();
+            BOOST_REQUIRE(file_exists(tmp_path).get0());
+            td.remove().get();
+            BOOST_REQUIRE(!file_exists(tmp_path).get0());
+        });
+    });
+}
+
+SEASTAR_THREAD_TEST_CASE(test_tmp_dir) {
+    size_t expected;
+    size_t actual;
+    tmp_dir::do_with([&] (tmp_dir& td) {
+        return tmp_file::do_with(td.get_path(), [&] (tmp_file& tf) {
+            auto& f = tf.get_file();
+            auto buf = temporary_buffer<char>::aligned(f.memory_dma_alignment(), f.memory_dma_alignment());
+            return do_with(std::move(buf), [&] (auto& buf) mutable {
+                expected = buf.size();
+                return f.dma_write(0, buf.get(), buf.size()).then([&] (size_t written) {
+                    actual = written;
+                    return make_ready_future<>();
+                });
+            });
+        });
+    }).get();
+    BOOST_REQUIRE_EQUAL(expected , actual);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_tmp_dir_with_path) {
+    size_t expected;
+    size_t actual;
+    tmp_dir::do_with(".", [&] (tmp_dir& td) {
+        return tmp_file::do_with(td.get_path(), [&] (tmp_file& tf) {
+            auto& f = tf.get_file();
+            auto buf = temporary_buffer<char>::aligned(f.memory_dma_alignment(), f.memory_dma_alignment());
+            return do_with(std::move(buf), [&] (auto& buf) mutable {
+                expected = buf.size();
+                return tf.get_file().dma_write(0, buf.get(), buf.size()).then([&] (size_t written) {
+                    actual = written;
+                    return make_ready_future<>();
+                });
+            });
+        });
+    }).get();
+    BOOST_REQUIRE_EQUAL(expected , actual);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_tmp_dir_with_non_existing_path) {
+    BOOST_REQUIRE_EXCEPTION(tmp_dir::do_with("/tmp/this_name_should_not_exist", [] (tmp_dir&) {}).get(),
+            std::system_error, testing::exception_predicate::message_contains("No such file or directory"));
+}
+
+SEASTAR_TEST_CASE(tmp_dir_with_thread_test) {
+    return tmp_dir::do_with_thread([] (tmp_dir& td) {
+        tmp_file tf = make_tmp_file(td.get_path()).get0();
+        auto& f = tf.get_file();
+        auto buf = temporary_buffer<char>::aligned(f.memory_dma_alignment(), f.memory_dma_alignment());
+        auto expected = buf.size();
+        auto actual = f.dma_write(0, buf.get(), buf.size()).get0();
+        BOOST_REQUIRE_EQUAL(expected, actual);
+        tf.close().get();
+        tf.remove().get();
+    });
+}
+
+SEASTAR_TEST_CASE(tmp_dir_with_leftovers_test) {
+    return tmp_dir::do_with_thread([] (tmp_dir& td) {
+        fs::path path = td.get_path() / "testfile.tmp";
+        touch_file(path.native()).get();
+        BOOST_REQUIRE(file_exists(path.native()).get0());
+    });
+}
