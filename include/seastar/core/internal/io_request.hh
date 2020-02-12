@@ -26,7 +26,6 @@
 #include <seastar/core/internal/io_desc.hh>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <fmt/format.h>
 
 namespace seastar {
 namespace internal {
