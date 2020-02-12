@@ -3803,7 +3803,9 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     }
 
     bool heapprof_enabled = configuration.count("heapprof");
-    memory::set_heap_profiling_enabled(heapprof_enabled);
+    if (heapprof_enabled) {
+        memory::set_heap_profiling_enabled(heapprof_enabled);
+    }
 
 #ifdef SEASTAR_HAVE_DPDK
     if (smp::_using_dpdk) {
@@ -3870,7 +3872,9 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
                 smp::pin(allocation.cpu_id);
             }
             memory::configure(allocation.mem, mbind, hugepages_path);
-            memory::set_heap_profiling_enabled(heapprof_enabled);
+            if (heapprof_enabled) {
+                memory::set_heap_profiling_enabled(heapprof_enabled);
+            }
             sigset_t mask;
             sigfillset(&mask);
             for (auto sig : { SIGSEGV }) {
