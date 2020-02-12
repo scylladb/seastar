@@ -296,7 +296,7 @@ reactor::do_write_some(pollable_fd_state& fd, const void* buffer, size_t len) {
 
 future<size_t>
 reactor::do_write_some(pollable_fd_state& fd, net::packet& p) {
-    return engine().writeable(fd).then([this, &fd, &p] () mutable {
+    return writeable(fd).then([this, &fd, &p] () mutable {
         static_assert(offsetof(iovec, iov_base) == offsetof(net::fragment, base) &&
             sizeof(iovec::iov_base) == sizeof(net::fragment::base) &&
             offsetof(iovec, iov_len) == offsetof(net::fragment, size) &&
