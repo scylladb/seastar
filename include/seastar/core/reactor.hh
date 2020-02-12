@@ -158,33 +158,39 @@ private:
     using task_queue_list = circular_buffer_fixed_capacity<task_queue*, max_scheduling_groups()>;
     using pollfn = seastar::pollfn;
 
-    class io_pollfn;
     class signal_pollfn;
-    class aio_batch_submit_pollfn;
     class batch_flush_pollfn;
     class smp_pollfn;
     class drain_cross_cpu_freelist_pollfn;
     class lowres_timer_pollfn;
     class manual_timer_pollfn;
     class epoll_pollfn;
+    class reap_kernel_completions_pollfn;
+    class kernel_submit_work_pollfn;
+    class io_queue_submission_pollfn;
     class syscall_pollfn;
     class execution_stage_pollfn;
-    friend io_pollfn;
     friend signal_pollfn;
-    friend aio_batch_submit_pollfn;
     friend batch_flush_pollfn;
     friend smp_pollfn;
     friend drain_cross_cpu_freelist_pollfn;
     friend lowres_timer_pollfn;
     friend class manual_clock;
     friend class epoll_pollfn;
+    friend class reap_kernel_completions_pollfn;
+    friend class kernel_submit_work_pollfn;
+    friend class io_queue_submission_pollfn;
     friend class syscall_pollfn;
     friend class execution_stage_pollfn;
     friend class file_data_source_impl; // for fstream statistics
     friend class internal::reactor_stall_sampler;
+    friend class preempt_io_context;
+    friend class hrtimer_aio_completion;
+    friend class task_quota_aio_completion;
     friend class reactor_backend_epoll;
     friend class reactor_backend_aio;
     friend class reactor_backend_selector;
+    friend class aio_storage_context;
 public:
     class poller {
         std::unique_ptr<pollfn> _pollfn;
@@ -248,18 +254,6 @@ private:
     static constexpr unsigned max_aio = max_aio_per_queue * max_queues;
     friend disk_config_params;
 
-
-    class iocb_pool {
-        alignas(cache_line_size) std::array<internal::linux_abi::iocb, max_aio> _iocb_pool;
-        semaphore _sem{0};
-        std::stack<internal::linux_abi::iocb*, boost::container::static_vector<internal::linux_abi::iocb*, max_aio>> _free_iocbs;
-    public:
-        iocb_pool();
-        future<internal::linux_abi::iocb*> get_one();
-        void put_one(internal::linux_abi::iocb* io);
-        unsigned outstanding() const;
-    };
-
     // Not all reactors have IO queues. If the number of IO queues is less than the number of shards,
     // some reactors will talk to foreign io_queues. If this reactor holds a valid IO queue, it will
     // be stored here.
@@ -290,10 +284,6 @@ private:
     timer_set<timer<lowres_clock>, &timer<lowres_clock>::_link>::timer_list_t _expired_lowres_timers;
     timer_set<timer<manual_clock>, &timer<manual_clock>::_link> _manual_timers;
     timer_set<timer<manual_clock>, &timer<manual_clock>::_link>::timer_list_t _expired_manual_timers;
-    internal::linux_abi::aio_context_t _io_context;
-    iocb_pool _iocb_pool;
-    boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _pending_aio;
-    boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _pending_aio_retry;
     io_stats _io_stats;
     uint64_t _fsyncs = 0;
     uint64_t _cxx_exceptions = 0;
@@ -325,6 +315,8 @@ private:
     private:
         void register_stats();
     };
+
+    circular_buffer<internal::io_request> _pending_io;
     boost::container::static_vector<std::unique_ptr<task_queue>, max_scheduling_groups()> _task_queues;
     std::vector<scheduling_group_key_config> _scheduling_group_key_configs;
     int64_t _last_vruntime = 0;
@@ -452,6 +444,20 @@ private:
     void start_handling_signal();
     void reset_preemption_monitor();
     void service_highres_timer();
+
+    future<std::tuple<pollable_fd, socket_address>>
+    do_accept(pollable_fd_state& listen_fd);
+    future<> do_connect(pollable_fd_state& pfd, socket_address& sa);
+
+    future<size_t>
+    do_read_some(pollable_fd_state& fd, void* buffer, size_t size);
+    future<size_t>
+    do_read_some(pollable_fd_state& fd, const std::vector<iovec>& iov);
+
+    future<size_t>
+    do_write_some(pollable_fd_state& fd, const void* buffer, size_t size);
+    future<size_t>
+    do_write_some(pollable_fd_state& fd, net::packet& p);
 public:
     static boost::program_options::options_description get_options_description(reactor_config cfg);
     explicit reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg);
@@ -499,13 +505,6 @@ public:
     lw_shared_ptr<pollable_fd> make_pollable_fd(socket_address sa, int proto);
 
     future<> posix_connect(lw_shared_ptr<pollable_fd> pfd, socket_address sa, socket_address local);
-
-    future<std::tuple<pollable_fd, socket_address>> accept(pollable_fd_state& listen_fd);
-
-    future<size_t> read_some(pollable_fd_state& fd, void* buffer, size_t size);
-    future<size_t> read_some(pollable_fd_state& fd, const std::vector<iovec>& iov);
-
-    future<size_t> write_some(pollable_fd_state& fd, const void* buffer, size_t size);
 
     future<> write_all(pollable_fd_state& fd, const void* buffer, size_t size);
 
@@ -611,7 +610,6 @@ public:
     network_stack& net() { return *_network_stack; }
     shard_id cpu_id() const { return _id; }
 
-    void start_epoll();
     void sleep();
 
     steady_clock_type::duration total_idle_time();
@@ -639,8 +637,6 @@ private:
     void register_metrics();
     future<> write_all_part(pollable_fd_state& fd, const void* buffer, size_t size, size_t completed);
 
-    bool process_io();
-
     future<> fdatasync(int fd);
 
     void add_timer(timer<steady_clock_type>*);
@@ -658,6 +654,7 @@ private:
     friend class alien::message_queue;
     friend class pollable_fd;
     friend class pollable_fd_state;
+    friend class pollable_fd_state_deleter;
     friend class posix_file_impl;
     friend class blockdev_file_impl;
     friend class readable_eventfd;
@@ -694,11 +691,9 @@ private:
     friend future<typename function_traits<Reducer>::return_type>
         reduce_scheduling_group_specific(Reducer reducer, Initial initial_val, scheduling_group_key key);
 public:
-    bool wait_and_process(int timeout = 0, const sigset_t* active_sigmask = nullptr);
     future<> readable(pollable_fd_state& fd);
     future<> writeable(pollable_fd_state& fd);
     future<> readable_or_writeable(pollable_fd_state& fd);
-    void forget(pollable_fd_state& fd);
     void abort_reader(pollable_fd_state& fd);
     void abort_writer(pollable_fd_state& fd);
     void enable_timer(steady_clock_type::time_point when);
@@ -746,11 +741,6 @@ inline reactor& engine() {
 
 inline bool engine_is_ready() {
     return local_engine != nullptr;
-}
-
-inline
-pollable_fd_state::~pollable_fd_state() {
-    engine().forget(*this);
 }
 
 inline

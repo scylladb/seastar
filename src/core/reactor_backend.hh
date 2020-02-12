@@ -26,12 +26,14 @@
 #include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/core/internal/poll.hh>
 #include <seastar/core/linux-aio.hh>
+#include <seastar/core/cacheline.hh>
 #include <sys/time.h>
 #include <signal.h>
 #include <thread>
 #include <stack>
 #include <boost/any.hpp>
 #include <boost/program_options.hpp>
+#include <boost/container/static_vector.hpp>
 
 #ifdef HAVE_OSV
 #include <osv/newpoll.hh>
@@ -41,6 +43,109 @@ namespace seastar {
 
 class reactor;
 
+// FIXME: merge it with storage context below. At this point the
+// main thing to do is unify the iocb list
+struct aio_general_context {
+    explicit aio_general_context(size_t nr);
+    ~aio_general_context();
+    internal::linux_abi::aio_context_t io_context{};
+    std::unique_ptr<internal::linux_abi::iocb*[]> iocbs;
+    internal::linux_abi::iocb** last = iocbs.get();
+    void queue(internal::linux_abi::iocb* iocb);
+    size_t flush();
+};
+
+class aio_storage_context {
+    static constexpr unsigned max_aio = 1024;
+
+    class iocb_pool {
+        alignas(cache_line_size) std::array<internal::linux_abi::iocb, max_aio> _iocb_pool;
+        std::stack<internal::linux_abi::iocb*, boost::container::static_vector<internal::linux_abi::iocb*, max_aio>> _free_iocbs;
+    public:
+        iocb_pool();
+        internal::linux_abi::iocb& get_one();
+        void put_one(internal::linux_abi::iocb* io);
+        unsigned outstanding() const;
+        bool has_capacity() const;
+    };
+
+    reactor* _r;
+    internal::linux_abi::aio_context_t _io_context;
+    boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _submission_queue;
+    iocb_pool _iocb_pool;
+    size_t handle_aio_error(internal::linux_abi::iocb* iocb, int ec);
+    boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _pending_aio_retry;
+public:
+    explicit aio_storage_context(reactor* r);
+    ~aio_storage_context();
+
+    bool reap_completions();
+    bool submit_work();
+    bool can_sleep() const;
+};
+
+class completion_with_iocb {
+    bool _in_context = false;
+    internal::linux_abi::iocb _iocb;
+protected:
+    completion_with_iocb(int fd, int events, void* user_data);
+    void completed() {
+        _in_context = false;
+    }
+public:
+    void maybe_queue(aio_general_context& context);
+};
+
+class fd_kernel_completion : public kernel_completion {
+protected:
+    reactor* _r;
+    file_desc& _fd;
+    fd_kernel_completion(reactor* r, file_desc& fd) : _r(r), _fd(fd) {}
+public:
+    file_desc& fd() {
+        return _fd;
+    }
+};
+
+struct hrtimer_aio_completion : public fd_kernel_completion,
+                                public completion_with_iocb {
+    hrtimer_aio_completion(reactor* r, file_desc& fd);
+    virtual void complete_with(ssize_t value) override;
+};
+
+struct task_quota_aio_completion : public fd_kernel_completion,
+                                   public completion_with_iocb {
+    task_quota_aio_completion(reactor* r, file_desc& fd);
+    virtual void complete_with(ssize_t value) override;
+};
+
+struct smp_wakeup_aio_completion : public fd_kernel_completion,
+                                   public completion_with_iocb {
+    smp_wakeup_aio_completion(reactor* r, file_desc& fd);
+    virtual void complete_with(ssize_t value) override;
+};
+
+// Common aio-based Implementation of the task quota and hrtimer.
+class preempt_io_context {
+    reactor* _r;
+    aio_general_context _context{2};
+
+    task_quota_aio_completion _task_quota_aio_completion;
+    hrtimer_aio_completion _hrtimer_aio_completion;
+public:
+    preempt_io_context(reactor* r, file_desc& task_quota, file_desc& hrtimer);
+    bool service_preempting_io();
+
+    size_t flush() {
+        return _context.flush();
+    }
+
+    void reset_preemption_monitor();
+    void request_preemption();
+    void start_tick();
+    void stop_tick();
+};
+
 // The "reactor_backend" interface provides a method of waiting for various
 // basic events on one thread. We have one implementation based on epoll and
 // file-descriptors (reactor_backend_epoll) and one implementation based on
@@ -48,19 +153,36 @@ class reactor;
 class reactor_backend {
 public:
     virtual ~reactor_backend() {};
-    // wait_and_process() waits for some events to become available, and
-    // processes one or more of them. If block==false, it doesn't wait,
-    // and just processes events that have already happened, if any.
-    // After the optional wait, just before processing the events, the
-    // pre_process() function is called.
-    virtual bool wait_and_process(int timeout = -1, const sigset_t* active_sigmask = nullptr) = 0;
+    // The methods below are used to communicate with the kernel.
+    // reap_kernel_completions() will complete any previous async
+    // work that is ready to consume.
+    // kernel_submit_work() submit new events that were produced.
+    // Both of those methods are asynchronous and will never block.
+    //
+    // wait_and_process_events on the other hand may block, and is called when
+    // we are about to go to sleep.
+    virtual bool reap_kernel_completions() = 0;
+    virtual bool kernel_submit_work() = 0;
+    virtual bool kernel_events_can_sleep() const = 0;
+    virtual void wait_and_process_events(const sigset_t* active_sigmask = nullptr) = 0;
+
     // Methods that allow polling on file descriptors. This will only work on
     // reactor_backend_epoll. Other reactor_backend will probably abort if
     // they are called (which is fine if no file descriptors are waited on):
     virtual future<> readable(pollable_fd_state& fd) = 0;
     virtual future<> writeable(pollable_fd_state& fd) = 0;
     virtual future<> readable_or_writeable(pollable_fd_state& fd) = 0;
-    virtual void forget(pollable_fd_state& fd) = 0;
+    virtual void forget(pollable_fd_state& fd) noexcept = 0;
+
+    virtual future<std::tuple<pollable_fd, socket_address>>
+    accept(pollable_fd_state& listenfd) = 0;
+    virtual future<> connect(pollable_fd_state& fd, socket_address& sa) = 0;
+    virtual void shutdown(pollable_fd_state& fd, int how) = 0;
+    virtual future<size_t> read_some(pollable_fd_state& fd, void* buffer, size_t len) = 0;
+    virtual future<size_t> read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) = 0;
+    virtual future<size_t> write_some(pollable_fd_state& fd, net::packet& p) = 0;
+    virtual future<size_t> write_some(pollable_fd_state& fd, const void* buffer, size_t len) = 0;
+
     virtual void signal_received(int signo, siginfo_t* siginfo, void* ignore) = 0;
     virtual void start_tick() = 0;
     virtual void stop_tick() = 0;
@@ -69,7 +191,7 @@ public:
     virtual void request_preemption() = 0;
     virtual void start_handling_signal() = 0;
 
-    virtual std::unique_ptr<pollable_fd_state> make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) = 0;
+    virtual pollable_fd_state_ptr make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) = 0;
 };
 
 // reactor backend using file-descriptor & epoll, suitable for running on
@@ -84,14 +206,31 @@ private:
     file_desc _epollfd;
     future<> get_epoll_future(pollable_fd_state& fd, int event);
     void complete_epoll_event(pollable_fd_state& fd, int events, int event);
+    aio_storage_context _storage_context;
+    bool wait_and_process(int timeout, const sigset_t* active_sigmask);
+    bool _need_epoll_events = false;
 public:
     explicit reactor_backend_epoll(reactor* r);
     virtual ~reactor_backend_epoll() override;
-    virtual bool wait_and_process(int timeout, const sigset_t* active_sigmask) override;
+
+    virtual bool reap_kernel_completions() override;
+    virtual bool kernel_submit_work() override;
+    virtual bool kernel_events_can_sleep() const override;
+    virtual void wait_and_process_events(const sigset_t* active_sigmask) override;
     virtual future<> readable(pollable_fd_state& fd) override;
     virtual future<> writeable(pollable_fd_state& fd) override;
     virtual future<> readable_or_writeable(pollable_fd_state& fd) override;
-    virtual void forget(pollable_fd_state& fd) override;
+    virtual void forget(pollable_fd_state& fd) noexcept override;
+
+    virtual future<std::tuple<pollable_fd, socket_address>>
+    accept(pollable_fd_state& listenfd) override;
+    virtual future<> connect(pollable_fd_state& fd, socket_address& sa) override;
+    virtual void shutdown(pollable_fd_state& fd, int how) override;
+    virtual future<size_t> read_some(pollable_fd_state& fd, void* buffer, size_t len) override;
+    virtual future<size_t> read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) override;
+    virtual future<size_t> write_some(pollable_fd_state& fd, net::packet& p) override;
+    virtual future<size_t> write_some(pollable_fd_state& fd, const void* buffer, size_t len) override;
+
     virtual void signal_received(int signo, siginfo_t* siginfo, void* ignore) override;
     virtual void start_tick() override;
     virtual void stop_tick() override;
@@ -100,60 +239,45 @@ public:
     virtual void request_preemption() override;
     virtual void start_handling_signal() override;
 
-    virtual std::unique_ptr<pollable_fd_state>
+    virtual pollable_fd_state_ptr
     make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override;
 };
 
 class reactor_backend_aio : public reactor_backend {
     static constexpr size_t max_polls = 10000;
     reactor* _r;
+    file_desc _hrtimer_timerfd;
+    aio_storage_context _storage_context;
     // We use two aio contexts, one for preempting events (the timer tick and
     // signals), the other for non-preempting events (fd poll).
-    struct context {
-        explicit context(size_t nr);
-        ~context();
-        internal::linux_abi::aio_context_t io_context{};
-        std::unique_ptr<internal::linux_abi::iocb*[]> iocbs;
-        internal::linux_abi::iocb** last = iocbs.get();
-        void replenish(internal::linux_abi::iocb* iocb, bool& flag);
-        void queue(internal::linux_abi::iocb* iocb);
-        void flush();
-    };
-    context _preempting_io{2}; // Used for the timer tick and the high resolution timer
-    context _polling_io{max_polls}; // FIXME: unify with disk aio_context
-    file_desc _steady_clock_timer = make_timerfd();
-    internal::linux_abi::iocb _task_quota_timer_iocb;
-    internal::linux_abi::iocb _timerfd_iocb;
-    internal::linux_abi::iocb _smp_wakeup_iocb;
-    bool _task_quota_timer_in_preempting_io = false;
-    bool _timerfd_in_preempting_io = false;
-    bool _timerfd_in_polling_io = false;
-    bool _smp_wakeup_in_polling_io = false;
-private:
+    preempt_io_context _preempting_io; // Used for the timer tick and the high resolution timer
+    aio_general_context _polling_io{max_polls}; // FIXME: unify with disk aio_context
+    hrtimer_aio_completion _hrtimer_poll_completion;
+    smp_wakeup_aio_completion _smp_wakeup_aio_completion;
     static file_desc make_timerfd();
-    void process_task_quota_timer();
-    void process_timerfd();
-    void process_smp_wakeup();
-    bool service_preempting_io();
     bool await_events(int timeout, const sigset_t* active_sigmask);
-private:
-    class io_poll_poller : public seastar::pollfn {
-        reactor_backend_aio* _backend;
-    public:
-        explicit io_poll_poller(reactor_backend_aio* b);
-        virtual bool poll() override;
-        virtual bool pure_poll() override;
-        virtual bool try_enter_interrupt_mode() override;
-        virtual void exit_interrupt_mode() override;
-    };
 public:
     explicit reactor_backend_aio(reactor* r);
-    virtual bool wait_and_process(int timeout, const sigset_t* active_sigmask) override;
+
+    virtual bool reap_kernel_completions() override;
+    virtual bool kernel_submit_work() override;
+    virtual bool kernel_events_can_sleep() const override;
+    virtual void wait_and_process_events(const sigset_t* active_sigmask) override;
     future<> poll(pollable_fd_state& fd, int events);
     virtual future<> readable(pollable_fd_state& fd) override;
     virtual future<> writeable(pollable_fd_state& fd) override;
     virtual future<> readable_or_writeable(pollable_fd_state& fd) override;
-    virtual void forget(pollable_fd_state& fd) override;
+    virtual void forget(pollable_fd_state& fd) noexcept override;
+
+    virtual future<std::tuple<pollable_fd, socket_address>>
+    accept(pollable_fd_state& listenfd) override;
+    virtual future<> connect(pollable_fd_state& fd, socket_address& sa) override;
+    virtual void shutdown(pollable_fd_state& fd, int how) override;
+    virtual future<size_t> read_some(pollable_fd_state& fd, void* buffer, size_t len) override;
+    virtual future<size_t> read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) override;
+    virtual future<size_t> write_some(pollable_fd_state& fd, net::packet& p) override;
+    virtual future<size_t> write_some(pollable_fd_state& fd, const void* buffer, size_t len) override;
+
     virtual void signal_received(int signo, siginfo_t* siginfo, void* ignore) override;
     virtual void start_tick() override;
     virtual void stop_tick() override;
@@ -162,7 +286,7 @@ public:
     virtual void request_preemption() override;
     virtual void start_handling_signal() override;
 
-    virtual std::unique_ptr<pollable_fd_state>
+    virtual pollable_fd_state_ptr
     make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override;
 };
 
@@ -179,12 +303,26 @@ private:
 public:
     reactor_backend_osv();
     virtual ~reactor_backend_osv() override { }
-    virtual bool wait_and_process() override;
+
+    virtual bool reap_kernel_completions() override;
+    virtual bool kernel_submit_work() override;
+    virtual bool kernel_events_can_sleep() const override;
+    virtual void wait_and_process_events(const sigset_t* active_sigmask) override;
     virtual future<> readable(pollable_fd_state& fd) override;
     virtual future<> writeable(pollable_fd_state& fd) override;
-    virtual void forget(pollable_fd_state& fd) override;
+    virtual void forget(pollable_fd_state& fd) noexcept override;
+
+    virtual future<std::tuple<pollable_fd, socket_address>>
+    accept(pollable_fd_state& listenfd) override;
+    virtual future<> connect(pollable_fd_state& fd, socket_address& sa) override;
+    virtual void shutdown(pollable_fd_state& fd, int how) override;
+    virtual future<size_t> read_some(pollable_fd_state& fd, void* buffer, size_t len) override;
+    virtual future<size_t> read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) override;
+    virtual future<size_t> write_some(net::packet& p) override;
+    virtual future<size_t> write_some(pollable_fd_state& fd, const void* buffer, size_t len) override;
+
     void enable_timer(steady_clock_type::time_point when);
-    virtual std::unique_ptr<pollable_fd_state>
+    virtual pollable_fd_state_ptr
     make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override;
 };
 #endif /* HAVE_OSV */

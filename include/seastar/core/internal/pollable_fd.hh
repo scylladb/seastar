@@ -40,13 +40,21 @@ class packet;
 
 }
 
+class pollable_fd_state;
+
+struct pollable_fd_state_deleter {
+    void operator()(pollable_fd_state* fd) noexcept;
+};
+
+using pollable_fd_state_ptr = std::unique_ptr<pollable_fd_state, pollable_fd_state_deleter>;
+
 class pollable_fd_state {
 public:
+    virtual ~pollable_fd_state() {}
     struct speculation {
         int events = 0;
         explicit speculation(int epoll_events_guessed = 0) : events(epoll_events_guessed) {}
     };
-    virtual ~pollable_fd_state();
     pollable_fd_state(const pollable_fd_state&) = delete;
     void operator=(const pollable_fd_state&) = delete;
     void speculate_epoll(int events) { events_known |= events; }
@@ -74,6 +82,7 @@ public:
     void abort_reader();
     void abort_writer();
     future<std::tuple<pollable_fd, socket_address>> accept();
+    future<> connect(socket_address& sa);
     future<size_t> sendmsg(struct msghdr *msg);
     future<size_t> recvmsg(struct msghdr *msg);
     future<size_t> sendto(socket_address addr, const void* buf, size_t len);
@@ -132,6 +141,9 @@ public:
     future<std::tuple<pollable_fd, socket_address>> accept() {
         return _s->accept();
     }
+    future<> connect(socket_address& sa) {
+        return _s->connect(sa);
+    }
     future<size_t> sendmsg(struct msghdr *msg) {
         return _s->sendmsg(msg);
     }
@@ -142,7 +154,7 @@ public:
         return _s->sendto(addr, buf, len);
     }
     file_desc& get_file_desc() const { return _s->fd; }
-    void shutdown(int how) { _s->fd.shutdown(how); }
+    void shutdown(int how);
     void close() { _s.reset(); }
 protected:
     int get_fd() const { return _s->fd.get(); }
@@ -151,8 +163,9 @@ protected:
     friend class reactor;
     friend class readable_eventfd;
     friend class writeable_eventfd;
+    friend class aio_storage_context;
 private:
-    std::unique_ptr<pollable_fd_state> _s;
+    pollable_fd_state_ptr _s;
 };
 
 class writeable_eventfd;

@@ -96,6 +96,11 @@ public:
         _fd = -1;
     }
     int get() const { return _fd; }
+
+    static file_desc from_fd(int fd) {
+        return file_desc(fd);
+    }
+
     static file_desc open(sstring name, int flags, mode_t mode = 0) {
         int fd = ::open(name.c_str(), flags, mode);
         throw_system_error_on(fd == -1, "open");

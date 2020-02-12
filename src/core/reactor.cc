@@ -164,36 +164,6 @@ namespace seastar {
 seastar::logger seastar_logger("seastar");
 seastar::logger sched_logger("scheduler");
 
-reactor::iocb_pool::iocb_pool() {
-    for (unsigned i = 0; i != max_aio; ++i) {
-        _free_iocbs.push(&_iocb_pool[i]);
-    }
-    _sem.signal(max_aio);
-}
-
-inline
-future<internal::linux_abi::iocb*>
-reactor::iocb_pool::get_one() {
-    return _sem.wait(1).then([this] {
-        auto io = _free_iocbs.top();
-        _free_iocbs.pop();
-        return io;
-    });
-}
-
-inline
-void
-reactor::iocb_pool::put_one(internal::linux_abi::iocb* io) {
-    _free_iocbs.push(io);
-    _sem.signal(1);
-}
-
-inline
-unsigned
-reactor::iocb_pool::outstanding() const {
-    return max_aio - _free_iocbs.size();
-}
-
 io_priority_class
 reactor::register_one_priority_class(sstring name, uint32_t shares) {
     return io_queue::register_one_priority_class(std::move(name), shares);
@@ -248,7 +218,7 @@ reactor::rename_priority_class(io_priority_class pc, sstring new_name) {
 }
 
 future<std::tuple<pollable_fd, socket_address>>
-reactor::accept(pollable_fd_state& listenfd) {
+reactor::do_accept(pollable_fd_state& listenfd) {
     return readable_or_writeable(listenfd).then([this, &listenfd] () mutable {
         socket_address sa;
         socklen_t& sl = sa.addr_length;
@@ -257,7 +227,7 @@ reactor::accept(pollable_fd_state& listenfd) {
         if (!maybe_fd) {
             // We speculated that we will have an another connection, but got a false
             // positive. Try again without speculation.
-            return accept(listenfd);
+            return do_accept(listenfd);
         }
         // Speculate that there is another connection on this listening socket, to avoid
         // a task-quota delay. Usually this will fail, but accept is a rare-enough operation
@@ -269,12 +239,23 @@ reactor::accept(pollable_fd_state& listenfd) {
     });
 }
 
+future<> reactor::do_connect(pollable_fd_state& pfd, socket_address& sa) {
+    pfd.fd.connect(sa.u.sa, sa.length());
+    return pfd.writeable().then([&pfd]() mutable {
+        auto err = pfd.fd.getsockopt<int>(SOL_SOCKET, SO_ERROR);
+        if (err != 0) {
+            throw std::system_error(err, std::system_category());
+        }
+        return make_ready_future<>();
+    });
+}
+
 future<size_t>
-reactor::read_some(pollable_fd_state& fd, void* buffer, size_t len) {
+reactor::do_read_some(pollable_fd_state& fd, void* buffer, size_t len) {
     return readable(fd).then([this, &fd, buffer, len] () mutable {
         auto r = fd.fd.read(buffer, len);
         if (!r) {
-            return read_some(fd, buffer, len);
+            return do_read_some(fd, buffer, len);
         }
         if (size_t(*r) == len) {
             fd.speculate_epoll(EPOLLIN);
@@ -284,14 +265,14 @@ reactor::read_some(pollable_fd_state& fd, void* buffer, size_t len) {
 }
 
 future<size_t>
-reactor::read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
+reactor::do_read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
     return readable(fd).then([this, &fd, iov = iov] () mutable {
         ::msghdr mh = {};
         mh.msg_iov = &iov[0];
         mh.msg_iovlen = iov.size();
         auto r = fd.fd.recvmsg(&mh, 0);
         if (!r) {
-            return read_some(fd, iov);
+            return do_read_some(fd, iov);
         }
         if (size_t(*r) == iovec_len(iov)) {
             fd.speculate_epoll(EPOLLIN);
@@ -301,13 +282,39 @@ reactor::read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
 }
 
 future<size_t>
-reactor::write_some(pollable_fd_state& fd, const void* buffer, size_t len) {
+reactor::do_write_some(pollable_fd_state& fd, const void* buffer, size_t len) {
     return writeable(fd).then([this, &fd, buffer, len] () mutable {
         auto r = fd.fd.send(buffer, len, MSG_NOSIGNAL);
         if (!r) {
-            return write_some(fd, buffer, len);
+            return do_write_some(fd, buffer, len);
         }
         if (size_t(*r) == len) {
+            fd.speculate_epoll(EPOLLOUT);
+        }
+        return make_ready_future<size_t>(*r);
+    });
+}
+
+future<size_t>
+reactor::do_write_some(pollable_fd_state& fd, net::packet& p) {
+    return engine().writeable(fd).then([this, &fd, &p] () mutable {
+        static_assert(offsetof(iovec, iov_base) == offsetof(net::fragment, base) &&
+            sizeof(iovec::iov_base) == sizeof(net::fragment::base) &&
+            offsetof(iovec, iov_len) == offsetof(net::fragment, size) &&
+            sizeof(iovec::iov_len) == sizeof(net::fragment::size) &&
+            alignof(iovec) == alignof(net::fragment) &&
+            sizeof(iovec) == sizeof(net::fragment)
+            , "net::fragment and iovec should be equivalent");
+
+        iovec* iov = reinterpret_cast<iovec*>(p.fragment_array());
+        msghdr mh = {};
+        mh.msg_iov = iov;
+        mh.msg_iovlen = std::min<size_t>(p.nr_frags(), IOV_MAX);
+        auto r = fd.fd.sendmsg(&mh, MSG_NOSIGNAL);
+        if (!r) {
+            return do_write_some(fd, p);
+        }
+        if (size_t(*r) == p.len()) {
             fd.speculate_epoll(EPOLLOUT);
         }
         return make_ready_future<size_t>(*r);
@@ -319,7 +326,7 @@ reactor::write_all_part(pollable_fd_state& fd, const void* buffer, size_t len, s
     if (completed == len) {
         return make_ready_future<>();
     } else {
-        return write_some(fd, static_cast<const char*>(buffer) + completed, len - completed).then(
+        return _backend->write_some(fd, static_cast<const char*>(buffer) + completed, len - completed).then(
                 [&fd, buffer, len, completed, this] (size_t part) mutable {
             return write_all_part(fd, buffer, len, completed + part);
         });
@@ -333,15 +340,19 @@ reactor::write_all(pollable_fd_state& fd, const void* buffer, size_t len) {
 }
 
 future<size_t> pollable_fd_state::read_some(char* buffer, size_t size) {
-    return engine().read_some(*this, buffer, size);
+    return engine()._backend->read_some(*this, buffer, size);
 }
 
 future<size_t> pollable_fd_state::read_some(uint8_t* buffer, size_t size) {
-    return engine().read_some(*this, buffer, size);
+    return engine()._backend->read_some(*this, buffer, size);
 }
 
 future<size_t> pollable_fd_state::read_some(const std::vector<iovec>& iov) {
-    return engine().read_some(*this, iov);
+    return engine()._backend->read_some(*this, iov);
+}
+
+future<size_t> pollable_fd_state::write_some(net::packet& p) {
+    return engine()._backend->write_some(*this, p);
 }
 
 future<> pollable_fd_state::write_all(const char* buffer, size_t size) {
@@ -350,32 +361,6 @@ future<> pollable_fd_state::write_all(const char* buffer, size_t size) {
 
 future<> pollable_fd_state::write_all(const uint8_t* buffer, size_t size) {
     return engine().write_all(*this, buffer, size);
-}
-
-inline
-future<size_t> pollable_fd_state::write_some(net::packet& p) {
-    return engine().writeable(*this).then([this, &p] () mutable {
-        static_assert(offsetof(iovec, iov_base) == offsetof(net::fragment, base) &&
-            sizeof(iovec::iov_base) == sizeof(net::fragment::base) &&
-            offsetof(iovec, iov_len) == offsetof(net::fragment, size) &&
-            sizeof(iovec::iov_len) == sizeof(net::fragment::size) &&
-            alignof(iovec) == alignof(net::fragment) &&
-            sizeof(iovec) == sizeof(net::fragment)
-            , "net::fragment and iovec should be equivalent");
-
-        iovec* iov = reinterpret_cast<iovec*>(p.fragment_array());
-        msghdr mh = {};
-        mh.msg_iov = iov;
-        mh.msg_iovlen = std::min<size_t>(p.nr_frags(), IOV_MAX);
-        auto r = fd.sendmsg(&mh, MSG_NOSIGNAL);
-        if (!r) {
-            return write_some(p);
-        }
-        if (size_t(*r) == p.len()) {
-            speculate_epoll(EPOLLOUT);
-        }
-        return make_ready_future<size_t>(*r);
-    });
 }
 
 future<> pollable_fd_state::write_all(net::packet& p) {
@@ -411,7 +396,11 @@ pollable_fd_state::abort_writer() {
 }
 
 future<std::tuple<pollable_fd, socket_address>> pollable_fd_state::accept() {
-    return engine().accept(*this);
+    return engine()._backend->accept(*this);
+}
+
+future<> pollable_fd_state::connect(socket_address& sa) {
+    return engine()._backend->connect(*this, sa);
 }
 
 future<size_t> pollable_fd_state::recvmsg(struct msghdr *msg) {
@@ -521,7 +510,7 @@ constexpr unsigned reactor::max_queues;
 constexpr unsigned reactor::max_aio_per_queue;
 
 // Broken (returns spurious EIO). Cause/fix unknown.
-static bool aio_nowait_supported = false;
+bool aio_nowait_supported = false;
 
 static bool sched_debug() {
     return false;
@@ -869,7 +858,6 @@ reactor::reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg)
 #endif
     , _cpu_started(0)
     , _cpu_stall_detector(std::make_unique<cpu_stall_detector>(this))
-    , _io_context(0)
     , _reuseport(posix_reuseport_detect())
     , _thread_pool(std::make_unique<thread_pool>(this, seastar::format("syscall-{}", id))) {
     /*
@@ -885,7 +873,6 @@ reactor::reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg)
     seastar::thread_impl::init();
     _backend->start_tick();
 
-    setup_aio_context(max_aio, &_io_context);
 #ifdef HAVE_OSV
     _timer_thread.start();
 #else
@@ -919,7 +906,6 @@ reactor::~reactor() {
     eraser(_expired_timers);
     eraser(_expired_lowres_timers);
     eraser(_expired_manual_timers);
-    io_destroy(_io_context);
     for (auto&& tq : _task_queues) {
         if (tq) {
             // The following line will preserve the convention that constructor and destructor functions
@@ -939,10 +925,6 @@ reactor::~reactor() {
     }
 }
 
-bool reactor::wait_and_process(int timeout, const sigset_t* active_sigmask) {
-    return _backend->wait_and_process(timeout, active_sigmask);
-}
-
 future<> reactor::readable(pollable_fd_state& fd) {
     return _backend->readable(fd);
 }
@@ -953,10 +935,6 @@ future<> reactor::writeable(pollable_fd_state& fd) {
 
 future<> reactor::readable_or_writeable(pollable_fd_state& fd) {
     return _backend->readable_or_writeable(fd);
-}
-
-void reactor::forget(pollable_fd_state& fd) {
-    _backend->forget(fd);
 }
 
 void reactor::abort_reader(pollable_fd_state& fd) {
@@ -1390,10 +1368,20 @@ void pollable_fd_state::maybe_no_more_send() {
         throw std::system_error(std::error_code(ECONNABORTED, std::system_category()));
     }
 }
+void pollable_fd_state_deleter::operator()(pollable_fd_state* fd) noexcept {
+    if (fd) {
+        engine()._backend->forget(*fd);
+    }
+}
+
 
 pollable_fd::pollable_fd(file_desc fd, pollable_fd::speculation speculate)
     : _s(engine()._backend->make_pollable_fd_state(std::move(fd), speculate))
 {}
+
+void pollable_fd::shutdown(int how) {
+    engine()._backend->shutdown(*_s, how);
+}
 
 lw_shared_ptr<pollable_fd>
 reactor::make_pollable_fd(socket_address sa, int proto) {
@@ -1422,14 +1410,7 @@ reactor::posix_connect(lw_shared_ptr<pollable_fd> pfd, socket_address sa, socket
         // call bind() only if local address is not wildcard
         pfd->get_file_desc().bind(local.u.sa, local.length());
     }
-    pfd->get_file_desc().connect(sa.u.sa, sa.length());
-    return pfd->writeable().then([pfd]() mutable {
-        auto err = pfd->get_file_desc().getsockopt<int>(SOL_SOCKET, SO_ERROR);
-        if (err != 0) {
-            throw std::system_error(err, std::system_category());
-        }
-        return make_ready_future<>();
-    });
+    return pfd->connect(sa).finally([pfd] {});
 }
 
 server_socket
@@ -1447,26 +1428,6 @@ reactor::connect(socket_address sa, socket_address local, transport proto) {
     return _network_stack->connect(sa, local, proto);
 }
 
-void prepare_iocb(io_request& req, iocb& iocb) {
-    switch (req.opcode()) {
-    case io_request::operation::fdatasync:
-        iocb = make_fdsync_iocb(req.fd());
-        break;
-    case io_request::operation::write:
-        iocb = make_write_iocb(req.fd(), req.pos(), req.address(), req.size());
-        break;
-    case io_request::operation::writev:
-        iocb = make_writev_iocb(req.fd(), req.pos(), reinterpret_cast<const iovec*>(req.address()), req.size());
-        break;
-    case io_request::operation::read:
-        iocb = make_read_iocb(req.fd(), req.pos(), req.address(), req.size());
-        break;
-    case io_request::operation::readv:
-        iocb = make_readv_iocb(req.fd(), req.pos(), reinterpret_cast<const iovec*>(req.address()), req.size());
-        break;
-    }
-}
-
 sstring io_request::opname() const {
     switch (_op) {
     case io_request::operation::fdatasync:
@@ -1479,47 +1440,32 @@ sstring io_request::opname() const {
         return "read";
     case io_request::operation::readv:
         return "vectored read";
+    case io_request::operation::recv:
+        return "recv";
+    case io_request::operation::recvmsg:
+        return "recvmsg";
+    case io_request::operation::send:
+        return "send";
+    case io_request::operation::sendmsg:
+        return "sendmsg";
+    case io_request::operation::accept:
+        return "accept";
+    case io_request::operation::connect:
+        return "connect";
+    case io_request::operation::poll_add:
+        return "poll add";
+    case io_request::operation::poll_remove:
+        return "poll remove";
+    case io_request::operation::cancel:
+        return "cancel";
     }
     std::abort();
 }
 
 void
 reactor::submit_io(kernel_completion* desc, io_request req) {
-  // We can ignore the future returned here, because the submitted aio will be polled
-  // for and completed in process_io().
-  (void)_iocb_pool.get_one().then([this, desc, req = std::move(req)] (linux_abi::iocb* iocb) mutable {
-    auto& io = *iocb;
-    prepare_iocb(req, io);
-    if (_aio_eventfd) {
-        set_eventfd_notification(io, _aio_eventfd->get_fd());
-    }
-    if (aio_nowait_supported) {
-        set_nowait(io, true);
-    }
-    set_user_data(io, desc);
-    _pending_aio.push_back(&io);
-  });
-}
-
-// Returns: number of iocbs consumed (0 or 1)
-size_t
-reactor::handle_aio_error(linux_abi::iocb* iocb, int ec) {
-    switch (ec) {
-        case EAGAIN:
-            return 0;
-        case EBADF: {
-            auto desc = reinterpret_cast<kernel_completion*>(get_user_data(*iocb));
-            _iocb_pool.put_one(iocb);
-            desc->complete_with(-EBADF);
-            // if EBADF, it means that the first request has a bad fd, so
-            // we will only remove it from _pending_aio and try again.
-            return 1;
-        }
-        default:
-            ++_io_stats.aio_errors;
-            throw_system_error_on(true, "io_submit");
-            abort();
-    }
+    req.attach_kernel_completion(desc);
+    _pending_io.push_back(std::move(req));
 }
 
 bool
@@ -1527,45 +1473,7 @@ reactor::flush_pending_aio() {
     for (auto& ioq : my_io_queues) {
         ioq->poll_io_queue();
     }
-
-    bool did_work = false;
-    while (!_pending_aio.empty()) {
-        auto nr = _pending_aio.size();
-        auto iocbs = _pending_aio.data();
-        auto r = io_submit(_io_context, nr, iocbs);
-        size_t nr_consumed;
-        if (r == -1) {
-            nr_consumed = handle_aio_error(iocbs[0], errno);
-        } else {
-            nr_consumed = size_t(r);
-        }
-
-        did_work = true;
-        if (nr_consumed == nr) {
-            _pending_aio.clear();
-        } else {
-            _pending_aio.erase(_pending_aio.begin(), _pending_aio.begin() + nr_consumed);
-        }
-    }
-    if (!_pending_aio_retry.empty()) {
-        auto retries = std::exchange(_pending_aio_retry, {});
-        // FIXME: future is discarded
-        (void)_thread_pool->submit<syscall_result<int>>([this, retries] () mutable {
-            auto r = io_submit(_io_context, retries.size(), retries.data());
-            return wrap_syscall<int>(r);
-        }).then([this, retries] (syscall_result<int> result) {
-            auto iocbs = retries.data();
-            size_t nr_consumed = 0;
-            if (result.result == -1) {
-                nr_consumed = handle_aio_error(iocbs[0], result.error);
-            } else {
-                nr_consumed = result.result;
-            }
-            std::copy(retries.begin() + nr_consumed, retries.end(), std::back_inserter(_pending_aio_retry));
-        });
-        did_work = true;
-    }
-    return did_work;
+    return false;
 }
 
 const io_priority_class& default_priority_class() {
@@ -1587,31 +1495,6 @@ reactor::submit_io_write(io_queue* ioq, const io_priority_class& pc, size_t len,
     ++_io_stats.aio_writes;
     _io_stats.aio_write_bytes += len;
     return ioq->queue_request(pc, len, std::move(req));
-}
-
-bool reactor::process_io()
-{
-    io_event ev[max_aio];
-    struct timespec timeout = {0, 0};
-    auto n = io_getevents(_io_context, 1, max_aio, ev, &timeout, _force_io_getevents_syscall);
-    if (n == -1 && errno == EINTR) {
-        n = 0;
-    }
-    assert(n >= 0);
-    unsigned nr_retry = 0;
-    for (size_t i = 0; i < size_t(n); ++i) {
-        auto iocb = get_iocb(ev[i]);
-        if (ev[i].res == -EAGAIN) {
-            ++nr_retry;
-            set_nowait(*iocb, false);
-            _pending_aio_retry.push_back(iocb);
-            continue;
-        }
-        _iocb_pool.put_one(iocb);
-        auto desc = reinterpret_cast<kernel_completion*>(ev[i].data);
-        desc->complete_with(ev[i].res);
-    }
-    return n;
 }
 
 namespace internal {
@@ -2269,23 +2152,18 @@ reactor::do_check_lowres_timers() const {
 
 #ifndef HAVE_OSV
 
-class reactor::io_pollfn final : public reactor::pollfn {
+class reactor::kernel_submit_work_pollfn final : public reactor::pollfn {
     reactor& _r;
 public:
-    io_pollfn(reactor& r) : _r(r) {}
+    kernel_submit_work_pollfn(reactor& r) : _r(r) {}
     virtual bool poll() override final {
-        return _r.process_io();
+        return _r._backend->kernel_submit_work();
     }
     virtual bool pure_poll() override final {
         return poll(); // actually performs work, but triggers no user continuations, so okay
     }
     virtual bool try_enter_interrupt_mode() override {
-        // Because aio depends on polling, it cannot generate events to wake us up, Therefore, sleep
-        // is only possible if there are no in-flight aios. If there are, we need to keep polling.
-        //
-        // Alternatively, if we enabled _aio_eventfd, we can always enter
-        unsigned executing = _r._iocb_pool.outstanding();
-        return executing == 0 || _r._aio_eventfd;
+        return true;
     }
     virtual void exit_interrupt_mode() override {
         // nothing to do
@@ -2342,10 +2220,27 @@ public:
     }
 };
 
-class reactor::aio_batch_submit_pollfn final : public reactor::pollfn {
+class reactor::reap_kernel_completions_pollfn final : public reactor::pollfn {
     reactor& _r;
 public:
-    aio_batch_submit_pollfn(reactor& r) : _r(r) {}
+    reap_kernel_completions_pollfn(reactor& r) : _r(r) {}
+    virtual bool poll() final override {
+        return _r._backend->reap_kernel_completions();
+    }
+    virtual bool pure_poll() override final {
+        return poll(); // actually performs work, but triggers no user continuations, so okay
+    }
+    virtual bool try_enter_interrupt_mode() override {
+        return _r._backend->kernel_events_can_sleep();
+    }
+    virtual void exit_interrupt_mode() override final {
+    }
+};
+
+class reactor::io_queue_submission_pollfn final : public reactor::pollfn {
+    reactor& _r;
+public:
+    io_queue_submission_pollfn(reactor& r) : _r(r) {}
     virtual bool poll() final override {
         return _r.flush_pending_aio();
     }
@@ -2496,26 +2391,6 @@ public:
     }
 };
 
-
-class reactor::epoll_pollfn final : public reactor::pollfn {
-    reactor& _r;
-public:
-    epoll_pollfn(reactor& r) : _r(r) {}
-    virtual bool poll() final override {
-        return _r.wait_and_process();
-    }
-    virtual bool pure_poll() override final {
-        return poll(); // actually performs work, but triggers no user continuations, so okay
-    }
-    virtual bool try_enter_interrupt_mode() override {
-        // Since we'll be sleeping in epoll, no need to do anything
-        // for interrupt mode.
-        return true;
-    }
-    virtual void exit_interrupt_mode() override final {
-    }
-};
-
 void
 reactor::wakeup() {
     uint64_t one = 1;
@@ -2662,16 +2537,31 @@ int reactor::run() {
     compat::optional<poller> io_poller = {};
     compat::optional<poller> smp_poller = {};
 
-    // I/O Performance greatly increases if the smp poller runs before the I/O poller. This is
-    // because requests that were just added can be polled and processed by the I/O poller right
-    // away.
+    // The order in which we execute the pollers is very important for performance.
+    //
+    // This is because events that are generated in one poller may feed work into others. If
+    // they were reversed, we'd only be able to do that work in the next task quota.
+    //
+    // One example is the relationship between the smp poller and the I/O submission poller:
+    // If the smp poller runs first, requests from remote I/O queues can be dispatched right away
+    //
+    // We will run the pollers in the following order:
+    //
+    // 1. SMP: any remote event arrives before anything else
+    // 2. reap kernel events completion: storage related completions may free up space in the I/O
+    //                                   queue.
+    // 4. I/O queue: must be after reap, to free up events. If new slots are freed may submit I/O
+    // 5. kernel submission: for I/O, will submit what was generated from last step.
+    // 6. reap kernel events completion: some of the submissions from last step may return immediately.
+    //                                   For example if we are dealing with poll() on a fd that has events.
     if (smp::count > 1) {
         smp_poller = poller(std::make_unique<smp_pollfn>(*this));
     }
-#ifndef HAVE_OSV
-    io_poller = poller(std::make_unique<io_pollfn>(*this));
-#endif
-    poller aio_poller(std::make_unique<aio_batch_submit_pollfn>(*this));
+
+    poller reap_kernel_completions_poller(std::make_unique<reap_kernel_completions_pollfn>(*this));
+    poller io_queue_submission_poller(std::make_unique<io_queue_submission_pollfn>(*this));
+    poller kernel_submit_work_poller(std::make_unique<kernel_submit_work_pollfn>(*this));
+    poller final_real_kernel_completions_poller(std::make_unique<reap_kernel_completions_pollfn>(*this));
 
     poller batch_flush_poller(std::make_unique<batch_flush_pollfn>(*this));
     poller execution_stage_poller(std::make_unique<execution_stage_pollfn>());
@@ -2830,16 +2720,11 @@ reactor::sleep() {
             return;
         }
     }
-    wait_and_process(-1, &_active_sigmask);
+
+    _backend->wait_and_process_events(&_active_sigmask);
+
     for (auto i = _pollers.rbegin(); i != _pollers.rend(); ++i) {
         (*i)->exit_interrupt_mode();
-    }
-}
-
-void
-reactor::start_epoll() {
-    if (!_epoll_poller) {
-        _epoll_poller = poller(std::make_unique<epoll_pollfn>(*this));
     }
 }
 
