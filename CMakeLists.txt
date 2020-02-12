@@ -643,7 +643,8 @@ add_library (seastar STATIC
   src/util/file.cc
   src/util/log.cc
   src/util/program-options.cc
-  src/util/read_first_line.cc)
+  src/util/read_first_line.cc
+  src/util/tmp_file.cc)
 
 add_library (Seastar::seastar ALIAS seastar)
 
