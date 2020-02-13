@@ -24,10 +24,13 @@
 
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include <seastar/testing/test_runner.hh>
 
 #include <seastar/core/file.hh>
 #include <seastar/core/seastar.hh>
+#include <seastar/core/print.hh>
 #include <seastar/util/tmp_file.hh>
+#include <seastar/util/file.hh>
 
 using namespace seastar;
 namespace fs = compat::filesystem;
@@ -72,4 +75,78 @@ SEASTAR_THREAD_TEST_CASE(test_non_existing_TMPDIR) {
     } else {
         unsetenv("TMPDIR");
     }
+}
+
+static future<> touch_file(const sstring& filename, open_flags oflags = open_flags::rw | open_flags::create) noexcept {
+    return open_file_dma(filename, oflags).then([] (file f) {
+        return f.close().finally([f] {});
+    });
+}
+
+SEASTAR_THREAD_TEST_CASE(test_recursive_remove_directory) {
+    struct test_dir {
+        test_dir *parent;
+        sstring name;
+        std::list<sstring> sub_files = {};
+        std::list<test_dir> sub_dirs = {};
+
+        test_dir(test_dir* parent, sstring name)
+            : parent(parent)
+            , name(std::move(name))
+        { }
+
+        fs::path path() const {
+            if (!parent) {
+                return fs::path(name.c_str());
+            }
+            return parent->path() / name.c_str();
+        }
+
+        void fill_random_file(std::uniform_int_distribution<unsigned>& dist, std::default_random_engine& eng) {
+            sub_files.emplace_back(format("file-{}", dist(eng)));
+        }
+
+        test_dir& fill_random_dir(std::uniform_int_distribution<unsigned>& dist, std::default_random_engine& eng) {
+            sub_dirs.emplace_back(this, format("dir-{}", dist(eng)));
+            return sub_dirs.back();
+        }
+
+        void random_fill(int level, int levels, std::uniform_int_distribution<unsigned>& dist, std::default_random_engine& eng) {
+            int num_files = dist(eng) % 10;
+            int num_dirs = (level < levels - 1) ? (1 + dist(eng) % 3) : 0;
+
+            for (int i = 0; i < num_files; i++) {
+                fill_random_file(dist, eng);
+            }
+
+            if (num_dirs) {
+                level++;
+                for (int i = 0; i < num_dirs; i++) {
+                    fill_random_dir(dist, eng).random_fill(level, levels, dist, eng);
+                }
+            }
+        }
+
+        future<> populate() {
+            return touch_directory(path().native()).then([this] {
+                return parallel_for_each(sub_files, [this] (auto& name) {
+                    return touch_file((path() / name.c_str()).native());
+                }).then([this] {
+                    return parallel_for_each(sub_dirs, [this] (auto& sub_dir) {
+                        return sub_dir.populate();
+                    });
+                });
+            });
+        }
+    };
+
+    auto& eng = testing::local_random_engine;
+    auto dist = std::uniform_int_distribution<unsigned>();
+    int levels = 1 + dist(eng) % 3;
+    test_dir root = { nullptr, default_tmpdir() };
+    test_dir base = { &root, format("base-{}", dist(eng)) };
+    base.random_fill(0, levels, dist, eng);
+    base.populate().get();
+    recursive_remove_directory(base.path()).get();
+    BOOST_REQUIRE(!file_exists(base.path().native()).get0());
 }
