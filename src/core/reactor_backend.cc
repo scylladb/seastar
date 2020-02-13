@@ -425,6 +425,7 @@ bool reactor_backend_aio::reap_kernel_completions() {
 }
 
 bool reactor_backend_aio::kernel_submit_work() {
+    _hrtimer_poll_completion.maybe_queue(_polling_io);
     bool did_work = _polling_io.flush();
     did_work |= _storage_context.submit_work();
     return did_work;
