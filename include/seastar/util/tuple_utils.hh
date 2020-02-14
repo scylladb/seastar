@@ -31,7 +31,7 @@ namespace internal {
 
 template<typename Tuple>
 Tuple untuple(Tuple t) {
-    return std::move(t);
+    return t;
 }
 
 template<typename T>
