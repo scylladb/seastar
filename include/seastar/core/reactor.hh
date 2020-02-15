@@ -185,8 +185,8 @@ private:
     friend class file_data_source_impl; // for fstream statistics
     friend class internal::reactor_stall_sampler;
     friend class preempt_io_context;
-    friend class hrtimer_aio_completion;
-    friend class task_quota_aio_completion;
+    friend struct hrtimer_aio_completion;
+    friend struct task_quota_aio_completion;
     friend class reactor_backend_epoll;
     friend class reactor_backend_aio;
     friend class reactor_backend_selector;
@@ -654,7 +654,7 @@ private:
     friend class alien::message_queue;
     friend class pollable_fd;
     friend class pollable_fd_state;
-    friend class pollable_fd_state_deleter;
+    friend struct pollable_fd_state_deleter;
     friend class posix_file_impl;
     friend class blockdev_file_impl;
     friend class readable_eventfd;
