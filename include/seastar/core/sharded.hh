@@ -526,7 +526,7 @@ unwrap_sharded_arg(std::reference_wrapper<sharded<Service>> arg) {
 template <typename Service>
 sharded<Service>::sharded(sharded&& x) noexcept : _instances(std::move(x._instances)) {
     for (auto&& e : _instances) {
-        set_container(e);
+        set_container(*e.service);
     }
 }
 
