@@ -28,7 +28,8 @@ using namespace seastar;
 using namespace net;
 
 void dump_arp_packets(l3_protocol& proto) {
-    proto.receive([] (packet p, ethernet_address from) {
+    // FIXME: ignored future
+    (void)proto.receive([] (packet p, ethernet_address from) {
         std::cout << "seen arp packet\n";
         return make_ready_future<>();
     }, [] (forward_hash& out_hash_data, packet& p, size_t off) {return false;});

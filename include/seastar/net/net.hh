@@ -98,7 +98,7 @@ private:
     eth_protocol_num _proto_num;
 public:
     explicit l3_protocol(interface* netif, eth_protocol_num proto_num, packet_provider_type func);
-    subscription<packet, ethernet_address> receive(
+    future<> receive(
             std::function<future<> (packet, ethernet_address)> rx_fn,
             std::function<bool (forward_hash&, packet&, size_t)> forward);
 private:
@@ -123,7 +123,7 @@ public:
     explicit interface(std::shared_ptr<device> dev);
     ethernet_address hw_address() { return _hw_address; }
     const net::hw_features& hw_features() const { return _hw_features; }
-    subscription<packet, ethernet_address> register_l3(eth_protocol_num proto_num,
+    future<> register_l3(eth_protocol_num proto_num,
             std::function<future<> (packet p, ethernet_address from)> next,
             std::function<bool (forward_hash&, packet&, size_t)> forward);
     void forward(unsigned cpuid, packet p);
@@ -269,7 +269,7 @@ public:
         // FIXME: future is discarded
         (void)_queues[engine().cpu_id()]->_rx_stream.produce(std::move(p));
     }
-    subscription<packet> receive(std::function<future<> (packet)> next_packet);
+    future<> receive(std::function<future<> (packet)> next_packet);
     virtual ethernet_address hw_address() = 0;
     virtual net::hw_features hw_features() = 0;
     virtual rss_key_type rss_key() const { return default_rsskey_40bytes; }

@@ -225,11 +225,11 @@ void qp::build_sw_reta(const std::map<unsigned, float>& cpu_weights) {
     _sw_reta = reta;
 }
 
-subscription<packet>
+future<>
 device::receive(std::function<future<> (packet)> next_packet) {
     auto sub = _queues[engine().cpu_id()]->_rx_stream.listen(std::move(next_packet));
     _queues[engine().cpu_id()]->rx_start();
-    return sub;
+    return sub.done();
 }
 
 void device::set_local_queue(std::unique_ptr<qp> dev) {
@@ -244,7 +244,7 @@ l3_protocol::l3_protocol(interface* netif, eth_protocol_num proto_num, packet_pr
         _netif->register_packet_provider(std::move(func));
 }
 
-subscription<packet, ethernet_address> l3_protocol::receive(
+future<> l3_protocol::receive(
         std::function<future<> (packet p, ethernet_address from)> rx_fn,
         std::function<bool (forward_hash&, packet&, size_t)> forward) {
     return _netif->register_l3(_proto_num, std::move(rx_fn), std::move(forward));
@@ -257,7 +257,7 @@ interface::interface(std::shared_ptr<device> dev)
     // FIXME: ignored future
     (void)_dev->receive([this] (packet p) {
         return dispatch_packet(std::move(p));
-    }).done();
+    });
     dev->local_queue().register_packet_provider([this, idx = 0u] () mutable {
             compat::optional<packet> p;
             for (size_t i = 0; i < _pkt_providers.size(); i++) {
@@ -279,14 +279,14 @@ interface::interface(std::shared_ptr<device> dev)
         });
 }
 
-subscription<packet, ethernet_address>
+future<>
 interface::register_l3(eth_protocol_num proto_num,
         std::function<future<> (packet p, ethernet_address from)> next,
         std::function<bool (forward_hash&, packet& p, size_t)> forward) {
     auto i = _proto_map.emplace(std::piecewise_construct, std::make_tuple(uint16_t(proto_num)), std::forward_as_tuple(std::move(forward)));
     assert(i.second);
     l3_rx_stream& l3_rx = i.first->second;
-    return l3_rx.packet_stream.listen(std::move(next));
+    return l3_rx.packet_stream.listen(std::move(next)).done();
 }
 
 unsigned interface::hash2cpu(uint32_t hash) {

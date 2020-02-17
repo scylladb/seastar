@@ -66,8 +66,7 @@ ipv4::ipv4(interface* netif)
         },
         [this](forward_hash& out_hash_data, packet& p, size_t off) {
             return forward(out_hash_data, p, off);
-        })
-        .done();
+        });
 
     _metrics.add_group("ipv4", {
         //

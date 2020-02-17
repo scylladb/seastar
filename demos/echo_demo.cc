@@ -115,7 +115,7 @@ int main(int ac, char** av) {
     auto qp = dnet->init_local_queue(opts, 0);
     vnet = qp.get();
     dnet->set_local_queue(std::move(qp));
-    subscription<packet> rx =
+    future<> rx_done =
         dnet->receive([vnet] (packet p) {
             return echo_packet(*vnet, std::move(p));
         });
