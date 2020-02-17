@@ -97,13 +97,17 @@ size_t saved_backtrace::hash() const {
     return h;
 }
 
+std::ostream& operator<<(std::ostream& out, const frame& f) {
+    if (!f.so->name.empty()) {
+        out << f.so->name << "+";
+    }
+    out << format("0x{:x}", f.addr);
+    return out;
+}
+
 std::ostream& operator<<(std::ostream& out, const saved_backtrace& b) {
     for (auto f : b._frames) {
-        out << "  ";
-        if (!f.so->name.empty()) {
-            out << f.so->name << "+";
-        }
-        out << format("0x{:x}", f.addr) << "\n";
+        out << "   " << f << "\n";
     }
     return out;
 }
