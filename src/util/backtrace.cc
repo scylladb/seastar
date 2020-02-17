@@ -19,7 +19,6 @@
  * Copyright 2017 ScyllaDB
  */
 #include <seastar/util/backtrace.hh>
-#include <seastar/util/variant_utils.hh>
 
 #include <link.h>
 #include <sys/types.h>
@@ -92,25 +91,12 @@ simple_backtrace current_backtrace_tasklocal() noexcept {
     return simple_backtrace(std::move(v));
 }
 
-size_t simple_backtrace::hash() const {
+size_t simple_backtrace::calculate_hash() const {
     size_t h = 0;
     for (auto f : _frames) {
         h = ((h << 5) - h) ^ (f.so->begin + f.addr);
     }
     return h;
-}
-
-size_t tasktrace::hash() const {
-    size_t hash = 0;
-    for (auto&& sb : _prev) {
-        hash *= 31;
-        std::visit(make_visitor([&] (const shared_backtrace& sb) {
-            hash ^= sb->hash();
-        }, [&] (const task_entry& f) {
-            hash ^= f.hash();
-        }), sb);
-    }
-    return hash;
 }
 
 std::ostream& operator<<(std::ostream& out, const frame& f) {
@@ -149,6 +135,7 @@ tasktrace current_tasktrace() noexcept {
     auto main = current_backtrace_tasklocal();
 
     tasktrace::vector_type prev;
+    size_t hash = 0;
     if (local_engine && g_current_context) {
         task* tsk = nullptr;
 
@@ -161,31 +148,35 @@ tasktrace current_tasktrace() noexcept {
 
         while (tsk && prev.size() < prev.max_size()) {
             shared_backtrace bt = tsk->get_backtrace();
+            hash *= 31;
             if (bt) {
+                hash ^= bt->hash();
                 prev.push_back(bt);
             } else {
                 const std::type_info& ti = typeid(*tsk);
                 prev.push_back(task_entry(ti));
+                hash ^= ti.hash_code();
             }
             tsk = tsk->waiting_task();
         }
     }
 
-    return tasktrace(std::move(main), std::move(prev), current_scheduling_group());
+    return tasktrace(std::move(main), std::move(prev), hash, current_scheduling_group());
 }
 
 saved_backtrace current_backtrace() noexcept {
     return current_tasktrace();
 }
 
-tasktrace::tasktrace(simple_backtrace main, tasktrace::vector_type prev, scheduling_group sg)
+tasktrace::tasktrace(simple_backtrace main, tasktrace::vector_type prev, size_t prev_hash, scheduling_group sg)
     : _main(std::move(main))
     , _prev(std::move(prev))
     , _sg(sg)
+    , _hash(main.hash() * 31 ^ prev_hash)
 { }
 
 bool tasktrace::operator==(const tasktrace& o) const {
-    return _main == o._main && _prev == o._prev;
+    return _hash == o._hash && _main == o._main && _prev == o._prev;
 }
 
 tasktrace::~tasktrace() {}
