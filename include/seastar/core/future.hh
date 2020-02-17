@@ -22,7 +22,6 @@
 #pragma once
 
 #include <seastar/core/task.hh>
-#include <seastar/core/preempt.hh>
 #include <seastar/core/thread_impl.hh>
 #include <stdexcept>
 #include <atomic>
@@ -1535,7 +1534,7 @@ private:
     Result
     then_impl(Func&& func) noexcept {
         using futurator = futurize<std::result_of_t<Func(T&&...)>>;
-        if (available() && !need_preempt()) {
+        if (available()) {
             if (failed()) {
                 return futurator::make_exception_future(static_cast<future_state_base&&>(get_available_state_ref()));
             } else {
@@ -1626,7 +1625,7 @@ private:
     futurize_t<FuncResult>
     then_wrapped_common(Func&& func) noexcept {
         using futurator = futurize<FuncResult>;
-        if (available() && !need_preempt()) {
+        if (available()) {
             // TODO: after dropping C++14 support use `if constexpr ()` instead.
             if (AsSelf) {
                 if (_promise) {
