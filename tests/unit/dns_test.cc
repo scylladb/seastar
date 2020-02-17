@@ -34,13 +34,11 @@
 using namespace seastar;
 using namespace seastar::net;
 
-static const inet_address google_addr = inet_address("216.58.201.164");
-static const sstring google_name = "www.google.com";
+static const sstring seastar_name = "seastar.io";
 
 static future<> test_resolve(dns_resolver::options opts) {
     auto d = ::make_lw_shared<dns_resolver>(std::move(opts));
-    return d->get_host_by_name(google_name, inet_address::family::INET).then([d](hostent e) {
-        //BOOST_REQUIRE(std::count(e.addr_list.begin(), e.addr_list.end(), google_addr));
+    return d->get_host_by_name(seastar_name, inet_address::family::INET).then([d](hostent e) {
         return d->get_host_by_addr(e.addr_list.front()).then([d, a = e.addr_list.front()](hostent e) {
             return d->get_host_by_name(e.names.front(), inet_address::family::INET).then([a](hostent e) {
                 BOOST_REQUIRE(std::count(e.addr_list.begin(), e.addr_list.end(), a));
@@ -80,7 +78,7 @@ SEASTAR_TEST_CASE(test_timeout_udp) {
     opts.timeout = std::chrono::milliseconds(500);
 
     auto d = ::make_lw_shared<dns_resolver>(engine().net(), opts);
-    return d->get_host_by_name(google_name, inet_address::family::INET).then_wrapped([d](future<hostent> f) {
+    return d->get_host_by_name(seastar_name, inet_address::family::INET).then_wrapped([d](future<hostent> f) {
         try {
             f.get();
             BOOST_FAIL("should not succeed");
