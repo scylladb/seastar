@@ -194,7 +194,6 @@ future<> connection::read() {
 // header - chunked encoding is not yet supported.
 static future<std::unique_ptr<httpd::request>>
 read_request_body(input_stream<char>& buf, std::unique_ptr<httpd::request> req) {
-    req->content_length = strtol(req->get_header("Content-Length").c_str(), nullptr, 10);
     if (!req->content_length) {
         return make_ready_future<std::unique_ptr<httpd::request>>(std::move(req));
     }
@@ -225,6 +224,17 @@ future<> connection::read_one() {
         std::unique_ptr<httpd::request> req = _parser.get_parsed_request();
         if (_server._credentials) {
             req->protocol_name = "https";
+        }
+
+        size_t content_length_limit = _server.get_content_length_limit();
+        sstring length_header = req->get_header("Content-Length");
+        req->content_length = strtol(length_header.c_str(), nullptr, 10);
+
+        if (req->content_length > content_length_limit) {
+            generate_error_reply_and_close(std::move(req), reply::status_type::payload_too_large,
+                    format("Content length limit ({}) exceeded: {}",
+                            content_length_limit, req->content_length));
+            return make_ready_future<>();
         }
         return read_request_body(_read_buf, std::move(req)).then([this] (std::unique_ptr<httpd::request> req) {
             return _replies.not_full().then([req = std::move(req), this] () mutable {
