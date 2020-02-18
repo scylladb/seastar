@@ -48,6 +48,7 @@
 #include <seastar/core/abort_on_ebadf.hh>
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/internal/io_desc.hh>
+#include <seastar/core/internal/buffer_allocator.hh>
 #include <seastar/util/log.hh>
 #include "core/file-impl.hh"
 #include "core/reactor_backend.hh"
@@ -263,6 +264,25 @@ reactor::do_read_some(pollable_fd_state& fd, void* buffer, size_t len) {
     });
 }
 
+future<temporary_buffer<char>>
+reactor::do_read_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
+    return fd.readable().then([this, &fd, ba] {
+        auto buffer = ba->allocate_buffer();
+        auto r = fd.fd.read(buffer.get_write(), buffer.size());
+        if (!r) {
+            // Speculation failure, try again with real polling this time
+            // Note we release the buffer and will reallocate it when poll
+            // completes.
+            return do_read_some(fd, ba);
+        }
+        if (size_t(*r) == buffer.size()) {
+            fd.speculate_epoll(EPOLLIN);
+        }
+        buffer.trim(*r);
+        return make_ready_future<temporary_buffer<char>>(std::move(buffer));
+    });
+}
+
 future<size_t>
 reactor::do_read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
     return readable(fd).then([this, &fd, iov = iov] () mutable {
@@ -348,6 +368,10 @@ future<size_t> pollable_fd_state::read_some(uint8_t* buffer, size_t size) {
 
 future<size_t> pollable_fd_state::read_some(const std::vector<iovec>& iov) {
     return engine()._backend->read_some(*this, iov);
+}
+
+future<temporary_buffer<char>> pollable_fd_state::read_some(internal::buffer_allocator* ba) {
+    return engine()._backend->read_some(*this, ba);
 }
 
 future<size_t> pollable_fd_state::write_some(net::packet& p) {
