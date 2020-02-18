@@ -297,7 +297,6 @@ future<bool> connection::generate_reply(std::unique_ptr<request> req) {
     sstring url = set_query_param(*req.get());
     sstring version = req->_version;
     set_headers(*resp);
-    resp->set_version(version);
     return _server._routes.handle(url, std::move(req), std::move(resp)).
     // Caller guarantees enough room
     then([this, should_close, version = std::move(version)](std::unique_ptr<reply> rep) {
