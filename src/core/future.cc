@@ -61,6 +61,15 @@ void promise_base::move_it(promise_base&& x) noexcept {
     }
 }
 
+static void set_to_broken_promise(future_state_base& state) noexcept {
+    try {
+        // Constructing broken_promise may throw (std::logic_error ctor is not noexcept).
+        state.set_exception(std::make_exception_ptr(broken_promise{}));
+    } catch (...) {
+        state.set_exception(std::current_exception());
+    }
+}
+
 promise_base::promise_base(promise_base&& x) noexcept {
     move_it(std::move(x));
 }
@@ -70,12 +79,12 @@ void promise_base::clear() noexcept {
         assert(_state);
         assert(_state->available() || !_task);
         if (!_state->available()) {
-            _state->set_to_broken_promise();
+            set_to_broken_promise(*_state);
         }
         _future->detach_promise();
     } else if (__builtin_expect(bool(_task), false)) {
         assert(_state && !_state->available());
-        _state->set_to_broken_promise();
+        set_to_broken_promise(*_state);
         ::seastar::schedule(std::exchange(_task, nullptr));
     }
 }
@@ -126,15 +135,6 @@ broken_promise::broken_promise() : logic_error("broken promise") { }
 
 future_state_base::future_state_base(current_exception_future_marker) noexcept
     : future_state_base(std::current_exception()) { }
-
-void future_state_base::set_to_broken_promise() noexcept {
-    try {
-        // Constructing broken_promise may throw (std::logic_error ctor is not noexcept).
-        set_exception(std::make_exception_ptr(broken_promise{}));
-    } catch (...) {
-        set_exception(std::current_exception());
-    }
-}
 
 void future_state_base::ignore() noexcept {
     switch (_u.st) {

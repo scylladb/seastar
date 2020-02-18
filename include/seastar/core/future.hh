@@ -452,8 +452,6 @@ public:
     bool available() const noexcept { return _u.available(); }
     bool failed() const noexcept { return _u.failed(); }
 
-    void set_to_broken_promise() noexcept;
-
     void ignore() noexcept;
 
     void set_exception(std::exception_ptr&& ex) noexcept {
