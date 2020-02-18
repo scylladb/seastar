@@ -50,6 +50,8 @@ const sstring bad_request = " 400 Bad Request\r\n";
 const sstring unauthorized = " 401 Unauthorized\r\n";
 const sstring forbidden = " 403 Forbidden\r\n";
 const sstring not_found = " 404 Not Found\r\n";
+const sstring length_required = " 411 Length Required\r\n";
+const sstring payload_too_large = " 413 Payload Too Large\r\n";
 const sstring internal_server_error = " 500 Internal Server Error\r\n";
 const sstring not_implemented = " 501 Not Implemented\r\n";
 const sstring bad_gateway = " 502 Bad Gateway\r\n";
@@ -81,6 +83,10 @@ static const sstring& to_string(reply::status_type status) {
         return forbidden;
     case reply::status_type::not_found:
         return not_found;
+    case reply::status_type::length_required:
+        return length_required;
+    case reply::status_type::payload_too_large:
+        return payload_too_large;
     case reply::status_type::internal_server_error:
         return internal_server_error;
     case reply::status_type::not_implemented:
