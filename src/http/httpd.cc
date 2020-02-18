@@ -204,6 +204,16 @@ read_request_body(input_stream<char>& buf, std::unique_ptr<httpd::request> req) 
     });
 }
 
+void connection::generate_error_reply_and_close(std::unique_ptr<httpd::request> req, reply::status_type status, const sstring& msg) {
+    auto resp = std::make_unique<reply>();
+    // TODO: Handle HTTP/2.0 when it releases
+    resp->set_version(req->_version);
+    resp->set_status(status, msg);
+    resp->done();
+    _done = true;
+    _replies.push(std::move(resp));
+}
+
 future<> connection::read_one() {
     _parser.init();
     return _read_buf.consume(_parser).then([this] () mutable {
