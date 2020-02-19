@@ -576,7 +576,7 @@ void reactor_backend_aio::start_handling_signal() {
 
 pollable_fd_state_ptr
 reactor_backend_aio::make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) {
-    return std::unique_ptr<pollable_fd_state, pollable_fd_state_deleter>(new aio_pollable_fd_state(std::move(fd), std::move(speculate)));
+    return pollable_fd_state_ptr(new aio_pollable_fd_state(std::move(fd), std::move(speculate)));
 }
 
 reactor_backend_epoll::reactor_backend_epoll(reactor* r)
@@ -831,7 +831,7 @@ void reactor_backend_epoll::start_handling_signal() {
 
 pollable_fd_state_ptr
 reactor_backend_epoll::make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) {
-    return std::unique_ptr<pollable_fd_state, pollable_fd_state_deleter>(new epoll_pollable_fd_state(std::move(fd), std::move(speculate)));
+    return pollable_fd_state_ptr(new epoll_pollable_fd_state(std::move(fd), std::move(speculate)));
 }
 
 void reactor_backend_epoll::reset_preemption_monitor() {

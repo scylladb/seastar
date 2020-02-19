@@ -1367,12 +1367,16 @@ void pollable_fd_state::maybe_no_more_send() {
         throw std::system_error(std::error_code(ECONNABORTED, std::system_category()));
     }
 }
-void pollable_fd_state_deleter::operator()(pollable_fd_state* fd) noexcept {
-    if (fd) {
-        engine()._backend->forget(*fd);
-    }
+
+void pollable_fd_state::forget() {
+    engine()._backend->forget(*this);
 }
 
+void intrusive_ptr_release(pollable_fd_state* fd) {
+    if (!--fd->_refs) {
+        fd->forget();
+    }
+}
 
 pollable_fd::pollable_fd(file_desc fd, pollable_fd::speculation speculate)
     : _s(engine()._backend->make_pollable_fd_state(std::move(fd), speculate))

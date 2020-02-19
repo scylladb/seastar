@@ -26,6 +26,7 @@
 #include <vector>
 #include <tuple>
 #include <seastar/core/internal/io_desc.hh>
+#include <boost/intrusive_ptr.hpp>
 
 namespace seastar {
 
@@ -42,13 +43,10 @@ class packet;
 
 class pollable_fd_state;
 
-struct pollable_fd_state_deleter {
-    void operator()(pollable_fd_state* fd) noexcept;
-};
-
-using pollable_fd_state_ptr = std::unique_ptr<pollable_fd_state, pollable_fd_state_deleter>;
+using pollable_fd_state_ptr = boost::intrusive_ptr<pollable_fd_state>;
 
 class pollable_fd_state {
+    unsigned _refs = 0;
 public:
     virtual ~pollable_fd_state() {}
     struct speculation {
@@ -93,6 +91,12 @@ protected:
 private:
     void maybe_no_more_recv();
     void maybe_no_more_send();
+    void forget(); // called on end-of-life
+
+    friend void intrusive_ptr_add_ref(pollable_fd_state* fd) {
+        ++fd->_refs;
+    }
+    friend void intrusive_ptr_release(pollable_fd_state* fd);
 };
 
 class pollable_fd {
@@ -100,8 +104,6 @@ public:
     using speculation = pollable_fd_state::speculation;
     pollable_fd(file_desc fd, speculation speculate = speculation());
 public:
-    pollable_fd(pollable_fd&&) = default;
-    pollable_fd& operator=(pollable_fd&&) = default;
     future<size_t> read_some(char* buffer, size_t size) {
         return _s->read_some(buffer, size);
     }
