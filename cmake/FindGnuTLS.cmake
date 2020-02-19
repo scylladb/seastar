@@ -22,9 +22,7 @@
 
 find_package (PkgConfig REQUIRED)
 
-pkg_search_module (GnuTLS_PC
-  QUIET
-  gnutls)
+pkg_search_module (GnuTLS_PC gnutls)
 
 find_library (GnuTLS_LIBRARY
   NAMES gnutls

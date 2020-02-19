@@ -22,9 +22,7 @@
 
 find_package (PkgConfig REQUIRED)
 
-pkg_search_module (lz4_PC
-  QUIET
-  liblz4)
+pkg_search_module (lz4_PC liblz4)
 
 find_library (lz4_LIBRARY
   NAMES lz4

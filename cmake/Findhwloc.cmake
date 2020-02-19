@@ -22,9 +22,7 @@
 
 find_package (PkgConfig REQUIRED)
 
-pkg_search_module (hwloc_PC
-  QUIET
-  hwloc)
+pkg_search_module (hwloc_PC hwloc)
 
 find_library (hwloc_LIBRARY
   NAMES hwloc

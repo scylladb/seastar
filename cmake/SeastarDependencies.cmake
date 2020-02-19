@@ -35,7 +35,7 @@
 set (Boost_NO_BOOST_CMAKE ON)
 
 # This is the minimum version of Boost we need the CMake-bundled `FindBoost.cmake` to know about.
-find_package (Boost 1.64 MODULE QUIET COMPONENTS filesystem)
+find_package (Boost 1.64 MODULE COMPONENTS filesystem)
 
 # The imported target is undefined when the version of Boost requested is not
 # supported by the find-module.
