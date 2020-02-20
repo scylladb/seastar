@@ -133,7 +133,9 @@ public:
 /// Given a range [\c begin, \c end) of objects, run \c func on each \c *i in
 /// the range, and return a future<> that resolves when all the functions
 /// complete.  \c func should return a future<> that indicates when it is
-/// complete.  All invocations are performed in parallel.
+/// complete.  All invocations are performed in parallel. This allows the range
+/// to refer to stack objects, but means that unlike other loops this cannot
+/// check need_preempt and can only be used with small ranges.
 ///
 /// \param begin an \c InputIterator designating the beginning of the range
 /// \param end an \c InputIterator designating the end of the range
@@ -178,7 +180,9 @@ parallel_for_each(Iterator begin, Iterator end, Func&& func) noexcept {
 /// Given a \c range of objects, apply \c func to each object
 /// in the range, and return a future<> that resolves when all
 /// the functions complete.  \c func should return a future<> that indicates
-/// when it is complete.  All invocations are performed in parallel.
+/// when it is complete.  All invocations are performed in parallel. This allows
+/// the range to refer to stack objects, but means that unlike other loops this
+/// cannot check need_preempt and can only be used with small ranges.
 ///
 /// \param range A range of objects to iterate run \c func on
 /// \param func  A callable, accepting reference to the range's
