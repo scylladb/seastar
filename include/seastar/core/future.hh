@@ -1533,6 +1533,7 @@ private:
     template <typename Func, typename Result = futurize_t<std::result_of_t<Func(T&&...)>>>
     Result
     then_impl(Func&& func) noexcept {
+#ifndef SEASTAR_DEBUG
         using futurator = futurize<std::result_of_t<Func(T&&...)>>;
         if (available()) {
             if (failed()) {
@@ -1541,6 +1542,7 @@ private:
                 return futurator::apply(std::forward<Func>(func), get_available_state_ref().take_value());
             }
         }
+#endif
         return then_impl_nrvo<Func, Result>(std::forward<Func>(func));
     }
 
@@ -1624,6 +1626,7 @@ private:
     template <bool AsSelf, typename FuncResult, typename Func>
     futurize_t<FuncResult>
     then_wrapped_common(Func&& func) noexcept {
+#ifndef SEASTAR_DEBUG
         using futurator = futurize<FuncResult>;
         if (available()) {
             // TODO: after dropping C++14 support use `if constexpr ()` instead.
@@ -1636,6 +1639,7 @@ private:
                 return futurator::invoke(std::forward<Func>(func), future(get_available_state_ref()));
             }
         }
+#endif
         return then_wrapped_nrvo<FuncResult, Func>(std::forward<Func>(func));
     }
 
