@@ -299,6 +299,7 @@ seastar_find_dependencies ()
 # Private build dependencies not visible to consumers
 find_package (ragel 6.10 REQUIRED)
 find_package (Threads REQUIRED)
+find_package (PthreadSetName REQUIRED)
 
 #
 # Code generation helpers.
