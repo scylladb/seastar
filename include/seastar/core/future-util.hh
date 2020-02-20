@@ -545,6 +545,46 @@ future<> keep_doing(AsyncAction action) {
     });
 }
 
+namespace internal {
+template <typename Iterator, typename AsyncAction>
+class do_for_each_state final : public continuation_base<> {
+    Iterator _begin;
+    Iterator _end;
+    AsyncAction _action;
+    promise<> _pr;
+
+public:
+    do_for_each_state(Iterator begin, Iterator end, AsyncAction action, future<> first_unavailable)
+        : _begin(std::move(begin)), _end(std::move(end)), _action(std::move(action)) {
+        internal::set_callback(first_unavailable, this);
+    }
+    virtual void run_and_dispose() noexcept override {
+        std::unique_ptr<do_for_each_state> zis(this);
+        if (_state.failed()) {
+            _pr.set_urgent_state(std::move(_state));
+            return;
+        }
+        while (_begin != _end) {
+            auto f = futurize<void>::apply(_action, *_begin++);
+            if (f.failed()) {
+                f.forward_to(std::move(_pr));
+                return;
+            }
+            if (!f.available() || need_preempt()) {
+                _state = {};
+                internal::set_callback(f, this);
+                zis.release();
+                return;
+            }
+        }
+        _pr.set_value();
+    }
+    future<> get_future() {
+        return _pr.get_future();
+    }
+};
+}
+
 /// Call a function for each item in a range, sequentially (iterator version).
 ///
 /// For each item in a range, call a function, waiting for the previous
@@ -563,25 +603,18 @@ GCC6_CONCEPT( requires requires (Iterator i, AsyncAction aa) {
 } )
 inline
 future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) {
-    if (begin == end) {
-        return make_ready_future<>();
-    }
-    while (true) {
-        auto f = futurize<void>::apply(action, *begin);
-        ++begin;
-        if (begin == end) {
-            return f;
-        }
-        if (!f.available() || need_preempt()) {
-            return std::move(f).then([action = std::move(action),
-                    begin = std::move(begin), end = std::move(end)] () mutable {
-                return do_for_each(std::move(begin), std::move(end), std::move(action));
-            });
-        }
+    while (begin != end) {
+        auto f = futurize<void>::apply(action, *begin++);
         if (f.failed()) {
             return f;
         }
+        if (!f.available() || need_preempt()) {
+            auto* s = new internal::do_for_each_state<Iterator, AsyncAction>{
+                std::move(begin), std::move(end), std::move(action), std::move(f)};
+            return s->get_future();
+        }
     }
+    return make_ready_future<>();
 }
 
 /// Call a function for each item in a range, sequentially (range version).
