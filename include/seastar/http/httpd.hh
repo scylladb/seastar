@@ -189,6 +189,7 @@ public:
     }
 
     future<bool> generate_reply(std::unique_ptr<request> req);
+    void generate_error_reply_and_close(std::unique_ptr<request> req, reply::status_type status, const sstring& msg);
 
     future<> write_body();
 
@@ -214,6 +215,7 @@ class http_server {
     bool _stopping = false;
     promise<> _all_connections_stopped;
     future<> _stopped = _all_connections_stopped.get_future();
+    size_t _content_length_limit = std::numeric_limits<size_t>::max();
 private:
     void maybe_idle() {
         if (_stopping && !_connections_being_accepted && !_current_connections) {
@@ -254,6 +256,14 @@ public:
      */
     void set_tls_credentials(shared_ptr<seastar::tls::server_credentials> credentials) {
         _credentials = credentials;
+    }
+
+    size_t get_content_length_limit() const {
+        return _content_length_limit;
+    }
+
+    void set_content_length_limit(size_t limit) {
+        _content_length_limit = limit;
     }
 
     future<> listen(socket_address addr, listen_options lo) {
