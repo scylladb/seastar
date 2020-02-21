@@ -157,7 +157,8 @@ namespace memory {
 
 seastar::logger seastar_memory_logger("seastar_memory");
 
-static allocation_site_ptr get_allocation_site() __attribute__((unused));
+[[gnu::unused]]
+static allocation_site_ptr get_allocation_site();
 
 static void on_allocation_failure(size_t size);
 
