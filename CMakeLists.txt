@@ -580,6 +580,7 @@ add_library (seastar STATIC
   src/core/linux-aio.cc
   src/core/memory.cc
   src/core/metrics.cc
+  src/core/on_internal_error.cc
   src/core/posix.cc
   src/core/prometheus.cc
   src/core/reactor.cc
