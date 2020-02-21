@@ -26,6 +26,7 @@
 #include <seastar/testing/seastar_test.hh>
 #include <seastar/testing/test_runner.hh>
 #include <seastar/core/future.hh>
+#include <seastar/core/on_internal_error.hh>
 #include <seastar/core/app-template.hh>
 
 namespace seastar {
@@ -38,6 +39,8 @@ void seastar_test::run() {
 
     // HACK: please see https://github.com/cloudius-systems/seastar/issues/10
     boost::program_options::variables_map()["dummy"];
+
+    set_abort_on_internal_error(true);
 
     global_test_runner().run_sync([this] {
         return run_test_case();
