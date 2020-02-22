@@ -23,6 +23,7 @@
 
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <type_traits>
 
 namespace seastar {
 
