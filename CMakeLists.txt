@@ -271,6 +271,12 @@ option (Seastar_UNUSED_RESULT_ERROR
   "Make [[nodiscard]] violations an error (instead of a warning)."
   OFF)
 
+set (Seastar_STACK_GUARDS
+  "DEFAULT"
+  CACHE
+  STRING
+  "Enable stack guards. Can be ON, OFF or DEFAULT (which enables it for non release builds)")
+
 # When Seastar is embedded with `add_subdirectory`, disable the non-library targets.
 if (NOT (CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR))
   set (Seastar_APPS OFF)
@@ -886,7 +892,11 @@ if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (CMAKE_BUILD_TYPE STREQUAL "Sanitize"
       SEASTAR_SHUFFLE_TASK_QUEUE)
 endif ()
 
-if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (CMAKE_BUILD_TYPE STREQUAL "Sanitize") OR (CMAKE_BUILD_TYPE STREQUAL "Dev"))
+if ((Seastar_STACK_GUARDS STREQUAL "ON") OR
+    ((Seastar_STACK_GUARDS STREQUAL "DEFAULT") AND
+      ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR
+       (CMAKE_BUILD_TYPE STREQUAL "Sanitize") OR
+       (CMAKE_BUILD_TYPE STREQUAL "Dev"))))
   target_compile_options (seastar
     PUBLIC
       -fstack-clash-protection)
