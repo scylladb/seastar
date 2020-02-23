@@ -1981,7 +1981,7 @@ void tcp<InetTraits>::tcb::retransmit() {
         unacked_seg.nr_transmits++;
     } else {
         // Delete connection when max num of retransmission is reached
-        cleanup();
+        do_reset();
         return;
     }
     retransmit_one();
