@@ -127,6 +127,16 @@ function (seastar_add_test name)
     target_compile_definitions (${executable_target}
       PRIVATE SEASTAR_TESTING_MAIN)
 
+    if ((Seastar_STACK_GUARDS STREQUAL "ON") OR
+        ((Seastar_STACK_GUARDS STREQUAL "DEFAULT") AND
+          ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR
+           (CMAKE_BUILD_TYPE STREQUAL "Sanitize") OR
+           (CMAKE_BUILD_TYPE STREQUAL "Dev"))))
+      target_compile_definitions (${executable_target}
+        PRIVATE
+          SEASTAR_THREAD_STACK_GUARDS)
+    endif ()
+
     target_include_directories (${executable_target}
       PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}

@@ -156,16 +156,16 @@ static constexpr size_t base_stack_size = 256 * 1024;
 static constexpr size_t base_stack_size = 128 * 1024;
 #endif
 
-#ifdef SEASTAR_THREAD_STACK_GUARDS
-static const size_t stack_size = base_stack_size + getpagesize();
-#else
-static const size_t stack_size = base_stack_size;
-#endif
-
 thread_context::thread_context(thread_attributes attr, noncopyable_function<void ()> func)
         : task(attr.sched_group.value_or(current_scheduling_group()))
         , _func(std::move(func)) {
-    setup();
+#if defined(__OPTIMIZE__) && defined(SEASTAR_ASAN_ENABLED)
+    size_t stack_size = std::max(base_stack_size, attr.stack_size);
+#else
+    size_t stack_size = attr.stack_size ? attr.stack_size : base_stack_size;
+#endif
+    _stack = make_stack(stack_size);
+    setup(stack_size);
     _all_threads.push_front(*this);
 }
 
@@ -178,7 +178,7 @@ thread_context::~thread_context() {
 }
 
 thread_context::stack_holder
-thread_context::make_stack() {
+thread_context::make_stack(size_t stack_size) {
 #ifdef SEASTAR_THREAD_STACK_GUARDS
     size_t page_size = getpagesize();
     size_t alignment = page_size;
@@ -208,7 +208,7 @@ void thread_context::stack_deleter::operator()(char* ptr) const noexcept {
 }
 
 void
-thread_context::setup() {
+thread_context::setup(size_t stack_size) {
     // use setcontext() for the initial jump, as it allows us
     // to set up a stack, but continue with longjmp() as it's
     // much faster.
