@@ -75,6 +75,23 @@ SEASTAR_TEST_CASE(test_match_rule)
     return make_ready_future<>();
 }
 
+SEASTAR_TEST_CASE(test_match_rule_order)
+{
+    parameters param;
+    routes route;
+
+    handl* h1 = new handl();
+    route.add(operation_type::GET, url("/hello"), h1);
+
+    handl* h2 = new handl();
+    route.add(operation_type::GET, url("/hello"), h2);
+
+    auto rh = route.get_handler(GET, "/hello", param);
+    BOOST_REQUIRE_EQUAL(rh, h1);
+
+    return make_ready_future<>();
+}
+
 SEASTAR_TEST_CASE(test_formatter)
 {
     BOOST_REQUIRE_EQUAL(json::formatter::to_json(true), "true");

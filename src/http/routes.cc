@@ -47,7 +47,7 @@ routes::~routes() {
     }
     for (int i = 0; i < NUM_OPERATION; i++) {
         for (auto r : _rules[i]) {
-            delete r;
+            delete r.second;
         }
     }
 
@@ -120,9 +120,8 @@ handler_base* routes::get_handler(operation_type type, const sstring& url,
         return handler;
     }
 
-    for (auto rule = _rules[type].cbegin(); rule != _rules[type].cend();
-            ++rule) {
-        handler = (*rule)->get(url, params);
+    for (auto&& rule : _rules[type]) {
+        handler = rule.second->get(url, params);
         if (handler != nullptr) {
             return handler;
         }

@@ -28,7 +28,6 @@
 
 #include <boost/program_options/variables_map.hpp>
 #include <unordered_map>
-#include <vector>
 #include <seastar/core/future-util.hh>
 
 namespace seastar {
@@ -107,7 +106,7 @@ public:
      * @return it self
      */
     routes& add(match_rule* rule, operation_type type = GET) {
-        _rules[type].push_back(rule);
+        _rules[type][_rover++] = rule;
         return *this;
     }
 
@@ -143,8 +142,6 @@ public:
                 nullptr : _map[type][url];
     }
 
-private:
-
     /**
      * Search and return a handler by the operation type and url
      * @param type the http operation type
@@ -155,6 +152,7 @@ private:
     handler_base* get_handler(operation_type type, const sstring& url,
             parameters& params);
 
+private:
     /**
      * Normalize the url to remove the last / if exists
      * and get the parameter part
@@ -165,7 +163,11 @@ private:
     sstring normalize_url(const sstring& url);
 
     std::unordered_map<sstring, handler_base*> _map[NUM_OPERATION];
-    std::vector<match_rule*> _rules[NUM_OPERATION];
+public:
+    using rule_cookie = uint64_t;
+private:
+    rule_cookie _rover = 0;
+    std::map<rule_cookie, match_rule*> _rules[NUM_OPERATION];
 public:
     using exception_handler_fun = std::function<std::unique_ptr<reply>(std::exception_ptr eptr)>;
     using exception_handler_id = size_t;
