@@ -124,6 +124,13 @@ public:
             _not_empty = compat::nullopt;
         }
     }
+
+    /// \brief Check if there is an active consumer
+    ///
+    /// Returns true if another fiber waits for an item to be pushed into the queue
+    bool has_blocked_consumer() const {
+        return bool(_not_empty);
+    }
 };
 
 template <typename T>
