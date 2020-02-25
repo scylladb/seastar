@@ -144,6 +144,7 @@ namespace internal {
 
 class reactor_stall_sampler;
 class cpu_stall_detector;
+class buffer_allocator;
 
 }
 
@@ -453,6 +454,8 @@ private:
     do_read_some(pollable_fd_state& fd, void* buffer, size_t size);
     future<size_t>
     do_read_some(pollable_fd_state& fd, const std::vector<iovec>& iov);
+    future<temporary_buffer<char>>
+    do_read_some(pollable_fd_state& fd, internal::buffer_allocator* ba);
 
     future<size_t>
     do_write_some(pollable_fd_state& fd, const void* buffer, size_t size);

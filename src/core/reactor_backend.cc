@@ -23,6 +23,7 @@
 #include "core/syscall_result.hh"
 #include <seastar/core/print.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/internal/buffer_allocator.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/read_first_line.hh>
 #include <chrono>
@@ -539,6 +540,11 @@ reactor_backend_aio::read_some(pollable_fd_state& fd, const std::vector<iovec>& 
     return engine().do_read_some(fd, iov);
 }
 
+future<temporary_buffer<char>>
+reactor_backend_aio::read_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
+    return engine().do_read_some(fd, ba);
+}
+
 future<size_t>
 reactor_backend_aio::write_some(pollable_fd_state& fd, const void* buffer, size_t len) {
     return engine().do_write_some(fd, buffer, len);
@@ -808,6 +814,11 @@ reactor_backend_epoll::read_some(pollable_fd_state& fd, const std::vector<iovec>
     return engine().do_read_some(fd, iov);
 }
 
+future<temporary_buffer<char>>
+reactor_backend_epoll::read_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
+    return engine().do_read_some(fd, ba);
+}
+
 future<size_t>
 reactor_backend_epoll::write_some(pollable_fd_state& fd, const void* buffer, size_t len) {
     return engine().do_write_some(fd, buffer, len);
@@ -902,6 +913,11 @@ reactor_backend_osv::read_some(pollable_fd_state& fd, void* buffer, size_t len) 
 future<size_t>
 reactor_backend_osv::read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
     return engine().do_read_some(fd, iov);
+}
+
+future<temporary_buffer<char>>
+reactor_backend_osv::read_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
+    return engine().do_read_some(fd, ba);
 }
 
 future<size_t>

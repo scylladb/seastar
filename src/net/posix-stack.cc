@@ -537,12 +537,12 @@ posix_ap_server_socket_impl::move_connected_socket(int protocol, socket_address 
 
 future<temporary_buffer<char>>
 posix_data_source_impl::get() {
-    return _fd->read_some(_buf.get_write(), _buf_size).then([this] (size_t size) {
-        _buf.trim(size);
-        auto ret = std::move(_buf);
-        _buf = make_temporary_buffer<char>(_buffer_allocator, _buf_size);
-        return make_ready_future<temporary_buffer<char>>(std::move(ret));
-    });
+    return _fd->read_some(static_cast<internal::buffer_allocator*>(this));
+}
+
+temporary_buffer<char>
+posix_data_source_impl::allocate_buffer() {
+    return make_temporary_buffer<char>(_buffer_allocator, _buf_size);
 }
 
 future<> posix_data_source_impl::close() {
