@@ -32,6 +32,7 @@
 namespace seastar {
 
 class reactor;
+class thread_cputime_clock;
 
 namespace internal {
 
@@ -67,6 +68,8 @@ private:
     void maybe_report();
     void arm_timer();
     void report_suppressions(std::chrono::steady_clock::time_point now);
+public:
+    using clock_type = thread_cputime_clock;
 public:
     cpu_stall_detector(reactor* r, cpu_stall_detector_config cfg = {});
     ~cpu_stall_detector();
