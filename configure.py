@@ -75,6 +75,7 @@ arg_parser.add_argument('--c++-dialect', action='store', dest='cpp_dialect', def
                         help='C++ dialect to build with [default: %(default)s]')
 arg_parser.add_argument('--cook', action='append', dest='cook', default=[],
                         help='Supply this dependency locally for development via `cmake-cooking` (can be repeated)')
+arg_parser.add_argument('--verbose', dest='verbose', action='store_true', help='Make configure output more verbose.')
 add_tristate(
     arg_parser,
     name = 'dpdk',
@@ -224,8 +225,9 @@ def configure_mode(mode):
         ARGS = ['cmake', '-G', 'Ninja', '../..']
         dir = BUILD_PATH
     ARGS += TRANSLATED_ARGS
-    print("Running CMake in '{}' ...".format(dir))
-    print(" \\\n  ".join(ARGS))
+    if args.verbose:
+        print("Running CMake in '{}' ...".format(dir))
+        print(" \\\n  ".join(ARGS))
     distutils.dir_util.mkpath(BUILD_PATH)
     subprocess.check_call(ARGS, shell=False, cwd=dir)
 
