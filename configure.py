@@ -224,7 +224,8 @@ def configure_mode(mode):
         ARGS = ['cmake', '-G', 'Ninja', '../..']
         dir = BUILD_PATH
     ARGS += TRANSLATED_ARGS
-    print(ARGS)
+    print("Running CMake in '{}' ...".format(dir))
+    print(" \\\n  ".join(ARGS))
     distutils.dir_util.mkpath(BUILD_PATH)
     subprocess.check_call(ARGS, shell=False, cwd=dir)
 
