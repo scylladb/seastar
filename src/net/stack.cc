@@ -84,8 +84,8 @@ connected_socket& connected_socket::operator=(connected_socket&& cs) noexcept = 
 connected_socket::~connected_socket()
 {}
 
-input_stream<char> connected_socket::input() {
-    return input_stream<char>(_csi->source());
+input_stream<char> connected_socket::input(connected_socket_input_stream_config csisc) {
+    return input_stream<char>(_csi->source(csisc));
 }
 
 output_stream<char> connected_socket::output(size_t buffer_size) {
@@ -119,6 +119,12 @@ void connected_socket::shutdown_output() {
 
 void connected_socket::shutdown_input() {
     _csi->shutdown_input();
+}
+
+data_source
+net::connected_socket_impl::source(connected_socket_input_stream_config csisc) {
+    // Default implementation falls back to non-parameterized data_source
+    return source();
 }
 
 socket::~socket()

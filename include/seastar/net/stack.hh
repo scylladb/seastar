@@ -34,6 +34,7 @@ class connected_socket_impl {
 public:
     virtual ~connected_socket_impl() {}
     virtual data_source source() = 0;
+    virtual data_source source(connected_socket_input_stream_config csisc);
     virtual data_sink sink() = 0;
     virtual void shutdown_input() = 0;
     virtual void shutdown_output() = 0;

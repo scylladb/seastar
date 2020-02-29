@@ -107,13 +107,13 @@ public:
 class posix_data_source_impl final : public data_source_impl, private internal::buffer_allocator {
     compat::polymorphic_allocator<char>* _buffer_allocator;
     lw_shared_ptr<pollable_fd> _fd;
-    size_t _buf_size;
+    connected_socket_input_stream_config _config;
 private:
     virtual temporary_buffer<char> allocate_buffer() override;
 public:
-    explicit posix_data_source_impl(lw_shared_ptr<pollable_fd> fd, compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator,
-            size_t buf_size = 8192)
-            : _buffer_allocator(allocator), _fd(std::move(fd)), _buf_size(buf_size) {
+    explicit posix_data_source_impl(lw_shared_ptr<pollable_fd> fd, connected_socket_input_stream_config config,
+            compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator)
+            : _buffer_allocator(allocator), _fd(std::move(fd)), _config(config) {
     }
     future<temporary_buffer<char>> get() override;
     future<> close() override;

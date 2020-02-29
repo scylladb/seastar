@@ -184,7 +184,10 @@ private:
                 , _ops(get_posix_connected_socket_ops(family, protocol)), _handle(std::move(handle)), _allocator(allocator) {}
 public:
     virtual data_source source() override {
-        return data_source(std::make_unique< posix_data_source_impl>(_fd, _allocator));
+        return source(connected_socket_input_stream_config());
+    }
+    virtual data_source source(connected_socket_input_stream_config csisc) override {
+        return data_source(std::make_unique<posix_data_source_impl>(_fd, csisc, _allocator));
     }
     virtual data_sink sink() override {
         return data_sink(std::make_unique< posix_data_sink_impl>(_fd));
@@ -537,12 +540,21 @@ posix_ap_server_socket_impl::move_connected_socket(int protocol, socket_address 
 
 future<temporary_buffer<char>>
 posix_data_source_impl::get() {
-    return _fd->read_some(static_cast<internal::buffer_allocator*>(this));
+    return _fd->read_some(static_cast<internal::buffer_allocator*>(this)).then([this] (temporary_buffer<char> b) {
+        if (b.size() >= _config.buffer_size) {
+            _config.buffer_size *= 2;
+            _config.buffer_size = std::min(_config.buffer_size, _config.max_buffer_size);
+        } else if (b.size() <= _config.buffer_size / 4) {
+            _config.buffer_size /= 2;
+            _config.buffer_size = std::max(_config.buffer_size, _config.min_buffer_size);
+        }
+        return b;
+    });
 }
 
 temporary_buffer<char>
 posix_data_source_impl::allocate_buffer() {
-    return make_temporary_buffer<char>(_buffer_allocator, _buf_size);
+    return make_temporary_buffer<char>(_buffer_allocator, _config.buffer_size);
 }
 
 future<> posix_data_source_impl::close() {
