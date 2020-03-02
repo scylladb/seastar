@@ -2074,14 +2074,6 @@ void reactor::register_metrics() {
             sm::make_derive("abandoned_failed_futures", _abandoned_failed_futures, sm::description("Total number of abandoned failed futures, futures destroyed while still containing an exception")),
     });
 
-    auto ioq_group = sm::label("mountpoint");
-    for (auto& ioq : my_io_queues) {
-        auto ioq_name = ioq_group(ioq->mountpoint());
-        _metric_groups.add_group("reactor", {
-                sm::make_gauge("io_queue_requests", [&ioq] { return ioq->queued_requests(); } , sm::description("Number of requests in the io queue"), {ioq_name}),
-        });
-    }
-
     using namespace seastar::metrics;
     _metric_groups.add_group("reactor", {
         make_counter("fstream_reads", _io_stats.fstream_reads,
