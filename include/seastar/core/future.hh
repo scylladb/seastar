@@ -404,9 +404,14 @@ struct future_state :  public future_state_base, private internal::uninitialized
     [[gnu::always_inline]]
     future_state(future_state&& x) noexcept : future_state_base(std::move(x)) {
         if (has_trivial_move_and_destroy) {
+#pragma GCC diagnostic push
+// Unfortunately gcc 8 warns about the memcpy of uninitialized
+// memory. We can drop this when we drop support for gcc 8.
+#pragma GCC diagnostic ignored "-Wuninitialized"
             memcpy(reinterpret_cast<char*>(&this->uninitialized_get()),
                    &x.uninitialized_get(),
                    internal::used_size<std::tuple<T...>>::value);
+#pragma GCC diagnostic pop
         } else if (_u.has_result()) {
             this->uninitialized_set(std::move(x.uninitialized_get()));
             x.uninitialized_get().~tuple();
