@@ -895,9 +895,7 @@ endif ()
 
 if ((Seastar_STACK_GUARDS STREQUAL "ON") OR
     ((Seastar_STACK_GUARDS STREQUAL "DEFAULT") AND
-      ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR
-       (CMAKE_BUILD_TYPE STREQUAL "Sanitize") OR
-       (CMAKE_BUILD_TYPE STREQUAL "Dev"))))
+     (CMAKE_BUILD_TYPE IN_LIST "Debug;Sanitize;Dev")))
   seastar_supports_flag ("-fstack-clash-protection" StackClashProtection_FOUND)
   if (StackClashProtection_FOUND)
     target_compile_options (seastar
