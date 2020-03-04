@@ -77,7 +77,7 @@ template <typename Input>
 inline sstring read(serializer, Input& in, rpc::type<sstring>) {
     auto size = read_arithmetic_type<uint32_t>(in);
     sstring ret(sstring::initialized_later(), size);
-    in.read(ret.begin(), size);
+    in.read(ret.data(), size);
     return ret;
 }
 

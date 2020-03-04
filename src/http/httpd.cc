@@ -119,7 +119,7 @@ future<> connection::start_response() {
     set_headers(*_resp);
     _resp->_headers["Content-Length"] = to_sstring(
             _resp->_content.size());
-    return _write_buf.write(_resp->_response_line.begin(),
+    return _write_buf.write(_resp->_response_line.data(),
             _resp->_response_line.size()).then([this] {
         return _resp->write_reply_headers(*this);
     }).then([this] {
@@ -258,7 +258,7 @@ future<> connection::respond() {
 }
 
 future<> connection::write_body() {
-    return _write_buf.write(_resp->_content.begin(),
+    return _write_buf.write(_resp->_content.data(),
             _resp->_content.size());
 }
 

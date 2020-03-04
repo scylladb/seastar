@@ -718,7 +718,7 @@ template <typename String = sstring, typename... Args>
 static String make_sstring(Args&&... args)
 {
     String ret(sstring::initialized_later(), str_len(args...));
-    copy_str_to(ret.begin(), args...);
+    copy_str_to(ret.data(), args...);
     return ret;
 }
 

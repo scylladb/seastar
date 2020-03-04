@@ -111,11 +111,11 @@ public:
         if (hi == _resp->_headers.end()) {
             return make_ready_future<>();
         }
-        return _write_buf.write(hi->first.begin(), hi->first.size()).then(
+        return _write_buf.write(hi->first.data(), hi->first.size()).then(
                 [this] {
                     return _write_buf.write(": ", 2);
                 }).then([hi, this] {
-            return _write_buf.write(hi->second.begin(), hi->second.size());
+            return _write_buf.write(hi->second.data(), hi->second.size());
         }).then([this] {
             return _write_buf.write("\r\n", 2);
         }).then([hi, this] () mutable {
