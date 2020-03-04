@@ -23,6 +23,7 @@
 
 #include <seastar/core/deleter.hh>
 #include <seastar/util/eclipse.hh>
+#include <seastar/util/std-compat.hh>
 #include <malloc.h>
 #include <algorithm>
 #include <cstddef>
@@ -211,6 +212,16 @@ public:
             throw std::bad_alloc();
         }
         return temporary_buffer(buf, size, make_free_deleter(buf));
+    }
+
+    static temporary_buffer copy_of(compat::string_view view) {
+        void* ptr = ::malloc(view.size());
+        if (!ptr) {
+            throw std::bad_alloc();
+        }
+        auto buf = static_cast<CharType*>(ptr);
+        memcpy(buf, view.data(), view.size());
+        return temporary_buffer(buf, view.size(), make_free_deleter(buf));
     }
 
     /// Compare contents of this buffer with another buffer for equality
