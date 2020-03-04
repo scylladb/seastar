@@ -144,10 +144,13 @@ template <typename Map, typename Key>
 static auto delete_rule_from(operation_type type, Key& key, Map& map) {
     auto& bucket = map[type];
     auto ret = bucket.find(key);
+    using ret_type = decltype(ret->second);
     if (ret != bucket.end()) {
+        ret_type v = ret->second;
         bucket.erase(ret);
+        return v;
     }
-    return ret == bucket.end() ? nullptr : ret->second;
+    return static_cast<ret_type>(nullptr);
 }
 
 handler_base* routes::drop(operation_type type, const sstring& url) {
