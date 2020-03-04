@@ -26,6 +26,7 @@
 #include <seastar/core/future-util.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/stream.hh>
+#include <seastar/util/backtrace.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/shared_future.hh>
 #include <seastar/core/manual_clock.hh>
@@ -1256,4 +1257,32 @@ SEASTAR_THREAD_TEST_CASE(test_exception_future_with_backtrace) {
     // warning. We can't directly test that the warning is issued, but
     // this example functions as documentation.
     (void)outer(true);
+}
+
+future<> func4() {
+    return later().then([] {
+        seastar_logger.info("backtrace: {}", current_backtrace());
+    });
+}
+
+void func3() {
+    seastar::async([] {
+        func4().get();
+    }).get();
+}
+
+future<> func2() {
+    return seastar::async([] {
+        func3();
+    });
+}
+
+future<> func1() {
+    return later().then([] {
+        return func2();
+    });
+}
+
+SEASTAR_THREAD_TEST_CASE(test_backtracing) {
+    func1().get();
 }
