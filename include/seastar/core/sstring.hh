@@ -42,7 +42,11 @@ namespace seastar {
 template <typename char_type, typename Size, Size max_size, bool NulTerminate = true>
 class basic_sstring;
 
+#ifdef SEASTAR_SSTRING
 using sstring = basic_sstring<char, uint32_t, 15>;
+#else
+using sstring = std::string;
+#endif
 
 template <typename char_type, typename Size, Size max_size, bool NulTerminate>
 class basic_sstring {
