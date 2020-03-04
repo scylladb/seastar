@@ -157,7 +157,7 @@ SEASTAR_TEST_CASE(test_thread_custom_stack_size) {
         return x + y;
     };
     thread_attributes attr;
-    attr.stack_size = 8192;
+    attr.stack_size = 16384;
     return async(attr, concat, x, y).then([] (sstring xy) {
         BOOST_REQUIRE_EQUAL(xy, "xy");
     });
