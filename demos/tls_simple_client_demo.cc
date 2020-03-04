@@ -71,7 +71,7 @@ int main(int ac, char** av) {
         if (config.count("msg")) {
             msg = seastar::make_shared<sstring>(config["msg"].as<std::string>());
         } else {
-            msg = seastar::make_shared<sstring>(sstring(sstring::initialized_later(), n));
+            msg = seastar::make_shared<sstring>(uninitialized_string(n));
             for (size_t i = 0; i < n; ++i) {
                 (*msg)[i] = '0' + char(::rand() % 30);
             }

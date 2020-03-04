@@ -34,7 +34,7 @@ using namespace seastar;
 using namespace net;
 
 static sstring to_sstring(const packet& p) {
-    sstring res(sstring::initialized_later(), p.len());
+    sstring res = uninitialized_string(p.len());
     auto i = res.begin();
     for (auto& frag : p.fragments()) {
         i = std::copy(frag.base, frag.base + frag.size, i);

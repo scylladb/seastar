@@ -619,6 +619,20 @@ public:
 template <typename char_type, typename Size, Size max_size, bool NulTerminate>
 constexpr Size basic_sstring<char_type, Size, max_size, NulTerminate>::npos;
 
+template <typename string_type = sstring>
+string_type uninitialized_string(size_t size) {
+    string_type ret;
+    // FIXME: use __resize_default_init if available
+    ret.resize(size);
+    return ret;
+}
+
+template <typename char_type, typename Size, Size max_size, bool NulTerminate>
+basic_sstring<char_type, Size, max_size, NulTerminate> uninitialized_string(size_t size) {
+    using sstring_type = basic_sstring<char_type, Size, max_size, NulTerminate>;
+    return sstring_type(sstring_type::initialized_later(), size);
+}
+
 template <typename char_type, typename size_type, size_type Max, size_type N, bool NulTerminate>
 inline
 basic_sstring<char_type, size_type, Max, NulTerminate>
@@ -717,7 +731,7 @@ char* copy_str_to(char* dst, const Head& head, const Tail&... tail) {
 template <typename String = sstring, typename... Args>
 static String make_sstring(Args&&... args)
 {
-    String ret(sstring::initialized_later(), str_len(args...));
+    String ret = uninitialized_string<String>(str_len(args...));
     copy_str_to(ret.data(), args...);
     return ret;
 }

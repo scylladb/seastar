@@ -175,7 +175,7 @@ maybe_add_time_point(do_want_time_point, opt_time_point& otp, std::tuple<In...>&
 }
 
 inline sstring serialize_connection_id(const connection_id& id) {
-    sstring p(sstring::initialized_later(), sizeof(id));
+    sstring p = uninitialized_string(sizeof(id));
     auto c = p.data();
     write_le(c, id.id);
     return p;
@@ -301,7 +301,7 @@ struct unmarshal_one {
         }
     };
     static connection_id get_connection_id(Input& in) {
-        sstring id(sstring::initialized_later(), sizeof(connection_id));
+        sstring id = uninitialized_string(sizeof(connection_id));
         in.read(id.data(), sizeof(connection_id));
         return deserialize_connection_id(id);
     }
