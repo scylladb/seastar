@@ -226,7 +226,7 @@ seastar::future<> test_thread_custom_stack_size_failure::run_test_case() {
         // until we hit a write fault. In order not to ruin anything,
         // the "write" uses data it just read from the address.
         volatile char* mem = reinterpret_cast<volatile char*>(&x);
-        for (int i = 0; i < 10; ++i) {
+        for (int i = 0; i < 20; ++i) {
             mem[i*-1024] = char(mem[i*-1024]);
             if (stack_guard_bypassed) {
                 break;
@@ -235,7 +235,7 @@ seastar::future<> test_thread_custom_stack_size_failure::run_test_case() {
         return x + y;
     };
     thread_attributes attr;
-    attr.stack_size = 8192;
+    attr.stack_size = 16384;
     return async(attr, concat, x, y).then([] (sstring xy) {
         BOOST_REQUIRE_EQUAL(xy, "xy");
         BOOST_REQUIRE(stack_guard_bypassed);
