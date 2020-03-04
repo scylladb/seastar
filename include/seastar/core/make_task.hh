@@ -40,7 +40,9 @@ public:
         futurator::invoke(_func).forward_to(std::move(_result));
         delete this;
     }
-    virtual task* waiting_task() noexcept override { return nullptr; }
+    virtual task* waiting_task() noexcept override {
+        return _result.waiting_task();
+    }
 };
 
 template <typename Func>
