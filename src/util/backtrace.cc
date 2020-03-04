@@ -160,8 +160,13 @@ tasktrace current_tasktrace() noexcept {
         }
 
         while (tsk && prev.size() < prev.max_size()) {
-            const std::type_info& ti = typeid(*tsk);
-            prev.push_back(task_entry(ti));
+            shared_backtrace bt = tsk->get_backtrace();
+            if (bt) {
+                prev.push_back(bt);
+            } else {
+                const std::type_info& ti = typeid(*tsk);
+                prev.push_back(task_entry(ti));
+            }
             tsk = tsk->waiting_task();
         }
     }

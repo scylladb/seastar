@@ -93,6 +93,11 @@ add_tristate(
     help = 'allocation failure injection')
 add_tristate(
     arg_parser,
+    name = 'task-backtrace',
+    dest = 'task_backtrace',
+    help = 'Collect backtrace at deferring points')
+add_tristate(
+    arg_parser,
     name = 'experimental-coroutines-ts',
     dest = "coroutines_ts",
     help = 'experimental support for Coroutines TS')
@@ -187,6 +192,7 @@ def configure_mode(mode):
         tr(infer_dpdk_machine(args.user_cflags), 'DPDK_MACHINE'),
         tr(args.hwloc, 'HWLOC', value_when_none='yes'),
         tr(args.alloc_failure_injection, 'ALLOC_FAILURE_INJECTION'),
+        tr(args.task_backtrace, 'TASK_BACKTRACE'),
         tr(args.alloc_page_size, 'ALLOC_PAGE_SIZE'),
         tr(args.split_dwarf, 'SPLIT_DWARF'),
         tr(args.heap_profiling, 'HEAP_PROFILING'),

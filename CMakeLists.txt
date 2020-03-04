@@ -44,6 +44,10 @@ option (Seastar_ALLOC_FAILURE_INJECTION
   "Enable failure injection into the Seastar allocator."
   OFF)
 
+option (Seastar_TASK_BACKTRACE
+  "Collect backtrace at deferring points."
+  OFF)
+
 option (Seastar_EXPERIMENTAL_COROUTINES_TS
   "Enable experimental support for Coroutines TS."
   OFF)
@@ -777,6 +781,11 @@ endif ()
 if (Seastar_ALLOC_FAILURE_INJECTION)
   target_compile_definitions (seastar
     PUBLIC SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION)
+endif ()
+
+if (Seastar_TASK_BACKTRACE)
+  target_compile_definitions (seastar
+    PUBLIC SEASTAR_TASK_BACKTRACE)
 endif ()
 
 if (Sanitizers_FIBER_SUPPORT)
