@@ -248,7 +248,7 @@ void verify_param(const httpd::request& req, const sstring& param);
  */
 class handler_registration {
     routes& _routes;
-    const sstring& _url;
+    const sstring _url;
     operation_type _op;
 
 public:
