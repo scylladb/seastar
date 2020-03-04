@@ -125,7 +125,6 @@ BOOST_AUTO_TEST_CASE(test_erase) {
     auto i = str.erase(str.begin() + 1, str.begin() + 3);
     BOOST_REQUIRE_EQUAL(*i, 'd');
     BOOST_REQUIRE_EQUAL(str, "adef");
-    BOOST_REQUIRE_THROW(str.erase(str.begin() + 5, str.begin() + 6), std::out_of_range);
 }
 
 BOOST_AUTO_TEST_CASE(test_ctor_iterator) {
