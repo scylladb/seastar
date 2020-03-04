@@ -592,6 +592,18 @@ template <typename char_type, typename size_type, size_type max_size, bool NulTe
 static inline
 const char_type* str_end(const basic_sstring<char_type, size_type, max_size, NulTerminate>& s) { return s.end(); }
 
+inline const char* str_begin(const std::string& s) {
+    return s.data();
+}
+
+inline const char* str_end(const std::string& s) {
+    return &*s.end();
+}
+
+inline size_t str_len(const std::string& s) {
+    return s.size();
+}
+
 template <typename char_type, typename size_type, size_type max_size, bool NulTerminate>
 static inline
 size_type str_len(const basic_sstring<char_type, size_type, max_size, NulTerminate>& s) { return s.size(); }
