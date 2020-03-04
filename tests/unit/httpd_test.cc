@@ -95,13 +95,13 @@ SEASTAR_TEST_CASE(test_match_rule_order)
 SEASTAR_TEST_CASE(test_put_drop_rule)
 {
     routes rts;
-    handl* h = new handl();
+    auto h = std::make_unique<handl>();
     parameters params;
 
     {
         auto reg = handler_registration(rts, *h, "/hello", operation_type::GET);
         auto res = rts.get_handler(operation_type::GET, "/hello", params);
-        BOOST_REQUIRE_EQUAL(res, h);
+        BOOST_REQUIRE_EQUAL(res, h.get());
     }
 
     auto res = rts.get_handler(operation_type::GET, "/hello", params);
