@@ -893,9 +893,10 @@ if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (CMAKE_BUILD_TYPE STREQUAL "Sanitize"
       SEASTAR_SHUFFLE_TASK_QUEUE)
 endif ()
 
+set (Seastar_STACK_GUARD_MODES "Debug" "Sanitize" "Dev")
 if ((Seastar_STACK_GUARDS STREQUAL "ON") OR
     ((Seastar_STACK_GUARDS STREQUAL "DEFAULT") AND
-     (CMAKE_BUILD_TYPE IN_LIST "Debug;Sanitize;Dev")))
+     (CMAKE_BUILD_TYPE IN_LIST Seastar_STACK_GUARD_MODES)))
   seastar_supports_flag ("-fstack-clash-protection" StackClashProtection_FOUND)
   if (StackClashProtection_FOUND)
     target_compile_options (seastar
