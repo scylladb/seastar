@@ -3981,7 +3981,7 @@ static future<> do_recursive_touch_directory(sstring base, sstring name, file_pe
     base += name.substr(0 , pos + 1);
     name = name.substr(pos + 1);
     if (name.length() == 1 && name[0] == separator) {
-        name.reset();
+        name = {};
     }
     // use the optional permissions only for last component,
     // other directories in the patch will always be created using the default_dir_permissions
