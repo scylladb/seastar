@@ -44,9 +44,6 @@ class basic_sstring;
 
 using sstring = basic_sstring<char, uint32_t, 15>;
 
-template <typename string_type = sstring, typename T>
-inline string_type to_sstring(T value);
-
 template <typename char_type, typename Size, Size max_size, bool NulTerminate>
 class basic_sstring {
     static_assert(
@@ -80,73 +77,6 @@ class basic_sstring {
         return is_internal() ? u.internal.str : u.external.str;
     }
 
-    template <typename string_type, typename T>
-    static inline string_type to_sstring_sprintf(T value, const char* fmt) {
-        char tmp[sizeof(value) * 3 + 2];
-        auto len = std::sprintf(tmp, fmt, value);
-        using ch_type = typename string_type::value_type;
-        return string_type(reinterpret_cast<ch_type*>(tmp), len);
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(int value) {
-        return to_sstring_sprintf<string_type>(value, "%d");
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(unsigned value) {
-        return to_sstring_sprintf<string_type>(value, "%u");
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(long value) {
-        return to_sstring_sprintf<string_type>(value, "%ld");
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(unsigned long value) {
-        return to_sstring_sprintf<string_type>(value, "%lu");
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(long long value) {
-        return to_sstring_sprintf<string_type>(value, "%lld");
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(unsigned long long value) {
-        return to_sstring_sprintf<string_type>(value, "%llu");
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(float value) {
-        return to_sstring_sprintf<string_type>(value, "%g");
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(double value) {
-        return to_sstring_sprintf<string_type>(value, "%g");
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(long double value) {
-        return to_sstring_sprintf<string_type>(value, "%Lg");
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(const char* value) {
-        return string_type(value);
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(sstring value) {
-        return value;
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(const temporary_buffer<char>& buf) {
-        return string_type(buf.get(), buf.size());
-    }
 public:
     using value_type = char_type;
     using traits_type = std::char_traits<char_type>;
@@ -612,9 +542,6 @@ public:
     operator compat::basic_string_view<char_type>() const {
         return compat::basic_string_view<char_type>(str(), size());
     }
-
-    template <typename string_type, typename T>
-    friend inline string_type to_sstring(T value);
 };
 template <typename char_type, typename Size, Size max_size, bool NulTerminate>
 constexpr Size basic_sstring<char_type, Size, max_size, NulTerminate>::npos;
@@ -736,11 +663,80 @@ static String make_sstring(Args&&... args)
     return ret;
 }
 
+namespace internal {
 template <typename string_type, typename T>
-inline string_type to_sstring(T value) {
-    return sstring::to_sstring<string_type>(value);
+string_type to_sstring_sprintf(T value, const char* fmt) {
+    char tmp[sizeof(value) * 3 + 2];
+    auto len = std::sprintf(tmp, fmt, value);
+    using ch_type = typename string_type::value_type;
+    return string_type(reinterpret_cast<ch_type*>(tmp), len);
 }
 
+template <typename string_type>
+string_type to_sstring(int value) {
+    return to_sstring_sprintf<string_type>(value, "%d");
+}
+
+template <typename string_type>
+string_type to_sstring(unsigned value) {
+    return to_sstring_sprintf<string_type>(value, "%u");
+}
+
+template <typename string_type>
+string_type to_sstring(long value) {
+    return to_sstring_sprintf<string_type>(value, "%ld");
+}
+
+template <typename string_type>
+string_type to_sstring(unsigned long value) {
+    return to_sstring_sprintf<string_type>(value, "%lu");
+}
+
+template <typename string_type>
+string_type to_sstring(long long value) {
+    return to_sstring_sprintf<string_type>(value, "%lld");
+}
+
+template <typename string_type>
+string_type to_sstring(unsigned long long value) {
+    return to_sstring_sprintf<string_type>(value, "%llu");
+}
+
+template <typename string_type>
+string_type to_sstring(float value) {
+    return to_sstring_sprintf<string_type>(value, "%g");
+}
+
+template <typename string_type>
+string_type to_sstring(double value) {
+    return to_sstring_sprintf<string_type>(value, "%g");
+}
+
+template <typename string_type>
+string_type to_sstring(long double value) {
+    return to_sstring_sprintf<string_type>(value, "%Lg");
+}
+
+template <typename string_type>
+string_type to_sstring(const char* value) {
+    return string_type(value);
+}
+
+template <typename string_type>
+string_type to_sstring(sstring value) {
+    return value;
+}
+
+template <typename string_type>
+string_type to_sstring(const temporary_buffer<char>& buf) {
+    return string_type(buf.get(), buf.size());
+}
+}
+
+template <typename string_type = sstring, typename T>
+string_type to_sstring(T value) {
+    return internal::to_sstring<string_type>(value);
+}
 }
 
 namespace std {
