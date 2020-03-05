@@ -144,9 +144,9 @@ public:
      * @param url the request url
      * @return the handler if exists or nullptr if it does not
      */
-    handler_base* get_exact_match(operation_type type, const sstring& url) {
-        return (_map[type].find(url) == _map[type].end()) ?
-                nullptr : _map[type][url];
+    handler_base* get_exact_match(operation_type type, const sstring& url) const {
+        auto i = _map[type].find(url);
+        return (i == _map[type].end()) ? nullptr : i->second;
     }
 
     /**
@@ -248,7 +248,7 @@ void verify_param(const httpd::request& req, const sstring& param);
  */
 class handler_registration {
     routes& _routes;
-    const sstring& _url;
+    const sstring _url;
     operation_type _op;
 
 public:
