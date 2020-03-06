@@ -425,7 +425,7 @@ bpo::options_description get_options_description() {
             ("logger-log-level",
              bpo::value<program_options::string_map>()->default_value({}),
              "Map of logger name to log level. The format is \"NAME0=LEVEL0[:NAME1=LEVEL1:...]\". "
-             "Valid logger names can be queried with --help-logging. "
+             "Valid logger names can be queried with --help-loggers. "
              "Valid values for levels are trace, debug, info, warn, error. "
              "This option can be specified multiple times."
             )
