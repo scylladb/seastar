@@ -1546,7 +1546,7 @@ size_t sanitize_iovecs(std::vector<iovec>& iov, size_t disk_alignment) noexcept 
 }
 
 future<file>
-reactor::open_file_dma(sstring name, open_flags flags, file_open_options options) {
+reactor::open_file_dma(sstring name, open_flags flags, file_open_options options) noexcept {
   return do_with(static_cast<int>(flags), std::move(name), std::move(options), [this] (auto& open_flags, sstring& name, file_open_options& options) {
     return _thread_pool->submit<syscall_result<int>>([&name, &open_flags, &options, strict_o_direct = _strict_o_direct, bypass_fsync = _bypass_fsync] () mutable {
         // We want O_DIRECT, except in two cases:
@@ -1813,7 +1813,7 @@ reactor::statvfs(sstring pathname) noexcept {
 }
 
 future<file>
-reactor::open_directory(sstring name) {
+reactor::open_directory(sstring name) noexcept {
     auto oflags = O_DIRECTORY | O_CLOEXEC | O_RDONLY;
     return _thread_pool->submit<syscall_result<int>>([name, oflags] {
         return wrap_syscall<int>(::open(name.c_str(), oflags));

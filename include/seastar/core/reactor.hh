@@ -511,8 +511,8 @@ public:
 
     future<> write_all(pollable_fd_state& fd, const void* buffer, size_t size);
 
-    future<file> open_file_dma(sstring name, open_flags flags, file_open_options options = {});
-    future<file> open_directory(sstring name);
+    future<file> open_file_dma(sstring name, open_flags flags, file_open_options options = {}) noexcept;
+    future<file> open_directory(sstring name) noexcept;
     future<> make_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions) noexcept;
     future<> touch_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions) noexcept;
     future<compat::optional<directory_entry_type>>  file_type(sstring name, follow_symlink = follow_symlink::yes) noexcept;

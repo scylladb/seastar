@@ -162,7 +162,7 @@ future<connected_socket> connect(socket_address sa, socket_address local, transp
 /// containing directory is sync'ed.
 ///
 /// \relates file
-future<file> open_file_dma(sstring name, open_flags flags);
+future<file> open_file_dma(sstring name, open_flags flags) noexcept;
 
 /// Opens or creates a file.  The "dma" in the name refers to the fact
 /// that data transfers are unbuffered and uncached.
@@ -177,7 +177,7 @@ future<file> open_file_dma(sstring name, open_flags flags);
 /// containing directory is sync'ed.
 ///
 /// \relates file
-future<file> open_file_dma(sstring name, open_flags flags, file_open_options options);
+future<file> open_file_dma(sstring name, open_flags flags, file_open_options options) noexcept;
 
 /// Checks if a given directory supports direct io
 ///
@@ -204,7 +204,7 @@ future<> check_direct_io_support(sstring path);
 ///    \ref file::fsync(), and \ref file::close().
 ///
 /// \relates file
-future<file> open_directory(sstring name);
+future<file> open_directory(sstring name) noexcept;
 
 /// Creates a new directory.
 ///
