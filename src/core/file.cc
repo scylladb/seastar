@@ -116,7 +116,7 @@ posix_file_impl::posix_file_impl(int fd, open_flags f, std::atomic<unsigned>* re
 }
 
 future<>
-posix_file_impl::flush(void) {
+posix_file_impl::flush(void) noexcept {
     if ((_open_flags & open_flags::dsync) != open_flags{}) {
         return make_ready_future<>();
     }
@@ -124,7 +124,7 @@ posix_file_impl::flush(void) {
 }
 
 future<struct stat>
-posix_file_impl::stat(void) {
+posix_file_impl::stat(void) noexcept {
     return engine()._thread_pool->submit<syscall_result_extra<struct stat>>([this] {
         struct stat st;
         auto ret = ::fstat(_fd, &st);
@@ -136,7 +136,7 @@ posix_file_impl::stat(void) {
 }
 
 future<>
-posix_file_impl::truncate(uint64_t length) {
+posix_file_impl::truncate(uint64_t length) noexcept {
     return engine()._thread_pool->submit<syscall_result<int>>([this, length] {
         return wrap_syscall<int>(::ftruncate(_fd, length));
     }).then([] (syscall_result<int> sr) {
@@ -146,7 +146,7 @@ posix_file_impl::truncate(uint64_t length) {
 }
 
 future<>
-posix_file_impl::discard(uint64_t offset, uint64_t length) {
+posix_file_impl::discard(uint64_t offset, uint64_t length) noexcept {
     return engine()._thread_pool->submit<syscall_result<int>>([this, offset, length] () mutable {
         return wrap_syscall<int>(::fallocate(_fd, FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE,
             offset, length));
@@ -157,7 +157,7 @@ posix_file_impl::discard(uint64_t offset, uint64_t length) {
 }
 
 future<>
-posix_file_impl::allocate(uint64_t position, uint64_t length) {
+posix_file_impl::allocate(uint64_t position, uint64_t length) noexcept {
 #ifdef FALLOC_FL_ZERO_RANGE
     // FALLOC_FL_ZERO_RANGE is fairly new, so don't fail if it's not supported.
     static bool supported = true;
@@ -181,7 +181,7 @@ posix_file_impl::allocate(uint64_t position, uint64_t length) {
 }
 
 future<uint64_t>
-posix_file_impl::size() {
+posix_file_impl::size() noexcept {
     auto r = ::lseek(_fd, 0, SEEK_END);
     if (r == -1) {
         return make_exception_future<uint64_t>(std::system_error(errno, std::system_category()));
@@ -219,7 +219,7 @@ posix_file_impl::close() noexcept {
 }
 
 future<uint64_t>
-blockdev_file_impl::size(void) {
+blockdev_file_impl::size(void) noexcept {
     return engine()._thread_pool->submit<syscall_result_extra<size_t>>([this] {
         uint64_t size;
         int ret = ::ioctl(_fd, BLKGETSIZE64, &size);
@@ -320,35 +320,36 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
 }
 
 future<size_t>
-posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& io_priority_class) {
+posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& io_priority_class) noexcept {
     auto req = internal::io_request::make_write(_fd, pos, buffer, len);
     return engine().submit_io_write(_io_queue, io_priority_class, len, std::move(req));
 }
 
 future<size_t>
-posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class) {
+posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class) noexcept {
     auto len = internal::sanitize_iovecs(iov, _disk_write_dma_alignment);
     auto req = internal::io_request::make_writev(_fd, pos, iov);
     return engine().submit_io_write(_io_queue, io_priority_class, len, std::move(req)).finally([iov = std::move(iov)] () {});
 }
 
 future<size_t>
-posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& io_priority_class) {
+posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& io_priority_class) noexcept {
     auto req = internal::io_request::make_read(_fd, pos, buffer, len);
     return engine().submit_io_read(_io_queue, io_priority_class, len, std::move(req));
 }
 
 future<size_t>
-posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class) {
+posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class) noexcept {
     auto len = internal::sanitize_iovecs(iov, _disk_read_dma_alignment);
     auto req = internal::io_request::make_readv(_fd, pos, iov);
     return engine().submit_io_read(_io_queue, io_priority_class, len, std::move(req)).finally([iov = std::move(iov)] () {});
 }
 
 future<temporary_buffer<uint8_t>>
-posix_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc) {
+posix_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc) noexcept {
     using tmp_buf_type = typename file::read_state<uint8_t>::tmp_buf_type;
 
+  try {
     auto front = offset & (_disk_read_dma_alignment - 1);
     offset -= front;
     range_size += front;
@@ -402,6 +403,9 @@ posix_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, const io_prio
             return make_ready_future<tmp_buf_type>(std::move(rstate->buf));
         });
     });
+  } catch (...) {
+      return make_exception_future<tmp_buf_type>(std::current_exception());
+  }
 }
 
 future<temporary_buffer<uint8_t>>
@@ -449,12 +453,12 @@ blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options o
 }
 
 future<>
-blockdev_file_impl::truncate(uint64_t length) {
+blockdev_file_impl::truncate(uint64_t length) noexcept {
     return make_ready_future<>();
 }
 
 future<>
-blockdev_file_impl::discard(uint64_t offset, uint64_t length) {
+blockdev_file_impl::discard(uint64_t offset, uint64_t length) noexcept {
     return engine()._thread_pool->submit<syscall_result<int>>([this, offset, length] () mutable {
         uint64_t range[2] { offset, length };
         return wrap_syscall<int>(::ioctl(_fd, BLKDISCARD, &range));
@@ -465,7 +469,7 @@ blockdev_file_impl::discard(uint64_t offset, uint64_t length) {
 }
 
 future<>
-blockdev_file_impl::allocate(uint64_t position, uint64_t length) {
+blockdev_file_impl::allocate(uint64_t position, uint64_t length) noexcept {
     // nothing to do for block device
     return make_ready_future<>();
 }
@@ -603,7 +607,7 @@ append_challenged_posix_file_impl::commit_size(uint64_t size) noexcept {
 }
 
 future<size_t>
-append_challenged_posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc) {
+append_challenged_posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc) noexcept {
     if (pos >= _logical_size) {
         // later() avoids tail recursion
         return later().then([] {
@@ -622,7 +626,7 @@ append_challenged_posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t l
 }
 
 future<size_t>
-append_challenged_posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) {
+append_challenged_posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) noexcept {
     if (pos >= _logical_size) {
         // later() avoids tail recursion
         return later().then([] {
@@ -653,7 +657,7 @@ append_challenged_posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov
 }
 
 future<size_t>
-append_challenged_posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc) {
+append_challenged_posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc) noexcept {
     return enqueue<size_t>(
         opcode::write,
         pos,
@@ -668,7 +672,7 @@ append_challenged_posix_file_impl::write_dma(uint64_t pos, const void* buffer, s
 }
 
 future<size_t>
-append_challenged_posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) {
+append_challenged_posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) noexcept {
     auto len = boost::accumulate(iov | boost::adaptors::transformed(std::mem_fn(&iovec::iov_len)), size_t(0));
     return enqueue<size_t>(
         opcode::write,
@@ -684,7 +688,7 @@ append_challenged_posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> io
 }
 
 future<>
-append_challenged_posix_file_impl::flush() {
+append_challenged_posix_file_impl::flush() noexcept {
     if ((!_sloppy_size || _logical_size == _committed_size) && !_fsync_is_exclusive) {
         // FIXME: determine if flush can block concurrent reads or writes
         return posix_file_impl::flush();
@@ -709,7 +713,7 @@ append_challenged_posix_file_impl::flush() {
 }
 
 future<struct stat>
-append_challenged_posix_file_impl::stat() {
+append_challenged_posix_file_impl::stat() noexcept {
     // FIXME: can this conflict with anything?
     return posix_file_impl::stat().then([this] (struct stat stat) {
         stat.st_size = _logical_size;
@@ -718,7 +722,7 @@ append_challenged_posix_file_impl::stat() {
 }
 
 future<>
-append_challenged_posix_file_impl::truncate(uint64_t length) {
+append_challenged_posix_file_impl::truncate(uint64_t length) noexcept {
     return enqueue<>(
         opcode::truncate,
         length,
@@ -732,7 +736,7 @@ append_challenged_posix_file_impl::truncate(uint64_t length) {
 }
 
 future<uint64_t>
-append_challenged_posix_file_impl::size() {
+append_challenged_posix_file_impl::size() noexcept {
     return make_ready_future<size_t>(_logical_size);
 }
 

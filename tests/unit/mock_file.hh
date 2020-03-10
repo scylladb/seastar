@@ -64,39 +64,39 @@ public:
         _allowed_read_requests = requests;
     }
 
-    virtual future<size_t> write_dma(uint64_t, const void*, size_t, const io_priority_class&) override {
-        throw std::bad_function_call();
+    virtual future<size_t> write_dma(uint64_t, const void*, size_t, const io_priority_class&) noexcept override {
+        return make_exception_future<size_t>(std::bad_function_call());
     }
-    virtual future<size_t> write_dma(uint64_t, std::vector<iovec>, const io_priority_class&) override {
-        throw std::bad_function_call();
+    virtual future<size_t> write_dma(uint64_t, std::vector<iovec>, const io_priority_class&) noexcept override {
+        return make_exception_future<size_t>(std::bad_function_call());
     }
-    virtual future<size_t> read_dma(uint64_t pos, void*, size_t len, const io_priority_class&) override {
+    virtual future<size_t> read_dma(uint64_t pos, void*, size_t len, const io_priority_class&) noexcept override {
         return make_ready_future<size_t>(verify_read(pos, len));
     }
-    virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class&) override {
+    virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class&) noexcept override {
         auto length = boost::accumulate(iov | boost::adaptors::transformed([] (auto&& iov) { return iov.iov_len; }),
                                         size_t(0), std::plus<size_t>());
         return make_ready_future<size_t>(verify_read(pos, length));
     }
-    virtual future<> flush() override {
+    virtual future<> flush() noexcept override {
         return make_ready_future<>();
     }
-    virtual future<struct stat> stat() override {
-        throw std::bad_function_call();
+    virtual future<struct stat> stat() noexcept override {
+        return make_exception_future<struct stat>(std::bad_function_call());
     }
-    virtual future<> truncate(uint64_t) override {
-        throw std::bad_function_call();
+    virtual future<> truncate(uint64_t) noexcept override {
+        return make_exception_future<>(std::bad_function_call());
     }
-    virtual future<> discard(uint64_t offset, uint64_t length) override {
-        throw std::bad_function_call();
+    virtual future<> discard(uint64_t offset, uint64_t length) noexcept override {
+        return make_exception_future<>(std::bad_function_call());
     }
-    virtual future<> allocate(uint64_t position, uint64_t length) override {
-        throw std::bad_function_call();
+    virtual future<> allocate(uint64_t position, uint64_t length) noexcept override {
+        return make_exception_future<>(std::bad_function_call());
     }
-    virtual future<uint64_t> size() override {
+    virtual future<uint64_t> size() noexcept override {
         return make_ready_future<uint64_t>(_total_file_size);
     }
-    virtual future<> close() override {
+    virtual future<> close() noexcept override {
         BOOST_CHECK(!_closed);
         _closed = true;
         return make_ready_future<>();
@@ -104,7 +104,7 @@ public:
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)>) override {
         throw std::bad_function_call();
     }
-    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class&) override {
+    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class&) noexcept override {
         auto length = verify_read(offset, range_size);
         return make_ready_future<temporary_buffer<uint8_t>>(temporary_buffer<uint8_t>(length));
     }
