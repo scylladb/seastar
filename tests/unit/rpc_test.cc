@@ -84,8 +84,8 @@ inline void write(serializer, Output& out, const sstring& v) {
 template <typename Input>
 inline sstring read(serializer, Input& in, rpc::type<sstring>) {
     auto size = read_arithmetic_type<uint32_t>(in);
-    sstring ret(sstring::initialized_later(), size);
-    in.read(ret.begin(), size);
+    sstring ret = uninitialized_string(size);
+    in.read(ret.data(), size);
     return ret;
 }
 
@@ -404,7 +404,7 @@ SEASTAR_TEST_CASE(test_message_to_big) {
         }).get();
         auto call = env.proto().make_client<void (sstring)>(1);
         try {
-            call(c, sstring(sstring::initialized_later(), 101)).get();
+            call(c, uninitialized_string(101)).get();
             good = false;
         } catch(std::runtime_error& err) {
         } catch(...) {

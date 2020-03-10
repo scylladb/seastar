@@ -67,6 +67,12 @@ public:
         append_static(s.data(), s.size());
     }
 
+    void append(compat::string_view v) {
+        if (v.size()) {
+            _p = packet(std::move(_p), temporary_buffer<char>::copy_of(v));
+        }
+    }
+
     template <typename size_type, size_type max_size>
     void append(basic_sstring<char_type, size_type, max_size> s) {
         if (s.size()) {

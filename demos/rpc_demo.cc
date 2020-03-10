@@ -76,8 +76,8 @@ inline void write(serializer, Output& out, const sstring& v) {
 template <typename Input>
 inline sstring read(serializer, Input& in, rpc::type<sstring>) {
     auto size = read_arithmetic_type<uint32_t>(in);
-    sstring ret(sstring::initialized_later(), size);
-    in.read(ret.begin(), size);
+    sstring ret = uninitialized_string(size);
+    in.read(ret.data(), size);
     return ret;
 }
 
@@ -212,7 +212,7 @@ int main(int ac, char** av) {
                     }
                 });
                 (void)sleep(500us).then([c] { c->cancel(); });
-                (void)test_message_to_big(*client, sstring(sstring::initialized_later(), 10'000'001)).then_wrapped([](future<> f) {
+                (void)test_message_to_big(*client, uninitialized_string(10'000'001)).then_wrapped([](future<> f) {
                     try {
                         f.get();
                         fmt::print("test message to big shold not get here\n");
@@ -228,7 +228,7 @@ int main(int ac, char** av) {
                 // server is configured for 10MB max, throw 25MB worth of requests at it.
                 auto now = rpc::rpc_clock_type::now();
                 return parallel_for_each(boost::irange(0, 25), [test12, now] (int idx) mutable {
-                    return test12(*client, 100, sstring(sstring::initialized_later(), 1'000'000)).then([idx, now] {
+                    return test12(*client, 100, uninitialized_string(1'000'000)).then([idx, now] {
                         auto later = rpc::rpc_clock_type::now();
                         auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(later - now);
                         fmt::print("idx {:d} completed after {:d} ms\n", idx, delta.count());

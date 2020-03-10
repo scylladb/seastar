@@ -56,7 +56,7 @@ public:
         return std::move(_value);
     }
     void reset() {
-        _value.reset();
+        _value = {};
         _start = nullptr;
     }
     friend class guard;
