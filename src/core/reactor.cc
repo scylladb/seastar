@@ -1594,7 +1594,7 @@ reactor::open_file_dma(sstring name, open_flags flags, file_open_options options
 }
 
 future<>
-reactor::remove_file(sstring pathname) {
+reactor::remove_file(sstring pathname) noexcept {
     return engine()._thread_pool->submit<syscall_result<int>>([pathname] {
         return wrap_syscall<int>(::remove(pathname.c_str()));
     }).then([pathname] (syscall_result<int> sr) {
@@ -1604,7 +1604,7 @@ reactor::remove_file(sstring pathname) {
 }
 
 future<>
-reactor::rename_file(sstring old_pathname, sstring new_pathname) {
+reactor::rename_file(sstring old_pathname, sstring new_pathname) noexcept {
     return engine()._thread_pool->submit<syscall_result<int>>([old_pathname, new_pathname] {
         return wrap_syscall<int>(::rename(old_pathname.c_str(), new_pathname.c_str()));
     }).then([old_pathname, new_pathname] (syscall_result<int> sr) {
@@ -1614,7 +1614,7 @@ reactor::rename_file(sstring old_pathname, sstring new_pathname) {
 }
 
 future<>
-reactor::link_file(sstring oldpath, sstring newpath) {
+reactor::link_file(sstring oldpath, sstring newpath) noexcept {
     return engine()._thread_pool->submit<syscall_result<int>>([oldpath, newpath] {
         return wrap_syscall<int>(::link(oldpath.c_str(), newpath.c_str()));
     }).then([oldpath, newpath] (syscall_result<int> sr) {
@@ -1624,7 +1624,7 @@ reactor::link_file(sstring oldpath, sstring newpath) {
 }
 
 future<>
-reactor::chmod(sstring name, file_permissions permissions) {
+reactor::chmod(sstring name, file_permissions permissions) noexcept {
     auto mode = static_cast<mode_t>(permissions);
     return _thread_pool->submit<syscall_result<int>>([name, mode] {
         return wrap_syscall<int>(::chmod(name.c_str(), mode));
@@ -1663,7 +1663,7 @@ directory_entry_type stat_to_entry_type(__mode_t type) {
 }
 
 future<compat::optional<directory_entry_type>>
-reactor::file_type(sstring name, follow_symlink follow) {
+reactor::file_type(sstring name, follow_symlink follow) noexcept {
     return _thread_pool->submit<syscall_result_extra<struct stat>>([name, follow] {
         struct stat st;
         auto stat_syscall = follow ? stat : lstat;
@@ -1690,7 +1690,7 @@ timespec_to_time_point(const timespec& ts) {
 }
 
 future<stat_data>
-reactor::file_stat(sstring pathname, follow_symlink follow) {
+reactor::file_stat(sstring pathname, follow_symlink follow) noexcept {
     return _thread_pool->submit<syscall_result_extra<struct stat>>([pathname, follow] {
         struct stat st;
         auto stat_syscall = follow ? stat : lstat;
@@ -1719,14 +1719,14 @@ reactor::file_stat(sstring pathname, follow_symlink follow) {
 }
 
 future<uint64_t>
-reactor::file_size(sstring pathname) {
+reactor::file_size(sstring pathname) noexcept {
     return file_stat(pathname, follow_symlink::yes).then([] (stat_data sd) {
         return make_ready_future<uint64_t>(sd.size);
     });
 }
 
 future<bool>
-reactor::file_accessible(sstring pathname, access_flags flags) {
+reactor::file_accessible(sstring pathname, access_flags flags) noexcept {
     return _thread_pool->submit<syscall_result<int>>([pathname, flags] {
         auto aflags = std::underlying_type_t<access_flags>(flags);
         auto ret = ::access(pathname.c_str(), aflags);
@@ -1745,7 +1745,7 @@ reactor::file_accessible(sstring pathname, access_flags flags) {
 }
 
 future<fs_type>
-reactor::file_system_at(sstring pathname) {
+reactor::file_system_at(sstring pathname) noexcept {
     return _thread_pool->submit<syscall_result_extra<struct statfs>>([pathname] {
         struct statfs st;
         auto ret = statfs(pathname.c_str(), &st);
@@ -1771,7 +1771,7 @@ reactor::file_system_at(sstring pathname) {
 }
 
 future<struct statvfs>
-reactor::statvfs(sstring pathname) {
+reactor::statvfs(sstring pathname) noexcept {
     return _thread_pool->submit<syscall_result_extra<struct statvfs>>([pathname] {
         struct statvfs st;
         auto ret = ::statvfs(pathname.c_str(), &st);
@@ -1794,7 +1794,7 @@ reactor::open_directory(sstring name) {
 }
 
 future<>
-reactor::make_directory(sstring name, file_permissions permissions) {
+reactor::make_directory(sstring name, file_permissions permissions) noexcept {
     return _thread_pool->submit<syscall_result<int>>([=] {
         auto mode = static_cast<mode_t>(permissions);
         return wrap_syscall<int>(::mkdir(name.c_str(), mode));
@@ -1804,7 +1804,7 @@ reactor::make_directory(sstring name, file_permissions permissions) {
 }
 
 future<>
-reactor::touch_directory(sstring name, file_permissions permissions) {
+reactor::touch_directory(sstring name, file_permissions permissions) noexcept {
     return engine()._thread_pool->submit<syscall_result<int>>([=] {
         auto mode = static_cast<mode_t>(permissions);
         return wrap_syscall<int>(::mkdir(name.c_str(), mode));

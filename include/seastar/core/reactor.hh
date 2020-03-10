@@ -513,21 +513,21 @@ public:
 
     future<file> open_file_dma(sstring name, open_flags flags, file_open_options options = {});
     future<file> open_directory(sstring name);
-    future<> make_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions);
-    future<> touch_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions);
-    future<compat::optional<directory_entry_type>>  file_type(sstring name, follow_symlink = follow_symlink::yes);
-    future<stat_data> file_stat(sstring pathname, follow_symlink);
-    future<uint64_t> file_size(sstring pathname);
-    future<bool> file_accessible(sstring pathname, access_flags flags);
-    future<bool> file_exists(sstring pathname) {
+    future<> make_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions) noexcept;
+    future<> touch_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions) noexcept;
+    future<compat::optional<directory_entry_type>>  file_type(sstring name, follow_symlink = follow_symlink::yes) noexcept;
+    future<stat_data> file_stat(sstring pathname, follow_symlink) noexcept;
+    future<uint64_t> file_size(sstring pathname) noexcept;
+    future<bool> file_accessible(sstring pathname, access_flags flags) noexcept;
+    future<bool> file_exists(sstring pathname) noexcept {
         return file_accessible(pathname, access_flags::exists);
     }
-    future<fs_type> file_system_at(sstring pathname);
-    future<struct statvfs> statvfs(sstring pathname);
-    future<> remove_file(sstring pathname);
-    future<> rename_file(sstring old_pathname, sstring new_pathname);
-    future<> link_file(sstring oldpath, sstring newpath);
-    future<> chmod(sstring name, file_permissions permissions);
+    future<fs_type> file_system_at(sstring pathname) noexcept;
+    future<struct statvfs> statvfs(sstring pathname) noexcept;
+    future<> remove_file(sstring pathname) noexcept;
+    future<> rename_file(sstring old_pathname, sstring new_pathname) noexcept;
+    future<> link_file(sstring oldpath, sstring newpath) noexcept;
+    future<> chmod(sstring name, file_permissions permissions) noexcept;
 
     // In the following three methods, prepare_io is not guaranteed to execute in the same processor
     // in which it was generated. Therefore, care must be taken to avoid the use of objects that could

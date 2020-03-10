@@ -27,15 +27,15 @@ namespace seastar {
 
 namespace fs = compat::filesystem;
 
-future<> make_directory(sstring name, file_permissions permissions) {
+future<> make_directory(sstring name, file_permissions permissions) noexcept {
     return engine().make_directory(std::move(name), permissions);
 }
 
-future<> touch_directory(sstring name, file_permissions permissions) {
+future<> touch_directory(sstring name, file_permissions permissions) noexcept {
     return engine().touch_directory(std::move(name), permissions);
 }
 
-future<> sync_directory(sstring name) {
+future<> sync_directory(sstring name) noexcept {
     return open_directory(std::move(name)).then([] (file f) {
         return do_with(std::move(f), [] (file& f) {
             return f.flush().then([&f] () mutable {
@@ -45,7 +45,7 @@ future<> sync_directory(sstring name) {
     });
 }
 
-static future<> do_recursive_touch_directory(sstring base, sstring name, file_permissions permissions) {
+static future<> do_recursive_touch_directory(sstring base, sstring name, file_permissions permissions) noexcept {
     static const sstring::value_type separator = '/';
 
     if (name.empty()) {
@@ -76,7 +76,7 @@ static future<> do_recursive_touch_directory(sstring base, sstring name, file_pe
     });
 }
 
-future<> recursive_touch_directory(sstring name, file_permissions permissions) {
+future<> recursive_touch_directory(sstring name, file_permissions permissions) noexcept {
     // If the name is empty,  it will be of the type a/b/c, which should be interpreted as
     // a relative path. This means we have to flush our current directory
     sstring base = "";
@@ -86,51 +86,51 @@ future<> recursive_touch_directory(sstring name, file_permissions permissions) {
     return do_recursive_touch_directory(std::move(base), std::move(name), permissions);
 }
 
-future<> remove_file(sstring pathname) {
+future<> remove_file(sstring pathname) noexcept {
     return engine().remove_file(std::move(pathname));
 }
 
-future<> rename_file(sstring old_pathname, sstring new_pathname) {
+future<> rename_file(sstring old_pathname, sstring new_pathname) noexcept {
     return engine().rename_file(std::move(old_pathname), std::move(new_pathname));
 }
 
-future<fs_type> file_system_at(sstring name) {
+future<fs_type> file_system_at(sstring name) noexcept {
     return engine().file_system_at(std::move(name));
 }
 
-future<uint64_t> fs_avail(sstring name) {
+future<uint64_t> fs_avail(sstring name) noexcept {
     return engine().statvfs(std::move(name)).then([] (struct statvfs st) {
         return make_ready_future<uint64_t>(st.f_bavail * st.f_frsize);
     });
 }
 
-future<uint64_t> fs_free(sstring name) {
+future<uint64_t> fs_free(sstring name) noexcept {
     return engine().statvfs(std::move(name)).then([] (struct statvfs st) {
         return make_ready_future<uint64_t>(st.f_bfree * st.f_frsize);
     });
 }
 
-future<stat_data> file_stat(sstring name, follow_symlink follow) {
+future<stat_data> file_stat(sstring name, follow_symlink follow) noexcept {
     return engine().file_stat(std::move(name), follow);
 }
 
-future<uint64_t> file_size(sstring name) {
+future<uint64_t> file_size(sstring name) noexcept {
     return engine().file_size(std::move(name));
 }
 
-future<bool> file_accessible(sstring name, access_flags flags) {
+future<bool> file_accessible(sstring name, access_flags flags) noexcept {
     return engine().file_accessible(std::move(name), flags);
 }
 
-future<bool> file_exists(sstring name) {
+future<bool> file_exists(sstring name) noexcept {
     return engine().file_exists(std::move(name));
 }
 
-future<> link_file(sstring oldpath, sstring newpath) {
+future<> link_file(sstring oldpath, sstring newpath) noexcept {
     return engine().link_file(std::move(oldpath), std::move(newpath));
 }
 
-future<> chmod(sstring name, file_permissions permissions) {
+future<> chmod(sstring name, file_permissions permissions) noexcept {
     return engine().chmod(std::move(name), permissions);
 }
 

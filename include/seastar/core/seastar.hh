@@ -214,7 +214,7 @@ future<file> open_directory(sstring name);
 /// \note
 /// The directory is not guaranteed to be stable on disk, unless the
 /// containing directory is sync'ed.
-future<> make_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions);
+future<> make_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions) noexcept;
 
 /// Ensures a directory exists
 ///
@@ -228,7 +228,7 @@ future<> make_directory(sstring name, file_permissions permissions = file_permis
 /// The directory is not guaranteed to be stable on disk, unless the
 /// containing directory is sync'ed.
 /// If the directory exists, the provided permissions are not applied.
-future<> touch_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions);
+future<> touch_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions) noexcept;
 
 /// Recursively ensures a directory exists
 ///
@@ -242,7 +242,7 @@ future<> touch_directory(sstring name, file_permissions permissions = file_permi
 /// The provided permissions are applied only on the last component in the path, if it needs to be created,
 /// if intermediate directories do not exist, they are created with the default_dir_permissions.
 /// If any directory exists, the provided permissions are not applied.
-future<> recursive_touch_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions);
+future<> recursive_touch_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions) noexcept;
 
 /// Synchronizes a directory to disk
 ///
@@ -251,7 +251,7 @@ future<> recursive_touch_directory(sstring name, file_permissions permissions = 
 /// directory.
 ///
 /// \param name name of the directory to potentially create
-future<> sync_directory(sstring name);
+future<> sync_directory(sstring name) noexcept;
 
 
 /// Removes (unlinks) a file or an empty directory
@@ -261,7 +261,7 @@ future<> sync_directory(sstring name);
 /// \note
 /// The removal is not guaranteed to be stable on disk, unless the
 /// containing directory is sync'ed.
-future<> remove_file(sstring name);
+future<> remove_file(sstring name) noexcept;
 
 /// Renames (moves) a file.
 ///
@@ -271,7 +271,7 @@ future<> remove_file(sstring name);
 /// \note
 /// The rename is not guaranteed to be stable on disk, unless the
 /// both containing directories are sync'ed.
-future<> rename_file(sstring old_name, sstring new_name);
+future<> rename_file(sstring old_name, sstring new_name) noexcept;
 
 struct follow_symlink_tag { };
 using follow_symlink = bool_class<follow_symlink_tag>;
@@ -284,7 +284,7 @@ using follow_symlink = bool_class<follow_symlink_tag>;
 /// \return stat_data of the file identified by name.
 /// If name identifies a symbolic link then stat_data is returned either for the target of the link,
 /// with follow_symlink::yes, or for the link itself, with follow_symlink::no.
-future<stat_data> file_stat(sstring name, follow_symlink fs = follow_symlink::yes);
+future<stat_data> file_stat(sstring name, follow_symlink fs = follow_symlink::yes) noexcept;
 
 /// Return the size of a file.
 ///
@@ -293,7 +293,7 @@ future<stat_data> file_stat(sstring name, follow_symlink fs = follow_symlink::ye
 /// Note that file_size of a symlink is NOT the size of the symlink -
 /// which is the length of the pathname it contains -
 /// but rather the size of the file to which it points.
-future<uint64_t> file_size(sstring name);
+future<uint64_t> file_size(sstring name) noexcept;
 
 /// Check file access.
 ///
@@ -309,41 +309,41 @@ future<uint64_t> file_size(sstring name);
 /// Throws a compat::filesystem::filesystem_error exception if any error other than EACCES is encountered.
 /// Note that if any path component leading to the file is not searchable, the file is considered inaccessible
 /// with the requested mode and false will be returned.
-future<bool> file_accessible(sstring name, access_flags flags);
+future<bool> file_accessible(sstring name, access_flags flags) noexcept;
 
 /// check if a file exists.
 ///
 /// \param name name of the file to check
-future<bool> file_exists(sstring name);
+future<bool> file_exists(sstring name) noexcept;
 
 /// Creates a hard link for a file
 ///
 /// \param oldpath existing file name
 /// \param newpath name of link
 ///
-future<> link_file(sstring oldpath, sstring newpath);
+future<> link_file(sstring oldpath, sstring newpath) noexcept;
 
 /// Changes the permissions mode of a file or directory
 ///
 /// \param name name of the file ot directory to change
 /// \param permissions permissions to set
 ///
-future<> chmod(sstring name, file_permissions permissions);
+future<> chmod(sstring name, file_permissions permissions) noexcept;
 
 /// Return information about the filesystem where a file is located.
 ///
 /// \param name name of the file to inspect
-future<fs_type> file_system_at(sstring name);
+future<fs_type> file_system_at(sstring name) noexcept;
 
 /// Return space available to unprivileged users in filesystem where a file is located, in bytes.
 ///
 /// \param name name of the file to inspect
-future<uint64_t> fs_avail(sstring name);
+future<uint64_t> fs_avail(sstring name) noexcept;
 
 /// Return free space in filesystem where a file is located, in bytes.
 ///
 /// \param name name of the file to inspect
-future<uint64_t> fs_free(sstring name);
+future<uint64_t> fs_free(sstring name) noexcept;
 /// @}
 
 }
