@@ -470,7 +470,7 @@ public:
             return buf;
         }
     }
-    int compare(const basic_sstring& x) const noexcept {
+    int compare(compat::basic_string_view<char_type, traits_type> x) const noexcept {
         auto n = traits_type::compare(begin(), x.begin(), std::min(size(), x.size()));
         if (n != 0) {
             return n;
@@ -484,7 +484,7 @@ public:
         }
     }
 
-    int compare(size_t pos, size_t sz, const basic_sstring& x) const {
+    int compare(size_t pos, size_t sz, compat::basic_string_view<char_type, traits_type> x) const {
         if (pos > size()) {
             internal::throw_sstring_out_of_range();
         }
