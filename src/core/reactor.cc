@@ -2562,7 +2562,6 @@ int reactor::run() {
     register_metrics();
 
     compat::optional<poller> io_poller = {};
-    compat::optional<poller> smp_poller = {};
 
     // The order in which we execute the pollers is very important for performance.
     //
@@ -2581,9 +2580,7 @@ int reactor::run() {
     // 5. kernel submission: for I/O, will submit what was generated from last step.
     // 6. reap kernel events completion: some of the submissions from last step may return immediately.
     //                                   For example if we are dealing with poll() on a fd that has events.
-    if (smp::count > 1) {
-        smp_poller = poller(std::make_unique<smp_pollfn>(*this));
-    }
+    poller smp_poller(std::make_unique<smp_pollfn>(*this));
 
     poller reap_kernel_completions_poller(std::make_unique<reap_kernel_completions_pollfn>(*this));
     poller io_queue_submission_poller(std::make_unique<io_queue_submission_pollfn>(*this));
