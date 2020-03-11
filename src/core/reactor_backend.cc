@@ -180,6 +180,14 @@ aio_storage_context::submit_work() {
     _r->_pending_io.erase(_r->_pending_io.begin(), _r->_pending_io.begin() + submitted);
 
     if (!_pending_aio_retry.empty()) {
+        schedule_retry();
+        did_work = true;
+    }
+
+    return did_work;
+}
+
+void aio_storage_context::schedule_retry() {
         auto retries = std::exchange(_pending_aio_retry, {});
         // FIXME: future is discarded
         (void)_r->_thread_pool->submit<syscall_result<int>>([this, retries] () mutable {
@@ -195,9 +203,6 @@ aio_storage_context::submit_work() {
             }
             std::copy(retries.begin() + nr_consumed, retries.end(), std::back_inserter(_pending_aio_retry));
         });
-        did_work = true;
-    }
-    return did_work;
 }
 
 bool aio_storage_context::reap_completions()

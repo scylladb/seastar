@@ -81,6 +81,7 @@ public:
     ~aio_storage_context();
 
     bool reap_completions();
+    void schedule_retry();
     bool submit_work();
     bool can_sleep() const;
 };
