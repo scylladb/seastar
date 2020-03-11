@@ -90,7 +90,7 @@ static future<> connect_to_ssl_google(::shared_ptr<tls::certificate_credentials>
             google = socket_address(addr, 443);
             return connect_to_ssl_google(certs);
         });
-}
+    }
     return connect_to_ssl_addr(std::move(certs), google);
 }
 
@@ -152,11 +152,11 @@ SEASTAR_TEST_CASE(test_x509_client_with_priority_strings_fail) {
         (void)b.set_system_trust();
         b.set_priority_string(prio);
         try {
-        return connect_to_ssl_google(b.build_certificate_credentials()).then([] {
-            BOOST_FAIL("Expected exception");
-        }).handle_exception([](auto ep) {
-            // ok.
-        });
+            return connect_to_ssl_google(b.build_certificate_credentials()).then([] {
+                BOOST_FAIL("Expected exception");
+            }).handle_exception([](auto ep) {
+                // ok.
+            });
         } catch (...) {
             // also ok
         }
@@ -352,7 +352,7 @@ public:
                         return make_ready_future<>();
                     }
                     _ex = ep;
-                        return make_ready_future<>();
+                    return make_ready_future<>();
                 });
             });
             return make_ready_future<>();
@@ -552,3 +552,88 @@ SEASTAR_TEST_CASE(test_many_large_message_x509_client_server) {
     });
 }
 
+SEASTAR_THREAD_TEST_CASE(test_close_timout) {
+    tls::credentials_builder b;
+
+    b.set_x509_key_file("tests/unit/test.crt", "tests/unit/test.key", tls::x509_crt_format::PEM).get();
+    b.set_x509_trust_file("tests/unit/catest.pem", tls::x509_crt_format::PEM).get();
+    b.set_dh_level();
+    b.set_system_trust().get();
+
+    auto creds = b.build_certificate_credentials();
+    auto serv = b.build_server_credentials();
+
+    semaphore sem(0);
+
+    class my_loopback_connected_socket_impl : public loopback_connected_socket_impl {
+    public:
+        semaphore& _sem;
+        bool _close = false;
+
+        my_loopback_connected_socket_impl(semaphore& s, lw_shared_ptr<loopback_buffer> tx, lw_shared_ptr<loopback_buffer> rx)
+            : loopback_connected_socket_impl(tx, rx)
+            , _sem(s)
+        {}
+        ~my_loopback_connected_socket_impl() {
+            _sem.signal();
+        }
+        class my_sink_impl : public data_sink_impl {
+        public:
+            data_sink _sink;
+            my_loopback_connected_socket_impl& _impl;
+            promise<> _p;
+            my_sink_impl(data_sink sink, my_loopback_connected_socket_impl& impl)
+                : _sink(std::move(sink))
+                , _impl(impl)
+            {}
+            future<> flush() override {
+                return _sink.flush();
+            }
+            using data_sink_impl::put;
+            future<> put(net::packet p) override {
+                if (std::exchange(_impl._close, false)) {
+                    return _p.get_future().then([this, p = std::move(p)]() mutable {
+                        return put(std::move(p));
+                    });
+                }
+                return _sink.put(std::move(p));
+            }
+            future<> close() override {
+                _p.set_value();
+                return make_ready_future<>();
+            }
+        };
+        data_sink sink() override {
+            return data_sink(std::make_unique<my_sink_impl>(loopback_connected_socket_impl::sink(), *this));
+        }
+    };
+
+    auto constexpr iterations = 500;
+        
+    for (int i = 0; i < iterations; ++i) {
+        auto b1 = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::SERVER_TX);
+        auto b2 = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::CLIENT_TX);
+        auto ssi = std::make_unique<my_loopback_connected_socket_impl>(sem, b1, b2);
+        auto csi = std::make_unique<my_loopback_connected_socket_impl>(sem, b2, b1);
+
+        auto& ssir = *ssi;
+        auto& csir = *csi;
+
+        auto ss = tls::wrap_server(serv, connected_socket(std::move(ssi))).get0();
+        auto cs = tls::wrap_client(creds, connected_socket(std::move(csi))).get0();
+
+        auto os = cs.output().detach();
+        auto is = ss.input();
+
+        auto f1 = os.put(temporary_buffer<char>(10));
+        auto f2 = is.read();
+        f1.get();
+        f2.get();
+        
+        // block further writes
+        ssir._close = true;
+        csir._close = true;
+    }
+
+    sem.wait(2 * iterations).get();
+}

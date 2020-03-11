@@ -948,7 +948,7 @@ public:
                    return make_ready_future<stop_iteration>(stop_iteration::no);
                 });
             });
-        }).finally([me = shared_from_this()] {});
+        });
     }
     future<> shutdown() {
         // first, make sure any pending write is done.
@@ -961,7 +961,11 @@ public:
         // in which case we will be no-op.
         return with_semaphore(_out_sem, 1,
                         std::bind(&session::do_shutdown, this)).then(
-                        std::bind(&session::wait_for_eof, this));
+                        std::bind(&session::wait_for_eof, this)).finally([me = shared_from_this()] {});
+        // note moved finally clause above. It is theorethically possible
+        // that we could complete do_shutdown just before the close calls 
+        // below, get pre-empted, have "close()" finish, get freed, and 
+        // then call wait_for_eof on stale pointer.
     }
     void close() {
         // only do once.
@@ -981,8 +985,8 @@ public:
                 // make sure to wait for handshake attempt to leave semaphores. Must be in same order as
                 // handshake aqcuire, because in worst case, we get here while a reader is attempting
                 // re-handshake.
-                return _in_sem.wait().then([this] {
-                    return _out_sem.wait();
+                return with_semaphore(_in_sem, 1, [this] {
+                    return with_semaphore(_out_sem, 1, [this] {});
                 });
             }).then_wrapped([me = std::move(me)](future<> f) { // must keep object alive until here.
                 f.ignore_ready_future();
