@@ -48,6 +48,12 @@ using sstring = basic_sstring<char, uint32_t, 15>;
 using sstring = std::string;
 #endif
 
+namespace internal {
+[[noreturn]] void throw_bad_alloc();
+[[noreturn]] void throw_sstring_overflow();
+[[noreturn]] void throw_sstring_out_of_range();
+}
+
 template <typename char_type, typename Size, Size max_size, bool NulTerminate>
 class basic_sstring {
     static_assert(
@@ -112,7 +118,7 @@ public:
             u.internal.size = -1;
             u.external.str = reinterpret_cast<char_type*>(std::malloc(x.u.external.size + padding()));
             if (!u.external.str) {
-                throw std::bad_alloc();
+                internal::throw_bad_alloc();
             }
             std::copy(x.u.external.str, x.u.external.str + x.u.external.size + padding(), u.external.str);
             u.external.size = x.u.external.size;
@@ -131,7 +137,7 @@ public:
     }
     basic_sstring(initialized_later, size_t size) {
         if (size_type(size) != size) {
-            throw std::overflow_error("sstring overflow");
+            internal::throw_sstring_overflow();
         }
         if (size + padding() <= sizeof(u.internal.str)) {
             if (NulTerminate) {
@@ -142,7 +148,7 @@ public:
             u.internal.size = -1;
             u.external.str = reinterpret_cast<char_type*>(std::malloc(size + padding()));
             if (!u.external.str) {
-                throw std::bad_alloc();
+                internal::throw_bad_alloc();
             }
             u.external.size = size;
             if (NulTerminate) {
@@ -152,7 +158,7 @@ public:
     }
     basic_sstring(const char_type* x, size_t size) {
         if (size_type(size) != size) {
-            throw std::overflow_error("sstring overflow");
+            internal::throw_sstring_overflow();
         }
         if (size + padding() <= sizeof(u.internal.str)) {
             std::copy(x, x + size, u.internal.str);
@@ -164,7 +170,7 @@ public:
             u.internal.size = -1;
             u.external.str = reinterpret_cast<char_type*>(std::malloc(size + padding()));
             if (!u.external.str) {
-                throw std::bad_alloc();
+                internal::throw_bad_alloc();
             }
             u.external.size = size;
             std::copy(x, x + size, u.external.str);
@@ -323,7 +329,7 @@ public:
     basic_sstring& replace(size_type pos, size_type n1, const char_type* s,
              size_type n2) {
         if (pos > size()) {
-            throw std::out_of_range("sstring::replace out of range");
+            internal::throw_sstring_out_of_range();
         }
 
         if (n1 > size() - pos) {
@@ -353,7 +359,7 @@ public:
     basic_sstring& replace (const_iterator i1, const_iterator i2,
             InputIterator first, InputIterator last) {
         if (i1 < begin() || i1 > end() || i2 < begin()) {
-            throw std::out_of_range("sstring::replace out of range");
+            internal::throw_sstring_out_of_range();
         }
         if (i2 > end()) {
             i2 = end();
@@ -410,7 +416,7 @@ public:
 
     basic_sstring substr(size_t from, size_t len = npos)  const {
         if (from > size()) {
-            throw std::out_of_range("sstring::substr out of range");
+            internal::throw_sstring_out_of_range();
         }
         if (len > size() - from) {
             len = size() - from;
@@ -423,14 +429,14 @@ public:
 
     const char_type& at(size_t pos) const {
         if (pos >= size()) {
-            throw std::out_of_range("sstring::at out of range");
+            internal::throw_sstring_out_of_range();
         }
         return *(str() + pos);
     }
 
     char_type& at(size_t pos) {
         if (pos >= size()) {
-            throw std::out_of_range("sstring::at out of range");
+            internal::throw_sstring_out_of_range();
         }
         return *(str() + pos);
     }
@@ -480,7 +486,7 @@ public:
 
     int compare(size_t pos, size_t sz, const basic_sstring& x) const {
         if (pos > size()) {
-            throw std::out_of_range("pos larger than string size");
+            internal::throw_sstring_out_of_range();
         }
 
         sz = std::min(size() - pos, sz);

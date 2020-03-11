@@ -594,6 +594,7 @@ add_library (seastar STATIC
   src/core/scollectd-impl.hh
   src/core/systemwide_memory_barrier.cc
   src/core/smp.cc
+  src/core/sstring.cc
   src/core/thread.cc
   src/core/uname.cc
   src/core/vla.hh
