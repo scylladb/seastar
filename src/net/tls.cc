@@ -625,6 +625,9 @@ public:
         if (_connected) {
             return make_ready_future<>();
         }
+        if (_type == type::CLIENT && !_hostname.empty()) {
+            gnutls_server_name_set(*this, GNUTLS_NAME_DNS, _hostname.data(), _hostname.size());
+        }
         try {
             auto res = gnutls_handshake(*this);
             if (res < 0) {
