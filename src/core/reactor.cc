@@ -2561,8 +2561,6 @@ int reactor::run() {
 
     register_metrics();
 
-    compat::optional<poller> io_poller = {};
-
     // The order in which we execute the pollers is very important for performance.
     //
     // This is because events that are generated in one poller may feed work into others. If
