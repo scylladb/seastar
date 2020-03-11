@@ -505,7 +505,7 @@ SEASTAR_TEST_CASE(test_large_message_x509_client_server) {
     // will not validate
     // Must match expected name with cert CA or give empty name to ignore
     // server name
-    sstring msg(sstring::initialized_later(), 512 * 1024);
+    sstring msg = uninitialized_string(512 * 1024);
     for (size_t i = 0; i < msg.size(); ++i) {
         msg[i] = '0' + char(i % 30);
     }
@@ -539,7 +539,7 @@ SEASTAR_TEST_CASE(test_many_large_message_x509_client_server) {
     // will not validate
     // Must match expected name with cert CA or give empty name to ignore
     // server name
-    sstring msg(sstring::initialized_later(), 4 * 1024 * 1024);
+    sstring msg = uninitialized_string(4 * 1024 * 1024);
     for (size_t i = 0; i < msg.size(); ++i) {
         msg[i] = '0' + char(i % 30);
     }
