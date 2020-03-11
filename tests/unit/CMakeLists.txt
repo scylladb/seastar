@@ -70,7 +70,7 @@ function (seastar_add_test name)
   cmake_parse_arguments (parsed_args
     ""
     "WORKING_DIRECTORY;KIND"
-    "RUN_ARGS;SOURCES;LIBRARIES"
+    "RUN_ARGS;SOURCES;LIBRARIES;DEPENDS"
     ${ARGN})
 
   if (NOT parsed_args_KIND)
@@ -163,6 +163,10 @@ function (seastar_add_test name)
   if (parsed_args_WORKING_DIRECTORY)
     list (APPEND forwarded_args WORKING_DIRECTORY ${parsed_args_WORKING_DIRECTORY})
   endif ()
+
+  if (parsed_args_DEPENDS)
+    add_dependencies(${executable_target} ${parsed_args_DEPENDS})
+  endif()
 
   add_custom_target (${target}
     ${forwarded_args}
@@ -426,11 +430,14 @@ add_custom_command (
   OUTPUT ${out_tls_certificate_files}
   COMMAND ${CMAKE_COMMAND} -E copy ${in_tls_certificate_files} ${CMAKE_CURRENT_BINARY_DIR})
 
-# TODO: Disabled for now. See GH-514.
-# seastar_add_test (tls
-#   DEPENDS ${out_tls_certificate_files}
-#   SOURCES tls_test.cc
-#   WORKING_DIRECTORY ${Seastar_BINARY_DIR})
+add_custom_target(tls_files
+  DEPENDS ${out_tls_certificate_files}
+)
+
+seastar_add_test (tls
+  DEPENDS tls_files
+  SOURCES tls_test.cc
+  WORKING_DIRECTORY ${Seastar_BINARY_DIR})
 
 seastar_add_test (tuple_utils
   KIND BOOST

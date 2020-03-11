@@ -21,7 +21,6 @@
  */
 
 #include <seastar/core/do_with.hh>
-#include "test_case.hh"
 #include <seastar/core/sstring.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/do_with.hh>
@@ -29,7 +28,13 @@
 #include <seastar/core/sharded.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/gate.hh>
+#include <seastar/core/temporary_buffer.hh>
 #include <seastar/net/tls.hh>
+#include <seastar/net/dns.hh>
+#include <seastar/net/inet_address.hh>
+#include <seastar/testing/test_case.hh>
+#include <seastar/testing/thread_test_case.hh>
+#include "loopback_socket.hh"
 
 #if 0
 #include <gnutls/gnutls.h>
@@ -44,7 +49,7 @@ static void enable_gnutls_logging() {
 
 using namespace seastar;
 
-static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> certs, ipv4_addr addr) {
+static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> certs, socket_address addr) {
     return tls::connect(certs, addr, "www.google.com").then([](connected_socket s) {
         return do_with(std::move(s), [](connected_socket& s) {
             return do_with(s.output(), [&s](auto& os) {
@@ -78,8 +83,15 @@ static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> c
 }
 
 static future<> connect_to_ssl_google(::shared_ptr<tls::certificate_credentials> certs) {
-    auto addr = make_ipv4_address(ipv4_addr("216.58.209.132:443"));
-    return connect_to_ssl_addr(std::move(certs), addr);
+    static socket_address google;
+
+    if (google.is_unspecified()) {
+        return net::dns::resolve_name("www.google.com", net::inet_address::family::INET).then([certs](net::inet_address addr) {
+            google = socket_address(addr, 443);
+            return connect_to_ssl_google(certs);
+        });
+}
+    return connect_to_ssl_addr(std::move(certs), google);
 }
 
 SEASTAR_TEST_CASE(test_simple_x509_client) {
@@ -98,13 +110,13 @@ SEASTAR_TEST_CASE(test_x509_client_with_system_trust) {
 
 SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust) {
     tls::credentials_builder b;
-    b.set_system_trust();
+    (void)b.set_system_trust();
     return connect_to_ssl_google(b.build_certificate_credentials());
 }
 
 SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust_multiple) {
     tls::credentials_builder b;
-    b.set_system_trust();
+    (void)b.set_system_trust();
     auto creds = b.build_certificate_credentials();
 
     return parallel_for_each(boost::irange(0, 20), [creds](auto i) { return connect_to_ssl_google(creds); });
@@ -115,7 +127,6 @@ SEASTAR_TEST_CASE(test_x509_client_with_priority_strings) {
         "NORMAL:+ARCFOUR-128", // means normal ciphers plus ARCFOUR-128.
         "SECURE128:-VERS-SSL3.0:+COMP-DEFLATE", // means that only secure ciphers are enabled, SSL3.0 is disabled, and libz compression enabled.
         "NONE:+VERS-TLS-ALL:+AES-128-CBC:+RSA:+SHA1:+COMP-NULL:+SIGN-RSA-SHA1",
-        "NONE:+VERS-TLS-ALL:+AES-128-CBC:+ECDHE-RSA:+SHA1:+COMP-NULL:+SIGN-RSA-SHA1:+CURVE-SECP256R1",
         "SECURE256:+SECURE128",
         "NORMAL:%COMPAT",
         "NORMAL:-MD5",
@@ -126,7 +137,7 @@ SEASTAR_TEST_CASE(test_x509_client_with_priority_strings) {
     });
     return do_for_each(prios, [](const sstring & prio) {
         tls::credentials_builder b;
-        b.set_system_trust();
+        (void)b.set_system_trust();
         b.set_priority_string(prio);
         return connect_to_ssl_google(b.build_certificate_credentials());
     });
@@ -138,19 +149,24 @@ SEASTAR_TEST_CASE(test_x509_client_with_priority_strings_fail) {
     });
     return do_for_each(prios, [](const sstring & prio) {
         tls::credentials_builder b;
-        b.set_system_trust();
+        (void)b.set_system_trust();
         b.set_priority_string(prio);
+        try {
         return connect_to_ssl_google(b.build_certificate_credentials()).then([] {
             BOOST_FAIL("Expected exception");
         }).handle_exception([](auto ep) {
             // ok.
         });
+        } catch (...) {
+            // also ok
+        }
+        return make_ready_future<>();
     });
 }
 
 SEASTAR_TEST_CASE(test_failed_connect) {
     tls::credentials_builder b;
-    b.set_system_trust();
+    (void)b.set_system_trust();
     return connect_to_ssl_addr(b.build_certificate_credentials(), ipv4_addr()).handle_exception([](auto) {});
 }
 
@@ -163,7 +179,7 @@ SEASTAR_TEST_CASE(test_non_tls) {
     auto c = server.accept();
 
     tls::credentials_builder b;
-    b.set_system_trust();
+    (void)b.set_system_trust();
 
     auto f = connect_to_ssl_addr(b.build_certificate_credentials(), addr);
 
@@ -220,7 +236,7 @@ SEASTAR_TEST_CASE(test_abort_accept_after_handshake) {
 
         auto s = sa.get0();
         auto out = c.output();
-        auto in = s.input();
+        auto in = s.connection.input();
 
         out.write("apa").get();
         auto f = out.flush();
@@ -276,7 +292,8 @@ struct streams {
     input_stream<char> in;
     output_stream<char> out;
 
-    streams(::connected_socket cs) : s(std::move(cs)), in(s.input()), out(s.output())
+    // note: using custom output_stream, because we don't want polled flush
+    streams(::connected_socket cs) : s(std::move(cs)), in(s.input()), out(s.output().detach(), 8192)
     {}
 };
 
@@ -288,6 +305,7 @@ class echoserver {
     seastar::gate _gate;
     bool _stopped = false;
     size_t _size;
+    std::exception_ptr _ex;
 public:
     echoserver(size_t message_size)
             : _certs(
@@ -310,7 +328,7 @@ public:
 
             _socket = tls::listen(_certs, addr, opts);
 
-            with_gate(_gate, [this] {
+            (void)with_gate(_gate, [this] {
                 return _socket.accept().then([this](accept_result ar) {
                     ::connected_socket s = std::move(ar.connection);
                     auto strms = ::make_lw_shared<streams>(std::move(s));
@@ -333,13 +351,8 @@ public:
                     if (_stopped) {
                         return make_ready_future<>();
                     }
-                    try {
-                        std::rethrow_exception(ep);
-                    } catch (tls::verification_error &) {
-                        // assume ok
+                    _ex = ep;
                         return make_ready_future<>();
-                    }
-                    return make_exception_future(std::move(ep));
                 });
             });
             return make_ready_future<>();
@@ -349,7 +362,11 @@ public:
     future<> stop() {
         _stopped = true;
         _socket.abort_accept();
-        return _gate.close().handle_exception([] (std::exception_ptr ignored) { });
+        return _gate.close().handle_exception([this] (std::exception_ptr ignored) {
+            if (_ex) {
+                std::rethrow_exception(_ex);
+            }
+        });
     }
 };
 
@@ -398,6 +415,9 @@ static future<> run_echo_test(sstring message,
                     return f.then([strms, msg]() {
                         return strms->out.flush().then([strms, msg] {
                             return strms->in.read_exactly(msg->size()).then([msg](temporary_buffer<char> buf) {
+                                if (buf.empty()) {
+                                    throw std::runtime_error("Unexpected EOF");
+                                }
                                 sstring tmp(buf.begin(), buf.end());
                                 BOOST_CHECK(*msg == tmp);
                             });
@@ -410,10 +430,10 @@ static future<> run_echo_test(sstring message,
                         // which waits for the flush to actually happen. They can also be reported by the
                         // input_stream::read_exactly() call. We want to keep only one and avoid nested exception mess.
                         if (f1.failed()) {
-                            f2.handle_exception([] (std::exception_ptr ignored) { });
+                            (void)f2.handle_exception([] (std::exception_ptr ignored) { });
                             return std::move(f1);
                         }
-                        f1.handle_exception([] (std::exception_ptr ignored) { });
+                        (void)f1.handle_exception([] (std::exception_ptr ignored) { });
                         return std::move(f2);
                     }).finally([strms] { });
                 });
