@@ -202,25 +202,24 @@ aio_storage_context::submit_work() {
 
 bool aio_storage_context::reap_completions()
 {
-    io_event ev[max_aio];
     struct timespec timeout = {0, 0};
-    auto n = io_getevents(_io_context, 1, max_aio, ev, &timeout, _r->_force_io_getevents_syscall);
+    auto n = io_getevents(_io_context, 1, max_aio, _ev_buffer, &timeout, _r->_force_io_getevents_syscall);
     if (n == -1 && errno == EINTR) {
         n = 0;
     }
     assert(n >= 0);
     unsigned nr_retry = 0;
     for (size_t i = 0; i < size_t(n); ++i) {
-        auto iocb = get_iocb(ev[i]);
-        if (ev[i].res == -EAGAIN) {
+        auto iocb = get_iocb(_ev_buffer[i]);
+        if (_ev_buffer[i].res == -EAGAIN) {
             ++nr_retry;
             set_nowait(*iocb, false);
             _pending_aio_retry.push_back(iocb);
             continue;
         }
         _iocb_pool.put_one(iocb);
-        auto desc = reinterpret_cast<kernel_completion*>(ev[i].data);
-        desc->complete_with(ev[i].res);
+        auto desc = reinterpret_cast<kernel_completion*>(_ev_buffer[i].data);
+        desc->complete_with(_ev_buffer[i].res);
     }
     return n;
 }
