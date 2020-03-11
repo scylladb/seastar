@@ -188,12 +188,12 @@ aio_storage_context::submit_work() {
 }
 
 void aio_storage_context::schedule_retry() {
-        auto retries = std::exchange(_pending_aio_retry, {});
-        // FIXME: future is discarded
-        (void)_r->_thread_pool->submit<syscall_result<int>>([this, retries] () mutable {
+    // FIXME: future is discarded
+    (void)do_with(std::exchange(_pending_aio_retry, {}), [this](pending_aio_retry_t& retries){
+        return _r->_thread_pool->submit<syscall_result<int>>([this, &retries] () mutable {
             auto r = io_submit(_io_context, retries.size(), retries.data());
             return wrap_syscall<int>(r);
-        }).then([this, retries] (syscall_result<int> result) {
+        }).then([this, &retries] (syscall_result<int> result) {
             auto iocbs = retries.data();
             size_t nr_consumed = 0;
             if (result.result == -1) {
@@ -203,6 +203,7 @@ void aio_storage_context::schedule_retry() {
             }
             std::copy(retries.begin() + nr_consumed, retries.end(), std::back_inserter(_pending_aio_retry));
         });
+    });
 }
 
 bool aio_storage_context::reap_completions()
