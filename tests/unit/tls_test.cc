@@ -35,6 +35,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include "loopback_socket.hh"
+#include <iostream>
 
 #if 0
 #include <gnutls/gnutls.h>
