@@ -195,7 +195,7 @@ public:
         promise<> pr;
         auto fut = pr.get_future();
         try {
-        _wait_list.push_back(entry(std::move(pr), nr), timeout);
+            _wait_list.push_back(entry(std::move(pr), nr), timeout);
         } catch (...) {
             pr.set_exception(std::current_exception());
         }
