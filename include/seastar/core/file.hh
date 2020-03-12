@@ -167,13 +167,13 @@ public:
     /// One can check whether a file object is in uninitialized state with
     /// \ref operator bool(); One can reset a file back to uninitialized state
     /// by assigning file() to it.
-    file() : _file_impl(nullptr) {}
+    file() noexcept : _file_impl(nullptr) {}
 
-    file(shared_ptr<file_impl> impl)
+    file(shared_ptr<file_impl> impl) noexcept
             : _file_impl(std::move(impl)) {}
 
     /// Constructs a file object from a \ref file_handle obtained from another shard
-    explicit file(file_handle&& handle);
+    explicit file(file_handle&& handle) noexcept;
 
     /// Checks whether the file object was initialized.
     ///

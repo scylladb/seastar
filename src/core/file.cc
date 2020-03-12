@@ -845,7 +845,7 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
     });
 }
 
-file::file(seastar::file_handle&& handle)
+file::file(seastar::file_handle&& handle) noexcept
         : _file_impl(std::move(std::move(handle).to_file()._file_impl)) {
 }
 
