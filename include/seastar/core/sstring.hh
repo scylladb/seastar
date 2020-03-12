@@ -210,8 +210,8 @@ public:
     }
     basic_sstring& operator=(basic_sstring&& x) noexcept {
         if (this != &x) {
-            swap(x);
-            x.reset();
+            this->~basic_sstring();
+            new (this) basic_sstring(std::move(x));
         }
         return *this;
     }
