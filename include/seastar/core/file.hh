@@ -141,6 +141,8 @@ public:
     friend class reactor;
 };
 
+future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int oflags) noexcept;
+
 /// \endcond
 
 /// A data file on persistent storage.
@@ -154,8 +156,6 @@ public:
 /// on a 4096 byte boundary, while a 512 byte boundary suffices for the latter.
 class file {
     shared_ptr<file_impl> _file_impl;
-private:
-    explicit file(int fd, file_open_options options);
 public:
     /// Default constructor constructs an uninitialized file object.
     ///

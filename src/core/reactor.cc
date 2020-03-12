@@ -1588,9 +1588,11 @@ reactor::open_file_dma(sstring name, open_flags flags, file_open_options options
             ::ioctl(fd, XFS_IOC_FSSETXATTR, &attr);
         }
         return wrap_syscall<int>(fd);
-    }).then([&options, &name] (syscall_result<int> sr) {
+    }).then([&options, &name, &open_flags] (syscall_result<int> sr) {
         sr.throw_fs_exception_if_error("open failed", name);
-        return make_ready_future<file>(file(sr.result, options));
+        return make_file_impl(sr.result, options, open_flags);
+    }).then([] (shared_ptr<file_impl> impl) {
+        return make_ready_future<file>(std::move(impl));
     });
   });
 }
@@ -1812,11 +1814,14 @@ reactor::statvfs(sstring pathname) noexcept {
 
 future<file>
 reactor::open_directory(sstring name) {
-    return _thread_pool->submit<syscall_result<int>>([name] {
-        return wrap_syscall<int>(::open(name.c_str(), O_DIRECTORY | O_CLOEXEC | O_RDONLY));
-    }).then([name] (syscall_result<int> sr) {
+    auto oflags = O_DIRECTORY | O_CLOEXEC | O_RDONLY;
+    return _thread_pool->submit<syscall_result<int>>([name, oflags] {
+        return wrap_syscall<int>(::open(name.c_str(), oflags));
+    }).then([name, oflags] (syscall_result<int> sr) {
         sr.throw_fs_exception_if_error("open failed", name);
-        return make_ready_future<file>(file(sr.result, file_open_options()));
+        return make_file_impl(sr.result, file_open_options(), oflags);
+    }).then([] (shared_ptr<file_impl> file_impl) {
+        return make_ready_future<file>(std::move(file_impl));
     });
 }
 
