@@ -536,11 +536,11 @@ public:
     future<size_t> submit_io_read(io_queue* ioq,
             const io_priority_class& priority_class,
             size_t len,
-            internal::io_request req);
+            internal::io_request req) noexcept;
     future<size_t> submit_io_write(io_queue* ioq,
             const io_priority_class& priority_class,
             size_t len,
-            internal::io_request req);
+            internal::io_request req) noexcept;
 
     inline void handle_io_result(ssize_t res) {
         if (res < 0) {
