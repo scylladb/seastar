@@ -863,4 +863,16 @@ file_impl::dup() {
     throw std::runtime_error("this file type cannot be duplicated");
 }
 
+future<file> open_file_dma(sstring name, open_flags flags) {
+    return engine().open_file_dma(std::move(name), flags, file_open_options());
+}
+
+future<file> open_file_dma(sstring name, open_flags flags, file_open_options options) {
+    return engine().open_file_dma(std::move(name), flags, std::move(options));
+}
+
+future<file> open_directory(sstring name) {
+    return engine().open_directory(std::move(name));
+}
+
 }

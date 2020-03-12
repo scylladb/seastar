@@ -3971,18 +3971,6 @@ future<> check_direct_io_support(sstring path) {
     });
 }
 
-future<file> open_file_dma(sstring name, open_flags flags) {
-    return engine().open_file_dma(std::move(name), flags, file_open_options());
-}
-
-future<file> open_file_dma(sstring name, open_flags flags, file_open_options options) {
-    return engine().open_file_dma(std::move(name), flags, options);
-}
-
-future<file> open_directory(sstring name) {
-    return engine().open_directory(std::move(name));
-}
-
 server_socket listen(socket_address sa) {
     return engine().listen(sa);
 }
