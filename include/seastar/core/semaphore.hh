@@ -168,7 +168,7 @@ public:
     /// \return a future that becomes ready when sufficient units are available
     ///         to satisfy the request.  If the semaphore was \ref broken(), may
     ///         contain an exception.
-    future<> wait(size_t nr = 1) {
+    future<> wait(size_t nr = 1) noexcept {
         return wait(time_point::max(), nr);
     }
     /// Waits until at least a specific number of units are available in the
@@ -184,7 +184,7 @@ public:
     ///         to satisfy the request.  On timeout, the future contains a
     ///         \ref semaphore_timed_out exception.  If the semaphore was
     ///         \ref broken(), may contain an exception.
-    future<> wait(time_point timeout, size_t nr = 1) {
+    future<> wait(time_point timeout, size_t nr = 1) noexcept {
         if (may_proceed(nr)) {
             _count -= nr;
             return make_ready_future<>();
@@ -194,7 +194,11 @@ public:
         }
         promise<> pr;
         auto fut = pr.get_future();
+        try {
         _wait_list.push_back(entry(std::move(pr), nr), timeout);
+        } catch (...) {
+            pr.set_exception(std::current_exception());
+        }
         return fut;
     }
 
@@ -211,7 +215,7 @@ public:
     ///         to satisfy the request.  On timeout, the future contains a
     ///         \ref semaphore_timed_out exception.  If the semaphore was
     ///         \ref broken(), may contain an exception.
-    future<> wait(duration timeout, size_t nr = 1) {
+    future<> wait(duration timeout, size_t nr = 1) noexcept {
         return wait(clock::now() + timeout, nr);
     }
     /// Deposits a specified number of units into the counter.
