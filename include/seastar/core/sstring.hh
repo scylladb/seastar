@@ -444,6 +444,9 @@ public:
     bool empty() const noexcept {
         return u.internal.size == 0;
     }
+
+    // Deprecated March 2020.
+    [[deprecated("Use = {}")]]
     void reset() noexcept {
         if (is_external()) {
             std::free(u.external.str);
