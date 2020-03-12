@@ -1547,7 +1547,8 @@ size_t sanitize_iovecs(std::vector<iovec>& iov, size_t disk_alignment) noexcept 
 
 future<file>
 reactor::open_file_dma(sstring name, open_flags flags, file_open_options options) {
-    return _thread_pool->submit<syscall_result<int>>([name, flags, options, strict_o_direct = _strict_o_direct, bypass_fsync = _bypass_fsync] {
+  return do_with(static_cast<int>(flags), std::move(name), std::move(options), [this] (auto& open_flags, sstring& name, file_open_options& options) {
+    return _thread_pool->submit<syscall_result<int>>([&name, &open_flags, &options, strict_o_direct = _strict_o_direct, bypass_fsync = _bypass_fsync] () mutable {
         // We want O_DIRECT, except in two cases:
         //   - tmpfs (which doesn't support it, but works fine anyway)
         //   - strict_o_direct == false (where we forgive it being not supported)
@@ -1562,7 +1563,7 @@ reactor::open_file_dma(sstring name, open_flags flags, file_open_options options
             }
             return buf.f_type == 0x01021994; // TMPFS_MAGIC
         };
-        auto open_flags = O_CLOEXEC | static_cast<int>(flags);
+        open_flags |= O_CLOEXEC;
         if (bypass_fsync) {
             open_flags &= ~O_DSYNC;
         }
@@ -1587,10 +1588,11 @@ reactor::open_file_dma(sstring name, open_flags flags, file_open_options options
             ::ioctl(fd, XFS_IOC_FSSETXATTR, &attr);
         }
         return wrap_syscall<int>(fd);
-    }).then([options, name] (syscall_result<int> sr) {
+    }).then([&options, &name] (syscall_result<int> sr) {
         sr.throw_fs_exception_if_error("open failed", name);
         return make_ready_future<file>(file(sr.result, options));
     });
+  });
 }
 
 future<>
