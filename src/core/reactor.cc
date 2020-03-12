@@ -1782,6 +1782,19 @@ reactor::file_system_at(sstring pathname) noexcept {
     });
 }
 
+future<struct statfs>
+reactor::fstatfs(int fd) noexcept {
+    return _thread_pool->submit<syscall_result_extra<struct statfs>>([fd] {
+        struct statfs st;
+        auto ret = ::fstatfs(fd, &st);
+        return wrap_syscall(ret, st);
+    }).then([] (syscall_result_extra<struct statfs> sr) {
+        sr.throw_if_error();
+        struct statfs st = sr.extra;
+        return make_ready_future<struct statfs>(std::move(st));
+    });
+}
+
 future<struct statvfs>
 reactor::statvfs(sstring pathname) noexcept {
     return _thread_pool->submit<syscall_result_extra<struct statvfs>>([pathname] {

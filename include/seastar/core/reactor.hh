@@ -695,6 +695,7 @@ private:
         reduce_scheduling_group_specific(Reducer reducer, Initial initial_val, scheduling_group_key key);
 
     future<struct stat> fstat(int fd) noexcept;
+    future<struct statfs> fstatfs(int fd) noexcept;
 public:
     future<> readable(pollable_fd_state& fd);
     future<> writeable(pollable_fd_state& fd);
