@@ -790,59 +790,59 @@ xfs_concurrency_from_kernel_version() {
 
 future<shared_ptr<file_impl>>
 make_file_impl(int fd, file_open_options options, int flags) noexcept {
-  return engine().fstat(fd).then([fd, options = std::move(options), flags] (struct stat st) mutable {
-    auto r = ::ioctl(fd, BLKGETSIZE);
-    auto st_dev = st.st_dev;
-    io_queue& io_queue = engine().get_io_queue(st_dev);
+    return engine().fstat(fd).then([fd, options = std::move(options), flags] (struct stat st) mutable {
+        auto r = ::ioctl(fd, BLKGETSIZE);
+        auto st_dev = st.st_dev;
+        io_queue& io_queue = engine().get_io_queue(st_dev);
 
-    if (r != -1) {
-        return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, &io_queue));
-    } else {
-        if ((flags & O_ACCMODE) == O_RDONLY || S_ISDIR(st.st_mode)) {
-            return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_impl>(fd, open_flags(flags), options, &io_queue));
+        if (r != -1) {
+            return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, &io_queue));
+        } else {
+            if ((flags & O_ACCMODE) == O_RDONLY || S_ISDIR(st.st_mode)) {
+                return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_impl>(fd, open_flags(flags), options, &io_queue));
+            }
+            struct append_support {
+                bool append_challenged;
+                unsigned append_concurrency;
+                bool fsync_is_exclusive;
+            };
+            static thread_local std::unordered_map<decltype(st_dev), append_support> s_fstype;
+            future<> get_append_support = s_fstype.count(st_dev) ? make_ready_future<>() :
+                engine().fstatfs(fd).then([st_dev] (struct statfs sfs) {
+                    append_support as;
+                    switch (sfs.f_type) {
+                    case 0x58465342: /* XFS */
+                        as.append_challenged = true;
+                        static auto xc = xfs_concurrency_from_kernel_version();
+                        as.append_concurrency = xc;
+                        as.fsync_is_exclusive = true;
+                        break;
+                    case 0x6969: /* NFS */
+                        as.append_challenged = false;
+                        as.append_concurrency = 0;
+                        as.fsync_is_exclusive = false;
+                        break;
+                    case 0xEF53: /* EXT4 */
+                        as.append_challenged = true;
+                        as.append_concurrency = 0;
+                        as.fsync_is_exclusive = false;
+                        break;
+                    default:
+                        as.append_challenged = true;
+                        as.append_concurrency = 0;
+                        as.fsync_is_exclusive = true;
+                    }
+                    s_fstype[st_dev] = as;
+                });
+            return get_append_support.then([st_dev, fd, flags, options = std::move(options), &io_queue] () mutable {
+                auto as = s_fstype[st_dev];
+                if (!as.append_challenged) {
+                    return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_impl>(fd, open_flags(flags), std::move(options), &io_queue));
+                }
+                return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), as.append_concurrency, as.fsync_is_exclusive, &io_queue));
+            });
         }
-        struct append_support {
-            bool append_challenged;
-            unsigned append_concurrency;
-            bool fsync_is_exclusive;
-        };
-        static thread_local std::unordered_map<decltype(st_dev), append_support> s_fstype;
-        future<> get_append_support = s_fstype.count(st_dev) ? make_ready_future<>() :
-          engine().fstatfs(fd).then([st_dev] (struct statfs sfs) {
-            append_support as;
-            switch (sfs.f_type) {
-            case 0x58465342: /* XFS */
-                as.append_challenged = true;
-                static auto xc = xfs_concurrency_from_kernel_version();
-                as.append_concurrency = xc;
-                as.fsync_is_exclusive = true;
-                break;
-            case 0x6969: /* NFS */
-                as.append_challenged = false;
-                as.append_concurrency = 0;
-                as.fsync_is_exclusive = false;
-                break;
-            case 0xEF53: /* EXT4 */
-                as.append_challenged = true;
-                as.append_concurrency = 0;
-                as.fsync_is_exclusive = false;
-                break;
-            default:
-                as.append_challenged = true;
-                as.append_concurrency = 0;
-                as.fsync_is_exclusive = true;
-            }
-            s_fstype[st_dev] = as;
-          });
-        return get_append_support.then([st_dev, fd, flags, options = std::move(options), &io_queue] () mutable {
-            auto as = s_fstype[st_dev];
-            if (!as.append_challenged) {
-                return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_impl>(fd, open_flags(flags), std::move(options), &io_queue));
-            }
-            return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), as.append_concurrency, as.fsync_is_exclusive, &io_queue));
-        });
-    }
-  });
+    });
 }
 
 file::file(seastar::file_handle&& handle)
