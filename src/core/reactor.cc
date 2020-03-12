@@ -1817,7 +1817,7 @@ reactor::touch_directory(sstring name, file_permissions permissions) {
 }
 
 future<>
-reactor::fdatasync(int fd) {
+reactor::fdatasync(int fd) noexcept {
     ++_fsyncs;
     if (_bypass_fsync) {
         return make_ready_future<>();

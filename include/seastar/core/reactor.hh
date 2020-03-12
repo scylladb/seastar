@@ -640,7 +640,7 @@ private:
     void register_metrics();
     future<> write_all_part(pollable_fd_state& fd, const void* buffer, size_t size, size_t completed);
 
-    future<> fdatasync(int fd);
+    future<> fdatasync(int fd) noexcept;
 
     void add_timer(timer<steady_clock_type>*);
     bool queue_timer(timer<steady_clock_type>*);
