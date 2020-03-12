@@ -43,6 +43,7 @@ class syscall_work_queue {
         virtual ~work_item() {}
         virtual void process() = 0;
         virtual void complete() = 0;
+        virtual void set_exception(std::exception_ptr) = 0;
     };
     template <typename T>
     struct work_item_returning :  work_item {
@@ -52,6 +53,7 @@ class syscall_work_queue {
         work_item_returning(noncopyable_function<T ()> func) : _func(std::move(func)) {}
         virtual void process() override { _result = this->_func(); }
         virtual void complete() override { _promise.set_value(std::move(*_result)); }
+        virtual void set_exception(std::exception_ptr eptr) override { _promise.set_exception(eptr); };
         future<T> get_future() { return _promise.get_future(); }
     };
 public:

@@ -2874,8 +2874,12 @@ syscall_work_queue::syscall_work_queue()
 }
 
 void syscall_work_queue::submit_item(std::unique_ptr<syscall_work_queue::work_item> item) {
-    // FIXME: future is discarded
-    (void)_queue_has_room.wait().then([this, item = std::move(item)] () mutable {
+    (void)_queue_has_room.wait().then_wrapped([this, item = std::move(item)] (future<> f) mutable {
+        // propagate wait failure via work_item
+        if (f.failed()) {
+            item->set_exception(f.get_exception());
+            return;
+        }
         _pending.push(item.release());
         _start_eventfd.signal(1);
     });
