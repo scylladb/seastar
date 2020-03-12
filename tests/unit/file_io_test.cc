@@ -451,3 +451,21 @@ SEASTAR_THREAD_TEST_CASE(test_recursive_touch_directory_permissions) {
 
     umask(orig_umask);
 }
+
+SEASTAR_THREAD_TEST_CASE(test_file_stat_method) {
+    auto oflags = open_flags::rw | open_flags::create;
+    sstring filename = "testfile.tmp";
+    if (file_exists(filename).get0()) {
+        remove_file(filename).get();
+    }
+
+    auto orig_umask = umask(0);
+
+    auto f = open_file_dma(filename, oflags).get0();
+    auto st = f.stat().get0();
+    f.close().get();
+    BOOST_CHECK_EQUAL(st.st_mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
+    remove_file(filename).get();
+
+    umask(orig_umask);
+}

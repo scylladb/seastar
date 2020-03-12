@@ -124,15 +124,8 @@ posix_file_impl::flush(void) noexcept {
 }
 
 future<struct stat>
-posix_file_impl::stat(void) noexcept {
-    return engine()._thread_pool->submit<syscall_result_extra<struct stat>>([this] {
-        struct stat st;
-        auto ret = ::fstat(_fd, &st);
-        return wrap_syscall(ret, st);
-    }).then([] (syscall_result_extra<struct stat> ret) {
-        ret.throw_if_error();
-        return make_ready_future<struct stat>(ret.extra);
-    });
+posix_file_impl::stat() noexcept {
+    return engine().fstat(_fd);
 }
 
 future<>

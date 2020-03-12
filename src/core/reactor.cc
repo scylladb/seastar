@@ -1689,6 +1689,18 @@ timespec_to_time_point(const timespec& ts) {
     return std::chrono::system_clock::time_point(d);
 }
 
+future<struct stat>
+reactor::fstat(int fd) noexcept {
+    return _thread_pool->submit<syscall_result_extra<struct stat>>([fd] {
+        struct stat st;
+        auto ret = ::fstat(fd, &st);
+        return wrap_syscall(ret, st);
+    }).then([] (syscall_result_extra<struct stat> ret) {
+        ret.throw_if_error();
+        return make_ready_future<struct stat>(ret.extra);
+    });
+}
+
 future<stat_data>
 reactor::file_stat(sstring pathname, follow_symlink follow) noexcept {
     return _thread_pool->submit<syscall_result_extra<struct stat>>([pathname, follow] {
