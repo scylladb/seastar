@@ -236,7 +236,7 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
 }
 
 future<size_t>
-io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_request req) {
+io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_request req) noexcept {
     auto start = std::chrono::steady_clock::now();
     return smp::submit_to(coordinator(), [start, &pc, len, req = std::move(req), owner = engine().cpu_id(), this] () mutable {
         // First time will hit here, and then we create the class. It is important

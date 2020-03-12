@@ -111,7 +111,7 @@ public:
     ~io_queue();
 
     future<size_t>
-    queue_request(const io_priority_class& pc, size_t len, internal::io_request req);
+    queue_request(const io_priority_class& pc, size_t len, internal::io_request req) noexcept;
 
     size_t capacity() const {
         return _config.capacity;
