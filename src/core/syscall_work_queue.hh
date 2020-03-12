@@ -59,11 +59,15 @@ class syscall_work_queue {
 public:
     syscall_work_queue();
     template <typename T>
-    future<T> submit(noncopyable_function<T ()> func) {
+    future<T> submit(noncopyable_function<T ()> func) noexcept {
+      try {
         auto wi = std::make_unique<work_item_returning<T>>(std::move(func));
         auto fut = wi->get_future();
         submit_item(std::move(wi));
         return fut;
+      } catch (...) {
+        return internal::current_exception_as_future<T>();
+      }
     }
 private:
     void work();
