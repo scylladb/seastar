@@ -4094,7 +4094,8 @@ reactor::calculate_poll_time() {
     return virtualized() ? 2000us : 200us;
 }
 
-future<> later() {
+future<> later() noexcept {
+    memory::disable_failure_guard dfg;
     promise<> p;
     auto f = p.get_future();
     engine().force_poll();
