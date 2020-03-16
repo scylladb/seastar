@@ -141,6 +141,8 @@ public:
     friend class reactor;
 };
 
+future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int oflags) noexcept;
+
 /// \endcond
 
 /// A data file on persistent storage.
@@ -154,8 +156,6 @@ public:
 /// on a 4096 byte boundary, while a 512 byte boundary suffices for the latter.
 class file {
     shared_ptr<file_impl> _file_impl;
-private:
-    explicit file(int fd, file_open_options options);
 public:
     /// Default constructor constructs an uninitialized file object.
     ///
@@ -167,13 +167,13 @@ public:
     /// One can check whether a file object is in uninitialized state with
     /// \ref operator bool(); One can reset a file back to uninitialized state
     /// by assigning file() to it.
-    file() : _file_impl(nullptr) {}
+    file() noexcept : _file_impl(nullptr) {}
 
-    file(shared_ptr<file_impl> impl)
+    file(shared_ptr<file_impl> impl) noexcept
             : _file_impl(std::move(impl)) {}
 
     /// Constructs a file object from a \ref file_handle obtained from another shard
-    explicit file(file_handle&& handle);
+    explicit file(file_handle&& handle) noexcept;
 
     /// Checks whether the file object was initialized.
     ///

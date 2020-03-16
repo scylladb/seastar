@@ -1140,7 +1140,7 @@ future<> now() {
 }
 
 // Returns a future which is not ready but is scheduled to resolve soon.
-future<> later();
+future<> later() noexcept;
 
 class timed_out_error : public std::exception {
 public:

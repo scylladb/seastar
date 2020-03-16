@@ -511,23 +511,23 @@ public:
 
     future<> write_all(pollable_fd_state& fd, const void* buffer, size_t size);
 
-    future<file> open_file_dma(sstring name, open_flags flags, file_open_options options = {});
-    future<file> open_directory(sstring name);
-    future<> make_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions);
-    future<> touch_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions);
-    future<compat::optional<directory_entry_type>>  file_type(sstring name, follow_symlink = follow_symlink::yes);
-    future<stat_data> file_stat(sstring pathname, follow_symlink);
-    future<uint64_t> file_size(sstring pathname);
-    future<bool> file_accessible(sstring pathname, access_flags flags);
-    future<bool> file_exists(sstring pathname) {
+    future<file> open_file_dma(sstring name, open_flags flags, file_open_options options = {}) noexcept;
+    future<file> open_directory(sstring name) noexcept;
+    future<> make_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions) noexcept;
+    future<> touch_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions) noexcept;
+    future<compat::optional<directory_entry_type>>  file_type(sstring name, follow_symlink = follow_symlink::yes) noexcept;
+    future<stat_data> file_stat(sstring pathname, follow_symlink) noexcept;
+    future<uint64_t> file_size(sstring pathname) noexcept;
+    future<bool> file_accessible(sstring pathname, access_flags flags) noexcept;
+    future<bool> file_exists(sstring pathname) noexcept {
         return file_accessible(pathname, access_flags::exists);
     }
-    future<fs_type> file_system_at(sstring pathname);
-    future<struct statvfs> statvfs(sstring pathname);
-    future<> remove_file(sstring pathname);
-    future<> rename_file(sstring old_pathname, sstring new_pathname);
-    future<> link_file(sstring oldpath, sstring newpath);
-    future<> chmod(sstring name, file_permissions permissions);
+    future<fs_type> file_system_at(sstring pathname) noexcept;
+    future<struct statvfs> statvfs(sstring pathname) noexcept;
+    future<> remove_file(sstring pathname) noexcept;
+    future<> rename_file(sstring old_pathname, sstring new_pathname) noexcept;
+    future<> link_file(sstring oldpath, sstring newpath) noexcept;
+    future<> chmod(sstring name, file_permissions permissions) noexcept;
 
     // In the following three methods, prepare_io is not guaranteed to execute in the same processor
     // in which it was generated. Therefore, care must be taken to avoid the use of objects that could
@@ -536,11 +536,11 @@ public:
     future<size_t> submit_io_read(io_queue* ioq,
             const io_priority_class& priority_class,
             size_t len,
-            internal::io_request req);
+            internal::io_request req) noexcept;
     future<size_t> submit_io_write(io_queue* ioq,
             const io_priority_class& priority_class,
             size_t len,
-            internal::io_request req);
+            internal::io_request req) noexcept;
 
     inline void handle_io_result(ssize_t res) {
         if (res < 0) {
@@ -640,7 +640,7 @@ private:
     void register_metrics();
     future<> write_all_part(pollable_fd_state& fd, const void* buffer, size_t size, size_t completed);
 
-    future<> fdatasync(int fd);
+    future<> fdatasync(int fd) noexcept;
 
     void add_timer(timer<steady_clock_type>*);
     bool queue_timer(timer<steady_clock_type>*);
@@ -693,6 +693,10 @@ private:
     })
     friend future<typename function_traits<Reducer>::return_type>
         reduce_scheduling_group_specific(Reducer reducer, Initial initial_val, scheduling_group_key key);
+
+    future<struct stat> fstat(int fd) noexcept;
+    future<struct statfs> fstatfs(int fd) noexcept;
+    friend future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int flags) noexcept;
 public:
     future<> readable(pollable_fd_state& fd);
     future<> writeable(pollable_fd_state& fd);

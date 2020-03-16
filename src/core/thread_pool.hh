@@ -39,7 +39,7 @@ public:
     explicit thread_pool(reactor* r, sstring thread_name);
     ~thread_pool();
     template <typename T, typename Func>
-    future<T> submit(Func func) {
+    future<T> submit(Func func) noexcept {
         ++_aio_threaded_fallbacks;
         return inter_thread_wq.submit<T>(std::move(func));
     }

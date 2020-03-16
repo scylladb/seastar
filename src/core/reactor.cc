@@ -1511,14 +1511,14 @@ const io_priority_class& default_priority_class() {
 }
 
 future<size_t>
-reactor::submit_io_read(io_queue* ioq, const io_priority_class& pc, size_t len, io_request req) {
+reactor::submit_io_read(io_queue* ioq, const io_priority_class& pc, size_t len, io_request req) noexcept {
     ++_io_stats.aio_reads;
     _io_stats.aio_read_bytes += len;
     return ioq->queue_request(pc, len, std::move(req));
 }
 
 future<size_t>
-reactor::submit_io_write(io_queue* ioq, const io_priority_class& pc, size_t len, io_request req) {
+reactor::submit_io_write(io_queue* ioq, const io_priority_class& pc, size_t len, io_request req) noexcept {
     ++_io_stats.aio_writes;
     _io_stats.aio_write_bytes += len;
     return ioq->queue_request(pc, len, std::move(req));
@@ -1546,8 +1546,9 @@ size_t sanitize_iovecs(std::vector<iovec>& iov, size_t disk_alignment) noexcept 
 }
 
 future<file>
-reactor::open_file_dma(sstring name, open_flags flags, file_open_options options) {
-    return _thread_pool->submit<syscall_result<int>>([name, flags, options, strict_o_direct = _strict_o_direct, bypass_fsync = _bypass_fsync] {
+reactor::open_file_dma(sstring name, open_flags flags, file_open_options options) noexcept {
+  return do_with(static_cast<int>(flags), std::move(name), std::move(options), [this] (auto& open_flags, sstring& name, file_open_options& options) {
+    return _thread_pool->submit<syscall_result<int>>([&name, &open_flags, &options, strict_o_direct = _strict_o_direct, bypass_fsync = _bypass_fsync] () mutable {
         // We want O_DIRECT, except in two cases:
         //   - tmpfs (which doesn't support it, but works fine anyway)
         //   - strict_o_direct == false (where we forgive it being not supported)
@@ -1562,7 +1563,7 @@ reactor::open_file_dma(sstring name, open_flags flags, file_open_options options
             }
             return buf.f_type == 0x01021994; // TMPFS_MAGIC
         };
-        auto open_flags = O_CLOEXEC | static_cast<int>(flags);
+        open_flags |= O_CLOEXEC;
         if (bypass_fsync) {
             open_flags &= ~O_DSYNC;
         }
@@ -1587,14 +1588,17 @@ reactor::open_file_dma(sstring name, open_flags flags, file_open_options options
             ::ioctl(fd, XFS_IOC_FSSETXATTR, &attr);
         }
         return wrap_syscall<int>(fd);
-    }).then([options, name] (syscall_result<int> sr) {
+    }).then([&options, &name, &open_flags] (syscall_result<int> sr) {
         sr.throw_fs_exception_if_error("open failed", name);
-        return make_ready_future<file>(file(sr.result, options));
+        return make_file_impl(sr.result, options, open_flags);
+    }).then([] (shared_ptr<file_impl> impl) {
+        return make_ready_future<file>(std::move(impl));
     });
+  });
 }
 
 future<>
-reactor::remove_file(sstring pathname) {
+reactor::remove_file(sstring pathname) noexcept {
     return engine()._thread_pool->submit<syscall_result<int>>([pathname] {
         return wrap_syscall<int>(::remove(pathname.c_str()));
     }).then([pathname] (syscall_result<int> sr) {
@@ -1604,7 +1608,7 @@ reactor::remove_file(sstring pathname) {
 }
 
 future<>
-reactor::rename_file(sstring old_pathname, sstring new_pathname) {
+reactor::rename_file(sstring old_pathname, sstring new_pathname) noexcept {
     return engine()._thread_pool->submit<syscall_result<int>>([old_pathname, new_pathname] {
         return wrap_syscall<int>(::rename(old_pathname.c_str(), new_pathname.c_str()));
     }).then([old_pathname, new_pathname] (syscall_result<int> sr) {
@@ -1614,7 +1618,7 @@ reactor::rename_file(sstring old_pathname, sstring new_pathname) {
 }
 
 future<>
-reactor::link_file(sstring oldpath, sstring newpath) {
+reactor::link_file(sstring oldpath, sstring newpath) noexcept {
     return engine()._thread_pool->submit<syscall_result<int>>([oldpath, newpath] {
         return wrap_syscall<int>(::link(oldpath.c_str(), newpath.c_str()));
     }).then([oldpath, newpath] (syscall_result<int> sr) {
@@ -1624,7 +1628,7 @@ reactor::link_file(sstring oldpath, sstring newpath) {
 }
 
 future<>
-reactor::chmod(sstring name, file_permissions permissions) {
+reactor::chmod(sstring name, file_permissions permissions) noexcept {
     auto mode = static_cast<mode_t>(permissions);
     return _thread_pool->submit<syscall_result<int>>([name, mode] {
         return wrap_syscall<int>(::chmod(name.c_str(), mode));
@@ -1663,7 +1667,7 @@ directory_entry_type stat_to_entry_type(__mode_t type) {
 }
 
 future<compat::optional<directory_entry_type>>
-reactor::file_type(sstring name, follow_symlink follow) {
+reactor::file_type(sstring name, follow_symlink follow) noexcept {
     return _thread_pool->submit<syscall_result_extra<struct stat>>([name, follow] {
         struct stat st;
         auto stat_syscall = follow ? stat : lstat;
@@ -1689,8 +1693,20 @@ timespec_to_time_point(const timespec& ts) {
     return std::chrono::system_clock::time_point(d);
 }
 
+future<struct stat>
+reactor::fstat(int fd) noexcept {
+    return _thread_pool->submit<syscall_result_extra<struct stat>>([fd] {
+        struct stat st;
+        auto ret = ::fstat(fd, &st);
+        return wrap_syscall(ret, st);
+    }).then([] (syscall_result_extra<struct stat> ret) {
+        ret.throw_if_error();
+        return make_ready_future<struct stat>(ret.extra);
+    });
+}
+
 future<stat_data>
-reactor::file_stat(sstring pathname, follow_symlink follow) {
+reactor::file_stat(sstring pathname, follow_symlink follow) noexcept {
     return _thread_pool->submit<syscall_result_extra<struct stat>>([pathname, follow] {
         struct stat st;
         auto stat_syscall = follow ? stat : lstat;
@@ -1719,14 +1735,14 @@ reactor::file_stat(sstring pathname, follow_symlink follow) {
 }
 
 future<uint64_t>
-reactor::file_size(sstring pathname) {
+reactor::file_size(sstring pathname) noexcept {
     return file_stat(pathname, follow_symlink::yes).then([] (stat_data sd) {
         return make_ready_future<uint64_t>(sd.size);
     });
 }
 
 future<bool>
-reactor::file_accessible(sstring pathname, access_flags flags) {
+reactor::file_accessible(sstring pathname, access_flags flags) noexcept {
     return _thread_pool->submit<syscall_result<int>>([pathname, flags] {
         auto aflags = std::underlying_type_t<access_flags>(flags);
         auto ret = ::access(pathname.c_str(), aflags);
@@ -1745,7 +1761,7 @@ reactor::file_accessible(sstring pathname, access_flags flags) {
 }
 
 future<fs_type>
-reactor::file_system_at(sstring pathname) {
+reactor::file_system_at(sstring pathname) noexcept {
     return _thread_pool->submit<syscall_result_extra<struct statfs>>([pathname] {
         struct statfs st;
         auto ret = statfs(pathname.c_str(), &st);
@@ -1770,8 +1786,21 @@ reactor::file_system_at(sstring pathname) {
     });
 }
 
+future<struct statfs>
+reactor::fstatfs(int fd) noexcept {
+    return _thread_pool->submit<syscall_result_extra<struct statfs>>([fd] {
+        struct statfs st;
+        auto ret = ::fstatfs(fd, &st);
+        return wrap_syscall(ret, st);
+    }).then([] (syscall_result_extra<struct statfs> sr) {
+        sr.throw_if_error();
+        struct statfs st = sr.extra;
+        return make_ready_future<struct statfs>(std::move(st));
+    });
+}
+
 future<struct statvfs>
-reactor::statvfs(sstring pathname) {
+reactor::statvfs(sstring pathname) noexcept {
     return _thread_pool->submit<syscall_result_extra<struct statvfs>>([pathname] {
         struct statvfs st;
         auto ret = ::statvfs(pathname.c_str(), &st);
@@ -1784,17 +1813,20 @@ reactor::statvfs(sstring pathname) {
 }
 
 future<file>
-reactor::open_directory(sstring name) {
-    return _thread_pool->submit<syscall_result<int>>([name] {
-        return wrap_syscall<int>(::open(name.c_str(), O_DIRECTORY | O_CLOEXEC | O_RDONLY));
-    }).then([name] (syscall_result<int> sr) {
+reactor::open_directory(sstring name) noexcept {
+    auto oflags = O_DIRECTORY | O_CLOEXEC | O_RDONLY;
+    return _thread_pool->submit<syscall_result<int>>([name, oflags] {
+        return wrap_syscall<int>(::open(name.c_str(), oflags));
+    }).then([name, oflags] (syscall_result<int> sr) {
         sr.throw_fs_exception_if_error("open failed", name);
-        return make_ready_future<file>(file(sr.result, file_open_options()));
+        return make_file_impl(sr.result, file_open_options(), oflags);
+    }).then([] (shared_ptr<file_impl> file_impl) {
+        return make_ready_future<file>(std::move(file_impl));
     });
 }
 
 future<>
-reactor::make_directory(sstring name, file_permissions permissions) {
+reactor::make_directory(sstring name, file_permissions permissions) noexcept {
     return _thread_pool->submit<syscall_result<int>>([=] {
         auto mode = static_cast<mode_t>(permissions);
         return wrap_syscall<int>(::mkdir(name.c_str(), mode));
@@ -1804,7 +1836,7 @@ reactor::make_directory(sstring name, file_permissions permissions) {
 }
 
 future<>
-reactor::touch_directory(sstring name, file_permissions permissions) {
+reactor::touch_directory(sstring name, file_permissions permissions) noexcept {
     return engine()._thread_pool->submit<syscall_result<int>>([=] {
         auto mode = static_cast<mode_t>(permissions);
         return wrap_syscall<int>(::mkdir(name.c_str(), mode));
@@ -1817,7 +1849,7 @@ reactor::touch_directory(sstring name, file_permissions permissions) {
 }
 
 future<>
-reactor::fdatasync(int fd) {
+reactor::fdatasync(int fd) noexcept {
     ++_fsyncs;
     if (_bypass_fsync) {
         return make_ready_future<>();
@@ -2874,8 +2906,12 @@ syscall_work_queue::syscall_work_queue()
 }
 
 void syscall_work_queue::submit_item(std::unique_ptr<syscall_work_queue::work_item> item) {
-    // FIXME: future is discarded
-    (void)_queue_has_room.wait().then([this, item = std::move(item)] () mutable {
+    (void)_queue_has_room.wait().then_wrapped([this, item = std::move(item)] (future<> f) mutable {
+        // propagate wait failure via work_item
+        if (f.failed()) {
+            item->set_exception(f.get_exception());
+            return;
+        }
         _pending.push(item.release());
         _start_eventfd.signal(1);
     });
@@ -3935,126 +3971,6 @@ future<> check_direct_io_support(sstring path) {
     });
 }
 
-future<file> open_file_dma(sstring name, open_flags flags) {
-    return engine().open_file_dma(std::move(name), flags, file_open_options());
-}
-
-future<file> open_file_dma(sstring name, open_flags flags, file_open_options options) {
-    return engine().open_file_dma(std::move(name), flags, options);
-}
-
-future<file> open_directory(sstring name) {
-    return engine().open_directory(std::move(name));
-}
-
-future<> make_directory(sstring name, file_permissions permissions) {
-    return engine().make_directory(std::move(name), permissions);
-}
-
-future<> touch_directory(sstring name, file_permissions permissions) {
-    return engine().touch_directory(std::move(name), permissions);
-}
-
-future<> sync_directory(sstring name) {
-    return open_directory(std::move(name)).then([] (file f) {
-        return do_with(std::move(f), [] (file& f) {
-            return f.flush().then([&f] () mutable {
-                return f.close();
-            });
-        });
-    });
-}
-
-static future<> do_recursive_touch_directory(sstring base, sstring name, file_permissions permissions) {
-    static const sstring::value_type separator = '/';
-
-    if (name.empty()) {
-        return make_ready_future<>();
-    }
-
-    size_t pos = std::min(name.find(separator), name.size() - 1);
-    base += name.substr(0 , pos + 1);
-    name = name.substr(pos + 1);
-    if (name.length() == 1 && name[0] == separator) {
-        name = {};
-    }
-    // use the optional permissions only for last component,
-    // other directories in the patch will always be created using the default_dir_permissions
-    auto f = name.empty() ? touch_directory(base, permissions) : touch_directory(base);
-    return f.then([=] {
-        return do_recursive_touch_directory(base, std::move(name), permissions);
-    }).then([base] {
-        // We will now flush the directory that holds the entry we potentially
-        // created. Technically speaking, we only need to touch when we did
-        // create. But flushing the unchanged ones should be cheap enough - and
-        // it simplifies the code considerably.
-        if (base.empty()) {
-            return make_ready_future<>();
-        }
-
-        return sync_directory(base);
-    });
-}
-/// \endcond
-
-future<> recursive_touch_directory(sstring name, file_permissions permissions) {
-    // If the name is empty,  it will be of the type a/b/c, which should be interpreted as
-    // a relative path. This means we have to flush our current directory
-    sstring base = "";
-    if (name[0] != '/' || name[0] == '.') {
-        base = "./";
-    }
-    return do_recursive_touch_directory(std::move(base), std::move(name), permissions);
-}
-
-future<> remove_file(sstring pathname) {
-    return engine().remove_file(std::move(pathname));
-}
-
-future<> rename_file(sstring old_pathname, sstring new_pathname) {
-    return engine().rename_file(std::move(old_pathname), std::move(new_pathname));
-}
-
-future<fs_type> file_system_at(sstring name) {
-    return engine().file_system_at(name);
-}
-
-future<uint64_t> fs_avail(sstring name) {
-    return engine().statvfs(name).then([] (struct statvfs st) {
-        return make_ready_future<uint64_t>(st.f_bavail * st.f_frsize);
-    });
-}
-
-future<uint64_t> fs_free(sstring name) {
-    return engine().statvfs(name).then([] (struct statvfs st) {
-        return make_ready_future<uint64_t>(st.f_bfree * st.f_frsize);
-    });
-}
-
-future<stat_data> file_stat(sstring name, follow_symlink follow) {
-    return engine().file_stat(name, follow);
-}
-
-future<uint64_t> file_size(sstring name) {
-    return engine().file_size(name);
-}
-
-future<bool> file_accessible(sstring name, access_flags flags) {
-    return engine().file_accessible(name, flags);
-}
-
-future<bool> file_exists(sstring name) {
-    return engine().file_exists(name);
-}
-
-future<> link_file(sstring oldpath, sstring newpath) {
-    return engine().link_file(std::move(oldpath), std::move(newpath));
-}
-
-future<> chmod(sstring name, file_permissions permissions) {
-    return engine().chmod(std::move(name), permissions);
-}
-
 server_socket listen(socket_address sa) {
     return engine().listen(sa);
 }
@@ -4094,7 +4010,8 @@ reactor::calculate_poll_time() {
     return virtualized() ? 2000us : 200us;
 }
 
-future<> later() {
+future<> later() noexcept {
+    memory::disable_failure_guard dfg;
     promise<> p;
     auto f = p.get_future();
     engine().force_poll();
