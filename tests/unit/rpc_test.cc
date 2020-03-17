@@ -175,12 +175,12 @@ class rpc_test_env {
 
     rpc_test_config _cfg;
     loopback_connection_factory _lcf;
-    sharded<rpc_test_service> _service;
+    std::unique_ptr<sharded<rpc_test_service>> _service;
 
 public:
     rpc_test_env() = delete;
     explicit rpc_test_env(rpc_test_config cfg)
-        : _cfg(cfg)
+        : _cfg(cfg), _service(std::make_unique<sharded<rpc_test_service>>())
     {
     }
 
@@ -233,7 +233,7 @@ public:
 
     template<typename Func>
     future<> register_handler(MsgType t, scheduling_group sg, Func func) {
-        return _service.invoke_on_all([t, func = std::move(func), sg] (rpc_test_service& s) mutable {
+        return _service->invoke_on_all([t, func = std::move(func), sg] (rpc_test_service& s) mutable {
             s.register_handler(t, sg, std::move(func));
         });
     }
@@ -244,22 +244,23 @@ public:
     }
 
     future<> unregister_handler(MsgType t) {
-        return _service.invoke_on_all([t] (rpc_test_service& s) mutable {
+        return _service->invoke_on_all([t] (rpc_test_service& s) mutable {
             return s.unregister_handler(t);
         });
     }
 
 private:
     rpc_test_service& local_service() {
-        return _service.local();
+        return _service->local();
+
     }
 
     future<> start() {
-        return _service.start(std::cref(_cfg), std::ref(_lcf));
+        return _service->start(std::cref(_cfg), std::ref(_lcf));
     }
 
     future<> stop() {
-        return _service.stop().then([this] {
+        return _service->stop().then([this] {
             return _lcf.destroy_all_shards();
         });
     }

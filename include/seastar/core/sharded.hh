@@ -134,11 +134,11 @@ public:
     /// created.
     sharded() {}
     sharded(const sharded& other) = delete;
-    /// Moves a \c sharded object.
-    sharded(sharded&& other) noexcept;
     sharded& operator=(const sharded& other) = delete;
-    /// Moves a \c sharded object.
-    sharded& operator=(sharded&& other) = default;
+    /// Sharded object with T that inherits from peering_sharded_service
+    /// cannot be moved safely, so disable move operations.
+    sharded(sharded&& other) noexcept = delete;
+    sharded& operator=(sharded&& other) = delete;
     /// Destroyes a \c sharded object.  Must not be in a started state.
     ~sharded();
 
@@ -521,13 +521,6 @@ unwrap_sharded_arg(std::reference_wrapper<sharded<Service>> arg) {
     return either_sharded_or_local<Service>(arg);
 }
 
-}
-
-template <typename Service>
-sharded<Service>::sharded(sharded&& x) noexcept : _instances(std::move(x._instances)) {
-    for (auto&& e : _instances) {
-        set_container(*e.service);
-    }
 }
 
 namespace internal {
