@@ -293,7 +293,7 @@ struct future_state_base {
             set_exception(std::move(e));
         }
         ~any() noexcept {}
-        std::exception_ptr take_exception() {
+        std::exception_ptr take_exception() noexcept {
             std::exception_ptr ret(std::move(ex));
             // Unfortunately in libstdc++ ~exception_ptr is defined out of line. We know that it does nothing for
             // moved out values, so we omit calling it. This is critical for the code quality produced for this
