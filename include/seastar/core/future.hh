@@ -503,12 +503,21 @@ public:
     friend class future<T...>;
 };
 
-template <typename Func, typename... T>
-struct continuation final : continuation_base<T...> {
-    continuation(Func&& func, future_state<T...>&& state) : continuation_base<T...>(std::move(state)), _func(std::move(func)) {}
-    continuation(Func&& func) : _func(std::move(func)) {}
+template <typename Promise, typename... T>
+class continuation_base_with_promise : public continuation_base<T...> {
+protected:
+    continuation_base_with_promise(Promise&& pr, future_state<T...>&& state)
+        : continuation_base<T...>(std::move(state)), _pr(std::move(pr)) {}
+    continuation_base_with_promise(Promise&& pr) : _pr(std::move(pr)) {}
+    Promise _pr;
+};
+
+template <typename Promise, typename Func, typename... T>
+struct continuation final : continuation_base_with_promise<Promise, T...> {
+    continuation(Promise&& pr, Func&& func, future_state<T...>&& state) : continuation_base_with_promise<Promise, T...>(std::move(pr), std::move(state)), _func(std::move(func)) {}
+    continuation(Promise&& pr, Func&& func) : continuation_base_with_promise<Promise, T...>(std::move(pr)), _func(std::move(func)) {}
     virtual void run_and_dispose() noexcept override {
-        _func(std::move(this->_state));
+        _func(this->_pr, std::move(this->_state));
         delete this;
     }
     Func _func;
@@ -636,9 +645,9 @@ public:
     }
 #endif
 private:
-    template <typename Func>
-    void schedule(Func&& func) noexcept {
-        auto tws = new continuation<Func, T...>(std::move(func));
+    template <typename Pr, typename Func>
+    void schedule(Pr&& pr, Func&& func) noexcept {
+        auto tws = new continuation<Pr, Func, T...>(std::move(pr), std::move(func));
         _state = &tws->_state;
         _task = tws;
     }
@@ -992,16 +1001,16 @@ private:
     internal::promise_base_with_type<T...>* detach_promise() {
         return static_cast<internal::promise_base_with_type<T...>*>(future_base::detach_promise());
     }
-    template <typename Func>
-    void schedule(Func&& func) noexcept {
+    template <typename Pr, typename Func>
+    void schedule(Pr&& pr, Func&& func) noexcept {
         if (_state.available() || !_promise) {
             if (__builtin_expect(!_state.available() && !_promise, false)) {
                 _state.set_to_broken_promise();
             }
-            ::seastar::schedule(new continuation<Func, T...>(std::move(func), std::move(_state)));
+            ::seastar::schedule(new continuation<Pr, Func, T...>(std::move(pr), std::move(func), std::move(_state)));
         } else {
             assert(_promise);
-            detach_promise()->schedule(std::move(func));
+            detach_promise()->schedule(std::move(pr), std::move(func));
             _state._u.st = future_state_base::state::invalid;
         }
     }
@@ -1188,8 +1197,9 @@ private:
         // chain by returning ready future while 'this' future is not ready. The noexcept will call std::terminate if
         // that happens.
         [&] () noexcept {
+            using pr_type = decltype(fut.get_promise());
             memory::disable_failure_guard dfg;
-            schedule([pr = fut.get_promise(), func = std::forward<Func>(func)] (future_state<T...>&& state) mutable {
+            schedule(fut.get_promise(), [func = std::forward<Func>(func)] (pr_type& pr, future_state<T...>&& state) mutable {
                 if (state.failed()) {
                     pr.set_exception(static_cast<future_state_base&&>(std::move(state)));
                 } else {
@@ -1265,8 +1275,9 @@ private:
         // chain by returning ready future while 'this' future is not ready. The noexcept will call std::terminate if
         // that happens.
         [&] () noexcept {
+            using pr_type = decltype(fut.get_promise());
             memory::disable_failure_guard dfg;
-            schedule([pr = fut.get_promise(), func = std::forward<Func>(func)] (future_state<T...>&& state) mutable {
+            schedule(fut.get_promise(), [func = std::forward<Func>(func)] (pr_type& pr, future_state<T...>&& state) mutable {
                 futurator::apply(std::forward<Func>(func), future(std::move(state))).forward_to(std::move(pr));
             });
         } ();
