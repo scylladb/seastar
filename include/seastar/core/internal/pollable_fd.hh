@@ -109,6 +109,7 @@ private:
 class pollable_fd {
 public:
     using speculation = pollable_fd_state::speculation;
+    pollable_fd() = default;
     pollable_fd(file_desc fd, speculation speculate = speculation());
 public:
     future<size_t> read_some(char* buffer, size_t size) {
@@ -168,6 +169,9 @@ public:
     file_desc& get_file_desc() const { return _s->fd; }
     void shutdown(int how);
     void close() { _s.reset(); }
+    explicit operator bool() const noexcept {
+        return bool(_s);
+    }
 protected:
     int get_fd() const { return _s->fd.get(); }
     void maybe_no_more_recv() { return _s->maybe_no_more_recv(); }

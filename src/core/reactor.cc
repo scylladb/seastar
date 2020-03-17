@@ -1410,14 +1410,14 @@ void pollable_fd::shutdown(int how) {
     engine()._backend->shutdown(*_s, how);
 }
 
-lw_shared_ptr<pollable_fd>
+pollable_fd
 reactor::make_pollable_fd(socket_address sa, int proto) {
     file_desc fd = file_desc::socket(sa.u.sa.sa_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, proto);
-    return make_lw_shared<pollable_fd>(pollable_fd(std::move(fd)));
+    return pollable_fd(std::move(fd));
 }
 
 future<>
-reactor::posix_connect(lw_shared_ptr<pollable_fd> pfd, socket_address sa, socket_address local) {
+reactor::posix_connect(pollable_fd pfd, socket_address sa, socket_address local) {
 #ifdef IP_BIND_ADDRESS_NO_PORT
     if (!sa.is_af_unix()) {
         try {
@@ -1425,7 +1425,7 @@ reactor::posix_connect(lw_shared_ptr<pollable_fd> pfd, socket_address sa, socket
             // connect() will handle it later. The reason for that is that bind() may fail
             // to allocate a port while connect will success, this is because bind() does not
             // know dst address and has to find globally unique local port.
-            pfd->get_file_desc().setsockopt(SOL_IP, IP_BIND_ADDRESS_NO_PORT, 1);
+            pfd.get_file_desc().setsockopt(SOL_IP, IP_BIND_ADDRESS_NO_PORT, 1);
         } catch (std::system_error& err) {
             if (err.code() !=  std::error_code(ENOPROTOOPT, std::system_category())) {
                 throw;
@@ -1435,9 +1435,9 @@ reactor::posix_connect(lw_shared_ptr<pollable_fd> pfd, socket_address sa, socket
 #endif
     if (!local.is_wildcard()) {
         // call bind() only if local address is not wildcard
-        pfd->get_file_desc().bind(local.u.sa, local.length());
+        pfd.get_file_desc().bind(local.u.sa, local.length());
     }
-    return pfd->connect(sa).finally([pfd] {});
+    return pfd.connect(sa).finally([pfd] {});
 }
 
 server_socket

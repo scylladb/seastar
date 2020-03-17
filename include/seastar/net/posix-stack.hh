@@ -106,12 +106,12 @@ public:
 
 class posix_data_source_impl final : public data_source_impl, private internal::buffer_allocator {
     compat::polymorphic_allocator<char>* _buffer_allocator;
-    lw_shared_ptr<pollable_fd> _fd;
+    pollable_fd _fd;
     connected_socket_input_stream_config _config;
 private:
     virtual temporary_buffer<char> allocate_buffer() override;
 public:
-    explicit posix_data_source_impl(lw_shared_ptr<pollable_fd> fd, connected_socket_input_stream_config config,
+    explicit posix_data_source_impl(pollable_fd fd, connected_socket_input_stream_config config,
             compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator)
             : _buffer_allocator(allocator), _fd(std::move(fd)), _config(config) {
     }
@@ -120,10 +120,10 @@ public:
 };
 
 class posix_data_sink_impl : public data_sink_impl {
-    lw_shared_ptr<pollable_fd> _fd;
+    pollable_fd _fd;
     packet _p;
 public:
-    explicit posix_data_sink_impl(lw_shared_ptr<pollable_fd> fd) : _fd(std::move(fd)) {}
+    explicit posix_data_sink_impl(pollable_fd fd) : _fd(std::move(fd)) {}
     using data_sink_impl::put;
     future<> put(packet p) override;
     future<> put(temporary_buffer<char> buf) override;
