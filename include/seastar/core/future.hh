@@ -369,7 +369,7 @@ public:
         return _u.ex;
     }
 
-    static future_state_base current_exception();
+    static future_state_base current_exception() noexcept;
 
     template <typename... U>
     friend future<U...> internal::current_exception_as_future() noexcept;
