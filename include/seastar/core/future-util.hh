@@ -821,12 +821,12 @@ concept bool AllAreFutures = impl::is_tuple_of_futures<std::tuple<Futs...>>::val
 )
 
 template<typename Fut, std::enable_if_t<is_future<Fut>::value, int> = 0>
-auto futurize_apply_if_func(Fut&& fut) {
+auto futurize_apply_if_func(Fut&& fut) noexcept {
     return std::forward<Fut>(fut);
 }
 
 template<typename Func, std::enable_if_t<!is_future<Func>::value, int> = 0>
-auto futurize_apply_if_func(Func&& func) {
+auto futurize_apply_if_func(Func&& func) noexcept {
     return futurize_invoke(std::forward<Func>(func));
 }
 
