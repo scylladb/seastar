@@ -1039,7 +1039,7 @@ private:
     }
 
     [[gnu::noinline]]
-    future<T...> rethrow_with_nested() {
+    future<T...> rethrow_with_nested() noexcept {
         if (!failed()) {
             return internal::current_exception_as_future<T...>();
         } else {
@@ -1054,7 +1054,11 @@ private:
             try {
                 get();
             } catch (...) {
-                std::throw_with_nested(f_ex);
+                try {
+                    std::throw_with_nested(f_ex);
+                } catch (...) {
+                    return internal::current_exception_as_future<T...>();
+                }
             }
             __builtin_unreachable();
         }
