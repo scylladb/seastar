@@ -2220,7 +2220,7 @@ void dpdk_device::set_rss_table()
 
     int reta_conf_size =
         std::max(1, _dev_info.reta_size / RTE_RETA_GROUP_SIZE);
-    rte_eth_rss_reta_entry64 reta_conf[reta_conf_size];
+    std::vector<rte_eth_rss_reta_entry64> reta_conf(reta_conf_size);
 
     // Configure the HW indirection table
     unsigned i = 0;
@@ -2231,7 +2231,7 @@ void dpdk_device::set_rss_table()
         }
     }
 
-    if (rte_eth_dev_rss_reta_update(_port_idx, reta_conf, _dev_info.reta_size)) {
+    if (rte_eth_dev_rss_reta_update(_port_idx, reta_conf.data(), _dev_info.reta_size)) {
         rte_exit(EXIT_FAILURE, "Port %d: Failed to update an RSS indirection table", _port_idx);
     }
 
