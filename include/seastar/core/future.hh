@@ -173,8 +173,9 @@ struct uninitialized_wrapper_base<T, false> {
     } _v;
 
 public:
-    void uninitialized_set(T&& v) {
-        new (&_v.value) T(std::move(v));
+    template<typename... U>
+    void uninitialized_set(U&&... vs) {
+        new (&_v.value) T(std::forward<U>(vs)...);
     }
     T& uninitialized_get() {
         return _v.value;
@@ -185,8 +186,9 @@ public:
 };
 
 template <typename T> struct uninitialized_wrapper_base<T, true> : private T {
-    void uninitialized_set(T&& v) {
-        new (this) T(std::move(v));
+    template<typename... U>
+    void uninitialized_set(U&&... vs) {
+        new (this) T(std::forward<U>(vs)...);
     }
     T& uninitialized_get() {
         return *this;
@@ -430,7 +432,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
     }
     template <typename... A>
     future_state(ready_future_marker, A&&... a) : future_state_base(state::result) {
-        this->uninitialized_set(std::tuple<T...>(std::forward<A>(a)...));
+        this->uninitialized_set(std::forward<A>(a)...);
     }
     template <typename... A>
     void set(A&&... a) {
