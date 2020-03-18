@@ -1249,7 +1249,8 @@ private:
         return then_wrapped_common<AsSelf, FuncResult>(std::forward<Func>(func));
 #else
         using futurator = futurize<FuncResult>;
-        return then_wrapped_common<AsSelf, FuncResult>(noncopyable_function<typename futurator::type (future&&)>([func = std::forward<Func>(func)] (future&& f) mutable {
+        using WrapFuncResult = typename futurator::type;
+        return then_wrapped_common<AsSelf, WrapFuncResult>(noncopyable_function<WrapFuncResult (future&&)>([func = std::forward<Func>(func)] (future&& f) mutable {
             return futurator::apply(std::forward<Func>(func), std::move(f));
         }));
 #endif
