@@ -1788,6 +1788,12 @@ auto futurize_apply(Func&& func, Args&&... args) {
     return futurize_invoke(std::forward<Func>(func), std::forward<Args>(args)...);
 }
 
+template<typename Func, typename... Args>
+auto futurize_apply(Func&& func, std::tuple<Args...>&& args) {
+    using futurator = futurize<std::result_of_t<Func(Args&&...)>>;
+    return futurator::apply(std::forward<Func>(func), std::move(args));
+}
+
 namespace internal {
 
 template <typename... T, typename U>
