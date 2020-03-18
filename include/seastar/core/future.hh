@@ -871,6 +871,9 @@ using futurize_t = typename futurize<T>::type;
 
 /// @}
 
+template<typename Func, typename... Args>
+auto futurize_invoke(Func&& func, Args&&... args);
+
 GCC6_CONCEPT(
 
 template <typename T>
@@ -1366,8 +1369,7 @@ public:
         { }
 
         future<T...> operator()(future<T...>&& result) {
-            using futurator = futurize<std::result_of_t<Func()>>;
-            return futurator::invoke(_func).then_wrapped([result = std::move(result)](auto f_res) mutable {
+            return futurize_invoke(_func).then_wrapped([result = std::move(result)](auto f_res) mutable {
                 if (!f_res.failed()) {
                     return std::move(result);
                 } else {
@@ -1441,13 +1443,12 @@ public:
                     || (sizeof...(T) == 1 && ::seastar::ApplyReturns<Func, T..., std::exception_ptr>)
     ) */
     future<T...> handle_exception(Func&& func) noexcept {
-        using func_ret = std::result_of_t<Func(std::exception_ptr)>;
         return then_wrapped([func = std::forward<Func>(func)]
                              (auto&& fut) mutable -> future<T...> {
             if (!fut.failed()) {
                 return make_ready_future<T...>(fut.get());
             } else {
-                return futurize<func_ret>::invoke(func, fut.get_exception());
+                return futurize_invoke(func, fut.get_exception());
             }
         });
     }
@@ -1467,13 +1468,12 @@ public:
         using trait = function_traits<Func>;
         static_assert(trait::arity == 1, "func can take only one parameter");
         using ex_type = typename trait::template arg<0>::type;
-        using func_ret = typename trait::return_type;
         return then_wrapped([func = std::forward<Func>(func)]
                              (auto&& fut) mutable -> future<T...> {
             try {
                 return make_ready_future<T...>(fut.get());
             } catch(ex_type& ex) {
-                return futurize<func_ret>::invoke(func, ex);
+                return futurize_invoke(func, ex);
             }
         });
     }

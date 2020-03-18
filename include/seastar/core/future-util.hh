@@ -213,7 +213,6 @@ namespace internal {
 
 template <typename AsyncAction>
 class repeater final : public continuation_base<stop_iteration> {
-    using futurator = futurize<std::result_of_t<AsyncAction()>>;
     promise<> _promise;
     AsyncAction _action;
 public:
@@ -237,7 +236,7 @@ public:
         }
         try {
             do {
-                auto f = futurator::invoke(_action);
+                auto f = futurize_invoke(_action);
                 if (!f.available()) {
                     internal::set_callback(f, this);
                     return;
@@ -333,7 +332,6 @@ namespace internal {
 
 template <typename AsyncAction, typename T>
 class repeat_until_value_state final : public continuation_base<compat::optional<T>> {
-    using futurator = futurize<std::result_of_t<AsyncAction()>>;
     promise<T> _promise;
     AsyncAction _action;
 public:
@@ -358,7 +356,7 @@ public:
         }
         try {
             do {
-                auto f = futurator::invoke(_action);
+                auto f = futurize_invoke(_action);
                 if (!f.available()) {
                     internal::set_callback(f, this);
                     return;
@@ -395,8 +393,8 @@ public:
 ///         a call to to \c action failed.  The \c optional's value is returned.
 template<typename AsyncAction>
 GCC6_CONCEPT( requires requires (AsyncAction aa) {
-    bool(futurize<std::result_of_t<AsyncAction()>>::invoke(aa).get0());
-    futurize<std::result_of_t<AsyncAction()>>::invoke(aa).get0().value();
+    bool(futurize_invoke(aa).get0());
+    futurize_invoke(aa).get0().value();
 } )
 repeat_until_value_return_type<AsyncAction>
 repeat_until_value(AsyncAction action) noexcept {
@@ -501,12 +499,11 @@ GCC6_CONCEPT( requires seastar::ApplyReturns<StopCondition, bool> && seastar::Ap
 inline
 future<> do_until(StopCondition stop_cond, AsyncAction action) noexcept {
     using namespace internal;
-    using futurator = futurize<void>;
     do {
         if (stop_cond()) {
             return make_ready_future<>();
         }
-        auto f = futurator::invoke(action);
+        auto f = futurize_invoke(action);
         if (!f.available()) {
           return [&] () noexcept {
             memory::disable_failure_guard dfg;
@@ -565,7 +562,7 @@ public:
             return;
         }
         while (_begin != _end) {
-            auto f = futurize<void>::invoke(_action, *_begin++);
+            auto f = futurize_invoke(_action, *_begin++);
             if (f.failed()) {
                 f.forward_to(std::move(_pr));
                 return;
@@ -604,7 +601,7 @@ GCC6_CONCEPT( requires requires (Iterator i, AsyncAction aa) {
 inline
 future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) {
     while (begin != end) {
-        auto f = futurize<void>::invoke(action, *begin++);
+        auto f = futurize_invoke(action, *begin++);
         if (f.failed()) {
             return f;
         }
@@ -981,9 +978,8 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
 {
     auto r_ptr = make_lw_shared(std::forward<Reducer>(r));
     future<> ret = make_ready_future<>();
-    using futurator = futurize<decltype(mapper(*begin))>;
     while (begin != end) {
-        ret = futurator::invoke(mapper, *begin++).then_wrapped([ret = std::move(ret), r_ptr] (auto f) mutable {
+        ret = futurize_invoke(mapper, *begin++).then_wrapped([ret = std::move(ret), r_ptr] (auto f) mutable {
             return ret.then_wrapped([f = std::move(f), r_ptr] (auto rf) mutable {
                 if (rf.failed()) {
                     f.ignore_ready_future();
@@ -1049,9 +1045,8 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Initial initial, Reduc
     };
     auto s = make_lw_shared(state{std::move(initial), std::move(reduce)});
     future<> ret = make_ready_future<>();
-    using futurator = futurize<decltype(mapper(*begin))>;
     while (begin != end) {
-        ret = futurator::invoke(mapper, *begin++).then_wrapped([s = s.get(), ret = std::move(ret)] (auto f) mutable {
+        ret = futurize_invoke(mapper, *begin++).then_wrapped([s = s.get(), ret = std::move(ret)] (auto f) mutable {
             try {
                 s->result = s->reduce(std::move(s->result), std::move(f.get0()));
                 return std::move(ret);

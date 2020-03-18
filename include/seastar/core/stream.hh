@@ -168,7 +168,7 @@ template <typename... T>
 inline
 future<>
 stream<T...>::produce(T... data) {
-    auto ret = futurize<void>::invoke(_next, std::move(data)...);
+    auto ret = futurize_invoke(_next, std::move(data)...);
     if (ret.available() && !ret.failed()) {
         // Native network stack depends on stream::produce() returning
         // a ready future to push packets along without dropping.  As
