@@ -1201,17 +1201,10 @@ public:
 
 private:
 
-    template <typename Func, typename Result = futurize_t<std::result_of_t<Func(T&&...)>>>
-    Result
-    then_impl(Func&& func) noexcept {
+    // Keep this simple so that Named Return Value Optimization is used.
+    template <typename Func, typename Result>
+    Result then_impl_nrvo(Func&& func) noexcept {
         using futurator = futurize<std::result_of_t<Func(T&&...)>>;
-        if (available() && !need_preempt()) {
-            if (failed()) {
-                return futurator::make_exception_future(static_cast<future_state_base&&>(get_available_state_ref()));
-            } else {
-                return futurator::apply(std::forward<Func>(func), get_available_state_ref().take_value());
-            }
-        }
         typename futurator::type fut(future_for_get_promise_marker{});
         // If there is a std::bad_alloc in schedule() there is nothing that can be done about it, we cannot break future
         // chain by returning ready future while 'this' future is not ready. The noexcept will call std::terminate if
@@ -1228,6 +1221,20 @@ private:
             });
         } ();
         return fut;
+    }
+
+    template <typename Func, typename Result = futurize_t<std::result_of_t<Func(T&&...)>>>
+    Result
+    then_impl(Func&& func) noexcept {
+        using futurator = futurize<std::result_of_t<Func(T&&...)>>;
+        if (available() && !need_preempt()) {
+            if (failed()) {
+                return futurator::make_exception_future(static_cast<future_state_base&&>(get_available_state_ref()));
+            } else {
+                return futurator::apply(std::forward<Func>(func), get_available_state_ref().take_value());
+            }
+        }
+        return then_impl_nrvo<Func, Result>(std::forward<Func>(func));
     }
 
 public:
@@ -1276,6 +1283,26 @@ private:
 #endif
     }
 
+    // Keep this simple so that Named Return Value Optimization is used.
+    template <typename FuncResult, typename Func>
+    futurize_t<FuncResult>
+    then_wrapped_nrvo(Func&& func) noexcept {
+        using futurator = futurize<FuncResult>;
+        typename futurator::type fut(future_for_get_promise_marker{});
+        // If there is a std::bad_alloc in schedule() there is nothing that can be done about it, we cannot break future
+        // chain by returning ready future while 'this' future is not ready. The noexcept will call std::terminate if
+        // that happens.
+        [&] () noexcept {
+            using pr_type = decltype(fut.get_promise());
+            memory::disable_failure_guard dfg;
+            schedule(fut.get_promise(), [func = std::forward<Func>(func)] (pr_type& pr, future_state<T...>&& state) mutable {
+                futurator::invoke(std::forward<Func>(func), future(std::move(state))).forward_to(std::move(pr));
+            });
+        } ();
+        return fut;
+    }
+
+
     template <bool AsSelf, typename FuncResult, typename Func>
     futurize_t<FuncResult>
     then_wrapped_common(Func&& func) noexcept {
@@ -1291,18 +1318,7 @@ private:
                 return futurator::invoke(std::forward<Func>(func), future(get_available_state_ref()));
             }
         }
-        typename futurator::type fut(future_for_get_promise_marker{});
-        // If there is a std::bad_alloc in schedule() there is nothing that can be done about it, we cannot break future
-        // chain by returning ready future while 'this' future is not ready. The noexcept will call std::terminate if
-        // that happens.
-        [&] () noexcept {
-            using pr_type = decltype(fut.get_promise());
-            memory::disable_failure_guard dfg;
-            schedule(fut.get_promise(), [func = std::forward<Func>(func)] (pr_type& pr, future_state<T...>&& state) mutable {
-                futurator::invoke(std::forward<Func>(func), future(std::move(state))).forward_to(std::move(pr));
-            });
-        } ();
-        return fut;
+        return then_wrapped_nrvo<FuncResult, Func>(std::forward<Func>(func));
     }
 
     void forward_to(internal::promise_base_with_type<T...>&& pr) noexcept {
