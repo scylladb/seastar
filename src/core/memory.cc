@@ -181,7 +181,7 @@ static thread_local uint64_t g_large_allocs;
 using compat::optional;
 
 using allocate_system_memory_fn
-        = std::function<mmap_area (optional<void*> where, size_t how_much)>;
+        = std::function<mmap_area (void* where, size_t how_much)>;
 
 namespace bi = boost::intrusive;
 
@@ -936,15 +936,15 @@ bool cpu_pages::initialize() {
 }
 
 mmap_area
-allocate_anonymous_memory(compat::optional<void*> where, size_t how_much) {
-    return mmap_anonymous(where.value_or(nullptr),
+static allocate_anonymous_memory(void* where, size_t how_much) {
+    return mmap_anonymous(where,
             how_much,
             PROT_READ | PROT_WRITE,
-            MAP_PRIVATE | (where ? MAP_FIXED : 0));
+            MAP_PRIVATE | MAP_FIXED);
 }
 
 mmap_area
-allocate_hugetlbfs_memory(file_desc& fd, compat::optional<void*> where, size_t how_much) {
+allocate_hugetlbfs_memory(file_desc& fd, void* where, size_t how_much) {
     auto pos = fd.size();
     fd.truncate(pos + how_much);
     auto ret = fd.map(
@@ -952,7 +952,7 @@ allocate_hugetlbfs_memory(file_desc& fd, compat::optional<void*> where, size_t h
             PROT_READ | PROT_WRITE,
             MAP_SHARED | MAP_POPULATE | (where ? MAP_FIXED : 0),
             pos,
-            where.value_or(nullptr));
+            where);
     return ret;
 }
 
@@ -966,7 +966,7 @@ void cpu_pages::replace_memory_backing(allocate_system_memory_fn alloc_sys_mem) 
     auto old_mem = mem();
     auto relocated_old_mem = mmap_anonymous(nullptr, bytes, PROT_READ|PROT_WRITE, MAP_PRIVATE);
     std::memcpy(relocated_old_mem.get(), old_mem, bytes);
-    alloc_sys_mem({old_mem}, bytes).release();
+    alloc_sys_mem(old_mem, bytes).release();
     std::memcpy(old_mem, relocated_old_mem.get(), bytes);
 }
 
@@ -978,7 +978,7 @@ void cpu_pages::do_resize(size_t new_size, allocate_system_memory_fn alloc_sys_m
     auto old_size = nr_pages * page_size;
     auto mmap_start = memory + old_size;
     auto mmap_size = new_size - old_size;
-    auto mem = alloc_sys_mem({mmap_start}, mmap_size);
+    auto mem = alloc_sys_mem(mmap_start, mmap_size);
     mem.release();
     ::madvise(mmap_start, mmap_size, MADV_HUGEPAGE);
     // one past last page structure is a sentinel
@@ -1363,7 +1363,7 @@ void configure(std::vector<resource::memory> m, bool mbind,
         // std::function is copyable, but file_desc is not, so we must use
         // a shared_ptr to allow sys_alloc to be copied around
         auto fdp = make_lw_shared<file_desc>(file_desc::temporary(*hugetlbfs_path));
-        sys_alloc = [fdp] (optional<void*> where, size_t how_much) {
+        sys_alloc = [fdp] (void* where, size_t how_much) {
             return allocate_hugetlbfs_memory(*fdp, where, how_much);
         };
         cpu_mem.replace_memory_backing(sys_alloc);
