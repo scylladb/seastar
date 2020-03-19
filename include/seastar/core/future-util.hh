@@ -549,7 +549,7 @@ future<> do_until(StopCondition stop_cond, AsyncAction action) noexcept {
 template<typename AsyncAction>
 GCC6_CONCEPT( requires seastar::ApplyReturns<AsyncAction, future<>> )
 inline
-future<> keep_doing(AsyncAction action) {
+future<> keep_doing(AsyncAction action) noexcept {
     return repeat([action = std::move(action)] () mutable {
         return action().then([] {
             return stop_iteration::no;
