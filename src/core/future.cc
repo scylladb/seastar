@@ -96,6 +96,21 @@ void future_state_base::set_to_broken_promise() noexcept {
     }
 }
 
+void future_state_base::ignore() noexcept {
+    switch (_u.st) {
+    case state::invalid:
+    case state::future:
+        assert(0 && "invalid state for ignore");
+    case state::result_unavailable:
+    case state::result:
+        _u.st = state::result_unavailable;
+        break;
+    default:
+        // Ignore the exception
+        _u.take_exception();
+    }
+}
+
 void report_failed_future(const std::exception_ptr& eptr) noexcept {
     ++engine()._abandoned_failed_futures;
     seastar_logger.warn("Exceptional future ignored: {}, backtrace: {}", eptr, current_backtrace());

@@ -344,20 +344,7 @@ public:
 
     void set_to_broken_promise() noexcept;
 
-    void ignore() noexcept {
-        switch (_u.st) {
-        case state::invalid:
-        case state::future:
-            assert(0 && "invalid state for ignore");
-        case state::result_unavailable:
-        case state::result:
-            _u.st = state::result_unavailable;
-            break;
-        default:
-            // Ignore the exception
-            _u.take_exception();
-        }
-    }
+    void ignore() noexcept;
 
     void set_exception(std::exception_ptr&& ex) noexcept {
         assert(_u.st == state::future);
