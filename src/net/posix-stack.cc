@@ -597,6 +597,10 @@ posix_data_sink_impl::close() {
     return make_ready_future<>();
 }
 
+posix_network_stack::posix_network_stack(boost::program_options::variables_map opts, compat::polymorphic_allocator<char>* allocator)
+        : _reuseport(engine().posix_reuseport_available()), _allocator(allocator) {
+}
+
 server_socket
 posix_network_stack::listen(socket_address sa, listen_options opt) {
     using server_socket = seastar::api_v2::server_socket;
@@ -616,6 +620,10 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
 
 ::seastar::socket posix_network_stack::socket() {
     return ::seastar::socket(std::make_unique<posix_socket_impl>(_allocator));
+}
+
+posix_ap_network_stack::posix_ap_network_stack(boost::program_options::variables_map opts, compat::polymorphic_allocator<char>* allocator)
+        : posix_network_stack(std::move(opts), allocator), _reuseport(engine().posix_reuseport_available()) {
 }
 
 server_socket
