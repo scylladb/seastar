@@ -3996,6 +3996,10 @@ future<connected_socket> connect(socket_address sa, socket_address local, transp
     return engine().connect(sa, local, proto);
 }
 
+socket make_socket() {
+    return engine().net().socket();
+}
+
 net::udp_channel make_udp_channel() {
     return engine().net().make_udp_channel();
 }
