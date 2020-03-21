@@ -51,7 +51,7 @@ public:
             listen_options lo;
             lo.proto = transport::TCP;
             lo.reuse_address = true;
-            _tcp_listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
+            _tcp_listeners.push_back(seastar::listen(make_ipv4_address(addr), lo));
             do_accepts(_tcp_listeners);
         }
 
@@ -59,7 +59,7 @@ public:
             listen_options lo;
             lo.proto = transport::SCTP;
             lo.reuse_address = true;
-            _sctp_listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
+            _sctp_listeners.push_back(seastar::listen(make_ipv4_address(addr), lo));
             do_accepts(_sctp_listeners);
         }
         return make_ready_future<>();

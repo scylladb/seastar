@@ -1211,7 +1211,7 @@ future<connected_socket> tls::wrap_server(shared_ptr<server_credentials> cred, c
 }
 
 server_socket tls::listen(shared_ptr<server_credentials> creds, socket_address sa, listen_options opts) {
-    return listen(std::move(creds), engine().listen(sa, opts));
+    return listen(std::move(creds), seastar::listen(sa, opts));
 }
 
 server_socket tls::listen(shared_ptr<server_credentials> creds, server_socket ss) {

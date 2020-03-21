@@ -270,7 +270,7 @@ public:
         if (_credentials) {
             _listeners.push_back(seastar::tls::listen(_credentials, addr, lo));
         } else {
-            _listeners.push_back(engine().listen(addr, lo));
+            _listeners.push_back(seastar::listen(addr, lo));
         }
         _stopped = when_all(std::move(_stopped), do_accepts(_listeners.size() - 1)).discard_result();
         return make_ready_future<>();

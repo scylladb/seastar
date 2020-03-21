@@ -175,7 +175,7 @@ SEASTAR_TEST_CASE(test_non_tls) {
     ::listen_options opts;
     opts.reuse_address = true;
     auto addr = ::make_ipv4_address( {0x7f000001, 4712});
-    auto server = api_v2::server_socket(engine().listen(addr, opts));
+    auto server = api_v2::server_socket(seastar::listen(addr, opts));
 
     auto c = server.accept();
 
@@ -255,7 +255,7 @@ SEASTAR_TEST_CASE(test_abort_accept_on_server_before_handshake) {
         ::listen_options opts;
         opts.reuse_address = true;
         auto addr = ::make_ipv4_address( {0x7f000001, 4712});
-        auto server = api_v2::server_socket(engine().listen(addr, opts));
+        auto server = api_v2::server_socket(seastar::listen(addr, opts));
         auto sa = server.accept();
 
         tls::credentials_builder b;

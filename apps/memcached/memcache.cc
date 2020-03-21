@@ -1282,7 +1282,7 @@ public:
     }
 
     void start() {
-        _chan = engine().net().make_udp_channel({_port});
+        _chan = make_udp_channel({_port});
         // Run in the background.
         _task = keep_doing([this] {
             return _chan.receive().then([this](udp_datagram dgram) {
@@ -1365,7 +1365,7 @@ public:
     void start() {
         listen_options lo;
         lo.reuse_address = true;
-        _listener = seastar::api_v2::server_socket(engine().listen(make_ipv4_address({_port}), lo));
+        _listener = seastar::api_v2::server_socket(seastar::listen(make_ipv4_address({_port}), lo));
         // Run in the background until eof has reached on the input connection.
         _task = keep_doing([this] {
             return _listener->accept().then([this] (accept_result ar) mutable {
