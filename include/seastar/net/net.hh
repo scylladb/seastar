@@ -34,6 +34,12 @@
 
 namespace seastar {
 
+namespace internal {
+
+class poller;
+
+}
+
 namespace net {
 
 class packet;
@@ -215,7 +221,7 @@ class qp {
     compat::optional<std::array<uint8_t, 128>> _sw_reta;
     circular_buffer<packet> _proxy_packetq;
     stream<packet> _rx_stream;
-    reactor::poller _tx_poller;
+    std::unique_ptr<internal::poller> _tx_poller;
     circular_buffer<packet> _tx_packetq;
 
 protected:
