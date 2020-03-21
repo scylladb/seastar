@@ -3373,6 +3373,7 @@ void smp::allocate_reactor(unsigned id, reactor_backend_selector rbs, reactor_co
     int r = posix_memalign(&buf, cache_line_size, sizeof(reactor));
     assert(r == 0);
     local_engine = reinterpret_cast<reactor*>(buf);
+    *internal::this_shard_id_ptr() = id;
     new (buf) reactor(id, std::move(rbs), cfg);
     reactor_holder.reset(local_engine);
 }
