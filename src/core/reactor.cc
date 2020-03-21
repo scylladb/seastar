@@ -2802,7 +2802,9 @@ reactor::pure_poll_once() {
     return false;
 }
 
-class reactor::poller::registration_task final : public task {
+namespace internal {
+
+class poller::registration_task final : public task {
 private:
     poller* _p;
 public:
@@ -2822,7 +2824,7 @@ public:
     }
 };
 
-class reactor::poller::deregistration_task final : public task {
+class poller::deregistration_task final : public task {
 private:
     std::unique_ptr<pollfn> _p;
 public:
@@ -2832,6 +2834,8 @@ public:
         delete this;
     }
 };
+
+}
 
 void reactor::register_poller(pollfn* p) {
     _pollers.push_back(p);
@@ -2845,15 +2849,17 @@ void reactor::replace_poller(pollfn* old, pollfn* neww) {
     std::replace(_pollers.begin(), _pollers.end(), old, neww);
 }
 
-reactor::poller::poller(poller&& x)
+namespace internal {
+
+poller::poller(poller&& x)
         : _pollfn(std::move(x._pollfn)), _registration_task(std::exchange(x._registration_task, nullptr)) {
     if (_pollfn && _registration_task) {
         _registration_task->moved(this);
     }
 }
 
-reactor::poller&
-reactor::poller::operator=(poller&& x) {
+poller&
+poller::operator=(poller&& x) {
     if (this != &x) {
         this->~poller();
         new (this) poller(std::move(x));
@@ -2862,7 +2868,7 @@ reactor::poller::operator=(poller&& x) {
 }
 
 void
-reactor::poller::do_register() noexcept {
+poller::do_register() noexcept {
     // We can't just insert a poller into reactor::_pollers, because we
     // may be running inside a poller ourselves, and so in the middle of
     // iterating reactor::_pollers itself.  So we schedule a task to add
@@ -2872,7 +2878,7 @@ reactor::poller::do_register() noexcept {
     _registration_task = task;
 }
 
-reactor::poller::~poller() {
+poller::~poller() {
     // We can't just remove the poller from reactor::_pollers, because we
     // may be running inside a poller ourselves, and so in the middle of
     // iterating reactor::_pollers itself.  So we schedule a task to remove
@@ -2897,6 +2903,8 @@ reactor::poller::~poller() {
             engine().replace_poller(_pollfn.get(), dummy_p);
         }
     }
+}
+
 }
 
 syscall_work_queue::syscall_work_queue()
