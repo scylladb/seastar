@@ -21,6 +21,7 @@
 
 #include <iostream>
 #include <seastar/core/app-template.hh>
+#include <seastar/core/reactor.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/distributed.hh>
 #include <seastar/core/print.hh>

@@ -20,8 +20,8 @@
  */
 
 #include <seastar/core/app-template.hh>
+#include <seastar/core/seastar.hh>
 #include <seastar/core/future-util.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/net/api.hh>
 #include <iostream>
 

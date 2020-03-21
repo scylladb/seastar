@@ -21,6 +21,7 @@
  */
 
 #include <seastar/core/alien.hh>
+#include <seastar/core/reactor.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/prefetch.hh>
 

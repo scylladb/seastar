@@ -22,12 +22,13 @@
 #include <algorithm>
 #include <iostream>
 #include <numeric>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/fstream.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/seastar.hh>
+#include <seastar/core/semaphore.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/test_runner.hh>
 #include <seastar/core/thread.hh>
@@ -36,6 +37,7 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/algorithm/cxx11/any_of.hpp>
 #include "mock_file.hh"
+#include <boost/range/irange.hpp>
 
 using namespace seastar;
 

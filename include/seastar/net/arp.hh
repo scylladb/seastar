@@ -23,7 +23,6 @@
 #pragma once
 
 #include <seastar/net/net.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/byteorder.hh>
 #include <seastar/net/ethernet.hh>
 #include <unordered_map>

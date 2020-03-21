@@ -24,6 +24,8 @@
 #include <seastar/core/future-util.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/seastar.hh>
+#include <seastar/core/semaphore.hh>
 #include <iostream>
 
 using namespace seastar;

@@ -24,6 +24,7 @@
 #include <numeric>
 #include <iostream>
 #include <seastar/core/alien.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/core/reactor.hh>

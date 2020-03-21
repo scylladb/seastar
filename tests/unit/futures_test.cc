@@ -21,15 +21,22 @@
 
 #include <seastar/testing/test_case.hh>
 
+#include <seastar/core/reactor.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/sleep.hh>
+#include <seastar/core/stream.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/shared_future.hh>
+#include <seastar/core/manual_clock.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/print.hh>
+#include <seastar/util/log.hh>
 #include <boost/iterator/counting_iterator.hpp>
 #include <seastar/testing/thread_test_case.hh>
+
+#include <boost/range/iterator_range.hpp>
+#include <boost/range/irange.hpp>
 
 using namespace seastar;
 using namespace std::chrono_literals;

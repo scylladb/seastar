@@ -21,7 +21,7 @@
 
 #pragma once
 
-#include <seastar/core/reactor.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/core/deleter.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/core/stream.hh>

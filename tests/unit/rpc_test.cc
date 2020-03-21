@@ -32,6 +32,7 @@
 #include <seastar/core/sleep.hh>
 #include <seastar/core/distributed.hh>
 #include <seastar/util/defer.hh>
+#include <seastar/util/log.hh>
 
 using namespace seastar;
 

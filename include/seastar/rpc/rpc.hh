@@ -25,8 +25,8 @@
 #include <unordered_set>
 #include <list>
 #include <seastar/core/future.hh>
+#include <seastar/core/seastar.hh>
 #include <seastar/net/api.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/condition-variable.hh>

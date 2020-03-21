@@ -1,3 +1,4 @@
+#include <seastar/core/reactor.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/test_runner.hh>
 #include <seastar/net/ip.hh>

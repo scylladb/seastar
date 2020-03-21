@@ -21,7 +21,7 @@
 
 #include <seastar/testing/test_case.hh>
 #include <seastar/core/memory.hh>
-#include <seastar/core/reactor.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <vector>
 

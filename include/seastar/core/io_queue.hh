@@ -32,6 +32,8 @@
 
 namespace seastar {
 
+class io_priority_class;
+
 /// Renames an io priority class
 ///
 /// Renames an \ref io_priority_class previously created with register_one_priority_class().

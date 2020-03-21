@@ -22,8 +22,8 @@
 #pragma once
 
 #include <seastar/core/scollectd.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/metrics_api.hh>
+#include <seastar/net/api.hh>
 
 namespace seastar {
 

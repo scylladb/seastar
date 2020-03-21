@@ -22,7 +22,6 @@
 #pragma once
 
 #include <seastar/net/ip.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/util/std-compat.hh>
 
 namespace seastar {

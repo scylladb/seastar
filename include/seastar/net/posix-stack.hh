@@ -21,8 +21,8 @@
 
 #pragma once
 
-#include <seastar/core/reactor.hh>
 #include <seastar/core/sharded.hh>
+#include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/core/polymorphic_temporary_buffer.hh>
 #include <seastar/core/internal/buffer_allocator.hh>

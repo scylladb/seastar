@@ -23,7 +23,7 @@
 
 #include <seastar/http/request_parser.hh>
 #include <seastar/http/request.hh>
-#include <seastar/core/reactor.hh>
+#include <seastar/core/seastar.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/circular_buffer.hh>

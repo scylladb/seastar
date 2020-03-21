@@ -15,7 +15,6 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-#include <seastar/core/reactor.hh>
 #include <seastar/net/proxy.hh>
 #include <utility>
 

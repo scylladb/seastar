@@ -28,6 +28,8 @@
 #include <iomanip>
 #include <sstream>
 #include <seastar/core/app-template.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/seastar.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/timer-set.hh>
 #include <seastar/core/shared_ptr.hh>
@@ -43,6 +45,7 @@
 #include <seastar/net/api.hh>
 #include <seastar/net/packet-data-source.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/log.hh>
 #include "ascii.hh"
 #include "memcached.hh"
 #include <unistd.h>

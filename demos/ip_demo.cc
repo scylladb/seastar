@@ -24,6 +24,7 @@
 #include <seastar/net/net.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/net/virtio.hh>
+#include <seastar/core/aligned_buffer.hh>
 
 using namespace seastar;
 using namespace net;

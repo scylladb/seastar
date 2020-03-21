@@ -22,6 +22,7 @@
 #include <seastar/net/ip.hh>
 #include <seastar/net/virtio.hh>
 #include <seastar/net/tcp.hh>
+#include <seastar/core/reactor.hh>
 #include <fmt/printf.h>
 
 using namespace seastar;

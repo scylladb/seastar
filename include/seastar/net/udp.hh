@@ -24,7 +24,6 @@
 
 #include <unordered_map>
 #include <assert.h>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/net/api.hh>
 #include <seastar/net/const.hh>

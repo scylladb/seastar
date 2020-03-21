@@ -21,7 +21,7 @@
 
 #pragma once
 
-#include <seastar/core/reactor.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/util/tuple_utils.hh>

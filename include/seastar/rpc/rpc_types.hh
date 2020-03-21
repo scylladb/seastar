@@ -29,6 +29,7 @@
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/variant_utils.hh>
 #include <seastar/core/timer.hh>
+#include <seastar/core/circular_buffer.hh>
 #include <seastar/core/simple-stream.hh>
 #include <seastar/core/lowres_clock.hh>
 #include <boost/functional/hash.hpp>

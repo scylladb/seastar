@@ -31,6 +31,7 @@
 #include <seastar/net/proxy.hh>
 #include <seastar/net/dhcp.hh>
 #include <seastar/net/config.hh>
+#include <seastar/core/reactor.hh>
 #include <memory>
 #include <queue>
 #include <fstream>

@@ -27,7 +27,6 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/timer.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/scheduling.hh>
 #include <memory>
 #include <setjmp.h>
