@@ -3988,6 +3988,14 @@ future<connected_socket> connect(socket_address sa, socket_address local, transp
     return engine().connect(sa, local, proto);
 }
 
+net::udp_channel make_udp_channel() {
+    return engine().net().make_udp_channel();
+}
+
+net::udp_channel make_udp_channel(const socket_address& local) {
+    return engine().net().make_udp_channel(local);
+}
+
 void reactor::add_high_priority_task(task* t) noexcept {
     add_urgent_task(t);
     // break .then() chains
