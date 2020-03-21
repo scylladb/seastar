@@ -337,7 +337,7 @@ public:
             return make_ready_future<>();
         }
         handled = true;
-        auto src_cpu = engine().cpu_id();
+        auto src_cpu = this_shard_id();
         if (src_cpu == 0) {
             return process_packet(std::move(p), dhp, opt_off);
         }

@@ -264,10 +264,10 @@ public:
     }
     virtual ~device() {};
     qp& queue_for_cpu(unsigned cpu) { return *_queues[cpu]; }
-    qp& local_queue() { return queue_for_cpu(engine().cpu_id()); }
+    qp& local_queue() { return queue_for_cpu(this_shard_id()); }
     void l2receive(packet p) {
         // FIXME: future is discarded
-        (void)_queues[engine().cpu_id()]->_rx_stream.produce(std::move(p));
+        (void)_queues[this_shard_id()]->_rx_stream.produce(std::move(p));
     }
     future<> receive(std::function<future<> (packet)> next_packet);
     virtual ethernet_address hw_address() = 0;

@@ -39,7 +39,7 @@ struct async_service : public seastar::async_sharded_service<async_service> {
     void run() {
         auto ref = shared_from_this();
         // Wait a while and check.
-        (void)sleep(std::chrono::milliseconds(100 + 100 * engine().cpu_id())).then([this, ref] {
+        (void)sleep(std::chrono::milliseconds(100 + 100 * this_shard_id())).then([this, ref] {
            check();
         });
     }
@@ -56,7 +56,7 @@ struct X {
         return arg;
     }
     int cpu_id_squared() const {
-        auto id = engine().cpu_id();
+        auto id = this_shard_id();
         return id * id;
     }
     future<> stop() { return make_ready_future<>(); }
@@ -154,7 +154,7 @@ future<> test_invoke_on_others() {
                         throw std::runtime_error("local modified");
                     }
                     s.invoke_on_all([c](auto& remote) {
-                        if (engine().cpu_id() != c) {
+                        if (this_shard_id() != c) {
                             if (remote.counter != 1) {
                                 throw std::runtime_error("remote not modified");
                             }

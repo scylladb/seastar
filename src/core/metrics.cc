@@ -274,7 +274,7 @@ foreign_ptr<values_reference> get_values() {
 
 instance_id_type shard() {
     if (engine_is_ready()) {
-        return to_sstring(engine().cpu_id());
+        return to_sstring(this_shard_id());
     }
 
     return sstring("0");

@@ -191,7 +191,7 @@ qp::~qp() {
 
 void qp::configure_proxies(const std::map<unsigned, float>& cpu_weights) {
     assert(!cpu_weights.empty());
-    if ((cpu_weights.size() == 1 && cpu_weights.begin()->first == engine().cpu_id())) {
+    if ((cpu_weights.size() == 1 && cpu_weights.begin()->first == this_shard_id())) {
         // special case queue sending to self only, to avoid requiring a hash value
         return;
     }
@@ -227,14 +227,14 @@ void qp::build_sw_reta(const std::map<unsigned, float>& cpu_weights) {
 
 future<>
 device::receive(std::function<future<> (packet)> next_packet) {
-    auto sub = _queues[engine().cpu_id()]->_rx_stream.listen(std::move(next_packet));
-    _queues[engine().cpu_id()]->rx_start();
+    auto sub = _queues[this_shard_id()]->_rx_stream.listen(std::move(next_packet));
+    _queues[this_shard_id()]->rx_start();
     return sub.done();
 }
 
 void device::set_local_queue(std::unique_ptr<qp> dev) {
-    assert(!_queues[engine().cpu_id()]);
-    _queues[engine().cpu_id()] = dev.get();
+    assert(!_queues[this_shard_id()]);
+    _queues[this_shard_id()] = dev.get();
     engine().at_destroy([dev = std::move(dev)] {});
 }
 
@@ -306,7 +306,7 @@ void interface::forward(unsigned cpuid, packet p) {
 
     if (queue_depth < 1000) {
         queue_depth++;
-        auto src_cpu = engine().cpu_id();
+        auto src_cpu = this_shard_id();
         // FIXME: future is discarded
         (void)smp::submit_to(cpuid, [this, p = std::move(p), src_cpu]() mutable {
             _dev->l2receive(p.free_on_cpu(src_cpu));
@@ -322,7 +322,7 @@ future<> interface::dispatch_packet(packet p) {
         auto i = _proto_map.find(ntoh(eh->eth_proto));
         if (i != _proto_map.end()) {
             l3_rx_stream& l3 = i->second;
-            auto fw = _dev->forward_dst(engine().cpu_id(), [&p, &l3, this] () {
+            auto fw = _dev->forward_dst(this_shard_id(), [&p, &l3, this] () {
                 auto hwrss = p.rss_hash();
                 if (hwrss) {
                     return hwrss.value();
@@ -334,7 +334,7 @@ future<> interface::dispatch_packet(packet p) {
                     return 0u;
                 }
             });
-            if (fw != engine().cpu_id()) {
+            if (fw != this_shard_id()) {
                 forward(fw, std::move(p));
             } else {
                 auto h = ntoh(*eh);

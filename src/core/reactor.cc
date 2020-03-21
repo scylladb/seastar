@@ -3103,7 +3103,7 @@ void smp_message_queue::start(unsigned cpuid) {
     _tx.init();
     namespace sm = seastar::metrics;
     char instance[10];
-    std::snprintf(instance, sizeof(instance), "%u-%u", engine().cpu_id(), cpuid);
+    std::snprintf(instance, sizeof(instance), "%u-%u", this_shard_id(), cpuid);
     _metrics.add_group("smp", {
             // queue_length     value:GAUGE:0:U
             // Absolute value of num packets in last tx batch.
@@ -3320,11 +3320,11 @@ bool smp::_using_dpdk;
 void smp::start_all_queues()
 {
     for (unsigned c = 0; c < count; c++) {
-        if (c != engine().cpu_id()) {
-            _qs[c][engine().cpu_id()].start(c);
+        if (c != this_shard_id()) {
+            _qs[c][this_shard_id()].start(c);
         }
     }
-    alien::smp::_qs[engine().cpu_id()].start();
+    alien::smp::_qs[this_shard_id()].start();
 }
 
 #ifdef SEASTAR_HAVE_DPDK
@@ -3384,7 +3384,7 @@ void smp::cleanup() {
 }
 
 void smp::cleanup_cpu() {
-    size_t cpuid = engine().cpu_id();
+    size_t cpuid = this_shard_id();
 
     if (_qs) {
         for(unsigned i = 0; i < smp::count; i++) {
@@ -3894,8 +3894,8 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
 bool smp::poll_queues() {
     size_t got = 0;
     for (unsigned i = 0; i < count; i++) {
-        if (engine().cpu_id() != i) {
-            auto& rxq = _qs[engine().cpu_id()][i];
+        if (this_shard_id() != i) {
+            auto& rxq = _qs[this_shard_id()][i];
             rxq.flush_response_batch();
             got += rxq.has_unflushed_responses();
             got += rxq.process_incoming();
@@ -3909,8 +3909,8 @@ bool smp::poll_queues() {
 
 bool smp::pure_poll_queues() {
     for (unsigned i = 0; i < count; i++) {
-        if (engine().cpu_id() != i) {
-            auto& rxq = _qs[engine().cpu_id()][i];
+        if (this_shard_id() != i) {
+            auto& rxq = _qs[this_shard_id()][i];
             rxq.flush_response_batch();
             auto& txq = _qs[i][engine()._id];
             txq.flush_request_batch();

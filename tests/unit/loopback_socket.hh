@@ -210,16 +210,16 @@ public:
         _pending.resize(smp::count);
     }
     server_socket get_server_socket() {
-       if (!_pending[engine().cpu_id()]) {
-           _pending[engine().cpu_id()] = make_lw_shared<queue<connected_socket>>(10);
+       if (!_pending[this_shard_id()]) {
+           _pending[this_shard_id()] = make_lw_shared<queue<connected_socket>>(10);
        }
-       return server_socket(std::make_unique<loopback_server_socket_impl>(_pending[engine().cpu_id()]));
+       return server_socket(std::make_unique<loopback_server_socket_impl>(_pending[this_shard_id()]));
     }
     future<> make_new_server_connection(foreign_ptr<lw_shared_ptr<loopback_buffer>> b1, lw_shared_ptr<loopback_buffer> b2) {
-        if (!_pending[engine().cpu_id()]) {
-            _pending[engine().cpu_id()] = make_lw_shared<queue<connected_socket>>(10);
+        if (!_pending[this_shard_id()]) {
+            _pending[this_shard_id()] = make_lw_shared<queue<connected_socket>>(10);
         }
-        return _pending[engine().cpu_id()]->push_eventually(connected_socket(std::make_unique<loopback_connected_socket_impl>(std::move(b1), b2)));
+        return _pending[this_shard_id()]->push_eventually(connected_socket(std::make_unique<loopback_connected_socket_impl>(std::move(b1), b2)));
     }
     connected_socket make_new_client_connection(lw_shared_ptr<loopback_buffer> b1, foreign_ptr<lw_shared_ptr<loopback_buffer>> b2) {
         return connected_socket(std::make_unique<loopback_connected_socket_impl>(std::move(b2), b1));
@@ -232,7 +232,7 @@ public:
     }
     future<> destroy_all_shards() {
         return smp::invoke_on_all([this] () {
-            destroy_shard(engine().cpu_id());
+            destroy_shard(this_shard_id());
         });
     }
 };

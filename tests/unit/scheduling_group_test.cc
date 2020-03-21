@@ -59,7 +59,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_after_sg_create) {
     scheduling_group_key key2 = scheduling_group_key_create(key2_conf).get0();
 
     smp::invoke_on_all([key1, key2, &sgs] () {
-        int factor = engine().cpu_id() + 1;
+        int factor = this_shard_id() + 1;
         for (int i=0; i < num_scheduling_groups; i++) {
             sgs[i].get_specific<int>(key1) = (i + 1) * factor;
             sgs[i].get_specific<ivec>(key2).push_back((i + 1) * factor);
@@ -74,7 +74,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_after_sg_create) {
 
     smp::invoke_on_all([key1, key2] () {
         return reduce_scheduling_group_specific<int>(std::plus<int>(), int(0), key1).then([] (int sum) {
-            int factor = engine().cpu_id() + 1;
+            int factor = this_shard_id() + 1;
             int expected_sum = ((1 + num_scheduling_groups)*num_scheduling_groups) * factor /2;
             BOOST_REQUIRE_EQUAL(expected_sum, sum);
         }). then([key2] {
@@ -83,7 +83,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_after_sg_create) {
             };
 
             return map_reduce_scheduling_group_specific<ivec>(ivec_to_int, std::plus<int>(), int(0), key2).then([] (int sum) {
-                int factor = engine().cpu_id() + 1;
+                int factor = this_shard_id() + 1;
                 int expected_sum = ((1 + num_scheduling_groups)*num_scheduling_groups) * factor /2;
                 BOOST_REQUIRE_EQUAL(expected_sum, sum);
             });
@@ -117,7 +117,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_sg_create) {
     }
 
     smp::invoke_on_all([key1, key2, &sgs] () {
-        int factor = engine().cpu_id() + 1;
+        int factor = this_shard_id() + 1;
         for (int i=0; i < num_scheduling_groups; i++) {
             sgs[i].get_specific<int>(key1) = (i + 1) * factor;
             sgs[i].get_specific<ivec>(key2).push_back((i + 1) * factor);
@@ -132,7 +132,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_sg_create) {
 
     smp::invoke_on_all([key1, key2] () {
         return reduce_scheduling_group_specific<int>(std::plus<int>(), int(0), key1).then([] (int sum) {
-            int factor = engine().cpu_id() + 1;
+            int factor = this_shard_id() + 1;
             int expected_sum = ((1 + num_scheduling_groups)*num_scheduling_groups) * factor /2;
             BOOST_REQUIRE_EQUAL(expected_sum, sum);
         }). then([key2] {
@@ -141,7 +141,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_sg_create) {
             };
 
             return map_reduce_scheduling_group_specific<ivec>(ivec_to_int, std::plus<int>(), int(0), key2).then([] (int sum) {
-                int factor = engine().cpu_id() + 1;
+                int factor = this_shard_id() + 1;
                 int expected_sum = ((1 + num_scheduling_groups)*num_scheduling_groups) * factor /2;
                 BOOST_REQUIRE_EQUAL(expected_sum, sum);
             });
@@ -179,7 +179,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_and_after_sg_create) {
     }
 
     smp::invoke_on_all([key1, key2, &sgs] () {
-        int factor = engine().cpu_id() + 1;
+        int factor = this_shard_id() + 1;
         for (int i=0; i < num_scheduling_groups; i++) {
             sgs[i].get_specific<int>(key1) = (i + 1) * factor;
             sgs[i].get_specific<ivec>(key2).push_back((i + 1) * factor);
@@ -194,7 +194,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_and_after_sg_create) {
 
     smp::invoke_on_all([key1, key2] () {
         return reduce_scheduling_group_specific<int>(std::plus<int>(), int(0), key1).then([] (int sum) {
-            int factor = engine().cpu_id() + 1;
+            int factor = this_shard_id() + 1;
             int expected_sum = ((1 + num_scheduling_groups)*num_scheduling_groups) * factor /2;
             BOOST_REQUIRE_EQUAL(expected_sum, sum);
         }). then([key2] {
@@ -203,7 +203,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_and_after_sg_create) {
             };
 
             return map_reduce_scheduling_group_specific<ivec>(ivec_to_int, std::plus<int>(), int(0), key2).then([] (int sum) {
-                int factor = engine().cpu_id() + 1;
+                int factor = this_shard_id() + 1;
                 int expected_sum = ((1 + num_scheduling_groups)*num_scheduling_groups) * factor /2;
                 BOOST_REQUIRE_EQUAL(expected_sum, sum);
             });

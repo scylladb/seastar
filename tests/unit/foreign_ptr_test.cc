@@ -86,8 +86,8 @@ SEASTAR_TEST_CASE(foreign_ptr_reset_test) {
 class dummy {
     unsigned _cpu;
 public:
-    dummy() : _cpu(engine().cpu_id()) { }
-    ~dummy() { BOOST_REQUIRE_EQUAL(_cpu, engine().cpu_id()); }
+    dummy() : _cpu(this_shard_id()) { }
+    ~dummy() { BOOST_REQUIRE_EQUAL(_cpu, this_shard_id()); }
 };
 
 SEASTAR_TEST_CASE(foreign_ptr_cpu_test) {

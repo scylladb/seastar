@@ -289,7 +289,7 @@ struct cpwriter {
         // Optional
         put_cached(part_type::PluginInst,
                 id.instance_id() == per_cpu_plugin_instance ?
-                        to_sstring(engine().cpu_id()) : id.instance_id());
+                        to_sstring(this_shard_id()) : id.instance_id());
         put_cached(part_type::Type, id.inherit_type());
         // Optional
         put_cached(part_type::TypeInst, get_type_instance(id));

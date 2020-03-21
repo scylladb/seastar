@@ -74,7 +74,7 @@ public:
     public:
         handle() : _lb(nullptr) {}
         handle(shard_id cpu, lw_shared_ptr<load_balancer> lb)
-            : _host_cpu(engine().cpu_id())
+            : _host_cpu(this_shard_id())
             , _target_cpu(cpu)
             , _lb(make_foreign(std::move(lb))) {}
 

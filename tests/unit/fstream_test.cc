@@ -350,7 +350,7 @@ SEASTAR_TEST_CASE(file_handle_test) {
                 auto del = defer([&] { ::free(buf); });
                 f.dma_read(0, buf, 4096).get();
                 for (unsigned i = 0; i < 4096; ++i) {
-                    bad[engine().cpu_id()] |= buf[i] != char(i);
+                    bad[this_shard_id()] |= buf[i] != char(i);
                 }
             });
         }).get();

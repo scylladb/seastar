@@ -114,7 +114,7 @@ private:
     using invoke_on_all_func_type = std::function<future<> (Service&)>;
 private:
     void service_deleted() {
-        _instances[engine().cpu_id()].freed.set_value();
+        _instances[this_shard_id()].freed.set_value();
     }
     template <typename U, bool async>
     friend struct shared_ptr_make_helper;
@@ -304,7 +304,7 @@ public:
             [this, func, args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) mutable {
                 return smp::submit_to(c, [this, func, args] () mutable {
                     return apply([this, func] (Args&&... args) mutable {
-                        auto inst = _instances[engine().cpu_id()].service;
+                        auto inst = _instances[this_shard_id()].service;
                         if (inst) {
                             return ((*inst).*func)(std::forward<Args>(args)...);
                         } else {
@@ -482,7 +482,7 @@ private:
     }
 
     shared_ptr<Service> get_local_service() {
-        auto inst = _instances[engine().cpu_id()].service;
+        auto inst = _instances[this_shard_id()].service;
         if (!inst) {
             throw no_sharded_instance_exception();
         }
@@ -546,7 +546,7 @@ sharded<Service>::start(Args&&... args) {
     return internal::sharded_parallel_for_each(_instances.size(),
         [this, args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) mutable {
             return smp::submit_to(c, [this, args] () mutable {
-                _instances[engine().cpu_id()].service = apply([this] (Args... args) {
+                _instances[this_shard_id()].service = apply([this] (Args... args) {
                     return create_local_service(internal::unwrap_sharded_arg(std::forward<Args>(args))...);
                 }, args);
             });
@@ -640,7 +640,7 @@ future<>
 sharded<Service>::stop() {
     return internal::sharded_parallel_for_each(_instances.size(), [this] (unsigned c) mutable {
         return smp::submit_to(c, [this] () mutable {
-            auto inst = _instances[engine().cpu_id()].service;
+            auto inst = _instances[this_shard_id()].service;
             if (!inst) {
                 return make_ready_future<>();
             }
@@ -649,8 +649,8 @@ sharded<Service>::stop() {
     }).then([this] {
         return internal::sharded_parallel_for_each(_instances.size(), [this] (unsigned c) {
             return smp::submit_to(c, [this] {
-                _instances[engine().cpu_id()].service = nullptr;
-                return _instances[engine().cpu_id()].freed.get_future();
+                _instances[this_shard_id()].service = nullptr;
+                return _instances[this_shard_id()].freed.get_future();
             });
         });
     }).then([this] {
@@ -709,33 +709,33 @@ future<>
 sharded<Service>::invoke_on_others(smp_submit_to_options options, Func&& func) {
     static_assert(std::is_same<futurize_t<std::result_of_t<Func(Service&)>>, future<>>::value,
                   "invoke_on_others()'s func must return void or future<>");
-    return invoke_on_all(options, [orig = engine().cpu_id(), func = std::forward<Func>(func)] (auto& s) -> future<> {
-        return engine().cpu_id() == orig ? make_ready_future<>() : futurize_apply(func, s);
+    return invoke_on_all(options, [orig = this_shard_id(), func = std::forward<Func>(func)] (auto& s) -> future<> {
+        return this_shard_id() == orig ? make_ready_future<>() : futurize_apply(func, s);
     });
 }
 
 template <typename Service>
 const Service& sharded<Service>::local() const {
     assert(local_is_initialized());
-    return *_instances[engine().cpu_id()].service;
+    return *_instances[this_shard_id()].service;
 }
 
 template <typename Service>
 Service& sharded<Service>::local() {
     assert(local_is_initialized());
-    return *_instances[engine().cpu_id()].service;
+    return *_instances[this_shard_id()].service;
 }
 
 template <typename Service>
 shared_ptr<Service> sharded<Service>::local_shared() {
     assert(local_is_initialized());
-    return _instances[engine().cpu_id()].service;
+    return _instances[this_shard_id()].service;
 }
 
 template <typename Service>
 inline bool sharded<Service>::local_is_initialized() const {
-    return _instances.size() > engine().cpu_id() &&
-           _instances[engine().cpu_id()].service;
+    return _instances.size() > this_shard_id() &&
+           _instances[this_shard_id()].service;
 }
 
 /// \addtogroup smp-module
@@ -771,7 +771,7 @@ private:
     unsigned _cpu;
 private:
     void destroy(PtrType p, unsigned cpu) {
-        if (p && engine().cpu_id() != cpu) {
+        if (p && this_shard_id() != cpu) {
             // `destroy()` is called from the destructor and other
             // synchronous methods (like `reset()`), that have no way to
             // wait for this future.
@@ -790,14 +790,14 @@ public:
     /// Constructs a null \c foreign_ptr<>.
     foreign_ptr()
         : _value(PtrType())
-        , _cpu(engine().cpu_id()) {
+        , _cpu(this_shard_id()) {
     }
     /// Constructs a null \c foreign_ptr<>.
     foreign_ptr(std::nullptr_t) : foreign_ptr() {}
     /// Wraps a pointer object and remembers the current core.
     foreign_ptr(PtrType value)
         : _value(std::move(value))
-        , _cpu(engine().cpu_id()) {
+        , _cpu(this_shard_id()) {
     }
     // The type is intentionally non-copyable because copies
     // are expensive because each copy requires across-CPU call.
@@ -851,7 +851,7 @@ public:
         auto old_cpu = _cpu;
 
         _value = std::move(new_ptr);
-        _cpu = engine().cpu_id();
+        _cpu = this_shard_id();
 
         destroy(std::move(old_ptr), old_cpu);
     }

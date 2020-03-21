@@ -722,7 +722,7 @@ public:
             }
             ss << histo[i] << "\n";
         }
-        return {engine().cpu_id(), make_foreign(make_lw_shared<std::string>(ss.str()))};
+        return {this_shard_id(), make_foreign(make_lw_shared<std::string>(ss.str()))};
     }
 
     future<> stop() { return make_ready_future<>(); }
@@ -753,7 +753,7 @@ public:
     // The caller must keep @insertion live until the resulting future resolves.
     future<bool> set(item_insertion_data& insertion) {
         auto cpu = get_cpu(insertion.key);
-        if (engine().cpu_id() == cpu) {
+        if (this_shard_id() == cpu) {
             return make_ready_future<bool>(_peers.local().set(insertion));
         }
         return _peers.invoke_on(cpu, &cache::set<remote_origin_tag>, std::ref(insertion));
@@ -762,7 +762,7 @@ public:
     // The caller must keep @insertion live until the resulting future resolves.
     future<bool> add(item_insertion_data& insertion) {
         auto cpu = get_cpu(insertion.key);
-        if (engine().cpu_id() == cpu) {
+        if (this_shard_id() == cpu) {
             return make_ready_future<bool>(_peers.local().add(insertion));
         }
         return _peers.invoke_on(cpu, &cache::add<remote_origin_tag>, std::ref(insertion));
@@ -771,7 +771,7 @@ public:
     // The caller must keep @insertion live until the resulting future resolves.
     future<bool> replace(item_insertion_data& insertion) {
         auto cpu = get_cpu(insertion.key);
-        if (engine().cpu_id() == cpu) {
+        if (this_shard_id() == cpu) {
             return make_ready_future<bool>(_peers.local().replace(insertion));
         }
         return _peers.invoke_on(cpu, &cache::replace<remote_origin_tag>, std::ref(insertion));
@@ -792,7 +792,7 @@ public:
     // The caller must keep @insertion live until the resulting future resolves.
     future<cas_result> cas(item_insertion_data& insertion, item::version_type version) {
         auto cpu = get_cpu(insertion.key);
-        if (engine().cpu_id() == cpu) {
+        if (this_shard_id() == cpu) {
             return make_ready_future<cas_result>(_peers.local().cas(insertion, version));
         }
         return _peers.invoke_on(cpu, &cache::cas<remote_origin_tag>, std::ref(insertion), std::move(version));
@@ -805,7 +805,7 @@ public:
     // The caller must keep @key live until the resulting future resolves.
     future<std::pair<item_ptr, bool>> incr(item_key& key, uint64_t delta) {
         auto cpu = get_cpu(key);
-        if (engine().cpu_id() == cpu) {
+        if (this_shard_id() == cpu) {
             return make_ready_future<std::pair<item_ptr, bool>>(
                 _peers.local().incr<local_origin_tag>(key, delta));
         }
@@ -815,7 +815,7 @@ public:
     // The caller must keep @key live until the resulting future resolves.
     future<std::pair<item_ptr, bool>> decr(item_key& key, uint64_t delta) {
         auto cpu = get_cpu(key);
-        if (engine().cpu_id() == cpu) {
+        if (this_shard_id() == cpu) {
             return make_ready_future<std::pair<item_ptr, bool>>(
                 _peers.local().decr(key, delta));
         }

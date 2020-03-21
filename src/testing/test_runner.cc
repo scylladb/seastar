@@ -76,7 +76,7 @@ test_runner::start(int ac, char** av) {
                 auto seed = conf_seed.empty() ? std::random_device()():  conf_seed.as<unsigned>();
                 std::cout << "random-seed=" << seed << '\n';
                 return smp::invoke_on_all([seed] {
-                    auto local_seed = seed + engine().cpu_id();
+                    auto local_seed = seed + this_shard_id();
                     local_random_engine.seed(local_seed);
                 });
             };
