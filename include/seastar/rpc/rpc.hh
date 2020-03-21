@@ -448,7 +448,7 @@ public:
     }
     template<typename Serializer, typename... Out>
     future<sink<Out...>> make_stream_sink() {
-        return make_stream_sink<Serializer, Out...>(engine().net().socket());
+        return make_stream_sink<Serializer, Out...>(make_socket());
     }
 };
 

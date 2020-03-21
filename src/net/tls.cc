@@ -1153,7 +1153,7 @@ class tls_socket_impl : public net::socket_impl {
     ::seastar::socket _socket;
 public:
     tls_socket_impl(shared_ptr<certificate_credentials> cred, sstring name)
-            : _cred(cred), _name(std::move(name)), _socket(engine().net().socket()) {
+            : _cred(cred), _name(std::move(name)), _socket(make_socket()) {
     }
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
         return _socket.connect(sa, local, proto).then([cred = std::move(_cred), name = std::move(_name)](connected_socket s) mutable {

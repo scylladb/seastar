@@ -717,11 +717,11 @@ namespace rpc {
   }
 
   client::client(const logger& l, void* s, const socket_address& addr, const socket_address& local)
-  : client(l, s, client_options{}, engine().net().socket(), addr, local)
+  : client(l, s, client_options{}, make_socket(), addr, local)
   {}
 
   client::client(const logger& l, void* s, client_options options, const socket_address& addr, const socket_address& local)
-  : client(l, s, options, engine().net().socket(), addr, local)
+  : client(l, s, options, make_socket(), addr, local)
   {}
 
   client::client(const logger& l, void* s, socket socket, const socket_address& addr, const socket_address& local)
