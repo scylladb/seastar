@@ -20,7 +20,6 @@
  */
 
 #include <seastar/core/smp.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/print.hh>
@@ -99,10 +98,6 @@ void init_default_smp_service_group(shard_id cpu) {
 
 smp_service_group_semaphore& get_smp_service_groups_semaphore(unsigned ssg_id, shard_id t) {
     return smp_service_groups[ssg_id].clients[t];
-}
-
-shard_id this_shard_id() {
-    return engine().cpu_id();
 }
 
 }

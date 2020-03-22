@@ -19,8 +19,8 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#include <seastar/core/reactor.hh>
 #include <seastar/core/print.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/net/packet.hh>
 #include <iostream>
 #include <algorithm>

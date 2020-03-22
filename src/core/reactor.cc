@@ -2802,7 +2802,9 @@ reactor::pure_poll_once() {
     return false;
 }
 
-class reactor::poller::registration_task final : public task {
+namespace internal {
+
+class poller::registration_task final : public task {
 private:
     poller* _p;
 public:
@@ -2822,7 +2824,7 @@ public:
     }
 };
 
-class reactor::poller::deregistration_task final : public task {
+class poller::deregistration_task final : public task {
 private:
     std::unique_ptr<pollfn> _p;
 public:
@@ -2832,6 +2834,8 @@ public:
         delete this;
     }
 };
+
+}
 
 void reactor::register_poller(pollfn* p) {
     _pollers.push_back(p);
@@ -2845,15 +2849,17 @@ void reactor::replace_poller(pollfn* old, pollfn* neww) {
     std::replace(_pollers.begin(), _pollers.end(), old, neww);
 }
 
-reactor::poller::poller(poller&& x)
+namespace internal {
+
+poller::poller(poller&& x)
         : _pollfn(std::move(x._pollfn)), _registration_task(std::exchange(x._registration_task, nullptr)) {
     if (_pollfn && _registration_task) {
         _registration_task->moved(this);
     }
 }
 
-reactor::poller&
-reactor::poller::operator=(poller&& x) {
+poller&
+poller::operator=(poller&& x) {
     if (this != &x) {
         this->~poller();
         new (this) poller(std::move(x));
@@ -2862,7 +2868,7 @@ reactor::poller::operator=(poller&& x) {
 }
 
 void
-reactor::poller::do_register() noexcept {
+poller::do_register() noexcept {
     // We can't just insert a poller into reactor::_pollers, because we
     // may be running inside a poller ourselves, and so in the middle of
     // iterating reactor::_pollers itself.  So we schedule a task to add
@@ -2872,7 +2878,7 @@ reactor::poller::do_register() noexcept {
     _registration_task = task;
 }
 
-reactor::poller::~poller() {
+poller::~poller() {
     // We can't just remove the poller from reactor::_pollers, because we
     // may be running inside a poller ourselves, and so in the middle of
     // iterating reactor::_pollers itself.  So we schedule a task to remove
@@ -2897,6 +2903,8 @@ reactor::poller::~poller() {
             engine().replace_poller(_pollfn.get(), dummy_p);
         }
     }
+}
+
 }
 
 syscall_work_queue::syscall_work_queue()
@@ -3103,7 +3111,7 @@ void smp_message_queue::start(unsigned cpuid) {
     _tx.init();
     namespace sm = seastar::metrics;
     char instance[10];
-    std::snprintf(instance, sizeof(instance), "%u-%u", engine().cpu_id(), cpuid);
+    std::snprintf(instance, sizeof(instance), "%u-%u", this_shard_id(), cpuid);
     _metrics.add_group("smp", {
             // queue_length     value:GAUGE:0:U
             // Absolute value of num packets in last tx batch.
@@ -3320,11 +3328,11 @@ bool smp::_using_dpdk;
 void smp::start_all_queues()
 {
     for (unsigned c = 0; c < count; c++) {
-        if (c != engine().cpu_id()) {
-            _qs[c][engine().cpu_id()].start(c);
+        if (c != this_shard_id()) {
+            _qs[c][this_shard_id()].start(c);
         }
     }
-    alien::smp::_qs[engine().cpu_id()].start();
+    alien::smp::_qs[this_shard_id()].start();
 }
 
 #ifdef SEASTAR_HAVE_DPDK
@@ -3373,6 +3381,7 @@ void smp::allocate_reactor(unsigned id, reactor_backend_selector rbs, reactor_co
     int r = posix_memalign(&buf, cache_line_size, sizeof(reactor));
     assert(r == 0);
     local_engine = reinterpret_cast<reactor*>(buf);
+    *internal::this_shard_id_ptr() = id;
     new (buf) reactor(id, std::move(rbs), cfg);
     reactor_holder.reset(local_engine);
 }
@@ -3383,7 +3392,7 @@ void smp::cleanup() {
 }
 
 void smp::cleanup_cpu() {
-    size_t cpuid = engine().cpu_id();
+    size_t cpuid = this_shard_id();
 
     if (_qs) {
         for(unsigned i = 0; i < smp::count; i++) {
@@ -3893,8 +3902,8 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
 bool smp::poll_queues() {
     size_t got = 0;
     for (unsigned i = 0; i < count; i++) {
-        if (engine().cpu_id() != i) {
-            auto& rxq = _qs[engine().cpu_id()][i];
+        if (this_shard_id() != i) {
+            auto& rxq = _qs[this_shard_id()][i];
             rxq.flush_response_batch();
             got += rxq.has_unflushed_responses();
             got += rxq.process_incoming();
@@ -3908,8 +3917,8 @@ bool smp::poll_queues() {
 
 bool smp::pure_poll_queues() {
     for (unsigned i = 0; i < count; i++) {
-        if (engine().cpu_id() != i) {
-            auto& rxq = _qs[engine().cpu_id()][i];
+        if (this_shard_id() != i) {
+            auto& rxq = _qs[this_shard_id()][i];
             rxq.flush_response_batch();
             auto& txq = _qs[i][engine()._id];
             txq.flush_request_batch();
@@ -3985,6 +3994,18 @@ future<connected_socket> connect(socket_address sa) {
 
 future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) {
     return engine().connect(sa, local, proto);
+}
+
+socket make_socket() {
+    return engine().net().socket();
+}
+
+net::udp_channel make_udp_channel() {
+    return engine().net().make_udp_channel();
+}
+
+net::udp_channel make_udp_channel(const socket_address& local) {
+    return engine().net().make_udp_channel(local);
 }
 
 void reactor::add_high_priority_task(task* t) noexcept {

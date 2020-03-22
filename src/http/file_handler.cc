@@ -20,6 +20,7 @@
  */
 
 #include <seastar/http/file_handler.hh>
+#include <seastar/core/seastar.hh>
 #include <algorithm>
 #include <iostream>
 #include <seastar/core/reactor.hh>

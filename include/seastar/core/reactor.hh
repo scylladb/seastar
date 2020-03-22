@@ -146,6 +146,30 @@ class reactor_stall_sampler;
 class cpu_stall_detector;
 class buffer_allocator;
 
+template <typename Func> // signature: bool ()
+static std::unique_ptr<pollfn> make_pollfn(Func&& func);
+
+class poller {
+    std::unique_ptr<pollfn> _pollfn;
+    class registration_task;
+    class deregistration_task;
+    registration_task* _registration_task = nullptr;
+public:
+    template <typename Func> // signature: bool ()
+    static poller simple(Func&& poll) {
+        return poller(make_pollfn(std::forward<Func>(poll)));
+    }
+    poller(std::unique_ptr<pollfn> fn)
+            : _pollfn(std::move(fn)) {
+        do_register();
+    }
+    ~poller();
+    poller(poller&& x);
+    poller& operator=(poller&& x);
+    void do_register() noexcept;
+    friend class reactor;
+};
+
 }
 
 class kernel_completion;
@@ -193,26 +217,7 @@ private:
     friend class reactor_backend_selector;
     friend class aio_storage_context;
 public:
-    class poller {
-        std::unique_ptr<pollfn> _pollfn;
-        class registration_task;
-        class deregistration_task;
-        registration_task* _registration_task = nullptr;
-    public:
-        template <typename Func> // signature: bool ()
-        static poller simple(Func&& poll) {
-            return poller(make_pollfn(std::forward<Func>(poll)));
-        }
-        poller(std::unique_ptr<pollfn> fn)
-                : _pollfn(std::move(fn)) {
-            do_register();
-        }
-        ~poller();
-        poller(poller&& x);
-        poller& operator=(poller&& x);
-        void do_register() noexcept;
-        friend class reactor;
-    };
+    using poller = internal::poller;
     enum class idle_cpu_handler_result {
         no_more_work,
         interrupted_by_higher_priority_task
@@ -379,9 +384,6 @@ private:
      */
     bool poll_once();
     bool pure_poll_once();
-    template <typename Func> // signature: bool ()
-    static std::unique_ptr<pollfn> make_pollfn(Func&& func);
-
 public:
     /// Register a user-defined signal handler
     void handle_signal(int signo, noncopyable_function<void ()>&& handler);
@@ -666,7 +668,7 @@ private:
     friend class timer<manual_clock>;
     friend class smp;
     friend class smp_message_queue;
-    friend class poller;
+    friend class internal::poller;
     friend class scheduling_group;
     friend void add_to_flush_poller(output_stream<char>* os);
     friend int ::_Unwind_RaiseException(struct _Unwind_Exception *h);
@@ -725,7 +727,7 @@ public:
 template <typename Func> // signature: bool ()
 inline
 std::unique_ptr<reactor::pollfn>
-reactor::make_pollfn(Func&& func) {
+internal::make_pollfn(Func&& func) {
     struct the_pollfn : pollfn {
         the_pollfn(Func&& func) : func(std::forward<Func>(func)) {}
         Func func;

@@ -62,6 +62,7 @@ SEASTAR_INCLUDE_API_V1 namespace api_v1 { class server_socket; }
 
 #endif
 
+class socket;
 class connected_socket;
 class socket_address;
 struct listen_options;
@@ -71,6 +72,12 @@ enum class transport;
 class file;
 struct file_open_options;
 struct stat_data;
+
+namespace net {
+
+class udp_channel;
+
+}
 
 // Networking API
 
@@ -131,6 +138,28 @@ future<connected_socket> connect(socket_address sa);
 ///
 /// \return a \ref connected_socket object, or an exception
 future<connected_socket> connect(socket_address sa, socket_address local, transport proto);
+
+
+/// Creates a socket object suitable for establishing stream-oriented connections
+///
+/// \return a \ref net::socket object that can be used for establishing connections
+socket make_socket();
+
+/// Creates a udp_channel object suitable for sending UDP packets
+///
+/// The channel is not bound to a local address, and thus can only be used
+/// for sending.
+///
+/// \return a \ref net::udp_channel object that can be used for UDP transfers.
+net::udp_channel make_udp_channel();
+
+
+/// Creates a udp_channel object suitable for sending and receiving UDP packets
+///
+/// \param local local address to bind to
+///
+/// \return a \ref net::udp_channel object that can be used for UDP transfers.
+net::udp_channel make_udp_channel(const socket_address& local);
 
 /// @}
 

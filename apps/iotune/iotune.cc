@@ -36,6 +36,8 @@
 #include <wordexp.h>
 #include <yaml-cpp/yaml.h>
 #include <fmt/printf.h>
+#include <seastar/core/seastar.hh>
+#include <seastar/core/file.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/posix.hh>
@@ -360,7 +362,7 @@ private:
     }
 public:
     test_file(const ::evaluation_directory& dir, uint64_t maximum_size)
-        : _dirpath(dir.path() / fs::path(fmt::format("ioqueue-discovery-{}", engine().cpu_id())))
+        : _dirpath(dir.path() / fs::path(fmt::format("ioqueue-discovery-{}", this_shard_id())))
         , _file_size(maximum_size)
     {}
 
@@ -438,7 +440,7 @@ class iotune_multi_shard_context {
 
     unsigned per_shard_io_depth() const {
         auto iodepth = _test_directory.max_iodepth() / smp::count;
-        if (engine().cpu_id() < _test_directory.max_iodepth() % smp::count) {
+        if (this_shard_id() < _test_directory.max_iodepth() % smp::count) {
             iodepth++;
         }
         return std::min(iodepth, 128u);

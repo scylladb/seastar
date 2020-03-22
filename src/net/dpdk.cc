@@ -24,7 +24,6 @@
 #include <seastar/core/posix.hh>
 #include "core/vla.hh"
 #include <seastar/net/virtio-interface.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/stream.hh>
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/align.hh>
@@ -397,7 +396,7 @@ public:
                 bool enable_fc)
         : _port_idx(port_idx)
         , _num_queues(num_queues)
-        , _home_cpu(engine().cpu_id())
+        , _home_cpu(this_shard_id())
         , _use_lro(use_lro)
         , _enable_fc(enable_fc)
         , _stats_plugin_name("network")

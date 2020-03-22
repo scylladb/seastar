@@ -37,7 +37,7 @@ public:
     }
 
     ~invoke_on_during_stop() {
-        if (engine().cpu_id() == 0) {
+        if (this_shard_id() == 0) {
             assert(flag);
         }
     }

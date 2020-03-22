@@ -38,6 +38,8 @@
 
 namespace seastar {
 
+extern seastar::logger seastar_logger;
+
 namespace prometheus {
 namespace pm = io::prometheus::client;
 

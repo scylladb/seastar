@@ -24,6 +24,8 @@
 #include <system_error>
 
 #include <seastar/core/reactor.hh>
+#include <seastar/core/seastar.hh>
+#include <seastar/core/file.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/semaphore.hh>
@@ -32,6 +34,8 @@
 #include <seastar/net/tls.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/util/std-compat.hh>
+
+#include <boost/range/iterator_range.hpp>
 
 namespace seastar {
 
@@ -1153,7 +1157,7 @@ class tls_socket_impl : public net::socket_impl {
     ::seastar::socket _socket;
 public:
     tls_socket_impl(shared_ptr<certificate_credentials> cred, sstring name)
-            : _cred(cred), _name(std::move(name)), _socket(engine().net().socket()) {
+            : _cred(cred), _name(std::move(name)), _socket(make_socket()) {
     }
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
         return _socket.connect(sa, local, proto).then([cred = std::move(_cred), name = std::move(_name)](connected_socket s) mutable {
@@ -1211,7 +1215,7 @@ future<connected_socket> tls::wrap_server(shared_ptr<server_credentials> cred, c
 }
 
 server_socket tls::listen(shared_ptr<server_credentials> creds, socket_address sa, listen_options opts) {
-    return listen(std::move(creds), engine().listen(sa, opts));
+    return listen(std::move(creds), seastar::listen(sa, opts));
 }
 
 server_socket tls::listen(shared_ptr<server_credentials> creds, server_socket ss) {

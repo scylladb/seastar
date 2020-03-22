@@ -46,10 +46,17 @@ namespace internal {
 
 unsigned smp_service_group_id(smp_service_group ssg);
 
+inline shard_id* this_shard_id_ptr() {
+    static thread_local shard_id g_this_shard_id;
+    return &g_this_shard_id;
+}
+
 }
 
 /// Returns shard_id of the of the current shard.
-shard_id this_shard_id();
+inline shard_id this_shard_id() {
+    return *internal::this_shard_id_ptr();
+}
 
 /// Configuration for smp_service_group objects.
 ///

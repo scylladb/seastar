@@ -54,13 +54,17 @@
 
 #include <seastar/core/cacheline.hh>
 #include <seastar/core/memory.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/print.hh>
 #include <seastar/util/alloc_failure_injector.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/log.hh>
+#include <seastar/core/aligned_buffer.hh>
+#include <unordered_set>
 #include <iostream>
 
 namespace seastar {
+
+extern seastar::logger seastar_logger;
 
 void* internal::allocate_aligned_buffer_impl(size_t size, size_t align) {
     void *ret;

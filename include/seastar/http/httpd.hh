@@ -23,7 +23,7 @@
 
 #include <seastar/http/request_parser.hh>
 #include <seastar/http/request.hh>
-#include <seastar/core/reactor.hh>
+#include <seastar/core/seastar.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/circular_buffer.hh>
@@ -270,7 +270,7 @@ public:
         if (_credentials) {
             _listeners.push_back(seastar::tls::listen(_credentials, addr, lo));
         } else {
-            _listeners.push_back(engine().listen(addr, lo));
+            _listeners.push_back(seastar::listen(addr, lo));
         }
         _stopped = when_all(std::move(_stopped), do_accepts(_listeners.size() - 1)).discard_result();
         return make_ready_future<>();

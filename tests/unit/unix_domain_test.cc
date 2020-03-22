@@ -20,6 +20,7 @@
  */ 
 
 #include <seastar/testing/test_case.hh>
+#include <seastar/core/seastar.hh>
 #include <seastar/net/api.hh>
 #include <seastar/net/inet_address.hh>
 #include <seastar/core/print.hh>
@@ -67,7 +68,7 @@ private:
 };
 
 future<> ud_server_client::init_server() {
-    return do_with(engine().listen(server_addr), [this](server_socket& lstn) mutable {
+    return do_with(seastar::listen(server_addr), [this](server_socket& lstn) mutable {
 
         lstn_sock = &lstn; // required when aborting (on some tests)
 

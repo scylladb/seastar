@@ -25,11 +25,12 @@
 #include <seastar/core/scheduling.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/future-util.hh>
-#include <seastar/core/reactor.hh>
+#include <seastar/core/condition-variable.hh>
 #include <seastar/util/defer.hh>
 #include <fmt/printf.h>
 #include <chrono>
 #include <cmath>
+#include <boost/range/irange.hpp>
 
 using namespace seastar;
 using namespace std::chrono_literals;

@@ -21,7 +21,7 @@
 
 #pragma once
 
-#include <seastar/core/reactor.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/core/deleter.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/core/stream.hh>
@@ -33,6 +33,12 @@
 #include <unordered_map>
 
 namespace seastar {
+
+namespace internal {
+
+class poller;
+
+}
 
 namespace net {
 
@@ -215,7 +221,7 @@ class qp {
     compat::optional<std::array<uint8_t, 128>> _sw_reta;
     circular_buffer<packet> _proxy_packetq;
     stream<packet> _rx_stream;
-    reactor::poller _tx_poller;
+    std::unique_ptr<internal::poller> _tx_poller;
     circular_buffer<packet> _tx_packetq;
 
 protected:
@@ -264,10 +270,10 @@ public:
     }
     virtual ~device() {};
     qp& queue_for_cpu(unsigned cpu) { return *_queues[cpu]; }
-    qp& local_queue() { return queue_for_cpu(engine().cpu_id()); }
+    qp& local_queue() { return queue_for_cpu(this_shard_id()); }
     void l2receive(packet p) {
         // FIXME: future is discarded
-        (void)_queues[engine().cpu_id()]->_rx_stream.produce(std::move(p));
+        (void)_queues[this_shard_id()]->_rx_stream.produce(std::move(p));
     }
     future<> receive(std::function<future<> (packet)> next_packet);
     virtual ethernet_address hw_address() = 0;

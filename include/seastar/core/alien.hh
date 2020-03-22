@@ -29,14 +29,16 @@
 
 #include <boost/lockfree/queue.hpp>
 
+#include <seastar/core/future.hh>
 #include <seastar/core/cacheline.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/metrics_registration.hh>
-#include <seastar/core/reactor.hh>
 
 /// \file
 
 namespace seastar {
+
+class reactor;
 
 /// \brief Integration with non-seastar applications.
 namespace alien {

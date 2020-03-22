@@ -15,7 +15,6 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-#include <seastar/core/reactor.hh>
 #include <seastar/net/proxy.hh>
 #include <utility>
 
@@ -58,7 +57,7 @@ uint32_t proxy_net_device::send(circular_buffer<packet>& p)
 
     if (!_moving.empty()) {
         qp* dev = &_dev->queue_for_cpu(_cpu);
-        auto cpu = engine().cpu_id();
+        auto cpu = this_shard_id();
         // FIXME: future is discarded
         (void)smp::submit_to(_cpu, [this, dev, cpu]() mutable {
             for(size_t i = 0; i < _moving.size(); i++) {

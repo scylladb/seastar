@@ -20,8 +20,8 @@
  * Copyright 2020 ScyllaDB
  */
 
-#include <seastar/core/reactor.hh>
 #include <seastar/core/seastar.hh>
+#include <seastar/core/reactor.hh>
 
 namespace seastar {
 

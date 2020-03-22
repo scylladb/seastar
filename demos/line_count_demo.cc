@@ -23,9 +23,9 @@
 // since no read-ahead or caching is done yet.
 
 #include <seastar/core/fstream.hh>
+#include <seastar/core/seastar.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/shared_ptr.hh>
-#include <seastar/core/reactor.hh>
 #include <fmt/printf.h>
 #include <algorithm>
 #include <iostream>

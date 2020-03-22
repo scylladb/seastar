@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include <seastar/core/reactor.hh>
 #include <seastar/net/stack.hh>
 #include <iostream>
 #include <seastar/net/inet_address.hh>

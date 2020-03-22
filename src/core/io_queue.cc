@@ -238,7 +238,7 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
 future<size_t>
 io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_request req) noexcept {
     auto start = std::chrono::steady_clock::now();
-    return smp::submit_to(coordinator(), [start, &pc, len, req = std::move(req), owner = engine().cpu_id(), this] () mutable {
+    return smp::submit_to(coordinator(), [start, &pc, len, req = std::move(req), owner = this_shard_id(), this] () mutable {
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc, owner);
@@ -274,7 +274,7 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
 
 future<>
 io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares) {
-    return smp::submit_to(coordinator(), [this, pc, owner = engine().cpu_id(), new_shares] {
+    return smp::submit_to(coordinator(), [this, pc, owner = this_shard_id(), new_shares] {
         auto& pclass = find_or_create_class(pc, owner);
         _fq.update_shares(pclass.ptr, new_shares);
     });

@@ -23,6 +23,7 @@
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/metrics_api.hh>
+#include <seastar/core/reactor.hh>
 #include <seastar/core/scheduling.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/sharded.hh>

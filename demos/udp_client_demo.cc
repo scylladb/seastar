@@ -20,8 +20,8 @@
  */
 
 #include <seastar/core/app-template.hh>
+#include <seastar/core/seastar.hh>
 #include <seastar/core/future-util.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/net/api.hh>
 #include <iostream>
 
@@ -40,7 +40,7 @@ public:
     void start(ipv4_addr server_addr) {
         std::cout << "Sending to " << server_addr << std::endl;
 
-        _chan = engine().net().make_udp_channel();
+        _chan = make_udp_channel();
 
         _stats_timer.set_callback([this] {
             std::cout << "Out: " << n_sent << " pps, \t";

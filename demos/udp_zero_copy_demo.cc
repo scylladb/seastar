@@ -19,12 +19,14 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
+#include <seastar/core/seastar.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/scattered_message.hh>
 #include <seastar/core/vector-data-sink.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/units.hh>
+#include <seastar/net/api.hh>
 #include <random>
 #include <iomanip>
 #include <iostream>
@@ -71,7 +73,7 @@ public:
     }
     void start(int chunk_size, bool copy, size_t mem_size) {
         ipv4_addr listen_addr{10000};
-        _chan = engine().net().make_udp_channel(listen_addr);
+        _chan = make_udp_channel(listen_addr);
 
         std::cout << "Listening on " << listen_addr << std::endl;
 

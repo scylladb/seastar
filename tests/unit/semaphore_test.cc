@@ -25,7 +25,6 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/future-util.hh>

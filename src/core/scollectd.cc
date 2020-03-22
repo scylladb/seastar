@@ -28,6 +28,7 @@
 #include <iostream>
 #include <unordered_map>
 
+#include <seastar/core/seastar.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/scollectd_api.hh>
 #include <seastar/core/metrics_api.hh>
@@ -289,7 +290,7 @@ struct cpwriter {
         // Optional
         put_cached(part_type::PluginInst,
                 id.instance_id() == per_cpu_plugin_instance ?
-                        to_sstring(engine().cpu_id()) : id.instance_id());
+                        to_sstring(this_shard_id()) : id.instance_id());
         put_cached(part_type::Type, id.inherit_type());
         // Optional
         put_cached(part_type::TypeInst, get_type_instance(id));
@@ -357,7 +358,7 @@ void impl::start(const sstring & host, const ipv4_addr & addr, const duration pe
     _period = period;
     _addr = addr;
     _host = host;
-    _chan = engine().net().make_udp_channel();
+    _chan = make_udp_channel();
     _timer.set_callback(std::bind(&impl::run, this));
 
     // dogfood ourselves

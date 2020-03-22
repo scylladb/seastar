@@ -26,6 +26,7 @@
 #include <seastar/net/socket_defs.hh>
 #include <seastar/net/dns.hh>
 #include <seastar/net/ip.hh>
+#include <seastar/core/reactor.hh>
 #include <seastar/core/print.hh>
 
 seastar::net::inet_address::inet_address()

@@ -22,6 +22,7 @@
 #include <seastar/net/virtio.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/core/future-util.hh>
+#include <seastar/core/internal/pollable_fd.hh>
 #include "core/vla.hh"
 #include <seastar/net/virtio-interface.hh>
 #include <seastar/core/reactor.hh>

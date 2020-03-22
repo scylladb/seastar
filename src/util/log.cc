@@ -27,6 +27,7 @@
 #endif
 
 #include <seastar/util/log.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/util/log-cli.hh>
 
 #include <seastar/core/array_map.hh>
@@ -209,7 +210,7 @@ logger::really_do_log(log_level level, const char* fmt, const stringer* stringer
     };
     auto print_once = [&] (std::ostream& out) {
       if (local_engine) {
-        out << " [shard " << engine().cpu_id() << "] " << _name << " - ";
+        out << " [shard " << this_shard_id() << "] " << _name << " - ";
       } else {
         out << " " << _name << " - ";
       }
@@ -291,7 +292,7 @@ logger::set_syslog_enabled(bool enabled) {
 }
 
 bool logger::is_shard_zero() {
-    return engine().cpu_id() == 0;
+    return this_shard_id() == 0;
 }
 
 void

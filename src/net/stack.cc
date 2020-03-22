@@ -21,7 +21,6 @@
 
 #include <seastar/net/stack.hh>
 #include <seastar/net/inet_address.hh>
-#include <seastar/core/reactor.hh>
 
 namespace seastar {
 

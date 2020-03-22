@@ -26,6 +26,7 @@
 #include <linux/rtnetlink.h>
 #include <net/route.h>
 
+#include <seastar/core/reactor.hh>
 #include <seastar/net/posix-stack.hh>
 #include <seastar/net/net.hh>
 #include <seastar/net/packet.hh>
@@ -348,7 +349,7 @@ class posix_socket_impl final : public socket_impl {
         return repeat([this, sa, local, proto, attempts = 0, requested_port = ntoh(local.as_posix_sockaddr_in().sin_port)] () mutable {
             _fd = engine().make_pollable_fd(sa, int(proto));
             _fd.get_file_desc().setsockopt(SOL_SOCKET, SO_REUSEADDR, int(_reuseaddr));
-            uint16_t port = attempts++ < 5 && requested_port == 0 && proto == transport::TCP ? u(random_engine) * smp::count + engine().cpu_id() : requested_port;
+            uint16_t port = attempts++ < 5 && requested_port == 0 && proto == transport::TCP ? u(random_engine) * smp::count + this_shard_id() : requested_port;
             local.as_posix_sockaddr_in().sin_port = hton(port);
             return futurize_apply([this, sa, local] { return engine().posix_connect(_fd, sa, local); }).then_wrapped([port, requested_port] (future<> f) {
                 try {
@@ -441,7 +442,7 @@ posix_server_socket_impl::accept() {
             }
         } ();
         auto cpu = cth.cpu();
-        if (cpu == engine().cpu_id()) {
+        if (cpu == this_shard_id()) {
             std::unique_ptr<connected_socket_impl> csi(
                     new posix_connected_socket_impl(sa.family(), _protocol, std::move(fd), std::move(cth), _allocator));
             return make_ready_future<accept_result>(
@@ -597,6 +598,10 @@ posix_data_sink_impl::close() {
     return make_ready_future<>();
 }
 
+posix_network_stack::posix_network_stack(boost::program_options::variables_map opts, compat::polymorphic_allocator<char>* allocator)
+        : _reuseport(engine().posix_reuseport_available()), _allocator(allocator) {
+}
+
 server_socket
 posix_network_stack::listen(socket_address sa, listen_options opt) {
     using server_socket = seastar::api_v2::server_socket;
@@ -616,6 +621,10 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
 
 ::seastar::socket posix_network_stack::socket() {
     return ::seastar::socket(std::make_unique<posix_socket_impl>(_allocator));
+}
+
+posix_ap_network_stack::posix_ap_network_stack(boost::program_options::variables_map opts, compat::polymorphic_allocator<char>* allocator)
+        : posix_network_stack(std::move(opts), allocator), _reuseport(engine().posix_reuseport_available()) {
 }
 
 server_socket

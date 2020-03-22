@@ -19,7 +19,6 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#include <seastar/core/reactor.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/circular_buffer.hh>

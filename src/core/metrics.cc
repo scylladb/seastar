@@ -21,6 +21,7 @@
 
 #include <seastar/core/metrics.hh>
 #include <seastar/core/metrics_api.hh>
+#include <seastar/core/reactor.hh>
 #include <boost/range/algorithm.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/replace.hpp>
@@ -274,7 +275,7 @@ foreign_ptr<values_reference> get_values() {
 
 instance_id_type shard() {
     if (engine_is_ready()) {
-        return to_sstring(engine().cpu_id());
+        return to_sstring(this_shard_id());
     }
 
     return sstring("0");
