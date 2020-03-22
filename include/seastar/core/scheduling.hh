@@ -38,12 +38,15 @@ class future;
 class reactor;
 
 class scheduling_group;
+class scheduling_group_key;
 
 namespace internal {
 
 // Returns an index between 0 and max_scheduling_groups()
 unsigned scheduling_group_index(scheduling_group sg);
 scheduling_group scheduling_group_from_index(unsigned index);
+
+unsigned long scheduling_group_key_id(scheduling_group_key);
 
 }
 
@@ -152,6 +155,10 @@ private:
     friend T& scheduling_group_get_specific(scheduling_group sg, scheduling_group_key key);
     template<typename T>
     friend T& scheduling_group_get_specific(scheduling_group_key key);
+
+    friend unsigned long internal::scheduling_group_key_id(scheduling_group_key key) {
+        return key.id();
+    }
 };
 
 namespace internal {

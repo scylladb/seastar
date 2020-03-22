@@ -20,11 +20,43 @@
  */
 
 #include <boost/range/adaptor/filtered.hpp>
-#include <seastar/core/reactor.hh>
+#include <seastar/core/scheduling.hh>
+#include <array>
+#include <vector>
 
 #pragma once
 
 namespace seastar {
+
+namespace internal {
+
+struct scheduling_group_specific_thread_local_data {
+    struct per_scheduling_group {
+        bool queue_is_initialized = false;
+        /**
+         * This array holds pointers to the scheduling group specific
+         * data. The pointer is not use as is but is cast to a reference
+         * to the appropriate type that is actually pointed to.
+         */
+        std::vector<void*> specific_vals;
+    };
+    std::array<per_scheduling_group, max_scheduling_groups()> per_scheduling_group_data;
+    std::vector<scheduling_group_key_config> scheduling_group_key_configs;
+};
+
+inline
+scheduling_group_specific_thread_local_data** get_scheduling_group_specific_thread_local_data_ptr() {
+    static thread_local scheduling_group_specific_thread_local_data* data;
+    return &data;
+}
+inline
+scheduling_group_specific_thread_local_data& get_scheduling_group_specific_thread_local_data() {
+    return **get_scheduling_group_specific_thread_local_data_ptr();
+}
+
+[[noreturn]] void no_such_scheduling_group(scheduling_group sg);
+
+}
 
 /**
  * Returns a reference to the given scheduling group specific data.
@@ -36,10 +68,15 @@ namespace seastar {
  */
 template<typename T>
 T& scheduling_group_get_specific(scheduling_group sg, scheduling_group_key key) {
+    auto& data = internal::get_scheduling_group_specific_thread_local_data();
 #ifdef SEASTAR_DEBUG
-    assert(std::type_index(typeid(T)) == engine()._scheduling_group_key_configs[key.id()].type_index);
+    assert(std::type_index(typeid(T)) == data.scheduling_group_key_configs[key.id()].type_index);
 #endif
-    return *reinterpret_cast<T*>(engine().get_scheduling_group_specific_value(sg, key));
+    auto sg_id = internal::scheduling_group_index(sg);
+    if (!data.per_scheduling_group_data[sg_id].queue_is_initialized) {
+        internal::no_such_scheduling_group(sg);
+    }
+    return *reinterpret_cast<T*>(data.per_scheduling_group_data[sg_id].specific_vals[key.id()]);
 }
 
 /**
@@ -51,10 +88,12 @@ T& scheduling_group_get_specific(scheduling_group sg, scheduling_group_key key) 
  */
 template<typename T>
 T& scheduling_group_get_specific(scheduling_group_key key) {
+    auto& data = internal::get_scheduling_group_specific_thread_local_data();
 #ifdef SEASTAR_DEBUG
-    assert(std::type_index(typeid(T)) == engine()._scheduling_group_key_configs[key.id()].type_index);
+    assert(std::type_index(typeid(T)) == data.scheduling_group_key_configs[key.id()].type_index);
 #endif
-    return *reinterpret_cast<T*>(engine().get_scheduling_group_specific_value(key));
+    auto sg_id = internal::scheduling_group_index(current_scheduling_group());
+    return *reinterpret_cast<T*>(data.per_scheduling_group_data[sg_id].specific_vals[key.id()]);
 }
 
 /**
@@ -79,15 +118,17 @@ GCC6_CONCEPT( requires requires(SpecificValType specific_val, Mapper mapper, Red
 future<typename function_traits<Reducer>::return_type>
 map_reduce_scheduling_group_specific(Mapper mapper, Reducer reducer,
         Initial initial_val, scheduling_group_key key) {
-    auto wrapped_mapper = [key, mapper] (std::unique_ptr<reactor::task_queue>& tq) {
+    using per_scheduling_group = internal::scheduling_group_specific_thread_local_data::per_scheduling_group;
+    auto& data = internal::get_scheduling_group_specific_thread_local_data();
+    auto wrapped_mapper = [key, mapper] (per_scheduling_group& psg) {
+        auto id = internal::scheduling_group_key_id(key);
         return make_ready_future<typename function_traits<Mapper>::return_type>
-            (mapper(scheduling_group(tq->_id).get_specific<SpecificValType>(key)));
-    };
-    auto queue_exists = [] (std::unique_ptr<reactor::task_queue>& tq) {
-        return bool(tq);
+            (mapper(*reinterpret_cast<SpecificValType*>(psg.specific_vals[id])));
     };
 
-    return map_reduce(engine()._task_queues|boost::adaptors::filtered(queue_exists),
+    return map_reduce(
+            data.per_scheduling_group_data
+            | boost::adaptors::filtered(std::mem_fn(&per_scheduling_group::queue_is_initialized)),
             wrapped_mapper, std::move(initial_val), reducer);
 }
 
@@ -110,14 +151,17 @@ GCC6_CONCEPT( requires requires(SpecificValType specific_val, Reducer reducer, I
 })
 future<typename function_traits<Reducer>::return_type>
 reduce_scheduling_group_specific(Reducer reducer, Initial initial_val, scheduling_group_key key) {
-    auto mapper = [key] (std::unique_ptr<reactor::task_queue>& tq) {
-        return make_ready_future<SpecificValType>(scheduling_group(tq->_id).get_specific<SpecificValType>(key));
-    };
-    auto queue_exists = [] (std::unique_ptr<reactor::task_queue>& tq) {
-        return bool(tq);
+    using per_scheduling_group = internal::scheduling_group_specific_thread_local_data::per_scheduling_group;
+    auto& data = internal::get_scheduling_group_specific_thread_local_data();
+
+    auto mapper = [key] (per_scheduling_group& psg) {
+        auto id = internal::scheduling_group_key_id(key);
+        return make_ready_future<SpecificValType>(*reinterpret_cast<SpecificValType*>(psg.specific_vals[id]));
     };
 
-    return map_reduce(engine()._task_queues|boost::adaptors::filtered(queue_exists),
+    return map_reduce(
+            data.per_scheduling_group_data
+            | boost::adaptors::filtered(std::mem_fn(&per_scheduling_group::queue_is_initialized)),
             mapper, std::move(initial_val), reducer);
 }
 

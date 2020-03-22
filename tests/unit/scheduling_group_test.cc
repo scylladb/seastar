@@ -31,6 +31,7 @@
 #include <seastar/core/sleep.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/scheduling_specific.hh>
+#include <seastar/core/smp.hh>
 
 using namespace std::chrono_literals;
 

@@ -79,6 +79,7 @@
 #include <seastar/core/manual_clock.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/scheduling.hh>
+#include <seastar/core/scheduling_specific.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/core/internal/io_request.hh>
 #include "internal/pollable_fd.hh"
@@ -306,12 +307,6 @@ private:
         uint64_t _tasks_processed = 0;
         circular_buffer<task*> _q;
         sstring _name;
-        /**
-         * This array holds pointers to the scheduling group specific
-         * data. The pointer is not use as is but is cast to a reference
-         * to the appropriate type that is actually pointed to.
-         */
-        std::vector<void*> _scheduling_group_specific_vals;
         int64_t to_vruntime(sched_clock::duration runtime) const;
         void set_shares(float shares);
         struct indirect_compare;
@@ -324,7 +319,7 @@ private:
 
     circular_buffer<internal::io_request> _pending_io;
     boost::container::static_vector<std::unique_ptr<task_queue>, max_scheduling_groups()> _task_queues;
-    std::vector<scheduling_group_key_config> _scheduling_group_key_configs;
+    internal::scheduling_group_specific_thread_local_data _scheduling_group_specific_data;
     int64_t _last_vruntime = 0;
     task_queue_list _active_task_queues;
     task_queue_list _activating_task_queues;
@@ -431,16 +426,6 @@ private:
     future<> init_scheduling_group(scheduling_group sg, sstring name, float shares);
     future<> init_new_scheduling_group_key(scheduling_group_key key, scheduling_group_key_config cfg);
     future<> destroy_scheduling_group(scheduling_group sg);
-    [[noreturn]] void no_such_scheduling_group(scheduling_group sg);
-    void* get_scheduling_group_specific_value(scheduling_group sg, scheduling_group_key key) {
-        if (!_task_queues[sg._id]) {
-            no_such_scheduling_group(sg);
-        }
-        return _task_queues[sg._id]->_scheduling_group_specific_vals[key.id()];
-    }
-    void* get_scheduling_group_specific_value(scheduling_group_key key) {
-        return get_scheduling_group_specific_value(*internal::current_scheduling_group_ptr(), key);
-    }
     uint64_t tasks_processed() const;
     uint64_t min_vruntime() const;
     void request_preemption();
