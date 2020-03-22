@@ -27,6 +27,7 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/print.hh>
 #include <seastar/util/defer.hh>
+#include <mutex>
 
 using namespace seastar;
 using namespace std::chrono_literals;
