@@ -147,7 +147,7 @@ class cpu_stall_detector;
 class buffer_allocator;
 
 template <typename Func> // signature: bool ()
-static std::unique_ptr<pollfn> make_pollfn(Func&& func);
+std::unique_ptr<pollfn> make_pollfn(Func&& func);
 
 class poller {
     std::unique_ptr<pollfn> _pollfn;
