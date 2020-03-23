@@ -748,7 +748,7 @@ public:
 static void print_with_backtrace(backtrace_buffer& buf) noexcept {
     if (local_engine) {
         buf.append(" on shard ");
-        buf.append_decimal(local_engine->cpu_id());
+        buf.append_decimal(this_shard_id());
     }
 
     buf.append(".\nBacktrace:\n");
