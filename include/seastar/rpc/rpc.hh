@@ -38,6 +38,7 @@
 #include <seastar/core/weak_ptr.hh>
 #include <seastar/core/scheduling.hh>
 #include <seastar/util/backtrace.hh>
+#include <seastar/util/log.hh>
 
 namespace seastar {
 
@@ -159,10 +160,28 @@ struct signature;
 
 class logger {
     std::function<void(const sstring&)> _logger;
+    ::seastar::logger* _seastar_logger = nullptr;
 
+    // _seastar_logger will always be used first if it's available
     void log(const sstring& str) const {
-        if (_logger) {
+        if (_seastar_logger) {
+            // default level for log messages is `info`
+            _seastar_logger->info("{}", str);
+        } else if (_logger) {
             _logger(str);
+        }
+    }
+
+    // _seastar_logger will always be used first if it's available
+    template <typename... Args>
+    void log(log_level level, const char* fmt, Args&&... args) const {
+        if (_seastar_logger) {
+            _seastar_logger->log(level, fmt, std::forward<Args>(args)...);
+        // If the log level is at least `info`, fall back to legacy logging without explicit level.
+        // Ignore less severe levels in order not to spam user's log with messages during transition,
+        // i.e. when the user still only defines a level-less logger.
+        } else if (_logger && level <= log_level::info) {
+            _logger(format(fmt, std::forward<Args>(args)...));
         }
     }
 
@@ -171,11 +190,18 @@ public:
         _logger = std::move(l);
     }
 
+    void set(::seastar::logger* logger) {
+        _seastar_logger = logger;
+    }
+
     void operator()(const client_info& info, id_type msg_id, const sstring& str) const;
+    void operator()(const client_info& info, id_type msg_id, log_level level, std::string_view str) const;
 
     void operator()(const client_info& info, const sstring& str) const;
+    void operator()(const client_info& info, log_level level, std::string_view str) const;
 
     void operator()(const socket_address& addr, const sstring& str) const;
+    void operator()(const socket_address& addr, log_level level, std::string_view str) const;
 };
 
 class connection {
@@ -636,6 +662,10 @@ public:
 
     void set_logger(std::function<void(const sstring&)> logger) {
         _logger.set(std::move(logger));
+    }
+
+    void set_logger(::seastar::logger* logger) {
+        _logger.set(logger);
     }
 
     const logger& get_logger() const {
