@@ -23,6 +23,7 @@
 #include <cinttypes>
 #include <seastar/core/posix.hh>
 #include "core/vla.hh"
+#include <seastar/core/reactor.hh>
 #include <seastar/net/virtio-interface.hh>
 #include <seastar/core/stream.hh>
 #include <seastar/core/circular_buffer.hh>
