@@ -1979,7 +1979,7 @@ future<> reactor::run_exit_tasks() {
 }
 
 void reactor::stop() {
-    assert(engine()._id == 0);
+    assert(_id == 0);
     smp::cleanup_cpu();
     if (!_stopping) {
         // Run exit tasks locally and then stop all other engines
@@ -3907,7 +3907,7 @@ bool smp::poll_queues() {
             rxq.flush_response_batch();
             got += rxq.has_unflushed_responses();
             got += rxq.process_incoming();
-            auto& txq = _qs[i][engine()._id];
+            auto& txq = _qs[i][this_shard_id()];
             txq.flush_request_batch();
             got += txq.process_completions(i);
         }
@@ -3920,7 +3920,7 @@ bool smp::pure_poll_queues() {
         if (this_shard_id() != i) {
             auto& rxq = _qs[this_shard_id()][i];
             rxq.flush_response_batch();
-            auto& txq = _qs[i][engine()._id];
+            auto& txq = _qs[i][this_shard_id()];
             txq.flush_request_batch();
             if (rxq.pure_poll_rx() || txq.pure_poll_tx() || rxq.has_unflushed_responses()) {
                 return true;
