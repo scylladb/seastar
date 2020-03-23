@@ -499,7 +499,7 @@ namespace rpc {
       return it->second;
   }
 
-  static void log_exception(connection& c, const char* log, std::exception_ptr eptr) {
+  static void log_exception(connection& c, log_level level, const char* log, std::exception_ptr eptr) {
       const char* s;
       try {
           std::rethrow_exception(eptr);
@@ -508,7 +508,8 @@ namespace rpc {
       } catch (...) {
           s = "unknown exception";
       }
-      c.get_logger()(c.peer_address(), format("{}: {}", log, s));
+      auto formatted = format("{}: {}", log, s);
+      c.get_logger()(c.peer_address(), level, std::string_view(formatted.data(), formatted.size()));
   }
 
 
@@ -691,12 +692,12 @@ namespace rpc {
                               get_logger()(peer_address(), format("unknown verb exception {:d} ignored", ex.type));
                           } catch(...) {
                               // We've got error response but handler is no longer waiting, could be timed out.
-                              log_exception(*this, "ignoring error response", std::current_exception());
+                              log_exception(*this, log_level::info, "ignoring error response", std::current_exception());
                           }
                       } else {
                           // we get a reply for a message id not in _outstanding
                           // this can happened if the message id is timed out already
-                          // FIXME: log it but with low level, currently log levels are not supported
+                          get_logger()(peer_address(), log_level::debug, "got a reply for an expired message id");
                       }
                   });
               });
@@ -706,9 +707,9 @@ namespace rpc {
           if (f.failed()) {
               ep = f.get_exception();
               if (is_stream()) {
-                  log_exception(*this, _connected ? "client stream connection dropped" : "stream fail to connect", ep);
+                  log_exception(*this, log_level::error, _connected ? "client stream connection dropped" : "stream fail to connect", ep);
               } else {
-                  log_exception(*this, _connected ? "client connection dropped" : "fail to connect", ep);
+                  log_exception(*this, log_level::error, _connected ? "client connection dropped" : "fail to connect", ep);
               }
           }
           _error = true;
@@ -935,7 +936,8 @@ future<> server::connection::send_unknown_verb_reply(compat::optional<rpc_clock_
         });
       }).then_wrapped([this] (future<> f) {
           if (f.failed()) {
-              log_exception(*this, format("server{} connection dropped", is_stream() ? " stream" : "").c_str(), f.get_exception());
+              log_exception(*this, log_level::error,
+                      format("server{} connection dropped", is_stream() ? " stream" : "").c_str(), f.get_exception());
           }
           _fd.shutdown_input();
           _error = true;
