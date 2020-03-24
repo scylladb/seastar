@@ -795,9 +795,9 @@ struct futurize {
     template<typename Func, typename... FuncArgs>
     static inline type invoke(Func&& func, FuncArgs&&... args) noexcept;
 
-    /// Apply a function to an argument list
-    /// and return the result, as a future (if it wasn't already).
+    /// Deprecated alias of invoke
     template<typename Func, typename... FuncArgs>
+    [[deprecated("Use invoke for varargs")]]
     static inline type apply(Func&& func, FuncArgs&&... args) noexcept;
 
     /// Convert a value or a future to a future
@@ -828,6 +828,7 @@ struct futurize<void> {
     static inline type invoke(Func&& func, FuncArgs&&... args) noexcept;
 
     template<typename Func, typename... FuncArgs>
+    [[deprecated("Use invoke for varargs")]]
     static inline type apply(Func&& func, FuncArgs&&... args) noexcept;
 
     static inline type from_tuple(value_type&& value);
@@ -850,6 +851,7 @@ struct futurize<future<Args...>> {
     static inline type invoke(Func&& func, FuncArgs&&... args) noexcept;
 
     template<typename Func, typename... FuncArgs>
+    [[deprecated("Use invoke for varargs")]]
     static inline type apply(Func&& func, FuncArgs&&... args) noexcept;
 
     static inline type from_tuple(value_type&& value);
