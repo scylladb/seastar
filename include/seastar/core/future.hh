@@ -1777,9 +1777,14 @@ futurize<future<Args...>>::from_tuple(const std::tuple<Args...>& value) {
 }
 
 template<typename Func, typename... Args>
-auto futurize_apply(Func&& func, Args&&... args) {
+auto futurize_invoke(Func&& func, Args&&... args) {
     using futurator = futurize<std::result_of_t<Func(Args&&...)>>;
     return futurator::invoke(std::forward<Func>(func), std::forward<Args>(args)...);
+}
+
+template<typename Func, typename... Args>
+auto futurize_apply(Func&& func, Args&&... args) {
+    return futurize_invoke(std::forward<Func>(func), std::forward<Args>(args)...);
 }
 
 namespace internal {
