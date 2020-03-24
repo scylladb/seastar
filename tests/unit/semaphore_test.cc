@@ -235,6 +235,7 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_units_splitting) {
     auto sm = semaphore(2);
     auto units = get_units(sm, 2, 1min).get0();
     {
+        BOOST_REQUIRE_EQUAL(units.count(), 2);
         BOOST_REQUIRE_EQUAL(sm.available_units(), 0);
         auto split = units.split(1);
         BOOST_REQUIRE_EQUAL(sm.available_units(), 0);

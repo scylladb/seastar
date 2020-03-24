@@ -373,6 +373,11 @@ public:
         assert(other._sem == _sem);
         _n += other.release();
     }
+
+    /// Returns the number of units held
+    size_t count() const noexcept {
+        return _n;
+    }
 };
 
 /// \brief Take units from semaphore temporarily
