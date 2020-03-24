@@ -1783,6 +1783,7 @@ auto futurize_invoke(Func&& func, Args&&... args) {
 }
 
 template<typename Func, typename... Args>
+[[deprecated("Use futurize_invoke for varargs")]]
 auto futurize_apply(Func&& func, Args&&... args) {
     return futurize_invoke(std::forward<Func>(func), std::forward<Args>(args)...);
 }
