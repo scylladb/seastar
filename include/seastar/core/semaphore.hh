@@ -530,7 +530,7 @@ inline
 futurize_t<std::result_of_t<Func()>>
 with_semaphore(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, typename basic_semaphore<ExceptionFactory, Clock>::duration timeout, Func&& func) noexcept {
     return get_units(sem, units, timeout).then([func = std::forward<Func>(func)] (auto units) mutable {
-        return futurize_apply(std::forward<Func>(func)).finally([units = std::move(units)] {});
+        return futurize_invoke(std::forward<Func>(func)).finally([units = std::move(units)] {});
     });
 }
 
