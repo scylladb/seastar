@@ -180,7 +180,7 @@ reactor::update_shares_for_class(io_priority_class pc, uint32_t shares) {
 future<>
 reactor::rename_priority_class(io_priority_class pc, sstring new_name) {
 
-    return futurize<void>().apply([pc, new_name] () {
+    return futurize<void>().invoke([pc, new_name] () {
         // Taking the lock here will prevent from newly registered classes
         // to register under the old name (and will prevent undefined
         // behavior since this array is shared cross shards. However, it

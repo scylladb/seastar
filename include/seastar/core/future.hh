@@ -1264,7 +1264,7 @@ private:
         using futurator = futurize<FuncResult>;
         using WrapFuncResult = typename futurator::type;
         return then_wrapped_common<AsSelf, WrapFuncResult>(noncopyable_function<WrapFuncResult (future&&)>([func = std::forward<Func>(func)] (future&& f) mutable {
-            return futurator::apply(std::forward<Func>(func), std::move(f));
+            return futurator::invoke(std::forward<Func>(func), std::move(f));
         }));
 #endif
     }
@@ -1279,9 +1279,9 @@ private:
                 if (_promise) {
                     detach_promise();
                 }
-                return futurator::apply(std::forward<Func>(func), std::move(*this));
+                return futurator::invoke(std::forward<Func>(func), std::move(*this));
             } else {
-                return futurator::apply(std::forward<Func>(func), future(get_available_state_ref()));
+                return futurator::invoke(std::forward<Func>(func), future(get_available_state_ref()));
             }
         }
         typename futurator::type fut(future_for_get_promise_marker{});
@@ -1292,7 +1292,7 @@ private:
             using pr_type = decltype(fut.get_promise());
             memory::disable_failure_guard dfg;
             schedule(fut.get_promise(), [func = std::forward<Func>(func)] (pr_type& pr, future_state<T...>&& state) mutable {
-                futurator::apply(std::forward<Func>(func), future(std::move(state))).forward_to(std::move(pr));
+                futurator::invoke(std::forward<Func>(func), future(std::move(state))).forward_to(std::move(pr));
             });
         } ();
         return fut;
@@ -1365,7 +1365,7 @@ public:
 
         future<T...> operator()(future<T...>&& result) {
             using futurator = futurize<std::result_of_t<Func()>>;
-            return futurator::apply(_func).then_wrapped([result = std::move(result)](auto f_res) mutable {
+            return futurator::invoke(_func).then_wrapped([result = std::move(result)](auto f_res) mutable {
                 if (!f_res.failed()) {
                     return std::move(result);
                 } else {
@@ -1445,7 +1445,7 @@ public:
             if (!fut.failed()) {
                 return make_ready_future<T...>(fut.get());
             } else {
-                return futurize<func_ret>::apply(func, fut.get_exception());
+                return futurize<func_ret>::invoke(func, fut.get_exception());
             }
         });
     }
@@ -1471,7 +1471,7 @@ public:
             try {
                 return make_ready_future<T...>(fut.get());
             } catch(ex_type& ex) {
-                return futurize<func_ret>::apply(func, ex);
+                return futurize<func_ret>::invoke(func, ex);
             }
         });
     }
@@ -1777,7 +1777,7 @@ futurize<future<Args...>>::from_tuple(const std::tuple<Args...>& value) {
 template<typename Func, typename... Args>
 auto futurize_apply(Func&& func, Args&&... args) {
     using futurator = futurize<std::result_of_t<Func(Args&&...)>>;
-    return futurator::apply(std::forward<Func>(func), std::forward<Args>(args)...);
+    return futurator::invoke(std::forward<Func>(func), std::forward<Args>(args)...);
 }
 
 namespace internal {

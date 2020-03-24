@@ -77,7 +77,7 @@ with_scheduling_group(scheduling_group sg, Func func, Args&&... args) {
     using return_type = decltype(func(std::forward<Args>(args)...));
     using futurator = futurize<return_type>;
     if (sg.active()) {
-        return futurator::apply(func, std::forward<Args>(args)...);
+        return futurator::invoke(func, std::forward<Args>(args)...);
     } else {
         typename futurator::promise_type pr;
         auto f = pr.get_future();
@@ -237,7 +237,7 @@ public:
         }
         try {
             do {
-                auto f = futurator::apply(_action);
+                auto f = futurator::invoke(_action);
                 if (!f.available()) {
                     internal::set_callback(f, this);
                     return;
@@ -280,7 +280,7 @@ future<> repeat(AsyncAction action) noexcept {
     try {
         do {
             // Do not type-erase here in case this is a short repeat()
-            auto f = futurator::apply(action);
+            auto f = futurator::invoke(action);
 
             if (!f.available()) {
               return [&] () noexcept {
@@ -358,7 +358,7 @@ public:
         }
         try {
             do {
-                auto f = futurator::apply(_action);
+                auto f = futurator::invoke(_action);
                 if (!f.available()) {
                     internal::set_callback(f, this);
                     return;
@@ -395,8 +395,8 @@ public:
 ///         a call to to \c action failed.  The \c optional's value is returned.
 template<typename AsyncAction>
 GCC6_CONCEPT( requires requires (AsyncAction aa) {
-    bool(futurize<std::result_of_t<AsyncAction()>>::apply(aa).get0());
-    futurize<std::result_of_t<AsyncAction()>>::apply(aa).get0().value();
+    bool(futurize<std::result_of_t<AsyncAction()>>::invoke(aa).get0());
+    futurize<std::result_of_t<AsyncAction()>>::invoke(aa).get0().value();
 } )
 repeat_until_value_return_type<AsyncAction>
 repeat_until_value(AsyncAction action) noexcept {
@@ -406,7 +406,7 @@ repeat_until_value(AsyncAction action) noexcept {
     using value_type = typename type_helper::value_type;
     using optional_type = typename type_helper::optional_type;
     do {
-        auto f = futurator::apply(action);
+        auto f = futurator::invoke(action);
 
         if (!f.available()) {
           return [&] () noexcept {
@@ -506,7 +506,7 @@ future<> do_until(StopCondition stop_cond, AsyncAction action) noexcept {
         if (stop_cond()) {
             return make_ready_future<>();
         }
-        auto f = futurator::apply(action);
+        auto f = futurator::invoke(action);
         if (!f.available()) {
           return [&] () noexcept {
             memory::disable_failure_guard dfg;
@@ -565,7 +565,7 @@ public:
             return;
         }
         while (_begin != _end) {
-            auto f = futurize<void>::apply(_action, *_begin++);
+            auto f = futurize<void>::invoke(_action, *_begin++);
             if (f.failed()) {
                 f.forward_to(std::move(_pr));
                 return;
@@ -604,7 +604,7 @@ GCC6_CONCEPT( requires requires (Iterator i, AsyncAction aa) {
 inline
 future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) {
     while (begin != end) {
-        auto f = futurize<void>::apply(action, *begin++);
+        auto f = futurize<void>::invoke(action, *begin++);
         if (f.failed()) {
             return f;
         }
@@ -983,7 +983,7 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
     future<> ret = make_ready_future<>();
     using futurator = futurize<decltype(mapper(*begin))>;
     while (begin != end) {
-        ret = futurator::apply(mapper, *begin++).then_wrapped([ret = std::move(ret), r_ptr] (auto f) mutable {
+        ret = futurator::invoke(mapper, *begin++).then_wrapped([ret = std::move(ret), r_ptr] (auto f) mutable {
             return ret.then_wrapped([f = std::move(f), r_ptr] (auto rf) mutable {
                 if (rf.failed()) {
                     f.ignore_ready_future();
@@ -1051,7 +1051,7 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Initial initial, Reduc
     future<> ret = make_ready_future<>();
     using futurator = futurize<decltype(mapper(*begin))>;
     while (begin != end) {
-        ret = futurator::apply(mapper, *begin++).then_wrapped([s = s.get(), ret = std::move(ret)] (auto f) mutable {
+        ret = futurator::invoke(mapper, *begin++).then_wrapped([s = s.get(), ret = std::move(ret)] (auto f) mutable {
             try {
                 s->result = s->reduce(std::move(s->result), std::move(f.get0()));
                 return std::move(ret);
