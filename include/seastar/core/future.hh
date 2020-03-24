@@ -790,9 +790,14 @@ struct futurize {
     template<typename Func, typename... FuncArgs>
     static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept;
 
-    /// Apply a function to an argument list
+    /// Invoke a function to an argument list
     /// and return the result, as a future (if it wasn't already).
     template<typename Func, typename... FuncArgs>
+    static inline type invoke(Func&& func, FuncArgs&&... args) noexcept;
+
+    /// Deprecated alias of invoke
+    template<typename Func, typename... FuncArgs>
+    [[deprecated("Use invoke for varargs")]]
     static inline type apply(Func&& func, FuncArgs&&... args) noexcept;
 
     /// Convert a value or a future to a future
@@ -820,6 +825,10 @@ struct futurize<void> {
     static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept;
 
     template<typename Func, typename... FuncArgs>
+    static inline type invoke(Func&& func, FuncArgs&&... args) noexcept;
+
+    template<typename Func, typename... FuncArgs>
+    [[deprecated("Use invoke for varargs")]]
     static inline type apply(Func&& func, FuncArgs&&... args) noexcept;
 
     static inline type from_tuple(value_type&& value);
@@ -839,6 +848,10 @@ struct futurize<future<Args...>> {
     static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept;
 
     template<typename Func, typename... FuncArgs>
+    static inline type invoke(Func&& func, FuncArgs&&... args) noexcept;
+
+    template<typename Func, typename... FuncArgs>
+    [[deprecated("Use invoke for varargs")]]
     static inline type apply(Func&& func, FuncArgs&&... args) noexcept;
 
     static inline type from_tuple(value_type&& value);
@@ -857,6 +870,12 @@ template <typename T>
 using futurize_t = typename futurize<T>::type;
 
 /// @}
+
+template<typename Func, typename... Args>
+auto futurize_invoke(Func&& func, Args&&... args);
+
+template<typename Func, typename... Args>
+auto futurize_apply(Func&& func, std::tuple<Args...>&& args);
 
 GCC6_CONCEPT(
 
@@ -1174,9 +1193,8 @@ public:
 #ifndef SEASTAR_TYPE_ERASE_MORE
         return then_impl(std::move(func));
 #else
-        using futurator = futurize<std::result_of_t<Func(T&&...)>>;
         return then_impl(noncopyable_function<Result (T&&...)>([func = std::forward<Func>(func)] (T&&... args) mutable {
-            return futurator::apply(func, std::forward_as_tuple(std::move(args)...));
+            return futurize_apply(func, std::forward_as_tuple(std::move(args)...));
         }));
 #endif
     }
@@ -1253,7 +1271,7 @@ private:
         using futurator = futurize<FuncResult>;
         using WrapFuncResult = typename futurator::type;
         return then_wrapped_common<AsSelf, WrapFuncResult>(noncopyable_function<WrapFuncResult (future&&)>([func = std::forward<Func>(func)] (future&& f) mutable {
-            return futurator::apply(std::forward<Func>(func), std::move(f));
+            return futurator::invoke(std::forward<Func>(func), std::move(f));
         }));
 #endif
     }
@@ -1268,9 +1286,9 @@ private:
                 if (_promise) {
                     detach_promise();
                 }
-                return futurator::apply(std::forward<Func>(func), std::move(*this));
+                return futurator::invoke(std::forward<Func>(func), std::move(*this));
             } else {
-                return futurator::apply(std::forward<Func>(func), future(get_available_state_ref()));
+                return futurator::invoke(std::forward<Func>(func), future(get_available_state_ref()));
             }
         }
         typename futurator::type fut(future_for_get_promise_marker{});
@@ -1281,7 +1299,7 @@ private:
             using pr_type = decltype(fut.get_promise());
             memory::disable_failure_guard dfg;
             schedule(fut.get_promise(), [func = std::forward<Func>(func)] (pr_type& pr, future_state<T...>&& state) mutable {
-                futurator::apply(std::forward<Func>(func), future(std::move(state))).forward_to(std::move(pr));
+                futurator::invoke(std::forward<Func>(func), future(std::move(state))).forward_to(std::move(pr));
             });
         } ();
         return fut;
@@ -1353,8 +1371,7 @@ public:
         { }
 
         future<T...> operator()(future<T...>&& result) {
-            using futurator = futurize<std::result_of_t<Func()>>;
-            return futurator::apply(_func).then_wrapped([result = std::move(result)](auto f_res) mutable {
+            return futurize_invoke(_func).then_wrapped([result = std::move(result)](auto f_res) mutable {
                 if (!f_res.failed()) {
                     return std::move(result);
                 } else {
@@ -1428,13 +1445,12 @@ public:
                     || (sizeof...(T) == 1 && ::seastar::ApplyReturns<Func, T..., std::exception_ptr>)
     ) */
     future<T...> handle_exception(Func&& func) noexcept {
-        using func_ret = std::result_of_t<Func(std::exception_ptr)>;
         return then_wrapped([func = std::forward<Func>(func)]
                              (auto&& fut) mutable -> future<T...> {
             if (!fut.failed()) {
                 return make_ready_future<T...>(fut.get());
             } else {
-                return futurize<func_ret>::apply(func, fut.get_exception());
+                return futurize_invoke(func, fut.get_exception());
             }
         });
     }
@@ -1454,13 +1470,12 @@ public:
         using trait = function_traits<Func>;
         static_assert(trait::arity == 1, "func can take only one parameter");
         using ex_type = typename trait::template arg<0>::type;
-        using func_ret = typename trait::return_type;
         return then_wrapped([func = std::forward<Func>(func)]
                              (auto&& fut) mutable -> future<T...> {
             try {
                 return make_ready_future<T...>(fut.get());
             } catch(ex_type& ex) {
-                return futurize<func_ret>::apply(func, ex);
+                return futurize_invoke(func, ex);
             }
         });
     }
@@ -1589,12 +1604,18 @@ typename futurize<T>::type futurize<T>::apply(Func&& func, std::tuple<FuncArgs..
 
 template<typename T>
 template<typename Func, typename... FuncArgs>
-typename futurize<T>::type futurize<T>::apply(Func&& func, FuncArgs&&... args) noexcept {
+typename futurize<T>::type futurize<T>::invoke(Func&& func, FuncArgs&&... args) noexcept {
     try {
         return convert(func(std::forward<FuncArgs>(args)...));
     } catch (...) {
         return internal::current_exception_as_future<T>();
     }
+}
+
+template<typename T>
+template<typename Func, typename... FuncArgs>
+typename futurize<T>::type futurize<T>::apply(Func&& func, FuncArgs&&... args) noexcept {
+    return invoke(std::forward<Func>(func), std::forward<FuncArgs>(args)...);
 }
 
 template <typename Ret>  // Ret = void | future<>
@@ -1653,8 +1674,13 @@ typename futurize<void>::type futurize<void>::apply(Func&& func, std::tuple<Func
 }
 
 template<typename Func, typename... FuncArgs>
-typename futurize<void>::type futurize<void>::apply(Func&& func, FuncArgs&&... args) noexcept {
+typename futurize<void>::type futurize<void>::invoke(Func&& func, FuncArgs&&... args) noexcept {
     return void_futurize_helper<Func, FuncArgs...>::apply(std::forward<Func>(func), std::forward<FuncArgs>(args)...);
+}
+
+template<typename Func, typename... FuncArgs>
+typename futurize<void>::type futurize<void>::apply(Func&& func, FuncArgs&&... args) noexcept {
+    return invoke(std::forward<Func>(func), std::forward<FuncArgs>(args)...);
 }
 
 template<typename... Args>
@@ -1669,12 +1695,18 @@ typename futurize<future<Args...>>::type futurize<future<Args...>>::apply(Func&&
 
 template<typename... Args>
 template<typename Func, typename... FuncArgs>
-typename futurize<future<Args...>>::type futurize<future<Args...>>::apply(Func&& func, FuncArgs&&... args) noexcept {
+typename futurize<future<Args...>>::type futurize<future<Args...>>::invoke(Func&& func, FuncArgs&&... args) noexcept {
     try {
         return func(std::forward<FuncArgs>(args)...);
     } catch (...) {
         return internal::current_exception_as_future<Args...>();
     }
+}
+
+template<typename... Args>
+template<typename Func, typename... FuncArgs>
+typename futurize<future<Args...>>::type futurize<future<Args...>>::apply(Func&& func, FuncArgs&&... args) noexcept {
+    return invoke(std::forward<Func>(func), std::forward<FuncArgs>(args)...);
 }
 
 template <typename T>
@@ -1747,9 +1779,21 @@ futurize<future<Args...>>::from_tuple(const std::tuple<Args...>& value) {
 }
 
 template<typename Func, typename... Args>
-auto futurize_apply(Func&& func, Args&&... args) {
+auto futurize_invoke(Func&& func, Args&&... args) {
     using futurator = futurize<std::result_of_t<Func(Args&&...)>>;
-    return futurator::apply(std::forward<Func>(func), std::forward<Args>(args)...);
+    return futurator::invoke(std::forward<Func>(func), std::forward<Args>(args)...);
+}
+
+template<typename Func, typename... Args>
+[[deprecated("Use futurize_invoke for varargs")]]
+auto futurize_apply(Func&& func, Args&&... args) {
+    return futurize_invoke(std::forward<Func>(func), std::forward<Args>(args)...);
+}
+
+template<typename Func, typename... Args>
+auto futurize_apply(Func&& func, std::tuple<Args...>&& args) {
+    using futurator = futurize<std::result_of_t<Func(Args&&...)>>;
+    return futurator::apply(std::forward<Func>(func), std::move(args));
 }
 
 namespace internal {

@@ -403,10 +403,9 @@ public:
     template <typename Ret, typename... FuncArgs, typename... Args, typename FutureRet = futurize_t<Ret>>
     FutureRet
     invoke_on(unsigned id, smp_submit_to_options options, Ret (Service::*func)(FuncArgs...), Args&&... args) {
-        using futurator = futurize<Ret>;
         return smp::submit_to(id, options, [this, func, args = std::make_tuple(std::forward<Args>(args)...)] () mutable {
             auto inst = get_local_service();
-            return futurator::apply(std::mem_fn(func), std::tuple_cat(std::make_tuple<>(inst), std::move(args)));
+            return futurize_apply(std::mem_fn(func), std::tuple_cat(std::make_tuple<>(inst), std::move(args)));
         });
     }
 
@@ -691,7 +690,7 @@ sharded<Service>::invoke_on_all(smp_submit_to_options options, Func&& func) {
     static_assert(std::is_same<futurize_t<std::result_of_t<Func(Service&)>>, future<>>::value,
                   "invoke_on_all()'s func must return void or future<>");
     return invoke_on_all(options, invoke_on_all_func_type([func] (Service& service) mutable {
-        return futurize<void>::apply(func, service);
+        return futurize_invoke(func, service);
     }));
 }
 
@@ -703,7 +702,7 @@ sharded<Service>::invoke_on_others(smp_submit_to_options options, Func&& func) {
     static_assert(std::is_same<futurize_t<std::result_of_t<Func(Service&)>>, future<>>::value,
                   "invoke_on_others()'s func must return void or future<>");
     return invoke_on_all(options, [orig = this_shard_id(), func = std::forward<Func>(func)] (auto& s) -> future<> {
-        return this_shard_id() == orig ? make_ready_future<>() : futurize_apply(func, s);
+        return this_shard_id() == orig ? make_ready_future<>() : futurize_invoke(func, s);
     });
 }
 

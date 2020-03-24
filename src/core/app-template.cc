@@ -117,7 +117,7 @@ app_template::run(int ac, char ** av, std::function<future<int> ()>&& func) {
         engine().at_exit([func_done] { return func_done->get_future(); });
         // No need to wait for this future.
         // func's returned exit_code is communicated via engine().exit()
-        (void)futurize_apply(func).finally([func_done] {
+        (void)futurize_invoke(func).finally([func_done] {
             func_done->set_value();
         }).then([] (int exit_code) {
             return engine().exit(exit_code);

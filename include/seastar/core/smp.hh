@@ -212,7 +212,7 @@ class smp_message_queue {
         virtual void run_and_dispose() noexcept override {
             // _queue.respond() below forwards the continuation chain back to the
             // calling shard.
-            (void)futurator::apply(this->_func).then_wrapped([this] (auto f) {
+            (void)futurator::invoke(this->_func).then_wrapped([this] (auto f) {
                 if (f.failed()) {
                     _ex = f.get_exception();
                 } else {
@@ -319,14 +319,14 @@ public:
             try {
                 if (!is_future<ret_type>::value) {
                     // Non-deferring function, so don't worry about func lifetime
-                    return futurize<ret_type>::apply(std::forward<Func>(func));
+                    return futurize<ret_type>::invoke(std::forward<Func>(func));
                 } else if (std::is_lvalue_reference<Func>::value) {
                     // func is an lvalue, so caller worries about its lifetime
-                    return futurize<ret_type>::apply(func);
+                    return futurize<ret_type>::invoke(func);
                 } else {
                     // Deferring call on rvalue function, make sure to preserve it across call
                     auto w = std::make_unique<std::decay_t<Func>>(std::move(func));
-                    auto ret = futurize<ret_type>::apply(*w);
+                    auto ret = futurize<ret_type>::invoke(*w);
                     return ret.finally([w = std::move(w)] {});
                 }
             } catch (...) {

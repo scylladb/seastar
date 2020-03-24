@@ -167,7 +167,7 @@ private:
             auto pr = make_lw_shared(promise<T...>());
             auto fut = pr->get_future();
             auto op_func = [func = std::move(func), pr = std::move(pr)] () mutable {
-                return futurize_apply(std::move(func)).then_wrapped([pr = std::move(pr)] (future<T...> f) mutable {
+                return futurize_invoke(std::move(func)).then_wrapped([pr = std::move(pr)] (future<T...> f) mutable {
                     f.forward_to(std::move(*pr));
                 });
             };
