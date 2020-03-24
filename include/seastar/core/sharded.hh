@@ -403,10 +403,9 @@ public:
     template <typename Ret, typename... FuncArgs, typename... Args, typename FutureRet = futurize_t<Ret>>
     FutureRet
     invoke_on(unsigned id, smp_submit_to_options options, Ret (Service::*func)(FuncArgs...), Args&&... args) {
-        using futurator = futurize<Ret>;
         return smp::submit_to(id, options, [this, func, args = std::make_tuple(std::forward<Args>(args)...)] () mutable {
             auto inst = get_local_service();
-            return futurator::apply(std::mem_fn(func), std::tuple_cat(std::make_tuple<>(inst), std::move(args)));
+            return futurize_apply(std::mem_fn(func), std::tuple_cat(std::make_tuple<>(inst), std::move(args)));
         });
     }
 

@@ -985,7 +985,7 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
                     f.ignore_ready_future();
                     return std::move(rf);
                 } else {
-                    return futurize<void>::apply(*r_ptr, std::move(f.get()));
+                    return futurize_apply(*r_ptr, std::move(f.get()));
                 }
             });
         });

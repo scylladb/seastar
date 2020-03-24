@@ -874,6 +874,9 @@ using futurize_t = typename futurize<T>::type;
 template<typename Func, typename... Args>
 auto futurize_invoke(Func&& func, Args&&... args);
 
+template<typename Func, typename... Args>
+auto futurize_apply(Func&& func, std::tuple<Args...>&& args);
+
 GCC6_CONCEPT(
 
 template <typename T>
@@ -1190,9 +1193,8 @@ public:
 #ifndef SEASTAR_TYPE_ERASE_MORE
         return then_impl(std::move(func));
 #else
-        using futurator = futurize<std::result_of_t<Func(T&&...)>>;
         return then_impl(noncopyable_function<Result (T&&...)>([func = std::forward<Func>(func)] (T&&... args) mutable {
-            return futurator::apply(func, std::forward_as_tuple(std::move(args)...));
+            return futurize_apply(func, std::forward_as_tuple(std::move(args)...));
         }));
 #endif
     }
