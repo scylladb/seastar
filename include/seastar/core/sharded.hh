@@ -703,7 +703,7 @@ sharded<Service>::invoke_on_others(smp_submit_to_options options, Func&& func) {
     static_assert(std::is_same<futurize_t<std::result_of_t<Func(Service&)>>, future<>>::value,
                   "invoke_on_others()'s func must return void or future<>");
     return invoke_on_all(options, [orig = this_shard_id(), func = std::forward<Func>(func)] (auto& s) -> future<> {
-        return this_shard_id() == orig ? make_ready_future<>() : futurize_apply(func, s);
+        return this_shard_id() == orig ? make_ready_future<>() : futurize_invoke(func, s);
     });
 }
 

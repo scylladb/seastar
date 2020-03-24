@@ -155,7 +155,7 @@ parallel_for_each(Iterator begin, Iterator end, Func&& func) noexcept {
     //   - available, failed: collect exception in ex
     //   - not available: collect in s (allocating it if needed)
     while (begin != end) {
-        auto f = futurize_apply(std::forward<Func>(func), *begin++);
+        auto f = futurize_invoke(std::forward<Func>(func), *begin++);
         if (!f.available() || f.failed()) {
             if (!s) {
                 using itraits = std::iterator_traits<Iterator>;
@@ -599,7 +599,7 @@ public:
 ///         \c action failed.
 template<typename Iterator, typename AsyncAction>
 GCC6_CONCEPT( requires requires (Iterator i, AsyncAction aa) {
-    { futurize_apply(aa, *i) } -> future<>;
+    { futurize_invoke(aa, *i) } -> future<>;
 } )
 inline
 future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) {
@@ -630,7 +630,7 @@ future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) {
 ///         \c action failed.
 template<typename Container, typename AsyncAction>
 GCC6_CONCEPT( requires requires (Container c, AsyncAction aa) {
-    { futurize_apply(aa, *c.begin()) } -> future<>;
+    { futurize_invoke(aa, *c.begin()) } -> future<>;
 } )
 inline
 future<> do_for_each(Container& c, AsyncAction action) {
@@ -830,7 +830,7 @@ auto futurize_apply_if_func(Fut&& fut) {
 
 template<typename Func, std::enable_if_t<!is_future<Func>::value, int> = 0>
 auto futurize_apply_if_func(Func&& func) {
-    return futurize_apply(std::forward<Func>(func));
+    return futurize_invoke(std::forward<Func>(func));
 }
 
 template <typename... Futs>
