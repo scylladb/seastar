@@ -64,7 +64,7 @@ namespace seastar {
 class logger;
 class logger_registry;
 
-/// \brief Logger class for stdout or syslog.
+/// \brief Logger class for ostream or syslog.
 ///
 /// Java style api for logging.
 /// \code {.cpp}
@@ -77,7 +77,8 @@ class logger_registry;
 class logger {
     sstring _name;
     std::atomic<log_level> _level = { log_level::info };
-    static std::atomic<bool> _stdout;
+    static std::ostream* _out;
+    static std::atomic<bool> _ostream;
     static std::atomic<bool> _syslog;
 private:
     struct stringer {
@@ -209,7 +210,14 @@ public:
         _level.store(level, std::memory_order_relaxed);
     }
 
+    /// Set output stream, default is std::cerr
+    static void set_ostream(std::ostream& out);
+
+    /// Also output to ostream. default is true
+    static void set_ostream_enabled(bool enabled);
+
     /// Also output to stdout. default is true
+    [[deprecated("Use set_ostream_enabled instead")]]
     static void set_stdout_enabled(bool enabled);
 
     /// Also output to syslog. default is false
@@ -279,12 +287,19 @@ enum class logger_timestamp_style {
     real,
 };
 
+enum class logger_ostream_type {
+    none,
+    stdout,
+    stderr,
+};
+
 struct logging_settings final {
     std::unordered_map<sstring, log_level> logger_levels;
     log_level default_level;
     bool stdout_enabled;
     bool syslog_enabled;
     logger_timestamp_style stdout_timestamp_style = logger_timestamp_style::real;
+    logger_ostream_type logger_ostream = logger_ostream_type::stderr;
 };
 
 /// Shortcut for configuring the logging system all at once.

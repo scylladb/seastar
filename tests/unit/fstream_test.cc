@@ -22,19 +22,22 @@
 #include <algorithm>
 #include <iostream>
 #include <numeric>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/fstream.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/seastar.hh>
-#include "test-utils.hh"
+#include <seastar/core/semaphore.hh>
+#include <seastar/testing/test_case.hh>
+#include <seastar/testing/test_runner.hh>
 #include <seastar/core/thread.hh>
+#include <seastar/core/print.hh>
 #include <seastar/util/defer.hh>
-#include <random>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/algorithm/cxx11/any_of.hpp>
 #include "mock_file.hh"
+#include <boost/range/irange.hpp>
 
 using namespace seastar;
 
@@ -52,7 +55,8 @@ struct reader {
 SEASTAR_TEST_CASE(test_fstream) {
     auto sem = make_lw_shared<semaphore>(0);
 
-        open_file_dma("testfile.tmp",
+        // Run in background, signal when done.
+        (void)open_file_dma("testfile.tmp",
                       open_flags::rw | open_flags::create | open_flags::truncate).then([sem] (file f) {
             auto w = make_shared<writer>(std::move(f));
             auto buf = static_cast<char*>(::malloc(4096));
@@ -60,7 +64,7 @@ SEASTAR_TEST_CASE(test_fstream) {
             buf[0] = '[';
             buf[1] = 'A';
             buf[4095] = ']';
-            w->out.write(buf, 4096).then([buf, w] {
+            return w->out.write(buf, 4096).then([buf, w] {
                 ::free(buf);
                 return make_ready_future<>();
             }).then([w] {
@@ -175,7 +179,8 @@ SEASTAR_TEST_CASE(test_consume_skip_bytes) {
 SEASTAR_TEST_CASE(test_fstream_unaligned) {
     auto sem = make_lw_shared<semaphore>(0);
 
-    open_file_dma("testfile.tmp",
+    // Run in background, signal when done.
+    (void)open_file_dma("testfile.tmp",
                   open_flags::rw | open_flags::create | open_flags::truncate).then([sem] (file f) {
         auto w = make_shared<writer>(std::move(f));
         auto buf = static_cast<char*>(::malloc(40));
@@ -183,7 +188,7 @@ SEASTAR_TEST_CASE(test_fstream_unaligned) {
         buf[0] = '[';
         buf[1] = 'A';
         buf[39] = ']';
-        w->out.write(buf, 40).then([buf, w] {
+        return w->out.write(buf, 40).then([buf, w] {
             ::free(buf);
             return w->out.close().then([w] {});
         }).then([] {
@@ -245,6 +250,8 @@ future<> test_consume_until_end(uint64_t size) {
                         return in.close();
                     });
                 });
+            }).finally([f] () mutable {
+                return f.close().finally([f]{});
             });
     });
 }
@@ -270,7 +277,7 @@ SEASTAR_TEST_CASE(test_input_stream_esp_around_eof) {
     return seastar::async([] {
         auto flen = uint64_t(5341);
         auto rdist = std::uniform_int_distribution<char>();
-        auto reng = std::default_random_engine();
+        auto reng = testing::local_random_engine;
         auto data = boost::copy_range<std::vector<uint8_t>>(
                 boost::irange<uint64_t>(0, flen)
                 | boost::adaptors::transformed([&] (int x) { return rdist(reng); }));
@@ -345,7 +352,7 @@ SEASTAR_TEST_CASE(file_handle_test) {
                 auto del = defer([&] { ::free(buf); });
                 f.dma_read(0, buf, 4096).get();
                 for (unsigned i = 0; i < 4096; ++i) {
-                    bad[engine().cpu_id()] |= buf[i] != char(i);
+                    bad[this_shard_id()] |= buf[i] != char(i);
                 }
             });
         }).get();

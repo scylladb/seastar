@@ -36,6 +36,15 @@ namespace seastar {
 
 namespace bpo = boost::program_options;
 
+static
+reactor_config
+reactor_config_from_app_config(app_template::config cfg) {
+    reactor_config ret;
+    ret.auto_handle_sigint_sigterm = cfg.auto_handle_sigint_sigterm;
+    ret.task_quota = cfg.default_task_quota;
+    return ret;
+}
+
 app_template::app_template(app_template::config cfg)
     : _cfg(std::move(cfg))
     , _opts(_cfg.name + " options")
@@ -44,7 +53,8 @@ app_template::app_template(app_template::config cfg)
                 ("help,h", "show help message")
                 ;
 
-        _opts_conf_file.add(reactor::get_options_description(cfg.default_task_quota));
+        smp::register_network_stacks();
+        _opts_conf_file.add(reactor::get_options_description(reactor_config_from_app_config(_cfg)));
         _opts_conf_file.add(seastar::metrics::get_options_description());
         _opts_conf_file.add(smp::get_options_description());
         _opts_conf_file.add(scollectd::get_options_description());
@@ -105,7 +115,9 @@ app_template::run(int ac, char ** av, std::function<future<int> ()>&& func) {
     return run_deprecated(ac, av, [func = std::move(func)] () mutable {
         auto func_done = make_lw_shared<promise<>>();
         engine().at_exit([func_done] { return func_done->get_future(); });
-        futurize_apply(func).finally([func_done] {
+        // No need to wait for this future.
+        // func's returned exit_code is communicated via engine().exit()
+        (void)futurize_invoke(func).finally([func_done] {
             func_done->set_value();
         }).then([] (int exit_code) {
             return engine().exit(exit_code);
@@ -160,14 +172,16 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
 
     configuration.emplace("argv0", boost::program_options::variable_value(std::string(av[0]), false));
     try {
-        smp::configure(configuration);
+        smp::configure(configuration, reactor_config_from_app_config(_cfg));
     } catch (...) {
         std::cerr << "Could not initialize seastar: " << std::current_exception() << std::endl;
         return 1;
     }
     _configuration = {std::move(configuration)};
-    engine().when_started().then([this] {
-        seastar::metrics::configure(this->configuration()).then([this] {
+    // No need to wait for this future.
+    // func is waited on via engine().run()
+    (void)engine().when_started().then([this] {
+        return seastar::metrics::configure(this->configuration()).then([this] {
             // set scollectd use the metrics configuration, so the later
             // need to be set first
             scollectd::configure( this->configuration());

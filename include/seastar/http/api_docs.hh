@@ -43,7 +43,9 @@ struct api_doc : public json::json_base {
     api_doc() {
         register_params();
     }
-    api_doc(const api_doc & e) {
+    api_doc(const api_doc & e)
+      : json::json_base()
+    {
         register_params();
         path = e.path;
         description = e.description;
@@ -77,7 +79,9 @@ struct api_docs : public json::json_base {
         swaggerVersion = "1.2";
         register_params();
     }
-    api_docs(const api_docs & e) {
+    api_docs(const api_docs & e)
+      : json::json_base()
+    {
         apiVersion = "0.0.1";
         swaggerVersion = "1.2";
         register_params();

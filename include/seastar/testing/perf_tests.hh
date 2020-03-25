@@ -54,8 +54,8 @@ protected:
     }
 
     [[gnu::always_inline]] [[gnu::hot]]
-    void next_iteration() {
-        _single_run_iterations++;
+    void next_iteration(size_t n) {
+        _single_run_iterations += n;
     }
 
     virtual void set_up() = 0;
@@ -109,7 +109,7 @@ public:
     void start_iteration() {
         _start_time = clock_type::now();
     }
-    
+
     [[gnu::always_inline]] [[gnu::hot]]
     void stop_iteration() {
         auto t = clock_type::now();
@@ -147,6 +147,12 @@ do_if_constexpr_<Condition, TrueFn, FalseFn> if_constexpr_(TrueFn&& true_fn, Fal
 template<typename Test>
 class concrete_performance_test final : public performance_test {
     compat::optional<Test> _test;
+private:
+    template<typename... Args>
+    auto run_test(Args&&...) {
+        return _test->run();
+    }
+
 protected:
     virtual void set_up() override {
         _test.emplace();
@@ -162,16 +168,30 @@ protected:
         return if_constexpr_<is_future<decltype(_test->run())>::value>([&] (auto&&...) {
             measure_time.start_run();
             return do_until([this] { return this->stop_iteration(); }, [this] {
-                this->next_iteration();
-                return _test->run();
+                return if_constexpr_<std::is_same<decltype(_test->run()), future<>>::value>([&] (auto&&...) {
+                    this->next_iteration(1);
+                    return _test->run();
+                }, [&] (auto&&... dependency) {
+                    // We need `dependency` to make sure the compiler won't be able to instantiate anything
+                    // (and notice that the code does not compile) if this part of if_constexpr_ is not active.
+                    return run_test(dependency...).then([&] (size_t n) {
+                        this->next_iteration(n);
+                    });
+                })();
             }).then([] {
                 return measure_time.stop_run();
             });
         }, [&] (auto&&...) {
             measure_time.start_run();
             while (!stop_iteration()) {
-                this->next_iteration();
-                _test->run();
+                if_constexpr_<std::is_void<decltype(_test->run())>::value>([&] (auto&&...) {
+                    (void)_test->run();
+                    this->next_iteration(1);
+                }, [&] (auto&&... dependency) {
+                    // We need `dependency` to make sure the compiler won't be able to instantiate anything
+                    // (and notice that the code does not compile) if this part of if_constexpr_ is not active.
+                    this->next_iteration(run_test(dependency...));
+                })();
             }
             return make_ready_future<clock_type::duration>(measure_time.stop_run());
         })();
@@ -212,6 +232,16 @@ void do_not_optimize(const T& v)
 }
 
 }
+
+// PERF_TEST and PERF_TEST_F support both synchronous and asynchronous functions.
+// The former should return `void`, the latter `future<>`.
+//
+// Test cases may perform multiple operations in a single run, this may be desirable
+// if the cost of an individual operation is very small. This allows measuring either
+// the latency of throughput depending on how the test in written. In such cases,
+// the test function shall return either size_t or future<size_t> for synchronous and
+// asynchronous cases respectively. The returned value shall be the number of iterations
+// done in a single test run.
 
 #define PERF_TEST_F(test_group, test_case) \
     struct test_##test_group##_##test_case : test_group { \

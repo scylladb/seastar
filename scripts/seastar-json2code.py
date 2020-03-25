@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # C++ Code generation utility from Swagger definitions.
 # This utility support Both the swagger 1.2 format
@@ -211,7 +211,14 @@ def is_model_valid(name, model):
     for var in properties:
         type = getitem(properties[var], "type", name + ":" + var)
         if type == "array":
-            type = getitem(getitem(properties[var], "items", name + ":" + var), "type", name + ":" + var + ":items")
+            items = getitem(properties[var], "items", name + ":" + var);
+            try :
+                type = getitem(items, "type", name + ":" + var + ":items")
+            except Exception as e:
+                try:
+                    type = getitem(items, "$ref", name + ":" + var + ":items")
+                except:
+                    raise e;
         if type not in valid_vars:
             if type not in model:
                 raise Exception("Unknown type '" + type + "' in Model '" + name + "'")

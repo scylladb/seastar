@@ -22,12 +22,13 @@
 
 #include <seastar/core/do_with.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/sharded.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/net/tls.hh>
+#include <seastar/util/log.hh>
+#include <iostream>
 
 using namespace seastar;
 
@@ -41,7 +42,7 @@ struct streams {
 };
 
 class echoserver {
-    server_socket _socket;
+    api_v2::server_socket _socket;
     shared_ptr<tls::server_credentials> _certs;
     seastar::gate _gate;
     bool _stopped = false;
@@ -60,12 +61,15 @@ public:
 
             _socket = tls::listen(_certs, addr, opts);
 
-            repeat([this] {
+            // Listen in background.
+            (void)repeat([this] {
                 if (_stopped) {
                     return make_ready_future<stop_iteration>(stop_iteration::yes);
                 }
                 return with_gate(_gate, [this] {
-                    return _socket.accept().then([this](::connected_socket s, socket_address a) {
+                    return _socket.accept().then([this](accept_result ar) {
+                        ::connected_socket s = std::move(ar.connection);
+                        socket_address a = std::move(ar.remote_address);
                         if (_verbose) {
                             std::cout << "Got connection from "<< a << std::endl;
                         }
@@ -90,7 +94,7 @@ public:
                             });
                         }).then([strms]{
                             return strms->out.close();
-                        }).handle_exception([this](auto ep) {
+                        }).handle_exception([](auto ep) {
                         }).finally([this, strms]{
                             if (_verbose) {
                                 std::cout << "Ending session" << std::endl;

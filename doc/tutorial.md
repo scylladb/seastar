@@ -7,12 +7,12 @@
 
 Traditionally, the programming languages libraries and frameworks used for writing server applications have been divided into two distinct camps: those focusing on efficiency, and those focusing on complexity. Some frameworks are extremely efficient and yet allow building only simple applications (e.g., DPDK allows applications which process packets individually), while other frameworks allow building extremely complex applications, at the cost of run-time efficiency. Seastar is our attempt to get the best of both worlds: To create a library which allows building highly complex server applications, and yet achieve optimal performance.
 
-The inspiration and first use case of Seastar was ScyllaDB, a rewrite of Apache Cassandra. Cassandra is a very complex application, and yet, with Seastar we were able to re-implement it with as much as 10-fold throughput increase, as well as significantly lower and more consistent latencies.
+The inspiration and first use case of Seastar was Scylla, a rewrite of Apache Cassandra. Cassandra is a very complex application, and yet, with Seastar we were able to re-implement it with as much as 10-fold throughput increase, as well as significantly lower and more consistent latencies.
 
 Seastar offers a complete asynchronous programming framework, which uses two concepts - **futures** and **continuations** - to uniformly represent, and handle, every type of asynchronous event, including network I/O, disk I/O, and complex combinations of other events.
 
 Since modern multi-core and multi-socket machines have steep penalties for sharing data between cores (atomic instructions, cache line bouncing and memory fences), Seastar programs use the share-nothing programming model, i.e., the available memory is divided between the cores, each core works on data in its own part of memory, and communication between cores happens via explicit message passing (which itself happens using the SMP's shared memory hardware, of course).
-.
+
 ## Asynchronous programming
 A server for a network protocol, such as the classic HTTP (Web) or SMTP (e-mail) servers, inherently deals with parallelism: Multiple clients send requests in parallel, and we cannot finish handling one request before starting to handle the next: A request may, and often does, need to block because of various reasons --- a full TCP window (i.e., a slow connection), disk I/O, or even the client holding on to an inactive connection --- and the server needs to handle other connections as well.
 
@@ -81,19 +81,47 @@ The `return make_ready_future<>();` causes the event loop, and the whole applica
 
 As shown in this example, all Seastar functions and types live in the "`seastar`" namespace. An user can either type this namespace prefix every time, or use shortcuts like "`using seastar::app_template`" or even "`using namespace seastar`" to avoid typing this prefix. We generally recommend to use the namespace prefixes `seastar` and `std` explicitly, and will will follow this style in all the examples below.
 
-To compile this program, first make sure you have downloaded and built Seastar. Below we'll use the symbol `$SEASTAR` to refer to the directory where Seastar was built (Seastar doesn't yet have a "`make install`" feature).
+To compile this program, first make sure you have downloaded, built, and optionally installed Seastar, and put the above program in a source file anywhere you want, let's call the file `getting-started.cc`.
 
-Now, put the above program in a source file anywhere you want, let's call the file `getting-started.cc`. You can compile it with the following command:
+Linux's [pkg-config](http://www.freedesktop.org/wiki/Software/pkg-config/) is one way for easily determining the compilation and linking parameters needed for using various libraries - such as Seastar.  For example, if Seastar was built in the directory `$SEASTAR` but not installed, one can compile `getting-started.cc` with it using the command:
+```
+c++ getting-started.cc `pkg-config --cflags --libs --static $SEASTAR/build/release/seastar.pc`
+```
+The "`--static`" is needed because currently, Seastar is built as a static library, so we need to tell `pkg-config` to include its dependencies in the link command (whereas, had Seastar been a shared library, it could have pulled in its own dependencies).
 
-```none
-c++ `pkg-config --cflags --libs $SEASTAR/build/release/seastar.pc` getting-started.cc
+If Seastar _was_ installed, the `pkg-config` command line is even shorter:
+```
+c++ getting-started.cc `pkg-config --cflags --libs --static seastar`
 ```
 
-Linux's [pkg-config](http://www.freedesktop.org/wiki/Software/pkg-config/) is a useful tool for easily determining the compilation and linking parameters needed for using various libraries - such as Seastar.
+Alternatively, one can easily build a Seastar program with CMake. Given the following `CMakeLists.txt`
+
+```cmake
+cmake_minimum_required (VERSION 3.5)
+
+project (SeastarExample)
+
+find_package (Seastar REQUIRED)
+
+add_executable (example
+  getting-started.cc)
+
+target_link_libraries (example
+  PRIVATE Seastar::seastar)
+```
+
+you can compile the example with the following commands:
+
+```none
+$ mkdir build
+$ cd build
+$ cmake ..
+$ make
+```
 
 The program now runs as expected:
 ```none
-$ ./a.out
+$ ./example
 Hello world
 $
 ```
@@ -733,8 +761,87 @@ Seastar continuations are normally short, but often chained to one another, so t
 These fibers are not threads - each is just a string of continuations - but they share some common requirements with traditional threads.  For example, we want to avoid one fiber getting starved while a second fiber continuously runs its continuations one after another.  As another example, fibers may want to communicate - e.g., one fiber produces data that a second fiber consumes, and we wish to ensure that both fibers get a chance to run, and that if one stops prematurely, the other doesn't hang forever.  
 
 TODO: Mention fiber-related sections like loops, semaphores, gates, pipes, etc.
+
 # Loops
-TODO: do_until, repear and friends; parallel_for_each and friends; Use boost::counting_iterator for integers. map_reduce, as a shortcut (?) for parallel_for_each which needs to produce some results (e.g., logical_or of boolean results), so we don't need to create a lw_shared_ptr explicitly (or do_with).
+A majority of time-consuming computations involve using loops. Seastar provides several primitives for expressing them in a way that composes nicely with the future/promise model. A very important aspect of Seastar loop primitives is that each iteration is followed by a preemption point, thus allowing other tasks to run inbetween iterations.
+## repeat
+A loop created with `repeat` executes its body until it receives a `stop_iteration` object, which informs if the iteration should continue (`stop_iteration::no`) or stop (`stop_iteration::yes`). Next iteration will be launched only after the first one has finished. The loop body passed to `repeat` is expected to have a `future<stop_iteration>` return type.
+```cpp
+seastar::future<int> recompute_number(int number);
+
+seastar::future<> push_until_100(seastar::lw_shared_ptr<std::vector<int>> queue, int element) {
+    return seastar::repeat([queue, element] {
+        if (queue->size() == 100) {
+            return make_ready_future<stop_iteration>(stop_iteration::yes);
+        }
+        return recompute_number(element).then([queue] (int new_element) {
+            queue->push_back(element);
+            return stop_iteration::no;
+        });
+    });
+}
+```
+
+## do_until
+Do until is a close relative of `repeat`, but it uses an explicitly passed condition to decide whether it should stop iterating. The above example could be expressed with `do_until` as follows:
+```cpp
+seastar::future<int> recompute_number(int number);
+
+seastar::future<> push_until_100(seastar::lw_shared_ptr<std::vector<int>> queue, int element) {
+    return seastar::do_until([queue] { return queue->size() == 100; }, [queue, element] {
+        return recompute_number(element).then([queue] (int new_element) {
+            queue->push_back(new_element);
+        });
+    });
+}
+```
+Note that the loop body is expected to return a `future<>`, which allows composing complex continuations inside the loop.
+
+## do_for_each
+A `do_for_each` is an equivalent of a `for` loop in Seastar world. It accepts a range (or a pair of iterators) and a function body, which it applies to each argument, in order, one by one. The next iteration will be launched only after the first one has finished, as was the case with `repeat`. As usual, `do_for_each` expects its loop body to return a `future<>`.
+```cpp
+seastar::future<> append(seastar::lw_shared_ptr<std::vector<int>> queue1, seastar::lw_shared_ptr<std::vector<int>> queue2) {
+    return seastar::do_for_each(queue2, [queue1] (int element) {
+        queue1->push_back(element);
+    });
+}
+
+seastar::future<> append_iota(seastar::lw_shared_ptr<std::vector<int>> queue1, int n) {
+    return seastar::do_for_each(boost::make_counting_iterator<size_t>(0), boost::make_counting_iterator<size_t>(n), [queue1] (int element) {
+        queue1->push_back(element);
+    });
+}
+```
+`do_for_each` accepts either an lvalue reference to a container or a pair of iterators. It implies that the responsibility to ensure that the container is alive during the whole loop execution belongs to the caller. If the container needs its lifetime prolonged, it can be easily achieved with `do_with`:
+```cpp
+seastar::future<> do_something(int number);
+
+seastar::future<> do_for_all(std::vector<int> numbers) {
+    // Note that the "numbers" vector will be destroyed as soon as this function
+    // returns, so we use do_with to guarantee it lives during the whole loop execution:
+    return seastar::do_with(std::move(numbers), [] (std::vector<int>& numbers) {
+        return seastar::do_for_each(numbers, [] (int number) {
+            return do_something(number);
+        });
+    });
+}
+
+```
+
+## parallel_for_each
+Parallel for each is a high concurrency variant of `do_for_each`. When using `parallel_for_each`, all iterations are queued simultaneously - which means that there's no guarantee in which order they finish their operations.
+```cpp
+seastar::future<> flush_all_files(seastar::lw_shared_ptr<std::vector<seastar::file>> files) {
+    return seastar::parallel_for_each(files, [] (seastar::file f) {
+        // file::flush() returns a future<>
+        return f.flush();
+    });
+}
+```
+`parallel_for_each` is a powerful tool, as it allows spawning many tasks in parallel. It can be a great performance gain, but there are also caveats. First of all, too high concurrency may be troublesome - the details can be found in chapter **Limiting parallelism of loops**.
+Secondly, take note that the order in which iterations will be executed within a `parallel_for_each` loop is arbitrary - if a strict ordering is needed, consider using `do_for_each` instead.
+
+TODO: map_reduce, as a shortcut (?) for parallel_for_each which needs to produce some results (e.g., logical_or of boolean results), so we don't need to create a lw_shared_ptr explicitly (or do_with).
 
 TODO: See seastar commit "input_stream: Fix possible infinite recursion in consume()" for an example on why recursion is a possible, but bad, replacement for repeat(). See also my comment on https://groups.google.com/d/msg/seastar-dev/CUkLVBwva3Y/3DKGw-9aAQAJ on why Seastar's iteration primitives should be used over tail call optimization.
 # when_all: Waiting for multiple futures
@@ -1577,6 +1684,32 @@ The most basic building block for writing promises is the **promise object**, an
 
 CONTINUE HERE. write an example, e.g., something which writes a message every second, and after 10 messages, completes the future.
 
+# Memory allocation in Seastar
+## Per-thread memory allocation
+Seastar requires that applications be sharded, i.e., that code running on different threads operate on different objects in memory. We already saw in [Seastar memory] how Seastar takes over a given amount of memory (often, most of the machine's memory) and divides it equally between the different threads. Modern multi-socket machines have non-uniform memory access (NUMA), meaning that some parts of memory are closer to some of the cores, and Seastar takes this knowledge into account when dividing the memory between threads. Currently, the division of memory between threads is static, and equal - the threads are expected to experience roughly equal amount of load and require roughly equal amounts of memory.
+
+To achieve this per-thread allocation, Seastar redefines the C library functions `malloc()`, `free()`, and their numerous relatives --- `calloc()`, `realloc()`, `posix_memalign()`, `memalign()`, `malloc_usable_size()`, and `malloc_trim()`. It also redefines the C++ memory allocation functions, `operator new`, `operator delete`,  and all their variants (including array versions, the C++14 delete taking a size, and the C++17 variants taking required alignment).
+
+It is important to remember that Seastar's different threads *can* see memory allocated by other threads, but they are nontheless strongly discouraged from actually doing this. Sharing data objects between threads on modern multi-core machines results in stiff performance penalties from locks, memory barriers, and cache-line bouncing. Rather, Seastar encourages applications to avoid sharing objects between threads when possible (by *sharding* --- each thread owns a subset of the objects), and when threads do need to interact they do so with explicit message passing, with `submit_to()`, as we shall see later.
+
+## Foreign pointers
+An object allocated on one thread will be owned by this thread, and eventually should be freed by the same thread. Freeing memory on the *wrong* thread is strongly discouraged, but is currently supported (albeit slowly) to support library code beyond Seastar's control. For example, `std::exception_ptr` allocates memory; So if we invoke an asynchronous operation on a remote thread and this operation returns an exception, when we free the returned `std::exception_ptr` this will happen on the "wrong" core. So Seastar allows it, but inefficiently.
+
+In most cases objects should spend their entire life on a single thread and be used only by this thread. But in some cases we want to reassign ownership of an object which started its life on one thread, to a different thread. This can be done using a `seastar::foreign_ptr<>`. A pointer, or smart pointer, to an object is wrapped in a `seastar::foreign_ptr<P>`. This wrapper can then be moved into code running in a different thread (e.g., using `submit_to()`).
+
+The most common use-case is a `seastar::foreign_ptr<std::unique_ptr<T>>`. The thread receiving this `foreign_ptr` will get exclusive use of the object, and when it destroys this wrapper, it will go back to the original thread to destroy the object. Note that the object is not only freed on the original shard - it is also *destroyed* (i.e., its destructor is run) there. This is often important when the object's destructor needs to access other state which belongs to the original shard - e.g., unlink itself from a container.
+
+Although `foreign_ptr` ensures that the object's *destructor* automatically runs on the object's home thread, it does not absolve the user from worrying where to run the object's other methods. Some simple methods, e.g., methods which just read from the object's fields, can be run on the receiving thread. However, other methods may need to access other data owned by the object's home shard, or need to prevent concurrent operations. Even if we're sure that object is now used exclusively by the receiving thread, such methods must still be run, explicitly, on the home thread:
+```
+    // fp is some foreign_ptr<>
+    return smp::submit_to(fp.get_owner_shard(), [p=fp.get()]
+        { return p->some_method(); });
+```
+So `seastar::foreign_ptr<>` not only has functional benefits (namely, to run the destructor on the home shard), it also has *documentational* benefits - it warns the programmer to watch out every time the object is used, that this is a *foreign* pointer, and if we want to do anything non-trivial with the pointed object, we may need to do it on the home shard.
+
+Above, we discussed the case of transferring ownership of an object to a another shard, via `seastar::foreign_ptr<std::unique_ptr<T>>`. However, sometimes the sender does not want to relinquish ownership of the object. Sometimes, it wants the remote thread to operate on its object and return with the object intact. Sometimes, it wants to send the same object to multiple shards. In such cases, `seastar::foreign_ptr<seastar::lw_shared_ptr<T>> is useful. The user needs to watch out, of course, not to operate on the same object from multiple threads concurrently. If this cannot be ensured by program logic alone, some methods of serialization must be used - such as running the operations on the home shard with `submit_to()` as described above.
+
+Normally, a `seastar::foreign_ptr` cannot not be copied - only moved. However, when it holds a smart pointer that can be copied (namely, a `shared_ptr`), one may want to make an additional copy of that pointer and create a second `foreign_ptr`. Doing this is inefficient and asynchronous (it requires communicating with the original owner of the object to create the copies), so a method `future<foreign_ptr> copy()` needs to be explicitly used instead of the normal copy constructor.
 # Seastar::thread
 Seastar's programming model, using futures and continuations, is very powerful and efficient.  However, as we've already seen in examples above, it is also relatively verbose: Every time that we need to wait before proceeding with a computation, we need to write another continuation. We also need to worry about passing the data between the different continuations (using techniques like those described in the [Lifetime management] section). Simple flow-control constructs such as loops also become more involved using continuations. For example, consider this simple classical synchronous code:
 ```cpp
@@ -1612,7 +1745,7 @@ A `seastar::thread` is **not** a separate operating system thread. It still uses
 
 The `seastar::thread` allocates a 128KB stack, and runs the given function until the it *blocks* on the call to a future's `get()` method. Outside a `seastar::thread` context, `get()` may only be called on a future which is already available. But inside a thread, calling `get()` on a future which is not yet available stops running the thread function, and schedules a continuation for this future, which continues to run the thread's function (on the same saved stack) when the future becomes available.
 
-Just like normal Seastar continuations, `seastar::thread`s always run on the same core they were launched on. They are also cooperative: they are never preempted except at blocking points (calls to `seastar::future::get()`) or on explict calls to `seastar::thread::yield()`.
+Just like normal Seastar continuations, `seastar::thread`s always run on the same core they were launched on. They are also cooperative: they are never preempted except when `seastar::future::get()` blocks or on explict calls to `seastar::thread::yield()`.
 
 It is worth reiterating that a `seastar::thread` is not a POSIX thread, and it can only block on Seastar futures, not on blocking system calls. The above example used `seastar::sleep()`, not the `sleep()` system call. The `seastar::thread`'s function can throw and catch exceptions normally. Remember that `get()` will throw an exception if the future resolves with an exception.
 

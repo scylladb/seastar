@@ -214,13 +214,18 @@ void deleter::append(deleter d) {
     impl* next_impl = _impl;
     deleter* next_d = this;
     while (next_impl) {
-        assert(next_impl != d._impl);
+        if (next_impl == d._impl) {
+            return; // Already appended
+        }
         if (is_raw_object(next_impl)) {
             next_d->_impl = next_impl = new free_deleter_impl(to_raw_object(next_impl));
         }
+
         if (next_impl->refs != 1) {
-            next_d->_impl = next_impl = make_object_deleter_impl(std::move(next_impl->next), deleter(next_impl));
+            next_d->_impl = next_impl = make_object_deleter_impl(deleter(next_impl), std::move(d));
+            return;
         }
+
         next_d = &next_impl->next;
         next_impl = next_d->_impl;
     }

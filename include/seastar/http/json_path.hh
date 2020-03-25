@@ -170,6 +170,7 @@ struct path_description {
     std::vector<path_part> params;
     sstring path;
     json_operation operations;
+    mutable routes::rule_cookie _cookie;
 
     std::vector<sstring> mandatory_queryparams;
 
@@ -178,6 +179,8 @@ struct path_description {
     void set(routes& _routes, const json_request_function& f) const;
 
     void set(routes& _routes, const future_json_function& f) const;
+
+    void unset(routes& _routes) const;
 };
 
 }

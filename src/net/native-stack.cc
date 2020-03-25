@@ -31,6 +31,7 @@
 #include <seastar/net/proxy.hh>
 #include <seastar/net/dhcp.hh>
 #include <seastar/net/config.hh>
+#include <seastar/core/reactor.hh>
 #include <memory>
 #include <queue>
 #include <fstream>
@@ -99,9 +100,12 @@ void create_native_net_device(boost::program_options::variables_map opts) {
 
     auto sem = std::make_shared<semaphore>(0);
     std::shared_ptr<device> sdev(dev.release());
+    // set_local_queue on all shard in the background,
+    // signal when done.
+    // FIXME: handle exceptions
     for (unsigned i = 0; i < smp::count; i++) {
-        smp::submit_to(i, [opts, sdev] {
-            uint16_t qid = engine().cpu_id();
+        (void)smp::submit_to(i, [opts, sdev] {
+            uint16_t qid = this_shard_id();
             if (qid < sdev->hw_queues_count()) {
                 auto qp = sdev->init_local_queue(opts, qid);
                 std::map<unsigned, float> cpu_weights;
@@ -119,10 +123,15 @@ void create_native_net_device(boost::program_options::variables_map opts) {
             sem->signal();
         });
     }
-    sem->wait(smp::count).then([opts, sdev] {
-        sdev->link_ready().then([opts, sdev] {
+    // wait for all shards to set their local queue,
+    // then when link is ready, communicate the native_stack to the caller
+    // via `create_native_stack` (that sets the ready_promise value)
+    (void)sem->wait(smp::count).then([opts, sdev] {
+        // FIXME: future is discarded
+        (void)sdev->link_ready().then([opts, sdev] {
             for (unsigned i = 0; i < smp::count; i++) {
-                smp::submit_to(i, [opts, sdev] {
+                // FIXME: future is discarded
+                (void)smp::submit_to(i, [opts, sdev] {
                     create_native_stack(opts, sdev);
                 });
             }
@@ -142,7 +151,7 @@ private:
     timer<> _timer;
 
     future<> run_dhcp(bool is_renew = false, const dhcp::lease & res = dhcp::lease());
-    void on_dhcp(bool, const dhcp::lease &, bool);
+    void on_dhcp(compat::optional<dhcp::lease> lease, bool is_renew);
     void set_ipv4_packet_filter(ip_packet_filter* filter) {
         _inet.set_packet_filter(filter);
     }
@@ -151,10 +160,10 @@ public:
     explicit native_network_stack(boost::program_options::variables_map opts, std::shared_ptr<device> dev);
     virtual server_socket listen(socket_address sa, listen_options opt) override;
     virtual ::seastar::socket socket() override;
-    virtual udp_channel make_udp_channel(ipv4_addr addr) override;
+    virtual udp_channel make_udp_channel(const socket_address& addr) override;
     virtual future<> initialize() override;
     static future<std::unique_ptr<network_stack>> create(boost::program_options::variables_map opts) {
-        if (engine().cpu_id() == 0) {
+        if (this_shard_id() == 0) {
             create_native_net_device(opts);
         }
         return ready_promise.get_future();
@@ -164,12 +173,17 @@ public:
         _inet.learn(l2, l3);
     }
     friend class native_server_socket_impl<tcp4>;
+
+    class native_network_interface;
+    friend class native_network_interface;
+
+    std::vector<network_interface> network_interfaces() override;
 };
 
 thread_local promise<std::unique_ptr<network_stack>> native_network_stack::ready_promise;
 
 udp_channel
-native_network_stack::make_udp_channel(ipv4_addr addr) {
+native_network_stack::make_udp_channel(const socket_address& addr) {
     return _inet.get_udp().make_channel(addr);
 }
 
@@ -197,7 +211,7 @@ native_network_stack::native_network_stack(boost::program_options::variables_map
 
 server_socket
 native_network_stack::listen(socket_address sa, listen_options opts) {
-    assert(sa.as_posix_sockaddr().sa_family == AF_INET);
+    assert(sa.family() == AF_INET || sa.is_unspecified());
     return tcpv4_listen(_inet.get_tcp(), ntohs(sa.as_posix_sockaddr_in().sin_port), opts);
 }
 
@@ -216,17 +230,18 @@ future<> native_network_stack::run_dhcp(bool is_renew, const dhcp::lease& res) {
         ns.set_ipv4_packet_filter(f);
     }).then([this, d = std::move(d), is_renew, res]() mutable {
         net::dhcp::result_type fut = is_renew ? d.renew(res) : d.discover();
-        return fut.then([this, is_renew](bool success, const dhcp::lease & res) {
+        return fut.then([this, is_renew](compat::optional<dhcp::lease> lease) {
             return smp::invoke_on_all([] {
                 auto & ns = static_cast<native_network_stack&>(engine().net());
                 ns.set_ipv4_packet_filter(nullptr);
-            }).then(std::bind(&net::native_network_stack::on_dhcp, this, success, res, is_renew));
+            }).then(std::bind(&net::native_network_stack::on_dhcp, this, lease, is_renew));
         }).finally([d = std::move(d)] {});
     });
 }
 
-void native_network_stack::on_dhcp(bool success, const dhcp::lease & res, bool is_renew) {
-    if (success) {
+void native_network_stack::on_dhcp(compat::optional<dhcp::lease> lease, bool is_renew) {
+    if (lease) {
+        auto& res = *lease;
         _inet.set_host_address(res.ip);
         _inet.set_gw_address(res.gateway);
         _inet.set_netmask_address(res.netmask);
@@ -236,21 +251,23 @@ void native_network_stack::on_dhcp(bool success, const dhcp::lease & res, bool i
         _config.set_value();
     }
 
-    if (engine().cpu_id() == 0) {
+    if (this_shard_id() == 0) {
         // And the other cpus, which, in the case of initial discovery,
         // will be waiting for us.
         for (unsigned i = 1; i < smp::count; i++) {
-            smp::submit_to(i, [success, res, is_renew]() {
+            (void)smp::submit_to(i, [lease, is_renew]() {
                 auto & ns = static_cast<native_network_stack&>(engine().net());
-                ns.on_dhcp(success, res, is_renew);
+                ns.on_dhcp(lease, is_renew);
             });
         }
-        if (success) {
+        if (lease) {
             // And set up to renew the lease later on.
+            auto& res = *lease;
             _timer.set_callback(
                     [this, res]() {
                         _config = promise<>();
-                        run_dhcp(true, res);
+                        // callback ignores future result
+                        (void)run_dhcp(true, res);
                     });
             _timer.arm(
                     std::chrono::duration_cast<steady_clock_type::duration>(
@@ -267,8 +284,9 @@ future<> native_network_stack::initialize() {
 
         // Only run actual discover on main cpu.
         // All other cpus must simply for main thread to complete and signal them.
-        if (engine().cpu_id() == 0) {
-            run_dhcp();
+        if (this_shard_id() == 0) {
+            // FIXME: future is discarded
+            (void)run_dhcp();
         }
         return _config.get_future();
     });
@@ -276,12 +294,11 @@ future<> native_network_stack::initialize() {
 
 void arp_learn(ethernet_address l2, ipv4_address l3)
 {
-    for (unsigned i = 0; i < smp::count; i++) {
-        smp::submit_to(i, [l2, l3] {
-            auto & ns = static_cast<native_network_stack&>(engine().net());
-            ns.arp_learn(l2, l3);
-        });
-    }
+    // Run arp_learn on all shard in the background
+    (void)smp::invoke_on_all([l2, l3] {
+        auto & ns = static_cast<native_network_stack&>(engine().net());
+        ns.arp_learn(l2, l3);
+    });
 }
 
 void create_native_stack(boost::program_options::variables_map opts, std::shared_ptr<device> dev) {
@@ -325,9 +342,66 @@ boost::program_options::options_description nns_options() {
     return opts;
 }
 
-network_stack_registrator nns_registrator{
-    "native", nns_options(), native_network_stack::create
+void register_native_stack() {
+    register_network_stack("native", nns_options(), native_network_stack::create);
+}
+
+class native_network_stack::native_network_interface : public net::network_interface_impl {
+    const native_network_stack& _stack;
+    std::vector<net::inet_address> _addresses;
+    std::vector<uint8_t> _hardware_address;
+public:
+    native_network_interface(const native_network_stack& stack)
+        : _stack(stack)
+        , _addresses(1, _stack._inet.host_address())
+        , _hardware_address(_stack._inet.netif()->hw_address().mac.begin(), _stack._inet.netif()->hw_address().mac.end())
+    {}
+    native_network_interface(const native_network_interface&) = default;
+
+    uint32_t index() const override {
+        return 0;
+    }
+    uint32_t mtu() const override {
+        return _stack._inet.netif()->hw_features().mtu;
+    }
+    const sstring& name() const override {
+        static const sstring name = "if0";
+        return name;
+    }
+    const sstring& display_name() const override {
+        return name();
+    }
+    const std::vector<net::inet_address>& addresses() const override {
+        return _addresses;            
+    }
+    const std::vector<uint8_t> hardware_address() const override {
+        return _hardware_address;
+    }
+    bool is_loopback() const override {
+        return false;   
+    }
+    bool is_virtual() const override {
+        return false;
+    }
+    bool is_up() const override {
+        return true;
+    }
+    bool supports_ipv6() const override {
+        return false;
+    }
 };
+
+std::vector<network_interface> native_network_stack::network_interfaces() {
+    if (!_inet.netif()) {
+        return {};
+    }
+
+    static const native_network_interface nwif(*this);
+
+    std::vector<network_interface> res;
+    res.emplace_back(make_shared<native_network_interface>(nwif));
+    return res;
+}
 
 }
 

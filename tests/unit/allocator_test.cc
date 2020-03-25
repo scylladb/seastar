@@ -21,7 +21,7 @@
 
 #include <seastar/core/memory.hh>
 #include <seastar/core/timer.hh>
-#include <random>
+#include <seastar/testing/test_runner.hh>
 #include <cmath>
 #include <iostream>
 #include <iomanip>
@@ -32,17 +32,6 @@
 #include <boost/program_options.hpp>
 
 using namespace seastar;
-
-template <size_t N>
-void test_aligned_allocator() {
-    using aptr = std::unique_ptr<char[]>;
-    std::vector<aptr> v;
-    for (unsigned i = 0; i < 1000; ++i) {
-        aptr p(new (with_alignment(64)) char[N]);
-        assert(reinterpret_cast<uintptr_t>(p.get()) % 64 == 0);
-        v.push_back(std::move(p));
-    }
-}
 
 struct allocation {
     size_t n;
@@ -132,7 +121,7 @@ void test_cpp17_aligned_allocator() {
     tv.push_back(std::make_unique<test17_concrete<4096*16>>());
     tv.push_back(std::make_unique<test17_concrete<4096*256>>());
 
-    std::default_random_engine random_engine;
+    std::default_random_engine random_engine(testing::local_random_engine());
     std::uniform_int_distribution<> type_dist(0, 1);
     std::uniform_int_distribution<size_t> size_dist(0, tv.size() - 1);
     std::uniform_real_distribution<> which_dist(0, 1);
@@ -171,15 +160,14 @@ int main(int ac, char** av) {
             ("help", "produce this help message")
             ("iterations", bpo::value<unsigned>(), "run s specified number of iterations")
             ("time", bpo::value<float>()->default_value(5.0), "run for a specified amount of time, in seconds")
+            ("random-seed", boost::program_options::value<unsigned>(), "Random number generator seed");
             ;
     bpo::variables_map vm;
     bpo::store(bpo::parse_command_line(ac, av, opts), vm);
     bpo::notify(vm);
-    test_aligned_allocator<1>();
-    test_aligned_allocator<4>();
-    test_aligned_allocator<80>();
     test_cpp17_aligned_allocator();
-    std::default_random_engine random_engine;
+    auto seed = vm.count("random-seed") ? vm["random-seed"].as<unsigned>() : std::random_device{}();
+    std::default_random_engine random_engine(seed);
     std::exponential_distribution<> distr(0.2);
     std::uniform_int_distribution<> type(0, 1);
     std::uniform_int_distribution<char> poison(-128, 127);
@@ -212,6 +200,7 @@ int main(int ac, char** av) {
         std::cout << opts << "\n";
         return 1;
     }
+    std::cout << "random-seed=" << seed << "\n";
     if (vm.count("iterations")) {
         auto iterations = vm["iterations"].as<unsigned>();
         for (unsigned i = 0; i < iterations; ++i) {
@@ -229,5 +218,3 @@ int main(int ac, char** av) {
     }
     return 0;
 }
-
-

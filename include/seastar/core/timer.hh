@@ -48,7 +48,14 @@ private:
     bool _queued = false;
     bool _expired = false;
     void readd_periodic();
-    void arm_state(time_point until, compat::optional<duration> period);
+    void arm_state(time_point until, compat::optional<duration> period) {
+        assert(!_armed);
+        _period = period;
+        _armed = true;
+        _expired = false;
+        _expiry = until;
+        _queued = true;
+    }
 public:
     timer() = default;
     timer(timer&& t) noexcept : _callback(std::move(t._callback)), _expiry(std::move(t._expiry)), _period(std::move(t._period)),
@@ -57,20 +64,35 @@ public:
         t._queued = false;
         t._armed = false;
     }
-    explicit timer(callback_t&& callback);
+    explicit timer(callback_t&& callback) : _callback{std::move(callback)} {
+    }
     ~timer();
-    future<> expired();
-    void set_callback(callback_t&& callback);
+    void set_callback(callback_t&& callback) {
+        _callback = std::move(callback);
+    }
     void arm(time_point until, compat::optional<duration> period = {});
-    void rearm(time_point until, compat::optional<duration> period = {});
-    void arm(duration delta);
-    void arm_periodic(duration delta);
+    void rearm(time_point until, compat::optional<duration> period = {}) {
+        if (_armed) {
+            cancel();
+        }
+        arm(until, period);
+    }
+    void arm(duration delta) {
+        return arm(Clock::now() + delta);
+    }
+    void arm_periodic(duration delta) {
+        arm(Clock::now() + delta, {delta});
+    }
     bool armed() const { return _armed; }
     bool cancel();
-    time_point get_timeout();
+    time_point get_timeout() {
+        return _expiry;
+    }
     friend class reactor;
     friend class timer_set<timer, &timer::_link>;
 };
+
+extern template class timer<steady_clock_type>;
 
 }
 

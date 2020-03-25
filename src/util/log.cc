@@ -19,13 +19,20 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
+#include <fmt/core.h>
+#if FMT_VERSION >= 60000
+#include <fmt/chrono.h>
+#elif FMT_VERSION >= 50000
 #include <fmt/time.h>
+#endif
 
 #include <seastar/util/log.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/util/log-cli.hh>
 
 #include <seastar/core/array_map.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/print.hh>
 
 #include <boost/any.hpp>
 #include <boost/lexical_cast.hpp>
@@ -75,6 +82,35 @@ std::ostream& operator<<(std::ostream& os, logger_timestamp_style lts) {
     return os;
 }
 
+void validate(boost::any& v,
+              const std::vector<std::string>& values,
+              logger_ostream_type* target_type, int) {
+    using namespace boost::program_options;
+    validators::check_first_occurrence(v);
+    auto s = validators::get_single_string(values);
+    if (s == "none") {
+        v = logger_ostream_type::none;
+        return;
+    } else if (s == "stdout") {
+        v = logger_ostream_type::stdout;
+        return;
+    } else if (s == "stderr") {
+        v = logger_ostream_type::stderr;
+        return;
+    }
+    throw validation_error(validation_error::invalid_option_value);
+}
+
+std::ostream& operator<<(std::ostream& os, logger_ostream_type lot) {
+    switch (lot) {
+    case logger_ostream_type::none: return os << "none";
+    case logger_ostream_type::stdout: return os << "stdout";
+    case logger_ostream_type::stderr: return os << "stderr";
+    default: abort();
+    }
+    return os;
+}
+
 struct timestamp_tag {};
 
 static void print_no_timestamp(std::ostream& os) {
@@ -91,7 +127,7 @@ static void print_space_and_real_timestamp(std::ostream& os) {
         std::string s;
     };
     static thread_local a_second this_second;
-    using clock = std::chrono::high_resolution_clock;
+    using clock = std::chrono::system_clock;
     auto n = clock::now();
     auto t = clock::to_time_t(n);
     if (this_second.t != t) {
@@ -141,7 +177,8 @@ std::istream& operator>>(std::istream& in, log_level& level) {
     return in;
 }
 
-std::atomic<bool> logger::_stdout = { true };
+std::ostream* logger::_out = &std::cerr;
+std::atomic<bool> logger::_ostream = { true };
 std::atomic<bool> logger::_syslog = { false };
 
 logger::logger(sstring name) : _name(std::move(name)) {
@@ -157,10 +194,10 @@ logger::~logger() {
 }
 
 void
-logger::really_do_log(log_level level, const char* fmt, const stringer* s, size_t n) {
-    bool is_stdout_enabled = _stdout.load(std::memory_order_relaxed);
+logger::really_do_log(log_level level, const char* fmt, const stringer* stringers, size_t stringers_size) {
+    bool is_ostream_enabled = _ostream.load(std::memory_order_relaxed);
     bool is_syslog_enabled = _syslog.load(std::memory_order_relaxed);
-    if(!is_stdout_enabled && !is_syslog_enabled) {
+    if(!is_ostream_enabled && !is_syslog_enabled) {
       return;
     }
     std::ostringstream out, log;
@@ -173,11 +210,13 @@ logger::really_do_log(log_level level, const char* fmt, const stringer* s, size_
     };
     auto print_once = [&] (std::ostream& out) {
       if (local_engine) {
-        out << " [shard " << engine().cpu_id() << "] " << _name << " - ";
+        out << " [shard " << this_shard_id() << "] " << _name << " - ";
       } else {
         out << " " << _name << " - ";
       }
       const char* p = fmt;
+      size_t n = stringers_size;
+      const stringer* s = stringers;
       while (*p != '\0') {
         if (*p == '{' && *(p+1) == '}') {
             p += 2;
@@ -198,10 +237,10 @@ logger::really_do_log(log_level level, const char* fmt, const stringer* s, size_
       }
       out << "\n";
     };
-    if (is_stdout_enabled) {
+    if (is_ostream_enabled) {
         out << level_map[int(level)] << space_and_current_timestamp();
         print_once(out);
-        std::cout << out.str();
+        *_out << out.str();
     }
     if (is_syslog_enabled) {
         print_once(log);
@@ -233,8 +272,18 @@ void logger::failed_to_log(std::exception_ptr ex)
 }
 
 void
+logger::set_ostream(std::ostream& out) {
+    _out = &out;
+}
+
+void
+logger::set_ostream_enabled(bool enabled) {
+    _ostream.store(enabled, std::memory_order_relaxed);
+}
+
+void
 logger::set_stdout_enabled(bool enabled) {
-    _stdout.store(enabled, std::memory_order_relaxed);
+    _ostream.store(enabled, std::memory_order_relaxed);
 }
 
 void
@@ -243,7 +292,7 @@ logger::set_syslog_enabled(bool enabled) {
 }
 
 bool logger::is_shard_zero() {
-    return engine().cpu_id() == 0;
+    return this_shard_id() == 0;
 }
 
 void
@@ -307,7 +356,20 @@ void apply_logging_settings(const logging_settings& s) {
         }
     }
 
-    logger::set_stdout_enabled(s.stdout_enabled);
+    logger_ostream_type logger_ostream = s.stdout_enabled ? s.logger_ostream : logger_ostream_type::none;
+    switch (logger_ostream) {
+    case logger_ostream_type::none:
+        logger::set_ostream_enabled(false);
+        break;
+    case logger_ostream_type::stdout:
+        logger::set_ostream(std::cout);
+        logger::set_ostream_enabled(true);
+        break;
+    case logger_ostream_type::stderr:
+        logger::set_ostream(std::cerr);
+        logger::set_ostream_enabled(true);
+        break;
+    }
     logger::set_syslog_enabled(s.syslog_enabled);
 
     switch (s.stdout_timestamp_style) {
@@ -364,13 +426,14 @@ bpo::options_description get_options_description() {
             ("logger-log-level",
              bpo::value<program_options::string_map>()->default_value({}),
              "Map of logger name to log level. The format is \"NAME0=LEVEL0[:NAME1=LEVEL1:...]\". "
-             "Valid logger names can be queried with --help-logging. "
+             "Valid logger names can be queried with --help-loggers. "
              "Valid values for levels are trace, debug, info, warn, error. "
              "This option can be specified multiple times."
             )
             ("logger-stdout-timestamps", bpo::value<logger_timestamp_style>()->default_value(logger_timestamp_style::real),
                     "Select timestamp style for stdout logs: none|boot|real")
-            ("log-to-stdout", bpo::value<bool>()->default_value(true), "Send log output to stdout.")
+            ("log-to-stdout", bpo::value<bool>()->default_value(true), "Send log output to output stream, as selected by --logger-ostream-type")
+            ("logger-ostream-type", bpo::value<logger_ostream_type>()->default_value(logger_ostream_type::stderr), "Send log output to: none|stdout|stderr")
             ("log-to-syslog", bpo::value<bool>()->default_value(false), "Send log output to syslog.")
             ("help-loggers", bpo::bool_switch(), "Print a list of logger names and exit.");
 
@@ -400,9 +463,9 @@ logging_settings extract_settings(const boost::program_options::variables_map& v
         parse_log_level(vars["default-log-level"].as<sstring>()),
         vars["log-to-stdout"].as<bool>(),
         vars["log-to-syslog"].as<bool>(),
-        vars["logger-stdout-timestamps"].as<logger_timestamp_style>()
+        vars["logger-stdout-timestamps"].as<logger_timestamp_style>(),
+        vars["logger-ostream-type"].as<logger_ostream_type>(),
     };
-
 }
 
 }
@@ -461,7 +524,7 @@ std::ostream& operator<<(std::ostream& out, const std::exception& e) {
 }
 
 std::ostream& operator<<(std::ostream& out, const std::system_error& e) {
-    return out << seastar::pretty_type_name(typeid(e)) << " (error " << e.code() << ", " << e.code().message() << ")";
+    return out << seastar::pretty_type_name(typeid(e)) << " (error " << e.code() << ", " << e.what() << ")";
 }
 
 }

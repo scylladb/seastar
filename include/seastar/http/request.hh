@@ -62,7 +62,7 @@ struct request {
     connection* connection_ptr;
     parameters param;
     sstring content;
-    sstring protocol_name;
+    sstring protocol_name = "http";
 
     /**
      * Search for the first header of a given name
@@ -94,7 +94,7 @@ struct request {
      * Get the request protocol name. Can be either "http" or "https".
      */
     sstring get_protocol_name() const {
-        return "http";
+        return protocol_name;
     }
 
     /**

@@ -37,7 +37,7 @@ inline future<temporary_buffer<char>> data_source_impl::skip(uint64_t n)
             return get().then([&] (temporary_buffer<char> buffer) -> compat::optional<temporary_buffer<char>> {
                 if (buffer.size() >= n) {
                     buffer.trim_front(n);
-                    return std::move(buffer);
+                    return SEASTAR_COPY_ELISION(buffer);
                 }
                 n -= buffer.size();
                 return { };
@@ -328,6 +328,17 @@ output_stream<CharType>::split_and_put(temporary_buffer<CharType> buf) {
 template <typename CharType>
 future<>
 output_stream<CharType>::write(const char_type* buf, size_t n) {
+    if (__builtin_expect(!_buf || n > _size - _end, false)) {
+        return slow_write(buf, n);
+    }
+    std::copy_n(buf, n, _buf.get_write() + _end);
+    _end += n;
+    return make_ready_future<>();
+}
+
+template <typename CharType>
+future<>
+output_stream<CharType>::slow_write(const char_type* buf, size_t n) {
     assert(!_zc_bufs && "Mixing buffered writes and zero-copy writes not supported yet");
     auto bulk_threshold = _end ? (2 * _size - _end) : _size;
     if (n >= bulk_threshold) {
@@ -446,7 +457,8 @@ output_stream<CharType>::poll_flush() {
         f = _fd.put(std::move(_zc_bufs));
     }
 
-    f.then([this] {
+    // FIXME: future is discarded
+    (void)f.then([this] {
         return _fd.flush();
     }).then_wrapped([this] (future<> f) {
         try {

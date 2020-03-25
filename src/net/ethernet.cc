@@ -19,6 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
+#include <seastar/core/print.hh>
 #include <seastar/net/ethernet.hh>
 #include <boost/algorithm/string.hpp>
 #include <string>

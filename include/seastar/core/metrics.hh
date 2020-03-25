@@ -87,6 +87,10 @@ namespace seastar {
 
 namespace metrics {
 
+class double_registration : public std::runtime_error {
+public:
+    double_registration(std::string what);
+};
 
 /*!
  * \defgroup metrics_types metrics type definitions

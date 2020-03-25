@@ -51,7 +51,7 @@ class do_with_state final : public continuation_base_from_future<Future>::type {
 public:
     explicit do_with_state(HeldState&& held) : _held(std::move(held)) {}
     virtual void run_and_dispose() noexcept override {
-        std::move(this->_state).forward_to(_pr);
+        _pr.set_urgent_state(std::move(this->_state));
         delete this;
     }
     HeldState& data() {
@@ -96,7 +96,7 @@ auto do_with(T&& rvalue, F&& f) {
         return fut;
     }
     auto ret = task->get_future();
-    internal::set_callback(fut, std::move(task));
+    internal::set_callback(fut, task.release());
     return ret;
 }
 
@@ -154,7 +154,7 @@ do_with(T1&& rv1, T2&& rv2, T3_or_F&& rv3, More&&... more) {
         return fut;
     }
     auto ret = task->get_future();
-    internal::set_callback(fut, std::move(task));
+    internal::set_callback(fut, task.release());
     return ret;
 }
 

@@ -23,8 +23,10 @@
 
 #include <seastar/core/deleter.hh>
 #include <seastar/util/eclipse.hh>
+#include <seastar/util/std-compat.hh>
 #include <malloc.h>
 #include <algorithm>
+#include <cstddef>
 
 namespace seastar {
 
@@ -80,11 +82,13 @@ public:
         : _buffer(nullptr)
         , _size(0) {}
     temporary_buffer(const temporary_buffer&) = delete;
+
     /// Moves a \c temporary_buffer.
     temporary_buffer(temporary_buffer&& x) noexcept : _buffer(x._buffer), _size(x._size), _deleter(std::move(x._deleter)) {
         x._buffer = nullptr;
         x._size = 0;
     }
+
     /// Creates a \c temporary_buffer with a specific deleter.
     ///
     /// \param buf beginning of the buffer held by this \c temporary_buffer
@@ -197,8 +201,8 @@ public:
     /// Creates a \c temporary_buffer object with a specified size, with
     /// memory aligned to a specific boundary.
     ///
-    /// \param alignment Required alignment; must be a power of two.
-    /// \param size Required size.
+    /// \param alignment Required alignment; must be a power of two and a multiple of sizeof(void *).
+    /// \param size Required size; must be a multiple of alignment.
     /// \return a new \c temporary_buffer object.
     static temporary_buffer aligned(size_t alignment, size_t size) {
         void *ptr = nullptr;
@@ -210,11 +214,21 @@ public:
         return temporary_buffer(buf, size, make_free_deleter(buf));
     }
 
+    static temporary_buffer copy_of(compat::string_view view) {
+        void* ptr = ::malloc(view.size());
+        if (!ptr) {
+            throw std::bad_alloc();
+        }
+        auto buf = static_cast<CharType*>(ptr);
+        memcpy(buf, view.data(), view.size());
+        return temporary_buffer(buf, view.size(), make_free_deleter(buf));
+    }
+
     /// Compare contents of this buffer with another buffer for equality
     ///
     /// \param o buffer to compare with
     /// \return true if and only if contents are the same
-    bool operator==(const temporary_buffer<char>& o) const {
+    bool operator==(const temporary_buffer& o) const {
         return size() == o.size() && std::equal(begin(), end(), o.begin());
     }
 
@@ -222,7 +236,7 @@ public:
     ///
     /// \param o buffer to compare with
     /// \return true if and only if contents are not the same
-    bool operator!=(const temporary_buffer<char>& o) const {
+    bool operator!=(const temporary_buffer& o) const {
         return !(*this == o);
     }
 };

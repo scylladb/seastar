@@ -22,15 +22,17 @@
 #pragma once
 
 #include <array>
+#include <assert.h>
+#include <algorithm>
 #include <seastar/net/byteorder.hh>
-#include <seastar/core/print.hh>
 
 namespace seastar {
 
 namespace net {
 
 struct ethernet_address {
-    ethernet_address() {}
+    ethernet_address()
+        : mac{} {}
 
     ethernet_address(const uint8_t *eaddr) {
         std::copy(eaddr, eaddr + 6, mac.begin());

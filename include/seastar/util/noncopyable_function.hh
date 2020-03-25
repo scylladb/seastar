@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include <seastar/util/used_size.hh>
+
 #include <utility>
 #include <type_traits>
 #include <functional>
@@ -30,18 +32,52 @@ namespace seastar {
 template <typename Signature>
 class noncopyable_function;
 
-/// A clone of \c std::function, but only invokes the move constructor
-/// of the contained function.
-template <typename Ret, typename... Args>
-class noncopyable_function<Ret (Args...)> {
+namespace internal {
+
+class noncopyable_function_base {
+private:
+    noncopyable_function_base() = default;
     static constexpr size_t nr_direct = 32;
     union [[gnu::may_alias]] storage {
         char direct[nr_direct];
         void* indirect;
     };
+    using move_type = void (*)(noncopyable_function_base* from, noncopyable_function_base* to);
+    using destroy_type = void (*)(noncopyable_function_base* func);
+
+    static void empty_move(noncopyable_function_base* from, noncopyable_function_base* to) {}
+    static void empty_destroy(noncopyable_function_base* func) {}
+
+    static void indirect_move(noncopyable_function_base* from, noncopyable_function_base* to) {
+        using void_ptr = void*;
+        new (&to->_storage.indirect) void_ptr(from->_storage.indirect);
+    }
+
+    template <size_t N>
+    static void trivial_direct_move(noncopyable_function_base* from, noncopyable_function_base* to) {
+        // Avoid including <algorithm> just for this
+        for (unsigned i = 0; i != N; ++i) {
+            to->_storage.direct[i] = from->_storage.direct[i];
+        }
+    }
+
+    static void trivial_direct_destroy(noncopyable_function_base* func) {
+    }
+
+private:
+    storage _storage;
+
+    template <typename Signature>
+    friend class seastar::noncopyable_function;
+};
+
+}
+
+/// A clone of \c std::function, but only invokes the move constructor
+/// of the contained function.
+template <typename Ret, typename... Args>
+class noncopyable_function<Ret (Args...)> : private internal::noncopyable_function_base {
     using call_type = Ret (*)(const noncopyable_function* func, Args...);
-    using move_type = void (*)(noncopyable_function* from, noncopyable_function* to);
-    using destroy_type = void (*)(noncopyable_function* func);
     struct vtable {
         const call_type call;
         const move_type move;
@@ -49,48 +85,51 @@ class noncopyable_function<Ret (Args...)> {
     };
 private:
     const vtable* _vtable;
-    storage _storage;
 private:
     static Ret empty_call(const noncopyable_function* func, Args... args) {
         throw std::bad_function_call();
     }
-    static void empty_move(noncopyable_function* from, noncopyable_function* to) {}
-    static void empty_destroy(noncopyable_function* func) {}
-    static constexpr vtable _s_empty_vtable = {empty_call, empty_move, empty_destroy};
 
-    static void indirect_move(noncopyable_function* from, noncopyable_function* to) {
-        using void_ptr = void*;
-        new (&to->_storage.indirect) void_ptr(from->_storage.indirect);
-    }
+    static constexpr vtable _s_empty_vtable = {empty_call, empty_move, empty_destroy};
 
     template <typename Func>
     struct direct_vtable_for {
         static Func* access(noncopyable_function* func) { return reinterpret_cast<Func*>(func->_storage.direct); }
         static const Func* access(const noncopyable_function* func) { return reinterpret_cast<const Func*>(func->_storage.direct); }
+        static Func* access(noncopyable_function_base* func) { return access(static_cast<noncopyable_function*>(func)); }
         static Ret call(const noncopyable_function* func, Args... args) {
             return (*access(const_cast<noncopyable_function*>(func)))(std::forward<Args>(args)...);
         }
-        static void move(noncopyable_function* from, noncopyable_function* to) {
+        static void move(noncopyable_function_base* from, noncopyable_function_base* to) {
             new (access(to)) Func(std::move(*access(from)));
             destroy(from);
         }
-        static void destroy(noncopyable_function* func) {
+        static constexpr move_type select_move_thunk() {
+            bool can_trivially_move = std::is_trivially_move_constructible<Func>::value
+                    && std::is_trivially_destructible<Func>::value;
+            return can_trivially_move ? trivial_direct_move<internal::used_size<Func>::value> : move;
+        }
+        static void destroy(noncopyable_function_base* func) {
             access(func)->~Func();
+        }
+        static constexpr destroy_type select_destroy_thunk() {
+            return std::is_trivially_destructible<Func>::value ? trivial_direct_destroy : destroy;
         }
         static void initialize(Func&& from, noncopyable_function* to) {
             new (access(to)) Func(std::move(from));
         }
-        static constexpr vtable make_vtable() { return { call, move, destroy }; }
+        static constexpr vtable make_vtable() { return { call, select_move_thunk(), select_destroy_thunk() }; }
         static const vtable s_vtable;
     };
     template <typename Func>
     struct indirect_vtable_for {
         static Func* access(noncopyable_function* func) { return reinterpret_cast<Func*>(func->_storage.indirect); }
         static const Func* access(const noncopyable_function* func) { return reinterpret_cast<const Func*>(func->_storage.indirect); }
+        static Func* access(noncopyable_function_base* func) { return access(static_cast<noncopyable_function*>(func)); }
         static Ret call(const noncopyable_function* func, Args... args) {
             return (*access(const_cast<noncopyable_function*>(func)))(std::forward<Args>(args)...);
         }
-        static void destroy(noncopyable_function* func) {
+        static void destroy(noncopyable_function_base* func) {
             delete access(func);
         }
         static void initialize(Func&& from, noncopyable_function* to) {

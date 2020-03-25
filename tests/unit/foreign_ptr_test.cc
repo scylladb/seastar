@@ -19,12 +19,13 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#include "test-utils.hh"
+#include <seastar/testing/test_case.hh>
 
 #include <seastar/core/distributed.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sleep.hh>
+#include <iostream>
 
 using namespace seastar;
 
@@ -85,8 +86,8 @@ SEASTAR_TEST_CASE(foreign_ptr_reset_test) {
 class dummy {
     unsigned _cpu;
 public:
-    dummy() : _cpu(engine().cpu_id()) { }
-    ~dummy() { BOOST_REQUIRE_EQUAL(_cpu, engine().cpu_id()); }
+    dummy() : _cpu(this_shard_id()) { }
+    ~dummy() { BOOST_REQUIRE_EQUAL(_cpu, this_shard_id()); }
 };
 
 SEASTAR_TEST_CASE(foreign_ptr_cpu_test) {
@@ -108,3 +109,24 @@ SEASTAR_TEST_CASE(foreign_ptr_cpu_test) {
         return seastar::sleep(100ms);
     });
 }
+
+SEASTAR_TEST_CASE(foreign_ptr_move_assignment_test) {
+    if (smp::count == 1) {
+        std::cerr << "Skipping multi-cpu foreign_ptr tests. Run with --smp=2 to test multi-cpu delete and reset.";
+        return make_ready_future<>();
+    }
+
+    using namespace std::chrono_literals;
+
+    return seastar::async([] {
+        auto p = smp::submit_to(1, [] {
+            return make_foreign(std::make_unique<dummy>());
+        }).get0();
+
+        p = foreign_ptr<std::unique_ptr<dummy>>();
+    }).then([] {
+        // Let ~foreign_ptr() take its course. RIP dummy.
+        return seastar::sleep(100ms);
+    });
+}
+

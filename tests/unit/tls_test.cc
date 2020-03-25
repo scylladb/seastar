@@ -21,7 +21,6 @@
  */
 
 #include <seastar/core/do_with.hh>
-#include "test-utils.hh"
 #include <seastar/core/sstring.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/do_with.hh>
@@ -29,7 +28,14 @@
 #include <seastar/core/sharded.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/gate.hh>
+#include <seastar/core/temporary_buffer.hh>
 #include <seastar/net/tls.hh>
+#include <seastar/net/dns.hh>
+#include <seastar/net/inet_address.hh>
+#include <seastar/testing/test_case.hh>
+#include <seastar/testing/thread_test_case.hh>
+#include "loopback_socket.hh"
+#include <iostream>
 
 #if 0
 #include <gnutls/gnutls.h>
@@ -44,7 +50,7 @@ static void enable_gnutls_logging() {
 
 using namespace seastar;
 
-static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> certs, ipv4_addr addr) {
+static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> certs, socket_address addr) {
     return tls::connect(certs, addr, "www.google.com").then([](connected_socket s) {
         return do_with(std::move(s), [](connected_socket& s) {
             return do_with(s.output(), [&s](auto& os) {
@@ -78,8 +84,15 @@ static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> c
 }
 
 static future<> connect_to_ssl_google(::shared_ptr<tls::certificate_credentials> certs) {
-    auto addr = make_ipv4_address(ipv4_addr("216.58.209.132:443"));
-    return connect_to_ssl_addr(std::move(certs), addr);
+    static socket_address google;
+
+    if (google.is_unspecified()) {
+        return net::dns::resolve_name("www.google.com", net::inet_address::family::INET).then([certs](net::inet_address addr) {
+            google = socket_address(addr, 443);
+            return connect_to_ssl_google(certs);
+        });
+    }
+    return connect_to_ssl_addr(std::move(certs), google);
 }
 
 SEASTAR_TEST_CASE(test_simple_x509_client) {
@@ -98,13 +111,13 @@ SEASTAR_TEST_CASE(test_x509_client_with_system_trust) {
 
 SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust) {
     tls::credentials_builder b;
-    b.set_system_trust();
+    (void)b.set_system_trust();
     return connect_to_ssl_google(b.build_certificate_credentials());
 }
 
 SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust_multiple) {
     tls::credentials_builder b;
-    b.set_system_trust();
+    (void)b.set_system_trust();
     auto creds = b.build_certificate_credentials();
 
     return parallel_for_each(boost::irange(0, 20), [creds](auto i) { return connect_to_ssl_google(creds); });
@@ -115,7 +128,6 @@ SEASTAR_TEST_CASE(test_x509_client_with_priority_strings) {
         "NORMAL:+ARCFOUR-128", // means normal ciphers plus ARCFOUR-128.
         "SECURE128:-VERS-SSL3.0:+COMP-DEFLATE", // means that only secure ciphers are enabled, SSL3.0 is disabled, and libz compression enabled.
         "NONE:+VERS-TLS-ALL:+AES-128-CBC:+RSA:+SHA1:+COMP-NULL:+SIGN-RSA-SHA1",
-        "NONE:+VERS-TLS-ALL:+AES-128-CBC:+ECDHE-RSA:+SHA1:+COMP-NULL:+SIGN-RSA-SHA1:+CURVE-SECP256R1",
         "SECURE256:+SECURE128",
         "NORMAL:%COMPAT",
         "NORMAL:-MD5",
@@ -126,7 +138,7 @@ SEASTAR_TEST_CASE(test_x509_client_with_priority_strings) {
     });
     return do_for_each(prios, [](const sstring & prio) {
         tls::credentials_builder b;
-        b.set_system_trust();
+        (void)b.set_system_trust();
         b.set_priority_string(prio);
         return connect_to_ssl_google(b.build_certificate_credentials());
     });
@@ -138,19 +150,24 @@ SEASTAR_TEST_CASE(test_x509_client_with_priority_strings_fail) {
     });
     return do_for_each(prios, [](const sstring & prio) {
         tls::credentials_builder b;
-        b.set_system_trust();
+        (void)b.set_system_trust();
         b.set_priority_string(prio);
-        return connect_to_ssl_google(b.build_certificate_credentials()).then([] {
-            BOOST_FAIL("Expected exception");
-        }).handle_exception([](auto ep) {
-            // ok.
-        });
+        try {
+            return connect_to_ssl_google(b.build_certificate_credentials()).then([] {
+                BOOST_FAIL("Expected exception");
+            }).handle_exception([](auto ep) {
+                // ok.
+            });
+        } catch (...) {
+            // also ok
+        }
+        return make_ready_future<>();
     });
 }
 
 SEASTAR_TEST_CASE(test_failed_connect) {
     tls::credentials_builder b;
-    b.set_system_trust();
+    (void)b.set_system_trust();
     return connect_to_ssl_addr(b.build_certificate_credentials(), ipv4_addr()).handle_exception([](auto) {});
 }
 
@@ -158,17 +175,18 @@ SEASTAR_TEST_CASE(test_non_tls) {
     ::listen_options opts;
     opts.reuse_address = true;
     auto addr = ::make_ipv4_address( {0x7f000001, 4712});
-    auto server = engine().listen(addr, opts);
+    auto server = api_v2::server_socket(seastar::listen(addr, opts));
 
     auto c = server.accept();
 
     tls::credentials_builder b;
-    b.set_system_trust();
+    (void)b.set_system_trust();
 
     auto f = connect_to_ssl_addr(b.build_certificate_credentials(), addr);
 
 
-    return c.then([this, f = std::move(f)](::connected_socket s, socket_address) mutable {
+    return c.then([this, f = std::move(f)](accept_result ar) mutable {
+        ::connected_socket s = std::move(ar.connection);
         std::cerr << "Established connection" << std::endl;
         auto sp = std::make_unique<::connected_socket>(std::move(s));
         timer<> t([s = std::ref(*sp)] {
@@ -188,13 +206,13 @@ SEASTAR_TEST_CASE(test_abort_accept_before_handshake) {
         ::listen_options opts;
         opts.reuse_address = true;
         auto addr = ::make_ipv4_address( {0x7f000001, 4712});
-        auto server = tls::listen(certs, addr, opts);
+        auto server = api_v2::server_socket(tls::listen(certs, addr, opts));
         auto c = server.accept();
         BOOST_CHECK(!c.available()); // should not be finished
 
         server.abort_accept();
 
-        return c.then([](auto, auto) { BOOST_FAIL("Should not reach"); }).handle_exception([](auto) {
+        return c.then([](auto) { BOOST_FAIL("Should not reach"); }).handle_exception([](auto) {
             // ok
         }).finally([server = std::move(server)] {});
     });
@@ -219,7 +237,7 @@ SEASTAR_TEST_CASE(test_abort_accept_after_handshake) {
 
         auto s = sa.get0();
         auto out = c.output();
-        auto in = s.input();
+        auto in = s.connection.input();
 
         out.write("apa").get();
         auto f = out.flush();
@@ -237,7 +255,7 @@ SEASTAR_TEST_CASE(test_abort_accept_on_server_before_handshake) {
         ::listen_options opts;
         opts.reuse_address = true;
         auto addr = ::make_ipv4_address( {0x7f000001, 4712});
-        auto server = engine().listen(addr, opts);
+        auto server = api_v2::server_socket(seastar::listen(addr, opts));
         auto sa = server.accept();
 
         tls::credentials_builder b;
@@ -275,18 +293,20 @@ struct streams {
     input_stream<char> in;
     output_stream<char> out;
 
-    streams(::connected_socket cs) : s(std::move(cs)), in(s.input()), out(s.output())
+    // note: using custom output_stream, because we don't want polled flush
+    streams(::connected_socket cs) : s(std::move(cs)), in(s.input()), out(s.output().detach(), 8192)
     {}
 };
 
 static const sstring message = "hej lilla fisk du kan dansa fint";
 
 class echoserver {
-    ::server_socket _socket;
+    ::api_v2::server_socket _socket;
     ::shared_ptr<tls::server_credentials> _certs;
     seastar::gate _gate;
     bool _stopped = false;
     size_t _size;
+    std::exception_ptr _ex;
 public:
     echoserver(size_t message_size)
             : _certs(
@@ -309,8 +329,9 @@ public:
 
             _socket = tls::listen(_certs, addr, opts);
 
-            with_gate(_gate, [this] {
-                return _socket.accept().then([this](::connected_socket s, socket_address) {
+            (void)with_gate(_gate, [this] {
+                return _socket.accept().then([this](accept_result ar) {
+                    ::connected_socket s = std::move(ar.connection);
                     auto strms = ::make_lw_shared<streams>(std::move(s));
                     return repeat([strms, this]() {
                         return strms->in.read_exactly(_size).then([strms](temporary_buffer<char> buf) {
@@ -331,13 +352,8 @@ public:
                     if (_stopped) {
                         return make_ready_future<>();
                     }
-                    try {
-                        std::rethrow_exception(ep);
-                    } catch (tls::verification_error &) {
-                        // assume ok
-                        return make_ready_future<>();
-                    }
-                    return make_exception_future(std::move(ep));
+                    _ex = ep;
+                    return make_ready_future<>();
                 });
             });
             return make_ready_future<>();
@@ -347,7 +363,11 @@ public:
     future<> stop() {
         _stopped = true;
         _socket.abort_accept();
-        return _gate.close().handle_exception([] (std::exception_ptr ignored) { });
+        return _gate.close().handle_exception([this] (std::exception_ptr ignored) {
+            if (_ex) {
+                std::rethrow_exception(_ex);
+            }
+        });
     }
 };
 
@@ -396,6 +416,9 @@ static future<> run_echo_test(sstring message,
                     return f.then([strms, msg]() {
                         return strms->out.flush().then([strms, msg] {
                             return strms->in.read_exactly(msg->size()).then([msg](temporary_buffer<char> buf) {
+                                if (buf.empty()) {
+                                    throw std::runtime_error("Unexpected EOF");
+                                }
                                 sstring tmp(buf.begin(), buf.end());
                                 BOOST_CHECK(*msg == tmp);
                             });
@@ -408,10 +431,10 @@ static future<> run_echo_test(sstring message,
                         // which waits for the flush to actually happen. They can also be reported by the
                         // input_stream::read_exactly() call. We want to keep only one and avoid nested exception mess.
                         if (f1.failed()) {
-                            f2.handle_exception([] (std::exception_ptr ignored) { });
+                            (void)f2.handle_exception([] (std::exception_ptr ignored) { });
                             return std::move(f1);
                         }
-                        f1.handle_exception([] (std::exception_ptr ignored) { });
+                        (void)f1.handle_exception([] (std::exception_ptr ignored) { });
                         return std::move(f2);
                     }).finally([strms] { });
                 });
@@ -483,7 +506,7 @@ SEASTAR_TEST_CASE(test_large_message_x509_client_server) {
     // will not validate
     // Must match expected name with cert CA or give empty name to ignore
     // server name
-    sstring msg(sstring::initialized_later(), 512 * 1024);
+    sstring msg = uninitialized_string(512 * 1024);
     for (size_t i = 0; i < msg.size(); ++i) {
         msg[i] = '0' + char(i % 30);
     }
@@ -517,7 +540,7 @@ SEASTAR_TEST_CASE(test_many_large_message_x509_client_server) {
     // will not validate
     // Must match expected name with cert CA or give empty name to ignore
     // server name
-    sstring msg(sstring::initialized_later(), 4 * 1024 * 1024);
+    sstring msg = uninitialized_string(4 * 1024 * 1024);
     for (size_t i = 0; i < msg.size(); ++i) {
         msg[i] = '0' + char(i % 30);
     }
@@ -530,3 +553,88 @@ SEASTAR_TEST_CASE(test_many_large_message_x509_client_server) {
     });
 }
 
+SEASTAR_THREAD_TEST_CASE(test_close_timout) {
+    tls::credentials_builder b;
+
+    b.set_x509_key_file("tests/unit/test.crt", "tests/unit/test.key", tls::x509_crt_format::PEM).get();
+    b.set_x509_trust_file("tests/unit/catest.pem", tls::x509_crt_format::PEM).get();
+    b.set_dh_level();
+    b.set_system_trust().get();
+
+    auto creds = b.build_certificate_credentials();
+    auto serv = b.build_server_credentials();
+
+    semaphore sem(0);
+
+    class my_loopback_connected_socket_impl : public loopback_connected_socket_impl {
+    public:
+        semaphore& _sem;
+        bool _close = false;
+
+        my_loopback_connected_socket_impl(semaphore& s, lw_shared_ptr<loopback_buffer> tx, lw_shared_ptr<loopback_buffer> rx)
+            : loopback_connected_socket_impl(tx, rx)
+            , _sem(s)
+        {}
+        ~my_loopback_connected_socket_impl() {
+            _sem.signal();
+        }
+        class my_sink_impl : public data_sink_impl {
+        public:
+            data_sink _sink;
+            my_loopback_connected_socket_impl& _impl;
+            promise<> _p;
+            my_sink_impl(data_sink sink, my_loopback_connected_socket_impl& impl)
+                : _sink(std::move(sink))
+                , _impl(impl)
+            {}
+            future<> flush() override {
+                return _sink.flush();
+            }
+            using data_sink_impl::put;
+            future<> put(net::packet p) override {
+                if (std::exchange(_impl._close, false)) {
+                    return _p.get_future().then([this, p = std::move(p)]() mutable {
+                        return put(std::move(p));
+                    });
+                }
+                return _sink.put(std::move(p));
+            }
+            future<> close() override {
+                _p.set_value();
+                return make_ready_future<>();
+            }
+        };
+        data_sink sink() override {
+            return data_sink(std::make_unique<my_sink_impl>(loopback_connected_socket_impl::sink(), *this));
+        }
+    };
+
+    auto constexpr iterations = 500;
+        
+    for (int i = 0; i < iterations; ++i) {
+        auto b1 = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::SERVER_TX);
+        auto b2 = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::CLIENT_TX);
+        auto ssi = std::make_unique<my_loopback_connected_socket_impl>(sem, b1, b2);
+        auto csi = std::make_unique<my_loopback_connected_socket_impl>(sem, b2, b1);
+
+        auto& ssir = *ssi;
+        auto& csir = *csi;
+
+        auto ss = tls::wrap_server(serv, connected_socket(std::move(ssi))).get0();
+        auto cs = tls::wrap_client(creds, connected_socket(std::move(csi))).get0();
+
+        auto os = cs.output().detach();
+        auto is = ss.input();
+
+        auto f1 = os.put(temporary_buffer<char>(10));
+        auto f2 = is.read();
+        f1.get();
+        f2.get();
+        
+        // block further writes
+        ssir._close = true;
+        csir._close = true;
+    }
+
+    sem.wait(2 * iterations).get();
+}

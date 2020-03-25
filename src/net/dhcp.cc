@@ -23,6 +23,7 @@
 #include <unordered_map>
 #include <array>
 #include <random>
+#include <iostream>
 
 #include <seastar/net/dhcp.hh>
 #include <seastar/net/ip.hh>
@@ -309,7 +310,7 @@ public:
             log() << " nm: " << info.netmask << std::endl;
             log() << " gw: " << info.gateway << std::endl;
             _state = state::DONE;
-            _result.set_value(true, info);
+            _result.set_value(info);
             break;
         default:
             break;
@@ -336,17 +337,18 @@ public:
             return make_ready_future<>();
         }
         handled = true;
-        auto src_cpu = engine().cpu_id();
+        auto src_cpu = this_shard_id();
         if (src_cpu == 0) {
             return process_packet(std::move(p), dhp, opt_off);
         }
-        smp::submit_to(0, [this, p = std::move(p), src_cpu, dhp, opt_off]() mutable {
-            process_packet(p.free_on_cpu(src_cpu), dhp, opt_off);
+        // FIXME: future is discarded
+        (void)smp::submit_to(0, [this, p = std::move(p), src_cpu, dhp, opt_off]() mutable {
+            return process_packet(p.free_on_cpu(src_cpu), dhp, opt_off);
         });
         return make_ready_future<>();
     }
 
-    future<bool, lease> run(const lease & l,
+    future<compat::optional<lease>> run(const lease & l,
             const steady_clock_type::duration & timeout) {
 
         _state = state::NONE;
@@ -354,16 +356,17 @@ public:
             _state = state::FAIL;
             log() << "timeout" << std::endl;
             _retry_timer.cancel();
-            _result.set_value(false, lease());
+            _result.set_value(compat::nullopt);
         });
 
         log() << "sending discover" << std::endl;
-        send_discover(l.ip); // FIXME: ignoring return
+        (void)send_discover(l.ip); // FIXME: ignoring return
         if (timeout.count()) {
             _timer.arm(timeout);
         }
         _retry_timer.set_callback([this, l] {
-            send_discover(l.ip);
+            // FIXME: ignoring return
+            (void)send_discover(l.ip);
         });
         _retry_timer.arm_periodic(1s);
         return _result.get_future();
@@ -378,7 +381,8 @@ public:
 
         pkt = hton(pkt);
 
-        _sock.send({0xffffffff, server_port}, packet(reinterpret_cast<char *>(&pkt), sizeof(pkt)));
+        // FIXME: future is discarded
+        (void)_sock.send({0xffffffff, server_port}, packet(reinterpret_cast<char *>(&pkt), sizeof(pkt)));
 
         return make_ready_future<>();
     }
@@ -424,7 +428,7 @@ public:
     }
 
 private:
-    promise<bool, lease> _result;
+    promise<compat::optional<lease>> _result;
     state _state = state::NONE;
     timer<> _timer;
     timer<> _retry_timer;

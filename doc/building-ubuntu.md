@@ -9,6 +9,6 @@ sudo ./install-dependencies.sh
 
 To compile Seastar explicitly using gcc 5, use:
 ```
-./configure.py --compiler=g++-5
-ninja
+CXX=g++-5 ./cooking.sh -i c-ares -i fmt -t Release
+ninja -C build
 ```

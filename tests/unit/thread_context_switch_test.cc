@@ -26,6 +26,7 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/core/distributed.hh>
 #include <seastar/core/sleep.hh>
+#include <fmt/printf.h>
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -74,22 +75,22 @@ public:
 int main(int ac, char** av) {
     static const auto test_time = 5s;
     return app_template().run_deprecated(ac, av, [] {
-        return do_with(distributed<context_switch_tester>(), [] (distributed<context_switch_tester>& dcst) {
-            return dcst.start().then([&dcst] {
-                return dcst.invoke_on_all(&context_switch_tester::begin_measurement);
-            }).then([] {
-                return sleep(test_time);
-            }).then([&dcst] {
-                return dcst.map_reduce0(std::mem_fn(&context_switch_tester::measure), uint64_t(), std::plus<uint64_t>());
-            }).then([] (uint64_t switches) {
-                switches /= smp::count;
-                fmt::print("context switch time: {:5.1f} ns\n",
-                      double(std::chrono::duration_cast<std::chrono::nanoseconds>(test_time).count()) / switches);
-            }).then([&dcst] {
-                return dcst.stop();
-            }).then([] {
-                engine_exit(0);
-            });
+        auto dcstp = std::make_unique<distributed<context_switch_tester>>();
+        auto& dcst = *dcstp;
+        return dcst.start().then([&dcst] {
+            return dcst.invoke_on_all(&context_switch_tester::begin_measurement);
+        }).then([] {
+            return sleep(test_time);
+        }).then([&dcst] {
+            return dcst.map_reduce0(std::mem_fn(&context_switch_tester::measure), uint64_t(), std::plus<uint64_t>());
+        }).then([] (uint64_t switches) {
+            switches /= smp::count;
+            fmt::print("context switch time: {:5.1f} ns\n",
+                  double(std::chrono::duration_cast<std::chrono::nanoseconds>(test_time).count()) / switches);
+        }).then([&dcst] {
+            return dcst.stop();
+        }).then([dcstp = std::move(dcstp)] {
+            engine_exit(0);
         });
     });
 }

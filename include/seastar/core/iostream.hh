@@ -192,6 +192,10 @@ concept bool ObsoleteInputStreamConsumer = requires (Consumer c) {
 };
 )
 
+/// Buffers data from a data_source and provides a stream interface to the user.
+///
+/// \note All methods must be called sequentially.  That is, no method may be
+/// invoked before the previous method's returned future is resolved.
 template <typename CharType>
 class input_stream final {
     static_assert(sizeof(CharType) == 1, "must buffer stream of bytes");
@@ -220,7 +224,7 @@ public:
     template <typename Consumer>
     GCC6_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
     future<> consume(Consumer& c);
-    bool eof() { return _eof; }
+    bool eof() const { return _eof; }
     /// Returns some data from the stream, or an empty buffer on end of
     /// stream.
     future<tmp_buf> read();
@@ -258,14 +262,17 @@ private:
     future<temporary_buffer<CharType>> read_exactly_part(size_t n, tmp_buf buf, size_t completed);
 };
 
-// Facilitates data buffering before it's handed over to data_sink.
-//
-// When trim_to_size is true it's guaranteed that data sink will not receive
-// chunks larger than the configured size, which could be the case when a
-// single write call is made with data larger than the configured size.
-//
-// The data sink will not receive empty chunks.
-//
+/// Facilitates data buffering before it's handed over to data_sink.
+///
+/// When trim_to_size is true it's guaranteed that data sink will not receive
+/// chunks larger than the configured size, which could be the case when a
+/// single write call is made with data larger than the configured size.
+///
+/// The data sink will not receive empty chunks.
+///
+/// \note All methods must be called sequentially.  That is, no method
+/// may be invoked before the previous method's returned future is
+/// resolved.
 template <typename CharType>
 class output_stream final {
     static_assert(sizeof(CharType) == 1, "must buffer stream of bytes");
@@ -289,6 +296,8 @@ private:
     void poll_flush();
     future<> zero_copy_put(net::packet p);
     future<> zero_copy_split_and_put(net::packet p);
+    [[gnu::noinline]]
+    future<> slow_write(const CharType* buf, size_t n);
 public:
     using char_type = CharType;
     output_stream() = default;
@@ -296,7 +305,7 @@ public:
         : _fd(std::move(fd)), _size(size), _trim_to_size(trim_to_size), _batch_flushes(batch_flushes) {}
     output_stream(output_stream&&) = default;
     output_stream& operator=(output_stream&&) = default;
-    ~output_stream() { assert(!_in_batch); }
+    ~output_stream() { assert(!_in_batch && "Was this stream properly closed?"); }
     future<> write(const char_type* buf, size_t n);
     future<> write(const char_type* buf);
 
@@ -308,6 +317,10 @@ public:
     future<> write(scattered_message<char_type> msg);
     future<> write(temporary_buffer<char_type>);
     future<> flush();
+
+    /// Flushes the stream before closing it (and the underlying data sink) to
+    /// any further writes.  The resulting future must be waited on before
+    /// destroying this object.
     future<> close();
 
     /// Detaches the underlying \c data_sink from the \c output_stream.

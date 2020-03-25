@@ -28,8 +28,7 @@
 #include <seastar/core/abort_source.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/lowres_clock.hh>
-#include <seastar/core/reactor.hh>
-#include <seastar/core/shared_ptr.hh>
+#include <seastar/core/timer.hh>
 
 namespace seastar {
 

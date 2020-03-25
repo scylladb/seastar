@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
 import abc
 import argparse
@@ -6,6 +6,8 @@ import enum
 import functools
 import glob
 import itertools
+import logging
+import multiprocessing
 import os
 import pathlib
 import pyudev
@@ -13,10 +15,19 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.request
 import yaml
+import platform
+import shlex
 
-def run_one_command(prog_args, my_stderr=None, check=True):
-    proc = subprocess.Popen(prog_args, stdout = subprocess.PIPE, stderr = my_stderr)
+dry_run_mode = False
+def perftune_print(log_msg, *args, **kwargs):
+    if dry_run_mode:
+        log_msg = "# " + log_msg
+    print(log_msg, *args, **kwargs)
+
+def __run_one_command(prog_args, stderr=None, check=True):
+    proc = subprocess.Popen(prog_args, stdout = subprocess.PIPE, stderr = stderr)
     outs, errs = proc.communicate()
     outs = str(outs, 'utf-8')
 
@@ -25,24 +36,39 @@ def run_one_command(prog_args, my_stderr=None, check=True):
 
     return outs
 
+def run_one_command(prog_args, stderr=None, check=True):
+    if dry_run_mode:
+        print(" ".join([shlex.quote(x) for x in prog_args]))
+    else:
+        __run_one_command(prog_args, stderr=stderr, check=check)
+
+def run_read_only_command(prog_args, stderr=None, check=True):
+    return __run_one_command(prog_args, stderr=stderr, check=check)
+
 def run_hwloc_distrib(prog_args):
     """
     Returns a list of strings - each representing a single line of hwloc-distrib output.
     """
-    return run_one_command(['hwloc-distrib'] + prog_args).splitlines()
+    return run_read_only_command(['hwloc-distrib'] + prog_args).splitlines()
 
 def run_hwloc_calc(prog_args):
     """
     Returns a single string with the result of the execution.
     """
-    return run_one_command(['hwloc-calc'] + prog_args).rstrip()
+    return run_read_only_command(['hwloc-calc'] + prog_args).rstrip()
 
-def fwriteln(fname, line):
+def fwriteln(fname, line, log_message, log_errors=True):
     try:
-        with open(fname, 'w') as f:
-            f.write(line)
+        if dry_run_mode:
+            print("echo {} > {}".format(line, fname))
+            return
+        else:
+            with open(fname, 'w') as f:
+                f.write(line)
+            print(log_message)
     except:
-        print("Failed to write into {}: {}".format(fname, sys.exc_info()))
+        if log_errors:
+            print("{}: failed to write into {}: {}".format(log_message, fname, sys.exc_info()))
 
 def readlines(fname):
     try:
@@ -52,13 +78,13 @@ def readlines(fname):
         print("Failed to read {}: {}".format(fname, sys.exc_info()))
         return []
 
-def fwriteln_and_log(fname, line):
-    print("Writing '{}' to {}".format(line, fname))
-    fwriteln(fname, line)
+def fwriteln_and_log(fname, line, log_errors=True):
+    msg = "Writing '{}' to {}".format(line, fname)
+    fwriteln(fname, line, log_message=msg, log_errors=log_errors)
 
 double_commas_pattern = re.compile(',,')
 
-def set_one_mask(conf_file, mask):
+def set_one_mask(conf_file, mask, log_errors=True):
     if not os.path.exists(conf_file):
         raise Exception("Configure file to set mask doesn't exist: {}".format(conf_file))
     mask = re.sub('0x', '', mask)
@@ -66,19 +92,19 @@ def set_one_mask(conf_file, mask):
     while double_commas_pattern.search(mask):
         mask = double_commas_pattern.sub(',0,', mask)
 
-    print("Setting mask {} in {}".format(mask, conf_file))
-    fwriteln(conf_file, mask)
+    msg = "Setting mask {} in {}".format(mask, conf_file)
+    fwriteln(conf_file, mask, log_message=msg, log_errors=log_errors)
 
-def distribute_irqs(irqs, cpu_mask):
+def distribute_irqs(irqs, cpu_mask, log_errors=True):
     # If IRQs' list is empty - do nothing
     if not irqs:
         return
 
     for i, mask in enumerate(run_hwloc_distrib(["{}".format(len(irqs)), '--single', '--restrict', cpu_mask])):
-        set_one_mask("/proc/irq/{}/smp_affinity".format(irqs[i]), mask)
+        set_one_mask("/proc/irq/{}/smp_affinity".format(irqs[i]), mask, log_errors=log_errors)
 
 def is_process_running(name):
-    return len(list(filter(lambda ps_line : not re.search('<defunct>', ps_line), run_one_command(['ps', '--no-headers', '-C', name], check=False).splitlines()))) > 0
+    return len(list(filter(lambda ps_line : not re.search('<defunct>', ps_line), run_read_only_command(['ps', '--no-headers', '-C', name], check=False).splitlines()))) > 0
 
 def restart_irqbalance(banned_irqs):
     """
@@ -96,38 +122,44 @@ def restart_irqbalance(banned_irqs):
 
     # return early if irqbalance is not running
     if not is_process_running('irqbalance'):
-        print("irqbalance is not running")
+        perftune_print("irqbalance is not running")
         return
+
+    # If this file exists - this a "new (systemd) style" irqbalance packaging.
+    # This type of packaging uses IRQBALANCE_ARGS as an option key name, "old (init.d) style"
+    # packaging uses an OPTION key.
+    if os.path.exists('/lib/systemd/system/irqbalance.service'):
+        options_key = 'IRQBALANCE_ARGS'
+        systemd = True
 
     if not os.path.exists(config_file):
         if os.path.exists('/etc/sysconfig/irqbalance'):
             config_file = '/etc/sysconfig/irqbalance'
-            options_key = 'IRQBALANCE_ARGS'
-            systemd = True
         elif os.path.exists('/etc/conf.d/irqbalance'):
             config_file = '/etc/conf.d/irqbalance'
             options_key = 'IRQBALANCE_OPTS'
             with open('/proc/1/comm', 'r') as comm:
                 systemd = 'systemd' in comm.read()
         else:
-            print("Unknown system configuration - not restarting irqbalance!")
-            print("You have to prevent it from moving IRQs {} manually!".format(banned_irqs_list))
+            perftune_print("Unknown system configuration - not restarting irqbalance!")
+            perftune_print("You have to prevent it from moving IRQs {} manually!".format(banned_irqs_list))
             return
 
     orig_file = "{}.scylla.orig".format(config_file)
 
     # Save the original file
-    if not os.path.exists(orig_file):
-        print("Saving the original irqbalance configuration is in {}".format(orig_file))
-        shutil.copyfile(config_file, orig_file)
-    else:
-        print("File {} already exists - not overwriting.".format(orig_file))
+    if not dry_run_mode:
+        if not os.path.exists(orig_file):
+            print("Saving the original irqbalance configuration is in {}".format(orig_file))
+            shutil.copyfile(config_file, orig_file)
+        else:
+            print("File {} already exists - not overwriting.".format(orig_file))
 
     # Read the config file lines
     cfile_lines = open(config_file, 'r').readlines()
 
     # Build the new config_file contents with the new options configuration
-    print("Restarting irqbalance: going to ban the following IRQ numbers: {} ...".format(", ".join(banned_irqs_list)))
+    perftune_print("Restarting irqbalance: going to ban the following IRQ numbers: {} ...".format(", ".join(banned_irqs_list)))
 
     # Search for the original options line
     opt_lines = list(filter(lambda line : re.search("^\s*{}".format(options_key), line), cfile_lines))
@@ -136,6 +168,7 @@ def restart_irqbalance(banned_irqs):
     elif len(opt_lines) == 1:
         # cut the last "
         new_options = re.sub("\"\s*$", "", opt_lines[0].rstrip())
+        opt_lines = opt_lines[0].strip()
     else:
         raise Exception("Invalid format in {}: more than one lines with {} key".format(config_file, options_key))
 
@@ -147,18 +180,23 @@ def restart_irqbalance(banned_irqs):
 
     new_options += "\""
 
-    with open(config_file, 'w') as cfile:
-        for line in cfile_lines:
-            if not re.search("^\s*{}".format(options_key), line):
-                cfile.write(line)
+    if dry_run_mode:
+        if opt_lines:
+            print("sed -i 's/^{}/#{}/g' {}".format(options_key, options_key, config_file))
+        print("echo {} | tee -a {}".format(new_options, config_file))
+    else:
+        with open(config_file, 'w') as cfile:
+            for line in cfile_lines:
+                if not re.search("^\s*{}".format(options_key), line):
+                    cfile.write(line)
 
-        cfile.write(new_options + "\n")
+            cfile.write(new_options + "\n")
 
     if systemd:
-        print("Restarting irqbalance via systemctl...")
+        perftune_print("Restarting irqbalance via systemctl...")
         run_one_command(['systemctl', 'try-restart', 'irqbalance'])
     else:
-        print("Restarting irqbalance directly (init.d)...")
+        perftune_print("Restarting irqbalance directly (init.d)...")
         run_one_command(['/etc/init.d/irqbalance', 'restart'])
 
 def learn_irqs_from_proc_interrupts(pattern, irq2procline):
@@ -207,10 +245,18 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         self.__args = args
         self.__args.cpu_mask = run_hwloc_calc(['--restrict', self.__args.cpu_mask, 'all'])
         self.__mode = None
-        self.__compute_cpu_mask = None
-        self.__irq_cpu_mask = None
+        self.__irq_cpu_mask = args.irq_cpu_mask
+        if self.__irq_cpu_mask:
+            self.__compute_cpu_mask = run_hwloc_calc([self.__args.cpu_mask, "~{}".format(self.__irq_cpu_mask)])
+        else:
+            self.__compute_cpu_mask = None
+        self.__is_aws_i3_nonmetal_instance = None
 
 #### Public methods ##########################
+    class CPUMaskIsZeroException(Exception):
+        """Thrown if CPU mask turns out to be zero"""
+        pass
+
     class SupportedModes(enum.IntEnum):
         """
         Modes are ordered from the one that cuts the biggest number of CPUs
@@ -225,9 +271,23 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         sq = 1
         mq = 2
 
+        # Note: no_irq_restrictions should always have the greatest value in the enum since it's the least restricting mode.
+        no_irq_restrictions = 9999
+
         @staticmethod
         def names():
             return PerfTunerBase.SupportedModes.__members__.keys()
+
+        @staticmethod
+        def combine(modes):
+            """
+            :param modes: a set of modes of the PerfTunerBase.SupportedModes type
+            :return: the mode that is the "common ground" for a given set of modes.
+            """
+
+            # Perform an explicit cast in order to verify that the values in the 'modes' are compatible with the
+            # expected PerfTunerBase.SupportedModes type.
+            return min([PerfTunerBase.SupportedModes(m) for m in modes])
 
     @staticmethod
     def cpu_mask_is_zero(cpu_mask):
@@ -257,12 +317,14 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         elif mq_mode == PerfTunerBase.SupportedModes.mq:
             # all available cores
             irqs_cpu_mask = cpu_mask
+        elif mq_mode == PerfTunerBase.SupportedModes.no_irq_restrictions:
+            # all available cores
+            irqs_cpu_mask = cpu_mask
         else:
             raise Exception("Unsupported mode: {}".format(mq_mode))
 
         if PerfTunerBase.cpu_mask_is_zero(irqs_cpu_mask):
-            raise Exception("Bad configuration mode ({}) and cpu-mask value ({}): this results in a zero-mask for "
-                            "compute".format(mq_mode.name, cpu_mask))
+            raise PerfTunerBase.CPUMaskIsZeroException("Bad configuration mode ({}) and cpu-mask value ({}): this results in a zero-mask for compute".format(mq_mode.name, cpu_mask))
 
         return irqs_cpu_mask
 
@@ -271,15 +333,14 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         mq_mode = PerfTunerBase.SupportedModes(mq_mode)
         irqs_cpu_mask = 0
 
-        if mq_mode != PerfTunerBase.SupportedModes.mq:
+        if mq_mode != PerfTunerBase.SupportedModes.mq and mq_mode != PerfTunerBase.SupportedModes.no_irq_restrictions:
             irqs_cpu_mask = run_hwloc_calc([cpu_mask, "~{}".format(PerfTunerBase.compute_cpu_mask_for_mode(mq_mode, cpu_mask))])
-        else: # mq_mode == PerfTunerBase.SupportedModes.mq
+        else: # mq_mode == PerfTunerBase.SupportedModes.mq or mq_mode == PerfTunerBase.SupportedModes.no_irq_restrictions
             # distribute equally between all available cores
             irqs_cpu_mask = cpu_mask
 
         if PerfTunerBase.cpu_mask_is_zero(irqs_cpu_mask):
-            raise Exception("Bad configuration mode ({}) and cpu-mask value ({}): this results in a zero-mask for "
-                            "IRQs".format(mq_mode.name, cpu_mask))
+            raise PerfTunerBase.CPUMaskIsZeroException("Bad configuration mode ({}) and cpu-mask value ({}): this results in a zero-mask for IRQs".format(mq_mode.name, cpu_mask))
 
         return irqs_cpu_mask
 
@@ -327,6 +388,16 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         return self.__irq_cpu_mask
 
     @property
+    def is_aws_i3_non_metal_instance(self):
+        """
+        :return: True if we are running on the AWS i3.nonmetal instance, e.g. i3.4xlarge
+        """
+        if self.__is_aws_i3_nonmetal_instance is None:
+            self.__check_host_type()
+
+        return self.__is_aws_i3_nonmetal_instance
+
+    @property
     def args(self):
         return self.__args
 
@@ -368,6 +439,27 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         else:
             self.mode = self._get_def_mode()
 
+    def __check_host_type(self):
+        """
+        Check if we are running on the AWS i3 nonmetal instance.
+        If yes, set self.__is_aws_i3_nonmetal_instance to True, and to False otherwise.
+        """
+        try:
+            aws_instance_type = urllib.request.urlopen("http://169.254.169.254/latest/meta-data/instance-type", timeout=0.1).read().decode()
+            if re.match(r'^i3\.((?!metal)\w)+$', aws_instance_type):
+                self.__is_aws_i3_nonmetal_instance = True
+            else:
+                self.__is_aws_i3_nonmetal_instance = False
+
+            return
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
+            # Non-AWS case
+            pass
+        except:
+            logging.warning("Unexpected exception while attempting to access AWS meta server: {}".format(sys.exc_info()[0]))
+
+        self.__is_aws_i3_nonmetal_instance = False
+
 #################################################
 class NetPerfTuner(PerfTunerBase):
     def __init__(self, args):
@@ -388,10 +480,10 @@ class NetPerfTuner(PerfTunerBase):
         Tune the networking server configuration.
         """
         if self.nic_is_hw_iface:
-            print("Setting a physical interface {}...".format(self.nic))
+            perftune_print("Setting a physical interface {}...".format(self.nic))
             self.__setup_one_hw_iface(self.nic)
         else:
-            print("Setting {} bonding interface...".format(self.nic))
+            perftune_print("Setting {} bonding interface...".format(self.nic))
             self.__setup_bonding_iface()
 
         # Increase the socket listen() backlog
@@ -408,6 +500,10 @@ class NetPerfTuner(PerfTunerBase):
     @property
     def nic(self):
         return self.args.nic
+
+    @property
+    def nic_exists(self):
+        return self.__iface_exists(self.nic)
 
     @property
     def nic_is_hw_iface(self):
@@ -445,6 +541,8 @@ class NetPerfTuner(PerfTunerBase):
         """
         Checks that self.nic is a supported interface
         """
+        if not self.nic_exists:
+            raise Exception("Device {} does not exist".format(self.nic))
         if not self.nic_is_hw_iface and not self.nic_is_bond_iface:
             raise Exception("Not supported virtual device {}".format(self.nic))
 
@@ -465,21 +563,26 @@ class NetPerfTuner(PerfTunerBase):
             return
 
         # Enable RFS
-        print("Setting net.core.rps_sock_flow_entries to {}".format(self.__rfs_table_size))
+        perftune_print("Setting net.core.rps_sock_flow_entries to {}".format(self.__rfs_table_size))
         run_one_command(['sysctl', '-w', 'net.core.rps_sock_flow_entries={}'.format(self.__rfs_table_size)])
 
         # Set each RPS queue limit
         for rfs_limit_cnt in rps_limits:
-            print("Setting limit {} in {}".format(one_q_limit, rfs_limit_cnt))
-            fwriteln(rfs_limit_cnt, "{}".format(one_q_limit))
+            msg = "Setting limit {} in {}".format(one_q_limit, rfs_limit_cnt)
+            fwriteln(rfs_limit_cnt, "{}".format(one_q_limit), log_message=msg)
 
         # Enable ntuple filtering HW offload on the NIC
-        print("Trying to enable ntuple filtering HW offload for {}...".format(iface), end='')
-        try:
-            run_one_command(['ethtool','-K', iface, 'ntuple', 'on'], stderr=subprocess.DEVNULL)
-            print("ok")
-        except:
-            print("not supported")
+        ethtool_msg = "Enable ntuple filtering HW offload for {}...".format(iface)
+        if dry_run_mode:
+                perftune_print(ethtool_msg)
+                run_one_command(['ethtool','-K', iface, 'ntuple', 'on'], stderr=subprocess.DEVNULL)
+        else:
+            try:
+                print("Trying to enable ntuple filtering HW offload for {}...".format(iface), end='')
+                run_one_command(['ethtool','-K', iface, 'ntuple', 'on'], stderr=subprocess.DEVNULL)
+                print("ok")
+            except:
+                print("not supported")
 
     def __setup_rps(self, iface, mask):
         for one_rps_cpus in self.__get_rps_cpus(iface):
@@ -493,6 +596,11 @@ class NetPerfTuner(PerfTunerBase):
 
         for i, mask in enumerate(masks):
             set_one_mask(xps_cpus_list[i], mask)
+
+    def __iface_exists(self, iface):
+        if len(iface) == 0:
+            return False
+        return os.path.exists("/sys/class/net/{}".format(iface))
 
     def __dev_is_hw_iface(self, iface):
         return os.path.exists("/sys/class/net/{}/device".format(iface))
@@ -546,6 +654,7 @@ class NetPerfTuner(PerfTunerBase):
           - Intel:    <bla-bla>-TxRx-<bla-bla>
           - Broadcom: <bla-bla>-fp-<bla-bla>
           - ena:      <bla-bla>-Tx-Rx-<bla-bla>
+          - Mellanox: mlx<device model index>-<queue idx>@<bla-bla>
 
         So, we will try to filter the etries in /proc/interrupts for IRQs we've got from get_all_irqs_one()
         according to the patterns above.
@@ -560,7 +669,7 @@ class NetPerfTuner(PerfTunerBase):
         """
         # filter 'all_irqs' to only reference valid keys from 'irqs2procline' and avoid an IndexError on the 'irqs' search below
         all_irqs = set(learn_all_irqs_one("/sys/class/net/{}/device".format(iface), self.__irqs2procline, iface)).intersection(self.__irqs2procline.keys())
-        fp_irqs_re = re.compile("\-TxRx\-|\-fp\-|\-Tx\-Rx\-")
+        fp_irqs_re = re.compile("\-TxRx\-|\-fp\-|\-Tx\-Rx\-|mlx\d+\-\d+@")
         irqs = list(filter(lambda irq : fp_irqs_re.search(self.__irqs2procline[irq]), all_irqs))
         if irqs:
             irqs.sort(key=self.__intel_irq_to_queue_idx)
@@ -598,12 +707,12 @@ class NetPerfTuner(PerfTunerBase):
         # For such NICs we've sorted IRQs list so that IRQs that handle Rx are all at the head of the list.
         if max_num_rx_queues < len(all_irqs):
             num_rx_queues = self.__get_rx_queue_count(iface)
-            print("Distributing IRQs handling Rx:")
+            perftune_print("Distributing IRQs handling Rx:")
             distribute_irqs(all_irqs[0:num_rx_queues], self.irqs_cpu_mask)
-            print("Distributing the rest of IRQs")
+            perftune_print("Distributing the rest of IRQs")
             distribute_irqs(all_irqs[num_rx_queues:], self.irqs_cpu_mask)
         else:
-            print("Distributing all IRQs")
+            perftune_print("Distributing all IRQs")
             distribute_irqs(all_irqs, self.irqs_cpu_mask)
 
         self.__setup_rps(iface, self.compute_cpu_mask)
@@ -612,10 +721,10 @@ class NetPerfTuner(PerfTunerBase):
     def __setup_bonding_iface(self):
         for slave in self.slaves:
             if self.__dev_is_hw_iface(slave):
-                print("Setting up {}...".format(slave))
+                perftune_print("Setting up {}...".format(slave))
                 self.__setup_one_hw_iface(slave)
             else:
-                print("Skipping {} (not a physical slave device?)".format(slave))
+                perftune_print("Skipping {} (not a physical slave device?)".format(slave))
 
     def __max_rx_queue_count(self, iface):
         """
@@ -634,7 +743,7 @@ class NetPerfTuner(PerfTunerBase):
         driver_to_max_rss = {'ixgbe': 16, 'ixgbevf': 4, 'i40e': 64, 'i40evf': 16}
 
         driver_name = ''
-        ethtool_i_lines = run_one_command(['ethtool', '-i', iface]).splitlines()
+        ethtool_i_lines = run_read_only_command(['ethtool', '-i', iface]).splitlines()
         driver_re = re.compile("driver:")
         driver_lines = list(filter(lambda one_line: driver_re.search(one_line), ethtool_i_lines))
 
@@ -674,6 +783,64 @@ class NetPerfTuner(PerfTunerBase):
         else:
             return PerfTunerBase.SupportedModes.sq_split
 
+class ClocksourceManager:
+    class PreferredClockSourceNotAvailableException(Exception):
+        pass
+
+    def __init__(self, args):
+        self.__args = args
+        self._preferred = {"x86_64": "tsc"}
+        self._arch = platform.machine()
+        self._available_clocksources_file = "/sys/devices/system/clocksource/clocksource0/available_clocksource"
+        self._current_clocksource_file = "/sys/devices/system/clocksource/clocksource0/current_clocksource"
+        self._recommendation_if_unavailable = { "x86_64": "The tsc clocksource is not available. Consider using a hardware platform where the tsc clocksource is available, or try forcing it withe the tsc=reliable boot option" }
+
+    def _available_clocksources(self):
+        return open(self._available_clocksources_file).readline().split()
+
+    def _current_clocksource(self):
+        return open(self._current_clocksource_file).readline().strip()
+
+    def enforce_preferred_clocksource(self):
+        fwriteln(self._current_clocksource_file, self._preferred[self._arch], "Setting clocksource to {}".format(self._preferred[self._arch]))
+
+    def preferred(self):
+        return self._preferred[self._arch]
+
+    def setting_available(self):
+        return self._arch in self._preferred
+
+    def preferred_clocksource_available(self):
+        return self._preferred[self._arch] in self._available_clocksources()
+
+    def recommendation_if_unavailable(self):
+        return self._recommendation_if_unavailable[self._arch]
+
+class SystemPerfTuner(PerfTunerBase):
+    def __init__(self, args):
+        super().__init__(args)
+        self._clocksource_manager = ClocksourceManager(args)
+
+    def tune(self):
+        if self.args.tune_clock:
+            if not self._clocksource_manager.setting_available():
+                perftune_print("Clocksource setting not available or not needed for this architecture. Not tuning");
+            elif not self._clocksource_manager.preferred_clocksource_available():
+                perftune_print(self._clocksource_manager.recommendation_if_unavailable())
+            else:
+                self._clocksource_manager.enforce_preferred_clocksource()
+
+#### Protected methods ##########################
+    def _get_def_mode(self):
+        """ 
+        This tuner doesn't apply any restriction to the final tune mode for now.
+        """
+        return PerfTunerBase.SupportedModes.no_irq_restrictions
+
+    def _get_irqs(self):
+        return []
+
+
 #################################################
 class DiskPerfTuner(PerfTunerBase):
     class SupportedDiskTypes(enum.IntEnum):
@@ -688,6 +855,7 @@ class DiskPerfTuner(PerfTunerBase):
 
         self.__pyudev_ctx = pyudev.Context()
         self.__dir2disks = self.__learn_directories()
+        self.__irqs2procline = get_irqs2procline_map()
         self.__disk2irqs = self.__learn_irqs()
         self.__type2diskinfo = self.__group_disks_info_by_type()
 
@@ -707,19 +875,31 @@ class DiskPerfTuner(PerfTunerBase):
 
         non_nvme_disks, non_nvme_irqs = self.__disks_info_by_type(DiskPerfTuner.SupportedDiskTypes.non_nvme)
         if non_nvme_disks:
-            print("Setting non-NVMe disks: {}...".format(", ".join(non_nvme_disks)))
+            perftune_print("Setting non-NVMe disks: {}...".format(", ".join(non_nvme_disks)))
             distribute_irqs(non_nvme_irqs, mode_cpu_mask)
             self.__tune_disks(non_nvme_disks)
         else:
-            print("No non-NVMe disks to tune")
+            perftune_print("No non-NVMe disks to tune")
 
         nvme_disks, nvme_irqs = self.__disks_info_by_type(DiskPerfTuner.SupportedDiskTypes.nvme)
         if nvme_disks:
-            print("Setting NVMe disks: {}...".format(", ".join(nvme_disks)))
-            distribute_irqs(nvme_irqs, self.args.cpu_mask)
+            # Linux kernel is going to use IRQD_AFFINITY_MANAGED mode for NVMe IRQs
+            # on most systems (currently only AWS i3 non-metal are known to have a
+            # different configuration). SMP affinity of an IRQ in this mode may not be
+            # changed and an attempt to modify it is going to fail. However right now
+            # the only way to determine that IRQD_AFFINITY_MANAGED mode has been used
+            # is to attempt to modify IRQ SMP affinity (and fail) therefore we prefer
+            # to always do it.
+            #
+            # What we don't want however is to see annoying errors every time we
+            # detect that IRQD_AFFINITY_MANAGED was actually used. Therefore we will only log
+            # them in the "verbose" mode or when we run on an i3.nonmetal AWS instance.
+            perftune_print("Setting NVMe disks: {}...".format(", ".join(nvme_disks)))
+            distribute_irqs(nvme_irqs, self.args.cpu_mask,
+                            log_errors=(self.is_aws_i3_non_metal_instance or self.args.verbose))
             self.__tune_disks(nvme_disks)
         else:
-            print("No NVMe disks to tune")
+            perftune_print("No NVMe disks to tune")
 
 #### Protected methods ##########################
     def _get_def_mode(self):
@@ -763,6 +943,30 @@ class DiskPerfTuner(PerfTunerBase):
         """
         return self.__type2diskinfo[DiskPerfTuner.SupportedDiskTypes(disks_type)]
 
+    def __nvme_fast_path_irq_filter(self, irq):
+        """
+        Return True for fast path NVMe IRQs.
+        For NVMe device only queues 1-<number of CPUs> are going to do fast path work.
+
+        NVMe IRQs have the following name convention:
+             nvme<device index>q<queue index>, e.g. nvme0q7
+
+        :param irq: IRQ number
+        :return: True if this IRQ is an IRQ of a FP NVMe queue.
+        """
+        nvme_irq_re = re.compile(r'(\s|^)nvme\d+q(\d+)(\s|$)')
+
+        # There may be more than an single HW queue bound to the same IRQ. In this case queue names are going to be
+        # coma separated
+        split_line = self.__irqs2procline[irq].split(",")
+
+        for line in split_line:
+            m = nvme_irq_re.search(line)
+            if m and 0 < int(m.group(2)) <= multiprocessing.cpu_count():
+                return True
+
+        return False
+
     def __group_disks_info_by_type(self):
         """
         Return a map of tuples ( [<disks>], [<irqs>] ), where "disks" are all disks of the specific type
@@ -792,7 +996,19 @@ class DiskPerfTuner(PerfTunerBase):
         if not (nvme_disks or non_nvme_disks):
             raise Exception("'disks' tuning was requested but no disks were found")
 
-        disks_info_by_type[DiskPerfTuner.SupportedDiskTypes.nvme] = ( list(nvme_disks), list(nvme_irqs) )
+        nvme_irqs = list(nvme_irqs)
+
+        # There is a known issue with Xen hypervisor that exposes itself on AWS i3 instances where nvme module
+        # over-allocates HW queues and uses only queues 1,2,3,..., <up to number of CPUs> for data transfer.
+        # On these instances we will distribute only these queues.
+
+        if self.is_aws_i3_non_metal_instance:
+            nvme_irqs = list(filter(self.__nvme_fast_path_irq_filter, nvme_irqs))
+
+        # Sort IRQs for easier verification
+        nvme_irqs.sort(key=lambda irq_num_str: int(irq_num_str))
+
+        disks_info_by_type[DiskPerfTuner.SupportedDiskTypes.nvme] = (list(nvme_disks), nvme_irqs)
         disks_info_by_type[DiskPerfTuner.SupportedDiskTypes.non_nvme] = ( list(non_nvme_disks), list(non_nvme_irqs) )
 
         return disks_info_by_type
@@ -807,16 +1023,16 @@ class DiskPerfTuner(PerfTunerBase):
         """
         if not os.path.exists(directory):
             if not recur:
-                print("{} doesn't exist - skipping".format(directory))
+                perftune_print("{} doesn't exist - skipping".format(directory))
 
             return []
 
         try:
-            udev_obj = pyudev.Device.from_device_number(self.__pyudev_ctx, 'block', os.stat(directory).st_dev)
+            udev_obj = pyudev.Devices.from_device_number(self.__pyudev_ctx, 'block', os.stat(directory).st_dev)
             return self.__get_phys_devices(udev_obj)
         except:
             # handle cases like ecryptfs where the directory is mounted to another directory and not to some block device
-            filesystem = run_one_command(['df', '-P', directory]).splitlines()[-1].split()[0].strip()
+            filesystem = run_read_only_command(['df', '-P', directory]).splitlines()[-1].split()[0].strip()
             if not re.search(r'^/dev/', filesystem):
                 devs = self.__learn_directory(filesystem, True)
             else:
@@ -824,21 +1040,20 @@ class DiskPerfTuner(PerfTunerBase):
 
             # log error only for the original directory
             if not recur and not devs:
-                print("Can't get a block device for {} - skipping".format(directory))
+                perftune_print("Can't get a block device for {} - skipping".format(directory))
 
             return devs
 
     def __get_phys_devices(self, udev_obj):
         # if device is a virtual device - the underlying physical devices are going to be its slaves
         if re.search(r'virtual', udev_obj.sys_path):
-            return list(itertools.chain.from_iterable([ self.__get_phys_devices(pyudev.Device.from_device_file(self.__pyudev_ctx, "/dev/{}".format(slave))) for slave in os.listdir(os.path.join(udev_obj.sys_path, 'slaves')) ]))
+            return list(itertools.chain.from_iterable([ self.__get_phys_devices(pyudev.Devices.from_device_file(self.__pyudev_ctx, "/dev/{}".format(slave))) for slave in os.listdir(os.path.join(udev_obj.sys_path, 'slaves')) ]))
         else:
             # device node is something like /dev/sda1 - we need only the part without /dev/
             return [ re.match(r'/dev/(\S+\d*)', udev_obj.device_node).group(1) ]
 
     def __learn_irqs(self):
         disk2irqs = {}
-        irqs2procline = get_irqs2procline_map()
 
         for devices in list(self.__dir2disks.values()) + [ self.args.devs ]:
             for device in devices:
@@ -847,7 +1062,7 @@ class DiskPerfTuner(PerfTunerBase):
                 if device in disk2irqs.keys():
                     continue
 
-                udev_obj = pyudev.Device.from_device_file(self.__pyudev_ctx, "/dev/{}".format(device))
+                udev_obj = pyudev.Devices.from_device_file(self.__pyudev_ctx, "/dev/{}".format(device))
                 dev_sys_path = udev_obj.sys_path
                 split_sys_path = list(pathlib.PurePath(dev_sys_path).parts)
 
@@ -867,7 +1082,7 @@ class DiskPerfTuner(PerfTunerBase):
                         break
 
                 controler_path_str = functools.reduce(lambda x, y : os.path.join(x, y), controller_path_parts)
-                disk2irqs[device] = learn_all_irqs_one(controler_path_str, irqs2procline, 'blkif')
+                disk2irqs[device] = learn_all_irqs_one(controler_path_str, self.__irqs2procline, 'blkif')
 
         return disk2irqs
 
@@ -880,7 +1095,7 @@ class DiskPerfTuner(PerfTunerBase):
         :param dev_node Device node file name, e.g. /dev/sda1
         :param path_creator A functor that creates a feature file name given a device system file name
         """
-        udev = pyudev.Device.from_device_file(pyudev.Context(), dev_node)
+        udev = pyudev.Devices.from_device_file(pyudev.Context(), dev_node)
         feature_file = path_creator(udev.sys_path)
 
         if os.path.exists(feature_file):
@@ -944,12 +1159,12 @@ class DiskPerfTuner(PerfTunerBase):
         io_scheduler = self.__get_io_scheduler(dev_node)
 
         if not io_scheduler:
-            print("Not setting I/O Scheduler for {} - required schedulers ({}) are not supported".format(device, list(self.__io_schedulers)))
+            perftune_print("Not setting I/O Scheduler for {} - required schedulers ({}) are not supported".format(device, list(self.__io_schedulers)))
         elif not self.__tune_io_scheduler(dev_node, io_scheduler):
-            print("Not setting I/O Scheduler for {} - feature not present".format(device))
+            perftune_print("Not setting I/O Scheduler for {} - feature not present".format(device))
 
         if not self.__tune_nomerges(dev_node):
-            print("Not setting 'nomerges' for {} - feature not present".format(device))
+            perftune_print("Not setting 'nomerges' for {} - feature not present".format(device))
 
     def __tune_disks(self, disks):
         for disk in disks:
@@ -959,6 +1174,7 @@ class DiskPerfTuner(PerfTunerBase):
 class TuneModes(enum.Enum):
     disks = 0
     net = 1
+    system = 2
 
     @staticmethod
     def names():
@@ -997,22 +1213,37 @@ Default values:
 
  --nic NIC       - default: eth0
  --cpu-mask MASK - default: all available cores mask
+ --tune-clock    - default: false
 ''')
 argp.add_argument('--mode', choices=PerfTunerBase.SupportedModes.names(), help='configuration mode')
 argp.add_argument('--nic', help='network interface name, by default uses \'eth0\'')
+argp.add_argument('--tune-clock', action='store_true', help='Force tuning of the system clocksource')
 argp.add_argument('--get-cpu-mask', action='store_true', help="print the CPU mask to be used for compute")
+argp.add_argument('--get-cpu-mask-quiet', action='store_true', help="print the CPU mask to be used for compute, print the zero CPU set if that's what it turns out to be")
+argp.add_argument('--verbose', action='store_true', help="be more verbose about operations and their result")
 argp.add_argument('--tune', choices=TuneModes.names(), help="components to configure (may be given more than once)", action='append', default=[])
 argp.add_argument('--cpu-mask', help="mask of cores to use, by default use all available cores", metavar='MASK')
+argp.add_argument('--irq-cpu-mask', help="mask of cores to use for IRQs binding", metavar='MASK')
 argp.add_argument('--dir', help="directory to optimize (may appear more than once)", action='append', dest='dirs', default=[])
 argp.add_argument('--dev', help="device to optimize (may appear more than once), e.g. sda1", action='append', dest='devs', default=[])
 argp.add_argument('--options-file', help="configuration YAML file")
 argp.add_argument('--dump-options-file', action='store_true', help="Print the configuration YAML file containing the current configuration")
+argp.add_argument('--dry-run', action='store_true', help="Don't take any action, just recommend what to do.")
+
+def parse_cpu_mask_from_yaml(y, field_name, fname):
+    hex_32bit_pattern='0x[0-9a-fA-F]{1,8}'
+    mask_pattern = re.compile('^{}((,({})?)*,{})*$'.format(hex_32bit_pattern, hex_32bit_pattern, hex_32bit_pattern))
+
+    if mask_pattern.match(str(y[field_name])):
+        return y[field_name]
+    else:
+        raise Exception("Bad '{}' value in {}: {}".format(field_name, fname, str(y[field_name])))
 
 def parse_options_file(prog_args):
     if not prog_args.options_file:
         return
 
-    y = yaml.load(open(prog_args.options_file))
+    y = yaml.safe_load(open(prog_args.options_file))
     if y is None:
         return
 
@@ -1024,6 +1255,9 @@ def parse_options_file(prog_args):
     if 'nic' in y and not prog_args.nic:
         prog_args.nic = y['nic']
 
+    if 'tune_clock' in y and not prog_args.tune_clock:
+        prog_args.tune_clock= y['tune_clock']
+
     if 'tune' in y:
         if set(y['tune']) <= set(TuneModes.names()):
             prog_args.tune.extend(y['tune'])
@@ -1031,12 +1265,10 @@ def parse_options_file(prog_args):
             raise Exception("Bad 'tune' value in {}: {}".format(prog_args.options_file, y['tune']))
 
     if 'cpu_mask' in y and not prog_args.cpu_mask:
-        hex_32bit_pattern='0x[0-9a-fA-F]{1,8}'
-        mask_pattern = re.compile('^{}((,({})?)*,{})*$'.format(hex_32bit_pattern, hex_32bit_pattern, hex_32bit_pattern))
-        if mask_pattern.match(str(y['cpu_mask'])):
-            prog_args.cpu_mask = y['cpu_mask']
-        else:
-            raise Exception("Bad 'cpu_mask' value in {}: {}".format(prog_args.options_file, str(y['cpu_mask'])))
+        prog_args.cpu_mask = parse_cpu_mask_from_yaml(y, 'cpu_mask', prog_args.options_file)
+
+    if 'irq_cpu_mask' in y and not prog_args.irq_cpu_mask:
+        prog_args.irq_cpu_mask = parse_cpu_mask_from_yaml(y, 'irq_cpu_mask', prog_args.options_file)
 
     if 'dir' in y:
         prog_args.dirs.extend(y['dir'])
@@ -1053,11 +1285,17 @@ def dump_config(prog_args):
     if prog_args.nic:
         prog_options['nic'] = prog_args.nic
 
+    if prog_args.tune_clock:
+        prog_options['tune_clock'] = prog_args.tune_clock
+
     if prog_args.tune:
         prog_options['tune'] = prog_args.tune
 
     if prog_args.cpu_mask:
         prog_options['cpu_mask'] = prog_args.cpu_mask
+
+    if prog_args.irq_cpu_mask:
+        prog_options['irq_cpu_mask'] = prog_args.irq_cpu_mask
 
     if prog_args.dirs:
         prog_options['dir'] = prog_args.dirs
@@ -1065,15 +1303,20 @@ def dump_config(prog_args):
     if prog_args.devs:
         prog_options['dev'] = prog_args.devs
 
-    print(yaml.dump(prog_options, default_flow_style=False))
+    perftune_print(yaml.dump(prog_options, default_flow_style=False))
 ################################################################################
 
 args = argp.parse_args()
+dry_run_mode = args.dry_run
 parse_options_file(args)
 
 # if nothing needs to be configured - quit
-if args.tune is None:
+if not args.tune:
     sys.exit("ERROR: At least one tune mode MUST be given.")
+
+# The must be either 'mode' or an explicit 'irq_cpu_mask' given - not both
+if args.mode and args.irq_cpu_mask:
+    sys.exit("ERROR: Provide either tune mode or IRQs CPU mask - not both.")
 
 # set default values #####################
 if not args.nic:
@@ -1082,6 +1325,10 @@ if not args.nic:
 if not args.cpu_mask:
     args.cpu_mask = run_hwloc_calc(['all'])
 ##########################################
+
+# Sanity: irq_cpu_mask should be a subset of cpu_mask
+if args.irq_cpu_mask and run_hwloc_calc([args.cpu_mask]) != run_hwloc_calc([args.cpu_mask, args.irq_cpu_mask]):
+    sys.exit("ERROR: IRQ CPU mask({}) must be a subset of CPU mask({})".format(args.irq_cpu_mask, args.cpu_mask))
 
 if args.dump_options_file:
     dump_config(args)
@@ -1096,20 +1343,30 @@ try:
     if TuneModes.net.name in args.tune:
         tuners.append(NetPerfTuner(args))
 
-    # Set the minimum mode among all tuners
-    mode = min([ tuner.mode for tuner in tuners ])
-    for tuner in tuners:
-        tuner.mode = mode
+    if TuneModes.system.name in args.tune:
+        tuners.append(SystemPerfTuner(args))
 
-    if args.get_cpu_mask:
+    # Set the minimum mode among all tuners
+    if not args.irq_cpu_mask:
+        mode = PerfTunerBase.SupportedModes.combine([tuner.mode for tuner in tuners])
+        for tuner in tuners:
+            tuner.mode = mode
+
+    if args.get_cpu_mask or args.get_cpu_mask_quiet:
         # Print the compute mask from the first tuner - it's going to be the same in all of them
-        print(tuners[0].compute_cpu_mask)
+        perftune_print(tuners[0].compute_cpu_mask)
     else:
         # Tune the system
         restart_irqbalance(itertools.chain.from_iterable([ tuner.irqs for tuner in tuners ]))
 
         for tuner in tuners:
             tuner.tune()
+except PerfTunerBase.CPUMaskIsZeroException as e:
+    # Print a zero CPU set if --get-cpu-mask-quiet was requested.
+    if args.get_cpu_mask_quiet:
+        perftune_print("0x0")
+    else:
+        sys.exit("ERROR: {}. Your system can't be tuned until the issue is fixed.".format(e))
 except Exception as e:
     sys.exit("ERROR: {}. Your system can't be tuned until the issue is fixed.".format(e))
 

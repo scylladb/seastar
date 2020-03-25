@@ -25,8 +25,12 @@
 #include <seastar/core/future-util.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/thread.hh>
+#include <seastar/core/print.hh>
+#include <seastar/util/defer.hh>
+#include <mutex>
 
 using namespace seastar;
+using namespace std::chrono_literals;
 
 struct async_service : public seastar::async_sharded_service<async_service> {
     thread_local static bool deleted;
@@ -35,7 +39,8 @@ struct async_service : public seastar::async_sharded_service<async_service> {
     }
     void run() {
         auto ref = shared_from_this();
-        sleep(std::chrono::milliseconds(100 + 100 * engine().cpu_id())).then([this, ref] {
+        // Wait a while and check.
+        (void)sleep(std::chrono::milliseconds(100 + 100 * this_shard_id())).then([this, ref] {
            check();
         });
     }
@@ -52,7 +57,7 @@ struct X {
         return arg;
     }
     int cpu_id_squared() const {
-        auto id = engine().cpu_id();
+        auto id = this_shard_id();
         return id * id;
     }
     future<> stop() { return make_ready_future<>(); }
@@ -150,7 +155,7 @@ future<> test_invoke_on_others() {
                         throw std::runtime_error("local modified");
                     }
                     s.invoke_on_all([c](auto& remote) {
-                        if (engine().cpu_id() != c) {
+                        if (this_shard_id() != c) {
                             if (remote.counter != 1) {
                                 throw std::runtime_error("remote not modified");
                             }
@@ -160,6 +165,112 @@ future<> test_invoke_on_others() {
                 });
             }).get();
         }
+    });
+}
+
+
+struct remote_worker {
+    unsigned current = 0;
+    unsigned max_concurrent_observed = 0;
+    future<> do_work() {
+        ++current;
+        max_concurrent_observed = std::max(current, max_concurrent_observed);
+        return sleep(100ms).then([this] {
+            max_concurrent_observed = std::max(current, max_concurrent_observed);
+            --current;
+        });
+    }
+    future<> do_remote_work(shard_id t, smp_service_group ssg) {
+        return smp::submit_to(t,  ssg, [this] {
+            return do_work();
+        });
+    }
+};
+
+future<> test_smp_service_groups() {
+    return async([] {
+        smp_service_group_config ssgc1;
+        ssgc1.max_nonlocal_requests = 1;
+        auto ssg1 = create_smp_service_group(ssgc1).get0();
+        smp_service_group_config ssgc2;
+        ssgc2.max_nonlocal_requests = 1000;
+        auto ssg2 = create_smp_service_group(ssgc2).get0();
+        shard_id other_shard = smp::count - 1;
+        remote_worker rm1;
+        remote_worker rm2;
+        auto bunch1 = parallel_for_each(boost::irange(0, 20), [&] (int ignore) { return rm1.do_remote_work(other_shard, ssg1); });
+        auto bunch2 = parallel_for_each(boost::irange(0, 2000), [&] (int ignore) { return rm2.do_remote_work(other_shard, ssg2); });
+        bunch1.get();
+        bunch2.get();
+        if (smp::count > 1) {
+            assert(rm1.max_concurrent_observed == 1);
+            assert(rm2.max_concurrent_observed >= 1000 / (smp::count - 1) && rm2.max_concurrent_observed <= 1000);
+        }
+        destroy_smp_service_group(ssg1).get();
+        destroy_smp_service_group(ssg2).get();
+    });
+}
+
+future<> test_smp_service_groups_re_construction() {
+    // During development of the feature, we saw a bug where the vector
+    // holding the groups did not expand correctly. This test triggers the
+    // bug.
+    return async([] {
+        auto ssg1 = create_smp_service_group({}).get0();
+        auto ssg2 = create_smp_service_group({}).get0();
+        destroy_smp_service_group(ssg1).get();
+        auto ssg3 = create_smp_service_group({}).get0();
+        destroy_smp_service_group(ssg2).get();
+        destroy_smp_service_group(ssg3).get();
+    });
+}
+
+future<> test_smp_timeout() {
+    return async([] {
+        smp_service_group_config ssgc1;
+        ssgc1.max_nonlocal_requests = 1;
+        auto ssg1 = create_smp_service_group(ssgc1).get0();
+
+        auto _ = defer([ssg1] {
+            destroy_smp_service_group(ssg1).get();
+        });
+
+        const shard_id other_shard = smp::count - 1;
+
+        // Ugly but beats using sleeps.
+        std::mutex mut;
+        std::unique_lock<std::mutex> lk(mut);
+
+        // Submitted to the remote shard.
+        auto fut1 = smp::submit_to(other_shard, ssg1, [&mut] {
+            std::cout << "Running request no. 1" << std::endl;
+            std::unique_lock<std::mutex> lk(mut);
+            std::cout << "Request no. 1 done" << std::endl;
+        });
+        // Consume the only unit from the semaphore.
+        auto fut2 = smp::submit_to(other_shard, ssg1, [] {
+            std::cout << "Running request no. 2 - done" << std::endl;
+        });
+
+        auto fut_timedout = smp::submit_to(other_shard, smp_submit_to_options(ssg1, smp_timeout_clock::now() + 10ms), [] {
+            std::cout << "Running timed-out request - done" << std::endl;
+        });
+
+        {
+            auto notify = defer([lk = std::move(lk)] { });
+
+            try {
+                fut_timedout.get();
+                throw std::runtime_error("smp::submit_to() didn't timeout as expected");
+            } catch (semaphore_timed_out& e) {
+                std::cout << "Expected timeout received: " << e.what() << std::endl;
+            } catch (...) {
+                std::throw_with_nested(std::runtime_error("smp::submit_to() failed with unexpected exception"));
+            }
+        }
+
+        fut1.get();
+        fut2.get();
     });
 }
 
@@ -176,6 +287,12 @@ int main(int argc, char** argv) {
             return test_async();
         }).then([] {
             return test_invoke_on_others();
+        }).then([] {
+            return test_smp_service_groups();
+        }).then([] {
+            return test_smp_service_groups_re_construction();
+        }).then([] {
+            return test_smp_timeout();
         });
     });
 }

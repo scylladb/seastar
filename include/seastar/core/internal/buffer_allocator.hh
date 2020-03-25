@@ -16,35 +16,28 @@
  * under the License.
  */
 /*
- * Copyright (C) 2015 Cloudius Systems, Ltd.
+ * Copyright (C) 2020 ScyllaDB
  */
 
 #pragma once
 
-#include <memory>
-#include <functional>
-#include <atomic>
-#include <seastar/core/future.hh>
-#include <seastar/core/posix.hh>
-#include "exchanger.hh"
-
 namespace seastar {
 
-class posix_thread;
+template <typename CharType>
+class temporary_buffer;
 
-class test_runner {
-private:
-    std::unique_ptr<posix_thread> _thread;
-    std::atomic<bool> _started{false};
-    exchanger<std::function<future<>()>> _task;
-    bool _done = false;
+namespace internal {
+
+// Internal interface for allocating buffers for reads. Used to decouple
+// allocation strategies (where to allocate from, and what sizes) from the
+// point where allocation happens, to make it as late as possible.
+class buffer_allocator {
 public:
-    void start(int argc, char** argv);
-    ~test_runner();
-    void run_sync(std::function<future<>()> task);
-    void finalize();
+    virtual ~buffer_allocator() = default;
+    virtual temporary_buffer<char> allocate_buffer() = 0;
 };
 
-test_runner& global_test_runner();
+
+}
 
 }

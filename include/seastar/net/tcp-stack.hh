@@ -24,16 +24,24 @@
 #pragma once
 
 #include <seastar/core/future.hh>
+#include "../core/internal/api-level.hh"
 
 namespace seastar {
 
-class listen_options;
-class server_socket;
+struct listen_options;
+
+#if SEASTAR_API_LEVEL <= 1
+
+SEASTAR_INCLUDE_API_V1 namespace api_v1 { class server_socket; }
+
+#endif
+
+SEASTAR_INCLUDE_API_V2 namespace api_v2 { class server_socket; }
 class connected_socket;
 
 namespace net {
 
-class ipv4_traits;
+struct ipv4_traits;
 template <typename InetTraits>
 class tcp;
 

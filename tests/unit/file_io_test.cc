@@ -19,14 +19,20 @@
  * Copyright (C) 2014-2015 Cloudius Systems, Ltd.
  */
 
-#include "test-utils.hh"
+#include <seastar/testing/test_case.hh>
+#include <seastar/testing/thread_test_case.hh>
 
+#include <seastar/core/seastar.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/condition-variable.hh>
 #include <seastar/core/file.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/stall_sampler.hh>
+#include <seastar/core/aligned_buffer.hh>
+#include <boost/range/adaptor/transformed.hpp>
+#include <iostream>
+
+#include "core/file-impl.hh"
 
 using namespace seastar;
 
@@ -42,6 +48,39 @@ SEASTAR_TEST_CASE(open_flags_test) {
     return make_ready_future<>();
 }
 
+SEASTAR_TEST_CASE(access_flags_test) {
+    access_flags flags = access_flags::read | access_flags::write  | access_flags::execute;
+    BOOST_REQUIRE(std::underlying_type_t<open_flags>(flags) ==
+                  (std::underlying_type_t<open_flags>(access_flags::read) |
+                   std::underlying_type_t<open_flags>(access_flags::write) |
+                   std::underlying_type_t<open_flags>(access_flags::execute)));
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(file_exists_test) {
+    return seastar::async([] {
+        sstring filename = "testfile.tmp";
+        auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get0();
+        f.close().get();
+        auto exists = file_exists(filename).get0();
+        BOOST_REQUIRE(exists);
+        remove_file(filename).get();
+        exists = file_exists(filename).get0();
+        BOOST_REQUIRE(!exists);
+    });
+}
+
+SEASTAR_TEST_CASE(file_access_test) {
+    return seastar::async([] {
+        sstring filename = "testfile.tmp";
+        auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get0();
+        f.close().get();
+        auto is_accessible = file_accessible(filename, access_flags::read | access_flags::write).get0();
+        BOOST_REQUIRE(is_accessible);
+        remove_file(filename).get();
+    });
+}
+
 struct file_test {
     file_test(file&& f) : f(std::move(f)) {}
     file f;
@@ -55,16 +94,17 @@ SEASTAR_TEST_CASE(test1) {
     return open_file_dma("testfile.tmp", open_flags::rw | open_flags::create).then([] (file f) {
         auto ft = new file_test{std::move(f)};
         for (size_t i = 0; i < max; ++i) {
-            ft->par.wait().then([ft, i] {
+            // Don't wait for future, use semaphore to signal when done instead.
+            (void)ft->par.wait().then([ft, i] {
                 auto wbuf = allocate_aligned_buffer<unsigned char>(4096, 4096);
                 std::fill(wbuf.get(), wbuf.get() + 4096, i);
                 auto wb = wbuf.get();
-                ft->f.dma_write(i * 4096, wb, 4096).then(
+                (void)ft->f.dma_write(i * 4096, wb, 4096).then(
                         [ft, i, wbuf = std::move(wbuf)] (size_t ret) mutable {
                     BOOST_REQUIRE(ret == 4096);
                     auto rbuf = allocate_aligned_buffer<unsigned char>(4096, 4096);
                     auto rb = rbuf.get();
-                    ft->f.dma_read(i * 4096, rb, 4096).then(
+                    (void)ft->f.dma_read(i * 4096, rb, 4096).then(
                             [ft, rbuf = std::move(rbuf), wbuf = std::move(wbuf)] (size_t ret) mutable {
                         BOOST_REQUIRE(ret == 4096);
                         BOOST_REQUIRE(std::equal(rbuf.get(), rbuf.get() + 4096, wbuf.get()));
@@ -124,7 +164,8 @@ SEASTAR_TEST_CASE(parallel_write_fsync) {
                     return written <= fsynced_at + max_write_ahead_of_fsync;
                 }).get();
                 auto buf = temporary_buffer<char>::aligned(f.memory_dma_alignment(), buffer_size);
-                f.dma_write(written, buf.get(), buf.size()).then([&fsync_semaphore, &write_semaphore, buf = std::move(buf)] (size_t w) {
+                // Write asynchronously, signal when done.
+                (void)f.dma_write(written, buf.get(), buf.size()).then([&fsync_semaphore, &write_semaphore, buf = std::move(buf)] (size_t w) {
                     fsync_semaphore.signal(buf.size());
                     write_semaphore.signal();
                 });
@@ -139,4 +180,293 @@ SEASTAR_TEST_CASE(parallel_write_fsync) {
     }).then([] (internal::stall_report sr) {
         std::cout << "parallel_write_fsync: " << sr << "\n";
     });
+}
+
+SEASTAR_THREAD_TEST_CASE(test_iov_max) {
+    static constexpr size_t buffer_size = 4096;
+    static constexpr size_t buffer_count = IOV_MAX * 2 + 1;
+
+    std::vector<temporary_buffer<char>> original_buffers;
+    std::vector<iovec> iovecs;
+    for (auto i = 0u; i < buffer_count; i++) {
+        original_buffers.emplace_back(temporary_buffer<char>::aligned(buffer_size, buffer_size));
+        std::fill_n(original_buffers.back().get_write(), buffer_size, char(i));
+        iovecs.emplace_back(iovec { original_buffers.back().get_write(), buffer_size });
+    }
+
+    auto f = open_file_dma("testfile.tmp", open_flags::rw | open_flags::create).get0();
+    size_t left = buffer_size * buffer_count;
+    size_t position = 0;
+    while (left) {
+        auto written = f.dma_write(position, iovecs).get0();
+        iovecs.erase(iovecs.begin(), iovecs.begin() + written / buffer_size);
+        assert(written % buffer_size == 0);
+        position += written;
+        left -= written;
+    }
+
+    BOOST_CHECK(iovecs.empty());
+
+    std::vector<temporary_buffer<char>> read_buffers;
+    for (auto i = 0u; i < buffer_count; i++) {
+        read_buffers.emplace_back(temporary_buffer<char>::aligned(buffer_size, buffer_size));
+        std::fill_n(read_buffers.back().get_write(), buffer_size, char(0));
+        iovecs.emplace_back(iovec { read_buffers.back().get_write(), buffer_size });
+    }
+
+    left = buffer_size * buffer_count;
+    position = 0;
+    while (left) {
+        auto read = f.dma_read(position, iovecs).get0();
+        iovecs.erase(iovecs.begin(), iovecs.begin() + read / buffer_size);
+        assert(read % buffer_size == 0);
+        position += read;
+        left -= read;
+    }
+
+    for (auto i = 0u; i < buffer_count; i++) {
+        BOOST_CHECK(std::equal(original_buffers[i].get(), original_buffers[i].get() + original_buffers[i].size(),
+                               read_buffers[i].get(), read_buffers[i].get() + read_buffers[i].size()));
+    }
+
+    f.close().get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_sanitize_iovecs) {
+    auto buf = temporary_buffer<char>::aligned(4096, 4096);
+
+    auto iovec_equal = [] (const iovec& a, const iovec& b) {
+        return a.iov_base == b.iov_base && a.iov_len == b.iov_len;
+    };
+
+    { // Single fragment, sanitize is noop
+        auto original_iovecs = std::vector<iovec> { { buf.get_write(), buf.size() } };
+        auto actual_iovecs = original_iovecs;
+        auto actual_length = internal::sanitize_iovecs(actual_iovecs, 4096);
+        BOOST_CHECK_EQUAL(actual_length, 4096);
+        BOOST_CHECK_EQUAL(actual_iovecs.size(), 1);
+        BOOST_CHECK(iovec_equal(original_iovecs.back(), actual_iovecs.back()));
+    }
+
+    { // one 1024 buffer and IOV_MAX+6 buffers of 512; 4096 byte disk alignment, sanitize needs to drop buffers
+        auto original_iovecs = std::vector<iovec>{};
+        for (auto i = 0u; i < IOV_MAX + 7; i++) {
+            original_iovecs.emplace_back(iovec { buf.get_write(), i == 0 ? 1024u : 512u });
+        }
+        auto actual_iovecs = original_iovecs;
+        auto actual_length = internal::sanitize_iovecs(actual_iovecs, 4096);
+        BOOST_CHECK_EQUAL(actual_length, 512 * IOV_MAX);
+        BOOST_CHECK_EQUAL(actual_iovecs.size(), IOV_MAX - 1);
+
+        original_iovecs.resize(IOV_MAX - 1);
+        BOOST_CHECK(std::equal(original_iovecs.begin(), original_iovecs.end(),
+                               actual_iovecs.begin(), actual_iovecs.end(), iovec_equal));
+    }
+
+    { // IOV_MAX-1 buffers of 512, one 1024 buffer, and 6 512 buffers; 4096 byte disk alignment, sanitize needs to drop and trim buffers
+        auto original_iovecs = std::vector<iovec>{};
+        for (auto i = 0u; i < IOV_MAX + 7; i++) {
+            original_iovecs.emplace_back(iovec { buf.get_write(), i == (IOV_MAX - 1) ? 1024u : 512u });
+        }
+        auto actual_iovecs = original_iovecs;
+        auto actual_length = internal::sanitize_iovecs(actual_iovecs, 4096);
+        BOOST_CHECK_EQUAL(actual_length, 512 * IOV_MAX);
+        BOOST_CHECK_EQUAL(actual_iovecs.size(), IOV_MAX);
+
+        original_iovecs.resize(IOV_MAX);
+        original_iovecs.back().iov_len = 512;
+        BOOST_CHECK(std::equal(original_iovecs.begin(), original_iovecs.end(),
+                               actual_iovecs.begin(), actual_iovecs.end(), iovec_equal));
+    }
+
+    { // IOV_MAX+8 buffers of 512; 4096 byte disk alignment, sanitize needs to drop buffers
+        auto original_iovecs = std::vector<iovec>{};
+        for (auto i = 0u; i < IOV_MAX + 8; i++) {
+            original_iovecs.emplace_back(iovec { buf.get_write(), 512 });
+        }
+        auto actual_iovecs = original_iovecs;
+        auto actual_length = internal::sanitize_iovecs(actual_iovecs, 4096);
+        BOOST_CHECK_EQUAL(actual_length, 512 * IOV_MAX);
+        BOOST_CHECK_EQUAL(actual_iovecs.size(), IOV_MAX);
+
+        original_iovecs.resize(IOV_MAX);
+        BOOST_CHECK(std::equal(original_iovecs.begin(), original_iovecs.end(),
+                               actual_iovecs.begin(), actual_iovecs.end(), iovec_equal));
+    }
+}
+
+SEASTAR_THREAD_TEST_CASE(test_chmod) {
+    auto oflags = open_flags::rw | open_flags::create;
+    sstring filename = "testfile.tmp";
+    if (file_exists(filename).get0()) {
+        remove_file(filename).get();
+    }
+
+    auto orig_umask = umask(0);
+
+    // test default_file_permissions
+    auto f = open_file_dma(filename, oflags).get0();
+    f.close().get();
+    auto sd = file_stat(filename).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
+
+    // test chmod with new_permissions
+    auto new_permissions = file_permissions::user_read | file_permissions::group_read | file_permissions::others_read;
+    BOOST_REQUIRE(new_permissions != file_permissions::default_file_permissions);
+    BOOST_REQUIRE(file_exists(filename).get0());
+    chmod(filename, new_permissions).get();
+    sd = file_stat(filename).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(new_permissions));
+    remove_file(filename).get();
+
+    umask(orig_umask);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_open_file_dma_permissions) {
+    auto oflags = open_flags::rw | open_flags::create;
+    sstring filename = "testfile.tmp";
+    if (file_exists(filename).get0()) {
+        remove_file(filename).get();
+    }
+
+    auto orig_umask = umask(0);
+
+    // test default_file_permissions
+    auto f = open_file_dma(filename, oflags).get0();
+    f.close().get();
+    auto sd = file_stat(filename).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
+    remove_file(filename).get();
+
+    // test options.create_permissions
+    auto options = file_open_options();
+    options.create_permissions = file_permissions::user_read | file_permissions::group_read | file_permissions::others_read;
+    BOOST_REQUIRE(options.create_permissions != file_permissions::default_file_permissions);
+    f = open_file_dma(filename, oflags, options).get0();
+    f.close().get();
+    sd = file_stat(filename).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(options.create_permissions));
+    remove_file(filename).get();
+
+    umask(orig_umask);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_make_directory_permissions) {
+    sstring dirname = "testdir.tmp";
+    if (file_exists(dirname).get0()) {
+        remove_file(dirname).get();
+    }
+
+    auto orig_umask = umask(0);
+
+    // test default_dir_permissions with make_directory
+    make_directory(dirname).get();
+    auto sd = file_stat(dirname).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
+    remove_file(dirname).get();
+
+    // test make_directory
+    auto create_permissions = file_permissions::user_read | file_permissions::group_read | file_permissions::others_read;
+    BOOST_REQUIRE(create_permissions != file_permissions::default_dir_permissions);
+    make_directory(dirname, create_permissions).get();
+    sd = file_stat(dirname).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(create_permissions));
+    remove_file(dirname).get();
+
+    umask(orig_umask);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_touch_directory_permissions) {
+    sstring dirname = "testdir.tmp";
+    if (file_exists(dirname).get0()) {
+        remove_file(dirname).get();
+    }
+
+    auto orig_umask = umask(0);
+
+    // test default_dir_permissions with touch_directory
+    touch_directory(dirname).get();
+    auto sd = file_stat(dirname).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
+    remove_file(dirname).get();
+
+    // test touch_directory, dir creation
+    auto create_permissions = file_permissions::user_read | file_permissions::group_read | file_permissions::others_read;
+    BOOST_REQUIRE(create_permissions != file_permissions::default_dir_permissions);
+    BOOST_REQUIRE(!file_exists(dirname).get0());
+    touch_directory(dirname, create_permissions).get();
+    sd = file_stat(dirname).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(create_permissions));
+
+    // test touch_directory of existing dir, dir mode need not change
+    BOOST_REQUIRE(file_exists(dirname).get0());
+    touch_directory(dirname, file_permissions::default_dir_permissions).get();
+    sd = file_stat(dirname).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(create_permissions));
+    remove_file(dirname).get();
+
+    umask(orig_umask);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_recursive_touch_directory_permissions) {
+    sstring base_dirname = "testbasedir.tmp";
+    sstring sub_dirname = "testsubdir.tmp";
+    sstring dirpath = base_dirname + "/" + sub_dirname;
+    if (file_exists(dirpath).get0()) {
+        remove_file(dirpath).get();
+    }
+    if (file_exists(base_dirname).get0()) {
+        remove_file(base_dirname).get();
+    }
+
+    auto orig_umask = umask(0);
+
+    // test default_dir_permissions with recursive_touch_directory
+    recursive_touch_directory(dirpath).get();
+    auto sd = file_stat(base_dirname).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
+    sd = file_stat(dirpath).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
+    remove_file(dirpath).get();
+
+    // test recursive_touch_directory, dir creation
+    auto create_permissions = file_permissions::user_read | file_permissions::group_read | file_permissions::others_read;
+    BOOST_REQUIRE(create_permissions != file_permissions::default_dir_permissions);
+    BOOST_REQUIRE(file_exists(base_dirname).get0());
+    BOOST_REQUIRE(!file_exists(dirpath).get0());
+    recursive_touch_directory(dirpath, create_permissions).get();
+    sd = file_stat(base_dirname).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
+    sd = file_stat(dirpath).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(create_permissions));
+
+    // test recursive_touch_directory of existing dir, dir mode need not change
+    BOOST_REQUIRE(file_exists(dirpath).get0());
+    recursive_touch_directory(dirpath, file_permissions::default_dir_permissions).get();
+    sd = file_stat(base_dirname).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
+    sd = file_stat(dirpath).get0();
+    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(create_permissions));
+    remove_file(dirpath).get();
+    remove_file(base_dirname).get();
+
+    umask(orig_umask);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_file_stat_method) {
+    auto oflags = open_flags::rw | open_flags::create;
+    sstring filename = "testfile.tmp";
+    if (file_exists(filename).get0()) {
+        remove_file(filename).get();
+    }
+
+    auto orig_umask = umask(0);
+
+    auto f = open_file_dma(filename, oflags).get0();
+    auto st = f.stat().get0();
+    f.close().get();
+    BOOST_CHECK_EQUAL(st.st_mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
+    remove_file(filename).get();
+
+    umask(orig_umask);
 }

@@ -31,6 +31,117 @@
 #include <boost/variant.hpp>
 #endif
 
+#if __cplusplus >= 201703L && __has_include(<filesystem>)
+#include <filesystem>
+#else
+#include <experimental/filesystem>
+#endif
+
+
+#if __cplusplus >= 201703L && __has_include(<memory_resource>)
+
+#define SEASTAR_HAS_POLYMORPHIC_ALLOCATOR
+
+#include <memory_resource>
+
+namespace seastar {
+
+/// \cond internal
+
+namespace compat {
+
+using memory_resource = std::pmr::memory_resource;
+
+template<typename T>
+using polymorphic_allocator = std::pmr::polymorphic_allocator<T>;
+
+static inline
+memory_resource* pmr_get_default_resource() {
+    return std::pmr::get_default_resource();
+}
+
+}
+
+}
+
+#elif __cplusplus >= 201703L && __has_include(<experimental/memory_resource>)
+
+#define SEASTAR_HAS_POLYMORPHIC_ALLOCATOR
+
+#include <experimental/memory_resource>
+
+namespace seastar {
+
+/// \cond internal
+
+namespace compat {
+
+using memory_resource = std::experimental::pmr::memory_resource;
+
+template<typename T>
+using polymorphic_allocator = std::experimental::pmr::polymorphic_allocator<T>;
+
+static inline
+memory_resource* pmr_get_default_resource() {
+    return std::experimental::pmr::get_default_resource();
+}
+
+}
+
+}
+
+#else
+
+namespace seastar {
+
+/// \cond internal
+
+namespace compat {
+
+// In C++14 we do not intend to support custom allocator, but only to
+// allow default allocator to work.
+//
+// This is done by defining a minimal polymorphic_allocator that always aborts
+// and rely on the fact that if the memory allocator is the default allocator,
+// we wouldn't actually use it, but would allocate memory ourselves.
+//
+// Hence C++14 users would be able to use seastar, but not to use a custom allocator
+
+class memory_resource {};
+
+static inline
+memory_resource* pmr_get_default_resource() {
+    static memory_resource stub;
+    return &stub;
+}
+
+template <typename T>
+class polymorphic_allocator {
+public:
+    explicit polymorphic_allocator(memory_resource*){}
+    T* allocate( std::size_t n ) { __builtin_abort(); }
+    void deallocate(T* p, std::size_t n ) { __builtin_abort(); }
+};
+
+}
+
+}
+
+#endif
+
+// Defining SEASTAR_ASAN_ENABLED in here is a bit of a hack, but
+// convenient since it is build system independent and in practice
+// everything includes this header.
+
+#ifndef __has_feature
+#define __has_feature(x) 0
+#endif
+
+// clang uses __has_feature, gcc defines __SANITIZE_ADDRESS__
+#if __has_feature(address_sanitizer) || defined(__SANITIZE_ADDRESS__)
+#define SEASTAR_ASAN_ENABLED
+#endif
+
 namespace seastar {
 
 /// \cond internal
@@ -169,6 +280,14 @@ const U* get_if(const variant<Types...>* v) {
 
 #endif
 
+#if defined(__cpp_lib_filesystem)
+namespace filesystem = std::filesystem;
+#elif defined(__cpp_lib_experimental_filesystem)
+namespace filesystem = std::experimental::filesystem;
+#else
+#error No filesystem header detected.
+#endif
+
 using string_view = basic_string_view<char>;
 
 } // namespace compat
@@ -176,3 +295,9 @@ using string_view = basic_string_view<char>;
 /// \endcond
 
 } // namespace seastar
+
+#if __cplusplus >= 201703L && defined(__cpp_guaranteed_copy_elision)
+#define SEASTAR_COPY_ELISION(x) x
+#else
+#define SEASTAR_COPY_ELISION(x) std::move(x)
+#endif

@@ -155,6 +155,8 @@ public:
         return make_ready_future<>();
     }
 
+    using data_sink_impl::put;
+
     virtual future<> put(temporary_buffer<char> buf) override {
         if (buf.empty()) {
             return make_ready_future<>();
@@ -243,7 +245,7 @@ temporary_buffer<char> buffer_replace::match(temporary_buffer<char>& buf) {
             if (_current.last()) {
                 auto res = get_remaining();
                 _current.erase(first);
-                return std::move(res);
+                return res;
             }
             first = _current.erase(first);
         } else {
@@ -255,7 +257,7 @@ temporary_buffer<char> buffer_replace::match(temporary_buffer<char>& buf) {
                 temporary_buffer<char> res(value.data(), value.size());
                 buf.trim_front(len_compare);
                 _current.clear();
-                return std::move(res);
+                return res;
             }
             // only partial match
             pos += len_compare;
@@ -274,7 +276,7 @@ temporary_buffer<char> buffer_replace::get_remaining() {
     size_t pos = _current.get_pos();
     const sstring& key = get_key(pos);
     auto size = key.size() - _current.get_remaining_length();
-    return temporary_buffer<char>(key.begin(), size);
+    return temporary_buffer<char>(key.data(), size);
 }
 
 temporary_buffer<char> buffer_replace::replace(temporary_buffer<char>& buf) {
@@ -293,7 +295,7 @@ temporary_buffer<char> buffer_replace::replace(temporary_buffer<char>& buf) {
         size_t pos = 0;
         for (auto&& i : _values) {
             sstring& key = std::get<0>(i);
-            _current.add_potential_match(key.begin() + 1, key.end(), pos++);
+            _current.add_potential_match(key.data() + 1, key.data() + key.size(), pos++);
         }
         temporary_buffer<char> res = buf.share(0, start);
         buf.trim_front(start + 1);

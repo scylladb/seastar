@@ -21,7 +21,10 @@
 
 #pragma once
 
+#include <typeindex>
 #include <seastar/core/sstring.hh>
+#include <seastar/core/function_traits.hh>
+#include <seastar/util/gcc6-concepts.hh>
 
 /// \file
 
@@ -68,6 +71,159 @@ future<scheduling_group> create_scheduling_group(sstring name, float shares);
 /// \return a future that is ready when the scheduling group has been torn down
 future<> destroy_scheduling_group(scheduling_group sg);
 
+/// Rename scheduling group.
+///
+/// Renames a \ref scheduling_group previously created with create_scheduling_group().
+///
+/// The operation is global and affects all shards.
+/// The operation affects the exported statistics labels.
+///
+/// \param sg The scheduling group to be renamed
+/// \param new_name The new name for the scheduling group.
+/// \return a future that is ready when the scheduling group has been renamed
+future<> rename_scheduling_group(scheduling_group sg, sstring new_name);
+
+
+/**
+ * Represents a configuration for a specific scheduling group value,
+ * it contains all that is needed to maintain a scheduling group specific
+ * value when it needs to be created, due to, for example, a new \ref scheduling
+ * group being created.
+ *
+ * @note is is recomended to use @ref make_scheduling_group_key_config in order to
+ * create and configure this syructure. The only reason that one might want to not use
+ * this method is because of a need for specific intervention in the construction or
+ * destruction of the value. Even then, it is recommended to first create the configuration
+ * with @ref make_scheduling_group_key_config and only the change it.
+ *
+ */
+struct scheduling_group_key_config {
+    /**
+     * Constructs a default configuration
+     */
+    scheduling_group_key_config() :
+        scheduling_group_key_config(typeid(void)) {}
+    /**
+     * Creates a configuration that is made for a specific type.
+     * It does not contain the right alignment and allocation sizes
+     * neither the correct construction or destruction logic, but only
+     * the indication for the intended type which is used in debug mode
+     * to make sure that the correct type is reffered to when accessing
+     * the value.
+     * @param type_info - the type information class (create with typeid(T)).
+     */
+    scheduling_group_key_config(const std::type_info& type_info) :
+            type_index(type_info) {}
+    /// The allocation size for the value (usually: sizeof(T))
+    size_t allocation_size;
+    /// The required alignment of the value (usually: alignof(T))
+    size_t alignment;
+    /// Holds the type information for debug mode runtime validation
+    std::type_index type_index;
+    /// A function that will be called for each newly allocated value
+    std::function<void (void*)> constructor;
+    /// A function that will be called for each element that is about
+    /// to be dealocated.
+    std::function<void (void*)> destructor;
+
+};
+
+
+/**
+ * A class that is intended to encapsulate the scheduling group specific
+ * key and "hide" it implementation concerns and details.
+ *
+ * @note this object can be copied accross shards and scheduling groups.
+ */
+class scheduling_group_key {
+public:
+    /// The only user allowed operation on a key is copying.
+    scheduling_group_key(const scheduling_group_key&) = default;
+private:
+    scheduling_group_key(unsigned long id) :
+        _id(id) {}
+    unsigned long _id;
+    unsigned long id() const {
+        return _id;
+    }
+    friend class reactor;
+    friend future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg);
+    template<typename T>
+    friend T& scheduling_group_get_specific(scheduling_group sg, scheduling_group_key key);
+    template<typename T>
+    friend T& scheduling_group_get_specific(scheduling_group_key key);
+};
+
+namespace internal {
+/**
+ * @brief A function in the spirit of Cpp17 apply, but specifically for constructors.
+ * This function is used in order to preserve support in Cpp14.
+
+ * @tparam ConstructorType - the constructor type or in other words the type to be constructed
+ * @tparam Tuple - T params tuple type (should be deduced)
+ * @tparam size_t...Idx - a sequence of indexes in order to access the typpels members in compile time.
+ * (should be deduced)
+ *
+ * @param pre_alocated_mem - a pointer to the pre allocated memory chunk that will hold the
+ * the initialized object.
+ * @param args - A tupple that holds the prarameters for the constructor
+ * @param idx_seq - An index sequence that will be used to access the members of the tuple in compile
+ * time.
+ *
+ * @note this function was not intended to be called by users and it is only a utility function
+ * for suporting \ref make_scheduling_group_key_config
+ */
+template<typename ConstructorType, typename Tuple, size_t...Idx>
+void apply_constructor(void* pre_alocated_mem, Tuple args, std::index_sequence<Idx...> idx_seq) {
+    new (pre_alocated_mem) ConstructorType(std::get<Idx>(args)...);
+}
+}
+
+/**
+ * A template function that builds a scheduling group specific value configuration.
+ * This configuration is used by the infrastructure to allocate memory for the values
+ * and initialize or deinitialize them when they are created or destroyed.
+ *
+ * @tparam T - the type for the newly created value.
+ * @tparam ...ConstructorArgs - the types for the constructor parameters (should be deduced)
+ * @param args - The parameters for the constructor.
+ * @return a fully initialized \ref scheduling_group_key_config object.
+ */
+template <typename T, typename... ConstructorArgs>
+scheduling_group_key_config
+make_scheduling_group_key_config(ConstructorArgs... args) {
+    scheduling_group_key_config sgkc(typeid(T));
+    sgkc.allocation_size = sizeof(T);
+    sgkc.alignment = alignof(T);
+    sgkc.constructor = [args = std::make_tuple(args...)] (void* p) {
+        internal::apply_constructor<T>(p, args, std::make_index_sequence<sizeof...(ConstructorArgs)>());
+    };
+    sgkc.destructor = [] (void* p) {
+        static_cast<T*>(p)->~T();
+    };
+    return sgkc;
+}
+
+/**
+ * Returns a future that holds a scheduling key and resolves when this key can be used
+ * to access the scheduling group specific value it represents.
+ * @param cfg - A \ref scheduling_group_key_config object (by recomendation: initialized with
+ * \ref make_scheduling_group_key_config )
+ * @return A future containing \ref scheduling_group_key for the newly created specific value.
+ */
+future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg);
+
+/**
+ * Returnes a reference to the given scheduling group specific value
+ * @tparam T - the type of the scheduling specific type (cannot be deduced)
+ * @param sg - the scheduling group which it's specific value to retrieve
+ * @param key - the key of the value to retrieve.
+ * @return A reference to the scheduling specific value.
+ */
+template<typename T>
+T& scheduling_group_get_specific(scheduling_group sg, scheduling_group_key key);
+
+
 /// \brief Identifies function calls that are accounted as a group
 ///
 /// A `scheduling_group` is a tag that can be used to mark a function call.
@@ -84,6 +240,16 @@ public:
     bool operator==(scheduling_group x) const { return _id == x._id; }
     bool operator!=(scheduling_group x) const { return _id != x._id; }
     bool is_main() const { return _id == 0; }
+    template<typename T>
+    /**
+     * Returnes a reference to this scheduling group specific value
+     * @tparam T - the type of the scheduling specific type (cannot be deduced)
+     * @param key - the key of the value to retrieve.
+     * @return A reference to this scheduling specific value.
+     */
+    T& get_specific(scheduling_group_key key) {
+        return scheduling_group_get_specific<T>(*this, key);
+    }
     /// Adjusts the number of shares allotted to the group.
     ///
     /// Dynamically adjust the number of shares allotted to the group, increasing or
@@ -99,9 +265,26 @@ public:
     void set_shares(float shares);
     friend future<scheduling_group> create_scheduling_group(sstring name, float shares);
     friend future<> destroy_scheduling_group(scheduling_group sg);
+    friend future<> rename_scheduling_group(scheduling_group sg, sstring new_name);
     friend class reactor;
     friend unsigned internal::scheduling_group_index(scheduling_group sg);
     friend scheduling_group internal::scheduling_group_from_index(unsigned index);
+
+    template<typename SpecificValType, typename Mapper, typename Reducer, typename Initial>
+    GCC6_CONCEPT( requires requires(SpecificValType specific_val, Mapper mapper, Reducer reducer, Initial initial) {
+        {reducer(initial, mapper(specific_val))} -> Initial;
+    })
+    friend future<typename function_traits<Reducer>::return_type>
+    map_reduce_scheduling_group_specific(Mapper mapper, Reducer reducer, Initial initial_val, scheduling_group_key key);
+
+    template<typename SpecificValType, typename Reducer, typename Initial>
+    GCC6_CONCEPT( requires requires(SpecificValType specific_val, Reducer reducer, Initial initial) {
+        {reducer(initial, specific_val)} -> Initial;
+    })
+    friend future<typename function_traits<Reducer>::return_type>
+        reduce_scheduling_group_specific(Reducer reducer, Initial initial_val, scheduling_group_key key);
+
+
 };
 
 /// \cond internal

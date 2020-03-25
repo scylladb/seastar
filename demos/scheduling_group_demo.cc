@@ -25,10 +25,12 @@
 #include <seastar/core/scheduling.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/future-util.hh>
-#include <seastar/core/reactor.hh>
+#include <seastar/core/condition-variable.hh>
 #include <seastar/util/defer.hh>
+#include <fmt/printf.h>
 #include <chrono>
 #include <cmath>
+#include <boost/range/irange.hpp>
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -79,6 +81,7 @@ run_compute_intensive_tasks(seastar::scheduling_group sg, done_func done, unsign
                     return task(counter);
                 });
             }).get();
+            thread::maybe_yield();
         }
     });
 }
@@ -91,6 +94,7 @@ run_compute_intensive_tasks_in_threads(seastar::scheduling_group sg, done_func d
         return seastar::async(attr, [done, &counter, task] {
             while (!done()) {
                 task(counter).get();
+                thread::maybe_yield();
             }
         });
     });
@@ -112,6 +116,7 @@ run_with_duty_cycle(float utilization, std::chrono::steady_clock::duration perio
         while (!done()) {
             while (!combined_done()) {
                 task(std::cref(combined_done)).get();
+                thread::maybe_yield();
             }
             cv.wait([&] {
                 return done() || duty_toggle;

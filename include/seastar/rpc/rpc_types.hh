@@ -27,12 +27,12 @@
 #include <boost/any.hpp>
 #include <boost/type.hpp>
 #include <seastar/util/std-compat.hh>
-#include <boost/variant.hpp>
+#include <seastar/util/variant_utils.hh>
 #include <seastar/core/timer.hh>
+#include <seastar/core/circular_buffer.hh>
 #include <seastar/core/simple-stream.hh>
 #include <seastar/core/lowres_clock.hh>
 #include <boost/functional/hash.hpp>
-#include <iostream>
 #include <seastar/core/sharded.hh>
 
 namespace seastar {
@@ -178,9 +178,13 @@ struct rcv_buf {
     using iterator = std::vector<temporary_buffer<char>>::iterator;
     rcv_buf() {}
     explicit rcv_buf(size_t size_) : size(size_) {}
+    explicit rcv_buf(temporary_buffer<char> b) : size(b.size()), bufs(std::move(b)) {};
+    explicit rcv_buf(std::vector<temporary_buffer<char>> bufs, size_t size)
+        : size(size), bufs(std::move(bufs)) {};
 };
 
 struct snd_buf {
+    // Preferred, but not required, chunk size.
     static constexpr size_t chunk_size = 128*1024;
     uint32_t size = 0;
     compat::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
@@ -188,6 +192,10 @@ struct snd_buf {
     snd_buf() {}
     explicit snd_buf(size_t size_);
     explicit snd_buf(temporary_buffer<char> b) : size(b.size()), bufs(std::move(b)) {};
+
+    explicit snd_buf(std::vector<temporary_buffer<char>> bufs, size_t size)
+        : size(size), bufs(std::move(bufs)) {};
+
     temporary_buffer<char>& front();
 };
 
@@ -228,14 +236,20 @@ struct connection_id {
         return id == o.id;
     }
     operator bool() const {
-        return id;
+        return shard() != 0xffff;
     }
-    size_t shard() {
+    size_t shard() const {
         return size_t(id & 0xffff);
+    }
+    constexpr static connection_id make_invalid_id(uint64_t id = 0) {
+        return make_id(id, 0xffff);
+    }
+    constexpr static connection_id make_id(uint64_t id, uint16_t shard) {
+        return {id << 16 | shard};
     }
 };
 
-constexpr connection_id invalid_connection_id{0};
+constexpr connection_id invalid_connection_id = connection_id::make_invalid_id();
 
 std::ostream& operator<<(std::ostream&, const connection_id&);
 
@@ -257,6 +271,7 @@ public:
         virtual ~impl() {};
         virtual future<> operator()(const Out&... args) = 0;
         virtual future<> close() = 0;
+        virtual future<> flush() = 0;
         friend sink;
     };
 
@@ -270,6 +285,13 @@ public:
     }
     future<> close() {
         return _impl->close();
+    }
+    // Calling this function makes sure that any data buffered
+    // by the stream sink will be flushed to the network.
+    // It does not mean the data was received by the corresponding
+    // source.
+    future<> flush() {
+        return _impl->flush();
     }
     connection_id get_id() const;
 };
@@ -302,6 +324,34 @@ public:
     template<typename Serializer, typename... Out> sink<Out...> make_sink();
 };
 
+/// Used to return multiple values in rpc without variadic futures
+///
+/// If you wish to return multiple values from an rpc procedure, use a
+/// signature `future<rpc::tuple<return type list> (argument list)>>`. This
+/// will be marshalled by rpc, so you do not need to have your Serializer
+/// serialize/deserialize this tuple type. The serialization format is
+/// compatible with the deprecated variadic future support, and is compatible
+/// with adding new return types in a backwards compatible way provided new
+/// parameters are appended only, and wrapped with rpc::optional:
+/// `future<rpc::tuple<existing return type list, rpc::optional<new_return_type>>> (argument list)`
+///
+/// You may also use another tuple type, such as std::tuple. In this case,
+/// your Serializer type must recognize your tuple type and provide serialization
+/// and deserialization for it.
+template <typename... T>
+class tuple : public std::tuple<T...> {
+public:
+    using std::tuple<T...>::tuple;
+    tuple(std::tuple<T...>&& x) : std::tuple<T...>(std::move(x)) {}
+};
+
+#if __cplusplus >= 201703L
+
+template <typename... T>
+tuple(T&&...) ->  tuple<T...>;
+
+#endif
+
 } // namespace rpc
 
 }
@@ -315,4 +365,13 @@ struct hash<seastar::rpc::connection_id> {
         return h;
     }
 };
+
+template <typename... T>
+struct tuple_size<seastar::rpc::tuple<T...>> : tuple_size<tuple<T...>> {
+};
+
+template <size_t I, typename... T>
+struct tuple_element<I, seastar::rpc::tuple<T...>> : tuple_element<I, tuple<T...>> {
+};
+
 }

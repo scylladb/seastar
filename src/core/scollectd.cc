@@ -28,14 +28,28 @@
 #include <iostream>
 #include <unordered_map>
 
+#include <seastar/core/seastar.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/scollectd_api.hh>
 #include <seastar/core/metrics_api.hh>
 #include <seastar/core/byteorder.hh>
+#include <seastar/core/print.hh>
 
 #include "core/scollectd-impl.hh"
 
 namespace seastar {
+
+void scollectd::type_instance_id::truncate(sstring& field, const char* field_desc) {
+    if (field.size() > max_collectd_field_text_len) {
+        auto suffix_len = std::ceil(std::log10(++_next_truncated_idx)) + 1;
+        sstring new_field(seastar::format(
+            "{}~{:d}", sstring(field.data(), max_collectd_field_text_len - suffix_len), _next_truncated_idx));
+
+        logger.warn("Truncating \"{}\" to {} chars: \"{}\" -> \"{}\"", field_desc, max_collectd_field_text_len, field,
+            new_field);
+        field = std::move(new_field);
+    }
+}
 
 bool scollectd::type_instance_id::operator<(
         const scollectd::type_instance_id& id2) const {
@@ -276,7 +290,7 @@ struct cpwriter {
         // Optional
         put_cached(part_type::PluginInst,
                 id.instance_id() == per_cpu_plugin_instance ?
-                        to_sstring(engine().cpu_id()) : id.instance_id());
+                        to_sstring(this_shard_id()) : id.instance_id());
         put_cached(part_type::Type, id.inherit_type());
         // Optional
         put_cached(part_type::TypeInst, get_type_instance(id));
@@ -344,7 +358,7 @@ void impl::start(const sstring & host, const ipv4_addr & addr, const duration pe
     _period = period;
     _addr = addr;
     _host = host;
-    _chan = engine().net().make_udp_channel();
+    _chan = make_udp_channel();
     _timer.set_callback(std::bind(&impl::run, this));
 
     // dogfood ourselves
@@ -365,7 +379,8 @@ void impl::start(const sstring & host, const ipv4_addr & addr, const duration pe
         sm::make_gauge("records", sm::description("number of records reported"), [this] {return values().size();}),
     });
 
-    send_notification(
+    // FIXME: future is discarded
+    (void)send_notification(
             type_instance_id("scollectd", per_cpu_plugin_instance,
                     "network"), "daemon started");
     arm();
@@ -466,7 +481,9 @@ void impl::run() {
                     }
                 });
     };
-    do_until(stop_when, send_packet).finally([this, vals = std::move(vals)]() mutable {
+    // No need to wait for future.
+    // The caller has to call impl::stop() to synchronize.
+    (void)do_until(stop_when, send_packet).finally([this, vals = std::move(vals)]() mutable {
         arm();
     });
 }
@@ -520,7 +537,8 @@ void configure(const boost::program_options::variables_map & opts) {
 
     // Now create send loops on each cpu
     for (unsigned c = 0; c < smp::count; c++) {
-        smp::submit_to(c, [=] () {
+        // FIXME: future is discarded
+        (void)smp::submit_to(c, [=] () {
             get_impl().start(host, addr, period);
         });
     }

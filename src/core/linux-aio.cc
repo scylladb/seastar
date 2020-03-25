@@ -20,15 +20,19 @@
  */
 
 #include <seastar/core/linux-aio.hh>
+#include <seastar/core/print.hh>
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <atomic>
 #include <algorithm>
+#include <errno.h>
+#include <string.h>
 
 namespace seastar {
 
 namespace internal {
 
+namespace linux_abi {
 
 struct linux_aio_ring {
     uint32_t id;
@@ -41,7 +45,11 @@ struct linux_aio_ring {
     uint32_t header_length;
 };
 
-static linux_aio_ring* to_ring(::aio_context_t io_context) {
+}
+
+using namespace linux_abi;
+
+static linux_aio_ring* to_ring(aio_context_t io_context) {
     return reinterpret_cast<linux_aio_ring*>(uintptr_t(io_context));
 }
 
@@ -49,25 +57,26 @@ static bool usable(const linux_aio_ring* ring) {
     return ring->magic == 0xa10a10a1 && ring->incompat_features == 0;
 }
 
-int io_setup(int nr_events, ::aio_context_t* io_context) {
+int io_setup(int nr_events, aio_context_t* io_context) {
     return ::syscall(SYS_io_setup, nr_events, io_context);
 }
 
-int io_destroy(::aio_context_t io_context) {
+int io_destroy(aio_context_t io_context) {
    return ::syscall(SYS_io_destroy, io_context);
 }
 
-int io_submit(::aio_context_t io_context, long nr, ::iocb** iocbs) {
+int io_submit(aio_context_t io_context, long nr, iocb** iocbs) {
     return ::syscall(SYS_io_submit, io_context, nr, iocbs);
 }
 
-int io_cancel(::aio_context_t io_context, ::iocb* iocb, ::io_event* result) {
+int io_cancel(aio_context_t io_context, iocb* iocb, io_event* result) {
     return ::syscall(SYS_io_cancel, io_context, iocb, result);
 }
 
-int io_getevents(::aio_context_t io_context, long min_nr, long nr, ::io_event* events, const ::timespec* timeout) {
+static int try_reap_events(aio_context_t io_context, long min_nr, long nr, io_event* events, const ::timespec* timeout,
+        bool force_syscall) {
     auto ring = to_ring(io_context);
-    if (usable(ring)) {
+    if (usable(ring) && !force_syscall) {
         // Try to complete in userspace, if enough available events,
         // or if the timeout is zero
 
@@ -86,22 +95,16 @@ int io_getevents(::aio_context_t io_context, long min_nr, long nr, ::io_event* e
             if (!available) {
                 return 0;
             }
-            auto ring_events = reinterpret_cast<const ::io_event*>(uintptr_t(io_context) + ring->header_length);
+            auto ring_events = reinterpret_cast<const io_event*>(uintptr_t(io_context) + ring->header_length);
             auto now = std::min<uint32_t>(nr, available);
             auto start = ring_events + head;
-            auto end = start + now;
-            if (head + now > ring->nr) {
-                end -= ring->nr;
-            }
-            if (end > start) {
-                std::copy(start, end, events);
-            } else {
-                auto p = std::copy(start, ring_events + ring->nr, events);
-                std::copy(ring_events, end, p);
-            }
             head += now;
-            if (head >= ring->nr) {
+            if (head < ring->nr) {
+                std::copy(start, start + now, events);
+            } else {
                 head -= ring->nr;
+                auto p = std::copy(start, ring_events + ring->nr, events);
+                std::copy(ring_events, ring_events + head, p);
             }
             // The kernel will read ring->head and update its view of how many entries
             // in the ring are available, so memory_order_release to make sure any ring
@@ -110,7 +113,53 @@ int io_getevents(::aio_context_t io_context, long min_nr, long nr, ::io_event* e
             return now;
         }
     }
+    return -1;
+}
+
+int io_getevents(aio_context_t io_context, long min_nr, long nr, io_event* events, const ::timespec* timeout,
+        bool force_syscall) {
+    auto r = try_reap_events(io_context, min_nr, nr, events, timeout, force_syscall);
+    if (r >= 0) {
+        return r;
+    }
     return ::syscall(SYS_io_getevents, io_context, min_nr, nr, events, timeout);
+}
+
+
+#ifndef __NR_io_pgetevents
+
+#  if defined(__x86_64__)
+#    define __NR_io_pgetevents 333
+#  elif defined(__i386__)
+#    define __NR_io_pgetevents 385
+#  endif
+
+#endif
+
+int io_pgetevents(aio_context_t io_context, long min_nr, long nr, io_event* events, const ::timespec* timeout, const sigset_t* sigmask,
+        bool force_syscall) {
+#ifdef __NR_io_pgetevents
+    auto r = try_reap_events(io_context, min_nr, nr, events, timeout, force_syscall);
+    if (r >= 0) {
+        return r;
+    }
+    aio_sigset as;
+    as.sigmask = sigmask;
+    as.sigsetsize = 8;  // Can't use sizeof(*sigmask) because user and kernel sigset_t are inconsistent
+    return ::syscall(__NR_io_pgetevents, io_context, min_nr, nr, events, timeout, &as);
+#else
+    errno = ENOSYS;
+    return -1;
+#endif
+}
+
+void setup_aio_context(size_t nr, linux_abi::aio_context_t* io_context) {
+    auto r = io_setup(nr, io_context);
+    if (r < 0) {
+        char buf[1024];
+        char *msg = strerror_r(errno, buf, sizeof(buf));
+        throw std::runtime_error(fmt::format("Could not setup Async I/O: {}. The most common cause is not enough request capacity in /proc/sys/fs/aio-max-nr. Try increasing that number or reducing the amount of logical CPUs available for your application", msg));
+    }
 }
 
 }

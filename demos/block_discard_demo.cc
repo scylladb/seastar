@@ -24,6 +24,9 @@
 #include <seastar/core/future-util.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/seastar.hh>
+#include <seastar/core/semaphore.hh>
+#include <iostream>
 
 using namespace seastar;
 
@@ -46,19 +49,21 @@ int main(int ac, char** av) {
         auto&& config = app.configuration();
         auto filepath = config["dev"].as<std::string>();
 
-        open_file_dma(filepath, open_flags::rw | open_flags::create).then([] (file f) {
+        return open_file_dma(filepath, open_flags::rw | open_flags::create).then([] (file f) {
             auto ft = new file_test{std::move(f)};
 
-            ft->f.stat().then([ft] (struct stat st) mutable {
+            // Discard asynchronously, siganl when done.
+            (void)ft->f.stat().then([ft] (struct stat st) mutable {
                 assert(S_ISBLK(st.st_mode));
                 auto offset = 0;
                 auto length = max * 4096;
-                ft->f.discard(offset, length).then([ft] () mutable {
+                return ft->f.discard(offset, length).then([ft] () mutable {
                     ft->sem.signal();
                 });
             });
 
-            ft->sem.wait().then([ft] () mutable {
+            // Wait and exit.
+            (void)ft->sem.wait().then([ft] () mutable {
                 return ft->f.flush();
             }).then([ft] () mutable {
                 std::cout << "done\n";

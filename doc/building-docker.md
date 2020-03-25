@@ -16,8 +16,8 @@ $ seabuild() { docker run -v $HOME/seastar/:/seastar -u $(id -u):$(id -g) -w /se
 
 To build inside a container:
 
-```    
+```
 $ seabuild ./configure.py
-$ seabuild ninja-build
+$ seabuild ninja -C build/release
 ```
 

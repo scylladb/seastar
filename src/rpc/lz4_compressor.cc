@@ -28,63 +28,143 @@ namespace rpc {
 
 const sstring lz4_compressor::factory::_name = "LZ4";
 
+// Reusable contiguous buffers needed for LZ4 compression and decompression functions.
+class reusable_buffer {
+    static constexpr size_t chunk_size = 128 * 1024;
+    static_assert(snd_buf::chunk_size == chunk_size, "snd_buf::chunk_size == chunk_size");
 
-static temporary_buffer<char> linearize(compat::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>>& v, uint32_t size) {
-    auto* one = compat::get_if<temporary_buffer<char>>(&v);
-    if (one) {
-        // no need to linearize
-        return std::move(*one);
-    } else {
-        temporary_buffer<char> src(size);
-        auto p = src.get_write();
-        for (auto&& b : compat::get<std::vector<temporary_buffer<char>>>(v)) {
-            p = std::copy_n(b.begin(), b.size(), p);
+    std::unique_ptr<char[]> _data;
+    size_t _size;
+private:
+    void reserve(size_t n) {
+        if (_size < n) {
+            _data.reset();
+            // Not using std::make_unique to avoid value-initialisation.
+            _data = std::unique_ptr<char[]>(new char[n]);
+            _size = n;
         }
-        return src;
+    }
+public:
+    // Returns a pointer to a contiguous buffer containing all data stored in input.
+    // The pointer remains valid until next call to this.
+    const char* prepare(const compat::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>>& input, size_t size) {
+        if (const auto single = compat::get_if<temporary_buffer<char>>(&input)) {
+            return single->get();
+        }
+        reserve(size);
+        auto dst = _data.get();
+        for (const auto& fragment : compat::get<std::vector<temporary_buffer<char>>>(input)) {
+            dst = std::copy_n(fragment.begin(), fragment.size(), dst);
+        }
+        return _data.get();
+    }
+
+    // Calls function fn passing to it a pointer to a temporary contigiuous max_size
+    // buffer.
+    // fn is supposed to return the actual size of the data.
+    // with_reserved() returns an Output object (snd_buf or rcv_buf or compatible),
+    // containing data that was written to the temporary buffer.
+    // Output should be either snd_buf or rcv_buf.
+    template<typename Output, typename Function>
+    GCC6_CONCEPT(requires requires (Function fn, char* ptr) {
+        { fn(ptr) } -> size_t;
+    } && (std::is_same<Output, snd_buf>::value || std::is_same<Output, rcv_buf>::value))
+    Output with_reserved(size_t max_size, Function&& fn) {
+        if (max_size <= chunk_size) {
+            auto dst = temporary_buffer<char>(max_size);
+            size_t dst_size = fn(dst.get_write());
+            dst.trim(dst_size);
+            return Output(std::move(dst));
+        }
+
+        reserve(max_size);
+        size_t dst_size = fn(_data.get());
+        if (dst_size <= chunk_size) {
+            return Output(temporary_buffer<char>(_data.get(), dst_size));
+        }
+
+        auto left = dst_size;
+        auto pos = _data.get();
+        std::vector<temporary_buffer<char>> buffers;
+        while (left) {
+            auto this_size = std::min(left, chunk_size);
+            buffers.emplace_back(this_size);
+            std::copy_n(pos, this_size, buffers.back().get_write());
+            pos += this_size;
+            left -= this_size;
+        }
+        return Output(std::move(buffers), dst_size);
+    }
+
+    void clear() noexcept {
+        _data.reset();
+        _size = 0;
+    }
+};
+
+// in cpp 14 declaration of static variables is mandatory even
+// though the assignment took place inside the class declaration
+// - no inline static variables (like in Cpp17).
+constexpr size_t reusable_buffer::chunk_size;
+
+static thread_local reusable_buffer reusable_buffer_compressed_data;
+static thread_local reusable_buffer reusable_buffer_decompressed_data;
+static thread_local size_t buffer_use_count = 0;
+static constexpr size_t drop_buffers_trigger = 100'000;
+
+static void after_buffer_use() noexcept {
+    if (buffer_use_count++ == drop_buffers_trigger) {
+        reusable_buffer_compressed_data.clear();
+        reusable_buffer_decompressed_data.clear();
+        buffer_use_count = 0;
     }
 }
 
 snd_buf lz4_compressor::compress(size_t head_space, snd_buf data) {
     head_space += 4;
-    temporary_buffer<char> dst(head_space + LZ4_compressBound(data.size));
-    temporary_buffer<char> src = linearize(data.bufs, data.size);
+    auto dst_size = head_space + LZ4_compressBound(data.size);
+    auto dst = reusable_buffer_compressed_data.with_reserved<snd_buf>(dst_size, [&] (char* dst) {
+        auto src_size = data.size;
+        auto src = reusable_buffer_decompressed_data.prepare(data.bufs, data.size);
+
 #ifdef SEASTAR_HAVE_LZ4_COMPRESS_DEFAULT
-    auto size = LZ4_compress_default(src.begin(), dst.get_write() + head_space, src.size(), LZ4_compressBound(src.size()));
+        auto size = LZ4_compress_default(src, dst + head_space, src_size, LZ4_compressBound(src_size));
 #else
-    // Safe since output buffer is sized properly.
-    auto size = LZ4_compress(src.begin(), dst.get_write() + head_space, src.size());
+        // Safe since output buffer is sized properly.
+        auto size = LZ4_compress(src, dst + head_space, src_size);
 #endif
-    if (size == 0) {
-        throw std::runtime_error("RPC frame LZ4 compression failure");
-    }
-    dst.trim(size + head_space);
-    write_le<uint32_t>(dst.get_write() + (head_space - 4), data.size);
-    return snd_buf(std::move(dst));
+        if (size == 0) {
+            throw std::runtime_error("RPC frame LZ4 compression failure");
+        }
+        write_le<uint32_t>(dst + (head_space - 4), src_size);
+        return size + head_space;
+    });
+    after_buffer_use();
+    return dst;
 }
 
 rcv_buf lz4_compressor::decompress(rcv_buf data) {
     if (data.size < 4) {
         return rcv_buf();
     } else {
-        auto in = make_deserializer_stream(data);
-        uint32_t v32;
-        in.read(reinterpret_cast<char*>(&v32), 4);
-        auto size = le_to_cpu(v32);
-        if (size) {
-            temporary_buffer<char> src = linearize(data.bufs, data.size);
-            src.trim_front(4);
-            rcv_buf rb(size);
-            rb.bufs = temporary_buffer<char>(size);
-            auto& dst = compat::get<temporary_buffer<char>>(rb.bufs);
-            if (LZ4_decompress_fast(src.begin(), dst.get_write(), dst.size()) < 0) {
+        auto src_size = data.size;
+        auto src = reusable_buffer_decompressed_data.prepare(data.bufs, data.size);
+
+        auto dst_size = read_le<uint32_t>(src);
+        if (!dst_size) {
+            throw std::runtime_error("RPC frame LZ4 decompression failure: decompressed size cannot be zero");
+        }
+        src += sizeof(uint32_t);
+        src_size -= sizeof(uint32_t);
+
+        auto dst = reusable_buffer_compressed_data.with_reserved<rcv_buf>(dst_size, [&] (char* dst) {
+            if (LZ4_decompress_safe(src, dst, src_size, dst_size) < 0) {
                 throw std::runtime_error("RPC frame LZ4 decompression failure");
             }
-            return rb;
-        } else {
-            // special case: if uncompressed size is zero it means that data was not compressed
-            // compress side still not use this but we want to be ready for the future
-            return data;
-        }
+            return dst_size;
+        });
+        after_buffer_use();
+        return dst;
     }
 }
 

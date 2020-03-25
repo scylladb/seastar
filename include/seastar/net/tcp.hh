@@ -24,7 +24,6 @@
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/core/semaphore.hh>
-#include <seastar/core/print.hh>
 #include <seastar/core/byteorder.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/net/net.hh>
@@ -51,7 +50,7 @@ using namespace std::chrono_literals;
 
 namespace net {
 
-class tcp_hdr;
+struct tcp_hdr;
 
 inline auto tcp_error(int err) {
     return std::system_error(err, std::system_category());
@@ -446,7 +445,8 @@ private:
         void output() {
             if (!_poll_active) {
                 _poll_active = true;
-                _tcp.poll_tcb(_foreign_ip, this->shared_from_this()).then_wrapped([this] (auto&& f) {
+                // FIXME: future is discarded
+                (void)_tcp.poll_tcb(_foreign_ip, this->shared_from_this()).then_wrapped([this] (auto&& f) {
                     try {
                         f.get();
                     } catch(arp_queue_full_error& ex) {
@@ -663,6 +663,9 @@ private:
     semaphore _queue_space = {212992};
     metrics::metric_groups _metrics;
 public:
+    const inet_type& inet() const {
+        return _inet;
+    }
     class connection {
         lw_shared_ptr<tcb> _tcb;
     public:
@@ -734,6 +737,13 @@ public:
         bool full() { return _pending + _q.size() >= _q.max_size(); }
         void inc_pending() { _pending++; }
         void dec_pending() { _pending--; }
+
+        const tcp& get_tcp() const {
+            return _tcp;
+        }
+        uint16_t port() const {
+            return _port;
+        }
         friend class tcp;
     };
 public:
@@ -818,7 +828,7 @@ auto tcp<InetTraits>::connect(socket_address sa) -> connection {
         src_port = _port_dist(_e);
         id = connid{src_ip, dst_ip, src_port, dst_port};
     } while (_inet._inet.netif()->hw_queues_count() > 1 &&
-             (_inet._inet.netif()->hash2cpu(id.hash(_inet._inet.netif()->rss_key())) != engine().cpu_id()
+             (_inet._inet.netif()->hash2cpu(id.hash(_inet._inet.netif()->rss_key())) != this_shard_id()
               || _tcbs.find(id) != _tcbs.end()));
 
     auto tcbp = make_lw_shared<tcb>(*this, id);
@@ -924,7 +934,8 @@ void tcp<InetTraits>::received(packet p, ipaddr from, ipaddr to) {
 template <typename InetTraits>
 void tcp<InetTraits>::send_packet_without_tcb(ipaddr from, ipaddr to, packet p) {
     if (_queue_space.try_wait(p.len())) { // drop packets that do not fit the queue
-        _inet.get_l2_dst_address(to).then([this, to, p = std::move(p)] (ethernet_address e_dst) mutable {
+        // FIXME: future is discarded
+        (void)_inet.get_l2_dst_address(to).then([this, to, p = std::move(p)] (ethernet_address e_dst) mutable {
                 _packetq.emplace_back(ipv4_traits::l4packet{to, std::move(p), e_dst, ip_protocol_num::tcp});
         });
     }
@@ -1798,7 +1809,7 @@ void tcp<InetTraits>::tcb::close() {
         return;
     }
     // TODO: We should return a future to upper layer
-    wait_for_all_data_acked().then([this, zis = this->shared_from_this()] () mutable {
+    (void)wait_for_all_data_acked().then([this, zis = this->shared_from_this()] () mutable {
         _snd.closed = true;
         tcp_debug("close: unsent_len=%d\n", _snd.unsent_len);
         if (in_state(CLOSE_WAIT)) {
@@ -1970,7 +1981,7 @@ void tcp<InetTraits>::tcb::retransmit() {
         unacked_seg.nr_transmits++;
     } else {
         // Delete connection when max num of retransmission is reached
-        cleanup();
+        do_reset();
         return;
     }
     retransmit_one();
@@ -2080,7 +2091,7 @@ compat::optional<typename InetTraits::l4packet> tcp<InetTraits>::tcb::get_packet
         // Finally - we can't send more until window is opened again.
         output();
     }
-    return std::move(p);
+    return SEASTAR_COPY_ELISION(p);
 }
 
 template <typename InetTraits>

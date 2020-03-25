@@ -42,5 +42,7 @@ public:
     static void advance(duration d);
 };
 
+extern template class timer<manual_clock>;
+
 }
 

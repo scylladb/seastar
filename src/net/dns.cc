@@ -25,6 +25,27 @@
 #include <ares.h>
 #include <boost/lexical_cast.hpp>
 
+#include <ostream>
+#include <seastar/util/std-compat.hh>
+#include <seastar/net/inet_address.hh>
+
+namespace seastar {
+
+// NOTE: Should be prior to <seastar/util/log.hh> include because
+// logger::stringer_for<T> needs to see the corresponding `operator <<`
+// declaration at the call site
+//
+// This doesn't need to be in the public API, so leave it there instead of placing into `inet_address.hh`
+std::ostream& operator<<(std::ostream& os, const compat::optional<net::inet_address::family>& f) {
+    if (f) {
+        return os << *f;
+    } else {
+        return os << "ANY";
+    }
+}
+
+}
+
 #include <seastar/net/ip.hh>
 #include <seastar/net/api.hh>
 #include <seastar/net/dns.hh>
@@ -32,8 +53,8 @@
 #include <seastar/core/timer.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/gate.hh>
+#include <seastar/core/print.hh>
 #include <seastar/util/log.hh>
-#include <seastar/util/std-compat.hh>
 
 namespace seastar {
 
@@ -201,13 +222,13 @@ public:
         }
     }
 
-    future<inet_address> resolve_name(sstring name, inet_address::family family) {
+    future<inet_address> resolve_name(sstring name, opt_family family) {
         return get_host_by_name(std::move(name), family).then([](hostent h) {
             return make_ready_future<inet_address>(h.addr_list.front());
         });
     }
 
-    future<hostent> get_host_by_name(sstring name, inet_address::family family)  {
+    future<hostent> get_host_by_name(sstring name, opt_family family)  {
         class promise_wrap : public promise<hostent> {
         public:
             promise_wrap(sstring s)
@@ -218,12 +239,21 @@ public:
 
         dns_log.debug("Query name {} ({})", name, family);
 
+        if (!family) {
+            auto res = inet_address::parse_numerical(name);
+            if (res) {
+                return make_ready_future<hostent>(hostent{ {name}, {*res}});
+            }
+        }
+
         auto p = new promise_wrap(std::move(name));
         auto f = p->get_future();
 
         dns_call call(*this);
 
-        ares_gethostbyname(_channel, p->name.c_str(), int(family), [](void* arg, int status, int timeouts, ::hostent* host) {
+        auto af = family ? int(*family) : AF_UNSPEC;
+
+        ares_gethostbyname(_channel, p->name.c_str(), af, [](void* arg, int status, int timeouts, ::hostent* host) {
             // we do potentially allocating operations below, so wrap the pointer in a
             // unique here.
             std::unique_ptr<promise_wrap> p(reinterpret_cast<promise_wrap *>(arg));
@@ -539,7 +569,8 @@ private:
             break;
         }
         case type::udp:
-            e.udp.channel.close();
+            e.udp.channel.shutdown_input();
+            e.udp.channel.shutdown_output();
             release(fd);
             break;
         default:
@@ -577,7 +608,8 @@ private:
                     dns_log.trace("Connection pending: {}", fd);
                     e.avail = 0;
                     use(fd);
-                    f.then_wrapped([me = shared_from_this(), &e, fd](future<connected_socket> f) {
+                    // FIXME: future is discarded
+                    (void)f.then_wrapped([me = shared_from_this(), &e, fd](future<connected_socket> f) {
                         try {
                             e.tcp.socket = f.get0();
                             dns_log.trace("Connection complete: {}", fd);
@@ -639,7 +671,8 @@ private:
                         dns_log.trace("Read {}: data unavailable", fd);
                         e.avail &= ~POLLIN;
                         use(fd);
-                        f.then_wrapped([me = shared_from_this(), &e, fd](future<temporary_buffer<char>> f) {
+                        // FIXME: future is discarded
+                        (void)f.then_wrapped([me = shared_from_this(), &e, fd](future<temporary_buffer<char>> f) {
                             try {
                                 auto buf = f.get0();
                                 dns_log.trace("Read {} -> {} bytes", fd, buf.size());
@@ -701,7 +734,8 @@ private:
                         e.avail &= ~POLLIN;
                         use(fd);
                         dns_log.trace("Read {}: data unavailable", fd);
-                        f.then_wrapped([me = shared_from_this(), &e, fd](future<net::udp_datagram> f) {
+                        // FIXME: future is discarded
+                        (void)f.then_wrapped([me = shared_from_this(), &e, fd](future<net::udp_datagram> f) {
                             try {
                                 auto d = f.get0();
                                 dns_log.trace("Read {} -> {} bytes", fd, d.get_data().len());
@@ -796,7 +830,8 @@ private:
                     dns_log.trace("Send {} unavailable.", fd);
                     e.avail &= ~POLLOUT;
                     use(fd);
-                    f.then_wrapped([me = shared_from_this(), &e, bytes, fd](future<> f) {
+                    // FIXME: future is discarded
+                    (void)f.then_wrapped([me = shared_from_this(), &e, bytes, fd](future<> f) {
                         try {
                             f.get();
                             dns_log.trace("Send {}. {} bytes sent.", fd, bytes);
@@ -920,7 +955,7 @@ private:
     network_stack & _stack;
 
     ares_channel _channel = {};
-    uint64_t _ops = 0, _calls = 0;
+    uint64_t _calls = 0;
     std::chrono::milliseconds _timeout;
     timer<> _timer;
     gate _gate;
@@ -946,7 +981,7 @@ net::dns_resolver::dns_resolver(dns_resolver&&) noexcept = default;
 net::dns_resolver& net::dns_resolver::operator=(dns_resolver&&) noexcept = default;
 
 future<net::hostent> net::dns_resolver::get_host_by_name(const sstring& name, opt_family family) {
-    return _impl->get_host_by_name(name, family.value_or(inet_address::family::INET));
+    return _impl->get_host_by_name(name, family);
 }
 
 future<net::hostent> net::dns_resolver::get_host_by_addr(const inet_address& addr) {
@@ -954,7 +989,7 @@ future<net::hostent> net::dns_resolver::get_host_by_addr(const inet_address& add
 }
 
 future<net::inet_address> net::dns_resolver::resolve_name(const sstring& name, opt_family family) {
-    return _impl->resolve_name(name, family.value_or(inet_address::family::INET));
+    return _impl->resolve_name(name, family);
 }
 
 future<sstring> net::dns_resolver::resolve_addr(const inet_address& addr) {
@@ -978,7 +1013,7 @@ static net::dns_resolver& resolver() {
 
 
 future<net::hostent> net::dns::get_host_by_name(const sstring& name, opt_family family) {
-    return resolver().get_host_by_name(name, family.value_or(inet_address::family::INET));
+    return resolver().get_host_by_name(name, family);
 }
 
 future<net::hostent> net::dns::get_host_by_addr(const inet_address& addr) {
@@ -986,7 +1021,7 @@ future<net::hostent> net::dns::get_host_by_addr(const inet_address& addr) {
 }
 
 future<net::inet_address> net::dns::resolve_name(const sstring& name, opt_family family) {
-    return resolver().resolve_name(name, family.value_or(inet_address::family::INET));
+    return resolver().resolve_name(name, family);
 }
 
 future<sstring> net::dns::resolve_addr(const inet_address& addr) {
@@ -1034,4 +1069,3 @@ future<std::vector<net::inet_address>> net::inet_address::find_all(
 }
 
 }
-

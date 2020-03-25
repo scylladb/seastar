@@ -64,6 +64,8 @@ posix_thread::posix_thread(attr a, std::function<void ()> func)
     if (r) {
         throw std::system_error(r, std::system_category());
     }
+
+#ifndef SEASTAR_ASAN_ENABLED
     auto stack_size = a._stack_size.size;
     if (!stack_size) {
         stack_size = 2 << 20;
@@ -80,6 +82,8 @@ posix_thread::posix_thread(attr a, std::function<void ()> func)
     if (r) {
         throw std::system_error(r, std::system_category());
     }
+#endif
+
     r = pthread_create(&_pthread, &pa,
                 &posix_thread::start_routine, _func.get());
     if (r) {

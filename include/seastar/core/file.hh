@@ -27,9 +27,10 @@
 #include <seastar/core/align.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/fair_queue.hh>
+#include <seastar/core/file-types.hh>
 #include <seastar/util/std-compat.hh>
 #include <system_error>
-#include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/ioctl.h>
 #include <linux/fs.h>
 #include <sys/uio.h>
@@ -40,37 +41,31 @@ namespace seastar {
 /// \addtogroup fileio-module
 /// @{
 
-/// Enumeration describing the type of a directory entry being listed.
-///
-/// \see file::list_directory()
-enum class directory_entry_type {
-    block_device,
-    char_device,
-    directory,
-    fifo,
-    link,
-    regular,
-    socket,
-};
-
-/// Enumeration describing the type of a particular filesystem
-enum class fs_type {
-    other,
-    xfs,
-    ext2,
-    ext3,
-    ext4,
-    btrfs,
-    hfs,
-    tmpfs,
-};
-
 /// A directory entry being listed.
 struct directory_entry {
     /// Name of the file in a directory entry.  Will never be "." or "..".  Only the last component is included.
     sstring name;
     /// Type of the directory entry, if known.
     compat::optional<directory_entry_type> type;
+};
+
+/// Filesystem object stat information
+struct stat_data {
+    uint64_t  device_id;      // ID of device containing file
+    uint64_t  inode_number;   // Inode number
+    uint64_t  mode;           // File type and mode
+    directory_entry_type type;
+    uint64_t  number_of_links;// Number of hard links
+    uint64_t  uid;            // User ID of owner
+    uint64_t  gid;            // Group ID of owner
+    uint64_t  rdev;           // Device ID (if special file)
+    uint64_t  size;           // Total size, in bytes
+    uint64_t  block_size;     // Block size for filesystem I/O
+    uint64_t  allocated_size; // Total size of allocated storage, in bytes
+
+    std::chrono::system_clock::time_point time_accessed;  // Time of last content access
+    std::chrono::system_clock::time_point time_modified;  // Time of last content modification
+    std::chrono::system_clock::time_point time_changed;   // Time of last status change (either content or attributes)
 };
 
 /// File open options
@@ -82,16 +77,23 @@ struct file_open_options {
     uint64_t extent_allocation_size_hint = 1 << 20; ///< Allocate this much disk space when extending the file
     bool sloppy_size = false; ///< Allow the file size not to track the amount of data written until a flush
     uint64_t sloppy_size_hint = 1 << 20; ///< Hint as to what the eventual file size will be
+    file_permissions create_permissions = file_permissions::default_file_permissions; ///< File permissions to use when creating a file
 };
 
 /// \cond internal
 class io_queue;
+using io_priority_class_id = unsigned;
 class io_priority_class {
-    unsigned val;
+    io_priority_class_id _id;
     friend io_queue;
+
+    explicit io_priority_class(io_priority_class_id id)
+        : _id(id)
+    { }
+
 public:
-    unsigned id() const {
-        return val;
+    io_priority_class_id id() const {
+        return _id;
     }
 };
 
@@ -139,6 +141,8 @@ public:
     friend class reactor;
 };
 
+future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int oflags) noexcept;
+
 /// \endcond
 
 /// A data file on persistent storage.
@@ -152,8 +156,6 @@ public:
 /// on a 4096 byte boundary, while a 512 byte boundary suffices for the latter.
 class file {
     shared_ptr<file_impl> _file_impl;
-private:
-    explicit file(int fd, file_open_options options);
 public:
     /// Default constructor constructs an uninitialized file object.
     ///
@@ -165,13 +167,13 @@ public:
     /// One can check whether a file object is in uninitialized state with
     /// \ref operator bool(); One can reset a file back to uninitialized state
     /// by assigning file() to it.
-    file() : _file_impl(nullptr) {}
+    file() noexcept : _file_impl(nullptr) {}
 
-    file(shared_ptr<file_impl> impl)
+    file(shared_ptr<file_impl> impl) noexcept
             : _file_impl(std::move(impl)) {}
 
     /// Constructs a file object from a \ref file_handle obtained from another shard
-    explicit file(file_handle&& handle);
+    explicit file(file_handle&& handle) noexcept;
 
     /// Checks whether the file object was initialized.
     ///
@@ -261,7 +263,7 @@ public:
                 buf.trim(len);
             }
 
-            return std::move(buf);
+            return SEASTAR_COPY_ELISION(buf);
         });
     }
 
@@ -289,7 +291,7 @@ public:
                 throw eof_error();
             }
 
-            return std::move(buf);
+            return SEASTAR_COPY_ELISION(buf);
         });
     }
 

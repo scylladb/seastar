@@ -91,7 +91,13 @@ sstring formatter::to_json(bool b) {
     return (b) ? "true" : "false";
 }
 
-sstring formatter::to_json(const date_time& d) {
+sstring formatter::to_json(const date_time& d) {    
+    // use RFC3339/RFC8601 "internet format"
+    // which is stipulated as mandatory for swagger
+    // dates
+    // Note that this assumes dates are in UTC timezone
+    static constexpr const char* TIME_FORMAT = "%FT%TZ";
+    
     char buff[50];
     sstring res = "\"";
     strftime(buff, 50, TIME_FORMAT, &d);

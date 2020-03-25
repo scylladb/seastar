@@ -53,7 +53,7 @@ class alloc_failure_injector {
     noncopyable_function<void()> _on_alloc_failure = [] { throw std::bad_alloc(); };
     bool _failed;
     uint64_t _suppressed = 0;
-    friend class disable_failure_guard;
+    friend struct disable_failure_guard;
 private:
     void fail();
 public:

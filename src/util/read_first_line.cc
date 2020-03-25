@@ -3,13 +3,13 @@
 
 namespace seastar {
 
-sstring read_first_line(std::experimental::filesystem::path sys_file) {
+sstring read_first_line(compat::filesystem::path sys_file) {
     auto file = file_desc::open(sys_file.string(), O_RDONLY | O_CLOEXEC);
     sstring buf;
     size_t n = 0;
     do {
         // try to avoid allocations
-        sstring tmp(sstring::initialized_later{}, 8);
+        sstring tmp = uninitialized_string(8);
         auto ret = file.read(tmp.data(), 8ul);
         if (!ret) { // EAGAIN
             continue;

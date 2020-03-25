@@ -21,7 +21,8 @@
  */
 
 #include <seastar/core/thread.hh>
-#include "test-utils.hh"
+#include <seastar/core/manual_clock.hh>
+#include <seastar/testing/test_case.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/expiring_fifo.hh>
 #include <boost/range/irange.hpp>

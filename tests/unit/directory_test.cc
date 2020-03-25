@@ -27,6 +27,30 @@
 
 using namespace seastar;
 
+const char* de_type_desc(directory_entry_type t)
+{
+    switch (t) {
+    case directory_entry_type::unknown:
+        return "unknown";
+    case directory_entry_type::block_device:
+        return "block_device";
+    case directory_entry_type::char_device:
+        return "char_device";
+    case directory_entry_type::directory:
+        return "directory";
+    case directory_entry_type::fifo:
+        return "fifo";
+    case directory_entry_type::link:
+        return "link";
+    case directory_entry_type::regular:
+        return "regular";
+    case directory_entry_type::socket:
+        return "socket";
+    }
+    assert(0 && "should not get here");
+    return nullptr;
+}
+
 int main(int ac, char** av) {
     class lister {
         file _f;
@@ -39,17 +63,24 @@ int main(int ac, char** av) {
         future<> done() { return _listing.done(); }
     private:
         future<> report(directory_entry de) {
-            fmt::print("{}\n", de.name);
-            return make_ready_future<>();
+            return file_stat(de.name, follow_symlink::no).then([de = std::move(de)] (stat_data sd) {
+                if (de.type) {
+                    assert(*de.type == sd.type);
+                } else {
+                    assert(sd.type == directory_entry_type::unknown);
+                }
+                fmt::print("{} (type={})\n", de.name, de_type_desc(sd.type));
+                return make_ready_future<>();
+            });
         }
     };
-    return app_template().run_deprecated(ac, av, [] {
+    return app_template().run(ac, av, [] {
         return engine().open_directory(".").then([] (file f) {
-            auto l = make_lw_shared<lister>(std::move(f));
-            return l->done().then([l] {
-                // ugly thing to keep *l alive
-                engine().exit(0);
-            });
+            return do_with(lister(std::move(f)), [] (lister& l) {
+              return l.done().then([] {
+                  return 0;
+              });
+           });
         });
     });
 }

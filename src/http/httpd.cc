@@ -19,7 +19,6 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#include <seastar/core/reactor.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/circular_buffer.hh>
@@ -27,6 +26,7 @@
 #include <seastar/core/queue.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/metrics.hh>
+#include <seastar/core/print.hh>
 #include <iostream>
 #include <algorithm>
 #include <unordered_map>
@@ -118,7 +118,7 @@ future<> connection::start_response() {
     set_headers(*_resp);
     _resp->_headers["Content-Length"] = to_sstring(
             _resp->_content.size());
-    return _write_buf.write(_resp->_response_line.begin(),
+    return _write_buf.write(_resp->_response_line.data(),
             _resp->_response_line.size()).then([this] {
         return _resp->write_reply_headers(*this);
     }).then([this] {
@@ -136,6 +136,28 @@ connection::~connection() {
     --_server._current_connections;
     _server._connections.erase(_server._connections.iterator_to(*this));
     _server.maybe_idle();
+}
+
+bool connection::url_decode(const compat::string_view& in, sstring& out) {
+    size_t pos = 0;
+    sstring buff(in.length(), 0);
+    for (size_t i = 0; i < in.length(); ++i) {
+        if (in[i] == '%') {
+            if (i + 3 <= in.size()) {
+                buff[pos++] = hexstr_to_char(in, i + 1);
+                i += 2;
+            } else {
+                return false;
+            }
+        } else if (in[i] == '+') {
+            buff[pos++] = ' ';
+        } else {
+            buff[pos++] = in[i];
+        }
+    }
+    buff.resize(pos);
+    out = buff;
+    return true;
 }
 
 void connection::on_new_connection() {
@@ -158,6 +180,38 @@ future<> connection::read() {
         return _read_buf.close();
     });
 }
+
+// Check if the request has a body, and if so read it. This function modifies
+// the request object with the newly read body, and returns the object for
+// further processing.
+// FIXME: reading the entire request body into a string req->_content is a
+// bad idea, because it may be very big. Instead, we should present to the
+// handler a req->_content_stream, an input stream that reads from the request
+// body - via a specialized input streams which reads exactly up to
+// Content-Length or decodes chunked-encoding.
+// FIXME: We currently support the case that there is a "Content-Length:"
+// header - chunked encoding is not yet supported.
+static future<std::unique_ptr<httpd::request>>
+read_request_body(input_stream<char>& buf, std::unique_ptr<httpd::request> req) {
+    if (!req->content_length) {
+        return make_ready_future<std::unique_ptr<httpd::request>>(std::move(req));
+    }
+    return buf.read_exactly(req->content_length).then([req = std::move(req)] (temporary_buffer<char> body) mutable {
+        req->content = seastar::to_sstring(std::move(body));
+        return make_ready_future<std::unique_ptr<httpd::request>>(std::move(req));
+    });
+}
+
+void connection::generate_error_reply_and_close(std::unique_ptr<httpd::request> req, reply::status_type status, const sstring& msg) {
+    auto resp = std::make_unique<reply>();
+    // TODO: Handle HTTP/2.0 when it releases
+    resp->set_version(req->_version);
+    resp->set_status(status, msg);
+    resp->done();
+    _done = true;
+    _replies.push(std::move(resp));
+}
+
 future<> connection::read_one() {
     _parser.init();
     return _read_buf.consume(_parser).then([this] () mutable {
@@ -167,11 +221,26 @@ future<> connection::read_one() {
         }
         ++_server._requests_served;
         std::unique_ptr<httpd::request> req = _parser.get_parsed_request();
+        if (_server._credentials) {
+            req->protocol_name = "https";
+        }
 
-        return _replies.not_full().then([req = std::move(req), this] () mutable {
-            return generate_reply(std::move(req));
-        }).then([this](bool done) {
-            _done = done;
+        size_t content_length_limit = _server.get_content_length_limit();
+        sstring length_header = req->get_header("Content-Length");
+        req->content_length = strtol(length_header.c_str(), nullptr, 10);
+
+        if (req->content_length > content_length_limit) {
+            generate_error_reply_and_close(std::move(req), reply::status_type::payload_too_large,
+                    format("Content length limit ({}) exceeded: {}",
+                            content_length_limit, req->content_length));
+            return make_ready_future<>();
+        }
+        return read_request_body(_read_buf, std::move(req)).then([this] (std::unique_ptr<httpd::request> req) {
+            return _replies.not_full().then([req = std::move(req), this] () mutable {
+                return generate_reply(std::move(req));
+            }).then([this](bool done) {
+                _done = done;
+            });
         });
     });
 }
@@ -188,7 +257,7 @@ future<> connection::respond() {
 }
 
 future<> connection::write_body() {
-    return _write_buf.write(_resp->_content.begin(),
+    return _write_buf.write(_resp->_content.data(),
             _resp->_content.size());
 }
 
@@ -227,7 +296,6 @@ future<bool> connection::generate_reply(std::unique_ptr<request> req) {
     sstring url = set_query_param(*req.get());
     sstring version = req->_version;
     set_headers(*resp);
-    resp->set_version(version);
     return _server._routes.handle(url, std::move(req), std::move(resp)).
     // Caller guarantees enough room
     then([this, should_close, version = std::move(version)](std::unique_ptr<reply> rep) {

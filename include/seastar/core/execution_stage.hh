@@ -34,6 +34,7 @@
 #include <seastar/util/defer.hh>
 #include <seastar/util/std-compat.hh>
 #include <fmt/format.h>
+#include <fmt/ostream.h>
 #include <vector>
 #include <boost/range/irange.hpp>
 #include <boost/range/adaptor/transformed.hpp>
@@ -211,6 +212,7 @@ class concrete_execution_stage final : public execution_stage {
                   "Function arguments need to be nothrow move constructible");
 
     static constexpr size_t flush_threshold = 128;
+    static constexpr size_t max_queue_length = 1024;
 
     using return_type = futurize_t<ReturnType>;
     using promise_type = typename return_type::promise_type;
@@ -239,8 +241,10 @@ private:
     virtual void do_flush() noexcept override {
         while (!_queue.empty()) {
             auto& wi = _queue.front();
-            futurize<ReturnType>::apply(_function, unwrap(std::move(wi._in))).forward_to(std::move(wi._ready));
+            auto wi_in = std::move(wi._in);
+            auto wi_ready = std::move(wi._ready);
             _queue.pop_front();
+            futurize<ReturnType>::apply(_function, unwrap(std::move(wi_in))).forward_to(std::move(wi_ready));
             _stats.function_calls_executed++;
 
             if (need_preempt()) {
@@ -283,6 +287,9 @@ public:
     /// \param args arguments passed to the stage's function
     /// \return future containing the result of the call to the stage's function
     return_type operator()(typename internal::wrap_for_es<Args>::type... args) {
+        if (_queue.size() >= max_queue_length) {
+            do_flush();
+        }
         _queue.emplace_back(std::move(args)...);
         _empty = false;
         _stats.function_calls_enqueued++;

@@ -145,7 +145,7 @@ public:
                 continue;
             } else {
                 // If we reach here, we have a bug with merge.
-                std::cout << "packet_merger: merge error\n";
+                std::cerr << "packet_merger: merge error\n";
                 abort();
                 break;
             }

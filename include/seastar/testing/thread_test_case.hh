@@ -17,51 +17,30 @@
  */
 
 /*
- * Copyright (C) 2014 Cloudius Systems, Ltd.
+ * Copyright (C) 2018 ScyllaDB Ltd.
  */
 
 #pragma once
 
-
-#include <boost/test/unit_test.hpp>
-
 #include <seastar/core/future.hh>
 #include <seastar/core/thread.hh>
-#include "test_runner.hh"
 
-namespace seastar {
+#include <seastar/testing/seastar_test.hh>
 
-class seastar_test {
-public:
-    seastar_test();
-    virtual ~seastar_test() {}
-    virtual const char* get_test_file() = 0;
-    virtual const char* get_name() = 0;
-    virtual future<> run_test_case() = 0;
-    void run();
-};
-
-#define SEASTAR_TEST_CASE(name) \
-    struct name : public seastar_test { \
+#define SEASTAR_THREAD_TEST_CASE_EXPECTED_FAILURES(name, failures) \
+    struct name : public seastar::testing::seastar_test { \
         const char* get_test_file() override { return __FILE__; } \
         const char* get_name() override { return #name; } \
-        future<> run_test_case() override; \
-    }; \
-    static name name ## _instance; \
-    future<> name::run_test_case()
-
-#define SEASTAR_THREAD_TEST_CASE(name) \
-    struct name : public seastar_test { \
-        const char* get_test_file() override { return __FILE__; } \
-        const char* get_name() override { return #name; } \
-        future<> run_test_case() override { \
-            return async([this] { \
+        int get_expected_failures() override { return failures; } \
+        seastar::future<> run_test_case() override { \
+            return seastar::async([this] { \
                 do_run_test_case(); \
             }); \
         } \
         void do_run_test_case(); \
     }; \
     static name name ## _instance; \
-    void name::do_run_test_case() \
+    void name::do_run_test_case()
 
-}
+#define SEASTAR_THREAD_TEST_CASE(name) \
+    SEASTAR_THREAD_TEST_CASE_EXPECTED_FAILURES(name, 0)

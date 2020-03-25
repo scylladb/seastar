@@ -25,6 +25,18 @@
 
 namespace seastar {
 
+/// A non-owning reference to an object.
+///
+/// weak_ptr allows one to keep a non-owning reference to an object. When the
+/// object is destroyed, it notifies all weak_ptr instances pointing to it.
+/// A weak_ptr instance pointing to a destroyed object is equivalent to a
+/// `nullptr`.
+///
+/// The referenced object must inherit from weakly_referencable.
+/// weak_ptr instances can only be obtained by calling weak_from_this() on
+/// the to-be-referenced object.
+///
+/// \see weakly_referencable
 template<typename T>
 class weak_ptr {
     template<typename U>
@@ -51,19 +63,18 @@ public:
         return *this;
     }
     explicit operator bool() const { return _ptr != nullptr; }
-    T* operator->() noexcept { return _ptr; }
-    const T* operator->() const noexcept { return _ptr; }
-    T& operator*() noexcept { return *_ptr; }
-    const T& operator*() const noexcept { return *_ptr; }
+    T* operator->() const noexcept { return _ptr; }
+    T& operator*() const noexcept { return *_ptr; }
     T* get() const noexcept { return _ptr; }
     bool operator==(const weak_ptr& o) const { return _ptr == o._ptr; }
     bool operator!=(const weak_ptr& o) const { return _ptr != o._ptr; }
 };
 
-/// Allows obtaining a non-owning reference (weak_ptr<>) to the object.
-/// A live weak_ptr<> object doesn't prevent the referenced object form being destroyed.
+/// Allows obtaining a non-owning reference (weak_ptr) to the object.
 ///
-/// The underlying pointer held by weak_ptr<> is valid as long as the referenced object is alive.
+/// A live weak_ptr object doesn't prevent the referenced object form being destroyed.
+///
+/// The underlying pointer held by weak_ptr is valid as long as the referenced object is alive.
 /// When the object dies, all weak_ptr objects associated with it are emptied.
 ///
 /// A weak reference is obtained like this:

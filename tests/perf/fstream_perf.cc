@@ -19,10 +19,11 @@
  * Copyright (C) 2016 ScyllaDB
  */
 
-#include <seastar/core/reactor.hh>
 #include <seastar/core/fstream.hh>
+#include <seastar/core/seastar.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/app-template.hh>
+#include <fmt/printf.h>
 
 using namespace seastar;
 using namespace std::chrono_literals;

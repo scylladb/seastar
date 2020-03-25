@@ -22,7 +22,7 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/do_with.hh>
-#include "test-utils.hh"
+#include <seastar/testing/test_case.hh>
 
 using namespace seastar;
 

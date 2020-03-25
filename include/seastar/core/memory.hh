@@ -84,8 +84,6 @@ public:
     ~disable_abort_on_alloc_failure_temporarily() noexcept;
 };
 
-void set_heap_profiling_enabled(bool);
-
 enum class reclaiming_result {
     reclaimed_nothing,
     reclaimed_something
@@ -112,18 +110,27 @@ enum class reclaimer_scope {
 
 class reclaimer {
 public:
+    struct request {
+        // The number of bytes which is needed to be released.
+        // The reclaimer can release a different amount.
+        // If less is released then the reclaimer may be invoked again.
+        size_t bytes_to_reclaim;
+    };
     using reclaim_fn = std::function<reclaiming_result ()>;
 private:
-    reclaim_fn _reclaim;
+    std::function<reclaiming_result (request)> _reclaim;
     reclaimer_scope _scope;
 public:
     // Installs new reclaimer which will be invoked when system is falling
     // low on memory. 'scope' determines when reclaimer can be executed.
-    reclaimer(reclaim_fn reclaim, reclaimer_scope scope = reclaimer_scope::async);
+    reclaimer(std::function<reclaiming_result ()> reclaim, reclaimer_scope scope = reclaimer_scope::async);
+    reclaimer(std::function<reclaiming_result (request)> reclaim, reclaimer_scope scope = reclaimer_scope::async);
     ~reclaimer();
-    reclaiming_result do_reclaim() { return _reclaim(); }
+    reclaiming_result do_reclaim(size_t bytes_to_reclaim) { return _reclaim(request{bytes_to_reclaim}); }
     reclaimer_scope scope() const { return _scope; }
 };
+
+extern compat::polymorphic_allocator<char>* malloc_allocator;
 
 // Call periodically to recycle objects that were freed
 // on cpu other than the one they were allocated on.
@@ -140,22 +147,6 @@ bool drain_cross_cpu_freelist();
 // in a safe place wrt. allocations.
 void set_reclaim_hook(
         std::function<void (std::function<void ()>)> hook);
-
-using physical_address = uint64_t;
-
-struct translation {
-    translation() = default;
-    translation(physical_address a, size_t s) : addr(a), size(s) {}
-    physical_address addr = 0;
-    size_t size = 0;
-};
-
-// Translate a virtual address range to a physical range.
-//
-// Can return a smaller range (in which case the reminder needs
-// to be translated again), or a zero sized range in case the
-// translation is not known.
-translation translate(const void* addr, size_t size);
 
 /// \endcond
 
@@ -268,18 +259,29 @@ public:
     void operator=(scoped_large_allocation_warning_disable&&) = delete;
 };
 
-}
+/// Enable/disable heap profiling.
+///
+/// In order to use heap profiling you have to define
+/// `SEASTAR_HEAPPROF`.
+/// Heap profiling data is not currently exposed via an API for
+/// inspection, instead it was designed to be inspected from a
+/// debugger.
+/// For an example script that makes use of the heap profiling data
+/// see [scylla-gdb.py] (https://github.com/scylladb/scylla/blob/e1b22b6a4c56b4f1d0adf65d1a11db4bcb51fe7d/scylla-gdb.py#L1439)
+/// This script can generate either textual representation of the data,
+/// or a zoomable flame graph ([flame graph generation instructions](https://github.com/scylladb/scylla/wiki/Seastar-heap-profiler),
+/// [example flame graph](https://user-images.githubusercontent.com/1389273/72920437-f0cf8a80-3d51-11ea-92f0-f3dbeb698871.png)).
+void set_heap_profiling_enabled(bool);
 
-class with_alignment {
-    size_t _align;
+/// Enable heap profiling for the duration of the scope.
+///
+/// For more information about heap profiling see
+/// \ref set_heap_profiling_enabled().
+class scoped_heap_profiling {
 public:
-    with_alignment(size_t align) : _align(align) {}
-    size_t alignment() const { return _align; }
+    scoped_heap_profiling() noexcept;
+    ~scoped_heap_profiling();
 };
 
 }
-
-void* operator new(size_t size, seastar::with_alignment wa);
-void* operator new[](size_t size, seastar::with_alignment wa);
-void operator delete(void* ptr, seastar::with_alignment wa);
-void operator delete[](void* ptr, seastar::with_alignment wa);
+}

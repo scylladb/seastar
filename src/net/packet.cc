@@ -19,7 +19,8 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#include <seastar/core/reactor.hh>
+#include <seastar/core/print.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/net/packet.hh>
 #include <iostream>
 #include <algorithm>
@@ -65,7 +66,8 @@ packet packet::free_on_cpu(unsigned cpu, std::function<void()> cb)
 {
     // make new deleter that runs old deleter on an origin cpu
     _impl->_deleter = make_deleter(deleter(), [d = std::move(_impl->_deleter), cpu, cb = std::move(cb)] () mutable {
-        smp::submit_to(cpu, [d = std::move(d), cb = std::move(cb)] () mutable {
+        // FIXME: future is discarded
+        (void)smp::submit_to(cpu, [d = std::move(d), cb = std::move(cb)] () mutable {
             // deleter needs to be moved from lambda capture to be destroyed here
             // otherwise deleter destructor will be called on a cpu that called smp::submit_to()
             // when work_item is destroyed.

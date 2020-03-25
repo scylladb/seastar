@@ -175,7 +175,7 @@ public:
         }
         return *this;
     }
-    virtual future<> write(output_stream<char>& s) const {
+    virtual future<> write(output_stream<char>& s) const override {
         return formatter::write(s, _elements);
     }
     std::vector<T> _elements;
@@ -294,6 +294,11 @@ struct json_return_type {
 
    json_return_type(json_return_type&& o) noexcept : _res(std::move(o._res)), _body_writer(std::move(o._body_writer)) {
    }
+    json_return_type& operator=(json_return_type&& o) noexcept {
+        _res = std::move(o._res);
+        _body_writer = std::move(o._body_writer);
+        return *this;
+    }
 };
 
 /*!
@@ -305,7 +310,7 @@ struct json_return_type {
  * return make_ready_future<json::json_return_type>(stream_range_as_array(res, [](const auto&i) {return i.first}));
  */
 template<typename Container, typename Func>
-GCC6_CONCEPT( requires requires (Container c, Func aa, output_stream<char> s) { { formatter::write(s, aa(*c.begin())) } -> future<> } )
+GCC6_CONCEPT( requires requires (Container c, Func aa, output_stream<char> s) { { formatter::write(s, aa(*c.begin())) } -> future<>; } )
 std::function<future<>(output_stream<char>&&)> stream_range_as_array(Container val, Func fun) {
     return [val = std::move(val), fun = std::move(fun)](output_stream<char>&& s) {
         return do_with(output_stream<char>(std::move(s)), Container(std::move(val)), Func(std::move(fun)), true, [](output_stream<char>& s, const Container& val, const Func& f, bool& first){

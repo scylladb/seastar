@@ -34,7 +34,7 @@ namespace seastar {
 
 namespace json {
 
-struct jsonable;
+class jsonable;
 
 typedef struct tm date_time;
 
@@ -104,7 +104,8 @@ class formatter {
                         return write(stream, m);
                     });
                 }).then([&stream, s] {
-                   stream.write(end(s));
+                    // FIXME: future is discarded
+                    (void)stream.write(end(s));
                 });
             });
         });
@@ -326,12 +327,6 @@ public:
     static future<> write(output_stream<char>& s, unsigned long l) {
       return s.write(to_json(l));
      }
-
-
-private:
-
-    static constexpr const char* TIME_FORMAT = "%a %b %d %I:%M:%S %Z %Y";
-
 };
 
 }

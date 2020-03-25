@@ -22,10 +22,12 @@
 #include <stdlib.h>
 #include <memory>
 #include <stdexcept>
-#include <seastar/core/print.hh>
 
 namespace seastar {
 
+namespace internal {
+void* allocate_aligned_buffer_impl(size_t size, size_t align);
+}
 
 struct free_deleter {
     void operator()(void* p) { ::free(p); }
@@ -35,16 +37,8 @@ template <typename CharType>
 inline
 std::unique_ptr<CharType[], free_deleter> allocate_aligned_buffer(size_t size, size_t align) {
     static_assert(sizeof(CharType) == 1, "must allocate byte type");
-    void* ret;
-    auto r = posix_memalign(&ret, align, size);
-    if (r == ENOMEM) {
-        throw std::bad_alloc();
-    } else if (r == EINVAL) {
-        throw std::runtime_error(format("Invalid alignment of {:d}; allocating {:d} bytes", align, size));
-    } else {
-        assert(r == 0);
-        return std::unique_ptr<CharType[], free_deleter>(reinterpret_cast<CharType *>(ret));
-    }
+    void* ret = internal::allocate_aligned_buffer_impl(size, align);
+    return std::unique_ptr<CharType[], free_deleter>(reinterpret_cast<CharType *>(ret));
 }
 
 

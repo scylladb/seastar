@@ -44,6 +44,8 @@
 
 namespace seastar {
 
+struct ipv6_addr;
+
 namespace net {
 
 class ipv4;
@@ -57,15 +59,7 @@ class tcp;
 struct ipv4_address {
     ipv4_address() : ip(0) {}
     explicit ipv4_address(uint32_t ip) : ip(ip) {}
-    explicit ipv4_address(const std::string& addr) {
-        boost::system::error_code ec;
-        auto ipv4 = boost::asio::ip::address_v4::from_string(addr, ec);
-        if (ec) {
-            throw std::runtime_error(format("Wrong format for IPv4 address {}. Please ensure it's in dotted-decimal format",
-                                            addr));
-        }
-        ip = static_cast<uint32_t>(std::move(ipv4).to_ulong());
-    }
+    explicit ipv4_address(const std::string& addr);
     ipv4_address(ipv4_addr addr) {
         ip = addr.ip;
     }
@@ -105,7 +99,52 @@ struct ipv4_address {
 
 static inline bool is_unspecified(ipv4_address addr) { return addr.ip == 0; }
 
-std::ostream& operator<<(std::ostream& os, ipv4_address a);
+std::ostream& operator<<(std::ostream& os, const ipv4_address& a);
+
+// IPv6
+struct ipv6_address {
+    using ipv6_bytes = std::array<uint8_t, 16>;
+
+    static_assert(alignof(ipv6_bytes) == 1, "ipv6_bytes should be byte-aligned");
+    static_assert(sizeof(ipv6_bytes) == 16, "ipv6_bytes should be 16 bytes");
+
+    ipv6_address();
+    explicit ipv6_address(const ::in6_addr&);
+    explicit ipv6_address(const ipv6_bytes&);
+    explicit ipv6_address(const std::string&);
+    ipv6_address(const ipv6_addr& addr);
+
+    // No need to use packed - we only store
+    // as byte array. If we want to read as
+    // uints or whatnot, we must copy
+    ipv6_bytes ip;
+
+    template <typename Adjuster>
+    auto adjust_endianness(Adjuster a) { return a(ip); }
+
+    bool operator==(const ipv6_address& y) const {
+        return bytes() == y.bytes();
+    }
+    bool operator!=(const ipv6_address& y) const {
+        return !(*this == y);
+    }
+
+    const ipv6_bytes& bytes() const {
+        return ip;
+    }
+
+    bool is_unspecified() const;
+
+    static ipv6_address read(const char*);
+    static ipv6_address consume(const char*& p);
+    void write(char* p) const;
+    void produce(char*& p) const;
+    static constexpr size_t size() {
+        return sizeof(ipv6_bytes);
+    }
+} __attribute__((packed));
+
+std::ostream& operator<<(std::ostream&, const ipv6_address&);
 
 }
 
@@ -116,6 +155,11 @@ namespace std {
 template <>
 struct hash<seastar::net::ipv4_address> {
     size_t operator()(seastar::net::ipv4_address a) const { return a.ip; }
+};
+
+template <>
+struct hash<seastar::net::ipv6_address> {
+    size_t operator()(const seastar::net::ipv6_address&) const;
 };
 
 }
@@ -151,6 +195,9 @@ public:
     ipv4_l4(ipv4& inet) : _inet(inet) {}
     void register_packet_provider(ipv4_traits::packet_provider_type func);
     future<ethernet_address> get_l2_dst_address(ipv4_address to);
+    const ipv4& inet() const {
+        return _inet;
+    }
 };
 
 class ip_protocol {
@@ -178,7 +225,7 @@ struct l4connid {
                 && foreign_port == x.foreign_port;
     }
 
-    uint32_t hash(const rss_key_type& rss_key) {
+    uint32_t hash(rss_key_type rss_key) {
         forward_hash hash_data;
         hash_data.push_back(hton(foreign_ip.ip));
         hash_data.push_back(hton(local_ip.ip));
@@ -286,6 +333,10 @@ public:
     void send(uint16_t src_port, ipv4_addr dst, packet &&p);
     bool forward(forward_hash& out_hash_data, packet& p, size_t off) override;
     void set_queue_size(int size) { _queue_size = size; }
+
+    const ipv4& inet() const {
+        return _inet;
+    }
 };
 
 struct ip_hdr;
@@ -341,7 +392,6 @@ private:
     ipv4_address _gw_address;
     ipv4_address _netmask;
     l3_protocol _l3;
-    subscription<packet, ethernet_address> _rx_packets;
     ipv4_tcp _tcp;
     ipv4_icmp _icmp;
     ipv4_udp _udp;
@@ -388,7 +438,7 @@ private:
 public:
     explicit ipv4(interface* netif);
     void set_host_address(ipv4_address ip);
-    ipv4_address host_address();
+    ipv4_address host_address() const;
     void set_gw_address(ipv4_address ip);
     ipv4_address gw_address() const;
     void set_netmask_address(ipv4_address ip);

@@ -167,7 +167,7 @@ class TcpSpecificTests(MemcacheTest):
     def test_unsuccesful_parsing_does_not_leave_data_behind(self):
         with tcp_connection() as conn:
             self.assertEqual(conn('set key 0 0 5\r\nhello\r\n'), b'STORED\r\n')
-            self.assertRegexpMatches(conn('delete a b c\r\n'), b'^(CLIENT_)?ERROR.*\r\n$')
+            self.assertRegex(conn('delete a b c\r\n'), b'^(CLIENT_)?ERROR.*\r\n$')
             self.assertEqual(conn('get key\r\n'), b'VALUE key 0 5\r\nhello\r\nEND\r\n')
             self.assertEqual(conn('delete key\r\n'), b'DELETED\r\n')
 
@@ -213,11 +213,11 @@ class TcpSpecificTests(MemcacheTest):
             curr_connections = int(self.getStat('curr_connections', call_fn=conn))
             total_connections = int(self.getStat('total_connections', call_fn=conn))
             with tcp_connection() as conn2:
-                self.assertEquals(curr_connections + 1, int(self.getStat('curr_connections', call_fn=conn)))
-                self.assertEquals(total_connections + 1, int(self.getStat('total_connections', call_fn=conn)))
-            self.assertEquals(total_connections + 1, int(self.getStat('total_connections', call_fn=conn)))
+                self.assertEqual(curr_connections + 1, int(self.getStat('curr_connections', call_fn=conn)))
+                self.assertEqual(total_connections + 1, int(self.getStat('total_connections', call_fn=conn)))
+            self.assertEqual(total_connections + 1, int(self.getStat('total_connections', call_fn=conn)))
             time.sleep(0.1)
-            self.assertEquals(curr_connections, int(self.getStat('curr_connections', call_fn=conn)))
+            self.assertEqual(curr_connections, int(self.getStat('curr_connections', call_fn=conn)))
 
 class UdpSpecificTests(MemcacheTest):
     def test_large_response_is_split_into_mtu_chunks(self):
@@ -267,7 +267,7 @@ class TestCommands(MemcacheTest):
         self.assertEqual(call('set key1 0 0 2\r\nv1\r\n'), b'STORED\r\n')
         self.assertEqual(call('set key 0 0 2\r\nv2\r\n'), b'STORED\r\n')
         resp = call('get key1 key\r\n')
-        self.assertRegexpMatches(resp, b'^(VALUE key1 0 2\r\nv1\r\nVALUE key 0 2\r\nv2\r\nEND\r\n)|(VALUE key 0 2\r\nv2\r\nVALUE key1 0 2\r\nv1\r\nEND\r\n)$')
+        self.assertRegex(resp, b'^(VALUE key1 0 2\r\nv1\r\nVALUE key 0 2\r\nv2\r\nEND\r\n)|(VALUE key 0 2\r\nv2\r\nVALUE key1 0 2\r\nv1\r\nEND\r\n)$')
         self.delete("key")
         self.delete("key1")
 
@@ -341,7 +341,7 @@ class TestCommands(MemcacheTest):
         resp = call('get key1 key2 key3\r\n').decode()
 
         pattern = '^VALUE (?P<v1>.*?\r\n.*?)\r\nVALUE (?P<v2>.*?\r\n.*?)\r\nVALUE (?P<v3>.*?\r\n.*?)\r\nEND\r\n$'
-        self.assertRegexpMatches(resp, pattern)
+        self.assertRegex(resp, pattern)
 
         m = re.match(pattern, resp)
         self.assertEqual(set([m.group('v1'), m.group('v2'), m.group('v3')]),
@@ -354,7 +354,7 @@ class TestCommands(MemcacheTest):
         self.delete('key3')
 
     def test_version(self):
-        self.assertRegexpMatches(call('version\r\n'), b'^VERSION .*\r\n$')
+        self.assertRegex(call('version\r\n'), b'^VERSION .*\r\n$')
 
     def test_add(self):
         self.assertEqual(call('add key 0 0 1\r\na\r\n'), b'STORED\r\n')
@@ -382,11 +382,11 @@ class TestCommands(MemcacheTest):
         self.delete('key')
 
     def test_curr_items_stat(self):
-        self.assertEquals(0, int(self.getStat('curr_items')))
+        self.assertEqual(0, int(self.getStat('curr_items')))
         self.setKey('key')
-        self.assertEquals(1, int(self.getStat('curr_items')))
+        self.assertEqual(1, int(self.getStat('curr_items')))
         self.delete('key')
-        self.assertEquals(0, int(self.getStat('curr_items')))
+        self.assertEqual(0, int(self.getStat('curr_items')))
 
     def test_how_stats_change_with_different_commands(self):
         get_count = int(self.getStat('cmd_get'))
@@ -476,23 +476,23 @@ class TestCommands(MemcacheTest):
         self.flush()
         flush_count += 1
 
-        self.assertEquals(get_count, int(self.getStat('cmd_get')))
-        self.assertEquals(set_count, int(self.getStat('cmd_set')))
-        self.assertEquals(flush_count, int(self.getStat('cmd_flush')))
-        self.assertEquals(total_items, int(self.getStat('total_items')))
-        self.assertEquals(get_hits, int(self.getStat('get_hits')))
-        self.assertEquals(get_misses, int(self.getStat('get_misses')))
-        self.assertEquals(cas_misses, int(self.getStat('cas_misses')))
-        self.assertEquals(cas_hits, int(self.getStat('cas_hits')))
-        self.assertEquals(cas_badval, int(self.getStat('cas_badval')))
-        self.assertEquals(delete_misses, int(self.getStat('delete_misses')))
-        self.assertEquals(delete_hits, int(self.getStat('delete_hits')))
-        self.assertEquals(0, int(self.getStat('curr_items')))
-        self.assertEquals(curr_connections, int(self.getStat('curr_connections')))
-        self.assertEquals(incr_misses, int(self.getStat('incr_misses')))
-        self.assertEquals(incr_hits, int(self.getStat('incr_hits')))
-        self.assertEquals(decr_misses, int(self.getStat('decr_misses')))
-        self.assertEquals(decr_hits, int(self.getStat('decr_hits')))
+        self.assertEqual(get_count, int(self.getStat('cmd_get')))
+        self.assertEqual(set_count, int(self.getStat('cmd_set')))
+        self.assertEqual(flush_count, int(self.getStat('cmd_flush')))
+        self.assertEqual(total_items, int(self.getStat('total_items')))
+        self.assertEqual(get_hits, int(self.getStat('get_hits')))
+        self.assertEqual(get_misses, int(self.getStat('get_misses')))
+        self.assertEqual(cas_misses, int(self.getStat('cas_misses')))
+        self.assertEqual(cas_hits, int(self.getStat('cas_hits')))
+        self.assertEqual(cas_badval, int(self.getStat('cas_badval')))
+        self.assertEqual(delete_misses, int(self.getStat('delete_misses')))
+        self.assertEqual(delete_hits, int(self.getStat('delete_hits')))
+        self.assertEqual(0, int(self.getStat('curr_items')))
+        self.assertEqual(curr_connections, int(self.getStat('curr_connections')))
+        self.assertEqual(incr_misses, int(self.getStat('incr_misses')))
+        self.assertEqual(incr_hits, int(self.getStat('incr_hits')))
+        self.assertEqual(decr_misses, int(self.getStat('decr_misses')))
+        self.assertEqual(decr_hits, int(self.getStat('decr_hits')))
 
     def test_incr(self):
         self.assertEqual(call('incr key 0\r\n'), b'NOT_FOUND\r\n')
@@ -505,7 +505,7 @@ class TestCommands(MemcacheTest):
         self.assertEqual(call('incr key 2\r\n'), b'3\r\n')
         self.assertEqual(call('incr key %d\r\n' % (pow(2, 64) - 1)), b'2\r\n')
         self.assertEqual(call('incr key %d\r\n' % (pow(2, 64) - 3)), b'18446744073709551615\r\n')
-        self.assertRegexpMatches(call('incr key 1\r\n').decode(), r'0(\w+)?\r\n')
+        self.assertRegex(call('incr key 1\r\n').decode(), r'0(\w+)?\r\n')
 
         self.assertEqual(call('set key 0 0 2\r\n1 \r\n'), b'STORED\r\n')
         self.assertEqual(call('incr key 1\r\n'), b'2\r\n')
@@ -524,10 +524,10 @@ class TestCommands(MemcacheTest):
         self.assertEqual(call('decr key 2\r\n'), b'0\r\n')
 
         self.assertEqual(call('set key 0 0 2\r\n20\r\n'), b'STORED\r\n')
-        self.assertRegexpMatches(call('decr key 11\r\n').decode(), r'^9( )?\r\n$')
+        self.assertRegex(call('decr key 11\r\n').decode(), r'^9( )?\r\n$')
 
         self.assertEqual(call('set key 0 0 3\r\n100\r\n'), b'STORED\r\n')
-        self.assertRegexpMatches(call('decr key 91\r\n').decode(), r'^9(  )?\r\n$')
+        self.assertRegex(call('decr key 91\r\n').decode(), r'^9(  )?\r\n$')
 
         self.assertEqual(call('set key 0 0 2\r\n1 \r\n'), b'STORED\r\n')
         self.assertEqual(call('decr key 1\r\n'), b'0\r\n')

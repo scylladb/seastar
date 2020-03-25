@@ -28,6 +28,7 @@
 #include <seastar/core/align.hh>
 #include <seastar/core/timer.hh>
 #include <seastar/core/thread.hh>
+#include <seastar/core/print.hh>
 #include <chrono>
 #include <vector>
 #include <boost/range/irange.hpp>
@@ -56,7 +57,7 @@ static std::default_random_engine random_generator(random_seed);
 // that will push the data out of the disk's cache. And static sizes per file are simpler.
 static constexpr uint64_t file_data_size = 1ull << 30;
 
-struct context;
+class context;
 enum class request_type { seqread, seqwrite, randread, randwrite, append, cpu };
 
 namespace std {
@@ -143,13 +144,15 @@ public:
         , _pos_distribution(0,  file_data_size / _config.shard_info.request_size)
     {}
 
+    virtual ~class_data() = default;
+
     future<> issue_requests(std::chrono::steady_clock::time_point stop) {
         _start = std::chrono::steady_clock::now();
         return with_scheduling_group(_sg, [this, stop] {
             return parallel_for_each(boost::irange(0u, parallelism()), [this, stop] (auto dummy) mutable {
                 auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
                 auto buf = bufptr.get();
-                return do_until([this, stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf, stop] () mutable {
+                return do_until([stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf, stop] () mutable {
                     auto start = std::chrono::steady_clock::now();
                     return issue_request(buf).then([this, start, stop] (auto size) {
                         auto now = std::chrono::steady_clock::now();
@@ -184,6 +187,13 @@ public:
     // cpu               : CPU-only load, file is not created.
     future<> start(sstring dir) {
         return do_start(dir);
+    }
+
+    future<> stop() {
+        if (_file) {
+            return _file.close();
+        }
+        return make_ready_future<>();
     }
 protected:
     sstring type_str() const {
@@ -281,7 +291,7 @@ public:
     io_class_data(job_config cfg) : class_data(std::move(cfg)) {}
 
     future<> do_start(sstring dir) override {
-        auto fname = format("{}/test-{}-{:d}", dir, name(), engine().cpu_id());
+        auto fname = format("{}/test-{}-{:d}", dir, name(), this_shard_id());
         return open_file_dma(fname, open_flags::rw | open_flags::create | open_flags::truncate).then([this, fname] (auto f) {
             _file = f;
             return remove_file(fname);
@@ -296,7 +306,7 @@ public:
                         std::uniform_int_distribution<char> fill('@', '~');
                         memset(buf, fill(random_generator), bufsize);
                         pos = pos * bufsize;
-                        return _file.dma_write(pos, buf, bufsize).finally([this, bufsize, bufptr = std::move(bufptr), perm = std::move(perm), pos] {
+                        return _file.dma_write(pos, buf, bufsize).finally([this, bufptr = std::move(bufptr), perm = std::move(perm), pos] {
                             if ((this->req_type() == request_type::append) && (pos > _last_pos)) {
                                 _last_pos = pos;
                             }
@@ -515,7 +525,7 @@ class context {
 public:
     context(sstring dir, std::vector<job_config> req_config, unsigned duration)
             : _cl(boost::copy_range<std::vector<std::unique_ptr<class_data>>>(req_config
-                | boost::adaptors::filtered([] (auto& cfg) { return cfg.shard_placement.is_set(engine().cpu_id()); })
+                | boost::adaptors::filtered([] (auto& cfg) { return cfg.shard_placement.is_set(this_shard_id()); })
                 | boost::adaptors::transformed([] (auto& cfg) { return cfg.gen_class_data(); })
             ))
             , _dir(dir)
@@ -523,7 +533,11 @@ public:
             , _finished(0)
     {}
 
-    future<> stop() { return make_ready_future<>(); }
+    future<> stop() {
+        return parallel_for_each(_cl, [] (std::unique_ptr<class_data>& cl) {
+            return cl->stop();
+        });
+    }
 
     future<> start() {
         return parallel_for_each(_cl, [this] (std::unique_ptr<class_data>& cl) {
@@ -541,7 +555,7 @@ public:
 
     future<> print_stats() {
         return _finished.wait(_cl.size()).then([this] {
-            fmt::print("Shard {:>2}\n", engine().cpu_id());
+            fmt::print("Shard {:>2}\n", this_shard_id());
             auto idx = 0;
             for (auto& cl: _cl) {
                 fmt::print("Class {:>2} ({})\n", idx++, cl->describe_class());
@@ -607,6 +621,7 @@ int main(int ac, char** av) {
                     return c.print_stats();
                 }).get();
             }
+            ctx.stop().get0();
         }).or_terminate();
     });
 }

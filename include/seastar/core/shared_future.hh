@@ -108,22 +108,33 @@ private:
     using promise_expiry = typename future_option_traits<T...>::template parametrize<promise_expiry>::type;
 
     /// \cond internal
-    class shared_state {
-        future_state_type _future_state;
+    class shared_state : public enable_lw_shared_from_this<shared_state> {
+        future_type _original_future;
         expiring_fifo<promise_type, promise_expiry, clock> _peers;
+
     public:
+        ~shared_state() {
+            // Don't warn if the shared future is exceptional. Any
+            // warnings will be reported by the futures returned by
+            // get_future.
+            if (_original_future.failed()) {
+                _original_future.ignore_ready_future();
+            }
+        }
+        explicit shared_state(future_type f) : _original_future(std::move(f)) { }
         void resolve(future_type&& f) noexcept {
-            _future_state = f.get_available_state();
-            if (_future_state.failed()) {
+            _original_future = std::move(f);
+            auto& state = _original_future._state;
+            if (_original_future.failed()) {
                 while (_peers) {
-                    _peers.front().set_exception(_future_state.get_exception());
+                    _peers.front().set_exception(state.get_exception());
                     _peers.pop_front();
                 }
             } else {
                 while (_peers) {
                     auto& p = _peers.front();
                     try {
-                        p.set_value(_future_state.get_value());
+                        p.set_value(state.get_value());
                     } catch (...) {
                         p.set_exception(std::current_exception());
                     }
@@ -133,16 +144,22 @@ private:
         }
 
         future_type get_future(time_point timeout = time_point::max()) {
-            if (!_future_state.available()) {
+            if (!_original_future.available()) {
                 promise_type p;
                 auto f = p.get_future();
+                if (_original_future._state.valid()) {
+                    // _original_future's result is forwarded to each peer.
+                    (void)_original_future.then_wrapped([s = this->shared_from_this()] (future_type&& f) mutable {
+                        s->resolve(std::move(f));
+                    });
+                }
                 _peers.push_back(std::move(p), timeout);
                 return f;
-            } else if (_future_state.failed()) {
-                return future_type(exception_future_marker(), _future_state.get_exception());
+            } else if (_original_future.failed()) {
+                return future_type(exception_future_marker(), std::exception_ptr(_original_future._state.get_exception()));
             } else {
                 try {
-                    return future_type(ready_future_marker(), _future_state.get_value());
+                    return future_type(ready_future_marker(), _original_future._state.get_value());
                 } catch (...) {
                     return future_type(exception_future_marker(), std::current_exception());
                 }
@@ -150,24 +167,19 @@ private:
         }
 
         bool available() const noexcept {
-            return _future_state.available();
+            return _original_future.available();
         }
 
         bool failed() const noexcept {
-            return _future_state.failed();
+            return _original_future.failed();
         }
     };
     /// \endcond
     lw_shared_ptr<shared_state> _state;
 public:
     /// \brief Forwards the result of future \c f into this shared_future.
-    shared_future(future_type&& f)
-        : _state(make_lw_shared<shared_state>())
-    {
-        f.then_wrapped([s = _state] (future_type&& f) mutable {
-            s->resolve(std::move(f));
-        });
-    }
+    shared_future(future_type f)
+        : _state(make_lw_shared<shared_state>(std::move(f))) { }
 
     shared_future() = default;
     shared_future(const shared_future&) = default;

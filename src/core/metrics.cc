@@ -21,6 +21,7 @@
 
 #include <seastar/core/metrics.hh>
 #include <seastar/core/metrics_api.hh>
+#include <seastar/core/reactor.hh>
 #include <boost/range/algorithm.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/replace.hpp>
@@ -28,6 +29,8 @@
 
 namespace seastar {
 namespace metrics {
+
+double_registration::double_registration(std::string what): std::runtime_error(what) {}
 
 metric_groups::metric_groups() noexcept : _impl(impl::create_metric_groups()) {
 }
@@ -42,6 +45,10 @@ metric_groups::metric_groups(std::initializer_list<metric_group_definition> mg) 
     }
 }
 metric_groups& metric_groups::add_group(const group_name_type& name, const std::initializer_list<metric_definition>& l) {
+    _impl->add_group(name, l);
+    return *this;
+}
+metric_groups& metric_groups::add_group(const group_name_type& name, const std::vector<metric_definition>& l) {
     _impl->add_group(name, l);
     return *this;
 }
@@ -168,7 +175,7 @@ std::unique_ptr<metric_groups_def> create_metric_groups() {
 }
 
 metric_groups_impl::~metric_groups_impl() {
-    for (auto i : _registration) {
+    for (const auto& i : _registration) {
         unregister_metric(i);
     }
 }
@@ -268,7 +275,7 @@ foreign_ptr<values_reference> get_values() {
 
 instance_id_type shard() {
     if (engine_is_ready()) {
-        return to_sstring(engine().cpu_id());
+        return to_sstring(this_shard_id());
     }
 
     return sstring("0");
@@ -324,7 +331,7 @@ void impl::add_registration(const metric_id& id, data_type type, metric_function
     if (_value_map.find(name) != _value_map.end()) {
         auto& metric = _value_map[name];
         if (metric.find(id.labels()) != metric.end()) {
-            throw std::runtime_error("registering metrics twice for metrics: " + name);
+            throw double_registration("registering metrics twice for metrics: " + name);
         }
         if (metric.info().type != type) {
             throw std::runtime_error("registering metrics " + name + " registered with different type.");

@@ -28,15 +28,20 @@ namespace seastar {
 
 class task {
     scheduling_group _sg;
+protected:
+    // Task destruction is performed by run_and_dispose() via a concrete type,
+    // so no need for a virtual destructor here. Derived classes that implement
+    // run_and_dispose() should be declared final to avoid losing concrete type
+    // information via inheritance.
+    ~task() = default;
 public:
     explicit task(scheduling_group sg = current_scheduling_group()) : _sg(sg) {}
-    virtual ~task() noexcept {}
     virtual void run_and_dispose() noexcept = 0;
     scheduling_group group() const { return _sg; }
 };
 
-void schedule(std::unique_ptr<task> t);
-void schedule_urgent(std::unique_ptr<task> t);
+void schedule(task* t) noexcept;
+void schedule_urgent(task* t) noexcept;
 
 template <typename Func>
 class lambda_task final : public task {
@@ -52,16 +57,16 @@ public:
 
 template <typename Func>
 inline
-std::unique_ptr<task>
-make_task(Func&& func) {
-    return std::make_unique<lambda_task<Func>>(current_scheduling_group(), std::forward<Func>(func));
+task*
+make_task(Func&& func) noexcept {
+    return new lambda_task<Func>(current_scheduling_group(), std::forward<Func>(func));
 }
 
 template <typename Func>
 inline
-std::unique_ptr<task>
-make_task(scheduling_group sg, Func&& func) {
-    return std::make_unique<lambda_task<Func>>(sg, std::forward<Func>(func));
+task*
+make_task(scheduling_group sg, Func&& func) noexcept {
+    return new lambda_task<Func>(sg, std::forward<Func>(func));
 }
 
 }

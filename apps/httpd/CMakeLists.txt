@@ -1,0 +1,37 @@
+#
+# This file is open source software, licensed to you under the terms
+# of the Apache License, Version 2.0 (the "License").  See the NOTICE file
+# distributed with this work for additional information regarding copyright
+# ownership.  You may not use this file except in compliance with the License.
+#
+# You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+
+#
+# Copyright (C) 2018 Scylladb, Ltd.
+#
+
+seastar_generate_swagger (
+  TARGET app_httpd_swagger
+  VAR app_httpd_swagger_file
+  IN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/demo.json
+  OUT_FILE ${CMAKE_CURRENT_BINARY_DIR}/demo.json.hh)
+
+seastar_add_app (httpd
+  SOURCES
+    ${app_httpd_swagger_file}
+    main.cc)
+
+target_include_directories (app_httpd
+  PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+
+add_dependencies (app_httpd app_httpd_swagger)

@@ -22,6 +22,7 @@
 #include <seastar/net/virtio.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/core/future-util.hh>
+#include <seastar/core/internal/pollable_fd.hh>
 #include "core/vla.hh"
 #include <seastar/net/virtio-interface.hh>
 #include <seastar/core/reactor.hh>
@@ -122,7 +123,7 @@ public:
         return { 0x12, 0x23, 0x34, 0x56, 0x67, 0x78 };
     }
 
-    net::hw_features hw_features() {
+    net::hw_features hw_features() override {
         return _hw_features;
     }
 
@@ -550,7 +551,9 @@ protected:
             return _ring.getconfig();
         }
         void run() {
-            keep_doing([this] { return prepare_buffers(); });
+            // FIXME: future is discarded
+            // At least catch errors and warn about them.
+            (void)keep_doing([this] { return prepare_buffers(); });
         }
         void wake_notifier_wait() {
             _ring.wake_notifier_wait();

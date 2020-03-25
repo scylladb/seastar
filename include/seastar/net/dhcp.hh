@@ -22,7 +22,7 @@
 #pragma once
 
 #include <seastar/net/ip.hh>
-#include <seastar/core/reactor.hh>
+#include <seastar/util/std-compat.hh>
 
 namespace seastar {
 
@@ -59,7 +59,7 @@ public:
         uint16_t mtu = 0;
     };
 
-    typedef future<bool, lease> result_type;
+    typedef future<compat::optional<lease>> result_type;
 
     /**
      * Runs a discover/request sequence on the ipv4 "stack".

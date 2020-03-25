@@ -23,6 +23,7 @@
 #include <seastar/core/app-template.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/distributed.hh>
+#include <seastar/core/print.hh>
 #include <vector>
 #include <iostream>
 
@@ -42,15 +43,15 @@ static bool enable_tcp = false;
 static bool enable_sctp = false;
 
 class tcp_server {
-    std::vector<server_socket> _tcp_listeners;
-    std::vector<server_socket> _sctp_listeners;
+    std::vector<api_v2::server_socket> _tcp_listeners;
+    std::vector<api_v2::server_socket> _sctp_listeners;
 public:
     future<> listen(ipv4_addr addr) {
         if (enable_tcp) {
             listen_options lo;
             lo.proto = transport::TCP;
             lo.reuse_address = true;
-            _tcp_listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
+            _tcp_listeners.push_back(seastar::listen(make_ipv4_address(addr), lo));
             do_accepts(_tcp_listeners);
         }
 
@@ -58,7 +59,7 @@ public:
             listen_options lo;
             lo.proto = transport::SCTP;
             lo.reuse_address = true;
-            _sctp_listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
+            _sctp_listeners.push_back(seastar::listen(make_ipv4_address(addr), lo));
             do_accepts(_sctp_listeners);
         }
         return make_ready_future<>();
@@ -69,11 +70,14 @@ public:
         return make_ready_future<>();
     }
 
-    void do_accepts(std::vector<server_socket>& listeners) {
+    void do_accepts(std::vector<api_v2::server_socket>& listeners) {
         int which = listeners.size() - 1;
-        listeners[which].accept().then([this, &listeners] (connected_socket fd, socket_address addr) mutable {
+        // Accept in the background.
+        (void)listeners[which].accept().then([this, &listeners] (accept_result ar) mutable {
+            connected_socket fd = std::move(ar.connection);
+            socket_address addr = std::move(ar.remote_address);
             auto conn = new connection(*this, std::move(fd), addr);
-            conn->process().then_wrapped([conn] (auto&& f) {
+            (void)conn->process().then_wrapped([conn] (auto&& f) {
                 delete conn;
                 try {
                     f.get();
@@ -188,11 +192,12 @@ int main(int ac, char** av) {
             return engine().exit(1);
         }
         auto server = new distributed<tcp_server>;
-        server->start().then([server = std::move(server), port] () mutable {
+        (void)server->start().then([server = std::move(server), port] () mutable {
             engine().at_exit([server] {
                 return server->stop();
             });
-            server->invoke_on_all(&tcp_server::listen, ipv4_addr{port});
+            // Start listening in the background.
+            (void)server->invoke_on_all(&tcp_server::listen, ipv4_addr{port});
         }).then([port] {
             std::cout << "Seastar TCP server listening on port " << port << " ...\n";
         });

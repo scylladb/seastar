@@ -37,7 +37,6 @@
 #include <seastar/net/byteorder.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/core/print.hh>
 #include <seastar/util/log.hh>
 
 #include <seastar/core/metrics_api.hh>
@@ -303,15 +302,7 @@ class type_instance_id {
     static thread_local unsigned _next_truncated_idx;
 
     /// truncate a given field to the maximum allowed length
-    void truncate(sstring& field, const char* field_desc) {
-        if (field.size() > max_collectd_field_text_len) {
-            auto suffix_len = std::ceil(std::log10(++_next_truncated_idx)) + 1;
-            sstring new_field(seastar::format("{}~{:d}", sstring(field.data(), max_collectd_field_text_len - suffix_len), _next_truncated_idx));
-
-            logger.warn("Truncating \"{}\" to {} chars: \"{}\" -> \"{}\"", field_desc, max_collectd_field_text_len, field, new_field);
-            field = std::move(new_field);
-        }
-    }
+    void truncate(sstring& field, const char* field_desc);
 public:
     type_instance_id() = default;
     type_instance_id(plugin_id p, plugin_instance_id pi, type_id t,

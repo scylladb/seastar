@@ -16,225 +16,53 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-import os
-import sys
+
 import argparse
 import subprocess
-import signal
-import re
 import seastar_cmake
 
-app_tests = [
-    'apps/memcached/tests/memcached_ascii_parser_test',
-]
-
-boost_tests = [
-    'unit/alloc_test',
-    'unit/futures_test',
-    'unit/thread_test',
-    'unit/sstring_test',
-    'unit/unwind_test',
-    'unit/defer_test',
-    'unit/output_stream_test',
-    'unit/httpd_test',
-    'unit/fstream_test',
-    'unit/foreign_ptr_test',
-    'unit/semaphore_test',
-    'unit/expiring_fifo_test',
-    'unit/shared_ptr_test',
-    'unit/weak_ptr_test',
-    'unit/file_io_test',
-    'unit/packet_test',
-    'unit/tls_test',
-    'unit/rpc_test',
-    'unit/connect_test',
-    'unit/json_formatter_test',
-    'unit/execution_stage_test',
-    'unit/lowres_clock_test',
-    'unit/program_options_test',
-    'unit/tuple_utils_test',
-    'unit/noncopyable_function_test',
-    'unit/abort_source_test',
-    'unit/signal_test',
-    'unit/simple_stream_test',
-    'unit/dns_test',
-]
-
-other_tests = [
-    'unit/smp_test',
-    'unit/timer_test',
-    'unit/directory_test',
-    'unit/thread_context_switch_test',
-    'unit/fair_queue_test',
-    'unit/alien_test',
-]
-
-last_len = 0
-
-def print_status_short(msg):
-    global last_len
-    print('\r' + ' '*last_len, end='')
-    last_len = len(msg)
-    print('\r' + msg, end='')
-
-print_status_verbose = print
-
-class Alarm(Exception):
-    pass
-def alarm_handler(signum, frame):
-    raise Alarm
-
-def make_build_path(mode, *suffixes):
-    return os.path.join('build', mode, *suffixes)
-
 if __name__ == "__main__":
-    all_modes = ['debug', 'release']
 
     parser = argparse.ArgumentParser(description="Seastar test runner")
     parser.add_argument('--fast',  action="store_true", help="Run only fast tests")
     parser.add_argument('--name',  action="store", help="Run only test whose name contains given string")
-    parser.add_argument('--mode', choices=all_modes, help="Run only tests for given build mode")
+    parser.add_argument('--mode', choices=seastar_cmake.SUPPORTED_MODES, help="Run only tests for given build mode")
     parser.add_argument('--timeout', action="store",default="300",type=int, help="timeout value for test execution")
     parser.add_argument('--jenkins', action="store",help="jenkins output file prefix")
+    parser.add_argument('--smp', '-c', action="store",default='2',type=int,help="Number of threads for multi-core tests")
     parser.add_argument('--verbose', '-v', action = 'store_true', default = False,
                         help = 'Verbose reporting')
-    parser.add_argument('--cmake', action='store_true', help='Use the CMake test-runner (CTest)')
     args = parser.parse_args()
 
-    # Forwarding to CMake.
-    if args.cmake:
-        print('CMake support is temporarily disabled.')
-        sys.exit(1)
-        MODES = [args.mode] if args.mode else seastar_cmake.SUPPORTED_MODES
+    MODES = [args.mode] if args.mode else seastar_cmake.SUPPORTED_MODES
 
-        def run_tests(mode):
-            BUILD_PATH = seastar_cmake.BUILD_PATHS[mode]
+    def run_tests(mode):
+        BUILD_PATH = seastar_cmake.BUILD_PATHS[mode]
 
-            # For convenience.
-            tr = seastar_cmake.translate_arg
+        # For convenience.
+        tr = seastar_cmake.translate_arg
 
-            TRANSLATED_CMAKE_ARGS = [
-                tr(args.fast, 'EXECUTE_ONLY_FAST_TESTS'),
-                tr(args.jenkins, 'JENKINS', value_when_none=''),
-            ]
+        TRANSLATED_CMAKE_ARGS = [
+            tr(args.timeout, 'TEST_TIMEOUT'),
+            tr(args.fast, 'EXECUTE_ONLY_FAST_TESTS'),
+            tr(args.smp, 'UNIT_TEST_SMP'),
+            tr(args.jenkins, 'JENKINS', value_when_none=''),
+        ]
 
-            # Modify the existing build by pointing to the build directory.
-            CMAKE_ARGS = seastar_cmake.CMAKE_BASIC_ARGS + [BUILD_PATH] + TRANSLATED_CMAKE_ARGS
-            print(CMAKE_ARGS)
-            subprocess.check_call(CMAKE_ARGS, shell=False, cwd=BUILD_PATH)
+        # Modify the existing build by pointing to the build directory.
+        CMAKE_ARGS = ['cmake', BUILD_PATH] + TRANSLATED_CMAKE_ARGS
+        print(CMAKE_ARGS)
+        subprocess.check_call(CMAKE_ARGS, shell=False, cwd=seastar_cmake.ROOT_PATH)
 
-            TRANSLATED_CTEST_ARGS = [
-                '--timeout', args.timeout
-            ] + ['--verbose'] if args.verbose else [
-            ] + ['-R', args.name] if args.name else [
-            ]
+        TRANSLATED_CTEST_ARGS = ['--output-on-failure']
+        if args.verbose:
+            TRANSLATED_CTEST_ARGS += ['--verbose']
+        if args.name:
+            TRANSLATED_CTEST_ARGS += ['-R', args.name]
 
-            CTEST_ARGS = ['ctest', BUILD_PATH] + TRANSLATED_CTEST_ARGS
-            print(CTEST_ARGS)
-            subprocess.check_call(CTEST_ARGS, shell=False, cwd=BUILD_PATH)
+        CTEST_ARGS = ['ctest', BUILD_PATH] + TRANSLATED_CTEST_ARGS
+        print(CTEST_ARGS)
+        subprocess.check_call(CTEST_ARGS, shell=False, cwd=BUILD_PATH)
 
-        for mode in MODES:
-            run_tests(mode)
-
-        sys.exit(0)
-
-    print_status = print_status_verbose if args.verbose else print_status_short
-
-    # Run on 2 shard - it should be enough
-    cpu_count = 2
-
-    test_to_run = []
-    modes_to_run = all_modes if not args.mode else [args.mode]
-    for mode in modes_to_run:
-        prefix = os.path.join('build', mode)
-        for test in other_tests:
-            test_to_run.append((os.path.join(prefix,'tests',test),'other'))
-        for test in boost_tests:
-            test_to_run.append((os.path.join(prefix,'tests',test),'boost'))
-        memcached_path = make_build_path(mode, 'apps', 'memcached', 'memcached')
-        test_to_run.append(('apps/memcached/tests/test.py --memcached ' + memcached_path + (' --fast' if args.fast else ''),'other'))
-        test_to_run.append((os.path.join(prefix, 'tests', 'unit', 'distributed_test'),'other'))
-
-
-        allocator_test_path = os.path.join(prefix, 'tests', 'unit', 'allocator_test')
-        if args.fast:
-            if mode == 'debug':
-                test_to_run.append((allocator_test_path + ' --iterations 5','other'))
-            else:
-                test_to_run.append((allocator_test_path + ' --time 0.1','other'))
-        else:
-            test_to_run.append((allocator_test_path,'other'))
-
-    if args.name:
-        test_to_run = [t for t in test_to_run if args.name in t[0]]
-
-
-    all_ok = True
-
-    n_total = len(test_to_run)
-    env = os.environ
-    # disable false positive due to new (with_alignment(...)) ...
-    env['ASAN_OPTIONS'] = 'alloc_dealloc_mismatch=0'
-    for n, test in enumerate(test_to_run):
-        path = test[0]
-        prefix = '[%d/%d]' % (n + 1, n_total)
-        print_status('%s RUNNING %s' % (prefix, path))
-        signal.signal(signal.SIGALRM, alarm_handler)
-        if args.jenkins and test[1] == 'boost':
-           mode = 'release'
-           if test[0].startswith(os.path.join('build','debug')):
-              mode = 'debug'
-           xmlout = args.jenkins+"."+mode+"."+os.path.basename(test[0])+".boost.xml"
-           path = path + " --output_format=XML --log_level=all --report_level=no --log_sink=" + xmlout
-           print(path)
-        if os.path.isfile('tmp.out'):
-           os.remove('tmp.out')
-        outf=open('tmp.out','w')
-
-        # Limit shards count
-        if test[1] == 'boost':
-            path = path + " -- --smp={}".format(cpu_count)
-        else:
-            if not re.search("apps/memcached/tests/test.py", path):
-                if re.search("allocator_test", path) or re.search("fair_queue_test", path) or re.search("ascii_parser_test", path):
-                    path = path + " -- --smp={}".format(cpu_count)
-                else:
-                    path = path + " --smp={}".format(cpu_count)
-
-        proc = subprocess.Popen(path.split(' '), stdout=outf, stderr=subprocess.PIPE, env=env,preexec_fn=os.setsid)
-        signal.alarm(args.timeout)
-        err = None
-        out = None
-        try:
-            out,err = proc.communicate()
-            signal.alarm(0)
-        except:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            proc.kill()
-            proc.returncode = -1
-        finally:
-            outf.close();
-            if proc.returncode:
-                print_status('FAILED: %s\n' % (path))
-                if proc.returncode == -1:
-                    print_status('TIMED OUT\n')
-                else:
-                    print_status('  with error code {code}\n'.format(code=proc.returncode))
-                print('=== stdout START ===')
-                with open('tmp.out') as outf:
-                   for line in outf:
-                       print(line)
-                print('=== stdout END ===')
-                if err:
-                    print('=== stderr START ===')
-                    print(err.decode())
-                    print('=== stderr END ===')
-                all_ok = False
-            else:
-                print_status('%s PASSED %s' % (prefix, path))
-
-    if all_ok:
-        print('\nOK.')
-    else:
-        print_status('')
-        sys.exit(1)
+    for mode in MODES:
+        run_tests(mode)

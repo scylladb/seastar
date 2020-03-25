@@ -7,6 +7,6 @@ sudo ./install-dependencies.sh
 
 To compile Seastar use:
 ```
-./configure.py
-ninja
+./configure.py --mode=release
+ninja -C build
 ```

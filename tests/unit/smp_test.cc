@@ -20,6 +20,7 @@
  */
 
 #include <seastar/core/reactor.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/print.hh>
 

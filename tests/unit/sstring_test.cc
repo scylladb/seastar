@@ -125,11 +125,54 @@ BOOST_AUTO_TEST_CASE(test_erase) {
     auto i = str.erase(str.begin() + 1, str.begin() + 3);
     BOOST_REQUIRE_EQUAL(*i, 'd');
     BOOST_REQUIRE_EQUAL(str, "adef");
-    BOOST_REQUIRE_THROW(str.erase(str.begin() + 5, str.begin() + 6), std::out_of_range);
 }
 
 BOOST_AUTO_TEST_CASE(test_ctor_iterator) {
     std::list<char> data{{'a', 'b', 'c'}};
     sstring s(data.begin(), data.end());
     BOOST_REQUIRE_EQUAL(s, "abc");
+}
+
+BOOST_AUTO_TEST_CASE(test_nul_termination) {
+    using stype = basic_sstring<char, uint32_t, 15, true>;
+
+    for (int size = 1; size <= 32; size *= 2) {
+        auto s1 = uninitialized_string<stype>(size - 1);
+        BOOST_REQUIRE_EQUAL(s1.c_str()[size - 1], '\0');
+        auto s2 = uninitialized_string<stype>(size);
+        BOOST_REQUIRE_EQUAL(s2.c_str()[size], '\0');
+
+        s1 = stype("01234567890123456789012345678901", size - 1);
+        BOOST_REQUIRE_EQUAL(s1.c_str()[size - 1], '\0');
+        s2 = stype("01234567890123456789012345678901", size);
+        BOOST_REQUIRE_EQUAL(s2.c_str()[size], '\0');
+
+        s1 = stype(size - 1, ' ');
+        BOOST_REQUIRE_EQUAL(s1.c_str()[size - 1], '\0');
+        s2 = stype(size, ' ');
+        BOOST_REQUIRE_EQUAL(s2.c_str()[size], '\0');
+
+        s2 = s1;
+        BOOST_REQUIRE_EQUAL(s2.c_str()[s1.size()], '\0');
+        s2.resize(s1.size());
+        BOOST_REQUIRE_EQUAL(s2.c_str()[s1.size()], '\0');
+        BOOST_REQUIRE_EQUAL(s1, s2);
+
+        auto new_size = size / 2;
+        s2 = s1;
+        s2.resize(new_size);
+        BOOST_REQUIRE_EQUAL(s2.c_str()[new_size], '\0');
+        BOOST_REQUIRE(!strncmp(s1.c_str(), s2.c_str(), new_size));
+
+        new_size = size * 2;
+        s2 = s1;
+        s2.resize(new_size);
+        BOOST_REQUIRE_EQUAL(s2.c_str()[new_size], '\0');
+        BOOST_REQUIRE(!strncmp(s1.c_str(), s2.c_str(), std::min(s1.size(), s2.size())));
+
+        new_size = size * 2;
+        s2 = s1 + s1;
+        BOOST_REQUIRE_EQUAL(s2.c_str()[s2.size()], '\0');
+        BOOST_REQUIRE(!strncmp(s1.c_str(), s2.c_str(), std::min(s1.size(), s2.size())));
+    }
 }

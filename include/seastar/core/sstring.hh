@@ -29,7 +29,8 @@
 #include <cstring>
 #include <stdexcept>
 #include <initializer_list>
-#include <iostream>
+#include <istream>
+#include <ostream>
 #include <functional>
 #include <cstdio>
 #include <type_traits>
@@ -41,10 +42,17 @@ namespace seastar {
 template <typename char_type, typename Size, Size max_size, bool NulTerminate = true>
 class basic_sstring;
 
+#ifdef SEASTAR_SSTRING
 using sstring = basic_sstring<char, uint32_t, 15>;
+#else
+using sstring = std::string;
+#endif
 
-template <typename string_type = sstring, typename T>
-inline string_type to_sstring(T value);
+namespace internal {
+[[noreturn]] void throw_bad_alloc();
+[[noreturn]] void throw_sstring_overflow();
+[[noreturn]] void throw_sstring_out_of_range();
+}
 
 template <typename char_type, typename Size, Size max_size, bool NulTerminate>
 class basic_sstring {
@@ -79,73 +87,6 @@ class basic_sstring {
         return is_internal() ? u.internal.str : u.external.str;
     }
 
-    template <typename string_type, typename T>
-    static inline string_type to_sstring_sprintf(T value, const char* fmt) {
-        char tmp[sizeof(value) * 3 + 2];
-        auto len = std::sprintf(tmp, fmt, value);
-        using ch_type = typename string_type::value_type;
-        return string_type(reinterpret_cast<ch_type*>(tmp), len);
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(int value) {
-        return to_sstring_sprintf<string_type>(value, "%d");
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(unsigned value) {
-        return to_sstring_sprintf<string_type>(value, "%u");
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(long value) {
-        return to_sstring_sprintf<string_type>(value, "%ld");
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(unsigned long value) {
-        return to_sstring_sprintf<string_type>(value, "%lu");
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(long long value) {
-        return to_sstring_sprintf<string_type>(value, "%lld");
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(unsigned long long value) {
-        return to_sstring_sprintf<string_type>(value, "%llu");
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(float value) {
-        return to_sstring_sprintf<string_type>(value, "%g");
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(double value) {
-        return to_sstring_sprintf<string_type>(value, "%g");
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(long double value) {
-        return to_sstring_sprintf<string_type>(value, "%Lg");
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(const char* value) {
-        return string_type(value);
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(sstring value) {
-        return value;
-    }
-
-    template <typename string_type>
-    static inline string_type to_sstring(const temporary_buffer<char>& buf) {
-        return string_type(buf.get(), buf.size());
-    }
 public:
     using value_type = char_type;
     using traits_type = std::char_traits<char_type>;
@@ -177,20 +118,26 @@ public:
             u.internal.size = -1;
             u.external.str = reinterpret_cast<char_type*>(std::malloc(x.u.external.size + padding()));
             if (!u.external.str) {
-                throw std::bad_alloc();
+                internal::throw_bad_alloc();
             }
             std::copy(x.u.external.str, x.u.external.str + x.u.external.size + padding(), u.external.str);
             u.external.size = x.u.external.size;
         }
     }
     basic_sstring(basic_sstring&& x) noexcept {
+#pragma GCC diagnostic push
+        // Is a small-string construction is followed by this move constructor, then the trailing bytes
+        // of x.u are not initialized, but copied. gcc complains, but it is both legitimate to copy
+        // these bytes, and more efficient than a variable-size copy
+#pragma GCC diagnostic ignored "-Wuninitialized"
         u = x.u;
+#pragma GCC diagnostic pop
         x.u.internal.size = 0;
         x.u.internal.str[0] = '\0';
     }
     basic_sstring(initialized_later, size_t size) {
         if (size_type(size) != size) {
-            throw std::overflow_error("sstring overflow");
+            internal::throw_sstring_overflow();
         }
         if (size + padding() <= sizeof(u.internal.str)) {
             if (NulTerminate) {
@@ -201,7 +148,7 @@ public:
             u.internal.size = -1;
             u.external.str = reinterpret_cast<char_type*>(std::malloc(size + padding()));
             if (!u.external.str) {
-                throw std::bad_alloc();
+                internal::throw_bad_alloc();
             }
             u.external.size = size;
             if (NulTerminate) {
@@ -211,7 +158,7 @@ public:
     }
     basic_sstring(const char_type* x, size_t size) {
         if (size_type(size) != size) {
-            throw std::overflow_error("sstring overflow");
+            internal::throw_sstring_overflow();
         }
         if (size + padding() <= sizeof(u.internal.str)) {
             std::copy(x, x + size, u.internal.str);
@@ -223,7 +170,7 @@ public:
             u.internal.size = -1;
             u.external.str = reinterpret_cast<char_type*>(std::malloc(size + padding()));
             if (!u.external.str) {
-                throw std::bad_alloc();
+                internal::throw_bad_alloc();
             }
             u.external.size = size;
             std::copy(x, x + size, u.external.str);
@@ -263,14 +210,15 @@ public:
     }
     basic_sstring& operator=(basic_sstring&& x) noexcept {
         if (this != &x) {
-            swap(x);
-            x.reset();
+            this->~basic_sstring();
+            new (this) basic_sstring(std::move(x));
         }
         return *this;
     }
     operator std::basic_string<char_type>() const {
         return { str(), size() };
     }
+
     size_t size() const noexcept {
         return is_internal() ? u.internal.size : u.external.size;
     }
@@ -360,10 +308,16 @@ public:
         } else if (n < size()) {
             if (is_internal()) {
                 u.internal.size = n;
+                if (NulTerminate) {
+                    u.internal.str[n] = '\0';
+                }
             } else if (n + padding() <= sizeof(u.internal.str)) {
                 *this = basic_sstring(u.external.str, n);
             } else {
                 u.external.size = n;
+                if (NulTerminate) {
+                    u.external.str[n] = '\0';
+                }
             }
         }
     }
@@ -375,7 +329,7 @@ public:
     basic_sstring& replace(size_type pos, size_type n1, const char_type* s,
              size_type n2) {
         if (pos > size()) {
-            throw std::out_of_range("sstring::replace out of range");
+            internal::throw_sstring_out_of_range();
         }
 
         if (n1 > size() - pos) {
@@ -405,7 +359,7 @@ public:
     basic_sstring& replace (const_iterator i1, const_iterator i2,
             InputIterator first, InputIterator last) {
         if (i1 < begin() || i1 > end() || i2 < begin()) {
-            throw std::out_of_range("sstring::replace out of range");
+            internal::throw_sstring_out_of_range();
         }
         if (i2 > end()) {
             i2 = end();
@@ -462,7 +416,7 @@ public:
 
     basic_sstring substr(size_t from, size_t len = npos)  const {
         if (from > size()) {
-            throw std::out_of_range("sstring::substr out of range");
+            internal::throw_sstring_out_of_range();
         }
         if (len > size() - from) {
             len = size() - from;
@@ -475,14 +429,14 @@ public:
 
     const char_type& at(size_t pos) const {
         if (pos >= size()) {
-            throw std::out_of_range("sstring::at out of range");
+            internal::throw_sstring_out_of_range();
         }
         return *(str() + pos);
     }
 
     char_type& at(size_t pos) {
         if (pos >= size()) {
-            throw std::out_of_range("sstring::at out of range");
+            internal::throw_sstring_out_of_range();
         }
         return *(str() + pos);
     }
@@ -490,6 +444,9 @@ public:
     bool empty() const noexcept {
         return u.internal.size == 0;
     }
+
+    // Deprecated March 2020.
+    [[deprecated("Use = {}")]]
     void reset() noexcept {
         if (is_external()) {
             std::free(u.external.str);
@@ -516,7 +473,7 @@ public:
             return buf;
         }
     }
-    int compare(const basic_sstring& x) const noexcept {
+    int compare(compat::basic_string_view<char_type, traits_type> x) const noexcept {
         auto n = traits_type::compare(begin(), x.begin(), std::min(size(), x.size()));
         if (n != 0) {
             return n;
@@ -530,9 +487,9 @@ public:
         }
     }
 
-    int compare(size_t pos, size_t sz, const basic_sstring& x) const {
+    int compare(size_t pos, size_t sz, compat::basic_string_view<char_type, traits_type> x) const {
         if (pos > size()) {
-            throw std::out_of_range("pos larger than string size");
+            internal::throw_sstring_out_of_range();
         }
 
         sz = std::min(size() - pos, sz);
@@ -598,12 +555,23 @@ public:
     operator compat::basic_string_view<char_type>() const {
         return compat::basic_string_view<char_type>(str(), size());
     }
-
-    template <typename string_type, typename T>
-    friend inline string_type to_sstring(T value);
 };
 template <typename char_type, typename Size, Size max_size, bool NulTerminate>
 constexpr Size basic_sstring<char_type, Size, max_size, NulTerminate>::npos;
+
+template <typename string_type = sstring>
+string_type uninitialized_string(size_t size) {
+    string_type ret;
+    // FIXME: use __resize_default_init if available
+    ret.resize(size);
+    return ret;
+}
+
+template <typename char_type, typename Size, Size max_size, bool NulTerminate>
+basic_sstring<char_type, Size, max_size, NulTerminate> uninitialized_string(size_t size) {
+    using sstring_type = basic_sstring<char_type, Size, max_size, NulTerminate>;
+    return sstring_type(sstring_type::initialized_later(), size);
+}
 
 template <typename char_type, typename size_type, size_type Max, size_type N, bool NulTerminate>
 inline
@@ -637,13 +605,25 @@ template <typename char_type, typename size_type, size_type max_size, bool NulTe
 static inline
 const char_type* str_end(const basic_sstring<char_type, size_type, max_size, NulTerminate>& s) { return s.end(); }
 
+inline const char* str_begin(const std::string& s) {
+    return s.data();
+}
+
+inline const char* str_end(const std::string& s) {
+    return &*s.end();
+}
+
+inline size_t str_len(const std::string& s) {
+    return s.size();
+}
+
 template <typename char_type, typename size_type, size_type max_size, bool NulTerminate>
 static inline
 size_type str_len(const basic_sstring<char_type, size_type, max_size, NulTerminate>& s) { return s.size(); }
 
 template <typename First, typename Second, typename... Tail>
 static inline
-const size_t str_len(const First& first, const Second& second, const Tail&... tail) {
+size_t str_len(const First& first, const Second& second, const Tail&... tail) {
     return str_len(first) + str_len(second, tail...);
 }
 
@@ -703,16 +683,85 @@ char* copy_str_to(char* dst, const Head& head, const Tail&... tail) {
 template <typename String = sstring, typename... Args>
 static String make_sstring(Args&&... args)
 {
-    String ret(sstring::initialized_later(), str_len(args...));
-    copy_str_to(ret.begin(), args...);
+    String ret = uninitialized_string<String>(str_len(args...));
+    copy_str_to(ret.data(), args...);
     return ret;
 }
 
+namespace internal {
 template <typename string_type, typename T>
-inline string_type to_sstring(T value) {
-    return sstring::to_sstring<string_type>(value);
+string_type to_sstring_sprintf(T value, const char* fmt) {
+    char tmp[sizeof(value) * 3 + 2];
+    auto len = std::sprintf(tmp, fmt, value);
+    using ch_type = typename string_type::value_type;
+    return string_type(reinterpret_cast<ch_type*>(tmp), len);
 }
 
+template <typename string_type>
+string_type to_sstring(int value) {
+    return to_sstring_sprintf<string_type>(value, "%d");
+}
+
+template <typename string_type>
+string_type to_sstring(unsigned value) {
+    return to_sstring_sprintf<string_type>(value, "%u");
+}
+
+template <typename string_type>
+string_type to_sstring(long value) {
+    return to_sstring_sprintf<string_type>(value, "%ld");
+}
+
+template <typename string_type>
+string_type to_sstring(unsigned long value) {
+    return to_sstring_sprintf<string_type>(value, "%lu");
+}
+
+template <typename string_type>
+string_type to_sstring(long long value) {
+    return to_sstring_sprintf<string_type>(value, "%lld");
+}
+
+template <typename string_type>
+string_type to_sstring(unsigned long long value) {
+    return to_sstring_sprintf<string_type>(value, "%llu");
+}
+
+template <typename string_type>
+string_type to_sstring(float value) {
+    return to_sstring_sprintf<string_type>(value, "%g");
+}
+
+template <typename string_type>
+string_type to_sstring(double value) {
+    return to_sstring_sprintf<string_type>(value, "%g");
+}
+
+template <typename string_type>
+string_type to_sstring(long double value) {
+    return to_sstring_sprintf<string_type>(value, "%Lg");
+}
+
+template <typename string_type>
+string_type to_sstring(const char* value) {
+    return string_type(value);
+}
+
+template <typename string_type>
+string_type to_sstring(sstring value) {
+    return value;
+}
+
+template <typename string_type>
+string_type to_sstring(const temporary_buffer<char>& buf) {
+    return string_type(buf.get(), buf.size());
+}
+}
+
+template <typename string_type = sstring, typename T>
+string_type to_sstring(T value) {
+    return internal::to_sstring<string_type>(value);
+}
 }
 
 namespace std {

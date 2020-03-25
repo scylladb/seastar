@@ -46,7 +46,6 @@ struct jmp_buf_link {
 #endif
     jmp_buf_link* link;
     thread_context* thread;
-    compat::optional<std::chrono::time_point<thread_clock>> yield_at = {};
 public:
     void initial_switch_in(ucontext_t* initial_context, const void* stack_bottom, size_t stack_size);
     void switch_in();
@@ -66,8 +65,6 @@ inline thread_context* get() {
 inline bool should_yield() {
     if (need_preempt()) {
         return true;
-    } else if (g_current_context->yield_at) {
-        return std::chrono::steady_clock::now() >= *(g_current_context->yield_at);
     } else {
         return false;
     }

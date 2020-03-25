@@ -19,6 +19,8 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
+#include <iostream>
+#include <seastar/core/reactor.hh>
 #include <seastar/core/distributed.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/future-util.hh>
@@ -35,7 +37,7 @@ private:
 public:
     void start(uint16_t port) {
         ipv4_addr listen_addr{port};
-        _chan = engine().net().make_udp_channel(listen_addr);
+        _chan = make_udp_channel(listen_addr);
 
         _stats_timer.set_callback([this] {
             std::cout << "Out: " << _n_sent << " pps" << std::endl;
@@ -43,7 +45,8 @@ public:
         });
         _stats_timer.arm_periodic(1s);
 
-        keep_doing([this] {
+        // Run server in background.
+        (void)keep_doing([this] {
             return _chan.receive().then([this] (udp_datagram dgram) {
                 return _chan.send(dgram.get_src(), std::move(dgram.get_data())).then([this] {
                     _n_sent++;
@@ -67,11 +70,12 @@ int main(int ac, char ** av) {
         auto&& config = app.configuration();
         uint16_t port = config["port"].as<uint16_t>();
         auto server = new distributed<udp_server>;
-        server->start().then([server = std::move(server), port] () mutable {
+        // Run server in background.
+        (void)server->start().then([server = std::move(server), port] () mutable {
             engine().at_exit([server] {
                 return server->stop();
             });
-            server->invoke_on_all(&udp_server::start, port);
+            return server->invoke_on_all(&udp_server::start, port);
         }).then([port] {
             std::cout << "Seastar UDP server listening on port " << port << " ...\n";
         });

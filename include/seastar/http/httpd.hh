@@ -23,7 +23,7 @@
 
 #include <seastar/http/request_parser.hh>
 #include <seastar/http/request.hh>
-#include <seastar/core/reactor.hh>
+#include <seastar/core/seastar.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/circular_buffer.hh>
@@ -42,6 +42,8 @@
 #include <vector>
 #include <boost/intrusive/list.hpp>
 #include <seastar/http/routes.hh>
+#include <seastar/net/tls.hh>
+#include <seastar/core/shared_ptr.hh>
 
 namespace seastar {
 
@@ -49,7 +51,7 @@ namespace httpd {
 
 class http_server;
 class http_stats;
-class reply;
+struct reply;
 
 using namespace std::chrono_literals;
 
@@ -109,11 +111,11 @@ public:
         if (hi == _resp->_headers.end()) {
             return make_ready_future<>();
         }
-        return _write_buf.write(hi->first.begin(), hi->first.size()).then(
+        return _write_buf.write(hi->first.data(), hi->first.size()).then(
                 [this] {
                     return _write_buf.write(": ", 2);
                 }).then([hi, this] {
-            return _write_buf.write(hi->second.begin(), hi->second.size());
+            return _write_buf.write(hi->second.data(), hi->second.size());
         }).then([this] {
             return _write_buf.write("\r\n", 2);
         }).then([hi, this] () mutable {
@@ -141,26 +143,7 @@ public:
     /**
      * URL_decode a substring and place it in the given out sstring
      */
-    static bool url_decode(const compat::string_view& in, sstring& out) {
-        size_t pos = 0;
-        char buff[in.length()];
-        for (size_t i = 0; i < in.length(); ++i) {
-            if (in[i] == '%') {
-                if (i + 3 <= in.size()) {
-                    buff[pos++] = hexstr_to_char(in, i + 1);
-                    i += 2;
-                } else {
-                    return false;
-                }
-            } else if (in[i] == '+') {
-                buff[pos++] = ' ';
-            } else {
-                buff[pos++] = in[i];
-            }
-        }
-        out = sstring(buff, pos);
-        return true;
-    }
+    static bool url_decode(const compat::string_view& in, sstring& out);
 
     /**
      * Add a single query parameter to the parameter list
@@ -206,6 +189,7 @@ public:
     }
 
     future<bool> generate_reply(std::unique_ptr<request> req);
+    void generate_error_reply_and_close(std::unique_ptr<request> req, reply::status_type status, const sstring& msg);
 
     future<> write_body();
 
@@ -217,7 +201,7 @@ public:
 class http_server_tester;
 
 class http_server {
-    std::vector<server_socket> _listeners;
+    std::vector<api_v2::server_socket> _listeners;
     http_stats _stats;
     uint64_t _total_connections = 0;
     uint64_t _current_connections = 0;
@@ -225,11 +209,13 @@ class http_server {
     uint64_t _connections_being_accepted = 0;
     uint64_t _read_errors = 0;
     uint64_t _respond_errors = 0;
+    shared_ptr<seastar::tls::server_credentials> _credentials;
     sstring _date = http_date();
     timer<> _date_format_timer { [this] {_date = http_date();} };
     bool _stopping = false;
     promise<> _all_connections_stopped;
     future<> _stopped = _all_connections_stopped.get_future();
+    size_t _content_length_limit = std::numeric_limits<size_t>::max();
 private:
     void maybe_idle() {
         if (_stopping && !_connections_being_accepted && !_current_connections) {
@@ -242,12 +228,57 @@ public:
     explicit http_server(const sstring& name) : _stats(*this, name) {
         _date_format_timer.arm_periodic(1s);
     }
-    future<> listen(ipv4_addr addr) {
-        listen_options lo;
-        lo.reuse_address = true;
-        _listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
+    /*!
+     * \brief set tls credentials for the server
+     * Setting the tls credentials will set the http-server to work in https mode.
+     *
+     * To use the https, create server credentials and pass it to the server before it starts.
+     *
+     * Use case example using seastar threads for clarity:
+
+        distributed<http_server> server; // typical server
+
+        seastar::shared_ptr<seastar::tls::credentials_builder> creds = seastar::make_shared<seastar::tls::credentials_builder>();
+        sstring ms_cert = "MyCertificate.crt";
+        sstring ms_key = "MyKey.key";
+
+        creds->set_dh_level(seastar::tls::dh_params::level::MEDIUM);
+
+        creds->set_x509_key_file(ms_cert, ms_key, seastar::tls::x509_crt_format::PEM).get();
+        creds->set_system_trust().get();
+
+
+        server.invoke_on_all([creds](http_server& server) {
+            server.set_tls_credentials(creds->build_server_credentials());
+            return make_ready_future<>();
+        }).get();
+     *
+     */
+    void set_tls_credentials(shared_ptr<seastar::tls::server_credentials> credentials) {
+        _credentials = credentials;
+    }
+
+    size_t get_content_length_limit() const {
+        return _content_length_limit;
+    }
+
+    void set_content_length_limit(size_t limit) {
+        _content_length_limit = limit;
+    }
+
+    future<> listen(socket_address addr, listen_options lo) {
+        if (_credentials) {
+            _listeners.push_back(seastar::tls::listen(_credentials, addr, lo));
+        } else {
+            _listeners.push_back(seastar::listen(addr, lo));
+        }
         _stopped = when_all(std::move(_stopped), do_accepts(_listeners.size() - 1)).discard_result();
         return make_ready_future<>();
+    }
+    future<> listen(socket_address addr) {
+        listen_options lo;
+        lo.reuse_address = true;
+        return listen(addr, lo);
     }
     future<> stop() {
         _stopping = true;
@@ -264,16 +295,17 @@ public:
     future<> do_accepts(int which) {
         ++_connections_being_accepted;
         return _listeners[which].accept().then_wrapped(
-                [this, which] (future<connected_socket, socket_address> f_cs_sa) mutable {
+                [this, which] (future<accept_result> f_ar) mutable {
             --_connections_being_accepted;
-            if (_stopping || f_cs_sa.failed()) {
-                f_cs_sa.ignore_ready_future();
+            if (_stopping || f_ar.failed()) {
+                f_ar.ignore_ready_future();
                 maybe_idle();
                 return;
             }
-            auto cs_sa = f_cs_sa.get();
-            auto conn = new connection(*this, std::get<0>(std::move(cs_sa)), std::get<1>(std::move(cs_sa)));
-            conn->process().then_wrapped([conn] (auto&& f) {
+            auto ar = f_ar.get0();
+            auto conn = new connection(*this, std::move(ar.connection), std::move(ar.remote_address));
+            // FIXME: future is discarded
+            (void)conn->process().then_wrapped([conn] (auto&& f) {
                 delete conn;
                 try {
                     f.get();
@@ -281,7 +313,8 @@ public:
                     std::cerr << "request error " << ex.what() << std::endl;
                 }
             });
-            do_accepts(which);
+            // FIXME: future is discarded
+            (void)do_accepts(which);
         }).then_wrapped([] (auto f) {
             try {
                 f.get();
@@ -322,7 +355,7 @@ private:
 
 class http_server_tester {
 public:
-    static std::vector<server_socket>& listeners(http_server& server) {
+    static std::vector<api_v2::server_socket>& listeners(http_server& server) {
         return server._listeners;
     }
 };
@@ -363,8 +396,12 @@ public:
         });
     }
 
-    future<> listen(ipv4_addr addr) {
+    future<> listen(socket_address addr) {
         return _server_dist->invoke_on_all(&http_server::listen, addr);
+    }
+
+    future<> listen(socket_address addr, listen_options lo) {
+        return _server_dist->invoke_on_all(&http_server::listen, addr, lo);
     }
 
     distributed<http_server>& server() {

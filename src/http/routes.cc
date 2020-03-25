@@ -47,7 +47,7 @@ routes::~routes() {
     }
     for (int i = 0; i < NUM_OPERATION; i++) {
         for (auto r : _rules[i]) {
-            delete r;
+            delete r.second;
         }
     }
 
@@ -71,14 +71,11 @@ std::unique_ptr<reply> routes::exception_reply(std::exception_ptr eptr) {
         std::rethrow_exception(eptr);
     } catch (const base_exception& e) {
         rep->set_status(e.status(), json_exception(e).to_json());
-    } catch (exception& e) {
-        rep->set_status(reply::status_type::internal_server_error,
-                json_exception(e).to_json());
     } catch (...) {
         rep->set_status(reply::status_type::internal_server_error,
-                json_exception(std::runtime_error(
-                        "Unknown unhandled exception")).to_json());
+                json_exception(std::current_exception()).to_json());
     }
+
     rep->done("json");
     return rep;
 }
@@ -123,9 +120,8 @@ handler_base* routes::get_handler(operation_type type, const sstring& url,
         return handler;
     }
 
-    for (auto rule = _rules[type].cbegin(); rule != _rules[type].cend();
-            ++rule) {
-        handler = (*rule)->get(url, params);
+    for (auto&& rule : _rules[type]) {
+        handler = rule.second->get(url, params);
         if (handler != nullptr) {
             return handler;
         }
@@ -142,6 +138,27 @@ routes& routes::add(operation_type type, const url& url,
         rule->add_param(url._param, true);
     }
     return add(rule, type);
+}
+
+template <typename Map, typename Key>
+static auto delete_rule_from(operation_type type, Key& key, Map& map) {
+    auto& bucket = map[type];
+    auto ret = bucket.find(key);
+    using ret_type = decltype(ret->second);
+    if (ret != bucket.end()) {
+        ret_type v = ret->second;
+        bucket.erase(ret);
+        return v;
+    }
+    return static_cast<ret_type>(nullptr);
+}
+
+handler_base* routes::drop(operation_type type, const sstring& url) {
+    return delete_rule_from(type, url, _map);
+}
+
+match_rule* routes::del_cookie(rule_cookie cookie, operation_type type) {
+    return delete_rule_from(type, cookie, _rules);
 }
 
 void routes::add_alias(const path_description& old_path, const path_description& new_path) {
@@ -165,6 +182,23 @@ void routes::add_alias(const path_description& old_path, const path_description&
     }
     // if a handler is found then it must be a function_handler
     new_path.set(*this, new function_handler(*static_cast<function_handler*>(a)));
+}
+
+rule_registration::rule_registration(routes& rs, match_rule& rule, operation_type op)
+        : _routes(rs) , _op(op)
+        , _cookie(_routes.add_cookie(&rule, _op)) {}
+
+rule_registration::~rule_registration() {
+    _routes.del_cookie(_cookie, _op);
+}
+
+handler_registration::handler_registration(routes& rs, handler_base& h, const sstring& url, operation_type op)
+        : _routes(rs), _url(url), _op(op) {
+    _routes.put(_op, _url, &h);
+}
+
+handler_registration::~handler_registration() {
+    _routes.drop(_op, _url);
 }
 
 }

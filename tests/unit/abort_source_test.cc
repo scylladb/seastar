@@ -19,10 +19,11 @@
  * Copyright (C) 2017 ScyllaDB
  */
 
-#include "test-utils.hh"
+#include <seastar/testing/test_case.hh>
 
 #include <seastar/core/gate.hh>
 #include <seastar/core/sleep.hh>
+#include <seastar/core/do_with.hh>
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -74,4 +75,12 @@ SEASTAR_TEST_CASE(test_sleep_abortable) {
     });
     as->request_abort();
     return f.finally([as = std::move(as)] { });
+}
+
+// Verify that negative sleep does not sleep forever. It should not sleep
+// at all.
+SEASTAR_TEST_CASE(test_negative_sleep_abortable) {
+    return do_with(abort_source(), [] (abort_source& as) {
+        return sleep_abortable(-10s, as);
+    });
 }

@@ -19,7 +19,7 @@
  * Copyright (C) 2018 ScyllaDB Ltd.
  */
 
-#include "perf_tests.hh"
+#include <seastar/testing/perf_tests.hh>
 
 #include <fstream>
 #include <regex>
@@ -33,6 +33,8 @@
 #include <seastar/core/app-template.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/json/formatter.hh>
+
+#include <signal.h>
 
 namespace perf_tests {
 namespace internal {

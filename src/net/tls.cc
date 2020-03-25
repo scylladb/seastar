@@ -24,13 +24,18 @@
 #include <system_error>
 
 #include <seastar/core/reactor.hh>
+#include <seastar/core/seastar.hh>
+#include <seastar/core/file.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/timer.hh>
+#include <seastar/core/print.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/util/std-compat.hh>
+
+#include <boost/range/iterator_range.hpp>
 
 namespace seastar {
 
@@ -624,6 +629,9 @@ public:
         if (_connected) {
             return make_ready_future<>();
         }
+        if (_type == type::CLIENT && !_hostname.empty()) {
+            gnutls_server_name_set(*this, GNUTLS_NAME_DNS, _hostname.data(), _hostname.size());
+        }
         try {
             auto res = gnutls_handshake(*this);
             if (res < 0) {
@@ -871,7 +879,7 @@ public:
         try {
             scattered_message<char> msg;
             for (int i = 0; i < iovcnt; ++i) {
-                msg.append(sstring(reinterpret_cast<const char *>(iov[i].iov_base), iov[i].iov_len));
+                msg.append(compat::string_view(reinterpret_cast<const char *>(iov[i].iov_base), iov[i].iov_len));
             }
             auto n = msg.size();
             _output_pending = _out.put(std::move(msg).release());
@@ -944,7 +952,7 @@ public:
                    return make_ready_future<stop_iteration>(stop_iteration::no);
                 });
             });
-        }).finally([me = shared_from_this()] {});
+        });
     }
     future<> shutdown() {
         // first, make sure any pending write is done.
@@ -957,28 +965,32 @@ public:
         // in which case we will be no-op.
         return with_semaphore(_out_sem, 1,
                         std::bind(&session::do_shutdown, this)).then(
-                        std::bind(&session::wait_for_eof, this));
+                        std::bind(&session::wait_for_eof, this)).finally([me = shared_from_this()] {});
+        // note moved finally clause above. It is theorethically possible
+        // that we could complete do_shutdown just before the close calls 
+        // below, get pre-empted, have "close()" finish, get freed, and 
+        // then call wait_for_eof on stale pointer.
     }
     void close() {
         // only do once.
         if (!std::exchange(_shutdown, true)) {
             auto me = shared_from_this();
             // running in background. try to bye-handshake us nicely, but after 10s we forcefully close.
-            with_timeout(timer<>::clock::now() + std::chrono::seconds(10), shutdown()).finally([this] {
+            (void)with_timeout(timer<>::clock::now() + std::chrono::seconds(10), shutdown()).finally([this] {
                 _eof = true;
                 try {
-                    _in.close().handle_exception([](std::exception_ptr) {}); // should wake any waiters
+                    (void)_in.close().handle_exception([](std::exception_ptr) {}); // should wake any waiters
                 } catch (...) {
                 }
                 try {
-                    _out.close().handle_exception([](std::exception_ptr) {});
+                    (void)_out.close().handle_exception([](std::exception_ptr) {});
                 } catch (...) {
                 }
                 // make sure to wait for handshake attempt to leave semaphores. Must be in same order as
                 // handshake aqcuire, because in worst case, we get here while a reader is attempting
                 // re-handshake.
-                return _in_sem.wait().then([this] {
-                    return _out_sem.wait();
+                return with_semaphore(_in_sem, 1, [this] {
+                    return with_semaphore(_out_sem, 1, [this] {});
                 });
             }).then_wrapped([me = std::move(me)](future<> f) { // must keep object alive until here.
                 f.ignore_ready_future();
@@ -1103,6 +1115,7 @@ private:
     future<> flush() override {
         return _session->flush();
     }
+    using data_sink_impl::put;
     future<> put(net::packet p) override {
         return _session->put(std::move(p));
     }
@@ -1112,27 +1125,30 @@ private:
     }
 };
 
-class server_session : public net::server_socket_impl {
+class server_session : public net::api_v2::server_socket_impl {
 public:
-    server_session(shared_ptr<server_credentials> creds, server_socket sock)
+    server_session(shared_ptr<server_credentials> creds, api_v2::server_socket sock)
             : _creds(std::move(creds)), _sock(std::move(sock)) {
     }
-    future<connected_socket, socket_address> accept() override {
+    future<accept_result> accept() override {
         // We're not actually doing anything very SSL until we get
         // an actual connection. Then we create a "server" session
         // and wrap it up after handshaking.
-        return _sock.accept().then([this](connected_socket s, socket_address addr) {
-            return wrap_server(_creds, std::move(s)).then([addr](connected_socket s) {
-                return make_ready_future<connected_socket, socket_address>(std::move(s), addr);
+        return _sock.accept().then([this](accept_result ar) {
+            return wrap_server(_creds, std::move(ar.connection)).then([addr = std::move(ar.remote_address)](connected_socket s) {
+                return make_ready_future<accept_result>(accept_result{std::move(s), addr});
             });
         });
     }
     void abort_accept() override  {
         _sock.abort_accept();
     }
+    socket_address local_address() const override {
+        return _sock.local_address();
+    }
 private:
     shared_ptr<server_credentials> _creds;
-    server_socket _sock;
+    api_v2::server_socket _sock;
 };
 
 class tls_socket_impl : public net::socket_impl {
@@ -1141,12 +1157,18 @@ class tls_socket_impl : public net::socket_impl {
     ::seastar::socket _socket;
 public:
     tls_socket_impl(shared_ptr<certificate_credentials> cred, sstring name)
-            : _cred(cred), _name(std::move(name)), _socket(engine().net().socket()) {
+            : _cred(cred), _name(std::move(name)), _socket(make_socket()) {
     }
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
         return _socket.connect(sa, local, proto).then([cred = std::move(_cred), name = std::move(_name)](connected_socket s) mutable {
             return wrap_client(cred, std::move(s), std::move(name));
         });
+    }
+    void set_reuseaddr(bool reuseaddr) override {
+      _socket.set_reuseaddr(reuseaddr);
+    }
+    bool get_reuseaddr() const override {
+      return _socket.get_reuseaddr();
     }
     virtual void shutdown() override {
         _socket.shutdown();
@@ -1193,11 +1215,11 @@ future<connected_socket> tls::wrap_server(shared_ptr<server_credentials> cred, c
 }
 
 server_socket tls::listen(shared_ptr<server_credentials> creds, socket_address sa, listen_options opts) {
-    return listen(std::move(creds), engine().listen(sa, opts));
+    return listen(std::move(creds), seastar::listen(sa, opts));
 }
 
 server_socket tls::listen(shared_ptr<server_credentials> creds, server_socket ss) {
-    server_socket ssls(std::make_unique<server_session>(creds, std::move(ss)));
+    api_v2::server_socket ssls(std::make_unique<server_session>(creds, std::move(ss)));
     return server_socket(std::move(ssls));
 }
 

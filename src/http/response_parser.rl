@@ -114,7 +114,14 @@ public:
         if (p != pe) {
             _state = state::error;
         }
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmisleading-indentation"
+#endif
         %% write exec;
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
         if (!done) {
             p = nullptr;
         } else {

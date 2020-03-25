@@ -21,6 +21,7 @@
 
 #include <seastar/net/ip.hh>
 #include <seastar/net/stack.hh>
+#include <seastar/net/inet_address.hh>
 
 namespace seastar {
 
@@ -50,11 +51,11 @@ public:
         _dst = to_ipv4_addr(dst, h.dst_port);
     }
 
-    virtual ipv4_addr get_src() override {
+    virtual socket_address get_src() override {
         return _src;
     };
 
-    virtual ipv4_addr get_dst() override {
+    virtual socket_address get_dst() override {
         return _dst;
     };
 
@@ -89,15 +90,19 @@ public:
             close();
     }
 
+    socket_address local_address() const override {
+        return socket_address(_proto.inet().host_address(), _reg.port());
+    }
+
     virtual future<udp_datagram> receive() override {
         return _state->_queue.pop_eventually();
     }
 
-    virtual future<> send(ipv4_addr dst, const char* msg) override {
+    virtual future<> send(const socket_address& dst, const char* msg) override {
         return send(dst, packet::from_static_data(msg, strlen(msg)));
     }
 
-    virtual future<> send(ipv4_addr dst, packet p) override {
+    virtual future<> send(const socket_address& dst, packet p) override {
         auto len = p.len();
         return _state->wait_for_send_buffer(len).then([this, dst, p = std::move(p), len] () mutable {
             p = packet(std::move(p), make_deleter([s = _state, len] { s->complete_send(len); }));
@@ -105,14 +110,20 @@ public:
         });
     }
 
-    virtual bool is_closed() const {
+    virtual bool is_closed() const override {
         return _closed;
     }
 
-    virtual void close() override {
+    virtual void shutdown_input() override {
         _state->_queue.abort(std::make_exception_ptr(std::system_error(EBADF, std::system_category())));
-        _reg.unregister();
+    }
+
+    virtual void shutdown_output() override {
         _state->_queue.abort(std::make_exception_ptr(std::system_error(EPIPE, std::system_category())));
+    }
+
+    virtual void close() override {
+        _reg.unregister();
         _closed = true;
     }
 };
@@ -182,7 +193,8 @@ void ipv4_udp::send(uint16_t src_port, ipv4_addr dst, packet &&p)
     oi.protocol = ip_protocol_num::udp;
     p.set_offload_info(oi);
 
-    _inet.get_l2_dst_address(dst).then([this, dst, p = std::move(p)] (ethernet_address e_dst) mutable {
+    // FIXME: future is discarded
+    (void)_inet.get_l2_dst_address(dst).then([this, dst, p = std::move(p)] (ethernet_address e_dst) mutable {
         _packetq.emplace_back(ipv4_traits::l4packet{dst, std::move(p), e_dst, ip_protocol_num::udp});
     });
 }

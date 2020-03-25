@@ -212,7 +212,7 @@ public:
         update_history_unused(dropped);
         return make_ready_future<temporary_buffer<char>>();
     }
-    virtual future<> close() {
+    virtual future<> close() override {
         _done.emplace();
         if (!_reads_in_progress) {
             _done->set_value();
@@ -252,7 +252,7 @@ private:
             auto end = std::min(align_up(start + _current_buffer_size, align), _pos + _remain);
             auto len = end - start;
             auto actual_size = std::min(end - _pos, _remain);
-            _read_buffers.emplace_back(_pos, actual_size, futurize<future<temporary_buffer<char>>>::apply([&] {
+            _read_buffers.emplace_back(_pos, actual_size, futurize_invoke([&] {
                     return _file.dma_read_bulk<char>(start, len, _options.io_priority_class);
             }).then_wrapped(
                     [this, start, pos = _pos, remain = _remain] (future<temporary_buffer<char>> ret) {
@@ -321,7 +321,7 @@ public:
             : _file(std::move(f)), _options(options) {
         _write_behind_sem.ensure_space_for_waiters(1); // So that wait() doesn't throw
     }
-    future<> put(net::packet data) { abort(); }
+    future<> put(net::packet data) override { abort(); }
     virtual temporary_buffer<char> allocate_buffer(size_t size) override {
         return temporary_buffer<char>::aligned(_file.memory_dma_alignment(), size);
     }
@@ -423,7 +423,7 @@ public:
             return _file.flush();
         });
     }
-    virtual future<> close() noexcept {
+    virtual future<> close() noexcept override {
         return wait().finally([this] {
             return _file.close();
         });

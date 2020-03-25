@@ -5,10 +5,11 @@
 Installing required packages:
 ```
 sudo ./install-dependencies.sh
+./cooking.sh -r dev -i c-ares -i fmt -t Release
 ```
 
 To compile Seastar explicitly using gcc 5, use:
 ```
-./configure.py --compiler=/opt/scylladb/bin/g++ --static-stdc++
-ninja-build
+CXX=/opt/scylladb/bin/g++ ./cooking.sh -i c-ares -i fmt -t Release
+ninja-build -C build
 ```

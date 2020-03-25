@@ -62,9 +62,9 @@
 #include <seastar/util/backtrace.hh>
 
 namespace seastar {
-#ifndef SEASTAR_NO_EXCEPTION_HACK
 using dl_iterate_fn = int (*) (int (*callback) (struct dl_phdr_info *info, size_t size, void *data), void *data);
 
+[[gnu::no_sanitize_address]]
 static dl_iterate_fn dl_iterate_phdr_org() {
     static dl_iterate_fn org = [] {
         auto org = (dl_iterate_fn)dlsym (RTLD_NEXT, "dl_iterate_phdr");
@@ -74,17 +74,21 @@ static dl_iterate_fn dl_iterate_phdr_org() {
     return org;
 }
 
-static std::vector<dl_phdr_info> phdrs_cache;
+// phdrs_cache has to remain valid until very late in the process
+// life, and that time is not a mirror image of when it is first used.
+// Given that, we avoid a static constructor/destructor pair and just
+// never destroy it.
+static std::vector<dl_phdr_info> *phdrs_cache = nullptr;
 
 void init_phdr_cache() {
     // Fill out elf header cache for access without locking.
     // This assumes no dynamic object loading/unloading after this point
+    phdrs_cache = new std::vector<dl_phdr_info>();
     dl_iterate_phdr_org()([] (struct dl_phdr_info *info, size_t size, void *data) {
-        phdrs_cache.push_back(*info);
+        phdrs_cache->push_back(*info);
         return 0;
     }, nullptr);
 }
-#endif
 
 #ifndef NO_EXCEPTION_INTERCEPT
 seastar::logger exception_logger("exception");
@@ -103,17 +107,17 @@ void log_exception_trace() noexcept {}
 
 }
 
-#ifndef SEASTAR_NO_EXCEPTION_HACK
 extern "C"
 [[gnu::visibility("default")]]
-[[gnu::externally_visible]]
+[[gnu::used]]
+[[gnu::no_sanitize_address]]
 int dl_iterate_phdr(int (*callback) (struct dl_phdr_info *info, size_t size, void *data), void *data) {
-    if (!seastar::local_engine || !seastar::phdrs_cache.size()) {
+    if (!seastar::local_engine || !seastar::phdrs_cache) {
         // Cache is not yet populated, pass through to original function
         return seastar::dl_iterate_phdr_org()(callback, data);
     }
     int r = 0;
-    for (auto h : seastar::phdrs_cache) {
+    for (auto h : *seastar::phdrs_cache) {
         // Pass dl_phdr_info size that does not include dlpi_adds and dlpi_subs.
         // This forces libgcc to disable caching which is not thread safe and
         // requires dl_iterate_phdr to serialize calls to callback. Since we do
@@ -125,12 +129,11 @@ int dl_iterate_phdr(int (*callback) (struct dl_phdr_info *info, size_t size, voi
     }
     return r;
 }
-#endif
 
 #ifndef NO_EXCEPTION_INTERCEPT
 extern "C"
 [[gnu::visibility("default")]]
-[[gnu::externally_visible]]
+[[gnu::used]]
 int _Unwind_RaiseException(struct _Unwind_Exception *h) {
     using throw_fn =  int (*)(void *);
     static throw_fn org = nullptr;

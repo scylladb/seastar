@@ -169,7 +169,8 @@ class packet final {
             deleter d = make_free_deleter(buf);
             std::copy(_frags[0].base, _frags[0].base + _frags[0].size, buf);
             _frags[0].base = buf;
-            _deleter.append(std::move(d));
+            d.append(std::move(_deleter));
+            _deleter = std::move(d);
             _headroom = internal_data_size;
         }
         void copy_internal_fragment_to(impl* to) {
@@ -311,9 +312,9 @@ private:
     void linearize(size_t at_frag, size_t desired_size);
     bool allocate_headroom(size_t size);
 public:
-    class offload_info offload_info() const { return _impl->_offload_info; }
-    class offload_info& offload_info_ref() { return _impl->_offload_info; }
-    void set_offload_info(class offload_info oi) { _impl->_offload_info = oi; }
+    struct offload_info offload_info() const { return _impl->_offload_info; }
+    struct offload_info& offload_info_ref() { return _impl->_offload_info; }
+    void set_offload_info(struct offload_info oi) { _impl->_offload_info = oi; }
 };
 
 std::ostream& operator<<(std::ostream& os, const packet& p);
