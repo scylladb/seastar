@@ -34,6 +34,7 @@
 #include <seastar/net/tls.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/variant_utils.hh>
 
 #include <boost/range/iterator_range.hpp>
 
@@ -78,16 +79,33 @@ public:
 };
 
 // Helper
-static future<temporary_buffer<char>> read_fully(const sstring& name, const sstring& what) {
-    return open_file_dma(name, open_flags::ro).then([](file f) {
-        return do_with(std::move(f), [](file& f) {
-            return f.size().then([&f](uint64_t size) {
-                return f.dma_read_bulk<char>(0, size);
+struct file_info {
+    sstring filename;
+    std::chrono::system_clock::time_point modified;
+};
+
+struct file_result {
+    temporary_buffer<char> buf;
+    file_info file;
+    operator temporary_buffer<char>&&() && {
+        return std::move(buf);
+    }
+};
+
+static future<file_result> read_fully(const sstring& name, const sstring& what) {
+    return open_file_dma(name, open_flags::ro).then([name](file f) mutable {
+        return do_with(std::move(f), [name = std::move(name)](file& f) mutable {
+            return f.stat().then([&f, name = std::move(name)](struct stat s) mutable {
+                return f.dma_read_bulk<char>(0, s.st_size).then([s, name = std::move(name)](temporary_buffer<char> buf) mutable {
+                    return file_result{ std::move(buf), file_info{ 
+                        std::move(name), std::chrono::system_clock::from_time_t(s.st_mtim.tv_sec) + std::chrono::nanoseconds(s.st_mtim.tv_nsec)
+                    } };
+                });
             }).finally([&f]() {
                 return f.close();
             });
         });
-    }).handle_exception([name, what](std::exception_ptr ep) -> future<temporary_buffer<char>> {
+    }).handle_exception([name, what](std::exception_ptr ep) -> future<file_result> {
        try {
            std::rethrow_exception(std::move(ep));
        } catch (...) {
@@ -435,26 +453,77 @@ static const sstring x509_key_key = "x509_key";
 static const sstring pkcs12_key = "pkcs12";
 static const sstring system_trust = "system_trust";
 
-typedef std::basic_string<tls::blob::value_type, tls::blob::traits_type, std::allocator<tls::blob::value_type>> buffer_type;
+using buffer_type = std::basic_string<tls::blob::value_type, tls::blob::traits_type, std::allocator<tls::blob::value_type>>;
+
+struct x509_simple {
+    buffer_type data;
+    tls::x509_crt_format format;
+    file_info file;
+};
+
+struct x509_key {
+    buffer_type cert;
+    buffer_type key;
+    tls::x509_crt_format format;
+    file_info cert_file;
+    file_info key_file;
+};
+
+struct pkcs12_simple {
+    buffer_type data;
+    tls::x509_crt_format format;
+    sstring password;
+    file_info file;
+};
 
 void tls::credentials_builder::set_dh_level(dh_params::level level) {
     _blobs.emplace(dh_level_key, level);
 }
 
 void tls::credentials_builder::set_x509_trust(const blob& b, x509_crt_format fmt) {
-    _blobs.emplace(x509_trust_key, std::make_pair(compat::string_view_to_string(b), fmt));
+    _blobs.emplace(x509_trust_key, x509_simple{ compat::string_view_to_string(b), fmt });
 }
 
 void tls::credentials_builder::set_x509_crl(const blob& b, x509_crt_format fmt) {
-    _blobs.emplace(x509_crl_key, std::make_pair(compat::string_view_to_string(b), fmt));
+    _blobs.emplace(x509_crl_key, x509_simple{ compat::string_view_to_string(b), fmt });
 }
 
 void tls::credentials_builder::set_x509_key(const blob& cert, const blob& key, x509_crt_format fmt) {
-    _blobs.emplace(x509_key_key, std::make_tuple(compat::string_view_to_string(cert), compat::string_view_to_string(key), fmt));
+    _blobs.emplace(x509_key_key, x509_key { compat::string_view_to_string(cert), compat::string_view_to_string(key), fmt });
 }
 
 void tls::credentials_builder::set_simple_pkcs12(const blob& b, x509_crt_format fmt, const sstring& password) {
-    _blobs.emplace(pkcs12_key, std::make_tuple(compat::string_view_to_string(b), fmt, password));
+    _blobs.emplace(pkcs12_key, pkcs12_simple{compat::string_view_to_string(b), fmt, password });
+}
+
+static buffer_type to_buffer(const temporary_buffer<char>& buf) {
+    return buffer_type(buf.get(), buf.get() + buf.size());
+}
+
+future<> tls::credentials_builder::set_x509_trust_file(const sstring& cafile, x509_crt_format fmt) {
+    return read_fully(cafile, "trust file").then([this, fmt](file_result f) {
+        _blobs.emplace(x509_trust_key, x509_simple{ to_buffer(f.buf), fmt, std::move(f.file) });
+    });
+}
+
+future<> tls::credentials_builder::set_x509_crl_file(const sstring& crlfile, x509_crt_format fmt) {
+    return read_fully(crlfile, "crl file").then([this, fmt](file_result f) {
+        _blobs.emplace(x509_crl_key, x509_simple{ to_buffer(f.buf), fmt, std::move(f.file) });
+    });
+}
+
+future<> tls::credentials_builder::set_x509_key_file(const sstring& cf, const sstring& kf, x509_crt_format fmt) {
+    return read_fully(cf, "certificate file").then([this, fmt, kf](file_result cf) {
+        return read_fully(kf, "key file").then([this, fmt, cf = std::move(cf)](file_result kf) {
+            _blobs.emplace(x509_key_key, x509_key{ to_buffer(cf.buf), to_buffer(kf.buf), fmt, std::move(cf.file), std::move(kf.file) });
+        });
+    });
+}
+
+future<> tls::credentials_builder::set_simple_pkcs12_file(const sstring& pkcs12file, x509_crt_format fmt, const sstring& password) {
+    return read_fully(pkcs12file, "pkcs12 file").then([this, fmt, password](file_result f) {
+        _blobs.emplace(pkcs12_key, pkcs12_simple{ to_buffer(f.buf), fmt, password, std::move(f.file) });
+    });
 }
 
 future<> tls::credentials_builder::set_system_trust() {
@@ -479,36 +548,38 @@ void tls::credentials_builder::set_priority_string(const sstring& prio) {
     _priority = prio;
 }
 
+template<typename Visitor>
+void visit_blobs(const std::multimap<sstring, boost::any>& blobs, Visitor&& visitor) {
+    auto visit = [&](const sstring& key, const auto* vt) {
+        auto tr = blobs.equal_range(key);
+        for (auto& p : boost::make_iterator_range(tr.first, tr.second)) {
+            auto v = boost::any_cast<std::decay_t<decltype(*vt)>>(p.second);
+            visitor(key, v);
+        }
+    };
+    visit(x509_trust_key, static_cast<const x509_simple*>(nullptr));
+    visit(x509_crl_key, static_cast<const x509_simple*>(nullptr));
+    visit(x509_key_key, static_cast<const x509_key*>(nullptr));
+    visit(pkcs12_key, static_cast<const pkcs12_simple*>(nullptr));
+}
+
 void tls::credentials_builder::apply_to(certificate_credentials& creds) const {
     // Could potentially be templated down, but why bother...
-    {
-        auto tr = _blobs.equal_range(x509_trust_key);
-        for (auto& p : boost::make_iterator_range(tr.first, tr.second)) {
-            auto v = boost::any_cast<std::pair<buffer_type, x509_crt_format>>(p.second);
-            creds.set_x509_trust(v.first, v.second);
+    visit_blobs(_blobs, make_visitor(
+        [&](const sstring& key, const x509_simple& info) {
+            if (key == x509_trust_key) {
+                creds.set_x509_trust(info.data, info.format);
+            } else if (key == x509_crl_key) {
+                creds.set_x509_crl(info.data, info.format);
+            }
+        },
+        [&](const sstring&, const x509_key& info) {
+            creds.set_x509_key(info.cert, info.key, info.format);
+        },
+        [&](const sstring&, const pkcs12_simple& info) {
+            creds.set_simple_pkcs12(info.data, info.format, info.password);
         }
-    }
-    {
-        auto tr = _blobs.equal_range(x509_crl_key);
-        for (auto& p : boost::make_iterator_range(tr.first, tr.second)) {
-            auto v = boost::any_cast<std::pair<buffer_type, x509_crt_format>>(p.second);
-            creds.set_x509_crl(v.first, v.second);
-        }
-    }
-    {
-        auto tr = _blobs.equal_range(x509_key_key);
-        for (auto& p : boost::make_iterator_range(tr.first, tr.second)) {
-            auto v = boost::any_cast<std::tuple<buffer_type, buffer_type, x509_crt_format>>(p.second);
-            creds.set_x509_key(std::get<0>(v), std::get<1>(v), std::get<2>(v));
-        }
-    }
-    {
-        auto tr = _blobs.equal_range(pkcs12_key);
-        for (auto& p : boost::make_iterator_range(tr.first, tr.second)) {
-            auto v = boost::any_cast<std::tuple<buffer_type, x509_crt_format, sstring>>(p.second);
-            creds.set_simple_pkcs12(std::get<0>(v), std::get<1>(v), std::get<2>(v));
-        }
-    }
+    ));
 
     // TODO / Caveat:
     // We cannot do this immediately, because we are not a continuation, and

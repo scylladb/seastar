@@ -124,11 +124,11 @@ namespace tls {
 
         virtual void set_simple_pkcs12(const blob&, x509_crt_format, const sstring& password) = 0;
 
-        future<> set_x509_trust_file(const sstring& cafile, x509_crt_format);
-        future<> set_x509_crl_file(const sstring& crlfile, x509_crt_format);
-        future<> set_x509_key_file(const sstring& cf, const sstring& kf, x509_crt_format);
+        virtual future<> set_x509_trust_file(const sstring& cafile, x509_crt_format);
+        virtual future<> set_x509_crl_file(const sstring& crlfile, x509_crt_format);
+        virtual future<> set_x509_key_file(const sstring& cf, const sstring& kf, x509_crt_format);
 
-        future<> set_simple_pkcs12_file(const sstring& pkcs12file, x509_crt_format, const sstring& password);
+        virtual future<> set_simple_pkcs12_file(const sstring& pkcs12file, x509_crt_format, const sstring& password);
     };
 
     /**
@@ -226,6 +226,11 @@ namespace tls {
         void set_x509_crl(const blob&, x509_crt_format) override;
         void set_x509_key(const blob& cert, const blob& key, x509_crt_format) override;
         void set_simple_pkcs12(const blob&, x509_crt_format, const sstring& password) override;
+
+        future<> set_x509_trust_file(const sstring& cafile, x509_crt_format) override;
+        future<> set_x509_crl_file(const sstring& crlfile, x509_crt_format) override;
+        future<> set_x509_key_file(const sstring& cf, const sstring& kf, x509_crt_format) override;
+        future<> set_simple_pkcs12_file(const sstring& pkcs12file, x509_crt_format, const sstring& password) override;
 
         future<> set_system_trust();
         void set_client_auth(client_auth);
