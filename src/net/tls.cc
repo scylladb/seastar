@@ -342,7 +342,7 @@ private:
 };
 
 tls::certificate_credentials::certificate_credentials()
-        : _impl(std::make_unique<impl>()) {
+        : _impl(make_shared<impl>()) {
 }
 
 tls::certificate_credentials::~certificate_credentials() {
@@ -562,7 +562,7 @@ public:
 
     session(type t, shared_ptr<tls::certificate_credentials> creds,
             std::unique_ptr<net::connected_socket_impl> sock, sstring name = { })
-            : _type(t), _sock(std::move(sock)), _creds(std::move(creds)), _hostname(
+            : _type(t), _sock(std::move(sock)), _creds(creds->_impl), _hostname(
                     std::move(name)), _in(_sock->source()), _out(_sock->sink()),
                     _in_sem(1), _out_sem(1), _output_pending(
                     make_ready_future<>()), _session([t] {
@@ -573,9 +573,9 @@ public:
         gtls_chk(gnutls_set_default_priority(*this));
         gtls_chk(
                 gnutls_credentials_set(*this, GNUTLS_CRD_CERTIFICATE,
-                        *_creds->_impl));
+                        *_creds));
         if (_type == type::SERVER) {
-            switch (_creds->_impl->get_client_auth()) {
+            switch (_creds->get_client_auth()) {
                 case client_auth::NONE:
                 default:
                     gnutls_certificate_server_set_request(*this, GNUTLS_CERT_IGNORE);
@@ -589,7 +589,7 @@ public:
             }
         }
 
-        auto prio = _creds->_impl->get_priority();
+        auto prio = _creds->get_priority();
         if (prio) {
             gtls_chk(gnutls_priority_set(*this, prio));
         }
@@ -662,7 +662,7 @@ public:
                     return make_exception_future<>(std::system_error(res, glts_errorc));
                 }
             }
-            if (_type == type::CLIENT || _creds->_impl->get_client_auth() != client_auth::NONE) {
+            if (_type == type::CLIENT || _creds->get_client_auth() != client_auth::NONE) {
                 verify();
             }
             _connected = true;
@@ -675,8 +675,8 @@ public:
     future<> handshake() {
         // maybe load system certificates before handshake, in case we
         // have not done so yet...
-        if (_creds->_impl->need_load_system_trust()) {
-            return _creds->_impl->maybe_load_system_trust().then([this] {
+        if (_creds->need_load_system_trust()) {
+            return _creds->maybe_load_system_trust().then([this] {
                return handshake();
             });
         }
@@ -737,7 +737,7 @@ public:
         unsigned int status;
         auto res = gnutls_certificate_verify_peers3(*this, _type != type::CLIENT || _hostname.empty()
                         ? nullptr : _hostname.c_str(), &status);
-        if (res == GNUTLS_E_NO_CERTIFICATE_FOUND && _type != type::CLIENT && _creds->_impl->get_client_auth() != client_auth::REQUIRE) {
+        if (res == GNUTLS_E_NO_CERTIFICATE_FOUND && _type != type::CLIENT && _creds->get_client_auth() != client_auth::REQUIRE) {
             return;
         }
         if (res < 0) {
@@ -1011,7 +1011,7 @@ private:
     type _type;
 
     std::unique_ptr<net::connected_socket_impl> _sock;
-    shared_ptr<tls::certificate_credentials> _creds;
+    shared_ptr<tls::certificate_credentials::impl> _creds;
     const sstring _hostname;
     data_source _in;
     data_sink _out;

@@ -177,7 +177,7 @@ namespace tls {
         friend class server_session;
         friend class server_credentials;
         friend class credentials_builder;
-        std::unique_ptr<impl> _impl;
+        shared_ptr<impl> _impl;
     };
 
     /** Exception thrown on certificate validation error */
