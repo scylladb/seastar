@@ -3575,20 +3575,21 @@ public:
         uint64_t max_bandwidth = std::max(p.read_bytes_rate, p.write_bytes_rate);
         uint64_t max_iops = std::max(p.read_req_rate, p.write_req_rate);
 
+        cfg.disk_bytes_write_to_read_multiplier = 1;
+        cfg.disk_req_write_to_read_multiplier = 1;
+
         if (!_capacity) {
-            cfg.disk_bytes_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
-            cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
             if (max_bandwidth != std::numeric_limits<uint64_t>::max()) {
+                cfg.disk_bytes_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
                 cfg.max_bytes_count = io_queue::read_request_base_count * per_io_queue(max_bandwidth * latency_goal().count(), devid);
             }
             if (max_iops != std::numeric_limits<uint64_t>::max()) {
                 cfg.max_req_count = io_queue::read_request_base_count * per_io_queue(max_iops * latency_goal().count(), devid);
+                cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
             }
             cfg.mountpoint = p.mountpoint;
         } else {
             cfg.capacity = per_io_queue(*_capacity, 0);
-            cfg.disk_bytes_write_to_read_multiplier = 1;
-            cfg.disk_req_write_to_read_multiplier = 1;
         }
         return cfg;
     }
