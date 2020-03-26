@@ -1122,6 +1122,29 @@ SEASTAR_TEST_CASE(test_unregister_handler) {
     });
 }
 
+SEASTAR_TEST_CASE(test_loggers) {
+    static seastar::logger log("dummy");
+    log.set_level(log_level::debug);
+    return rpc_test_env<>::do_with_thread(rpc_test_config(), [] (rpc_test_env<>& env, test_rpc_proto::client& c1) {
+        socket_address dummy_addr;
+        auto& proto = env.proto();
+        auto& logger = proto.get_logger();
+        logger(dummy_addr, "Hello0");
+        logger(dummy_addr, log_level::debug, "Hello1");
+        proto.set_logger(&log);
+        logger(dummy_addr, "Hello2");
+        logger(dummy_addr, log_level::debug, "Hello3");
+        proto.set_logger([] (const sstring& str) {
+            log.info("Test: {}", str);
+        });
+        logger(dummy_addr, "Hello4");
+        logger(dummy_addr, log_level::debug, "Hello5");
+        proto.set_logger(nullptr);
+        logger(dummy_addr, "Hello6");
+        logger(dummy_addr, log_level::debug, "Hello7");
+    });
+}
+
 #if __cplusplus >= 201703
 
 static_assert(std::is_same_v<decltype(rpc::tuple(1U, 1L)), rpc::tuple<unsigned, long>>, "rpc::tuple deduction guid not working");

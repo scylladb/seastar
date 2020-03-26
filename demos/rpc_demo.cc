@@ -110,10 +110,8 @@ int main(int ac, char** av) {
     static std::unique_ptr<rpc::protocol<serializer>::client> client;
     static double x = 30.0;
 
-    myrpc.set_logger([] (const sstring& log) {
-        fmt::print("{}", log);
-        std::cout << std::endl;
-    });
+    static logger log("rpc_demo");
+    myrpc.set_logger(&log);
 
     return app.run_deprecated(ac, av, [&] {
         auto&& config = app.configuration();
