@@ -613,6 +613,8 @@ public:
     void operator=(const promise_base_with_type&) = delete;
 
     void set_urgent_state(future_state<T...>&& state) noexcept {
+        // The state can be null if the corresponding future has been
+        // destroyed without producing a continuation.
         if (_state) {
             new (get_state()) future_state<T...>(std::move(state));
             make_ready<urgent::yes>();
