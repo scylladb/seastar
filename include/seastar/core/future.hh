@@ -613,10 +613,15 @@ public:
     void operator=(const promise_base_with_type&) = delete;
 
     void set_urgent_state(future_state<T...>&& state) noexcept {
+        auto* ptr = get_state();
         // The state can be null if the corresponding future has been
         // destroyed without producing a continuation.
-        if (_state) {
-            new (get_state()) future_state<T...>(std::move(state));
+        if (ptr) {
+            // FIXME: This is a fairly expensive assert. It would be a
+            // good candidate for being disabled in release builds if
+            // we had such an assert.
+            assert(ptr->_u.st == future_state_base::state::future);
+            new (ptr) future_state<T...>(std::move(state));
             make_ready<urgent::yes>();
         }
     }
