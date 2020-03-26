@@ -660,6 +660,7 @@ public:
 
     future<> unregister_handler(MsgType t);
 
+    [[deprecated("Use set_logger(::seastar::logger*) instead")]]
     void set_logger(std::function<void(const sstring&)> logger) {
         _logger.set(std::move(logger));
     }
