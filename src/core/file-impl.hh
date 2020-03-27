@@ -43,11 +43,11 @@ size_t sanitize_iovecs(std::vector<iovec>& iov, size_t disk_alignment) noexcept;
 class posix_file_handle_impl : public seastar::file_handle_impl {
     int _fd;
     std::atomic<unsigned>* _refcount;
-    io_queue* _io_queue;
+    dev_t _device_id;
     open_flags _open_flags;
 public:
-    posix_file_handle_impl(int fd, open_flags f, std::atomic<unsigned>* refcount, io_queue *ioq)
-            : _fd(fd), _refcount(refcount), _io_queue(ioq), _open_flags(f) {
+    posix_file_handle_impl(int fd, open_flags f, std::atomic<unsigned>* refcount, dev_t device_id)
+            : _fd(fd), _refcount(refcount), _device_id(device_id), _open_flags(f) {
     }
     virtual ~posix_file_handle_impl();
     posix_file_handle_impl(const posix_file_handle_impl&) = delete;
@@ -58,12 +58,13 @@ public:
 
 class posix_file_impl : public file_impl {
     std::atomic<unsigned>* _refcount = nullptr;
+    dev_t _device_id;
     io_queue* _io_queue;
     open_flags _open_flags;
 public:
     int _fd;
-    posix_file_impl(int fd, open_flags, file_open_options options, io_queue* ioq);
-    posix_file_impl(int fd, open_flags, std::atomic<unsigned>* refcount, io_queue *ioq);
+    posix_file_impl(int fd, open_flags, file_open_options options, dev_t device_id);
+    posix_file_impl(int fd, open_flags, std::atomic<unsigned>* refcount, dev_t device_id);
     virtual ~posix_file_impl() override;
     future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc) noexcept override;
     future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) noexcept override;
@@ -178,7 +179,7 @@ private:
         }
     }
 public:
-    append_challenged_posix_file_impl(int fd, open_flags, file_open_options options, unsigned max_size_changing_ops, bool fsync_is_exclusive, io_queue* ioq);
+    append_challenged_posix_file_impl(int fd, open_flags, file_open_options options, unsigned max_size_changing_ops, bool fsync_is_exclusive, dev_t device_id);
     ~append_challenged_posix_file_impl() override;
     future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc) noexcept override;
     future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) noexcept override;
@@ -193,7 +194,7 @@ public:
 
 class blockdev_file_impl : public posix_file_impl {
 public:
-    blockdev_file_impl(int fd, open_flags, file_open_options options, io_queue* ioq);
+    blockdev_file_impl(int fd, open_flags, file_open_options options, dev_t device_id);
     future<> truncate(uint64_t length) noexcept override;
     future<> discard(uint64_t offset, uint64_t length) noexcept override;
     future<uint64_t> size() noexcept override;

@@ -69,8 +69,9 @@ file_handle::to_file() && {
     return file(std::move(*_impl).to_file());
 }
 
-posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, io_queue* ioq)
-        : _io_queue(ioq)
+posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id)
+        : _device_id(device_id)
+        , _io_queue(&(engine().get_io_queue(_device_id)))
         , _open_flags(f)
         , _fd(fd)
 {
@@ -106,13 +107,17 @@ posix_file_impl::dup() {
     if (!_refcount) {
         _refcount = new std::atomic<unsigned>(1u);
     }
-    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _io_queue);
+    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _device_id);
     _refcount->fetch_add(1, std::memory_order_relaxed);
     return ret;
 }
 
-posix_file_impl::posix_file_impl(int fd, open_flags f, std::atomic<unsigned>* refcount, io_queue *ioq)
-        : _refcount(refcount), _io_queue(ioq), _open_flags(f), _fd(fd) {
+posix_file_impl::posix_file_impl(int fd, open_flags f, std::atomic<unsigned>* refcount, dev_t device_id)
+        : _refcount(refcount)
+        , _device_id(device_id)
+        , _io_queue(&(engine().get_io_queue(_device_id)))
+        , _open_flags(f)
+        , _fd(fd) {
 }
 
 future<>
@@ -441,8 +446,8 @@ posix_file_impl::read_maybe_eof(uint64_t pos, size_t len, const io_priority_clas
     });
 }
 
-blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options options, io_queue *ioq)
-        : posix_file_impl(fd, f, options, ioq) {
+blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id)
+        : posix_file_impl(fd, f, options, device_id) {
 }
 
 future<>
@@ -468,8 +473,8 @@ blockdev_file_impl::allocate(uint64_t position, uint64_t length) noexcept {
 }
 
 append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, open_flags f, file_open_options options,
-        unsigned max_size_changing_ops, bool fsync_is_exclusive, io_queue* ioq)
-        : posix_file_impl(fd, f, options, ioq)
+        unsigned max_size_changing_ops, bool fsync_is_exclusive, dev_t device_id)
+        : posix_file_impl(fd, f, options, device_id)
         , _max_size_changing_ops(max_size_changing_ops)
         , _fsync_is_exclusive(fsync_is_exclusive) {
     auto r = ::lseek(fd, 0, SEEK_END);
@@ -758,7 +763,7 @@ posix_file_handle_impl::~posix_file_handle_impl() {
 
 std::unique_ptr<seastar::file_handle_impl>
 posix_file_handle_impl::clone() const {
-    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _io_queue);
+    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _device_id);
     if (_refcount) {
         _refcount->fetch_add(1, std::memory_order_relaxed);
     }
@@ -767,7 +772,7 @@ posix_file_handle_impl::clone() const {
 
 shared_ptr<file_impl>
 posix_file_handle_impl::to_file() && {
-    auto ret = ::seastar::make_shared<posix_file_impl>(_fd, _open_flags, _refcount, _io_queue);
+    auto ret = ::seastar::make_shared<posix_file_impl>(_fd, _open_flags, _refcount, _device_id);
     _fd = -1;
     _refcount = nullptr;
     return ret;
@@ -793,13 +798,12 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
     return engine().fstat(fd).then([fd, options = std::move(options), flags] (struct stat st) mutable {
         auto r = ::ioctl(fd, BLKGETSIZE);
         auto st_dev = st.st_dev;
-        io_queue& io_queue = engine().get_io_queue(st_dev);
 
         if (r != -1) {
-            return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, &io_queue));
+            return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, st_dev));
         } else {
             if ((flags & O_ACCMODE) == O_RDONLY || S_ISDIR(st.st_mode)) {
-                return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_impl>(fd, open_flags(flags), options, &io_queue));
+                return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_impl>(fd, open_flags(flags), options, st_dev));
             }
             struct append_support {
                 bool append_challenged;
@@ -834,12 +838,12 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
                     }
                     s_fstype[st_dev] = as;
                 });
-            return get_append_support.then([st_dev, fd, flags, options = std::move(options), &io_queue] () mutable {
+            return get_append_support.then([st_dev, fd, flags, options = std::move(options)] () mutable {
                 auto as = s_fstype[st_dev];
                 if (!as.append_challenged) {
-                    return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_impl>(fd, open_flags(flags), std::move(options), &io_queue));
+                    return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_impl>(fd, open_flags(flags), std::move(options), st_dev));
                 }
-                return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), as.append_concurrency, as.fsync_is_exclusive, &io_queue));
+                return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), as.append_concurrency, as.fsync_is_exclusive, st_dev));
             });
         }
     });
