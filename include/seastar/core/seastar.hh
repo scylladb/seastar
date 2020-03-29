@@ -45,6 +45,7 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/file-types.hh>
 #include <seastar/util/bool_class.hh>
+#include <seastar/util/std-compat.hh>
 #include "./internal/api-level.hh"
 
 namespace seastar {
@@ -344,6 +345,17 @@ future<bool> file_accessible(sstring name, access_flags flags) noexcept;
 ///
 /// \param name name of the file to check
 future<bool> file_exists(sstring name) noexcept;
+
+/// Determine the type of a file (regular file, directory, etc.)
+///
+/// \param name name of the file for which type information is requested
+/// \param name follow_symlink whether a trailing symbolic link should be followed or not
+///
+/// \return a engaged optional with the file type if lookup was successful; a disengaged optional
+///      if the file (or one of its parent directories) does not exist; an exceptional future on
+///      other errors.
+future<compat::optional<directory_entry_type>> file_type(sstring name, follow_symlink = follow_symlink::yes) noexcept;
+
 
 /// Creates a hard link for a file
 ///

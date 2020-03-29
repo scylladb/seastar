@@ -1690,6 +1690,11 @@ reactor::file_type(sstring name, follow_symlink follow) noexcept {
     });
 }
 
+future<compat::optional<directory_entry_type>>
+file_type(sstring name, follow_symlink follow) noexcept {
+    return engine().file_type(std::move(name), follow);
+}
+
 static std::chrono::system_clock::time_point
 timespec_to_time_point(const timespec& ts) {
     auto d = std::chrono::duration_cast<std::chrono::system_clock::duration>(
