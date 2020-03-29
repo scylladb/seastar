@@ -26,6 +26,7 @@
 #include <seastar/core/aligned_buffer.hh>
 #include <seastar/core/cacheline.hh>
 #include <seastar/core/circular_buffer_fixed_capacity.hh>
+#include <seastar/core/idle_cpu_handler.hh>
 #include <memory>
 #include <type_traits>
 #include <sys/epoll.h>
@@ -219,12 +220,9 @@ private:
     friend class aio_storage_context;
 public:
     using poller = internal::poller;
-    enum class idle_cpu_handler_result {
-        no_more_work,
-        interrupted_by_higher_priority_task
-    };
-    using work_waiting_on_reactor = const noncopyable_function<bool()>&;
-    using idle_cpu_handler = noncopyable_function<idle_cpu_handler_result(work_waiting_on_reactor)>;
+    using idle_cpu_handler_result = seastar::idle_cpu_handler_result;
+    using work_waiting_on_reactor = seastar::work_waiting_on_reactor;
+    using idle_cpu_handler = seastar::idle_cpu_handler;
 
     struct io_stats {
         uint64_t aio_reads = 0;

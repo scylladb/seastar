@@ -4011,6 +4011,11 @@ void reactor::add_high_priority_task(task* t) noexcept {
     request_preemption();
 }
 
+
+void set_idle_cpu_handler(idle_cpu_handler&& handler) {
+    engine().set_idle_cpu_handler(std::move(handler));
+}
+
 static
 bool
 virtualized() {
