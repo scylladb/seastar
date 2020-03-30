@@ -156,12 +156,15 @@ private:
     template<typename T>
     friend T& scheduling_group_get_specific(scheduling_group_key key);
 
-    friend unsigned long internal::scheduling_group_key_id(scheduling_group_key key) {
-        return key.id();
-    }
+    friend unsigned long internal::scheduling_group_key_id(scheduling_group_key key);
 };
 
 namespace internal {
+
+inline unsigned long scheduling_group_key_id(scheduling_group_key key) {
+    return key.id();
+}
+
 /**
  * @brief A function in the spirit of Cpp17 apply, but specifically for constructors.
  * This function is used in order to preserve support in Cpp14.
