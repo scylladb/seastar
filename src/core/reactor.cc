@@ -881,7 +881,7 @@ reactor::reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg)
     , _engine_thread(sched::thread::current())
 #endif
     , _cpu_started(0)
-    , _cpu_stall_detector(std::make_unique<cpu_stall_detector>(this))
+    , _cpu_stall_detector(std::make_unique<cpu_stall_detector>())
     , _reuseport(posix_reuseport_detect())
     , _thread_pool(std::make_unique<thread_pool>(this, seastar::format("syscall-{}", id))) {
     /*
@@ -1002,9 +1002,8 @@ void reactor::start_handling_signal() {
     return _backend->start_handling_signal();
 }
 
-cpu_stall_detector::cpu_stall_detector(reactor* r, cpu_stall_detector_config cfg)
-        : _r(r)
-        , _shard_id(_r->cpu_id()) {
+cpu_stall_detector::cpu_stall_detector(cpu_stall_detector_config cfg)
+        : _shard_id(this_shard_id()) {
     // glib's backtrace() calls dlopen("libgcc_s.so.1") once to resolve unwind related symbols.
     // If first stall detector invocation happens during another dlopen() call the calling thread
     // will deadlock. The dummy call here makes sure that backtrace's initialization happens in
