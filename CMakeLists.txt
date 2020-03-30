@@ -577,6 +577,7 @@ add_library (seastar STATIC
   src/core/exception_hacks.cc
   src/core/execution_stage.cc
   src/core/file-impl.hh
+  src/core/fsnotify.cc
   src/core/fsqual.cc
   src/core/fstream.cc
   src/core/future.cc

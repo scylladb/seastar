@@ -303,6 +303,9 @@ seastar_add_test (file_utils
 seastar_add_test (foreign_ptr
   SOURCES foreign_ptr_test.cc)
 
+seastar_add_test (fsnotifier
+  SOURCES fsnotifier_test.cc)
+
 seastar_add_test (fstream
   SOURCES
     fstream_test.cc
