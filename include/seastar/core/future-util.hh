@@ -139,7 +139,7 @@ public:
 ///
 /// \param begin an \c InputIterator designating the beginning of the range
 /// \param end an \c InputIterator designating the end of the range
-/// \param func Function to apply to each element in the range (returning
+/// \param func Function to invoke with each element in the range (returning
 ///             a \c future<>)
 /// \return a \c future<> that resolves when all the function invocations
 ///         complete.  If one or more return an exception, the return value
@@ -177,7 +177,7 @@ parallel_for_each(Iterator begin, Iterator end, Func&& func) noexcept {
 
 /// Run tasks in parallel (range version).
 ///
-/// Given a \c range of objects, apply \c func to each object
+/// Given a \c range of objects, invoke \c func with each object
 /// in the range, and return a future<> that resolves when all
 /// the functions complete.  \c func should return a future<> that indicates
 /// when it is complete.  All invocations are performed in parallel. This allows
@@ -1013,8 +1013,8 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
 /// Given a range of objects, an asynchronous unary function
 /// operating on these objects, an initial value, and a
 /// binary function for reducing, map_reduce() will
-/// transform each object in the range, then apply
-/// the the reducing function to the result.
+/// transform each object in the range, then invoke
+/// the the reducing function with the result.
 ///
 /// Example:
 ///
@@ -1083,8 +1083,8 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Initial initial, Reduc
 /// Given a range of objects, an asynchronous unary function
 /// operating on these objects, an initial value, and a
 /// binary function for reducing, map_reduce() will
-/// transform each object in the range, then apply
-/// the the reducing function to the result.
+/// transform each object in the range, then invoke
+/// the the reducing function with the result.
 ///
 /// Example:
 ///
