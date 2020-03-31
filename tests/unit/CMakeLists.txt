@@ -413,13 +413,18 @@ seastar_add_test (uname
   SOURCES uname_test.cc)
 
 set (tls_certificate_files
+  tls-ca-bundle.pem
   catest.key
   catest.pem
-  tls-ca-bundle.pem
   test.crl
   test.crt
   test.csr
-  test.key)
+  test.key
+  caother.key
+  caother.pem
+  other.crt
+  other.csr
+  other.key)
 
 prepend_each (
   in_tls_certificate_files
