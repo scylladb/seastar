@@ -521,14 +521,14 @@ Here, `fail()` catches the exception thrown by `inner()`, whatever it might be, 
 > Therefore, unless a function --- including asynchronous functions --- is explicitly tagged "`noexcept`", the application should be prepared to handle exceptions thrown from it. In modern C++, code usually uses RAII to be exception-safe without sprinkling it with `try`/`catch`.  `seastar::defer()` is a RAII-based idiom that ensures that some cleanup code is run even if an exception is thrown.
 
 
-Seastar has a convenient generic function, `futurize_apply()`, which can be useful here. `futurize_apply(func, args...)` runs a function which may return either a future value or an immediate value, and in both cases convert the result into a future value. `futurize_apply()` also converts an immediate exception thrown by the function, if any, into a failed future, just like we did above. So using `futurize_apply()` we can make the above example work even if `fail()` did throw exceptions:
+Seastar has a convenient generic function, `futurize_invoke()`, which can be useful here. `futurize_invoke(func, args...)` runs a function which may return either a future value or an immediate value, and in both cases convert the result into a future value. `futurize_invoke()` also converts an immediate exception thrown by the function, if any, into a failed future, just like we did above. So using `futurize_invoke()` we can make the above example work even if `fail()` did throw exceptions:
 
 ```cpp
 seastar::future<> fail() {
     throw my_exception();
 }
 seastar::future<> f() {
-    return seastar::futurize_apply(fail).finally([] {
+    return seastar::futurize_invoke(fail).finally([] {
         std::cout << "cleaning up\n";
     });
 }
@@ -546,7 +546,7 @@ seastar::future<> f() {
 }
 ```
 
-Here, the lambda function of the first continuation does throw an exception instead of returning a failed future. However, we do _not_ have the same problem as before, which only happened because an asynchronous function threw an exception _before_ returning a valid future. Here, `f()` does return a valid future immediately - the failure will only be known later, after `sleep()` resolves. The message in `finally()` will be printed. Under the hood, the methods which attach continuations (such as `then()` and `finally()`) run the continuation functions using `futurize_apply()`, so continuation functions may return immediate values or, in this case, throw an immediate exception, and still work properly.
+Here, the lambda function of the first continuation does throw an exception instead of returning a failed future. However, we do _not_ have the same problem as before, which only happened because an asynchronous function threw an exception _before_ returning a valid future. Here, `f()` does return a valid future immediately - the failure will only be known later, after `sleep()` resolves. The message in `finally()` will be printed. The methods which attach continuations (such as `then()` and `finally()`) run the continuation the same way, so continuation functions may return immediate values or, in this case, throw an immediate exception, and still work properly.
 
 # Lifetime management
 An asynchronous function starts an operation which may continue long after the function returns: The function itself returns a `future<T>` almost immediately, but it may take a while until this future is resolved.
@@ -985,7 +985,7 @@ seastar::future<> g() {
 }
 ```
 
-But this version is **not** exception safe: Consider what happens if `slow()` throws an exception before returning a future (this is different from `slow()` returning an exceptional future - we discussed this difference in the section about exception handling). In this case, we decreased the counter, but the `finally()` will never be reached, and the counter will never be increased back. There is a way to fix this code, by replacing the call to `slow()` with `seastar::futurize_apply(slow)`. But the point we're trying to make here is not how to fix buggy code, but rather that by using the separate `semaphore::wait()` and `semaphore::signal()` functions, you can very easily get things wrong.
+But this version is **not** exception safe: Consider what happens if `slow()` throws an exception before returning a future (this is different from `slow()` returning an exceptional future - we discussed this difference in the section about exception handling). In this case, we decreased the counter, but the `finally()` will never be reached, and the counter will never be increased back. There is a way to fix this code, by replacing the call to `slow()` with `seastar::futurize_invoke(slow)`. But the point we're trying to make here is not how to fix buggy code, but rather that by using the separate `semaphore::wait()` and `semaphore::signal()` functions, you can very easily get things wrong.
 
 For exception safety, in C++ it is generally not recommended to have separate resource acquisition and release functions.  Instead, C++ offers safer mechanisms for acquiring a resource (in this case seamphore units) and later releasing it: lambda functions, and RAII ("resource acquisition is initialization"):
 
@@ -1072,7 +1072,7 @@ seastar::future<> f() {
     return seastar::do_with(seastar::semaphore(100), [] (auto& limit) {
         return seastar::repeat([&limit] {
             return limit.wait(1).then([&limit] {
-                seastar::futurize_apply(slow).finally([&limit] {
+                seastar::futurize_invoke(slow).finally([&limit] {
                     limit.signal(1); 
                 });
                 return seastar::stop_iteration::no;
@@ -1084,7 +1084,7 @@ seastar::future<> f() {
 
 Note how this code differs from the code we saw above for limiting the number of parallel invocations of a function `g()`:
 1. Here we cannot use a single `thread_local` semaphore. Each call to `f()` has its loop with parallelism of 100, so needs its own semaphore "`limit`", kept alive during the loop with `do_with()`.
-2. Here we do not wait for `slow()` to complete before continuing the loop, i.e., we do not `return` the future chain starting at `futurize_apply(slow)`. The loop continues to the next iteration when a semaphore unit becomes available, while (in our example) 99 other operations might be ongoing in the background and we do not wait for them.
+2. Here we do not wait for `slow()` to complete before continuing the loop, i.e., we do not `return` the future chain starting at `futurize_invoke(slow)`. The loop continues to the next iteration when a semaphore unit becomes available, while (in our example) 99 other operations might be ongoing in the background and we do not wait for them.
 
 In the examples in this section, we cannot use the `with_semaphore()` shortcut. `with_semaphore()` returns a future which only resolves after the lambda's returned future resolves. But in the above example, the loop needs to know when just the semaphore units are available, to start the next iteration --- and not wait for the previous iteration to complete. We could not achieve that with `with_semaphore()`. But the more general exception-safe idiom, `seastar::get_units()`, can be used in this case, and is recommended:
 
@@ -1131,7 +1131,7 @@ seastar::future<> f() {
                 boost::counting_iterator<int>(456), [&gate] (int i) {
             return seastar::get_units(limit, 1).then([&gate] (auto units) {
                 gate.enter();
-                seastar::futurize_apply(slow).finally([&gate, units = std::move(units)] {
+                seastar::futurize_invoke(slow).finally([&gate, units = std::move(units)] {
                     gate.leave();
                 });
 	        });
