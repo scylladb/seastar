@@ -37,6 +37,14 @@
 #include <seastar/util/gcc6-concepts.hh>
 #include <seastar/util/noncopyable_function.hh>
 
+// We need to be able to move and copy std::exception_ptr in and out
+// of future/promise/continuations without that producing a new
+// exception.
+static_assert(std::is_nothrow_copy_constructible<std::exception_ptr>::value,
+    "std::exception_ptr's copy constructor must not throw");
+static_assert(std::is_nothrow_move_constructible<std::exception_ptr>::value,
+    "std::exception_ptr's move constructor must not throw");
+
 namespace seastar {
 
 /// \defgroup future-module Futures and Promises
@@ -263,10 +271,6 @@ struct all_true<true, v...> : public all_true<v...> {};
 
 // non templated base class to reduce code duplication
 struct future_state_base {
-    static_assert(std::is_nothrow_copy_constructible<std::exception_ptr>::value,
-                  "std::exception_ptr's copy constructor must not throw");
-    static_assert(std::is_nothrow_move_constructible<std::exception_ptr>::value,
-                  "std::exception_ptr's move constructor must not throw");
     static_assert(sizeof(std::exception_ptr) == sizeof(void*), "exception_ptr not a pointer");
     enum class state : uintptr_t {
          invalid = 0,
