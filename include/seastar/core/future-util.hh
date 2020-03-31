@@ -286,7 +286,7 @@ public:
 /// \return a ready future if we stopped successfully, or a failed future if
 ///         a call to to \c action failed.
 template<typename AsyncAction>
-GCC6_CONCEPT( requires seastar::ApplyReturns<AsyncAction, stop_iteration> || seastar::ApplyReturns<AsyncAction, future<stop_iteration>> )
+GCC6_CONCEPT( requires seastar::InvokeReturns<AsyncAction, stop_iteration> || seastar::InvokeReturns<AsyncAction, future<stop_iteration>> )
 inline
 future<> repeat(AsyncAction action) noexcept {
     using futurator = futurize<std::result_of_t<AsyncAction()>>;
@@ -510,7 +510,7 @@ public:
 /// \return a ready future if we stopped successfully, or a failed future if
 ///         a call to to \c action failed.
 template<typename AsyncAction, typename StopCondition>
-GCC6_CONCEPT( requires seastar::ApplyReturns<StopCondition, bool> && seastar::ApplyReturns<AsyncAction, future<>> )
+GCC6_CONCEPT( requires seastar::InvokeReturns<StopCondition, bool> && seastar::InvokeReturns<AsyncAction, future<>> )
 inline
 future<> do_until(StopCondition stop_cond, AsyncAction action) noexcept {
     using namespace internal;
@@ -547,7 +547,7 @@ future<> do_until(StopCondition stop_cond, AsyncAction action) noexcept {
 ///        that becomes ready when you wish it to be called again.
 /// \return a future<> that will resolve to the first failure of \c action
 template<typename AsyncAction>
-GCC6_CONCEPT( requires seastar::ApplyReturns<AsyncAction, future<>> )
+GCC6_CONCEPT( requires seastar::InvokeReturns<AsyncAction, future<>> )
 inline
 future<> keep_doing(AsyncAction action) noexcept {
     return repeat([action = std::move(action)] () mutable {
