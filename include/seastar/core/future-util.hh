@@ -836,12 +836,12 @@ concept bool AllAreFutures = impl::is_tuple_of_futures<std::tuple<Futs...>>::val
 )
 
 template<typename Fut, std::enable_if_t<is_future<Fut>::value, int> = 0>
-auto futurize_apply_if_func(Fut&& fut) noexcept {
+auto futurize_invoke_if_func(Fut&& fut) noexcept {
     return std::forward<Fut>(fut);
 }
 
 template<typename Func, std::enable_if_t<!is_future<Func>::value, int> = 0>
-auto futurize_apply_if_func(Func&& func) noexcept {
+auto futurize_invoke_if_func(Func&& func) noexcept {
     return futurize_invoke(std::forward<Func>(func));
 }
 
@@ -870,7 +870,7 @@ when_all_impl(Futs&&... futs) {
 ///         all contained futures will be ready as well.
 template <typename... FutOrFuncs>
 inline auto when_all(FutOrFuncs&&... fut_or_funcs) {
-    return when_all_impl(futurize_apply_if_func(std::forward<FutOrFuncs>(fut_or_funcs))...);
+    return when_all_impl(futurize_invoke_if_func(std::forward<FutOrFuncs>(fut_or_funcs))...);
 }
 
 /// \cond internal
@@ -1341,7 +1341,7 @@ inline auto when_all_succeed_impl(Futures&&... futures) {
 /// \return future containing values of futures returned by funcs
 template <typename... FutOrFuncs>
 inline auto when_all_succeed(FutOrFuncs&&... fut_or_funcs) {
-    return when_all_succeed_impl(futurize_apply_if_func(std::forward<FutOrFuncs>(fut_or_funcs))...);
+    return when_all_succeed_impl(futurize_invoke_if_func(std::forward<FutOrFuncs>(fut_or_funcs))...);
 }
 
 /// Wait for many futures to complete (iterator version).
