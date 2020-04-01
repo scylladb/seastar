@@ -95,9 +95,9 @@ struct file_output_stream_options {
     ::seastar::io_priority_class io_priority_class = default_priority_class();
 };
 
-// Create an output_stream for writing starting at the position zero of a
-// newly created file.
-// NOTE: flush() should be the last thing to be called on a file output stream.
+/// Create an output_stream for writing starting at the position zero of a
+/// newly created file.
+/// NOTE: flush() should be the last thing to be called on a file output stream.
 output_stream<char> make_file_output_stream(
         file file,
         uint64_t buffer_size = 8192);
