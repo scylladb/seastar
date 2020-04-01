@@ -862,11 +862,9 @@ future<uint64_t> file::size() const noexcept {
 }
 
 future<> file::close() noexcept {
-  try {
-    return _file_impl->close();
-  } catch (...) {
-    return current_exception_as_future();
-  }
+    return do_with(shared_ptr<file_impl>(_file_impl), [](shared_ptr<file_impl>& f) {
+        return f->close();
+    });
 }
 
 subscription<directory_entry>
