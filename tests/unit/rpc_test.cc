@@ -1134,9 +1134,13 @@ SEASTAR_TEST_CASE(test_loggers) {
         proto.set_logger(&log);
         logger(dummy_addr, "Hello2");
         logger(dummy_addr, log_level::debug, "Hello3");
+        // We *want* to test the deprecated API, don't spam warnings about it.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
         proto.set_logger([] (const sstring& str) {
             log.info("Test: {}", str);
         });
+#pragma GCC diagnostic pop
         logger(dummy_addr, "Hello4");
         logger(dummy_addr, log_level::debug, "Hello5");
         proto.set_logger(nullptr);
