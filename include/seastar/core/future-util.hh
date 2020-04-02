@@ -191,13 +191,28 @@ parallel_for_each(Iterator begin, Iterator end, Func&& func) noexcept {
 ///         was processed.  If one or more of the invocations of
 ///         \c func returned an exceptional future, then the return
 ///         value will contain one of those exceptions.
+
+/// \cond internal
+namespace internal {
+
+template <typename Range, typename Func>
+inline
+future<>
+parallel_for_each_impl(Range&& range, Func&& func) {
+    return parallel_for_each(std::begin(range), std::end(range),
+            std::forward<Func>(func));
+}
+
+} // namespace internal
+/// \endcond
+
 template <typename Range, typename Func>
 GCC6_CONCEPT( requires requires (Func f, Range r) { { f(*r.begin()) } -> future<>; } )
 inline
 future<>
-parallel_for_each(Range&& range, Func&& func) {
-    return parallel_for_each(std::begin(range), std::end(range),
-            std::forward<Func>(func));
+parallel_for_each(Range&& range, Func&& func) noexcept {
+    auto impl = internal::parallel_for_each_impl<Range, Func>;
+    return futurize_invoke(impl, std::forward<Range>(range), std::forward<Func>(func));
 }
 
 // The AsyncAction concept represents an action which can complete later than
@@ -534,7 +549,7 @@ future<> do_until(StopCondition stop_cond, AsyncAction action) noexcept {
 template<typename AsyncAction>
 GCC6_CONCEPT( requires seastar::ApplyReturns<AsyncAction, future<>> )
 inline
-future<> keep_doing(AsyncAction action) {
+future<> keep_doing(AsyncAction action) noexcept {
     return repeat([action = std::move(action)] () mutable {
         return action().then([] {
             return stop_iteration::no;
@@ -821,12 +836,12 @@ concept bool AllAreFutures = impl::is_tuple_of_futures<std::tuple<Futs...>>::val
 )
 
 template<typename Fut, std::enable_if_t<is_future<Fut>::value, int> = 0>
-auto futurize_apply_if_func(Fut&& fut) {
+auto futurize_apply_if_func(Fut&& fut) noexcept {
     return std::forward<Fut>(fut);
 }
 
 template<typename Func, std::enable_if_t<!is_future<Func>::value, int> = 0>
-auto futurize_apply_if_func(Func&& func) {
+auto futurize_apply_if_func(Func&& func) noexcept {
     return futurize_invoke(std::forward<Func>(func));
 }
 

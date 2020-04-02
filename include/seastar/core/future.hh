@@ -287,17 +287,17 @@ struct future_state_base {
          exception_min = 4,  // or anything greater
     };
     union any {
-        any() { st = state::future; }
-        any(state s) { st = s; }
-        void set_exception(std::exception_ptr&& e) {
+        any() noexcept { st = state::future; }
+        any(state s) noexcept { st = s; }
+        void set_exception(std::exception_ptr&& e) noexcept {
             new (&ex) std::exception_ptr(std::move(e));
             assert(st >= state::exception_min);
         }
-        any(std::exception_ptr&& e) {
+        any(std::exception_ptr&& e) noexcept {
             set_exception(std::move(e));
         }
-        ~any() {}
-        std::exception_ptr take_exception() {
+        ~any() noexcept {}
+        std::exception_ptr take_exception() noexcept {
             std::exception_ptr ret(std::move(ex));
             // Unfortunately in libstdc++ ~exception_ptr is defined out of line. We know that it does nothing for
             // moved out values, so we omit calling it. This is critical for the code quality produced for this
@@ -311,7 +311,7 @@ struct future_state_base {
             st = state::invalid;
             return ret;
         }
-        any(any&& x) {
+        any(any&& x) noexcept {
             if (x.st < state::exception_min) {
                 st = x.st;
                 x.st = state::invalid;
@@ -373,7 +373,7 @@ public:
         return _u.ex;
     }
 
-    static future_state_base current_exception();
+    static future_state_base current_exception() noexcept;
 
     template <typename... U>
     friend future<U...> internal::current_exception_as_future() noexcept;
@@ -870,10 +870,10 @@ using futurize_t = typename futurize<T>::type;
 /// @}
 
 template<typename Func, typename... Args>
-auto futurize_invoke(Func&& func, Args&&... args);
+auto futurize_invoke(Func&& func, Args&&... args) noexcept;
 
 template<typename Func, typename... Args>
-auto futurize_apply(Func&& func, std::tuple<Args...>&& args);
+auto futurize_apply(Func&& func, std::tuple<Args...>&& args) noexcept;
 
 GCC6_CONCEPT(
 
@@ -1001,7 +1001,7 @@ private:
     // promise::set_value cannot possibly be called without a matching
     // future and so that promise doesn't need to store a
     // future_state.
-    future(future_for_get_promise_marker m) { }
+    future(future_for_get_promise_marker m) noexcept { }
 
     future(promise<T...>* pr) noexcept : future_base(pr, &_state), _state(std::move(pr->_local_state)) { }
     template <typename... A>
@@ -1043,7 +1043,7 @@ private:
     }
 
     [[gnu::noinline]]
-    future<T...> rethrow_with_nested() {
+    future<T...> rethrow_with_nested() noexcept {
         if (!failed()) {
             return internal::current_exception_as_future<T...>();
         } else {
@@ -1058,7 +1058,11 @@ private:
             try {
                 get();
             } catch (...) {
-                std::throw_with_nested(f_ex);
+                try {
+                    std::throw_with_nested(f_ex);
+                } catch (...) {
+                    return internal::current_exception_as_future<T...>();
+                }
             }
             __builtin_unreachable();
         }
@@ -1099,7 +1103,7 @@ public:
     }
 
     [[gnu::always_inline]]
-     std::exception_ptr get_exception() {
+    std::exception_ptr get_exception() noexcept {
         return get_available_state_ref().get_exception();
     }
 
@@ -1384,7 +1388,7 @@ public:
         finally_body(Func&& func) : _func(std::forward<Func>(func))
         { }
 
-        future<T...> operator()(future<T...>&& result) {
+        future<T...> operator()(future<T...>&& result) noexcept {
             return futurize_invoke(_func).then_wrapped([result = std::move(result)](auto f_res) mutable {
                 if (!f_res.failed()) {
                     return std::move(result);
@@ -1407,7 +1411,7 @@ public:
         finally_body(Func&& func) : _func(std::forward<Func>(func))
         { }
 
-        future<T...> operator()(future<T...>&& result) {
+        future<T...> operator()(future<T...>&& result) noexcept {
             try {
                 _func();
                 return std::move(result);
@@ -1753,19 +1757,19 @@ futurize<future<Args...>>::from_tuple(const std::tuple<Args...>& value) {
 }
 
 template<typename Func, typename... Args>
-auto futurize_invoke(Func&& func, Args&&... args) {
+auto futurize_invoke(Func&& func, Args&&... args) noexcept {
     using futurator = futurize<std::result_of_t<Func(Args&&...)>>;
     return futurator::invoke(std::forward<Func>(func), std::forward<Args>(args)...);
 }
 
 template<typename Func, typename... Args>
 [[deprecated("Use futurize_invoke for varargs")]]
-auto futurize_apply(Func&& func, Args&&... args) {
+auto futurize_apply(Func&& func, Args&&... args) noexcept {
     return futurize_invoke(std::forward<Func>(func), std::forward<Args>(args)...);
 }
 
 template<typename Func, typename... Args>
-auto futurize_apply(Func&& func, std::tuple<Args...>&& args) {
+auto futurize_apply(Func&& func, std::tuple<Args...>&& args) noexcept {
     using futurator = futurize<std::result_of_t<Func(Args&&...)>>;
     return futurator::apply(std::forward<Func>(func), std::move(args));
 }
