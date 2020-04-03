@@ -632,7 +632,7 @@ SEASTAR_TEST_CASE(test_high_priority_task_runs_in_the_middle_of_loops) {
 }
 #endif
 
-SEASTAR_TEST_CASE(futurize_apply_val_exception) {
+SEASTAR_TEST_CASE(futurize_invoke_val_exception) {
     return futurize_invoke([] (int arg) { throw expected_exception(); return arg; }, 1).then_wrapped([] (future<int> f) {
         try {
             f.get();
@@ -641,7 +641,7 @@ SEASTAR_TEST_CASE(futurize_apply_val_exception) {
     });
 }
 
-SEASTAR_TEST_CASE(futurize_apply_val_ok) {
+SEASTAR_TEST_CASE(futurize_invoke_val_ok) {
     return futurize_invoke([] (int arg) { return arg * 2; }, 2).then_wrapped([] (future<int> f) {
         try {
             auto x = f.get0();
@@ -652,7 +652,7 @@ SEASTAR_TEST_CASE(futurize_apply_val_ok) {
     });
 }
 
-SEASTAR_TEST_CASE(futurize_apply_val_future_exception) {
+SEASTAR_TEST_CASE(futurize_invoke_val_future_exception) {
     return futurize_invoke([] (int a) {
         return sleep(std::chrono::milliseconds(100)).then([] {
             throw expected_exception();
@@ -666,7 +666,7 @@ SEASTAR_TEST_CASE(futurize_apply_val_future_exception) {
     });
 }
 
-SEASTAR_TEST_CASE(futurize_apply_val_future_ok) {
+SEASTAR_TEST_CASE(futurize_invoke_val_future_ok) {
     return futurize_invoke([] (int a) {
         return sleep(std::chrono::milliseconds(100)).then([a] {
             return make_ready_future<int>(a * 100);
@@ -680,7 +680,7 @@ SEASTAR_TEST_CASE(futurize_apply_val_future_ok) {
         }
     });
 }
-SEASTAR_TEST_CASE(futurize_apply_void_exception) {
+SEASTAR_TEST_CASE(futurize_invoke_void_exception) {
     return futurize_invoke([] (auto arg) { throw expected_exception(); }, 0).then_wrapped([] (future<> f) {
         try {
             f.get();
@@ -689,7 +689,7 @@ SEASTAR_TEST_CASE(futurize_apply_void_exception) {
     });
 }
 
-SEASTAR_TEST_CASE(futurize_apply_void_ok) {
+SEASTAR_TEST_CASE(futurize_invoke_void_ok) {
     return futurize_invoke([] (auto arg) { }, 0).then_wrapped([] (future<> f) {
         try {
             f.get();
@@ -699,7 +699,7 @@ SEASTAR_TEST_CASE(futurize_apply_void_ok) {
     });
 }
 
-SEASTAR_TEST_CASE(futurize_apply_void_future_exception) {
+SEASTAR_TEST_CASE(futurize_invoke_void_future_exception) {
     return futurize_invoke([] (auto a) {
         return sleep(std::chrono::milliseconds(100)).then([] {
             throw expected_exception();
@@ -712,7 +712,7 @@ SEASTAR_TEST_CASE(futurize_apply_void_future_exception) {
     });
 }
 
-SEASTAR_TEST_CASE(futurize_apply_void_future_ok) {
+SEASTAR_TEST_CASE(futurize_invoke_void_future_ok) {
     auto a = make_lw_shared<int>(1);
     return futurize_invoke([] (int& a) {
         return sleep(std::chrono::milliseconds(100)).then([&a] {

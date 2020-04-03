@@ -347,7 +347,7 @@ public:
     /// \tparam  Mapper unary function taking `Service&` and producing some result.
     /// \tparam  Initial any value type
     /// \tparam  Reduce a binary function taking two Initial values and returning an Initial
-    /// \return  Result of applying `map` to each instance in parallel, reduced by calling
+    /// \return  Result of invoking `map` with each instance in parallel, reduced by calling
     ///          `reduce()` on each adjacent pair of results.
     template <typename Mapper, typename Initial, typename Reduce>
     inline
@@ -373,7 +373,7 @@ public:
     /// Each \c map invocation runs on the shard associated with the service.
     ///
     /// \tparam  Mapper unary function taking `Service&` and producing some result.
-    /// \return  Result vector of applying `map` to each instance in parallel
+    /// \return  Result vector of invoking `map` with each instance in parallel
     template <typename Mapper, typename Future = futurize_t<std::result_of_t<Mapper(Service&)>>, typename return_type = decltype(internal::untuple(std::declval<typename Future::value_type>()))>
     inline future<std::vector<return_type>> map(Mapper mapper) {
         return do_with(std::vector<return_type>(),

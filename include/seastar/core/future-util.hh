@@ -139,7 +139,7 @@ public:
 ///
 /// \param begin an \c InputIterator designating the beginning of the range
 /// \param end an \c InputIterator designating the end of the range
-/// \param func Function to apply to each element in the range (returning
+/// \param func Function to invoke with each element in the range (returning
 ///             a \c future<>)
 /// \return a \c future<> that resolves when all the function invocations
 ///         complete.  If one or more return an exception, the return value
@@ -177,7 +177,7 @@ parallel_for_each(Iterator begin, Iterator end, Func&& func) noexcept {
 
 /// Run tasks in parallel (range version).
 ///
-/// Given a \c range of objects, apply \c func to each object
+/// Given a \c range of objects, invoke \c func with each object
 /// in the range, and return a future<> that resolves when all
 /// the functions complete.  \c func should return a future<> that indicates
 /// when it is complete.  All invocations are performed in parallel. This allows
@@ -286,7 +286,7 @@ public:
 /// \return a ready future if we stopped successfully, or a failed future if
 ///         a call to to \c action failed.
 template<typename AsyncAction>
-GCC6_CONCEPT( requires seastar::ApplyReturns<AsyncAction, stop_iteration> || seastar::ApplyReturns<AsyncAction, future<stop_iteration>> )
+GCC6_CONCEPT( requires seastar::InvokeReturns<AsyncAction, stop_iteration> || seastar::InvokeReturns<AsyncAction, future<stop_iteration>> )
 inline
 future<> repeat(AsyncAction action) noexcept {
     using futurator = futurize<std::result_of_t<AsyncAction()>>;
@@ -510,7 +510,7 @@ public:
 /// \return a ready future if we stopped successfully, or a failed future if
 ///         a call to to \c action failed.
 template<typename AsyncAction, typename StopCondition>
-GCC6_CONCEPT( requires seastar::ApplyReturns<StopCondition, bool> && seastar::ApplyReturns<AsyncAction, future<>> )
+GCC6_CONCEPT( requires seastar::InvokeReturns<StopCondition, bool> && seastar::InvokeReturns<AsyncAction, future<>> )
 inline
 future<> do_until(StopCondition stop_cond, AsyncAction action) noexcept {
     using namespace internal;
@@ -547,7 +547,7 @@ future<> do_until(StopCondition stop_cond, AsyncAction action) noexcept {
 ///        that becomes ready when you wish it to be called again.
 /// \return a future<> that will resolve to the first failure of \c action
 template<typename AsyncAction>
-GCC6_CONCEPT( requires seastar::ApplyReturns<AsyncAction, future<>> )
+GCC6_CONCEPT( requires seastar::InvokeReturns<AsyncAction, future<>> )
 inline
 future<> keep_doing(AsyncAction action) noexcept {
     return repeat([action = std::move(action)] () mutable {
@@ -836,12 +836,12 @@ concept bool AllAreFutures = impl::is_tuple_of_futures<std::tuple<Futs...>>::val
 )
 
 template<typename Fut, std::enable_if_t<is_future<Fut>::value, int> = 0>
-auto futurize_apply_if_func(Fut&& fut) noexcept {
+auto futurize_invoke_if_func(Fut&& fut) noexcept {
     return std::forward<Fut>(fut);
 }
 
 template<typename Func, std::enable_if_t<!is_future<Func>::value, int> = 0>
-auto futurize_apply_if_func(Func&& func) noexcept {
+auto futurize_invoke_if_func(Func&& func) noexcept {
     return futurize_invoke(std::forward<Func>(func));
 }
 
@@ -870,7 +870,7 @@ when_all_impl(Futs&&... futs) {
 ///         all contained futures will be ready as well.
 template <typename... FutOrFuncs>
 inline auto when_all(FutOrFuncs&&... fut_or_funcs) {
-    return when_all_impl(futurize_apply_if_func(std::forward<FutOrFuncs>(fut_or_funcs))...);
+    return when_all_impl(futurize_invoke_if_func(std::forward<FutOrFuncs>(fut_or_funcs))...);
 }
 
 /// \cond internal
@@ -1013,8 +1013,8 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
 /// Given a range of objects, an asynchronous unary function
 /// operating on these objects, an initial value, and a
 /// binary function for reducing, map_reduce() will
-/// transform each object in the range, then apply
-/// the the reducing function to the result.
+/// transform each object in the range, then invoke
+/// the the reducing function with the result.
 ///
 /// Example:
 ///
@@ -1083,8 +1083,8 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Initial initial, Reduc
 /// Given a range of objects, an asynchronous unary function
 /// operating on these objects, an initial value, and a
 /// binary function for reducing, map_reduce() will
-/// transform each object in the range, then apply
-/// the the reducing function to the result.
+/// transform each object in the range, then invoke
+/// the the reducing function with the result.
 ///
 /// Example:
 ///
@@ -1341,7 +1341,7 @@ inline auto when_all_succeed_impl(Futures&&... futures) {
 /// \return future containing values of futures returned by funcs
 template <typename... FutOrFuncs>
 inline auto when_all_succeed(FutOrFuncs&&... fut_or_funcs) {
-    return when_all_succeed_impl(futurize_apply_if_func(std::forward<FutOrFuncs>(fut_or_funcs))...);
+    return when_all_succeed_impl(futurize_invoke_if_func(std::forward<FutOrFuncs>(fut_or_funcs))...);
 }
 
 /// Wait for many futures to complete (iterator version).
