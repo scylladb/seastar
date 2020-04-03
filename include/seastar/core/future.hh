@@ -765,6 +765,40 @@ template <typename... T> struct is_future<future<T...>> : std::true_type {};
 template <typename T>
 struct futurize;
 
+GCC6_CONCEPT(
+
+template <typename T>
+concept bool Future = is_future<T>::value;
+
+template <typename Func, typename... T>
+concept bool CanInvoke = requires (Func f, T... args) {
+    f(std::forward<T>(args)...);
+};
+
+// Deprecated alias
+template <typename Func, typename... T>
+concept bool CanApply = CanInvoke<Func, T...>;
+
+template <typename Func, typename Return, typename... T>
+concept bool InvokeReturns = requires (Func f, T... args) {
+    { f(std::forward<T>(args)...) } -> Return;
+};
+
+// Deprecated alias
+template <typename Func, typename Return, typename... T>
+concept bool ApplyReturns = InvokeReturns<Func, Return, T...>;
+
+template <typename Func, typename... T>
+concept bool InvokeReturnsAnyFuture = requires (Func f, T... args) {
+    requires is_future<decltype(f(std::forward<T>(args)...))>::value;
+};
+
+// Deprecated alias
+template <typename Func, typename... T>
+concept bool ApplyReturnsAnyFuture = InvokeReturnsAnyFuture<Func, T...>;
+
+)
+
 template <typename T>
 struct futurize {
     /// If \c T is a future, \c T; otherwise \c future<T>
@@ -865,40 +899,6 @@ auto futurize_invoke(Func&& func, Args&&... args) noexcept;
 
 template<typename Func, typename... Args>
 auto futurize_apply(Func&& func, std::tuple<Args...>&& args) noexcept;
-
-GCC6_CONCEPT(
-
-template <typename T>
-concept bool Future = is_future<T>::value;
-
-template <typename Func, typename... T>
-concept bool CanInvoke = requires (Func f, T... args) {
-    f(std::forward<T>(args)...);
-};
-
-// Deprecated alias
-template <typename Func, typename... T>
-concept bool CanApply = CanInvoke<Func, T...>;
-
-template <typename Func, typename Return, typename... T>
-concept bool InvokeReturns = requires (Func f, T... args) {
-    { f(std::forward<T>(args)...) } -> Return;
-};
-
-// Deprecated alias
-template <typename Func, typename Return, typename... T>
-concept bool ApplyReturns = InvokeReturns<Func, Return, T...>;
-
-template <typename Func, typename... T>
-concept bool InvokeReturnsAnyFuture = requires (Func f, T... args) {
-    requires is_future<decltype(f(std::forward<T>(args)...))>::value;
-};
-
-// Deprecated alias
-template <typename Func, typename... T>
-concept bool ApplyReturnsAnyFuture = InvokeReturnsAnyFuture<Func, T...>;
-
-)
 
 /// \addtogroup future-module
 /// @{
