@@ -359,6 +359,7 @@ private:
     void wakeup();
     size_t handle_aio_error(internal::linux_abi::iocb* iocb, int ec);
     bool flush_pending_aio();
+    bool reap_kernel_completions();
     bool flush_tcp_batches();
     bool do_expire_lowres_timers();
     bool do_check_lowres_timers() const;

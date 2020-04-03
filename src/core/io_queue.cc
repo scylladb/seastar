@@ -79,6 +79,17 @@ public:
     }
 };
 
+void
+io_queue::notify_requests_finished(fair_queue_request_descriptor& desc) {
+    _completed_accumulator += desc;
+}
+
+void
+io_queue::process_completions() {
+    fair_queue_request_descriptor zero = { 0, 0, 0 };
+    std::swap(zero, _completed_accumulator);
+    _fq.notify_requests_finished(zero);
+}
 
 fair_queue::config io_queue::make_fair_queue_config(config iocfg) {
     fair_queue::config cfg;

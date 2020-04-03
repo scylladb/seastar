@@ -1506,6 +1506,15 @@ reactor::flush_pending_aio() {
     return false;
 }
 
+bool
+reactor::reap_kernel_completions() {
+    auto reaped = _backend->reap_kernel_completions();
+    for (auto& ioq : my_io_queues) {
+        ioq->process_completions();
+    }
+    return reaped;
+}
+
 const io_priority_class& default_priority_class() {
     static thread_local auto shard_default_class = [] {
         return engine().register_one_priority_class("default", 1);
@@ -2284,7 +2293,7 @@ class reactor::reap_kernel_completions_pollfn final : public reactor::pollfn {
 public:
     reap_kernel_completions_pollfn(reactor& r) : _r(r) {}
     virtual bool poll() final override {
-        return _r._backend->reap_kernel_completions();
+        return _r.reap_kernel_completions();
     }
     virtual bool pure_poll() override final {
         return poll(); // actually performs work, but triggers no user continuations, so okay

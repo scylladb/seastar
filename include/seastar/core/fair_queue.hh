@@ -34,8 +34,15 @@ namespace seastar {
 ///
 /// \related fair_queue
 struct fair_queue_request_descriptor {
-    unsigned weight = 1; ///< the weight of this request for capacity purposes (IOPS).
-    unsigned size = 1;        ///< the effective size of this request
+    unsigned weight = 1; ///< the total weight of these requests for capacity purposes (IOPS).
+    unsigned size = 1;        ///< the total effective size of these requests
+    unsigned quantity = 1;  ///< the amount of requests represented in this descriptor
+    fair_queue_request_descriptor& operator+=(const fair_queue_request_descriptor& desc) {
+        weight += desc.weight;
+        size += desc.size;
+        quantity += desc.quantity;
+        return *this;
+    }
 };
 
 /// \addtogroup io-module

@@ -87,6 +87,7 @@ private:
 
     priority_class_data& find_or_create_class(const io_priority_class& pc, shard_id owner);
     friend class smp;
+    fair_queue_request_descriptor _completed_accumulator = { 0, 0, 0 };
 public:
     // We want to represent the fact that write requests are (maybe) more expensive
     // than read requests. To avoid dealing with floating point math we will scale one
@@ -128,10 +129,10 @@ public:
         return _fq.requests_currently_executing();
     }
 
+    void notify_requests_finished(fair_queue_request_descriptor& desc);
+
     // Inform the underlying queue about the fact that some of our requests finished
-    void notify_requests_finished(fair_queue_request_descriptor& desc) {
-        _fq.notify_requests_finished(desc);
-    }
+    void process_completions();
 
     // Dispatch requests that are pending in the I/O queue
     void poll_io_queue() {

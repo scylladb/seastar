@@ -96,7 +96,7 @@ void fair_queue::queue(priority_class_ptr pc, fair_queue_request_descriptor desc
 }
 
 void fair_queue::notify_requests_finished(fair_queue_request_descriptor& desc) {
-    _requests_executing--;
+    _requests_executing -= desc.quantity;
     _req_count_executing -= desc.weight;
     _bytes_count_executing -= desc.size;
 }
