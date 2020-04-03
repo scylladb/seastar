@@ -580,6 +580,9 @@ protected:
 
     friend class future_base;
     template <typename... U> friend class seastar::future;
+
+private:
+    void set_to_current_exception() noexcept;
 };
 
 /// \brief A promise with type but no local data.
@@ -835,6 +838,17 @@ struct futurize {
     /// Makes an exceptional future of type \ref type.
     template <typename Arg>
     static type make_exception_future(Arg&& arg) noexcept;
+
+private:
+    /// Forwards the result of, or exception thrown by, func() to the
+    /// promise. This avoids creating a future if func() doesn't
+    /// return one.
+    template<typename Func>
+    GCC6_CONCEPT( requires ::seastar::CanInvoke<Func> )
+    static void satisfy_with_result_of(internal::promise_base_with_type<T>&&, Func&& func);
+
+    template <typename... U>
+    friend class future;
 };
 
 /// \cond internal
@@ -859,6 +873,14 @@ struct futurize<void> {
 
     template <typename Arg>
     static type make_exception_future(Arg&& arg) noexcept;
+
+private:
+    template<typename Func>
+    GCC6_CONCEPT( requires ::seastar::CanInvoke<Func> )
+    static void satisfy_with_result_of(internal::promise_base_with_type<>&&, Func&& func);
+
+    template <typename... U>
+    friend class future;
 };
 
 template <typename... Args>
@@ -885,6 +907,14 @@ struct futurize<future<Args...>> {
 
     template <typename Arg>
     static type make_exception_future(Arg&& arg) noexcept;
+
+private:
+    template<typename Func>
+    GCC6_CONCEPT( requires ::seastar::CanInvoke<Func> )
+    static void satisfy_with_result_of(internal::promise_base_with_type<Args...>&&, Func&& func);
+
+    template <typename... U>
+    friend class future;
 };
 /// \endcond
 
@@ -1223,7 +1253,13 @@ private:
                 if (state.failed()) {
                     pr.set_exception(static_cast<future_state_base&&>(std::move(state)));
                 } else {
-                    futurator::apply(std::forward<Func>(func), std::move(state).get_value()).forward_to(std::move(pr));
+                    try {
+                        futurator::satisfy_with_result_of(std::move(pr), [&func, &state] {
+                            return ::seastar::apply(std::forward<Func>(func), std::move(state).get_value());
+                        });
+                    } catch (...) {
+                        pr.set_to_current_exception();
+                    }
                 }
             });
         } ();
@@ -1303,7 +1339,13 @@ private:
             using pr_type = decltype(fut.get_promise());
             memory::disable_failure_guard dfg;
             schedule(fut.get_promise(), [func = std::forward<Func>(func)] (pr_type& pr, future_state<T...>&& state) mutable {
-                futurator::invoke(std::forward<Func>(func), future(std::move(state))).forward_to(std::move(pr));
+                try {
+                    futurator::satisfy_with_result_of(std::move(pr), [&func, &state] {
+                        return func(future(std::move(state)));
+                    });
+                } catch (...) {
+                    pr.set_to_current_exception();
+                }
             });
         } ();
         return fut;
@@ -1536,6 +1578,8 @@ private:
     friend class future;
     template <typename... U>
     friend class promise;
+    template <typename U>
+    friend struct futurize;
     template <typename... U>
     friend class internal::promise_base_with_type;
     template <typename... U, typename... A>
@@ -1626,6 +1670,13 @@ typename futurize<T>::type futurize<T>::apply(Func&& func, std::tuple<FuncArgs..
 }
 
 template<typename T>
+template<typename Func>
+GCC6_CONCEPT( requires ::seastar::CanInvoke<Func> )
+void futurize<T>::satisfy_with_result_of(internal::promise_base_with_type<T>&& pr, Func&& func) {
+    pr.set_value(func());
+}
+
+template<typename T>
 template<typename Func, typename... FuncArgs>
 typename futurize<T>::type futurize<T>::invoke(Func&& func, FuncArgs&&... args) noexcept {
     try {
@@ -1651,6 +1702,13 @@ typename futurize<void>::type futurize<void>::apply(Func&& func, std::tuple<Func
     }
 }
 
+template<typename Func>
+GCC6_CONCEPT( requires ::seastar::CanInvoke<Func> )
+    void futurize<void>::satisfy_with_result_of(internal::promise_base_with_type<>&& pr, Func&& func) {
+    func();
+    pr.set_value();
+}
+
 template<typename Func, typename... FuncArgs>
 typename futurize<void>::type futurize<void>::invoke(Func&& func, FuncArgs&&... args) noexcept {
     try {
@@ -1674,6 +1732,13 @@ typename futurize<future<Args...>>::type futurize<future<Args...>>::apply(Func&&
     } catch (...) {
         return internal::current_exception_as_future<Args...>();
     }
+}
+
+template<typename... Args>
+template<typename Func>
+GCC6_CONCEPT( requires ::seastar::CanInvoke<Func> )
+void futurize<future<Args...>>::satisfy_with_result_of(internal::promise_base_with_type<Args...>&& pr, Func&& func) {
+    func().forward_to(std::move(pr));
 }
 
 template<typename... Args>

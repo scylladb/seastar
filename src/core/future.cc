@@ -67,6 +67,10 @@ promise_base::~promise_base() noexcept {
     }
 }
 
+void promise_base::set_to_current_exception() noexcept {
+    set_exception(std::current_exception());
+}
+
 template <promise_base::urgent Urgent>
 void promise_base::make_ready() noexcept {
     if (_task) {
