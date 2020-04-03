@@ -1401,7 +1401,7 @@ public:
         { }
 
         future<T...> operator()(future<T...>&& result) noexcept {
-            return futurize_invoke(_func).then_wrapped([result = std::move(result)](auto f_res) mutable {
+            return futurize_invoke(_func).then_wrapped([result = std::move(result)](auto&& f_res) mutable {
                 if (!f_res.failed()) {
                     return std::move(result);
                 } else {
