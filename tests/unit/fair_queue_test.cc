@@ -45,11 +45,11 @@ fair_queue::config make_config(unsigned capacity) {
 }
 
 struct request {
-    fair_queue_request_descriptor fqdesc;
+    fair_queue_ticket fqdesc;
     unsigned index;
 
     request(unsigned weight, unsigned index)
-        : fqdesc({weight, 0})
+        : fqdesc({weight, 0, 1})
         , index(index)
     {}
 };

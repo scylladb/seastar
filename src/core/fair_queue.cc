@@ -86,7 +86,7 @@ size_t fair_queue::requests_currently_executing() const {
     return _requests_executing;
 }
 
-void fair_queue::queue(priority_class_ptr pc, fair_queue_request_descriptor desc, noncopyable_function<void()> func) {
+void fair_queue::queue(priority_class_ptr pc, fair_queue_ticket desc, noncopyable_function<void()> func) {
     // We need to return a future in this function on which the caller can wait.
     // Since we don't know which queue we will use to execute the next request - if ours or
     // someone else's, we need a separate promise at this point.
@@ -95,7 +95,7 @@ void fair_queue::queue(priority_class_ptr pc, fair_queue_request_descriptor desc
     _requests_queued++;
 }
 
-void fair_queue::notify_requests_finished(fair_queue_request_descriptor& desc) {
+void fair_queue::notify_requests_finished(fair_queue_ticket desc) {
     _requests_executing -= desc.quantity;
     _req_count_executing -= desc.weight;
     _bytes_count_executing -= desc.size;

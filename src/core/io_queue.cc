@@ -41,20 +41,20 @@ using namespace internal::linux_abi;
 
 class io_desc_read_write final : public kernel_completion {
     io_queue* _ioq_ptr;
-    fair_queue_request_descriptor _fq_desc;
+    fair_queue_ticket _fq_ticket;
     promise<size_t> _pr;
 private:
     void notify_requests_finished() {
-        _ioq_ptr->notify_requests_finished(_fq_desc);
+        _ioq_ptr->notify_requests_finished(_fq_ticket);
     }
 public:
     io_desc_read_write(io_queue* ioq, unsigned weight, unsigned size)
         : _ioq_ptr(ioq)
-        , _fq_desc(fair_queue_request_descriptor{weight, size})
+        , _fq_ticket(fair_queue_ticket{weight, size, 1})
     {}
 
-    fair_queue_request_descriptor& fq_descriptor() {
-        return _fq_desc;
+    fair_queue_ticket& fq_ticket() {
+        return _fq_ticket;
     }
 
     void set_exception(std::exception_ptr eptr) {
@@ -80,15 +80,13 @@ public:
 };
 
 void
-io_queue::notify_requests_finished(fair_queue_request_descriptor& desc) {
+io_queue::notify_requests_finished(fair_queue_ticket& desc) {
     _completed_accumulator += desc;
 }
 
 void
 io_queue::process_completions() {
-    fair_queue_request_descriptor zero = { 0, 0, 0 };
-    std::swap(zero, _completed_accumulator);
-    _fq.notify_requests_finished(zero);
+    _fq.notify_requests_finished(std::exchange(_completed_accumulator, {}));
 }
 
 fair_queue::config io_queue::make_fair_queue_config(config iocfg) {
@@ -266,9 +264,9 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
             throw std::runtime_error(fmt::format("Unrecognized request passing through I/O queue {}", req.opname()));
         }
         auto desc = std::make_unique<io_desc_read_write>(this, weight, size);
-        auto fq_desc = desc->fq_descriptor();
+        auto fq_ticket = desc->fq_ticket();
         auto fut = desc->get_future();
-        _fq.queue(pclass.ptr, std::move(fq_desc), [&pclass, start, req = std::move(req), desc = desc.release(), len] () mutable noexcept {
+        _fq.queue(pclass.ptr, std::move(fq_ticket), [&pclass, start, req = std::move(req), desc = desc.release(), len] () mutable noexcept {
             try {
                 pclass.nr_queued--;
                 pclass.ops++;
