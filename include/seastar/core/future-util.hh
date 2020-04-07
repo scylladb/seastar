@@ -595,7 +595,24 @@ public:
         return _pr.get_future();
     }
 };
+
+template<typename Iterator, typename AsyncAction>
+inline
+future<> do_for_each_impl(Iterator begin, Iterator end, AsyncAction action) {
+    while (begin != end) {
+        auto f = futurize_invoke(action, *begin++);
+        if (f.failed()) {
+            return f;
+        }
+        if (!f.available() || need_preempt()) {
+            auto* s = new internal::do_for_each_state<Iterator, AsyncAction>{
+                std::move(begin), std::move(end), std::move(action), std::move(f)};
+            return s->get_future();
+        }
+    }
+    return make_ready_future<>();
 }
+} // namespace internal
 
 /// Call a function for each item in a range, sequentially (iterator version).
 ///
@@ -614,19 +631,12 @@ GCC6_CONCEPT( requires requires (Iterator i, AsyncAction aa) {
     { futurize_invoke(aa, *i) } -> future<>;
 } )
 inline
-future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) {
-    while (begin != end) {
-        auto f = futurize_invoke(action, *begin++);
-        if (f.failed()) {
-            return f;
-        }
-        if (!f.available() || need_preempt()) {
-            auto* s = new internal::do_for_each_state<Iterator, AsyncAction>{
-                std::move(begin), std::move(end), std::move(action), std::move(f)};
-            return s->get_future();
-        }
+future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) noexcept {
+    try {
+        return internal::do_for_each_impl(std::move(begin), std::move(end), std::move(action));
+    } catch (...) {
+        return internal::current_exception_as_future();
     }
-    return make_ready_future<>();
 }
 
 /// Call a function for each item in a range, sequentially (range version).
@@ -645,8 +655,12 @@ GCC6_CONCEPT( requires requires (Container c, AsyncAction aa) {
     { futurize_invoke(aa, *c.begin()) } -> future<>;
 } )
 inline
-future<> do_for_each(Container& c, AsyncAction action) {
-    return do_for_each(std::begin(c), std::end(c), std::move(action));
+future<> do_for_each(Container& c, AsyncAction action) noexcept {
+    try {
+        return internal::do_for_each_impl(std::begin(c), std::end(c), std::move(action));
+    } catch (...) {
+        return internal::current_exception_as_future();
+    }
 }
 
 /// \cond internal
