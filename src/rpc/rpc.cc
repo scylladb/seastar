@@ -13,7 +13,7 @@ namespace rpc {
         log(format("client {} msg_id {}:  {}", info.addr, msg_id, str));
     }
 
-    void logger::operator()(const client_info& info, id_type msg_id, log_level level, std::string_view str) const {
+    void logger::operator()(const client_info& info, id_type msg_id, log_level level, compat::string_view str) const {
         log(level, "client {} msg_id {}:  {}", info.addr, msg_id, str);
     }
 
@@ -21,7 +21,7 @@ namespace rpc {
         (*this)(info.addr, str);
     }
 
-    void logger::operator()(const client_info& info, log_level level, std::string_view str) const {
+    void logger::operator()(const client_info& info, log_level level, compat::string_view str) const {
         (*this)(info.addr, level, str);
     }
 
@@ -29,7 +29,7 @@ namespace rpc {
         log(format("client {}: {}", addr, str));
     }
 
-    void logger::operator()(const socket_address& addr, log_level level, std::string_view str) const {
+    void logger::operator()(const socket_address& addr, log_level level, compat::string_view str) const {
         log(level, "client {}: {}", addr, str);
     }
 
@@ -509,7 +509,7 @@ namespace rpc {
           s = "unknown exception";
       }
       auto formatted = format("{}: {}", log, s);
-      c.get_logger()(c.peer_address(), level, std::string_view(formatted.data(), formatted.size()));
+      c.get_logger()(c.peer_address(), level, compat::string_view(formatted.data(), formatted.size()));
   }
 
 
