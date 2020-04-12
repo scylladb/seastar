@@ -675,7 +675,7 @@ struct identity_futures_tuple {
         p.set_value(std::move(futures));
     }
 
-    static future_type make_ready_future(std::tuple<Futures...> futures) {
+    static future_type make_ready_future(std::tuple<Futures...> futures) noexcept {
         return futurize<future_type>::from_tuple(std::move(futures));
     }
 
@@ -746,7 +746,7 @@ class when_all_state_component final : public continuation_base_for_future_t<Fut
     when_all_state_base* _base;
     Future* _final_resting_place;
 public:
-    static bool process_element_func(void* future, void* continuation, when_all_state_base* wasb) {
+    static bool process_element_func(void* future, void* continuation, when_all_state_base* wasb) noexcept {
         auto f = reinterpret_cast<Future*>(future);
         if (f->available()) {
             return true;
@@ -806,7 +806,7 @@ private:
         (void)ignore;
     }
 public:
-    static typename ResolvedTupleTransform::future_type wait_all(Futures&&... futures) {
+    static typename ResolvedTupleTransform::future_type wait_all(Futures&&... futures) noexcept {
 #ifdef SEASTAR__WAIT_ALL__AVOID_ALLOCATION_WHEN_ALL_READY
         if ((futures.available() && ...)) {
             return ResolvedTupleTransform::make_ready_future(std::make_tuple(std::move(futures)...));
@@ -1240,22 +1240,22 @@ struct tuple_to_future<std::tuple<Elements...>> {
     using type = future<Elements...>;
     using promise_type = promise<Elements...>;
 
-    static auto make_ready(std::tuple<Elements...> t) {
+    static auto make_ready(std::tuple<Elements...> t) noexcept {
         auto create_future = [] (auto&&... args) {
             return make_ready_future<Elements...>(std::move(args)...);
         };
         return apply(create_future, std::move(t));
     }
 
-    static auto make_failed(std::exception_ptr excp) {
+    static auto make_failed(std::exception_ptr excp) noexcept {
         return seastar::make_exception_future<Elements...>(std::move(excp));
     }
 };
 
 template<typename... Futures>
 class extract_values_from_futures_tuple {
-    static auto transform(std::tuple<Futures...> futures) {
-        auto prepare_result = [] (auto futures) {
+    static auto transform(std::tuple<Futures...> futures) noexcept {
+        auto prepare_result = [] (auto futures) noexcept {
             auto fs = tuple_filter_by_type<internal::future_has_value>(std::move(futures));
             return tuple_map(std::move(fs), [] (auto&& e) {
                 return internal::untuple(e.get());
@@ -1288,7 +1288,7 @@ public:
         transform(std::move(tuple)).forward_to(std::move(p));
     }
 
-    static future_type make_ready_future(std::tuple<Futures...> tuple) {
+    static future_type make_ready_future(std::tuple<Futures...> tuple) noexcept {
         return transform(std::move(tuple));
     }
 
