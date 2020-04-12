@@ -957,11 +957,15 @@ template <typename FutureIterator>
 GCC6_CONCEPT( requires requires (FutureIterator i) { { *i++ }; requires is_future<std::remove_reference_t<decltype(*i)>>::value; } )
 inline
 future<std::vector<typename std::iterator_traits<FutureIterator>::value_type>>
-when_all(FutureIterator begin, FutureIterator end) {
+when_all(FutureIterator begin, FutureIterator end) noexcept {
     namespace si = internal;
     using itraits = std::iterator_traits<FutureIterator>;
     using result_transform = si::identity_futures_vector<typename itraits::value_type>;
-    return si::do_when_all<result_transform>(std::move(begin), std::move(end));
+    try {
+        return si::do_when_all<result_transform>(std::move(begin), std::move(end));
+    } catch (...) {
+        return result_transform::current_exception_as_future();
+    }
 }
 
 template <typename T, bool IsFuture>
@@ -1398,10 +1402,14 @@ GCC6_CONCEPT( requires requires (FutureIterator i) {
      requires is_future<std::remove_reference_t<decltype(*i)>>::value;
 } )
 inline auto
-when_all_succeed(FutureIterator begin, FutureIterator end) {
+when_all_succeed(FutureIterator begin, FutureIterator end) noexcept {
     using itraits = std::iterator_traits<FutureIterator>;
     using result_transform = internal::extract_values_from_futures_vector<typename itraits::value_type>;
-    return internal::do_when_all<result_transform>(std::move(begin), std::move(end));
+    try {
+        return internal::do_when_all<result_transform>(std::move(begin), std::move(end));
+    } catch (...) {
+        return result_transform::current_exception_as_future();
+    }
 }
 
 }
