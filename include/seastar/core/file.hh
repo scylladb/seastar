@@ -237,7 +237,7 @@ public:
     template <typename CharType>
     future<size_t>
     dma_read(uint64_t aligned_pos, CharType* aligned_buffer, size_t aligned_len, const io_priority_class& pc = default_priority_class()) {
-        return _file_impl->read_dma(aligned_pos, aligned_buffer, aligned_len, pc);
+        return dma_read_impl(aligned_pos, reinterpret_cast<uint8_t*>(aligned_buffer), aligned_len, pc);
     }
 
     /**
@@ -257,13 +257,8 @@ public:
      */
     template <typename CharType>
     future<temporary_buffer<CharType>> dma_read(uint64_t pos, size_t len, const io_priority_class& pc = default_priority_class()) {
-        return dma_read_bulk<CharType>(pos, len, pc).then(
-                [len] (temporary_buffer<CharType> buf) {
-            if (len < buf.size()) {
-                buf.trim(len);
-            }
-
-            return SEASTAR_COPY_ELISION(buf);
+        return dma_read_impl(pos, len, pc).then([] (temporary_buffer<uint8_t> t) {
+            return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
 
@@ -285,13 +280,8 @@ public:
     template <typename CharType>
     future<temporary_buffer<CharType>>
     dma_read_exactly(uint64_t pos, size_t len, const io_priority_class& pc = default_priority_class()) {
-        return dma_read<CharType>(pos, len, pc).then(
-                [pos, len] (auto buf) {
-            if (buf.size() < len) {
-                throw eof_error();
-            }
-
-            return SEASTAR_COPY_ELISION(buf);
+        return dma_read_exactly_impl(pos, len, pc).then([] (temporary_buffer<uint8_t> t) {
+            return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
 
@@ -304,9 +294,7 @@ public:
     ///
     /// \return a future representing the number of bytes actually read.  A short
     ///         read may happen due to end-of-file or an I/O error.
-    future<size_t> dma_read(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class()) {
-        return _file_impl->read_dma(pos, std::move(iov), pc);
-    }
+    future<size_t> dma_read(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class());
 
     /// Performs a DMA write from the specified buffer.
     ///
@@ -320,7 +308,7 @@ public:
     ///         write may happen due to an I/O error.
     template <typename CharType>
     future<size_t> dma_write(uint64_t pos, const CharType* buffer, size_t len, const io_priority_class& pc = default_priority_class()) {
-        return _file_impl->write_dma(pos, buffer, len, pc);
+        return dma_write_impl(pos, reinterpret_cast<const uint8_t*>(buffer), len, pc);
     }
 
     /// Performs a DMA write to the specified iovec.
@@ -332,27 +320,19 @@ public:
     ///
     /// \return a future representing the number of bytes actually written.  A short
     ///         write may happen due to an I/O error.
-    future<size_t> dma_write(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class()) {
-        return _file_impl->write_dma(pos, std::move(iov), pc);
-    }
+    future<size_t> dma_write(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class());
 
     /// Causes any previously written data to be made stable on persistent storage.
     ///
     /// Prior to a flush, written data may or may not survive a power failure.  After
     /// a flush, data is guaranteed to be on disk.
-    future<> flush() {
-        return _file_impl->flush();
-    }
+    future<> flush();
 
     /// Returns \c stat information about the file.
-    future<struct stat> stat() {
-        return _file_impl->stat();
-    }
+    future<struct stat> stat();
 
     /// Truncates the file to a specified length.
-    future<> truncate(uint64_t length) {
-        return _file_impl->truncate(length);
-    }
+    future<> truncate(uint64_t length);
 
     /// Preallocate disk blocks for a specified byte range.
     ///
@@ -366,22 +346,16 @@ public:
     ///                 blocks.
     /// \parm length length of range to allocate.
     /// \return future that becomes ready when the operation completes.
-    future<> allocate(uint64_t position, uint64_t length) {
-        return _file_impl->allocate(position, length);
-    }
+    future<> allocate(uint64_t position, uint64_t length);
 
     /// Discard unneeded data from the file.
     ///
     /// The discard operation tells the file system that a range of offsets
     /// (which be aligned) is no longer needed and can be reused.
-    future<> discard(uint64_t offset, uint64_t length) {
-        return _file_impl->discard(offset, length);
-    }
+    future<> discard(uint64_t offset, uint64_t length);
 
     /// Gets the file size.
-    future<uint64_t> size() const {
-        return _file_impl->size();
-    }
+    future<uint64_t> size() const;
 
     /// Closes the file.
     ///
@@ -391,14 +365,10 @@ public:
     /// \note
     /// to ensure file data reaches stable storage, you must call \ref flush()
     /// before calling \c close().
-    future<> close() {
-        return _file_impl->close();
-    }
+    future<> close();
 
     /// Returns a directory listing, given that this file object is a directory.
-    subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) {
-        return _file_impl->list_directory(std::move(next));
-    }
+    subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next);
 
     /**
      * Read a data bulk containing the provided addresses range that starts at
@@ -416,7 +386,7 @@ public:
     template <typename CharType>
     future<temporary_buffer<CharType>>
     dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc = default_priority_class()) {
-        return _file_impl->dma_read_bulk(offset, range_size, pc).then([] (temporary_buffer<uint8_t> t) {
+        return dma_read_bulk_impl(offset, range_size, pc).then([] (temporary_buffer<uint8_t> t) {
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
@@ -434,6 +404,21 @@ public:
     template <typename CharType>
     struct read_state;
 private:
+    future<temporary_buffer<uint8_t>>
+    dma_read_bulk_impl(uint64_t offset, size_t range_size, const io_priority_class& pc);
+
+    future<size_t>
+    dma_write_impl(uint64_t pos, const uint8_t* buffer, size_t len, const io_priority_class& pc);
+
+    future<temporary_buffer<uint8_t>>
+    dma_read_impl(uint64_t pos, size_t len, const io_priority_class& pc);
+
+    future<size_t>
+    dma_read_impl(uint64_t aligned_pos, uint8_t* aligned_buffer, size_t aligned_len, const io_priority_class& pc);
+
+    future<temporary_buffer<uint8_t>>
+    dma_read_exactly_impl(uint64_t pos, size_t len, const io_priority_class& pc);
+
     friend class reactor;
     friend class file_impl;
 };
