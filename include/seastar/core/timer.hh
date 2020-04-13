@@ -27,6 +27,7 @@
 #include <functional>
 #include <seastar/core/future.hh>
 #include <seastar/core/timer-set.hh>
+#include <seastar/core/scheduling.hh>
 
 namespace seastar {
 
@@ -41,6 +42,7 @@ public:
 private:
     using callback_t = noncopyable_function<void()>;
     boost::intrusive::list_member_hook<> _link;
+    scheduling_group _sg;
     callback_t _callback;
     time_point _expiry;
     compat::optional<duration> _period;
@@ -58,17 +60,23 @@ private:
     }
 public:
     timer() = default;
-    timer(timer&& t) noexcept : _callback(std::move(t._callback)), _expiry(std::move(t._expiry)), _period(std::move(t._period)),
+    timer(timer&& t) noexcept : _sg(t._sg), _callback(std::move(t._callback)), _expiry(std::move(t._expiry)), _period(std::move(t._period)),
             _armed(t._armed), _queued(t._queued), _expired(t._expired) {
         _link.swap_nodes(t._link);
         t._queued = false;
         t._armed = false;
     }
-    explicit timer(callback_t&& callback) : _callback{std::move(callback)} {
+    timer(scheduling_group sg, callback_t&& callback) : _sg(sg), _callback{std::move(callback)} {
+    }
+    explicit timer(callback_t&& callback) : timer(current_scheduling_group(), std::move(callback)) {
     }
     ~timer();
-    void set_callback(callback_t&& callback) {
+    void set_callback(scheduling_group sg, callback_t&& callback) {
+        _sg = sg;
         _callback = std::move(callback);
+    }
+    void set_callback(callback_t&& callback) {
+        set_callback(current_scheduling_group(), std::move(callback));
     }
     void arm(time_point until, compat::optional<duration> period = {});
     void rearm(time_point until, compat::optional<duration> period = {}) {

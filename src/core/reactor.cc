@@ -1226,12 +1226,14 @@ void reactor::complete_timers(T& timers, E& expired_timers, EnableFunc&& enable_
                 t->readd_periodic();
             }
             try {
+                *internal::current_scheduling_group_ptr() = t->_sg;
                 t->_callback();
             } catch (...) {
                 seastar_logger.error("Timer callback failed: {}", std::current_exception());
             }
         }
     }
+    *internal::current_scheduling_group_ptr() = default_scheduling_group();
     enable_fn();
 }
 
