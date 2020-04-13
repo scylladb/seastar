@@ -597,7 +597,9 @@ public:
     void add_high_priority_task(task*) noexcept;
 
     network_stack& net() { return *_network_stack; }
-    shard_id cpu_id() const { return _id; }
+
+    [[deprecated("Use this_shard_id")]]
+    shard_id cpu_id() const;
 
     void sleep();
 

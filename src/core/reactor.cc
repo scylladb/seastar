@@ -166,6 +166,11 @@ namespace seastar {
 seastar::logger seastar_logger("seastar");
 seastar::logger sched_logger("scheduler");
 
+shard_id reactor::cpu_id() const {
+    assert(_id == this_shard_id());
+    return _id;
+}
+
 io_priority_class
 reactor::register_one_priority_class(sstring name, uint32_t shares) {
     return io_queue::register_one_priority_class(std::move(name), shares);
