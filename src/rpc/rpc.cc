@@ -613,9 +613,11 @@ namespace rpc {
   }
 
   future<> client::stop() {
-      if (!_error) {
-          _error = true;
+      _error = true;
+      try {
           _socket.shutdown();
+      } catch(...) {
+          log_exception(*this, log_level::error, "fail to shutdown connection while stopping", std::current_exception());
       }
       return _stopped.get_future();
   }
