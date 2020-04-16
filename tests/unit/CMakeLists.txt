@@ -297,6 +297,9 @@ seastar_add_test (fair_queue
 seastar_add_test (file_io
   SOURCES file_io_test.cc)
 
+seastar_add_test (file_utils
+  SOURCES file_utils_test.cc)
+
 seastar_add_test (foreign_ptr
   SOURCES foreign_ptr_test.cc)
 

@@ -20,8 +20,13 @@
  * Copyright 2020 ScyllaDB
  */
 
-#include <seastar/core/seastar.hh>
+#include <iostream>
+#include <list>
+#include <deque>
+
 #include <seastar/core/reactor.hh>
+#include <seastar/core/seastar.hh>
+#include <seastar/util/file.hh>
 
 namespace seastar {
 
@@ -132,6 +137,67 @@ future<> link_file(sstring oldpath, sstring newpath) noexcept {
 
 future<> chmod(sstring name, file_permissions permissions) noexcept {
     return engine().chmod(std::move(name), permissions);
+}
+
+static future<> do_recursive_remove_directory(const fs::path path) noexcept {
+    struct work_entry {
+        const fs::path path;
+        bool listed;
+
+        work_entry(const fs::path path, bool listed)
+                : path(std::move(path))
+                , listed(listed)
+        {
+        }
+    };
+
+    return do_with(std::deque<work_entry>(), [path = std::move(path)] (auto& work_queue) mutable {
+        work_queue.emplace_back(std::move(path), false);
+        return do_until([&work_queue] { return work_queue.empty(); }, [&work_queue] () mutable {
+            auto ent = work_queue.back();
+            work_queue.pop_back();
+            if (ent.listed) {
+                return remove_file(ent.path.native());
+            } else {
+                work_queue.emplace_back(ent.path, true);
+                return do_with(std::move(ent.path), [&work_queue] (const fs::path& path) {
+                    return open_directory(path.native()).then([&path, &work_queue] (file dir) mutable {
+                        return do_with(std::move(dir), [&path, &work_queue] (file& dir) mutable {
+                            return dir.list_directory([&path, &work_queue] (directory_entry de) mutable {
+                                const fs::path sub_path = path / de.name.c_str();
+                                if (de.type && *de.type == directory_entry_type::directory) {
+                                    work_queue.emplace_back(std::move(sub_path), false);
+                                } else {
+                                    work_queue.emplace_back(std::move(sub_path), true);
+                                }
+                                return make_ready_future<>();
+                            }).done().then([&dir] () mutable {
+                                return dir.close();
+                            });
+                        });
+                    });
+                });
+            }
+        });
+    });
+}
+
+future<> recursive_remove_directory(fs::path path) noexcept {
+    sstring parent;
+    try {
+        parent = (path / "..").native();
+    } catch (...) {
+        return internal::current_exception_as_future();
+    }
+    return open_directory(std::move(parent)).then([path = std::move(path)] (file parent) mutable {
+        return do_with(std::move(parent), [path = std::move(path)] (file& parent) mutable {
+            return do_recursive_remove_directory(std::move(path)).then([&parent] {
+                return parent.flush().then([&parent] () mutable {
+                    return parent.close();
+                });
+            });
+        });
+    });
 }
 
 } //namespace seastar

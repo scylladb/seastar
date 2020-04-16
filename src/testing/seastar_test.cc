@@ -68,6 +68,34 @@ seastar_test::seastar_test() {
     tests->push_back(this);
 }
 
+namespace exception_predicate {
+
+std::function<bool(const std::exception&)> message_equals(compat::string_view expected_message) {
+    return [expected_message] (const std::exception& e) {
+        std::string error = e.what();
+        if (error == expected_message) {
+            return true;
+        } else {
+            std::cerr << "Expected \"" << expected_message << "\" but got \"" << error << '"' << std::endl;
+            return false;
+        }
+    };
+}
+
+std::function<bool(const std::exception&)> message_contains(compat::string_view expected_message) {
+    return [expected_message] (const std::exception& e) {
+        std::string error = e.what();
+        if (error.find(expected_message.data()) != std::string::npos) {
+            return true;
+        } else {
+            std::cerr << "Expected \"" << expected_message << "\" but got \"" << error << '"' << std::endl;
+            return false;
+        }
+    };
+}
+
+} // exception_predicate
+
 }
 
 }
