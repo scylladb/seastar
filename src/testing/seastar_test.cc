@@ -21,6 +21,7 @@
  */
 
 #include <thread>
+#include <iostream>
 
 #include <seastar/testing/entry_point.hh>
 #include <seastar/testing/seastar_test.hh>
