@@ -712,7 +712,7 @@ public:
 
 template <typename Func> // signature: bool ()
 inline
-std::unique_ptr<reactor::pollfn>
+std::unique_ptr<seastar::pollfn>
 internal::make_pollfn(Func&& func) {
     struct the_pollfn : pollfn {
         the_pollfn(Func&& func) : func(std::forward<Func>(func)) {}
