@@ -384,7 +384,9 @@ namespace rpc {
                   if (one) {
                       p = net::packet(std::move(p), std::move(*one));
                   } else {
-                      for (auto&& b : compat::get<std::vector<temporary_buffer<char>>>(eb.bufs)) {
+                      auto&& bufs = compat::get<std::vector<temporary_buffer<char>>>(eb.bufs);
+                      p.reserve(bufs.size());
+                      for (auto&& b : bufs) {
                           p = net::packet(std::move(p), std::move(b));
                       }
                   }
