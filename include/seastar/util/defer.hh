@@ -21,6 +21,9 @@
 
 #pragma once
 
+#include <type_traits>
+#include <utility>
+
 namespace seastar {
 
 template <typename Func>
