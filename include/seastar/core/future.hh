@@ -393,8 +393,6 @@ struct future_state :  public future_state_base, private internal::uninitialized
                   "Types must be no-throw move constructible");
     static_assert(std::is_nothrow_destructible<std::tuple<T...>>::value,
                   "Types must be no-throw destructible");
-    static_assert(std::is_nothrow_move_constructible<future_state_base>::value,
-                  "future_state_base's move constructor must not throw");
     future_state() noexcept {}
     [[gnu::always_inline]]
     future_state(future_state&& x) noexcept : future_state_base(std::move(x)) {
@@ -477,6 +475,11 @@ struct future_state :  public future_state_base, private internal::uninitialized
         return internal::get0_return_type<T...>::get0(std::move(x));
     }
 };
+
+// We can't test future_state_base directly because its private
+// destructor is protected.
+static_assert(std::is_nothrow_move_constructible<future_state<int>>::value,
+              "future_state's move constructor must not throw");
 
 static_assert(sizeof(future_state<>) <= 8, "future_state<> is too large");
 static_assert(sizeof(future_state<long>) <= 16, "future_state<long> is too large");
