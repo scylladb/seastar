@@ -87,7 +87,7 @@ private:
 
     priority_class_data& find_or_create_class(const io_priority_class& pc, shard_id owner);
     friend class smp;
-    fair_queue_ticket _completed_accumulator = { 0, 0, 0 };
+    fair_queue_ticket _completed_accumulator = { 0, 0 };
 public:
     // We want to represent the fact that write requests are (maybe) more expensive
     // than read requests. To avoid dealing with floating point math we will scale one
@@ -102,7 +102,6 @@ public:
     struct config {
         shard_id coordinator;
         std::vector<shard_id> io_topology;
-        unsigned capacity = std::numeric_limits<unsigned>::max();
         unsigned max_req_count = std::numeric_limits<unsigned>::max();
         unsigned max_bytes_count = std::numeric_limits<unsigned>::max();
         unsigned disk_req_write_to_read_multiplier = read_request_base_count;
@@ -115,10 +114,6 @@ public:
 
     future<size_t>
     queue_request(const io_priority_class& pc, size_t len, internal::io_request req) noexcept;
-
-    size_t capacity() const {
-        return _config.capacity;
-    }
 
     size_t queued_requests() const {
         return _fq.waiters();

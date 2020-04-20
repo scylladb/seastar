@@ -34,16 +34,15 @@ namespace seastar {
 ///
 /// \related fair_queue
 struct fair_queue_ticket {
-    unsigned weight = 0; ///< the total weight of these requests for capacity purposes (IOPS).
-    unsigned size = 0;        ///< the total effective size of these requests
-    unsigned quantity = 0;  ///< the amount of requests represented in this descriptor
+    uint32_t weight = 0; ///< the total weight of these requests for capacity purposes (IOPS).
+    uint32_t size = 0;        ///< the total effective size of these requests
     fair_queue_ticket& operator+=(const fair_queue_ticket& desc) {
         weight += desc.weight;
         size += desc.size;
-        quantity += desc.quantity;
         return *this;
     }
 };
+static_assert(sizeof(fair_queue_ticket) == sizeof(uint64_t));
 
 /// \addtogroup io-module
 /// @{
@@ -110,7 +109,6 @@ public:
     /// \sets the operation parameters of a \ref fair_queue
     /// \related fair_queue
     struct config {
-        unsigned capacity = std::numeric_limits<unsigned>::max();
         std::chrono::microseconds tau = std::chrono::milliseconds(100);
         unsigned max_req_count = std::numeric_limits<unsigned>::max();
         unsigned max_bytes_count = std::numeric_limits<unsigned>::max();
@@ -153,12 +151,12 @@ public:
         , _base(std::chrono::steady_clock::now())
     {}
 
-    /// Constructs a fair queue with a given \c capacity.
+    /// Constructs a fair queue with a given \c capacity, expressed in IOPS.
     ///
     /// \param capacity how many concurrent requests are allowed in this queue.
     /// \param tau the queue exponential decay parameter, as in exp(-1/tau * t)
     explicit fair_queue(unsigned capacity, std::chrono::microseconds tau = std::chrono::milliseconds(100))
-        : fair_queue(config{capacity, tau}) {}
+        : fair_queue(config{tau, capacity}) {}
 
     /// Registers a priority class against this fair queue.
     ///

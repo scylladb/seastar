@@ -50,7 +50,7 @@ private:
 public:
     io_desc_read_write(io_queue* ioq, unsigned weight, unsigned size)
         : _ioq_ptr(ioq)
-        , _fq_ticket(fair_queue_ticket{weight, size, 1})
+        , _fq_ticket(fair_queue_ticket{weight, size})
     {}
 
     fair_queue_ticket& fq_ticket() {
@@ -91,7 +91,6 @@ io_queue::process_completions() {
 
 fair_queue::config io_queue::make_fair_queue_config(config iocfg) {
     fair_queue::config cfg;
-    cfg.capacity = std::min(iocfg.capacity, reactor::max_aio_per_queue);
     cfg.max_req_count = iocfg.max_req_count;
     cfg.max_bytes_count = iocfg.max_bytes_count;
     return cfg;

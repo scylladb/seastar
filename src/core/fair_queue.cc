@@ -62,7 +62,6 @@ void fair_queue::normalize_stats() {
 
 bool fair_queue::can_dispatch() const {
     return _requests_queued &&
-           (_requests_executing < _config.capacity) &&
            (_req_count_executing < _config.max_req_count) &&
            (_bytes_count_executing < _config.max_bytes_count);
 }
@@ -96,7 +95,6 @@ void fair_queue::queue(priority_class_ptr pc, fair_queue_ticket desc, noncopyabl
 }
 
 void fair_queue::notify_requests_finished(fair_queue_ticket desc) {
-    _requests_executing -= desc.quantity;
     _req_count_executing -= desc.weight;
     _bytes_count_executing -= desc.size;
 }
