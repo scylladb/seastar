@@ -39,6 +39,8 @@ parser.add_argument('-debug', help='debug level 0 -quite,1-error,2-verbose',
                     default='1', type=int)
 parser.add_argument('-combined', help='set the name of the combined file',
                     default='autogen/pathautogen.ee')
+parser.add_argument('--create-cc', dest='create_cc', action='store_true', default=False,
+                    help='Put global variables in a .cc file')
 config = parser.parse_args()
 
 
@@ -332,9 +334,19 @@ def to_path(path, data):
 
 def create_h_file(data, hfile_name, api_name, init_method, base_api):
     if config.o != '':
-        hfile = open(config.o, "w")
+        final_hfile_name = config.o
     else:
-        hfile = open(config.outdir + "/" + hfile_name, "w")
+        final_hfile_name = config.outdir + "/" + hfile_name
+    hfile = open(final_hfile_name, "w")
+
+    if config.create_cc:
+        ccfile = open(final_hfile_name.rstrip('.hh') + ".cc", "w")
+        add_include(ccfile, ['"{}"'.format(final_hfile_name)])
+        open_namespace(ccfile, "seastar")
+        open_namespace(ccfile, "httpd")
+        open_namespace(ccfile, api_name)
+    else:
+        ccfile = hfile
     print_h_file_headers(hfile, api_name)
     add_include(hfile, ['<seastar/core/sstring.hh>',
                         '<seastar/json/json_elements.hh>',
@@ -418,9 +430,15 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                     vals.reverse()
                     base_url = path[:param_starts]
 
-                fprintln(hfile, 'static const path_description ', getitem(oper, "nickname", oper), '("', clear_path_ending(base_url),
+                varname = getitem(oper, "nickname", oper)
+                if config.create_cc:
+                    fprintln(hfile, 'extern const path_description ', varname, ';')
+                    maybe_static = ''
+                else:
+                    maybe_static = 'static '
+                fprintln(ccfile, maybe_static, 'const path_description ', varname, '("', clear_path_ending(base_url),
                        '",', oper["method"], ',"', oper["nickname"], '",')
-                fprint(hfile, '{')
+                fprint(ccfile, '{')
                 first = True
                 while vals:
                     path_param, is_url = clean_param(vals.pop())
@@ -429,32 +447,33 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                     if first == True:
                         first = False
                     else:
-                        fprint(hfile, "\n,")
+                        fprint(ccfile, "\n,")
                     if is_url:
-                        fprint(hfile, '{', '"/', path_param , '", path_description::url_component_type::FIXED_STRING', '}')
+                        fprint(ccfile, '{', '"/', path_param , '", path_description::url_component_type::FIXED_STRING', '}')
                     else:
                         path_param_type = get_parameter_by_name(oper, path_param)
                         if ("allowMultiple" in path_param_type and
                             path_param_type["allowMultiple"] == True):
-                            fprint(hfile, '{', '"', path_param , '", path_description::url_component_type::PARAM_UNTIL_END_OF_PATH', '}')
+                            fprint(ccfile, '{', '"', path_param , '", path_description::url_component_type::PARAM_UNTIL_END_OF_PATH', '}')
                         else:
-                            fprint(hfile, '{', '"', path_param , '", path_description::url_component_type::PARAM', '}')
-                fprint(hfile, '}')
-                fprint(hfile, ',{')
+                            fprint(ccfile, '{', '"', path_param , '", path_description::url_component_type::PARAM', '}')
+                fprint(ccfile, '}')
+                fprint(ccfile, ',{')
                 first = True
                 enum_definitions = ""
                 if "enum" in oper:
                     enum_definitions = ("namespace ns_" + oper["nickname"] + " {\n" +
                                        create_enum_wrapper(oper["nickname"], "return_type", oper["enum"]) +
                                        "}\n")
+                funcs = ""
                 if "parameters" in oper:
                     for param in oper["parameters"]:
                         if is_required_query_param(param):
                             if first == True:
                                 first = False
                             else:
-                                fprint(hfile, "\n,")
-                            fprint(hfile, '"', param["name"], '"')
+                                fprint(ccfile, "\n,")
+                            fprint(ccfile, '"', param["name"], '"')
                         if "enum" in param:
                             enum_definitions = enum_definitions + 'namespace ns_' + oper["nickname"] + '{\n'
                             enm = param["name"]
@@ -462,20 +481,32 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                             for val in param["enum"]:
                                 enum_definitions = enum_definitions + val + ", "
                             enum_definitions = enum_definitions + 'NUM_ITEMS};\n'
-                            enum_definitions = enum_definitions + enm + ' str2' + enm + '(const sstring& str) {\n'
-                            enum_definitions = enum_definitions + '  static const sstring arr[] = {"' + '","'.join(param["enum"]) + '"};\n'
-                            enum_definitions = enum_definitions + '  int i;\n'
-                            enum_definitions = enum_definitions + '  for (i=0; i < ' + str(len(param["enum"])) + '; i++) {\n'
-                            enum_definitions = enum_definitions + '    if (arr[i] == str) {return (' + enm + ')i;}\n}\n'
-                            enum_definitions = enum_definitions + '  return (' + enm + ')i;\n'
-                            enum_definitions = enum_definitions + '}\n}\n'
+                            enum_definitions = enum_definitions + enm + ' str2' + enm + '(const sstring& str);'
 
-                fprintln(hfile, '});')
+                            funcs = funcs + enm + ' str2' + enm + '(const sstring& str) {\n'
+                            funcs = funcs + '  static const sstring arr[] = {"' + '","'.join(param["enum"]) + '"};\n'
+                            funcs = funcs + '  int i;\n'
+                            funcs = funcs + '  for (i=0; i < ' + str(len(param["enum"])) + '; i++) {\n'
+                            funcs = funcs + '    if (arr[i] == str) {return (' + enm + ')i;}\n}\n'
+                            funcs = funcs + '  return (' + enm + ')i;\n'
+                            funcs = funcs + '}\n'
+
+                            enum_definitions = enum_definitions + '}\n'
+
+                fprintln(ccfile, '});')
                 fprintln(hfile, enum_definitions)
+                open_namespace(ccfile, 'ns_' + oper["nickname"])
+                fprintln(ccfile, funcs)
+                close_namespace(ccfile)
 
     close_namespace(hfile)
     close_namespace(hfile)
     close_namespace(hfile)
+    if config.create_cc:
+        close_namespace(ccfile)
+        close_namespace(ccfile)
+        close_namespace(ccfile)
+
     hfile.write("#endif //__JSON_AUTO_GENERATED_HEADERS\n")
     hfile.close()
 
