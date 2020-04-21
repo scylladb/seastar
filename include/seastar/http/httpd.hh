@@ -341,16 +341,7 @@ public:
     }
     // Write the current date in the specific "preferred format" defined in
     // RFC 7231, Section 7.1.1.1.
-    // FIXME: This implementation assumes the current locale is "C" or English,
-    // otherwise it will generate day and month names in the wrong language.
-    static sstring http_date() {
-        auto t = ::time(nullptr);
-        struct tm tm;
-        gmtime_r(&t, &tm);
-        char tmp[100];
-        strftime(tmp, sizeof(tmp), "%a, %d %b %Y %H:%M:%S GMT", &tm);
-        return tmp;
-    }
+    static sstring http_date();
 private:
     boost::intrusive::list<connection> _connections;
     friend class seastar::httpd::connection;

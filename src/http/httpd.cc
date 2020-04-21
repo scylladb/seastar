@@ -304,6 +304,28 @@ future<bool> connection::generate_reply(std::unique_ptr<request> req) {
         return make_ready_future<bool>(should_close);
     });
 }
+
+// Write the current date in the specific "preferred format" defined in
+// RFC 7231, Section 7.1.1.1, a.k.a. IMF (Internet Message Format) fixdate.
+// For example: Sun, 06 Nov 1994 08:49:37 GMT
+sstring http_server::http_date() {
+    auto t = ::time(nullptr);
+    struct tm tm;
+    gmtime_r(&t, &tm);
+    // Using strftime() would have been easier, but unfortunately relies on
+    // the current locale, and we need the month and day names in English.
+    static const char* days[] = {
+        "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
+    };
+    static const char* months[] = {
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    };
+    return seastar::format("{}, {:02d} {} {} {:02d}:{:02d}:{:02d} GMT",
+        days[tm.tm_wday], tm.tm_mday, months[tm.tm_mon], 1900 + tm.tm_year,
+        tm.tm_hour, tm.tm_min, tm.tm_sec);
+}
+
 }
 
 }
