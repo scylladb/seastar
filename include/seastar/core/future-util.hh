@@ -764,7 +764,7 @@ public:
             return false;
         }
     }
-    when_all_state_component(when_all_state_base *base, Future* future) : _base(base), _final_resting_place(future) {}
+    when_all_state_component(when_all_state_base *base, Future* future) noexcept : _base(base), _final_resting_place(future) {}
     task* waiting_task() noexcept override { return _base->waiting_task(); }
     virtual void run_and_dispose() noexcept override {
         using futurator = futurize<Future>;
