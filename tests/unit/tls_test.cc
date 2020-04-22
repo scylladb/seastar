@@ -185,7 +185,7 @@ SEASTAR_TEST_CASE(test_non_tls) {
     auto f = connect_to_ssl_addr(b.build_certificate_credentials(), addr);
 
 
-    return c.then([this, f = std::move(f)](accept_result ar) mutable {
+    return c.then([f = std::move(f)](accept_result ar) mutable {
         ::connected_socket s = std::move(ar.connection);
         std::cerr << "Established connection" << std::endl;
         auto sp = std::make_unique<::connected_socket>(std::move(s));
@@ -411,7 +411,7 @@ static future<> run_echo_test(sstring message,
             return tls::connect(certs, addr, name).then([loops, msg, do_read](::connected_socket s) {
                 auto strms = ::make_lw_shared<streams>(std::move(s));
                 auto range = boost::irange(0, loops);
-                return do_for_each(range, [strms, msg, do_read](auto) {
+                return do_for_each(range, [strms, msg](auto) {
                     auto f = strms->out.write(*msg);
                     return f.then([strms, msg]() {
                         return strms->out.flush().then([strms, msg] {

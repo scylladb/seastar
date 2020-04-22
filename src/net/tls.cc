@@ -990,7 +990,7 @@ public:
                 // handshake aqcuire, because in worst case, we get here while a reader is attempting
                 // re-handshake.
                 return with_semaphore(_in_sem, 1, [this] {
-                    return with_semaphore(_out_sem, 1, [this] {});
+                    return with_semaphore(_out_sem, 1, [] {});
                 });
             }).then_wrapped([me = std::move(me)](future<> f) { // must keep object alive until here.
                 f.ignore_ready_future();

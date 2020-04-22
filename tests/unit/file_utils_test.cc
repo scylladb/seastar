@@ -132,7 +132,7 @@ SEASTAR_THREAD_TEST_CASE(test_recursive_remove_directory) {
                 return parallel_for_each(sub_files, [this] (auto& name) {
                     return touch_file((path() / name.c_str()).native());
                 }).then([this] {
-                    return parallel_for_each(sub_dirs, [this] (auto& sub_dir) {
+                    return parallel_for_each(sub_dirs, [] (auto& sub_dir) {
                         return sub_dir.populate();
                     });
                 });
