@@ -743,7 +743,7 @@ public:
         ++_nr_remain; // fake pending completion for complete_one()
         complete_one();
     }
-    bool process_one(size_t idx) {
+    bool process_one(size_t idx) noexcept {
         auto p = _processors[idx];
         return p.func(p.future, _continuation, this);
     }
