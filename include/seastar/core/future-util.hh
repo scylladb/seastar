@@ -707,7 +707,7 @@ class when_all_state_base;
 
 // If the future is ready, return true
 // if the future is not ready, chain a continuation to it, and return false
-using when_all_process_element_func = bool (*)(void* future, void* continuation, when_all_state_base* wasb);
+using when_all_process_element_func = bool (*)(void* future, void* continuation, when_all_state_base* wasb) noexcept;
 
 struct when_all_process_element {
     when_all_process_element_func func;
