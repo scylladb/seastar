@@ -728,11 +728,9 @@ SEASTAR_TEST_CASE(content_length_limit) {
 
         future<> writer = seastar::async([&server] {
             class test_handler : public handler_base {
-                size_t count = 0;
-                http_server& _server;
                 std::function<future<>(output_stream<char> &&)> _write_func;
             public:
-                test_handler(http_server& server, std::function<future<>(output_stream<char> &&)>&& write_func) : _server(server), _write_func(write_func) {
+                test_handler(http_server& server, std::function<future<>(output_stream<char> &&)>&& write_func) : _write_func(write_func) {
                 }
                 future<std::unique_ptr<reply>> handle(const sstring& path,
                         std::unique_ptr<request> req, std::unique_ptr<reply> rep) override {
