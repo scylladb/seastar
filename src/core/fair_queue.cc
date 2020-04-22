@@ -31,6 +31,8 @@
 
 namespace seastar {
 
+static_assert(sizeof(fair_queue_ticket) == sizeof(uint64_t), "unexpected fair_queue_ticket size");
+
 void fair_queue::push_priority_class(priority_class_ptr pc) {
     if (!pc->_queued) {
         _handles.push(pc);

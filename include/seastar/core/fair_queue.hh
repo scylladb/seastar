@@ -42,7 +42,6 @@ struct fair_queue_ticket {
         return *this;
     }
 };
-static_assert(sizeof(fair_queue_ticket) == sizeof(uint64_t));
 
 /// \addtogroup io-module
 /// @{

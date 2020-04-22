@@ -92,7 +92,7 @@ snd_buf lz4_fragmented_compressor::compress(size_t head_space, snd_buf data) {
 
     static constexpr size_t chunk_compress_bound = LZ4_COMPRESSBOUND(chunk_size);
     static constexpr size_t chunk_maximum_compressed_size = chunk_compress_bound + chunk_header_size;
-    static_assert(chunk_maximum_compressed_size < snd_buf::chunk_size);
+    static_assert(chunk_maximum_compressed_size < snd_buf::chunk_size, "chunk_maximum_compressed_size is too large");
 
     std::vector<temporary_buffer<char>> dst_buffers;
     size_t dst_offset = head_space;
