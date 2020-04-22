@@ -435,7 +435,7 @@ static future<> run_echo_test(sstring message,
                             return std::move(f1);
                         }
                         (void)f1.handle_exception([] (std::exception_ptr ignored) { });
-                        return std::move(f2);
+                        return f2;
                     }).finally([strms] { });
                 });
             });
