@@ -724,7 +724,7 @@ public:
             : _nr_remain(nr_remain), _processors(processors), _continuation(continuation) {
     }
     virtual task* waiting_task() = 0;
-    void complete_one() {
+    void complete_one() noexcept {
         // We complete in reverse order; if the futures happen to complete
         // in order, then waiting for the last one will find the rest ready
         --_nr_remain;
