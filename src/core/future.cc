@@ -25,7 +25,26 @@
 #include <seastar/util/backtrace.hh>
 
 namespace seastar {
+
+// We can't test future_state_base directly because its private
+// destructor is protected.
+static_assert(std::is_nothrow_move_constructible<future_state<int>>::value,
+              "future_state's move constructor must not throw");
+
+static_assert(sizeof(future_state<>) <= 8, "future_state<> is too large");
+static_assert(sizeof(future_state<long>) <= 16, "future_state<long> is too large");
+
+// We need to be able to move and copy std::exception_ptr in and out
+// of future/promise/continuations without that producing a new
+// exception.
+static_assert(std::is_nothrow_copy_constructible<std::exception_ptr>::value,
+    "std::exception_ptr's copy constructor must not throw");
+static_assert(std::is_nothrow_move_constructible<std::exception_ptr>::value,
+    "std::exception_ptr's move constructor must not throw");
+
 namespace internal {
+
+static_assert(std::is_empty<uninitialized_wrapper<std::tuple<>>>::value, "This should still be empty");
 
 promise_base::promise_base(promise_base&& x) noexcept
     : _future(x._future), _state(x._state), _task(std::exchange(x._task, nullptr)) {

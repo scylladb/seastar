@@ -37,14 +37,6 @@
 #include <seastar/util/gcc6-concepts.hh>
 #include <seastar/util/noncopyable_function.hh>
 
-// We need to be able to move and copy std::exception_ptr in and out
-// of future/promise/continuations without that producing a new
-// exception.
-static_assert(std::is_nothrow_copy_constructible<std::exception_ptr>::value,
-    "std::exception_ptr's copy constructor must not throw");
-static_assert(std::is_nothrow_move_constructible<std::exception_ptr>::value,
-    "std::exception_ptr's move constructor must not throw");
-
 namespace seastar {
 
 /// \defgroup future-module Futures and Promises
@@ -225,8 +217,6 @@ constexpr bool can_inherit =
 template <typename T>
 struct uninitialized_wrapper
     : public uninitialized_wrapper_base<T, can_inherit<T>> {};
-
-static_assert(std::is_empty<uninitialized_wrapper<std::tuple<>>>::value, "This should still be empty");
 
 template <typename T>
 struct is_trivially_move_constructible_and_destructible {
@@ -475,14 +465,6 @@ struct future_state :  public future_state_base, private internal::uninitialized
         return internal::get0_return_type<T...>::get0(std::move(x));
     }
 };
-
-// We can't test future_state_base directly because its private
-// destructor is protected.
-static_assert(std::is_nothrow_move_constructible<future_state<int>>::value,
-              "future_state's move constructor must not throw");
-
-static_assert(sizeof(future_state<>) <= 8, "future_state<> is too large");
-static_assert(sizeof(future_state<long>) <= 16, "future_state<long> is too large");
 
 template <typename... T>
 class continuation_base : public task {
