@@ -739,7 +739,7 @@ public:
             delete this;
         }
     }
-    void do_wait_all() {
+    void do_wait_all() noexcept {
         ++_nr_remain; // fake pending completion for complete_one()
         complete_one();
     }
