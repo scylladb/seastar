@@ -102,6 +102,7 @@ public:
     struct config {
         shard_id coordinator;
         std::vector<shard_id> io_topology;
+        unsigned capacity = std::numeric_limits<unsigned>::max();
         unsigned max_req_count = std::numeric_limits<unsigned>::max();
         unsigned max_bytes_count = std::numeric_limits<unsigned>::max();
         unsigned disk_req_write_to_read_multiplier = read_request_base_count;
@@ -114,6 +115,10 @@ public:
 
     future<size_t>
     queue_request(const io_priority_class& pc, size_t len, internal::io_request req) noexcept;
+
+    [[deprecated("modern I/O queues should use a property file")]] size_t capacity() const {
+        return _config.capacity;
+    }
 
     size_t queued_requests() const {
         return _fq.waiters();

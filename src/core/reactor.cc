@@ -3605,6 +3605,8 @@ public:
             }
             cfg.mountpoint = p.mountpoint;
         } else {
+            // For backwards compatibility
+            cfg.capacity = *_capacity;
             // Legacy configuration when only concurrency is specified.
             cfg.max_req_count = io_queue::read_request_base_count * std::min(*_capacity, reactor::max_aio_per_queue);
             // specify size in terms of 16kB IOPS.
