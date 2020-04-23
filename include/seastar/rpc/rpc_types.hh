@@ -121,11 +121,16 @@ struct no_wait_type {};
 // return this from a callback if client does not want to waiting for a reply
 extern no_wait_type no_wait;
 
+/// \addtogroup rpc
+/// @{
+
 template <typename T>
 class optional : public compat::optional<T> {
 public:
      using compat::optional<T>::optional;
 };
+
+/// @}
 
 class opt_time_point : public compat::optional<rpc_clock_type::time_point> {
 public:
@@ -324,6 +329,9 @@ public:
     template<typename Serializer, typename... Out> sink<Out...> make_sink();
 };
 
+/// \addtogroup rpc
+/// @{
+
 /// Used to return multiple values in rpc without variadic futures
 ///
 /// If you wish to return multiple values from an rpc procedure, use a
@@ -344,6 +352,8 @@ public:
     using std::tuple<T...>::tuple;
     tuple(std::tuple<T...>&& x) : std::tuple<T...>(std::move(x)) {}
 };
+
+/// @}
 
 #if __cplusplus >= 201703L
 

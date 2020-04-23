@@ -44,22 +44,28 @@ namespace seastar {
 
 namespace rpc {
 
+/// \defgroup rpc rpc - remote procedure call framework
+///
+/// \brief
+/// rpc is a framework that can be used to define client-server communication
+/// protocols.
+/// For a high-level description of the RPC features see
+/// [doc/rpc.md](./md_rpc.html),
+/// [doc/rpc-streaming.md](./md_rpc-streaming.html) and
+/// [doc/rpc-compression.md](./md_rpc-compression.html)
+///
+/// The entry point for setting up an rpc protocol is
+/// seastar::rpc::protocol.
+
 using id_type = int64_t;
 
 using rpc_semaphore = basic_semaphore<semaphore_default_exception_factory, rpc_clock_type>;
 using resource_permit = semaphore_units<semaphore_default_exception_factory, rpc_clock_type>;
 
-struct SerializerConcept {
-    // For each serializable type T, implement
-    class T;
-    template <typename Output>
-    friend void write(const SerializerConcept&, Output& output, const T& data);
-    template <typename Input>
-    friend T read(const SerializerConcept&, Input& input, type<T> type_tag);  // type_tag used to disambiguate
-    // Input and Output expose void read(char*, size_t) and write(const char*, size_t).
-};
-
 static constexpr char rpc_magic[] = "SSTARRPC";
+
+/// \addtogroup rpc
+/// @{
 
 /// Specifies resource isolation for a connection.
 struct isolation_config {
@@ -104,6 +110,8 @@ struct client_options {
     sstring isolation_cookie;
 };
 
+/// @}
+
 // RPC call that passes stream connection id as a parameter
 // may arrive to a different shard from where the stream connection
 // was opened, so the connection id is not known to a server that handles
@@ -125,12 +133,17 @@ public:
     friend std::ostream& operator<<(std::ostream&, const streaming_domain_type&);
 };
 
+/// \addtogroup rpc
+/// @{
+
 struct server_options {
     compressor::factory* compressor_factory = nullptr;
     bool tcp_nodelay = true;
     compat::optional<streaming_domain_type> streaming_domain;
     server_socket::load_balancing_algorithm load_balancing_algorithm = server_socket::load_balancing_algorithm::default_;
 };
+
+/// @}
 
 inline
 size_t
@@ -591,12 +604,53 @@ protected:
     virtual void put_handler(rpc_handler*) = 0;
 };
 
-// MsgType is a type that holds type of a message. The type should be hashable
-// and serializable. It is preferable to use enum for message types, but
-// do not forget to provide hash function for it
+/// \addtogroup rpc
+/// @{
+
+/// Defines a protocol for communication between a server and a client.
+///
+/// A protocol is defined by a `Serializer` and a `MsgType`. The `Serializer` is
+/// responsible for serializing and unserializing all types used as arguments and
+/// return types used in the protocol. The `Serializer` is expected to define a
+/// `read()` and `write()` method for each such type `T` as follows:
+///
+///     template <typename Output>
+///     void write(const serializer&, Output& output, const T& data);
+///
+///     template <typename Input>
+///     T read(const serializer&, Input& input, type<T> type_tag);  // type_tag used to disambiguate
+///
+/// Where `Input` and `Output` have a `void read(char*, size_t)` and
+/// `write(const char*, size_t)` respectively.
+/// `MsgType` defines the type to be used as the message id, the id which is
+/// used to identify different messages used in the protocol. These are also
+/// often referred to as "verbs". The client will use the message id, to
+/// specify the remote method (verb) to invoke on the server. The server uses
+/// the message id to dispatch the incoming call to the right handler.
+/// `MsgType` should be hashable and serializable. It is preferable to use enum
+/// for message types, but do not forget to provide hash function for it
+///
+/// Use register_handler() on the server to define the available verbs and the
+/// code to be executed when they are invoked by clients. Use make_client() on
+/// the client to create a matching callable that can be used to invoke the
+/// verb on the server and wait for its result.
+///
+/// Use protocol::server to listen for and accept incoming connections on the
+/// server and protocol::client to establish connections to the server.
+/// Note that registering the available verbs can be done before/after
+/// listening for connections, but best to ensure that by the time incoming
+/// requests are to be expected, all the verbs are set-up.
+///
+/// TODO: explain configuration
+/// TODO: explain isolation
+/// TODO: explain forward-backward compatibility
+///
+/// \tparam Serializer the serializer for the protocol.
+/// \tparam MsgType the type to be used as the message id or verb id.
 template<typename Serializer, typename MsgType = uint32_t>
 class protocol : public protocol_base {
 public:
+    /// Represents a server side connection.
     class server : public rpc::server {
     public:
         server(protocol& proto, const socket_address& addr, resource_limits memory_limit = resource_limits()) :
@@ -608,6 +662,7 @@ public:
         server(protocol& proto, server_options opts, server_socket socket, resource_limits memory_limit = resource_limits()) :
             rpc::server(&proto, opts, std::move(socket), memory_limit) {}
     };
+    /// Represents a client side connection.
     class client : public rpc::client {
     public:
         /*
@@ -643,28 +698,76 @@ private:
 
 public:
     protocol(Serializer&& serializer) : _serializer(std::forward<Serializer>(serializer)) {}
+
+    /// Creates a callable that can be used to invoke the verb on the remote.
+    ///
+    /// \tparam Func The signature of the verb. Has to be either the same or
+    ///     compatible with the one passed to register_handler on the server.
+    /// \param t the verb to invoke on the remote.
+    ///
+    /// \returns a callable whose signature is derived from Func as follows:
+    ///     given `Func == Ret(Args...)` the returned callable has the following
+    ///     signature: `future<Ret>(protocol::client&, Args...)`.
     template<typename Func>
     auto make_client(MsgType t);
 
-    // returns a function which type depends on Func
-    // if Func == Ret(Args...) then return function is
-    // future<Ret>(protocol::client&, Args...)
+    /// Register a handler to be called when this verb is invoked.
+    ///
+    /// \tparam Func the type of the handler for the verb. This determines the
+    ///     signature of the verb.
+    /// \param t the verb to register the handler for.
+    /// \param func the callable to be called when the verb is invoked by the
+    ///     remote.
+    ///
+    /// \returns a client, a callable that can be used to invoke the verb. See
+    ///     make_client(). The client can be discarded, in fact this is what
+    ///     most callers will do as real clients will live on a remote node, not
+    ///     on the one where handlers are registered.
     template<typename Func>
     auto register_handler(MsgType t, Func&& func);
 
-    // returns a function which type depends on Func
-    // if Func == Ret(Args...) then return function is
-    // future<Ret>(protocol::client&, Args...)
+    /// Register a handler to be called when this verb is invoked.
+    ///
+    /// \tparam Func the type of the handler for the verb. This determines the
+    ///     signature of the verb.
+    /// \param t the verb to register the handler for.
+    /// \param sg the scheduling group that will be used to invoke the handler
+    ///     in. This can be used to execute different verbs in different
+    ///     scheduling groups. Note that there is a newer mechanism to determine
+    ///     the scheduling groups a handler will run it per invocation, see
+    ///     isolation_config.
+    /// \param func the callable to be called when the verb is invoked by the
+    ///     remote.
+    ///
+    /// \returns a client, a callable that can be used to invoke the verb. See
+    ///     make_client(). The client can be discarded, in fact this is what
+    ///     most callers will do as real clients will live on a remote node, not
+    ///     on the one where handlers are registered.
     template <typename Func>
     auto register_handler(MsgType t, scheduling_group sg, Func&& func);
 
+    /// Unregister the handler for the verb.
+    ///
+    /// Waits for all currently running handlers, then unregisters the handler.
+    /// Future attempts to invoke the verb will fail. This becomes effective
+    /// immediately after calling this function.
+    ///
+    /// \param t the verb to unregister the handler for.
+    ///
+    /// \returns a future that becomes available once all currently running
+    ///     handlers finished.
     future<> unregister_handler(MsgType t);
 
+    /// Set a logger function to be used to log messages.
+    ///
+    /// \deprecated use the logger overload set_logger(::seastar::logger*)
+    /// instead.
     [[deprecated("Use set_logger(::seastar::logger*) instead")]]
     void set_logger(std::function<void(const sstring&)> logger) {
         _logger.set(std::move(logger));
     }
 
+    /// Set a logger to be used to log messages.
     void set_logger(::seastar::logger* logger) {
         _logger.set(logger);
     }
@@ -693,6 +796,9 @@ private:
         }
     }
 };
+
+/// @}
+
 }
 
 }
