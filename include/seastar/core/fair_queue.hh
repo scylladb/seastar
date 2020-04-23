@@ -168,9 +168,11 @@ public:
     void unregister_priority_class(priority_class_ptr pclass);
 
     /// \return how many waiters are currently queued for all classes.
+    [[deprecated("fair_queue users should not track individual requests, but resources (weight, size) passing through the queue")]]
     size_t waiters() const;
 
     /// \return the number of requests currently executing
+    [[deprecated("fair_queue users should not track individual requests, but resources (weight, size) passing through the queue")]]
     size_t requests_currently_executing() const;
 
     /// Queue the function \c func through this class' \ref fair_queue, with weight \c weight

@@ -81,6 +81,7 @@ public:
 
 void
 io_queue::notify_requests_finished(fair_queue_ticket& desc) {
+    _requests_executing--;
     _completed_accumulator += desc;
 }
 
@@ -247,6 +248,8 @@ future<size_t>
 io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_request req) noexcept {
     auto start = std::chrono::steady_clock::now();
     return smp::submit_to(coordinator(), [start, &pc, len, req = std::move(req), owner = this_shard_id(), this] () mutable {
+        _queued_requests++;
+
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc, owner);
@@ -265,7 +268,9 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
         auto desc = std::make_unique<io_desc_read_write>(this, weight, size);
         auto fq_ticket = desc->fq_ticket();
         auto fut = desc->get_future();
-        _fq.queue(pclass.ptr, std::move(fq_ticket), [&pclass, start, req = std::move(req), desc = desc.release(), len] () mutable noexcept {
+        _fq.queue(pclass.ptr, std::move(fq_ticket), [&pclass, start, req = std::move(req), desc = desc.release(), len, this] () mutable noexcept {
+            _queued_requests--;
+            _requests_executing++;
             try {
                 pclass.nr_queued--;
                 pclass.ops++;
