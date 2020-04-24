@@ -130,8 +130,6 @@ public:
      using compat::optional<T>::optional;
 };
 
-/// @}
-
 class opt_time_point : public compat::optional<rpc_clock_type::time_point> {
 public:
      using compat::optional<rpc_clock_type::time_point>::optional;
@@ -139,6 +137,8 @@ public:
          static_cast<compat::optional<rpc_clock_type::time_point>&>(*this) = time_point;
      }
 };
+
+/// @}
 
 struct cancellable {
     std::function<void()> cancel_send;
@@ -262,6 +262,9 @@ using xshard_connection_ptr = lw_shared_ptr<foreign_ptr<shared_ptr<connection>>>
 constexpr size_t max_queued_stream_buffers = 50;
 constexpr size_t max_stream_buffers_memory = 100 * 1024;
 
+/// \addtogroup rpc
+/// @{
+
 // send data Out...
 template<typename... Out>
 class sink {
@@ -328,9 +331,6 @@ public:
     connection_id get_id() const;
     template<typename Serializer, typename... Out> sink<Out...> make_sink();
 };
-
-/// \addtogroup rpc
-/// @{
 
 /// Used to return multiple values in rpc without variadic futures
 ///

@@ -629,12 +629,16 @@ protected:
 /// specify the remote method (verb) to invoke on the server. The server uses
 /// the message id to dispatch the incoming call to the right handler.
 /// `MsgType` should be hashable and serializable. It is preferable to use enum
-/// for message types, but do not forget to provide hash function for it
+/// for message types, but do not forget to provide hash function for it.
 ///
 /// Use register_handler() on the server to define the available verbs and the
 /// code to be executed when they are invoked by clients. Use make_client() on
 /// the client to create a matching callable that can be used to invoke the
-/// verb on the server and wait for its result.
+/// verb on the server and wait for its result. Note that register_handler()
+/// also returns a client, that can be used to invoke the registered verb on
+/// another node (given that the other node has the same verb). This is useful
+/// for symmetric protocols, where two or more nodes all have servers as well as
+/// connect to the other nodes as clients.
 ///
 /// Use protocol::server to listen for and accept incoming connections on the
 /// server and protocol::client to establish connections to the server.
@@ -651,7 +655,7 @@ protected:
 template<typename Serializer, typename MsgType = uint32_t>
 class protocol : public protocol_base {
 public:
-    /// Represents a server side connection.
+    /// Represents the listening port and all accepted connections.
     class server : public rpc::server {
     public:
         server(protocol& proto, const socket_address& addr, resource_limits memory_limit = resource_limits()) :
