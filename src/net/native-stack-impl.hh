@@ -41,7 +41,7 @@ class native_network_stack;
 
 // native_server_socket_impl
 template <typename Protocol>
-class native_server_socket_impl : public api_v2::server_socket_impl {
+class native_server_socket_impl : public server_socket_impl {
     typename Protocol::listener _listener;
 public:
     native_server_socket_impl(Protocol& proto, uint16_t port, listen_options opt);

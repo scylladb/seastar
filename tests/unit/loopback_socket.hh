@@ -180,7 +180,7 @@ public:
     }
 };
 
-class loopback_server_socket_impl : public net::api_v2::server_socket_impl {
+class loopback_server_socket_impl : public net::server_socket_impl {
     lw_shared_ptr<queue<connected_socket>> _pending;
 public:
     explicit loopback_server_socket_impl(lw_shared_ptr<queue<connected_socket>> q)

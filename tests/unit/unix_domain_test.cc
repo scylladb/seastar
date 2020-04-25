@@ -58,7 +58,7 @@ private:
     const socket_address server_addr;
 
     const compat::optional<string> client_path;
-    api_v2::server_socket server;
+    server_socket server;
     const int rounds;
     int rounds_left;
     server_socket* lstn_sock;

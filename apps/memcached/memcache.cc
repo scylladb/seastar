@@ -1332,7 +1332,7 @@ public:
 class tcp_server {
 private:
     compat::optional<future<>> _task;
-    lw_shared_ptr<seastar::api_v2::server_socket> _listener;
+    lw_shared_ptr<seastar::server_socket> _listener;
     sharded_cache& _cache;
     distributed<system_stats>& _system_stats;
     uint16_t _port;
@@ -1368,7 +1368,7 @@ public:
     void start() {
         listen_options lo;
         lo.reuse_address = true;
-        _listener = seastar::api_v2::server_socket(seastar::listen(make_ipv4_address({_port}), lo));
+        _listener = seastar::server_socket(seastar::listen(make_ipv4_address({_port}), lo));
         // Run in the background until eof has reached on the input connection.
         _task = keep_doing([this] {
             return _listener->accept().then([this] (accept_result ar) mutable {

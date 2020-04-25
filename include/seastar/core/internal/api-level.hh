@@ -29,11 +29,5 @@
 #if SEASTAR_API_LEVEL >= 2
 
 #define SEASTAR_INCLUDE_API_V2 inline
-#define SEASTAR_INCLUDE_API_V1
-
-#else
-
-#define SEASTAR_INCLUDE_API_V2
-#define SEASTAR_INCLUDE_API_V1 inline
 
 #endif

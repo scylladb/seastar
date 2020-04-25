@@ -130,7 +130,7 @@ public:
     future<> close() override;
 };
 
-class posix_ap_server_socket_impl : public api_v2::server_socket_impl {
+class posix_ap_server_socket_impl : public server_socket_impl {
     using protocol_and_socket_address = std::tuple<int, socket_address>;
     struct connection {
         pollable_fd fd;
@@ -158,7 +158,7 @@ public:
     friend class std::hash;
 };
 
-class posix_server_socket_impl : public api_v2::server_socket_impl {
+class posix_server_socket_impl : public server_socket_impl {
     socket_address _sa;
     int _protocol;
     pollable_fd _lfd;
@@ -175,7 +175,7 @@ public:
     virtual socket_address local_address() const override;
 };
 
-class posix_reuseport_server_socket_impl : public api_v2::server_socket_impl {
+class posix_reuseport_server_socket_impl : public server_socket_impl {
     socket_address _sa;
     int _protocol;
     pollable_fd _lfd;

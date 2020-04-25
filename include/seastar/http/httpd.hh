@@ -201,7 +201,7 @@ public:
 class http_server_tester;
 
 class http_server {
-    std::vector<api_v2::server_socket> _listeners;
+    std::vector<server_socket> _listeners;
     http_stats _stats;
     uint64_t _total_connections = 0;
     uint64_t _current_connections = 0;
@@ -350,7 +350,7 @@ private:
 
 class http_server_tester {
 public:
-    static std::vector<api_v2::server_socket>& listeners(http_server& server) {
+    static std::vector<server_socket>& listeners(http_server& server) {
         return server._listeners;
     }
 };

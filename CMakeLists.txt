@@ -60,7 +60,7 @@ set (Seastar_API_LEVEL
 
 set_property (CACHE Seastar_API_LEVEL
   PROPERTY
-  STRINGS 1 2)
+  STRINGS 2)
 
 #
 # Add a dev build type.

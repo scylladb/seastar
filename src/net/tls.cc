@@ -1371,9 +1371,9 @@ private:
     }
 };
 
-class server_session : public net::api_v2::server_socket_impl {
+class server_session : public net::server_socket_impl {
 public:
-    server_session(shared_ptr<server_credentials> creds, api_v2::server_socket sock)
+    server_session(shared_ptr<server_credentials> creds, server_socket sock)
             : _creds(std::move(creds)), _sock(std::move(sock)) {
     }
     future<accept_result> accept() override {
@@ -1394,7 +1394,7 @@ public:
     }
 private:
     shared_ptr<server_credentials> _creds;
-    api_v2::server_socket _sock;
+    server_socket _sock;
 };
 
 class tls_socket_impl : public net::socket_impl {
@@ -1465,7 +1465,7 @@ server_socket tls::listen(shared_ptr<server_credentials> creds, socket_address s
 }
 
 server_socket tls::listen(shared_ptr<server_credentials> creds, server_socket ss) {
-    api_v2::server_socket ssls(std::make_unique<server_session>(creds, std::move(ss)));
+    server_socket ssls(std::make_unique<server_session>(creds, std::move(ss)));
     return server_socket(std::move(ssls));
 }
 

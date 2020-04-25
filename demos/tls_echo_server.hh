@@ -42,7 +42,7 @@ struct streams {
 };
 
 class echoserver {
-    api_v2::server_socket _socket;
+    server_socket _socket;
     shared_ptr<tls::server_credentials> _certs;
     seastar::gate _gate;
     bool _stopped = false;

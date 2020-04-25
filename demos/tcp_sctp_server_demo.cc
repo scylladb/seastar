@@ -43,8 +43,8 @@ static bool enable_tcp = false;
 static bool enable_sctp = false;
 
 class tcp_server {
-    std::vector<api_v2::server_socket> _tcp_listeners;
-    std::vector<api_v2::server_socket> _sctp_listeners;
+    std::vector<server_socket> _tcp_listeners;
+    std::vector<server_socket> _sctp_listeners;
 public:
     future<> listen(ipv4_addr addr) {
         if (enable_tcp) {
@@ -70,7 +70,7 @@ public:
         return make_ready_future<>();
     }
 
-    void do_accepts(std::vector<api_v2::server_socket>& listeners) {
+    void do_accepts(std::vector<server_socket>& listeners) {
         int which = listeners.size() - 1;
         // Accept in the background.
         (void)listeners[which].accept().then([this, &listeners] (accept_result ar) mutable {

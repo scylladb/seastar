@@ -604,7 +604,7 @@ posix_network_stack::posix_network_stack(boost::program_options::variables_map o
 
 server_socket
 posix_network_stack::listen(socket_address sa, listen_options opt) {
-    using server_socket = seastar::api_v2::server_socket;
+    using server_socket = seastar::server_socket;
     // allow unspecified bind address -> default to ipv4 wildcard
     if (sa.is_unspecified()) {
         sa = inet_address(inet_address::family::INET);
@@ -629,7 +629,7 @@ posix_ap_network_stack::posix_ap_network_stack(boost::program_options::variables
 
 server_socket
 posix_ap_network_stack::listen(socket_address sa, listen_options opt) {
-    using server_socket = seastar::api_v2::server_socket;
+    using server_socket = seastar::server_socket;
     // allow unspecified bind address -> default to ipv4 wildcard
     if (sa.is_unspecified()) {
         sa = inet_address(inet_address::family::INET);

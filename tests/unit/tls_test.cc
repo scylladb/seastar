@@ -180,7 +180,7 @@ SEASTAR_TEST_CASE(test_non_tls) {
     ::listen_options opts;
     opts.reuse_address = true;
     auto addr = ::make_ipv4_address( {0x7f000001, 4712});
-    auto server = api_v2::server_socket(seastar::listen(addr, opts));
+    auto server = server_socket(seastar::listen(addr, opts));
 
     auto c = server.accept();
 
@@ -211,7 +211,7 @@ SEASTAR_TEST_CASE(test_abort_accept_before_handshake) {
         ::listen_options opts;
         opts.reuse_address = true;
         auto addr = ::make_ipv4_address( {0x7f000001, 4712});
-        auto server = api_v2::server_socket(tls::listen(certs, addr, opts));
+        auto server = server_socket(tls::listen(certs, addr, opts));
         auto c = server.accept();
         BOOST_CHECK(!c.available()); // should not be finished
 
@@ -260,7 +260,7 @@ SEASTAR_TEST_CASE(test_abort_accept_on_server_before_handshake) {
         ::listen_options opts;
         opts.reuse_address = true;
         auto addr = ::make_ipv4_address( {0x7f000001, 4712});
-        auto server = api_v2::server_socket(seastar::listen(addr, opts));
+        auto server = server_socket(seastar::listen(addr, opts));
         auto sa = server.accept();
 
         tls::credentials_builder b;
@@ -306,7 +306,7 @@ struct streams {
 static const sstring message = "hej lilla fisk du kan dansa fint";
 
 class echoserver {
-    ::api_v2::server_socket _socket;
+    ::server_socket _socket;
     ::shared_ptr<tls::server_credentials> _certs;
     seastar::gate _gate;
     bool _stopped = false;
