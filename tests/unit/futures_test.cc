@@ -128,7 +128,7 @@ SEASTAR_TEST_CASE(test_set_future_state_with_tuple) {
     return make_ready_future<>();
 }
 
-SEASTAR_TEST_CASE(test_set_value_throw_in_copy) {
+SEASTAR_THREAD_TEST_CASE(test_set_value_make_exception_in_copy) {
     struct throw_in_copy {
         throw_in_copy() noexcept = default;
         throw_in_copy(throw_in_copy&& x) noexcept {
@@ -139,8 +139,19 @@ SEASTAR_TEST_CASE(test_set_value_throw_in_copy) {
     };
     promise<throw_in_copy> p1;
     throw_in_copy v;
-    BOOST_REQUIRE_THROW(p1.set_value(v), int);
-    return make_ready_future<>();
+    p1.set_value(v);
+    BOOST_REQUIRE_THROW(p1.get_future().get(), int);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_set_exception_in_constructor) {
+    struct throw_in_constructor {
+        throw_in_constructor() {
+            throw 42;
+        }
+    };
+    future<throw_in_constructor> f = make_ready_future<throw_in_constructor>();
+    BOOST_REQUIRE(f.failed());
+    BOOST_REQUIRE_THROW(f.get(), int);
 }
 
 SEASTAR_TEST_CASE(test_finally_is_called_on_success_and_failure) {
