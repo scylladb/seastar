@@ -1014,7 +1014,6 @@ private:
     [[gnu::always_inline]]
     explicit future(future_state<T...>&& state) noexcept
             : _state(std::move(state)) {
-        this->check_deprecation();
     }
     internal::promise_base_with_type<T...> get_promise() noexcept {
         assert(!_promise);
@@ -1082,6 +1081,9 @@ public:
     [[gnu::always_inline]]
     future(future&& x) noexcept : future_base(std::move(x), &_state), _state(std::move(x._state)) { }
     future(const future&) = delete;
+    ~future() {
+        this->check_deprecation();
+    }
     future& operator=(future&& x) noexcept {
         this->~future();
         new (this) future(std::move(x));
