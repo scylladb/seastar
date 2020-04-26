@@ -90,7 +90,7 @@ struct future_state_base;
 /// to perform a computation (for example, because the data is cached
 /// in some buffer).
 template <typename... T, typename... A>
-future<T...> make_ready_future(A&&... value);
+future<T...> make_ready_future(A&&... value) noexcept;
 
 /// \brief Creates a \ref future in an available, failed state.
 ///
@@ -412,8 +412,12 @@ struct future_state :  public future_state_base, private internal::uninitialized
         return *this;
     }
     template <typename... A>
-    future_state(ready_future_marker, A&&... a) : future_state_base(state::result) {
+    future_state(ready_future_marker, A&&... a) noexcept : future_state_base(state::result) {
+      try {
         this->uninitialized_set(std::forward<A>(a)...);
+      } catch (...) {
+        new (this) future_state(exception_future_marker(), std::current_exception());
+      }
     }
     template <typename... A>
     void set(A&&... a) {
@@ -1004,7 +1008,7 @@ private:
 
     future(promise<T...>* pr) noexcept : future_base(pr, &_state), _state(std::move(pr->_local_state)) { }
     template <typename... A>
-    future(ready_future_marker m, A&&... a) : _state(m, std::forward<A>(a)...) { }
+    future(ready_future_marker m, A&&... a) noexcept : _state(m, std::forward<A>(a)...) { }
     future(exception_future_marker m, std::exception_ptr&& ex) noexcept : _state(m, std::move(ex)) { }
     future(exception_future_marker m, future_state_base&& state) noexcept : _state(m, std::move(state)) { }
     [[gnu::always_inline]]
@@ -1533,7 +1537,7 @@ private:
     template <typename... U>
     friend class internal::promise_base_with_type;
     template <typename... U, typename... A>
-    friend future<U...> make_ready_future(A&&... value);
+    friend future<U...> make_ready_future(A&&... value) noexcept;
     template <typename... U>
     friend future<U...> make_exception_future(std::exception_ptr&& ex) noexcept;
     template <typename... U, typename Exception>
@@ -1569,7 +1573,7 @@ promise<T...>::promise(promise&& x) noexcept : internal::promise_base_with_type<
 
 template <typename... T, typename... A>
 inline
-future<T...> make_ready_future(A&&... value) {
+future<T...> make_ready_future(A&&... value) noexcept {
     return future<T...>(ready_future_marker(), std::forward<A>(value)...);
 }
 
