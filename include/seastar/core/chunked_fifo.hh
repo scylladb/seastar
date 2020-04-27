@@ -562,11 +562,15 @@ template <typename T, size_t items_per_chunk>
 void chunked_fifo<T, items_per_chunk>::reserve(size_t n) {
     // reserve() guarantees that (n - size()) additional push()es will
     // succeed without reallocation:
+    if (n <= size()) {
+        return;
+    }
     size_t need = n - size();
     // If we already have a back chunk, it might have room for some pushes
     // before filling up, so decrease "need":
     if (_back_chunk) {
-        need -= items_per_chunk - (_back_chunk->end - _back_chunk->begin);
+        size_t back_chunk_n = items_per_chunk - (_back_chunk->end - _back_chunk->begin);
+        need -= std::min(back_chunk_n, need);
     }
     size_t needed_chunks = (need + items_per_chunk - 1) / items_per_chunk;
     // If we already have some freed chunks saved, we need to allocate fewer
