@@ -32,6 +32,7 @@
 #include <seastar/core/gate.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/iostream.hh>
+#include <seastar/util/std-compat.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/net/dns.hh>
 #include <seastar/net/inet_address.hh>
@@ -646,7 +647,7 @@ SEASTAR_THREAD_TEST_CASE(test_close_timout) {
 SEASTAR_THREAD_TEST_CASE(test_reload_certificates) {
     tmpdir tmp;
 
-    namespace fs = std::filesystem;
+    namespace fs = compat::filesystem;
 
     // copy the wrong certs. We don't trust these
     // blocking calls, but this is a test and seastar does not have a copy 
