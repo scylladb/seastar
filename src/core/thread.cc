@@ -25,6 +25,8 @@
 #include <ucontext.h>
 #include <algorithm>
 
+#include <valgrind/valgrind.h>
+
 /// \cond internal
 
 namespace seastar {
@@ -156,16 +158,19 @@ static constexpr size_t base_stack_size = 256 * 1024;
 static constexpr size_t base_stack_size = 128 * 1024;
 #endif
 
+static size_t get_stack_size(thread_attributes attr) {
+#if defined(__OPTIMIZE__) && defined(SEASTAR_ASAN_ENABLED)
+    return std::max(base_stack_size, attr.stack_size);
+#else
+    return attr.stack_size ? attr.stack_size : base_stack_size;
+#endif
+}
+
 thread_context::thread_context(thread_attributes attr, noncopyable_function<void ()> func)
         : task(attr.sched_group.value_or(current_scheduling_group()))
+        , _stack(make_stack(get_stack_size(attr)))
         , _func(std::move(func)) {
-#if defined(__OPTIMIZE__) && defined(SEASTAR_ASAN_ENABLED)
-    size_t stack_size = std::max(base_stack_size, attr.stack_size);
-#else
-    size_t stack_size = attr.stack_size ? attr.stack_size : base_stack_size;
-#endif
-    _stack = make_stack(stack_size);
-    setup(stack_size);
+    setup(get_stack_size(attr));
     _all_threads.push_front(*this);
 }
 
@@ -176,6 +181,8 @@ thread_context::~thread_context() {
 #endif
     _all_threads.erase(_all_threads.iterator_to(*this));
 }
+
+thread_context::stack_deleter::stack_deleter(int valgrind_id) : valgrind_id(valgrind_id) {}
 
 thread_context::stack_holder
 thread_context::make_stack(size_t stack_size) {
@@ -189,7 +196,8 @@ thread_context::make_stack(size_t stack_size) {
     if (mem == nullptr) {
         throw std::bad_alloc();
     }
-    auto stack = stack_holder(new (mem) char[stack_size]);
+    int valgrind_id = VALGRIND_STACK_REGISTER(mem, reinterpret_cast<char*>(mem) + stack_size);
+    auto stack = stack_holder(new (mem) char[stack_size], stack_deleter(valgrind_id));
 #ifdef SEASTAR_ASAN_ENABLED
     // Avoid ASAN false positive due to garbage on stack
     std::fill_n(stack.get(), stack_size, 0);
@@ -204,6 +212,7 @@ thread_context::make_stack(size_t stack_size) {
 }
 
 void thread_context::stack_deleter::operator()(char* ptr) const noexcept {
+    VALGRIND_STACK_DEREGISTER(valgrind_id);
     free(ptr);
 }
 
