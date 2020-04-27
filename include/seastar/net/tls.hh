@@ -20,8 +20,8 @@
  */
 #pragma once
 
-#include <vector>
-#include <map>
+#include <functional>
+#include <unordered_set>
 
 #include <boost/any.hpp>
 
@@ -124,12 +124,15 @@ namespace tls {
 
         virtual void set_simple_pkcs12(const blob&, x509_crt_format, const sstring& password) = 0;
 
-        future<> set_x509_trust_file(const sstring& cafile, x509_crt_format);
-        future<> set_x509_crl_file(const sstring& crlfile, x509_crt_format);
-        future<> set_x509_key_file(const sstring& cf, const sstring& kf, x509_crt_format);
+        virtual future<> set_x509_trust_file(const sstring& cafile, x509_crt_format);
+        virtual future<> set_x509_crl_file(const sstring& crlfile, x509_crt_format);
+        virtual future<> set_x509_key_file(const sstring& cf, const sstring& kf, x509_crt_format);
 
-        future<> set_simple_pkcs12_file(const sstring& pkcs12file, x509_crt_format, const sstring& password);
+        virtual future<> set_simple_pkcs12_file(const sstring& pkcs12file, x509_crt_format, const sstring& password);
     };
+
+    template<typename Base>
+    class reloadable_credentials;
 
     /**
      * Holds certificates and keys.
@@ -177,7 +180,9 @@ namespace tls {
         friend class server_session;
         friend class server_credentials;
         friend class credentials_builder;
-        std::unique_ptr<impl> _impl;
+        template<typename Base>
+        friend class reloadable_credentials;
+        shared_ptr<impl> _impl;
     };
 
     /** Exception thrown on certificate validation error */
@@ -208,6 +213,10 @@ namespace tls {
         void set_client_auth(client_auth);
     };
 
+    class reloadable_credentials_base;
+
+    using reload_callback = std::function<void(const std::unordered_set<sstring>&, std::exception_ptr)>;
+
     /**
      * Intentionally "primitive", and more importantly, copyable
      * container for certificate credentials options.
@@ -227,6 +236,11 @@ namespace tls {
         void set_x509_key(const blob& cert, const blob& key, x509_crt_format) override;
         void set_simple_pkcs12(const blob&, x509_crt_format, const sstring& password) override;
 
+        future<> set_x509_trust_file(const sstring& cafile, x509_crt_format) override;
+        future<> set_x509_crl_file(const sstring& crlfile, x509_crt_format) override;
+        future<> set_x509_key_file(const sstring& cf, const sstring& kf, x509_crt_format) override;
+        future<> set_simple_pkcs12_file(const sstring& pkcs12file, x509_crt_format, const sstring& password) override;
+
         future<> set_system_trust();
         void set_client_auth(client_auth);
         void set_priority_string(const sstring&);
@@ -236,7 +250,13 @@ namespace tls {
         shared_ptr<certificate_credentials> build_certificate_credentials() const;
         shared_ptr<server_credentials> build_server_credentials() const;
 
+        // same as above, but any files used for certs/keys etc will be watched
+        // for modification and reloaded if changed
+        future<shared_ptr<certificate_credentials>> build_reloadable_certificate_credentials(reload_callback = {}) const;
+        future<shared_ptr<server_credentials>> build_reloadable_server_credentials(reload_callback = {}) const;
     private:
+        friend class reloadable_credentials_base;
+
         std::multimap<sstring, boost::any> _blobs;
         client_auth _client_auth = client_auth::NONE;
         sstring _priority;

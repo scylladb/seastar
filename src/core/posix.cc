@@ -22,6 +22,7 @@
 #include <seastar/core/posix.hh>
 #include <seastar/core/align.hh>
 #include <sys/mman.h>
+#include <sys/inotify.h>
 
 namespace seastar {
 
@@ -34,6 +35,13 @@ file_desc::temporary(sstring directory) {
     throw_system_error_on(fd == -1);
     int r = ::unlink(templat.data());
     throw_system_error_on(r == -1); // leaks created file, but what can we do?
+    return file_desc(fd);
+}
+
+file_desc
+file_desc::inotify_init(int flags) {
+    int fd = ::inotify_init1(flags);
+    throw_system_error_on(fd == -1, "could not create inotify instance");
     return file_desc(fd);
 }
 

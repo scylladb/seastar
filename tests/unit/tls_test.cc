@@ -20,6 +20,8 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
+#include <iostream>
+
 #include <seastar/core/do_with.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/reactor.hh>
@@ -29,13 +31,15 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/core/temporary_buffer.hh>
+#include <seastar/core/iostream.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/net/dns.hh>
 #include <seastar/net/inet_address.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
+
 #include "loopback_socket.hh"
-#include <iostream>
+#include "tmpdir.hh"
 
 #if 0
 #include <gnutls/gnutls.h>
@@ -637,4 +641,111 @@ SEASTAR_THREAD_TEST_CASE(test_close_timout) {
     }
 
     sem.wait(2 * iterations).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_reload_certificates) {
+    tmpdir tmp;
+
+    namespace fs = std::filesystem;
+
+    // copy the wrong certs. We don't trust these
+    // blocking calls, but this is a test and seastar does not have a copy 
+    // util and I am lazy...
+    fs::copy_file("tests/unit/other.crt", tmp.path() / "test.crt");
+    fs::copy_file("tests/unit/other.key", tmp.path() / "test.key");
+
+    auto cert = (tmp.path() / "test.crt").native();
+    auto key = (tmp.path() / "test.key").native();
+    std::unordered_set<sstring> changed;
+    promise<> p;
+
+    tls::credentials_builder b;
+    b.set_x509_key_file(cert, key, tls::x509_crt_format::PEM).get();
+    b.set_dh_level();
+
+    auto certs = b.build_reloadable_server_credentials([&](const std::unordered_set<sstring>& files, std::exception_ptr ep) {
+        if (ep) {
+            return;
+        }
+        changed.insert(files.begin(), files.end());
+        if (changed.count(cert) && changed.count(key)) {
+            p.set_value();
+        }
+    }).get0();
+
+    ::listen_options opts;
+    opts.reuse_address = true;
+    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto server = tls::listen(certs, addr, opts);
+
+    tls::credentials_builder b2;
+    b2.set_x509_trust_file("tests/unit/catest.pem", tls::x509_crt_format::PEM).get();
+
+    {
+        auto sa = server.accept();
+        auto c = tls::connect(b2.build_certificate_credentials(), addr).get0();
+        auto s = sa.get0();
+        auto in = s.connection.input();
+
+        output_stream<char> out(c.output().detach(), 4096);
+
+        try {
+            out.write("apa").get();
+            auto f = out.flush();
+            auto f2 = in.read();
+
+            try {
+                f.get();
+                BOOST_FAIL("should not reach");
+            } catch (tls::verification_error&) {
+                // ok
+            }
+            try {
+                out.close().get();
+            } catch (...) {
+            }
+
+            try {
+                f2.get();
+                BOOST_FAIL("should not reach");
+            } catch (...) {
+                // ok
+            }
+            try {
+                in.close().get();
+            } catch (...) {
+            }
+        } catch (tls::verification_error&) {
+            // ok
+        }
+    }
+
+    // copy the right (trusted) certs over the old ones.
+    fs::copy_file("tests/unit/test.crt", tmp.path() / "test0.crt");
+    fs::copy_file("tests/unit/test.key", tmp.path() / "test0.key");
+
+    rename_file((tmp.path() / "test0.crt").native(), (tmp.path() / "test.crt").native()).get();
+    rename_file((tmp.path() / "test0.key").native(), (tmp.path() / "test.key").native()).get();
+
+    p.get_future().get();
+
+    // now it should work
+    {
+        auto sa = server.accept();
+        auto c = tls::connect(b2.build_certificate_credentials(), addr).get0();
+        auto s = sa.get0();
+        auto in = s.connection.input();
+
+        output_stream<char> out(c.output().detach(), 4096);
+
+        out.write("apa").get();
+        auto f = out.flush();
+        auto buf = in.read().get0();
+        f.get();
+        out.close().get();
+        in.read().get(); // ignore - just want eof
+        in.close().get();
+
+        BOOST_CHECK_EQUAL(sstring(buf.begin(), buf.end()), "apa");
+    }
 }

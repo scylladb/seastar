@@ -27,6 +27,7 @@
 #include <sys/statfs.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <sys/inotify.h>
 #include <seastar/core/task.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/memory.hh>
@@ -1726,6 +1727,17 @@ reactor::fstat(int fd) noexcept {
     }).then([] (syscall_result_extra<struct stat> ret) {
         ret.throw_if_error();
         return make_ready_future<struct stat>(ret.extra);
+    });
+}
+
+future<int>
+reactor::inotify_add_watch(int fd, const sstring& path, uint32_t flags) {
+    return _thread_pool->submit<syscall_result<int>>([fd, path, flags] {
+        auto ret = ::inotify_add_watch(fd, path.c_str(), flags);
+        return wrap_syscall(ret);
+    }).then([] (syscall_result<int> ret) {
+        ret.throw_if_error();
+        return make_ready_future<int>(ret.result);
     });
 }
 
