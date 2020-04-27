@@ -35,6 +35,9 @@ namespace seastar {
 
 namespace testing {
 
+exchanger_base::exchanger_base() { }
+exchanger_base::~exchanger_base() { }
+
 void seastar_test::run() {
     // HACK: please see https://github.com/cloudius-systems/seastar/issues/10
     BOOST_REQUIRE(true);
