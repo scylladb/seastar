@@ -900,7 +900,7 @@ namespace internal {
 template<typename Future>
 struct identity_futures_vector {
     using future_type = future<std::vector<Future>>;
-    static future_type run(std::vector<Future> futures) {
+    static future_type run(std::vector<Future> futures) noexcept {
         return make_ready_future<std::vector<Future>>(std::move(futures));
     }
     static future_type current_exception_as_future() noexcept {
@@ -912,7 +912,7 @@ struct identity_futures_vector {
 template <typename ResolvedVectorTransform, typename Future>
 inline
 typename ResolvedVectorTransform::future_type
-complete_when_all(std::vector<Future>&& futures, typename std::vector<Future>::iterator pos) {
+complete_when_all(std::vector<Future>&& futures, typename std::vector<Future>::iterator pos) noexcept {
     // If any futures are already ready, skip them.
     while (pos != futures.end() && pos->available()) {
         ++pos;
@@ -930,10 +930,16 @@ complete_when_all(std::vector<Future>&& futures, typename std::vector<Future>::i
 
 template<typename ResolvedVectorTransform, typename FutureIterator>
 inline auto
-do_when_all(FutureIterator begin, FutureIterator end) {
+do_when_all(FutureIterator begin, FutureIterator end) noexcept {
     using itraits = std::iterator_traits<FutureIterator>;
-    std::vector<typename itraits::value_type> ret;
-    ret.reserve(iterator_range_estimate_vector_capacity(begin, end, typename itraits::iterator_category()));
+    auto make_values_vector = [] (size_t size) noexcept {
+        memory::disable_failure_guard dfg;
+        std::vector<typename itraits::value_type> ret;
+        ret.reserve(size);
+        return ret;
+    };
+    std::vector<typename itraits::value_type> ret =
+            make_values_vector(iterator_range_estimate_vector_capacity(begin, end, typename itraits::iterator_category()));
     // Important to invoke the *begin here, in case it's a function iterator,
     // so we launch all computation in parallel.
     std::move(begin, end, std::back_inserter(ret));
@@ -1308,9 +1314,14 @@ struct extract_values_from_futures_vector {
 
     using future_type = future<std::vector<value_type>>;
 
-    static future_type run(std::vector<Future> futures) {
-        std::vector<value_type> values;
-        values.reserve(futures.size());
+    static future_type run(std::vector<Future> futures) noexcept {
+        auto make_values_vector = [] (size_t size) noexcept {
+            memory::disable_failure_guard dfg;
+            std::vector<value_type> values;
+            values.reserve(size);
+            return values;
+        };
+        std::vector<value_type> values = make_values_vector(futures.size());
 
         std::exception_ptr excp;
         for (auto&& f : futures) {
@@ -1339,7 +1350,7 @@ template<>
 struct extract_values_from_futures_vector<future<>> {
     using future_type = future<>;
 
-    static future_type run(std::vector<future<>> futures) {
+    static future_type run(std::vector<future<>> futures) noexcept {
         std::exception_ptr excp;
         for (auto&& f : futures) {
             if (!excp) {
