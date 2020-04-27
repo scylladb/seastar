@@ -156,6 +156,8 @@ API, thus forcing them on C++17 projects. To fix this, Seastar respects the valu
 seemless use of C++17. Usage of this option requires an updated compiler, such
 as GCC 8.1.1-5 on Fedora.
 
+See the [compatibity statement](doc/compatibility.md) for more information.
+
 Getting started
 ---------------
 

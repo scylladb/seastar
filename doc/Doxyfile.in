@@ -763,6 +763,7 @@ INPUT                 += @Seastar_BINARY_DIR@/gen/include
 INPUT                 += @Seastar_SOURCE_DIR@/doc/rpc.md
 INPUT                 += @Seastar_SOURCE_DIR@/doc/rpc-streaming.md
 INPUT                 += @Seastar_SOURCE_DIR@/doc/rpc-compression.md
+INPUT                 += @Seastar_SOURCE_DIR@/doc/compatibility.md
 
 # This tag can be used to specify the character encoding of the source files
 # that doxygen parses. Internally doxygen uses the UTF-8 encoding. Doxygen uses

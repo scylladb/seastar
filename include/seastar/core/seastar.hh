@@ -40,6 +40,9 @@
 ///   - \ref fiber-module Utilities for managing loosely coupled chains of
 ///          continuations, also known as fibers
 ///   - \ref thread-module Support for traditional threaded execution
+///
+/// View the [Seastar compatibility statement](./md_compatibility.html) for
+/// information about library evolution.
 
 #include <seastar/core/sstring.hh>
 #include <seastar/core/future.hh>
