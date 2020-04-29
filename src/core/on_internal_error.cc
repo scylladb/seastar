@@ -41,3 +41,12 @@ void seastar::on_internal_error(logger& logger, compat::string_view msg) {
         throw_with_backtrace<std::runtime_error>(std::string(msg));
     }
 }
+
+void seastar::on_internal_error(logger& logger, std::exception_ptr ex) {
+    if (abort_on_internal_error.load()) {
+        logger.error("{}", ex);
+        abort();
+    } else {
+        std::rethrow_exception(std::move(ex));
+    }
+}
