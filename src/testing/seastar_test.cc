@@ -29,6 +29,7 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/on_internal_error.hh>
 #include <seastar/core/app-template.hh>
+#include <seastar/testing/on_internal_error.hh>
 
 namespace seastar {
 
@@ -96,6 +97,14 @@ std::function<bool(const std::exception&)> message_contains(compat::string_view 
 }
 
 } // exception_predicate
+
+scoped_no_abort_on_internal_error::scoped_no_abort_on_internal_error() {
+    set_abort_on_internal_error(false);
+}
+
+scoped_no_abort_on_internal_error::~scoped_no_abort_on_internal_error() {
+    set_abort_on_internal_error(true);
+}
 
 }
 
