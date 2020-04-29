@@ -748,3 +748,12 @@ SEASTAR_TEST_CASE(content_length_limit) {
         server.stop().get();
     });
 }
+
+SEASTAR_TEST_CASE(case_insensitive_header) {
+    std::unique_ptr<seastar::httpd::request> req = std::make_unique<seastar::httpd::request>();
+    req->_headers["conTEnt-LengtH"] = "17";
+    BOOST_REQUIRE_EQUAL(req->get_header("content-length"), "17");
+    BOOST_REQUIRE_EQUAL(req->get_header("Content-Length"), "17");
+    BOOST_REQUIRE_EQUAL(req->get_header("cOnTeNT-lEnGTh"), "17");
+    return make_ready_future<>();
+}

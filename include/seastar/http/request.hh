@@ -50,6 +50,20 @@ struct request {
             other, multipart, app_x_www_urlencoded,
     };
 
+    struct case_insensitive_cmp {
+        bool operator()(const sstring& s1, const sstring& s2) const {
+            return std::equal(s1.begin(), s1.end(), s2.begin(), s2.end(),
+                    [](char a, char b) { return ::tolower(a) == ::tolower(b); });
+        }
+    };
+
+    struct case_insensitive_hash {
+        size_t operator()(sstring s) const {
+            std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+            return std::hash<sstring>()(s);
+        }
+    };
+
     sstring _method;
     sstring _url;
     sstring _version;
@@ -57,7 +71,7 @@ struct request {
     int http_version_minor;
     ctclass content_type_class;
     size_t content_length = 0;
-    std::unordered_map<sstring, sstring> _headers;
+    std::unordered_map<sstring, sstring, case_insensitive_hash, case_insensitive_cmp> _headers;
     std::unordered_map<sstring, sstring> query_parameters;
     connection* connection_ptr;
     parameters param;
