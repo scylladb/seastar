@@ -281,6 +281,12 @@ set (Seastar_STACK_GUARDS
   STRING
   "Enable stack guards. Can be ON, OFF or DEFAULT (which enables it for non release builds)")
 
+set (Seastar_SANITIZE
+  "DEFAULT"
+  CACHE
+  STRING
+  "Enable ASAN and UBSAN. Can be ON, OFF or DEFAULT (which enables it for Debug and Sanitize)")
+
 # When Seastar is embedded with `add_subdirectory`, disable the non-library targets.
 if (NOT (CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR))
   set (Seastar_APPS OFF)
@@ -681,12 +687,6 @@ if (Seastar_COMPRESS_DEBUG)
   list (APPEND Seastar_PRIVATE_CXX_FLAGS -gz)
 endif()
 
-if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (CMAKE_BUILD_TYPE STREQUAL "Sanitize"))
-  if (NOT Sanitizers_FOUND)
-    message (FATAL_ERROR "Sanitizers are required for debug and sanitize modes!")
-  endif ()
-endif ()
-
 target_link_libraries (seastar
   PUBLIC
     Boost::boost
@@ -708,13 +708,25 @@ target_link_libraries (seastar
     yaml-cpp::yaml-cpp
     Threads::Threads)
 
-if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (CMAKE_BUILD_TYPE STREQUAL "Sanitize"))
+set (Seastar_SANITIZE_MODES "Debug" "Sanitize")
+if ((Seastar_SANITIZE STREQUAL "ON") OR
+    ((Seastar_SANITIZE STREQUAL "DEFAULT") AND
+     (CMAKE_BUILD_TYPE IN_LIST Seastar_SANITIZE_MODES)))
+  if (NOT Sanitizers_FOUND)
+    message (FATAL_ERROR "Sanitizers not found!")
+  endif ()
   set (Seastar_Sanitizers_OPTIONS ${Sanitizers_COMPILER_OPTIONS})
   target_link_libraries (seastar
     PUBLIC
       Sanitizers::address
       Sanitizers::undefined_behavior)
 endif ()
+
+# We only need valgrind to find uninitialized memory uses, so disable
+# the leak sanitizer.
+# To test with valgrind run "ctest -T memcheck"
+set( MEMORYCHECK_COMMAND_OPTIONS "--error-exitcode=1 --leak-check=no --trace-children=yes" )
+include (CTest)
 
 #
 # We want asserts enabled on all modes, but cmake defaults to passing

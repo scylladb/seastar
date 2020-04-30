@@ -600,7 +600,7 @@ reactor_backend_epoll::reactor_backend_epoll(reactor* r)
     auto ret = ::epoll_ctl(_epollfd.get(), EPOLL_CTL_ADD, _r->_notify_eventfd.get(), &event);
     throw_system_error_on(ret == -1);
 
-    struct sigevent sev;
+    struct sigevent sev{};
     sev.sigev_notify = SIGEV_THREAD_ID;
     sev._sigev_un._tid = syscall(SYS_gettid);
     sev.sigev_signo = hrtimer_signal();

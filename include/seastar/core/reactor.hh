@@ -341,12 +341,12 @@ private:
     const bool _reuseport;
     circular_buffer<double> _loads;
     double _load = 0;
-    sched_clock::duration _total_idle;
+    sched_clock::duration _total_idle{0};
     sched_clock::duration _total_sleep;
     sched_clock::time_point _start_time = sched_clock::now();
     std::chrono::nanoseconds _max_poll_time = calculate_poll_time();
     circular_buffer<output_stream<char>* > _flush_batching;
-    std::atomic<bool> _sleeping alignas(seastar::cache_line_size);
+    std::atomic<bool> _sleeping alignas(seastar::cache_line_size){0};
     pthread_t _thread_id alignas(seastar::cache_line_size) = pthread_self();
     bool _strict_o_direct = true;
     bool _force_io_getevents_syscall = false;
