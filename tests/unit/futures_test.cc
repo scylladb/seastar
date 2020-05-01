@@ -103,7 +103,7 @@ SEASTAR_TEST_CASE(test_stream_drop_sub) {
         auto sub = s->listen([](int x) {
             return make_ready_future<>();
         });
-        *ret = sub.done();
+        ret = sub.done();
         // It is ok to drop the subscription when we only want the competition future.
     }
     return s->produce(42).then([ret = std::move(*ret), s] () mutable {
