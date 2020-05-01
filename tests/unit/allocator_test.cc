@@ -177,7 +177,7 @@ int main(int ac, char** av) {
         auto typ = type(random_engine);
         switch (typ) {
         case 0: {
-            auto n = std::min<size_t>(std::exp(distr(random_engine)), 1 << 25);
+            size_t n = std::min<double>(std::exp(distr(random_engine)), 1 << 25);
             try {
                 allocations.emplace_back(n, poison(random_engine));
             } catch (std::bad_alloc&) {
