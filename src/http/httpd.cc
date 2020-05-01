@@ -230,9 +230,8 @@ future<> connection::read_one() {
         req->content_length = strtol(length_header.c_str(), nullptr, 10);
 
         if (req->content_length > content_length_limit) {
-            generate_error_reply_and_close(std::move(req), reply::status_type::payload_too_large,
-                    format("Content length limit ({}) exceeded: {}",
-                            content_length_limit, req->content_length));
+            auto msg = format("Content length limit ({}) exceeded: {}", content_length_limit, req->content_length);
+            generate_error_reply_and_close(std::move(req), reply::status_type::payload_too_large, std::move(msg));
             return make_ready_future<>();
         }
         return read_request_body(_read_buf, std::move(req)).then([this] (std::unique_ptr<httpd::request> req) {
