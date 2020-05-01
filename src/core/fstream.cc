@@ -381,6 +381,7 @@ public:
             // This should only happen when the user calls output_stream::flush().
             auto tmp = allocate_buffer(align_up(buf.size(), _file.disk_write_dma_alignment()));
             ::memcpy(tmp.get_write(), buf.get(), buf.size());
+            ::memset(tmp.get_write() + buf.size(), 0, tmp.size() - buf.size());
             buf = std::move(tmp);
             p = buf.get();
             buf_size = buf.size();

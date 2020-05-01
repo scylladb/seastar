@@ -168,6 +168,7 @@ SEASTAR_TEST_CASE(parallel_write_fsync) {
                     return written <= fsynced_at + max_write_ahead_of_fsync;
                 }).get();
                 auto buf = temporary_buffer<char>::aligned(f.memory_dma_alignment(), buffer_size);
+                memset(buf.get_write(), 0, buf.size());
                 // Write asynchronously, signal when done.
                 (void)f.dma_write(written, buf.get(), buf.size()).then([&fsync_semaphore, &write_semaphore, buf = std::move(buf)] (size_t w) {
                     fsync_semaphore.signal(buf.size());

@@ -47,13 +47,19 @@ SEASTAR_TEST_CASE(test_make_tmp_file) {
     });
 }
 
+static temporary_buffer<char> get_init_buffer(file& f) {
+    auto buf = temporary_buffer<char>::aligned(f.memory_dma_alignment(), f.memory_dma_alignment());
+    memset(buf.get_write(), 0, buf.size());
+    return buf;
+}
+
 SEASTAR_THREAD_TEST_CASE(test_tmp_file) {
     size_t expected = ~0;
     size_t actual = 0;
 
     tmp_file::do_with([&] (tmp_file& tf) mutable {
         auto& f = tf.get_file();
-        auto buf = temporary_buffer<char>::aligned(f.memory_dma_alignment(), f.memory_dma_alignment());
+        auto buf = get_init_buffer(f);
         return do_with(std::move(buf), [&] (auto& buf) mutable {
             expected = buf.size();
             return f.dma_write(0, buf.get(), buf.size()).then([&] (size_t written) {
@@ -168,7 +174,7 @@ SEASTAR_THREAD_TEST_CASE(test_tmp_dir) {
     tmp_dir::do_with([&] (tmp_dir& td) {
         return tmp_file::do_with(td.get_path(), [&] (tmp_file& tf) {
             auto& f = tf.get_file();
-            auto buf = temporary_buffer<char>::aligned(f.memory_dma_alignment(), f.memory_dma_alignment());
+            auto buf = get_init_buffer(f);
             return do_with(std::move(buf), [&] (auto& buf) mutable {
                 expected = buf.size();
                 return f.dma_write(0, buf.get(), buf.size()).then([&] (size_t written) {
@@ -187,7 +193,7 @@ SEASTAR_THREAD_TEST_CASE(test_tmp_dir_with_path) {
     tmp_dir::do_with(".", [&] (tmp_dir& td) {
         return tmp_file::do_with(td.get_path(), [&] (tmp_file& tf) {
             auto& f = tf.get_file();
-            auto buf = temporary_buffer<char>::aligned(f.memory_dma_alignment(), f.memory_dma_alignment());
+            auto buf = get_init_buffer(f);
             return do_with(std::move(buf), [&] (auto& buf) mutable {
                 expected = buf.size();
                 return tf.get_file().dma_write(0, buf.get(), buf.size()).then([&] (size_t written) {
@@ -209,7 +215,7 @@ SEASTAR_TEST_CASE(tmp_dir_with_thread_test) {
     return tmp_dir::do_with_thread([] (tmp_dir& td) {
         tmp_file tf = make_tmp_file(td.get_path()).get0();
         auto& f = tf.get_file();
-        auto buf = temporary_buffer<char>::aligned(f.memory_dma_alignment(), f.memory_dma_alignment());
+        auto buf = get_init_buffer(f);
         auto expected = buf.size();
         auto actual = f.dma_write(0, buf.get(), buf.size()).get0();
         BOOST_REQUIRE_EQUAL(expected, actual);

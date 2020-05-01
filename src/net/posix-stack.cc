@@ -688,11 +688,12 @@ private:
         send_ctx() {
             memset(&_hdr, 0, sizeof(_hdr));
             _hdr.msg_name = &_dst.u.sa;
-            _hdr.msg_namelen = sizeof(_dst.u.sas);
+            _hdr.msg_namelen = _dst.addr_length;
         }
 
         void prepare(const socket_address& dst, packet p) {
             _dst = dst;
+            _hdr.msg_namelen = _dst.addr_length;
             _p = std::move(p);
             _iovecs = to_iovec(_p);
             _hdr.msg_iov = _iovecs.data();
