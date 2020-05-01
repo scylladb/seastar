@@ -364,7 +364,7 @@ namespace rpc {
   typename FrameType::return_type
   connection::read_frame_compressed(socket_address info, std::unique_ptr<compressor>& compressor, input_stream<char>& in) {
       if (compressor) {
-          return in.read_exactly(4).then([&] (temporary_buffer<char> compress_header) {
+          return in.read_exactly(4).then([this, info, &in, &compressor] (temporary_buffer<char> compress_header) {
               if (compress_header.size() != 4) {
                   if (compress_header.size() != 0) {
                       _logger(info, format("unexpected eof on a {} while reading compression header: expected 4 got {:d}", FrameType::role(), compress_header.size()));
