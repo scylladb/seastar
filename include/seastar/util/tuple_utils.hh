@@ -23,6 +23,7 @@
 
 #include <tuple>
 #include <utility>
+#include <stddef.h>
 
 namespace seastar {
 
