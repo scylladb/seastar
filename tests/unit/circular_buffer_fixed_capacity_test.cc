@@ -63,40 +63,40 @@ BOOST_AUTO_TEST_CASE(test_edge_cases) {
     };
 
     {
-    circular_buffer_fixed_capacity<int_with_stats, 16> cb;
-    BOOST_REQUIRE(cb.begin() == cb.end());
-    cb.push_front(get_val(3));  // underflows indexes
-    BOOST_REQUIRE_EQUAL(cb[0], 3);
-    BOOST_REQUIRE(cb.begin() < cb.end());
-    cb.push_back(get_val(4));
-    BOOST_REQUIRE_EQUAL(cb.size(), 2u);
-    BOOST_REQUIRE_EQUAL(cb[0], 3);
-    BOOST_REQUIRE_EQUAL(cb[1], 4);
-    cb.pop_back();
-    BOOST_REQUIRE_EQUAL(cb.back(), 3);
-    cb.push_front(get_val(1));
-    cb.pop_back();
-    BOOST_REQUIRE_EQUAL(cb.back(), 1);
+        circular_buffer_fixed_capacity<int_with_stats, 16> cb;
+        BOOST_REQUIRE(cb.begin() == cb.end());
+        cb.push_front(get_val(3));  // underflows indexes
+        BOOST_REQUIRE_EQUAL(cb[0], 3);
+        BOOST_REQUIRE(cb.begin() < cb.end());
+        cb.push_back(get_val(4));
+        BOOST_REQUIRE_EQUAL(cb.size(), 2u);
+        BOOST_REQUIRE_EQUAL(cb[0], 3);
+        BOOST_REQUIRE_EQUAL(cb[1], 4);
+        cb.pop_back();
+        BOOST_REQUIRE_EQUAL(cb.back(), 3);
+        cb.push_front(get_val(1));
+        cb.pop_back();
+        BOOST_REQUIRE_EQUAL(cb.back(), 1);
 
-    BOOST_REQUIRE_EQUAL(num_deleted, 5);
-    BOOST_REQUIRE_EQUAL(num_moved, 3);
+        BOOST_REQUIRE_EQUAL(num_deleted, 5);
+        BOOST_REQUIRE_EQUAL(num_moved, 3);
 
-    cb.push_front(get_val(0));
-    cb.push_back(get_val(2));
-    BOOST_REQUIRE_EQUAL(cb.size(), 3);
-    BOOST_REQUIRE_EQUAL(cb[0], 0);
-    BOOST_REQUIRE_EQUAL(cb[1], 1);
-    BOOST_REQUIRE_EQUAL(cb[2], 2);
-    BOOST_REQUIRE_EQUAL(num_deleted, 7);
-    BOOST_REQUIRE_EQUAL(num_moved, 5);
+        cb.push_front(get_val(0));
+        cb.push_back(get_val(2));
+        BOOST_REQUIRE_EQUAL(cb.size(), 3);
+        BOOST_REQUIRE_EQUAL(cb[0], 0);
+        BOOST_REQUIRE_EQUAL(cb[1], 1);
+        BOOST_REQUIRE_EQUAL(cb[2], 2);
+        BOOST_REQUIRE_EQUAL(num_deleted, 7);
+        BOOST_REQUIRE_EQUAL(num_moved, 5);
 
-    circular_buffer_fixed_capacity<int_with_stats, 16> cb2 = std::move(cb);
-    BOOST_REQUIRE_EQUAL(cb2.size(), 3);
-    BOOST_REQUIRE_EQUAL(cb2[0], 0);
-    BOOST_REQUIRE_EQUAL(cb2[1], 1);
-    BOOST_REQUIRE_EQUAL(cb2[2], 2);
-    BOOST_REQUIRE_EQUAL(num_deleted, 7);
-    BOOST_REQUIRE_EQUAL(num_moved, 8);
+        circular_buffer_fixed_capacity<int_with_stats, 16> cb2 = std::move(cb);
+        BOOST_REQUIRE_EQUAL(cb2.size(), 3);
+        BOOST_REQUIRE_EQUAL(cb2[0], 0);
+        BOOST_REQUIRE_EQUAL(cb2[1], 1);
+        BOOST_REQUIRE_EQUAL(cb2[2], 2);
+        BOOST_REQUIRE_EQUAL(num_deleted, 7);
+        BOOST_REQUIRE_EQUAL(num_moved, 8);
     }
     BOOST_REQUIRE_EQUAL(num_deleted, 13);
     BOOST_REQUIRE_EQUAL(num_moved, 8);
