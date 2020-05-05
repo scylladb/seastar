@@ -26,7 +26,14 @@ namespace seastar {
 
 namespace rpc {
 
-const sstring lz4_compressor::factory::_name = "LZ4";
+const sstring& lz4_compressor::factory::supported() const {
+    const static sstring name = "LZ4";
+    return name;
+}
+
+std::unique_ptr<rpc::compressor> lz4_compressor::factory::negotiate(sstring feature, bool is_server) const {
+    return feature == supported() ? std::make_unique<lz4_compressor>() : nullptr;
+}
 
 // Reusable contiguous buffers needed for LZ4 compression and decompression functions.
 class reusable_buffer {

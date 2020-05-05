@@ -27,7 +27,14 @@
 namespace seastar {
 namespace rpc {
 
-const sstring lz4_fragmented_compressor::factory::_name = "LZ4_FRAGMENTED";
+const sstring& lz4_fragmented_compressor::factory::supported() const {
+    const static sstring name = "LZ4_FRAGMENTED";
+    return name;
+}
+
+std::unique_ptr<rpc::compressor> lz4_fragmented_compressor::factory::negotiate(sstring feature, bool is_server) const {
+    return feature == supported() ? std::make_unique<lz4_fragmented_compressor>() : nullptr;
+}
 
 // Compressed message format:
 // The message consists of one or more data chunks each preceeded by a 4 byte header.
