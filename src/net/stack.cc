@@ -225,7 +225,7 @@ bool socket_address::is_unspecified() const {
 }
 
 static int adjusted_path_length(const socket_address& a) {
-    int l = std::max(0, (int)a.addr_length-(int)((size_t) (((struct sockaddr_un *) 0)->sun_path)));
+    int l = std::max(0, (int)a.addr_length-(int)(offsetof(sockaddr_un, sun_path)));
     // "un-count" a trailing null in filesystem-namespace paths
     if (a.u.un.sun_path[0]!='\0' && (l > 1) && a.u.un.sun_path[l-1]=='\0') {
         --l;

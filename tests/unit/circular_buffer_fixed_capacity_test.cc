@@ -35,22 +35,71 @@ using namespace seastar;
 
 using cb16_t = circular_buffer_fixed_capacity<int, 16>;
 
+struct int_with_stats {
+    int val;
+    unsigned *num_deleted;
+    unsigned *num_moved;
+    operator int() const { return val; }
+    int_with_stats(int val, unsigned* num_deleted, unsigned* num_moved)
+        : val(val), num_deleted(num_deleted), num_moved(num_moved) {}
+
+    ~int_with_stats() { ++(*num_deleted); }
+    int_with_stats(const int_with_stats&) = delete;
+    int_with_stats(int_with_stats&& o) noexcept : val(o.val), num_deleted(o.num_deleted), num_moved(o.num_moved) {
+        ++(*num_moved);
+    }
+    int_with_stats& operator=(int_with_stats&& o) noexcept {
+        this->~int_with_stats();
+        new (this) int_with_stats(std::move(o));
+        return *this;
+    }
+};
 
 BOOST_AUTO_TEST_CASE(test_edge_cases) {
-    cb16_t cb;
-    BOOST_REQUIRE(cb.begin() == cb.end());
-    cb.push_front(3);  // underflows indexes
-    BOOST_REQUIRE_EQUAL(cb[0], 3);
-    BOOST_REQUIRE(cb.begin() < cb.end());
-    cb.push_back(4);
-    BOOST_REQUIRE_EQUAL(cb.size(), 2u);
-    BOOST_REQUIRE_EQUAL(cb[0], 3);
-    BOOST_REQUIRE_EQUAL(cb[1], 4);
-    cb.pop_back();
-    BOOST_REQUIRE_EQUAL(cb.back(), 3);
-    cb.push_front(1);
-    cb.pop_back();
-    BOOST_REQUIRE_EQUAL(cb.back(), 1);
+    unsigned num_deleted = 0;
+    unsigned num_moved = 0;
+    auto get_val = [&num_deleted, &num_moved] (int val) {
+        return int_with_stats{val, &num_deleted, &num_moved};
+    };
+
+    {
+        circular_buffer_fixed_capacity<int_with_stats, 16> cb;
+        BOOST_REQUIRE(cb.begin() == cb.end());
+        cb.push_front(get_val(3));  // underflows indexes
+        BOOST_REQUIRE_EQUAL(cb[0], 3);
+        BOOST_REQUIRE(cb.begin() < cb.end());
+        cb.push_back(get_val(4));
+        BOOST_REQUIRE_EQUAL(cb.size(), 2u);
+        BOOST_REQUIRE_EQUAL(cb[0], 3);
+        BOOST_REQUIRE_EQUAL(cb[1], 4);
+        cb.pop_back();
+        BOOST_REQUIRE_EQUAL(cb.back(), 3);
+        cb.push_front(get_val(1));
+        cb.pop_back();
+        BOOST_REQUIRE_EQUAL(cb.back(), 1);
+
+        BOOST_REQUIRE_EQUAL(num_deleted, 5);
+        BOOST_REQUIRE_EQUAL(num_moved, 3);
+
+        cb.push_front(get_val(0));
+        cb.push_back(get_val(2));
+        BOOST_REQUIRE_EQUAL(cb.size(), 3);
+        BOOST_REQUIRE_EQUAL(cb[0], 0);
+        BOOST_REQUIRE_EQUAL(cb[1], 1);
+        BOOST_REQUIRE_EQUAL(cb[2], 2);
+        BOOST_REQUIRE_EQUAL(num_deleted, 7);
+        BOOST_REQUIRE_EQUAL(num_moved, 5);
+
+        circular_buffer_fixed_capacity<int_with_stats, 16> cb2 = std::move(cb);
+        BOOST_REQUIRE_EQUAL(cb2.size(), 3);
+        BOOST_REQUIRE_EQUAL(cb2[0], 0);
+        BOOST_REQUIRE_EQUAL(cb2[1], 1);
+        BOOST_REQUIRE_EQUAL(cb2[2], 2);
+        BOOST_REQUIRE_EQUAL(num_deleted, 7);
+        BOOST_REQUIRE_EQUAL(num_moved, 8);
+    }
+    BOOST_REQUIRE_EQUAL(num_deleted, 13);
+    BOOST_REQUIRE_EQUAL(num_moved, 8);
 }
 
 using deque = std::deque<int>;

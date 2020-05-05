@@ -55,7 +55,7 @@ socket_address::socket_address(const unix_domain_addr& s) {
 }
 
 std::string unix_domain_addr_text(const socket_address& sa) {
-    if (sa.length() <= ((size_t) (((struct ::sockaddr_un *) 0)->sun_path))) {
+    if (sa.length() <= offsetof(sockaddr_un, sun_path)) {
         return "{unnamed}"s;
     }
     if (sa.u.un.sun_path[0]) {
@@ -63,7 +63,7 @@ std::string unix_domain_addr_text(const socket_address& sa) {
         return std::string{sa.u.un.sun_path};
     }
 
-    const size_t  path_length{sa.length() - ((size_t) (((struct ::sockaddr_un *) 0)->sun_path))};
+    const size_t  path_length{sa.length() - offsetof(sockaddr_un, sun_path)};
     std::string ud_path(path_length, 0);
     char* targ = &ud_path[0];
     *targ++ = '@';
