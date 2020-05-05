@@ -152,6 +152,9 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
         return 2;
     }
     if (configuration.count("help")) {
+        if (!_cfg.description.empty()) {
+            std::cout << _cfg.description << "\n";
+        }
         std::cout << _opts << "\n";
         return 1;
     }

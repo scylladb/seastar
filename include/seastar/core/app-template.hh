@@ -32,7 +32,17 @@ namespace seastar {
 class app_template {
 public:
     struct config {
+        /// The name of the application.
+        ///
+        /// Will be used in the --help output to distinguish command line args
+        /// registered by the application, as opposed to those registered by
+        /// seastar and its subsystems.
         sstring name = "App";
+        /// The description of the application.
+        ///
+        /// Will be printed on the top of the --help output. Lines should be
+        /// hard-wrapped for 80 chars.
+        sstring description = "";
         std::chrono::duration<double> default_task_quota = std::chrono::microseconds(500);
         /// \brief Handle SIGINT/SIGTERM by calling reactor::stop()
         ///
