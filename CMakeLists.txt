@@ -199,10 +199,6 @@ option (Seastar_EXECUTE_ONLY_FAST_TESTS
   "Only execute tests which run quickly."
   OFF)
 
-option (Seastar_GCC6_CONCEPTS
-  "Enable compilation with gcc version 6 concepts support."
-  OFF)
-
 option (Seastar_HWLOC
   "Enable hwloc support."
   ON)
@@ -772,14 +768,6 @@ endif ()
 
 if (Seastar_SSTRING)
   target_compile_options (seastar PUBLIC -DSEASTAR_SSTRING)
-endif ()
-
-if (Seastar_GCC6_CONCEPTS OR Concepts_FOUND)
-  target_compile_definitions (seastar
-    PUBLIC SEASTAR_HAVE_GCC6_CONCEPTS)
-
-  target_link_libraries (seastar
-    PUBLIC Concepts::concepts)
 endif ()
 
 if (LinuxMembarrier_FOUND)
