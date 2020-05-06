@@ -28,7 +28,7 @@
 #include <seastar/core/metrics.hh>
 #include <seastar/core/scheduling.hh>
 #include <seastar/util/reference_wrapper.hh>
-#include <seastar/util/gcc6-concepts.hh>
+#include <seastar/util/concepts.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/tuple_utils.hh>
 #include <seastar/util/defer.hh>
@@ -205,7 +205,7 @@ public:
 /// \tparam Args  argument pack containing arguments to the function object, needs
 ///                   to have move constructor that doesn't throw
 template<typename ReturnType, typename... Args>
-GCC6_CONCEPT(requires std::is_nothrow_move_constructible<std::tuple<Args...>>::value)
+SEASTAR_CONCEPT(requires std::is_nothrow_move_constructible<std::tuple<Args...>>::value)
 class concrete_execution_stage final : public execution_stage {
     using args_tuple = std::tuple<Args...>;
     static_assert(std::is_nothrow_move_constructible<args_tuple>::value,
@@ -309,7 +309,7 @@ public:
 /// \tparam Args  argument pack containing arguments to the function object, needs
 ///                   to have move constructor that doesn't throw
 template<typename ReturnType, typename... Args>
-GCC6_CONCEPT(requires std::is_nothrow_move_constructible<std::tuple<Args...>>::value)
+SEASTAR_CONCEPT(requires std::is_nothrow_move_constructible<std::tuple<Args...>>::value)
 class inheriting_concrete_execution_stage final {
     using return_type = futurize_t<ReturnType>;
     using args_tuple = std::tuple<Args...>;

@@ -145,7 +145,7 @@ public:
 ///         complete.  If one or more return an exception, the return value
 ///         contains one of the exceptions.
 template <typename Iterator, typename Func>
-GCC6_CONCEPT( requires requires (Func f, Iterator i) { { f(*i++) } -> std::same_as<future<>>; } )
+SEASTAR_CONCEPT( requires requires (Func f, Iterator i) { { f(*i++) } -> std::same_as<future<>>; } )
 inline
 future<>
 parallel_for_each(Iterator begin, Iterator end, Func&& func) noexcept {
@@ -207,7 +207,7 @@ parallel_for_each_impl(Range&& range, Func&& func) {
 /// \endcond
 
 template <typename Range, typename Func>
-GCC6_CONCEPT( requires requires (Func f, Range r) { { f(*r.begin()) } -> std::same_as<future<>>; } )
+SEASTAR_CONCEPT( requires requires (Func f, Range r) { { f(*r.begin()) } -> std::same_as<future<>>; } )
 inline
 future<>
 parallel_for_each(Range&& range, Func&& func) noexcept {
@@ -286,7 +286,7 @@ public:
 /// \return a ready future if we stopped successfully, or a failed future if
 ///         a call to to \c action failed.
 template<typename AsyncAction>
-GCC6_CONCEPT( requires seastar::InvokeReturns<AsyncAction, stop_iteration> || seastar::InvokeReturns<AsyncAction, future<stop_iteration>> )
+SEASTAR_CONCEPT( requires seastar::InvokeReturns<AsyncAction, stop_iteration> || seastar::InvokeReturns<AsyncAction, future<stop_iteration>> )
 inline
 future<> repeat(AsyncAction action) noexcept {
     using futurator = futurize<std::result_of_t<AsyncAction()>>;
@@ -407,7 +407,7 @@ public:
 /// \return a ready future if we stopped successfully, or a failed future if
 ///         a call to to \c action failed.  The \c optional's value is returned.
 template<typename AsyncAction>
-GCC6_CONCEPT( requires requires (AsyncAction aa) {
+SEASTAR_CONCEPT( requires requires (AsyncAction aa) {
     bool(futurize_invoke(aa).get0());
     futurize_invoke(aa).get0().value();
 } )
@@ -510,7 +510,7 @@ public:
 /// \return a ready future if we stopped successfully, or a failed future if
 ///         a call to to \c action failed.
 template<typename AsyncAction, typename StopCondition>
-GCC6_CONCEPT( requires seastar::InvokeReturns<StopCondition, bool> && seastar::InvokeReturns<AsyncAction, future<>> )
+SEASTAR_CONCEPT( requires seastar::InvokeReturns<StopCondition, bool> && seastar::InvokeReturns<AsyncAction, future<>> )
 inline
 future<> do_until(StopCondition stop_cond, AsyncAction action) noexcept {
     using namespace internal;
@@ -547,7 +547,7 @@ future<> do_until(StopCondition stop_cond, AsyncAction action) noexcept {
 ///        that becomes ready when you wish it to be called again.
 /// \return a future<> that will resolve to the first failure of \c action
 template<typename AsyncAction>
-GCC6_CONCEPT( requires seastar::InvokeReturns<AsyncAction, future<>> )
+SEASTAR_CONCEPT( requires seastar::InvokeReturns<AsyncAction, future<>> )
 inline
 future<> keep_doing(AsyncAction action) noexcept {
     return repeat([action = std::move(action)] () mutable {
@@ -627,7 +627,7 @@ future<> do_for_each_impl(Iterator begin, Iterator end, AsyncAction action) {
 /// \return a ready future on success, or the first failed future if
 ///         \c action failed.
 template<typename Iterator, typename AsyncAction>
-GCC6_CONCEPT( requires requires (Iterator i, AsyncAction aa) {
+SEASTAR_CONCEPT( requires requires (Iterator i, AsyncAction aa) {
     { futurize_invoke(aa, *i) } -> std::same_as<future<>>;
 } )
 inline
@@ -651,7 +651,7 @@ future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) noexcept 
 /// \return a ready future on success, or the first failed future if
 ///         \c action failed.
 template<typename Container, typename AsyncAction>
-GCC6_CONCEPT( requires requires (Container c, AsyncAction aa) {
+SEASTAR_CONCEPT( requires requires (Container c, AsyncAction aa) {
     { futurize_invoke(aa, *c.begin()) } -> std::same_as<future<>>;
 } )
 inline
@@ -825,7 +825,7 @@ public:
 }
 /// \endcond
 
-GCC6_CONCEPT(
+SEASTAR_CONCEPT(
 
 /// \cond internal
 namespace impl {
@@ -866,7 +866,7 @@ auto futurize_invoke_if_func(Func&& func) noexcept {
 namespace internal {
 
 template <typename... Futs>
-GCC6_CONCEPT( requires seastar::AllAreFutures<Futs...> )
+SEASTAR_CONCEPT( requires seastar::AllAreFutures<Futs...> )
 inline
 future<std::tuple<Futs...>>
 when_all_impl(Futs&&... futs) noexcept {
@@ -960,7 +960,7 @@ do_when_all(FutureIterator begin, FutureIterator end) noexcept {
 /// \return an \c std::vector<> of all the futures in the input; when
 ///         ready, all contained futures will be ready as well.
 template <typename FutureIterator>
-GCC6_CONCEPT( requires requires (FutureIterator i) { { *i++ }; requires is_future<std::remove_reference_t<decltype(*i)>>::value; } )
+SEASTAR_CONCEPT( requires requires (FutureIterator i) { { *i++ }; requires is_future<std::remove_reference_t<decltype(*i)>>::value; } )
 inline
 future<std::vector<typename std::iterator_traits<FutureIterator>::value_type>>
 when_all(FutureIterator begin, FutureIterator end) noexcept {
@@ -1078,7 +1078,7 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
 ///
 /// \return equivalent to \c reduce(reduce(initial, mapper(obj0)), mapper(obj1)) ...
 template <typename Iterator, typename Mapper, typename Initial, typename Reduce>
-GCC6_CONCEPT( requires requires (Iterator i, Mapper mapper, Initial initial, Reduce reduce) {
+SEASTAR_CONCEPT( requires requires (Iterator i, Mapper mapper, Initial initial, Reduce reduce) {
      *i++;
      { i != i} -> std::convertible_to<bool>;
      mapper(*i);
@@ -1148,7 +1148,7 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Initial initial, Reduc
 ///
 /// \return equivalent to \c reduce(reduce(initial, mapper(obj0)), mapper(obj1)) ...
 template <typename Range, typename Mapper, typename Initial, typename Reduce>
-GCC6_CONCEPT( requires requires (Range range, Mapper mapper, Initial initial, Reduce reduce) {
+SEASTAR_CONCEPT( requires requires (Range range, Mapper mapper, Initial initial, Reduce reduce) {
      std::begin(range);
      std::end(range);
      mapper(*std::begin(range));
@@ -1373,7 +1373,7 @@ struct extract_values_from_futures_vector<future<>> {
 };
 
 template<typename... Futures>
-GCC6_CONCEPT( requires seastar::AllAreFutures<Futures...> )
+SEASTAR_CONCEPT( requires seastar::AllAreFutures<Futures...> )
 inline auto when_all_succeed_impl(Futures&&... futures) noexcept {
     using state = when_all_state<extract_values_from_futures_tuple<Futures...>, Futures...>;
     return state::wait_all(std::forward<Futures>(futures)...);
@@ -1407,7 +1407,7 @@ inline auto when_all_succeed(FutOrFuncs&&... fut_or_funcs) noexcept {
 /// \param end an \c InputIterator designating the end of the range of futures
 /// \return an \c std::vector<> of all the valus in the input
 template <typename FutureIterator, typename = typename std::iterator_traits<FutureIterator>::value_type>
-GCC6_CONCEPT( requires requires (FutureIterator i) {
+SEASTAR_CONCEPT( requires requires (FutureIterator i) {
      *i++;
      { i != i } -> std::convertible_to<bool>;
      requires is_future<std::remove_reference_t<decltype(*i)>>::value;

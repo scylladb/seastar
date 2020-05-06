@@ -310,7 +310,7 @@ struct json_return_type {
  * return make_ready_future<json::json_return_type>(stream_range_as_array(res, [](const auto&i) {return i.first}));
  */
 template<typename Container, typename Func>
-GCC6_CONCEPT( requires requires (Container c, Func aa, output_stream<char> s) { { formatter::write(s, aa(*c.begin())) } -> std::same_as<future<>>; } )
+SEASTAR_CONCEPT( requires requires (Container c, Func aa, output_stream<char> s) { { formatter::write(s, aa(*c.begin())) } -> std::same_as<future<>>; } )
 std::function<future<>(output_stream<char>&&)> stream_range_as_array(Container val, Func fun) {
     return [val = std::move(val), fun = std::move(fun)](output_stream<char>&& s) {
         return do_with(output_stream<char>(std::move(s)), Container(std::move(val)), Func(std::move(fun)), true, [](output_stream<char>& s, const Container& val, const Func& f, bool& first){

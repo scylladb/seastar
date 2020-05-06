@@ -162,7 +162,7 @@ private:
 };
 
 // Consumer concept, for consume() method
-GCC6_CONCEPT(
+SEASTAR_CONCEPT(
 // The consumer should operate on the data given to it, and
 // return a future "consumption result", which can be
 //  - continue_consuming, if the consumer has consumed all the input given
@@ -219,10 +219,10 @@ public:
     input_stream& operator=(input_stream&&) = default;
     future<temporary_buffer<CharType>> read_exactly(size_t n);
     template <typename Consumer>
-    GCC6_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
+    SEASTAR_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
     future<> consume(Consumer&& c);
     template <typename Consumer>
-    GCC6_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
+    SEASTAR_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
     future<> consume(Consumer& c);
     bool eof() const { return _eof; }
     /// Returns some data from the stream, or an empty buffer on end of

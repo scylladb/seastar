@@ -24,7 +24,7 @@
 #include <typeindex>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/function_traits.hh>
-#include <seastar/util/gcc6-concepts.hh>
+#include <seastar/util/concepts.hh>
 
 /// \file
 
@@ -281,14 +281,14 @@ public:
     friend scheduling_group internal::scheduling_group_from_index(unsigned index);
 
     template<typename SpecificValType, typename Mapper, typename Reducer, typename Initial>
-    GCC6_CONCEPT( requires requires(SpecificValType specific_val, Mapper mapper, Reducer reducer, Initial initial) {
+    SEASTAR_CONCEPT( requires requires(SpecificValType specific_val, Mapper mapper, Reducer reducer, Initial initial) {
         {reducer(initial, mapper(specific_val))} -> std::convertible_to<Initial>;
     })
     friend future<typename function_traits<Reducer>::return_type>
     map_reduce_scheduling_group_specific(Mapper mapper, Reducer reducer, Initial initial_val, scheduling_group_key key);
 
     template<typename SpecificValType, typename Reducer, typename Initial>
-    GCC6_CONCEPT( requires requires(SpecificValType specific_val, Reducer reducer, Initial initial) {
+    SEASTAR_CONCEPT( requires requires(SpecificValType specific_val, Reducer reducer, Initial initial) {
         {reducer(initial, specific_val)} -> std::convertible_to<Initial>;
     })
     friend future<typename function_traits<Reducer>::return_type>

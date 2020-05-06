@@ -25,7 +25,7 @@
 /// \brief Contains a seastar::checked_ptr class implementation.
 
 #include <exception>
-#include <seastar/util/gcc6-concepts.hh>
+#include <seastar/util/concepts.hh>
 
 /// \namespace seastar
 namespace seastar {
@@ -57,8 +57,8 @@ namespace internal {
 /// \param ptr A smart pointer object
 /// \return A pointer to the underlying object
 template <typename T>
-/// cond GCC6_CONCEPT_DOC - nested '\ cond' doesn't seem to work (bug 736553), so working it around
-GCC6_CONCEPT( requires requires (T ptr) {
+/// cond SEASTAR_CONCEPT_DOC - nested '\ cond' doesn't seem to work (bug 736553), so working it around
+SEASTAR_CONCEPT( requires requires (T ptr) {
     ptr.get();
 })
 /// endcond
@@ -93,8 +93,8 @@ inline T* checked_ptr_do_get(T* ptr) noexcept {
 /// \tparam NullDerefAction a functor that is invoked when a user tries to dereference a not engaged pointer.
 ///
 template<typename Ptr, typename NullDerefAction = default_null_deref_action>
-/// \cond GCC6_CONCEPT_DOC
-GCC6_CONCEPT( requires std::is_default_constructible<NullDerefAction>::value && requires (NullDerefAction action) {
+/// \cond SEASTAR_CONCEPT_DOC
+SEASTAR_CONCEPT( requires std::is_default_constructible<NullDerefAction>::value && requires (NullDerefAction action) {
     NullDerefAction();
 })
 /// \endcond
