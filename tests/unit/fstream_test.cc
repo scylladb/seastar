@@ -490,6 +490,7 @@ SEASTAR_TEST_CASE(test_fstream_slow_start) {
         auto make_fstream = [&] {
             struct fstream_wrapper {
                 input_stream<char> s;
+                explicit fstream_wrapper(input_stream<char>&& s) : s(std::move(s)) {}
                 fstream_wrapper(fstream_wrapper&&) = default;
                 fstream_wrapper& operator=(fstream_wrapper&&) = default;
                 future<temporary_buffer<char>> read() {
@@ -502,7 +503,7 @@ SEASTAR_TEST_CASE(test_fstream_slow_start) {
                     s.close().get();
                 }
             };
-            return fstream_wrapper{make_file_input_stream(file(mock_file), 0, file_size, options)};
+            return fstream_wrapper(make_file_input_stream(file(mock_file), 0, file_size, options));
         };
 
         BOOST_TEST_MESSAGE("Reading file, no history, expectiong a slow start");
