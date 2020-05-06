@@ -440,9 +440,12 @@ future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_clien
                     sink("seastar").get();
                     sleep(std::chrono::milliseconds(1)).get();
                 }
-                sink.flush().get();
-                sink.close().get();
-            });
+            }).finally([sink] () mutable {
+                return sink.flush();
+            }).finally([sink] () mutable {
+                return sink.close();
+            }).finally([sink] {});
+
             auto source_loop = seastar::async([source, &r] () mutable {
                 while (!r.server_source_closed) {
                     auto data = source().get0();
