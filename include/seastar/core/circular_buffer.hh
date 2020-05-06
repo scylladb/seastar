@@ -284,7 +284,7 @@ template <typename T, typename Alloc>
 inline
 circular_buffer<T, Alloc>::~circular_buffer() {
     for_each([this] (T& obj) {
-        _impl.destroy(&obj);
+        std::allocator_traits<Alloc>::destroy(_impl, &obj);
     });
     _impl.deallocate(_impl.storage, _impl.capacity);
 }
@@ -307,7 +307,7 @@ circular_buffer<T, Alloc>::expand(size_t new_cap) {
         });
     } catch (...) {
         while (p != new_storage) {
-            _impl.destroy(--p);
+            std::allocator_traits<Alloc>::destroy(_impl, --p);
         }
         _impl.deallocate(new_storage, new_cap);
         throw;
@@ -338,7 +338,7 @@ void
 circular_buffer<T, Alloc>::push_front(const T& data) {
     maybe_expand();
     auto p = &_impl.storage[mask(_impl.begin - 1)];
-    _impl.construct(p, data);
+    std::allocator_traits<Alloc>::construct(_impl, p, data);
     --_impl.begin;
 }
 
@@ -348,7 +348,7 @@ void
 circular_buffer<T, Alloc>::push_front(T&& data) {
     maybe_expand();
     auto p = &_impl.storage[mask(_impl.begin - 1)];
-    _impl.construct(p, std::move(data));
+    std::allocator_traits<Alloc>::construct(_impl, p, std::move(data));
     --_impl.begin;
 }
 
@@ -359,7 +359,7 @@ void
 circular_buffer<T, Alloc>::emplace_front(Args&&... args) {
     maybe_expand();
     auto p = &_impl.storage[mask(_impl.begin - 1)];
-    _impl.construct(p, std::forward<Args>(args)...);
+    std::allocator_traits<Alloc>::construct(_impl, p, std::forward<Args>(args)...);
     --_impl.begin;
 }
 
@@ -369,7 +369,7 @@ void
 circular_buffer<T, Alloc>::push_back(const T& data) {
     maybe_expand();
     auto p = &_impl.storage[mask(_impl.end)];
-    _impl.construct(p, data);
+    std::allocator_traits<Alloc>::construct(_impl, p, data);
     ++_impl.end;
 }
 
@@ -379,7 +379,7 @@ void
 circular_buffer<T, Alloc>::push_back(T&& data) {
     maybe_expand();
     auto p = &_impl.storage[mask(_impl.end)];
-    _impl.construct(p, std::move(data));
+    std::allocator_traits<Alloc>::construct(_impl, p, std::move(data));
     ++_impl.end;
 }
 
@@ -390,7 +390,7 @@ void
 circular_buffer<T, Alloc>::emplace_back(Args&&... args) {
     maybe_expand();
     auto p = &_impl.storage[mask(_impl.end)];
-    _impl.construct(p, std::forward<Args>(args)...);
+    std::allocator_traits<Alloc>::construct(_impl, p, std::forward<Args>(args)...);
     ++_impl.end;
 }
 
@@ -426,7 +426,7 @@ template <typename T, typename Alloc>
 inline
 void
 circular_buffer<T, Alloc>::pop_front() {
-    _impl.destroy(&front());
+    std::allocator_traits<Alloc>::destroy(_impl, &front());
     ++_impl.begin;
 }
 
@@ -434,7 +434,7 @@ template <typename T, typename Alloc>
 inline
 void
 circular_buffer<T, Alloc>::pop_back() {
-    _impl.destroy(&back());
+    std::allocator_traits<Alloc>::destroy(_impl, &back());
     --_impl.end;
 }
 
@@ -473,7 +473,7 @@ circular_buffer<T, Alloc>::erase(iterator first, iterator last) {
         auto new_start = std::move_backward(begin(), first, last);
         auto i = begin();
         while (i < new_start) {
-            _impl.destroy(&*i++);
+            std::allocator_traits<Alloc>::destroy(_impl, &*i++);
         }
         _impl.begin = new_start.idx;
         return last;
@@ -482,7 +482,7 @@ circular_buffer<T, Alloc>::erase(iterator first, iterator last) {
         auto i = new_end;
         auto e = end();
         while (i < e) {
-            _impl.destroy(&*i++);
+            std::allocator_traits<Alloc>::destroy(_impl, &*i++);
         }
         _impl.end = new_end.idx;
         return first;
