@@ -23,6 +23,7 @@
 #include <seastar/core/app-template.hh>
 #include <seastar/core/distributed.hh>
 #include <seastar/core/future-util.hh>
+#include <seastar/core/semaphore.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/print.hh>
@@ -172,12 +173,22 @@ future<> test_invoke_on_others() {
 struct remote_worker {
     unsigned current = 0;
     unsigned max_concurrent_observed = 0;
+    unsigned expected_max;
+    semaphore sem{0};
+    remote_worker(unsigned expected_max) : expected_max(expected_max) {
+    }
     future<> do_work() {
         ++current;
         max_concurrent_observed = std::max(current, max_concurrent_observed);
-        return sleep(100ms).then([this] {
-            max_concurrent_observed = std::max(current, max_concurrent_observed);
-            --current;
+        if (max_concurrent_observed >= expected_max && sem.current() == 0) {
+            sem.signal(semaphore::max_counter());
+        }
+        return sem.wait().then([this] {
+            // Sleep a bit to check if the concurrency goes over the max
+            return sleep(100ms).then([this] {
+                max_concurrent_observed = std::max(current, max_concurrent_observed);
+                --current;
+            });
         });
     }
     future<> do_remote_work(shard_id t, smp_service_group ssg) {
@@ -196,15 +207,15 @@ future<> test_smp_service_groups() {
         ssgc2.max_nonlocal_requests = 1000;
         auto ssg2 = create_smp_service_group(ssgc2).get0();
         shard_id other_shard = smp::count - 1;
-        remote_worker rm1;
-        remote_worker rm2;
+        remote_worker rm1(1);
+        remote_worker rm2(1000);
         auto bunch1 = parallel_for_each(boost::irange(0, 20), [&] (int ignore) { return rm1.do_remote_work(other_shard, ssg1); });
         auto bunch2 = parallel_for_each(boost::irange(0, 2000), [&] (int ignore) { return rm2.do_remote_work(other_shard, ssg2); });
         bunch1.get();
         bunch2.get();
         if (smp::count > 1) {
             assert(rm1.max_concurrent_observed == 1);
-            assert(rm2.max_concurrent_observed >= 1000 / (smp::count - 1) && rm2.max_concurrent_observed <= 1000);
+            assert(rm2.max_concurrent_observed == 1000);
         }
         destroy_smp_service_group(ssg1).get();
         destroy_smp_service_group(ssg2).get();
