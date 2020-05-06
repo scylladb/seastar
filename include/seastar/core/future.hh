@@ -771,34 +771,34 @@ struct futurize;
 GCC6_CONCEPT(
 
 template <typename T>
-concept bool Future = is_future<T>::value;
+concept Future = is_future<T>::value;
 
 template <typename Func, typename... T>
-concept bool CanInvoke = requires (Func f, T... args) {
+concept CanInvoke = requires (Func f, T... args) {
     f(std::forward<T>(args)...);
 };
 
 // Deprecated alias
 template <typename Func, typename... T>
-concept bool CanApply = CanInvoke<Func, T...>;
+concept CanApply = CanInvoke<Func, T...>;
 
 template <typename Func, typename Return, typename... T>
-concept bool InvokeReturns = requires (Func f, T... args) {
-    { f(std::forward<T>(args)...) } -> Return;
+concept InvokeReturns = requires (Func f, T... args) {
+    { f(std::forward<T>(args)...) } -> std::same_as<Return>;
 };
 
 // Deprecated alias
 template <typename Func, typename Return, typename... T>
-concept bool ApplyReturns = InvokeReturns<Func, Return, T...>;
+concept ApplyReturns = InvokeReturns<Func, Return, T...>;
 
 template <typename Func, typename... T>
-concept bool InvokeReturnsAnyFuture = requires (Func f, T... args) {
+concept InvokeReturnsAnyFuture = requires (Func f, T... args) {
     requires is_future<decltype(f(std::forward<T>(args)...))>::value;
 };
 
 // Deprecated alias
 template <typename Func, typename... T>
-concept bool ApplyReturnsAnyFuture = InvokeReturnsAnyFuture<Func, T...>;
+concept ApplyReturnsAnyFuture = InvokeReturnsAnyFuture<Func, T...>;
 
 )
 

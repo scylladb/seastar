@@ -74,7 +74,7 @@ public:
     // Output should be either snd_buf or rcv_buf.
     template<typename Output, typename Function>
     GCC6_CONCEPT(requires requires (Function fn, char* ptr) {
-        { fn(ptr) } -> size_t;
+        { fn(ptr) } -> std::convertible_to<size_t>;
     } && (std::is_same<Output, snd_buf>::value || std::is_same<Output, rcv_buf>::value))
     Output with_reserved(size_t max_size, Function&& fn) {
         if (max_size <= chunk_size) {

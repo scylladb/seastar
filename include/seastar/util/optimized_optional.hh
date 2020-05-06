@@ -32,13 +32,12 @@ namespace seastar {
 GCC6_CONCEPT(
 
 template<typename T>
-concept bool OptimizableOptional() {
-    return std::is_default_constructible<T>::value
+concept OptimizableOptional =
+    std::is_default_constructible<T>::value
         && std::is_nothrow_move_assignable<T>::value
         && requires(const T& obj) {
             { bool(obj) } noexcept;
         };
-}
 
 )
 

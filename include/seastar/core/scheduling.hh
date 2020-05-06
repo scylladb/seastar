@@ -282,14 +282,14 @@ public:
 
     template<typename SpecificValType, typename Mapper, typename Reducer, typename Initial>
     GCC6_CONCEPT( requires requires(SpecificValType specific_val, Mapper mapper, Reducer reducer, Initial initial) {
-        {reducer(initial, mapper(specific_val))} -> Initial;
+        {reducer(initial, mapper(specific_val))} -> std::convertible_to<Initial>;
     })
     friend future<typename function_traits<Reducer>::return_type>
     map_reduce_scheduling_group_specific(Mapper mapper, Reducer reducer, Initial initial_val, scheduling_group_key key);
 
     template<typename SpecificValType, typename Reducer, typename Initial>
     GCC6_CONCEPT( requires requires(SpecificValType specific_val, Reducer reducer, Initial initial) {
-        {reducer(initial, specific_val)} -> Initial;
+        {reducer(initial, specific_val)} -> std::convertible_to<Initial>;
     })
     friend future<typename function_traits<Reducer>::return_type>
         reduce_scheduling_group_specific(Reducer reducer, Initial initial_val, scheduling_group_key key);

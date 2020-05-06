@@ -145,7 +145,7 @@ public:
 ///         complete.  If one or more return an exception, the return value
 ///         contains one of the exceptions.
 template <typename Iterator, typename Func>
-GCC6_CONCEPT( requires requires (Func f, Iterator i) { { f(*i++) } -> future<>; } )
+GCC6_CONCEPT( requires requires (Func f, Iterator i) { { f(*i++) } -> std::same_as<future<>>; } )
 inline
 future<>
 parallel_for_each(Iterator begin, Iterator end, Func&& func) noexcept {
@@ -207,7 +207,7 @@ parallel_for_each_impl(Range&& range, Func&& func) {
 /// \endcond
 
 template <typename Range, typename Func>
-GCC6_CONCEPT( requires requires (Func f, Range r) { { f(*r.begin()) } -> future<>; } )
+GCC6_CONCEPT( requires requires (Func f, Range r) { { f(*r.begin()) } -> std::same_as<future<>>; } )
 inline
 future<>
 parallel_for_each(Range&& range, Func&& func) noexcept {
@@ -628,7 +628,7 @@ future<> do_for_each_impl(Iterator begin, Iterator end, AsyncAction action) {
 ///         \c action failed.
 template<typename Iterator, typename AsyncAction>
 GCC6_CONCEPT( requires requires (Iterator i, AsyncAction aa) {
-    { futurize_invoke(aa, *i) } -> future<>;
+    { futurize_invoke(aa, *i) } -> std::same_as<future<>>;
 } )
 inline
 future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) noexcept {
@@ -652,7 +652,7 @@ future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) noexcept 
 ///         \c action failed.
 template<typename Container, typename AsyncAction>
 GCC6_CONCEPT( requires requires (Container c, AsyncAction aa) {
-    { futurize_invoke(aa, *c.begin()) } -> future<>;
+    { futurize_invoke(aa, *c.begin()) } -> std::same_as<future<>>;
 } )
 inline
 future<> do_for_each(Container& c, AsyncAction action) noexcept {
@@ -849,7 +849,7 @@ struct is_tuple_of_futures<std::tuple<future<T...>, Rest...>> : is_tuple_of_futu
 /// \endcond
 
 template <typename... Futs>
-concept bool AllAreFutures = impl::is_tuple_of_futures<std::tuple<Futs...>>::value;
+concept AllAreFutures = impl::is_tuple_of_futures<std::tuple<Futs...>>::value;
 
 )
 
@@ -1080,10 +1080,10 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
 template <typename Iterator, typename Mapper, typename Initial, typename Reduce>
 GCC6_CONCEPT( requires requires (Iterator i, Mapper mapper, Initial initial, Reduce reduce) {
      *i++;
-     { i != i} -> bool;
+     { i != i} -> std::convertible_to<bool>;
      mapper(*i);
      requires is_future<decltype(mapper(*i))>::value;
-     { reduce(std::move(initial), mapper(*i).get0()) } -> Initial;
+     { reduce(std::move(initial), mapper(*i).get0()) } -> std::convertible_to<Initial>;
 } )
 inline
 future<Initial>
@@ -1153,7 +1153,7 @@ GCC6_CONCEPT( requires requires (Range range, Mapper mapper, Initial initial, Re
      std::end(range);
      mapper(*std::begin(range));
      requires is_future<std::remove_reference_t<decltype(mapper(*std::begin(range)))>>::value;
-     { reduce(std::move(initial), mapper(*std::begin(range)).get0()) } -> Initial;
+     { reduce(std::move(initial), mapper(*std::begin(range)).get0()) } -> std::convertible_to<Initial>;
 } )
 inline
 future<Initial>
@@ -1409,7 +1409,7 @@ inline auto when_all_succeed(FutOrFuncs&&... fut_or_funcs) noexcept {
 template <typename FutureIterator, typename = typename std::iterator_traits<FutureIterator>::value_type>
 GCC6_CONCEPT( requires requires (FutureIterator i) {
      *i++;
-     { i != i } -> bool;
+     { i != i } -> std::convertible_to<bool>;
      requires is_future<std::remove_reference_t<decltype(*i)>>::value;
 } )
 inline auto

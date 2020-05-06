@@ -182,13 +182,13 @@ GCC6_CONCEPT(
 // can also happen to be empty).
 
 template <typename Consumer, typename CharType>
-concept bool InputStreamConsumer = requires (Consumer c) {
-    { c(temporary_buffer<CharType>{}) } -> future<consumption_result<CharType>>;
+concept InputStreamConsumer = requires (Consumer c) {
+    { c(temporary_buffer<CharType>{}) } -> std::same_as<future<consumption_result<CharType>>>;
 };
 
 template <typename Consumer, typename CharType>
-concept bool ObsoleteInputStreamConsumer = requires (Consumer c) {
-    { c(temporary_buffer<CharType>{}) } -> future<compat::optional<temporary_buffer<CharType>>>;
+concept ObsoleteInputStreamConsumer = requires (Consumer c) {
+    { c(temporary_buffer<CharType>{}) } -> std::same_as<future<compat::optional<temporary_buffer<CharType>>>>;
 };
 )
 
