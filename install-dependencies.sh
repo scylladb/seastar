@@ -54,6 +54,7 @@ debian_packages=(
     g++
     libfmt-dev
     diffutils
+    valgrind
 )
 
 # seastar doesn't directly depend on these packages. They are
@@ -97,6 +98,7 @@ fedora_packages=(
     libubsan
     libasan
     libatomic
+    valgrind-devel
 )
 
 centos_packages=(
