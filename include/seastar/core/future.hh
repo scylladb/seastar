@@ -974,13 +974,19 @@ protected:
         _promise->_state = state;
     }
 
-    future_base(future_base&& x, future_state_base* state) noexcept : _promise(x._promise) {
+    void move_it(future_base&& x, future_state_base* state) noexcept {
+        _promise = x._promise;
         if (auto* p = _promise) {
             x.detach_promise();
             p->_future = this;
             p->_state = state;
         }
     }
+
+    future_base(future_base&& x, future_state_base* state) noexcept {
+        move_it(std::move(x), state);
+    }
+
     ~future_base() noexcept {
         if (_promise) {
             detach_promise();
