@@ -286,6 +286,9 @@ struct future_state_base {
         any(std::exception_ptr&& e) noexcept {
             set_exception(std::move(e));
         }
+        bool valid() const noexcept { return st != state::invalid; }
+        bool available() const noexcept { return st == state::result || st >= state::exception_min; }
+        bool failed() const noexcept { return __builtin_expect(st >= state::exception_min, false); }
         ~any() noexcept {}
         std::exception_ptr take_exception() noexcept {
             std::exception_ptr ret(std::move(ex));
@@ -332,9 +335,9 @@ protected:
 
 public:
 
-    bool valid() const noexcept { return _u.st != state::invalid; }
-    bool available() const noexcept { return _u.st == state::result || _u.st >= state::exception_min; }
-    bool failed() const noexcept { return __builtin_expect(_u.st >= state::exception_min, false); }
+    bool valid() const noexcept { return _u.valid(); }
+    bool available() const noexcept { return _u.available(); }
+    bool failed() const noexcept { return _u.failed(); }
 
     void set_to_broken_promise() noexcept;
 
