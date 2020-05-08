@@ -289,10 +289,13 @@ struct future_state_base {
         bool valid() const noexcept { return st != state::invalid; }
         bool available() const noexcept { return st == state::result || st >= state::exception_min; }
         bool failed() const noexcept { return __builtin_expect(st >= state::exception_min, false); }
-        ~any() noexcept {
+        void check_failure() noexcept {
             if (failed()) {
                 report_failed_future(take_exception());
             }
+        }
+        ~any() noexcept {
+            check_failure();
         }
         std::exception_ptr take_exception() noexcept {
             std::exception_ptr ret(std::move(ex));
