@@ -634,11 +634,7 @@ public:
     promise_base_with_type(future<T...>* future) noexcept : promise_base(future, &future->_state) { }
     promise_base_with_type(promise_base_with_type&& x) noexcept : promise_base(std::move(x)) { }
     promise_base_with_type(const promise_base_with_type&) = delete;
-    promise_base_with_type& operator=(promise_base_with_type&& x) noexcept {
-        this->~promise_base_with_type();
-        new (this) promise_base_with_type(std::move(x));
-        return *this;
-    }
+    promise_base_with_type& operator=(promise_base_with_type&& x) noexcept = default;
     void operator=(const promise_base_with_type&) = delete;
 
     void set_urgent_state(future_state<T...>&& state) noexcept {
