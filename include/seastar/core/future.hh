@@ -558,9 +558,13 @@ protected:
     promise_base(future_base* future, future_state_base* state) noexcept;
     promise_base(promise_base&& x) noexcept;
 
+    void clear() noexcept;
+
     // We never need to destruct this polymorphicly, so we can make it
     // protected instead of virtual
-    ~promise_base() noexcept;
+    ~promise_base() noexcept {
+        clear();
+    }
 
     void operator=(const promise_base&) = delete;
     promise_base& operator=(promise_base&& x) = delete;

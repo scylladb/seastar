@@ -55,7 +55,7 @@ promise_base::promise_base(promise_base&& x) noexcept
     }
 }
 
-promise_base::~promise_base() noexcept {
+void promise_base::clear() noexcept {
     if (_future) {
         assert(_state);
         assert(_state->available() || !_task);
