@@ -397,8 +397,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
     static_assert(std::is_nothrow_destructible<std::tuple<T...>>::value,
                   "Types must be no-throw destructible");
     future_state() noexcept {}
-    [[gnu::always_inline]]
-    future_state(future_state&& x) noexcept : future_state_base(std::move(x)) {
+    void move_it(future_state&& x) noexcept {
         if (has_trivial_move_and_destroy) {
 #pragma GCC diagnostic push
 // Unfortunately gcc 8 warns about the memcpy of uninitialized
@@ -413,6 +412,12 @@ struct future_state :  public future_state_base, private internal::uninitialized
             x.uninitialized_get().~tuple();
         }
     }
+
+    [[gnu::always_inline]]
+    future_state(future_state&& x) noexcept : future_state_base(std::move(x)) {
+        move_it(std::move(x));
+    }
+
     void clear() noexcept {
         if (_u.has_result()) {
             this->uninitialized_get().~tuple();
