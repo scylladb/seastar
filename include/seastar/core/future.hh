@@ -1157,8 +1157,9 @@ public:
         this->check_deprecation();
     }
     future& operator=(future&& x) noexcept {
-        this->~future();
-        new (this) future(std::move(x));
+        clear();
+        move_it(std::move(x), &_state);
+        _state = std::move(x._state);
         return *this;
     }
     void operator=(const future&) = delete;
