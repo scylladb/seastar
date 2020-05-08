@@ -428,8 +428,11 @@ struct future_state :  public future_state_base, private internal::uninitialized
         clear();
     }
     future_state& operator=(future_state&& x) noexcept {
-        this->~future_state();
-        new (this) future_state(std::move(x));
+        clear();
+        future_state_base::operator=(std::move(x));
+        // If &x == this, _u.st is now state::invalid and so it is
+        // safe to call move_it.
+        move_it(std::move(x));
         return *this;
     }
     template <typename... A>
