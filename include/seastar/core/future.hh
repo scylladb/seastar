@@ -701,7 +701,10 @@ public:
     promise() noexcept : internal::promise_base_with_type<T...>(&_local_state) {}
 
     /// \brief Moves a \c promise object.
-    promise(promise&& x) noexcept;
+    void move_it(promise&& x) noexcept;
+    promise(promise&& x) noexcept : internal::promise_base_with_type<T...>(std::move(x)) {
+        move_it(std::move(x));
+    }
     promise(const promise&) = delete;
     promise& operator=(promise&& x) noexcept {
         this->~promise();
@@ -1637,7 +1640,7 @@ promise<T...>::get_future() noexcept {
 
 template <typename... T>
 inline
-promise<T...>::promise(promise&& x) noexcept : internal::promise_base_with_type<T...>(std::move(x)) {
+void promise<T...>::move_it(promise&& x) noexcept {
     if (this->_state == &x._local_state) {
         this->_state = &_local_state;
         new (&_local_state) future_state<T...>(std::move(x._local_state));
