@@ -732,7 +732,8 @@ future<> sink_impl<Serializer, Out...>::operator()(const Out&... args) {
         if (this->_ex) {
             return make_exception_future(this->_ex);
         }
-        // FIXME: future is discarded
+        // It is OK to discard this future. The user is required to
+        // wait for it when closing.
         (void)smp::submit_to(this->_con->get_owner_shard(), [this, data = std::move(data)] () mutable {
             connection* con = this->_con->get();
             if (con->error()) {
@@ -785,6 +786,13 @@ future<> sink_impl<Serializer, Out...>::close() {
             return f.finally([con] { return con->close_sink(); });
         });
     });
+}
+
+template<typename Serializer, typename... Out>
+sink_impl<Serializer, Out...>::~sink_impl() {
+    // A failure to close might leave some continuations running after
+    // this is destroyed, leading to use-after-free bugs.
+    assert(this->_con->get()->sink_closed());
 }
 
 template<typename Serializer, typename... In>

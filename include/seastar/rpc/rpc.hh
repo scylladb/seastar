@@ -359,6 +359,7 @@ public:
     future<> operator()(const Out&... args) override;
     future<> close() override;
     future<> flush() override;
+    ~sink_impl() override;
 };
 
 // receive data In...
