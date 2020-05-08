@@ -403,7 +403,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
 // Unfortunately gcc 8 warns about the memcpy of uninitialized
 // memory. We can drop this when we drop support for gcc 8.
 #pragma GCC diagnostic ignored "-Wuninitialized"
-            memcpy(reinterpret_cast<char*>(&this->uninitialized_get()),
+            memmove(reinterpret_cast<char*>(&this->uninitialized_get()),
                    &x.uninitialized_get(),
                    internal::used_size<std::tuple<T...>>::value);
 #pragma GCC diagnostic pop
