@@ -413,11 +413,14 @@ struct future_state :  public future_state_base, private internal::uninitialized
             x.uninitialized_get().~tuple();
         }
     }
-    __attribute__((always_inline))
-    ~future_state() noexcept {
+    void clear() noexcept {
         if (_u.has_result()) {
             this->uninitialized_get().~tuple();
         }
+    }
+    __attribute__((always_inline))
+    ~future_state() noexcept {
+        clear();
     }
     future_state& operator=(future_state&& x) noexcept {
         this->~future_state();
