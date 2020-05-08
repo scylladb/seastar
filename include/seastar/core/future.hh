@@ -289,7 +289,11 @@ struct future_state_base {
         bool valid() const noexcept { return st != state::invalid; }
         bool available() const noexcept { return st == state::result || st >= state::exception_min; }
         bool failed() const noexcept { return __builtin_expect(st >= state::exception_min, false); }
-        ~any() noexcept {}
+        ~any() noexcept {
+            if (failed()) {
+                report_failed_future(take_exception());
+            }
+        }
         std::exception_ptr take_exception() noexcept {
             std::exception_ptr ret(std::move(ex));
             // Unfortunately in libstdc++ ~exception_ptr is defined out of line. We know that it does nothing for
@@ -327,11 +331,7 @@ struct future_state_base {
     // We never need to destruct this polymorphicly, so we can make it
     // protected instead of virtual.
 protected:
-    ~future_state_base() noexcept {
-        if (failed()) {
-            report_failed_future(_u.take_exception());
-        }
-    }
+    ~future_state_base() noexcept = default;
 
 public:
 
