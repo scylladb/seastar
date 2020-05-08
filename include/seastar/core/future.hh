@@ -322,6 +322,14 @@ struct future_state_base {
         any(any&& x) noexcept {
             move_it(std::move(x));
         }
+        any& operator=(any&& x) noexcept {
+            check_failure();
+            // If this is a self move assignment, check_failure
+            // guarantees that we don't have an exception and calling
+            // move_it is safe.
+            move_it(std::move(x));
+            return *this;
+        }
         bool has_result() const {
             return st == state::result || st == state::result_unavailable;
         }
@@ -353,11 +361,7 @@ public:
         assert(_u.st == state::future);
         _u.set_exception(std::move(ex));
     }
-    future_state_base& operator=(future_state_base&& x) noexcept {
-        this->~future_state_base();
-        new (this) future_state_base(std::move(x));
-        return *this;
-    }
+    future_state_base& operator=(future_state_base&& x) noexcept = default;
     void set_exception(future_state_base&& state) noexcept {
         assert(_u.st == state::future);
         *this = std::move(state);
