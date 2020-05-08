@@ -707,8 +707,10 @@ public:
     }
     promise(const promise&) = delete;
     promise& operator=(promise&& x) noexcept {
-        this->~promise();
-        new (this) promise(std::move(x));
+        internal::promise_base_with_type<T...>::operator=(std::move(x));
+        // If this is a self-move, _state is now nullptr and it is
+        // safe to call move_it.
+        move_it(std::move(x));
         return *this;
     }
     void operator=(const promise&) = delete;
