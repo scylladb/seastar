@@ -1640,7 +1640,7 @@ inline
 promise<T...>::promise(promise&& x) noexcept : internal::promise_base_with_type<T...>(std::move(x)) {
     if (this->_state == &x._local_state) {
         this->_state = &_local_state;
-        _local_state = std::move(x._local_state);
+        new (&_local_state) future_state<T...>(std::move(x._local_state));
     }
 }
 
