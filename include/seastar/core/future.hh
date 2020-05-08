@@ -570,7 +570,7 @@ protected:
     }
 
     void operator=(const promise_base&) = delete;
-    promise_base& operator=(promise_base&& x) = delete;
+    promise_base& operator=(promise_base&& x) noexcept;
 
     template<urgent Urgent>
     void make_ready() noexcept;

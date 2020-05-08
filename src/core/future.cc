@@ -72,6 +72,12 @@ void promise_base::clear() noexcept {
     }
 }
 
+promise_base& promise_base::operator=(promise_base&& x) noexcept {
+    clear();
+    move_it(std::move(x));
+    return *this;
+}
+
 void promise_base::set_to_current_exception() noexcept {
     set_exception(std::current_exception());
 }
