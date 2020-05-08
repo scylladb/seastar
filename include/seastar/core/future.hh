@@ -556,7 +556,10 @@ protected:
     promise_base(const promise_base&) = delete;
     promise_base(future_state_base* state) noexcept : _state(state) {}
     promise_base(future_base* future, future_state_base* state) noexcept;
-    promise_base(promise_base&& x) noexcept;
+    void move_it(promise_base&& x) noexcept;
+    promise_base(promise_base&& x) noexcept {
+        move_it(std::move(x));
+    }
 
     void clear() noexcept;
 

@@ -46,9 +46,14 @@ namespace internal {
 
 static_assert(std::is_empty<uninitialized_wrapper<std::tuple<>>>::value, "This should still be empty");
 
-promise_base::promise_base(promise_base&& x) noexcept
-    : _future(x._future), _state(x._state), _task(std::exchange(x._task, nullptr)) {
+void promise_base::move_it(promise_base&& x) noexcept {
+    // Don't use std::exchange to make sure x's values are nulled even
+    // if &x == this.
+    _task = x._task;
+    x._task = nullptr;
+    _state = x._state;
     x._state = nullptr;
+    _future = x._future;
     if (auto* fut = _future) {
         fut->detach_promise();
         fut->_promise = this;
