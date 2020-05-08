@@ -987,10 +987,14 @@ protected:
         move_it(std::move(x), state);
     }
 
-    ~future_base() noexcept {
+    void clear() noexcept {
         if (_promise) {
             detach_promise();
         }
+    }
+
+    ~future_base() noexcept {
+        clear();
     }
 
     promise_base* detach_promise() noexcept {
