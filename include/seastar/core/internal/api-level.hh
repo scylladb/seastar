@@ -26,8 +26,27 @@
 #define SEASTAR_API_LEVEL 2
 #endif
 
-#if SEASTAR_API_LEVEL >= 2
-
-#define SEASTAR_INCLUDE_API_V2 inline
-
+#if SEASTAR_API_LEVEL == 3
+#define SEASTAR_INCLUDE_API_V3 inline
+#else
+#define SEASTAR_INCLUDE_API_V3
 #endif
+
+#if SEASTAR_API_LEVEL == 2
+#define SEASTAR_INCLUDE_API_V2 inline
+#else
+#define SEASTAR_INCLUDE_API_V2
+#endif
+
+// Declare them here so we don't have to use the macros everywhere
+namespace seastar {
+    SEASTAR_INCLUDE_API_V2 namespace api_v2 {
+    }
+    SEASTAR_INCLUDE_API_V3 namespace api_v3 {
+        inline namespace and_newer {
+        }
+    }
+}
+
+#undef SEASTAR_INCLUDE_API_V2
+#undef SEASTAR_INCLUDE_API_V3
