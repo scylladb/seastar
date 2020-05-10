@@ -41,7 +41,7 @@
 using namespace seastar;
 using namespace std::chrono_literals;
 
-class expected_exception : std::runtime_error {
+class expected_exception : public std::runtime_error {
 public:
     expected_exception() : runtime_error("expected") {}
 };
@@ -1229,4 +1229,31 @@ SEASTAR_TEST_CASE(test_warn_on_broken_promise_with_no_future) {
     (void)p.get_future();
     p.set_exception(std::runtime_error("foo"));
     return make_ready_future<>();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_exception_future_with_backtrace) {
+    int counter = 0;
+    auto inner = [&] (bool return_exception) mutable {
+        if (!return_exception) {
+            return make_ready_future<int>(++counter);
+        } else {
+            return make_exception_future_with_backtrace<int>(expected_exception());
+        }
+    };
+    auto outer = [&] (bool return_exception) {
+        return inner(return_exception).then([] (int i) {
+            return make_ready_future<int>(-i);
+        });
+    };
+
+    BOOST_REQUIRE_EQUAL(outer(false).get0(), -1);
+    BOOST_REQUIRE_EQUAL(counter, 1);
+
+    BOOST_CHECK_THROW(outer(true).get0(), expected_exception);
+    BOOST_REQUIRE_EQUAL(counter, 1);
+
+    // Example code where we expect a "Exceptional future ignored"
+    // warning. We can't directly test that the warning is issued, but
+    // this example functions as documentation.
+    (void)outer(true);
 }
