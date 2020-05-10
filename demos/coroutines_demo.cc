@@ -23,6 +23,7 @@
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/fstream.hh>
 #include <seastar/core/sleep.hh>
+#include <seastar/core/seastar.hh>
 
 int main(int argc, char** argv) {
     seastar::app_template app;
