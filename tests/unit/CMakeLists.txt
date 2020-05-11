@@ -279,7 +279,7 @@ seastar_add_test (deleter
 seastar_add_app_test (directory
   SOURCES directory_test.cc)
 
-seastar_add_app_test (distributed
+seastar_add_test (distributed
   SOURCES distributed_test.cc)
 
 seastar_add_test (dns
