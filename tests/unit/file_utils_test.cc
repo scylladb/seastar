@@ -149,7 +149,7 @@ SEASTAR_THREAD_TEST_CASE(test_recursive_remove_directory) {
     auto& eng = testing::local_random_engine;
     auto dist = std::uniform_int_distribution<unsigned>();
     int levels = 1 + dist(eng) % 3;
-    test_dir root = { nullptr, default_tmpdir() };
+    test_dir root = { nullptr, default_tmpdir().native() };
     test_dir base = { &root, format("base-{}", dist(eng)) };
     base.random_fill(0, levels, dist, eng);
     base.populate().get();

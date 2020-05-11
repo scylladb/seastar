@@ -30,7 +30,8 @@
 
 namespace seastar {
 
-const char* default_tmpdir();
+const std::filesystem::path& default_tmpdir();
+void set_default_tmpdir(std::filesystem::path);
 
 class tmp_file {
     std::filesystem::path _path;
