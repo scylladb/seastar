@@ -286,7 +286,17 @@ struct future_state_base {
         any(std::exception_ptr&& e) noexcept {
             set_exception(std::move(e));
         }
-        ~any() noexcept {}
+        bool valid() const noexcept { return st != state::invalid; }
+        bool available() const noexcept { return st == state::result || st >= state::exception_min; }
+        bool failed() const noexcept { return __builtin_expect(st >= state::exception_min, false); }
+        void check_failure() noexcept {
+            if (failed()) {
+                report_failed_future(take_exception());
+            }
+        }
+        ~any() noexcept {
+            check_failure();
+        }
         std::exception_ptr take_exception() noexcept {
             std::exception_ptr ret(std::move(ex));
             // Unfortunately in libstdc++ ~exception_ptr is defined out of line. We know that it does nothing for
@@ -301,13 +311,24 @@ struct future_state_base {
             st = state::invalid;
             return ret;
         }
-        any(any&& x) noexcept {
+        void move_it(any&& x) noexcept {
             if (x.st < state::exception_min) {
                 st = x.st;
                 x.st = state::invalid;
             } else {
                 new (&ex) std::exception_ptr(x.take_exception());
             }
+        }
+        any(any&& x) noexcept {
+            move_it(std::move(x));
+        }
+        any& operator=(any&& x) noexcept {
+            check_failure();
+            // If this is a self move assignment, check_failure
+            // guarantees that we don't have an exception and calling
+            // move_it is safe.
+            move_it(std::move(x));
+            return *this;
         }
         bool has_result() const {
             return st == state::result || st == state::result_unavailable;
@@ -324,17 +345,13 @@ struct future_state_base {
     // We never need to destruct this polymorphicly, so we can make it
     // protected instead of virtual.
 protected:
-    ~future_state_base() noexcept {
-        if (failed()) {
-            report_failed_future(_u.take_exception());
-        }
-    }
+    ~future_state_base() noexcept = default;
 
 public:
 
-    bool valid() const noexcept { return _u.st != state::invalid; }
-    bool available() const noexcept { return _u.st == state::result || _u.st >= state::exception_min; }
-    bool failed() const noexcept { return __builtin_expect(_u.st >= state::exception_min, false); }
+    bool valid() const noexcept { return _u.valid(); }
+    bool available() const noexcept { return _u.available(); }
+    bool failed() const noexcept { return _u.failed(); }
 
     void set_to_broken_promise() noexcept;
 
@@ -344,11 +361,7 @@ public:
         assert(_u.st == state::future);
         _u.set_exception(std::move(ex));
     }
-    future_state_base& operator=(future_state_base&& x) noexcept {
-        this->~future_state_base();
-        new (this) future_state_base(std::move(x));
-        return *this;
-    }
+    future_state_base& operator=(future_state_base&& x) noexcept = default;
     void set_exception(future_state_base&& state) noexcept {
         assert(_u.st == state::future);
         *this = std::move(state);
@@ -384,14 +397,13 @@ struct future_state :  public future_state_base, private internal::uninitialized
     static_assert(std::is_nothrow_destructible<std::tuple<T...>>::value,
                   "Types must be no-throw destructible");
     future_state() noexcept {}
-    [[gnu::always_inline]]
-    future_state(future_state&& x) noexcept : future_state_base(std::move(x)) {
+    void move_it(future_state&& x) noexcept {
         if (has_trivial_move_and_destroy) {
 #pragma GCC diagnostic push
 // Unfortunately gcc 8 warns about the memcpy of uninitialized
 // memory. We can drop this when we drop support for gcc 8.
 #pragma GCC diagnostic ignored "-Wuninitialized"
-            memcpy(reinterpret_cast<char*>(&this->uninitialized_get()),
+            memmove(reinterpret_cast<char*>(&this->uninitialized_get()),
                    &x.uninitialized_get(),
                    internal::used_size<std::tuple<T...>>::value);
 #pragma GCC diagnostic pop
@@ -400,15 +412,27 @@ struct future_state :  public future_state_base, private internal::uninitialized
             x.uninitialized_get().~tuple();
         }
     }
-    __attribute__((always_inline))
-    ~future_state() noexcept {
+
+    [[gnu::always_inline]]
+    future_state(future_state&& x) noexcept : future_state_base(std::move(x)) {
+        move_it(std::move(x));
+    }
+
+    void clear() noexcept {
         if (_u.has_result()) {
             this->uninitialized_get().~tuple();
         }
     }
+    __attribute__((always_inline))
+    ~future_state() noexcept {
+        clear();
+    }
     future_state& operator=(future_state&& x) noexcept {
-        this->~future_state();
-        new (this) future_state(std::move(x));
+        clear();
+        future_state_base::operator=(std::move(x));
+        // If &x == this, _u.st is now state::invalid and so it is
+        // safe to call move_it.
+        move_it(std::move(x));
         return *this;
     }
     template <typename... A>
@@ -532,14 +556,21 @@ protected:
     promise_base(const promise_base&) = delete;
     promise_base(future_state_base* state) noexcept : _state(state) {}
     promise_base(future_base* future, future_state_base* state) noexcept;
-    promise_base(promise_base&& x) noexcept;
+    void move_it(promise_base&& x) noexcept;
+    promise_base(promise_base&& x) noexcept {
+        move_it(std::move(x));
+    }
+
+    void clear() noexcept;
 
     // We never need to destruct this polymorphicly, so we can make it
     // protected instead of virtual
-    ~promise_base() noexcept;
+    ~promise_base() noexcept {
+        clear();
+    }
 
     void operator=(const promise_base&) = delete;
-    promise_base& operator=(promise_base&& x) = delete;
+    promise_base& operator=(promise_base&& x) noexcept;
 
     template<urgent Urgent>
     void make_ready() noexcept;
@@ -601,13 +632,9 @@ protected:
 public:
     promise_base_with_type(future_state_base* state) noexcept : promise_base(state) { }
     promise_base_with_type(future<T...>* future) noexcept : promise_base(future, &future->_state) { }
-    promise_base_with_type(promise_base_with_type&& x) noexcept : promise_base(std::move(x)) { }
+    promise_base_with_type(promise_base_with_type&& x) noexcept = default;
     promise_base_with_type(const promise_base_with_type&) = delete;
-    promise_base_with_type& operator=(promise_base_with_type&& x) noexcept {
-        this->~promise_base_with_type();
-        new (this) promise_base_with_type(std::move(x));
-        return *this;
-    }
+    promise_base_with_type& operator=(promise_base_with_type&& x) noexcept = default;
     void operator=(const promise_base_with_type&) = delete;
 
     void set_urgent_state(future_state<T...>&& state) noexcept {
@@ -674,11 +701,16 @@ public:
     promise() noexcept : internal::promise_base_with_type<T...>(&_local_state) {}
 
     /// \brief Moves a \c promise object.
-    promise(promise&& x) noexcept;
+    void move_it(promise&& x) noexcept;
+    promise(promise&& x) noexcept : internal::promise_base_with_type<T...>(std::move(x)) {
+        move_it(std::move(x));
+    }
     promise(const promise&) = delete;
     promise& operator=(promise&& x) noexcept {
-        this->~promise();
-        new (this) promise(std::move(x));
+        internal::promise_base_with_type<T...>::operator=(std::move(x));
+        // If this is a self-move, _state is now nullptr and it is
+        // safe to call move_it.
+        move_it(std::move(x));
         return *this;
     }
     void operator=(const promise&) = delete;
@@ -942,17 +974,27 @@ protected:
         _promise->_state = state;
     }
 
-    future_base(future_base&& x, future_state_base* state) noexcept : _promise(x._promise) {
+    void move_it(future_base&& x, future_state_base* state) noexcept {
+        _promise = x._promise;
         if (auto* p = _promise) {
             x.detach_promise();
             p->_future = this;
             p->_state = state;
         }
     }
-    ~future_base() noexcept {
+
+    future_base(future_base&& x, future_state_base* state) noexcept {
+        move_it(std::move(x), state);
+    }
+
+    void clear() noexcept {
         if (_promise) {
             detach_promise();
         }
+    }
+
+    ~future_base() noexcept {
+        clear();
     }
 
     promise_base* detach_promise() noexcept {
@@ -1115,8 +1157,9 @@ public:
         this->check_deprecation();
     }
     future& operator=(future&& x) noexcept {
-        this->~future();
-        new (this) future(std::move(x));
+        clear();
+        move_it(std::move(x), &_state);
+        _state = std::move(x._state);
         return *this;
     }
     void operator=(const future&) = delete;
@@ -1610,10 +1653,10 @@ promise<T...>::get_future() noexcept {
 
 template <typename... T>
 inline
-promise<T...>::promise(promise&& x) noexcept : internal::promise_base_with_type<T...>(std::move(x)) {
+void promise<T...>::move_it(promise&& x) noexcept {
     if (this->_state == &x._local_state) {
         this->_state = &_local_state;
-        _local_state = std::move(x._local_state);
+        new (&_local_state) future_state<T...>(std::move(x._local_state));
     }
 }
 
