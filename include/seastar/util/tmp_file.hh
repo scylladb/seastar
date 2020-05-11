@@ -152,7 +152,11 @@ public:
     }
 
     template <typename Func>
-    static future<> do_with_thread(Func&& func) {
+
+    SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> )
+    static future<> do_with_thread(Func&& func) noexcept {
+        static_assert(std::is_nothrow_move_constructible_v<Func>,
+            "Func's move constructor must not throw");
         return async([func = std::move(func)] () mutable {
             auto t = tmp_dir();
             t.create().get();
