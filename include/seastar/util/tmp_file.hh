@@ -162,8 +162,9 @@ public:
         return async([func = std::move(func)] () mutable {
             auto t = tmp_dir();
             t.create().get();
-            auto remove_on_exit = defer([&t] { t.remove().get(); });
-            func(t);
+            futurize_apply(func, t).finally([&t] {
+                return t.remove();
+            }).get();
         });
     }
 

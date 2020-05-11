@@ -35,6 +35,11 @@
 using namespace seastar;
 namespace fs = std::filesystem;
 
+class expected_exception : std::runtime_error {
+public:
+    expected_exception() : runtime_error("expected") {}
+};
+
 SEASTAR_TEST_CASE(test_make_tmp_file) {
     return make_tmp_file().then([] (tmp_file tf) {
         return async([tf = std::move(tf)] () mutable {
@@ -229,5 +234,53 @@ SEASTAR_TEST_CASE(tmp_dir_with_leftovers_test) {
         fs::path path = td.get_path() / "testfile.tmp";
         touch_file(path.native()).get();
         BOOST_REQUIRE(file_exists(path.native()).get0());
+    });
+}
+
+SEASTAR_TEST_CASE(tmp_dir_do_with_fail_func_test) {
+    return tmp_dir::do_with_thread([] (tmp_dir& outer) {
+        BOOST_REQUIRE_THROW(tmp_dir::do_with([] (tmp_dir& inner) mutable {
+            return make_exception_future<>(expected_exception());
+        }).get(), expected_exception);
+    });
+}
+
+SEASTAR_TEST_CASE(tmp_dir_do_with_fail_remove_test) {
+    return tmp_dir::do_with_thread([] (tmp_dir& outer) {
+        auto saved_default_tmpdir = default_tmpdir();
+        sstring outer_path = outer.get_path().native();
+        sstring inner_path;
+        set_default_tmpdir(outer_path.c_str());
+        BOOST_REQUIRE_THROW(tmp_dir::do_with([outer_path, &inner_path] (tmp_dir& inner) mutable {
+            inner_path = inner.get_path().native();
+            return chmod(outer_path, file_permissions::user_read | file_permissions::user_execute);
+        }).get(), std::system_error);
+        BOOST_REQUIRE(file_exists(inner_path).get0());
+        chmod(outer_path, file_permissions::default_dir_permissions).get();
+        set_default_tmpdir(saved_default_tmpdir.c_str());
+    });
+}
+
+SEASTAR_TEST_CASE(tmp_dir_do_with_thread_fail_func_test) {
+    return tmp_dir::do_with_thread([] (tmp_dir& outer) {
+        BOOST_REQUIRE_THROW(tmp_dir::do_with_thread([] (tmp_dir& inner) mutable {
+            throw expected_exception();
+        }).get(), expected_exception);
+    });
+}
+
+SEASTAR_TEST_CASE(tmp_dir_do_with_thread_fail_remove_test) {
+    return tmp_dir::do_with_thread([] (tmp_dir& outer) {
+        auto saved_default_tmpdir = default_tmpdir();
+        sstring outer_path = outer.get_path().native();
+        sstring inner_path;
+        set_default_tmpdir(outer_path.c_str());
+        BOOST_REQUIRE_THROW(tmp_dir::do_with_thread([outer_path, &inner_path] (tmp_dir& inner) mutable {
+            inner_path = inner.get_path().native();
+            chmod(outer_path, file_permissions::user_read | file_permissions::user_execute).get();
+        }).get(), std::system_error);
+        BOOST_REQUIRE(file_exists(inner_path).get0());
+        chmod(outer_path, file_permissions::default_dir_permissions).get();
+        set_default_tmpdir(saved_default_tmpdir.c_str());
     });
 }
