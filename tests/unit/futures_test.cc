@@ -905,12 +905,13 @@ SEASTAR_TEST_CASE(test_when_allx) {
 
 // A noncopyable and nonmovable struct
 struct non_copy_non_move {
+    non_copy_non_move() = default;
     non_copy_non_move(non_copy_non_move&&) = delete;
     non_copy_non_move(const non_copy_non_move&) = delete;
 };
 
 SEASTAR_TEST_CASE(test_when_all_functions) {
-    auto f = [x = non_copy_non_move{}] {
+    auto f = [x = non_copy_non_move()] {
         (void)x;
         return make_ready_future<int>(42);
     };
@@ -931,7 +932,7 @@ SEASTAR_TEST_CASE(test_when_all_functions) {
 }
 
 SEASTAR_TEST_CASE(test_when_all_succeed_functions) {
-    auto f = [x = non_copy_non_move{}] {
+    auto f = [x = non_copy_non_move()] {
         (void)x;
         return make_ready_future<int>(42);
     };

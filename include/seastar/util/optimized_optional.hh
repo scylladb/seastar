@@ -21,7 +21,7 @@
 
 #pragma once
 
-#include <seastar/util/gcc6-concepts.hh>
+#include <seastar/util/concepts.hh>
 #include <seastar/util/std-compat.hh>
 
 #include <type_traits>
@@ -29,16 +29,15 @@
 
 namespace seastar {
 
-GCC6_CONCEPT(
+SEASTAR_CONCEPT(
 
 template<typename T>
-concept bool OptimizableOptional() {
-    return std::is_default_constructible<T>::value
+concept OptimizableOptional =
+    std::is_default_constructible<T>::value
         && std::is_nothrow_move_assignable<T>::value
         && requires(const T& obj) {
             { bool(obj) } noexcept;
         };
-}
 
 )
 

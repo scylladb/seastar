@@ -34,7 +34,7 @@
 #include <seastar/core/function_traits.hh>
 #include <seastar/util/alloc_failure_injector.hh>
 #include <seastar/util/attribute-compat.hh>
-#include <seastar/util/gcc6-concepts.hh>
+#include <seastar/util/concepts.hh>
 #include <seastar/util/noncopyable_function.hh>
 
 namespace seastar {
@@ -768,37 +768,37 @@ template <typename... T> struct is_future<future<T...>> : std::true_type {};
 template <typename T>
 struct futurize;
 
-GCC6_CONCEPT(
+SEASTAR_CONCEPT(
 
 template <typename T>
-concept bool Future = is_future<T>::value;
+concept Future = is_future<T>::value;
 
 template <typename Func, typename... T>
-concept bool CanInvoke = requires (Func f, T... args) {
+concept CanInvoke = requires (Func f, T... args) {
     f(std::forward<T>(args)...);
 };
 
 // Deprecated alias
 template <typename Func, typename... T>
-concept bool CanApply = CanInvoke<Func, T...>;
+concept CanApply = CanInvoke<Func, T...>;
 
 template <typename Func, typename Return, typename... T>
-concept bool InvokeReturns = requires (Func f, T... args) {
-    { f(std::forward<T>(args)...) } -> Return;
+concept InvokeReturns = requires (Func f, T... args) {
+    { f(std::forward<T>(args)...) } -> std::same_as<Return>;
 };
 
 // Deprecated alias
 template <typename Func, typename Return, typename... T>
-concept bool ApplyReturns = InvokeReturns<Func, Return, T...>;
+concept ApplyReturns = InvokeReturns<Func, Return, T...>;
 
 template <typename Func, typename... T>
-concept bool InvokeReturnsAnyFuture = requires (Func f, T... args) {
+concept InvokeReturnsAnyFuture = requires (Func f, T... args) {
     requires is_future<decltype(f(std::forward<T>(args)...))>::value;
 };
 
 // Deprecated alias
 template <typename Func, typename... T>
-concept bool ApplyReturnsAnyFuture = InvokeReturnsAnyFuture<Func, T...>;
+concept ApplyReturnsAnyFuture = InvokeReturnsAnyFuture<Func, T...>;
 
 )
 
@@ -844,7 +844,7 @@ private:
     /// promise. This avoids creating a future if func() doesn't
     /// return one.
     template<typename Func>
-    GCC6_CONCEPT( requires ::seastar::CanInvoke<Func> )
+    SEASTAR_CONCEPT( requires ::seastar::CanInvoke<Func> )
     static void satisfy_with_result_of(internal::promise_base_with_type<T>&&, Func&& func);
 
     template <typename... U>
@@ -876,7 +876,7 @@ struct futurize<void> {
 
 private:
     template<typename Func>
-    GCC6_CONCEPT( requires ::seastar::CanInvoke<Func> )
+    SEASTAR_CONCEPT( requires ::seastar::CanInvoke<Func> )
     static void satisfy_with_result_of(internal::promise_base_with_type<>&&, Func&& func);
 
     template <typename... U>
@@ -910,7 +910,7 @@ struct futurize<future<Args...>> {
 
 private:
     template<typename Func>
-    GCC6_CONCEPT( requires ::seastar::CanInvoke<Func> )
+    SEASTAR_CONCEPT( requires ::seastar::CanInvoke<Func> )
     static void satisfy_with_result_of(internal::promise_base_with_type<Args...>&&, Func&& func);
 
     template <typename... U>
@@ -1224,7 +1224,7 @@ public:
     /// \return a \c future representing the return value of \c func, applied
     ///         to the eventual value of this future.
     template <typename Func, typename Result = futurize_t<std::result_of_t<Func(T&&...)>>>
-    GCC6_CONCEPT( requires ::seastar::CanInvoke<Func, T...> )
+    SEASTAR_CONCEPT( requires ::seastar::CanInvoke<Func, T...> )
     Result
     then(Func&& func) noexcept {
 #ifndef SEASTAR_TYPE_ERASE_MORE
@@ -1297,14 +1297,14 @@ public:
     /// \return a \c future representing the return value of \c func, applied
     ///         to the eventual value of this future.
     template <typename Func, typename FuncResult = std::result_of_t<Func(future)>>
-    GCC6_CONCEPT( requires ::seastar::CanInvoke<Func, future> )
+    SEASTAR_CONCEPT( requires ::seastar::CanInvoke<Func, future> )
     futurize_t<FuncResult>
     then_wrapped(Func&& func) & noexcept {
         return then_wrapped_maybe_erase<false, FuncResult>(std::forward<Func>(func));
     }
 
     template <typename Func, typename FuncResult = std::result_of_t<Func(future&&)>>
-    GCC6_CONCEPT( requires ::seastar::CanInvoke<Func, future&&> )
+    SEASTAR_CONCEPT( requires ::seastar::CanInvoke<Func, future&&> )
     futurize_t<FuncResult>
     then_wrapped(Func&& func) && noexcept {
         return then_wrapped_maybe_erase<true, FuncResult>(std::forward<Func>(func));
@@ -1419,7 +1419,7 @@ public:
      * nested will be propagated.
      */
     template <typename Func>
-    GCC6_CONCEPT( requires ::seastar::CanInvoke<Func> )
+    SEASTAR_CONCEPT( requires ::seastar::CanInvoke<Func> )
     future<T...> finally(Func&& func) noexcept {
         return then_wrapped(finally_body<Func, is_future<std::result_of_t<Func()>>::value>(std::forward<Func>(func)));
     }
@@ -1505,7 +1505,7 @@ public:
     /// future<>, the handler function does not need to return anything.
     template <typename Func>
     /* Broken?
-    GCC6_CONCEPT( requires ::seastar::InvokeReturns<Func, future<T...>, std::exception_ptr>
+    SEASTAR_CONCEPT( requires ::seastar::InvokeReturns<Func, future<T...>, std::exception_ptr>
                     || (sizeof...(T) == 0 && ::seastar::InvokeReturns<Func, void, std::exception_ptr>)
                     || (sizeof...(T) == 1 && ::seastar::InvokeReturns<Func, T..., std::exception_ptr>)
     ) */
@@ -1671,7 +1671,7 @@ typename futurize<T>::type futurize<T>::apply(Func&& func, std::tuple<FuncArgs..
 
 template<typename T>
 template<typename Func>
-GCC6_CONCEPT( requires ::seastar::CanInvoke<Func> )
+SEASTAR_CONCEPT( requires ::seastar::CanInvoke<Func> )
 void futurize<T>::satisfy_with_result_of(internal::promise_base_with_type<T>&& pr, Func&& func) {
     pr.set_value(func());
 }
@@ -1703,7 +1703,7 @@ typename futurize<void>::type futurize<void>::apply(Func&& func, std::tuple<Func
 }
 
 template<typename Func>
-GCC6_CONCEPT( requires ::seastar::CanInvoke<Func> )
+SEASTAR_CONCEPT( requires ::seastar::CanInvoke<Func> )
     void futurize<void>::satisfy_with_result_of(internal::promise_base_with_type<>&& pr, Func&& func) {
     func();
     pr.set_value();
@@ -1736,7 +1736,7 @@ typename futurize<future<Args...>>::type futurize<future<Args...>>::apply(Func&&
 
 template<typename... Args>
 template<typename Func>
-GCC6_CONCEPT( requires ::seastar::CanInvoke<Func> )
+SEASTAR_CONCEPT( requires ::seastar::CanInvoke<Func> )
 void futurize<future<Args...>>::satisfy_with_result_of(internal::promise_base_with_type<Args...>&& pr, Func&& func) {
     func().forward_to(std::move(pr));
 }

@@ -88,11 +88,6 @@ add_tristate(
     help = 'hwloc support')
 add_tristate(
     arg_parser,
-    name = 'gcc6-concepts',
-    dest = 'gcc6_concepts',
-    help = 'experimental support for C++ Concepts as implemented in GCC 6')
-add_tristate(
-    arg_parser,
     name = 'alloc-failure-injector',
     dest = 'alloc_failure_injection',
     help = 'allocation failure injection')
@@ -193,7 +188,6 @@ def configure_mode(mode):
         tr(args.dpdk, 'DPDK'),
         tr(infer_dpdk_machine(args.user_cflags), 'DPDK_MACHINE'),
         tr(args.hwloc, 'HWLOC', value_when_none='yes'),
-        tr(args.gcc6_concepts, 'GCC6_CONCEPTS'),
         tr(args.alloc_failure_injection, 'ALLOC_FAILURE_INJECTION'),
         tr(args.alloc_page_size, 'ALLOC_PAGE_SIZE'),
         tr(args.cpp17_goodies, 'STD_OPTIONAL_VARIANT_STRINGVIEW'),

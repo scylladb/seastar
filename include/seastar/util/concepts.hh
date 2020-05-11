@@ -16,10 +16,19 @@
  * under the License.
  */
 /*
- * Copyright (C) 2016 ScyllaDB
+ * Copyright (C) 2020 ScyllaDB
  */
 #pragma once
 
-#define GCC6_CONCEPT(x...)
-#define GCC6_NO_CONCEPT(x...) x
+#if defined(__cpp_concepts) && __cpp_concepts >= 201907
+
+#define SEASTAR_CONCEPT(x...) x
+#define SEASTAR_NO_CONCEPT(x...)
+
+#else
+
+#define SEASTAR_CONCEPT(x...)
+#define SEASTAR_NO_CONCEPT(x...) x
+
+#endif
 
