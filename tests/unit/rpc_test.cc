@@ -427,8 +427,8 @@ struct stream_test_result {
     int server_sum = 0;
 };
 
-future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_client) {
-    return seastar::async([&env, stop_client] {
+future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_client, bool expect_connection_error = false) {
+    return seastar::async([&env, stop_client, expect_connection_error] {
         stream_test_result r;
         test_rpc_proto::client c(env.proto(), {}, env.make_socket(), ipv4_addr());
         future<> server_done = make_ready_future();
@@ -498,7 +498,10 @@ future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_clien
             return false;
         };
         future<> stop_client_future = make_ready_future();
-        for (int i = 1; i < 101; i++) {
+        // With a connection error sink() will eventually fail, but we
+        // cannot guarantee when.
+        int max = expect_connection_error ? std::numeric_limits<int>::max()  : 101;
+        for (int i = 1; i < max; i++) {
             if (stop_client && i == 50) {
                 // stop client while stream is in use
                 stop_client_future = c.stop();
@@ -562,7 +565,7 @@ SEASTAR_TEST_CASE(test_stream_connection_error) {
     cfg.server_options = so;
     cfg.inject_error = true;
     return rpc_test_env<>::do_with(cfg, [] (rpc_test_env<>& env) {
-        return stream_test_func(env, false).then([] (stream_test_result r) {
+        return stream_test_func(env, false, true).then([] (stream_test_result r) {
             BOOST_REQUIRE(!r.client_source_closed);
             BOOST_REQUIRE(!r.server_source_closed);
             BOOST_REQUIRE(r.sink_exception);
