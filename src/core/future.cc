@@ -60,6 +60,10 @@ void promise_base::move_it(promise_base&& x) noexcept {
     }
 }
 
+promise_base::promise_base(promise_base&& x) noexcept {
+    move_it(std::move(x));
+}
+
 void promise_base::clear() noexcept {
     if (_future) {
         assert(_state);
