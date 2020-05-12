@@ -37,6 +37,10 @@
 #include <seastar/util/concepts.hh>
 #include <seastar/util/noncopyable_function.hh>
 
+#if __cplusplus > 201703L
+#include <version>
+#endif
+
 namespace seastar {
 
 /// \defgroup future-module Futures and Promises
@@ -659,7 +663,7 @@ public:
         }
     }
 
-#if SEASTAR_COROUTINES_TS
+#if defined(SEASTAR_COROUTINES_TS) || defined(__cpp_lib_coroutine)
     void set_coroutine(future_state<T...>& state, task& coroutine) noexcept {
         _state = &state;
         _task = &coroutine;
@@ -1597,7 +1601,7 @@ public:
         _state.ignore();
     }
 
-#if SEASTAR_COROUTINES_TS
+#if defined(SEASTAR_COROUTINES_TS) || defined(__cpp_lib_coroutine)
     void set_coroutine(task& coroutine) noexcept {
         assert(!_state.available());
         assert(_promise);

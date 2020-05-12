@@ -21,11 +21,17 @@
 
 #pragma once
 
-#if !SEASTAR_COROUTINES_TS
+#if __cplusplus > 201703L
+#include <version>
+#endif
+
+#if !defined(__cpp_lib_coroutine) && !defined(SEASTAR_COROUTINES_TS)
 #error Coroutines TS support disabled.
 #endif
 
-#if __has_include(<experimental/coroutine>)
+#if __has_include(<coroutine>)
+#include <coroutine>
+#elif __has_include(<experimental/coroutine>)
 #include <experimental/coroutine>
 #else
 

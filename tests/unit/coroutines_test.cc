@@ -19,11 +19,24 @@
  * Copyright (C) 2019 ScyllaDB Ltd.
  */
 
-#include <seastar/core/coroutine.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/testing/test_case.hh>
 
+#if __cplusplus > 201703L
+#include <version>
+#endif
+
 using namespace seastar;
+
+#if !defined(__cpp_lib_coroutine) && !defined(SEASTAR_COROUTINES_TS)
+
+SEASTAR_TEST_CASE(test_coroutines_not_compiled_in) {
+    return make_ready_future<>();
+}
+
+#else
+
+#include <seastar/core/coroutine.hh>
 
 namespace {
 
@@ -114,3 +127,5 @@ SEASTAR_TEST_CASE(test_scheduling_group) {
     BOOST_REQUIRE_EQUAL(co_await std::move(f_ret), 42);
     BOOST_REQUIRE(current_scheduling_group() == default_scheduling_group());
 }
+
+#endif

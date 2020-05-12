@@ -265,10 +265,8 @@ seastar_add_test (circular_buffer_fixed_capacity
 seastar_add_test (connect
   SOURCES connect_test.cc)
 
-if (Seastar_EXPERIMENTAL_COROUTINES_TS)
-  seastar_add_test (coroutines
-    SOURCES coroutines_test.cc)
-endif ()
+seastar_add_test (coroutines
+  SOURCES coroutines_test.cc)
 
 seastar_add_test (defer
   SOURCES defer_test.cc)

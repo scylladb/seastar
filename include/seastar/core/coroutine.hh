@@ -23,13 +23,23 @@
 
 #include <seastar/core/future.hh>
 
-#if !SEASTAR_COROUTINES_TS
-#error Coroutines TS support disabled.
+#if __cplusplus > 201703L
+#include <version>
+#endif
+
+#if !defined(__cpp_lib_coroutine) && !defined(SEASTAR_COROUTINES_TS)
+#error Coroutines support disabled.
 #endif
 
 #include <seastar/core/std-coroutine.hh>
 
-namespace std::experimental {
+#ifdef SEASTAR_COROUTINES_TS
+#define SEASTAR_INTERNAL_COROUTINE_NAMESPACE std::experimental
+#else
+#define SEASTAR_INTERNAL_COROUTINE_NAMESPACE std
+#endif
+
+namespace SEASTAR_INTERNAL_COROUTINE_NAMESPACE {
 
 template<typename... T, typename... Args>
 class coroutine_traits<seastar::future<T...>, Args...> {
@@ -57,7 +67,7 @@ public:
         suspend_never final_suspend() noexcept { return { }; }
 
         virtual void run_and_dispose() noexcept override {
-            auto handle = std::experimental::coroutine_handle<promise_type>::from_promise(*this);
+            auto handle = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<promise_type>::from_promise(*this);
             handle.resume();
         }
     };
@@ -88,7 +98,7 @@ public:
         suspend_never final_suspend() noexcept { return { }; }
 
         virtual void run_and_dispose() noexcept override {
-            auto handle = std::experimental::coroutine_handle<promise_type>::from_promise(*this);
+            auto handle = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<promise_type>::from_promise(*this);
             handle.resume();
         }
     };
@@ -114,7 +124,7 @@ public:
     }
 
     template<typename U>
-    void await_suspend(std::experimental::coroutine_handle<U> hndl) noexcept {
+    void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<U> hndl) noexcept {
         _future.set_coroutine(hndl.promise());
     }
 
@@ -135,7 +145,7 @@ public:
     }
 
     template<typename U>
-    void await_suspend(std::experimental::coroutine_handle<U> hndl) noexcept {
+    void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<U> hndl) noexcept {
         _future.set_coroutine(hndl.promise());
     }
 
@@ -156,7 +166,7 @@ public:
     }
 
     template<typename U>
-    void await_suspend(std::experimental::coroutine_handle<U> hndl) noexcept {
+    void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<U> hndl) noexcept {
         _future.set_coroutine(hndl.promise());
     }
 

@@ -19,6 +19,21 @@
  * Copyright (C) 2019 ScyllaDB Ltd.
  */
 
+#include <iostream>
+
+#if __cplusplus > 201703
+#include <version>
+#endif
+
+#if !defined(__cpp_lib_coroutine) && !defined(SEASTAR_COROUTINES_TS)
+
+int main(int argc, char** argv) {
+    std::cout << "coroutines not available\n";
+    return 0;
+}
+
+#else
+
 #include <seastar/core/app-template.hh>
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/fstream.hh>
@@ -45,3 +60,5 @@ int main(int argc, char** argv) {
         std::cout << "done\n";
     });
 }
+
+#endif
