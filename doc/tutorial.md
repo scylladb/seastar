@@ -430,6 +430,28 @@ The `[obj = ...]` capture syntax we used here is new to C++14. This is the main 
 
 The extra `() mutable` syntax was needed here because by default when C++ captures a value (in this case, the value of std::move(obj)) into a lambda, it makes this value read-only, so our lambda cannot, in this example, move it again. Adding `mutable` removes this artificial restriction.
 
+## Evaluation order considerations
+
+C++ does *not* guarantee that lambda captures in continuations will be evaluated after the futures they relate to are evaluated
+(See https://en.cppreference.com/w/cpp/language/eval_order).
+
+Consequently, avoid the programming pattern below:
+```cpp
+    return do_something(obj).then([obj = std::move(obj)] () mutable {
+        return do_something_else(std::move(obj));
+    });
+```
+
+In the example above, `[obj = std::move(obj)]` might be evaluated before `do_something(obj)` is called, potentially leading to use-after-move of `obj`.
+
+To guarantee the desired evaluation order, the expression above may be broken into separate statments as follows:
+```cpp
+    auto fut = do_something(obj);
+    return fut.then([obj = std::move(obj)] () mutable {
+        return do_something_else(std::move(obj));
+    });
+```
+
 ## Chaining continuations
 TODO: We already saw chaining example in slow() above. talk about the return from then, and returning a future and chaining more thens.
 
