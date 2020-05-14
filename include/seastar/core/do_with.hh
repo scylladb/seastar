@@ -73,8 +73,16 @@ template <typename Tuple, size_t... Idx>
 inline
 auto
 cherry_pick_tuple(std::index_sequence<Idx...>, Tuple&& tuple) {
-    return std::make_tuple(std::get<Idx>(std::forward<Tuple>(tuple))...);
+    return std::forward_as_tuple(std::get<Idx>(std::forward<Tuple>(tuple))...);
 }
+
+template <typename Tuple, typename Seq>
+struct subtuple;
+
+template <typename Tuple, size_t... Idx>
+struct subtuple<Tuple, std::index_sequence<Idx...>> {
+    using type = std::tuple<std::decay_t<std::tuple_element_t<Idx, Tuple>>...>;
+};
 
 template <typename T1, typename T2, typename... More>
 inline
@@ -88,9 +96,13 @@ do_with_impl(T1&& rv1, T2&& rv2, More&&... more) {
     using idx = std::make_index_sequence<nr>;
     auto&& just_values = cherry_pick_tuple(idx(), std::move(all));
     auto&& just_func = std::move(std::get<nr>(std::move(all)));
-    using value_tuple = std::remove_reference_t<decltype(just_values)>;
-    using ret_type = decltype(apply(just_func, just_values));
-    auto task = std::make_unique<internal::do_with_state<value_tuple, ret_type>>(std::move(just_values));
+    using value_tuple = typename subtuple<decltype(all), idx>::type;
+    using ret_type = decltype(apply(just_func, std::declval<value_tuple&>()));
+    auto task = std::apply(
+        [](auto&&... x) {
+            return std::make_unique<internal::do_with_state<value_tuple, ret_type>>(std::forward<decltype(x)>(x)...);
+        },
+        std::move(just_values));
     auto fut = apply(just_func, task->data());
     if (fut.available()) {
         return fut;
