@@ -48,7 +48,8 @@ class do_with_state final : public continuation_base_from_future<Future>::type {
     HeldState _held;
     typename Future::promise_type _pr;
 public:
-    explicit do_with_state(HeldState&& held) : _held(std::move(held)) {}
+    template<typename... T>
+    explicit do_with_state(T&&... args) : _held(std::forward<T>(args)...) {}
     virtual void run_and_dispose() noexcept override {
         _pr.set_urgent_state(std::move(this->_state));
         delete this;
