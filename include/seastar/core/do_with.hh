@@ -87,6 +87,31 @@ auto do_with_impl(T&& rvalue, F&& f) {
     internal::set_callback(fut, task.release());
     return ret;
 }
+
+template <typename T1, typename T2, typename T3_or_F, typename... More>
+inline
+auto
+do_with_impl(T1&& rv1, T2&& rv2, T3_or_F&& rv3, More&&... more) {
+    auto all = std::forward_as_tuple(
+            std::forward<T1>(rv1),
+            std::forward<T2>(rv2),
+            std::forward<T3_or_F>(rv3),
+            std::forward<More>(more)...);
+    constexpr size_t nr = std::tuple_size<decltype(all)>::value - 1;
+    using idx = std::make_index_sequence<nr>;
+    auto&& just_values = cherry_pick_tuple(idx(), std::move(all));
+    auto&& just_func = std::move(std::get<nr>(std::move(all)));
+    using value_tuple = std::remove_reference_t<decltype(just_values)>;
+    using ret_type = decltype(apply(just_func, just_values));
+    auto task = std::make_unique<internal::do_with_state<value_tuple, ret_type>>(std::move(just_values));
+    auto fut = apply(just_func, task->data());
+    if (fut.available()) {
+        return fut;
+    }
+    auto ret = task->get_future();
+    internal::set_callback(fut, task.release());
+    return ret;
+}
 }
 
 /// \addtogroup future-util
@@ -134,33 +159,6 @@ auto with_lock(Lock& lock, Func&& func) {
         lock.unlock();
         return std::move(fut);
     });
-}
-
-namespace internal {
-template <typename T1, typename T2, typename T3_or_F, typename... More>
-inline
-auto
-do_with_impl(T1&& rv1, T2&& rv2, T3_or_F&& rv3, More&&... more) {
-    auto all = std::forward_as_tuple(
-            std::forward<T1>(rv1),
-            std::forward<T2>(rv2),
-            std::forward<T3_or_F>(rv3),
-            std::forward<More>(more)...);
-    constexpr size_t nr = std::tuple_size<decltype(all)>::value - 1;
-    using idx = std::make_index_sequence<nr>;
-    auto&& just_values = cherry_pick_tuple(idx(), std::move(all));
-    auto&& just_func = std::move(std::get<nr>(std::move(all)));
-    using value_tuple = std::remove_reference_t<decltype(just_values)>;
-    using ret_type = decltype(std::apply(just_func, just_values));
-    auto task = std::make_unique<internal::do_with_state<value_tuple, ret_type>>(std::move(just_values));
-    auto fut = apply(just_func, task->data());
-    if (fut.available()) {
-        return fut;
-    }
-    auto ret = task->get_future();
-    internal::set_callback(fut, task.release());
-    return ret;
-}
 }
 
 /// Multiple argument variant of \ref do_with(T&& rvalue, F&& f).
