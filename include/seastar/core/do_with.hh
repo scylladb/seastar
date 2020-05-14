@@ -75,27 +75,13 @@ cherry_pick_tuple(std::index_sequence<Idx...>, Tuple&& tuple) {
     return std::make_tuple(std::get<Idx>(std::forward<Tuple>(tuple))...);
 }
 
-template<typename T, typename F>
-inline
-auto do_with_impl(T&& rvalue, F&& f) {
-    auto task = std::make_unique<internal::do_with_state<T, std::result_of_t<F(T&)>>>(std::forward<T>(rvalue));
-    auto fut = f(task->data());
-    if (fut.available()) {
-        return fut;
-    }
-    auto ret = task->get_future();
-    internal::set_callback(fut, task.release());
-    return ret;
-}
-
-template <typename T1, typename T2, typename T3_or_F, typename... More>
+template <typename T1, typename T2, typename... More>
 inline
 auto
-do_with_impl(T1&& rv1, T2&& rv2, T3_or_F&& rv3, More&&... more) {
+do_with_impl(T1&& rv1, T2&& rv2, More&&... more) {
     auto all = std::forward_as_tuple(
             std::forward<T1>(rv1),
             std::forward<T2>(rv2),
-            std::forward<T3_or_F>(rv3),
             std::forward<More>(more)...);
     constexpr size_t nr = std::tuple_size<decltype(all)>::value - 1;
     using idx = std::make_index_sequence<nr>;
@@ -136,25 +122,12 @@ do_with_impl(T1&& rv1, T2&& rv2, T3_or_F&& rv3, More&&... more) {
 /// \param f a callable, accepting an lvalue reference of the same type
 ///          as \c rvalue, that will be accessible while \c f runs
 /// \return whatever \c f returns
-template<typename T, typename F>
-inline
-auto do_with(T&& rvalue, F&& f) noexcept {
-    auto func = internal::do_with_impl<T, F>;
-    return futurize_invoke(func, std::forward<T>(rvalue), std::forward<F>(f));
-}
-
-/// Multiple argument variant of \ref do_with(T&& rvalue, F&& f).
-///
-/// This is the same as \ref do_with(T&& tvalue, F&& f), but accepts
-/// two or more rvalue parameters, which are held in memory while
-/// \c f executes.  \c f will be called with all arguments as
-/// reference parameters.
-template <typename T1, typename T2, typename T3_or_F, typename... More>
+template <typename T1, typename T2, typename... More>
 inline
 auto
-do_with(T1&& rv1, T2&& rv2, T3_or_F&& rv3, More&&... more) noexcept {
-    auto func = internal::do_with_impl<T1, T2, T3_or_F, More...>;
-    return futurize_invoke(func, std::forward<T1>(rv1), std::forward<T2>(rv2), std::forward<T3_or_F>(rv3), std::forward<More>(more)...);
+do_with(T1&& rv1, T2&& rv2, More&&... more) noexcept {
+    auto func = internal::do_with_impl<T1, T2, More...>;
+    return futurize_invoke(func, std::forward<T1>(rv1), std::forward<T2>(rv2), std::forward<More>(more)...);
 }
 
 /// Executes the function \c func making sure the lock \c lock is taken,

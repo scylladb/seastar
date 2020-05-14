@@ -483,6 +483,13 @@ SEASTAR_TEST_CASE(test_do_with_6) {
     });
 }
 
+SEASTAR_TEST_CASE(test_do_with_7) {
+    const int x = 42;
+    return do_with(x, [](int&) {
+        return make_ready_future<>();
+    });
+}
+
 SEASTAR_TEST_CASE(test_do_while_stopping_immediately) {
     return do_with(int(0), [] (int& count) {
         return repeat([&count] {
