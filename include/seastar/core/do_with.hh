@@ -143,6 +143,20 @@ auto do_with(T&& rvalue, F&& f) noexcept {
     return futurize_invoke(func, std::forward<T>(rvalue), std::forward<F>(f));
 }
 
+/// Multiple argument variant of \ref do_with(T&& rvalue, F&& f).
+///
+/// This is the same as \ref do_with(T&& tvalue, F&& f), but accepts
+/// two or more rvalue parameters, which are held in memory while
+/// \c f executes.  \c f will be called with all arguments as
+/// reference parameters.
+template <typename T1, typename T2, typename T3_or_F, typename... More>
+inline
+auto
+do_with(T1&& rv1, T2&& rv2, T3_or_F&& rv3, More&&... more) noexcept {
+    auto func = internal::do_with_impl<T1, T2, T3_or_F, More...>;
+    return futurize_invoke(func, std::forward<T1>(rv1), std::forward<T2>(rv2), std::forward<T3_or_F>(rv3), std::forward<More>(more)...);
+}
+
 /// Executes the function \c func making sure the lock \c lock is taken,
 /// and later on properly released.
 ///
@@ -159,20 +173,6 @@ auto with_lock(Lock& lock, Func&& func) {
         lock.unlock();
         return std::move(fut);
     });
-}
-
-/// Multiple argument variant of \ref do_with(T&& rvalue, F&& f).
-///
-/// This is the same as \ref do_with(T&& tvalue, F&& f), but accepts
-/// two or more rvalue parameters, which are held in memory while
-/// \c f executes.  \c f will be called with all arguments as
-/// reference parameters.
-template <typename T1, typename T2, typename T3_or_F, typename... More>
-inline
-auto
-do_with(T1&& rv1, T2&& rv2, T3_or_F&& rv3, More&&... more) noexcept {
-    auto func = internal::do_with_impl<T1, T2, T3_or_F, More...>;
-    return futurize_invoke(func, std::forward<T1>(rv1), std::forward<T2>(rv2), std::forward<T3_or_F>(rv3), std::forward<More>(more)...);
 }
 
 /// @}
