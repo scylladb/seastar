@@ -906,7 +906,7 @@ future<size_t> file::dma_read(uint64_t pos, std::vector<iovec> iov, const io_pri
 
 future<temporary_buffer<uint8_t>>
 file::dma_read_exactly_impl(uint64_t pos, size_t len, const io_priority_class& pc) {
-    return dma_read<uint8_t>(pos, len, pc).then([pos, len](auto buf) {
+    return dma_read<uint8_t>(pos, len, pc).then([len](auto buf) {
         if (buf.size() < len) {
             throw eof_error();
         }
