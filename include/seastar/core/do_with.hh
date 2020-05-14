@@ -68,6 +68,13 @@ public:
 /// \endcond
 
 namespace internal {
+template <typename Tuple, size_t... Idx>
+inline
+auto
+cherry_pick_tuple(std::index_sequence<Idx...>, Tuple&& tuple) {
+    return std::make_tuple(std::get<Idx>(std::forward<Tuple>(tuple))...);
+}
+
 template<typename T, typename F>
 inline
 auto do_with_impl(T&& rvalue, F&& f) {
@@ -110,15 +117,6 @@ auto do_with(T&& rvalue, F&& f) noexcept {
     auto func = internal::do_with_impl<T, F>;
     return futurize_invoke(func, std::forward<T>(rvalue), std::forward<F>(f));
 }
-
-/// \cond internal
-template <typename Tuple, size_t... Idx>
-inline
-auto
-cherry_pick_tuple(std::index_sequence<Idx...>, Tuple&& tuple) {
-    return std::make_tuple(std::get<Idx>(std::forward<Tuple>(tuple))...);
-}
-/// \endcond
 
 /// Executes the function \c func making sure the lock \c lock is taken,
 /// and later on properly released.
