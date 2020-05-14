@@ -91,7 +91,9 @@ SEASTAR_TEST_CASE(test_scheduling_group) {
 
     BOOST_REQUIRE(current_scheduling_group() == default_scheduling_group());
     auto f_ret = with_scheduling_group(other_sg,
-            [other_sg] (future<> f1, future<> f2, promise<> p1, promise<> p2) -> future<int> {
+            [other_sg_cap = other_sg] (future<> f1, future<> f2, promise<> p1, promise<> p2) -> future<int> {
+        // Make a copy in the coroutine before the lambda is destroyed.
+        auto other_sg = other_sg_cap;
         BOOST_REQUIRE(current_scheduling_group() == other_sg);
         BOOST_REQUIRE(other_sg == other_sg);
         p1.set_value();
