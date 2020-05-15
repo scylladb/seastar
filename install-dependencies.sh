@@ -146,6 +146,7 @@ arch_packages=(
     python3
     glibc
     filesystem
+    valgrind
 )
 
 opensuse_packages=(
