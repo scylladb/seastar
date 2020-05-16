@@ -877,6 +877,13 @@ concept CanInvoke = std::invocable<Func, T...>;
 template <typename Func, typename... T>
 concept CanApply = CanInvoke<Func, T...>;
 
+template <typename Func, typename... T>
+concept CanApplyTuple
+    = sizeof...(T) == 1
+        && requires (Func func, std::tuple<T...> wrapped_val) {
+        { std::apply(func, std::get<0>(wrapped_val)) };
+    };
+
 template <typename Func, typename Return, typename... T>
 concept InvokeReturns = requires (Func f, T... args) {
     { f(std::forward<T>(args)...) } -> std::same_as<Return>;
@@ -1138,6 +1145,19 @@ concept CanInvokeWhenAllSucceed = requires {
     typename call_then_impl_result_type<Func, Args...>;
 };
 )
+
+template <typename Func>
+struct result_of_apply {
+    // no "type" member if not a function call signature or not a tuple
+};
+
+template <typename Func, typename... T>
+struct result_of_apply<Func (std::tuple<T...>)> : std::result_of<Func (T...)> {
+    // Let std::result_of determine the result if the input is a tuple
+};
+
+template <typename Func, typename... T>
+using result_of_apply_t = typename result_of_apply<Func, T...>::type;
 
 }
 
@@ -1401,6 +1421,35 @@ public:
             return futurize_invoke(func, std::forward<decltype(args)>(args)...);
         }));
 #endif
+    }
+
+    /// \brief Schedule a block of code to run when the future is ready, unpacking tuples.
+    ///
+    /// Schedules a function (often a lambda) to run when the future becomes
+    /// available.  The function is called with the result of this future's
+    /// computation as parameters.  The return value of the function becomes
+    /// the return value of then(), itself as a future; this allows then()
+    /// calls to be chained.
+    ///
+    /// This member function is only available is the payload is std::tuple;
+    /// The tuple elements are passed as individual arguments to `func`, which
+    /// must have the same arity as the tuple.
+    ///
+    /// If the future failed, the function is not called, and the exception
+    /// is propagated into the return value of then().
+    ///
+    /// \param func - function to be called when the future becomes available,
+    ///               unless it has failed.
+    /// \return a \c future representing the return value of \c func, applied
+    ///         to the eventual value of this future.
+    template <typename Func, typename Result = futurize_t<internal::result_of_apply_t<Func (T...)>>>
+    SEASTAR_CONCEPT( requires (sizeof...(T) == 1) && ::seastar::CanApplyTuple<Func, T...>)
+    Result
+    then_unpack(Func&& func) noexcept {
+        return then([func = std::forward<Func>(func)] (T&&... tuple) mutable {
+            // sizeof...(tuple) is required to be 1
+            return std::apply(std::forward<Func>(func), std::move(tuple)...);
+        });
     }
 
 private:
