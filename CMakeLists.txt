@@ -53,14 +53,14 @@ option (Seastar_SSTRING
   ON)
 
 set (Seastar_API_LEVEL
-  "3"
+  "4"
   CACHE
   STRING
-  "Seastar compatibility API level (2=server_socket::accept() returns accept_result, 3=make_file_output_stream(), make_file_data_sink() returns future<...>)")
+  "Seastar compatibility API level (2=server_socket::accept() returns accept_result, 3=make_file_output_stream(), make_file_data_sink() returns future<...>, 4=when_all_succeed returns future<std::tuple<>>)")
 
 set_property (CACHE Seastar_API_LEVEL
   PROPERTY
-  STRINGS 2 3)
+  STRINGS 2 3 4)
 
 #
 # Add a dev build type.

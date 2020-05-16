@@ -977,7 +977,7 @@ SEASTAR_TEST_CASE(test_when_all_succeed_functions) {
     return when_all_succeed(f, [] {
         throw 42;
         return make_ready_future<>();
-    }, later()).then_wrapped([] (future<int> res) {
+    }, later()).then_wrapped([] (auto res) { // type of `res` changes when SESTAR_API_LEVEL < 3
         BOOST_REQUIRE(res.available());
         BOOST_REQUIRE(res.failed());
         res.ignore_ready_future();
@@ -1115,6 +1115,12 @@ SEASTAR_TEST_CASE(test_shared_future_with_timeout) {
     });
 }
 
+#if SEASTAR_API_LEVEL < 4
+#define THEN_UNPACK then
+#else
+#define THEN_UNPACK then_unpack
+#endif
+
 SEASTAR_TEST_CASE(test_when_all_succeed_tuples) {
     return seastar::when_all_succeed(
         make_ready_future<>(),
@@ -1123,7 +1129,7 @@ SEASTAR_TEST_CASE(test_when_all_succeed_tuples) {
         make_ready_future<>(),
         make_ready_future<int, sstring>(84, "hi"),
         make_ready_future<bool>(true)
-    ).then([] (sstring msg, int v, std::tuple<int, sstring> t, bool b) {
+    ).THEN_UNPACK([] (sstring msg, int v, std::tuple<int, sstring> t, bool b) {
         BOOST_REQUIRE_EQUAL(msg, "hello world");
         BOOST_REQUIRE_EQUAL(v, 42);
         BOOST_REQUIRE_EQUAL(std::get<0>(t), 84);
@@ -1135,7 +1141,7 @@ SEASTAR_TEST_CASE(test_when_all_succeed_tuples) {
                 make_ready_future<sstring>("hello world"),
                 make_exception_future<int>(43),
                 make_ready_future<>()
-        ).then([] (sstring, int) {
+        ).THEN_UNPACK([] (sstring, int) {
             BOOST_FAIL("shouldn't reach");
             return false;
         }).handle_exception([] (auto excp) {
