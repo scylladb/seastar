@@ -15,11 +15,8 @@ Language dialects
 
 Seastar will support the last two standards approved by the
 ISO C++ committee. For example, after C++20 is released,
-Seastar supports C++17 and C++20. A grace period of about
-one year is provided, so after C++20 is released, C++14
-will continue to be supported for about a year. Similarly,
-when C++23 is released, Seastar will support C++17, C++20, and
-C++23 for about a year, then drop C++17 support.
+Seastar supports C++17 and C++20.  Similarly, when C++23 is released,
+Seastar will support C++20 and C++23.
 
 Some features may only be enabled for newer dialects.
 
