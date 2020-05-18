@@ -247,7 +247,7 @@ public:
     /// cause the counter to go negative.
     ///
     /// \param nr Amount of units to consume (default 1).
-    void consume(size_t nr = 1) {
+    void consume(size_t nr = 1) noexcept {
         if (_ex) {
             return;
         }
@@ -408,7 +408,7 @@ get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units) noexcept 
 /// \brief Take units from semaphore temporarily with time bound on wait
 ///
 /// Like \ref get_units(basic_semaphore<ExceptionFactory>&, size_t) but when
-/// timeout is reached before units are granted throws semaphore_timed_out exception.
+/// timeout is reached before units are granted returns an exceptional future holding semaphore_timed_out.
 ///
 /// \param sem The semaphore to take units from
 /// \param units  Number of units to take
@@ -465,7 +465,7 @@ get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, typename 
 /// \param units  Number of units to consume
 template<typename ExceptionFactory, typename Clock = typename timer<>::clock>
 semaphore_units<ExceptionFactory, Clock>
-consume_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units) {
+consume_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units) noexcept {
     sem.consume(units);
     return semaphore_units<ExceptionFactory, Clock>{ sem, units };
 }
