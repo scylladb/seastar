@@ -240,7 +240,7 @@ thread::join() {
 template <typename Func, typename... Args>
 inline
 futurize_t<std::result_of_t<std::decay_t<Func>(std::decay_t<Args>...)>>
-async(thread_attributes attr, Func&& func, Args&&... args) {
+async(thread_attributes attr, Func&& func, Args&&... args) noexcept {
     using return_type = std::result_of_t<std::decay_t<Func>(std::decay_t<Args>...)>;
     struct work {
         thread_attributes attr;
@@ -249,15 +249,20 @@ async(thread_attributes attr, Func&& func, Args&&... args) {
         promise<return_type> pr;
         thread th;
     };
-    return do_with(work{std::move(attr), std::forward<Func>(func), std::forward_as_tuple(std::forward<Args>(args)...)}, [] (work& w) mutable {
+
+    try {
+        auto wp = std::make_unique<work>(work{std::move(attr), std::forward<Func>(func), std::forward_as_tuple(std::forward<Args>(args)...)});
+        auto& w = *wp;
         auto ret = w.pr.get_future();
         w.th = thread(std::move(w.attr), [&w] {
             futurize<return_type>::apply(std::move(w.func), std::move(w.args)).forward_to(std::move(w.pr));
         });
         return w.th.join().then([ret = std::move(ret)] () mutable {
             return std::move(ret);
-        });
-    });
+        }).finally([wp = std::move(wp)] {});
+    } catch (...) {
+        return futurize<return_type>::make_exception_future(std::current_exception());
+    }
 }
 
 /// Executes a callable in a seastar thread.
@@ -272,7 +277,7 @@ async(thread_attributes attr, Func&& func, Args&&... args) {
 template <typename Func, typename... Args>
 inline
 futurize_t<std::result_of_t<std::decay_t<Func>(std::decay_t<Args>...)>>
-async(Func&& func, Args&&... args) {
+async(Func&& func, Args&&... args) noexcept {
     return async(thread_attributes{}, std::forward<Func>(func), std::forward<Args>(args)...);
 }
 /// @}
