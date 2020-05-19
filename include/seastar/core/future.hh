@@ -1288,7 +1288,7 @@ public:
         return then_impl(std::move(func));
 #else
         return then_impl(noncopyable_function<Result (T&&...)>([func = std::forward<Func>(func)] (T&&... args) mutable {
-            return futurize_apply(func, std::forward_as_tuple(std::move(args)...));
+            return futurize_invoke(func, std::forward<decltype(args)>(args)...);
         }));
 #endif
     }
