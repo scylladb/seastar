@@ -1257,3 +1257,28 @@ SEASTAR_THREAD_TEST_CASE(test_exception_future_with_backtrace) {
     // this example functions as documentation.
     (void)outer(true);
 }
+
+class throw_on_move {
+    int _i;
+public:
+    throw_on_move(int i = 0) noexcept {
+        _i = i;
+    }
+    throw_on_move(throw_on_move&) = delete;
+    throw_on_move(throw_on_move&&) {
+        _i = -1;
+        throw expected_exception();
+    }
+
+    int value() const {
+        return _i;
+    }
+};
+
+SEASTAR_TEST_CASE(test_async_throw_on_move) {
+    return async([] (throw_on_move t) {
+        BOOST_CHECK(false);
+    }, throw_on_move()).handle_exception_type([] (const expected_exception&) {
+        return make_ready_future<>();
+    });
+}
