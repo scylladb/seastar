@@ -64,50 +64,50 @@ SEASTAR_TEST_CASE(test_fstream) {
         auto filename = (t.get_path() / "testfile.tmp").native();
         return open_file_dma(filename,
                 open_flags::rw | open_flags::create | open_flags::truncate).then([filename] (file f) {
-          return writer::make(std::move(f)).then([filename] (shared_ptr<writer> w) {
-            auto buf = static_cast<char*>(::malloc(4096));
-            memset(buf, 0, 4096);
-            buf[0] = '[';
-            buf[1] = 'A';
-            buf[4095] = ']';
-            return w->out.write(buf, 4096).then([buf, w] {
-                ::free(buf);
-                return make_ready_future<>();
-            }).then([w] {
-                auto buf = static_cast<char*>(::malloc(8192));
-                memset(buf, 0, 8192);
+            return writer::make(std::move(f)).then([filename] (shared_ptr<writer> w) {
+                auto buf = static_cast<char*>(::malloc(4096));
+                memset(buf, 0, 4096);
                 buf[0] = '[';
-                buf[1] = 'B';
-                buf[8191] = ']';
-                return w->out.write(buf, 8192).then([buf, w] {
+                buf[1] = 'A';
+                buf[4095] = ']';
+                return w->out.write(buf, 4096).then([buf, w] {
                     ::free(buf);
-                    return w->out.close().then([w] {});
-                });
-            }).then([filename] {
-                return open_file_dma(filename, open_flags::ro);
-            }).then([] (file f) {
-                /*  file content after running the above:
-                 * 00000000  5b 41 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |[A..............|
-                 * 00000010  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |................|
-                 * *
-                 * 00000ff0  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 5d  |...............]|
-                 * 00001000  5b 42 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |[B..............|
-                 * 00001010  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |................|
-                 * *
-                 * 00002ff0  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 5d  |...............]|
-                 * 00003000
-                 */
-                auto r = make_shared<reader>(std::move(f));
-                return r->in.read_exactly(4096 + 8192).then([r] (temporary_buffer<char> buf) {
-                    auto p = buf.get();
-                    BOOST_REQUIRE(p[0] == '[' && p[1] == 'A' && p[4095] == ']');
-                    BOOST_REQUIRE(p[4096] == '[' && p[4096 + 1] == 'B' && p[4096 + 8191] == ']');
                     return make_ready_future<>();
-                }).then([r] {
-                    return r->in.close();
-                }).finally([r] {});
+                }).then([w] {
+                    auto buf = static_cast<char*>(::malloc(8192));
+                    memset(buf, 0, 8192);
+                    buf[0] = '[';
+                    buf[1] = 'B';
+                    buf[8191] = ']';
+                    return w->out.write(buf, 8192).then([buf, w] {
+                        ::free(buf);
+                        return w->out.close().then([w] {});
+                    });
+                }).then([filename] {
+                    return open_file_dma(filename, open_flags::ro);
+                }).then([] (file f) {
+                    /*  file content after running the above:
+                     * 00000000  5b 41 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |[A..............|
+                     * 00000010  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |................|
+                     * *
+                     * 00000ff0  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 5d  |...............]|
+                     * 00001000  5b 42 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |[B..............|
+                     * 00001010  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |................|
+                     * *
+                     * 00002ff0  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 5d  |...............]|
+                     * 00003000
+                     */
+                    auto r = make_shared<reader>(std::move(f));
+                    return r->in.read_exactly(4096 + 8192).then([r] (temporary_buffer<char> buf) {
+                        auto p = buf.get();
+                        BOOST_REQUIRE(p[0] == '[' && p[1] == 'A' && p[4095] == ']');
+                        BOOST_REQUIRE(p[4096] == '[' && p[4096 + 1] == 'B' && p[4096 + 8191] == ']');
+                        return make_ready_future<>();
+                    }).then([r] {
+                        return r->in.close();
+                    }).finally([r] {});
+                });
             });
-          });
         });
     });
 }
@@ -187,38 +187,38 @@ SEASTAR_TEST_CASE(test_fstream_unaligned) {
     auto filename = (t.get_path() / "testfile.tmp").native();
     return open_file_dma(filename,
             open_flags::rw | open_flags::create | open_flags::truncate).then([filename] (file f) {
-      return writer::make(std::move(f)).then([filename] (shared_ptr<writer> w) {
-        auto buf = static_cast<char*>(::malloc(40));
-        memset(buf, 0, 40);
-        buf[0] = '[';
-        buf[1] = 'A';
-        buf[39] = ']';
-        return w->out.write(buf, 40).then([buf, w] {
-            ::free(buf);
-            return w->out.close().then([w] {});
-        }).then([filename] {
-            return open_file_dma(filename, open_flags::ro);
-        }).then([] (file f) {
-            return do_with(std::move(f), [] (file& f) {
-                return f.size().then([] (size_t size) {
-                    // assert that file was indeed truncated to the amount of bytes written.
-                    BOOST_REQUIRE(size == 40);
-                    return make_ready_future<>();
+        return writer::make(std::move(f)).then([filename] (shared_ptr<writer> w) {
+            auto buf = static_cast<char*>(::malloc(40));
+            memset(buf, 0, 40);
+            buf[0] = '[';
+            buf[1] = 'A';
+            buf[39] = ']';
+            return w->out.write(buf, 40).then([buf, w] {
+                ::free(buf);
+                return w->out.close().then([w] {});
+            }).then([filename] {
+                return open_file_dma(filename, open_flags::ro);
+            }).then([] (file f) {
+                return do_with(std::move(f), [] (file& f) {
+                    return f.size().then([] (size_t size) {
+                        // assert that file was indeed truncated to the amount of bytes written.
+                        BOOST_REQUIRE(size == 40);
+                        return make_ready_future<>();
+                    });
                 });
+            }).then([filename] {
+                return open_file_dma(filename, open_flags::ro);
+            }).then([] (file f) {
+                auto r = make_shared<reader>(std::move(f));
+                return r->in.read_exactly(40).then([r] (temporary_buffer<char> buf) {
+                    auto p = buf.get();
+                    BOOST_REQUIRE(p[0] == '[' && p[1] == 'A' && p[39] == ']');
+                    return make_ready_future<>();
+                }).then([r] {
+                    return r->in.close();
+                }).finally([r] {});
             });
-        }).then([filename] {
-            return open_file_dma(filename, open_flags::ro);
-        }).then([] (file f) {
-            auto r = make_shared<reader>(std::move(f));
-            return r->in.read_exactly(40).then([r] (temporary_buffer<char> buf) {
-                auto p = buf.get();
-                BOOST_REQUIRE(p[0] == '[' && p[1] == 'A' && p[39] == ']');
-                return make_ready_future<>();
-            }).then([r] {
-                return r->in.close();
-            }).finally([r] {});
         });
-      });
     });
   });
 }
