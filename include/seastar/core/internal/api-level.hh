@@ -23,7 +23,7 @@
 
 // For IDEs that don't see SEASTAR_API_LEVEL, generate a nice default
 #ifndef SEASTAR_API_LEVEL
-#define SEASTAR_API_LEVEL 2
+#define SEASTAR_API_LEVEL 3
 #endif
 
 #if SEASTAR_API_LEVEL == 3
