@@ -232,11 +232,11 @@ public:
      * explained above.
      *
      * @return number of bytes actually read
-     * @throw exception in case of I/O error
+     *         or exceptional future in case of I/O error
      */
     template <typename CharType>
     future<size_t>
-    dma_read(uint64_t aligned_pos, CharType* aligned_buffer, size_t aligned_len, const io_priority_class& pc = default_priority_class()) {
+    dma_read(uint64_t aligned_pos, CharType* aligned_buffer, size_t aligned_len, const io_priority_class& pc = default_priority_class()) noexcept {
         return dma_read_impl(aligned_pos, reinterpret_cast<uint8_t*>(aligned_buffer), aligned_len, pc);
     }
 
@@ -248,7 +248,7 @@ public:
      * @param pc the IO priority class under which to queue this operation
      *
      * @return temporary buffer containing the requested data.
-     * @throw exception in case of I/O error
+     *         or exceptional future in case of I/O error
      *
      * This function doesn't require any alignment for both "pos" and "len"
      *
@@ -256,7 +256,7 @@ public:
      *       reached of in case of I/O error.
      */
     template <typename CharType>
-    future<temporary_buffer<CharType>> dma_read(uint64_t pos, size_t len, const io_priority_class& pc = default_priority_class()) {
+    future<temporary_buffer<CharType>> dma_read(uint64_t pos, size_t len, const io_priority_class& pc = default_priority_class()) noexcept {
         return dma_read_impl(pos, len, pc).then([] (temporary_buffer<uint8_t> t) {
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
@@ -274,12 +274,13 @@ public:
      * @param pc the IO priority class under which to queue this operation
      *
      * @return temporary buffer containing the read data
-     * @throw end_of_file_error if EOF is reached, file_io_error or
+     *        or exceptional future in case an error, holding:
+     *        end_of_file_error if EOF is reached, file_io_error or
      *        std::system_error in case of I/O error.
      */
     template <typename CharType>
     future<temporary_buffer<CharType>>
-    dma_read_exactly(uint64_t pos, size_t len, const io_priority_class& pc = default_priority_class()) {
+    dma_read_exactly(uint64_t pos, size_t len, const io_priority_class& pc = default_priority_class()) noexcept {
         return dma_read_exactly_impl(pos, len, pc).then([] (temporary_buffer<uint8_t> t) {
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
@@ -294,7 +295,7 @@ public:
     ///
     /// \return a future representing the number of bytes actually read.  A short
     ///         read may happen due to end-of-file or an I/O error.
-    future<size_t> dma_read(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class());
+    future<size_t> dma_read(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class()) noexcept;
 
     /// Performs a DMA write from the specified buffer.
     ///
@@ -307,7 +308,7 @@ public:
     /// \return a future representing the number of bytes actually written.  A short
     ///         write may happen due to an I/O error.
     template <typename CharType>
-    future<size_t> dma_write(uint64_t pos, const CharType* buffer, size_t len, const io_priority_class& pc = default_priority_class()) {
+    future<size_t> dma_write(uint64_t pos, const CharType* buffer, size_t len, const io_priority_class& pc = default_priority_class()) noexcept {
         return dma_write_impl(pos, reinterpret_cast<const uint8_t*>(buffer), len, pc);
     }
 
@@ -320,19 +321,19 @@ public:
     ///
     /// \return a future representing the number of bytes actually written.  A short
     ///         write may happen due to an I/O error.
-    future<size_t> dma_write(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class());
+    future<size_t> dma_write(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class()) noexcept;
 
     /// Causes any previously written data to be made stable on persistent storage.
     ///
     /// Prior to a flush, written data may or may not survive a power failure.  After
     /// a flush, data is guaranteed to be on disk.
-    future<> flush();
+    future<> flush() noexcept;
 
     /// Returns \c stat information about the file.
-    future<struct stat> stat();
+    future<struct stat> stat() noexcept;
 
     /// Truncates the file to a specified length.
-    future<> truncate(uint64_t length);
+    future<> truncate(uint64_t length) noexcept;
 
     /// Preallocate disk blocks for a specified byte range.
     ///
@@ -346,16 +347,16 @@ public:
     ///                 blocks.
     /// \parm length length of range to allocate.
     /// \return future that becomes ready when the operation completes.
-    future<> allocate(uint64_t position, uint64_t length);
+    future<> allocate(uint64_t position, uint64_t length) noexcept;
 
     /// Discard unneeded data from the file.
     ///
     /// The discard operation tells the file system that a range of offsets
     /// (which be aligned) is no longer needed and can be reused.
-    future<> discard(uint64_t offset, uint64_t length);
+    future<> discard(uint64_t offset, uint64_t length) noexcept;
 
     /// Gets the file size.
-    future<uint64_t> size() const;
+    future<uint64_t> size() const noexcept;
 
     /// Closes the file.
     ///
@@ -365,7 +366,7 @@ public:
     /// \note
     /// to ensure file data reaches stable storage, you must call \ref flush()
     /// before calling \c close().
-    future<> close();
+    future<> close() noexcept;
 
     /// Returns a directory listing, given that this file object is a directory.
     subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next);
@@ -380,12 +381,13 @@ public:
      * @param pc the IO priority class under which to queue this operation
      *
      * @return temporary buffer containing the read data bulk.
-     * @throw system_error exception in case of I/O error or eof_error when
+     *        or exceptional future holding:
+     *        system_error exception in case of I/O error or eof_error when
      *        "offset" is beyond EOF.
      */
     template <typename CharType>
     future<temporary_buffer<CharType>>
-    dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc = default_priority_class()) {
+    dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc = default_priority_class()) noexcept {
         return dma_read_bulk_impl(offset, range_size, pc).then([] (temporary_buffer<uint8_t> t) {
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
@@ -405,19 +407,19 @@ public:
     struct read_state;
 private:
     future<temporary_buffer<uint8_t>>
-    dma_read_bulk_impl(uint64_t offset, size_t range_size, const io_priority_class& pc);
+    dma_read_bulk_impl(uint64_t offset, size_t range_size, const io_priority_class& pc) noexcept;
 
     future<size_t>
-    dma_write_impl(uint64_t pos, const uint8_t* buffer, size_t len, const io_priority_class& pc);
+    dma_write_impl(uint64_t pos, const uint8_t* buffer, size_t len, const io_priority_class& pc) noexcept;
 
     future<temporary_buffer<uint8_t>>
-    dma_read_impl(uint64_t pos, size_t len, const io_priority_class& pc);
+    dma_read_impl(uint64_t pos, size_t len, const io_priority_class& pc) noexcept;
 
     future<size_t>
-    dma_read_impl(uint64_t aligned_pos, uint8_t* aligned_buffer, size_t aligned_len, const io_priority_class& pc);
+    dma_read_impl(uint64_t aligned_pos, uint8_t* aligned_buffer, size_t aligned_len, const io_priority_class& pc) noexcept;
 
     future<temporary_buffer<uint8_t>>
-    dma_read_exactly_impl(uint64_t pos, size_t len, const io_priority_class& pc);
+    dma_read_exactly_impl(uint64_t pos, size_t len, const io_priority_class& pc) noexcept;
 
     friend class reactor;
     friend class file_impl;
