@@ -39,10 +39,12 @@
 #define SEASTAR_INTERNAL_COROUTINE_NAMESPACE std
 #endif
 
-namespace SEASTAR_INTERNAL_COROUTINE_NAMESPACE {
+namespace seastar {
 
-template<typename... T, typename... Args>
-class coroutine_traits<seastar::future<T...>, Args...> {
+namespace internal {
+
+template <typename... T>
+class coroutine_traits_base {
 public:
     class promise_type final : public seastar::task {
         seastar::promise<T...> _promise;
@@ -63,8 +65,8 @@ public:
             return _promise.get_future();
         }
 
-        suspend_never initial_suspend() noexcept { return { }; }
-        suspend_never final_suspend() noexcept { return { }; }
+        SEASTAR_INTERNAL_COROUTINE_NAMESPACE::suspend_never initial_suspend() noexcept { return { }; }
+        SEASTAR_INTERNAL_COROUTINE_NAMESPACE::suspend_never final_suspend() noexcept { return { }; }
 
         virtual void run_and_dispose() noexcept override {
             auto handle = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<promise_type>::from_promise(*this);
@@ -73,8 +75,8 @@ public:
     };
 };
 
-template<typename... Args>
-class coroutine_traits<seastar::future<>, Args...> {
+template <>
+class coroutine_traits_base<> {
 public:
    class promise_type final : public seastar::task {
         seastar::promise<> _promise;
@@ -94,8 +96,8 @@ public:
             return _promise.get_future();
         }
 
-        suspend_never initial_suspend() noexcept { return { }; }
-        suspend_never final_suspend() noexcept { return { }; }
+        SEASTAR_INTERNAL_COROUTINE_NAMESPACE::suspend_never initial_suspend() noexcept { return { }; }
+        SEASTAR_INTERNAL_COROUTINE_NAMESPACE::suspend_never final_suspend() noexcept { return { }; }
 
         virtual void run_and_dispose() noexcept override {
             auto handle = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<promise_type>::from_promise(*this);
@@ -103,12 +105,6 @@ public:
         }
     };
 };
-
-}
-
-namespace seastar {
-
-namespace internal {
 
 template<typename... T>
 struct awaiter {
@@ -173,11 +169,21 @@ public:
     void await_resume() { _future.get(); }
 };
 
-}
+} // seastar::internal
 
 template<typename... T>
 auto operator co_await(future<T...> f) noexcept {
     return internal::awaiter<T...>(std::move(f));
 }
 
-}
+} // seastar
+
+
+namespace SEASTAR_INTERNAL_COROUTINE_NAMESPACE {
+
+template<typename... T, typename... Args>
+class coroutine_traits<seastar::future<T...>, Args...> : public seastar::internal::coroutine_traits_base<T...> {
+};
+
+} // SEASTAR_INTERNAL_COROUTINE_NAMESPACE
+
