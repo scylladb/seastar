@@ -316,12 +316,24 @@ struct future_state_base {
             return ret;
         }
         void move_it(any&& x) noexcept {
+#ifdef __GLIBCXX__
+            // Unfortunally gcc cannot fully optimize the regular
+            // implementation:
+            // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=95014
+            // Given what we know about the libstdc++ implementation
+            // (see the comment in take_exception), we can just
+            // memmove and zero x.  We use memmove to guarantee
+            // vaild results if &x == this.
+            memmove(static_cast<void*>(this), &x, sizeof(any));
+            x.st = state::invalid;
+#else
             if (x.st < state::exception_min) {
                 st = x.st;
                 x.st = state::invalid;
             } else {
                 new (&ex) std::exception_ptr(x.take_exception());
             }
+#endif
         }
         any(any&& x) noexcept {
             move_it(std::move(x));
