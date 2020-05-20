@@ -102,3 +102,6 @@ seastar_add_demo (udp_server
 
 seastar_add_demo (udp_zero_copy
   SOURCES udp_zero_copy_demo.cc)
+
+seastar_add_demo (sharded_parameter
+  SOURCES sharded_parameter_demo.cc)

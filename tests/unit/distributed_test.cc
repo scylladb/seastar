@@ -21,6 +21,7 @@
  */
 
 #include <seastar/testing/test_case.hh>
+#include <seastar/testing/thread_test_case.hh>
 #include <seastar/core/distributed.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/semaphore.hh>
@@ -285,3 +286,33 @@ SEASTAR_TEST_CASE(test_smp_timeout) {
     });
 }
 
+SEASTAR_THREAD_TEST_CASE(test_sharded_parameter) {
+    struct dependency {
+        unsigned val = this_shard_id() * 7;
+    };
+    struct some_service {
+        bool ok = false;
+        some_service(unsigned non_shard_dependent, unsigned shard_dependent, dependency& dep, unsigned shard_dependent_2) {
+            ok =
+                    non_shard_dependent == 43
+                    && shard_dependent == this_shard_id() * 3
+                    && dep.val == this_shard_id() * 7
+                    && shard_dependent_2 == -dep.val;
+        }
+    };
+    sharded<dependency> s_dep;
+    s_dep.start().get();
+    auto undo1 = defer([&] { s_dep.stop().get(); });
+
+    sharded<some_service> s_service;
+    s_service.start(
+            43, // should be copied verbatim
+            sharded_parameter([] { return this_shard_id() * 3; }),
+            std::ref(s_dep),
+            sharded_parameter([] (dependency& d) { return -d.val; }, std::ref(s_dep))
+            ).get();
+    auto undo2 = defer([&] { s_service.stop().get(); });
+
+    auto all_ok = s_service.map_reduce0(std::mem_fn(&some_service::ok), true, std::multiplies<>()).get0();
+    BOOST_REQUIRE(all_ok);
+}

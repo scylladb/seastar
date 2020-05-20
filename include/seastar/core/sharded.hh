@@ -26,8 +26,12 @@
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/util/tuple_utils.hh>
 #include <seastar/core/do_with.hh>
+#include <seastar/util/concepts.hh>
 #include <boost/iterator/counting_iterator.hpp>
 #include <functional>
+#if __has_include(<concepts>)
+#include <concepts>
+#endif
 
 /// \defgroup smp-module Multicore
 ///
@@ -40,6 +44,16 @@
 /// threaded programming.
 
 namespace seastar {
+
+template <typename Func, typename... Param>
+class sharded_parameter;
+
+namespace internal {
+
+template <typename Func, typename... Param>
+auto unwrap_sharded_arg(sharded_parameter<Func, Param...> sp);
+
+}
 
 /// \addtogroup smp-module
 /// @{
@@ -489,6 +503,54 @@ private:
     }
 };
 
+namespace internal {
+
+template <typename T>
+struct sharded_unwrap {
+    using type = T;
+};
+
+template <typename T>
+struct sharded_unwrap<std::reference_wrapper<sharded<T>>> {
+    using type = T&;
+};
+
+template <typename T>
+using sharded_unwrap_t = typename sharded_unwrap<T>::type;
+
+} // internal
+
+
+/// \brief Helper to pass a parameter to a `sharded<>` object that depends
+/// on the shard. It is evaluated on the shard, just before being
+/// passed to the local instance. It is useful when passing
+/// parameters to sharded::start().
+///
+/// \example sharded_parameter_demo.cc
+template <typename Func, typename... Params>
+class sharded_parameter {
+    Func _func;
+    std::tuple<Params...> _params;
+public:
+    /// Creates a sharded parameter, which evaluates differently based on
+    /// the shard it is executed on.
+    ///
+    /// \param func      Function to be executed
+    /// \param params... optional parameters to be passed to the function. Can
+    ///                  be std::ref(sharded<whatever>), in which case the local
+    ///                  instance will be passed. Anything else
+    ///                  will be passed by value unchanged.
+    explicit sharded_parameter(Func func, Params... params)
+            SEASTAR_CONCEPT(requires std::invocable<Func, internal::sharded_unwrap_t<Params>...>)
+            : _func(std::move(func)), _params(std::make_tuple(std::move(params)...)) {
+    }
+private:
+    auto evaluate() const;
+
+    template <typename Func_, typename... Param_>
+    friend auto internal::unwrap_sharded_arg(sharded_parameter<Func_, Param_...> sp);
+};
+
 /// @}
 
 template <typename Service>
@@ -520,6 +582,21 @@ unwrap_sharded_arg(std::reference_wrapper<sharded<Service>> arg) {
     return either_sharded_or_local<Service>(arg);
 }
 
+template <typename Func, typename... Param>
+auto
+unwrap_sharded_arg(sharded_parameter<Func, Param...> sp) {
+    return sp.evaluate();
+}
+
+}
+
+template <typename Func, typename... Param>
+auto
+sharded_parameter<Func, Param...>::evaluate() const {
+    auto unwrap_params_and_invoke = [this] (const auto&... params) {
+        return std::invoke(_func, internal::unwrap_sharded_arg(params)...);
+    };
+    return std::apply(unwrap_params_and_invoke, _params);
 }
 
 namespace internal {
