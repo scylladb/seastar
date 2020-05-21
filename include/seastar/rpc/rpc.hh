@@ -75,6 +75,8 @@ struct isolation_config {
 };
 
 /// Default isolation configuration - run everything in the default scheduling group.
+///
+/// In the scheduling_group that the protocol::server was created in.
 isolation_config default_isolate_connection(sstring isolation_cookie);
 
 /// \brief Resource limits for an RPC server
@@ -646,9 +648,54 @@ protected:
 /// listening for connections, but best to ensure that by the time incoming
 /// requests are to be expected, all the verbs are set-up.
 ///
-/// TODO: explain configuration
-/// TODO: explain isolation
-/// TODO: explain forward-backward compatibility
+/// ## Configuration
+///
+/// TODO
+///
+/// ## Isolation
+///
+/// RPC supports isolating verb handlers from each other. There are two ways to
+/// achieve this: per-handler isolation (the old way) and per-connection
+/// isolation (the new way). If no isolation is configured, all handlers will be
+/// executed in the context of the scheduling_group in which the
+/// protocol::server was created.
+///
+/// Per-handler isolation (the old way) can be configured by using the
+/// register_handler() overload which takes a scheduling_group. When invoked,
+/// the body of the handler will be executed from the context of the configured
+/// scheduling_group.
+///
+/// Per-connection isolation (the new way) is a more flexible mechanism that
+/// requires user application provided logic to determine how connections are
+/// isolated. This mechanism has two parts, the server and the client part.
+/// The client configures isolation by setting client_options::isolation_cookie.
+/// This cookie is an opaque (to the RPC layer) string that is to be interpreted
+/// on the server using user application provided logic. The application
+/// provides this logic to the server by setting
+/// resource_limits::isolate_connection to an appropriate handler function, that
+/// interprets the opaque cookie and resolves it to an isolation_config. The
+/// scheduling_group in the former will be used not just to execute all verb
+/// handlers, but also the connection loop itself, hence providing better
+/// isolation.
+///
+/// There a few gotchas related to mixing the two isolation mechanisms. This can
+/// happen when the application is updated and one of the client/server is
+/// still using the old/new mechanism. In general per-connection isolation
+/// overrides the per-handler one. If both are set up, the former will determine
+/// the scheduling_group context for the handlers. If the client is not
+/// configured to send an isolation cookie, the server's
+/// resource_limits::isolate_connection will not be invoked and the server will
+/// fall back to per-handler isolation if configured. If the client is
+/// configured to send an isolation cookie but the server doesn't have a
+/// resource_limits::isolate_connection configured, it will use
+/// default_isolate_connection() to interpret the cookie. Note that this still
+/// overrides the per-handler isolation if any is configured. If the server is
+/// so old that it doesn't have the per-connection isolation feature at all, it
+/// will of course just use the per-handler one, if configured.
+///
+/// ## Compatibility
+///
+/// TODO
 ///
 /// \tparam Serializer the serializer for the protocol.
 /// \tparam MsgType the type to be used as the message id or verb id.
