@@ -40,7 +40,7 @@
 ///   - \ref fiber-module Utilities for managing loosely coupled chains of
 ///          continuations, also known as fibers
 ///   - \ref thread-module Support for traditional threaded execution
-///   - \ref rpc Built high-level communication protocols
+///   - \ref rpc Build high-level communication protocols
 ///
 /// View the [Seastar compatibility statement](./md_compatibility.html) for
 /// information about library evolution.
