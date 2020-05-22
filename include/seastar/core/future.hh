@@ -351,7 +351,7 @@ struct future_state_base {
             move_it(std::move(x));
             return *this;
         }
-        bool has_result() const {
+        bool has_result() const noexcept {
             return st == state::result || st == state::result_unavailable;
         }
         state st;
@@ -524,9 +524,9 @@ protected:
     using future_type = future<T...>;
     using promise_type = promise<T...>;
 public:
-    continuation_base() = default;
-    explicit continuation_base(future_state<T...>&& state) : _state(std::move(state)) {}
-    void set_state(future_state<T...>&& state) {
+    continuation_base() noexcept = default;
+    explicit continuation_base(future_state<T...>&& state) noexcept : _state(std::move(state)) {}
+    void set_state(future_state<T...>&& state) noexcept {
         _state = std::move(state);
     }
     friend class internal::promise_base_with_type<T...>;
@@ -537,9 +537,9 @@ public:
 template <typename Promise, typename... T>
 class continuation_base_with_promise : public continuation_base<T...> {
 protected:
-    continuation_base_with_promise(Promise&& pr, future_state<T...>&& state)
+    continuation_base_with_promise(Promise&& pr, future_state<T...>&& state) noexcept
         : continuation_base<T...>(std::move(state)), _pr(std::move(pr)) {}
-    continuation_base_with_promise(Promise&& pr) : _pr(std::move(pr)) {}
+    continuation_base_with_promise(Promise&& pr) noexcept : _pr(std::move(pr)) {}
     Promise _pr;
 };
 
