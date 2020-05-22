@@ -134,15 +134,20 @@ struct broken_promise : std::logic_error {
     broken_promise();
 };
 
-namespace internal {
-template <class... T>
-class promise_base_with_type;
-
+/// \brief Returns std::current_exception() wrapped in a future
+///
+/// This is equivalent to
+/// make_exception_future(std::current_exception()), but expands to
+/// less code.
 template <typename... T>
 future<T...> current_exception_as_future() noexcept;
 
 extern template
 future<> current_exception_as_future() noexcept;
+
+namespace internal {
+template <class... T>
+class promise_base_with_type;
 
 // It doesn't seem to be possible to use std::tuple_element_t with an empty tuple. There is an static_assert in it that
 // fails the build even if it is in the non enabled side of std::conditional.
@@ -395,7 +400,7 @@ public:
     static future_state_base current_exception() noexcept;
 
     template <typename... U>
-    friend future<U...> internal::current_exception_as_future() noexcept;
+    friend future<U...> current_exception_as_future() noexcept;
     template <typename... U>
     friend struct future_state;
 };
@@ -1135,7 +1140,7 @@ private:
     [[gnu::noinline]]
     future<T...> rethrow_with_nested() noexcept {
         if (!failed()) {
-            return internal::current_exception_as_future<T...>();
+            return current_exception_as_future<T...>();
         } else {
             //
             // Encapsulate the current exception into the
@@ -1151,7 +1156,7 @@ private:
                 try {
                     std::throw_with_nested(f_ex);
                 } catch (...) {
-                    return internal::current_exception_as_future<T...>();
+                    return current_exception_as_future<T...>();
                 }
             }
             __builtin_unreachable();
@@ -1695,7 +1700,7 @@ future<T...> internal::make_exception_future(future_state_base&& state) noexcept
 }
 
 template <typename... T>
-future<T...> internal::current_exception_as_future() noexcept {
+future<T...> current_exception_as_future() noexcept {
     return internal::make_exception_future<T...>(future_state_base::current_exception());
 }
 
@@ -1724,7 +1729,7 @@ typename futurize<T>::type futurize<T>::apply(Func&& func, std::tuple<FuncArgs..
     try {
         return convert(::seastar::apply(std::forward<Func>(func), std::move(args)));
     } catch (...) {
-        return internal::current_exception_as_future<T>();
+        return current_exception_as_future<T>();
     }
 }
 
@@ -1741,7 +1746,7 @@ typename futurize<T>::type futurize<T>::invoke(Func&& func, FuncArgs&&... args) 
     try {
         return convert(func(std::forward<FuncArgs>(args)...));
     } catch (...) {
-        return internal::current_exception_as_future<T>();
+        return current_exception_as_future<T>();
     }
 }
 
@@ -1757,7 +1762,7 @@ typename futurize<void>::type futurize<void>::apply(Func&& func, std::tuple<Func
         ::seastar::apply(std::forward<Func>(func), std::move(args));
         return make_ready_future<>();
     } catch (...) {
-        return internal::current_exception_as_future<>();
+        return current_exception_as_future<>();
     }
 }
 
@@ -1774,7 +1779,7 @@ typename futurize<void>::type futurize<void>::invoke(Func&& func, FuncArgs&&... 
         func(std::forward<FuncArgs>(args)...);
         return make_ready_future<>();
     } catch (...) {
-        return internal::current_exception_as_future<>();
+        return current_exception_as_future<>();
     }
 }
 
@@ -1789,7 +1794,7 @@ typename futurize<future<Args...>>::type futurize<future<Args...>>::apply(Func&&
     try {
         return ::seastar::apply(std::forward<Func>(func), std::move(args));
     } catch (...) {
-        return internal::current_exception_as_future<Args...>();
+        return current_exception_as_future<Args...>();
     }
 }
 
@@ -1806,7 +1811,7 @@ typename futurize<future<Args...>>::type futurize<future<Args...>>::invoke(Func&
     try {
         return func(std::forward<FuncArgs>(args)...);
     } catch (...) {
-        return internal::current_exception_as_future<Args...>();
+        return current_exception_as_future<Args...>();
     }
 }
 

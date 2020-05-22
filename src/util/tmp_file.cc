@@ -91,7 +91,7 @@ future<> tmp_file::open(fs::path path_template, open_flags oflags, file_open_opt
     try {
         path = generate_tmp_name(std::move(path_template));
     } catch (...) {
-        return internal::current_exception_as_future();
+        return current_exception_as_future();
     }
     return open_file_dma(path.native(), oflags, std::move(options)).then([this, path = std::move(path)] (file f) mutable {
         _path = std::move(path);
@@ -138,7 +138,7 @@ future<> tmp_dir::create(fs::path path_template, file_permissions create_permiss
     try {
         path = generate_tmp_name(std::move(path_template));
     } catch (...) {
-        return internal::current_exception_as_future();
+        return current_exception_as_future();
     }
     return touch_directory(path.native(), create_permissions).then([this, path = std::move(path)] () mutable {
         _path = std::move(path);

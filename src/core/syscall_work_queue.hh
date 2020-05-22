@@ -66,7 +66,7 @@ public:
         submit_item(std::move(wi));
         return fut;
       } catch (...) {
-        return internal::current_exception_as_future<T>();
+        return current_exception_as_future<T>();
       }
     }
 private:

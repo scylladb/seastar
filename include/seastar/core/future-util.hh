@@ -635,7 +635,7 @@ future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) noexcept 
     try {
         return internal::do_for_each_impl(std::move(begin), std::move(end), std::move(action));
     } catch (...) {
-        return internal::current_exception_as_future();
+        return current_exception_as_future();
     }
 }
 
@@ -659,7 +659,7 @@ future<> do_for_each(Container& c, AsyncAction action) noexcept {
     try {
         return internal::do_for_each_impl(std::begin(c), std::end(c), std::move(action));
     } catch (...) {
-        return internal::current_exception_as_future();
+        return current_exception_as_future();
     }
 }
 
@@ -680,7 +680,7 @@ struct identity_futures_tuple {
     }
 
     static future_type current_exception_as_future() noexcept {
-        return internal::current_exception_as_future<std::tuple<Futures...>>();
+        return seastar::current_exception_as_future<std::tuple<Futures...>>();
     }
 };
 
@@ -904,7 +904,7 @@ struct identity_futures_vector {
         return make_ready_future<std::vector<Future>>(std::move(futures));
     }
     static future_type current_exception_as_future() noexcept {
-        return internal::current_exception_as_future<std::vector<Future>>();
+        return seastar::current_exception_as_future<std::vector<Future>>();
     }
 };
 
@@ -1303,7 +1303,7 @@ public:
     }
 
     static future_type current_exception_as_future() noexcept {
-        future_type (*type_deduct)() = internal::current_exception_as_future;
+        future_type (*type_deduct)() = current_exception_as_future;
         return type_deduct();
     }
 };
@@ -1342,7 +1342,7 @@ struct extract_values_from_futures_vector {
     }
 
     static future_type current_exception_as_future() noexcept {
-        return internal::current_exception_as_future<std::vector<value_type>>();
+        return seastar::current_exception_as_future<std::vector<value_type>>();
     }
 };
 
@@ -1368,7 +1368,7 @@ struct extract_values_from_futures_vector<future<>> {
     }
 
     static future_type current_exception_as_future() noexcept {
-        return internal::current_exception_as_future<>();
+        return seastar::current_exception_as_future<>();
     }
 };
 

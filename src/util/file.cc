@@ -187,7 +187,7 @@ future<> recursive_remove_directory(fs::path path) noexcept {
     try {
         parent = (path / "..").native();
     } catch (...) {
-        return internal::current_exception_as_future();
+        return current_exception_as_future();
     }
     return open_directory(std::move(parent)).then([path = std::move(path)] (file parent) mutable {
         return do_with(std::move(parent), [path = std::move(path)] (file& parent) mutable {
