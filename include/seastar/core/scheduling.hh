@@ -314,7 +314,7 @@ scheduling_group_from_index(unsigned index) {
 
 inline
 scheduling_group*
-current_scheduling_group_ptr() {
+current_scheduling_group_ptr() noexcept {
     // Slow unless constructor is constexpr
     static thread_local scheduling_group sg;
     return &sg;
@@ -326,7 +326,7 @@ current_scheduling_group_ptr() {
 /// Returns the current scheduling group
 inline
 scheduling_group
-current_scheduling_group() {
+current_scheduling_group() noexcept {
     return *internal::current_scheduling_group_ptr();
 }
 
