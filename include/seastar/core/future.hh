@@ -396,6 +396,8 @@ public:
 
     template <typename... U>
     friend future<U...> internal::current_exception_as_future() noexcept;
+    template <typename... U>
+    friend struct future_state;
 };
 
 struct ready_future_marker {};
@@ -456,7 +458,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
       try {
         this->uninitialized_set(std::forward<A>(a)...);
       } catch (...) {
-        new (this) future_state(exception_future_marker(), std::current_exception());
+        new (this) future_state(exception_future_marker(), current_exception());
       }
     }
     template <typename... A>
