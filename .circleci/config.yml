@@ -4,10 +4,10 @@ jobs:
     parameters:
       dialect:
         description: C++ dialect to build with
-        default: gnu++17
+        default: gnu++20
         type: string
     docker:
-      - image: scylladb/seastar-toolchain
+      - image: docker.io/scylladb/seastar-toolchain
     steps:
       - checkout
       - run: git submodule sync
@@ -22,6 +22,6 @@ workflows:
   build_and_test:
     jobs:
       - build_and_test:
-          dialect: c++17
+          dialect: c++20
       - build_and_test:
-          dialect: c++14
+          dialect: c++17
