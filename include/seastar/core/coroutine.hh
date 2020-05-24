@@ -57,6 +57,11 @@ public:
         void return_value(U&&... value) {
             _promise.set_value(std::forward<U>(value)...);
         }
+
+        void return_value(future<T...>&& fut) noexcept {
+            fut.forward_to(std::move(_promise));
+        }
+
         void unhandled_exception() noexcept {
             _promise.set_exception(std::current_exception());
         }
@@ -88,6 +93,11 @@ public:
         void return_void() noexcept {
             _promise.set_value();
         }
+
+        void return_value(future<>&& fut) noexcept {
+            fut.forward_to(std::move(_promise));
+        }
+
         void unhandled_exception() noexcept {
             _promise.set_exception(std::current_exception());
         }

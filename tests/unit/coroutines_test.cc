@@ -74,6 +74,27 @@ SEASTAR_TEST_CASE(test_simple_coroutines) {
     BOOST_REQUIRE_EXCEPTION((void)co_await failing_coroutine(), int, [] (auto v) { return v == 42; });
 }
 
+
+future<> forwarding_return_coroutine_1(bool& x) {
+    co_return later().then([&x] {
+        x = true;
+    });
+}
+
+future<int> forwarding_return_coroutine_2() {
+    co_return later().then([] {
+        return 3;
+    });
+}
+
+SEASTAR_TEST_CASE(test_forwarding_return) {
+    bool x = false;
+    co_await forwarding_return_coroutine_1(x);
+    BOOST_REQUIRE(x);
+    auto y = co_await forwarding_return_coroutine_2();
+    BOOST_REQUIRE_EQUAL(y, 3);
+}
+
 SEASTAR_TEST_CASE(test_abandond_coroutine) {
     compat::optional<future<int>> f;
     {
