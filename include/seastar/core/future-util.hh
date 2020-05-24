@@ -1254,7 +1254,7 @@ struct tuple_to_future<std::tuple<Elements...>> {
         auto create_future = [] (auto&&... args) {
             return make_ready_future<Elements...>(std::move(args)...);
         };
-        return apply(create_future, std::move(t));
+        return std::apply(create_future, std::move(t));
     }
 
     static auto make_failed(std::exception_ptr excp) noexcept {

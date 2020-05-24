@@ -303,7 +303,7 @@ public:
                             boost::make_counting_iterator<unsigned>(_instances.size()),
             [this, func, args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) mutable {
                 return smp::submit_to(c, [this, func, args] () mutable {
-                    return apply([this, func] (Args&&... args) mutable {
+                    return std::apply([this, func] (Args&&... args) mutable {
                         auto inst = _instances[this_shard_id()].service;
                         if (inst) {
                             return ((*inst).*func)(std::forward<Args>(args)...);
@@ -538,7 +538,7 @@ sharded<Service>::start(Args&&... args) {
     return internal::sharded_parallel_for_each(_instances.size(),
         [this, args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) mutable {
             return smp::submit_to(c, [this, args] () mutable {
-                _instances[this_shard_id()].service = apply([this] (Args... args) {
+                _instances[this_shard_id()].service = std::apply([this] (Args... args) {
                     return create_local_service(internal::unwrap_sharded_arg(std::forward<Args>(args))...);
                 }, args);
             });
@@ -561,7 +561,7 @@ sharded<Service>::start_single(Args&&... args) {
     assert(_instances.empty());
     _instances.resize(1);
     return smp::submit_to(0, [this, args = std::make_tuple(std::forward<Args>(args)...)] () mutable {
-        _instances[0].service = apply([this] (Args... args) {
+        _instances[0].service = std::apply([this] (Args... args) {
             return create_local_service(internal::unwrap_sharded_arg(std::forward<Args>(args))...);
         }, args);
     }).then_wrapped([this] (future<> f) {

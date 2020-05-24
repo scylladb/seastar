@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include <seastar/core/apply.hh>
 #include <seastar/core/future.hh>
 #include <utility>
 #include <memory>
@@ -151,7 +150,7 @@ do_with_impl(T1&& rv1, T2&& rv2, T3_or_F&& rv3, More&&... more) {
     auto&& just_values = cherry_pick_tuple(idx(), std::move(all));
     auto&& just_func = std::move(std::get<nr>(std::move(all)));
     using value_tuple = std::remove_reference_t<decltype(just_values)>;
-    using ret_type = decltype(apply(just_func, just_values));
+    using ret_type = decltype(std::apply(just_func, just_values));
     auto task = std::make_unique<internal::do_with_state<value_tuple, ret_type>>(std::move(just_values));
     auto fut = apply(just_func, task->data());
     if (fut.available()) {

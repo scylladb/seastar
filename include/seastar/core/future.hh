@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include <seastar/core/apply.hh>
 #include <seastar/core/task.hh>
 #include <seastar/core/preempt.hh>
 #include <seastar/core/thread_impl.hh>
@@ -1320,7 +1319,7 @@ private:
                 } else {
                     try {
                         futurator::satisfy_with_result_of(std::move(pr), [&func, &state] {
-                            return ::seastar::apply(std::forward<Func>(func), std::move(state).get_value());
+                            return std::apply(std::forward<Func>(func), std::move(state).get_value());
                         });
                     } catch (...) {
                         pr.set_to_current_exception();
@@ -1733,7 +1732,7 @@ template<typename T>
 template<typename Func, typename... FuncArgs>
 typename futurize<T>::type futurize<T>::apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
     try {
-        return convert(::seastar::apply(std::forward<Func>(func), std::move(args)));
+        return convert(std::apply(std::forward<Func>(func), std::move(args)));
     } catch (...) {
         return current_exception_as_future<T>();
     }
@@ -1765,7 +1764,7 @@ typename futurize<T>::type futurize<T>::apply(Func&& func, FuncArgs&&... args) n
 template<typename Func, typename... FuncArgs>
 typename futurize<void>::type futurize<void>::apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
     try {
-        ::seastar::apply(std::forward<Func>(func), std::move(args));
+        std::apply(std::forward<Func>(func), std::move(args));
         return make_ready_future<>();
     } catch (...) {
         return current_exception_as_future<>();
@@ -1798,7 +1797,7 @@ template<typename... Args>
 template<typename Func, typename... FuncArgs>
 typename futurize<future<Args...>>::type futurize<future<Args...>>::apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept {
     try {
-        return ::seastar::apply(std::forward<Func>(func), std::move(args));
+        return std::apply(std::forward<Func>(func), std::move(args));
     } catch (...) {
         return current_exception_as_future<Args...>();
     }

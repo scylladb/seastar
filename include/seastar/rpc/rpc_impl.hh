@@ -21,7 +21,6 @@
 #pragma once
 
 #include <seastar/core/function_traits.hh>
-#include <seastar/core/apply.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/future-util.hh>
@@ -242,7 +241,7 @@ struct marshall_one {
             auto do_do_marshall = [&serializer, &out] (const auto&... args) {
                 do_marshall(serializer, out, args...);
             };
-            apply(do_do_marshall, arg);
+            std::apply(do_do_marshall, arg);
         }
     };
 };
@@ -501,7 +500,7 @@ inline future<> reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, shar
     if (!client->error()) {
         snd_buf data;
         try {
-            data = apply(marshall<Serializer, const RetTypes&...>,
+            data = std::apply(marshall<Serializer, const RetTypes&...>,
                     std::tuple_cat(std::make_tuple(std::ref(client->template serializer<Serializer>()), 12), std::move(ret.get())));
         } catch (std::exception& ex) {
             uint32_t len = std::strlen(ex.what());
@@ -800,7 +799,7 @@ future<compat::optional<std::tuple<In...>>> source_impl<Serializer, In...>::oper
     auto process_one_buffer = [this] {
         foreign_ptr<std::unique_ptr<rcv_buf>> buf = std::move(this->_bufs.front());
         this->_bufs.pop_front();
-        return seastar::apply([] (In&&... args) {
+        return std::apply([] (In&&... args) {
             auto ret = compat::make_optional(std::make_tuple(std::move(args)...));
             return make_ready_future<compat::optional<std::tuple<In...>>>(std::move(ret));
         }, unmarshall<Serializer, In...>(*this->_con->get(), make_shard_local_buffer_copy(std::move(buf))));

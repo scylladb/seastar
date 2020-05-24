@@ -60,7 +60,6 @@
 #include <seastar/util/eclipse.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/posix.hh>
-#include <seastar/core/apply.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/net/api.hh>
 #include <seastar/core/temporary_buffer.hh>
