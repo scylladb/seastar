@@ -3761,7 +3761,17 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
         mlock = configuration["lock-memory"].as<bool>();
     }
     if (mlock) {
-        auto r = mlockall(MCL_CURRENT | MCL_FUTURE);
+        auto extra_flags = 0;
+#ifdef MCL_ONFAULT
+        // Linux will serialize faulting in anonymous memory, and also
+        // serialize marking them as locked. This can take many minutes on
+        // terabyte class machines, so fault them in the future to spread
+        // out the cost. This isn't good since we'll see contention if
+        // multiple shards fault in memory at once, but if that work can be
+        // in parallel to regular reactor work on other shards.
+        extra_flags |= MCL_ONFAULT; // Linux 4.4+
+#endif
+        auto r = mlockall(MCL_CURRENT | MCL_FUTURE | extra_flags);
         if (r) {
             // Don't hard fail for now, it's hard to get the configuration right
             fmt::print("warning: failed to mlockall: {}\n", strerror(errno));
