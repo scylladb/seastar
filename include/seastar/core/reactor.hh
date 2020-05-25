@@ -165,8 +165,8 @@ public:
         do_register();
     }
     ~poller();
-    poller(poller&& x);
-    poller& operator=(poller&& x);
+    poller(poller&& x) noexcept;
+    poller& operator=(poller&& x) noexcept;
     void do_register() noexcept;
     friend class reactor;
 };
