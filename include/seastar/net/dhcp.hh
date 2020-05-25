@@ -37,7 +37,7 @@ namespace net {
 class dhcp {
 public:
     dhcp(ipv4 &);
-    dhcp(dhcp &&);
+    dhcp(dhcp &&) noexcept;
     ~dhcp();
 
     static const steady_clock_type::duration default_timeout;

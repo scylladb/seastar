@@ -453,9 +453,7 @@ net::dhcp::dhcp(ipv4 & ip)
 : _impl(std::make_unique<impl>(ip))
 {}
 
-net::dhcp::dhcp(dhcp && v)
-: _impl(std::move(v._impl))
-{}
+net::dhcp::dhcp(dhcp && v) noexcept = default;
 
 net::dhcp::~dhcp()
 {}
