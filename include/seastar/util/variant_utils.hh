@@ -105,16 +105,10 @@ template <typename Variant, typename... Args>
 inline auto visit(Variant&& variant, Args&&... args)
 {
     static_assert(sizeof...(Args) > 0, "At least one lambda must be provided for visitation");
-#ifdef SEASTAR_USE_STD_OPTIONAL_VARIANT_STRINGVIEW
     return std::visit(
-#else
-    return boost::apply_visitor(
-#endif
         make_visitor(std::forward<Args>(args)...),
         variant);
 }
-
-#ifdef SEASTAR_USE_STD_OPTIONAL_VARIANT_STRINGVIEW
 
 namespace internal {
 template<typename... Args>
@@ -139,15 +133,6 @@ template<typename... Args>
 internal::castable_variant<Args...> variant_cast(const compat::variant<Args...>& var) {
     return {var};
 }
-
-#else
-
-template<typename Variant>
-Variant variant_cast(Variant&& var) {
-    return std::forward<Variant>(var);
-}
-
-#endif
 
 /// @}
 

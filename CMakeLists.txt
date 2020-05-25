@@ -223,10 +223,6 @@ option (Seastar_NUMA
   "Enable NUMA support."
   ON)
 
-option (Seastar_STD_OPTIONAL_VARIANT_STRINGVIEW
-  "Use the non-experimental versions of `optional`, `variant`, and `string_view`. Requires C++17."
-  OFF)
-
 option (Seastar_TESTING
   "Enable testing targets."
   ON)
@@ -781,11 +777,6 @@ endif ()
 if (Seastar_ALLOC_FAILURE_INJECTION)
   target_compile_definitions (seastar
     PUBLIC SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION)
-endif ()
-
-if (Seastar_STD_OPTIONAL_VARIANT_STRINGVIEW)
-  target_compile_definitions (seastar
-    PUBLIC SEASTAR_USE_STD_OPTIONAL_VARIANT_STRINGVIEW)
 endif ()
 
 if (Sanitizers_FIBER_SUPPORT)
