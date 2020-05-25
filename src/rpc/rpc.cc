@@ -51,6 +51,9 @@ namespace rpc {
       }
   }
 
+  snd_buf::snd_buf(snd_buf&&) noexcept = default;
+  snd_buf& snd_buf::operator=(snd_buf&&) noexcept = default;
+
   temporary_buffer<char>& snd_buf::front() {
       auto* one = std::get_if<temporary_buffer<char>>(&bufs);
       if (one) {
