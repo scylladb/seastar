@@ -1883,8 +1883,8 @@ bool tcp<InetTraits>::tcb::merge_out_of_order() {
                 seg_len -= trim;
             }
             _rcv.next += seg_len;
-            _rcv.data.push_back(std::move(p));
             _rcv.data_size += p.len();
+            _rcv.data.push_back(std::move(p));
             // Since c++11, erase() always returns the value of the following element
             it = _rcv.out_of_order.map.erase(it);
             merged = true;
