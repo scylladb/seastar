@@ -228,7 +228,7 @@ future<> native_network_stack::run_dhcp(bool is_renew, const dhcp::lease& res) {
     return smp::invoke_on_all([f] {
         auto & ns = static_cast<native_network_stack&>(engine().net());
         ns.set_ipv4_packet_filter(f);
-    }).then([this, d = std::move(d), is_renew, res]() mutable {
+    }).then([this, d = std::move(d), is_renew, res = res]() mutable {
         net::dhcp::result_type fut = is_renew ? d.renew(res) : d.discover();
         return fut.then([this, is_renew](std::optional<dhcp::lease> lease) {
             return smp::invoke_on_all([] {
