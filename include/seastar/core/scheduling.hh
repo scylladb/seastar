@@ -241,7 +241,7 @@ T& scheduling_group_get_specific(scheduling_group sg, scheduling_group_key key);
 class scheduling_group {
     unsigned _id;
 private:
-    explicit scheduling_group(unsigned id) : _id(id) {}
+    explicit scheduling_group(unsigned id) noexcept : _id(id) {}
 public:
     /// Creates a `scheduling_group` object denoting the default group
     constexpr scheduling_group() noexcept : _id(0) {} // must be constexpr for current_scheduling_group_holder
