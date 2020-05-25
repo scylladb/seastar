@@ -176,12 +176,13 @@ struct uninitialized_wrapper_base;
 template <typename T>
 struct uninitialized_wrapper_base<T, false> {
     union any {
-        any() {}
+        any() noexcept {}
         ~any() {}
         T value;
     } _v;
 
 public:
+    uninitialized_wrapper_base() noexcept = default;
     template<typename... U>
     void uninitialized_set(U&&... vs) {
         new (&_v.value) T(std::forward<U>(vs)...);
@@ -195,6 +196,7 @@ public:
 };
 
 template <typename T> struct uninitialized_wrapper_base<T, true> : private T {
+    uninitialized_wrapper_base() noexcept = default;
     template<typename... U>
     void uninitialized_set(U&&... vs) {
         new (this) T(std::forward<U>(vs)...);
@@ -358,7 +360,7 @@ struct future_state_base {
         std::exception_ptr ex;
     } _u;
 
-    future_state_base() noexcept { }
+    future_state_base() noexcept = default;
     future_state_base(state st) noexcept : _u(st) { }
     future_state_base(std::exception_ptr&& ex) noexcept : _u(std::move(ex)) { }
     future_state_base(future_state_base&& x) noexcept : _u(std::move(x._u)) { }
@@ -419,7 +421,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
                   "Types must be no-throw move constructible");
     static_assert(std::is_nothrow_destructible<std::tuple<T...>>::value,
                   "Types must be no-throw destructible");
-    future_state() noexcept {}
+    future_state() noexcept = default;
     void move_it(future_state&& x) noexcept {
         if (has_trivial_move_and_destroy) {
 #pragma GCC diagnostic push
