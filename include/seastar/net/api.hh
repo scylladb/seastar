@@ -110,8 +110,8 @@ public:
     udp_channel(std::unique_ptr<udp_channel_impl>);
     ~udp_channel();
 
-    udp_channel(udp_channel&&);
-    udp_channel& operator=(udp_channel&&);
+    udp_channel(udp_channel&&) noexcept;
+    udp_channel& operator=(udp_channel&&) noexcept;
 
     socket_address local_address() const;
 

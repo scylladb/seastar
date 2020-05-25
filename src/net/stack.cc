@@ -33,8 +33,8 @@ net::udp_channel::udp_channel(std::unique_ptr<udp_channel_impl> impl) : _impl(st
 net::udp_channel::~udp_channel()
 {}
 
-net::udp_channel::udp_channel(udp_channel&&) = default;
-net::udp_channel& net::udp_channel::operator=(udp_channel&&) = default;
+net::udp_channel::udp_channel(udp_channel&&) noexcept = default;
+net::udp_channel& net::udp_channel::operator=(udp_channel&&) noexcept = default;
 
 socket_address net::udp_channel::local_address() const {
     return _impl->local_address();
