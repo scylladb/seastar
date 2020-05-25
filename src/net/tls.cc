@@ -95,7 +95,7 @@ struct file_result {
 };
 
 static future<file_result> read_fully(const sstring& name, const sstring& what) {
-    return open_file_dma(name, open_flags::ro).then([name](file f) mutable {
+    return open_file_dma(name, open_flags::ro).then([name = name](file f) mutable {
         return do_with(std::move(f), [name = std::move(name)](file& f) mutable {
             return f.stat().then([&f, name = std::move(name)](struct stat s) mutable {
                 return f.dma_read_bulk<char>(0, s.st_size).then([s, name = std::move(name)](temporary_buffer<char> buf) mutable {
@@ -107,7 +107,7 @@ static future<file_result> read_fully(const sstring& name, const sstring& what) 
                 return f.close();
             });
         });
-    }).handle_exception([name, what](std::exception_ptr ep) -> future<file_result> {
+    }).handle_exception([name = name, what = what](std::exception_ptr ep) -> future<file_result> {
        try {
            std::rethrow_exception(std::move(ep));
        } catch (...) {
@@ -409,7 +409,7 @@ future<> tls::abstract_credentials::set_x509_crl_file(
 
 future<> tls::abstract_credentials::set_x509_key_file(
         const sstring& cf, const sstring& kf, x509_crt_format fmt) {
-    return read_fully(cf, "certificate file").then([this, fmt, kf](temporary_buffer<char> buf) {
+    return read_fully(cf, "certificate file").then([this, fmt, kf = kf](temporary_buffer<char> buf) {
         return read_fully(kf, "key file").then([this, fmt, buf = std::move(buf)](temporary_buffer<char> buf2) {
                     set_x509_key(blob(buf.get(), buf.size()), blob(buf2.get(), buf2.size()), fmt);
                 });
@@ -419,7 +419,7 @@ future<> tls::abstract_credentials::set_x509_key_file(
 future<> tls::abstract_credentials::set_simple_pkcs12_file(
         const sstring& pkcs12file, x509_crt_format fmt,
         const sstring& password) {
-    return read_fully(pkcs12file, "pkcs12 file").then([this, fmt, password](temporary_buffer<char> buf) {
+    return read_fully(pkcs12file, "pkcs12 file").then([this, fmt, password = password](temporary_buffer<char> buf) {
         set_simple_pkcs12(blob(buf.get(), buf.size()), fmt, password);
     });
 }
@@ -515,7 +515,7 @@ future<> tls::credentials_builder::set_x509_crl_file(const sstring& crlfile, x50
 }
 
 future<> tls::credentials_builder::set_x509_key_file(const sstring& cf, const sstring& kf, x509_crt_format fmt) {
-    return read_fully(cf, "certificate file").then([this, fmt, kf](file_result cf) {
+    return read_fully(cf, "certificate file").then([this, fmt, kf = kf](file_result cf) {
         return read_fully(kf, "key file").then([this, fmt, cf = std::move(cf)](file_result kf) {
             _blobs.emplace(x509_key_key, x509_key{ to_buffer(cf.buf), to_buffer(kf.buf), fmt, std::move(cf.file), std::move(kf.file) });
         });
@@ -523,7 +523,7 @@ future<> tls::credentials_builder::set_x509_key_file(const sstring& cf, const ss
 }
 
 future<> tls::credentials_builder::set_simple_pkcs12_file(const sstring& pkcs12file, x509_crt_format fmt, const sstring& password) {
-    return read_fully(pkcs12file, "pkcs12 file").then([this, fmt, password](file_result f) {
+    return read_fully(pkcs12file, "pkcs12 file").then([this, fmt, password = password](file_result f) {
         _blobs.emplace(pkcs12_key, pkcs12_simple{ to_buffer(f.buf), fmt, password, std::move(f.file) });
     });
 }
@@ -687,7 +687,7 @@ public:
             std::vector<future<>> futures;
             auto maybe_reload = [&](const sstring& filename, buffer_type& dst) {
                 if (_files.count(filename)) {
-                    futures.emplace_back(read_fully(filename, "reloading").then([this, &dst, filename](temporary_buffer<char> buf) {
+                    futures.emplace_back(read_fully(filename, "reloading").then([this, &dst, filename = filename](temporary_buffer<char> buf) {
                         dst = to_buffer(buf);
                         return maybe_add_watch(filename);
                     }));
@@ -724,7 +724,7 @@ public:
             if (filename.empty()) {
                 return make_ready_future<>();
             }
-            return _fsn.create_watch(filename, fsnotifier::flags::modify).then([this, filename](fsnotifier::watch w) {
+            return _fsn.create_watch(filename, fsnotifier::flags::modify).then([this, filename = filename](fsnotifier::watch w) {
                 auto t = w.token();
                 _watches.emplace(t, std::make_pair(std::move(w), filename));
             }).finally([me = shared_from_this()] {});
