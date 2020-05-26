@@ -592,3 +592,31 @@ SEASTAR_TEST_CASE(test_open_error_with_file) {
         BOOST_REQUIRE(!got_exception);
     });
 }
+
+SEASTAR_TEST_CASE(test_with_file_close_on_failure) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        auto oflags = open_flags::rw | open_flags::create | open_flags::truncate;
+        sstring filename = (t.get_path() / "testfile.tmp").native();
+
+        auto orig_umask = umask(0);
+
+        // error-free case
+        auto ref = with_file_close_on_failure(open_file_dma(filename, oflags), [] (file& f) {
+            return f;
+        }).get0();
+        auto st = ref.stat().get0();
+        ref.close().get();
+        BOOST_CHECK_EQUAL(st.st_mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
+
+        // close-on-error case
+        BOOST_REQUIRE_THROW(with_file_close_on_failure(open_file_dma(filename, oflags), [&ref] (file& f) {
+            ref = f;
+            throw std::runtime_error("expected exception");
+        }).get(), std::runtime_error);
+
+        // verify that file was auto-closed on error
+        BOOST_REQUIRE_THROW(ref.stat().get(), std::system_error);
+
+        umask(orig_umask);
+    });
+}

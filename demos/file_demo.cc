@@ -30,6 +30,7 @@
 
 #include <seastar/core/aligned_buffer.hh>
 #include <seastar/core/file.hh>
+#include <seastar/core/fstream.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/temporary_buffer.hh>
@@ -102,9 +103,72 @@ future<> demo_with_file() {
     });
 }
 
+future<> demo_with_file_close_on_failure() {
+    fmt::print("\nDemonstrating with_file_close_on_failure():\n");
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        auto rnd = std::mt19937(std::random_device()());
+        auto dist = std::uniform_int_distribution<char>(0, std::numeric_limits<char>::max());
+        auto wbuf = temporary_buffer<char>::aligned(aligned_size, aligned_size);
+        sstring meta_filename = (t.get_path() / "meta_file").native();
+        sstring data_filename = (t.get_path() / "data_file").native();
+
+        // with_file_close_on_failure will close the opened file only if
+        // `make_file_output_stream` returns an error. Otherwise, in the error-free path,
+        // the opened file is moved to `file_output_stream` that in-turn closes it
+        // when the stream is closed.
+        auto make_output_stream = [] (const sstring filename) {
+            return with_file_close_on_failure(open_file_dma(std::move(filename), open_flags::rw | open_flags::create), [] (file f) {
+                return make_file_output_stream(std::move(f), aligned_size);
+            });
+        };
+
+        // writes the buffer one byte at a time, to demonstrate output stream
+        auto write_to_stream = [] (output_stream<char>& o, const temporary_buffer<char>& wbuf) {
+            return seastar::do_for_each(wbuf, [&o] (char c) {
+                return o.write(&c, 1);
+            }).finally([&o] {
+                return o.close();
+            });
+        };
+
+        // print the data_filename into the write buffer
+        std::fill(wbuf.get_write(), wbuf.get_write() + aligned_size, 0);
+        std::copy(data_filename.cbegin(), data_filename.cend(), wbuf.get_write());
+
+        // and write it to `meta_filename`
+        fmt::print("  writing \"{}\" into {}\n", data_filename, meta_filename);
+
+        // with_file_close_on_failure will close the opened file only if
+        // `make_file_output_stream` returns an error. Otherwise, in the error-free path,
+        // the opened file is moved to `file_output_stream` that in-turn closes it
+        // when the stream is closed.
+        output_stream<char> o = make_output_stream(meta_filename).get0();
+
+        write_to_stream(o, wbuf).get();
+
+        // now write some random data into data_filename
+        fmt::print("  writing random data into {}\n", data_filename);
+        std::generate(wbuf.get_write(), wbuf.get_write() + aligned_size, [&dist, &rnd] { return dist(rnd); });
+
+        o = make_output_stream(data_filename).get0();
+
+        write_to_stream(o, wbuf).get();
+
+        // verify the data via meta_filename
+        fmt::print("  verifying data...\n");
+        auto rbuf = temporary_buffer<char>::aligned(aligned_size, aligned_size);
+
+        with_file(open_data_file(meta_filename, rbuf), [&rbuf, &wbuf] (file& f) {
+            return verify_data_file(f, rbuf, wbuf);
+        }).get();
+    });
+}
+
 int main(int ac, char** av) {
     app_template app;
     return app.run(ac, av, [] {
-        return demo_with_file();
+        return demo_with_file().then([] {
+            return demo_with_file_close_on_failure();
+        });
     });
 }
