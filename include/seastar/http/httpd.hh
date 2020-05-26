@@ -392,11 +392,11 @@ public:
     }
 
     future<> listen(socket_address addr) {
-        return _server_dist->invoke_on_all(&http_server::listen, addr);
+        return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address)>(&http_server::listen, addr);
     }
 
     future<> listen(socket_address addr, listen_options lo) {
-        return _server_dist->invoke_on_all(&http_server::listen, addr, lo);
+        return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address, listen_options)>(&http_server::listen, addr, lo);
     }
 
     distributed<http_server>& server() {
