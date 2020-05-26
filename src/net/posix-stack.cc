@@ -49,6 +49,23 @@ struct hash<seastar::net::posix_ap_server_socket_impl::protocol_and_socket_addre
 
 }
 
+
+namespace {
+
+// reinterpret_cast<foo*>() on a pointer that the compiler knows points to an
+// object with a different type is disliked by the compiler as it violates
+// strict aliasing rules. This safe version does the same thing but keeps the
+// compiler happy.
+template <typename T>
+T
+copy_reinterpret_cast(const void* ptr) {
+    T tmp;
+    std::memcpy(&tmp, ptr, sizeof(T));
+    return tmp;
+}
+
+}
+
 namespace seastar {
 
 namespace net {
@@ -794,10 +811,10 @@ posix_udp_channel::receive() {
         socket_address dst;
         for (auto* cmsg = CMSG_FIRSTHDR(&_recv._hdr); cmsg != nullptr; cmsg = CMSG_NXTHDR(&_recv._hdr, cmsg)) {
             if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_PKTINFO) {
-                dst = ipv4_addr(reinterpret_cast<const in_pktinfo*>(CMSG_DATA(cmsg))->ipi_addr, _address.port());
+                dst = ipv4_addr(copy_reinterpret_cast<in_pktinfo>(CMSG_DATA(cmsg)).ipi_addr, _address.port());
                 break;
             } else if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_PKTINFO) {
-                dst = ipv6_addr(reinterpret_cast<const in6_pktinfo*>(CMSG_DATA(cmsg))->ipi6_addr, _address.port());
+                dst = ipv6_addr(copy_reinterpret_cast<in6_pktinfo>(CMSG_DATA(cmsg)).ipi6_addr, _address.port());
                 break;
             }
         }
