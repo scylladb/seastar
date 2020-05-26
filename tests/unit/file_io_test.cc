@@ -539,3 +539,56 @@ SEASTAR_TEST_CASE(test_underlying_file) {
         f.close().get();
     });
 }
+
+SEASTAR_TEST_CASE(test_file_stat_method_with_file) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        auto oflags = open_flags::rw | open_flags::create | open_flags::truncate;
+        sstring filename = (t.get_path() / "testfile.tmp").native();
+        file ref;
+
+        auto orig_umask = umask(0);
+
+        auto st = with_file(open_file_dma(filename, oflags), [&ref] (file& f) {
+            // make a copy of f to verify f is auto-closed when `with_file` returns.
+            ref = f;
+            return f.stat();
+        }).get0();
+        BOOST_CHECK_EQUAL(st.st_mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
+
+        // verify that the file was auto-closed
+        BOOST_REQUIRE_THROW(ref.stat().get(), std::system_error);
+
+        umask(orig_umask);
+    });
+}
+
+SEASTAR_TEST_CASE(test_open_error_with_file) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        auto open_file = [&t] (bool do_open) {
+            auto oflags = open_flags::ro;
+            sstring filename = (t.get_path() / "testfile.tmp").native();
+            if (do_open) {
+                return open_file_dma(filename, oflags);
+            } else {
+                throw std::runtime_error("expected exception");
+            }
+        };
+        bool got_exception = false;
+
+        BOOST_REQUIRE_NO_THROW(with_file(open_file(true), [] (file& f) {
+                BOOST_REQUIRE(false);
+            }).handle_exception_type([&got_exception] (const std::system_error& e) {
+                got_exception = true;
+                BOOST_REQUIRE(e.code().value() == ENOENT);
+            }).get());
+        BOOST_REQUIRE(got_exception);
+
+        got_exception = false;
+        BOOST_REQUIRE_THROW(with_file(open_file(false), [] (file& f) {
+                BOOST_REQUIRE(false);
+            }).handle_exception_type([&got_exception] (const std::runtime_error& e) {
+                got_exception = true;
+            }).get(), std::runtime_error);
+        BOOST_REQUIRE(!got_exception);
+    });
+}

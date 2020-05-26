@@ -426,6 +426,29 @@ private:
     friend class file_impl;
 };
 
+/// \brief Helper for ensuring a file is closed after \c func is called.
+///
+/// The file provided by the \c file_fut future is passed to \c func.
+///
+/// \param file_fut A future that produces a file
+/// \param func A function that uses a file
+/// \returns the future returned by \c func, or an exceptional future if either \c file_fut or closing the file failed.
+template <typename Func>
+SEASTAR_CONCEPT( requires std::invocable<Func, file&> && std::is_nothrow_move_constructible_v<Func> )
+auto with_file(future<file> file_fut, Func func) noexcept {
+    static_assert(std::is_nothrow_move_constructible_v<Func>, "Func's move constructor must not throw");
+    return file_fut.then([func = std::move(func)] (file f) mutable {
+        return do_with(std::move(f), [func = std::move(func)] (file& f) mutable {
+            return futurize_invoke(func, f).finally([&f] {
+                return f.close();
+            });
+        });
+    });
+}
+
+/// \example file_demo.cc
+/// A program demonstrating the use of \ref seastar::with_file
+
 /// \brief A shard-transportable handle to a file
 ///
 /// If you need to access a file (for reads only) across multiple shards,
