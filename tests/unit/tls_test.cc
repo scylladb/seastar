@@ -360,7 +360,7 @@ public:
                     _ex = ep;
                     return make_ready_future<>();
                 });
-            });
+            }).handle_exception_type([] (const gate_closed_exception&) {/* ignore */});
             return make_ready_future<>();
         });
     }
