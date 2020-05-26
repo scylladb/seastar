@@ -569,10 +569,12 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
             auto err = format("request size {:d} large than memory limit {:d}", memory_consumed, client->max_request_size());
             client->get_logger()(client->peer_address(), err);
             // FIXME: future is discarded
+          try {
             (void)with_gate(client->get_server().reply_gate(), [client, timeout, msg_id, err = std::move(err)] {
                 return reply<Serializer>(wait_style(), futurize<Ret>::make_exception_future(std::runtime_error(err.c_str())), msg_id, client, timeout);
             });
             return make_ready_future();
+          } catch (gate_closed_exception&) {/* ignore */}
         }
         // note: apply is executed asynchronously with regards to networking so we cannot chain futures here by doing "return apply()"
         auto f = client->wait_for_resources(memory_consumed, timeout).then([client, timeout, msg_id, data = std::move(data), &func] (auto permit) mutable {
