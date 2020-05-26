@@ -462,12 +462,10 @@ SEASTAR_TEST_CASE(test_recursive_touch_directory_permissions) {
   });
 }
 
-SEASTAR_THREAD_TEST_CASE(test_file_stat_method) {
+SEASTAR_TEST_CASE(test_file_stat_method) {
+  return tmp_dir::do_with_thread([] (tmp_dir& t) {
     auto oflags = open_flags::rw | open_flags::create;
-    sstring filename = "testfile.tmp";
-    if (file_exists(filename).get0()) {
-        remove_file(filename).get();
-    }
+    sstring filename = (t.get_path() / "testfile.tmp").native();
 
     auto orig_umask = umask(0);
 
@@ -475,7 +473,7 @@ SEASTAR_THREAD_TEST_CASE(test_file_stat_method) {
     auto st = f.stat().get0();
     f.close().get();
     BOOST_CHECK_EQUAL(st.st_mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
-    remove_file(filename).get();
 
     umask(orig_umask);
+  });
 }
