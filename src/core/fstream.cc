@@ -433,7 +433,7 @@ public:
     }
 };
 
-namespace api_v2 {
+SEASTAR_INCLUDE_API_V2 namespace api_v2 {
 
 data_sink make_file_data_sink(file f, file_output_stream_options options) {
     return data_sink(std::make_unique<file_data_sink_impl>(std::move(f), options));
@@ -459,7 +459,8 @@ output_stream<char> make_file_output_stream(file f, file_output_stream_options o
 
 }
 
-namespace api_v3::and_newer {
+SEASTAR_INCLUDE_API_V3 namespace api_v3 {
+inline namespace and_newer {
 
 future<data_sink> make_file_data_sink(file f, file_output_stream_options options) noexcept {
     try {
@@ -491,6 +492,7 @@ future<output_stream<char>> make_file_output_stream(file f, file_output_stream_o
     });
 }
 
+}
 }
 
 /*

@@ -47,6 +47,3 @@ namespace seastar {
         }
     }
 }
-
-#undef SEASTAR_INCLUDE_API_V2
-#undef SEASTAR_INCLUDE_API_V3
