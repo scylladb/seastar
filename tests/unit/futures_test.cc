@@ -1260,7 +1260,7 @@ public:
     throw_on_move(int i = 0) noexcept {
         _i = i;
     }
-    throw_on_move(throw_on_move&) = delete;
+    throw_on_move(const throw_on_move&) = delete;
     throw_on_move(throw_on_move&&) {
         _i = -1;
         throw expected_exception();
