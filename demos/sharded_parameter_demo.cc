@@ -38,10 +38,9 @@ public:
 
 // Another service that we run on all shards, that depends on service_one.
 class service_two {
-    service_one& _s1;
     int _resource_allocation;
 public:
-    service_two(service_one& s1, int resource_allocation) : _s1(s1), _resource_allocation(resource_allocation) {}
+    service_two(service_one& s1, int resource_allocation) : _resource_allocation(resource_allocation) {}
     int get_resource_allocation() const { return _resource_allocation; }
 };
 
