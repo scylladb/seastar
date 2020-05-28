@@ -28,8 +28,6 @@ namespace seastar {
 /// \cond internal
 namespace internal {
 
-#if __cplusplus >= 201703L // C++17
-
 template<typename... Args>
 struct variant_visitor : Args... {
     variant_visitor(Args&&... a) : Args(std::move(a))... {}
@@ -37,32 +35,6 @@ struct variant_visitor : Args... {
 };
 
 template<typename... Args> variant_visitor(Args&&...) -> variant_visitor<Args...>;
-
-#else
-
-template <typename... Args>
-struct variant_visitor;
-
-template <typename FuncObj, typename... Args>
-struct variant_visitor<FuncObj, Args...> : FuncObj, variant_visitor<Args...>
-{
-    variant_visitor(FuncObj&& func_obj, Args&&... args)
-        : FuncObj(std::move(func_obj))
-        , variant_visitor<Args...>(std::move(args)...) {}
-
-    using FuncObj::operator();
-    using variant_visitor<Args...>::operator();
-};
-
-template <typename FuncObj>
-struct variant_visitor<FuncObj> : FuncObj
-{
-    variant_visitor(FuncObj&& func_obj) : FuncObj(std::forward<FuncObj>(func_obj)) {}
-
-    using FuncObj::operator();
-};
-
-#endif
 
 }
 /// \endcond
