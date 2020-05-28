@@ -955,7 +955,7 @@ file::dma_read_exactly_impl(uint64_t pos, size_t len, const io_priority_class& p
             throw eof_error();
         }
 
-        return SEASTAR_COPY_ELISION(buf);
+        return buf;
     });
 }
 
@@ -966,7 +966,7 @@ file::dma_read_impl(uint64_t pos, size_t len, const io_priority_class& pc) noexc
             buf.trim(len);
         }
 
-        return SEASTAR_COPY_ELISION(buf);
+        return buf;
     });
 }
 
