@@ -39,7 +39,7 @@ namespace seastar {
 using namespace std::chrono_literals;
 using namespace internal;
 using namespace internal::linux_abi;
-namespace fs = seastar::compat::filesystem;
+namespace fs = std::filesystem;
 
 class pollable_fd_state_completion : public kernel_completion {
     promise<> _pr;

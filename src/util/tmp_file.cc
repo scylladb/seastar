@@ -31,7 +31,7 @@
 
 namespace seastar {
 
-namespace fs = compat::filesystem;
+namespace fs = std::filesystem;
 
 static constexpr const char* default_tmp_name_template = "XXXXXX.tmp";
 
@@ -153,7 +153,7 @@ future<> tmp_dir::remove() noexcept {
     return recursive_remove_directory(std::move(_path));
 }
 
-future<tmp_dir> make_tmp_dir(compat::filesystem::path path_template, file_permissions create_permissions) noexcept {
+future<tmp_dir> make_tmp_dir(std::filesystem::path path_template, file_permissions create_permissions) noexcept {
     return do_with(tmp_dir(), [path_template = std::move(path_template), create_permissions] (tmp_dir& t) mutable {
         return t.create(std::move(path_template), create_permissions).then([&t] () mutable {
             return make_ready_future<tmp_dir>(std::move(t));

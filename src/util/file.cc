@@ -30,7 +30,7 @@
 
 namespace seastar {
 
-namespace fs = compat::filesystem;
+namespace fs = std::filesystem;
 
 future<> make_directory(sstring name, file_permissions permissions) noexcept {
     return engine().make_directory(std::move(name), permissions);

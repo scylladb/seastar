@@ -96,7 +96,7 @@ void validate(boost::any& v,
 
 namespace cgroup {
 
-namespace fs = seastar::compat::filesystem;
+namespace fs = std::filesystem;
 
 optional<cpuset> cpu_set() {
     auto cpuset = read_setting_V1V2_as<std::string>(

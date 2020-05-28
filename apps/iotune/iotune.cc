@@ -54,7 +54,7 @@
 
 using namespace seastar;
 using namespace std::chrono_literals;
-namespace fs = seastar::compat::filesystem;
+namespace fs = std::filesystem;
 
 logger iotune_logger("iotune");
 

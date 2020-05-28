@@ -524,7 +524,7 @@ void task_histogram_add_task(const task& t) {
 }
 
 using namespace std::chrono_literals;
-namespace fs = seastar::compat::filesystem;
+namespace fs = std::filesystem;
 
 using namespace net;
 

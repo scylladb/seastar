@@ -41,7 +41,7 @@
 #include <boost/range/irange.hpp>
 
 using namespace seastar;
-namespace fs = compat::filesystem;
+namespace fs = std::filesystem;
 
 struct writer {
     output_stream<char> out;

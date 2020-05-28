@@ -40,6 +40,6 @@ namespace seastar {
 /// The function bails out on first error. In that case, some files and/or sub-directories
 /// (and their contents) may be left behind at the level in which the error was detected.
 ///
-future<> recursive_remove_directory(compat::filesystem::path path) noexcept;
+future<> recursive_remove_directory(std::filesystem::path path) noexcept;
 
 } // namespace seastar

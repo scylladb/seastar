@@ -33,13 +33,13 @@ namespace seastar {
 const char* default_tmpdir();
 
 class tmp_file {
-    compat::filesystem::path _path;
+    std::filesystem::path _path;
     file _file;
     bool _is_open = false;
 
-    static_assert(std::is_nothrow_constructible<compat::filesystem::path>::value,
+    static_assert(std::is_nothrow_constructible<std::filesystem::path>::value,
         "filesystem::path's constructor must not throw");
-    static_assert(std::is_nothrow_move_constructible<compat::filesystem::path>::value,
+    static_assert(std::is_nothrow_move_constructible<std::filesystem::path>::value,
         "filesystem::path's move constructor must not throw");
 public:
     tmp_file() noexcept = default;
@@ -50,14 +50,14 @@ public:
 
     ~tmp_file();
 
-    future<> open(compat::filesystem::path path_template = default_tmpdir(),
+    future<> open(std::filesystem::path path_template = default_tmpdir(),
             open_flags oflags = open_flags::rw,
             file_open_options options = {}) noexcept;
     future<> close() noexcept;
     future<> remove() noexcept;
 
     template <typename Func>
-    static future<> do_with(compat::filesystem::path path_template, Func&& func,
+    static future<> do_with(std::filesystem::path path_template, Func&& func,
             open_flags oflags = open_flags::rw,
             file_open_options options = {}) noexcept {
         static_assert(std::is_nothrow_move_constructible<Func>::value,
@@ -86,7 +86,7 @@ public:
         return _is_open;
     }
 
-    const compat::filesystem::path& get_path() const {
+    const std::filesystem::path& get_path() const {
         return _path;
     }
 
@@ -113,11 +113,11 @@ public:
 ///
 ///    The parent directory must exist and be writable to the current process.
 ///
-future<tmp_file> make_tmp_file(compat::filesystem::path path_template = default_tmpdir(),
+future<tmp_file> make_tmp_file(std::filesystem::path path_template = default_tmpdir(),
         open_flags oflags = open_flags::rw, file_open_options options = {}) noexcept;
 
 class tmp_dir {
-    compat::filesystem::path _path;
+    std::filesystem::path _path;
 
 public:
     tmp_dir() = default;
@@ -128,12 +128,12 @@ public:
 
     ~tmp_dir();
 
-    future<> create(compat::filesystem::path path_template = default_tmpdir(),
+    future<> create(std::filesystem::path path_template = default_tmpdir(),
             file_permissions create_permissions = file_permissions::default_dir_permissions) noexcept;
     future<> remove() noexcept;
 
     template <typename Func>
-    static future<> do_with(compat::filesystem::path path_template, Func&& func,
+    static future<> do_with(std::filesystem::path path_template, Func&& func,
             file_permissions create_permissions = file_permissions::default_dir_permissions) noexcept {
         static_assert(std::is_nothrow_move_constructible<Func>::value,
             "Func's move constructor must not throw");
@@ -165,7 +165,7 @@ public:
         return !_path.empty();
     }
 
-    const compat::filesystem::path& get_path() const {
+    const std::filesystem::path& get_path() const {
         return _path;
     }
 };
@@ -187,7 +187,7 @@ public:
 ///
 ///    The parent directory must exist and be writable to the current process.
 ///
-future<tmp_dir> make_tmp_dir(compat::filesystem::path path_template = default_tmpdir(),
+future<tmp_dir> make_tmp_dir(std::filesystem::path path_template = default_tmpdir(),
         file_permissions create_permissions = file_permissions::default_dir_permissions) noexcept;
 
 } // namespace seastar
