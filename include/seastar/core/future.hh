@@ -369,6 +369,8 @@ struct future_state_base {
     // We never need to destruct this polymorphicly, so we can make it
     // protected instead of virtual.
 protected:
+    struct current_exception_future_marker {};
+    future_state_base(current_exception_future_marker) noexcept;
     ~future_state_base() noexcept = default;
 
 public:
@@ -399,11 +401,6 @@ public:
         assert(_u.st >= state::exception_min);
         return _u.ex;
     }
-
-    static future_state_base current_exception() noexcept;
-
-    template <typename... U>
-    friend future<U...> current_exception_as_future() noexcept;
     template <typename... U>
     friend struct future_state;
 };
@@ -466,7 +463,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
       try {
         this->uninitialized_set(std::forward<A>(a)...);
       } catch (...) {
-        new (this) future_state(exception_future_marker(), current_exception());
+        new (this) future_state(current_exception_future_marker());
       }
     }
     template <typename... A>
@@ -476,6 +473,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
     }
     future_state(exception_future_marker m, std::exception_ptr&& ex) noexcept : future_state_base(std::move(ex)) { }
     future_state(exception_future_marker m, future_state_base&& state) noexcept : future_state_base(std::move(state)) { }
+    future_state(current_exception_future_marker m) noexcept : future_state_base(m) { }
     std::tuple<T...>&& get_value() && noexcept {
         assert(_u.st == state::result);
         return std::move(this->uninitialized_get());
@@ -1142,6 +1140,7 @@ private:
     future(promise<T...>* pr) noexcept : future_base(pr, &_state), _state(std::move(pr->_local_state)) { }
     template <typename... A>
     future(ready_future_marker m, A&&... a) noexcept : _state(m, std::forward<A>(a)...) { }
+    future(future_state_base::current_exception_future_marker m) noexcept : _state(m) {}
     future(exception_future_marker m, std::exception_ptr&& ex) noexcept : _state(m, std::move(ex)) { }
     future(exception_future_marker m, future_state_base&& state) noexcept : _state(m, std::move(state)) { }
     [[gnu::always_inline]]
@@ -1697,6 +1696,8 @@ private:
     friend future<U...> make_exception_future(Exception&& ex) noexcept;
     template <typename... U>
     friend future<U...> internal::make_exception_future(future_state_base&& state) noexcept;
+    template <typename... U>
+    friend future<U...> current_exception_as_future() noexcept;
     template <typename... U, typename V>
     friend void internal::set_callback(future<U...>&, V*) noexcept;
     /// \endcond
@@ -1744,7 +1745,7 @@ future<T...> internal::make_exception_future(future_state_base&& state) noexcept
 
 template <typename... T>
 future<T...> current_exception_as_future() noexcept {
-    return internal::make_exception_future<T...>(future_state_base::current_exception());
+    return future<T...>(future_state_base::current_exception_future_marker());
 }
 
 void log_exception_trace() noexcept;
