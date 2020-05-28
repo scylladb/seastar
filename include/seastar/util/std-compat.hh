@@ -29,26 +29,6 @@
 
 #include <memory_resource>
 
-namespace seastar {
-
-/// \cond internal
-
-namespace compat {
-
-using memory_resource = std::pmr::memory_resource;
-
-template<typename T>
-using polymorphic_allocator = std::pmr::polymorphic_allocator<T>;
-
-static inline
-memory_resource* pmr_get_default_resource() {
-    return std::pmr::get_default_resource();
-}
-
-}
-
-}
-
 
 // Defining SEASTAR_ASAN_ENABLED in here is a bit of a hack, but
 // convenient since it is build system independent and in practice
