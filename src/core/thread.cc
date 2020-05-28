@@ -316,6 +316,7 @@ void switch_out(thread_context* from) {
 }
 
 void init() {
+    g_unthreaded_context.fcontext = nullptr;
     g_unthreaded_context.link = nullptr;
     g_unthreaded_context.thread = nullptr;
     g_current_context = &g_unthreaded_context;
