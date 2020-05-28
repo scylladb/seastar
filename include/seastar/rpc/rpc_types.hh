@@ -355,12 +355,8 @@ public:
 
 /// @}
 
-#if __cplusplus >= 201703L
-
 template <typename... T>
 tuple(T&&...) ->  tuple<T...>;
-
-#endif
 
 } // namespace rpc
 
