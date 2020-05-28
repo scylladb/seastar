@@ -49,18 +49,6 @@ namespace seastar {
 
 namespace compat {
 
-template <typename T>
-using optional = std::optional<T>;
-
-using nullopt_t = std::nullopt_t;
-
-inline constexpr auto nullopt = std::nullopt;
-
-template <typename T>
-inline constexpr optional<std::decay_t<T>> make_optional(T&& value) {
-    return std::make_optional(std::forward<T>(value));
-}
-
 template <typename CharT, typename Traits = std::char_traits<CharT>>
 using basic_string_view = std::basic_string_view<CharT, Traits>;
 
