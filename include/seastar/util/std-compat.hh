@@ -144,8 +144,6 @@ constexpr const U* get_if(const variant<Types...>* v) {
     return std::get_if<U>(v);
 }
 
-namespace filesystem = std::filesystem;
-
 using string_view = basic_string_view<char>;
 
 } // namespace compat
