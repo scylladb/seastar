@@ -1155,8 +1155,4 @@ SEASTAR_TEST_CASE(test_loggers) {
     });
 }
 
-#if __cplusplus >= 201703
-
 static_assert(std::is_same_v<decltype(rpc::tuple(1U, 1L)), rpc::tuple<unsigned, long>>, "rpc::tuple deduction guid not working");
-
-#endif
