@@ -27,8 +27,6 @@
 
 #include <filesystem>
 
-#define SEASTAR_HAS_POLYMORPHIC_ALLOCATOR
-
 #include <memory_resource>
 
 namespace seastar {
