@@ -149,5 +149,3 @@ using string_view = basic_string_view<char>;
 /// \endcond
 
 } // namespace seastar
-
-#define SEASTAR_COPY_ELISION(x) x
