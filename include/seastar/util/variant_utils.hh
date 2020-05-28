@@ -22,14 +22,6 @@
 #pragma once
 
 #include <seastar/util/std-compat.hh>
-#include <boost/version.hpp>
-
-#if (BOOST_VERSION < 105800)
-
-#error "Boost version >= 1.58 is required for using variant visitation helpers."
-#error "Earlier versions lack support for return value deduction and move-only return values"
-
-#endif
 
 namespace seastar {
 
@@ -81,8 +73,7 @@ struct variant_visitor<FuncObj> : FuncObj
 /// Creates a visitor from function objects.
 ///
 /// Returns a visitor object comprised of the provided function objects. Can be
-/// used with std::variant, boost::variant or any other custom variant
-/// implementation.
+/// used with std::variant or any other custom variant implementation.
 ///
 /// \param args function objects each accepting one or some types stored in the variant as input
 template <typename... Args>
