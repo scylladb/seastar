@@ -154,8 +154,4 @@ using string_view = basic_string_view<char>;
 
 } // namespace seastar
 
-#if __cplusplus >= 201703L && defined(__cpp_guaranteed_copy_elision)
 #define SEASTAR_COPY_ELISION(x) x
-#else
-#define SEASTAR_COPY_ELISION(x) std::move(x)
-#endif
