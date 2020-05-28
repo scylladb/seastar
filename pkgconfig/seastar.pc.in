@@ -10,7 +10,6 @@ Version: @PROJECT_VERSION@
 
 # Platform dependencies.
 stdatomic_libs=$<JOIN:@StdAtomic_LIBRARIES@, >
-stdfilesystem_libs=$<JOIN:@StdFilesystem_LIBRARIES@, >
 dl_libs=-l$<JOIN:@CMAKE_DL_LIBS@,-l>
 rt_libs=$<JOIN:@rt_LIBRARIES@, >
 
@@ -19,7 +18,6 @@ boost_system_libs=@Boost_SYSTEM_LIBRARY@
 
 # Dependencies.
 boost_cflags=-I$<JOIN:@Boost_INCLUDE_DIRS@, -I>
-boost_filesystem_libs=@Boost_FILESYSTEM_LIBRARY@
 boost_program_options_libs=@Boost_PROGRAM_OPTIONS_LIBRARY@
 boost_thread_libs=${boost_system_libs} @Boost_THREAD_LIBRARY@
 c_ares_cflags=-I$<JOIN:@c-ares_INCLUDE_DIRS@, -I>
@@ -42,4 +40,4 @@ Requires.private: gnutls >= 3.2.26, protobuf >= 2.5.0, hwloc >= 1.11.2, yaml-cpp
 Conflicts:
 Cflags: ${boost_cflags} ${c_ares_cflags} ${cryptopp_cflags} ${fmt_cflags} ${lksctp_tools_cflags} ${numactl_cflags} ${seastar_cflags}
 Libs: ${seastar_libs} ${boost_program_options_libs} ${boost_thread_libs} ${c_ares_libs} ${cryptopp_libs} ${fmt_libs}
-Libs.private: ${dl_libs} ${rt_libs} ${boost_filesystem_libs} ${boost_thread_libs} ${lksctp_tools_libs} ${numactl_libs} ${stdatomic_libs} ${stdfilesystem_libs}
+Libs.private: ${dl_libs} ${rt_libs} ${boost_thread_libs} ${lksctp_tools_libs} ${numactl_libs} ${stdatomic_libs}

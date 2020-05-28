@@ -30,18 +30,12 @@
 
 # Be consistent in results from FindBoost.cmake.
 # This is required because cmake-boost may return to Boost_{component}_LIBRARY:
-# - /usr/lib64/libboost_filesystem.so
-# - Boost::filesystem
+# - /usr/lib64/libboost_foo.so
+# - Boost::foo
 set (Boost_NO_BOOST_CMAKE ON)
 
 # This is the minimum version of Boost we need the CMake-bundled `FindBoost.cmake` to know about.
-find_package (Boost 1.64 MODULE COMPONENTS filesystem)
-
-# The imported target is undefined when the version of Boost requested is not
-# supported by the find-module.
-if (NOT (TARGET Boost::filesystem))
-  list (APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/bundled_boost)
-endif ()
+find_package (Boost 1.64 MODULE)
 
 #
 # Iterate through the dependency list defined below and execute `find_package`
@@ -68,7 +62,6 @@ macro (seastar_find_dependencies)
     Protobuf
     Sanitizers
     StdAtomic
-    StdFilesystem
     hwloc
     lksctp-tools # No version information published.
     numactl # No version information published.
@@ -84,7 +77,6 @@ macro (seastar_find_dependencies)
   set (_seastar_dep_args_Boost
     1.64.0
     COMPONENTS
-      filesystem
       program_options
       thread
       unit_test_framework
@@ -97,7 +89,6 @@ macro (seastar_find_dependencies)
   set (_seastar_dep_args_GnuTLS 3.3.26 REQUIRED)
   set (_seastar_dep_args_Protobuf 2.5.0 REQUIRED)
   set (_seastar_dep_args_StdAtomic REQUIRED)
-  set (_seastar_dep_args_StdFilesystem REQUIRED)
   set (_seastar_dep_args_hwloc 1.11.2)
   set (_seastar_dep_args_lksctp-tools REQUIRED)
   set (_seastar_dep_args_rt REQUIRED)

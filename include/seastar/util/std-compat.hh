@@ -25,12 +25,7 @@
 #include <string_view>
 #include <variant>
 
-#if __cplusplus >= 201703L && __has_include(<filesystem>)
 #include <filesystem>
-#else
-#include <experimental/filesystem>
-#endif
-
 
 #if __cplusplus >= 201703L && __has_include(<memory_resource>)
 
@@ -215,13 +210,7 @@ constexpr const U* get_if(const variant<Types...>* v) {
     return std::get_if<U>(v);
 }
 
-#if defined(__cpp_lib_filesystem)
 namespace filesystem = std::filesystem;
-#elif defined(__cpp_lib_experimental_filesystem)
-namespace filesystem = std::experimental::filesystem;
-#else
-#error No filesystem header detected.
-#endif
 
 using string_view = basic_string_view<char>;
 
