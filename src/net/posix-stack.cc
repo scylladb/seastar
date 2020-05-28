@@ -176,12 +176,12 @@ class posix_connected_socket_impl final : public connected_socket_impl {
     pollable_fd _fd;
     const posix_connected_socket_operations* _ops;
     conntrack::handle _handle;
-    compat::polymorphic_allocator<char>* _allocator;
+    std::pmr::polymorphic_allocator<char>* _allocator;
 private:
-    explicit posix_connected_socket_impl(sa_family_t family, int protocol, pollable_fd fd, compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) :
+    explicit posix_connected_socket_impl(sa_family_t family, int protocol, pollable_fd fd, std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) :
         _fd(std::move(fd)), _ops(get_posix_connected_socket_ops(family, protocol)), _allocator(allocator) {}
     explicit posix_connected_socket_impl(sa_family_t family, int protocol, pollable_fd fd, conntrack::handle&& handle,
-        compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _fd(std::move(fd))
+        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _fd(std::move(fd))
                 , _ops(get_posix_connected_socket_ops(family, protocol)), _handle(std::move(handle)), _allocator(allocator) {}
 public:
     virtual data_source source() override {
@@ -335,7 +335,7 @@ static void resolve_outgoing_address(socket_address& a) {
 
 class posix_socket_impl final : public socket_impl {
     pollable_fd _fd;
-    compat::polymorphic_allocator<char>* _allocator;
+    std::pmr::polymorphic_allocator<char>* _allocator;
     bool _reuseaddr = false;
 
     future<> find_port_and_connect(socket_address sa, socket_address local, transport proto = transport::TCP) {
@@ -384,7 +384,7 @@ class posix_socket_impl final : public socket_impl {
     }
 
 public:
-    explicit posix_socket_impl(compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _allocator(allocator) {}
+    explicit posix_socket_impl(std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _allocator(allocator) {}
 
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
         if (sa.is_af_unix()) {
@@ -523,7 +523,7 @@ socket_address posix_reuseport_server_socket_impl::local_address() const {
 }
 
 void
-posix_ap_server_socket_impl::move_connected_socket(int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle cth, compat::polymorphic_allocator<char>* allocator) {
+posix_ap_server_socket_impl::move_connected_socket(int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle cth, std::pmr::polymorphic_allocator<char>* allocator) {
     auto t_sa = std::make_tuple(protocol, sa);
     auto i = sockets.find(t_sa);
     if (i != sockets.end()) {
@@ -598,7 +598,7 @@ posix_data_sink_impl::close() {
     return make_ready_future<>();
 }
 
-posix_network_stack::posix_network_stack(boost::program_options::variables_map opts, compat::polymorphic_allocator<char>* allocator)
+posix_network_stack::posix_network_stack(boost::program_options::variables_map opts, std::pmr::polymorphic_allocator<char>* allocator)
         : _reuseport(engine().posix_reuseport_available()), _allocator(allocator) {
 }
 
@@ -623,7 +623,7 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
     return ::seastar::socket(std::make_unique<posix_socket_impl>(_allocator));
 }
 
-posix_ap_network_stack::posix_ap_network_stack(boost::program_options::variables_map opts, compat::polymorphic_allocator<char>* allocator)
+posix_ap_network_stack::posix_ap_network_stack(boost::program_options::variables_map opts, std::pmr::polymorphic_allocator<char>* allocator)
         : posix_network_stack(std::move(opts), allocator), _reuseport(engine().posix_reuseport_available()) {
 }
 

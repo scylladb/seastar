@@ -91,8 +91,8 @@ disable_abort_on_alloc_failure_temporarily::~disable_abort_on_alloc_failure_temp
     --abort_on_alloc_failure_suppressed;
 }
 
-static compat::polymorphic_allocator<char> static_malloc_allocator{compat::pmr_get_default_resource()};;
-compat::polymorphic_allocator<char>* malloc_allocator{&static_malloc_allocator};
+static std::pmr::polymorphic_allocator<char> static_malloc_allocator{std::pmr::get_default_resource()};;
+std::pmr::polymorphic_allocator<char>* malloc_allocator{&static_malloc_allocator};
 
 }
 

@@ -58,17 +58,17 @@ future<> echo_server_loop() {
         });
 }
 
-class my_malloc_allocator : public compat::memory_resource {
+class my_malloc_allocator : public std::pmr::memory_resource {
 public:
     int allocs;
     int frees;
     void* do_allocate(std::size_t bytes, std::size_t alignment) override { allocs++; return malloc(bytes); }
     void do_deallocate(void *ptr, std::size_t bytes, std::size_t alignment) override { frees++; return free(ptr); }
-    virtual bool do_is_equal(const compat::memory_resource& __other) const noexcept override { abort(); }
+    virtual bool do_is_equal(const std::pmr::memory_resource& __other) const noexcept override { abort(); }
 };
 
 my_malloc_allocator malloc_allocator;
-compat::polymorphic_allocator<char> allocator{&malloc_allocator};
+std::pmr::polymorphic_allocator<char> allocator{&malloc_allocator};
 
 int main(int ac, char** av) {
     register_network_stack("posix", boost::program_options::options_description(),

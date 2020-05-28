@@ -130,7 +130,7 @@ public:
     reclaimer_scope scope() const { return _scope; }
 };
 
-extern compat::polymorphic_allocator<char>* malloc_allocator;
+extern std::pmr::polymorphic_allocator<char>* malloc_allocator;
 
 // Call periodically to recycle objects that were freed
 // on cpu other than the one they were allocated on.

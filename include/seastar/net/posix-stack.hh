@@ -105,14 +105,14 @@ public:
 };
 
 class posix_data_source_impl final : public data_source_impl, private internal::buffer_allocator {
-    compat::polymorphic_allocator<char>* _buffer_allocator;
+    std::pmr::polymorphic_allocator<char>* _buffer_allocator;
     pollable_fd _fd;
     connected_socket_input_stream_config _config;
 private:
     virtual temporary_buffer<char> allocate_buffer() override;
 public:
     explicit posix_data_source_impl(pollable_fd fd, connected_socket_input_stream_config config,
-            compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator)
+            std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator)
             : _buffer_allocator(allocator), _fd(std::move(fd)), _config(config) {
     }
     future<temporary_buffer<char>> get() override;
@@ -144,15 +144,15 @@ class posix_ap_server_socket_impl : public server_socket_impl {
     static thread_local conn_map_t conn_q;
     int _protocol;
     socket_address _sa;
-    compat::polymorphic_allocator<char>* _allocator;
+    std::pmr::polymorphic_allocator<char>* _allocator;
 public:
-    explicit posix_ap_server_socket_impl(int protocol, socket_address sa, compat::polymorphic_allocator<char>* allocator = memory::malloc_allocator) : _protocol(protocol), _sa(sa), _allocator(allocator) {}
+    explicit posix_ap_server_socket_impl(int protocol, socket_address sa, std::pmr::polymorphic_allocator<char>* allocator = memory::malloc_allocator) : _protocol(protocol), _sa(sa), _allocator(allocator) {}
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     socket_address local_address() const override {
         return _sa;
     }
-    static void move_connected_socket(int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, compat::polymorphic_allocator<char>* allocator);
+    static void move_connected_socket(int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, std::pmr::polymorphic_allocator<char>* allocator);
 
     template <typename T>
     friend class std::hash;
@@ -165,11 +165,11 @@ class posix_server_socket_impl : public server_socket_impl {
     conntrack _conntrack;
     server_socket::load_balancing_algorithm _lba;
     shard_id _fixed_cpu;
-    compat::polymorphic_allocator<char>* _allocator;
+    std::pmr::polymorphic_allocator<char>* _allocator;
 public:
     explicit posix_server_socket_impl(int protocol, socket_address sa, pollable_fd lfd,
         server_socket::load_balancing_algorithm lba, shard_id fixed_cpu,
-        compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _lba(lba), _fixed_cpu(fixed_cpu), _allocator(allocator) {}
+        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _lba(lba), _fixed_cpu(fixed_cpu), _allocator(allocator) {}
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
@@ -179,10 +179,10 @@ class posix_reuseport_server_socket_impl : public server_socket_impl {
     socket_address _sa;
     int _protocol;
     pollable_fd _lfd;
-    compat::polymorphic_allocator<char>* _allocator;
+    std::pmr::polymorphic_allocator<char>* _allocator;
 public:
     explicit posix_reuseport_server_socket_impl(int protocol, socket_address sa, pollable_fd lfd,
-        compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _allocator(allocator) {}
+        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _allocator(allocator) {}
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
@@ -192,13 +192,13 @@ class posix_network_stack : public network_stack {
 private:
     const bool _reuseport;
 protected:
-    compat::polymorphic_allocator<char>* _allocator;
+    std::pmr::polymorphic_allocator<char>* _allocator;
 public:
-    explicit posix_network_stack(boost::program_options::variables_map opts, compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator);
+    explicit posix_network_stack(boost::program_options::variables_map opts, std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator);
     virtual server_socket listen(socket_address sa, listen_options opts) override;
     virtual ::seastar::socket socket() override;
     virtual net::udp_channel make_udp_channel(const socket_address&) override;
-    static future<std::unique_ptr<network_stack>> create(boost::program_options::variables_map opts, compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) {
+    static future<std::unique_ptr<network_stack>> create(boost::program_options::variables_map opts, std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) {
         return make_ready_future<std::unique_ptr<network_stack>>(std::unique_ptr<network_stack>(new posix_network_stack(opts, allocator)));
     }
     virtual bool has_per_core_namespace() override { return _reuseport; };
@@ -210,9 +210,9 @@ class posix_ap_network_stack : public posix_network_stack {
 private:
     const bool _reuseport;
 public:
-    posix_ap_network_stack(boost::program_options::variables_map opts, compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator);
+    posix_ap_network_stack(boost::program_options::variables_map opts, std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator);
     virtual server_socket listen(socket_address sa, listen_options opts) override;
-    static future<std::unique_ptr<network_stack>> create(boost::program_options::variables_map opts, compat::polymorphic_allocator<char>* allocator=memory::malloc_allocator) {
+    static future<std::unique_ptr<network_stack>> create(boost::program_options::variables_map opts, std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) {
         return make_ready_future<std::unique_ptr<network_stack>>(std::unique_ptr<network_stack>(new posix_ap_network_stack(opts, allocator)));
     }
 };

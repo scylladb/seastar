@@ -31,7 +31,7 @@ namespace seastar {
 /// \param allocator allocator to use when allocating the temporary_buffer
 /// \param size      size of the temporary buffer
 template <typename CharType>
-temporary_buffer<CharType> make_temporary_buffer(compat::polymorphic_allocator<CharType>* allocator, std::size_t size) {
+temporary_buffer<CharType> make_temporary_buffer(std::pmr::polymorphic_allocator<CharType>* allocator, std::size_t size) {
     if (allocator == memory::malloc_allocator) {
         return temporary_buffer<CharType>(size);
     }
