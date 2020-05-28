@@ -28,8 +28,6 @@
 
 #include <seastar/net/posix-stack.hh>
 
-#ifdef SEASTAR_HAS_POLYMORPHIC_ALLOCATOR
-
 using namespace seastar;
 
 future<> handle_connection(connected_socket s) {
@@ -82,10 +80,3 @@ int main(int ac, char** av) {
        return echo_server_loop().finally([](){ engine().exit((malloc_allocator.allocs == malloc_allocator.frees) ? 0 : 1); });
     });
 }
-
-#else
-
-// nothing to test without polymorphic allocator
-int main() {}
-
-#endif
