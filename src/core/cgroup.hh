@@ -29,7 +29,7 @@ namespace seastar {
 
 namespace cgroup {
 
-using compat::optional;
+using std::optional;
 using cpuset = std::set<unsigned>;
 
 optional<cpuset> cpu_set();

@@ -96,7 +96,7 @@ SEASTAR_TEST_CASE(test_forwarding_return) {
 }
 
 SEASTAR_TEST_CASE(test_abandond_coroutine) {
-    compat::optional<future<int>> f;
+    std::optional<future<int>> f;
     {
         auto p1 = promise<>();
         auto p2 = promise<>();

@@ -182,7 +182,7 @@ static thread_local uint64_t g_cross_cpu_frees;
 static thread_local uint64_t g_reclaims;
 static thread_local uint64_t g_large_allocs;
 
-using compat::optional;
+using std::optional;
 
 using allocate_system_memory_fn
         = std::function<mmap_area (void* where, size_t how_much)>;
@@ -1890,7 +1890,7 @@ reclaimer::~reclaimer() {
 void set_reclaim_hook(std::function<void (std::function<void ()>)> hook) {
 }
 
-void configure(std::vector<resource::memory> m, bool mbind, compat::optional<std::string> hugepages_path) {
+void configure(std::vector<resource::memory> m, bool mbind, std::optional<std::string> hugepages_path) {
 }
 
 statistics stats() {

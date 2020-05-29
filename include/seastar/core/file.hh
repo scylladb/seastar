@@ -46,7 +46,7 @@ struct directory_entry {
     /// Name of the file in a directory entry.  Will never be "." or "..".  Only the last component is included.
     sstring name;
     /// Type of the directory entry, if known.
-    compat::optional<directory_entry_type> type;
+    std::optional<directory_entry_type> type;
 };
 
 /// Filesystem object stat information

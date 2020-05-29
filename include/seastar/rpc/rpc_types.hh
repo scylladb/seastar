@@ -125,16 +125,16 @@ extern no_wait_type no_wait;
 /// @{
 
 template <typename T>
-class optional : public compat::optional<T> {
+class optional : public std::optional<T> {
 public:
-     using compat::optional<T>::optional;
+     using std::optional<T>::optional;
 };
 
-class opt_time_point : public compat::optional<rpc_clock_type::time_point> {
+class opt_time_point : public std::optional<rpc_clock_type::time_point> {
 public:
-     using compat::optional<rpc_clock_type::time_point>::optional;
-     opt_time_point(compat::optional<rpc_clock_type::time_point> time_point) {
-         static_cast<compat::optional<rpc_clock_type::time_point>&>(*this) = time_point;
+     using std::optional<rpc_clock_type::time_point>::optional;
+     opt_time_point(std::optional<rpc_clock_type::time_point> time_point) {
+         static_cast<std::optional<rpc_clock_type::time_point>&>(*this) = time_point;
      }
 };
 
@@ -178,7 +178,7 @@ struct cancellable {
 
 struct rcv_buf {
     uint32_t size = 0;
-    compat::optional<semaphore_units<>> su;
+    std::optional<semaphore_units<>> su;
     compat::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
     using iterator = std::vector<temporary_buffer<char>>::iterator;
     rcv_buf() {}
@@ -317,7 +317,7 @@ public:
         }
     public:
         virtual ~impl() {}
-        virtual future<compat::optional<std::tuple<In...>>> operator()() = 0;
+        virtual future<std::optional<std::tuple<In...>>> operator()() = 0;
         friend source;
     };
 private:
@@ -325,7 +325,7 @@ private:
 
 public:
     source(shared_ptr<impl> impl) : _impl(std::move(impl)) {}
-    future<compat::optional<std::tuple<In...>>> operator()() {
+    future<std::optional<std::tuple<In...>>> operator()() {
         return _impl->operator()();
     };
     connection_id get_id() const;

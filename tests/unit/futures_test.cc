@@ -98,7 +98,7 @@ SEASTAR_TEST_CASE(test_stream) {
 
 SEASTAR_TEST_CASE(test_stream_drop_sub) {
     auto s = make_lw_shared<stream<int>>();
-    compat::optional<future<>> ret;
+    std::optional<future<>> ret;
     {
         auto sub = s->listen([](int x) {
             return make_ready_future<>();
@@ -857,12 +857,12 @@ SEASTAR_TEST_CASE(test_futurize_from_tuple) {
 
 SEASTAR_TEST_CASE(test_repeat_until_value) {
     return do_with(int(), [] (int& counter) {
-        return repeat_until_value([&counter] () -> future<compat::optional<int>> {
+        return repeat_until_value([&counter] () -> future<std::optional<int>> {
             if (counter == 10000) {
-                return make_ready_future<compat::optional<int>>(counter);
+                return make_ready_future<std::optional<int>>(counter);
             } else {
                 ++counter;
-                return make_ready_future<compat::optional<int>>(compat::nullopt);
+                return make_ready_future<std::optional<int>>(std::nullopt);
             }
         }).then([&counter] (int result) {
             BOOST_REQUIRE(counter == 10000);
@@ -872,14 +872,14 @@ SEASTAR_TEST_CASE(test_repeat_until_value) {
 }
 
 SEASTAR_TEST_CASE(test_repeat_until_value_implicit_future) {
-    // Same as above, but returning compat::optional<int> instead of future<compat::optional<int>>
+    // Same as above, but returning std::optional<int> instead of future<std::optional<int>>
     return do_with(int(), [] (int& counter) {
         return repeat_until_value([&counter] {
             if (counter == 10000) {
-                return compat::optional<int>(counter);
+                return std::optional<int>(counter);
             } else {
                 ++counter;
-                return compat::optional<int>(compat::nullopt);
+                return std::optional<int>(std::nullopt);
             }
         }).then([&counter] (int result) {
             BOOST_REQUIRE(counter == 10000);
@@ -891,7 +891,7 @@ SEASTAR_TEST_CASE(test_repeat_until_value_implicit_future) {
 SEASTAR_TEST_CASE(test_repeat_until_value_exception) {
     return repeat_until_value([] {
         throw expected_exception();
-        return compat::optional<int>(43);
+        return std::optional<int>(43);
     }).then_wrapped([] (future<int> f) {
         check_fails_with_expected(std::move(f));
     });
@@ -1184,8 +1184,8 @@ SEASTAR_TEST_CASE(test_futurize_mutable) {
 }
 
 SEASTAR_THREAD_TEST_CASE(test_broken_promises) {
-    compat::optional<future<>> f;
-    compat::optional<future<>> f2;
+    std::optional<future<>> f;
+    std::optional<future<>> f2;
     { // Broken after attaching a continuation
         auto p = promise<>();
         f = p.get_future();

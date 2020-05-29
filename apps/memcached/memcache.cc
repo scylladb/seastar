@@ -1224,7 +1224,7 @@ class udp_server {
 public:
     static const size_t default_max_datagram_size = 1400;
 private:
-    compat::optional<future<>> _task;
+    std::optional<future<>> _task;
     sharded_cache& _cache;
     distributed<system_stats>& _system_stats;
     udp_channel _chan;
@@ -1331,7 +1331,7 @@ public:
 
 class tcp_server {
 private:
-    compat::optional<future<>> _task;
+    std::optional<future<>> _task;
     lw_shared_ptr<seastar::server_socket> _listener;
     sharded_cache& _cache;
     distributed<system_stats>& _system_stats;

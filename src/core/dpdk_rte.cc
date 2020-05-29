@@ -53,7 +53,7 @@ void eal::init(cpuset cpus, boost::program_options::variables_map opts)
         string2vector("-n"), string2vector("1")
     };
 
-    compat::optional<std::string> hugepages_path;
+    std::optional<std::string> hugepages_path;
     if (opts.count("hugepages")) {
         hugepages_path = opts["hugepages"].as<std::string>();
     }

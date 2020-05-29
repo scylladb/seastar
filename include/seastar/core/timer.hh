@@ -86,12 +86,12 @@ private:
     scheduling_group _sg;
     callback_t _callback;
     time_point _expiry;
-    compat::optional<duration> _period;
+    std::optional<duration> _period;
     bool _armed = false;
     bool _queued = false;
     bool _expired = false;
     void readd_periodic();
-    void arm_state(time_point until, compat::optional<duration> period) {
+    void arm_state(time_point until, std::optional<duration> period) {
         assert(!_armed);
         _period = period;
         _armed = true;
@@ -150,7 +150,7 @@ public:
     /// \param period optional automatic rearm duration; if given the timer
     ///        will automatically rearm itself when it expires, using the period
     ///        to calculate the next expiration time.
-    void arm(time_point until, compat::optional<duration> period = {});
+    void arm(time_point until, std::optional<duration> period = {});
     /// Sets the timer expiration time. If the timer was already armed, it is
     /// canceled first.
     ///
@@ -158,7 +158,7 @@ public:
     /// \param period optional automatic rearm duration; if given the timer
     ///        will automatically rearm itself when it expires, using the period
     ///        to calculate the next expiration time.
-    void rearm(time_point until, compat::optional<duration> period = {}) {
+    void rearm(time_point until, std::optional<duration> period = {}) {
         if (_armed) {
             cancel();
         }

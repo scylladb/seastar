@@ -50,7 +50,7 @@ protected:
 template <typename T>
 class exchanger : public exchanger_base {
 private:
-    seastar::compat::optional<T> _element;
+    std::optional<T> _element;
 
 public:
     template <typename Exception>

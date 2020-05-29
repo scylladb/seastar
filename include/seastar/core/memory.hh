@@ -74,7 +74,7 @@ static constexpr size_t huge_page_size =
 #endif
 
 void configure(std::vector<resource::memory> m, bool mbind,
-        compat::optional<std::string> hugetlbfs_path = {});
+        std::optional<std::string> hugetlbfs_path = {});
 
 void enable_abort_on_allocation_failure();
 

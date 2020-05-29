@@ -12,7 +12,7 @@ that is sent/received. For instance the sink that is used to send messages
 containing `int` and `long` will be of a type `rpc::sink<int, long>`.  The
 opposite end of the stream will have a source of the type `rpc::source<int, long>`
 which will be used to receive those messages. Messages are received at a
-source as `compat::optional` containing an actual message as an `std::tuple`. Unengaged
+source as `std::optional` containing an actual message as an `std::tuple`. Unengaged
 optional means EOS (end of stream) - the stream was closed by a peer. If
 error happen before EOS is received a receiver cannot be sure it received all
 the data.

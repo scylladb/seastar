@@ -299,7 +299,7 @@ void ipv4::send(ipv4_address to, ip_protocol_num proto_num, packet p, ethernet_a
     }
 }
 
-compat::optional<l3_protocol::l3packet> ipv4::get_packet() {
+std::optional<l3_protocol::l3packet> ipv4::get_packet() {
     // _packetq will be mostly empty here unless it hold remnants of previously
     // fragmented packet
     if (_packetq.empty()) {
@@ -316,7 +316,7 @@ compat::optional<l3_protocol::l3packet> ipv4::get_packet() {
         }
     }
 
-    compat::optional<l3_protocol::l3packet> p;
+    std::optional<l3_protocol::l3packet> p;
     if (!_packetq.empty()) {
         p = std::move(_packetq.front());
         _packetq.pop_front();

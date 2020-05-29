@@ -139,7 +139,7 @@ public:
     }
     static file_desc inotify_init(int flags);
     // return nullopt if no connection is availbale to be accepted
-    compat::optional<file_desc> try_accept(socket_address& sa, int flags = 0) {
+    std::optional<file_desc> try_accept(socket_address& sa, int flags = 0) {
         auto ret = ::accept4(_fd, &sa.as_posix_sockaddr(), &sa.addr_length, flags);
         if (ret == -1 && errno == EAGAIN) {
             return {};

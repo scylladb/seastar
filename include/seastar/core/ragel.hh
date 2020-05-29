@@ -123,7 +123,7 @@ protected:
         return std::move(_builder).get();
     }
 public:
-    using unconsumed_remainder = compat::optional<temporary_buffer<char>>;
+    using unconsumed_remainder = std::optional<temporary_buffer<char>>;
     future<unconsumed_remainder> operator()(temporary_buffer<char> buf) {
         char* p = buf.get_write();
         char* pe = p + buf.size();

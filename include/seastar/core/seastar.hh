@@ -350,7 +350,7 @@ future<bool> file_exists(sstring name) noexcept;
 /// \return a engaged optional with the file type if lookup was successful; a disengaged optional
 ///      if the file (or one of its parent directories) does not exist; an exceptional future on
 ///      other errors.
-future<compat::optional<directory_entry_type>> file_type(sstring name, follow_symlink = follow_symlink::yes) noexcept;
+future<std::optional<directory_entry_type>> file_type(sstring name, follow_symlink = follow_symlink::yes) noexcept;
 
 
 /// Creates a hard link for a file

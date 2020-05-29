@@ -42,7 +42,7 @@ public:
     size_t count = 0;
 
     // for input_stream::consume():
-    using unconsumed_remainder = compat::optional<temporary_buffer<char>>;
+    using unconsumed_remainder = std::optional<temporary_buffer<char>>;
     future<unconsumed_remainder> operator()(temporary_buffer<char> data) {
         if (data.empty()) {
             return make_ready_future<unconsumed_remainder>(std::move(data));

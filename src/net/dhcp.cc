@@ -348,7 +348,7 @@ public:
         return make_ready_future<>();
     }
 
-    future<compat::optional<lease>> run(const lease & l,
+    future<std::optional<lease>> run(const lease & l,
             const steady_clock_type::duration & timeout) {
 
         _state = state::NONE;
@@ -356,7 +356,7 @@ public:
             _state = state::FAIL;
             log() << "timeout" << std::endl;
             _retry_timer.cancel();
-            _result.set_value(compat::nullopt);
+            _result.set_value(std::nullopt);
         });
 
         log() << "sending discover" << std::endl;
@@ -428,7 +428,7 @@ public:
     }
 
 private:
-    promise<compat::optional<lease>> _result;
+    promise<std::optional<lease>> _result;
     state _state = state::NONE;
     timer<> _timer;
     timer<> _retry_timer;

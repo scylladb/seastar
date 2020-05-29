@@ -992,7 +992,7 @@ std::vector<network_interface> posix_network_stack::network_interfaces() {
                         for (auto& nwif : res) {
                             if (nwif._index == addr->ifa_index) {
                                 for (auto* attribute = IFA_RTA(addr); RTA_OK(attribute, ilen); attribute = RTA_NEXT(attribute, ilen)) {
-                                    compat::optional<inet_address> ia;
+                                    std::optional<inet_address> ia;
                                     
                                     switch(attribute->rta_type) {
                                     case IFA_LOCAL:

@@ -202,7 +202,7 @@ class smp_message_queue {
         using futurator = futurize<std::result_of_t<Func()>>;
         using future_type = typename futurator::type;
         using value_type = typename future_type::value_type;
-        compat::optional<value_type> _result;
+        std::optional<value_type> _result;
         std::exception_ptr _ex; // if !_result
         typename futurator::promise_type _promise; // used on local side
         async_work_item(smp_message_queue& queue, smp_service_group ssg, Func&& func) : work_item(ssg), _queue(queue), _func(std::move(func)) {}
@@ -276,7 +276,7 @@ private:
 class smp {
     static std::vector<posix_thread> _threads;
     static std::vector<std::function<void ()>> _thread_loops; // for dpdk
-    static compat::optional<boost::barrier> _all_event_loops_done;
+    static std::optional<boost::barrier> _all_event_loops_done;
     static std::vector<reactor*> _reactors;
     struct qs_deleter {
       void operator()(smp_message_queue** qs) const;
