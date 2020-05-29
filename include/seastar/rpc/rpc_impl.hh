@@ -253,11 +253,11 @@ inline void do_marshall(Serializer& serializer, Output& out, const T&... args) {
 }
 
 static inline memory_output_stream<snd_buf::iterator> make_serializer_stream(snd_buf& output) {
-    auto* b = compat::get_if<temporary_buffer<char>>(&output.bufs);
+    auto* b = std::get_if<temporary_buffer<char>>(&output.bufs);
     if (b) {
         return memory_output_stream<snd_buf::iterator>(memory_output_stream<snd_buf::iterator>::simple(b->get_write(), b->size()));
     } else {
-        auto& ar = compat::get<std::vector<temporary_buffer<char>>>(output.bufs);
+        auto& ar = std::get<std::vector<temporary_buffer<char>>>(output.bufs);
         return memory_output_stream<snd_buf::iterator>(memory_output_stream<snd_buf::iterator>::fragmented(ar.begin(), output.size));
     }
 }

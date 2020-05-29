@@ -141,7 +141,7 @@ template <typename CharType>
 class consumption_result {
 public:
     using stop_consuming_type = stop_consuming<CharType>;
-    using consumption_variant = compat::variant<continue_consuming, stop_consuming_type, skip_bytes>;
+    using consumption_variant = std::variant<continue_consuming, stop_consuming_type, skip_bytes>;
     using tmp_buf = typename stop_consuming_type::tmp_buf;
 
     /*[[deprecated]]*/ consumption_result(std::optional<tmp_buf> opt_buf) {

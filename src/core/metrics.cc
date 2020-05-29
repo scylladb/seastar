@@ -132,10 +132,10 @@ metric_value metric_value::operator+(const metric_value& c) {
     metric_value res(*this);
     switch (_type) {
     case data_type::HISTOGRAM:
-        compat::get<histogram>(res.u) += compat::get<histogram>(c.u);
+        std::get<histogram>(res.u) += std::get<histogram>(c.u);
         break;
     default:
-        compat::get<double>(res.u) += compat::get<double>(c.u);
+        std::get<double>(res.u) += std::get<double>(c.u);
         break;
     }
     return res;

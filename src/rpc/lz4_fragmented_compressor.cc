@@ -76,9 +76,9 @@ snd_buf lz4_fragmented_compressor::compress(size_t head_space, snd_buf data) {
     LZ4_resetStream(stream.get());
 
     auto size_left = data.size;
-    auto src = compat::get_if<temporary_buffer<char>>(&data.bufs);
+    auto src = std::get_if<temporary_buffer<char>>(&data.bufs);
     if (!src) {
-        src = compat::get<std::vector<temporary_buffer<char>>>(data.bufs).data();
+        src = std::get<std::vector<temporary_buffer<char>>>(data.bufs).data();
     }
 
     auto single_chunk_size = LZ4_COMPRESSBOUND(size_left) + head_space + chunk_header_size;
@@ -212,7 +212,7 @@ rcv_buf lz4_fragmented_compressor::decompress(rcv_buf data) {
         throw std::runtime_error("RPC frame LZ4 decompression failed to reset state");
     }
 
-    auto src = compat::get_if<temporary_buffer<char>>(&data.bufs);
+    auto src = std::get_if<temporary_buffer<char>>(&data.bufs);
     size_t src_left = data.size;
     size_t src_offset = 0;
 
@@ -270,7 +270,7 @@ rcv_buf lz4_fragmented_compressor::decompress(rcv_buf data) {
         // not eligible for fast path: multiple chunks in a single buffer
     } else {
         // not eligible for fast path: multiple buffers
-        src = compat::get<std::vector<temporary_buffer<char>>>(data.bufs).data();
+        src = std::get<std::vector<temporary_buffer<char>>>(data.bufs).data();
     }
 
     // Let's be a bit paranoid and not assume that the remote has the same

@@ -179,7 +179,7 @@ struct cancellable {
 struct rcv_buf {
     uint32_t size = 0;
     std::optional<semaphore_units<>> su;
-    compat::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
+    std::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
     using iterator = std::vector<temporary_buffer<char>>::iterator;
     rcv_buf() {}
     explicit rcv_buf(size_t size_) : size(size_) {}
@@ -192,7 +192,7 @@ struct snd_buf {
     // Preferred, but not required, chunk size.
     static constexpr size_t chunk_size = 128*1024;
     uint32_t size = 0;
-    compat::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
+    std::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
     using iterator = std::vector<temporary_buffer<char>>::iterator;
     snd_buf() {}
     explicit snd_buf(size_t size_);
@@ -205,11 +205,11 @@ struct snd_buf {
 };
 
 static inline memory_input_stream<rcv_buf::iterator> make_deserializer_stream(rcv_buf& input) {
-    auto* b = compat::get_if<temporary_buffer<char>>(&input.bufs);
+    auto* b = std::get_if<temporary_buffer<char>>(&input.bufs);
     if (b) {
         return memory_input_stream<rcv_buf::iterator>(memory_input_stream<rcv_buf::iterator>::simple(b->begin(), b->size()));
     } else {
-        auto& ar = compat::get<std::vector<temporary_buffer<char>>>(input.bufs);
+        auto& ar = std::get<std::vector<temporary_buffer<char>>>(input.bufs);
         return memory_input_stream<rcv_buf::iterator>(memory_input_stream<rcv_buf::iterator>::fragmented(ar.begin(), input.size));
     }
 }

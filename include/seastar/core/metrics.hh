@@ -261,22 +261,22 @@ enum class data_type : uint8_t {
  * Do not use directly @see metrics_creation
  */
 struct metric_value {
-    compat::variant<double, histogram> u;
+    std::variant<double, histogram> u;
     data_type _type;
     data_type type() const {
         return _type;
     }
 
     double d() const {
-        return compat::get<double>(u);
+        return std::get<double>(u);
     }
 
     uint64_t ui() const {
-        return compat::get<double>(u);
+        return std::get<double>(u);
     }
 
     int64_t i() const {
-        return compat::get<double>(u);
+        return std::get<double>(u);
     }
 
     metric_value()
@@ -303,7 +303,7 @@ struct metric_value {
 
     metric_value operator+(const metric_value& c);
     const histogram& get_histogram() const {
-        return compat::get<histogram>(u);
+        return std::get<histogram>(u);
     }
 };
 

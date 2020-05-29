@@ -71,7 +71,7 @@ struct sctp_keepalive_params {
     unsigned count; // spp_pathmaxrt
 };
 
-using keepalive_params = compat::variant<tcp_keepalive_params, sctp_keepalive_params>;
+using keepalive_params = std::variant<tcp_keepalive_params, sctp_keepalive_params>;
 
 /// \cond internal
 class connected_socket_impl;
