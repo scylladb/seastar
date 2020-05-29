@@ -57,59 +57,6 @@ std::string string_view_to_string(const basic_string_view<CharT, Traits>& v) {
     return std::string(v);
 }
 
-template <typename... Types>
-using variant = std::variant<Types...>;
-
-template <std::size_t I, typename... Types>
-constexpr std::variant_alternative_t<I, variant<Types...>>& get(variant<Types...>& v) {
-    return std::get<I>(v);
-}
-
-template <std::size_t I, typename... Types>
-constexpr const std::variant_alternative_t<I, variant<Types...>>& get(const variant<Types...>& v) {
-    return std::get<I>(v);
-}
-
-template <std::size_t I, typename... Types>
-constexpr std::variant_alternative_t<I, variant<Types...>>&& get(variant<Types...>&& v) {
-    return std::get<I>(v);
-}
-
-template <std::size_t I, typename... Types>
-constexpr const std::variant_alternative_t<I, variant<Types...>>&& get(const variant<Types...>&& v) {
-    return std::get<I>(v);
-}
-
-template <typename U, typename... Types>
-constexpr U& get(variant<Types...>& v) {
-    return std::get<U>(v);
-}
-
-template <typename U, typename... Types>
-constexpr const U& get(const variant<Types...>& v) {
-    return std::get<U>(v);
-}
-
-template <typename U, typename... Types>
-constexpr U&& get(variant<Types...>&& v) {
-    return std::get<U>(v);
-}
-
-template <typename U, typename... Types>
-constexpr const U&& get(const variant<Types...>&& v) {
-    return std::get<U>(v);
-}
-
-template <typename U, typename... Types>
-constexpr U* get_if(variant<Types...>* v) {
-    return std::get_if<U>(v);
-}
-
-template <typename U, typename... Types>
-constexpr const U* get_if(const variant<Types...>* v) {
-    return std::get_if<U>(v);
-}
-
 using string_view = basic_string_view<char>;
 
 } // namespace compat
