@@ -3979,7 +3979,7 @@ __thread const internal::preemption_monitor* g_need_preempt = &bootstrap_preempt
 
 __thread reactor* local_engine;
 
-void report_exception(compat::string_view message, std::exception_ptr eptr) noexcept {
+void report_exception(std::string_view message, std::exception_ptr eptr) noexcept {
     seastar_logger.error("{}: {}", message, eptr);
 }
 

@@ -185,19 +185,19 @@ public:
         return _version;
     }
 
-    const compat::string_view key() const {
-        return compat::string_view(_data, _key_size);
+    const std::string_view key() const {
+        return std::string_view(_data, _key_size);
     }
 
-    const compat::string_view ascii_prefix() const {
+    const std::string_view ascii_prefix() const {
         const char *p = _data + align_up(_key_size, field_alignment);
-        return compat::string_view(p, _ascii_prefix_size);
+        return std::string_view(p, _ascii_prefix_size);
     }
 
-    const compat::string_view value() const {
+    const std::string_view value() const {
         const char *p = _data + align_up(_key_size, field_alignment) +
             align_up(_ascii_prefix_size, field_alignment);
-        return compat::string_view(p, _value_size);
+        return std::string_view(p, _value_size);
     }
 
     size_t key_size() const {

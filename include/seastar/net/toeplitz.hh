@@ -47,7 +47,7 @@
 
 namespace seastar {
 
-using rss_key_type = compat::basic_string_view<uint8_t>;
+using rss_key_type = std::basic_string_view<uint8_t>;
 
 // Mellanox Linux's driver key
 static constexpr uint8_t default_rsskey_40bytes_v[] = {

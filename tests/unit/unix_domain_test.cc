@@ -136,7 +136,7 @@ future<> ud_server_client::client_round() {
             [&out](){ return out.flush(); }).then(
             [&inp](){ return inp.read(); }).then(
             [this,&inp](auto bb){
-                BOOST_REQUIRE_EQUAL(compat::string_view(bb.begin(), bb.size()), "+"s+test_message);
+                BOOST_REQUIRE_EQUAL(std::string_view(bb.begin(), bb.size()), "+"s+test_message);
                 return inp.close();
             }).then([&out](){return out.close();}).then(
             []{ return make_ready_future<>(); });

@@ -214,7 +214,7 @@ public:
         return temporary_buffer(buf, size, make_free_deleter(buf));
     }
 
-    static temporary_buffer copy_of(compat::string_view view) {
+    static temporary_buffer copy_of(std::string_view view) {
         void* ptr = ::malloc(view.size());
         if (!ptr) {
             throw std::bad_alloc();

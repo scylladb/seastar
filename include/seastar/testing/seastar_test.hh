@@ -50,8 +50,8 @@ const std::vector<seastar_test*>& known_tests();
 // BOOST_REQUIRE_EXCEPTION predicates
 namespace exception_predicate {
 
-std::function<bool(const std::exception&)> message_equals(compat::string_view expected_message);
-std::function<bool(const std::exception&)> message_contains(compat::string_view expected_message);
+std::function<bool(const std::exception&)> message_equals(std::string_view expected_message);
+std::function<bool(const std::exception&)> message_contains(std::string_view expected_message);
 
 } // exception_predicate
 

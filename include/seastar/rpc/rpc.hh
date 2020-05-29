@@ -210,13 +210,13 @@ public:
     }
 
     void operator()(const client_info& info, id_type msg_id, const sstring& str) const;
-    void operator()(const client_info& info, id_type msg_id, log_level level, compat::string_view str) const;
+    void operator()(const client_info& info, id_type msg_id, log_level level, std::string_view str) const;
 
     void operator()(const client_info& info, const sstring& str) const;
-    void operator()(const client_info& info, log_level level, compat::string_view str) const;
+    void operator()(const client_info& info, log_level level, std::string_view str) const;
 
     void operator()(const socket_address& addr, const sstring& str) const;
-    void operator()(const socket_address& addr, log_level level, compat::string_view str) const;
+    void operator()(const socket_address& addr, log_level level, std::string_view str) const;
 };
 
 class connection {
