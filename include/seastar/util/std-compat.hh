@@ -42,25 +42,3 @@
 #if __has_feature(address_sanitizer) || defined(__SANITIZE_ADDRESS__)
 #define SEASTAR_ASAN_ENABLED
 #endif
-
-namespace seastar {
-
-/// \cond internal
-
-namespace compat {
-
-template <typename CharT, typename Traits = std::char_traits<CharT>>
-using basic_string_view = std::basic_string_view<CharT, Traits>;
-
-template <typename CharT, typename Traits = std::char_traits<CharT>>
-std::string string_view_to_string(const basic_string_view<CharT, Traits>& v) {
-    return std::string(v);
-}
-
-using string_view = basic_string_view<char>;
-
-} // namespace compat
-
-/// \endcond
-
-} // namespace seastar
