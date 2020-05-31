@@ -195,7 +195,7 @@ public:
             : basic_sstring(initialized_later(), std::distance(first, last)) {
         std::copy(first, last, begin());
     }
-    explicit basic_sstring(compat::basic_string_view<char_type, traits_type> v)
+    explicit basic_sstring(std::basic_string_view<char_type, traits_type> v)
             : basic_sstring(v.data(), v.size()) {
     }
     ~basic_sstring() noexcept {
@@ -473,7 +473,7 @@ public:
             return buf;
         }
     }
-    int compare(compat::basic_string_view<char_type, traits_type> x) const noexcept {
+    int compare(std::basic_string_view<char_type, traits_type> x) const noexcept {
         auto n = traits_type::compare(begin(), x.begin(), std::min(size(), x.size()));
         if (n != 0) {
             return n;
@@ -487,7 +487,7 @@ public:
         }
     }
 
-    int compare(size_t pos, size_t sz, compat::basic_string_view<char_type, traits_type> x) const {
+    int compare(size_t pos, size_t sz, std::basic_string_view<char_type, traits_type> x) const {
         if (pos > size()) {
             internal::throw_sstring_out_of_range();
         }
@@ -552,8 +552,8 @@ public:
         return str()[pos];
     }
 
-    operator compat::basic_string_view<char_type>() const {
-        return compat::basic_string_view<char_type>(str(), size());
+    operator std::basic_string_view<char_type>() const {
+        return std::basic_string_view<char_type>(str(), size());
     }
 };
 template <typename char_type, typename Size, Size max_size, bool NulTerminate>
@@ -661,7 +661,7 @@ namespace std {
 template <typename char_type, typename size_type, size_type max_size, bool NulTerminate>
 struct hash<seastar::basic_sstring<char_type, size_type, max_size, NulTerminate>> {
     size_t operator()(const seastar::basic_sstring<char_type, size_type, max_size, NulTerminate>& s) const {
-        return std::hash<seastar::compat::basic_string_view<char_type>>()(s);
+        return std::hash<std::basic_string_view<char_type>>()(s);
     }
 };
 

@@ -301,7 +301,6 @@ set (Seastar_GEN_BINARY_DIR ${Seastar_BINARY_DIR}/gen)
 #
 
 include (SeastarDependencies)
-set (StdFilesystem_CXX_DIALECT ${Seastar_CXX_DIALECT})
 seastar_find_dependencies ()
 
 # Private build dependencies not visible to consumers
@@ -691,10 +690,8 @@ target_link_libraries (seastar
     lz4::lz4
   PRIVATE
     ${CMAKE_DL_LIBS}
-    Boost::filesystem
     GnuTLS::gnutls
     StdAtomic::atomic
-    StdFilesystem::filesystem
     lksctp-tools::lksctp-tools
     protobuf::libprotobuf
     rt::rt
@@ -1151,7 +1148,6 @@ if (Seastar_INSTALL)
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindProtobuf.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindSanitizers.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindStdAtomic.cmake
-      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindStdFilesystem.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findc-ares.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findcryptopp.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Finddpdk.cmake

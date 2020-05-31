@@ -138,7 +138,7 @@ connection::~connection() {
     _server.maybe_idle();
 }
 
-bool connection::url_decode(const compat::string_view& in, sstring& out) {
+bool connection::url_decode(const std::string_view& in, sstring& out) {
     size_t pos = 0;
     sstring buff(in.length(), 0);
     for (size_t i = 0; i < in.length(); ++i) {

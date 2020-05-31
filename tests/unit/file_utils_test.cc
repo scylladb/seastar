@@ -33,7 +33,7 @@
 #include <seastar/util/file.hh>
 
 using namespace seastar;
-namespace fs = compat::filesystem;
+namespace fs = std::filesystem;
 
 SEASTAR_TEST_CASE(test_make_tmp_file) {
     return make_tmp_file().then([] (tmp_file tf) {

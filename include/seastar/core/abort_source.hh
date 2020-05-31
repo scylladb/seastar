@@ -100,7 +100,7 @@ public:
 
 private:
     using subscription_list_type = bi::list<subscription, bi::constant_time_size<false>>;
-    compat::optional<subscription_list_type> _subscriptions = subscription_list_type();
+    std::optional<subscription_list_type> _subscriptions = subscription_list_type();
 
 public:
     /// Delays the invocation of the callback \c f until \ref request_abort() is called.

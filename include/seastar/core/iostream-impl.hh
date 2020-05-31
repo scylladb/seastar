@@ -34,10 +34,10 @@ inline future<temporary_buffer<char>> data_source_impl::skip(uint64_t n)
 {
     return do_with(uint64_t(n), [this] (uint64_t& n) {
         return repeat_until_value([&] {
-            return get().then([&] (temporary_buffer<char> buffer) -> compat::optional<temporary_buffer<char>> {
+            return get().then([&] (temporary_buffer<char> buffer) -> std::optional<temporary_buffer<char>> {
                 if (buffer.size() >= n) {
                     buffer.trim_front(n);
-                    return SEASTAR_COPY_ELISION(buffer);
+                    return buffer;
                 }
                 n -= buffer.size();
                 return { };
@@ -440,7 +440,7 @@ output_stream<CharType>::poll_flush() {
         // flush was canceled, do nothing
         _flushing = false;
         _in_batch.value().set_value();
-        _in_batch = compat::nullopt;
+        _in_batch = std::nullopt;
         return;
     }
 
@@ -507,7 +507,7 @@ template <typename CharType>
 struct stream_copy_consumer {
 private:
     output_stream<CharType>& _os;
-    using unconsumed_remainder = compat::optional<temporary_buffer<CharType>>;
+    using unconsumed_remainder = std::optional<temporary_buffer<CharType>>;
 public:
     stream_copy_consumer(output_stream<CharType>& os) : _os(os) {
     }

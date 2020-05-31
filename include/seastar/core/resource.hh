@@ -36,7 +36,7 @@ cpu_set_t cpuid_to_cpuset(unsigned cpuid);
 
 namespace resource {
 
-using compat::optional;
+using std::optional;
 
 using cpuset = std::set<unsigned>;
 

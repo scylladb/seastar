@@ -41,7 +41,7 @@ int main(int ac, char** av) {
 
     auto vnet = create_virtio_net_device(opts);
     interface netif(std::move(vnet));
-    l3_protocol arp(&netif, eth_protocol_num::arp, []{ return compat::optional<l3_protocol::l3packet>(); });
+    l3_protocol arp(&netif, eth_protocol_num::arp, []{ return std::optional<l3_protocol::l3packet>(); });
     dump_arp_packets(arp);
     engine().run();
     return 0;

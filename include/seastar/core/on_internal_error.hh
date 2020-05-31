@@ -35,7 +35,7 @@ void set_abort_on_internal_error(bool do_abort);
 ///
 /// Depending on the value passed to set_abort_on_internal_error, this
 /// will either log to \p logger and abort or throw a std::runtime_error.
-[[noreturn]] void on_internal_error(logger& logger, compat::string_view reason);
+[[noreturn]] void on_internal_error(logger& logger, std::string_view reason);
 
 /// Report an internal error
 ///

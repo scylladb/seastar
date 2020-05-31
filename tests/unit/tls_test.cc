@@ -647,7 +647,7 @@ SEASTAR_THREAD_TEST_CASE(test_close_timout) {
 SEASTAR_THREAD_TEST_CASE(test_reload_certificates) {
     tmpdir tmp;
 
-    namespace fs = compat::filesystem;
+    namespace fs = std::filesystem;
 
     // copy the wrong certs. We don't trust these
     // blocking calls, but this is a test and seastar does not have a copy 

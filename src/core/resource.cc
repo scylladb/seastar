@@ -41,7 +41,7 @@ extern logger seastar_logger;
 
 // This function was made optional because of validate. It needs to
 // throw an error when a non parseable input is given.
-compat::optional<resource::cpuset> parse_cpuset(std::string value) {
+std::optional<resource::cpuset> parse_cpuset(std::string value) {
     static std::regex r("(\\d+-)?(\\d+)(,(\\d+-)?(\\d+))*");
 
     std::smatch match;
@@ -61,7 +61,7 @@ compat::optional<resource::cpuset> parse_cpuset(std::string value) {
             auto e = boost::lexical_cast<unsigned>(end);
 
             if (b > e) {
-                return seastar::compat::nullopt;
+                return std::nullopt;
             }
 
             for (auto i = b; i <= e; ++i) {
@@ -70,7 +70,7 @@ compat::optional<resource::cpuset> parse_cpuset(std::string value) {
         }
         return ret;
     }
-    return seastar::compat::nullopt;
+    return std::nullopt;
 }
 
 // Overload for boost program options parsing/validation
@@ -96,7 +96,7 @@ void validate(boost::any& v,
 
 namespace cgroup {
 
-namespace fs = seastar::compat::filesystem;
+namespace fs = std::filesystem;
 
 optional<cpuset> cpu_set() {
     auto cpuset = read_setting_V1V2_as<std::string>(
@@ -107,7 +107,7 @@ optional<cpuset> cpu_set() {
     }
 
     seastar_logger.warn("Unable to parse cgroup's cpuset. Ignoring.");
-    return seastar::compat::nullopt;
+    return std::nullopt;
 }
 
 size_t memory_limit() {
@@ -126,7 +126,7 @@ optional<T> read_setting_as(std::string path) {
         seastar_logger.warn("Couldn't read cgroup file {}.", path);
     }
 
-    return seastar::compat::nullopt;
+    return std::nullopt;
 }
 
 /*
@@ -152,7 +152,7 @@ static optional<fs::path> cgroup2_path_my_pid() {
         // This is either a v1 system, or system configured with a hybrid of v1 & v2.
         // We do not support such combinations of v1 and v2 at this point.
         seastar_logger.debug("Not a cgroups-v2-only system");
-        return seastar::compat::nullopt;
+        return std::nullopt;
     }
 
     // the path is guaranteed to start with '0::/'
@@ -176,7 +176,7 @@ static optional<fs::path> locate_lowest_cgroup2(fs::path lowest_subdir, std::str
         lowest_subdir = lowest_subdir.parent_path();
     } while (lowest_subdir.compare("/sys/fs"));
 
-    return seastar::compat::nullopt;
+    return std::nullopt;
 }
 
 /*
@@ -198,7 +198,7 @@ optional<T> read_setting_V1V2_as(std::string cg1_path, std::string cg2_fname) {
             line = read_first_line(locate_lowest_cgroup2(*cg2_path, cg2_fname).value());
         } catch (...) {
             seastar_logger.warn("Could not read cgroups v2 file ({}).", cg2_fname);
-            return seastar::compat::nullopt;
+            return std::nullopt;
         }
         if (line.compare("max")) {
             try {
@@ -207,7 +207,7 @@ optional<T> read_setting_V1V2_as(std::string cg1_path, std::string cg2_fname) {
                 seastar_logger.warn("Malformed cgroups file ({}) contents.", cg2_fname);
             }
         }
-        return seastar::compat::nullopt;
+        return std::nullopt;
     }
 
     // try cgroups v1:
@@ -218,7 +218,7 @@ optional<T> read_setting_V1V2_as(std::string cg1_path, std::string cg2_fname) {
         seastar_logger.warn("Could not parse cgroups v1 file ({}).", cg1_path);
     }
 
-    return seastar::compat::nullopt;
+    return std::nullopt;
 }
 
 }

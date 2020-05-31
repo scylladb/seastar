@@ -28,7 +28,7 @@
 using namespace seastar;
 
 BOOST_AUTO_TEST_CASE(test_construction) {
-    BOOST_REQUIRE_EQUAL(sstring(compat::string_view("abc")), sstring("abc"));
+    BOOST_REQUIRE_EQUAL(sstring(std::string_view("abc")), sstring("abc"));
 }
 
 BOOST_AUTO_TEST_CASE(test_equality) {

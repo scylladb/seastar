@@ -483,19 +483,19 @@ void tls::credentials_builder::set_dh_level(dh_params::level level) {
 }
 
 void tls::credentials_builder::set_x509_trust(const blob& b, x509_crt_format fmt) {
-    _blobs.emplace(x509_trust_key, x509_simple{ compat::string_view_to_string(b), fmt });
+    _blobs.emplace(x509_trust_key, x509_simple{ std::string(b), fmt });
 }
 
 void tls::credentials_builder::set_x509_crl(const blob& b, x509_crt_format fmt) {
-    _blobs.emplace(x509_crl_key, x509_simple{ compat::string_view_to_string(b), fmt });
+    _blobs.emplace(x509_crl_key, x509_simple{ std::string(b), fmt });
 }
 
 void tls::credentials_builder::set_x509_key(const blob& cert, const blob& key, x509_crt_format fmt) {
-    _blobs.emplace(x509_key_key, x509_key { compat::string_view_to_string(cert), compat::string_view_to_string(key), fmt });
+    _blobs.emplace(x509_key_key, x509_key { std::string(cert), std::string(key), fmt });
 }
 
 void tls::credentials_builder::set_simple_pkcs12(const blob& b, x509_crt_format fmt, const sstring& password) {
-    _blobs.emplace(pkcs12_key, pkcs12_simple{compat::string_view_to_string(b), fmt, password });
+    _blobs.emplace(pkcs12_key, pkcs12_simple{std::string(b), fmt, password });
 }
 
 static buffer_type to_buffer(const temporary_buffer<char>& buf) {
@@ -1125,7 +1125,7 @@ public:
         try {
             scattered_message<char> msg;
             for (int i = 0; i < iovcnt; ++i) {
-                msg.append(compat::string_view(reinterpret_cast<const char *>(iov[i].iov_base), iov[i].iov_len));
+                msg.append(std::string_view(reinterpret_cast<const char *>(iov[i].iov_base), iov[i].iov_len));
             }
             auto n = msg.size();
             _output_pending = _out.put(std::move(msg).release());

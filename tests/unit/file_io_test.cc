@@ -37,7 +37,7 @@
 #include "core/file-impl.hh"
 
 using namespace seastar;
-namespace fs = compat::filesystem;
+namespace fs = std::filesystem;
 
 SEASTAR_TEST_CASE(open_flags_test) {
     open_flags flags = open_flags::rw | open_flags::create  | open_flags::exclusive;

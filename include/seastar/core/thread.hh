@@ -78,7 +78,7 @@ class thread_attributes;
 /// Class that holds attributes controling the behavior of a thread.
 class thread_attributes {
 public:
-    compat::optional<seastar::scheduling_group> sched_group;
+    std::optional<seastar::scheduling_group> sched_group;
     // For stack_size 0, a default value will be used (128KiB when writing this comment)
     size_t stack_size = 0;
 };

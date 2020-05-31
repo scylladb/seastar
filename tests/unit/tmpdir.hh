@@ -36,7 +36,7 @@ public:
     tmpdir(const tmpdir&) = delete;
     
     tmpdir(const sstring& name = sstring(seastar::default_tmpdir()) + "/testXXXX") {
-        _tmp.create(compat::filesystem::path(name)).get();
+        _tmp.create(std::filesystem::path(name)).get();
     }
     ~tmpdir() {
         _tmp.remove().get();

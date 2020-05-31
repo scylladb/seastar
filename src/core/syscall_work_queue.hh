@@ -49,7 +49,7 @@ class syscall_work_queue {
     struct work_item_returning :  work_item {
         noncopyable_function<T ()> _func;
         promise<T> _promise;
-        compat::optional<T> _result;
+        std::optional<T> _result;
         work_item_returning(noncopyable_function<T ()> func) : _func(std::move(func)) {}
         virtual void process() override { _result = this->_func(); }
         virtual void complete() override { _promise.set_value(std::move(*_result)); }

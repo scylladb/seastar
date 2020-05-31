@@ -722,7 +722,7 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
                 for (auto& b : bufs) {
                     c.emplace_back(b.clone());
                 }
-                return SEASTAR_COPY_ELISION(c);
+                return c;
             }
         );
         return c;
@@ -1155,8 +1155,4 @@ SEASTAR_TEST_CASE(test_loggers) {
     });
 }
 
-#if __cplusplus >= 201703
-
 static_assert(std::is_same_v<decltype(rpc::tuple(1U, 1L)), rpc::tuple<unsigned, long>>, "rpc::tuple deduction guid not working");
-
-#endif

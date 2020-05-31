@@ -329,11 +329,11 @@ struct repeat_until_value_type_helper;
 
 /// Type helper for repeat_until_value()
 template <typename T>
-struct repeat_until_value_type_helper<future<compat::optional<T>>> {
+struct repeat_until_value_type_helper<future<std::optional<T>>> {
     /// The type of the value we are computing
     using value_type = T;
     /// Type used by \c AsyncAction while looping
-    using optional_type = compat::optional<T>;
+    using optional_type = std::optional<T>;
     /// Return type of repeat_until_value()
     using future_type = future<value_type>;
 };
@@ -346,12 +346,12 @@ using repeat_until_value_return_type
 namespace internal {
 
 template <typename AsyncAction, typename T>
-class repeat_until_value_state final : public continuation_base<compat::optional<T>> {
+class repeat_until_value_state final : public continuation_base<std::optional<T>> {
     promise<T> _promise;
     AsyncAction _action;
 public:
     explicit repeat_until_value_state(AsyncAction action) : _action(std::move(action)) {}
-    repeat_until_value_state(compat::optional<T> st, AsyncAction action) : repeat_until_value_state(std::move(action)) {
+    repeat_until_value_state(std::optional<T> st, AsyncAction action) : repeat_until_value_state(std::move(action)) {
         this->_state.set(std::make_tuple(std::move(st)));
     }
     future<T> get_future() { return _promise.get_future(); }
@@ -388,7 +388,7 @@ public:
             delete this;
             return;
         }
-        this->_state.set(compat::nullopt);
+        this->_state.set(std::nullopt);
         schedule(this);
     }
 };
@@ -396,11 +396,11 @@ public:
 }
 
 /// Invokes given action until it fails or the function requests iteration to stop by returning
-/// an engaged \c future<compat::optional<T>> or compat::optional<T>.  The value is extracted
+/// an engaged \c future<std::optional<T>> or std::optional<T>.  The value is extracted
 /// from the \c optional, and returned, as a future, from repeat_until_value().
 ///
-/// \param action a callable taking no arguments, returning a future<compat::optional<T>>
-///               or compat::optional<T>.  Will be called again as soon as the future
+/// \param action a callable taking no arguments, returning a future<std::optional<T>>
+///               or std::optional<T>.  Will be called again as soon as the future
 ///               resolves, unless the future fails, action throws, or it resolves with
 ///               an engaged \c optional.  If \c action is an r-value it can be moved
 ///               in the middle of iteration.
@@ -442,7 +442,7 @@ repeat_until_value(AsyncAction action) noexcept {
     } while (!need_preempt());
 
     try {
-        auto state = new internal::repeat_until_value_state<AsyncAction, value_type>(compat::nullopt, std::move(action));
+        auto state = new internal::repeat_until_value_state<AsyncAction, value_type>(std::nullopt, std::move(action));
         auto f = state->get_future();
         schedule(state);
         return f;

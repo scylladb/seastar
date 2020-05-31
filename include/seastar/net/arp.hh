@@ -73,7 +73,7 @@ private:
     ethernet_address l2self() { return _netif->hw_address(); }
     future<> process_packet(packet p, ethernet_address from);
     bool forward(forward_hash& out_hash_data, packet& p, size_t off);
-    compat::optional<l3_protocol::l3packet> get_packet();
+    std::optional<l3_protocol::l3packet> get_packet();
     template <class l3_proto>
     friend class arp_for;
 };

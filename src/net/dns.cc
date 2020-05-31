@@ -36,7 +36,7 @@ namespace seastar {
 // declaration at the call site
 //
 // This doesn't need to be in the public API, so leave it there instead of placing into `inet_address.hh`
-std::ostream& operator<<(std::ostream& os, const compat::optional<net::inet_address::family>& f) {
+std::ostream& operator<<(std::ostream& os, const std::optional<net::inet_address::family>& f) {
     if (f) {
         return os << *f;
     } else {
@@ -883,8 +883,8 @@ private:
         }
         ;
         connected_socket socket;
-        compat::optional<input_stream<char>> in;
-        compat::optional<output_stream<char>> out;
+        std::optional<input_stream<char>> in;
+        std::optional<output_stream<char>> out;
         temporary_buffer<char> indata;
     };
     struct udp_entry {
@@ -892,7 +892,7 @@ private:
                         : channel(std::move(c)) {
         }
         net::udp_channel channel;
-        compat::optional<net::udp_datagram> in;;
+        std::optional<net::udp_datagram> in;;
         socket_address dst;
     };
     struct sock_entry {

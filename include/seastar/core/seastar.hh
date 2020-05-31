@@ -327,12 +327,12 @@ future<uint64_t> file_size(sstring name) noexcept;
 /// \param flags bit pattern containing type of access to check (read/write/execute or exists).
 ///
 /// If only access_flags::exists is queried, returns true if the file exists, or false otherwise.
-/// Throws a compat::filesystem::filesystem_error exception if any error other than ENOENT is encountered.
+/// Throws a std::filesystem::filesystem_error exception if any error other than ENOENT is encountered.
 ///
 /// If any of the access_flags (read/write/execute) is set, returns true if the file exists and is
 /// accessible with the requested flags, or false if the file exists and is not accessible
 /// as queried.
-/// Throws a compat::filesystem::filesystem_error exception if any error other than EACCES is encountered.
+/// Throws a std::filesystem::filesystem_error exception if any error other than EACCES is encountered.
 /// Note that if any path component leading to the file is not searchable, the file is considered inaccessible
 /// with the requested mode and false will be returned.
 future<bool> file_accessible(sstring name, access_flags flags) noexcept;
@@ -350,7 +350,7 @@ future<bool> file_exists(sstring name) noexcept;
 /// \return a engaged optional with the file type if lookup was successful; a disengaged optional
 ///      if the file (or one of its parent directories) does not exist; an exceptional future on
 ///      other errors.
-future<compat::optional<directory_entry_type>> file_type(sstring name, follow_symlink = follow_symlink::yes) noexcept;
+future<std::optional<directory_entry_type>> file_type(sstring name, follow_symlink = follow_symlink::yes) noexcept;
 
 
 /// Creates a hard link for a file

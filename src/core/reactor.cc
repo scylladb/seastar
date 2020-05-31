@@ -524,7 +524,7 @@ void task_histogram_add_task(const task& t) {
 }
 
 using namespace std::chrono_literals;
-namespace fs = seastar::compat::filesystem;
+namespace fs = std::filesystem;
 
 using namespace net;
 
@@ -597,7 +597,7 @@ timer<Clock>::~timer() {
 
 template <typename Clock>
 inline
-void timer<Clock>::arm(time_point until, compat::optional<duration> period) {
+void timer<Clock>::arm(time_point until, std::optional<duration> period) {
     arm_state(until, period);
     engine().add_timer(this);
 }
@@ -1345,7 +1345,7 @@ reactor::posix_listen(socket_address sa, listen_options opts) {
         specific_protocol = 0;
     }
     static auto somaxconn = [] {
-        compat::optional<int> result;
+        std::optional<int> result;
         std::ifstream ifs("/proc/sys/net/core/somaxconn");
         if (ifs) {
             result = 0;
@@ -1686,7 +1686,7 @@ directory_entry_type stat_to_entry_type(__mode_t type) {
     return directory_entry_type::unknown;
 }
 
-future<compat::optional<directory_entry_type>>
+future<std::optional<directory_entry_type>>
 reactor::file_type(sstring name, follow_symlink follow) noexcept {
     return _thread_pool->submit<syscall_result_extra<struct stat>>([name, follow] {
         struct stat st;
@@ -1698,15 +1698,15 @@ reactor::file_type(sstring name, follow_symlink follow) noexcept {
             if (sr.error != ENOENT && sr.error != ENOTDIR) {
                 sr.throw_fs_exception_if_error("stat failed", name);
             }
-            return make_ready_future<compat::optional<directory_entry_type> >
-                (compat::optional<directory_entry_type>() );
+            return make_ready_future<std::optional<directory_entry_type> >
+                (std::optional<directory_entry_type>() );
         }
-        return make_ready_future<compat::optional<directory_entry_type> >
-            (compat::optional<directory_entry_type>(stat_to_entry_type(sr.extra.st_mode)) );
+        return make_ready_future<std::optional<directory_entry_type> >
+            (std::optional<directory_entry_type>(stat_to_entry_type(sr.extra.st_mode)) );
     });
 }
 
-future<compat::optional<directory_entry_type>>
+future<std::optional<directory_entry_type>>
 file_type(sstring name, follow_symlink follow) noexcept {
     return engine().file_type(std::move(name), follow);
 }
@@ -3346,7 +3346,7 @@ thread_local std::unique_ptr<reactor, reactor_deleter> reactor_holder;
 
 std::vector<posix_thread> smp::_threads;
 std::vector<std::function<void ()>> smp::_thread_loops;
-compat::optional<boost::barrier> smp::_all_event_loops_done;
+std::optional<boost::barrier> smp::_all_event_loops_done;
 std::vector<reactor*> smp::_reactors;
 std::unique_ptr<smp_message_queue*[], smp::qs_deleter> smp::_qs;
 std::thread::id smp::_tmain;
@@ -3486,7 +3486,7 @@ void smp::qs_deleter::operator()(smp_message_queue** qs) const {
 class disk_config_params {
 private:
     unsigned _num_io_queues = 0;
-    compat::optional<unsigned> _capacity;
+    std::optional<unsigned> _capacity;
     std::unordered_map<dev_t, mountpoint_params> _mountpoints;
     std::chrono::duration<double> _latency_goal;
 
@@ -3524,7 +3524,7 @@ public:
             throw std::runtime_error("Both io-properties and io-properties-file specified. Don't know which to trust!");
         }
 
-        compat::optional<YAML::Node> doc;
+        std::optional<YAML::Node> doc;
         if (configuration.count("io-properties-file")) {
             doc = YAML::LoadFile(configuration["io-properties-file"].as<std::string>());
         } else if (configuration.count("io-properties")) {
@@ -3752,7 +3752,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     if (configuration.count("reserve-memory")) {
         rc.reserve_memory = parse_memory_size(configuration["reserve-memory"].as<std::string>());
     }
-    compat::optional<std::string> hugepages_path;
+    std::optional<std::string> hugepages_path;
     if (configuration.count("hugepages")) {
         hugepages_path = configuration["hugepages"].as<std::string>();
     }
@@ -3979,7 +3979,7 @@ __thread const internal::preemption_monitor* g_need_preempt = &bootstrap_preempt
 
 __thread reactor* local_engine;
 
-void report_exception(compat::string_view message, std::exception_ptr eptr) noexcept {
+void report_exception(std::string_view message, std::exception_ptr eptr) noexcept {
     seastar_logger.error("{}: {}", message, eptr);
 }
 
@@ -3989,7 +3989,7 @@ future<> check_direct_io_support(sstring path) {
         open_flags flags;
         std::function<future<>()> cleanup;
 
-        static w parse(sstring path, compat::optional<directory_entry_type> type) {
+        static w parse(sstring path, std::optional<directory_entry_type> type) {
             if (!type) {
                 throw std::invalid_argument(format("Could not open file at {}. Make sure it exists", path));
             }

@@ -33,7 +33,7 @@ void seastar::set_abort_on_internal_error(bool do_abort) {
     abort_on_internal_error.store(do_abort);
 }
 
-void seastar::on_internal_error(logger& logger, compat::string_view msg) {
+void seastar::on_internal_error(logger& logger, std::string_view msg) {
     if (abort_on_internal_error.load()) {
         logger.error("{}, at: {}", msg, current_backtrace());
         abort();

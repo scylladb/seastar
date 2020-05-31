@@ -277,7 +277,7 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
             }
             auto start = w->buffer + w->current;
             auto de = reinterpret_cast<linux_dirent64*>(start);
-            compat::optional<directory_entry_type> type;
+            std::optional<directory_entry_type> type;
             switch (de->d_type) {
             case DT_BLK:
                 type = directory_entry_type::block_device;
@@ -955,7 +955,7 @@ file::dma_read_exactly_impl(uint64_t pos, size_t len, const io_priority_class& p
             throw eof_error();
         }
 
-        return SEASTAR_COPY_ELISION(buf);
+        return buf;
     });
 }
 
@@ -966,7 +966,7 @@ file::dma_read_impl(uint64_t pos, size_t len, const io_priority_class& pc) noexc
             buf.trim(len);
         }
 
-        return SEASTAR_COPY_ELISION(buf);
+        return buf;
     });
 }
 

@@ -109,7 +109,7 @@ public:
     static future<std::vector<inet_address>> find_all(const sstring&);
     static future<std::vector<inet_address>> find_all(const sstring&, family);
 
-    static compat::optional<inet_address> parse_numerical(const sstring&);
+    static std::optional<inet_address> parse_numerical(const sstring&);
 };
 
 std::ostream& operator<<(std::ostream&, const inet_address&);

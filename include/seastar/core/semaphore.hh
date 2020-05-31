@@ -71,7 +71,7 @@ struct semaphore_default_exception_factory {
 class named_semaphore_timed_out : public semaphore_timed_out {
     sstring _msg;
 public:
-    named_semaphore_timed_out(compat::string_view msg);
+    named_semaphore_timed_out(std::string_view msg);
     virtual const char* what() const noexcept {
         return _msg.c_str();
     }
@@ -80,7 +80,7 @@ public:
 class broken_named_semaphore : public broken_semaphore {
     sstring _msg;
 public:
-    broken_named_semaphore(compat::string_view msg);
+    broken_named_semaphore(std::string_view msg);
     virtual const char* what() const noexcept {
         return _msg.c_str();
     }

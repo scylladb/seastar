@@ -22,21 +22,11 @@
 #pragma once
 
 #include <seastar/util/std-compat.hh>
-#include <boost/version.hpp>
-
-#if (BOOST_VERSION < 105800)
-
-#error "Boost version >= 1.58 is required for using variant visitation helpers."
-#error "Earlier versions lack support for return value deduction and move-only return values"
-
-#endif
 
 namespace seastar {
 
 /// \cond internal
 namespace internal {
-
-#if __cplusplus >= 201703L // C++17
 
 template<typename... Args>
 struct variant_visitor : Args... {
@@ -45,32 +35,6 @@ struct variant_visitor : Args... {
 };
 
 template<typename... Args> variant_visitor(Args&&...) -> variant_visitor<Args...>;
-
-#else
-
-template <typename... Args>
-struct variant_visitor;
-
-template <typename FuncObj, typename... Args>
-struct variant_visitor<FuncObj, Args...> : FuncObj, variant_visitor<Args...>
-{
-    variant_visitor(FuncObj&& func_obj, Args&&... args)
-        : FuncObj(std::move(func_obj))
-        , variant_visitor<Args...>(std::move(args)...) {}
-
-    using FuncObj::operator();
-    using variant_visitor<Args...>::operator();
-};
-
-template <typename FuncObj>
-struct variant_visitor<FuncObj> : FuncObj
-{
-    variant_visitor(FuncObj&& func_obj) : FuncObj(std::forward<FuncObj>(func_obj)) {}
-
-    using FuncObj::operator();
-};
-
-#endif
 
 }
 /// \endcond
@@ -81,8 +45,7 @@ struct variant_visitor<FuncObj> : FuncObj
 /// Creates a visitor from function objects.
 ///
 /// Returns a visitor object comprised of the provided function objects. Can be
-/// used with std::variant, boost::variant or any other custom variant
-/// implementation.
+/// used with std::variant or any other custom variant implementation.
 ///
 /// \param args function objects each accepting one or some types stored in the variant as input
 template <typename... Args>
@@ -113,10 +76,10 @@ inline auto visit(Variant&& variant, Args&&... args)
 namespace internal {
 template<typename... Args>
 struct castable_variant {
-    compat::variant<Args...> var;
+    std::variant<Args...> var;
 
     template<typename... SuperArgs>
-    operator compat::variant<SuperArgs...>() && {
+    operator std::variant<SuperArgs...>() && {
         return std::visit([] (auto&& x) {
             return std::variant<SuperArgs...>(std::move(x));
         }, var);
@@ -125,12 +88,12 @@ struct castable_variant {
 }
 
 template<typename... Args>
-internal::castable_variant<Args...> variant_cast(compat::variant<Args...>&& var) {
+internal::castable_variant<Args...> variant_cast(std::variant<Args...>&& var) {
     return {std::move(var)};
 }
 
 template<typename... Args>
-internal::castable_variant<Args...> variant_cast(const compat::variant<Args...>& var) {
+internal::castable_variant<Args...> variant_cast(const std::variant<Args...>& var) {
     return {var};
 }
 

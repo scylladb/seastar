@@ -59,7 +59,7 @@ public:
         uint16_t mtu = 0;
     };
 
-    typedef future<compat::optional<lease>> result_type;
+    typedef future<std::optional<lease>> result_type;
 
     /**
      * Runs a discover/request sequence on the ipv4 "stack".

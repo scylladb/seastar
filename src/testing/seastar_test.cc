@@ -75,7 +75,7 @@ seastar_test::seastar_test() {
 
 namespace exception_predicate {
 
-std::function<bool(const std::exception&)> message_equals(compat::string_view expected_message) {
+std::function<bool(const std::exception&)> message_equals(std::string_view expected_message) {
     return [expected_message] (const std::exception& e) {
         std::string error = e.what();
         if (error == expected_message) {
@@ -87,7 +87,7 @@ std::function<bool(const std::exception&)> message_equals(compat::string_view ex
     };
 }
 
-std::function<bool(const std::exception&)> message_contains(compat::string_view expected_message) {
+std::function<bool(const std::exception&)> message_contains(std::string_view expected_message) {
     return [expected_message] (const std::exception& e) {
         std::string error = e.what();
         if (error.find(expected_message.data()) != std::string::npos) {

@@ -30,7 +30,6 @@ list (APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR})
 #
 
 include (SeastarDependencies)
-set (StdFilesystem_CXX_DIALECT "@Seastar_CXX_DIALECT@")
 seastar_find_dependencies ()
 
 if (NOT TARGET Seastar::seastar)

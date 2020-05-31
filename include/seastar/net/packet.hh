@@ -50,7 +50,7 @@ struct offload_info {
     bool reassembled = false;
     uint16_t tso_seg_size = 0;
     // HW stripped VLAN header (CPU order)
-    compat::optional<uint16_t> vlan_tci;
+    std::optional<uint16_t> vlan_tci;
 };
 
 // Zero-copy friendly packet class
@@ -98,7 +98,7 @@ class packet final {
         uint16_t _nr_frags = 0;
         uint16_t _allocated_frags;
         offload_info _offload_info;
-        compat::optional<uint32_t> _rss_hash;
+        std::optional<uint32_t> _rss_hash;
         char _data[internal_data_size]; // only _frags[0] may use
         unsigned _headroom = internal_data_size; // in _data
         // FIXME: share _data/_frags space
@@ -274,10 +274,10 @@ public:
             _impl = impl::allocate_if_needed(std::move(_impl), extra);
         }
     }
-    compat::optional<uint32_t> rss_hash() {
+    std::optional<uint32_t> rss_hash() {
         return _impl->_rss_hash;
     }
-    compat::optional<uint32_t> set_rss_hash(uint32_t hash) {
+    std::optional<uint32_t> set_rss_hash(uint32_t hash) {
         return _impl->_rss_hash = hash;
     }
     // Call `func` for each fragment, avoiding data copies when possible

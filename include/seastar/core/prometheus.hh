@@ -35,7 +35,7 @@ namespace prometheus {
 struct config {
     sstring metric_help; //!< Default help message for the returned metrics
     sstring hostname; //!< hostname is deprecated, use label instead
-    compat::optional<metrics::label_instance> label; //!< A label that will be added to all metrics, we advice not to use it and set it on the prometheus server
+    std::optional<metrics::label_instance> label; //!< A label that will be added to all metrics, we advice not to use it and set it on the prometheus server
     sstring prefix = "seastar"; //!< a prefix that will be added to metric names
 };
 

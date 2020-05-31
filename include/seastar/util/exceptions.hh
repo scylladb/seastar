@@ -32,7 +32,7 @@ namespace seastar {
 /// \param path - path of the file that hit the error
 /// \param error - the system error number (see errno(3))
 ///
-compat::filesystem::filesystem_error make_filesystem_error(const std::string& what, compat::filesystem::path path, int error);
+std::filesystem::filesystem_error make_filesystem_error(const std::string& what, std::filesystem::path path, int error);
 
 /// \brief make a filesystem_error for system calls with two file operands.
 ///
@@ -40,6 +40,6 @@ compat::filesystem::filesystem_error make_filesystem_error(const std::string& wh
 /// \param path1, path2 - paths of the files that hit the error
 /// \param error - the system error number (see errno(3))
 ///
-compat::filesystem::filesystem_error make_filesystem_error(const std::string& what, compat::filesystem::path path1, compat::filesystem::path path2, int error);
+std::filesystem::filesystem_error make_filesystem_error(const std::string& what, std::filesystem::path path1, std::filesystem::path path2, int error);
 
 } // namespace seastar

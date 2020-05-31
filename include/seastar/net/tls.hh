@@ -57,7 +57,7 @@ namespace tls {
         PEM,
     };
 
-    typedef compat::basic_string_view<char> blob;
+    typedef std::basic_string_view<char> blob;
 
     class session;
     class server_session;

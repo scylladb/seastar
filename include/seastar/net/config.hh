@@ -38,14 +38,14 @@ namespace net {
 
     struct hw_config {
         std::string pci_address;
-        compat::optional<unsigned> port_index;
+        std::optional<unsigned> port_index;
         bool lro{ true };
         bool tso{ true };
         bool ufo{ true };
         bool hw_fc{ true };
         bool event_index{ true };
         bool csum_offload{ true };
-        compat::optional<unsigned> ring_size;
+        std::optional<unsigned> ring_size;
     };
 
     struct device_config {

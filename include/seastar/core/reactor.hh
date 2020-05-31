@@ -272,7 +272,7 @@ private:
     bool _finished_running_tasks = false;
     condition_variable _stop_requested;
     bool _handle_sigint = true;
-    compat::optional<future<std::unique_ptr<network_stack>>> _network_stack_ready;
+    std::optional<future<std::unique_ptr<network_stack>>> _network_stack_ready;
     int _return = 0;
     promise<> _start_promise;
     semaphore _cpu_started;
@@ -335,8 +335,8 @@ private:
     // _lowres_clock_impl will only be created on cpu 0
     std::unique_ptr<lowres_clock_impl> _lowres_clock_impl;
     lowres_clock::time_point _lowres_next_timeout;
-    compat::optional<poller> _epoll_poller;
-    compat::optional<pollable_fd> _aio_eventfd;
+    std::optional<poller> _epoll_poller;
+    std::optional<pollable_fd> _aio_eventfd;
     const bool _reuseport;
     circular_buffer<double> _loads;
     double _load = 0;
@@ -500,7 +500,7 @@ public:
     future<file> open_directory(sstring name) noexcept;
     future<> make_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions) noexcept;
     future<> touch_directory(sstring name, file_permissions permissions = file_permissions::default_dir_permissions) noexcept;
-    future<compat::optional<directory_entry_type>>  file_type(sstring name, follow_symlink = follow_symlink::yes) noexcept;
+    future<std::optional<directory_entry_type>>  file_type(sstring name, follow_symlink = follow_symlink::yes) noexcept;
     future<stat_data> file_stat(sstring pathname, follow_symlink) noexcept;
     future<uint64_t> file_size(sstring pathname) noexcept;
     future<bool> file_accessible(sstring pathname, access_flags flags) noexcept;

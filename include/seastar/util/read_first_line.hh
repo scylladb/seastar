@@ -4,10 +4,10 @@
 
 namespace seastar {
 
-sstring read_first_line(compat::filesystem::path sys_file);
+sstring read_first_line(std::filesystem::path sys_file);
 
 template <typename Type>
-Type read_first_line_as(compat::filesystem::path sys_file) {
+Type read_first_line_as(std::filesystem::path sys_file) {
     return boost::lexical_cast<Type>(read_first_line(sys_file));
 }
 

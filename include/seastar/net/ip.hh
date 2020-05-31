@@ -177,7 +177,7 @@ struct ipv4_traits {
         ethernet_address e_dst;
         ip_protocol_num proto_num;
     };
-    using packet_provider_type = std::function<compat::optional<l4packet> ()>;
+    using packet_provider_type = std::function<std::optional<l4packet> ()>;
     static void tcp_pseudo_header_checksum(checksummer& csum, ipv4_address src, ipv4_address dst, uint16_t len) {
         csum.sum_many(src.ip.raw, dst.ip.raw, uint8_t(0), uint8_t(ip_protocol_num::tcp), len);
     }
@@ -268,7 +268,7 @@ public:
     using inet_type = ipv4_l4<ip_protocol_num::icmp>;
     explicit icmp(inet_type& inet) : _inet(inet) {
         _inet.register_packet_provider([this] {
-            compat::optional<ipv4_traits::l4packet> l4p;
+            std::optional<ipv4_traits::l4packet> l4p;
             if (!_packetq.empty()) {
                 l4p = std::move(_packetq.front());
                 _packetq.pop_front();
@@ -422,7 +422,7 @@ private:
 private:
     future<> handle_received_packet(packet p, ethernet_address from);
     bool forward(forward_hash& out_hash_data, packet& p, size_t off);
-    compat::optional<l3_protocol::l3packet> get_packet();
+    std::optional<l3_protocol::l3packet> get_packet();
     bool in_my_netmask(ipv4_address a) const;
     void frag_limit_mem();
     void frag_timeout();
