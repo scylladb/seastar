@@ -320,6 +320,12 @@ public:
     /// \return  Result of invoking `map` with each instance in parallel, reduced by calling
     ///          `reduce()` on each adjacent pair of results.
     template <typename Mapper, typename Initial, typename Reduce>
+    SEASTAR_CONCEPT(
+            requires std::invocable<Mapper, Service&>  // can call map(service)
+                    && std::is_invocable_r_v<Initial, Reduce, Initial, Initial>  // can call reducer
+                    && std::is_same_v<futurize_t<std::remove_reference_t<std::invoke_result_t<Mapper, Service&>>>,
+                                      futurize_t<Initial>> // mapped type is compatible with Initial
+    )
     inline
     future<Initial>
     map_reduce0(Mapper map, Initial initial, Reduce reduce) {
