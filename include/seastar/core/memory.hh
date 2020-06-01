@@ -84,6 +84,16 @@ public:
     ~disable_abort_on_alloc_failure_temporarily() noexcept;
 };
 
+// Disables heap profiling as long as this object is alive.
+// Can be nested, in which case the profiling is re-enabled when all
+// the objects go out of scope.
+class disable_backtrace_temporarily {
+    bool _old;
+public:
+    disable_backtrace_temporarily();
+    ~disable_backtrace_temporarily();
+};
+
 enum class reclaiming_result {
     reclaimed_nothing,
     reclaimed_something

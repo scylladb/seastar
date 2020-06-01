@@ -322,6 +322,7 @@ private:
     task_queue_list _activating_task_queues;
     task_queue* _at_destroy_tasks;
     sched_clock::duration _task_quota;
+    task* _current_task = nullptr;
     /// Handler that will be called when there is no task to execute on cpu.
     /// It represents a low priority work.
     /// 
@@ -407,6 +408,7 @@ private:
     signals _signals;
     std::unique_ptr<thread_pool> _thread_pool;
     friend class thread_pool;
+    friend class thread_context;
     friend class internal::cpu_stall_detector;
 
     uint64_t pending_task_count() const;
@@ -556,6 +558,7 @@ public:
 #ifdef SEASTAR_SHUFFLE_TASK_QUEUE
     void shuffle(task*&, task_queue&);
 #endif
+    task* current_task() const { return _current_task; }
 
     void add_task(task* t) noexcept {
         auto sg = t->group();

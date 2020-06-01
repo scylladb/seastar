@@ -77,6 +77,8 @@ public:
             auto handle = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<promise_type>::from_promise(*this);
             handle.resume();
         }
+
+        task* waiting_task() noexcept override { return _promise.waiting_task(); }
     };
 };
 
@@ -113,6 +115,8 @@ public:
             auto handle = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<promise_type>::from_promise(*this);
             handle.resume();
         }
+
+       task* waiting_task() noexcept override { return _promise.waiting_task(); }
     };
 };
 

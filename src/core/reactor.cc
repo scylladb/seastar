@@ -42,6 +42,7 @@
 #include <seastar/util/conversions.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/thread.hh>
+#include <seastar/core/make_task.hh>
 #include <seastar/core/systemwide_memory_barrier.hh>
 #include <seastar/core/report_exception.hh>
 #include <seastar/core/stall_sampler.hh>
@@ -2148,7 +2149,9 @@ void reactor::run_tasks(task_queue& tq) {
         tasks.pop_front();
         STAP_PROBE(seastar, reactor_run_tasks_single_start);
         task_histogram_add_task(*tsk);
+        _current_task = tsk;
         tsk->run_and_dispose();
+        _current_task = nullptr;
         STAP_PROBE(seastar, reactor_run_tasks_single_end);
         ++tq._tasks_processed;
         ++_global_tasks_processed;
@@ -2844,6 +2847,7 @@ public:
         }
         delete this;
     }
+    task* waiting_task() noexcept override { return nullptr; }
     void cancel() {
         _p = nullptr;
     }
@@ -2861,6 +2865,7 @@ public:
         engine().unregister_poller(_p.get());
         delete this;
     }
+    task* waiting_task() noexcept override { return nullptr; }
 };
 
 }
@@ -4082,13 +4087,10 @@ reactor::calculate_poll_time() {
 
 future<> later() noexcept {
     memory::disable_failure_guard dfg;
-    promise<> p;
-    auto f = p.get_future();
     engine().force_poll();
-    schedule(make_task(default_scheduling_group(), [p = std::move(p)] () mutable {
-        p.set_value();
-    }));
-    return f;
+    auto tsk = make_task(default_scheduling_group(), [] {});
+    schedule(tsk);
+    return tsk->get_future();
 }
 
 void add_to_flush_poller(output_stream<char>* os) {
@@ -4373,5 +4375,18 @@ std::ostream& operator<<(std::ostream& os, const stall_report& sr) {
 }
 
 }
+
+#ifdef SEASTAR_TASK_BACKTRACE
+
+void task::make_backtrace() noexcept {
+    memory::disable_backtrace_temporarily dbt;
+    try {
+        _bt = make_lw_shared<simple_backtrace>(current_backtrace_tasklocal());
+    } catch (...) {
+        _bt = nullptr;
+    }
+}
+
+#endif
 
 }

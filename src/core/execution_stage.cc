@@ -21,6 +21,7 @@
 
 #include <seastar/core/execution_stage.hh>
 #include <seastar/core/print.hh>
+#include <seastar/core/make_task.hh>
 
 namespace seastar {
 

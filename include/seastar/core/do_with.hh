@@ -53,6 +53,9 @@ public:
         _pr.set_urgent_state(std::move(this->_state));
         delete this;
     }
+    task* waiting_task() noexcept override {
+        return _pr.waiting_task();
+    }
     HeldState& data() {
         return _held;
     }

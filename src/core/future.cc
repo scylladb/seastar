@@ -21,6 +21,7 @@
 
 #include <seastar/core/future.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/thread.hh>
 #include <seastar/core/report_exception.hh>
 #include <seastar/util/backtrace.hh>
 
@@ -156,6 +157,10 @@ void report_failed_future(const std::exception_ptr& eptr) noexcept {
 
 void report_failed_future(const future_state_base& state) noexcept {
     report_failed_future(state._u.ex);
+}
+
+task* thread_wake_task_base::waiting_task() noexcept {
+    return _thread->waiting_task();
 }
 
 }

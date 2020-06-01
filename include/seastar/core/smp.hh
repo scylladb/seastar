@@ -209,6 +209,10 @@ class smp_message_queue {
         virtual void fail_with(std::exception_ptr ex) override {
             _promise.set_exception(std::move(ex));
         }
+        virtual task* waiting_task() noexcept override {
+            // FIXME: waiting_tasking across shards is not implemented. Unsynchronized task access is unsafe.
+            return nullptr;
+        }
         virtual void run_and_dispose() noexcept override {
             // _queue.respond() below forwards the continuation chain back to the
             // calling shard.
