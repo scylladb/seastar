@@ -685,8 +685,6 @@ cpu_pages::allocate_large_aligned(unsigned align_pages, unsigned n_pages) {
     return allocate_large_and_trim(n_pages);
 }
 
-#ifdef SEASTAR_HEAPPROF
-
 disable_backtrace_temporarily::disable_backtrace_temporarily() {
     _old = cpu_mem.collect_backtrace;
     cpu_mem.collect_backtrace = false;
@@ -695,13 +693,6 @@ disable_backtrace_temporarily::disable_backtrace_temporarily() {
 disable_backtrace_temporarily::~disable_backtrace_temporarily() {
     cpu_mem.collect_backtrace = _old;
 }
-
-#else
-
-disable_backtrace_temporarily::disable_backtrace_temporarily() {}
-disable_backtrace_temporarily::~disable_backtrace_temporarily() {}
-
-#endif
 
 static
 saved_backtrace get_backtrace() noexcept {
