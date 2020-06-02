@@ -622,50 +622,53 @@ public:
         , public enable_shared_from_this<reloading_builder>
     {
     public:
+        using time_point = std::chrono::system_clock::time_point;
+
         reloading_builder(credentials_builder b, reload_callback cb, reloadable_credentials_base* creds)
             : credentials_builder(std::move(b))
             , _cb(std::move(cb))
             , _creds(creds)
         {}
         future<> init() {
+            std::unordered_set<sstring> files;
             std::vector<future<>> futures;
             visit_blobs(_blobs, make_visitor(
                 [&](const sstring&, const x509_simple& info) {
-                    futures.emplace_back(maybe_add_watch(info.file.filename));
+                    files.emplace(info.file.filename);
                 },
                 [&](const sstring&, const x509_key& info) {
-                    futures.emplace_back(maybe_add_watch(info.cert_file.filename));
-                    futures.emplace_back(maybe_add_watch(info.key_file.filename));
+                    files.emplace(info.cert_file.filename);
+                    files.emplace(info.key_file.filename);
                 },
                 [&](const sstring&, const pkcs12_simple& info) {
-                    futures.emplace_back(maybe_add_watch(info.file.filename));
+                    files.emplace(info.file.filename);
                 }
             ));
-            return when_all(futures.begin(), futures.end())
-                .then(std::bind(&reloading_builder::check_results, this, std::placeholders::_1));
-        }
-        void check_results(std::vector<future<>> result) {
-            std::for_each(result.begin(), result.end(), std::mem_fn(&future<>::get));
+            return parallel_for_each(files, [this](auto& f) {
+                if (!f.empty()) {
+                    return add_watch(f).discard_result();
+                }
+                return make_ready_future<>();
+            }).finally([me = shared_from_this()] {});
         }
         void start() {
-            (void)repeat([this] {
-                return _fsn.wait().then([this](const std::vector<fsnotifier::event>& events) {
+            // run the loop in a thread. makes code almost readable.
+            (void)async(std::bind(&reloading_builder::run, this)).finally([me = shared_from_this()] {});
+        }
+        void run() {
+            while (_creds) {
+                try {
+                    auto events = _fsn.wait().get0();
                     if (events.empty() && _creds == nullptr) {
-                        return make_ready_future<stop_iteration>(stop_iteration::yes);
+                        return;
                     }
-                    return rebuild(events).then([] {
-                        return stop_iteration::no;
-                    });
-                }).handle_exception([this](auto&& ep) {
-                    if (!_creds) {
-                        return stop_iteration::yes;
-                    }
+                    rebuild(events);
+                } catch (...) {
                     if (_cb) {
-                        _cb(_files, std::move(ep));
+                        _cb(_files, std::current_exception());
                     }
-                    return stop_iteration::no;
-                });
-            }).finally([me = shared_from_this()] {});
+                }
+            }
         }
         void detach() {
             _creds = nullptr;
@@ -673,7 +676,8 @@ public:
             _fsn.shutdown();
         }
     private:
-        future<> rebuild(const std::vector<fsnotifier::event>& events) {
+        // called from seastar::thread
+        void rebuild(const std::vector<fsnotifier::event>& events) {
             for (auto& e : events) {
                 // don't use at. We could be getting two events for
                 // same watch (mod + delete), but we only need to care
@@ -684,14 +688,41 @@ public:
                     _watches.erase(i);
                 }
             }
-            std::vector<future<>> futures;
             auto maybe_reload = [&](const sstring& filename, buffer_type& dst) {
-                if (_files.count(filename)) {
-                    futures.emplace_back(read_fully(filename, "reloading").then([this, &dst, filename = filename](temporary_buffer<char> buf) {
-                        dst = to_buffer(buf);
-                        return maybe_add_watch(filename);
-                    }));
+                if (filename.empty() || !_files.count(filename)) {
+                    return;
                 }
+                // #756
+                // first, add a watch to nearest parent dir we
+                // can find. If user deleted folders, we could end
+                // up looking at modifications to root.
+                // The idea is that should adding a watch to actual file
+                // fail (deleted file/folder), we wait for changes to closest
+                // parent. When this happens, we will retry all files
+                // that have not been successfully replaced (and maybe more),
+                // repeating the process. At some point, we hopefully
+                // get new, current data.
+                std::optional<fsnotifier::watch_token> dw;
+                auto dir = std::filesystem::path(filename).parent_path();
+                while (!dw) {
+                    try {
+                        dw = add_watch(dir.native(), fsnotifier::flags::create_child | fsnotifier::flags::move).get0();
+                        break;
+                    } catch (...) {
+                        if (!dir.has_parent_path()) {
+                            throw;
+                        }
+                        dir = dir.parent_path();
+                        continue;
+                    }
+                }
+                // #756 add watch _first_. File could change while we are
+                // reading this.
+                add_watch(filename).get();
+                temporary_buffer<char> buf = read_fully(filename, "reloading").get0();
+                dst = to_buffer(buf);
+                // file was added ok. we can drop the dir watch.
+                _watches.erase(*dw);
             };
             visit_blobs(_blobs, make_visitor(
                 [&](const sstring&, x509_simple& info) {
@@ -705,29 +736,22 @@ public:
                     maybe_reload(info.file.filename, info.data);
                 }
             ));
-            return when_all(futures.begin(), futures.end()).then([this](std::vector<future<>> result) {
-                check_results(std::move(result));
-                if (_creds) {
-                    _creds->rebuild(*this);
-                }
-                if (_cb) {
-                    _cb(_files, {});
-                }
-                _files.clear();
-            }).handle_exception([this](auto&& ep) {
-                if (_cb) {
-                    _cb(_files, std::move(ep));
-                }
-            });
-        }
-        future<> maybe_add_watch(const sstring& filename) {
-            if (filename.empty()) {
-                return make_ready_future<>();
+            if (_creds) {
+                _creds->rebuild(*this);
             }
-            return _fsn.create_watch(filename, fsnotifier::flags::modify).then([this, filename = filename](fsnotifier::watch w) {
+            // if we got here, all files loaded, all watches were created,
+            // and gnutls was ok with the content. success.
+            if (_cb) {
+                _cb(_files, {});
+            }
+            _files.clear();
+        }
+        future<fsnotifier::watch_token> add_watch(const sstring& filename, fsnotifier::flags flags = fsnotifier::flags::modify) {
+            return _fsn.create_watch(filename, flags).then([this, filename = filename](fsnotifier::watch w) {
                 auto t = w.token();
                 _watches.emplace(t, std::make_pair(std::move(w), filename));
-            }).finally([me = shared_from_this()] {});
+                return t;
+            });
         }
 
         reload_callback _cb;

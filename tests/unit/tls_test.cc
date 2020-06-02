@@ -750,3 +750,49 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates) {
         BOOST_CHECK_EQUAL(sstring(buf.begin(), buf.end()), "apa");
     }
 }
+
+SEASTAR_THREAD_TEST_CASE(test_reload_broken_certificates) {
+    tmpdir tmp;
+
+    namespace fs = std::filesystem;
+
+    fs::copy_file("tests/unit/test.crt", tmp.path() / "test.crt");
+    fs::copy_file("tests/unit/test.key", tmp.path() / "test.key");
+
+    auto cert = (tmp.path() / "test.crt").native();
+    auto key = (tmp.path() / "test.key").native();
+    std::unordered_set<sstring> changed;
+    promise<> p;
+
+    tls::credentials_builder b;
+    b.set_x509_key_file(cert, key, tls::x509_crt_format::PEM).get();
+    b.set_dh_level();
+
+    queue<std::exception_ptr> q(10);
+
+    auto certs = b.build_reloadable_server_credentials([&](const std::unordered_set<sstring>& files, std::exception_ptr ep) {
+        if (ep) {
+            q.push(std::move(ep));
+            return;
+        }
+        changed.insert(files.begin(), files.end());
+        if (changed.count(cert) && changed.count(key)) {
+            p.set_value();
+        }
+    }).get0();
+
+    // very intentionally use blocking calls. We want all our modifications to happen
+    // before any other continuation is allowed to process.
+
+    fs::remove(cert);
+    fs::remove(key);
+
+    // should get one or two exceptions
+    q.pop_eventually().get();
+
+    fs::copy_file("tests/unit/test.crt", cert);
+    fs::copy_file("tests/unit/test.key", key);
+
+    // now it should reload
+    p.get_future().get();
+}
