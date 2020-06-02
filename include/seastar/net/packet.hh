@@ -105,7 +105,7 @@ class packet final {
 
         fragment _frags[];
 
-        impl(size_t nr_frags = default_nr_frags);
+        impl(size_t nr_frags = default_nr_frags) noexcept;
         impl(const impl&) = delete;
         impl(fragment frag, size_t nr_frags = default_nr_frags);
 
@@ -182,10 +182,10 @@ class packet final {
                     to->_frags[0].base);
         }
     };
-    packet(std::unique_ptr<impl>&& impl) : _impl(std::move(impl)) {}
+    packet(std::unique_ptr<impl>&& impl) noexcept : _impl(std::move(impl)) {}
     std::unique_ptr<impl> _impl;
 public:
-    static packet from_static_data(const char* data, size_t len) {
+    static packet from_static_data(const char* data, size_t len) noexcept {
         return {fragment{const_cast<char*>(data), len}, deleter()};
     }
 
@@ -305,7 +305,7 @@ public:
     explicit operator bool() {
         return bool(_impl);
     }
-    static packet make_null_packet() {
+    static packet make_null_packet() noexcept {
         return net::packet(nullptr);
     }
 private:
@@ -325,7 +325,7 @@ packet::packet(packet&& x) noexcept
 }
 
 inline
-packet::impl::impl(size_t nr_frags)
+packet::impl::impl(size_t nr_frags) noexcept
     : _len(0), _allocated_frags(nr_frags) {
 }
 
