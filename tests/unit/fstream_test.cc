@@ -60,7 +60,6 @@ struct reader {
 
 SEASTAR_TEST_CASE(test_fstream) {
     return tmp_dir::do_with([] (tmp_dir& t) {
-        // Run in background, signal when done.
         auto filename = (t.get_path() / "testfile.tmp").native();
         return open_file_dma(filename,
                 open_flags::rw | open_flags::create | open_flags::truncate).then([filename] (file f) {
@@ -183,7 +182,6 @@ SEASTAR_TEST_CASE(test_consume_skip_bytes) {
 
 SEASTAR_TEST_CASE(test_fstream_unaligned) {
   return tmp_dir::do_with([] (tmp_dir& t) {
-    // Run in background, signal when done.
     auto filename = (t.get_path() / "testfile.tmp").native();
     return open_file_dma(filename,
             open_flags::rw | open_flags::create | open_flags::truncate).then([filename] (file f) {
