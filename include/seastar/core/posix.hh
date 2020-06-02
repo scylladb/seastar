@@ -77,7 +77,7 @@ class file_desc {
 public:
     file_desc() = delete;
     file_desc(const file_desc&) = delete;
-    file_desc(file_desc&& x) : _fd(x._fd) { x._fd = -1; }
+    file_desc(file_desc&& x) noexcept : _fd(x._fd) { x._fd = -1; }
     ~file_desc() { if (_fd != -1) { ::close(_fd); } }
     void operator=(const file_desc&) = delete;
     file_desc& operator=(file_desc&& x) {

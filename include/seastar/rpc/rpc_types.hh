@@ -195,6 +195,8 @@ struct snd_buf {
     std::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
     using iterator = std::vector<temporary_buffer<char>>::iterator;
     snd_buf() {}
+    snd_buf(snd_buf&&) noexcept;
+    snd_buf& operator=(snd_buf&&) noexcept;
     explicit snd_buf(size_t size_);
     explicit snd_buf(temporary_buffer<char> b) : size(b.size()), bufs(std::move(b)) {};
 
