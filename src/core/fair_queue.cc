@@ -65,7 +65,7 @@ fair_queue_ticket& fair_queue_ticket::operator-=(fair_queue_ticket desc) {
     return *this;
 }
 
-bool fair_queue_ticket::operator<(fair_queue_ticket rhs) const {
+bool fair_queue_ticket::strictly_less(fair_queue_ticket rhs) const {
     return (_weight < rhs._weight) && (_size < rhs._size);
 }
 
@@ -114,7 +114,7 @@ void fair_queue::normalize_stats() {
 }
 
 bool fair_queue::can_dispatch() const {
-    return _resources_queued && (_resources_executing < _current_capacity);
+    return _resources_queued && (_resources_executing.strictly_less(_current_capacity));
 }
 
 priority_class_ptr fair_queue::register_priority_class(uint32_t shares) {
