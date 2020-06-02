@@ -403,6 +403,10 @@ public:
     }
     template <typename... U>
     friend struct future_state;
+    template <typename... U>
+    friend future<U...> current_exception_as_future() noexcept;
+    template <typename... U>
+    friend class future;
 };
 
 struct ready_future_marker {};
