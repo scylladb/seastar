@@ -39,6 +39,7 @@
 
 #if __cplusplus > 201703L
 #include <version>
+#include <concepts>
 #endif
 
 namespace seastar {
@@ -853,9 +854,7 @@ template <typename T>
 concept Future = is_future<T>::value;
 
 template <typename Func, typename... T>
-concept CanInvoke = requires (Func f, T... args) {
-    f(std::forward<T>(args)...);
-};
+concept CanInvoke = std::invocable<Func, T...>;
 
 // Deprecated alias
 template <typename Func, typename... T>
@@ -923,7 +922,7 @@ private:
     /// promise. This avoids creating a future if func() doesn't
     /// return one.
     template<typename Func>
-    SEASTAR_CONCEPT( requires ::seastar::CanInvoke<Func> )
+    SEASTAR_CONCEPT( requires std::invocable<Func> )
     static void satisfy_with_result_of(internal::promise_base_with_type<T>&&, Func&& func);
 
     template <typename... U>
@@ -955,7 +954,7 @@ struct futurize<void> {
 
 private:
     template<typename Func>
-    SEASTAR_CONCEPT( requires ::seastar::CanInvoke<Func> )
+    SEASTAR_CONCEPT( requires std::invocable<Func> )
     static void satisfy_with_result_of(internal::promise_base_with_type<>&&, Func&& func);
 
     template <typename... U>
@@ -989,7 +988,7 @@ struct futurize<future<Args...>> {
 
 private:
     template<typename Func>
-    SEASTAR_CONCEPT( requires ::seastar::CanInvoke<Func> )
+    SEASTAR_CONCEPT( requires std::invocable<Func> )
     static void satisfy_with_result_of(internal::promise_base_with_type<Args...>&&, Func&& func);
 
     template <typename... U>
@@ -1334,7 +1333,7 @@ public:
     /// \return a \c future representing the return value of \c func, applied
     ///         to the eventual value of this future.
     template <typename Func, typename Result = futurize_t<std::result_of_t<Func(T&&...)>>>
-    SEASTAR_CONCEPT( requires ::seastar::CanInvoke<Func, T...> )
+    SEASTAR_CONCEPT( requires std::invocable<Func, T...> )
     Result
     then(Func&& func) noexcept {
 #ifndef SEASTAR_TYPE_ERASE_MORE
@@ -1407,14 +1406,14 @@ public:
     /// \return a \c future representing the return value of \c func, applied
     ///         to the eventual value of this future.
     template <typename Func, typename FuncResult = std::result_of_t<Func(future)>>
-    SEASTAR_CONCEPT( requires ::seastar::CanInvoke<Func, future> )
+    SEASTAR_CONCEPT( requires std::invocable<Func, future> )
     futurize_t<FuncResult>
     then_wrapped(Func&& func) & noexcept {
         return then_wrapped_maybe_erase<false, FuncResult>(std::forward<Func>(func));
     }
 
     template <typename Func, typename FuncResult = std::result_of_t<Func(future&&)>>
-    SEASTAR_CONCEPT( requires ::seastar::CanInvoke<Func, future&&> )
+    SEASTAR_CONCEPT( requires std::invocable<Func, future&&> )
     futurize_t<FuncResult>
     then_wrapped(Func&& func) && noexcept {
         return then_wrapped_maybe_erase<true, FuncResult>(std::forward<Func>(func));
@@ -1529,7 +1528,7 @@ public:
      * nested will be propagated.
      */
     template <typename Func>
-    SEASTAR_CONCEPT( requires ::seastar::CanInvoke<Func> )
+    SEASTAR_CONCEPT( requires std::invocable<Func> )
     future<T...> finally(Func&& func) noexcept {
         return then_wrapped(finally_body<Func, is_future<std::result_of_t<Func()>>::value>(std::forward<Func>(func)));
     }
@@ -1788,7 +1787,7 @@ typename futurize<T>::type futurize<T>::apply(Func&& func, std::tuple<FuncArgs..
 
 template<typename T>
 template<typename Func>
-SEASTAR_CONCEPT( requires ::seastar::CanInvoke<Func> )
+SEASTAR_CONCEPT( requires std::invocable<Func> )
 void futurize<T>::satisfy_with_result_of(internal::promise_base_with_type<T>&& pr, Func&& func) {
     pr.set_value(func());
 }
@@ -1820,7 +1819,7 @@ typename futurize<void>::type futurize<void>::apply(Func&& func, std::tuple<Func
 }
 
 template<typename Func>
-SEASTAR_CONCEPT( requires ::seastar::CanInvoke<Func> )
+SEASTAR_CONCEPT( requires std::invocable<Func> )
     void futurize<void>::satisfy_with_result_of(internal::promise_base_with_type<>&& pr, Func&& func) {
     func();
     pr.set_value();
@@ -1853,7 +1852,7 @@ typename futurize<future<Args...>>::type futurize<future<Args...>>::apply(Func&&
 
 template<typename... Args>
 template<typename Func>
-SEASTAR_CONCEPT( requires ::seastar::CanInvoke<Func> )
+SEASTAR_CONCEPT( requires std::invocable<Func> )
 void futurize<future<Args...>>::satisfy_with_result_of(internal::promise_base_with_type<Args...>&& pr, Func&& func) {
     func().forward_to(std::move(pr));
 }
