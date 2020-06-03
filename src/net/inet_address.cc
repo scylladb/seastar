@@ -287,7 +287,7 @@ bool seastar::ipv6_addr::is_ip_unspecified() const noexcept {
 }
 
 
-seastar::net::inet_address seastar::socket_address::addr() const {
+seastar::net::inet_address seastar::socket_address::addr() const noexcept {
     switch (family()) {
     case AF_INET:
         return net::inet_address(as_posix_sockaddr_in().sin_addr);
@@ -298,11 +298,11 @@ seastar::net::inet_address seastar::socket_address::addr() const {
     }
 }
 
-::in_port_t seastar::socket_address::port() const {
+::in_port_t seastar::socket_address::port() const noexcept {
     return net::ntoh(u.in.sin_port);
 }
 
-bool seastar::socket_address::is_wildcard() const {
+bool seastar::socket_address::is_wildcard() const noexcept {
     switch (family()) {
     case AF_INET: {
             ipv4_addr addr(*this);

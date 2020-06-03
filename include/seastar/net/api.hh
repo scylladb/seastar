@@ -47,12 +47,12 @@ bool is_port_unspecified(const ipv4_addr& addr) noexcept {
 }
 
 inline
-socket_address make_ipv4_address(const ipv4_addr& addr) {
+socket_address make_ipv4_address(const ipv4_addr& addr) noexcept {
     return socket_address(addr);
 }
 
 inline
-socket_address make_ipv4_address(uint32_t ip, uint16_t port) {
+socket_address make_ipv4_address(uint32_t ip, uint16_t port) noexcept {
     return make_ipv4_address(ipv4_addr(ip, port));
 }
 
