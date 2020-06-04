@@ -333,10 +333,11 @@ class network_interface {
 private:
     shared_ptr<net::network_interface_impl> _impl;
 public:
-    network_interface(shared_ptr<net::network_interface_impl>);
-    network_interface(network_interface&&);
+    network_interface() = delete;
+    network_interface(shared_ptr<net::network_interface_impl>) noexcept;
+    network_interface(network_interface&&) noexcept;
 
-    network_interface& operator=(network_interface&&);
+    network_interface& operator=(network_interface&&) noexcept;
 
     uint32_t index() const;
     uint32_t mtu() const;

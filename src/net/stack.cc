@@ -181,12 +181,12 @@ socket_address server_socket::local_address() const {
     return _ssi->local_address();
 }
 
-network_interface::network_interface(shared_ptr<net::network_interface_impl> impl)
+network_interface::network_interface(shared_ptr<net::network_interface_impl> impl) noexcept
     : _impl(std::move(impl))
 {}
 
-network_interface::network_interface(network_interface&&) = default;
-network_interface& network_interface::operator=(network_interface&&) = default;
+network_interface::network_interface(network_interface&&) noexcept = default;
+network_interface& network_interface::operator=(network_interface&&) noexcept = default;
     
 uint32_t network_interface::index() const {
     return _impl->index();
