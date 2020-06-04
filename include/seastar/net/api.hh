@@ -95,7 +95,7 @@ class udp_datagram final {
 private:
     std::unique_ptr<udp_datagram_impl> _impl;
 public:
-    udp_datagram(std::unique_ptr<udp_datagram_impl>&& impl) : _impl(std::move(impl)) {};
+    udp_datagram(std::unique_ptr<udp_datagram_impl>&& impl) noexcept : _impl(std::move(impl)) {};
     socket_address get_src() { return _impl->get_src(); }
     socket_address get_dst() { return _impl->get_dst(); }
     uint16_t get_dst_port() { return _impl->get_dst_port(); }
@@ -106,8 +106,8 @@ class udp_channel {
 private:
     std::unique_ptr<udp_channel_impl> _impl;
 public:
-    udp_channel();
-    udp_channel(std::unique_ptr<udp_channel_impl>);
+    udp_channel() noexcept;
+    udp_channel(std::unique_ptr<udp_channel_impl>) noexcept;
     ~udp_channel();
 
     udp_channel(udp_channel&&) noexcept;

@@ -24,10 +24,10 @@
 
 namespace seastar {
 
-net::udp_channel::udp_channel()
+net::udp_channel::udp_channel() noexcept
 {}
 
-net::udp_channel::udp_channel(std::unique_ptr<udp_channel_impl> impl) : _impl(std::move(impl))
+net::udp_channel::udp_channel(std::unique_ptr<udp_channel_impl> impl) noexcept : _impl(std::move(impl))
 {}
 
 net::udp_channel::~udp_channel()
