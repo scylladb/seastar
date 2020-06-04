@@ -42,6 +42,9 @@
 
 namespace seastar {
 
+static_assert(std::is_nothrow_copy_constructible_v<io_priority_class>);
+static_assert(std::is_nothrow_move_constructible_v<io_priority_class>);
+
 using namespace internal;
 using namespace internal::linux_abi;
 

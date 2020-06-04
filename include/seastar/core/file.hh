@@ -87,7 +87,8 @@ class io_priority_class {
     io_priority_class_id _id;
     friend io_queue;
 
-    explicit io_priority_class(io_priority_class_id id)
+    io_priority_class() = delete;
+    explicit io_priority_class(io_priority_class_id id) noexcept
         : _id(id)
     { }
 
