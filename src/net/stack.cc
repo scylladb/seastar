@@ -24,6 +24,15 @@
 
 namespace seastar {
 
+static_assert(std::is_nothrow_default_constructible_v<connected_socket>);
+static_assert(std::is_nothrow_move_constructible_v<connected_socket>);
+
+static_assert(std::is_nothrow_default_constructible_v<socket>);
+static_assert(std::is_nothrow_move_constructible_v<socket>);
+
+static_assert(std::is_nothrow_default_constructible_v<server_socket>);
+static_assert(std::is_nothrow_move_constructible_v<server_socket>);
+
 net::udp_channel::udp_channel() noexcept
 {}
 
@@ -69,11 +78,11 @@ void net::udp_channel::close() {
     return _impl->close();
 }
 
-connected_socket::connected_socket()
+connected_socket::connected_socket() noexcept
 {}
 
 connected_socket::connected_socket(
-        std::unique_ptr<net::connected_socket_impl> csi)
+        std::unique_ptr<net::connected_socket_impl> csi) noexcept
         : _csi(std::move(csi)) {
 }
 
@@ -130,7 +139,7 @@ socket::~socket()
 {}
 
 socket::socket(
-        std::unique_ptr<net::socket_impl> si)
+        std::unique_ptr<net::socket_impl> si) noexcept
         : _si(std::move(si)) {
 }
 
@@ -153,10 +162,10 @@ void socket::shutdown() {
     _si->shutdown();
 }
 
-server_socket::server_socket() {
+server_socket::server_socket() noexcept {
 }
 
-server_socket::server_socket(std::unique_ptr<net::server_socket_impl> ssi)
+server_socket::server_socket(std::unique_ptr<net::server_socket_impl> ssi) noexcept
         : _ssi(std::move(ssi)) {
 }
 server_socket::server_socket(server_socket&& ss) noexcept = default;
@@ -177,7 +186,7 @@ void server_socket::abort_accept() {
     _aborted = true;
 }
 
-socket_address server_socket::local_address() const {
+socket_address server_socket::local_address() const noexcept {
     return _ssi->local_address();
 }
 
