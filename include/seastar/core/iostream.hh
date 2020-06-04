@@ -57,10 +57,10 @@ class data_source {
 protected:
     data_source_impl* impl() const { return _dsi.get(); }
 public:
-    data_source() = default;
-    explicit data_source(std::unique_ptr<data_source_impl> dsi) : _dsi(std::move(dsi)) {}
-    data_source(data_source&& x) = default;
-    data_source& operator=(data_source&& x) = default;
+    data_source() noexcept = default;
+    explicit data_source(std::unique_ptr<data_source_impl> dsi) noexcept : _dsi(std::move(dsi)) {}
+    data_source(data_source&& x) noexcept = default;
+    data_source& operator=(data_source&& x) noexcept = default;
     future<temporary_buffer<char>> get() { return _dsi->get(); }
     future<temporary_buffer<char>> skip(uint64_t n) { return _dsi->skip(n); }
     future<> close() { return _dsi->close(); }
@@ -93,10 +93,10 @@ public:
 class data_sink {
     std::unique_ptr<data_sink_impl> _dsi;
 public:
-    data_sink() = default;
-    explicit data_sink(std::unique_ptr<data_sink_impl> dsi) : _dsi(std::move(dsi)) {}
-    data_sink(data_sink&& x) = default;
-    data_sink& operator=(data_sink&& x) = default;
+    data_sink() noexcept = default;
+    explicit data_sink(std::unique_ptr<data_sink_impl> dsi) noexcept : _dsi(std::move(dsi)) {}
+    data_sink(data_sink&& x) noexcept = default;
+    data_sink& operator=(data_sink&& x) noexcept = default;
     temporary_buffer<char> allocate_buffer(size_t size) {
         return _dsi->allocate_buffer(size);
     }
