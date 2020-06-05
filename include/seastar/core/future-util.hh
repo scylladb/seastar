@@ -779,11 +779,6 @@ public:
     }
 };
 
-#if __cpp_fold_expressions >= 201603
-// This optimization requires C++17
-#  define SEASTAR__WAIT_ALL__AVOID_ALLOCATION_WHEN_ALL_READY
-#endif
-
 template<typename ResolvedTupleTransform, typename... Futures>
 class when_all_state : public when_all_state_base {
     static constexpr size_t nr = sizeof...(Futures);
@@ -819,11 +814,9 @@ private:
     }
 public:
     static typename ResolvedTupleTransform::future_type wait_all(Futures&&... futures) noexcept {
-#ifdef SEASTAR__WAIT_ALL__AVOID_ALLOCATION_WHEN_ALL_READY
         if ((futures.available() && ...)) {
             return ResolvedTupleTransform::make_ready_future(std::make_tuple(std::move(futures)...));
         }
-#endif
         auto state = [&] () noexcept {
             memory::disable_failure_guard dfg;
             return new when_all_state(std::move(futures)...);
