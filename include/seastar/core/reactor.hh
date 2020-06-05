@@ -93,7 +93,6 @@
 #endif
 
 struct _Unwind_Exception;
-extern "C" int _Unwind_RaiseException(struct _Unwind_Exception *h);
 
 namespace seastar {
 
@@ -661,7 +660,7 @@ private:
     friend class internal::poller;
     friend class scheduling_group;
     friend void add_to_flush_poller(output_stream<char>* os);
-    friend int ::_Unwind_RaiseException(struct _Unwind_Exception *h);
+    friend void seastar::log_exception_trace() noexcept;
     friend void report_failed_future(const std::exception_ptr& eptr) noexcept;
     metrics::metric_groups _metric_groups;
     friend future<scheduling_group> create_scheduling_group(sstring name, float shares);
