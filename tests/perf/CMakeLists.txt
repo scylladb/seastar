@@ -64,6 +64,9 @@ seastar_add_test (fstream
   SOURCES fstream_perf.cc
   NO_SEASTAR_PERF_TESTING_LIBRARY)
 
+seastar_add_test (fair_queue
+  SOURCES fair_queue_perf.cc)
+
 seastar_add_test (future_util
   SOURCES future_util_perf.cc)
 
