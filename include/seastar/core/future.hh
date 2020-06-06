@@ -1409,16 +1409,17 @@ public:
     /// thread until the future is availble. Other threads and
     /// continuations continue to execute; only the thread is blocked.
     void wait() noexcept {
-        if (!_state.available()) {
-            do_wait();
+        if (_state.available()) {
+            return;
         }
-    }
-private:
-    void do_wait() noexcept {
         if (__builtin_expect(!_promise, false)) {
             _state.set_to_broken_promise();
             return;
         }
+        do_wait();
+    }
+private:
+    void do_wait() noexcept {
         auto thread = thread_impl::get();
         assert(thread);
         thread_wake_task wake_task{thread};
