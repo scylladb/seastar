@@ -1140,6 +1140,8 @@ protected:
         return std::exchange(_promise, nullptr);
     }
 
+    void do_wait() noexcept;
+
     friend class promise_base;
 };
 
@@ -1236,19 +1238,6 @@ template <typename Promise, typename... T>
 task* continuation_base_with_promise<Promise, T...>::waiting_task() noexcept {
     return _pr.waiting_task();
 }
-
-class thread_wake_task final : public task {
-    thread_context* _thread;
-public:
-    thread_wake_task(thread_context* thread) : _thread(thread) {}
-    virtual void run_and_dispose() noexcept override {
-        thread_impl::switch_in(_thread);
-        // no need to delete, since this is always allocated on
-        // _thread's stack.
-    }
-    /// Returns the task which is waiting for this thread to be done, or nullptr.
-    virtual task* waiting_task() noexcept override;
-};
 
 /// \brief A representation of a possibly not-yet-computed value.
 ///
@@ -1418,17 +1407,7 @@ public:
         }
         do_wait();
     }
-private:
-    void do_wait() noexcept {
-        auto thread = thread_impl::get();
-        assert(thread);
-        thread_wake_task wake_task{thread};
-        wake_task.make_backtrace();
-        _promise->schedule(&wake_task);
-        thread_impl::switch_out(thread);
-    }
 
-public:
     /// \brief Checks whether the future is available.
     ///
     /// \return \c true if the future has a value, or has failed.
