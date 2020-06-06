@@ -1382,9 +1382,7 @@ public:
     /// be paused until the future becomes available.
     [[gnu::always_inline]]
     std::tuple<T...>&& get() {
-        if (!_state.available()) {
-            do_wait();
-        }
+        wait();
         return get_available_state_ref().take();
     }
 
