@@ -29,6 +29,14 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/print.hh>
 
+static_assert(std::is_nothrow_default_constructible_v<seastar::net::ipv4_address>);
+static_assert(std::is_nothrow_copy_constructible_v<seastar::net::ipv4_address>);
+static_assert(std::is_nothrow_move_constructible_v<seastar::net::ipv4_address>);
+
+static_assert(std::is_nothrow_default_constructible_v<seastar::net::ipv6_address>);
+static_assert(std::is_nothrow_copy_constructible_v<seastar::net::ipv6_address>);
+static_assert(std::is_nothrow_move_constructible_v<seastar::net::ipv6_address>);
+
 seastar::net::inet_address::inet_address()
                 : inet_address(::in6_addr{})
 {}
@@ -169,19 +177,19 @@ const void * seastar::net::inet_address::data() const {
     return &_in;
 }
 
-seastar::net::ipv6_address::ipv6_address(const ::in6_addr& in) {
+seastar::net::ipv6_address::ipv6_address(const ::in6_addr& in) noexcept {
     std::copy(std::begin(in.s6_addr), std::end(in.s6_addr), ip.begin());
 }
 
-seastar::net::ipv6_address::ipv6_address(const ipv6_bytes& in)
+seastar::net::ipv6_address::ipv6_address(const ipv6_bytes& in) noexcept
     : ip(in)
 {}
 
-seastar::net::ipv6_address::ipv6_address(const ipv6_addr& addr)
+seastar::net::ipv6_address::ipv6_address(const ipv6_addr& addr) noexcept
     : ipv6_address(addr.ip)
 {}
 
-seastar::net::ipv6_address::ipv6_address()
+seastar::net::ipv6_address::ipv6_address() noexcept
     : ipv6_address(::in6addr_any)
 {}
 
@@ -192,29 +200,29 @@ seastar::net::ipv6_address::ipv6_address(const std::string& addr) {
     }
 }
 
-seastar::net::ipv6_address seastar::net::ipv6_address::read(const char* s) {
+seastar::net::ipv6_address seastar::net::ipv6_address::read(const char* s) noexcept {
     auto* b = reinterpret_cast<const uint8_t *>(s);
     ipv6_address in;
     std::copy(b, b + ipv6_address::size(), in.ip.begin());
     return in;
 }
 
-seastar::net::ipv6_address seastar::net::ipv6_address::consume(const char*& p) {
+seastar::net::ipv6_address seastar::net::ipv6_address::consume(const char*& p) noexcept {
     auto res = read(p);
     p += size();
     return res;
 }
 
-void seastar::net::ipv6_address::write(char* p) const {
+void seastar::net::ipv6_address::write(char* p) const noexcept {
     std::copy(ip.begin(), ip.end(), p);
 }
 
-void seastar::net::ipv6_address::produce(char*& p) const {
+void seastar::net::ipv6_address::produce(char*& p) const noexcept {
     write(p);
     p += size();
 }
 
-bool seastar::net::ipv6_address::is_unspecified() const {
+bool seastar::net::ipv6_address::is_unspecified() const noexcept {
     return std::all_of(ip.begin(), ip.end(), [](uint8_t b) { return b == 0; });
 }
 
