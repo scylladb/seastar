@@ -278,7 +278,7 @@ seastar::ipv6_addr::ipv6_addr(const ::sockaddr_in6& s) noexcept
     : ipv6_addr(s.sin6_addr, net::ntoh(s.sin6_port))
 {}
 
-seastar::ipv6_addr::ipv6_addr(const socket_address& s) // FIXME: not yet noexcept
+seastar::ipv6_addr::ipv6_addr(const socket_address& s) noexcept
     : ipv6_addr(s.as_posix_sockaddr_in6())
 {}
 

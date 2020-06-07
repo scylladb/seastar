@@ -71,7 +71,7 @@ ipv4_addr::ipv4_addr(const net::inet_address& a, uint16_t port)
     : ipv4_addr(::in_addr(a), port)
 {}
 
-ipv4_addr::ipv4_addr(const socket_address &sa) // FIXME: not yet noexcept
+ipv4_addr::ipv4_addr(const socket_address &sa) noexcept
     : ipv4_addr(sa.addr(), sa.port())
 {}
 

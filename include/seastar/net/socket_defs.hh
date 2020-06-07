@@ -116,7 +116,7 @@ struct ipv4_addr {
     ipv4_addr(const std::string &addr, uint16_t port);
     // throws if not an ipv4 addr
     ipv4_addr(const net::inet_address&, uint16_t);
-    ipv4_addr(const socket_address &); // FIXME: not yet noexcept
+    ipv4_addr(const socket_address &) noexcept;
     ipv4_addr(const ::in_addr&, uint16_t = 0) noexcept;
 
     bool is_ip_unspecified() const noexcept {
@@ -141,7 +141,7 @@ struct ipv6_addr {
     ipv6_addr(const net::inet_address&, uint16_t = 0) noexcept;
     ipv6_addr(const ::in6_addr&, uint16_t = 0) noexcept;
     ipv6_addr(const ::sockaddr_in6&) noexcept;
-    ipv6_addr(const socket_address&); // FIXME: not yet noexcept
+    ipv6_addr(const socket_address&) noexcept;
 
     bool is_ip_unspecified() const noexcept;
     bool is_port_unspecified() const noexcept {
