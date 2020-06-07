@@ -244,15 +244,15 @@ std::ostream& seastar::net::operator<<(std::ostream& os, const ipv6_address& a) 
     return os << ::inet_ntop(AF_INET6, a.ip.data(), buffer, sizeof(buffer));
 }
 
-seastar::ipv6_addr::ipv6_addr(const ipv6_bytes& b, uint16_t p)
+seastar::ipv6_addr::ipv6_addr(const ipv6_bytes& b, uint16_t p) noexcept
     : ip(b), port(p)
 {}
 
-seastar::ipv6_addr::ipv6_addr(uint16_t p)
+seastar::ipv6_addr::ipv6_addr(uint16_t p) noexcept
     : ipv6_addr(net::inet_address(), p)
 {}
 
-seastar::ipv6_addr::ipv6_addr(const ::in6_addr& in6, uint16_t p)
+seastar::ipv6_addr::ipv6_addr(const ::in6_addr& in6, uint16_t p) noexcept
     : ipv6_addr(net::ipv6_address(in6).bytes(), p)
 {}
 
@@ -270,19 +270,19 @@ seastar::ipv6_addr::ipv6_addr(const std::string& s, uint16_t p)
     : ipv6_addr(net::ipv6_address(s).bytes(), p)
 {}
 
-seastar::ipv6_addr::ipv6_addr(const net::inet_address& i, uint16_t p)
+seastar::ipv6_addr::ipv6_addr(const net::inet_address& i, uint16_t p) noexcept
     : ipv6_addr(i.as_ipv6_address().bytes(), p)
 {}
 
-seastar::ipv6_addr::ipv6_addr(const ::sockaddr_in6& s)
+seastar::ipv6_addr::ipv6_addr(const ::sockaddr_in6& s) noexcept
     : ipv6_addr(s.sin6_addr, net::ntoh(s.sin6_port))
 {}
 
-seastar::ipv6_addr::ipv6_addr(const socket_address& s)
+seastar::ipv6_addr::ipv6_addr(const socket_address& s) // FIXME: not yet noexcept
     : ipv6_addr(s.as_posix_sockaddr_in6())
 {}
 
-bool seastar::ipv6_addr::is_ip_unspecified() const {
+bool seastar::ipv6_addr::is_ip_unspecified() const noexcept {
     return std::all_of(ip.begin(), ip.end(), [](uint8_t b) { return b == 0; });
 }
 

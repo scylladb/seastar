@@ -108,19 +108,21 @@ struct ipv4_addr {
     uint32_t ip;
     uint16_t port;
 
-    ipv4_addr() : ip(0), port(0) {}
-    ipv4_addr(uint32_t ip, uint16_t port) : ip(ip), port(port) {}
-    ipv4_addr(uint16_t port) : ip(0), port(port) {}
+    ipv4_addr() noexcept : ip(0), port(0) {}
+    ipv4_addr(uint32_t ip, uint16_t port) noexcept : ip(ip), port(port) {}
+    ipv4_addr(uint16_t port) noexcept : ip(0), port(port) {}
+    // throws if not a valid ipv4 addr
     ipv4_addr(const std::string &addr);
     ipv4_addr(const std::string &addr, uint16_t port);
+    // throws if not an ipv4 addr
     ipv4_addr(const net::inet_address&, uint16_t);
-    ipv4_addr(const socket_address &);
-    ipv4_addr(const ::in_addr&, uint16_t = 0);
+    ipv4_addr(const socket_address &); // FIXME: not yet noexcept
+    ipv4_addr(const ::in_addr&, uint16_t = 0) noexcept;
 
-    bool is_ip_unspecified() const {
+    bool is_ip_unspecified() const noexcept {
         return ip == 0;
     }
-    bool is_port_unspecified() const {
+    bool is_port_unspecified() const noexcept {
         return port == 0;
     }
 };
@@ -131,17 +133,18 @@ struct ipv6_addr {
     ipv6_bytes ip;
     uint16_t port;
 
-    ipv6_addr(const ipv6_bytes&, uint16_t port = 0);
-    ipv6_addr(uint16_t port = 0);
+    ipv6_addr(const ipv6_bytes&, uint16_t port = 0) noexcept;
+    ipv6_addr(uint16_t port = 0) noexcept;
+    // throws if not a valid ipv6 addr
     ipv6_addr(const std::string&);
     ipv6_addr(const std::string&, uint16_t port);
-    ipv6_addr(const net::inet_address&, uint16_t = 0);
-    ipv6_addr(const ::in6_addr&, uint16_t = 0);
-    ipv6_addr(const ::sockaddr_in6&);
-    ipv6_addr(const socket_address&);
+    ipv6_addr(const net::inet_address&, uint16_t = 0) noexcept;
+    ipv6_addr(const ::in6_addr&, uint16_t = 0) noexcept;
+    ipv6_addr(const ::sockaddr_in6&) noexcept;
+    ipv6_addr(const socket_address&); // FIXME: not yet noexcept
 
-    bool is_ip_unspecified() const;
-    bool is_port_unspecified() const {
+    bool is_ip_unspecified() const noexcept;
+    bool is_port_unspecified() const noexcept {
         return port == 0;
     }
 };
@@ -149,7 +152,7 @@ struct ipv6_addr {
 std::ostream& operator<<(std::ostream&, const ipv4_addr&);
 std::ostream& operator<<(std::ostream&, const ipv6_addr&);
 
-inline bool operator==(const ipv4_addr &lhs, const ipv4_addr& rhs) {
+inline bool operator==(const ipv4_addr &lhs, const ipv4_addr& rhs) noexcept {
     return lhs.ip == rhs.ip && lhs.port == rhs.port;
 }
 

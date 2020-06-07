@@ -32,6 +32,14 @@
 
 namespace seastar {
 
+static_assert(std::is_nothrow_default_constructible_v<ipv4_addr>);
+static_assert(std::is_nothrow_copy_constructible_v<ipv4_addr>);
+static_assert(std::is_nothrow_move_constructible_v<ipv4_addr>);
+
+static_assert(std::is_nothrow_default_constructible_v<ipv6_addr>);
+static_assert(std::is_nothrow_copy_constructible_v<ipv6_addr>);
+static_assert(std::is_nothrow_move_constructible_v<ipv6_addr>);
+
 std::ostream& operator<<(std::ostream &os, ipv4_addr addr) {
     fmt_print(os, "{:d}.{:d}.{:d}.{:d}",
             (addr.ip >> 24) & 0xff,
@@ -63,11 +71,11 @@ ipv4_addr::ipv4_addr(const net::inet_address& a, uint16_t port)
     : ipv4_addr(::in_addr(a), port)
 {}
 
-ipv4_addr::ipv4_addr(const socket_address &sa)
+ipv4_addr::ipv4_addr(const socket_address &sa) // FIXME: not yet noexcept
     : ipv4_addr(sa.addr(), sa.port())
 {}
 
-ipv4_addr::ipv4_addr(const ::in_addr& in, uint16_t p)
+ipv4_addr::ipv4_addr(const ::in_addr& in, uint16_t p) noexcept
     : ip(net::ntoh(in.s_addr)), port(p)
 {}
 

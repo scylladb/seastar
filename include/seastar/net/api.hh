@@ -37,12 +37,12 @@
 namespace seastar {
 
 inline
-bool is_ip_unspecified(const ipv4_addr& addr) {
+bool is_ip_unspecified(const ipv4_addr& addr) noexcept {
     return addr.is_ip_unspecified();
 }
 
 inline
-bool is_port_unspecified(const ipv4_addr& addr) {
+bool is_port_unspecified(const ipv4_addr& addr) noexcept {
     return addr.is_port_unspecified();
 }
 
