@@ -54,8 +54,10 @@ endmacro ()
 seastar_add_demo (block_discard
   SOURCES block_discard_demo.cc)
 
-seastar_add_demo (coroutines
-  SOURCES coroutines_demo.cc)
+if (${Seastar_API_LEVEL} GREATER_EQUAL 3)
+  seastar_add_demo (coroutines
+    SOURCES coroutines_demo.cc)
+endif ()
 
 seastar_add_demo (echo
   SOURCES echo_demo.cc)

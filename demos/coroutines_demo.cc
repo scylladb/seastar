@@ -50,7 +50,7 @@ int main(int argc, char** argv) {
         });
 
         auto file = co_await seastar::open_file_dma("useless_file.txt", seastar::open_flags::create | seastar::open_flags::wo);
-        auto out = seastar::make_file_output_stream(file);
+        auto out = co_await seastar::make_file_output_stream(file);
         seastar::sstring str = "nothing to see here, move along now\n";
         co_await out.write(str);
         co_await out.flush();
