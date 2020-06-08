@@ -21,11 +21,7 @@
 
 #include <iostream>
 
-#if __cplusplus > 201703
-#include <version>
-#endif
-
-#if !defined(__cpp_lib_coroutine) && !defined(SEASTAR_COROUTINES_TS)
+#ifndef SEASTAR_COROUTINES_ENABLED
 
 int main(int argc, char** argv) {
     std::cout << "coroutines not available\n";

@@ -98,11 +98,6 @@ add_tristate(
     help = 'Collect backtrace at deferring points')
 add_tristate(
     arg_parser,
-    name = 'experimental-coroutines-ts',
-    dest = "coroutines_ts",
-    help = 'experimental support for Coroutines TS')
-add_tristate(
-    arg_parser,
     name = 'unused-result-error',
     dest = "unused_result_error",
     help = 'Make [[nodiscard]] violations an error')
@@ -196,7 +191,6 @@ def configure_mode(mode):
         tr(args.alloc_page_size, 'ALLOC_PAGE_SIZE'),
         tr(args.split_dwarf, 'SPLIT_DWARF'),
         tr(args.heap_profiling, 'HEAP_PROFILING'),
-        tr(args.coroutines_ts, 'EXPERIMENTAL_COROUTINES_TS'),
         tr(args.unused_result_error, 'UNUSED_RESULT_ERROR'),
     ]
 

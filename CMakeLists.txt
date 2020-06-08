@@ -48,10 +48,6 @@ option (Seastar_TASK_BACKTRACE
   "Collect backtrace at deferring points."
   OFF)
 
-option (Seastar_EXPERIMENTAL_COROUTINES_TS
-  "Enable experimental support for Coroutines TS."
-  OFF)
-
 option (Seastar_SSTRING
   "Use seastar's own string implementation"
   ON)
@@ -757,11 +753,6 @@ if (MaybeUninitialized_FOUND)
       # -Wmaybe-uninitialized in here since otherwise we would have to
       # disable it on many types used inside optional<>.
       -Wno-maybe-uninitialized)
-endif ()
-
-if (Seastar_EXPERIMENTAL_COROUTINES_TS)
-  target_compile_options (seastar PUBLIC -fcoroutines-ts -g)
-  target_compile_definitions (seastar PUBLIC SEASTAR_COROUTINES_TS)
 endif ()
 
 if (Seastar_SSTRING)

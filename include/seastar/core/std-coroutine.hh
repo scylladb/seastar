@@ -21,19 +21,15 @@
 
 #pragma once
 
-#if __cplusplus > 201703L
-#include <version>
-#endif
-
-#if !defined(__cpp_lib_coroutine) && !defined(SEASTAR_COROUTINES_TS)
-#error Coroutines TS support disabled.
-#endif
-
-#if __has_include(<coroutine>)
+// Clang currently only supports the TS
+#if __has_include(<coroutine>) && !defined(__clang__)
 #include <coroutine>
+#define SEASTAR_INTERNAL_COROUTINE_NAMESPACE std
 #elif __has_include(<experimental/coroutine>)
 #include <experimental/coroutine>
+#define SEASTAR_INTERNAL_COROUTINE_NAMESPACE std::experimental
 #else
+#define SEASTAR_INTERNAL_COROUTINE_NAMESPACE std::experimental
 
 // We are not exactly allowed to defined anything in the std namespace, but this
 // makes coroutines work with libstdc++. All of this is experimental anyway.

@@ -38,7 +38,6 @@
 #include <seastar/util/backtrace.hh>
 
 #if __cplusplus > 201703L
-#include <version>
 #include <concepts>
 #endif
 
@@ -707,7 +706,7 @@ public:
     /// Returns the task which is waiting for this promise to resolve, or nullptr.
     using internal::promise_base::waiting_task;
 
-#if defined(SEASTAR_COROUTINES_TS) || defined(__cpp_lib_coroutine)
+#ifdef SEASTAR_COROUTINES_ENABLED
     void set_coroutine(future_state<T...>& state, task& coroutine) noexcept {
         _state = &state;
         _task = &coroutine;
@@ -1645,7 +1644,7 @@ public:
         _state.ignore();
     }
 
-#if defined(SEASTAR_COROUTINES_TS) || defined(__cpp_lib_coroutine)
+#ifdef SEASTAR_COROUTINES_ENABLED
     void set_coroutine(task& coroutine) noexcept {
         assert(!_state.available());
         assert(_promise);

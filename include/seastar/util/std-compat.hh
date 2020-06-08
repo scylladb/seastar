@@ -29,6 +29,9 @@
 
 #include <memory_resource>
 
+#if defined(__cpp_impl_coroutine) || defined(__cpp_coroutines)
+#define SEASTAR_COROUTINES_ENABLED
+#endif
 
 // Defining SEASTAR_ASAN_ENABLED in here is a bit of a hack, but
 // convenient since it is build system independent and in practice

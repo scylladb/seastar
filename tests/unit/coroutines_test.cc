@@ -22,13 +22,9 @@
 #include <seastar/core/future-util.hh>
 #include <seastar/testing/test_case.hh>
 
-#if __cplusplus > 201703L
-#include <version>
-#endif
-
 using namespace seastar;
 
-#if !defined(__cpp_lib_coroutine) && !defined(SEASTAR_COROUTINES_TS)
+#ifndef SEASTAR_COROUTINES_ENABLED
 
 SEASTAR_TEST_CASE(test_coroutines_not_compiled_in) {
     return make_ready_future<>();

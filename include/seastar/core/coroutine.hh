@@ -23,21 +23,11 @@
 
 #include <seastar/core/future.hh>
 
-#if __cplusplus > 201703L
-#include <version>
-#endif
-
-#if !defined(__cpp_lib_coroutine) && !defined(SEASTAR_COROUTINES_TS)
+#ifndef SEASTAR_COROUTINES_ENABLED
 #error Coroutines support disabled.
 #endif
 
 #include <seastar/core/std-coroutine.hh>
-
-#ifdef SEASTAR_COROUTINES_TS
-#define SEASTAR_INTERNAL_COROUTINE_NAMESPACE std::experimental
-#else
-#define SEASTAR_INTERNAL_COROUTINE_NAMESPACE std
-#endif
 
 namespace seastar {
 
