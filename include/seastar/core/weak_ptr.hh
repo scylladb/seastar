@@ -45,10 +45,10 @@ private:
     using hook_type = boost::intrusive::list_member_hook<boost::intrusive::link_mode<boost::intrusive::auto_unlink>>;
     hook_type _hook;
     T* _ptr = nullptr;
-    weak_ptr(T* p) : _ptr(p) {}
+    weak_ptr(T* p) noexcept : _ptr(p) {}
 public:
-    weak_ptr() = default;
-    weak_ptr(std::nullptr_t) : weak_ptr() {}
+    weak_ptr() noexcept = default;
+    weak_ptr(std::nullptr_t) noexcept : weak_ptr() {}
     weak_ptr(weak_ptr&& o) noexcept
         : _ptr(o._ptr)
     {
@@ -62,12 +62,12 @@ public:
         }
         return *this;
     }
-    explicit operator bool() const { return _ptr != nullptr; }
+    explicit operator bool() const noexcept { return _ptr != nullptr; }
     T* operator->() const noexcept { return _ptr; }
     T& operator*() const noexcept { return *_ptr; }
     T* get() const noexcept { return _ptr; }
-    bool operator==(const weak_ptr& o) const { return _ptr == o._ptr; }
-    bool operator!=(const weak_ptr& o) const { return _ptr != o._ptr; }
+    bool operator==(const weak_ptr& o) const noexcept { return _ptr == o._ptr; }
+    bool operator!=(const weak_ptr& o) const noexcept { return _ptr != o._ptr; }
 };
 
 /// Allows obtaining a non-owning reference (weak_ptr) to the object.
