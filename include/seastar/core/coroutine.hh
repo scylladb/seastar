@@ -86,9 +86,12 @@ public:
             _promise.set_value();
         }
 
+// Clang complains if both return_value and return_void are defined
+#if !defined(__clang__)
         void return_value(future<>&& fut) noexcept {
             fut.forward_to(std::move(_promise));
         }
+#endif
 
         void unhandled_exception() noexcept {
             _promise.set_exception(std::current_exception());

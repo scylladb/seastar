@@ -72,7 +72,12 @@ SEASTAR_TEST_CASE(test_simple_coroutines) {
 
 
 future<> forwarding_return_coroutine_1(bool& x) {
-    co_return later().then([&x] {
+    co_return
+// Clang complains if both return_value and return_void are defined
+#if defined(__clang__)
+    co_await
+#endif
+      later().then([&x] {
         x = true;
     });
 }
