@@ -185,6 +185,24 @@ SEASTAR_TEST_CASE(test_get_on_promise) {
     return make_ready_future();
 }
 
+SEASTAR_TEST_CASE(test_finally_exception) {
+    return make_ready_future<>().then([] {
+        throw std::runtime_error("foo");
+    }).finally([] {
+        throw std::runtime_error("bar");
+    }).handle_exception_type([](const std::nested_exception &ex) {
+        // Unfortunately the current implementation loses the outer
+        // exception.
+        auto* outer = dynamic_cast<const std::runtime_error*>(&ex);
+        BOOST_REQUIRE_EQUAL(outer, nullptr);
+        try {
+            ex.rethrow_nested();
+        } catch (std::runtime_error &inner) {
+            BOOST_REQUIRE_EQUAL(inner.what(), "bar");
+        }
+    });
+}
+
 SEASTAR_TEST_CASE(test_finally_waits_for_inner) {
     auto finally = make_shared<bool>();
     auto p = make_shared<promise<>>();
