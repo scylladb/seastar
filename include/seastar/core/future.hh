@@ -372,6 +372,8 @@ struct future_state_base {
 protected:
     struct current_exception_future_marker {};
     future_state_base(current_exception_future_marker) noexcept;
+    struct nested_exception_marker {};
+    future_state_base(nested_exception_marker, future_state_base&& old) noexcept;
     ~future_state_base() noexcept = default;
 
 public:
@@ -479,6 +481,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
     future_state(exception_future_marker m, std::exception_ptr&& ex) noexcept : future_state_base(std::move(ex)) { }
     future_state(exception_future_marker m, future_state_base&& state) noexcept : future_state_base(std::move(state)) { }
     future_state(current_exception_future_marker m) noexcept : future_state_base(m) { }
+    future_state(nested_exception_marker m, future_state_base&& old) noexcept : future_state_base(m, std::move(old)) { }
     std::tuple<T...>&& get_value() && noexcept {
         assert(_u.st == state::result);
         return std::move(this->uninitialized_get());
@@ -1144,6 +1147,7 @@ private:
     template <typename... A>
     future(ready_future_marker m, A&&... a) noexcept : _state(m, std::forward<A>(a)...) { }
     future(future_state_base::current_exception_future_marker m) noexcept : _state(m) {}
+    future(future_state_base::nested_exception_marker m, future_state_base&& old) noexcept : _state(m, std::move(old)) {}
     future(exception_future_marker m, std::exception_ptr&& ex) noexcept : _state(m, std::move(ex)) { }
     future(exception_future_marker m, future_state_base&& state) noexcept : _state(m, std::move(state)) { }
     [[gnu::always_inline]]
@@ -1179,30 +1183,8 @@ private:
         return std::move(_state);
     }
 
-    [[gnu::noinline]]
     future<T...> rethrow_with_nested() noexcept {
-        if (!failed()) {
-            return current_exception_as_future<T...>();
-        } else {
-            //
-            // Encapsulate the current exception into the
-            // std::nested_exception because the current libstdc++
-            // implementation has a bug requiring the value of a
-            // std::throw_with_nested() parameter to be of a polymorphic
-            // type.
-            //
-            std::nested_exception f_ex;
-            try {
-                get();
-            } catch (...) {
-                try {
-                    std::throw_with_nested(f_ex);
-                } catch (...) {
-                    return current_exception_as_future<T...>();
-                }
-            }
-            __builtin_unreachable();
-        }
+        return future<T...>(future_state_base::nested_exception_marker(), std::move(_state));
     }
 
     template<typename... U>

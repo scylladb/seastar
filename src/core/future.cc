@@ -149,6 +149,33 @@ void future_state_base::ignore() noexcept {
     }
 }
 
+future_state_base::future_state_base(nested_exception_marker, future_state_base&& old) noexcept {
+    if (!old.failed()) {
+        new (this) future_state_base(current_exception_future_marker());
+        return;
+    } else {
+        //
+        // Encapsulate the current exception into the
+        // std::nested_exception because the current libstdc++
+        // implementation has a bug requiring the value of a
+        // std::throw_with_nested() parameter to be of a polymorphic
+        // type.
+        //
+        std::nested_exception f_ex;
+        try {
+            std::rethrow_exception(std::move(old).get_exception());
+        } catch (...) {
+            try {
+                std::throw_with_nested(f_ex);
+            } catch (...) {
+                new (this) future_state_base(current_exception_future_marker());
+                return;
+            }
+        }
+        __builtin_unreachable();
+    }
+}
+
 void report_failed_future(const std::exception_ptr& eptr) noexcept {
     ++engine()._abandoned_failed_futures;
     seastar_logger.warn("Exceptional future ignored: {}, backtrace: {}", eptr, current_backtrace());
