@@ -37,22 +37,22 @@
 namespace seastar {
 
 inline
-bool is_ip_unspecified(const ipv4_addr& addr) {
+bool is_ip_unspecified(const ipv4_addr& addr) noexcept {
     return addr.is_ip_unspecified();
 }
 
 inline
-bool is_port_unspecified(const ipv4_addr& addr) {
+bool is_port_unspecified(const ipv4_addr& addr) noexcept {
     return addr.is_port_unspecified();
 }
 
 inline
-socket_address make_ipv4_address(const ipv4_addr& addr) {
+socket_address make_ipv4_address(const ipv4_addr& addr) noexcept {
     return socket_address(addr);
 }
 
 inline
-socket_address make_ipv4_address(uint32_t ip, uint16_t port) {
+socket_address make_ipv4_address(uint32_t ip, uint16_t port) noexcept {
     return make_ipv4_address(ipv4_addr(ip, port));
 }
 
@@ -95,7 +95,7 @@ class udp_datagram final {
 private:
     std::unique_ptr<udp_datagram_impl> _impl;
 public:
-    udp_datagram(std::unique_ptr<udp_datagram_impl>&& impl) : _impl(std::move(impl)) {};
+    udp_datagram(std::unique_ptr<udp_datagram_impl>&& impl) noexcept : _impl(std::move(impl)) {};
     socket_address get_src() { return _impl->get_src(); }
     socket_address get_dst() { return _impl->get_dst(); }
     uint16_t get_dst_port() { return _impl->get_dst_port(); }
@@ -106,8 +106,8 @@ class udp_channel {
 private:
     std::unique_ptr<udp_channel_impl> _impl;
 public:
-    udp_channel();
-    udp_channel(std::unique_ptr<udp_channel_impl>);
+    udp_channel() noexcept;
+    udp_channel(std::unique_ptr<udp_channel_impl>) noexcept;
     ~udp_channel();
 
     udp_channel(udp_channel&&) noexcept;
@@ -166,11 +166,11 @@ class connected_socket {
     std::unique_ptr<net::connected_socket_impl> _csi;
 public:
     /// Constructs a \c connected_socket not corresponding to a connection
-    connected_socket();
+    connected_socket() noexcept;
     ~connected_socket();
 
     /// \cond internal
-    explicit connected_socket(std::unique_ptr<net::connected_socket_impl> csi);
+    explicit connected_socket(std::unique_ptr<net::connected_socket_impl> csi) noexcept;
     /// \endcond
     /// Moves a \c connected_socket object.
     connected_socket(connected_socket&& cs) noexcept;
@@ -229,10 +229,11 @@ public:
 class socket {
     std::unique_ptr<net::socket_impl> _si;
 public:
+    socket() noexcept = default;
     ~socket();
 
     /// \cond internal
-    explicit socket(std::unique_ptr<net::socket_impl> si);
+    explicit socket(std::unique_ptr<net::socket_impl> si) noexcept;
     /// \endcond
     /// Moves a \c seastar::socket object.
     socket(socket&&) noexcept;
@@ -286,9 +287,9 @@ public:
         default_ = connection_distribution
     };
     /// Constructs a \c server_socket not corresponding to a connection
-    server_socket();
+    server_socket() noexcept;
     /// \cond internal
-    explicit server_socket(std::unique_ptr<net::server_socket_impl> ssi);
+    explicit server_socket(std::unique_ptr<net::server_socket_impl> ssi) noexcept;
     /// \endcond
     /// Moves a \c server_socket object.
     server_socket(server_socket&& ss) noexcept;
@@ -312,7 +313,7 @@ public:
     void abort_accept();
 
     /// Local bound address
-    socket_address local_address() const;
+    socket_address local_address() const noexcept;
 };
 
 /// @}
@@ -333,10 +334,11 @@ class network_interface {
 private:
     shared_ptr<net::network_interface_impl> _impl;
 public:
-    network_interface(shared_ptr<net::network_interface_impl>);
-    network_interface(network_interface&&);
+    network_interface() = delete;
+    network_interface(shared_ptr<net::network_interface_impl>) noexcept;
+    network_interface(network_interface&&) noexcept;
 
-    network_interface& operator=(network_interface&&);
+    network_interface& operator=(network_interface&&) noexcept;
 
     uint32_t index() const;
     uint32_t mtu() const;

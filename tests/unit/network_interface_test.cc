@@ -76,6 +76,9 @@ SEASTAR_TEST_CASE(match_ipv6_scope) {
         // and that inet_address _without_ scope matches.
         BOOST_REQUIRE_EQUAL(net::inet_address(na.as_ipv6_address()), *i);
         BOOST_REQUIRE_EQUAL(na.scope(), nif.index());
+        // and that they are not ipv4 addresses
+        BOOST_REQUIRE_THROW(i->as_ipv4_address(), std::invalid_argument);
+        BOOST_REQUIRE_THROW(na.as_ipv4_address(), std::invalid_argument);
 
         niflog.info("Org: {}, Parsed: {}, Text: {}", *i, na, text);
 

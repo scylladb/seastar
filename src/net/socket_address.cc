@@ -42,16 +42,107 @@ size_t std::hash<seastar::socket_address>::operator()(const seastar::socket_addr
 
 namespace seastar {
 
-socket_address::socket_address(const net::inet_address& a, uint16_t p)
+static_assert(std::is_nothrow_default_constructible_v<socket_address>);
+static_assert(std::is_nothrow_copy_constructible_v<socket_address>);
+static_assert(std::is_nothrow_move_constructible_v<socket_address>);
+
+socket_address::socket_address() noexcept
+    // set max addr_length, as we (probably) want to use the constructed object
+    // in accept() or get_address()
+    : addr_length(sizeof(::sockaddr_storage))
+{
+    static_assert(AF_UNSPEC == 0, "just checking");
+    memset(&u, 0, sizeof(u));
+}
+
+socket_address::socket_address(uint16_t p) noexcept
+    : socket_address(ipv4_addr(p))
+{}
+
+socket_address::socket_address(ipv4_addr addr) noexcept
+{
+    addr_length = sizeof(::sockaddr_in);
+    u.in.sin_family = AF_INET;
+    u.in.sin_port = htons(addr.port);
+    u.in.sin_addr.s_addr = htonl(addr.ip);
+}
+
+socket_address::socket_address(const ipv6_addr& addr, uint32_t scope) noexcept
+{
+    addr_length = sizeof(::sockaddr_in6);
+    u.in6.sin6_family = AF_INET6;
+    u.in6.sin6_port = htons(addr.port);
+    u.in6.sin6_flowinfo = 0;
+    u.in6.sin6_scope_id = scope;
+    std::copy(addr.ip.begin(), addr.ip.end(), u.in6.sin6_addr.s6_addr);
+}
+
+socket_address::socket_address(const ipv6_addr& addr) noexcept
+    : socket_address(addr, net::inet_address::invalid_scope)
+{}
+
+socket_address::socket_address(uint32_t ipv4, uint16_t p) noexcept
+    : socket_address(make_ipv4_address(ipv4, p))
+{}
+
+socket_address::socket_address(const net::inet_address& a, uint16_t p) noexcept
     : socket_address(a.is_ipv6() ? socket_address(ipv6_addr(a, p), a.scope()) : socket_address(ipv4_addr(a, p)))
 {}
 
-socket_address::socket_address(const unix_domain_addr& s) {
+socket_address::socket_address(const unix_domain_addr& s) noexcept {
     u.un.sun_family = AF_UNIX;
     memset(u.un.sun_path, '\0', sizeof(u.un.sun_path));
     auto path_length = std::min((int)sizeof(u.un.sun_path), s.path_length());
     memcpy(u.un.sun_path, s.path_bytes(), path_length);
     addr_length = path_length + offsetof(struct ::sockaddr_un, sun_path);
+}
+
+bool socket_address::is_unspecified() const noexcept {
+    return u.sa.sa_family == AF_UNSPEC;
+}
+
+static int adjusted_path_length(const socket_address& a) noexcept {
+    int l = std::max(0, (int)a.addr_length-(int)(offsetof(sockaddr_un, sun_path)));
+    // "un-count" a trailing null in filesystem-namespace paths
+    if (a.u.un.sun_path[0]!='\0' && (l > 1) && a.u.un.sun_path[l-1]=='\0') {
+        --l;
+    }
+    return l;
+}
+
+bool socket_address::operator==(const socket_address& a) const noexcept {
+    if (u.sa.sa_family != a.u.sa.sa_family) {
+        return false;
+    }
+    if (u.sa.sa_family == AF_UNIX) {
+        // tolerate counting/not counting a terminating null in filesystem-namespace paths
+        int adjusted_len = adjusted_path_length(*this);
+        int a_adjusted_len = adjusted_path_length(a);
+        if (adjusted_len != a_adjusted_len) {
+            return false;
+        }
+        return (memcmp(u.un.sun_path, a.u.un.sun_path, adjusted_len) == 0);
+    }
+
+    // an INET address
+    if (u.in.sin_port != a.u.in.sin_port) {
+        return false;
+    }
+    switch (u.sa.sa_family) {
+    case AF_INET:
+        return u.in.sin_addr.s_addr == a.u.in.sin_addr.s_addr;
+    case AF_UNSPEC:
+    case AF_INET6:
+        // handled below
+        break;
+    default:
+        return false;
+    }
+
+    auto& in1 = as_posix_sockaddr_in6();
+    auto& in2 = a.as_posix_sockaddr_in6();
+
+    return IN6_ARE_ADDR_EQUAL(&in1, &in2);
 }
 
 std::string unix_domain_addr_text(const socket_address& sa) {

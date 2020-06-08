@@ -24,10 +24,19 @@
 
 namespace seastar {
 
-net::udp_channel::udp_channel()
+static_assert(std::is_nothrow_default_constructible_v<connected_socket>);
+static_assert(std::is_nothrow_move_constructible_v<connected_socket>);
+
+static_assert(std::is_nothrow_default_constructible_v<socket>);
+static_assert(std::is_nothrow_move_constructible_v<socket>);
+
+static_assert(std::is_nothrow_default_constructible_v<server_socket>);
+static_assert(std::is_nothrow_move_constructible_v<server_socket>);
+
+net::udp_channel::udp_channel() noexcept
 {}
 
-net::udp_channel::udp_channel(std::unique_ptr<udp_channel_impl> impl) : _impl(std::move(impl))
+net::udp_channel::udp_channel(std::unique_ptr<udp_channel_impl> impl) noexcept : _impl(std::move(impl))
 {}
 
 net::udp_channel::~udp_channel()
@@ -69,11 +78,11 @@ void net::udp_channel::close() {
     return _impl->close();
 }
 
-connected_socket::connected_socket()
+connected_socket::connected_socket() noexcept
 {}
 
 connected_socket::connected_socket(
-        std::unique_ptr<net::connected_socket_impl> csi)
+        std::unique_ptr<net::connected_socket_impl> csi) noexcept
         : _csi(std::move(csi)) {
 }
 
@@ -130,7 +139,7 @@ socket::~socket()
 {}
 
 socket::socket(
-        std::unique_ptr<net::socket_impl> si)
+        std::unique_ptr<net::socket_impl> si) noexcept
         : _si(std::move(si)) {
 }
 
@@ -153,10 +162,10 @@ void socket::shutdown() {
     _si->shutdown();
 }
 
-server_socket::server_socket() {
+server_socket::server_socket() noexcept {
 }
 
-server_socket::server_socket(std::unique_ptr<net::server_socket_impl> ssi)
+server_socket::server_socket(std::unique_ptr<net::server_socket_impl> ssi) noexcept
         : _ssi(std::move(ssi)) {
 }
 server_socket::server_socket(server_socket&& ss) noexcept = default;
@@ -177,103 +186,16 @@ void server_socket::abort_accept() {
     _aborted = true;
 }
 
-socket_address server_socket::local_address() const {
+socket_address server_socket::local_address() const noexcept {
     return _ssi->local_address();
 }
 
-socket_address::socket_address() 
-    // set max addr_length, as we (probably) want to use the constructed object
-    // in accept() or get_address()
-    : addr_length(sizeof(::sockaddr_storage))
-{
-    static_assert(AF_UNSPEC == 0, "just checking");
-    memset(&u, 0, sizeof(u));
-}
-
-socket_address::socket_address(uint16_t p)
-    : socket_address(ipv4_addr(p))
-{}
-
-socket_address::socket_address(ipv4_addr addr)
-{
-    addr_length = sizeof(::sockaddr_in);
-    u.in.sin_family = AF_INET;
-    u.in.sin_port = htons(addr.port);
-    u.in.sin_addr.s_addr = htonl(addr.ip);
-}
-
-socket_address::socket_address(const ipv6_addr& addr, uint32_t scope)
-{
-    addr_length = sizeof(::sockaddr_in6);
-    u.in6.sin6_family = AF_INET6;
-    u.in6.sin6_port = htons(addr.port);
-    u.in6.sin6_flowinfo = 0;
-    u.in6.sin6_scope_id = scope;
-    std::copy(addr.ip.begin(), addr.ip.end(), u.in6.sin6_addr.s6_addr);
-}
-
-socket_address::socket_address(const ipv6_addr& addr)
-    : socket_address(addr, net::inet_address::invalid_scope)
-{}
-
-socket_address::socket_address(uint32_t ipv4, uint16_t p)
-    : socket_address(make_ipv4_address(ipv4, p))
-{}
-
-bool socket_address::is_unspecified() const {
-    return u.sa.sa_family == AF_UNSPEC;
-}
-
-static int adjusted_path_length(const socket_address& a) {
-    int l = std::max(0, (int)a.addr_length-(int)(offsetof(sockaddr_un, sun_path)));
-    // "un-count" a trailing null in filesystem-namespace paths
-    if (a.u.un.sun_path[0]!='\0' && (l > 1) && a.u.un.sun_path[l-1]=='\0') {
-        --l;
-    }
-    return l;
-}
-
-bool socket_address::operator==(const socket_address& a) const {
-    if (u.sa.sa_family != a.u.sa.sa_family) {
-        return false;
-    }
-    if (u.sa.sa_family == AF_UNIX) {
-        // tolerate counting/not counting a terminating null in filesystem-namespace paths
-        int adjusted_len = adjusted_path_length(*this);
-        int a_adjusted_len = adjusted_path_length(a);
-        if (adjusted_len != a_adjusted_len) {
-            return false;
-        }
-        return (memcmp(u.un.sun_path, a.u.un.sun_path, adjusted_len) == 0);
-    }
-
-    // an INET address
-    if (u.in.sin_port != a.u.in.sin_port) {
-        return false;
-    }
-    switch (u.sa.sa_family) {
-    case AF_INET:
-        return u.in.sin_addr.s_addr == a.u.in.sin_addr.s_addr;
-    case AF_UNSPEC:
-    case AF_INET6:
-        // handled below
-        break;
-    default:
-        return false;
-    }
-
-    auto& in1 = as_posix_sockaddr_in6();
-    auto& in2 = a.as_posix_sockaddr_in6();
-
-    return IN6_ARE_ADDR_EQUAL(&in1, &in2);
-}
-
-network_interface::network_interface(shared_ptr<net::network_interface_impl> impl)
+network_interface::network_interface(shared_ptr<net::network_interface_impl> impl) noexcept
     : _impl(std::move(impl))
 {}
 
-network_interface::network_interface(network_interface&&) = default;
-network_interface& network_interface::operator=(network_interface&&) = default;
+network_interface::network_interface(network_interface&&) noexcept = default;
+network_interface& network_interface::operator=(network_interface&&) noexcept = default;
     
 uint32_t network_interface::index() const {
     return _impl->index();
