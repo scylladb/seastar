@@ -93,7 +93,7 @@ class weakly_referencable {
             boost::intrusive::member_hook<weak_ptr<T>, typename weak_ptr<T>::hook_type, &weak_ptr<T>::_hook>,
             boost::intrusive::constant_time_size<false>> _ptr_list;
 public:
-    weakly_referencable() = default;
+    weakly_referencable() noexcept = default;
     weakly_referencable(weakly_referencable&&) = delete; // pointer to this is captured and passed to weak_ptr
     weakly_referencable(const weakly_referencable&) = delete;
     ~weakly_referencable() noexcept {
