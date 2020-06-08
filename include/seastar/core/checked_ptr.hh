@@ -118,7 +118,7 @@ private:
     }
 
 public:
-    checked_ptr() = default;
+    checked_ptr() noexcept(noexcept(Ptr(nullptr))) = default;
     checked_ptr(std::nullptr_t) noexcept(std::is_nothrow_default_constructible<checked_ptr<Ptr, NullDerefAction>>::value) : checked_ptr() {}
     checked_ptr(Ptr&& ptr) noexcept(std::is_nothrow_move_constructible<Ptr>::value) : _ptr(std::move(ptr)) {}
     checked_ptr(const Ptr& p) noexcept(std::is_nothrow_copy_constructible<Ptr>::value) : _ptr(p) {}
