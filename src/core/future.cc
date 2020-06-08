@@ -188,7 +188,7 @@ namespace {
 class thread_wake_task final : public task {
     thread_context* _thread;
 public:
-    thread_wake_task(thread_context* thread) : _thread(thread) {}
+    thread_wake_task(thread_context* thread) noexcept : _thread(thread) {}
     virtual void run_and_dispose() noexcept override {
         thread_impl::switch_in(_thread);
         // no need to delete, since this is always allocated on
