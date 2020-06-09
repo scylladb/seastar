@@ -254,7 +254,7 @@ public:
      * This function doesn't require any alignment for both "pos" and "len"
      *
      * @note size of the returned buffer may be smaller than "len" if EOF is
-     *       reached of in case of I/O error.
+     *       reached or in case of I/O error.
      */
     template <typename CharType>
     future<temporary_buffer<CharType>> dma_read(uint64_t pos, size_t len, const io_priority_class& pc = default_priority_class()) noexcept {
