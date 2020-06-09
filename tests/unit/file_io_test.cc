@@ -26,6 +26,7 @@
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/condition-variable.hh>
 #include <seastar/core/file.hh>
+#include <seastar/core/layered_file.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/stall_sampler.hh>
 #include <seastar/core/aligned_buffer.hh>
@@ -476,4 +477,65 @@ SEASTAR_TEST_CASE(test_file_stat_method) {
 
     umask(orig_umask);
   });
+}
+
+
+class test_layered_file : public layered_file_impl {
+public:
+    explicit test_layered_file(file f) : layered_file_impl(std::move(f)) {}
+    virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc) override {
+        abort();
+    }
+    virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) override {
+        abort();
+    }
+    virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc) override {
+        abort();
+    }
+    virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) override {
+        abort();
+    }
+    virtual future<> flush(void) override {
+        abort();
+    }
+    virtual future<struct stat> stat(void) override {
+        abort();
+    }
+    virtual future<> truncate(uint64_t length) override {
+        abort();
+    }
+    virtual future<> discard(uint64_t offset, uint64_t length) override {
+        abort();
+    }
+    virtual future<> allocate(uint64_t position, uint64_t length) override {
+        abort();
+    }
+    virtual future<uint64_t> size(void) override {
+        abort();
+    }
+    virtual future<> close() override {
+        abort();
+    }
+    virtual std::unique_ptr<file_handle_impl> dup() {
+        abort();
+    }
+    virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) override {
+        abort();
+    }
+    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc) override {
+        abort();
+    }
+};
+
+SEASTAR_TEST_CASE(test_underlying_file) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        auto oflags = open_flags::rw | open_flags::create;
+        sstring filename = (t.get_path() / "testfile.tmp").native();
+        auto f = open_file_dma(filename, oflags).get0();
+        auto lf = file(make_shared<test_layered_file>(f));
+        BOOST_CHECK_EQUAL(f.memory_dma_alignment(), lf.memory_dma_alignment());
+        BOOST_CHECK_EQUAL(f.disk_read_dma_alignment(), lf.disk_read_dma_alignment());
+        BOOST_CHECK_EQUAL(f.disk_write_dma_alignment(), lf.disk_write_dma_alignment());
+        f.close().get();
+    });
 }

@@ -441,6 +441,7 @@ add_library (seastar STATIC
   include/seastar/core/gate.hh
   include/seastar/core/iostream-impl.hh
   include/seastar/core/iostream.hh
+  include/seastar/core/layered_file.hh
   include/seastar/core/linux-aio.hh
   include/seastar/core/lowres_clock.hh
   include/seastar/core/manual_clock.hh
