@@ -27,7 +27,12 @@
 
 using namespace seastar;
 
+static_assert(std::is_nothrow_default_constructible_v<weak_ptr<int>>);
+static_assert(std::is_nothrow_move_constructible_v<weak_ptr<int>>);
+
 class myclass : public weakly_referencable<myclass> {};
+
+static_assert(std::is_nothrow_default_constructible_v<weakly_referencable<myclass>>);
 
 BOOST_AUTO_TEST_CASE(test_weak_ptr_is_empty_when_default_initialized) {
     weak_ptr<myclass> wp;
