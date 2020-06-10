@@ -28,7 +28,12 @@
 
 namespace seastar {
 
+static_assert(std::is_nothrow_constructible_v<deleter>);
+static_assert(std::is_nothrow_move_constructible_v<deleter>);
+
 namespace net {
+
+static_assert(std::is_nothrow_move_constructible_v<packet>);
 
 constexpr size_t packet::internal_data_size;
 constexpr size_t packet::default_nr_frags;

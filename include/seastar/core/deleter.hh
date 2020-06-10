@@ -55,13 +55,13 @@ private:
     impl* _impl = nullptr;
 public:
     /// Constructs an empty deleter that does nothing in its destructor.
-    deleter() = default;
+    deleter() noexcept = default;
     deleter(const deleter&) = delete;
     /// Moves a deleter.
     deleter(deleter&& x) noexcept : _impl(x._impl) { x._impl = nullptr; }
     /// \cond internal
-    explicit deleter(impl* i) : _impl(i) {}
-    deleter(raw_object_tag tag, void* object)
+    explicit deleter(impl* i) noexcept : _impl(i) {}
+    deleter(raw_object_tag tag, void* object) noexcept
         : _impl(from_raw_object(object)) {}
     /// \endcond
     /// Destroys the deleter and carries out the encapsulated action.
@@ -75,7 +75,7 @@ public:
     /// \return a deleter with the same encapsulated action as this one.
     deleter share();
     /// Checks whether the deleter has an associated action.
-    explicit operator bool() const { return bool(_impl); }
+    explicit operator bool() const noexcept { return bool(_impl); }
     /// \cond internal
     void reset(impl* i) {
         this->~deleter();
@@ -86,21 +86,21 @@ public:
     /// destroyed, both encapsulated actions will be carried out.
     void append(deleter d);
 private:
-    static bool is_raw_object(impl* i) {
+    static bool is_raw_object(impl* i) noexcept {
         auto x = reinterpret_cast<uintptr_t>(i);
         return x & 1;
     }
-    bool is_raw_object() const {
+    bool is_raw_object() const noexcept {
         return is_raw_object(_impl);
     }
-    static void* to_raw_object(impl* i) {
+    static void* to_raw_object(impl* i) noexcept {
         auto x = reinterpret_cast<uintptr_t>(i);
         return reinterpret_cast<void*>(x & ~uintptr_t(1));
     }
-    void* to_raw_object() const {
+    void* to_raw_object() const noexcept {
         return to_raw_object(_impl);
     }
-    impl* from_raw_object(void* object) {
+    impl* from_raw_object(void* object) noexcept {
         auto x = reinterpret_cast<uintptr_t>(object);
         return reinterpret_cast<impl*>(x | 1);
     }

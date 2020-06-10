@@ -57,10 +57,10 @@ class data_source {
 protected:
     data_source_impl* impl() const { return _dsi.get(); }
 public:
-    data_source() = default;
-    explicit data_source(std::unique_ptr<data_source_impl> dsi) : _dsi(std::move(dsi)) {}
-    data_source(data_source&& x) = default;
-    data_source& operator=(data_source&& x) = default;
+    data_source() noexcept = default;
+    explicit data_source(std::unique_ptr<data_source_impl> dsi) noexcept : _dsi(std::move(dsi)) {}
+    data_source(data_source&& x) noexcept = default;
+    data_source& operator=(data_source&& x) noexcept = default;
     future<temporary_buffer<char>> get() { return _dsi->get(); }
     future<temporary_buffer<char>> skip(uint64_t n) { return _dsi->skip(n); }
     future<> close() { return _dsi->close(); }
@@ -93,10 +93,10 @@ public:
 class data_sink {
     std::unique_ptr<data_sink_impl> _dsi;
 public:
-    data_sink() = default;
-    explicit data_sink(std::unique_ptr<data_sink_impl> dsi) : _dsi(std::move(dsi)) {}
-    data_sink(data_sink&& x) = default;
-    data_sink& operator=(data_sink&& x) = default;
+    data_sink() noexcept = default;
+    explicit data_sink(std::unique_ptr<data_sink_impl> dsi) noexcept : _dsi(std::move(dsi)) {}
+    data_sink(data_sink&& x) noexcept = default;
+    data_sink& operator=(data_sink&& x) noexcept = default;
     temporary_buffer<char> allocate_buffer(size_t size) {
         return _dsi->allocate_buffer(size);
     }
@@ -213,8 +213,8 @@ public:
     // unconsumed_remainder is mapped for compatibility only; new code should use consumption_result_type
     using unconsumed_remainder = std::optional<tmp_buf>;
     using char_type = CharType;
-    input_stream() = default;
-    explicit input_stream(data_source fd) : _fd(std::move(fd)), _buf(0) {}
+    input_stream() noexcept = default;
+    explicit input_stream(data_source fd) noexcept : _fd(std::move(fd)), _buf() {}
     input_stream(input_stream&&) = default;
     input_stream& operator=(input_stream&&) = default;
     future<temporary_buffer<CharType>> read_exactly(size_t n);
@@ -300,11 +300,11 @@ private:
     future<> slow_write(const CharType* buf, size_t n);
 public:
     using char_type = CharType;
-    output_stream() = default;
-    output_stream(data_sink fd, size_t size, bool trim_to_size = false, bool batch_flushes = false)
+    output_stream() noexcept = default;
+    output_stream(data_sink fd, size_t size, bool trim_to_size = false, bool batch_flushes = false) noexcept
         : _fd(std::move(fd)), _size(size), _trim_to_size(trim_to_size), _batch_flushes(batch_flushes) {}
-    output_stream(output_stream&&) = default;
-    output_stream& operator=(output_stream&&) = default;
+    output_stream(output_stream&&) noexcept = default;
+    output_stream& operator=(output_stream&&) noexcept = default;
     ~output_stream() { assert(!_in_batch && "Was this stream properly closed?"); }
     future<> write(const char_type* buf, size_t n);
     future<> write(const char_type* buf);

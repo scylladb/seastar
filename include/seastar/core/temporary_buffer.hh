@@ -78,7 +78,7 @@ public:
     }
     //explicit temporary_buffer(CharType* borrow, size_t size) : _buffer(borrow), _size(size) {}
     /// Creates an empty \c temporary_buffer that does not point at anything.
-    temporary_buffer()
+    temporary_buffer() noexcept
         : _buffer(nullptr)
         , _size(0) {}
     temporary_buffer(const temporary_buffer&) = delete;
