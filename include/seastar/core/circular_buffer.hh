@@ -176,7 +176,7 @@ private:
     private:
         CB* cb;
         size_t idx;
-        cbiterator<CB, ValueType>(CB* b, size_t i) : cb(b), idx(i) {}
+        cbiterator(CB* b, size_t i) : cb(b), idx(i) {}
         friend class circular_buffer;
     };
     friend class iterator;
