@@ -707,7 +707,7 @@ class when_all_state_base;
 
 // If the future is ready, return true
 // if the future is not ready, chain a continuation to it, and return false
-using when_all_process_element_func = bool (*)(void* future, void* continuation, when_all_state_base* wasb);
+using when_all_process_element_func = bool (*)(void* future, void* continuation, when_all_state_base* wasb) noexcept;
 
 struct when_all_process_element {
     when_all_process_element_func func;
@@ -724,7 +724,7 @@ public:
             : _nr_remain(nr_remain), _processors(processors), _continuation(continuation) {
     }
     virtual task* waiting_task() = 0;
-    void complete_one() {
+    void complete_one() noexcept {
         // We complete in reverse order; if the futures happen to complete
         // in order, then waiting for the last one will find the rest ready
         --_nr_remain;
@@ -739,11 +739,11 @@ public:
             delete this;
         }
     }
-    void do_wait_all() {
+    void do_wait_all() noexcept {
         ++_nr_remain; // fake pending completion for complete_one()
         complete_one();
     }
-    bool process_one(size_t idx) {
+    bool process_one(size_t idx) noexcept {
         auto p = _processors[idx];
         return p.func(p.future, _continuation, this);
     }
@@ -764,7 +764,7 @@ public:
             return false;
         }
     }
-    when_all_state_component(when_all_state_base *base, Future* future) : _base(base), _final_resting_place(future) {}
+    when_all_state_component(when_all_state_base *base, Future* future) noexcept : _base(base), _final_resting_place(future) {}
     task* waiting_task() noexcept override { return _base->waiting_task(); }
     virtual void run_and_dispose() noexcept override {
         using futurator = futurize<Future>;
