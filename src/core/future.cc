@@ -90,7 +90,6 @@ void promise_base::set_to_current_exception() noexcept {
 template <promise_base::urgent Urgent>
 void promise_base::make_ready() noexcept {
     if (_task) {
-        _state = nullptr;
         if (Urgent == urgent::yes && !need_preempt()) {
             ::seastar::schedule_urgent(std::exchange(_task, nullptr));
         } else {
@@ -185,7 +184,7 @@ void report_failed_future(const future_state_base& state) noexcept {
     report_failed_future(state._u.ex);
 }
 
-task* thread_wake_task_base::waiting_task() noexcept {
+task* thread_wake_task::waiting_task() noexcept {
     return _thread->waiting_task();
 }
 

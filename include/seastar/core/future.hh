@@ -1181,15 +1181,17 @@ task* continuation_base_with_promise<Promise, T...>::waiting_task() noexcept {
     return _pr.waiting_task();
 }
 
-class thread_wake_task_base {
-protected:
+class thread_wake_task final : public task {
     thread_context* _thread;
 public:
-    thread_wake_task_base(thread_context* thread)
-        : _thread(thread)
-    {}
+    thread_wake_task(thread_context* thread) : _thread(thread) {}
+    virtual void run_and_dispose() noexcept override {
+        thread_impl::switch_in(_thread);
+        // no need to delete, since this is always allocated on
+        // _thread's stack.
+    }
     /// Returns the task which is waiting for this thread to be done, or nullptr.
-    task* waiting_task() noexcept;
+    virtual task* waiting_task() noexcept override;
 };
 
 /// \brief A representation of a possibly not-yet-computed value.
@@ -1358,22 +1360,6 @@ public:
         }
     }
 private:
-    class thread_wake_task final : public continuation_base<T...>, thread_wake_task_base {
-        future* _waiting_for;
-    public:
-        thread_wake_task(thread_context* thread, future* waiting_for)
-                : thread_wake_task_base(thread), _waiting_for(waiting_for) {
-        }
-        virtual void run_and_dispose() noexcept override {
-            _waiting_for->_state = std::move(this->_state);
-            thread_impl::switch_in(_thread);
-            // no need to delete, since this is always allocated on
-            // _thread's stack.
-        }
-        virtual task* waiting_task() noexcept override {
-            return thread_wake_task_base::waiting_task();
-        }
-    };
     void do_wait() noexcept {
         if (__builtin_expect(!_promise, false)) {
             _state.set_to_broken_promise();
@@ -1381,9 +1367,9 @@ private:
         }
         auto thread = thread_impl::get();
         assert(thread);
-        thread_wake_task wake_task{thread, this};
+        thread_wake_task wake_task{thread};
         wake_task.make_backtrace();
-        detach_promise()->schedule_continuation(static_cast<continuation_base<T...>*>(&wake_task));
+        _promise->schedule(&wake_task);
         thread_impl::switch_out(thread);
     }
 
