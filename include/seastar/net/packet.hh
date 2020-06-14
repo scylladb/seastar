@@ -221,7 +221,7 @@ public:
     // append deleter
     packet(packet&& x, deleter d);
 
-    packet& operator=(packet&& x) {
+    packet& operator=(packet&& x) noexcept {
         if (this != &x) {
             this->~packet();
             new (this) packet(std::move(x));
