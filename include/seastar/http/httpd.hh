@@ -147,11 +147,7 @@ class http_server {
     future<> _stopped = _all_connections_stopped.get_future();
     size_t _content_length_limit = std::numeric_limits<size_t>::max();
 private:
-    void maybe_idle() {
-        if (_stopping && !_connections_being_accepted && !_current_connections) {
-            _all_connections_stopped.set_value();
-        }
-    }
+    void maybe_idle();
 public:
     routes _routes;
     using connection = seastar::httpd::connection;
@@ -184,91 +180,23 @@ public:
         }).get();
      *
      */
-    void set_tls_credentials(shared_ptr<seastar::tls::server_credentials> credentials) {
-        _credentials = credentials;
-    }
+    void set_tls_credentials(shared_ptr<seastar::tls::server_credentials> credentials);
 
-    size_t get_content_length_limit() const {
-        return _content_length_limit;
-    }
+    size_t get_content_length_limit() const;
 
-    void set_content_length_limit(size_t limit) {
-        _content_length_limit = limit;
-    }
+    void set_content_length_limit(size_t limit);
 
-    future<> listen(socket_address addr, listen_options lo) {
-        if (_credentials) {
-            _listeners.push_back(seastar::tls::listen(_credentials, addr, lo));
-        } else {
-            _listeners.push_back(seastar::listen(addr, lo));
-        }
-        _stopped = when_all(std::move(_stopped), do_accepts(_listeners.size() - 1)).discard_result();
-        return make_ready_future<>();
-    }
-    future<> listen(socket_address addr) {
-        listen_options lo;
-        lo.reuse_address = true;
-        return listen(addr, lo);
-    }
-    future<> stop() {
-        _stopping = true;
-        for (auto&& l : _listeners) {
-            l.abort_accept();
-        }
-        for (auto&& c : _connections) {
-            c.shutdown();
-        }
-        maybe_idle();
-        return std::move(_stopped);
-    }
+    future<> listen(socket_address addr, listen_options lo);
+    future<> listen(socket_address addr);
+    future<> stop();
 
-    future<> do_accepts(int which) {
-        ++_connections_being_accepted;
-        return _listeners[which].accept().then_wrapped(
-                [this, which] (future<accept_result> f_ar) mutable {
-            --_connections_being_accepted;
-            if (_stopping || f_ar.failed()) {
-                f_ar.ignore_ready_future();
-                maybe_idle();
-                return;
-            }
-            auto ar = f_ar.get0();
-            auto conn = new connection(*this, std::move(ar.connection), std::move(ar.remote_address));
-            // FIXME: future is discarded
-            (void)conn->process().then_wrapped([conn] (auto&& f) {
-                delete conn;
-                try {
-                    f.get();
-                } catch (std::exception& ex) {
-                    std::cerr << "request error " << ex.what() << std::endl;
-                }
-            });
-            // FIXME: future is discarded
-            (void)do_accepts(which);
-        }).then_wrapped([] (auto f) {
-            try {
-                f.get();
-            } catch (std::exception& ex) {
-                std::cerr << "accept failed: " << ex.what() << std::endl;
-            }
-        });
-    }
+    future<> do_accepts(int which);
 
-    uint64_t total_connections() const {
-        return _total_connections;
-    }
-    uint64_t current_connections() const {
-        return _current_connections;
-    }
-    uint64_t requests_served() const {
-        return _requests_served;
-    }
-    uint64_t read_errors() const {
-        return _read_errors;
-    }
-    uint64_t reply_errors() const {
-        return _respond_errors;
-    }
+    uint64_t total_connections() const;
+    uint64_t current_connections() const;
+    uint64_t requests_served() const;
+    uint64_t read_errors() const;
+    uint64_t reply_errors() const;
     // Write the current date in the specific "preferred format" defined in
     // RFC 7231, Section 7.1.1.1.
     static sstring http_date();

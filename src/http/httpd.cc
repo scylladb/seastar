@@ -392,6 +392,98 @@ future<bool> connection::generate_reply(std::unique_ptr<request> req) {
     });
 }
 
+void http_server::maybe_idle() {
+    if (_stopping && !_connections_being_accepted && !_current_connections) {
+        _all_connections_stopped.set_value();
+    }
+}
+
+void http_server::set_tls_credentials(shared_ptr<seastar::tls::server_credentials> credentials) {
+    _credentials = credentials;
+}
+
+size_t http_server::get_content_length_limit() const {
+    return _content_length_limit;
+}
+
+void http_server::set_content_length_limit(size_t limit) {
+    _content_length_limit = limit;
+}
+
+future<> http_server::listen(socket_address addr, listen_options lo) {
+    if (_credentials) {
+        _listeners.push_back(seastar::tls::listen(_credentials, addr, lo));
+    } else {
+        _listeners.push_back(seastar::listen(addr, lo));
+    }
+    _stopped = when_all(std::move(_stopped), do_accepts(_listeners.size() - 1)).discard_result();
+    return make_ready_future<>();
+}
+future<> http_server::listen(socket_address addr) {
+    listen_options lo;
+    lo.reuse_address = true;
+    return listen(addr, lo);
+}
+future<> http_server::stop() {
+    _stopping = true;
+    for (auto&& l : _listeners) {
+        l.abort_accept();
+    }
+    for (auto&& c : _connections) {
+        c.shutdown();
+    }
+    maybe_idle();
+    return std::move(_stopped);
+}
+
+future<> http_server::do_accepts(int which) {
+    ++_connections_being_accepted;
+    return _listeners[which].accept().then_wrapped(
+            [this, which] (future<accept_result> f_ar) mutable {
+        --_connections_being_accepted;
+        if (_stopping || f_ar.failed()) {
+            f_ar.ignore_ready_future();
+            maybe_idle();
+            return;
+        }
+        auto ar = f_ar.get0();
+        auto conn = new connection(*this, std::move(ar.connection), std::move(ar.remote_address));
+        // FIXME: future is discarded
+        (void)conn->process().then_wrapped([conn] (auto&& f) {
+            delete conn;
+            try {
+                f.get();
+            } catch (std::exception& ex) {
+                std::cerr << "request error " << ex.what() << std::endl;
+            }
+        });
+        // FIXME: future is discarded
+        (void)do_accepts(which);
+    }).then_wrapped([] (auto f) {
+        try {
+            f.get();
+        } catch (std::exception& ex) {
+            std::cerr << "accept failed: " << ex.what() << std::endl;
+        }
+    });
+}
+
+uint64_t http_server::total_connections() const {
+    return _total_connections;
+}
+uint64_t http_server::current_connections() const {
+    return _current_connections;
+}
+uint64_t http_server::requests_served() const {
+    return _requests_served;
+}
+uint64_t http_server::read_errors() const {
+    return _read_errors;
+}
+uint64_t http_server::reply_errors() const {
+    return _respond_errors;
+}
+
 // Write the current date in the specific "preferred format" defined in
 // RFC 7231, Section 7.1.1.1, a.k.a. IMF (Internet Message Format) fixdate.
 // For example: Sun, 06 Nov 1994 08:49:37 GMT
