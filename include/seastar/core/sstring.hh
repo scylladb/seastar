@@ -585,46 +585,15 @@ operator+(const char(&s)[N], const basic_sstring<char_type, size_type, Max, NulT
     return ret;
 }
 
-template <size_t N>
 static inline
-size_t str_len(const char(&s)[N]) { return N - 1; }
-
-template <size_t N>
-static inline
-const char* str_begin(const char(&s)[N]) { return s; }
-
-template <size_t N>
-static inline
-const char* str_end(const char(&s)[N]) { return str_begin(s) + str_len(s); }
-
-template <typename char_type, typename size_type, size_type max_size, bool NulTerminate>
-static inline
-const char_type* str_begin(const basic_sstring<char_type, size_type, max_size, NulTerminate>& s) { return s.begin(); }
-
-template <typename char_type, typename size_type, size_type max_size, bool NulTerminate>
-static inline
-const char_type* str_end(const basic_sstring<char_type, size_type, max_size, NulTerminate>& s) { return s.end(); }
-
-inline const char* str_begin(const std::string& s) {
-    return s.data();
+size_t str_len() {
+    return 0;
 }
 
-inline const char* str_end(const std::string& s) {
-    return &*s.end();
-}
-
-inline size_t str_len(const std::string& s) {
-    return s.size();
-}
-
-template <typename char_type, typename size_type, size_type max_size, bool NulTerminate>
+template <typename First, typename... Tail>
 static inline
-size_type str_len(const basic_sstring<char_type, size_type, max_size, NulTerminate>& s) { return s.size(); }
-
-template <typename First, typename Second, typename... Tail>
-static inline
-size_t str_len(const First& first, const Second& second, const Tail&... tail) {
-    return str_len(first) + str_len(second, tail...);
+size_t str_len(const First& first, const Tail&... tail) {
+    return std::string_view(first).size() + str_len(tail...);
 }
 
 template <typename char_type, typename size_type, size_type max_size>
@@ -677,7 +646,8 @@ char* copy_str_to(char* dst) {
 template <typename Head, typename... Tail>
 static inline
 char* copy_str_to(char* dst, const Head& head, const Tail&... tail) {
-    return copy_str_to(std::copy(str_begin(head), str_end(head), dst), tail...);
+    std::string_view v(head);
+    return copy_str_to(std::copy(v.begin(), v.end(), dst), tail...);
 }
 
 template <typename String = sstring, typename... Args>

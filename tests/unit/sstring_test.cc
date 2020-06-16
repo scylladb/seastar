@@ -27,6 +27,14 @@
 
 using namespace seastar;
 
+BOOST_AUTO_TEST_CASE(test_make_sstring) {
+    std::string_view foo = "foo";
+    std::string bar = "bar";
+    sstring zed = "zed";
+    const char* baz = "baz";
+    BOOST_REQUIRE_EQUAL(make_sstring(foo, bar, zed, baz, "bah"), sstring("foobarzedbazbah"));
+}
+
 BOOST_AUTO_TEST_CASE(test_construction) {
     BOOST_REQUIRE_EQUAL(sstring(std::string_view("abc")), sstring("abc"));
 }
