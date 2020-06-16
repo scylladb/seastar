@@ -94,7 +94,7 @@ PERF_TEST_F(perf_fair_queue, contended_local)
         });
     });
 
-    return when_all_succeed(std::move(invokers), std::move(collectors));
+    return when_all_succeed(std::move(invokers), std::move(collectors)).discard_result();
 }
 
 PERF_TEST_F(perf_fair_queue, contended_shared)
@@ -119,7 +119,7 @@ PERF_TEST_F(perf_fair_queue, contended_shared)
         shared_fq.notify_requests_finished(seastar::fair_queue_ticket{pending_ack, pending_ack});
         return make_ready_future<>();
     });
-    return when_all_succeed(std::move(invokers), std::move(collectors));
+    return when_all_succeed(std::move(invokers), std::move(collectors)).discard_result();
 }
 PERF_TEST_F(perf_fair_queue, contended_shared_amortized)
 {
@@ -143,5 +143,5 @@ PERF_TEST_F(perf_fair_queue, contended_shared_amortized)
         shared_fq.notify_requests_finished(seastar::fair_queue_ticket{pending_ack, pending_ack});
         return make_ready_future<>();
     });
-    return when_all_succeed(std::move(invokers), std::move(collectors));
+    return when_all_succeed(std::move(invokers), std::move(collectors)).discard_result();
 }
