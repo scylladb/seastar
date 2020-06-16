@@ -505,6 +505,33 @@ sstring http_server::http_date() {
         tm.tm_hour, tm.tm_min, tm.tm_sec);
 }
 
+
+future<> http_server_control::start(const sstring& name) {
+    return _server_dist->start(name);
+}
+
+future<> http_server_control::stop() {
+    return _server_dist->stop();
+}
+
+future<> http_server_control::set_routes(std::function<void(routes& r)> fun) {
+    return _server_dist->invoke_on_all([fun](http_server& server) {
+        fun(server._routes);
+    });
+}
+
+future<> http_server_control::listen(socket_address addr) {
+    return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address)>(&http_server::listen, addr);
+}
+
+future<> http_server_control::listen(socket_address addr, listen_options lo) {
+    return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address, listen_options)>(&http_server::listen, addr, lo);
+}
+
+distributed<http_server>& http_server_control::server() {
+    return *_server_dist;
+}
+
 }
 
 }

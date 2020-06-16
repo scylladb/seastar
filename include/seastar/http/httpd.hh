@@ -234,32 +234,12 @@ public:
     http_server_control() : _server_dist(new distributed<http_server>) {
     }
 
-
-    future<> start(const sstring& name = generate_server_name()) {
-        return _server_dist->start(name);
-    }
-
-    future<> stop() {
-        return _server_dist->stop();
-    }
-
-    future<> set_routes(std::function<void(routes& r)> fun) {
-        return _server_dist->invoke_on_all([fun](http_server& server) {
-            fun(server._routes);
-        });
-    }
-
-    future<> listen(socket_address addr) {
-        return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address)>(&http_server::listen, addr);
-    }
-
-    future<> listen(socket_address addr, listen_options lo) {
-        return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address, listen_options)>(&http_server::listen, addr, lo);
-    }
-
-    distributed<http_server>& server() {
-        return *_server_dist;
-    }
+    future<> start(const sstring& name = generate_server_name());
+    future<> stop();
+    future<> set_routes(std::function<void(routes& r)> fun);
+    future<> listen(socket_address addr);
+    future<> listen(socket_address addr, listen_options lo);
+    distributed<http_server>& server();
 };
 
 }
