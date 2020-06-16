@@ -67,6 +67,62 @@ namespace seastar {
 /// is resolved); the continuation can then access the actual value.
 ///
 
+/// \defgroup future-module Implementation overview
+///
+/// A future has a stored value. Semantically, the value is a
+/// std::optional<std::variant<T, std::exception_ptr>>. The actual
+/// type of the value in the implementation is future_state<T>.
+///
+/// A future without an initial value can be created by first creating
+/// a promise and then calling promise::get_future. The promise also
+/// stores a future_state<T> in case promise::set_value is called
+/// before get_future.
+///
+/// In addition to the future_state<T>, the promise and the future
+/// point to each other and the pointers are updated when either is
+/// moved.
+///
+/// If a future is consumed by future::then before the future is
+/// ready, a continuation is dynamically allocated. The continuation
+/// also has a future_state<T>, but unlinke a future it is never
+/// moved.
+///
+/// After a future creates a continuation, the corresponding promise
+/// points to the newly allocated continuation. When
+/// promise::set_value is called, the continuation is ready and is
+/// scheduled.
+///
+/// A promise then consists of
+/// * A future_state<T> for use when there is no corresponding future
+///   or continuation (_local_state).
+/// * A pointer to a future to allow updates when the promise is moved
+///  (_future).
+/// * A pointer to the continuation (_task).
+/// * A pointer to future_state<T> (_state) that can point to
+///   1. The future_state<T> in the promise itself
+///   2. The future_state<T> in the future
+///   2. The future_state<T> in the continuation
+///
+/// A special case is when a future blocks inside a thread. In that
+/// case we still need a continuation, but that continuation doesn't
+/// need a future_state<T> since the original future still exists on
+/// the stack.
+///
+/// So the valid states for a promise are:
+///
+/// 1. A newly created promise. _state points to _local_state and
+///    _task and _future are null.
+/// 2. After get_future is called. _state points to the state in the
+///    future, _future points to the future and _task is null.
+/// 3. The future has been consumed by future::then. Now the _state
+///    points to the state in the continuation, _future is null and
+///    _task points to the continuation.
+/// 4. A call to future::get is blocked in a thread. This is a mix of
+///    cases 2 and 3. Like 2, there is a valid future and _future and
+///    _state point to the future and its state. Like 3, there is a
+///    valid continuation and _task points to it, but that
+///    continuation has no state of its own.
+
 /// \defgroup future-util Future Utilities
 ///
 /// \brief
