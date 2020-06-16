@@ -99,6 +99,20 @@ exposed accidentally. These can also be removed or changed. Exposed
 identifiers are documented using doxygen, but not all exposed
 APIs are documented. In case of doubt, ask on the mailing list.
 
+
+API Level History
+=================
+
+|Level|Introduced |Mandatory|Description                                   |
+|:---:|:---------:|:-------:| -------------------------------------------- |
+| 2   |  2019-07  | 2020-04 | Non-variadic futures in socket::accept()     |
+| 3   |  2020-05  |         | make_file_data_sink() closes file and returns a future<>  |
+| 4   |  2020-06  |         | Non-variadic futures in when_all_succeed()   |
+
+
+Note: The "mandatory" column indicates when backwards compatibility
+support for the API preceding the new level was removed.
+
 Implementation notes for API levels
 ===================================
 

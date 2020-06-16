@@ -573,6 +573,25 @@ struct continuation final : continuation_base_with_promise<Promise, T...> {
     Func _func;
 };
 
+#if SEASTAR_API_LEVEL < 4
+
+// This is an internal future<> payload for seastar::when_all_succeed(). It is used
+// to return a variadic future (when two or more of its input futures were non-void),
+// but with variadic futures deprecated and soon gone this is no longer possible.
+//
+// Instead, we use this tuple type, and future::then() knows to unpack it.
+//
+// The whole thing is temporary for a transition period.
+template <typename... T>
+struct when_all_succeed_tuple : std::tuple<T...> {
+    using std::tuple<T...>::tuple;
+    when_all_succeed_tuple(std::tuple<T...>&& t)
+            noexcept(std::is_nothrow_move_constructible<std::tuple<T...>>::value)
+            : std::tuple<T...>(std::move(t)) {}
+};
+
+#endif
+
 namespace internal {
 
 template <typename... T>
@@ -862,6 +881,13 @@ concept CanInvoke = std::invocable<Func, T...>;
 template <typename Func, typename... T>
 concept CanApply = CanInvoke<Func, T...>;
 
+template <typename Func, typename... T>
+concept CanApplyTuple
+    = sizeof...(T) == 1
+        && requires (Func func, std::tuple<T...> wrapped_val) {
+        { std::apply(func, std::get<0>(wrapped_val)) };
+    };
+
 template <typename Func, typename Return, typename... T>
 concept InvokeReturns = requires (Func f, T... args) {
     { f(std::forward<T>(args)...) } -> std::same_as<Return>;
@@ -1069,6 +1095,78 @@ struct warn_variadic_future<true> {
     void check_deprecation() {}
 };
 
+// This is a customization point for future::then()'s implementation.
+// It behaves differently when the future value type is a when_all_succeed_tuple
+// instantiation, indicating we need to unpack the tuple into multiple lambda
+// arguments.
+template <typename Future>
+struct call_then_impl;
+
+// Generic case - the input is not a future<when_all_succeed_tuple<...>>, so
+// we just forward everything to future::then_impl.
+template <typename... T>
+struct call_then_impl<future<T...>> {
+    template <typename Func>
+    using result_type = futurize_t<std::result_of_t<Func (T&&...)>>;
+
+    template <typename Func>
+    using func_type = result_type<Func> (T&&...);
+
+    template <typename Func>
+    static auto run(future<T...>& fut, Func&& func) noexcept {
+        return fut.then_impl(std::forward<Func>(func));
+    }
+};
+
+#if SEASTAR_API_LEVEL < 4
+
+// Special case: we unpack the tuple before calling the function
+template <typename... T>
+struct call_then_impl<future<when_all_succeed_tuple<T...>>> {
+    template <typename Func>
+    using result_type = futurize_t<std::result_of_t<Func (T&&...)>>;
+
+    template <typename Func>
+    using func_type = result_type<Func> (T&&...);
+
+    using was_tuple = when_all_succeed_tuple<T...>;
+    using std_tuple = std::tuple<T...>;
+
+    template <typename Func>
+    static auto run(future<was_tuple>& fut, Func&& func) noexcept {
+        // constructing func in the lambda can throw, but there's nothing we can do
+        // about it, similar to #84.
+        return fut.then_impl([func = std::forward<Func>(func)] (was_tuple&& t) mutable {
+            return std::apply(func, static_cast<std_tuple&&>(std::move(t)));
+        });
+    }
+};
+
+#endif
+
+template <typename Func, typename... Args>
+using call_then_impl_result_type = typename call_then_impl<future<Args...>>::template result_type<Func>;
+
+SEASTAR_CONCEPT(
+template <typename Func, typename... Args>
+concept CanInvokeWhenAllSucceed = requires {
+    typename call_then_impl_result_type<Func, Args...>;
+};
+)
+
+template <typename Func>
+struct result_of_apply {
+    // no "type" member if not a function call signature or not a tuple
+};
+
+template <typename Func, typename... T>
+struct result_of_apply<Func (std::tuple<T...>)> : std::result_of<Func (T...)> {
+    // Let std::result_of determine the result if the input is a tuple
+};
+
+template <typename Func, typename... T>
+using result_of_apply_t = typename result_of_apply<Func, T...>::type;
+
 }
 
 template <typename Promise, typename... T>
@@ -1133,6 +1231,7 @@ template <typename... T>
 class SEASTAR_NODISCARD future : private internal::future_base, internal::warn_variadic_future<(sizeof...(T) > 1)> {
     future_state<T...> _state;
     static constexpr bool copy_noexcept = future_state<T...>::copy_noexcept;
+    using call_then_impl = internal::call_then_impl<future>;
 private:
     // This constructor creates a future that is not ready but has no
     // associated promise yet. The use case is to have a less flexible
@@ -1313,17 +1412,52 @@ public:
     ///               unless it has failed.
     /// \return a \c future representing the return value of \c func, applied
     ///         to the eventual value of this future.
-    template <typename Func, typename Result = futurize_t<std::result_of_t<Func(T&&...)>>>
-    SEASTAR_CONCEPT( requires std::invocable<Func, T...> )
+    template <typename Func, typename Result = futurize_t<typename call_then_impl::template result_type<Func>>>
+    SEASTAR_CONCEPT( requires std::invocable<Func, T...> || internal::CanInvokeWhenAllSucceed<Func, T...>)
     Result
     then(Func&& func) noexcept {
+        // The implementation of then() is customized via the call_then_impl helper
+        // template, in order to special case the results of when_all_succeed().
+        // when_all_succeed() used to return a variadic future, which is deprecated, so
+        // now it returns a when_all_succeed_tuple, which we intercept in call_then_impl,
+        // and treat it as a variadic future.
 #ifndef SEASTAR_TYPE_ERASE_MORE
-        return then_impl(std::move(func));
+        return call_then_impl::run(*this, std::move(func));
 #else
-        return then_impl(noncopyable_function<Result (T&&...)>([func = std::forward<Func>(func)] (T&&... args) mutable {
+        using func_type = typename call_then_impl::template func_type<Func>;
+        return call_then_impl::run(*this, noncopyable_function<func_type>([func = std::forward<Func>(func)] (auto&&... args) mutable {
             return futurize_invoke(func, std::forward<decltype(args)>(args)...);
         }));
 #endif
+    }
+
+    /// \brief Schedule a block of code to run when the future is ready, unpacking tuples.
+    ///
+    /// Schedules a function (often a lambda) to run when the future becomes
+    /// available.  The function is called with the result of this future's
+    /// computation as parameters.  The return value of the function becomes
+    /// the return value of then(), itself as a future; this allows then()
+    /// calls to be chained.
+    ///
+    /// This member function is only available is the payload is std::tuple;
+    /// The tuple elements are passed as individual arguments to `func`, which
+    /// must have the same arity as the tuple.
+    ///
+    /// If the future failed, the function is not called, and the exception
+    /// is propagated into the return value of then().
+    ///
+    /// \param func - function to be called when the future becomes available,
+    ///               unless it has failed.
+    /// \return a \c future representing the return value of \c func, applied
+    ///         to the eventual value of this future.
+    template <typename Func, typename Result = futurize_t<internal::result_of_apply_t<Func (T...)>>>
+    SEASTAR_CONCEPT( requires (sizeof...(T) == 1) && ::seastar::CanApplyTuple<Func, T...>)
+    Result
+    then_unpack(Func&& func) noexcept {
+        return then([func = std::forward<Func>(func)] (T&&... tuple) mutable {
+            // sizeof...(tuple) is required to be 1
+            return std::apply(std::forward<Func>(func), std::move(tuple)...);
+        });
     }
 
 private:
@@ -1577,7 +1711,9 @@ public:
     /// Converts the future into a no-value \c future<>, by
     /// ignoring any result.  Exceptions are propagated unchanged.
     future<> discard_result() noexcept {
-        return then([] (T&&...) {});
+        // We need the generic variadic lambda, below, because then() behaves differently
+        // when value_type is when_all_succeed_tuple
+        return then([] (auto&&...) {});
     }
 
     /// \brief Handle the exception carried by this future.
@@ -1684,6 +1820,8 @@ private:
     friend future<U...> current_exception_as_future() noexcept;
     template <typename... U, typename V>
     friend void internal::set_callback(future<U...>&, V*) noexcept;
+    template <typename Future>
+    friend struct internal::call_then_impl;
     /// \endcond
 };
 
