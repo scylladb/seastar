@@ -146,6 +146,8 @@ class http_server {
     promise<> _all_connections_stopped;
     future<> _stopped = _all_connections_stopped.get_future();
     size_t _content_length_limit = std::numeric_limits<size_t>::max();
+    future<> _accepts_done = make_ready_future<>();
+    future<> _processing_done = make_ready_future<>();
 private:
     void maybe_idle();
 public:

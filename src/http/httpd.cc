@@ -443,7 +443,11 @@ future<> http_server::stop() {
         c.shutdown();
     }
     maybe_idle();
-    return std::move(_stopped);
+    return std::move(_accepts_done).then([this] {
+        return std::move(_processing_done);
+    }).then([this] {
+        return std::move(_stopped);
+    });
 }
 
 future<> http_server::do_accepts(int which) {
@@ -458,8 +462,7 @@ future<> http_server::do_accepts(int which) {
         }
         auto ar = f_ar.get0();
         auto conn = new connection(*this, std::move(ar.connection), std::move(ar.remote_address));
-        // FIXME: future is discarded
-        (void)conn->process().then_wrapped([conn] (auto&& f) {
+        future<> process_conn = conn->process().then_wrapped([conn] (auto&& f) {
             delete conn;
             try {
                 f.get();
@@ -467,8 +470,12 @@ future<> http_server::do_accepts(int which) {
                 std::cerr << "request error " << ex.what() << std::endl;
             }
         });
-        // FIXME: future is discarded
-        (void)do_accepts(which);
+        _processing_done = _processing_done.then([process_conn = std::move(process_conn)] () mutable {
+            return std::move(process_conn);
+        });
+        _accepts_done = _accepts_done.then([this, which] {
+            return do_accepts(which);
+        });
     }).then_wrapped([] (auto f) {
         try {
             f.get();
