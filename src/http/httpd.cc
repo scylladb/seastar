@@ -37,10 +37,13 @@
 #include <vector>
 #include <seastar/http/httpd.hh>
 #include <seastar/http/reply.hh>
+#include <seastar/util/log.hh>
 
 using namespace std::chrono_literals;
 
 namespace seastar {
+
+logger hlogger("httpd");
 
 namespace httpd {
 http_stats::http_stats(http_server& server, const sstring& name)
@@ -248,9 +251,16 @@ future<> connection::process() {
     // Launch read and write "threads" simultaneously:
     return when_all(read(), respond()).then(
             [] (std::tuple<future<>, future<>> joined) {
-        // FIXME: notify any exceptions in joined?
-        std::get<0>(joined).ignore_ready_future();
-        std::get<1>(joined).ignore_ready_future();
+        try {
+            std::get<0>(joined).get();
+        } catch (...) {
+            hlogger.debug("Read exception encountered: {}", std::current_exception());
+        }
+        try {
+            std::get<1>(joined).get();
+        } catch (...) {
+            hlogger.debug("Response exception encountered: {}", std::current_exception());
+        }
         return make_ready_future<>();
     });
 }
