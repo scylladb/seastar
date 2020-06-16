@@ -84,20 +84,8 @@ public:
     ~connection();
     void on_new_connection();
 
-    future<> process() {
-        // Launch read and write "threads" simultaneously:
-        return when_all(read(), respond()).then(
-                [] (std::tuple<future<>, future<>> joined) {
-            // FIXME: notify any exceptions in joined?
-            std::get<0>(joined).ignore_ready_future();
-            std::get<1>(joined).ignore_ready_future();
-            return make_ready_future<>();
-        });
-    }
-    void shutdown() {
-        _fd.shutdown_input();
-        _fd.shutdown_output();
-    }
+    future<> process();
+    void shutdown();
     future<> read();
     future<> read_one();
     future<> respond();
@@ -106,39 +94,14 @@ public:
     void set_headers(reply& resp);
 
     future<> start_response();
-    future<> write_reply_headers(
-            std::unordered_map<sstring, sstring>::iterator hi) {
-        if (hi == _resp->_headers.end()) {
-            return make_ready_future<>();
-        }
-        return _write_buf.write(hi->first.data(), hi->first.size()).then(
-                [this] {
-                    return _write_buf.write(": ", 2);
-                }).then([hi, this] {
-            return _write_buf.write(hi->second.data(), hi->second.size());
-        }).then([this] {
-            return _write_buf.write("\r\n", 2);
-        }).then([hi, this] () mutable {
-            return write_reply_headers(++hi);
-        });
-    }
+    future<> write_reply_headers(std::unordered_map<sstring, sstring>::iterator hi);
 
-    static short hex_to_byte(char c) {
-        if (c >='a' && c <= 'z') {
-            return c - 'a' + 10;
-        } else if (c >='A' && c <= 'Z') {
-            return c - 'A' + 10;
-        }
-        return c - '0';
-    }
+    static short hex_to_byte(char c);
 
     /**
      * Convert a hex encoded 2 bytes substring to char
      */
-    static char hexstr_to_char(const std::string_view& in, size_t from) {
-
-        return static_cast<char>(hex_to_byte(in[from]) * 16 + hex_to_byte(in[from + 1]));
-    }
+    static char hexstr_to_char(const std::string_view& in, size_t from);
 
     /**
      * URL_decode a substring and place it in the given out sstring
@@ -148,54 +111,21 @@ public:
     /**
      * Add a single query parameter to the parameter list
      */
-    static void add_param(request& req, const std::string_view& param) {
-        size_t split = param.find('=');
-
-        if (split >= param.length() - 1) {
-            sstring key;
-            if (url_decode(param.substr(0,split) , key)) {
-                req.query_parameters[key] = "";
-            }
-        } else {
-            sstring key;
-            sstring value;
-            if (url_decode(param.substr(0,split), key)
-                    && url_decode(param.substr(split + 1), value)) {
-                req.query_parameters[key] = value;
-            }
-        }
-
-    }
+    static void add_param(request& req, const std::string_view& param);
 
     /**
      * Set the query parameters in the request objects.
      * query param appear after the question mark and are separated
      * by the ampersand sign
      */
-    static sstring set_query_param(request& req) {
-        size_t pos = req._url.find('?');
-        if (pos == sstring::npos) {
-            return req._url;
-        }
-        size_t curr = pos + 1;
-        size_t end_param;
-        std::string_view url = req._url;
-        while ((end_param = req._url.find('&', curr)) != sstring::npos) {
-            add_param(req, url.substr(curr, end_param - curr) );
-            curr = end_param + 1;
-        }
-        add_param(req, url.substr(curr));
-        return req._url.substr(0, pos);
-    }
+    static sstring set_query_param(request& req);
 
     future<bool> generate_reply(std::unique_ptr<request> req);
     void generate_error_reply_and_close(std::unique_ptr<request> req, reply::status_type status, const sstring& msg);
 
     future<> write_body();
 
-    output_stream<char>& out() {
-        return _write_buf;
-    }
+    output_stream<char>& out();
 };
 
 class http_server_tester;
@@ -216,12 +146,10 @@ class http_server {
     promise<> _all_connections_stopped;
     future<> _stopped = _all_connections_stopped.get_future();
     size_t _content_length_limit = std::numeric_limits<size_t>::max();
+    future<> _accepts_done = make_ready_future<>();
+    future<> _processing_done = make_ready_future<>();
 private:
-    void maybe_idle() {
-        if (_stopping && !_connections_being_accepted && !_current_connections) {
-            _all_connections_stopped.set_value();
-        }
-    }
+    void maybe_idle();
 public:
     routes _routes;
     using connection = seastar::httpd::connection;
@@ -254,91 +182,23 @@ public:
         }).get();
      *
      */
-    void set_tls_credentials(shared_ptr<seastar::tls::server_credentials> credentials) {
-        _credentials = credentials;
-    }
+    void set_tls_credentials(shared_ptr<seastar::tls::server_credentials> credentials);
 
-    size_t get_content_length_limit() const {
-        return _content_length_limit;
-    }
+    size_t get_content_length_limit() const;
 
-    void set_content_length_limit(size_t limit) {
-        _content_length_limit = limit;
-    }
+    void set_content_length_limit(size_t limit);
 
-    future<> listen(socket_address addr, listen_options lo) {
-        if (_credentials) {
-            _listeners.push_back(seastar::tls::listen(_credentials, addr, lo));
-        } else {
-            _listeners.push_back(seastar::listen(addr, lo));
-        }
-        _stopped = when_all(std::move(_stopped), do_accepts(_listeners.size() - 1)).discard_result();
-        return make_ready_future<>();
-    }
-    future<> listen(socket_address addr) {
-        listen_options lo;
-        lo.reuse_address = true;
-        return listen(addr, lo);
-    }
-    future<> stop() {
-        _stopping = true;
-        for (auto&& l : _listeners) {
-            l.abort_accept();
-        }
-        for (auto&& c : _connections) {
-            c.shutdown();
-        }
-        maybe_idle();
-        return std::move(_stopped);
-    }
+    future<> listen(socket_address addr, listen_options lo);
+    future<> listen(socket_address addr);
+    future<> stop();
 
-    future<> do_accepts(int which) {
-        ++_connections_being_accepted;
-        return _listeners[which].accept().then_wrapped(
-                [this, which] (future<accept_result> f_ar) mutable {
-            --_connections_being_accepted;
-            if (_stopping || f_ar.failed()) {
-                f_ar.ignore_ready_future();
-                maybe_idle();
-                return;
-            }
-            auto ar = f_ar.get0();
-            auto conn = new connection(*this, std::move(ar.connection), std::move(ar.remote_address));
-            // FIXME: future is discarded
-            (void)conn->process().then_wrapped([conn] (auto&& f) {
-                delete conn;
-                try {
-                    f.get();
-                } catch (std::exception& ex) {
-                    std::cerr << "request error " << ex.what() << std::endl;
-                }
-            });
-            // FIXME: future is discarded
-            (void)do_accepts(which);
-        }).then_wrapped([] (auto f) {
-            try {
-                f.get();
-            } catch (std::exception& ex) {
-                std::cerr << "accept failed: " << ex.what() << std::endl;
-            }
-        });
-    }
+    future<> do_accepts(int which);
 
-    uint64_t total_connections() const {
-        return _total_connections;
-    }
-    uint64_t current_connections() const {
-        return _current_connections;
-    }
-    uint64_t requests_served() const {
-        return _requests_served;
-    }
-    uint64_t read_errors() const {
-        return _read_errors;
-    }
-    uint64_t reply_errors() const {
-        return _respond_errors;
-    }
+    uint64_t total_connections() const;
+    uint64_t current_connections() const;
+    uint64_t requests_served() const;
+    uint64_t read_errors() const;
+    uint64_t reply_errors() const;
     // Write the current date in the specific "preferred format" defined in
     // RFC 7231, Section 7.1.1.1.
     static sstring http_date();
@@ -376,32 +236,12 @@ public:
     http_server_control() : _server_dist(new distributed<http_server>) {
     }
 
-
-    future<> start(const sstring& name = generate_server_name()) {
-        return _server_dist->start(name);
-    }
-
-    future<> stop() {
-        return _server_dist->stop();
-    }
-
-    future<> set_routes(std::function<void(routes& r)> fun) {
-        return _server_dist->invoke_on_all([fun](http_server& server) {
-            fun(server._routes);
-        });
-    }
-
-    future<> listen(socket_address addr) {
-        return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address)>(&http_server::listen, addr);
-    }
-
-    future<> listen(socket_address addr, listen_options lo) {
-        return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address, listen_options)>(&http_server::listen, addr, lo);
-    }
-
-    distributed<http_server>& server() {
-        return *_server_dist;
-    }
+    future<> start(const sstring& name = generate_server_name());
+    future<> stop();
+    future<> set_routes(std::function<void(routes& r)> fun);
+    future<> listen(socket_address addr);
+    future<> listen(socket_address addr, listen_options lo);
+    distributed<http_server>& server();
 };
 
 }

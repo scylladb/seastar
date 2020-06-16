@@ -37,10 +37,13 @@
 #include <vector>
 #include <seastar/http/httpd.hh>
 #include <seastar/http/reply.hh>
+#include <seastar/util/log.hh>
 
 using namespace std::chrono_literals;
 
 namespace seastar {
+
+logger hlogger("httpd");
 
 namespace httpd {
 http_stats::http_stats(http_server& server, const sstring& name)
@@ -244,6 +247,101 @@ future<> connection::read_one() {
     });
 }
 
+future<> connection::process() {
+    // Launch read and write "threads" simultaneously:
+    return when_all(read(), respond()).then(
+            [] (std::tuple<future<>, future<>> joined) {
+        try {
+            std::get<0>(joined).get();
+        } catch (...) {
+            hlogger.debug("Read exception encountered: {}", std::current_exception());
+        }
+        try {
+            std::get<1>(joined).get();
+        } catch (...) {
+            hlogger.debug("Response exception encountered: {}", std::current_exception());
+        }
+        return make_ready_future<>();
+    });
+}
+void connection::shutdown() {
+    _fd.shutdown_input();
+    _fd.shutdown_output();
+}
+
+future<> connection::write_reply_headers(
+        std::unordered_map<sstring, sstring>::iterator hi) {
+    if (hi == _resp->_headers.end()) {
+        return make_ready_future<>();
+    }
+    return _write_buf.write(hi->first.data(), hi->first.size()).then(
+            [this] {
+                return _write_buf.write(": ", 2);
+            }).then([hi, this] {
+        return _write_buf.write(hi->second.data(), hi->second.size());
+    }).then([this] {
+        return _write_buf.write("\r\n", 2);
+    }).then([hi, this] () mutable {
+        return write_reply_headers(++hi);
+    });
+}
+
+short connection::hex_to_byte(char c) {
+    if (c >='a' && c <= 'z') {
+        return c - 'a' + 10;
+    } else if (c >='A' && c <= 'Z') {
+        return c - 'A' + 10;
+    }
+    return c - '0';
+}
+
+/**
+ * Convert a hex encoded 2 bytes substring to char
+ */
+char connection::hexstr_to_char(const std::string_view& in, size_t from) {
+
+    return static_cast<char>(hex_to_byte(in[from]) * 16 + hex_to_byte(in[from + 1]));
+}
+
+void connection::add_param(request& req, const std::string_view& param) {
+    size_t split = param.find('=');
+
+    if (split >= param.length() - 1) {
+        sstring key;
+        if (url_decode(param.substr(0,split) , key)) {
+            req.query_parameters[key] = "";
+        }
+    } else {
+        sstring key;
+        sstring value;
+        if (url_decode(param.substr(0,split), key)
+                && url_decode(param.substr(split + 1), value)) {
+            req.query_parameters[key] = value;
+        }
+    }
+
+}
+
+sstring connection::set_query_param(request& req) {
+    size_t pos = req._url.find('?');
+    if (pos == sstring::npos) {
+        return req._url;
+    }
+    size_t curr = pos + 1;
+    size_t end_param;
+    std::string_view url = req._url;
+    while ((end_param = req._url.find('&', curr)) != sstring::npos) {
+        add_param(req, url.substr(curr, end_param - curr) );
+        curr = end_param + 1;
+    }
+    add_param(req, url.substr(curr));
+    return req._url.substr(0, pos);
+}
+
+output_stream<char>& connection::out() {
+    return _write_buf;
+}
+
 future<> connection::respond() {
     return do_response_loop().then_wrapped([this] (future<> f) {
         // swallow error
@@ -304,6 +402,105 @@ future<bool> connection::generate_reply(std::unique_ptr<request> req) {
     });
 }
 
+void http_server::maybe_idle() {
+    if (_stopping && !_connections_being_accepted && !_current_connections) {
+        _all_connections_stopped.set_value();
+    }
+}
+
+void http_server::set_tls_credentials(shared_ptr<seastar::tls::server_credentials> credentials) {
+    _credentials = credentials;
+}
+
+size_t http_server::get_content_length_limit() const {
+    return _content_length_limit;
+}
+
+void http_server::set_content_length_limit(size_t limit) {
+    _content_length_limit = limit;
+}
+
+future<> http_server::listen(socket_address addr, listen_options lo) {
+    if (_credentials) {
+        _listeners.push_back(seastar::tls::listen(_credentials, addr, lo));
+    } else {
+        _listeners.push_back(seastar::listen(addr, lo));
+    }
+    _stopped = when_all(std::move(_stopped), do_accepts(_listeners.size() - 1)).discard_result();
+    return make_ready_future<>();
+}
+future<> http_server::listen(socket_address addr) {
+    listen_options lo;
+    lo.reuse_address = true;
+    return listen(addr, lo);
+}
+future<> http_server::stop() {
+    _stopping = true;
+    for (auto&& l : _listeners) {
+        l.abort_accept();
+    }
+    for (auto&& c : _connections) {
+        c.shutdown();
+    }
+    maybe_idle();
+    return std::move(_accepts_done).then([this] {
+        return std::move(_processing_done);
+    }).then([this] {
+        return std::move(_stopped);
+    });
+}
+
+future<> http_server::do_accepts(int which) {
+    ++_connections_being_accepted;
+    return _listeners[which].accept().then_wrapped(
+            [this, which] (future<accept_result> f_ar) mutable {
+        --_connections_being_accepted;
+        if (_stopping || f_ar.failed()) {
+            f_ar.ignore_ready_future();
+            maybe_idle();
+            return;
+        }
+        auto ar = f_ar.get0();
+        auto conn = new connection(*this, std::move(ar.connection), std::move(ar.remote_address));
+        future<> process_conn = conn->process().then_wrapped([conn] (auto&& f) {
+            delete conn;
+            try {
+                f.get();
+            } catch (std::exception& ex) {
+                std::cerr << "request error " << ex.what() << std::endl;
+            }
+        });
+        _processing_done = _processing_done.then([process_conn = std::move(process_conn)] () mutable {
+            return std::move(process_conn);
+        });
+        _accepts_done = _accepts_done.then([this, which] {
+            return do_accepts(which);
+        });
+    }).then_wrapped([] (auto f) {
+        try {
+            f.get();
+        } catch (std::exception& ex) {
+            std::cerr << "accept failed: " << ex.what() << std::endl;
+        }
+    });
+}
+
+uint64_t http_server::total_connections() const {
+    return _total_connections;
+}
+uint64_t http_server::current_connections() const {
+    return _current_connections;
+}
+uint64_t http_server::requests_served() const {
+    return _requests_served;
+}
+uint64_t http_server::read_errors() const {
+    return _read_errors;
+}
+uint64_t http_server::reply_errors() const {
+    return _respond_errors;
+}
+
 // Write the current date in the specific "preferred format" defined in
 // RFC 7231, Section 7.1.1.1, a.k.a. IMF (Internet Message Format) fixdate.
 // For example: Sun, 06 Nov 1994 08:49:37 GMT
@@ -323,6 +520,33 @@ sstring http_server::http_date() {
     return seastar::format("{}, {:02d} {} {} {:02d}:{:02d}:{:02d} GMT",
         days[tm.tm_wday], tm.tm_mday, months[tm.tm_mon], 1900 + tm.tm_year,
         tm.tm_hour, tm.tm_min, tm.tm_sec);
+}
+
+
+future<> http_server_control::start(const sstring& name) {
+    return _server_dist->start(name);
+}
+
+future<> http_server_control::stop() {
+    return _server_dist->stop();
+}
+
+future<> http_server_control::set_routes(std::function<void(routes& r)> fun) {
+    return _server_dist->invoke_on_all([fun](http_server& server) {
+        fun(server._routes);
+    });
+}
+
+future<> http_server_control::listen(socket_address addr) {
+    return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address)>(&http_server::listen, addr);
+}
+
+future<> http_server_control::listen(socket_address addr, listen_options lo) {
+    return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address, listen_options)>(&http_server::listen, addr, lo);
+}
+
+distributed<http_server>& http_server_control::server() {
+    return *_server_dist;
 }
 
 }
