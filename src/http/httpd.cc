@@ -244,6 +244,94 @@ future<> connection::read_one() {
     });
 }
 
+future<> connection::process() {
+    // Launch read and write "threads" simultaneously:
+    return when_all(read(), respond()).then(
+            [] (std::tuple<future<>, future<>> joined) {
+        // FIXME: notify any exceptions in joined?
+        std::get<0>(joined).ignore_ready_future();
+        std::get<1>(joined).ignore_ready_future();
+        return make_ready_future<>();
+    });
+}
+void connection::shutdown() {
+    _fd.shutdown_input();
+    _fd.shutdown_output();
+}
+
+future<> connection::write_reply_headers(
+        std::unordered_map<sstring, sstring>::iterator hi) {
+    if (hi == _resp->_headers.end()) {
+        return make_ready_future<>();
+    }
+    return _write_buf.write(hi->first.data(), hi->first.size()).then(
+            [this] {
+                return _write_buf.write(": ", 2);
+            }).then([hi, this] {
+        return _write_buf.write(hi->second.data(), hi->second.size());
+    }).then([this] {
+        return _write_buf.write("\r\n", 2);
+    }).then([hi, this] () mutable {
+        return write_reply_headers(++hi);
+    });
+}
+
+short connection::hex_to_byte(char c) {
+    if (c >='a' && c <= 'z') {
+        return c - 'a' + 10;
+    } else if (c >='A' && c <= 'Z') {
+        return c - 'A' + 10;
+    }
+    return c - '0';
+}
+
+/**
+ * Convert a hex encoded 2 bytes substring to char
+ */
+char connection::hexstr_to_char(const std::string_view& in, size_t from) {
+
+    return static_cast<char>(hex_to_byte(in[from]) * 16 + hex_to_byte(in[from + 1]));
+}
+
+void connection::add_param(request& req, const std::string_view& param) {
+    size_t split = param.find('=');
+
+    if (split >= param.length() - 1) {
+        sstring key;
+        if (url_decode(param.substr(0,split) , key)) {
+            req.query_parameters[key] = "";
+        }
+    } else {
+        sstring key;
+        sstring value;
+        if (url_decode(param.substr(0,split), key)
+                && url_decode(param.substr(split + 1), value)) {
+            req.query_parameters[key] = value;
+        }
+    }
+
+}
+
+sstring connection::set_query_param(request& req) {
+    size_t pos = req._url.find('?');
+    if (pos == sstring::npos) {
+        return req._url;
+    }
+    size_t curr = pos + 1;
+    size_t end_param;
+    std::string_view url = req._url;
+    while ((end_param = req._url.find('&', curr)) != sstring::npos) {
+        add_param(req, url.substr(curr, end_param - curr) );
+        curr = end_param + 1;
+    }
+    add_param(req, url.substr(curr));
+    return req._url.substr(0, pos);
+}
+
+output_stream<char>& connection::out() {
+    return _write_buf;
+}
+
 future<> connection::respond() {
     return do_response_loop().then_wrapped([this] (future<> f) {
         // swallow error

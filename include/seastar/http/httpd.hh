@@ -84,20 +84,8 @@ public:
     ~connection();
     void on_new_connection();
 
-    future<> process() {
-        // Launch read and write "threads" simultaneously:
-        return when_all(read(), respond()).then(
-                [] (std::tuple<future<>, future<>> joined) {
-            // FIXME: notify any exceptions in joined?
-            std::get<0>(joined).ignore_ready_future();
-            std::get<1>(joined).ignore_ready_future();
-            return make_ready_future<>();
-        });
-    }
-    void shutdown() {
-        _fd.shutdown_input();
-        _fd.shutdown_output();
-    }
+    future<> process();
+    void shutdown();
     future<> read();
     future<> read_one();
     future<> respond();
@@ -106,39 +94,14 @@ public:
     void set_headers(reply& resp);
 
     future<> start_response();
-    future<> write_reply_headers(
-            std::unordered_map<sstring, sstring>::iterator hi) {
-        if (hi == _resp->_headers.end()) {
-            return make_ready_future<>();
-        }
-        return _write_buf.write(hi->first.data(), hi->first.size()).then(
-                [this] {
-                    return _write_buf.write(": ", 2);
-                }).then([hi, this] {
-            return _write_buf.write(hi->second.data(), hi->second.size());
-        }).then([this] {
-            return _write_buf.write("\r\n", 2);
-        }).then([hi, this] () mutable {
-            return write_reply_headers(++hi);
-        });
-    }
+    future<> write_reply_headers(std::unordered_map<sstring, sstring>::iterator hi);
 
-    static short hex_to_byte(char c) {
-        if (c >='a' && c <= 'z') {
-            return c - 'a' + 10;
-        } else if (c >='A' && c <= 'Z') {
-            return c - 'A' + 10;
-        }
-        return c - '0';
-    }
+    static short hex_to_byte(char c);
 
     /**
      * Convert a hex encoded 2 bytes substring to char
      */
-    static char hexstr_to_char(const std::string_view& in, size_t from) {
-
-        return static_cast<char>(hex_to_byte(in[from]) * 16 + hex_to_byte(in[from + 1]));
-    }
+    static char hexstr_to_char(const std::string_view& in, size_t from);
 
     /**
      * URL_decode a substring and place it in the given out sstring
@@ -148,54 +111,21 @@ public:
     /**
      * Add a single query parameter to the parameter list
      */
-    static void add_param(request& req, const std::string_view& param) {
-        size_t split = param.find('=');
-
-        if (split >= param.length() - 1) {
-            sstring key;
-            if (url_decode(param.substr(0,split) , key)) {
-                req.query_parameters[key] = "";
-            }
-        } else {
-            sstring key;
-            sstring value;
-            if (url_decode(param.substr(0,split), key)
-                    && url_decode(param.substr(split + 1), value)) {
-                req.query_parameters[key] = value;
-            }
-        }
-
-    }
+    static void add_param(request& req, const std::string_view& param);
 
     /**
      * Set the query parameters in the request objects.
      * query param appear after the question mark and are separated
      * by the ampersand sign
      */
-    static sstring set_query_param(request& req) {
-        size_t pos = req._url.find('?');
-        if (pos == sstring::npos) {
-            return req._url;
-        }
-        size_t curr = pos + 1;
-        size_t end_param;
-        std::string_view url = req._url;
-        while ((end_param = req._url.find('&', curr)) != sstring::npos) {
-            add_param(req, url.substr(curr, end_param - curr) );
-            curr = end_param + 1;
-        }
-        add_param(req, url.substr(curr));
-        return req._url.substr(0, pos);
-    }
+    static sstring set_query_param(request& req);
 
     future<bool> generate_reply(std::unique_ptr<request> req);
     void generate_error_reply_and_close(std::unique_ptr<request> req, reply::status_type status, const sstring& msg);
 
     future<> write_body();
 
-    output_stream<char>& out() {
-        return _write_buf;
-    }
+    output_stream<char>& out();
 };
 
 class http_server_tester;
