@@ -516,7 +516,7 @@ public:
     virtual future<> close() override {
         abort();
     }
-    virtual std::unique_ptr<file_handle_impl> dup() {
+    virtual std::unique_ptr<file_handle_impl> dup() override {
         abort();
     }
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) override {
