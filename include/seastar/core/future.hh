@@ -1175,8 +1175,8 @@ struct result_of_apply<Func (std::tuple<T...>)> : std::result_of<Func (T...)> {
     // Let std::result_of determine the result if the input is a tuple
 };
 
-template <typename Func, typename... T>
-using result_of_apply_t = typename result_of_apply<Func, T...>::type;
+template <typename Func>
+using result_of_apply_t = typename result_of_apply<Func>::type;
 
 }
 
