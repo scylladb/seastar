@@ -87,8 +87,8 @@ PERF_TEST_F(perf_fair_queue, contended_local)
         });
     });
 
-    auto collectors = local_fq.invoke_on_all([this] (local_fq_and_class& local) {
-        return do_until([this, &local] { return local.executed == requests_to_dispatch; }, [&local] {
+    auto collectors = local_fq.invoke_on_all([] (local_fq_and_class& local) {
+        return do_until([&local] { return local.executed == requests_to_dispatch; }, [&local] {
             local.fq.dispatch_requests();
             return make_ready_future<>();
         });
