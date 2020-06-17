@@ -115,69 +115,69 @@ private:
     struct cbiterator : std::iterator<std::random_access_iterator_tag, ValueType> {
         typedef std::iterator<std::random_access_iterator_tag, ValueType> super_t;
 
-        ValueType& operator*() const { return cb->_impl.storage[cb->mask(idx)]; }
-        ValueType* operator->() const { return &cb->_impl.storage[cb->mask(idx)]; }
+        ValueType& operator*() const noexcept { return cb->_impl.storage[cb->mask(idx)]; }
+        ValueType* operator->() const noexcept { return &cb->_impl.storage[cb->mask(idx)]; }
         // prefix
-        cbiterator<CB, ValueType>& operator++() {
+        cbiterator<CB, ValueType>& operator++() noexcept {
             idx++;
             return *this;
         }
         // postfix
-        cbiterator<CB, ValueType> operator++(int unused) {
+        cbiterator<CB, ValueType> operator++(int unused) noexcept {
             auto v = *this;
             idx++;
             return v;
         }
         // prefix
-        cbiterator<CB, ValueType>& operator--() {
+        cbiterator<CB, ValueType>& operator--() noexcept {
             idx--;
             return *this;
         }
         // postfix
-        cbiterator<CB, ValueType> operator--(int unused) {
+        cbiterator<CB, ValueType> operator--(int unused) noexcept {
             auto v = *this;
             idx--;
             return v;
         }
-        cbiterator<CB, ValueType> operator+(typename super_t::difference_type n) const {
+        cbiterator<CB, ValueType> operator+(typename super_t::difference_type n) const noexcept {
             return cbiterator<CB, ValueType>(cb, idx + n);
         }
-        cbiterator<CB, ValueType> operator-(typename super_t::difference_type n) const {
+        cbiterator<CB, ValueType> operator-(typename super_t::difference_type n) const noexcept {
             return cbiterator<CB, ValueType>(cb, idx - n);
         }
-        cbiterator<CB, ValueType>& operator+=(typename super_t::difference_type n) {
+        cbiterator<CB, ValueType>& operator+=(typename super_t::difference_type n) noexcept {
             idx += n;
             return *this;
         }
-        cbiterator<CB, ValueType>& operator-=(typename super_t::difference_type n) {
+        cbiterator<CB, ValueType>& operator-=(typename super_t::difference_type n) noexcept {
             idx -= n;
             return *this;
         }
-        bool operator==(const cbiterator<CB, ValueType>& rhs) const {
+        bool operator==(const cbiterator<CB, ValueType>& rhs) const noexcept {
             return idx == rhs.idx;
         }
-        bool operator!=(const cbiterator<CB, ValueType>& rhs) const {
+        bool operator!=(const cbiterator<CB, ValueType>& rhs) const noexcept {
             return idx != rhs.idx;
         }
-        bool operator<(const cbiterator<CB, ValueType>& rhs) const {
+        bool operator<(const cbiterator<CB, ValueType>& rhs) const noexcept {
             return idx < rhs.idx;
         }
-        bool operator>(const cbiterator<CB, ValueType>& rhs) const {
+        bool operator>(const cbiterator<CB, ValueType>& rhs) const noexcept {
             return idx > rhs.idx;
         }
-        bool operator>=(const cbiterator<CB, ValueType>& rhs) const {
+        bool operator>=(const cbiterator<CB, ValueType>& rhs) const noexcept {
             return idx >= rhs.idx;
         }
-        bool operator<=(const cbiterator<CB, ValueType>& rhs) const {
+        bool operator<=(const cbiterator<CB, ValueType>& rhs) const noexcept {
             return idx <= rhs.idx;
         }
-       typename super_t::difference_type operator-(const cbiterator<CB, ValueType>& rhs) const {
+       typename super_t::difference_type operator-(const cbiterator<CB, ValueType>& rhs) const noexcept {
             return idx - rhs.idx;
         }
     private:
         CB* cb;
         size_t idx;
-        cbiterator(CB* b, size_t i) : cb(b), idx(i) {}
+        cbiterator(CB* b, size_t i) noexcept : cb(b), idx(i) {}
         friend class circular_buffer;
     };
     friend class iterator;
@@ -186,22 +186,22 @@ public:
     typedef cbiterator<circular_buffer, T> iterator;
     typedef cbiterator<const circular_buffer, const T> const_iterator;
 
-    iterator begin() {
+    iterator begin() noexcept {
         return iterator(this, _impl.begin);
     }
-    const_iterator begin() const {
+    const_iterator begin() const noexcept {
         return const_iterator(this, _impl.begin);
     }
-    iterator end() {
+    iterator end() noexcept {
         return iterator(this, _impl.end);
     }
-    const_iterator end() const {
+    const_iterator end() const noexcept {
         return const_iterator(this, _impl.end);
     }
-    const_iterator cbegin() const {
+    const_iterator cbegin() const noexcept {
         return const_iterator(this, _impl.begin);
     }
-    const_iterator cend() const {
+    const_iterator cend() const noexcept {
         return const_iterator(this, _impl.end);
     }
     iterator erase(iterator first, iterator last) noexcept;
