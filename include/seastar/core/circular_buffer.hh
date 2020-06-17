@@ -63,6 +63,7 @@ class circular_buffer {
         size_t end = 0;
         size_t capacity = 0;
     };
+    static_assert(std::is_nothrow_default_constructible_v<impl>);
     impl _impl;
 public:
     using value_type = T;
@@ -72,7 +73,7 @@ public:
     using const_reference = const T&;
     using const_pointer = const T*;
 public:
-    circular_buffer() = default;
+    circular_buffer() noexcept = default;
     circular_buffer(circular_buffer&& X) noexcept;
     circular_buffer(const circular_buffer& X) = delete;
     ~circular_buffer();
