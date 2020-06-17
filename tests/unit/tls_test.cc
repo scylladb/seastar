@@ -334,7 +334,7 @@ public:
 
             _socket = tls::listen(_certs, addr, opts);
 
-            (void)with_gate(_gate, [this] {
+            (void)try_with_gate(_gate, [this] {
                 return _socket.accept().then([this](accept_result ar) {
                     ::connected_socket s = std::move(ar.connection);
                     auto strms = ::make_lw_shared<streams>(std::move(s));

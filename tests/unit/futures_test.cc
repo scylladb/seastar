@@ -32,12 +32,15 @@
 #include <seastar/core/manual_clock.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/print.hh>
+#include <seastar/core/gate.hh>
 #include <seastar/util/log.hh>
 #include <boost/iterator/counting_iterator.hpp>
 #include <seastar/testing/thread_test_case.hh>
 
 #include <boost/range/iterator_range.hpp>
 #include <boost/range/irange.hpp>
+
+#include <seastar/core/internal/api-level.hh>
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -1376,4 +1379,66 @@ future<> test_then_function_f() {
 
 SEASTAR_TEST_CASE(test_then_function) {
     return make_ready_future<>().then(test_then_function_f);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_with_gate) {
+    gate g;
+    int counter = 0;
+    int gate_closed_errors = 0;
+    int other_errors = 0;
+
+    // test normal operation when gate is opened
+    BOOST_CHECK_NO_THROW(with_gate(g, [&] { counter++; }).get());
+    BOOST_REQUIRE_EQUAL(counter, 1);
+
+    // test that an exception returned by the calling func
+    // is propagated to with_gate future
+    counter = gate_closed_errors = other_errors = 0;
+    BOOST_CHECK_NO_THROW(with_gate(g, [&] {
+            counter++;
+            return make_exception_future<>(expected_exception());
+        }).handle_exception_type([&] (gate_closed_exception& e) {
+            gate_closed_errors++;
+        }).handle_exception([&] (std::exception_ptr) {
+            other_errors++;
+        }).get());
+    BOOST_REQUIRE(counter);
+    BOOST_REQUIRE(!gate_closed_errors);
+    BOOST_REQUIRE(other_errors);
+
+    g.close().get();
+
+    // test that with_gate.get() throws when the gate is closed
+    counter = gate_closed_errors = other_errors = 0;
+    BOOST_CHECK_THROW(with_gate(g, [&] { counter++; }).get(), gate_closed_exception);
+    BOOST_REQUIRE(!counter);
+
+    // test that with_gate throws when the gate is closed
+    counter = gate_closed_errors = other_errors = 0;
+    BOOST_CHECK_THROW(with_gate(g, [&] {
+            counter++;
+        }).then_wrapped([&] (future<> f) {
+            auto eptr = f.get_exception();
+            try {
+                std::rethrow_exception(eptr);
+            } catch (gate_closed_exception& e) {
+                gate_closed_errors++;
+            } catch (...) {
+                other_errors++;
+            }
+        }).get(), gate_closed_exception);
+    BOOST_REQUIRE(!counter);
+    BOOST_REQUIRE(!gate_closed_errors);
+    BOOST_REQUIRE(!other_errors);
+
+    // test that try_with_gate returns gate_closed_exception when the gate is closed
+    counter = gate_closed_errors = other_errors = 0;
+    try_with_gate(g, [&] { counter++; }).handle_exception_type([&] (gate_closed_exception& e) {
+        gate_closed_errors++;
+    }).handle_exception([&] (std::exception_ptr) {
+        other_errors++;
+    }).get();
+    BOOST_REQUIRE(!counter);
+    BOOST_REQUIRE(gate_closed_errors);
+    BOOST_REQUIRE(!other_errors);
 }
