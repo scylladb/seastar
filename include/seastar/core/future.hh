@@ -885,7 +885,7 @@ template <typename Func, typename... T>
 concept CanApplyTuple
     = sizeof...(T) == 1
         && requires (Func func, std::tuple<T...> wrapped_val) {
-        { std::apply(func, std::get<0>(wrapped_val)) };
+        { std::apply(func, std::get<0>(std::move(wrapped_val))) };
     };
 
 template <typename Func, typename Return, typename... T>

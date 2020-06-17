@@ -1363,4 +1363,7 @@ SEASTAR_THREAD_TEST_CASE(test_then_unpack) {
     make_ready_future<std::tuple<int, long>>(std::tuple<int, long>(1, 2)).then_unpack([] (int x, long y) {
         BOOST_REQUIRE(x == 1 && y == 2);
     }).get();
+    make_ready_future<std::tuple<std::unique_ptr<int>>>(std::tuple(std::make_unique<int>(42))).then_unpack([] (std::unique_ptr<int> p1) {
+        BOOST_REQUIRE(*p1 == 42);
+    }).get();
 }
