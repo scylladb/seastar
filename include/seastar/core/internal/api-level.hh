@@ -26,6 +26,12 @@
 #define SEASTAR_API_LEVEL 3
 #endif
 
+#if SEASTAR_API_LEVEL == 4
+#define SEASTAR_INCLUDE_API_V4 inline
+#else
+#define SEASTAR_INCLUDE_API_V4
+#endif
+
 #if SEASTAR_API_LEVEL == 3
 #define SEASTAR_INCLUDE_API_V3 inline
 #else
@@ -45,5 +51,8 @@ namespace seastar {
     SEASTAR_INCLUDE_API_V3 namespace api_v3 {
         inline namespace and_newer {
         }
+    }
+    SEASTAR_INCLUDE_API_V4 namespace api_v4 {
+        using namespace api_v3::and_newer;
     }
 }
