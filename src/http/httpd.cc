@@ -466,8 +466,8 @@ future<> http_server::do_accepts(int which) {
             delete conn;
             try {
                 f.get();
-            } catch (std::exception& ex) {
-                std::cerr << "request error " << ex.what() << std::endl;
+            } catch (...) {
+                hlogger.error("request error: {}", std::current_exception());
             }
         });
         _processing_done = _processing_done.then([process_conn = std::move(process_conn)] () mutable {
@@ -479,8 +479,8 @@ future<> http_server::do_accepts(int which) {
     }).then_wrapped([] (auto f) {
         try {
             f.get();
-        } catch (std::exception& ex) {
-            std::cerr << "accept failed: " << ex.what() << std::endl;
+        } catch (...) {
+            hlogger.error("accept failed: {}", std::current_exception());
         }
     });
 }
