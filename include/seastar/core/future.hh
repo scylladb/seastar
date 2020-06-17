@@ -688,7 +688,7 @@ public:
 template <typename... T>
 class promise_base_with_type : protected internal::promise_base {
 protected:
-    future_state<T...>* get_state() {
+    future_state<T...>* get_state() noexcept {
         return static_cast<future_state<T...>*>(_state);
     }
     static constexpr bool copy_noexcept = future_state<T...>::copy_noexcept;
@@ -715,7 +715,7 @@ public:
     }
 
     template <typename... A>
-    void set_value(A&&... a) {
+    void set_value(A&&... a) noexcept {
         if (auto *s = get_state()) {
             s->set(std::forward<A>(a)...);
             make_ready<urgent::no>();
@@ -804,7 +804,7 @@ public:
     /// pr.set_value(42, 43.0);
     /// pr.set_value(std::tuple<int, double>(42, 43.0))
     template <typename... A>
-    void set_value(A&&... a) {
+    void set_value(A&&... a) noexcept {
         internal::promise_base_with_type<T...>::set_value(std::forward<A>(a)...);
     }
 
