@@ -671,6 +671,10 @@ protected:
     friend class future_base;
     template <typename... U> friend class seastar::future;
 
+    void schedule(task* callback) noexcept {
+        _task = callback;
+    }
+
 private:
     void set_to_current_exception() noexcept;
 
@@ -738,9 +742,12 @@ private:
         _state = &tws->_state;
         _task = tws;
     }
-    void schedule(continuation_base<T...>* callback) noexcept {
-        _state = &callback->_state;
-        _task = callback;
+    void forward_state_and_schedule(future_state<T...>* state, task* callback) noexcept {
+        _state = state;
+        promise_base::schedule(callback);
+    }
+    void schedule_continuation(continuation_base<T...>* callback) noexcept {
+        forward_state_and_schedule(&callback->_state, callback);
     }
 
     template <typename... U>
@@ -1376,7 +1383,7 @@ private:
         assert(thread);
         thread_wake_task wake_task{thread, this};
         wake_task.make_backtrace();
-        detach_promise()->schedule(static_cast<continuation_base<T...>*>(&wake_task));
+        detach_promise()->schedule_continuation(static_cast<continuation_base<T...>*>(&wake_task));
         thread_impl::switch_out(thread);
     }
 
@@ -1794,7 +1801,7 @@ private:
             ::seastar::schedule(callback);
         } else {
             assert(_promise);
-            detach_promise()->schedule(callback);
+            detach_promise()->schedule_continuation(callback);
         }
 
     }
