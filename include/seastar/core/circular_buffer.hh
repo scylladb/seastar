@@ -91,20 +91,20 @@ public:
     const T& front() const noexcept;
     T& back() noexcept;
     const T& back() const noexcept;
-    void pop_front();
-    void pop_back();
+    void pop_front() noexcept;
+    void pop_back() noexcept;
     bool empty() const;
     size_t size() const;
     size_t capacity() const;
     void reserve(size_t);
     void clear();
-    T& operator[](size_t idx);
-    const T& operator[](size_t idx) const;
+    T& operator[](size_t idx) noexcept;
+    const T& operator[](size_t idx) const noexcept;
     template <typename Func>
     void for_each(Func func);
     // access an element, may return wrong or destroyed element
     // only useful if you do not rely on data accuracy (e.g. prefetch)
-    T& access_element_unsafe(size_t idx);
+    T& access_element_unsafe(size_t idx) noexcept;
 private:
     void expand();
     void expand(size_t);
@@ -204,7 +204,7 @@ public:
     const_iterator cend() const {
         return const_iterator(this, _impl.end);
     }
-    iterator erase(iterator first, iterator last);
+    iterator erase(iterator first, iterator last) noexcept;
 };
 
 template <typename T, typename Alloc>
@@ -426,7 +426,7 @@ circular_buffer<T, Alloc>::back() const noexcept {
 template <typename T, typename Alloc>
 inline
 void
-circular_buffer<T, Alloc>::pop_front() {
+circular_buffer<T, Alloc>::pop_front() noexcept {
     std::allocator_traits<Alloc>::destroy(_impl, &front());
     ++_impl.begin;
 }
@@ -434,7 +434,7 @@ circular_buffer<T, Alloc>::pop_front() {
 template <typename T, typename Alloc>
 inline
 void
-circular_buffer<T, Alloc>::pop_back() {
+circular_buffer<T, Alloc>::pop_back() noexcept {
     std::allocator_traits<Alloc>::destroy(_impl, &back());
     --_impl.end;
 }
@@ -442,28 +442,28 @@ circular_buffer<T, Alloc>::pop_back() {
 template <typename T, typename Alloc>
 inline
 T&
-circular_buffer<T, Alloc>::operator[](size_t idx) {
+circular_buffer<T, Alloc>::operator[](size_t idx) noexcept {
     return _impl.storage[mask(_impl.begin + idx)];
 }
 
 template <typename T, typename Alloc>
 inline
 const T&
-circular_buffer<T, Alloc>::operator[](size_t idx) const {
+circular_buffer<T, Alloc>::operator[](size_t idx) const noexcept {
     return _impl.storage[mask(_impl.begin + idx)];
 }
 
 template <typename T, typename Alloc>
 inline
 T&
-circular_buffer<T, Alloc>::access_element_unsafe(size_t idx) {
+circular_buffer<T, Alloc>::access_element_unsafe(size_t idx) noexcept {
     return _impl.storage[mask(_impl.begin + idx)];
 }
 
 template <typename T, typename Alloc>
 inline
 typename circular_buffer<T, Alloc>::iterator
-circular_buffer<T, Alloc>::erase(iterator first, iterator last) {
+circular_buffer<T, Alloc>::erase(iterator first, iterator last) noexcept {
     static_assert(std::is_nothrow_move_assignable<T>::value, "erase() assumes move assignment does not throw");
     if (first == last) {
         return last;
