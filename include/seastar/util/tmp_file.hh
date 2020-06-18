@@ -30,7 +30,8 @@
 
 namespace seastar {
 
-const char* default_tmpdir();
+const std::filesystem::path& default_tmpdir();
+void set_default_tmpdir(std::filesystem::path);
 
 class tmp_file {
     std::filesystem::path _path;
@@ -133,9 +134,10 @@ public:
     future<> remove() noexcept;
 
     template <typename Func>
+    SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> )
     static future<> do_with(std::filesystem::path path_template, Func&& func,
             file_permissions create_permissions = file_permissions::default_dir_permissions) noexcept {
-        static_assert(std::is_nothrow_move_constructible<Func>::value,
+        static_assert(std::is_nothrow_move_constructible_v<Func>,
             "Func's move constructor must not throw");
         return seastar::do_with(tmp_dir(), [func = std::move(func), path_template = std::move(path_template), create_permissions] (tmp_dir& t) mutable {
             return t.create(std::move(path_template), create_permissions).then([&t, func = std::move(func)] () mutable {
@@ -152,12 +154,17 @@ public:
     }
 
     template <typename Func>
-    static future<> do_with_thread(Func&& func) {
+
+    SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> )
+    static future<> do_with_thread(Func&& func) noexcept {
+        static_assert(std::is_nothrow_move_constructible_v<Func>,
+            "Func's move constructor must not throw");
         return async([func = std::move(func)] () mutable {
             auto t = tmp_dir();
             t.create().get();
-            auto remove_on_exit = defer([&t] { t.remove().get(); });
-            func(t);
+            futurize_apply(func, t).finally([&t] {
+                return t.remove();
+            }).get();
         });
     }
 

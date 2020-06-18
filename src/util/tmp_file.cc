@@ -60,15 +60,18 @@ generate_tmp_name(const fs::path& path_template) {
     return parent;
 }
 
-const char* default_tmpdir() {
-    static const char* default_tmpdir = nullptr;
-    if (!default_tmpdir) {
-        default_tmpdir = getenv("TMPDIR");
-        if (!default_tmpdir) {
-            default_tmpdir = "/tmp";
-        }
+static fs::path default_tmpdir_path;
+
+const fs::path& default_tmpdir() {
+    if (default_tmpdir_path.empty()) {
+        auto TMPDIR = getenv("TMPDIR");
+        default_tmpdir_path = TMPDIR ? TMPDIR : "/tmp";
     }
-    return default_tmpdir;
+    return default_tmpdir_path;
+}
+
+void set_default_tmpdir(fs::path path) {
+    default_tmpdir_path = std::move(path);
 }
 
 tmp_file::tmp_file(tmp_file&& x) noexcept
