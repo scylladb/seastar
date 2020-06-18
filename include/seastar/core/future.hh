@@ -43,6 +43,16 @@
 
 namespace seastar {
 
+struct nested_exception : public std::exception {
+    std::exception_ptr inner;
+    std::exception_ptr outer;
+    nested_exception(std::exception_ptr inner, std::exception_ptr outer) noexcept;
+    nested_exception(nested_exception&&) noexcept;
+    nested_exception(const nested_exception&) noexcept;
+    [[noreturn]] void rethrow_nested() const;
+    virtual const char* what() const noexcept override;
+};
+
 /// \defgroup future-module Futures and Promises
 ///
 /// \brief

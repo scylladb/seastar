@@ -148,30 +148,31 @@ void future_state_base::ignore() noexcept {
     }
 }
 
+nested_exception::nested_exception(std::exception_ptr inner, std::exception_ptr outer) noexcept
+    : inner(std::move(inner)), outer(std::move(outer)) {}
+
+nested_exception::nested_exception(nested_exception&&) noexcept = default;
+
+nested_exception::nested_exception(const nested_exception&) noexcept = default;
+
+const char* nested_exception::what() const noexcept {
+    return "seastar::nested_exception";
+}
+
+[[noreturn]] void nested_exception::rethrow_nested() const {
+    std::rethrow_exception(outer);
+}
+
 future_state_base::future_state_base(nested_exception_marker, future_state_base&& old) noexcept {
     if (!old.failed()) {
         new (this) future_state_base(current_exception_future_marker());
         return;
     } else {
-        //
-        // Encapsulate the current exception into the
-        // std::nested_exception because the current libstdc++
-        // implementation has a bug requiring the value of a
-        // std::throw_with_nested() parameter to be of a polymorphic
-        // type.
-        //
-        std::nested_exception f_ex;
-        try {
-            std::rethrow_exception(std::move(old).get_exception());
-        } catch (...) {
-            try {
-                std::throw_with_nested(f_ex);
-            } catch (...) {
-                new (this) future_state_base(current_exception_future_marker());
-                return;
-            }
-        }
-        __builtin_unreachable();
+        std::exception_ptr inner = std::current_exception();
+        std::exception_ptr outer = std::move(old).get_exception();
+        nested_exception nested{std::move(inner), std::move(outer)};
+        std::exception_ptr np = std::make_exception_ptr<nested_exception>(std::move(nested));
+        new (this) future_state_base(std::move(np));
     }
 }
 

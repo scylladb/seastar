@@ -190,15 +190,17 @@ SEASTAR_TEST_CASE(test_finally_exception) {
         throw std::runtime_error("foo");
     }).finally([] {
         throw std::runtime_error("bar");
-    }).handle_exception_type([](const std::nested_exception &ex) {
-        // Unfortunately the current implementation loses the outer
-        // exception.
-        auto* outer = dynamic_cast<const std::runtime_error*>(&ex);
-        BOOST_REQUIRE_EQUAL(outer, nullptr);
+    }).handle_exception_type([](const nested_exception &ex) {
+        BOOST_REQUIRE_EQUAL(ex.what(), "seastar::nested_exception");
         try {
-            ex.rethrow_nested();
+            std::rethrow_exception(ex.inner);
         } catch (std::runtime_error &inner) {
             BOOST_REQUIRE_EQUAL(inner.what(), "bar");
+        }
+        try {
+            ex.rethrow_nested();
+        } catch (std::runtime_error &outer) {
+            BOOST_REQUIRE_EQUAL(outer.what(), "foo");
         }
     });
 }
