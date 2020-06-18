@@ -323,6 +323,9 @@ seastar_add_test (network_interface
 seastar_add_test (json_formatter
   SOURCES json_formatter_test.cc)
 
+seastar_add_test (locking
+  SOURCES locking_test.cc)
+
 seastar_add_test (lowres_clock
   SOURCES lowres_clock_test.cc)
 
