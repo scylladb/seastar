@@ -149,8 +149,8 @@ void fair_queue::queue(priority_class_ptr pc, fair_queue_ticket desc, noncopyabl
     // Since we don't know which queue we will use to execute the next request - if ours or
     // someone else's, we need a separate promise at this point.
     push_priority_class(pc);
-    _resources_queued += desc;
     pc->_queue.push_back(priority_class::request{std::move(func), std::move(desc)});
+    _resources_queued += desc;
     _requests_queued++;
 }
 
