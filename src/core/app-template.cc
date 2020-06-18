@@ -163,7 +163,12 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
         return 1;
     }
 
-    bpo::notify(configuration);
+    try {
+        bpo::notify(configuration);
+    } catch (const bpo::required_option& ex) {
+        std::cout << ex.what() << std::endl;
+        return 1;
+    }
 
     // Needs to be before `smp::configure()`.
     try {
