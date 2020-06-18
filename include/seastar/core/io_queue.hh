@@ -86,7 +86,6 @@ private:
     static io_priority_class register_one_priority_class(sstring name, uint32_t shares);
 
     priority_class_data& find_or_create_class(const io_priority_class& pc, shard_id owner);
-    friend class smp;
     fair_queue_ticket _completed_accumulator = { 0, 0 };
 
     // The fields below are going away, they are just here so we can implement deprecated
