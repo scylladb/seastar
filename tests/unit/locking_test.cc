@@ -28,6 +28,7 @@
 #include <seastar/core/sleep.hh>
 #include <seastar/core/rwlock.hh>
 #include <seastar/core/shared_mutex.hh>
+#include <seastar/util/alloc_failure_injector.hh>
 #include <boost/range/irange.hpp>
 
 using namespace seastar;
@@ -190,4 +191,26 @@ SEASTAR_THREAD_TEST_CASE(test_shared_mutex_failed_func) {
 
     BOOST_REQUIRE(sm.try_lock());
     sm.unlock();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_shared_mutex_failed_lock) {
+#ifdef SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION
+    shared_mutex sm;
+
+    // if l.lock() fails neither the function nor l.unlock()
+    // should be called.
+    sm.lock().get();
+    seastar::memory::local_failure_injector().fail_after(0);
+    BOOST_REQUIRE_THROW(with_shared(sm, [] {
+        BOOST_REQUIRE(false);
+    }).get(), std::bad_alloc);
+
+    seastar::memory::local_failure_injector().fail_after(0);
+    BOOST_REQUIRE_THROW(with_lock(sm, [] {
+        BOOST_REQUIRE(false);
+    }).get(), std::bad_alloc);
+    sm.unlock();
+
+    seastar::memory::local_failure_injector().cancel();
+#endif // SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION
 }

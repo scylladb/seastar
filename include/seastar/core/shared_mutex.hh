@@ -150,10 +150,10 @@ template <typename Func>
 inline
 futurize_t<std::result_of_t<Func ()>>
 with_shared(shared_mutex& sm, Func&& func) {
-    return sm.lock_shared().then([func = std::forward<Func>(func)] () mutable {
-        return func();
-    }).finally([&sm] {
-        sm.unlock_shared();
+    return sm.lock_shared().then([&sm, func = std::forward<Func>(func)] () mutable {
+        return futurize_invoke(func).finally([&sm] {
+            sm.unlock_shared();
+        });
     });
 }
 
@@ -171,10 +171,10 @@ template <typename Func>
 inline
 futurize_t<std::result_of_t<Func ()>>
 with_lock(shared_mutex& sm, Func&& func) {
-    return sm.lock().then([func = std::forward<Func>(func)] () mutable {
-        return func();
-    }).finally([&sm] {
-        sm.unlock();
+    return sm.lock().then([&sm, func = std::forward<Func>(func)] () mutable {
+        return futurize_invoke(func).finally([&sm] {
+            sm.unlock();
+        });
     });
 }
 
