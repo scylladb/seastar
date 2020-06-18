@@ -67,6 +67,62 @@ namespace seastar {
 /// is resolved); the continuation can then access the actual value.
 ///
 
+/// \defgroup future-module Implementation overview
+///
+/// A future has a stored value. Semantically, the value is a
+/// std::optional<std::variant<T, std::exception_ptr>>. The actual
+/// type of the value in the implementation is future_state<T>.
+///
+/// A future without an initial value can be created by first creating
+/// a promise and then calling promise::get_future. The promise also
+/// stores a future_state<T> in case promise::set_value is called
+/// before get_future.
+///
+/// In addition to the future_state<T>, the promise and the future
+/// point to each other and the pointers are updated when either is
+/// moved.
+///
+/// If a future is consumed by future::then before the future is
+/// ready, a continuation is dynamically allocated. The continuation
+/// also has a future_state<T>, but unlinke a future it is never
+/// moved.
+///
+/// After a future creates a continuation, the corresponding promise
+/// points to the newly allocated continuation. When
+/// promise::set_value is called, the continuation is ready and is
+/// scheduled.
+///
+/// A promise then consists of
+/// * A future_state<T> for use when there is no corresponding future
+///   or continuation (_local_state).
+/// * A pointer to a future to allow updates when the promise is moved
+///  (_future).
+/// * A pointer to the continuation (_task).
+/// * A pointer to future_state<T> (_state) that can point to
+///   1. The future_state<T> in the promise itself
+///   2. The future_state<T> in the future
+///   2. The future_state<T> in the continuation
+///
+/// A special case is when a future blocks inside a thread. In that
+/// case we still need a continuation, but that continuation doesn't
+/// need a future_state<T> since the original future still exists on
+/// the stack.
+///
+/// So the valid states for a promise are:
+///
+/// 1. A newly created promise. _state points to _local_state and
+///    _task and _future are null.
+/// 2. After get_future is called. _state points to the state in the
+///    future, _future points to the future and _task is null.
+/// 3. The future has been consumed by future::then. Now the _state
+///    points to the state in the continuation, _future is null and
+///    _task points to the continuation.
+/// 4. A call to future::get is blocked in a thread. This is a mix of
+///    cases 2 and 3. Like 2, there is a valid future and _future and
+///    _state point to the future and its state. Like 3, there is a
+///    valid continuation and _task points to it, but that
+///    continuation has no state of its own.
+
 /// \defgroup future-util Future Utilities
 ///
 /// \brief
@@ -682,6 +738,10 @@ protected:
     friend class future_base;
     template <typename... U> friend class seastar::future;
 
+    void schedule(task* callback) noexcept {
+        _task = callback;
+    }
+
 private:
     void set_to_current_exception() noexcept;
 
@@ -749,9 +809,12 @@ private:
         _state = &tws->_state;
         _task = tws;
     }
-    void schedule(continuation_base<T...>* callback) noexcept {
-        _state = &callback->_state;
-        _task = callback;
+    void forward_state_and_schedule(future_state<T...>* state, task* callback) noexcept {
+        _state = state;
+        promise_base::schedule(callback);
+    }
+    void schedule_continuation(continuation_base<T...>* callback) noexcept {
+        forward_state_and_schedule(&callback->_state, callback);
     }
 
     template <typename... U>
@@ -1088,6 +1151,8 @@ protected:
         return std::exchange(_promise, nullptr);
     }
 
+    void do_wait() noexcept;
+
     friend class promise_base;
 };
 
@@ -1184,17 +1249,6 @@ template <typename Promise, typename... T>
 task* continuation_base_with_promise<Promise, T...>::waiting_task() noexcept {
     return _pr.waiting_task();
 }
-
-class thread_wake_task_base {
-protected:
-    thread_context* _thread;
-public:
-    thread_wake_task_base(thread_context* thread)
-        : _thread(thread)
-    {}
-    /// Returns the task which is waiting for this thread to be done, or nullptr.
-    task* waiting_task() noexcept;
-};
 
 /// \brief A representation of a possibly not-yet-computed value.
 ///
@@ -1328,9 +1382,7 @@ public:
     /// be paused until the future becomes available.
     [[gnu::always_inline]]
     std::tuple<T...>&& get() {
-        if (!_state.available()) {
-            do_wait();
-        }
+        wait();
         return get_available_state_ref().take();
     }
 
@@ -1357,41 +1409,16 @@ public:
     /// thread until the future is availble. Other threads and
     /// continuations continue to execute; only the thread is blocked.
     void wait() noexcept {
-        if (!_state.available()) {
-            do_wait();
+        if (_state.available()) {
+            return;
         }
-    }
-private:
-    class thread_wake_task final : public continuation_base<T...>, thread_wake_task_base {
-        future* _waiting_for;
-    public:
-        thread_wake_task(thread_context* thread, future* waiting_for)
-                : thread_wake_task_base(thread), _waiting_for(waiting_for) {
-        }
-        virtual void run_and_dispose() noexcept override {
-            _waiting_for->_state = std::move(this->_state);
-            thread_impl::switch_in(_thread);
-            // no need to delete, since this is always allocated on
-            // _thread's stack.
-        }
-        virtual task* waiting_task() noexcept override {
-            return thread_wake_task_base::waiting_task();
-        }
-    };
-    void do_wait() noexcept {
         if (__builtin_expect(!_promise, false)) {
             _state.set_to_broken_promise();
             return;
         }
-        auto thread = thread_impl::get();
-        assert(thread);
-        thread_wake_task wake_task{thread, this};
-        wake_task.make_backtrace();
-        detach_promise()->schedule(static_cast<continuation_base<T...>*>(&wake_task));
-        thread_impl::switch_out(thread);
+        do_wait();
     }
 
-public:
     /// \brief Checks whether the future is available.
     ///
     /// \return \c true if the future has a value, or has failed.
@@ -1805,7 +1832,7 @@ private:
             ::seastar::schedule(callback);
         } else {
             assert(_promise);
-            detach_promise()->schedule(callback);
+            detach_promise()->schedule_continuation(callback);
         }
 
     }

@@ -90,7 +90,6 @@ void promise_base::set_to_current_exception() noexcept {
 template <promise_base::urgent Urgent>
 void promise_base::make_ready() noexcept {
     if (_task) {
-        _state = nullptr;
         if (Urgent == urgent::yes && !need_preempt()) {
             ::seastar::schedule_urgent(std::exchange(_task, nullptr));
         } else {
@@ -185,8 +184,29 @@ void report_failed_future(const future_state_base& state) noexcept {
     report_failed_future(state._u.ex);
 }
 
-task* thread_wake_task_base::waiting_task() noexcept {
-    return _thread->waiting_task();
+namespace {
+class thread_wake_task final : public task {
+    thread_context* _thread;
+public:
+    thread_wake_task(thread_context* thread) noexcept : _thread(thread) {}
+    virtual void run_and_dispose() noexcept override {
+        thread_impl::switch_in(_thread);
+        // no need to delete, since this is always allocated on
+        // _thread's stack.
+    }
+    /// Returns the task which is waiting for this thread to be done, or nullptr.
+    virtual task* waiting_task() noexcept override {
+        return _thread->waiting_task();
+    }
+};
 }
 
+void internal::future_base::do_wait() noexcept {
+    auto thread = thread_impl::get();
+    assert(thread);
+    thread_wake_task wake_task{thread};
+    wake_task.make_backtrace();
+    _promise->schedule(&wake_task);
+    thread_impl::switch_out(thread);
+}
 }
