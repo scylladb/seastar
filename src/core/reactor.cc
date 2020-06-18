@@ -3830,7 +3830,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
 
     for (auto& id : disk_config.device_ids()) {
         auto io_info = ioq_topology.at(id);
-        all_io_queues.emplace(id, io_info.coordinators.size());
+        all_io_queues.emplace(id, io_info.nr_coordinators);
     }
 
     auto alloc_io_queue = [&ioq_topology, &all_io_queues, &disk_config] (unsigned shard, dev_t id) {
