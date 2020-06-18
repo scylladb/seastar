@@ -101,3 +101,22 @@ SEASTAR_THREAD_TEST_CASE(test_rwlock_failed_func) {
     BOOST_REQUIRE(l.try_write_lock());
     l.for_write().unlock();
 }
+
+SEASTAR_THREAD_TEST_CASE(test_failed_with_lock) {
+    struct test_lock {
+        future<> lock() noexcept {
+            return make_exception_future<>(std::runtime_error("injected"));
+        }
+        void unlock() noexcept {
+            BOOST_REQUIRE(false);
+        }
+    };
+
+    test_lock l;
+
+    // if l.lock() fails neither the function nor l.unlock()
+    // should be called.
+    BOOST_REQUIRE_THROW(with_lock(l, [] {
+        BOOST_REQUIRE(false);
+    }).get(), std::runtime_error);
+}
