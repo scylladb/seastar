@@ -198,21 +198,9 @@ reactor::rename_priority_class(io_priority_class pc, sstring new_name) {
         // holding the lock until all cross shard activity is over.
 
         try {
-            std::lock_guard<std::mutex> guard(io_queue::_register_lock);
-            for (unsigned i = 0; i < io_queue::_max_classes; ++i) {
-               if (!io_queue::_registered_shares[i]) {
-                   break;
-               }
-               if (io_queue::_registered_names[i] == new_name) {
-                   if (i == pc.id()) {
-                       return make_ready_future();
-                   } else {
-                       throw std::runtime_error(format("rename priority class: an attempt was made to rename a priority class to an"
-                               " already existing name ({})", new_name));
-                   }
-               }
+            if (!io_queue::rename_one_priority_class(pc, std::move(new_name))) {
+                return make_ready_future<>();
             }
-            io_queue::_registered_names[pc.id()] = new_name;
         } catch (...) {
             sched_logger.error("exception while trying to rename priority group with id {} to \"{}\" ({})",
                     pc.id(), new_name, std::current_exception());

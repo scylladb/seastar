@@ -146,6 +146,25 @@ io_priority_class io_queue::register_one_priority_class(sstring name, uint32_t s
     throw std::runtime_error("No more room for new I/O priority classes");
 }
 
+bool io_queue::rename_one_priority_class(io_priority_class pc, sstring new_name) {
+    std::lock_guard<std::mutex> guard(_register_lock);
+    for (unsigned i = 0; i < _max_classes; ++i) {
+       if (!_registered_shares[i]) {
+           break;
+       }
+       if (_registered_names[i] == new_name) {
+           if (i == pc.id()) {
+               return false;
+           } else {
+               throw std::runtime_error(format("rename priority class: an attempt was made to rename a priority class to an"
+                       " already existing name ({})", new_name));
+           }
+       }
+    }
+    _registered_names[pc.id()] = new_name;
+    return true;
+}
+
 seastar::metrics::label io_queue_shard("ioshard");
 
 io_queue::priority_class_data::priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr, shard_id owner)

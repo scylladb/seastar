@@ -84,6 +84,7 @@ private:
     static std::array<sstring, _max_classes> _registered_names;
 
     static io_priority_class register_one_priority_class(sstring name, uint32_t shares);
+    static bool rename_one_priority_class(io_priority_class pc, sstring name);
 
     priority_class_data& find_or_create_class(const io_priority_class& pc, shard_id owner);
     fair_queue_ticket _completed_accumulator = { 0, 0 };
