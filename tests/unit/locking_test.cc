@@ -27,6 +27,7 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/rwlock.hh>
+#include <seastar/core/shared_mutex.hh>
 #include <boost/range/irange.hpp>
 
 using namespace seastar;
@@ -119,4 +120,74 @@ SEASTAR_THREAD_TEST_CASE(test_failed_with_lock) {
     BOOST_REQUIRE_THROW(with_lock(l, [] {
         BOOST_REQUIRE(false);
     }).get(), std::runtime_error);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_shared_mutex) {
+    shared_mutex sm;
+
+    sm.lock().get();
+    BOOST_REQUIRE(!sm.try_lock());
+    BOOST_REQUIRE(!sm.try_lock_shared());
+    sm.unlock();
+
+    sm.lock_shared().get();
+    BOOST_REQUIRE(!sm.try_lock());
+    BOOST_REQUIRE(sm.try_lock_shared());
+    sm.lock_shared().get();
+    sm.unlock_shared();
+    sm.unlock_shared();
+    sm.unlock_shared();
+
+    BOOST_REQUIRE(sm.try_lock());
+    sm.unlock();
+}
+
+SEASTAR_TEST_CASE(test_shared_mutex_exclusive) {
+    return do_with(shared_mutex(), unsigned(0), [] (shared_mutex& sm, unsigned& counter) {
+        return parallel_for_each(boost::irange(0, 10), [&sm, &counter] (int idx) {
+            return with_lock(sm, [&counter] {
+                BOOST_REQUIRE_EQUAL(counter, 0u);
+                ++counter;
+                return sleep(1ms).then([&counter] {
+                    --counter;
+                    BOOST_REQUIRE_EQUAL(counter, 0u);
+                });
+            });
+        });
+    });
+}
+
+SEASTAR_TEST_CASE(test_shared_mutex_shared) {
+    return do_with(shared_mutex(), unsigned(0), unsigned(0), [] (shared_mutex& sm, unsigned& counter, unsigned& max) {
+        return parallel_for_each(boost::irange(0, 10), [&sm, &counter, &max] (int idx) {
+            return with_shared(sm, [&counter, &max] {
+                ++counter;
+                max = std::max(max, counter);
+                return sleep(1ms).then([&counter] {
+                    --counter;
+                });
+            });
+        }).finally([&counter, &max] {
+            BOOST_REQUIRE_EQUAL(counter, 0u);
+            BOOST_REQUIRE_NE(max, 0u);
+        });
+    });
+}
+
+SEASTAR_THREAD_TEST_CASE(test_shared_mutex_failed_func) {
+    shared_mutex sm;
+
+    // verify that the shared_mutex is unlocked when func fails
+    future<> fut = with_shared(sm, [] {
+        throw std::runtime_error("injected");
+    });
+    BOOST_REQUIRE_THROW(fut.get(), std::runtime_error);
+
+    fut = with_lock(sm, [] {
+        throw std::runtime_error("injected");
+    });
+    BOOST_REQUIRE_THROW(fut.get(), std::runtime_error);
+
+    BOOST_REQUIRE(sm.try_lock());
+    sm.unlock();
 }
