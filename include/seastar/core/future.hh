@@ -796,12 +796,6 @@ public:
     /// Returns the task which is waiting for this promise to resolve, or nullptr.
     using internal::promise_base::waiting_task;
 
-#ifdef SEASTAR_COROUTINES_ENABLED
-    void set_coroutine(future_state<T...>& state, task& coroutine) noexcept {
-        _state = &state;
-        _task = &coroutine;
-    }
-#endif
 private:
     template <typename Pr, typename Func, typename Wrapper>
     void schedule(Pr&& pr, Func&& func, Wrapper&& wrapper) noexcept {
@@ -1822,7 +1816,7 @@ public:
     void set_coroutine(task& coroutine) noexcept {
         assert(!_state.available());
         assert(_promise);
-        detach_promise()->set_coroutine(_state, coroutine);
+        detach_promise()->forward_state_and_schedule(&_state, &coroutine);
     }
 #endif
 private:
