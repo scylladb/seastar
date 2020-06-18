@@ -75,6 +75,7 @@ public:
     }
     /// Unlocks a \c shared_mutex after a previous call to \ref lock_shared().
     void unlock_shared() {
+        assert(_readers > 0);
         --_readers;
         wake();
     }
@@ -92,6 +93,7 @@ public:
     }
     /// Unlocks a \c shared_mutex after a previous call to \ref lock().
     void unlock() {
+        assert(_writer);
         _writer = false;
         wake();
     }
