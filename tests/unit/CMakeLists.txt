@@ -89,9 +89,8 @@ function (seastar_add_test name)
 
     set (libraries "${parsed_args_LIBRARIES}")
 
+    set (args "")
     if (parsed_args_KIND STREQUAL "SEASTAR")
-      set (args "")
-
       list (APPEND libraries
         seastar_testing
         seastar_private)
@@ -101,10 +100,7 @@ function (seastar_add_test name)
       endif ()
 
       list (APPEND args -- -c ${Seastar_UNIT_TEST_SMP})
-      list (APPEND args ${parsed_args_RUN_ARGS})
     elseif (parsed_args_KIND STREQUAL "BOOST")
-      set (args "")
-
       list (APPEND libraries
         Boost::unit_test_framework
         seastar_private)
@@ -112,11 +108,9 @@ function (seastar_add_test name)
       if (NOT (Seastar_JENKINS STREQUAL ""))
         list (APPEND args ${jenkins_args})
       endif ()
-
-      list (APPEND args ${parsed_args_RUN_ARGS})
-    else () # CUSTOM
-      set (args ${parsed_args_RUN_ARGS})
     endif ()
+
+    list (APPEND args ${parsed_args_RUN_ARGS})
 
     set (executable_target test_unit_${name})
     add_executable (${executable_target} ${parsed_args_SOURCES})
