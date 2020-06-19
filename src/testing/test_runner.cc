@@ -62,11 +62,12 @@ test_runner::start(int ac, char** av) {
 
     auto init_outcome = std::make_shared<exchanger<bool>>();
 
+    namespace bpo = boost::program_options;
     _thread = std::make_unique<posix_thread>([this, ac, av, init_outcome]() mutable {
         app_template app;
         app.add_options()
-            ("random-seed", boost::program_options::value<unsigned>(), "Random number generator seed")
-            ("fail-on-abandoned-failed-futures", "Fail the test if there are any abandoned failed futures");
+            ("random-seed", bpo::value<unsigned>(), "Random number generator seed")
+            ("fail-on-abandoned-failed-futures", bpo::value<bool>()->default_value(true), "Fail the test if there are any abandoned failed futures");
         // We guarantee that only one thread is running.
         // We only read this after that one thread is joined, so this is safe.
         _exit_code = app.run(ac, av, [this, &app, init_outcome = init_outcome.get()] {
@@ -95,7 +96,7 @@ test_runner::start(int ac, char** av) {
             }).then([&app] {
                 if (engine().abandoned_failed_futures()) {
                     std::cerr << "*** " << engine().abandoned_failed_futures() << " abandoned failed future(s) detected\n";
-                    if (app.configuration().count("fail-on-abandoned-failed-futures")) {
+                    if (app.configuration()["fail-on-abandoned-failed-futures"].as<bool>()) {
                         std::cerr << "Failing the test because fail was requested by --fail-on-abandoned-failed-futures\n";
                         return 3;
                     }

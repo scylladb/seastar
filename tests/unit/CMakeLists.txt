@@ -310,7 +310,8 @@ seastar_add_test (fstream
     mock_file.hh)
 
 seastar_add_test (futures
-  SOURCES futures_test.cc)
+  SOURCES futures_test.cc
+  RUN_ARGS --fail-on-abandoned-failed-futures=false)
 
 seastar_add_test (sharded
   SOURCES sharded_test.cc)
@@ -363,7 +364,8 @@ seastar_add_test (rpc
     rpc_test.cc)
 
 seastar_add_test (semaphore
-  SOURCES semaphore_test.cc)
+  SOURCES semaphore_test.cc
+  RUN_ARGS --fail-on-abandoned-failed-futures=false)
 
 seastar_add_test (shared_ptr
   KIND BOOST
