@@ -30,5 +30,5 @@ if (Concepts_FOUND AND NOT (TARGET Concepts::concepts))
 
   set_target_properties (Concepts::concepts
     PROPERTIES
-      INTERFACE_COMPILE_OPTIONS -fconcepts)
+      INTERFACE_COMPILE_OPTIONS $<$<COMPILE_LANGUAGE:CXX>:-fconcepts>)
 endif ()

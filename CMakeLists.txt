@@ -732,7 +732,7 @@ include (CTest)
 
 target_compile_options (seastar
   PUBLIC
-    -std=${Seastar_CXX_DIALECT}
+    $<$<COMPILE_LANGUAGE:CXX>:-std=${Seastar_CXX_DIALECT}>
     -U_FORTIFY_SOURCE)
 
 target_compile_definitions(seastar
