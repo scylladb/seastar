@@ -40,9 +40,15 @@ project (Seastar
   VERSION 1.0
   LANGUAGES CXX)
 
-option (Seastar_ALLOC_FAILURE_INJECTION
-  "Enable failure injection into the Seastar allocator."
-  OFF)
+# generic boolean values passed as string, potentially from configure.py
+set (True_STRING_VALUES "ON" "yes" "Yes" "YES" "true" "True" "TRUE")
+set (False_STRING_VALUES "OFF" "no" "No" "NO" "false" "False" "FALSE")
+
+set (Seastar_ALLOC_FAILURE_INJECTION
+  "DEFAULT"
+  CACHE
+  STRING
+  "Enable failure injection into the Seastar allocator. Can be ON, OFF or DEFAULT (which enables it for Dev mode)")
 
 option (Seastar_TASK_BACKTRACE
   "Collect backtrace at deferring points."
@@ -767,7 +773,10 @@ if (LinuxMembarrier_FOUND)
     PRIVATE LinuxMembarrier::membarrier)
 endif ()
 
-if (Seastar_ALLOC_FAILURE_INJECTION)
+set (Seastar_ALLOC_FAILURE_INJECTION_MODES "Dev")
+if ((Seastar_ALLOC_FAILURE_INJECTION IN_LIST True_STRING_VALUES) OR
+    ((Seastar_ALLOC_FAILURE_INJECTION STREQUAL "DEFAULT") AND
+     (CMAKE_BUILD_TYPE IN_LIST Seastar_ALLOC_FAILURE_INJECTION_MODES)))
   target_compile_definitions (seastar
     PUBLIC SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION)
 endif ()

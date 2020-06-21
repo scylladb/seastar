@@ -101,6 +101,10 @@ alloc_failure_injector& local_failure_injector() {
 
 #ifdef SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION
 
+#ifdef SEASTAR_DEFAULT_ALLOCATOR
+#error SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION is not supported when using SEASTAR_DEFAULT_ALLOCATOR
+#endif
+
 struct disable_failure_guard {
     disable_failure_guard() { ++local_failure_injector()._suppressed; }
     ~disable_failure_guard() { --local_failure_injector()._suppressed; }
