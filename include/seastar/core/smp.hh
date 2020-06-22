@@ -361,7 +361,7 @@ public:
     }
     static bool poll_queues();
     static bool pure_poll_queues();
-    static boost::integer_range<unsigned> all_cpus() {
+    static boost::integer_range<unsigned> all_cpus() noexcept {
         return boost::irange(0u, count);
     }
     /// Invokes func on all shards.
@@ -373,8 +373,10 @@ public:
     ///         of \c func.
     /// \returns a future that resolves when all async invocations finish.
     template<typename Func>
-    static future<> invoke_on_all(smp_submit_to_options options, Func&& func) {
+    SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> )
+    static future<> invoke_on_all(smp_submit_to_options options, Func&& func) noexcept {
         static_assert(std::is_same<future<>, typename futurize<std::result_of_t<Func()>>::type>::value, "bad Func signature");
+        static_assert(std::is_nothrow_move_constructible_v<Func>);
         return parallel_for_each(all_cpus(), [options, &func] (unsigned id) {
             return smp::submit_to(id, options, Func(func));
         });
@@ -389,7 +391,7 @@ public:
     /// Passes the default \ref smp_submit_to_options to the
     /// \ref smp::submit_to() called behind the scenes.
     template<typename Func>
-    static future<> invoke_on_all(Func&& func) {
+    static future<> invoke_on_all(Func&& func) noexcept {
         return invoke_on_all(smp_submit_to_options{}, std::forward<Func>(func));
     }
     /// Invokes func on all other shards.
@@ -402,8 +404,10 @@ public:
     ///         of \c func.
     /// \returns a future that resolves when all async invocations finish.
     template<typename Func>
-    static future<> invoke_on_others(unsigned cpu_id, smp_submit_to_options options, Func func) {
+    SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> )
+    static future<> invoke_on_others(unsigned cpu_id, smp_submit_to_options options, Func func) noexcept {
         static_assert(std::is_same<future<>, typename futurize<std::result_of_t<Func()>>::type>::value, "bad Func signature");
+        static_assert(std::is_nothrow_move_constructible_v<Func>);
         return parallel_for_each(all_cpus(), [cpu_id, options, func = std::move(func)] (unsigned id) {
             return id != cpu_id ? smp::submit_to(id, options, func) : make_ready_future<>();
         });
@@ -419,7 +423,7 @@ public:
     /// Passes the default \ref smp_submit_to_options to the
     /// \ref smp::submit_to() called behind the scenes.
     template<typename Func>
-    static future<> invoke_on_others(unsigned cpu_id, Func func) {
+    static future<> invoke_on_others(unsigned cpu_id, Func func) noexcept {
         return invoke_on_others(cpu_id, smp_submit_to_options{}, std::move(func));
     }
 private:
