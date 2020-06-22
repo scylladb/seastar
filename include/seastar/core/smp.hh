@@ -44,7 +44,7 @@ class reactor_backend_selector;
 
 namespace internal {
 
-unsigned smp_service_group_id(smp_service_group ssg);
+unsigned smp_service_group_id(smp_service_group ssg) noexcept;
 
 inline shard_id* this_shard_id_ptr() {
     static thread_local shard_id g_this_shard_id;
@@ -91,16 +91,16 @@ struct smp_service_group_config {
 class smp_service_group {
     unsigned _id;
 private:
-    explicit smp_service_group(unsigned id) : _id(id) {}
+    explicit smp_service_group(unsigned id) noexcept : _id(id) {}
 
-    friend unsigned internal::smp_service_group_id(smp_service_group ssg);
-    friend smp_service_group default_smp_service_group();
+    friend unsigned internal::smp_service_group_id(smp_service_group ssg) noexcept;
+    friend smp_service_group default_smp_service_group() noexcept;
     friend future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc);
 };
 
 inline
 unsigned
-internal::smp_service_group_id(smp_service_group ssg) {
+internal::smp_service_group_id(smp_service_group ssg) noexcept {
     return ssg._id;
 }
 
@@ -109,7 +109,7 @@ internal::smp_service_group_id(smp_service_group ssg) {
 /// This makes is deadlock-safe, but can consume unbounded resources,
 /// and should therefore only be used when initiator concurrency is
 /// very low (e.g. administrative tasks).
-smp_service_group default_smp_service_group();
+smp_service_group default_smp_service_group() noexcept;
 
 /// Creates an smp_service_group with the specified configuration.
 ///
@@ -124,7 +124,7 @@ future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc
 future<> destroy_smp_service_group(smp_service_group ssg);
 
 inline
-smp_service_group default_smp_service_group() {
+smp_service_group default_smp_service_group() noexcept {
     return smp_service_group(0);
 }
 
@@ -151,7 +151,7 @@ struct smp_submit_to_options {
 
 void init_default_smp_service_group(shard_id cpu);
 
-smp_service_group_semaphore& get_smp_service_groups_semaphore(unsigned ssg_id, shard_id t);
+smp_service_group_semaphore& get_smp_service_groups_semaphore(unsigned ssg_id, shard_id t) noexcept;
 
 class smp_message_queue {
     static constexpr size_t queue_length = 128;
