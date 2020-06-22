@@ -186,9 +186,9 @@ reactor::update_shares_for_class(io_priority_class pc, uint32_t shares) {
 }
 
 future<>
-reactor::rename_priority_class(io_priority_class pc, sstring new_name) {
+reactor::rename_priority_class(io_priority_class pc, sstring new_name) noexcept {
 
-    return futurize_invoke([pc, new_name] () {
+    return futurize_invoke([pc, new_name = std::move(new_name)] () mutable {
         // Taking the lock here will prevent from newly registered classes
         // to register under the old name (and will prevent undefined
         // behavior since this array is shared cross shards. However, it
@@ -198,7 +198,7 @@ reactor::rename_priority_class(io_priority_class pc, sstring new_name) {
         // holding the lock until all cross shard activity is over.
 
         try {
-            if (!io_queue::rename_one_priority_class(pc, std::move(new_name))) {
+            if (!io_queue::rename_one_priority_class(pc, new_name)) {
                 return make_ready_future<>();
             }
         } catch (...) {
@@ -206,7 +206,7 @@ reactor::rename_priority_class(io_priority_class pc, sstring new_name) {
                     pc.id(), new_name, std::current_exception());
             std::rethrow_exception(std::current_exception());
         }
-        return smp::invoke_on_all([pc, new_name] {
+        return smp::invoke_on_all([pc, new_name = std::move(new_name)] {
             for (auto&& queue : engine()._io_queues) {
                 queue.second->rename_priority_class(pc, new_name);
             }
