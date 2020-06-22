@@ -143,7 +143,7 @@ struct smp_submit_to_options {
     /// executed there.
     smp_timeout_clock::time_point timeout = smp_no_timeout;
 
-    smp_submit_to_options(smp_service_group service_group = default_smp_service_group(), smp_timeout_clock::time_point timeout = smp_no_timeout)
+    smp_submit_to_options(smp_service_group service_group = default_smp_service_group(), smp_timeout_clock::time_point timeout = smp_no_timeout) noexcept
         : service_group(service_group)
         , timeout(timeout) {
     }
