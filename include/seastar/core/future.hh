@@ -1488,7 +1488,7 @@ public:
     then_unpack(Func&& func) noexcept {
         return then([func = std::forward<Func>(func)] (T&&... tuple) mutable {
             // sizeof...(tuple) is required to be 1
-            return std::apply(std::forward<Func>(func), std::move(tuple)...);
+            return std::apply(func, std::move(tuple)...);
         });
     }
 
@@ -1511,7 +1511,7 @@ private:
                 } else {
                     try {
                         futurator::satisfy_with_result_of(std::move(pr), [&func, &state] {
-                            return std::apply(std::forward<Func>(func), std::move(state).get_value());
+                            return std::apply(func, std::move(state).get_value());
                         });
                     } catch (...) {
                         pr.set_to_current_exception();
@@ -1577,7 +1577,7 @@ private:
         using futurator = futurize<FuncResult>;
         using WrapFuncResult = typename futurator::type;
         return then_wrapped_common<AsSelf, WrapFuncResult>(noncopyable_function<WrapFuncResult (future&&)>([func = std::forward<Func>(func)] (future&& f) mutable {
-            return futurator::invoke(std::forward<Func>(func), std::move(f));
+            return futurator::invoke(func, std::move(f));
         }));
 #endif
     }
