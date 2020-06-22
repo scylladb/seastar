@@ -441,6 +441,9 @@ protected:
     future_state_base(nested_exception_marker, future_state_base&& old) noexcept;
     ~future_state_base() noexcept = default;
 
+    void rethrow_exception() &&;
+    void rethrow_exception() const&;
+
 public:
 
     bool valid() const noexcept { return _u.valid(); }
@@ -564,8 +567,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
     std::tuple<T...>&& take() && {
         assert(available());
         if (_u.st >= state::exception_min) {
-            // Move ex out so future::~future() knows we've handled it
-            std::rethrow_exception(std::move(*this).get_exception());
+            std::move(*this).rethrow_exception();
         }
         _u.st = state::result_unavailable;
         return std::move(this->uninitialized_get());
@@ -573,15 +575,14 @@ struct future_state :  public future_state_base, private internal::uninitialized
     std::tuple<T...>&& get() && {
         assert(available());
         if (_u.st >= state::exception_min) {
-            // Move ex out so future::~future() knows we've handled it
-            std::rethrow_exception(std::move(*this).get_exception());
+            std::move(*this).rethrow_exception();
         }
         return std::move(this->uninitialized_get());
     }
     const std::tuple<T...>& get() const& {
         assert(available());
         if (_u.st >= state::exception_min) {
-            std::rethrow_exception(_u.ex);
+            rethrow_exception();
         }
         return this->uninitialized_get();
     }
