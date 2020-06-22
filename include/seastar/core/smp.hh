@@ -95,7 +95,7 @@ private:
 
     friend unsigned internal::smp_service_group_id(smp_service_group ssg) noexcept;
     friend smp_service_group default_smp_service_group() noexcept;
-    friend future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc);
+    friend future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc) noexcept;
 };
 
 inline
@@ -115,13 +115,13 @@ smp_service_group default_smp_service_group() noexcept;
 ///
 /// The smp_service_group is global, and after this call completes,
 /// the returned value can be used on any shard.
-future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc);
+future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc) noexcept;
 
 /// Destroy an smp_service_group.
 ///
 /// Frees all resources used by an smp_service_group. It must not
 /// be used again once this function is called.
-future<> destroy_smp_service_group(smp_service_group ssg);
+future<> destroy_smp_service_group(smp_service_group ssg) noexcept;
 
 inline
 smp_service_group default_smp_service_group() noexcept {

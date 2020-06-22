@@ -46,7 +46,7 @@ static named_semaphore_exception_factory make_service_group_semaphore_exception_
 static_assert(std::is_nothrow_copy_constructible_v<smp_service_group>);
 static_assert(std::is_nothrow_move_constructible_v<smp_service_group>);
 
-future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc) {
+future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc) noexcept {
     ssgc.max_nonlocal_requests = std::max(ssgc.max_nonlocal_requests, smp::count - 1);
     return smp::submit_to(0, [ssgc] {
         return with_semaphore(smp_service_group_management_sem, 1, [ssgc] {
@@ -79,7 +79,7 @@ future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc
     });
 }
 
-future<> destroy_smp_service_group(smp_service_group ssg) {
+future<> destroy_smp_service_group(smp_service_group ssg) noexcept {
     return smp::submit_to(0, [ssg] {
         return with_semaphore(smp_service_group_management_sem, 1, [ssg] {
             auto id = internal::smp_service_group_id(ssg);
