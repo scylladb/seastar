@@ -1367,3 +1367,11 @@ SEASTAR_THREAD_TEST_CASE(test_then_unpack) {
         BOOST_REQUIRE(*p1 == 42);
     }).get();
 }
+
+future<> test_then_function_f() {
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_then_function) {
+    return make_ready_future<>().then(test_then_function_f);
+}
