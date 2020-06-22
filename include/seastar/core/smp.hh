@@ -46,7 +46,7 @@ namespace internal {
 
 unsigned smp_service_group_id(smp_service_group ssg) noexcept;
 
-inline shard_id* this_shard_id_ptr() {
+inline shard_id* this_shard_id_ptr() noexcept {
     static thread_local shard_id g_this_shard_id;
     return &g_this_shard_id;
 }
@@ -54,7 +54,7 @@ inline shard_id* this_shard_id_ptr() {
 }
 
 /// Returns shard_id of the of the current shard.
-inline shard_id this_shard_id() {
+inline shard_id this_shard_id() noexcept {
     return *internal::this_shard_id_ptr();
 }
 
