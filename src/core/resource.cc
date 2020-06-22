@@ -374,7 +374,7 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, unsigned n
     };
 
     auto cpu_sets = distribute_objects(topology, num_io_queues);
-    ret.coordinators.reserve(cpu_sets().size());
+    ret.nr_coordinators = 0;
 
     // First step: distribute the IO queues given the information returned in cpu_sets.
     // If there is one IO queue per processor, only this loop will be executed.
@@ -382,10 +382,9 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, unsigned n
     for (auto&& cs : cpu_sets()) {
         auto io_coordinator = find_shard(hwloc_bitmap_first(cs));
 
-        ret.coordinator_to_idx[io_coordinator] = ret.coordinators.size();
+        ret.coordinator_to_idx[io_coordinator] = ret.nr_coordinators++;
         assert(!ret.coordinator_to_idx_valid[io_coordinator]);
         ret.coordinator_to_idx_valid[io_coordinator] = true;
-        ret.coordinators.emplace_back(io_coordinator);
         // If a processor is a coordinator, it is also obviously a coordinator of itself
         ret.shard_to_coordinator[io_coordinator] = io_coordinator;
 
@@ -546,13 +545,12 @@ allocate_io_queues(configuration c, std::vector<cpu> cpus) {
 
     unsigned nr_cpus = unsigned(cpus.size());
     ret.shard_to_coordinator.resize(nr_cpus);
-    ret.coordinators.resize(nr_cpus);
     ret.coordinator_to_idx.resize(nr_cpus);
     ret.coordinator_to_idx_valid.resize(nr_cpus);
+    ret.nr_coordinators = nr_cpus;
 
     for (unsigned shard = 0; shard < nr_cpus; ++shard) {
         ret.shard_to_coordinator[shard] = shard;
-        ret.coordinators[shard] = shard;
         ret.coordinator_to_idx[shard] = shard;
         ret.coordinator_to_idx_valid[shard] = true;
     }

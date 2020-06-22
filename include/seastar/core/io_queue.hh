@@ -83,10 +83,12 @@ private:
     static std::array<uint32_t, _max_classes> _registered_shares;
     static std::array<sstring, _max_classes> _registered_names;
 
+public:
     static io_priority_class register_one_priority_class(sstring name, uint32_t shares);
+    static bool rename_one_priority_class(io_priority_class pc, sstring name);
 
+private:
     priority_class_data& find_or_create_class(const io_priority_class& pc, shard_id owner);
-    friend class smp;
     fair_queue_ticket _completed_accumulator = { 0, 0 };
 
     // The fields below are going away, they are just here so we can implement deprecated
@@ -108,7 +110,6 @@ public:
 
     struct config {
         shard_id coordinator;
-        std::vector<shard_id> io_topology;
         unsigned capacity = std::numeric_limits<unsigned>::max();
         unsigned max_req_count = std::numeric_limits<unsigned>::max();
         unsigned max_bytes_count = std::numeric_limits<unsigned>::max();
@@ -155,14 +156,10 @@ public:
     shard_id coordinator() const {
         return _config.coordinator;
     }
-    shard_id coordinator_of_shard(shard_id shard) const {
-        return _config.io_topology[shard];
-    }
 
     future<> update_shares_for_class(io_priority_class pc, size_t new_shares);
     void rename_priority_class(io_priority_class pc, sstring new_name);
 
-    friend class reactor;
 private:
     config _config;
     static fair_queue::config make_fair_queue_config(config cfg);

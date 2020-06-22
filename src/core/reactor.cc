@@ -198,21 +198,9 @@ reactor::rename_priority_class(io_priority_class pc, sstring new_name) {
         // holding the lock until all cross shard activity is over.
 
         try {
-            std::lock_guard<std::mutex> guard(io_queue::_register_lock);
-            for (unsigned i = 0; i < io_queue::_max_classes; ++i) {
-               if (!io_queue::_registered_shares[i]) {
-                   break;
-               }
-               if (io_queue::_registered_names[i] == new_name) {
-                   if (i == pc.id()) {
-                       return make_ready_future();
-                   } else {
-                       throw std::runtime_error(format("rename priority class: an attempt was made to rename a priority class to an"
-                               " already existing name ({})", new_name));
-                   }
-               }
+            if (!io_queue::rename_one_priority_class(pc, std::move(new_name))) {
+                return make_ready_future<>();
             }
-            io_queue::_registered_names[pc.id()] = new_name;
         } catch (...) {
             sched_logger.error("exception while trying to rename priority group with id {} to \"{}\" ({})",
                     pc.id(), new_name, std::current_exception());
@@ -3830,7 +3818,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
 
     for (auto& id : disk_config.device_ids()) {
         auto io_info = ioq_topology.at(id);
-        all_io_queues.emplace(id, io_info.coordinators.size());
+        all_io_queues.emplace(id, io_info.nr_coordinators);
     }
 
     auto alloc_io_queue = [&ioq_topology, &all_io_queues, &disk_config] (unsigned shard, dev_t id) {
@@ -3841,7 +3829,6 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
         if (shard == cid) {
             struct io_queue::config cfg = disk_config.generate_config(id);
             cfg.coordinator = cid;
-            cfg.io_topology = io_info.shard_to_coordinator;
             assert(vec_idx < all_io_queues[id].size());
             assert(!all_io_queues[id][vec_idx]);
             all_io_queues[id][vec_idx] = new io_queue(std::move(cfg));

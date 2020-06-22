@@ -262,7 +262,6 @@ private:
     // be stored here.
     std::vector<std::unique_ptr<io_queue>> my_io_queues;
     std::unordered_map<dev_t, io_queue*> _io_queues;
-    friend io_queue;
 
     std::vector<noncopyable_function<future<> ()>> _exit_funcs;
     unsigned _id = 0;
