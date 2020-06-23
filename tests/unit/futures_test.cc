@@ -1048,6 +1048,7 @@ SEASTAR_THREAD_TEST_CASE(test_shared_future_get_future_after_timeout) {
 
     future<> fut3 = sfut.get_future(manual_clock::now() + 1s);
     pr.set_value();
+    fut3.get();
 }
 
 SEASTAR_TEST_CASE(test_custom_exception_factory_in_with_timeout) {
