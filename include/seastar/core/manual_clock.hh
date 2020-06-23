@@ -21,6 +21,9 @@
 
 #pragma once
 
+#include <seastar/core/timer.hh>
+
+#include <atomic>
 #include <chrono>
 
 namespace seastar {
