@@ -4003,8 +4003,7 @@ future<> check_direct_io_support(sstring path) {
             try {
                 auto fd = f.get0();
                 return cleanup().finally([fd = std::move(fd)] () mutable {
-                    auto closing = fd.close();
-                    return closing.finally([fd = std::move(fd)] { });
+                    return fd.close();
                 });
             } catch (std::system_error& e) {
                 if (e.code() == std::error_code(EINVAL, std::system_category())) {

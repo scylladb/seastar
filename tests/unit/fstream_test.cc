@@ -256,7 +256,7 @@ future<> test_consume_until_end(uint64_t size) {
                     });
                 });
             }).finally([f] () mutable {
-                return f.close().finally([f]{});
+                return f.close();
             });
     });
   });

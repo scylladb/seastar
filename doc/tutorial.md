@@ -729,24 +729,13 @@ The fact that `file` objects can be copied very quickly and all copies actually 
 seastar::future<uint64_t> slow_size(file f) {
     return seastar::sleep(10ms).then([f] {
         return f.size();
-    }); 
-    // NOTE: something is wrong here! This will be explained below!
+    });
 }
 ```
 
 Note how calling `slow_size` is as simple as calling `slow_size(f)`, passing a copy of `f`, without  needing to do anything special to ensure that `f` is only destroyed when no longer needed. That simply happens naturally when nothing refers to `f` any more.
 
-However, there is one complication. The above example is actually wrong, as the comment at the end of the function suggested. The problem is that the `f.size()` call started an asynchronous operation on `f` (the file's size may be stored on disk, so not immediately available) and yet at this point nothing is holding a copy of `f`... The method call does not increment the reference count of the object even if it an asynchronous method. (Perhaps this something we should rethink?)
-
-So we need to ensure that something does hold on to another copy of `f` until the asynchronous method call completes. This is how we typically do it:
-```cpp
-seastar::future<uint64_t> slow_size(file f) {
-    return seastar::sleep(10ms).then([f] {
-        return f.size().finally([f] {});
-    });
-}
-```
-What we see here is that `f` is copied not only to the continuation which runs `f.size()`, but also into a continuation (a `finally`) which will run after it. So as long as `f.size()` does not complete, that second continuation holds `f` alive. Note how the second continuation seems to have no code (just a {}).  But the important thing is that the compiler automatically adds to it code to destroy its copy of `f` (and potentially the entire file if this reference count went down to 0).
+You may wonder why `return f.size()` in the above example is safe:  Doesn't it start an asynchronous operation on `f` (the file's size may be stored on disk, so not immediately available), and `f` may be  immediately destroyed when we return and nothing keeps holding a copy of `f`? If `f` is really the last reference, that is indeed a bug, but there is another one: the file is never closed. The assumption that makes the code valid is that there is another reference to `f` that will be used to close it. The close member function holds on to the reference count of that object, so it continues to live even if nothing else keeps holding on to it. Since all futures produced by a file object complete before it is closed, all that is needed for correctness is to remember to always close files.
 
 The reference counting has a run-time cost, but it is usually very small; It is important to remember that Seastar objects are always used by a single CPU only, so the reference-count increment and decrement operations are not the slow atomic operations often used for reference counting, but just regular CPU-local integer operations. Moreover, judicious use of `std::move()` and the compiler's optimizer can reduce the number of unnecessary back-and-forth increment and decrement of the reference count.
 
