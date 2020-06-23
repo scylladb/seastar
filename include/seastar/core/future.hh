@@ -188,6 +188,8 @@ void report_failed_future(const std::exception_ptr& ex) noexcept;
 
 void report_failed_future(const future_state_base& state) noexcept;
 
+void with_allow_abandoned_failed_futures(unsigned count, noncopyable_function<void ()> func);
+
 /// \endcond
 
 /// \brief Exception type for broken promises

@@ -194,6 +194,14 @@ void report_failed_future(const future_state_base& state) noexcept {
     report_failed_future(state._u.ex);
 }
 
+void with_allow_abandoned_failed_futures(unsigned count, noncopyable_function<void ()> func) {
+    auto before = engine()._abandoned_failed_futures;
+    func();
+    auto after = engine()._abandoned_failed_futures;
+    assert(after - before == count);
+    engine()._abandoned_failed_futures = before;
+}
+
 namespace {
 class thread_wake_task final : public task {
     thread_context* _thread;

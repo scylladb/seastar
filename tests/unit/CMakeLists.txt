@@ -304,8 +304,7 @@ seastar_add_test (fstream
     mock_file.hh)
 
 seastar_add_test (futures
-  SOURCES futures_test.cc
-  RUN_ARGS --fail-on-abandoned-failed-futures=false)
+  SOURCES futures_test.cc)
 
 seastar_add_test (sharded
   SOURCES sharded_test.cc)
