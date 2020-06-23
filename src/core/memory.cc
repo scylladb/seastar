@@ -1850,6 +1850,12 @@ namespace seastar {
 
 namespace memory {
 
+disable_backtrace_temporarily::disable_backtrace_temporarily() {
+}
+
+disable_backtrace_temporarily::~disable_backtrace_temporarily() {
+}
+
 void set_heap_profiling_enabled(bool enabled) {
     seastar_logger.warn("Seastar compiled with default allocator, heap profiler not supported");
 }
