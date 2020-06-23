@@ -565,7 +565,7 @@ lowres_clock_impl::lowres_clock_impl() {
     _timer.arm_periodic(_granularity);
 }
 
-void lowres_clock_impl::update() {
+void lowres_clock_impl::update() noexcept {
     auto const steady_count =
             std::chrono::duration_cast<steady_duration>(base_steady_clock::now().time_since_epoch()).count();
 
