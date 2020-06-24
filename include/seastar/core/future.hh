@@ -1159,10 +1159,7 @@ protected:
     void do_wait() noexcept;
 
 #ifdef SEASTAR_COROUTINES_ENABLED
-    void set_coroutine(task& coroutine) noexcept {
-        assert(_promise);
-        _promise->schedule(&coroutine);
-    }
+    void set_coroutine(task& coroutine) noexcept;
 #endif
 
     friend class promise_base;
