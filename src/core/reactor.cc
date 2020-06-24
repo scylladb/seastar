@@ -4229,7 +4229,7 @@ scheduling_group::set_shares(float shares) noexcept {
 }
 
 future<scheduling_group>
-create_scheduling_group(sstring name, float shares) {
+create_scheduling_group(sstring name, float shares) noexcept {
     auto aid = allocate_scheduling_group_id();
     if (aid < 0) {
         return make_exception_future<scheduling_group>(std::runtime_error("Scheduling group limit exceeded"));
@@ -4260,12 +4260,12 @@ rename_priority_class(io_priority_class pc, sstring new_name) {
 }
 
 future<>
-destroy_scheduling_group(scheduling_group sg) {
+destroy_scheduling_group(scheduling_group sg) noexcept {
     if (sg == default_scheduling_group()) {
-        throw_with_backtrace<std::runtime_error>("Attempt to destroy the default scheduling group");
+        return make_exception_future<>(make_backtraced_exception_ptr<std::runtime_error>("Attempt to destroy the default scheduling group"));
     }
     if (sg == current_scheduling_group()) {
-        throw_with_backtrace<std::runtime_error>("Attempt to destroy the current scheduling group");
+        return make_exception_future<>(make_backtraced_exception_ptr<std::runtime_error>("Attempt to destroy the current scheduling group"));
     }
     return smp::invoke_on_all([sg] {
         return engine().destroy_scheduling_group(sg);
@@ -4275,9 +4275,9 @@ destroy_scheduling_group(scheduling_group sg) {
 }
 
 future<>
-rename_scheduling_group(scheduling_group sg, sstring new_name) {
+rename_scheduling_group(scheduling_group sg, sstring new_name) noexcept {
     if (sg == default_scheduling_group()) {
-        throw_with_backtrace<std::runtime_error>("Attempt to rename the default scheduling group");
+        return make_exception_future<>(make_backtraced_exception_ptr<std::runtime_error>("Attempt to rename the default scheduling group"));
     }
     return smp::invoke_on_all([sg, new_name] {
         engine()._task_queues[sg._id]->rename(new_name);

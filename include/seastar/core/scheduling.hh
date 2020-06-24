@@ -64,7 +64,7 @@ T* scheduling_group_get_specific_ptr(scheduling_group sg, scheduling_group_key k
 /// \param shares number of shares of the CPU time allotted to the group;
 ///              Use numbers in the 1-1000 range (but can go above).
 /// \return a scheduling group that can be used on any shard
-future<scheduling_group> create_scheduling_group(sstring name, float shares);
+future<scheduling_group> create_scheduling_group(sstring name, float shares) noexcept;
 
 /// Destroys a scheduling group.
 ///
@@ -75,7 +75,7 @@ future<scheduling_group> create_scheduling_group(sstring name, float shares);
 ///
 /// \param sg The scheduling group to be destroyed
 /// \return a future that is ready when the scheduling group has been torn down
-future<> destroy_scheduling_group(scheduling_group sg);
+future<> destroy_scheduling_group(scheduling_group sg) noexcept;
 
 /// Rename scheduling group.
 ///
@@ -87,7 +87,7 @@ future<> destroy_scheduling_group(scheduling_group sg);
 /// \param sg The scheduling group to be renamed
 /// \param new_name The new name for the scheduling group.
 /// \return a future that is ready when the scheduling group has been renamed
-future<> rename_scheduling_group(scheduling_group sg, sstring new_name);
+future<> rename_scheduling_group(scheduling_group sg, sstring new_name) noexcept;
 
 
 /**
@@ -275,9 +275,9 @@ public:
     /// \param shares number of shares allotted to the group. Use numbers
     ///               in the 1-1000 range.
     void set_shares(float shares) noexcept;
-    friend future<scheduling_group> create_scheduling_group(sstring name, float shares);
-    friend future<> destroy_scheduling_group(scheduling_group sg);
-    friend future<> rename_scheduling_group(scheduling_group sg, sstring new_name);
+    friend future<scheduling_group> create_scheduling_group(sstring name, float shares) noexcept;
+    friend future<> destroy_scheduling_group(scheduling_group sg) noexcept;
+    friend future<> rename_scheduling_group(scheduling_group sg, sstring new_name) noexcept;
     friend class reactor;
     friend unsigned internal::scheduling_group_index(scheduling_group sg) noexcept;
     friend scheduling_group internal::scheduling_group_from_index(unsigned index) noexcept;

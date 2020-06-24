@@ -663,9 +663,9 @@ private:
     friend void report_failed_future(const std::exception_ptr& eptr) noexcept;
     friend void with_allow_abandoned_failed_futures(unsigned count, noncopyable_function<void ()> func);
     metrics::metric_groups _metric_groups;
-    friend future<scheduling_group> create_scheduling_group(sstring name, float shares);
-    friend future<> seastar::destroy_scheduling_group(scheduling_group);
-    friend future<> seastar::rename_scheduling_group(scheduling_group sg, sstring new_name);
+    friend future<scheduling_group> create_scheduling_group(sstring name, float shares) noexcept;
+    friend future<> seastar::destroy_scheduling_group(scheduling_group) noexcept;
+    friend future<> seastar::rename_scheduling_group(scheduling_group sg, sstring new_name) noexcept;
     friend future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg) noexcept;
 
     template<typename T>
