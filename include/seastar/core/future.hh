@@ -1158,6 +1158,13 @@ protected:
 
     void do_wait() noexcept;
 
+#ifdef SEASTAR_COROUTINES_ENABLED
+    void set_coroutine(task& coroutine) noexcept {
+        assert(_promise);
+        _promise->schedule(&coroutine);
+    }
+#endif
+
     friend class promise_base;
 };
 
@@ -1816,11 +1823,7 @@ public:
     }
 
 #ifdef SEASTAR_COROUTINES_ENABLED
-    void set_coroutine(task& coroutine) noexcept {
-        assert(!_state.available());
-        assert(_promise);
-        _promise->schedule(&coroutine);
-    }
+    using future_base::set_coroutine;
 #endif
 private:
     void set_callback(continuation_base<T...>* callback) noexcept {
