@@ -755,7 +755,7 @@ private:
     PtrType _value;
     unsigned _cpu;
 private:
-    void destroy(PtrType p, unsigned cpu) {
+    void destroy(PtrType p, unsigned cpu) noexcept {
         if (p && this_shard_id() != cpu) {
             // `destroy()` is called from the destructor and other
             // synchronous methods (like `reset()`), that have no way to
@@ -794,7 +794,7 @@ public:
         destroy(std::move(_value), _cpu);
     }
     /// Creates a copy of this foreign ptr. Only works if the stored ptr is copyable.
-    future<foreign_ptr> copy() const {
+    future<foreign_ptr> copy() const noexcept {
         return smp::submit_to(_cpu, [this] () mutable {
             auto v = _value;
             return make_foreign(std::move(v));
@@ -810,7 +810,7 @@ public:
     ///
     /// The owner shard of the pointer can change as a result of
     /// move-assigment or a call to reset().
-    unsigned get_owner_shard() const { return _cpu; }
+    unsigned get_owner_shard() const noexcept { return _cpu; }
     /// Checks whether the wrapped pointer is non-null.
     operator bool() const { return static_cast<bool>(_value); }
     /// Move-assigns a \c foreign_ptr<>.
