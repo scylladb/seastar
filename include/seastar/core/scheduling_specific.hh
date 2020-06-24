@@ -87,6 +87,7 @@ T* scheduling_group_get_specific_ptr(scheduling_group sg, scheduling_group_key k
  * @return A reference of type T& to the data.
  *
  * @note The parameter T has to be given since there is no way to deduce it.
+ *       May throw std::invalid_argument if sg does not exist or is uninitialized.
  */
 template<typename T>
 T& scheduling_group_get_specific(scheduling_group sg, scheduling_group_key key) {
@@ -105,7 +106,7 @@ T& scheduling_group_get_specific(scheduling_group sg, scheduling_group_key key) 
  * @note The parameter T has to be given since there is no way to deduce it.
  */
 template<typename T>
-T& scheduling_group_get_specific(scheduling_group_key key) {
+T& scheduling_group_get_specific(scheduling_group_key key) noexcept {
     return *internal::scheduling_group_get_specific_ptr<T>(current_scheduling_group(), std::move(key));
 }
 
