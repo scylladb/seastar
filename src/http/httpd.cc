@@ -461,9 +461,8 @@ future<> http_server::do_accepts(int which) {
             return;
         }
         auto ar = f_ar.get0();
-        auto conn = new connection(*this, std::move(ar.connection), std::move(ar.remote_address));
-        future<> process_conn = conn->process().then_wrapped([conn] (auto&& f) {
-            delete conn;
+        auto conn = std::make_unique<connection>(*this, std::move(ar.connection), std::move(ar.remote_address));
+        future<> process_conn = conn->process().then_wrapped([conn = std::move(conn)] (auto&& f) {
             try {
                 f.get();
             } catch (...) {
