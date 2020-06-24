@@ -154,7 +154,7 @@ private:
         return _id;
     }
     friend class reactor;
-    friend future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg);
+    friend future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg) noexcept;
     template<typename T>
     friend T* internal::scheduling_group_get_specific_ptr(scheduling_group sg, scheduling_group_key key) noexcept;
 
@@ -223,7 +223,7 @@ make_scheduling_group_key_config(ConstructorArgs... args) {
  * \ref make_scheduling_group_key_config )
  * @return A future containing \ref scheduling_group_key for the newly created specific value.
  */
-future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg);
+future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg) noexcept;
 
 /**
  * Returnes a reference to the given scheduling group specific value

@@ -4245,7 +4245,7 @@ create_scheduling_group(sstring name, float shares) {
 }
 
 future<scheduling_group_key>
-scheduling_group_key_create(scheduling_group_key_config cfg) {
+scheduling_group_key_create(scheduling_group_key_config cfg) noexcept {
     scheduling_group_key key = allocate_scheduling_group_specific_key();
     return smp::invoke_on_all([key, cfg] {
         return engine().init_new_scheduling_group_key(key, cfg);
