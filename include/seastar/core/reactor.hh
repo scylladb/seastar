@@ -303,7 +303,7 @@ private:
         circular_buffer<task*> _q;
         sstring _name;
         int64_t to_vruntime(sched_clock::duration runtime) const;
-        void set_shares(float shares);
+        void set_shares(float shares) noexcept;
         struct indirect_compare;
         sched_clock::duration _time_spent_on_task_quota_violations = {};
         seastar::metrics::metric_groups _metrics;

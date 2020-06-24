@@ -840,7 +840,7 @@ reactor::task_queue::to_vruntime(sched_clock::duration runtime) const {
 }
 
 void
-reactor::task_queue::set_shares(float shares) {
+reactor::task_queue::set_shares(float shares) noexcept {
     _shares = std::max(shares, 1.0f);
     _reciprocal_shares_times_2_power_32 = (uint64_t(1) << 32) / _shares;
 }
