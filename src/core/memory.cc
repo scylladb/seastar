@@ -1851,6 +1851,7 @@ namespace seastar {
 namespace memory {
 
 disable_backtrace_temporarily::disable_backtrace_temporarily() {
+    (void)_old;
 }
 
 disable_backtrace_temporarily::~disable_backtrace_temporarily() {
