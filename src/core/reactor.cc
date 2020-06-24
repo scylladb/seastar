@@ -4131,13 +4131,13 @@ allocate_scheduling_group_id() noexcept {
 
 static
 unsigned long
-allocate_scheduling_group_specific_key() {
+allocate_scheduling_group_specific_key() noexcept {
     return  s_next_scheduling_group_specific_key.fetch_add(1, std::memory_order_relaxed);
 }
 
 static
 void
-deallocate_scheduling_group_id(unsigned id) {
+deallocate_scheduling_group_id(unsigned id) noexcept {
     s_used_scheduling_group_ids_bitmap.fetch_and(~(1ul << id), std::memory_order_relaxed);
 }
 
