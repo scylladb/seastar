@@ -45,12 +45,12 @@ struct scheduling_group_specific_thread_local_data {
 };
 
 inline
-scheduling_group_specific_thread_local_data** get_scheduling_group_specific_thread_local_data_ptr() {
+scheduling_group_specific_thread_local_data** get_scheduling_group_specific_thread_local_data_ptr() noexcept {
     static thread_local scheduling_group_specific_thread_local_data* data;
     return &data;
 }
 inline
-scheduling_group_specific_thread_local_data& get_scheduling_group_specific_thread_local_data() {
+scheduling_group_specific_thread_local_data& get_scheduling_group_specific_thread_local_data() noexcept {
     return **get_scheduling_group_specific_thread_local_data_ptr();
 }
 
