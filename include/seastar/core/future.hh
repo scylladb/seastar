@@ -814,12 +814,9 @@ private:
         _state = &tws->_state;
         _task = tws;
     }
-    void forward_state_and_schedule(future_state<T...>* state, task* callback) noexcept {
-        _state = state;
-        promise_base::schedule(callback);
-    }
     void schedule_continuation(continuation_base<T...>* callback) noexcept {
-        forward_state_and_schedule(&callback->_state, callback);
+        _state = &callback->_state;
+        promise_base::schedule(callback);
     }
 
     template <typename... U>
