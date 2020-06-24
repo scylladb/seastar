@@ -43,8 +43,8 @@ class scheduling_group_key;
 namespace internal {
 
 // Returns an index between 0 and max_scheduling_groups()
-unsigned scheduling_group_index(scheduling_group sg);
-scheduling_group scheduling_group_from_index(unsigned index);
+unsigned scheduling_group_index(scheduling_group sg) noexcept;
+scheduling_group scheduling_group_from_index(unsigned index) noexcept;
 
 unsigned long scheduling_group_key_id(scheduling_group_key);
 
@@ -277,8 +277,8 @@ public:
     friend future<> destroy_scheduling_group(scheduling_group sg);
     friend future<> rename_scheduling_group(scheduling_group sg, sstring new_name);
     friend class reactor;
-    friend unsigned internal::scheduling_group_index(scheduling_group sg);
-    friend scheduling_group internal::scheduling_group_from_index(unsigned index);
+    friend unsigned internal::scheduling_group_index(scheduling_group sg) noexcept;
+    friend scheduling_group internal::scheduling_group_from_index(unsigned index) noexcept;
 
     template<typename SpecificValType, typename Mapper, typename Reducer, typename Initial>
     SEASTAR_CONCEPT( requires requires(SpecificValType specific_val, Mapper mapper, Reducer reducer, Initial initial) {
@@ -302,13 +302,13 @@ namespace internal {
 
 inline
 unsigned
-scheduling_group_index(scheduling_group sg) {
+scheduling_group_index(scheduling_group sg) noexcept {
     return sg._id;
 }
 
 inline
 scheduling_group
-scheduling_group_from_index(unsigned index) {
+scheduling_group_from_index(unsigned index) noexcept {
     return scheduling_group(index);
 }
 
