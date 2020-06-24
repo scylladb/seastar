@@ -348,7 +348,7 @@ namespace std {
 
 template <>
 struct hash<seastar::scheduling_group> {
-    size_t operator()(seastar::scheduling_group sg) const {
+    size_t operator()(seastar::scheduling_group sg) const noexcept {
         return seastar::internal::scheduling_group_index(sg);
     }
 };
