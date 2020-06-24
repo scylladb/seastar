@@ -57,12 +57,12 @@ public:
     using system_duration = std::chrono::duration<system_rep, period>;
     using system_time_point = std::chrono::time_point<lowres_system_clock, system_duration>;
 
-    static steady_time_point steady_now() {
+    static steady_time_point steady_now() noexcept {
         auto const nr = counters::_steady_now.load(std::memory_order_relaxed);
         return steady_time_point(steady_duration(nr));
     }
 
-    static system_time_point system_now() {
+    static system_time_point system_now() noexcept {
         auto const nr = counters::_system_now.load(std::memory_order_relaxed);
         return system_time_point(system_duration(nr));
     }
@@ -83,9 +83,10 @@ private:
     // High-resolution timer to drive these low-resolution clocks.
     timer<> _timer{};
 
-    static void update();
+    static void update() noexcept;
 
     // Private to ensure that static variables are only initialized once.
+    // might throw when arming timer.
     lowres_clock_impl();
 };
 
@@ -114,7 +115,7 @@ public:
     ///
     /// \note Outside of a Seastar application, the result is undefined.
     ///
-    static time_point now() {
+    static time_point now() noexcept {
         return lowres_clock_impl::steady_now();
     }
 };
@@ -140,15 +141,15 @@ public:
     ///
     /// \note Outside of a Seastar application, the result is undefined.
     ///
-    static time_point now() {
+    static time_point now() noexcept {
         return lowres_clock_impl::system_now();
     }
 
-    static std::time_t to_time_t(time_point t) {
+    static std::time_t to_time_t(time_point t) noexcept {
         return std::chrono::duration_cast<std::chrono::seconds>(t.time_since_epoch()).count();
     }
 
-    static time_point from_time_t(std::time_t t) {
+    static time_point from_time_t(std::time_t t) noexcept {
         return time_point(std::chrono::duration_cast<duration>(std::chrono::seconds(t)));
     }
 };

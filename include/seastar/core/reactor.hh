@@ -477,7 +477,7 @@ public:
     /// \param shares the new shares value
     /// \return a future that is ready when the share update is applied
     future<> update_shares_for_class(io_priority_class pc, uint32_t shares);
-    static future<> rename_priority_class(io_priority_class pc, sstring new_name);
+    static future<> rename_priority_class(io_priority_class pc, sstring new_name) noexcept;
 
     void configure(boost::program_options::variables_map config);
 

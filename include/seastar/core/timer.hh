@@ -91,7 +91,7 @@ private:
     bool _queued = false;
     bool _expired = false;
     void readd_periodic();
-    void arm_state(time_point until, std::optional<duration> period) {
+    void arm_state(time_point until, std::optional<duration> period) noexcept {
         assert(!_armed);
         _period = period;
         _armed = true;
@@ -101,7 +101,8 @@ private:
     }
 public:
     /// Constructs a timer with no callback set and no expiration time.
-    timer() = default;
+    timer() noexcept {};  // implementation is required (instead of = default) for noexcept due to a bug in gcc 9.3.1,
+                          // since boost::intrusive::list_member_hook default constructor is not specified as noexcept.
     /// Constructs a timer from another timer that is moved from.
     ///
     /// \note care should be taken when moving a timer whose callback captures `this`,
@@ -116,12 +117,12 @@ public:
     ///
     /// \param sg Scheduling group to run the callback under.
     /// \param callback function (with signature `void ()`) to execute after the timer is armed and expired.
-    timer(scheduling_group sg, noncopyable_function<void ()>&& callback) : _sg(sg), _callback{std::move(callback)} {
+    timer(scheduling_group sg, noncopyable_function<void ()>&& callback) noexcept : _sg(sg), _callback{std::move(callback)} {
     }
     /// Constructs a timer with a callback. The timer is not armed.
     ///
     /// \param callback function (with signature `void ()`) to execute after the timer is armed and expired.
-    explicit timer(noncopyable_function<void ()>&& callback) : timer(current_scheduling_group(), std::move(callback)) {
+    explicit timer(noncopyable_function<void ()>&& callback) noexcept : timer(current_scheduling_group(), std::move(callback)) {
     }
     /// Destroys the timer. The timer is cancelled if armed.
     ~timer();
@@ -129,14 +130,14 @@ public:
     ///
     /// \param sg the scheduling group under which the callback will be executed.
     /// \param callback the callback to be executed when the timer expires.
-    void set_callback(scheduling_group sg, noncopyable_function<void ()>&& callback) {
+    void set_callback(scheduling_group sg, noncopyable_function<void ()>&& callback) noexcept {
         _sg = sg;
         _callback = std::move(callback);
     }
     /// Sets the callback function to be called when the timer expires.
     ///
     /// \param callback the callback to be executed when the timer expires.
-    void set_callback(noncopyable_function<void ()>&& callback) {
+    void set_callback(noncopyable_function<void ()>&& callback) noexcept {
         set_callback(current_scheduling_group(), std::move(callback));
     }
     /// Sets the timer expiration time.
@@ -185,7 +186,7 @@ public:
     /// Returns whether the timer is armed
     ///
     /// \return `true` if the timer is armed and has not expired yet.
-    bool armed() const { return _armed; }
+    bool armed() const noexcept { return _armed; }
     /// Cancels an armed timer.
     ///
     /// If the timer was armed, it is disarmed. If the timer was not
@@ -197,7 +198,7 @@ public:
     ///
     /// \return the time at which the timer is scheduled to expire (undefined if the
     ///       timer is not armed).
-    time_point get_timeout() {
+    time_point get_timeout() const noexcept {
         return _expiry;
     }
     friend class reactor;
