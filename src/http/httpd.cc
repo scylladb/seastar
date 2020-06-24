@@ -462,12 +462,8 @@ future<> http_server::do_accepts(int which) {
         }
         auto ar = f_ar.get0();
         auto conn = std::make_unique<connection>(*this, std::move(ar.connection), std::move(ar.remote_address));
-        future<> process_conn = conn->process().then_wrapped([conn = std::move(conn)] (auto&& f) {
-            try {
-                f.get();
-            } catch (...) {
-                hlogger.error("request error: {}", std::current_exception());
-            }
+        future<> process_conn = conn->process().handle_exception([conn = std::move(conn)] (std::exception_ptr ex) {
+            hlogger.error("request error: {}", ex);
         });
         _processing_done = _processing_done.then([process_conn = std::move(process_conn)] () mutable {
             return std::move(process_conn);
@@ -475,12 +471,8 @@ future<> http_server::do_accepts(int which) {
         _accepts_done = _accepts_done.then([this, which] {
             return do_accepts(which);
         });
-    }).then_wrapped([] (auto f) {
-        try {
-            f.get();
-        } catch (...) {
-            hlogger.error("accept failed: {}", std::current_exception());
-        }
+    }).handle_exception([] (std::exception_ptr ex) {
+        hlogger.error("accept failed: {}", ex);
     });
 }
 
