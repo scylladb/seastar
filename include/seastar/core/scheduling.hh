@@ -247,11 +247,11 @@ private:
 public:
     /// Creates a `scheduling_group` object denoting the default group
     constexpr scheduling_group() noexcept : _id(0) {} // must be constexpr for current_scheduling_group_holder
-    bool active() const;
-    const sstring& name() const;
-    bool operator==(scheduling_group x) const { return _id == x._id; }
-    bool operator!=(scheduling_group x) const { return _id != x._id; }
-    bool is_main() const { return _id == 0; }
+    bool active() const noexcept;
+    const sstring& name() const noexcept;
+    bool operator==(scheduling_group x) const noexcept { return _id == x._id; }
+    bool operator!=(scheduling_group x) const noexcept { return _id != x._id; }
+    bool is_main() const noexcept { return _id == 0; }
     template<typename T>
     /**
      * Returnes a reference to this scheduling group specific value
@@ -274,7 +274,7 @@ public:
     ///
     /// \param shares number of shares allotted to the group. Use numbers
     ///               in the 1-1000 range.
-    void set_shares(float shares);
+    void set_shares(float shares) noexcept;
     friend future<scheduling_group> create_scheduling_group(sstring name, float shares);
     friend future<> destroy_scheduling_group(scheduling_group sg);
     friend future<> rename_scheduling_group(scheduling_group sg, sstring new_name);
@@ -334,13 +334,13 @@ current_scheduling_group() noexcept {
 
 inline
 scheduling_group
-default_scheduling_group() {
+default_scheduling_group() noexcept {
     return scheduling_group();
 }
 
 inline
 bool
-scheduling_group::active() const {
+scheduling_group::active() const noexcept {
     return *this == current_scheduling_group();
 }
 

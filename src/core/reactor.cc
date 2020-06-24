@@ -4219,12 +4219,12 @@ internal::no_such_scheduling_group(scheduling_group sg) {
 }
 
 const sstring&
-scheduling_group::name() const {
+scheduling_group::name() const noexcept {
     return engine()._task_queues[_id]->_name;
 }
 
 void
-scheduling_group::set_shares(float shares) {
+scheduling_group::set_shares(float shares) noexcept {
     engine()._task_queues[_id]->set_shares(shares);
 }
 
