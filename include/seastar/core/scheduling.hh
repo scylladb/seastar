@@ -46,7 +46,7 @@ namespace internal {
 unsigned scheduling_group_index(scheduling_group sg) noexcept;
 scheduling_group scheduling_group_from_index(unsigned index) noexcept;
 
-unsigned long scheduling_group_key_id(scheduling_group_key);
+unsigned long scheduling_group_key_id(scheduling_group_key) noexcept;
 
 }
 
@@ -141,12 +141,12 @@ struct scheduling_group_key_config {
 class scheduling_group_key {
 public:
     /// The only user allowed operation on a key is copying.
-    scheduling_group_key(const scheduling_group_key&) = default;
+    scheduling_group_key(const scheduling_group_key&) noexcept = default;
 private:
-    scheduling_group_key(unsigned long id) :
+    scheduling_group_key(unsigned long id) noexcept :
         _id(id) {}
     unsigned long _id;
-    unsigned long id() const {
+    unsigned long id() const noexcept {
         return _id;
     }
     friend class reactor;
@@ -156,12 +156,12 @@ private:
     template<typename T>
     friend T& scheduling_group_get_specific(scheduling_group_key key);
 
-    friend unsigned long internal::scheduling_group_key_id(scheduling_group_key key);
+    friend unsigned long internal::scheduling_group_key_id(scheduling_group_key key) noexcept;
 };
 
 namespace internal {
 
-inline unsigned long scheduling_group_key_id(scheduling_group_key key) {
+inline unsigned long scheduling_group_key_id(scheduling_group_key key) noexcept {
     return key.id();
 }
 
