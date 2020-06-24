@@ -12,6 +12,7 @@
 #include <seastar/http/transformers.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/testing/test_case.hh>
+#include <seastar/testing/thread_test_case.hh>
 #include "loopback_socket.hh"
 #include <boost/algorithm/string.hpp>
 #include <seastar/core/thread.hh>
@@ -756,4 +757,21 @@ SEASTAR_TEST_CASE(case_insensitive_header) {
     BOOST_REQUIRE_EQUAL(req->get_header("Content-Length"), "17");
     BOOST_REQUIRE_EQUAL(req->get_header("cOnTeNT-lEnGTh"), "17");
     return make_ready_future<>();
+}
+
+SEASTAR_THREAD_TEST_CASE(multiple_connections) {
+    loopback_connection_factory lcf;
+    http_server server("test");
+    httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+    socket_address addr{ipv4_addr()};
+
+    std::vector<connected_socket> socks;
+    // Make sure one shard has two connections pending.
+    for (unsigned i = 0; i <= smp::count; ++i) {
+        socks.push_back(loopback_socket_impl(lcf).connect(addr, addr).get0());
+    }
+
+    server.do_accepts(0).get();
+    server.stop().get();
+    lcf.destroy_all_shards().get();
 }

@@ -138,7 +138,6 @@ future<> connection::start_response() {
 connection::~connection() {
     --_server._current_connections;
     _server._connections.erase(_server._connections.iterator_to(*this));
-    _server.maybe_idle();
 }
 
 bool connection::url_decode(const std::string_view& in, sstring& out) {
@@ -402,12 +401,6 @@ future<bool> connection::generate_reply(std::unique_ptr<request> req) {
     });
 }
 
-void http_server::maybe_idle() {
-    if (_stopping && !_connections_being_accepted && !_current_connections) {
-        _all_connections_stopped.set_value();
-    }
-}
-
 void http_server::set_tls_credentials(shared_ptr<seastar::tls::server_credentials> credentials) {
     _credentials = credentials;
 }
@@ -426,8 +419,7 @@ future<> http_server::listen(socket_address addr, listen_options lo) {
     } else {
         _listeners.push_back(seastar::listen(addr, lo));
     }
-    _stopped = when_all(std::move(_stopped), do_accepts(_listeners.size() - 1)).discard_result();
-    return make_ready_future<>();
+    return do_accepts(_listeners.size() - 1);
 }
 future<> http_server::listen(socket_address addr) {
     listen_options lo;
@@ -435,42 +427,36 @@ future<> http_server::listen(socket_address addr) {
     return listen(addr, lo);
 }
 future<> http_server::stop() {
-    _stopping = true;
+    future<> tasks_done = _task_gate.close();
     for (auto&& l : _listeners) {
         l.abort_accept();
     }
     for (auto&& c : _connections) {
         c.shutdown();
     }
-    maybe_idle();
-    return std::move(_accepts_done).then([this] {
-        return std::move(_processing_done);
-    }).then([this] {
-        return std::move(_stopped);
-    });
+    return tasks_done;
 }
 
+// FIXME: This could return void
 future<> http_server::do_accepts(int which) {
-    ++_connections_being_accepted;
-    return _listeners[which].accept().then_wrapped(
-            [this, which] (future<accept_result> f_ar) mutable {
-        --_connections_being_accepted;
-        if (_stopping || f_ar.failed()) {
-            f_ar.ignore_ready_future();
-            maybe_idle();
-            return;
-        }
-        auto ar = f_ar.get0();
+    (void)try_with_gate(_task_gate, [this, which] {
+        return keep_doing([this, which] {
+            return try_with_gate(_task_gate, [this, which] {
+                return do_accept_one(which);
+            });
+        }).handle_exception_type([](const gate_closed_exception& e) {});
+    }).handle_exception_type([](const gate_closed_exception& e) {});
+    return make_ready_future<>();
+}
+
+future<> http_server::do_accept_one(int which) {
+    return _listeners[which].accept().then([this, which] (accept_result ar) mutable {
         auto conn = std::make_unique<connection>(*this, std::move(ar.connection), std::move(ar.remote_address));
-        future<> process_conn = conn->process().handle_exception([conn = std::move(conn)] (std::exception_ptr ex) {
-            hlogger.error("request error: {}", ex);
-        });
-        _processing_done = _processing_done.then([process_conn = std::move(process_conn)] () mutable {
-            return std::move(process_conn);
-        });
-        _accepts_done = _accepts_done.then([this, which] {
-            return do_accepts(which);
-        });
+        (void)try_with_gate(_task_gate, [conn = std::move(conn)]() mutable {
+            return conn->process().handle_exception([conn = std::move(conn)] (std::exception_ptr ex) {
+                hlogger.error("request error: {}", ex);
+            });
+        }).handle_exception_type([] (const gate_closed_exception& e) {});
     }).handle_exception([] (std::exception_ptr ex) {
         hlogger.error("accept failed: {}", ex);
     });

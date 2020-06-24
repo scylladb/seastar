@@ -29,6 +29,7 @@
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/distributed.hh>
 #include <seastar/core/queue.hh>
+#include <seastar/core/gate.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/util/std-compat.hh>
@@ -136,20 +137,13 @@ class http_server {
     uint64_t _total_connections = 0;
     uint64_t _current_connections = 0;
     uint64_t _requests_served = 0;
-    uint64_t _connections_being_accepted = 0;
     uint64_t _read_errors = 0;
     uint64_t _respond_errors = 0;
     shared_ptr<seastar::tls::server_credentials> _credentials;
     sstring _date = http_date();
     timer<> _date_format_timer { [this] {_date = http_date();} };
-    bool _stopping = false;
-    promise<> _all_connections_stopped;
-    future<> _stopped = _all_connections_stopped.get_future();
     size_t _content_length_limit = std::numeric_limits<size_t>::max();
-    future<> _accepts_done = make_ready_future<>();
-    future<> _processing_done = make_ready_future<>();
-private:
-    void maybe_idle();
+    gate _task_gate;
 public:
     routes _routes;
     using connection = seastar::httpd::connection;
@@ -203,6 +197,7 @@ public:
     // RFC 7231, Section 7.1.1.1.
     static sstring http_date();
 private:
+    future<> do_accept_one(int which);
     boost::intrusive::list<connection> _connections;
     friend class seastar::httpd::connection;
     friend class http_server_tester;
