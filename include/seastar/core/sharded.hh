@@ -773,14 +773,14 @@ public:
     using pointer = element_type*;
 
     /// Constructs a null \c foreign_ptr<>.
-    foreign_ptr()
+    foreign_ptr() noexcept(std::is_nothrow_default_constructible_v<PtrType>)
         : _value(PtrType())
         , _cpu(this_shard_id()) {
     }
     /// Constructs a null \c foreign_ptr<>.
-    foreign_ptr(std::nullptr_t) : foreign_ptr() {}
+    foreign_ptr(std::nullptr_t) noexcept(std::is_nothrow_default_constructible_v<foreign_ptr>) : foreign_ptr() {}
     /// Wraps a pointer object and remembers the current core.
-    foreign_ptr(PtrType value)
+    foreign_ptr(PtrType value) noexcept(std::is_nothrow_move_constructible_v<PtrType>)
         : _value(std::move(value))
         , _cpu(this_shard_id()) {
     }
@@ -788,7 +788,7 @@ public:
     // are expensive because each copy requires across-CPU call.
     foreign_ptr(const foreign_ptr&) = delete;
     /// Moves a \c foreign_ptr<> to another object.
-    foreign_ptr(foreign_ptr&& other) = default;
+    foreign_ptr(foreign_ptr&& other) noexcept(std::is_nothrow_move_constructible_v<PtrType>) = default;
     /// Destroys the wrapped object on its original cpu.
     ~foreign_ptr() {
         destroy(std::move(_value), _cpu);
@@ -801,18 +801,18 @@ public:
         });
     }
     /// Accesses the wrapped object.
-    element_type& operator*() const { return *_value; }
+    element_type& operator*() const noexcept(noexcept(*_value)) { return *_value; }
     /// Accesses the wrapped object.
-    element_type* operator->() const { return &*_value; }
+    element_type* operator->() const noexcept(noexcept(&*_value)) { return &*_value; }
     /// Access the raw pointer to the wrapped object.
-    pointer get() const { return &*_value; }
+    pointer get() const  noexcept(noexcept(&*_value)) { return &*_value; }
     /// Return the owner-shard of this pointer.
     ///
     /// The owner shard of the pointer can change as a result of
     /// move-assigment or a call to reset().
     unsigned get_owner_shard() const noexcept { return _cpu; }
     /// Checks whether the wrapped pointer is non-null.
-    operator bool() const { return static_cast<bool>(_value); }
+    operator bool() const noexcept(noexcept(static_cast<bool>(_value))) { return static_cast<bool>(_value); }
     /// Move-assigns a \c foreign_ptr<>.
     foreign_ptr& operator=(foreign_ptr&& other) noexcept(std::is_nothrow_move_constructible<PtrType>::value) {
          destroy(std::move(_value), _cpu);
@@ -825,13 +825,13 @@ public:
     /// Warning: the caller is now responsible for destroying the
     /// pointer on its owner shard. This method is best called on the
     /// owner shard to avoid accidents.
-    PtrType release() {
+    PtrType release() noexcept(std::is_nothrow_default_constructible_v<PtrType>) {
         return std::exchange(_value, {});
     }
     /// Replace the managed pointer with new_ptr.
     ///
     /// The previous managed pointer is destroyed on its owner shard.
-    void reset(PtrType new_ptr) {
+    void reset(PtrType new_ptr) noexcept(std::is_nothrow_move_constructible_v<PtrType>) {
         auto old_ptr = std::move(_value);
         auto old_cpu = _cpu;
 
@@ -843,7 +843,7 @@ public:
     /// Replace the managed pointer with a null value.
     ///
     /// The previous managed pointer is destroyed on its owner shard.
-    void reset(std::nullptr_t = nullptr) {
+    void reset(std::nullptr_t = nullptr) noexcept(std::is_nothrow_default_constructible_v<PtrType>) {
         reset(PtrType());
     }
 };
