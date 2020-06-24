@@ -35,7 +35,7 @@ class lambda_task final : public task {
 public:
     lambda_task(scheduling_group sg, const Func& func) : task(sg), _func(func) {}
     lambda_task(scheduling_group sg, Func&& func) : task(sg), _func(std::move(func)) {}
-    typename futurator::type get_future() { return _result.get_future(); }
+    typename futurator::type get_future() noexcept { return _result.get_future(); }
     virtual void run_and_dispose() noexcept override {
         futurator::invoke(_func).forward_to(std::move(_result));
         delete this;
