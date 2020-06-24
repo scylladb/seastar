@@ -4113,15 +4113,15 @@ static std::atomic<unsigned long> s_used_scheduling_group_ids_bitmap{3}; // 0=ma
 static std::atomic<unsigned long> s_next_scheduling_group_specific_key{0};
 
 static
-unsigned
-allocate_scheduling_group_id() {
+int
+allocate_scheduling_group_id() noexcept {
     static_assert(max_scheduling_groups() <= std::numeric_limits<unsigned long>::digits, "more scheduling groups than available bits");
     auto b = s_used_scheduling_group_ids_bitmap.load(std::memory_order_relaxed);
     auto nb = b;
     unsigned i = 0;
     do {
         if (__builtin_popcountl(b) == max_scheduling_groups()) {
-            throw std::runtime_error("Scheduling group limit exceeded");
+            return -1;
         }
         i = count_trailing_zeros(~b);
         nb = b | (1ul << i);
@@ -4230,7 +4230,11 @@ scheduling_group::set_shares(float shares) {
 
 future<scheduling_group>
 create_scheduling_group(sstring name, float shares) {
-    auto id = allocate_scheduling_group_id();
+    auto aid = allocate_scheduling_group_id();
+    if (aid < 0) {
+        return make_exception_future<scheduling_group>(std::runtime_error("Scheduling group limit exceeded"));
+    }
+    auto id = static_cast<unsigned>(aid);
     assert(id < max_scheduling_groups());
     auto sg = scheduling_group(id);
     return smp::invoke_on_all([sg, name, shares] {
