@@ -1819,7 +1819,7 @@ public:
     void set_coroutine(task& coroutine) noexcept {
         assert(!_state.available());
         assert(_promise);
-        detach_promise()->forward_state_and_schedule(&_state, &coroutine);
+        _promise->schedule(&coroutine);
     }
 #endif
 private:
