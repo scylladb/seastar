@@ -142,6 +142,7 @@ class scheduling_group_key {
 public:
     /// The only user allowed operation on a key is copying.
     scheduling_group_key(const scheduling_group_key&) noexcept = default;
+    scheduling_group_key(scheduling_group_key&&) noexcept = default;
 private:
     scheduling_group_key(unsigned long id) noexcept :
         _id(id) {}
