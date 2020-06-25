@@ -256,9 +256,9 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
         // This conveys all the information we need and allows one to easily group all classes from
         // the same I/O queue (by filtering by shard)
         auto pc_ptr = _fq.register_priority_class(shares);
-        auto pc_data = make_lw_shared<priority_class_data>(name, mountpoint(), pc_ptr, owner);
+        auto pc_data = std::make_unique<priority_class_data>(name, mountpoint(), pc_ptr, owner);
 
-        _priority_classes[owner][id] = pc_data;
+        _priority_classes[owner][id] = std::move(pc_data);
     }
     return *_priority_classes[owner][id];
 }

@@ -24,7 +24,6 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/fair_queue.hh>
 #include <seastar/core/metrics_registration.hh>
-#include <seastar/core/shared_ptr.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/internal/io_request.hh>
 #include <mutex>
@@ -75,7 +74,7 @@ private:
         void register_stats(sstring name, sstring mountpoint, shard_id owner);
     };
 
-    std::vector<std::vector<lw_shared_ptr<priority_class_data>>> _priority_classes;
+    std::vector<std::vector<std::unique_ptr<priority_class_data>>> _priority_classes;
     fair_queue _fq;
 
     static constexpr unsigned _max_classes = 2048;
