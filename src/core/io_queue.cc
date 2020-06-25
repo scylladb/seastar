@@ -309,7 +309,7 @@ future<>
 io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares) {
     return smp::submit_to(coordinator(), [this, pc, owner = this_shard_id(), new_shares] {
         auto& pclass = find_or_create_class(pc, owner);
-        _fq.update_shares(pclass.ptr, new_shares);
+        pclass.ptr->update_shares(new_shares);
     });
 }
 

@@ -119,7 +119,7 @@ public:
 
     void update_shares(unsigned index, uint32_t shares) {
         auto cl = _classes[index];
-        _fq.update_shares(cl, shares);
+        cl->update_shares(shares);
     }
 
     void reset_results(unsigned index) {

@@ -192,8 +192,4 @@ void fair_queue::dispatch_requests() {
     }
 }
 
-void fair_queue::update_shares(priority_class_ptr pc, uint32_t new_shares) {
-    pc->update_shares(new_shares);
-}
-
 }

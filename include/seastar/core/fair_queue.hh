@@ -106,13 +106,14 @@ class priority_class {
     friend struct shared_ptr_no_esft<priority_class>;
     explicit priority_class(uint32_t shares) noexcept : _shares(std::max(shares, 1u)) {}
 
-    void update_shares(uint32_t shares) noexcept {
-        _shares = (std::max(shares, 1u));
-    }
 public:
     /// \brief return the current amount of shares for this priority class
     uint32_t shares() const noexcept {
         return _shares;
+    }
+
+    void update_shares(uint32_t shares) noexcept {
+        _shares = (std::max(shares, 1u));
     }
 };
 /// \endcond
@@ -240,11 +241,6 @@ public:
 
     /// Try to execute new requests if there is capacity left in the queue.
     void dispatch_requests();
-
-    /// Updates the current shares of this priority class
-    ///
-    /// \param new_shares the new number of shares for this priority class
-    static void update_shares(priority_class_ptr pc, uint32_t new_shares);
 };
 /// @}
 
