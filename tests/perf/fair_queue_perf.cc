@@ -116,7 +116,7 @@ PERF_TEST_F(perf_fair_queue, contended_shared)
         shared_fq.dispatch_requests();
         uint32_t pending_ack = shared_executed - shared_acked;
         shared_acked = shared_executed;
-        shared_fq.notify_requests_finished(seastar::fair_queue_ticket{pending_ack, pending_ack});
+        shared_fq.notify_requests_finished(seastar::fair_queue_ticket{pending_ack, pending_ack}, pending_ack);
         return make_ready_future<>();
     });
     return when_all_succeed(std::move(invokers), std::move(collectors)).discard_result();
@@ -140,7 +140,7 @@ PERF_TEST_F(perf_fair_queue, contended_shared_amortized)
         shared_fq.dispatch_requests();
         uint32_t pending_ack = shared_executed - shared_acked;
         shared_acked = shared_executed;
-        shared_fq.notify_requests_finished(seastar::fair_queue_ticket{pending_ack, pending_ack});
+        shared_fq.notify_requests_finished(seastar::fair_queue_ticket{pending_ack, pending_ack}, pending_ack);
         return make_ready_future<>();
     });
     return when_all_succeed(std::move(invokers), std::move(collectors)).discard_result();

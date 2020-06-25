@@ -78,12 +78,7 @@ public:
 void
 io_queue::notify_requests_finished(fair_queue_ticket& desc) noexcept {
     _requests_executing--;
-    _completed_accumulator += desc;
-}
-
-void
-io_queue::process_completions() {
-    _fq.notify_requests_finished(std::exchange(_completed_accumulator, {}));
+    _fq.notify_requests_finished(desc);
 }
 
 fair_queue::config io_queue::make_fair_queue_config(config iocfg) {

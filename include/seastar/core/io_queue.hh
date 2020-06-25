@@ -88,7 +88,6 @@ public:
 
 private:
     priority_class_data& find_or_create_class(const io_priority_class& pc, shard_id owner);
-    fair_queue_ticket _completed_accumulator = { 0, 0 };
 
     fair_queue_ticket request_fq_ticket(const internal::io_request& req, size_t len) const;
 
@@ -143,7 +142,7 @@ public:
     void notify_requests_finished(fair_queue_ticket& desc) noexcept;
 
     // Inform the underlying queue about the fact that some of our requests finished
-    void process_completions();
+    void process_completions() {}
 
     // Dispatch requests that are pending in the I/O queue
     void poll_io_queue() {
