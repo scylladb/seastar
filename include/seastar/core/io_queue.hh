@@ -90,6 +90,8 @@ private:
     priority_class_data& find_or_create_class(const io_priority_class& pc, shard_id owner);
     fair_queue_ticket _completed_accumulator = { 0, 0 };
 
+    fair_queue_ticket request_fq_ticket(const internal::io_request& req, size_t len) const;
+
     // The fields below are going away, they are just here so we can implement deprecated
     // functions that used to be provided by the fair_queue and are going away (from both
     // the fair_queue and the io_queue). Double-accounting for now will allow for easier

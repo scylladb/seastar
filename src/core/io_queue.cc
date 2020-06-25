@@ -48,14 +48,10 @@ private:
         _ioq_ptr->notify_requests_finished(_fq_ticket);
     }
 public:
-    io_desc_read_write(io_queue* ioq, unsigned weight, unsigned size)
+    io_desc_read_write(io_queue* ioq, fair_queue_ticket ticket)
         : _ioq_ptr(ioq)
-        , _fq_ticket(fair_queue_ticket{weight, size})
+        , _fq_ticket(ticket)
     {}
-
-    fair_queue_ticket& fq_ticket() {
-        return _fq_ticket;
-    }
 
     void set_exception(std::exception_ptr eptr) {
         notify_requests_finished();
@@ -263,6 +259,22 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
     return *_priority_classes[owner][id];
 }
 
+fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, size_t len) const {
+    unsigned weight;
+    size_t size;
+    if (req.is_write()) {
+        weight = _config.disk_req_write_to_read_multiplier;
+        size = _config.disk_bytes_write_to_read_multiplier * len;
+    } else if (req.is_read()) {
+        weight = io_queue::read_request_base_count;
+        size = io_queue::read_request_base_count * len;
+    } else {
+        throw std::runtime_error(fmt::format("Unrecognized request passing through I/O queue {}", req.opname()));
+    }
+
+    return fair_queue_ticket(weight, size);
+}
+
 future<size_t>
 io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_request req) noexcept {
     auto start = std::chrono::steady_clock::now();
@@ -273,19 +285,8 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc, owner);
         pclass.nr_queued++;
-        unsigned weight;
-        size_t size;
-        if (req.is_write()) {
-            weight = _config.disk_req_write_to_read_multiplier;
-            size = _config.disk_bytes_write_to_read_multiplier * len;
-        } else if (req.is_read()) {
-            weight = io_queue::read_request_base_count;
-            size = io_queue::read_request_base_count * len;
-        } else {
-            throw std::runtime_error(fmt::format("Unrecognized request passing through I/O queue {}", req.opname()));
-        }
-        auto desc = std::make_unique<io_desc_read_write>(this, weight, size);
-        auto fq_ticket = desc->fq_ticket();
+        fair_queue_ticket fq_ticket = request_fq_ticket(req, len);
+        auto desc = std::make_unique<io_desc_read_write>(this, fq_ticket);
         auto fut = desc->get_future();
         _fq.queue(pclass.ptr, std::move(fq_ticket), [&pclass, start, req = std::move(req), d = std::move(desc), len, this] () mutable noexcept {
             io_desc_read_write* desc = d.release();
