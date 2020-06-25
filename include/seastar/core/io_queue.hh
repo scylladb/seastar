@@ -141,9 +141,6 @@ public:
 
     void notify_requests_finished(fair_queue_ticket& desc) noexcept;
 
-    // Inform the underlying queue about the fact that some of our requests finished
-    void process_completions() {}
-
     // Dispatch requests that are pending in the I/O queue
     void poll_io_queue() {
         _fq.dispatch_requests();

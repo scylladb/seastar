@@ -1505,11 +1505,7 @@ reactor::flush_pending_aio() {
 
 bool
 reactor::reap_kernel_completions() {
-    auto reaped = _backend->reap_kernel_completions();
-    for (auto& ioq : my_io_queues) {
-        ioq->process_completions();
-    }
-    return reaped;
+    return _backend->reap_kernel_completions();
 }
 
 const io_priority_class& default_priority_class() {
