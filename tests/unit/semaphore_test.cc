@@ -63,15 +63,16 @@ SEASTAR_TEST_CASE(test_semaphore_1) {
     });
 }
 
-SEASTAR_TEST_CASE(test_semaphore_2) {
-    return do_with(std::make_pair(semaphore(0), 0), [] (std::pair<semaphore, int>& x) {
-        (void)x.first.wait().then([&x] {
-            x.second++;
-        });
-        return sleep(10ms).then([&x] {
-            BOOST_REQUIRE_EQUAL(x.second, 0);
-        });
+SEASTAR_THREAD_TEST_CASE(test_semaphore_2) {
+    auto sem = std::make_optional<semaphore>(0);
+    int x = 0;
+    auto fut = sem->wait().then([&x] {
+        x++;
     });
+    sleep(10ms).get();
+    BOOST_REQUIRE_EQUAL(x, 0);
+    sem = std::nullopt;
+    BOOST_CHECK_THROW(fut.get(), broken_promise);
 }
 
 SEASTAR_TEST_CASE(test_semaphore_timeout_1) {
