@@ -89,18 +89,22 @@ SEASTAR_TEST_CASE(test_semaphore_timeout_1) {
     });
 }
 
-SEASTAR_TEST_CASE(test_semaphore_timeout_2) {
-    return do_with(std::make_pair(semaphore(0), 0), [] (std::pair<semaphore, int>& x) {
-        (void)x.first.wait(3ms).then([&x] {
-            x.second++;
-        });
-        (void)sleep(100ms).then([&x] {
-            x.first.signal();
-        });
-        return sleep(200ms).then([&x] {
-            BOOST_REQUIRE_EQUAL(x.second, 0);
-        });
+SEASTAR_THREAD_TEST_CASE(test_semaphore_timeout_2) {
+    auto sem = semaphore(0);
+    int x = 0;
+    auto fut1 = sem.wait(3ms).then([&x] {
+        x++;
     });
+    bool signaled = false;
+    auto fut2 = sleep(100ms).then([&sem, &signaled] {
+        signaled = true;
+        sem.signal();
+    });
+    sleep(200ms).get();
+    fut2.get();
+    BOOST_REQUIRE_EQUAL(signaled, true);
+    BOOST_CHECK_THROW(fut1.get(), semaphore_timed_out);
+    BOOST_REQUIRE_EQUAL(x, 0);
 }
 
 SEASTAR_TEST_CASE(test_semaphore_mix_1) {
