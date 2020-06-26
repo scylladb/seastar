@@ -358,8 +358,7 @@ seastar_add_test (rpc
     rpc_test.cc)
 
 seastar_add_test (semaphore
-  SOURCES semaphore_test.cc
-  RUN_ARGS --fail-on-abandoned-failed-futures=false)
+  SOURCES semaphore_test.cc)
 
 seastar_add_test (shared_ptr
   KIND BOOST
