@@ -661,6 +661,7 @@ private:
     friend void add_to_flush_poller(output_stream<char>* os);
     friend void seastar::log_exception_trace() noexcept;
     friend void report_failed_future(const std::exception_ptr& eptr) noexcept;
+    friend void with_allow_abandoned_failed_futures(unsigned count, noncopyable_function<void ()> func);
     metrics::metric_groups _metric_groups;
     friend future<scheduling_group> create_scheduling_group(sstring name, float shares);
     friend future<> seastar::destroy_scheduling_group(scheduling_group);

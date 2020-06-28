@@ -1270,12 +1270,15 @@ SEASTAR_THREAD_TEST_CASE(test_broken_promises) {
 
 SEASTAR_TEST_CASE(test_warn_on_broken_promise_with_no_future) {
     // Example code where we expect a "Exceptional future ignored"
-    // warning. We can't directly test that the warning is issued, but
-    // this example functions as documentation.
+    // warning.
     promise<> p;
     // Intentionally destroy the future
     (void)p.get_future();
-    p.set_exception(std::runtime_error("foo"));
+
+    with_allow_abandoned_failed_futures(1, [&] {
+        p.set_exception(std::runtime_error("foo"));
+    });
+
     return make_ready_future<>();
 }
 
@@ -1301,9 +1304,12 @@ SEASTAR_THREAD_TEST_CASE(test_exception_future_with_backtrace) {
     BOOST_REQUIRE_EQUAL(counter, 1);
 
     // Example code where we expect a "Exceptional future ignored"
-    // warning. We can't directly test that the warning is issued, but
-    // this example functions as documentation.
-    (void)outer(true);
+    // warning.
+    (void)outer(true).then_wrapped([](future<int> fut) {
+        with_allow_abandoned_failed_futures(1, [fut = std::move(fut)]() mutable {
+            auto foo = std::move(fut);
+        });
+    });
 }
 
 class throw_on_move {
