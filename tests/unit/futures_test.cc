@@ -45,6 +45,11 @@
 using namespace seastar;
 using namespace std::chrono_literals;
 
+static_assert(std::is_nothrow_default_constructible_v<gate>,
+    "seastar::gate constructor must not throw");
+static_assert(std::is_nothrow_move_constructible_v<gate>,
+    "seastar::gate move constructor must not throw");
+
 class expected_exception : public std::runtime_error {
 public:
     expected_exception() : runtime_error("expected") {}
