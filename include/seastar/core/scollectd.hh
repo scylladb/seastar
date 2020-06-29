@@ -783,9 +783,7 @@ seastar::metrics::impl::metric_id to_metrics_id(const type_instance_id & id);
 template<typename Arg>
 [[deprecated("Use the metrics layer")]] static type_instance_id add_polled_metric(const type_instance_id & id, description d,
         Arg&& arg, bool enabled = true) {
-    namespace sm = seastar::metrics::impl;
-
-    seastar::metrics::impl::get_local_impl()->add_registration(to_metrics_id(id), arg.type, sm::make_function(arg.value, arg.type), d, enabled);
+    seastar::metrics::impl::get_local_impl()->add_registration(to_metrics_id(id), arg.type, seastar::metrics::impl::make_function(arg.value, arg.type), d, enabled);
     return id;
 }
 /*!
