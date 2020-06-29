@@ -72,7 +72,7 @@ public:
     ///
     /// If the gate is closed, and there are no more in-progress requests,
     /// the \ref closed() promise will be fulfilled.
-    void leave() {
+    void leave() noexcept {
         --_count;
         if (!_count && _stopped) {
             _stopped->set_value();
@@ -107,12 +107,12 @@ public:
     }
 
     /// Returns a current number of registered in-progress requests.
-    size_t get_count() const {
+    size_t get_count() const noexcept {
         return _count;
     }
 
     /// Returns whether the gate is closed.
-    bool is_closed() const {
+    bool is_closed() const noexcept {
         return bool(_stopped);
     }
 };
