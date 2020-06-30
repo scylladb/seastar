@@ -104,14 +104,14 @@ class priority_class {
     bool _queued = false;
 
     friend struct shared_ptr_no_esft<priority_class>;
-    explicit priority_class(uint32_t shares) : _shares(std::max(shares, 1u)) {}
+    explicit priority_class(uint32_t shares) noexcept : _shares(std::max(shares, 1u)) {}
 
-    void update_shares(uint32_t shares) {
+    void update_shares(uint32_t shares) noexcept {
         _shares = (std::max(shares, 1u));
     }
 public:
     /// \brief return the current amount of shares for this priority class
-    uint32_t shares() const {
+    uint32_t shares() const noexcept {
         return _shares;
     }
 };
