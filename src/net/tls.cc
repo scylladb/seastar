@@ -1268,8 +1268,10 @@ public:
         }
     }
     // helper for sink
-    future<> flush() {
-        return _out.flush();
+    future<> flush() noexcept {
+        return with_semaphore(_out_sem, 1, [this] {
+            return _out.flush();
+        });
     }
 
     seastar::net::connected_socket_impl & socket() const {
