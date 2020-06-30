@@ -653,6 +653,9 @@ sharded<Service>::stop() {
     }).then([this] {
         return internal::sharded_parallel_for_each(_instances.size(), [this] (unsigned c) {
             return smp::submit_to(c, [this] {
+                if (_instances[this_shard_id()].service == nullptr) {
+                    return make_ready_future<>();
+                }
                 _instances[this_shard_id()].service = nullptr;
                 return _instances[this_shard_id()].freed.get_future();
             });
