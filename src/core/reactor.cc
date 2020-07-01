@@ -1489,6 +1489,20 @@ sstring io_request::opname() const {
     std::abort();
 }
 
+void io_completion::complete_with(ssize_t res) {
+    if (res >= 0) {
+        complete(res);
+        return;
+    }
+
+    ++engine()._io_stats.aio_errors;
+    try {
+        throw_kernel_error(res);
+    } catch (...) {
+        set_exception(std::current_exception());
+    }
+}
+
 void
 reactor::submit_io(io_completion* desc, io_request req) noexcept {
     req.attach_kernel_completion(desc);
@@ -1885,14 +1899,9 @@ reactor::fdatasync(int fd) noexcept {
             struct fsync_io_desc final : public io_completion {
                 promise<> _pr;
             public:
-                virtual void complete_with(ssize_t res) {
-                    try {
-                        engine().handle_io_result(res);
-                        _pr.set_value();
-                        delete this;
-                    } catch (...) {
-                        set_exception(std::current_exception());
-                    }
+                virtual void complete(size_t res) noexcept override {
+                    _pr.set_value();
+                    delete this;
                 }
 
                 virtual void set_exception(std::exception_ptr eptr) noexcept override {

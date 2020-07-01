@@ -178,6 +178,9 @@ class disk_config_params;
 
 class io_completion : public kernel_completion {
 public:
+    virtual void complete_with(ssize_t res) final override;
+
+    virtual void complete(size_t res) noexcept = 0;
     virtual void set_exception(std::exception_ptr eptr) noexcept = 0;
 };
 
@@ -240,6 +243,8 @@ public:
         uint64_t fstream_read_aheads_discarded = 0;
         uint64_t fstream_read_ahead_discarded_bytes = 0;
     };
+    friend void io_completion::complete_with(ssize_t);
+
 private:
     reactor_config _cfg;
     file_desc _notify_eventfd;
@@ -533,13 +538,6 @@ public:
             const io_priority_class& priority_class,
             size_t len,
             internal::io_request req) noexcept;
-
-    inline void handle_io_result(ssize_t res) {
-        if (res < 0) {
-            ++_io_stats.aio_errors;
-            throw_kernel_error(res);
-        }
-    }
 
     int run();
     void exit(int ret);

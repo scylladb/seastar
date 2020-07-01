@@ -59,15 +59,10 @@ public:
         delete this;
     }
 
-    virtual void complete_with(ssize_t ret) override {
-        try {
-            engine().handle_io_result(ret);
-            notify_requests_finished();
-            _pr.set_value(ret);
-            delete this;
-        } catch (...) {
-            set_exception(std::current_exception());
-        }
+    virtual void complete(size_t res) noexcept override {
+        notify_requests_finished();
+        _pr.set_value(res);
+        delete this;
     }
 
     future<size_t> get_future() {
