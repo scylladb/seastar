@@ -104,15 +104,16 @@ class priority_class {
     bool _queued = false;
 
     friend struct shared_ptr_no_esft<priority_class>;
-    explicit priority_class(uint32_t shares) : _shares(std::max(shares, 1u)) {}
+    explicit priority_class(uint32_t shares) noexcept : _shares(std::max(shares, 1u)) {}
 
-    void update_shares(uint32_t shares) {
-        _shares = (std::max(shares, 1u));
-    }
 public:
     /// \brief return the current amount of shares for this priority class
-    uint32_t shares() const {
+    uint32_t shares() const noexcept {
         return _shares;
+    }
+
+    void update_shares(uint32_t shares) noexcept {
+        _shares = (std::max(shares, 1u));
     }
 };
 /// \endcond
@@ -236,15 +237,10 @@ public:
 
     /// Notifies that ont request finished
     /// \param desc an instance of \c fair_queue_ticket structure describing the request that just finished.
-    void notify_requests_finished(fair_queue_ticket desc);
+    void notify_requests_finished(fair_queue_ticket desc, unsigned nr = 1) noexcept;
 
     /// Try to execute new requests if there is capacity left in the queue.
     void dispatch_requests();
-
-    /// Updates the current shares of this priority class
-    ///
-    /// \param new_shares the new number of shares for this priority class
-    static void update_shares(priority_class_ptr pc, uint32_t new_shares);
 };
 /// @}
 

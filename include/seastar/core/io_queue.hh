@@ -24,7 +24,6 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/fair_queue.hh>
 #include <seastar/core/metrics_registration.hh>
-#include <seastar/core/shared_ptr.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/internal/io_request.hh>
 #include <mutex>
@@ -75,7 +74,7 @@ private:
         void register_stats(sstring name, sstring mountpoint, shard_id owner);
     };
 
-    std::vector<std::vector<lw_shared_ptr<priority_class_data>>> _priority_classes;
+    std::vector<std::vector<std::unique_ptr<priority_class_data>>> _priority_classes;
     fair_queue _fq;
 
     static constexpr unsigned _max_classes = 2048;
@@ -89,7 +88,8 @@ public:
 
 private:
     priority_class_data& find_or_create_class(const io_priority_class& pc, shard_id owner);
-    fair_queue_ticket _completed_accumulator = { 0, 0 };
+
+    fair_queue_ticket request_fq_ticket(const internal::io_request& req, size_t len) const;
 
     // The fields below are going away, they are just here so we can implement deprecated
     // functions that used to be provided by the fair_queue and are going away (from both
@@ -139,10 +139,7 @@ public:
         return _requests_executing;
     }
 
-    void notify_requests_finished(fair_queue_ticket& desc);
-
-    // Inform the underlying queue about the fact that some of our requests finished
-    void process_completions();
+    void notify_requests_finished(fair_queue_ticket& desc) noexcept;
 
     // Dispatch requests that are pending in the I/O queue
     void poll_io_queue() {

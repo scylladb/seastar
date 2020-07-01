@@ -154,8 +154,9 @@ void fair_queue::queue(priority_class_ptr pc, fair_queue_ticket desc, noncopyabl
     _requests_queued++;
 }
 
-void fair_queue::notify_requests_finished(fair_queue_ticket desc) {
+void fair_queue::notify_requests_finished(fair_queue_ticket desc, unsigned nr) noexcept {
     _resources_executing -= desc;
+    _requests_executing -= nr;
 }
 
 void fair_queue::dispatch_requests() {
@@ -190,10 +191,6 @@ void fair_queue::dispatch_requests() {
         }
         req.func();
     }
-}
-
-void fair_queue::update_shares(priority_class_ptr pc, uint32_t new_shares) {
-    pc->update_shares(new_shares);
 }
 
 }

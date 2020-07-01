@@ -1489,10 +1489,28 @@ sstring io_request::opname() const {
     std::abort();
 }
 
+void io_completion::complete_with(ssize_t res) {
+    if (res >= 0) {
+        complete(res);
+        return;
+    }
+
+    ++engine()._io_stats.aio_errors;
+    try {
+        throw_kernel_error(res);
+    } catch (...) {
+        set_exception(std::current_exception());
+    }
+}
+
 void
-reactor::submit_io(kernel_completion* desc, io_request req) {
+reactor::submit_io(io_completion* desc, io_request req) noexcept {
     req.attach_kernel_completion(desc);
-    _pending_io.push_back(std::move(req));
+    try {
+        _pending_io.push_back(std::move(req));
+    } catch (...) {
+        desc->set_exception(std::current_exception());
+    }
 }
 
 bool
@@ -1505,11 +1523,7 @@ reactor::flush_pending_aio() {
 
 bool
 reactor::reap_kernel_completions() {
-    auto reaped = _backend->reap_kernel_completions();
-    for (auto& ioq : my_io_queues) {
-        ioq->process_completions();
-    }
-    return reaped;
+    return _backend->reap_kernel_completions();
 }
 
 const io_priority_class& default_priority_class() {
@@ -1880,35 +1894,32 @@ reactor::fdatasync(int fd) noexcept {
         return make_ready_future<>();
     }
     if (_have_aio_fsync) {
-        try {
-            // Does not go through the I/O queue, but has to be deleted
-            struct fsync_io_desc final : public kernel_completion {
-                promise<> _pr;
-            public:
-                virtual void complete_with(ssize_t res) {
-                    try {
-                        engine().handle_io_result(res);
-                        _pr.set_value();
-                    } catch (...) {
-                        _pr.set_exception(std::current_exception());
-                    }
-                    delete this;
-                }
+        // Does not go through the I/O queue, but has to be deleted
+        struct fsync_io_desc final : public io_completion {
+            promise<> _pr;
+        public:
+            virtual void complete(size_t res) noexcept override {
+                _pr.set_value();
+                delete this;
+            }
 
-                future<> get_future() {
-                    return _pr.get_future();
-                }
-            };
+            virtual void set_exception(std::exception_ptr eptr) noexcept override {
+                _pr.set_exception(std::move(eptr));
+                delete this;
+            }
 
-            auto desc = std::make_unique<fsync_io_desc>();
+            future<> get_future() {
+                return _pr.get_future();
+            }
+        };
+
+        return futurize_invoke([this, fd] {
+            auto desc = new fsync_io_desc;
             auto fut = desc->get_future();
-
             auto req = io_request::make_fdatasync(fd);
-            submit_io(desc.release(), std::move(req));
+            submit_io(desc, std::move(req));
             return fut;
-        } catch (...) {
-            return make_exception_future<>(std::current_exception());
-        }
+        });
     }
     return _thread_pool->submit<syscall_result<int>>([fd] {
         return wrap_syscall<int>(::fdatasync(fd));

@@ -176,6 +176,14 @@ class kernel_completion;
 class io_queue;
 class disk_config_params;
 
+class io_completion : public kernel_completion {
+public:
+    virtual void complete_with(ssize_t res) final override;
+
+    virtual void complete(size_t res) noexcept = 0;
+    virtual void set_exception(std::exception_ptr eptr) noexcept = 0;
+};
+
 class reactor {
     using sched_clock = std::chrono::steady_clock;
 private:
@@ -235,6 +243,8 @@ public:
         uint64_t fstream_read_aheads_discarded = 0;
         uint64_t fstream_read_ahead_discarded_bytes = 0;
     };
+    friend void io_completion::complete_with(ssize_t);
+
 private:
     reactor_config _cfg;
     file_desc _notify_eventfd;
@@ -519,7 +529,7 @@ public:
     // In the following three methods, prepare_io is not guaranteed to execute in the same processor
     // in which it was generated. Therefore, care must be taken to avoid the use of objects that could
     // be destroyed within or at exit of prepare_io.
-    void submit_io(kernel_completion* desc, internal::io_request req);
+    void submit_io(io_completion* desc, internal::io_request req) noexcept;
     future<size_t> submit_io_read(io_queue* ioq,
             const io_priority_class& priority_class,
             size_t len,
@@ -528,13 +538,6 @@ public:
             const io_priority_class& priority_class,
             size_t len,
             internal::io_request req) noexcept;
-
-    inline void handle_io_result(ssize_t res) {
-        if (res < 0) {
-            ++_io_stats.aio_errors;
-            throw_kernel_error(res);
-        }
-    }
 
     int run();
     void exit(int ret);
