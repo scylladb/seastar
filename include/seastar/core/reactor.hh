@@ -177,6 +177,8 @@ class io_queue;
 class disk_config_params;
 
 class io_completion : public kernel_completion {
+public:
+    virtual void set_exception(std::exception_ptr eptr) noexcept = 0;
 };
 
 class reactor {
@@ -522,7 +524,7 @@ public:
     // In the following three methods, prepare_io is not guaranteed to execute in the same processor
     // in which it was generated. Therefore, care must be taken to avoid the use of objects that could
     // be destroyed within or at exit of prepare_io.
-    void submit_io(io_completion* desc, internal::io_request req);
+    void submit_io(io_completion* desc, internal::io_request req) noexcept;
     future<size_t> submit_io_read(io_queue* ioq,
             const io_priority_class& priority_class,
             size_t len,

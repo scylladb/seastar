@@ -53,7 +53,7 @@ public:
         , _fq_ticket(ticket)
     {}
 
-    void set_exception(std::exception_ptr eptr) {
+    virtual void set_exception(std::exception_ptr eptr) noexcept override {
         notify_requests_finished();
         _pr.set_exception(eptr);
         delete this;

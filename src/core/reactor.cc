@@ -1490,9 +1490,13 @@ sstring io_request::opname() const {
 }
 
 void
-reactor::submit_io(io_completion* desc, io_request req) {
+reactor::submit_io(io_completion* desc, io_request req) noexcept {
     req.attach_kernel_completion(desc);
-    _pending_io.push_back(std::move(req));
+    try {
+        _pending_io.push_back(std::move(req));
+    } catch (...) {
+        desc->set_exception(std::current_exception());
+    }
 }
 
 bool
@@ -1885,9 +1889,14 @@ reactor::fdatasync(int fd) noexcept {
                     try {
                         engine().handle_io_result(res);
                         _pr.set_value();
+                        delete this;
                     } catch (...) {
-                        _pr.set_exception(std::current_exception());
+                        set_exception(std::current_exception());
                     }
+                }
+
+                virtual void set_exception(std::exception_ptr eptr) noexcept override {
+                    _pr.set_exception(std::move(eptr));
                     delete this;
                 }
 
