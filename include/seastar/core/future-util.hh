@@ -49,8 +49,10 @@ extern __thread size_t task_quota;
 namespace internal {
 
 template <typename Func>
+SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> )
 auto
-schedule_in_group(scheduling_group sg, Func func) {
+schedule_in_group(scheduling_group sg, Func func) noexcept {
+    static_assert(std::is_nothrow_move_constructible_v<Func>);
     auto tsk = make_task(sg, std::move(func));
     schedule(tsk);
     return tsk->get_future();
@@ -74,9 +76,11 @@ schedule_in_group(scheduling_group sg, Func func) {
 /// \param args arguments to the function; may be copied or moved, so use \c std::ref()
 ///             to force passing references
 template <typename Func, typename... Args>
+SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> )
 inline
 auto
-with_scheduling_group(scheduling_group sg, Func func, Args&&... args) {
+with_scheduling_group(scheduling_group sg, Func func, Args&&... args) noexcept {
+    static_assert(std::is_nothrow_move_constructible_v<Func>);
     using return_type = decltype(func(std::forward<Args>(args)...));
     using futurator = futurize<return_type>;
     if (sg.active()) {

@@ -313,7 +313,7 @@ private:
         circular_buffer<task*> _q;
         sstring _name;
         int64_t to_vruntime(sched_clock::duration runtime) const;
-        void set_shares(float shares);
+        void set_shares(float shares) noexcept;
         struct indirect_compare;
         sched_clock::duration _time_spent_on_task_quota_violations = {};
         seastar::metrics::metric_groups _metrics;
@@ -666,15 +666,13 @@ private:
     friend void report_failed_future(const std::exception_ptr& eptr) noexcept;
     friend void with_allow_abandoned_failed_futures(unsigned count, noncopyable_function<void ()> func);
     metrics::metric_groups _metric_groups;
-    friend future<scheduling_group> create_scheduling_group(sstring name, float shares);
-    friend future<> seastar::destroy_scheduling_group(scheduling_group);
-    friend future<> seastar::rename_scheduling_group(scheduling_group sg, sstring new_name);
-    friend future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg);
+    friend future<scheduling_group> create_scheduling_group(sstring name, float shares) noexcept;
+    friend future<> seastar::destroy_scheduling_group(scheduling_group) noexcept;
+    friend future<> seastar::rename_scheduling_group(scheduling_group sg, sstring new_name) noexcept;
+    friend future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg) noexcept;
 
     template<typename T>
-    friend T& scheduling_group_get_specific(scheduling_group sg, scheduling_group_key key);
-    template<typename T>
-    friend T& scheduling_group_get_specific(scheduling_group_key key);
+    friend T* internal::scheduling_group_get_specific_ptr(scheduling_group sg, scheduling_group_key key) noexcept;
     template<typename SpecificValType, typename Mapper, typename Reducer, typename Initial>
         SEASTAR_CONCEPT( requires requires(SpecificValType specific_val, Mapper mapper, Reducer reducer, Initial initial) {
             {reducer(initial, mapper(specific_val))} -> std::convertible_to<Initial>;
