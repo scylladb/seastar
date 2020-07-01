@@ -278,11 +278,11 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
         _fq.queue(pclass.ptr, std::move(fq_ticket), [&pclass, start, req = std::move(req), d = std::move(desc), len, this] () mutable noexcept {
             _queued_requests--;
             _requests_executing++;
-                pclass.nr_queued--;
-                pclass.ops++;
-                pclass.bytes += len;
-                pclass.queue_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start);
-                engine().submit_io(d.release(), std::move(req));
+            pclass.nr_queued--;
+            pclass.ops++;
+            pclass.bytes += len;
+            pclass.queue_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start);
+            engine().submit_io(d.release(), std::move(req));
         });
         pclass.nr_queued++;
         _queued_requests++;

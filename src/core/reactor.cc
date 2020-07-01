@@ -1894,24 +1894,24 @@ reactor::fdatasync(int fd) noexcept {
         return make_ready_future<>();
     }
     if (_have_aio_fsync) {
-            // Does not go through the I/O queue, but has to be deleted
-            struct fsync_io_desc final : public io_completion {
-                promise<> _pr;
-            public:
-                virtual void complete(size_t res) noexcept override {
-                    _pr.set_value();
-                    delete this;
-                }
+        // Does not go through the I/O queue, but has to be deleted
+        struct fsync_io_desc final : public io_completion {
+            promise<> _pr;
+        public:
+            virtual void complete(size_t res) noexcept override {
+                _pr.set_value();
+                delete this;
+            }
 
-                virtual void set_exception(std::exception_ptr eptr) noexcept override {
-                    _pr.set_exception(std::move(eptr));
-                    delete this;
-                }
+            virtual void set_exception(std::exception_ptr eptr) noexcept override {
+                _pr.set_exception(std::move(eptr));
+                delete this;
+            }
 
-                future<> get_future() {
-                    return _pr.get_future();
-                }
-            };
+            future<> get_future() {
+                return _pr.get_future();
+            }
+        };
 
         return futurize_invoke([this, fd] {
             auto desc = new fsync_io_desc;
