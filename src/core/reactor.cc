@@ -1894,7 +1894,6 @@ reactor::fdatasync(int fd) noexcept {
         return make_ready_future<>();
     }
     if (_have_aio_fsync) {
-        try {
             // Does not go through the I/O queue, but has to be deleted
             struct fsync_io_desc final : public io_completion {
                 promise<> _pr;
@@ -1914,15 +1913,13 @@ reactor::fdatasync(int fd) noexcept {
                 }
             };
 
-            auto desc = std::make_unique<fsync_io_desc>();
+        return futurize_invoke([this, fd] {
+            auto desc = new fsync_io_desc;
             auto fut = desc->get_future();
-
             auto req = io_request::make_fdatasync(fd);
-            submit_io(desc.release(), std::move(req));
+            submit_io(desc, std::move(req));
             return fut;
-        } catch (...) {
-            return make_exception_future<>(std::current_exception());
-        }
+        });
     }
     return _thread_pool->submit<syscall_result<int>>([fd] {
         return wrap_syscall<int>(::fdatasync(fd));
