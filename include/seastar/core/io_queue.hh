@@ -139,7 +139,7 @@ public:
         return _requests_executing;
     }
 
-    void notify_requests_finished(fair_queue_ticket& desc);
+    void notify_requests_finished(fair_queue_ticket& desc) noexcept;
 
     // Inform the underlying queue about the fact that some of our requests finished
     void process_completions();

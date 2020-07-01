@@ -236,7 +236,7 @@ public:
 
     /// Notifies that ont request finished
     /// \param desc an instance of \c fair_queue_ticket structure describing the request that just finished.
-    void notify_requests_finished(fair_queue_ticket desc);
+    void notify_requests_finished(fair_queue_ticket desc) noexcept;
 
     /// Try to execute new requests if there is capacity left in the queue.
     void dispatch_requests();

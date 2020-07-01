@@ -44,7 +44,7 @@ class io_desc_read_write final : public kernel_completion {
     fair_queue_ticket _fq_ticket;
     promise<size_t> _pr;
 private:
-    void notify_requests_finished() {
+    void notify_requests_finished() noexcept {
         _ioq_ptr->notify_requests_finished(_fq_ticket);
     }
 public:
@@ -80,7 +80,7 @@ public:
 };
 
 void
-io_queue::notify_requests_finished(fair_queue_ticket& desc) {
+io_queue::notify_requests_finished(fair_queue_ticket& desc) noexcept {
     _requests_executing--;
     _completed_accumulator += desc;
 }

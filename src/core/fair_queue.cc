@@ -154,7 +154,7 @@ void fair_queue::queue(priority_class_ptr pc, fair_queue_ticket desc, noncopyabl
     _requests_queued++;
 }
 
-void fair_queue::notify_requests_finished(fair_queue_ticket desc) {
+void fair_queue::notify_requests_finished(fair_queue_ticket desc) noexcept {
     _resources_executing -= desc;
 }
 
