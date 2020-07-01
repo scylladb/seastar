@@ -1490,7 +1490,7 @@ sstring io_request::opname() const {
 }
 
 void
-reactor::submit_io(kernel_completion* desc, io_request req) {
+reactor::submit_io(io_completion* desc, io_request req) {
     req.attach_kernel_completion(desc);
     _pending_io.push_back(std::move(req));
 }
@@ -1878,7 +1878,7 @@ reactor::fdatasync(int fd) noexcept {
     if (_have_aio_fsync) {
         try {
             // Does not go through the I/O queue, but has to be deleted
-            struct fsync_io_desc final : public kernel_completion {
+            struct fsync_io_desc final : public io_completion {
                 promise<> _pr;
             public:
                 virtual void complete_with(ssize_t res) {

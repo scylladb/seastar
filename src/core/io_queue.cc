@@ -39,7 +39,7 @@ namespace seastar {
 using namespace std::chrono_literals;
 using namespace internal::linux_abi;
 
-class io_desc_read_write final : public kernel_completion {
+class io_desc_read_write final : public io_completion {
     io_queue* _ioq_ptr;
     fair_queue_ticket _fq_ticket;
     promise<size_t> _pr;
