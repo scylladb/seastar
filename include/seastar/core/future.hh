@@ -452,8 +452,6 @@ public:
     bool available() const noexcept { return _u.available(); }
     bool failed() const noexcept { return _u.failed(); }
 
-    void set_to_broken_promise() noexcept;
-
     void ignore() noexcept;
 
     void set_exception(std::exception_ptr&& ex) noexcept {
@@ -1333,13 +1331,9 @@ private:
     }
     template <typename Pr, typename Func, typename Wrapper>
     void schedule(Pr&& pr, Func&& func, Wrapper&& wrapper) noexcept {
-        if (_state.available() || !_promise) {
-            if (__builtin_expect(!_state.available() && !_promise, false)) {
-                _state.set_to_broken_promise();
-            }
+        if (_state.available()) {
             ::seastar::schedule(new continuation<Pr, Func, Wrapper, T...>(std::move(pr), std::move(func), std::move(wrapper), std::move(_state)));
         } else {
-            assert(_promise);
             detach_promise()->schedule(std::move(pr), std::move(func), std::move(wrapper));
             _state._u.st = future_state_base::state::invalid;
         }
@@ -1417,10 +1411,6 @@ public:
     /// continuations continue to execute; only the thread is blocked.
     void wait() noexcept {
         if (_state.available()) {
-            return;
-        }
-        if (__builtin_expect(!_promise, false)) {
-            _state.set_to_broken_promise();
             return;
         }
         do_wait();
