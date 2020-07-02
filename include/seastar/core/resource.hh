@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <cassert>
 #include <cstdlib>
 #include <string>
 #include <seastar/util/std-compat.hh>
@@ -33,6 +34,7 @@
 namespace seastar {
 
 cpu_set_t cpuid_to_cpuset(unsigned cpuid);
+class io_queue;
 
 namespace resource {
 
@@ -73,6 +75,13 @@ struct cpu {
 struct resources {
     std::vector<cpu> cpus;
     std::unordered_map<dev_t, io_queue_topology> ioq_topology;
+};
+
+struct device_io_topology {
+    std::vector<io_queue*> queues;
+
+    device_io_topology() noexcept = default;
+    device_io_topology(const io_queue_topology& iot) noexcept : queues(iot.nr_coordinators) {}
 };
 
 resources allocate(configuration c);

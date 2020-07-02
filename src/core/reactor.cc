@@ -3872,35 +3872,38 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
 
     auto ioq_topology = std::move(resources.ioq_topology);
 
-    std::unordered_map<dev_t, std::vector<io_queue*>> all_io_queues;
+    std::unordered_map<dev_t, resource::device_io_topology> devices_topology;
 
     for (auto& id : disk_config.device_ids()) {
         auto io_info = ioq_topology.at(id);
-        all_io_queues.emplace(id, io_info.nr_coordinators);
+        devices_topology.emplace(id, io_info);
     }
 
-    auto alloc_io_queue = [&ioq_topology, &all_io_queues, &disk_config] (unsigned shard, dev_t id) {
+    auto alloc_io_queue = [&ioq_topology, &devices_topology, &disk_config] (unsigned shard, dev_t id) {
         auto io_info = ioq_topology.at(id);
         auto cid = io_info.shard_to_coordinator[shard];
         auto vec_idx = io_info.coordinator_to_idx[cid];
         assert(io_info.coordinator_to_idx_valid[cid]);
+        resource::device_io_topology& topology = devices_topology[id];
         if (shard == cid) {
+            assert(vec_idx < topology.queues.size());
+            assert(!topology.queues[vec_idx]);
+
             struct io_queue::config cfg = disk_config.generate_config(id);
             cfg.coordinator = cid;
-            assert(vec_idx < all_io_queues[id].size());
-            assert(!all_io_queues[id][vec_idx]);
-            all_io_queues[id][vec_idx] = new io_queue(std::move(cfg));
+            topology.queues[vec_idx] = new io_queue(std::move(cfg));
         }
     };
 
-    auto assign_io_queue = [&ioq_topology, &all_io_queues] (shard_id shard_id, dev_t dev_id) {
+    auto assign_io_queue = [&ioq_topology, &devices_topology] (shard_id shard_id, dev_t dev_id) {
         auto io_info = ioq_topology.at(dev_id);
         auto cid = io_info.shard_to_coordinator[shard_id];
         auto queue_idx = io_info.coordinator_to_idx[cid];
-        if (all_io_queues[dev_id][queue_idx]->coordinator() == shard_id) {
-            engine().my_io_queues.emplace_back(all_io_queues[dev_id][queue_idx]);
+        io_queue* queue = devices_topology[dev_id].queues[queue_idx];
+        if (queue->coordinator() == shard_id) {
+            engine().my_io_queues.emplace_back(queue);
         }
-        engine()._io_queues.emplace(dev_id, all_io_queues[dev_id][queue_idx]);
+        engine()._io_queues.emplace(dev_id, queue);
     };
 
     _all_event_loops_done.emplace(smp::count);
