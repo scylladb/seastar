@@ -87,10 +87,20 @@ fair_queue::config io_queue::make_fair_queue_config(config iocfg) {
     return cfg;
 }
 
-io_queue::io_queue(io_queue::config cfg)
+io_queue::io_queue(io_group_ptr group, io_queue::config cfg)
     : _priority_classes()
-    , _fq(make_fair_queue_config(cfg))
+    , _group(std::move(group))
+    , _fq(_group->_fg, make_fair_queue_config(cfg))
     , _config(std::move(cfg)) {
+}
+
+fair_group::config io_group::make_fair_group_config(config iocfg) noexcept {
+    fair_group::config cfg;
+    return cfg;
+}
+
+io_group::io_group(config cfg) noexcept
+    : _fg(make_fair_group_config(cfg)) {
 }
 
 io_queue::~io_queue() {

@@ -58,6 +58,22 @@ struct iocb;
 using shard_id = unsigned;
 
 class io_priority_class;
+class io_queue;
+
+class io_group {
+public:
+    struct config {
+    };
+    explicit io_group(config cfg) noexcept;
+
+private:
+    friend class io_queue;
+    fair_group _fg;
+
+    static fair_group::config make_fair_group_config(config cfg) noexcept;
+};
+
+using io_group_ptr = std::shared_ptr<io_group>;
 
 class io_queue {
 private:
@@ -75,6 +91,7 @@ private:
     };
 
     std::vector<std::vector<std::unique_ptr<priority_class_data>>> _priority_classes;
+    io_group_ptr _group;
     fair_queue _fq;
 
     static constexpr unsigned _max_classes = 2048;
@@ -120,7 +137,7 @@ public:
         sstring mountpoint = "undefined";
     };
 
-    io_queue(config cfg);
+    io_queue(io_group_ptr group, config cfg);
     ~io_queue();
 
     future<size_t>

@@ -3636,6 +3636,12 @@ public:
         _mountpoints.emplace(0, d);
     }
 
+    struct io_group::config generate_group_config(dev_t devid) const noexcept {
+        seastar_logger.debug("generate_group_config dev_id: {}", devid);
+        struct io_group::config cfg;
+        return cfg;
+    }
+
     struct io_queue::config generate_config(dev_t devid) const {
         seastar_logger.debug("generate_config dev_id: {}", devid);
         const mountpoint_params& p = _mountpoints.at(devid);
@@ -3889,9 +3895,12 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
             assert(vec_idx < topology.queues.size());
             assert(!topology.queues[vec_idx]);
 
+            struct io_group::config gcfg = disk_config.generate_group_config(id);
             struct io_queue::config cfg = disk_config.generate_config(id);
             cfg.coordinator = cid;
-            topology.queues[vec_idx] = new io_queue(std::move(cfg));
+            // temporarily each queue is having its own group
+            io_group_ptr group = std::make_shared<io_group>(std::move(gcfg));
+            topology.queues[vec_idx] = new io_queue(std::move(group), std::move(cfg));
         }
     };
 

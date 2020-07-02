@@ -81,12 +81,18 @@ std::ostream& operator<<(std::ostream& os, fair_queue_ticket t) {
     return os << t._weight << ":" << t._size;
 }
 
-fair_queue::fair_queue(config cfg)
+fair_group::fair_group(config cfg) noexcept
+{}
+
+fair_queue::fair_queue(fair_group& group, config cfg)
     : _config(std::move(cfg))
+    , _group(group)
     , _maximum_capacity(_config.max_req_count, _config.max_bytes_count)
     , _current_capacity(_config.max_req_count, _config.max_bytes_count)
     , _base(std::chrono::steady_clock::now())
-{}
+{
+    (void)_group; // to make clang happy, will be removed soon
+}
 
 void fair_queue::push_priority_class(priority_class_ptr pc) {
     if (!pc->_queued) {

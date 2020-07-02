@@ -30,12 +30,14 @@
 #include <boost/range/irange.hpp>
 
 struct local_fq_and_class {
+    seastar::fair_group fg;
     seastar::fair_queue fq;
     seastar::priority_class_ptr pclass;
     unsigned executed = 0;
 
     local_fq_and_class()
-        : fq(seastar::fair_queue::config(1, 1))
+        : fg(seastar::fair_group::config{})
+        , fq(fg, seastar::fair_queue::config(1, 1))
         , pclass(fq.register_priority_class(1))
     {}
 
@@ -50,13 +52,16 @@ struct perf_fair_queue {
 
     seastar::sharded<local_fq_and_class> local_fq;
 
+    seastar::fair_group shared_fg;
     seastar::fair_queue shared_fq;
     std::vector<priority_class_ptr> shared_pclass;
 
     uint64_t shared_executed = 0;
     uint64_t shared_acked = 0;
 
-    perf_fair_queue() : shared_fq(seastar::fair_queue::config(1, 1))
+    perf_fair_queue()
+        : shared_fg(seastar::fair_group::config{})
+        , shared_fq(shared_fg, seastar::fair_queue::config(1, 1))
     {
         local_fq.start().get();
         for (unsigned i = 0; i < smp::count; ++i) {

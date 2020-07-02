@@ -131,6 +131,23 @@ public:
 /// \related fair_queue
 using priority_class_ptr = lw_shared_ptr<priority_class>;
 
+/// \brief Group of queues class
+///
+/// This is a fair group. It's attached by one or mode fair queues. On machines having the
+/// big* amount of shards, queues use the group to borrow/lend the needed capacity for
+/// requests dispatching.
+///
+/// * Big means that when all shards sumbit requests alltogether the disk is unable to
+/// dispatch them efficiently. The inability can be of two kinds -- either disk cannot
+/// cope with the number of arriving requests, or the total size of the data withing
+/// the given time frame exceeds the disk throughput.
+class fair_group {
+public:
+    struct config {
+    };
+    explicit fair_group(config cfg) noexcept;
+};
+
 /// \brief Fair queuing class
 ///
 /// This is a fair queue, allowing multiple request producers to queue requests
@@ -181,6 +198,7 @@ private:
     };
 
     config _config;
+    fair_group& _group;
     fair_queue_ticket _maximum_capacity;
     fair_queue_ticket _current_capacity;
     fair_queue_ticket _resources_executing;
@@ -206,7 +224,7 @@ public:
     /// Constructs a fair queue with configuration parameters \c cfg.
     ///
     /// \param cfg an instance of the class \ref config
-    explicit fair_queue(config cfg);
+    explicit fair_queue(fair_group& shared, config cfg);
 
     /// Registers a priority class against this fair queue.
     ///
