@@ -1529,8 +1529,8 @@ reactor::submit_io(io_completion* desc, io_request req) noexcept {
 
 bool
 reactor::flush_pending_aio() {
-    for (auto& ioq : my_io_queues) {
-        ioq->poll_io_queue();
+    for (auto& ioq : _io_queues) {
+        ioq.second->poll_io_queue();
     }
     return false;
 }
@@ -1538,8 +1538,8 @@ reactor::flush_pending_aio() {
 steady_clock_type::time_point reactor::next_pending_aio() const noexcept {
     steady_clock_type::time_point next = steady_clock_type::time_point::max();
 
-    for (auto& ioq : my_io_queues) {
-        steady_clock_type::time_point n = ioq->next_pending_aio();
+    for (auto& ioq : _io_queues) {
+        steady_clock_type::time_point n = ioq.second->next_pending_aio();
         if (n < next) {
             next = std::move(n);
         }
@@ -2855,7 +2855,7 @@ int reactor::run() {
     // This is needed because the reactor is destroyed from the thread_local destructors. If
     // the I/O queue happens to use any other infrastructure that is also kept this way (for
     // instance, collectd), we will not have any way to guarantee who is destroyed first.
-    my_io_queues.clear();
+    _io_queues.clear();
     return _return;
 }
 
@@ -3957,7 +3957,6 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
 
     auto assign_io_queue = [&devices_topology] (shard_id shard_id, dev_t dev_id) {
         io_queue* queue = devices_topology[dev_id].queues[shard_id];
-        engine().my_io_queues.emplace_back(queue);
         engine()._io_queues.emplace(dev_id, queue);
     };
 
