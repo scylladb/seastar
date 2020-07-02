@@ -160,6 +160,16 @@ public:
         std::chrono::microseconds tau = std::chrono::milliseconds(100);
         unsigned max_req_count = std::numeric_limits<unsigned>::max();
         unsigned max_bytes_count = std::numeric_limits<unsigned>::max();
+
+        config() noexcept = default;
+
+        /// Constructs a config with the given \c capacity, expressed in maximum
+        /// values for requests and bytes.
+        ///
+        /// \param max_requests how many concurrent requests are allowed in this queue.
+        /// \param max_bytes how many total bytes are allowed in this queue.
+        config(unsigned max_requests, unsigned max_bytes) noexcept
+                : max_req_count(max_requests), max_bytes_count(max_bytes) {}
     };
 private:
     friend priority_class;
@@ -197,13 +207,6 @@ public:
     ///
     /// \param cfg an instance of the class \ref config
     explicit fair_queue(config cfg);
-
-    /// Constructs a fair queue with a given \c capacity, expressed in IOPS.
-    ///
-    /// \param capacity how many concurrent requests are allowed in this queue.
-    /// \param tau the queue exponential decay parameter, as in exp(-1/tau * t)
-    explicit fair_queue(unsigned capacity, std::chrono::microseconds tau = std::chrono::milliseconds(100))
-        : fair_queue(config{tau, capacity}) {}
 
     /// Registers a priority class against this fair queue.
     ///

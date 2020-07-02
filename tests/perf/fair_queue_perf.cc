@@ -58,7 +58,7 @@ struct perf_fair_queue {
     uint64_t shared_acked = 0;
 
     perf_fair_queue()
-        : cfg({ std::chrono::milliseconds(100), 1, 1 })
+        : cfg(1, 1)
         , shared_fq(cfg)
     {
         local_fq.start(cfg).get();
