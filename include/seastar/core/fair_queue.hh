@@ -193,15 +193,15 @@ private:
     prioq _handles;
     std::unordered_set<priority_class_ptr> _all_classes;
 
+    priority_class_ptr peek_priority_class();
     void push_priority_class(priority_class_ptr pc);
-
-    priority_class_ptr pop_priority_class();
+    void pop_priority_class(priority_class_ptr pc);
 
     float normalize_factor() const;
 
     void normalize_stats();
 
-    bool can_dispatch() const;
+    bool grab_capacity(fair_queue_ticket cap) noexcept;
 public:
     /// Constructs a fair queue with configuration parameters \c cfg.
     ///

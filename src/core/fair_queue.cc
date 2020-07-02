@@ -95,13 +95,15 @@ void fair_queue::push_priority_class(priority_class_ptr pc) {
     }
 }
 
-priority_class_ptr fair_queue::pop_priority_class() {
+priority_class_ptr fair_queue::peek_priority_class() {
     assert(!_handles.empty());
-    auto h = _handles.top();
+    return _handles.top();
+}
+
+void fair_queue::pop_priority_class(priority_class_ptr pc) {
+    assert(pc->_queued);
+    pc->_queued = false;
     _handles.pop();
-    assert(h->_queued);
-    h->_queued = false;
-    return h;
 }
 
 float fair_queue::normalize_factor() const {
@@ -117,8 +119,8 @@ void fair_queue::normalize_stats() {
     }
 }
 
-bool fair_queue::can_dispatch() const {
-    return _resources_queued && (_resources_executing.strictly_less(_current_capacity));
+bool fair_queue::grab_capacity(fair_queue_ticket cap) noexcept {
+    return _resources_executing.strictly_less(_current_capacity);
 }
 
 priority_class_ptr fair_queue::register_priority_class(uint32_t shares) {
@@ -164,21 +166,33 @@ void fair_queue::notify_requests_finished(fair_queue_ticket desc, unsigned nr) n
 }
 
 void fair_queue::dispatch_requests() {
-    while (can_dispatch()) {
+    while (_resources_queued) {
         priority_class_ptr h;
-        do {
-            h = pop_priority_class();
-        } while (h->_queue.empty());
 
-        auto req = std::move(h->_queue.front());
+        while (true) {
+            h = peek_priority_class();
+            if (!h->_queue.empty()) {
+                break;
+            }
+            pop_priority_class(h);
+        }
+
+        fair_queue_ticket cap = h->_queue.front().desc;
+        if (!grab_capacity(cap)) {
+            break;
+        }
+
+        pop_priority_class(h);
+        auto req_func = std::move(h->_queue.front().func);
         h->_queue.pop_front();
-        _resources_executing += req.desc;;
-        _resources_queued -= req.desc;
+
+        _resources_executing += cap;
+        _resources_queued -= cap;
         _requests_executing++;
         _requests_queued--;
 
         auto delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
-        auto req_cost  = req.desc.normalize(_maximum_capacity) / h->_shares;
+        auto req_cost  = cap.normalize(_maximum_capacity) / h->_shares;
         auto cost  = expf(1.0f/_config.tau.count() * delta.count()) * req_cost;
         float next_accumulated = h->_accumulated + cost;
         while (std::isinf(next_accumulated)) {
@@ -193,7 +207,7 @@ void fair_queue::dispatch_requests() {
         if (!h->_queue.empty()) {
             push_priority_class(h);
         }
-        req.func();
+        req_func();
     }
 }
 
