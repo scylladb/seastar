@@ -36,40 +36,40 @@ namespace seastar {
 
 static_assert(sizeof(fair_queue_ticket) == sizeof(uint64_t), "unexpected fair_queue_ticket size");
 
-fair_queue_ticket::fair_queue_ticket(uint32_t weight, uint32_t size)
+fair_queue_ticket::fair_queue_ticket(uint32_t weight, uint32_t size) noexcept
     : _weight(weight)
     , _size(size)
 {}
 
-float fair_queue_ticket::normalize(fair_queue_ticket denominator) const {
+float fair_queue_ticket::normalize(fair_queue_ticket denominator) const noexcept {
     return float(_weight) / denominator._weight + float(_size) / denominator._size;
 }
 
-fair_queue_ticket fair_queue_ticket::operator+(fair_queue_ticket desc) const {
+fair_queue_ticket fair_queue_ticket::operator+(fair_queue_ticket desc) const noexcept {
     return fair_queue_ticket(_weight + desc._weight, _size + desc._size);
 }
 
-fair_queue_ticket& fair_queue_ticket::operator+=(fair_queue_ticket desc) {
+fair_queue_ticket& fair_queue_ticket::operator+=(fair_queue_ticket desc) noexcept {
     _weight += desc._weight;
     _size += desc._size;
     return *this;
 }
 
-fair_queue_ticket fair_queue_ticket::operator-(fair_queue_ticket desc) const {
+fair_queue_ticket fair_queue_ticket::operator-(fair_queue_ticket desc) const noexcept {
     return fair_queue_ticket(_weight - desc._weight, _size - desc._size);
 }
 
-fair_queue_ticket& fair_queue_ticket::operator-=(fair_queue_ticket desc) {
+fair_queue_ticket& fair_queue_ticket::operator-=(fair_queue_ticket desc) noexcept {
     _weight -= desc._weight;
     _size -= desc._size;
     return *this;
 }
 
-bool fair_queue_ticket::strictly_less(fair_queue_ticket rhs) const {
+bool fair_queue_ticket::strictly_less(fair_queue_ticket rhs) const noexcept {
     return (_weight < rhs._weight) && (_size < rhs._size);
 }
 
-fair_queue_ticket::operator bool() const {
+fair_queue_ticket::operator bool() const noexcept {
     return (_weight > 0) || (_size > 0);
 }
 

@@ -45,16 +45,16 @@ public:
     ///
     /// \param weight the weight of the request
     /// \param size the size of the request
-    fair_queue_ticket(uint32_t weight, uint32_t size);
-    fair_queue_ticket() {}
-    fair_queue_ticket operator+(fair_queue_ticket desc) const;
-    fair_queue_ticket operator-(fair_queue_ticket desc) const;
+    fair_queue_ticket(uint32_t weight, uint32_t size) noexcept;
+    fair_queue_ticket() noexcept {}
+    fair_queue_ticket operator+(fair_queue_ticket desc) const noexcept;
+    fair_queue_ticket operator-(fair_queue_ticket desc) const noexcept;
     /// Increase the quantity represented in this ticket by the amount represented by \c desc
     /// \param desc another \ref fair_queue_ticket whose \c weight \c and size will be added to this one
-    fair_queue_ticket& operator+=(fair_queue_ticket desc);
+    fair_queue_ticket& operator+=(fair_queue_ticket desc) noexcept;
     /// Decreases the quantity represented in this ticket by the amount represented by \c desc
     /// \param desc another \ref fair_queue_ticket whose \c weight \c and size will be decremented from this one
-    fair_queue_ticket& operator-=(fair_queue_ticket desc);
+    fair_queue_ticket& operator-=(fair_queue_ticket desc) noexcept;
 
     /// \returns true if this fair_queue_ticket is strictly less than \c rhs.
     ///
@@ -62,13 +62,13 @@ public:
     /// less than the other. Note that there is no total ordering between two fair_queue_tickets
     //
     /// \param rhs another \ref fair_queue_ticket to be compared to this one.
-    bool strictly_less(fair_queue_ticket rhs) const;
+    bool strictly_less(fair_queue_ticket rhs) const noexcept;
 
     /// \returns true if the fair_queue_ticket represents a non-zero quantity.
     ///
     /// For a fair_queue ticket to be non-zero, at least one of its represented quantities need to
     /// be non-zero
-    explicit operator bool() const;
+    explicit operator bool() const noexcept;
 
     friend std::ostream& operator<<(std::ostream& os, fair_queue_ticket t);
 
@@ -85,7 +85,7 @@ public:
     ///
     /// It is however not legal for the axis to have any quantity set to zero.
     /// \param axis another \ref fair_queue_ticket to be used as a a base vector against which to normalize this fair_queue_ticket.
-    float normalize(fair_queue_ticket axis) const;
+    float normalize(fair_queue_ticket axis) const noexcept;
 };
 
 /// \addtogroup io-module
