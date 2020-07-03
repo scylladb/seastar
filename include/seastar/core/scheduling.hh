@@ -157,6 +157,8 @@ private:
     friend future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg) noexcept;
     template<typename T>
     friend T* internal::scheduling_group_get_specific_ptr(scheduling_group sg, scheduling_group_key key) noexcept;
+    template<typename T>
+    friend T& scheduling_group_get_specific(scheduling_group_key key) noexcept;
 
     friend unsigned long internal::scheduling_group_key_id(scheduling_group_key key) noexcept;
 };

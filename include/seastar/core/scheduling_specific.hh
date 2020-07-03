@@ -107,7 +107,13 @@ T& scheduling_group_get_specific(scheduling_group sg, scheduling_group_key key) 
  */
 template<typename T>
 T& scheduling_group_get_specific(scheduling_group_key key) noexcept {
-    return *internal::scheduling_group_get_specific_ptr<T>(current_scheduling_group(), std::move(key));
+    // Unlike internal::scheduling_group_get_specific_ptr, this can
+    // return a reference to an element whose queue_is_initialized is
+    // false.
+    auto& data = internal::get_scheduling_group_specific_thread_local_data();
+    assert(std::type_index(typeid(T)) == data.scheduling_group_key_configs[key.id()].type_index);
+    auto sg_id = internal::scheduling_group_index(current_scheduling_group());
+    return *reinterpret_cast<T*>(data.per_scheduling_group_data[sg_id].specific_vals[key.id()]);
 }
 
 /**
