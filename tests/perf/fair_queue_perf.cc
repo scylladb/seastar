@@ -34,8 +34,8 @@ struct local_fq_and_class {
     seastar::priority_class_ptr pclass;
     unsigned executed = 0;
 
-    local_fq_and_class(seastar::fair_queue::config cfg)
-        : fq(std::move(cfg))
+    local_fq_and_class()
+        : fq(seastar::fair_queue::config(1, 1))
         , pclass(fq.register_priority_class(1))
     {}
 
@@ -48,7 +48,6 @@ struct perf_fair_queue {
 
     static constexpr unsigned requests_to_dispatch = 1000;
 
-    seastar::fair_queue::config cfg;
     seastar::sharded<local_fq_and_class> local_fq;
 
     seastar::fair_queue shared_fq;
@@ -57,11 +56,9 @@ struct perf_fair_queue {
     uint64_t shared_executed = 0;
     uint64_t shared_acked = 0;
 
-    perf_fair_queue()
-        : cfg(1, 1)
-        , shared_fq(cfg)
+    perf_fair_queue() : shared_fq(seastar::fair_queue::config(1, 1))
     {
-        local_fq.start(cfg).get();
+        local_fq.start().get();
         for (unsigned i = 0; i < smp::count; ++i) {
             shared_pclass.push_back(shared_fq.register_priority_class(1));
         }
