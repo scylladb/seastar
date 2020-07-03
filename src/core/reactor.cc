@@ -3608,9 +3608,6 @@ public:
         }
 
         if (doc) {
-            static constexpr unsigned task_quotas_in_default_latency_goal = 3;
-            unsigned auto_num_io_queues = smp::count;
-
             for (auto&& section : *doc) {
                 auto sec_name = section.first.as<std::string>();
                 if (sec_name != "disks") {
@@ -3635,34 +3632,11 @@ public:
                         throw std::runtime_error(fmt::format("R/W bytes and req rates must not be zero"));
                     }
 
-                    // Ideally we wouldn't have I/O Queues and would dispatch from every shard (https://github.com/scylladb/seastar/issues/485)
-                    // While we don't do that, we'll just be conservative and try to recommend values of I/O Queues that are close to what we
-                    // suggested before the I/O Scheduler rework. The I/O Scheduler has traditionally tried to make sure that each queue would have
-                    // at least 4 requests in depth, and all its requests were 4kB in size. Therefore, try to arrange the I/O Queues so that we would
-                    // end up in the same situation here (that's where the 4 comes from).
-                    //
-                    // For the bandwidth limit, we want that to be 4 * 4096, so each I/O Queue has the same bandwidth as before.
-                    if (!_num_io_queues) {
-                        unsigned dev_io_queues = smp::count;
-                        dev_io_queues = std::min(dev_io_queues, unsigned((task_quotas_in_default_latency_goal * d.write_req_rate * latency_goal().count()) / 4));
-                        dev_io_queues = std::min(dev_io_queues, unsigned((task_quotas_in_default_latency_goal * d.write_bytes_rate * latency_goal().count()) / (4 * 4096)));
-                        dev_io_queues = std::max(dev_io_queues, 1u);
-                        seastar_logger.debug("dev_io_queues: {}", dev_io_queues);
-                        d.num_io_queues = dev_io_queues;
-                        auto_num_io_queues = std::min(auto_num_io_queues, dev_io_queues);
-                    } else {
-                        d.num_io_queues = _num_io_queues;
-                    }
-
+                    d.num_io_queues = _num_io_queues;
                     seastar_logger.debug("dev_id: {} mountpoint: {}", buf.st_dev, d.mountpoint);
                     _mountpoints.emplace(buf.st_dev, d);
                 }
             }
-            if (!_num_io_queues) {
-                _num_io_queues = auto_num_io_queues;
-            }
-        } else if (!_num_io_queues) {
-            _num_io_queues = smp::count;
         }
 
         // Placeholder for unconfigured disks.

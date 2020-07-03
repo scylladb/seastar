@@ -377,9 +377,12 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unord
     io_queue_topology ret;
     ret.shard_to_group.resize(cpus.size());
 
-    // User may be playing with --smp option, but num_io_queues was independently
-    // determined by iotune, so adjust for any conflicts.
-    if (num_io_queues > cpus.size()) {
+    if (num_io_queues == 0) {
+        num_io_queues = numa_nodes.size();
+        assert(num_io_queues != 0);
+    } else if (num_io_queues > cpus.size()) {
+        // User may be playing with --smp option, but num_io_queues was independently
+        // determined by iotune, so adjust for any conflicts.
         fmt::print("Warning: number of IO queues ({:d}) greater than logical cores ({:d}). Adjusting downwards.\n", num_io_queues, cpus.size());
         num_io_queues = cpus.size();
     }
