@@ -3914,6 +3914,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
             if (iog.attached == 0) {
                 struct io_group::config gcfg = disk_config.generate_group_config(id, topology.groups.size());
                 iog.g = std::make_shared<io_group>(std::move(gcfg));
+                seastar_logger.debug("allocate {} IO group", group_idx);
             }
             iog.attached++;
             group = iog.g;
@@ -3921,6 +3922,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
 
         struct io_queue::config cfg = disk_config.generate_config(id);
         topology.queues[shard] = new io_queue(std::move(group), std::move(cfg));
+        seastar_logger.debug("attached {} queue to {} IO group", shard, group_idx);
     };
 
     auto assign_io_queue = [&devices_topology] (shard_id shard_id, dev_t dev_id) {

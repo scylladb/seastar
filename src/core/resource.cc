@@ -380,6 +380,7 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unord
     if (num_io_queues == 0) {
         num_io_queues = numa_nodes.size();
         assert(num_io_queues != 0);
+        seastar_logger.debug("Auto-configure {} IO groups", num_io_queues);
     } else if (num_io_queues > cpus.size()) {
         // User may be playing with --smp option, but num_io_queues was independently
         // determined by iotune, so adjust for any conflicts.
