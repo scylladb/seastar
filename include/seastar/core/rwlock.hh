@@ -100,9 +100,7 @@ public:
     /// is called, one of the fibers waiting on \ref write_lock will be allowed
     /// to proceed.
     void read_unlock() {
-#ifdef SEASTAR_DEBUG_LOCKING
         assert(_sem.current() < max_ops);
-#endif
         _sem.signal();
     }
 
@@ -118,9 +116,7 @@ public:
     /// is called, one of the other fibers waiting on \ref write_lock or the fibers
     /// waiting on \ref read_lock will be allowed to proceed.
     void write_unlock() {
-#ifdef SEASTAR_DEBUG_LOCKING
         assert(_sem.current() == 0);
-#endif
         _sem.signal(max_ops);
     }
 

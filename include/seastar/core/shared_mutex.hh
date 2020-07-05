@@ -66,15 +66,25 @@ public:
     /// \return a future that becomes ready when no exclusive access
     ///         is granted to anyone.
     future<> lock_shared() {
-        if (!_writer && _waiters.empty()) {
-            ++_readers;
+        if (try_lock_shared()) {
             return make_ready_future<>();
         }
         _waiters.emplace_back(promise<>(), false);
         return _waiters.back().pr.get_future();
     }
+    /// Try to lock the \c shared_mutex for shared access
+    ///
+    /// \return true iff could acquire the lock for shared access.
+    bool try_lock_shared() noexcept {
+        if (!_writer && _waiters.empty()) {
+            ++_readers;
+            return true;
+        }
+        return false;
+    }
     /// Unlocks a \c shared_mutex after a previous call to \ref lock_shared().
     void unlock_shared() {
+        assert(_readers > 0);
         --_readers;
         wake();
     }
@@ -83,15 +93,25 @@ public:
     /// \return a future that becomes ready when no access, shared or exclusive
     ///         is granted to anyone.
     future<> lock() {
-        if (!_readers && !_writer) {
-            _writer = true;
+        if (try_lock()) {
             return make_ready_future<>();
         }
         _waiters.emplace_back(promise<>(), true);
         return _waiters.back().pr.get_future();
     }
+    /// Try to lock the \c shared_mutex for exclusive access
+    ///
+    /// \return true iff could acquire the lock for exclusive access.
+    bool try_lock() noexcept {
+        if (!_readers && !_writer) {
+            _writer = true;
+            return true;
+        }
+        return false;
+    }
     /// Unlocks a \c shared_mutex after a previous call to \ref lock().
     void unlock() {
+        assert(_writer);
         _writer = false;
         wake();
     }
@@ -130,10 +150,10 @@ template <typename Func>
 inline
 futurize_t<std::result_of_t<Func ()>>
 with_shared(shared_mutex& sm, Func&& func) {
-    return sm.lock_shared().then([func = std::forward<Func>(func)] () mutable {
-        return func();
-    }).finally([&sm] {
-        sm.unlock_shared();
+    return sm.lock_shared().then([&sm, func = std::forward<Func>(func)] () mutable {
+        return futurize_invoke(func).finally([&sm] {
+            sm.unlock_shared();
+        });
     });
 }
 
@@ -151,10 +171,10 @@ template <typename Func>
 inline
 futurize_t<std::result_of_t<Func ()>>
 with_lock(shared_mutex& sm, Func&& func) {
-    return sm.lock().then([func = std::forward<Func>(func)] () mutable {
-        return func();
-    }).finally([&sm] {
-        sm.unlock();
+    return sm.lock().then([&sm, func = std::forward<Func>(func)] () mutable {
+        return futurize_invoke(func).finally([&sm] {
+            sm.unlock();
+        });
     });
 }
 

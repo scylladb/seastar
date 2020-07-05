@@ -151,11 +151,10 @@ do_with(T1&& rv1, T2&& rv2, More&&... more) noexcept {
 template<typename Lock, typename Func>
 inline
 auto with_lock(Lock& lock, Func&& func) {
-    return lock.lock().then([func = std::forward<Func>(func)] () mutable {
-        return func();
-    }).then_wrapped([&lock] (auto&& fut) {
-        lock.unlock();
-        return std::move(fut);
+    return lock.lock().then([&lock, func = std::forward<Func>(func)] {
+        return futurize_invoke(func).finally([&lock] {
+            lock.unlock();
+        });
     });
 }
 

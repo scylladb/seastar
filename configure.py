@@ -186,7 +186,7 @@ def configure_mode(mode):
         tr(args.dpdk, 'DPDK'),
         tr(infer_dpdk_machine(args.user_cflags), 'DPDK_MACHINE'),
         tr(args.hwloc, 'HWLOC', value_when_none='yes'),
-        tr(args.alloc_failure_injection, 'ALLOC_FAILURE_INJECTION'),
+        tr(args.alloc_failure_injection, 'ALLOC_FAILURE_INJECTION', value_when_none='DEFAULT'),
         tr(args.task_backtrace, 'TASK_BACKTRACE'),
         tr(args.alloc_page_size, 'ALLOC_PAGE_SIZE'),
         tr(args.split_dwarf, 'SPLIT_DWARF'),
