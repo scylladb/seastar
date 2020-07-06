@@ -76,8 +76,6 @@ struct perf_fair_queue {
 PERF_TEST_F(perf_fair_queue, contended_local)
 {
     auto invokers = local_fq.invoke_on_all([] (local_fq_and_class& local) {
-        local.executed = 0;
-
         return parallel_for_each(boost::irange(0u, requests_to_dispatch), [&local] (unsigned dummy) {
             local.fq.queue(local.pclass, seastar::fair_queue_ticket{1, 1}, [&local] {
                 local.executed++;
@@ -88,6 +86,15 @@ PERF_TEST_F(perf_fair_queue, contended_local)
     });
 
     auto collectors = local_fq.invoke_on_all([] (local_fq_and_class& local) {
+        // Zeroing this counter must be here, otherwise should the collectors win the
+        // execution order in when_all_succeed(), the do_until()'s stopping callback
+        // would return true immediately and the queue would not be dispatched.
+        //
+        // At the same time, although this counter is incremented by the lambda from
+        // invokers, it's not called until the fq.dispatch_requests() is, so there's no
+        // opposite problem if zeroing it here.
+        local.executed = 0;
+
         return do_until([&local] { return local.executed == requests_to_dispatch; }, [&local] {
             local.fq.dispatch_requests();
             return make_ready_future<>();
