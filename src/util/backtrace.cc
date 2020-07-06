@@ -172,7 +172,7 @@ tasktrace::tasktrace(simple_backtrace main, tasktrace::vector_type prev, size_t 
     : _main(std::move(main))
     , _prev(std::move(prev))
     , _sg(sg)
-    , _hash(main.hash() * 31 ^ prev_hash)
+    , _hash(_main.hash() * 31 ^ prev_hash)
 { }
 
 bool tasktrace::operator==(const tasktrace& o) const {
