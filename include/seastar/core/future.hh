@@ -814,12 +814,9 @@ private:
         _state = &tws->_state;
         _task = tws;
     }
-    void forward_state_and_schedule(future_state<T...>* state, task* callback) noexcept {
-        _state = state;
-        promise_base::schedule(callback);
-    }
     void schedule_continuation(continuation_base<T...>* callback) noexcept {
-        forward_state_and_schedule(&callback->_state, callback);
+        _state = &callback->_state;
+        promise_base::schedule(callback);
     }
 
     template <typename... U>
@@ -1157,6 +1154,10 @@ protected:
     }
 
     void do_wait() noexcept;
+
+#ifdef SEASTAR_COROUTINES_ENABLED
+    void set_coroutine(task& coroutine) noexcept;
+#endif
 
     friend class promise_base;
 };
@@ -1816,11 +1817,7 @@ public:
     }
 
 #ifdef SEASTAR_COROUTINES_ENABLED
-    void set_coroutine(task& coroutine) noexcept {
-        assert(!_state.available());
-        assert(_promise);
-        detach_promise()->forward_state_and_schedule(&_state, &coroutine);
-    }
+    using future_base::set_coroutine;
 #endif
 private:
     void set_callback(continuation_base<T...>* callback) noexcept {

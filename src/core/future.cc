@@ -75,17 +75,17 @@ promise_base::promise_base(promise_base&& x) noexcept {
 }
 
 void promise_base::clear() noexcept {
+    if (__builtin_expect(bool(_task), false)) {
+        assert(_state && !_state->available());
+        set_to_broken_promise(*_state);
+        ::seastar::schedule(std::exchange(_task, nullptr));
+    }
     if (_future) {
         assert(_state);
-        assert(_state->available() || !_task);
         if (!_state->available()) {
             set_to_broken_promise(*_state);
         }
         _future->detach_promise();
-    } else if (__builtin_expect(bool(_task), false)) {
-        assert(_state && !_state->available());
-        set_to_broken_promise(*_state);
-        ::seastar::schedule(std::exchange(_task, nullptr));
     }
 }
 
@@ -230,4 +230,12 @@ void internal::future_base::do_wait() noexcept {
     _promise->schedule(&wake_task);
     thread_impl::switch_out(thread);
 }
+
+#ifdef SEASTAR_COROUTINES_ENABLED
+void internal::future_base::set_coroutine(task& coroutine) noexcept {
+    assert(_promise);
+    _promise->schedule(&coroutine);
+}
+#endif
+
 }
