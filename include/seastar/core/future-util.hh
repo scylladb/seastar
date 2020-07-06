@@ -528,13 +528,13 @@ future<> do_until(StopCondition stop_cond, AsyncAction action) noexcept {
         }
         auto f = futurize_invoke(action);
         if (!f.available()) {
-          return [&] () noexcept {
-            memory::disable_failure_guard dfg;
-            auto task = new do_until_state<StopCondition, AsyncAction>(std::move(stop_cond), std::move(action));
-            auto ret = task->get_future();
-            internal::set_callback(f, task);
-            return ret;
-          }();
+            return [&] () noexcept {
+                memory::disable_failure_guard dfg;
+                auto task = new do_until_state<StopCondition, AsyncAction>(std::move(stop_cond), std::move(action));
+                auto ret = task->get_future();
+                internal::set_callback(f, task);
+                return ret;
+            }();
         }
         if (f.failed()) {
             return f;
