@@ -522,12 +522,15 @@ SEASTAR_CONCEPT( requires seastar::InvokeReturns<StopCondition, bool> && seastar
 inline
 future<> do_until(StopCondition stop_cond, AsyncAction action) noexcept {
     using namespace internal;
-    do {
+    for (;;) {
         if (stop_cond()) {
             return make_ready_future<>();
         }
         auto f = futurize_invoke(action);
-        if (!f.available()) {
+        if (f.failed()) {
+            return f;
+        }
+        if (!f.available() || need_preempt()) {
             return [&] () noexcept {
                 memory::disable_failure_guard dfg;
                 auto task = new do_until_state<StopCondition, AsyncAction>(std::move(stop_cond), std::move(action));
@@ -536,15 +539,7 @@ future<> do_until(StopCondition stop_cond, AsyncAction action) noexcept {
                 return ret;
             }();
         }
-        if (f.failed()) {
-            return f;
-        }
-    } while (!need_preempt());
-
-    auto task = new do_until_state<StopCondition, AsyncAction>(std::move(stop_cond), std::move(action));
-    auto f = task->get_future();
-    schedule(task);
-    return f;
+    }
 }
 
 /// Invoke given action until it fails.
