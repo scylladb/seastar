@@ -1461,9 +1461,14 @@ public:
         return call_then_impl::run(*this, std::move(func));
 #else
         using func_type = typename call_then_impl::template func_type<Func>;
-        return call_then_impl::run(*this, noncopyable_function<func_type>([func = std::forward<Func>(func)] (auto&&... args) mutable {
-            return futurize_invoke(func, std::forward<decltype(args)>(args)...);
-        }));
+        noncopyable_function<func_type> ncf;
+        {
+            memory::disable_failure_guard dfg;
+            ncf = noncopyable_function<func_type>([func = std::forward<Func>(func)](auto&&... args) mutable {
+                return futurize_invoke(func, std::forward<decltype(args)>(args)...);
+            });
+        }
+        return call_then_impl::run(*this, std::move(ncf));
 #endif
     }
 
@@ -1580,9 +1585,14 @@ private:
 #else
         using futurator = futurize<FuncResult>;
         using WrapFuncResult = typename futurator::type;
-        return then_wrapped_common<AsSelf, WrapFuncResult>(noncopyable_function<WrapFuncResult (future&&)>([func = std::forward<Func>(func)] (future&& f) mutable {
-            return futurator::invoke(func, std::move(f));
-        }));
+        noncopyable_function<WrapFuncResult (future&&)> ncf;
+        {
+            memory::disable_failure_guard dfg;
+            ncf = noncopyable_function<WrapFuncResult(future &&)>([func = std::forward<Func>(func)](future&& f) mutable {
+                return futurator::invoke(func, std::move(f));
+            });
+        }
+        return then_wrapped_common<AsSelf, WrapFuncResult>(std::move(ncf));
 #endif
     }
 
