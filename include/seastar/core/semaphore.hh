@@ -192,12 +192,12 @@ public:
         if (_ex) {
             return make_exception_future(_ex);
         }
-        promise<> pr;
-        auto fut = pr.get_future();
+        entry e(promise<>(), nr);
+        auto fut = e.pr.get_future();
         try {
-            _wait_list.push_back(entry(std::move(pr), nr), timeout);
+            _wait_list.push_back(std::move(e), timeout);
         } catch (...) {
-            pr.set_exception(std::current_exception());
+            e.pr.set_exception(std::current_exception());
         }
         return fut;
     }
