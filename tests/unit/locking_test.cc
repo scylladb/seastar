@@ -54,6 +54,11 @@ SEASTAR_THREAD_TEST_CASE(test_rwlock) {
     l.for_write().unlock();
 }
 
+SEASTAR_TEST_CASE(test_with_lock_mutable) {
+    rwlock l;
+    return with_lock(l.for_read(), [p = std::make_unique<int>(42)] () mutable {});
+}
+
 SEASTAR_TEST_CASE(test_rwlock_exclusive) {
     return do_with(rwlock(), unsigned(0), [] (rwlock& l, unsigned& counter) {
         return parallel_for_each(boost::irange(0, 10), [&l, &counter] (int idx) {
