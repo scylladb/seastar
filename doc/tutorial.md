@@ -1297,6 +1297,7 @@ We begin with a simple example of a TCP network server written in Seastar. This 
 #include <seastar/core/seastar.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/future-util.hh>
+#include <seastar/net/api.hh>
 #include <iostream>
 
 seastar::future<> service_loop() {
@@ -1304,9 +1305,9 @@ seastar::future<> service_loop() {
             [] (auto& listener) {
         return seastar::keep_doing([&listener] () {
             return listener.accept().then(
-                [] (seastar::connected_socket s, seastar::socket_address a) {
-                    std::cout << "Accepted connection from " << a << "\n";
-                });
+                [] (seastar::accept_result res) {
+                    std::cout << "Accepted connection from " << res.remote_address << "\n";
+            });
         });
     });
 }
