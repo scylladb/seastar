@@ -751,10 +751,6 @@ protected:
     friend class future_base;
     template <typename... U> friend class seastar::future;
 
-    void schedule(task* callback) noexcept {
-        _task = callback;
-    }
-
 private:
     void set_to_current_exception() noexcept;
 
@@ -810,16 +806,6 @@ public:
     using internal::promise_base::waiting_task;
 
 private:
-    template <typename Pr, typename Func, typename Wrapper>
-    void schedule(Pr&& pr, Func&& func, Wrapper&& wrapper) noexcept {
-        auto tws = new continuation<Pr, Func, Wrapper, T...>(std::move(pr), std::move(func), std::move(wrapper));
-        _state = &tws->_state;
-        _task = tws;
-    }
-    void schedule_continuation(continuation_base<T...>* callback) noexcept {
-        _state = &callback->_state;
-        promise_base::schedule(callback);
-    }
 
     template <typename... U>
     friend class seastar::future;
@@ -1155,6 +1141,12 @@ protected:
         return std::exchange(_promise, nullptr);
     }
 
+    void schedule(task* tws, future_state_base* state) noexcept {
+        promise_base* p = detach_promise();
+        p->_state = state;
+        p->_task = tws;
+    }
+
     void do_wait() noexcept;
 
 #ifdef SEASTAR_COROUTINES_ENABLED
@@ -1332,12 +1324,16 @@ private:
     internal::promise_base_with_type<T...>* detach_promise() noexcept {
         return static_cast<internal::promise_base_with_type<T...>*>(future_base::detach_promise());
     }
+    void schedule(continuation_base<T...>* tws) noexcept {
+        future_base::schedule(tws, &tws->_state);
+    }
     template <typename Pr, typename Func, typename Wrapper>
     void schedule(Pr&& pr, Func&& func, Wrapper&& wrapper) noexcept {
         if (_state.available()) {
             ::seastar::schedule(new continuation<Pr, Func, Wrapper, T...>(std::move(pr), std::move(func), std::move(wrapper), std::move(_state)));
         } else {
-            detach_promise()->schedule(std::move(pr), std::move(func), std::move(wrapper));
+            auto tws = new continuation<Pr, Func, Wrapper, T...>(std::move(pr), std::move(func), std::move(wrapper));
+            schedule(tws);
             _state._u.st = future_state_base::state::invalid;
         }
     }
@@ -1838,7 +1834,7 @@ private:
             ::seastar::schedule(callback);
         } else {
             assert(_promise);
-            detach_promise()->schedule_continuation(callback);
+            schedule(callback);
         }
 
     }

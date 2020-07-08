@@ -227,7 +227,7 @@ void internal::future_base::do_wait() noexcept {
     assert(thread);
     thread_wake_task wake_task{thread};
     wake_task.make_backtrace();
-    _promise->schedule(&wake_task);
+    _promise->_task = &wake_task;
     thread_impl::switch_out(thread);
 }
 
