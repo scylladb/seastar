@@ -180,7 +180,7 @@ public:
     /// Adds element to the back of the queue.
     /// The element will expire when timeout is reached, unless it is time_point::max(), in which
     /// case it never expires.
-    void push_back(T payload, time_point timeout) {
+    void push_back(T&& payload, time_point timeout) {
         if (timeout == time_point::max()) {
             push_back(std::move(payload));
             return;
