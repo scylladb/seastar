@@ -1327,7 +1327,7 @@ private:
         assert(!_promise);
         return internal::promise_base_with_type<T...>(this);
     }
-    internal::promise_base_with_type<T...>* detach_promise() {
+    internal::promise_base_with_type<T...>* detach_promise() noexcept {
         return static_cast<internal::promise_base_with_type<T...>*>(future_base::detach_promise());
     }
     template <typename Pr, typename Func, typename Wrapper>
