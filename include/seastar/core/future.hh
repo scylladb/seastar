@@ -442,6 +442,7 @@ protected:
     future_state_base(current_exception_future_marker) noexcept;
     struct nested_exception_marker {};
     future_state_base(nested_exception_marker, future_state_base&& old) noexcept;
+    future_state_base(nested_exception_marker, future_state_base&& n, future_state_base&& old) noexcept;
     ~future_state_base() noexcept = default;
 
     void rethrow_exception() &&;
@@ -551,6 +552,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
     future_state(exception_future_marker m, future_state_base&& state) noexcept : future_state_base(std::move(state)) { }
     future_state(current_exception_future_marker m) noexcept : future_state_base(m) { }
     future_state(nested_exception_marker m, future_state_base&& old) noexcept : future_state_base(m, std::move(old)) { }
+    future_state(nested_exception_marker m, future_state_base&& n, future_state_base&& old) noexcept : future_state_base(m, std::move(n), std::move(old)) { }
     std::tuple<T...>&& get_value() && noexcept {
         assert(_u.st == state::result);
         return std::move(this->uninitialized_get());
@@ -1310,6 +1312,7 @@ private:
     future(ready_future_marker m, A&&... a) noexcept : _state(m, std::forward<A>(a)...) { }
     future(future_state_base::current_exception_future_marker m) noexcept : _state(m) {}
     future(future_state_base::nested_exception_marker m, future_state_base&& old) noexcept : _state(m, std::move(old)) {}
+    future(future_state_base::nested_exception_marker m, future_state_base&& n, future_state_base&& old) noexcept : _state(m, std::move(n), std::move(old)) {}
     future(exception_future_marker m, std::exception_ptr&& ex) noexcept : _state(m, std::move(ex)) { }
     future(exception_future_marker m, future_state_base&& state) noexcept : _state(m, std::move(state)) { }
     [[gnu::always_inline]]
@@ -1343,6 +1346,10 @@ private:
             detach_promise();
         }
         return std::move(_state);
+    }
+
+    future<T...> rethrow_with_nested(future_state_base&& n) noexcept {
+        return future<T...>(future_state_base::nested_exception_marker(), std::move(n), std::move(_state));
     }
 
     future<T...> rethrow_with_nested() noexcept {
@@ -1711,12 +1718,7 @@ public:
                 if (!f_res.failed()) {
                     return std::move(result);
                 } else {
-                    try {
-                        f_res.get();
-                    } catch (...) {
-                        return result.rethrow_with_nested();
-                    }
-                    __builtin_unreachable();
+                    return result.rethrow_with_nested(std::move(f_res._state));
                 }
             });
         }

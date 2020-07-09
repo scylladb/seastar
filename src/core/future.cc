@@ -166,16 +166,27 @@ const char* nested_exception::what() const noexcept {
     std::rethrow_exception(outer);
 }
 
+static std::exception_ptr make_nested(std::exception_ptr&& inner, future_state_base&& old) noexcept {
+    std::exception_ptr outer = std::move(old).get_exception();
+    nested_exception nested{std::move(inner), std::move(outer)};
+    return std::make_exception_ptr<nested_exception>(std::move(nested));
+}
+
+future_state_base::future_state_base(nested_exception_marker, future_state_base&& n, future_state_base&& old) noexcept {
+    std::exception_ptr inner = std::move(n).get_exception();
+    if (!old.failed()) {
+        new (this) future_state_base(std::move(inner));
+    } else {
+        new (this) future_state_base(make_nested(std::move(inner), std::move(old)));
+    }
+}
+
 future_state_base::future_state_base(nested_exception_marker, future_state_base&& old) noexcept {
     if (!old.failed()) {
         new (this) future_state_base(current_exception_future_marker());
         return;
     } else {
-        std::exception_ptr inner = std::current_exception();
-        std::exception_ptr outer = std::move(old).get_exception();
-        nested_exception nested{std::move(inner), std::move(outer)};
-        std::exception_ptr np = std::make_exception_ptr<nested_exception>(std::move(nested));
-        new (this) future_state_base(std::move(np));
+        new (this) future_state_base(make_nested(std::current_exception(), std::move(old)));
     }
 }
 
