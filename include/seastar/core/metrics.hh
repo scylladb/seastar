@@ -44,6 +44,9 @@
 namespace seastar {
 
 /*!
+ * \addtogroup metrics
+ * @{
+ *
  * \namespace seastar::metrics
  * \brief metrics creation and registration
  *
