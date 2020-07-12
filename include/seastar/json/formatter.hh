@@ -149,7 +149,7 @@ public:
 
     /**
      * return a json formated float
-     * @param n the float to format
+     * @param f the float to format
      * @return the given float in a json format
      */
     static sstring to_json(float f);
@@ -247,7 +247,7 @@ public:
 
     /**
      * return a json formated float
-     * @param n the float to format
+     * @param f the float to format
      * @return the given float in a json format
      */
     static future<> write(output_stream<char>& s, float f) {
