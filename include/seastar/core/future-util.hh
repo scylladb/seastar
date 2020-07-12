@@ -1467,6 +1467,6 @@ when_all_succeed(FutureIterator begin, FutureIterator end) noexcept {
     }
 }
 
-}
-
 /// @}
+
+} // namespace seastar
