@@ -162,7 +162,7 @@ object_deleter_impl<Object>* make_object_deleter_impl(deleter next, Object obj) 
 /// destroying an object, as well as running another deleter.  The input
 /// object is moved to the deleter, and destroyed when the deleter is destroyed.
 ///
-/// \param d deleter that will become part of the new deleter's encapsulated action
+/// \param next deleter that will become part of the new deleter's encapsulated action
 /// \param o object whose destructor becomes part of the new deleter's encapsulated action
 /// \related deleter
 template <typename Object>
@@ -249,7 +249,7 @@ make_free_deleter(void* obj) {
 /// Makes a deleter that calls \c std::free() when it is destroyed, as well
 /// as invoking the encapsulated action of another deleter.
 ///
-/// \param d deleter to invoke.
+/// \param next deleter to invoke.
 /// \param obj object to free.
 /// \related deleter
 inline
