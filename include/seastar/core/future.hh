@@ -77,7 +77,8 @@ struct nested_exception : public std::exception {
 /// is resolved); the continuation can then access the actual value.
 ///
 
-/// \defgroup future-module Implementation overview
+/// \defgroup future-module-impl Implementation overview
+/// \ingroup future-module
 ///
 /// A future has a stored value. Semantically, the value is a
 /// std::optional<std::variant<T, std::exception_ptr>>. The actual
@@ -134,6 +135,7 @@ struct nested_exception : public std::exception {
 ///    continuation has no state of its own.
 
 /// \defgroup future-util Future Utilities
+/// \ingroup future-module
 ///
 /// \brief
 /// These utilities are provided to help perform operations on futures.
