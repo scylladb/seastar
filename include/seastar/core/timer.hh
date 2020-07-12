@@ -36,7 +36,7 @@
 /// Seastar provides timers that can be defined to run a callback at a certain
 /// time point in the future; timers are provided for \ref lowres_clock (10ms
 /// resolution, efficient), for std::chrono::steady_clock (accurate but less
-/// efficient) and for \ref manual_clock_type (for testing purposes).
+/// efficient) and for \ref manual_clock (for testing purposes).
 ///
 /// Timers are optimized for cancellation; that is, adding a timer and cancelling
 /// it is very efficient. This means that attaching a timer per object for

@@ -56,12 +56,12 @@ namespace seastar {
  *		scollectd::add_polled_metric(typ, [<metric var> | scollectd::make_typed(<data_type>, <metric_var>) [, ...]);
  *
  * Where
- * 	<pluginname> would be the overall 'module', e.g. "cpu"
- *  <instance_name> -> optional distinguisher between plugin instances. For cpu, the built-in
+ * 	`<pluginname>` would be the overall 'module', e.g. "cpu"
+ *  `<instance_name>` -> optional distinguisher between plugin instances. For cpu, the built-in
  *  scollectd::per_cpu_plugin_instance constant is a good choice, i.e. 0->N cpu.
  *  If there are no instances (e.g. only one), empty constant is appropriate (none)
- *  <type_name> is the 'type' of metric collected, for ex. "usage" (cpu/0/usage)
- *  <type_instance> is a distinguisher for metric parts of the type, e.g. "idle", "user", "kernel"
+ *  `<type_name>` is the 'type' of metric collected, for ex. "usage" (cpu/0/usage)
+ *  `<type_instance>` is a distinguisher for metric parts of the type, e.g. "idle", "user", "kernel"
  *  -> cpu/0/usage/idle | cpu/0/usage/user | cpu/0/usage/kernel
  *
  *  Each type instance can bind an arbitrary number of values, ech representing some aspect in turn of the instance.

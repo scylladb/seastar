@@ -289,7 +289,7 @@ public:
 
     /// Performs a DMA read into the specified iovec.
     ///
-    /// \param pos offset to read from.  Must be aligned to \ref dma_alignment.
+    /// \param pos offset to read from.  Must be aligned to \ref disk_read_dma_alignment.
     /// \param iov vector of address/size pairs to read into.  Addresses must be
     ///            aligned.
     /// \param pc the IO priority class under which to queue this operation
@@ -300,7 +300,7 @@ public:
 
     /// Performs a DMA write from the specified buffer.
     ///
-    /// \param pos offset to write into.  Must be aligned to \ref dma_alignment.
+    /// \param pos offset to write into.  Must be aligned to \ref disk_write_dma_alignment.
     /// \param buffer aligned address of buffer to read from.  Buffer must exists
     ///               until the future is made ready.
     /// \param len number of bytes to write.  Must be aligned.
@@ -315,7 +315,7 @@ public:
 
     /// Performs a DMA write to the specified iovec.
     ///
-    /// \param pos offset to write into.  Must be aligned to \ref dma_alignment.
+    /// \param pos offset to write into.  Must be aligned to \ref disk_write_dma_alignment.
     /// \param iov vector of address/size pairs to write from.  Addresses must be
     ///            aligned.
     /// \param pc the IO priority class under which to queue this operation
@@ -346,7 +346,7 @@ public:
     ///
     /// \param position beginning of the range at which to allocate
     ///                 blocks.
-    /// \parm length length of range to allocate.
+    /// \param length length of range to allocate.
     /// \return future that becomes ready when the operation completes.
     future<> allocate(uint64_t position, uint64_t length) noexcept;
 

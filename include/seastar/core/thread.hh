@@ -49,7 +49,7 @@
 ///
 /// Like other seastar code, seastar threads may not issue blocking system calls.
 ///
-/// A seastar thread blocking point is any function that returns a \ref future<>.
+/// A seastar thread blocking point is any function that returns a \ref future.
 /// you block by calling \ref future<>::get(); this waits for the future to become
 /// available, and in the meanwhile, other seastar threads and seastar non-threaded
 /// code may execute.

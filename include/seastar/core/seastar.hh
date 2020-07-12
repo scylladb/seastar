@@ -27,7 +27,7 @@
 /// Seastar is a high performance C++ application framework for high
 /// concurrency server applications.
 ///
-/// A good place to start is the [Tutorial](doc/tutorial.md).
+/// A good place to start is the [Tutorial](tutorial.html).
 ///
 /// Please see:
 ///   - \ref future-module Documentation on futures and promises, which are
@@ -139,7 +139,7 @@ future<connected_socket> connect(socket_address sa, socket_address local, transp
 
 /// Creates a socket object suitable for establishing stream-oriented connections
 ///
-/// \return a \ref net::socket object that can be used for establishing connections
+/// \return a \ref socket object that can be used for establishing connections
 socket make_socket();
 
 /// Creates a udp_channel object suitable for sending UDP packets
@@ -215,7 +215,7 @@ future<file> open_file_dma(sstring name, open_flags flags, file_open_options opt
 /// It will return if direct io can be used, or throw an std::system_error
 /// exception, with the EINVAL error code.
 ///
-/// A std::system_error with the respective error code is also thrown if \ref path is
+/// A std::system_error with the respective error code is also thrown if \c path is
 /// not a directory.
 ///
 /// \param path the directory we need to verify.
@@ -227,7 +227,7 @@ future<> check_direct_io_support(sstring path);
 ///
 /// \return a \ref file object representing a directory.  The only
 ///    legal operations are \ref file::list_directory(),
-///    \ref file::fsync(), and \ref file::close().
+///    \ref file::flush(), and \ref file::close().
 ///
 /// \relates file
 future<file> open_directory(sstring name) noexcept;
@@ -305,7 +305,7 @@ using follow_symlink = bool_class<follow_symlink_tag>;
 /// Return stat information about a file.
 ///
 /// \param name name of the file to return its stat information
-/// \param follow_symlink follow symbolic links.
+/// \param fs a follow_symlink flag to follow symbolic links.
 ///
 /// \return stat_data of the file identified by name.
 /// If name identifies a symbolic link then stat_data is returned either for the target of the link,
@@ -345,12 +345,12 @@ future<bool> file_exists(sstring name) noexcept;
 /// Determine the type of a file (regular file, directory, etc.)
 ///
 /// \param name name of the file for which type information is requested
-/// \param name follow_symlink whether a trailing symbolic link should be followed or not
+/// \param follow a follow_symlink flag that determines whether a trailing symbolic link should be followed or not
 ///
 /// \return a engaged optional with the file type if lookup was successful; a disengaged optional
 ///      if the file (or one of its parent directories) does not exist; an exceptional future on
 ///      other errors.
-future<std::optional<directory_entry_type>> file_type(sstring name, follow_symlink = follow_symlink::yes) noexcept;
+future<std::optional<directory_entry_type>> file_type(sstring name, follow_symlink follow = follow_symlink::yes) noexcept;
 
 
 /// Creates a hard link for a file

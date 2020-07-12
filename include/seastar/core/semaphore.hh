@@ -354,7 +354,9 @@ public:
     /// Splits this instance into a \ref semaphore_units object holding the specified amount of units.
     /// This object will continue holding the remaining units.
     ///
-    /// noexcept if \ref units <= \ref _n
+    /// \param units number of units to subtract.
+    ///
+    /// \note throws exception if \c units is more than those protected by the semaphore
     ///
     /// \return semaphore_units holding the specified number of units
     semaphore_units split(size_t units) {

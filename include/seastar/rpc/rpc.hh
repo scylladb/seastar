@@ -432,6 +432,8 @@ public:
     /**
      * Create client object which will attempt to connect to the remote address.
      *
+     * @param l \ref seastar::logger to use for logging error messages
+     * @param s an optional connection serializer
      * @param addr the remote address identifying this client
      * @param local the local address of this client
      */
@@ -442,6 +444,8 @@ public:
      * Create client object which will attempt to connect to the remote address using the
      * specified seastar::socket.
      *
+     * @param l \ref seastar::logger to use for logging error messages
+     * @param s an optional connection serializer
      * @param addr the remote address identifying this client
      * @param local the local address of this client
      * @param socket the socket object use to connect to the remote address

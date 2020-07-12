@@ -101,6 +101,8 @@ struct path_description {
      * @param path the url path
      * @param method the http method
      * @param nickname the nickname
+     * @param path_parameters path parameters and url parts of the path
+     * @param mandatory_params the names of the mandatory query parameters
      */
     path_description(const sstring& path, operation_type method,
             const sstring& nickname,
@@ -113,8 +115,8 @@ struct path_description {
      * @param path the url path
      * @param method the http method
      * @param nickname the method nickname
-     * @param path_parameters path parametes and url parts of the path
-     * @param mandatory_params the name of the mandatory query parameters
+     * @param path_parameters path parameters and url parts of the path
+     * @param mandatory_params the names of the mandatory query parameters
      */
     path_description(const sstring& path, operation_type method,
             const sstring& nickname,

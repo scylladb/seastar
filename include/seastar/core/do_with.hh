@@ -145,7 +145,7 @@ do_with(T1&& rv1, T2&& rv2, More&&... more) noexcept {
 /// and later on properly released.
 ///
 /// \param lock the lock, which is any object having providing a lock() / unlock() semantics.
-///        Caller must make sure that it outlives \ref func.
+///        Caller must make sure that it outlives \c func.
 /// \param func function to be executed
 /// \returns whatever \c func returns
 template<typename Lock, typename Func>

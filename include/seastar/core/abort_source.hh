@@ -127,7 +127,7 @@ public:
     }
 
 
-    /// Throws a \ref if cancellation has been requested.
+    /// Throws a \ref abort_requested_exception if cancellation has been requested.
     void check() const {
         if (abort_requested()) {
             throw abort_requested_exception();

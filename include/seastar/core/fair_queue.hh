@@ -137,7 +137,7 @@ using priority_class_ptr = lw_shared_ptr<priority_class>;
 /// 1 share. Higher weights for a request will consume a proportionally higher amount of
 /// shares.
 ///
-/// The user of this interface is expected to register multiple \ref priority_class
+/// The user of this interface is expected to register multiple `priority_class`
 /// objects, which will each have a shares attribute.
 ///
 /// Internally, each priority class may keep a separate queue of requests.
@@ -204,7 +204,7 @@ public:
 
     /// Registers a priority class against this fair queue.
     ///
-    /// \param shares, how many shares to create this class with
+    /// \param shares how many shares to create this class with
     priority_class_ptr register_priority_class(uint32_t shares);
 
     /// Unregister a priority class.

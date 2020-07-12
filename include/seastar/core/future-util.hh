@@ -650,7 +650,7 @@ future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) noexcept 
 /// For each item in a range, call a function, waiting for the previous
 /// invocation to complete before calling the next one.
 ///
-/// \param range an \c Range object designating input values
+/// \param c an \c Container object designating input range
 /// \param action a callable, taking a reference to objects from the range
 ///               as a parameter, and returning a \c future<> that resolves
 ///               when it is acceptable to process the next item.
@@ -1467,6 +1467,6 @@ when_all_succeed(FutureIterator begin, FutureIterator end) noexcept {
     }
 }
 
-}
-
 /// @}
+
+} // namespace seastar

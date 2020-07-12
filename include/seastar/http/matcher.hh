@@ -42,7 +42,7 @@ public:
      * check if the given url matches the rule
      * @param url the url to check
      * @param ind the position to start from
-     * @param fill the parameters hash
+     * @param param fill the parameters hash
      * @return the end of of the matched part, or sstring::npos if not matched
      */
     virtual size_t match(const sstring& url, size_t ind, parameters& param) = 0;

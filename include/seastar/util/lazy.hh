@@ -69,8 +69,7 @@ public:
 /// The actual evaluation is triggered by applying a () operator on a
 /// returned object.
 ///
-/// \param Func a type of a func
-/// \param func func a functor to evaluate the value
+/// \param func a functor to evaluate the value
 ///
 /// \return a lazy_eval object that may be used for evaluating a value
 template <typename Func>

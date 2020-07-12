@@ -35,7 +35,7 @@ class io_priority_class;
 
 /// Renames an io priority class
 ///
-/// Renames an \ref io_priority_class previously created with register_one_priority_class().
+/// Renames an `io_priority_class` previously created with register_one_priority_class().
 ///
 /// The operation is global and affects all shards.
 /// The operation affects the exported statistics labels.

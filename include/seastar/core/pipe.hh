@@ -53,7 +53,7 @@
 /// Repeat a blocking task, then exit              | \ref repeat(), \ref do_until()
 /// Provide mutual exclusion between two tasks     | \ref semaphore, \ref shared_mutex
 /// Pass a stream of data between two fibers       | \ref seastar::pipe
-/// Safely shut down a resource                    | \ref seastar::gate, \ref seastar::with_gate()
+/// Safely shut down a resource                    | \ref seastar::gate
 /// Hold on to an object while a fiber is running  | \ref do_with()
 ///
 

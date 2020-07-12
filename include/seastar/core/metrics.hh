@@ -44,6 +44,9 @@
 namespace seastar {
 
 /*!
+ * \addtogroup metrics
+ * @{
+ *
  * \namespace seastar::metrics
  * \brief metrics creation and registration
  *
@@ -238,7 +241,7 @@ public:
 };
 
 /*!
- * \namesapce impl
+ * \namespace impl
  * \brief holds the implementation parts of the metrics layer, do not use directly.
  *
  * The metrics layer define a thin API for adding metrics.
@@ -256,7 +259,7 @@ enum class data_type : uint8_t {
 };
 
 /*!
- * \breif A helper class that used to return metrics value.
+ * \brief A helper class that used to return metrics value.
  *
  * Do not use directly @see metrics_creation
  */
