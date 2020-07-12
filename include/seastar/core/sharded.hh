@@ -460,8 +460,6 @@ using sharded_unwrap_t = typename sharded_unwrap<T>::type;
 /// on the shard. It is evaluated on the shard, just before being
 /// passed to the local instance. It is useful when passing
 /// parameters to sharded::start().
-///
-/// \example sharded_parameter_demo.cc
 template <typename Func, typename... Params>
 class sharded_parameter {
     Func _func;
@@ -485,6 +483,10 @@ private:
     template <typename Func_, typename... Param_>
     friend auto internal::unwrap_sharded_arg(sharded_parameter<Func_, Param_...> sp);
 };
+
+/// \example sharded_parameter_demo.cc
+///
+/// Example use of \ref sharded_parameter.
 
 /// @}
 
