@@ -135,7 +135,6 @@ public:
     /// \return a future that becomes ready when \ref signal() is called
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
     ///         exception. If timepoint is reached will return \ref condition_variable_timed_out exception.
-    /// \param
     template<typename Pred>
     future<> wait(time_point timeout, Pred&& pred) {
         return do_until(std::forward<Pred>(pred), [this, timeout] () mutable {
