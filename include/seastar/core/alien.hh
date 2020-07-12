@@ -116,7 +116,7 @@ public:
 ///
 /// \param shard designates the shard to run the function on
 /// \param func a callable to run on shard \c t.  If \c func is a temporary object,
-///          its lifetime will be extended by moving it.  If @func is a reference,
+///          its lifetime will be extended by moving it.  If \c func is a reference,
 ///          the caller must guarantee that it will survive the call.
 /// \note the func must not throw and should return \c void. as we cannot identify the
 ///          alien thread, hence we are not able to post the fulfilled promise to the
