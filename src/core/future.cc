@@ -102,7 +102,7 @@ void promise_base::set_to_current_exception() noexcept {
 template <promise_base::urgent Urgent>
 void promise_base::make_ready() noexcept {
     if (_task) {
-        if (Urgent == urgent::yes && !need_preempt()) {
+        if (Urgent == urgent::yes) {
             ::seastar::schedule_urgent(std::exchange(_task, nullptr));
         } else {
             ::seastar::schedule(std::exchange(_task, nullptr));

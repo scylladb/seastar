@@ -22,7 +22,6 @@
 #pragma once
 
 #include <seastar/core/task.hh>
-#include <seastar/core/preempt.hh>
 #include <seastar/core/thread_impl.hh>
 #include <stdexcept>
 #include <atomic>
@@ -1532,14 +1531,16 @@ private:
     template <typename Func, typename Result = futurize_t<std::result_of_t<Func(T&&...)>>>
     Result
     then_impl(Func&& func) noexcept {
+#ifndef SEASTAR_DEBUG
         using futurator = futurize<std::result_of_t<Func(T&&...)>>;
-        if (available() && !need_preempt()) {
+        if (available()) {
             if (failed()) {
                 return futurator::make_exception_future(static_cast<future_state_base&&>(get_available_state_ref()));
             } else {
                 return futurator::apply(std::forward<Func>(func), get_available_state_ref().take_value());
             }
         }
+#endif
         return then_impl_nrvo<Func, Result>(std::forward<Func>(func));
     }
 
@@ -1623,8 +1624,9 @@ private:
     template <bool AsSelf, typename FuncResult, typename Func>
     futurize_t<FuncResult>
     then_wrapped_common(Func&& func) noexcept {
+#ifndef SEASTAR_DEBUG
         using futurator = futurize<FuncResult>;
-        if (available() && !need_preempt()) {
+        if (available()) {
             // TODO: after dropping C++14 support use `if constexpr ()` instead.
             if (AsSelf) {
                 if (_promise) {
@@ -1635,6 +1637,7 @@ private:
                 return futurator::invoke(std::forward<Func>(func), future(get_available_state_ref()));
             }
         }
+#endif
         return then_wrapped_nrvo<FuncResult, Func>(std::forward<Func>(func));
     }
 
