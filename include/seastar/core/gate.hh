@@ -71,7 +71,7 @@ public:
     /// Unregisters an in-progress request.
     ///
     /// If the gate is closed, and there are no more in-progress requests,
-    /// the \ref closed() promise will be fulfilled.
+    /// the `_stopped` promise will be fulfilled.
     void leave() {
         --_count;
         if (!_count && _stopped) {
