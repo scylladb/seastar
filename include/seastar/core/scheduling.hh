@@ -93,8 +93,8 @@ future<> rename_scheduling_group(scheduling_group sg, sstring new_name) noexcept
 /**
  * Represents a configuration for a specific scheduling group value,
  * it contains all that is needed to maintain a scheduling group specific
- * value when it needs to be created, due to, for example, a new \ref scheduling
- * group being created.
+ * value when it needs to be created, due to, for example, a new
+ * \ref scheduling_group being created.
  *
  * @note is is recomended to use @ref make_scheduling_group_key_config in order to
  * create and configure this syructure. The only reason that one might want to not use
