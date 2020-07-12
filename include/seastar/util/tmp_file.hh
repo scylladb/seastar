@@ -100,8 +100,8 @@ public:
 ///
 /// \param path_template - path where the file is to be created,
 ///                        optionally including a template for the file name.
-/// \param open_flags - optional open flags (open_flags::create | open_flags::exclusive are added to those by default)
-/// \param file_open_options - additional options, e.g. for setting the created file permission.
+/// \param oflags - optional \ref open_flags (open_flags::create | open_flags::exclusive are added to those by default)
+/// \param options - additional \ref file_open_options, e.g. for setting the created file permission.
 ///
 /// \note
 ///    path_template may optionally include a filename template in the last component of the path.
