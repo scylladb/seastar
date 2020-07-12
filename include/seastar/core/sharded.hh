@@ -160,7 +160,7 @@ public:
     /// with a copy of \c args passed to the constructor.
     ///
     /// \param args Arguments to be forwarded to \c Service constructor
-    /// \return a \ref future<> that becomes ready when all instances have been
+    /// \return a \ref seastar::future<> that becomes ready when all instances have been
     ///         constructed.
     template <typename... Args>
     future<> start(Args&&... args);
@@ -169,7 +169,7 @@ public:
     /// with a copy of \c args passed to the constructor.
     ///
     /// \param args Arguments to be forwarded to \c Service constructor
-    /// \return a \ref future<> that becomes ready when the instance has been
+    /// \return a \ref seastar::future<> that becomes ready when the instance has been
     ///         constructed.
     template <typename... Args>
     future<> start_single(Args&&... args);
@@ -180,7 +180,7 @@ public:
     /// it is destroyed.
     future<> stop();
 
-    /// Invoke a type-erased function on all instances of @Service.
+    /// Invoke a type-erased function on all instances of `Service`.
     /// The return value becomes ready when all instances have processed
     /// the message.
     ///
@@ -190,7 +190,7 @@ public:
     /// \return Future that becomes ready once all calls have completed
     future<> invoke_on_all(smp_submit_to_options options, std::function<future<> (Service&)> func);
 
-    /// Invoke a type-erased function on all instances of @Service.
+    /// Invoke a type-erased function on all instances of `Service`.
     /// The return value becomes ready when all instances have processed
     /// the message.
     /// Passes the default \ref smp_submit_to_options to the
@@ -199,7 +199,7 @@ public:
         return invoke_on_all(smp_submit_to_options{}, std::move(func));
     }
 
-    /// Invoke a function on all instances of @Service.
+    /// Invoke a function on all instances of `Service`.
     /// The return value becomes ready when all instances have processed
     /// the message. The function can be a member pointer to function,
     /// a free function, or a functor. The first argument of the function
@@ -217,7 +217,7 @@ public:
     SEASTAR_CONCEPT(requires std::invocable<Func, Service&, Args...>)
     future<> invoke_on_all(smp_submit_to_options options, Func func, Args... args);
 
-    /// Invoke a function on all instances of @Service.
+    /// Invoke a function on all instances of `Service`.
     /// The return value becomes ready when all instances have processed
     /// the message.
     /// Passes the default \ref smp_submit_to_options to the
@@ -471,7 +471,7 @@ public:
     /// the shard it is executed on.
     ///
     /// \param func      Function to be executed
-    /// \param params... optional parameters to be passed to the function. Can
+    /// \param params    optional parameters to be passed to the function. Can
     ///                  be std::ref(sharded<whatever>), in which case the local
     ///                  instance will be passed. Anything else
     ///                  will be passed by value unchanged.
@@ -745,7 +745,7 @@ inline bool sharded<Service>::local_is_initialized() const {
 ///
 /// \c foreign_ptr<> provides a solution to that problem.
 /// \c foreign_ptr<> wraps any pointer type -- raw pointer,
-/// \ref shared_ptr<>, or similar, and remembers on what core this
+/// \ref seastar::shared_ptr<>, or similar, and remembers on what core this
 /// happened.  When the \c foreign_ptr<> object is destroyed, it
 /// sends a message to the original core so that the wrapped object
 /// can be safely destroyed.
