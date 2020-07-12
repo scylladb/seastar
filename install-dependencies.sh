@@ -55,6 +55,7 @@ debian_packages=(
     libfmt-dev
     diffutils
     valgrind
+    doxygen
 )
 
 # seastar doesn't directly depend on these packages. They are
@@ -85,6 +86,7 @@ redhat_packages=(
     c-ares-devel
     stow
     diffutils
+    doxygen
     "${transitive[@]}"
 )
 
