@@ -54,7 +54,7 @@ public:
     /// Popping from an empty queue will result in undefined behavior.
     T pop();
 
-    /// Consumes items from the queue, passing them to @func, until @func
+    /// Consumes items from the queue, passing them to \c func, until \c func
     /// returns false or the queue it empty
     ///
     /// Returns false if func returned false.
