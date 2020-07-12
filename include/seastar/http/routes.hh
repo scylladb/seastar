@@ -255,9 +255,9 @@ public:
     /**
      * Registers the handler_base into routes with routes::put
      * @param rs the routes object reference
-     * @param handler the desire handler
+     * @param h the desire handler
      * @param url the url to match
-     * @param type the operation type
+     * @param op the operation type (`GET` by default)
      */
     handler_registration(routes& rs, handler_base& h, const sstring& url, operation_type op = GET);
 
@@ -281,9 +281,9 @@ public:
      * Registers the match_rule into routes with routes::add_cookie
      * @param rs the routes object reference
      * @param rule a rule to add
-     * @param type the operation type
+     * @param op the operation type (`GET` by default)
      */
-    rule_registration(routes& rs, match_rule& rule, operation_type = GET);
+    rule_registration(routes& rs, match_rule& rule, operation_type op = GET);
 
     /**
      * Unregisters the rule from routes with routes::del_cookie
