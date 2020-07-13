@@ -673,6 +673,16 @@ SEASTAR_TEST_CASE(test_parallel_for_each_waits_for_all_fibers_even_if_one_of_the
     });
 }
 
+SEASTAR_THREAD_TEST_CASE(test_parallel_for_each_broken_promise) {
+    auto fut = [] {
+        std::vector<promise<>> v(2);
+        return parallel_for_each(v, [] (promise<>& p) {
+            return p.get_future();
+        });
+    }();
+    BOOST_CHECK_THROW(fut.get(), broken_promise);
+}
+
 #ifndef SEASTAR_SHUFFLE_TASK_QUEUE
 SEASTAR_TEST_CASE(test_high_priority_task_runs_in_the_middle_of_loops) {
     auto counter = make_lw_shared<int>(0);
