@@ -683,6 +683,19 @@ SEASTAR_THREAD_TEST_CASE(test_parallel_for_each_broken_promise) {
     BOOST_CHECK_THROW(fut.get(), broken_promise);
 }
 
+SEASTAR_THREAD_TEST_CASE(test_repeat_broken_promise) {
+    auto get_fut = [] {
+        promise<stop_iteration> pr;
+        return pr.get_future();
+    };
+
+    future<> r = repeat([fut = get_fut()] () mutable {
+        return std::move(fut);
+    });
+
+    BOOST_CHECK_THROW(r.get(), broken_promise);
+}
+
 #ifndef SEASTAR_SHUFFLE_TASK_QUEUE
 SEASTAR_TEST_CASE(test_high_priority_task_runs_in_the_middle_of_loops) {
     auto counter = make_lw_shared<int>(0);
