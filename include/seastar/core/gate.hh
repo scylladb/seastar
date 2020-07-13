@@ -72,7 +72,7 @@ public:
     ///
     /// If the gate is closed, and there are no more in-progress requests,
     /// the `_stopped` promise will be fulfilled.
-    void leave() {
+    void leave() noexcept {
         --_count;
         if (!_count && _stopped) {
             _stopped->set_value();
@@ -97,7 +97,7 @@ public:
     /// Future calls to \ref enter() will fail with an exception, and when
     /// all current requests call \ref leave(), the returned future will be
     /// made ready.
-    future<> close() {
+    future<> close() noexcept {
         assert(!_stopped && "seastar::gate::close() cannot be called more than once");
         _stopped = std::make_optional(promise<>());
         if (!_count) {
@@ -107,12 +107,12 @@ public:
     }
 
     /// Returns a current number of registered in-progress requests.
-    size_t get_count() const {
+    size_t get_count() const noexcept {
         return _count;
     }
 
     /// Returns whether the gate is closed.
-    bool is_closed() const {
+    bool is_closed() const noexcept {
         return bool(_stopped);
     }
 };
