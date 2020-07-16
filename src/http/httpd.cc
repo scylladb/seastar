@@ -457,6 +457,12 @@ future<> http_server::do_accept_one(int which) {
                 hlogger.error("request error: {}", ex);
             });
         }).handle_exception_type([] (const gate_closed_exception& e) {});
+    }).handle_exception_type([] (const std::system_error &e) {
+        // We expect a ECONNABORTED when http_server::stop is called,
+        // no point in warning about that.
+        if (e.code().value() != ECONNABORTED) {
+            hlogger.error("accept failed: {}", e);
+        }
     }).handle_exception([] (std::exception_ptr ex) {
         hlogger.error("accept failed: {}", ex);
     });
