@@ -176,6 +176,7 @@ aio_storage_context::submit_work() {
         } else {
             nr_consumed = size_t(r);
         }
+        did_work = true;
         submitted += nr_consumed;
     }
     _r->_pending_io.erase(_r->_pending_io.begin(), _r->_pending_io.begin() + submitted);
