@@ -55,8 +55,9 @@ SEASTAR_THREAD_TEST_CASE(test_rwlock) {
 }
 
 SEASTAR_TEST_CASE(test_with_lock_mutable) {
-    rwlock l;
-    return with_lock(l.for_read(), [p = std::make_unique<int>(42)] () mutable {});
+    return do_with(rwlock(), [](rwlock& l) {
+        return with_lock(l.for_read(), [p = std::make_unique<int>(42)] () mutable {});
+    });
 }
 
 SEASTAR_TEST_CASE(test_rwlock_exclusive) {
