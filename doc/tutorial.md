@@ -1298,7 +1298,6 @@ We begin with a simple example of a TCP network server written in Seastar. This 
 #include <seastar/core/reactor.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/net/api.hh>
-#include <iostream>
 
 seastar::future<> service_loop() {
     return seastar::do_with(seastar::listen(seastar::make_ipv4_address({1234})),
@@ -1351,7 +1350,7 @@ Let's advance our example server by outputting some canned response to each conn
 #include <seastar/core/seastar.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/future-util.hh>
-#include <iostream>
+#include <seastar/net/api.hh>
 
 const char* canned_response = "Seastar is the future!\n";
 
@@ -1362,15 +1361,16 @@ seastar::future<> service_loop() {
             [] (auto& listener) {
         return seastar::keep_doing([&listener] () {
             return listener.accept().then(
-                [] (seastar::connected_socket s, seastar::socket_address a) {
-                    auto out = s.output();
-                    return seastar::do_with(std::move(s), std::move(out),
+                    [] (seastar::accept_result res) {
+                auto s = std::move(res.connection);
+                auto out = s.output();
+                return seastar::do_with(std::move(s), std::move(out),
                         [] (auto& s, auto& out) {
-                            return out.write(canned_response).then([&out] {
-                                return out.close();
-			    });
-		    });
-	        });
+                    return out.write(canned_response).then([&out] {
+                        return out.close();
+                    });
+                });
+            });
         });
     });
 }
@@ -1399,49 +1399,49 @@ Let's look at a simple example server involving both reads an writes. This is a 
 #include <seastar/core/seastar.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/future-util.hh>
+#include <seastar/net/api.hh>
 
 seastar::future<> handle_connection(seastar::connected_socket s,
                                     seastar::socket_address a) {
     auto out = s.output();
     auto in = s.input();
     return do_with(std::move(s), std::move(out), std::move(in),
-        [] (auto& s, auto& out, auto& in) {
-            return seastar::repeat([&out, &in] {
-                return in.read().then([&out] (auto buf) {
-                    if (buf) {
-                        return out.write(std::move(buf)).then([&out] {
-                            return out.flush();
-                        }).then([] {
-                            return seastar::stop_iteration::no;
-                        });
-                    } else {
-                        return seastar::make_ready_future<seastar::stop_iteration>(
+            [] (auto& s, auto& out, auto& in) {
+        return seastar::repeat([&out, &in] {
+            return in.read().then([&out] (auto buf) {
+                if (buf) {
+                    return out.write(std::move(buf)).then([&out] {
+                        return out.flush();
+                    }).then([] {
+                        return seastar::stop_iteration::no;
+                    });
+                } else {
+                    return seastar::make_ready_future<seastar::stop_iteration>(
                             seastar::stop_iteration::yes);
-                    }
-                });
-            }).then([&out] {
-                return out.close();
+                }
             });
+        }).then([&out] {
+            return out.close();
         });
+    });
 }
 
-seastar::future<> service_loop() {
+seastar::future<> service_loop_3() {
     seastar::listen_options lo;
     lo.reuse_address = true;
     return seastar::do_with(seastar::listen(seastar::make_ipv4_address({1234}), lo),
             [] (auto& listener) {
         return seastar::keep_doing([&listener] () {
             return listener.accept().then(
-                [] (seastar::connected_socket s, seastar::socket_address a) {
-                    // Note we ignore, not return, the future returned by
-                    // handle_connection(), so we do not wait for one
-                    // connection to be handled before accepting the next one.
-                    handle_connection(std::move(s), std::move(a));
-                });
+                    [] (seastar::accept_result res) {
+                // Note we ignore, not return, the future returned by
+                // handle_connection(), so we do not wait for one
+                // connection to be handled before accepting the next one.
+                return handle_connection(std::move(res.connection), std::move(res.remote_address));
+            });
         });
     });
 }
-
 ```
 
 The main function ```service_loop()``` loops accepting new connections, and for each connection calls ```handle_connection()``` to handle this connection. Our ```handle_connection()``` returns a future saying when handling this connection completed, but importantly, we do ***not*** wait for this future: Remember that ```keep_doing``` will only start the next iteration when the future returned by the previous iteration is resolved. Because we want to allow parallel ongoing connections, we don't want the next ```accept()``` to wait until the previously accepted connection was closed. So we call ```handle_connection()``` to start the handling of the connection, but return nothing from the continuation, which resolves that future immediately, so ```keep_doing``` will continue to the next ```accept()```.
