@@ -1316,7 +1316,7 @@ seastar::future<> service_loop() {
 This code works as follows:
 1. The ```listen()``` call creates a ```server_socket``` object, ```listener```, which listens on TCP port 1234 (on any network interface).
 2. We use ```do_with()``` to ensure that the listener socket lives throughout the loop.
-3. To handle one connection, we call ```listener```'s  ```accept()``` method. This method returns a ```future<connected_socket, socket_address>```, i.e., is eventually resolved with an incoming TCP connection from a client (```connected_socket```) and the client's IP address and port (```socket_address```).
+3. To handle one connection, we call ```listener```'s  ```accept()``` method. This method returns a ```future<accept_result>```, i.e., is eventually resolved with an incoming TCP connection from a client (```accept_result.connection```) and the client's IP address and port (```accept_result.remote_address```).
 4. To repeatedly accept new connections, we use the ```keep_doing()``` loop idiom. ```keep_doing()``` runs its lambda parameter over and over, starting the next iteration as soon as the future returned by the previous iteration completes. The iterations only stop if an exception is encountered. The future returned by ```keep_doing()``` itself completes only when the iteration stops (i.e., only on exception).
 
 Output from this server looks like the following example:
