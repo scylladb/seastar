@@ -34,6 +34,7 @@
 
 #include <boost/range/adaptor/transformed.hpp>
 #include <iostream>
+#include <sys/statfs.h>
 
 #include "core/file-impl.hh"
 
@@ -618,5 +619,47 @@ SEASTAR_TEST_CASE(test_with_file_close_on_failure) {
         BOOST_REQUIRE_THROW(ref.stat().get(), std::system_error);
 
         umask(orig_umask);
+    });
+}
+
+namespace seastar {
+    extern bool aio_nowait_supported;
+}
+
+SEASTAR_TEST_CASE(test_nowait_flag_correctness) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        auto oflags = open_flags::rw | open_flags::create;
+        sstring filename = (t.get_path() / "testfile.tmp").native();
+        auto is_tmpfs = [&] (sstring filename) {
+            struct ::statfs buf;
+            int fd = ::open(filename.c_str(), static_cast<int>(open_flags::ro));
+            assert(fd != -1);
+            auto r = ::fstatfs(fd, &buf);
+            if (r == -1) {
+                return false;
+            }
+            return buf.f_type == 0x01021994; // TMPFS_MAGIC
+        };
+
+        if (!seastar::aio_nowait_supported) {
+            BOOST_TEST_WARN(0, "Skipping this test because RWF_NOWAIT is not supported by the system");
+            return;
+        }
+
+        auto f = open_file_dma(filename, oflags).get0();
+        auto close_f = defer([&] { f.close().get(); });
+
+        if (is_tmpfs(filename)) {
+            BOOST_TEST_WARN(0, "Skipping this test because TMPFS was detected, and RWF_NOWAIT is only supported by disk-based FSes");
+            return;
+        }
+
+        for (auto i = 0; i < 10; i++) {
+            auto wbuf = allocate_aligned_buffer<unsigned char>(4096, 4096);
+            std::fill(wbuf.get(), wbuf.get() + 4096, i);
+            auto wb = wbuf.get();
+            f.dma_write(i * 4096, wb, 4096).get();
+            f.flush().get0();
+        }
     });
 }

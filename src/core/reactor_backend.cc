@@ -59,15 +59,19 @@ void prepare_iocb(io_request& req, iocb& iocb) {
         break;
     case io_request::operation::write:
         iocb = make_write_iocb(req.fd(), req.pos(), req.address(), req.size());
+        set_nowait(iocb, true);
         break;
     case io_request::operation::writev:
         iocb = make_writev_iocb(req.fd(), req.pos(), req.iov(), req.size());
+        set_nowait(iocb, true);
         break;
     case io_request::operation::read:
         iocb = make_read_iocb(req.fd(), req.pos(), req.address(), req.size());
+        set_nowait(iocb, true);
         break;
     case io_request::operation::readv:
         iocb = make_readv_iocb(req.fd(), req.pos(), req.iov(), req.size());
+        set_nowait(iocb, true);
         break;
     default:
         seastar_logger.error("Invalid operation for iocb: {}", req.opname());
@@ -157,9 +161,6 @@ aio_storage_context::submit_work() {
 
         if (_r->_aio_eventfd) {
             set_eventfd_notification(io, _r->_aio_eventfd->get_fd());
-        }
-        if (aio_nowait_supported) {
-            set_nowait(io, true);
         }
         _submission_queue.push_back(&io);
     }
