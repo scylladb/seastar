@@ -156,44 +156,58 @@ class tls::dh_params::impl : gnutlsobj {
                 throw std::runtime_error(format("Unknown value of dh_params::level: {:d}", static_cast<std::underlying_type_t<level>>(l)));
         }
     }
+    using dh_ptr = std::unique_ptr<std::remove_pointer_t<gnutls_dh_params_t>, void(*)(gnutls_dh_params_t)>;
+
+    static dh_ptr new_dh_params() {
+        gnutls_dh_params_t params;
+        gtls_chk(gnutls_dh_params_init(&params));
+        return dh_ptr(params, &gnutls_dh_params_deinit);
+    }
 public:
-    impl()
-            : _params([] {
-                gnutls_dh_params_t params;
-                gtls_chk(gnutls_dh_params_init(&params));
-                return params;
-            }()) {
-    }
+    impl(dh_ptr p) 
+        : _params(std::move(p)) 
+    {}
     impl(level lvl)
-            : impl() {
-        auto bits = gnutls_sec_param_to_pk_bits(GNUTLS_PK_DH, to_gnutls_level(lvl));
-        gtls_chk(gnutls_dh_params_generate2(*this, bits));
-    }
+#if GNUTLS_VERSION_NUMBER >= 0x030506
+        : _params(nullptr, &gnutls_dh_params_deinit)
+        , _sec_param(to_gnutls_level(lvl))
+#else        
+        : impl([&] {
+            auto bits = gnutls_sec_param_to_pk_bits(GNUTLS_PK_DH, to_gnutls_level(lvl));
+            auto ptr = new_dh_params();
+            gtls_chk(gnutls_dh_params_generate2(ptr.get(), bits));
+            return ptr;
+        }())
+#endif
+    {}
     impl(const blob& pkcs3, x509_crt_format fmt)
-            : impl() {
-        blob_wrapper w(pkcs3);
-        gtls_chk(
-                gnutls_dh_params_import_pkcs3(*this, &w,
-                        gnutls_x509_crt_fmt_t(fmt)));
-    }
+        : impl([&] {
+            auto ptr = new_dh_params();
+            blob_wrapper w(pkcs3);
+            gtls_chk(gnutls_dh_params_import_pkcs3(ptr.get(), &w, gnutls_x509_crt_fmt_t(fmt)));
+            return ptr;
+        }()) 
+    {}
     impl(const impl& v)
-            : _params([&v] {
-                gnutls_dh_params_t params;
-                gtls_chk(gnutls_dh_params_init(&params));
-                gtls_chk(gnutls_dh_params_cpy(params, v._params));
-                return params;
-            }()) {
-    }
-    ~impl() {
-        if (_params != nullptr) {
-            gnutls_dh_params_deinit(_params);
-        }
-    }
+        : impl([&v] {
+            auto ptr = new_dh_params();
+            gtls_chk(gnutls_dh_params_cpy(ptr.get(), v));
+            return ptr;
+        }()) 
+    {}
+    ~impl() = default;
+
     operator gnutls_dh_params_t() const {
-        return _params;
+        return _params.get();
+    }
+    std::optional<gnutls_sec_param_t> sec_param() const {
+        return _sec_param;
     }
 private:
-    gnutls_dh_params_t _params;
+    dh_ptr _params;
+#if GNUTLS_VERSION_NUMBER >= 0x030600
+    std::optional<gnutls_sec_param_t> _sec_param;
+#endif
 };
 
 tls::dh_params::dh_params(level lvl) : _impl(std::make_unique<impl>(lvl))
@@ -308,6 +322,13 @@ public:
                         gnutls_x509_crt_fmt_t(fmt), password.c_str()));
     }
     void dh_params(const tls::dh_params& dh) {
+#if GNUTLS_VERSION_NUMBER >= 0x030506
+        auto sec_param = dh._impl->sec_param();
+        if (sec_param) {
+            gnutls_certificate_set_known_dh_params(*this, *sec_param);
+            return;
+        }
+#endif
         auto cpy = std::make_unique<tls::dh_params::impl>(*dh._impl);
         gnutls_certificate_set_dh_params(*this, *cpy);
         _dh_params = std::move(cpy);
@@ -431,6 +452,12 @@ future<> tls::certificate_credentials::set_system_trust() {
 void tls::certificate_credentials::set_priority_string(const sstring& prio) {
     _impl->set_priority_string(prio);
 }
+
+tls::server_credentials::server_credentials()
+#if GNUTLS_VERSION_NUMBER < 0x030600
+    : server_credentials(dh_params{})
+#endif
+{}
 
 tls::server_credentials::server_credentials(shared_ptr<dh_params> dh)
     : server_credentials(*dh)
@@ -608,7 +635,13 @@ shared_ptr<tls::certificate_credentials> tls::credentials_builder::build_certifi
 shared_ptr<tls::server_credentials> tls::credentials_builder::build_server_credentials() const {
     auto i = _blobs.find(dh_level_key);
     if (i == _blobs.end()) {
+#if GNUTLS_VERSION_NUMBER < 0x030600
         throw std::invalid_argument("No DH level set");
+#else
+        auto creds = make_shared<server_credentials>();
+        apply_to(*creds);
+        return creds;
+#endif
     }
     auto creds = make_shared<server_credentials>(dh_params(boost::any_cast<dh_params::level>(i->second)));
     apply_to(*creds);

@@ -42,8 +42,9 @@
 #include "loopback_socket.hh"
 #include "tmpdir.hh"
 
-#if 0
 #include <gnutls/gnutls.h>
+
+#if 0
 
 static void enable_gnutls_logging() {
     gnutls_global_set_log_level(99);
@@ -313,10 +314,12 @@ class echoserver {
     size_t _size;
     std::exception_ptr _ex;
 public:
-    echoserver(size_t message_size)
+    echoserver(size_t message_size, bool use_dh_params = true)
             : _certs(
-                    ::make_shared<tls::server_credentials>(
-                            ::make_shared<tls::dh_params>()))
+                    use_dh_params 
+                        ? ::make_shared<tls::server_credentials>(::make_shared<tls::dh_params>())
+                        : ::make_shared<tls::server_credentials>()
+                    )
             , _size(message_size)
     {}
 
@@ -385,7 +388,8 @@ static future<> run_echo_test(sstring message,
                 tls::client_auth ca = tls::client_auth::NONE,
                 sstring client_crt = {},
                 sstring client_key = {},
-                bool do_read = true
+                bool do_read = true,
+                bool use_dh_params = true
 )
 {
     static const auto port = 4711;
@@ -406,7 +410,7 @@ static future<> run_echo_test(sstring message,
     return f.then([=] {
         return certs->set_x509_trust_file(trust, tls::x509_crt_format::PEM);
     }).then([=] {
-        return server->start(msg->size()).then([=]() {
+        return server->start(msg->size(), use_dh_params).then([=]() {
             sstring server_trust;
             if (ca != tls::client_auth::NONE) {
                 server_trust = trust;
@@ -471,10 +475,19 @@ SEASTAR_TEST_CASE(test_simple_x509_client_server) {
     return run_echo_test(message, 20, "tests/unit/catest.pem", "test.scylladb.org");
 }
 
-
 SEASTAR_TEST_CASE(test_simple_x509_client_server_again) {
     return run_echo_test(message, 20, "tests/unit/catest.pem", "test.scylladb.org");
 }
+
+#if GNUTLS_VERSION_NUMBER >= 0x030600
+// Test #769 - do not set dh_params in server certs - let gnutls negotiate.
+SEASTAR_TEST_CASE(test_simple_server_default_dhparams) {
+    return run_echo_test(message, 20, "tests/unit/catest.pem", "test.scylladb.org",
+        "tests/unit/test.crt", "tests/unit/test.key", tls::client_auth::NONE,
+        {}, {}, true, /* use_dh_params */ false
+    );
+}
+#endif
 
 SEASTAR_TEST_CASE(test_x509_client_server_cert_validation_fail) {
     // Load a real trust authority here, which out certs are _not_ signed with.
