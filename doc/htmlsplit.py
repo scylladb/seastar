@@ -55,7 +55,7 @@ with open("tutorial.html") as f:
     # numbers > 0 while reading a chapter
     chapter = None
     for line in f:
-        if line == '<div id="TOC">\n' or line =='<nav id="TOC">\n':
+        if line == '<div id="TOC">\n' or line.startswith('<nav id="TOC"'):
             header = chunk
             chapter = 0
             chunk = ""
@@ -83,6 +83,6 @@ with open("tutorial.html") as f:
             # In a chapter we can have a link to a different subsection, which
             # looks like <a href="#some-title">Some title</A>. We need to
             # replace this to refer to the right file after the split.
-            line = re.sub('<a href="#([^"]*)">([^<]*)</a>', lambda m: '<a href="' + sections[m.group(1)] + '.html#' + m.group(1) + '">' + m.group(2) + '</a>', line)
+            line = re.sub('<a href="#([^"]*)">([^<]+)</a>', lambda m: '<a href="' + sections[m.group(1)] + '.html#' + m.group(1) + '">' + m.group(2) + '</a>', line)
         chunk += line
     flush(chapter, header, chunk)
