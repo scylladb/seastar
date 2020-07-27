@@ -183,6 +183,11 @@ public:
         set_new_buffer_size(after_skip::no);
         _remain = std::min(std::numeric_limits<uint64_t>::max() - _pos, _remain);
     }
+    virtual ~file_data_source_impl() override {
+        // If the data source hasn't been closed, we risk having reads in progress
+        // that will try to access freed memory.
+        assert(_reads_in_progress == 0);
+    }
     virtual future<temporary_buffer<char>> get() override {
         if (!_read_buffers.empty() && !_read_buffers.front()._ready.available()) {
             try_increase_read_ahead();
