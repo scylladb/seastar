@@ -633,7 +633,13 @@ struct continuation final : continuation_base_with_promise<Promise, T...> {
     // Wrapper is a helper function that implements the specific logic
     // needed by then/then_wrapped. We call the wrapper passing it the
     // original function, promise and state.
-    continuation(Promise&& pr, Func&& func, Wrapper&& wrapper)
+    // Note that if Func's move constructor throws, this will call
+    // std::unexpected. We could try to require Func to be nothrow
+    // move constructible, but that will cause a lot of churn. Since
+    // we can't support a failure to create a continuation, calling
+    // std::unexpected as close to the failure as possible is the best
+    // we can do.
+    continuation(Promise&& pr, Func&& func, Wrapper&& wrapper) noexcept
         : continuation_base_with_promise<Promise, T...>(std::move(pr))
         , _func(std::move(func))
         , _wrapper(std::move(wrapper)) {}
@@ -1706,7 +1712,7 @@ public:
     struct finally_body<Func, true> {
         Func _func;
 
-        finally_body(Func&& func) : _func(std::forward<Func>(func))
+        finally_body(Func&& func) noexcept : _func(std::forward<Func>(func))
         { }
 
         future<T...> operator()(future<T...>&& result) noexcept {
@@ -1724,7 +1730,7 @@ public:
     struct finally_body<Func, false> {
         Func _func;
 
-        finally_body(Func&& func) : _func(std::forward<Func>(func))
+        finally_body(Func&& func) noexcept : _func(std::forward<Func>(func))
         { }
 
         future<T...> operator()(future<T...>&& result) noexcept {
