@@ -315,8 +315,8 @@ public:
         truncate(_type, "type");
         truncate(_type_instance, "type_instance");
     }
-    type_instance_id(const seastar::metrics::impl::metric_id &id) : _plugin(id.group_name()),
-            _plugin_instance(id.instance_id()), _type(id.inherit_type()),
+    type_instance_id(const seastar::metrics::impl::metric_id &id, const type_id& inherit_type) : _plugin(id.group_name()),
+            _plugin_instance(id.instance_id()), _type(inherit_type),
             _type_instance(id.name()) {
     }
     type_instance_id(type_instance_id &&) = default;

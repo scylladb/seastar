@@ -101,9 +101,6 @@ public:
     const metric_name_type & name() const {
         return _name;
     }
-    const metrics::metric_type_def & inherit_type() const {
-        return _labels.at(type_label.name());
-    }
     const labels_type& labels() const {
         return _labels;
     }
@@ -113,8 +110,7 @@ public:
     bool operator==(const metric_id&) const;
 private:
     auto as_tuple() const {
-        return std::tie(group_name(), instance_id(), name(),
-                    inherit_type(), labels());
+        return std::tie(group_name(), instance_id(), name(), labels());
     }
     group_name_type _group;
     metric_name_type _name;
@@ -153,6 +149,7 @@ namespace impl {
  */
 struct metric_family_info {
     data_type type;
+    metric_type_def inherit_type;
     description d;
     sstring name;
 };
@@ -333,7 +330,7 @@ public:
         return _value_map;
     }
 
-    void add_registration(const metric_id& id, data_type type, metric_function f, const description& d, bool enabled);
+    void add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled);
     void remove_registration(const metric_id& id);
     future<> stop() {
         return make_ready_future<>();

@@ -326,6 +326,7 @@ struct metric_definition_impl {
     std::map<sstring, sstring> labels;
     metric_definition_impl& operator ()(bool enabled);
     metric_definition_impl& operator ()(const label_instance& label);
+    metric_definition_impl& set_type(const sstring& type_name);
     metric_definition_impl(
         metric_name_type name,
         metric_type type,
@@ -376,7 +377,6 @@ metric_function make_function(T& val, data_type dt) {
 extern const bool metric_disabled;
 
 extern label shard_label;
-extern label type_label;
 
 /*
  * The metrics definition are defined to be compatible with collectd metrics defintion.
@@ -537,7 +537,7 @@ template<typename T>
 impl::metric_definition_impl make_total_bytes(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {},
         instance_id_type instance = impl::shard()) {
-    return make_derive(name, std::forward<T>(val), d, labels)(type_label("total_bytes"));
+    return make_derive(name, std::forward<T>(val), d, labels).set_type("total_bytes");
 }
 
 /*!
@@ -551,7 +551,7 @@ template<typename T>
 impl::metric_definition_impl make_current_bytes(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {},
         instance_id_type instance = impl::shard()) {
-    return make_derive(name, std::forward<T>(val), d, labels)(type_label("bytes"));
+    return make_derive(name, std::forward<T>(val), d, labels).set_type("bytes");
 }
 
 
@@ -565,7 +565,7 @@ template<typename T>
 impl::metric_definition_impl make_queue_length(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {},
         instance_id_type instance = impl::shard()) {
-    return make_gauge(name, std::forward<T>(val), d, labels)(type_label("queue_length"));
+    return make_gauge(name, std::forward<T>(val), d, labels).set_type("queue_length");
 }
 
 
@@ -579,7 +579,7 @@ template<typename T>
 impl::metric_definition_impl make_total_operations(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {},
         instance_id_type instance = impl::shard()) {
-    return make_derive(name, std::forward<T>(val), d, labels)(type_label("total_operations"));
+    return make_derive(name, std::forward<T>(val), d, labels).set_type("total_operations");
 }
 
 /*! @} */

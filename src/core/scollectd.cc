@@ -87,7 +87,7 @@ registration::registration(type_instance_id&& id)
 
 seastar::metrics::impl::metric_id to_metrics_id(const type_instance_id & id) {
     return seastar::metrics::impl::metric_id(id.plugin(), id.type_instance(),
-            {{seastar::metrics::shard_label.name(), seastar::metrics::impl::shard()}, {seastar::metrics::type_label.name(), id.type()}});
+            {{seastar::metrics::shard_label.name(), seastar::metrics::impl::shard()}});
 }
 
 
@@ -170,7 +170,7 @@ struct cpwriter {
         }
         sstring res = id.name();
         for (auto i : id.labels()) {
-            if (i.first != seastar::metrics::shard_label.name() && i.first != seastar::metrics::type_label.name()) {
+            if (i.first != seastar::metrics::shard_label.name()) {
                 res += "-" + i.second;
             }
         }
@@ -276,7 +276,7 @@ struct cpwriter {
         }
         return *this;
     }
-    cpwriter & put(const sstring & host, const seastar::metrics::impl::metric_id & id) {
+    cpwriter & put(const sstring & host, const seastar::metrics::impl::metric_id & id, const type_id& type) {
         const auto ts = std::chrono::system_clock::now().time_since_epoch();
         const auto lrts =
                 std::chrono::duration_cast<std::chrono::seconds>(ts).count();
@@ -291,7 +291,7 @@ struct cpwriter {
         put_cached(part_type::PluginInst,
                 id.instance_id() == per_cpu_plugin_instance ?
                         to_sstring(this_shard_id()) : id.instance_id());
-        put_cached(part_type::Type, id.inherit_type());
+        put_cached(part_type::Type, type);
         // Optional
         put_cached(part_type::TypeInst, get_type_instance(id));
         return *this;
@@ -301,7 +301,7 @@ struct cpwriter {
             const type_instance_id & id, const value_list & v) {
         const auto ps = std::chrono::duration_cast<collectd_hres_duration>(
                         period).count();
-            put(host, to_metrics_id(id));
+            put(host, to_metrics_id(id), id.type());
             put(part_type::Values, v);
             if (ps != 0) {
                 put(part_type::IntervalHr, ps);
@@ -311,10 +311,11 @@ struct cpwriter {
 
     cpwriter & put(const sstring & host,
             const duration & period,
+            const type_id& type,
             const seastar::metrics::impl::metric_id & id, const seastar::metrics::impl::metric_value & v) {
         const auto ps = std::chrono::duration_cast<collectd_hres_duration>(
                 period).count();
-        put(host, id);
+        put(host, id, type);
         put(part_type::Values, v);
         if (ps != 0) {
             put(part_type::IntervalHr, ps);
@@ -348,7 +349,7 @@ future<> impl::send_metric(const type_instance_id & id,
 future<> impl::send_notification(const type_instance_id & id,
         const sstring & msg) {
     cpwriter out;
-    out.put(_host, to_metrics_id(id));
+    out.put(_host, to_metrics_id(id), id.type());
     out.put(part_type::Message, msg);
     return _chan.send(_addr, net::packet(out.data(), out.size()));
 }
@@ -402,7 +403,7 @@ void impl::run() {
     typedef size_t metric_family_id;
     typedef seastar::metrics::impl::value_vector::iterator value_iterator;
     typedef seastar::metrics::impl::metric_metadata_vector::iterator metadata_iterator;
-    typedef std::tuple<metric_family_id, metadata_iterator, value_iterator, cpwriter> context;
+    typedef std::tuple<metric_family_id, metadata_iterator, value_iterator, type_id, cpwriter> context;
 
     auto ctxt = make_lw_shared<context>();
     foreign_ptr<shared_ptr<seastar::metrics::impl::values_copy>> vals =  seastar::metrics::impl::get_values();
@@ -417,6 +418,7 @@ void impl::run() {
     if (values.size() > 0) {
         std::get<value_iterator>(*ctxt) = values[0].begin();
         std::get<metadata_iterator>(*ctxt) = metadata->at(0).metrics.begin();
+        std::get<type_id>(*ctxt) = metadata->at(0).mf.inherit_type;
     }
 
     auto stop_when = [ctxt, metadata]() {
@@ -442,7 +444,7 @@ void impl::run() {
                     continue;
                 }
                 auto m = out.mark();
-                out.put(_host, _period, md_iterator->id, *i);
+                out.put(_host, _period, std::get<type_id>(*ctxt), md_iterator->id, *i);
                 if (!out) {
                     out.reset(m);
                     out_of_space = true;
@@ -458,6 +460,7 @@ void impl::run() {
             if (mf < values.size()) {
                 i = values[mf].begin();
                 md_iterator = metadata->at(mf).metrics.begin();
+                std::get<type_id>(*ctxt) = metadata->at(mf).mf.inherit_type;
             }
         }
         if (out.empty()) {
@@ -497,7 +500,7 @@ std::vector<type_instance_id> impl::get_instance_ids() const {
         // actually active ids
         for (auto i : v.second) {
             if (i.second) {
-                res.emplace_back(i.second->get_id());
+                res.emplace_back(i.second->get_id(), v.second.info().inherit_type);
             }
         }
     }
