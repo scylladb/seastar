@@ -32,16 +32,16 @@ namespace seastar {
 
 namespace fs = std::filesystem;
 
-future<> make_directory(sstring name, file_permissions permissions) noexcept {
-    return engine().make_directory(std::move(name), permissions);
+future<> make_directory(std::string_view name, file_permissions permissions) noexcept {
+    return engine().make_directory(name, permissions);
 }
 
-future<> touch_directory(sstring name, file_permissions permissions) noexcept {
-    return engine().touch_directory(std::move(name), permissions);
+future<> touch_directory(std::string_view name, file_permissions permissions) noexcept {
+    return engine().touch_directory(name, permissions);
 }
 
-future<> sync_directory(sstring name) noexcept {
-    return open_directory(std::move(name)).then([] (file f) {
+future<> sync_directory(std::string_view name) noexcept {
+    return open_directory(name).then([] (file f) {
         return do_with(std::move(f), [] (file& f) {
             return f.flush().then([&f] () mutable {
                 return f.close();
@@ -50,7 +50,8 @@ future<> sync_directory(sstring name) noexcept {
     });
 }
 
-static future<> do_recursive_touch_directory(sstring base, sstring name, file_permissions permissions) noexcept {
+static future<> do_recursive_touch_directory(std::string_view base_view, std::string_view name, file_permissions permissions) noexcept {
+    sstring base(base_view);
     static const sstring::value_type separator = '/';
 
     if (name.empty()) {
@@ -58,7 +59,7 @@ static future<> do_recursive_touch_directory(sstring base, sstring name, file_pe
     }
 
     size_t pos = std::min(name.find(separator), name.size() - 1);
-    base += name.substr(0 , pos + 1);
+    base += sstring(name.substr(0 , pos + 1));
     name = name.substr(pos + 1);
     if (name.length() == 1 && name[0] == separator) {
         name = {};
@@ -66,7 +67,7 @@ static future<> do_recursive_touch_directory(sstring base, sstring name, file_pe
     // use the optional permissions only for last component,
     // other directories in the patch will always be created using the default_dir_permissions
     auto f = name.empty() ? touch_directory(base, permissions) : touch_directory(base);
-    return f.then([=] {
+    return f.then([base, name = sstring(name), permissions] {
         return do_recursive_touch_directory(base, std::move(name), permissions);
     }).then([base] {
         // We will now flush the directory that holds the entry we potentially
@@ -81,62 +82,62 @@ static future<> do_recursive_touch_directory(sstring base, sstring name, file_pe
     });
 }
 
-future<> recursive_touch_directory(sstring name, file_permissions permissions) noexcept {
+future<> recursive_touch_directory(std::string_view name, file_permissions permissions) noexcept {
     // If the name is empty,  it will be of the type a/b/c, which should be interpreted as
     // a relative path. This means we have to flush our current directory
-    sstring base = "";
+    std::string_view base = "";
     if (name[0] != '/' || name[0] == '.') {
         base = "./";
     }
-    return do_recursive_touch_directory(std::move(base), std::move(name), permissions);
+    return do_recursive_touch_directory(base, name, permissions);
 }
 
-future<> remove_file(sstring pathname) noexcept {
-    return engine().remove_file(std::move(pathname));
+future<> remove_file(std::string_view pathname) noexcept {
+    return engine().remove_file(pathname);
 }
 
-future<> rename_file(sstring old_pathname, sstring new_pathname) noexcept {
-    return engine().rename_file(std::move(old_pathname), std::move(new_pathname));
+future<> rename_file(std::string_view old_pathname, std::string_view new_pathname) noexcept {
+    return engine().rename_file(old_pathname, new_pathname);
 }
 
-future<fs_type> file_system_at(sstring name) noexcept {
-    return engine().file_system_at(std::move(name));
+future<fs_type> file_system_at(std::string_view name) noexcept {
+    return engine().file_system_at(name);
 }
 
-future<uint64_t> fs_avail(sstring name) noexcept {
-    return engine().statvfs(std::move(name)).then([] (struct statvfs st) {
+future<uint64_t> fs_avail(std::string_view name) noexcept {
+    return engine().statvfs(name).then([] (struct statvfs st) {
         return make_ready_future<uint64_t>(st.f_bavail * st.f_frsize);
     });
 }
 
-future<uint64_t> fs_free(sstring name) noexcept {
-    return engine().statvfs(std::move(name)).then([] (struct statvfs st) {
+future<uint64_t> fs_free(std::string_view name) noexcept {
+    return engine().statvfs(name).then([] (struct statvfs st) {
         return make_ready_future<uint64_t>(st.f_bfree * st.f_frsize);
     });
 }
 
-future<stat_data> file_stat(sstring name, follow_symlink follow) noexcept {
-    return engine().file_stat(std::move(name), follow);
+future<stat_data> file_stat(std::string_view name, follow_symlink follow) noexcept {
+    return engine().file_stat(name, follow);
 }
 
-future<uint64_t> file_size(sstring name) noexcept {
-    return engine().file_size(std::move(name));
+future<uint64_t> file_size(std::string_view name) noexcept {
+    return engine().file_size(name);
 }
 
-future<bool> file_accessible(sstring name, access_flags flags) noexcept {
-    return engine().file_accessible(std::move(name), flags);
+future<bool> file_accessible(std::string_view name, access_flags flags) noexcept {
+    return engine().file_accessible(name, flags);
 }
 
-future<bool> file_exists(sstring name) noexcept {
-    return engine().file_exists(std::move(name));
+future<bool> file_exists(std::string_view name) noexcept {
+    return engine().file_exists(name);
 }
 
-future<> link_file(sstring oldpath, sstring newpath) noexcept {
-    return engine().link_file(std::move(oldpath), std::move(newpath));
+future<> link_file(std::string_view oldpath, std::string_view newpath) noexcept {
+    return engine().link_file(oldpath, newpath);
 }
 
-future<> chmod(sstring name, file_permissions permissions) noexcept {
-    return engine().chmod(std::move(name), permissions);
+future<> chmod(std::string_view name, file_permissions permissions) noexcept {
+    return engine().chmod(name, permissions);
 }
 
 static future<> do_recursive_remove_directory(const fs::path path) noexcept {

@@ -1726,7 +1726,7 @@ reactor::file_type(std::string_view name, follow_symlink follow) noexcept {
 }
 
 future<std::optional<directory_entry_type>>
-file_type(sstring name, follow_symlink follow) noexcept {
+file_type(std::string_view name, follow_symlink follow) noexcept {
     return engine().file_type(name, follow);
 }
 
@@ -4026,7 +4026,7 @@ void report_exception(std::string_view message, std::exception_ptr eptr) noexcep
     seastar_logger.error("{}: {}", message, eptr);
 }
 
-future<> check_direct_io_support(sstring path) noexcept {
+future<> check_direct_io_support(std::string_view path) noexcept {
     struct w {
         sstring path;
         open_flags flags;
@@ -4048,7 +4048,7 @@ future<> check_direct_io_support(sstring path) noexcept {
         };
     };
 
-    return engine().file_type(path).then([path] (auto type) {
+    return engine().file_type(path).then([path = sstring(path)] (auto type) {
         auto w = w::parse(path, type);
         return open_file_dma(w.path, w.flags).then_wrapped([path = w.path, cleanup = std::move(w.cleanup)] (future<file> f) {
             try {
