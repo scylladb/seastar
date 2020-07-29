@@ -219,7 +219,7 @@ future<file> open_file_dma(sstring name, open_flags flags, file_open_options opt
 /// not a directory.
 ///
 /// \param path the directory we need to verify.
-future<> check_direct_io_support(sstring path);
+future<> check_direct_io_support(sstring path) noexcept;
 
 /// Opens a directory.
 ///

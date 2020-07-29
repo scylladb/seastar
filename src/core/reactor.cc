@@ -3986,7 +3986,7 @@ void report_exception(std::string_view message, std::exception_ptr eptr) noexcep
     seastar_logger.error("{}: {}", message, eptr);
 }
 
-future<> check_direct_io_support(sstring path) {
+future<> check_direct_io_support(sstring path) noexcept {
     struct w {
         sstring path;
         open_flags flags;
