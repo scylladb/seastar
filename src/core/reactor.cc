@@ -1570,55 +1570,55 @@ size_t sanitize_iovecs(std::vector<iovec>& iov, size_t disk_alignment) noexcept 
 
 future<file>
 reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_options options) noexcept {
-  return do_with(static_cast<int>(flags), std::move(options), [this, nameref] (auto& open_flags, file_open_options& options) {
-    sstring name(nameref);
-    return _thread_pool->submit<syscall_result<int>>([name, &open_flags, &options, strict_o_direct = _strict_o_direct, bypass_fsync = _bypass_fsync] () mutable {
-        // We want O_DIRECT, except in two cases:
-        //   - tmpfs (which doesn't support it, but works fine anyway)
-        //   - strict_o_direct == false (where we forgive it being not supported)
-        // Because open() with O_DIRECT will fail, we open it without O_DIRECT, try
-        // to update it to O_DIRECT with fcntl(), and if that fails, see if we
-        // can forgive it.
-        auto is_tmpfs = [] (int fd) {
-            struct ::statfs buf;
-            auto r = ::fstatfs(fd, &buf);
-            if (r == -1) {
-                return false;
+    return do_with(static_cast<int>(flags), std::move(options), [this, nameref] (auto& open_flags, file_open_options& options) {
+        sstring name(nameref);
+        return _thread_pool->submit<syscall_result<int>>([name, &open_flags, &options, strict_o_direct = _strict_o_direct, bypass_fsync = _bypass_fsync] () mutable {
+            // We want O_DIRECT, except in two cases:
+            //   - tmpfs (which doesn't support it, but works fine anyway)
+            //   - strict_o_direct == false (where we forgive it being not supported)
+            // Because open() with O_DIRECT will fail, we open it without O_DIRECT, try
+            // to update it to O_DIRECT with fcntl(), and if that fails, see if we
+            // can forgive it.
+            auto is_tmpfs = [] (int fd) {
+                struct ::statfs buf;
+                auto r = ::fstatfs(fd, &buf);
+                if (r == -1) {
+                    return false;
+                }
+                return buf.f_type == 0x01021994; // TMPFS_MAGIC
+            };
+            open_flags |= O_CLOEXEC;
+            if (bypass_fsync) {
+                open_flags &= ~O_DSYNC;
             }
-            return buf.f_type == 0x01021994; // TMPFS_MAGIC
-        };
-        open_flags |= O_CLOEXEC;
-        if (bypass_fsync) {
-            open_flags &= ~O_DSYNC;
-        }
-        auto mode = static_cast<mode_t>(options.create_permissions);
-        int fd = ::open(name.c_str(), open_flags, mode);
-        if (fd == -1) {
+            auto mode = static_cast<mode_t>(options.create_permissions);
+            int fd = ::open(name.c_str(), open_flags, mode);
+            if (fd == -1) {
+                return wrap_syscall<int>(fd);
+            }
+            int r = ::fcntl(fd, F_SETFL, open_flags | O_DIRECT);
+            auto maybe_ret = wrap_syscall<int>(r);  // capture errno (should be EINVAL)
+            if (r == -1  && strict_o_direct && !is_tmpfs(fd)) {
+                ::close(fd);
+                return maybe_ret;
+            }
+            if (fd != -1) {
+                fsxattr attr = {};
+                if (options.extent_allocation_size_hint) {
+                    attr.fsx_xflags |= XFS_XFLAG_EXTSIZE;
+                    attr.fsx_extsize = options.extent_allocation_size_hint;
+                }
+                // Ignore error; may be !xfs, and just a hint anyway
+                ::ioctl(fd, XFS_IOC_FSSETXATTR, &attr);
+            }
             return wrap_syscall<int>(fd);
-        }
-        int r = ::fcntl(fd, F_SETFL, open_flags | O_DIRECT);
-        auto maybe_ret = wrap_syscall<int>(r);  // capture errno (should be EINVAL)
-        if (r == -1  && strict_o_direct && !is_tmpfs(fd)) {
-            ::close(fd);
-            return maybe_ret;
-        }
-        if (fd != -1) {
-            fsxattr attr = {};
-            if (options.extent_allocation_size_hint) {
-                attr.fsx_xflags |= XFS_XFLAG_EXTSIZE;
-                attr.fsx_extsize = options.extent_allocation_size_hint;
-            }
-            // Ignore error; may be !xfs, and just a hint anyway
-            ::ioctl(fd, XFS_IOC_FSSETXATTR, &attr);
-        }
-        return wrap_syscall<int>(fd);
-    }).then([&options, name = std::move(name), &open_flags] (syscall_result<int> sr) {
-        sr.throw_fs_exception_if_error("open failed", name);
-        return make_file_impl(sr.result, options, open_flags);
-    }).then([] (shared_ptr<file_impl> impl) {
-        return make_ready_future<file>(std::move(impl));
+        }).then([&options, name = std::move(name), &open_flags] (syscall_result<int> sr) {
+            sr.throw_fs_exception_if_error("open failed", name);
+            return make_file_impl(sr.result, options, open_flags);
+        }).then([] (shared_ptr<file_impl> impl) {
+            return make_ready_future<file>(std::move(impl));
+        });
     });
-  });
 }
 
 future<>
