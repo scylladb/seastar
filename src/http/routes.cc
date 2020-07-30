@@ -157,6 +157,14 @@ handler_base* routes::drop(operation_type type, const sstring& url) {
     return delete_rule_from(type, url, _map);
 }
 
+routes& routes::put(operation_type type, const sstring& url, handler_base* handler) {
+    auto it = _map[type].emplace(url, handler);
+    if (it.second == false) {
+        throw std::runtime_error(format("Handler for {} already exists.", url));
+    }
+    return *this;
+}
+
 match_rule* routes::del_cookie(rule_cookie cookie, operation_type type) {
     return delete_rule_from(type, cookie, _rules);
 }

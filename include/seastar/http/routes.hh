@@ -88,13 +88,7 @@ public:
      * @param handler the desire handler
      * @return it self
      */
-    routes& put(operation_type type, const sstring& url,
-            handler_base* handler) {
-        //FIXME if a handler is already exists, it need to be
-        // deleted to prevent memory leak
-        _map[type][url] = handler;
-        return *this;
-    }
+    routes& put(operation_type type, const sstring& url, handler_base* handler);
 
     /**
      * removing a handler from exact match
