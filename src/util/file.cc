@@ -50,7 +50,7 @@ future<> sync_directory(std::string_view name) noexcept {
     });
 }
 
-static future<> do_recursive_touch_directory(std::string_view base_view, std::string_view name, file_permissions permissions) noexcept {
+static future<> do_recursive_touch_directory(std::string_view base_view, std::string_view name, file_permissions permissions) {
     sstring base(base_view);
     static const sstring::value_type separator = '/';
 
@@ -89,7 +89,7 @@ future<> recursive_touch_directory(std::string_view name, file_permissions permi
     if (name[0] != '/' || name[0] == '.') {
         base = "./";
     }
-    return do_recursive_touch_directory(base, name, permissions);
+    return futurize_invoke(do_recursive_touch_directory, base, name, permissions);
 }
 
 future<> remove_file(std::string_view pathname) noexcept {
