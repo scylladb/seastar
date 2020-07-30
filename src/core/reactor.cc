@@ -4048,6 +4048,8 @@ future<> check_direct_io_support(std::string_view path) noexcept {
         };
     };
 
+    // Allocating memory for a sstring can throw, hence the futurize_invoke
+    return futurize_invoke([path] {
     return engine().file_type(path).then([path = sstring(path)] (auto type) {
         auto w = w::parse(path, type);
         return open_file_dma(w.path, w.flags).then_wrapped([path = w.path, cleanup = std::move(w.cleanup)] (future<file> f) {
@@ -4063,6 +4065,7 @@ future<> check_direct_io_support(std::string_view path) noexcept {
                 throw;
             }
         });
+    });
     });
 }
 
