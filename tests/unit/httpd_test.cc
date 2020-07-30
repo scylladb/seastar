@@ -111,6 +111,31 @@ SEASTAR_TEST_CASE(test_put_drop_rule)
     return make_ready_future<>();
 }
 
+// Putting a duplicated exact rule would result
+// in a memory leak due to the fact that rules are implemented
+// as raw pointers. In order to prevent such leaks,
+// an exception is thrown if somebody tries to put
+// a duplicated rule without removing the old one first.
+// The interface demands that the callee allocates the handle,
+// so it should also expect the callee to free it before
+// overwriting.
+SEASTAR_TEST_CASE(test_duplicated_exact_rule)
+{
+    parameters param;
+    routes route;
+
+    handl* h1 = new handl;
+    route.put(operation_type::GET, "/hello", h1);
+
+    handl* h2 = new handl;
+    BOOST_REQUIRE_THROW(route.put(operation_type::GET, "/hello", h2), std::runtime_error);
+
+    delete route.drop(operation_type::GET, "/hello");
+    route.put(operation_type::GET, "/hello", h2);
+
+    return make_ready_future<>();
+}
+
 SEASTAR_TEST_CASE(test_add_del_cookie)
 {
     routes rts;
