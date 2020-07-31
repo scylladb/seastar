@@ -637,13 +637,13 @@ private:
 
     void add_timer(timer<steady_clock_type>*);
     bool queue_timer(timer<steady_clock_type>*);
-    void del_timer(timer<steady_clock_type>*);
+    void del_timer(timer<steady_clock_type>*) noexcept;
     void add_timer(timer<lowres_clock>*);
     bool queue_timer(timer<lowres_clock>*);
-    void del_timer(timer<lowres_clock>*);
+    void del_timer(timer<lowres_clock>*) noexcept;
     void add_timer(timer<manual_clock>*);
     bool queue_timer(timer<manual_clock>*);
-    void del_timer(timer<manual_clock>*);
+    void del_timer(timer<manual_clock>*) noexcept;
 
     future<> run_exit_tasks();
     void stop();

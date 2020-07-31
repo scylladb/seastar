@@ -144,7 +144,7 @@ public:
      *  - timer is no longer in the active set.
      *  - this object will no longer hold any references to this timer.
      */
-    void remove(Timer& timer)
+    void remove(Timer& timer) noexcept
     {
         auto index = get_index(timer);
         auto& list = _buckets[index];

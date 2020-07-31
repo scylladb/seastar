@@ -600,7 +600,7 @@ void timer<Clock>::readd_periodic() {
 
 template <typename Clock>
 inline
-bool timer<Clock>::cancel() {
+bool timer<Clock>::cancel() noexcept {
     if (!_armed) {
         return false;
     }
@@ -1955,7 +1955,7 @@ bool reactor::queue_timer(timer<steady_clock_type>* tmr) {
     return _timers.insert(*tmr);
 }
 
-void reactor::del_timer(timer<steady_clock_type>* tmr) {
+void reactor::del_timer(timer<steady_clock_type>* tmr) noexcept {
     if (tmr->_expired) {
         _expired_timers.erase(_expired_timers.iterator_to(*tmr));
         tmr->_expired = false;
@@ -1974,7 +1974,7 @@ bool reactor::queue_timer(timer<lowres_clock>* tmr) {
     return _lowres_timers.insert(*tmr);
 }
 
-void reactor::del_timer(timer<lowres_clock>* tmr) {
+void reactor::del_timer(timer<lowres_clock>* tmr) noexcept {
     if (tmr->_expired) {
         _expired_lowres_timers.erase(_expired_lowres_timers.iterator_to(*tmr));
         tmr->_expired = false;
@@ -1991,7 +1991,7 @@ bool reactor::queue_timer(timer<manual_clock>* tmr) {
     return _manual_timers.insert(*tmr);
 }
 
-void reactor::del_timer(timer<manual_clock>* tmr) {
+void reactor::del_timer(timer<manual_clock>* tmr) noexcept {
     if (tmr->_expired) {
         _expired_manual_timers.erase(_expired_manual_timers.iterator_to(*tmr));
         tmr->_expired = false;

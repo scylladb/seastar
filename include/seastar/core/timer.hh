@@ -193,7 +193,7 @@ public:
     /// armed, does nothing.
     ///
     /// \return `true` if the timer was armed before the call.
-    bool cancel();
+    bool cancel() noexcept;
     /// Gets the expiration time of an armed timer.
     ///
     /// \return the time at which the timer is scheduled to expire (undefined if the
