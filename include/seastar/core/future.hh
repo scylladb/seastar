@@ -749,10 +749,13 @@ protected:
     friend class future_base;
     template <typename... U> friend class seastar::future;
 
-private:
+public:
+    /// Set this promise to the current exception.
+    ///
+    /// This is equivalent to set_exception(std::current_exception()),
+    /// but expands to less code.
     void set_to_current_exception() noexcept;
 
-public:
     /// Returns the task which is waiting for this promise to resolve, or nullptr.
     task* waiting_task() const noexcept { return _task; }
 };
@@ -800,6 +803,14 @@ public:
         }
     }
 
+    /// Set this promise to the current exception.
+    ///
+    /// This is equivalent to set_exception(std::current_exception()),
+    /// but expands to less code.
+    void set_to_current_exception() noexcept {
+        internal::promise_base::set_to_current_exception();
+    }
+
     /// Returns the task which is waiting for this promise to resolve, or nullptr.
     using internal::promise_base::waiting_task;
 
@@ -842,6 +853,14 @@ public:
         return *this;
     }
     void operator=(const promise&) = delete;
+
+    /// Set this promise to the current exception.
+    ///
+    /// This is equivalent to set_exception(std::current_exception()),
+    /// but expands to less code.
+    void set_to_current_exception() noexcept {
+        internal::promise_base::set_to_current_exception();
+    }
 
     /// Returns the task which is waiting for this promise to resolve, or nullptr.
     using internal::promise_base::waiting_task;
