@@ -38,6 +38,7 @@ namespace httpd {
 
 namespace status_strings {
 
+const sstring continue_ = " 100 Continue\r\n";
 const sstring ok = " 200 OK\r\n";
 const sstring created = " 201 Created\r\n";
 const sstring accepted = " 202 Accepted\r\n";
@@ -59,6 +60,8 @@ const sstring service_unavailable = " 503 Service Unavailable\r\n";
 
 static const sstring& to_string(reply::status_type status) {
     switch (status) {
+    case reply::status_type::continue_:
+        return continue_;
     case reply::status_type::ok:
         return ok;
     case reply::status_type::created:

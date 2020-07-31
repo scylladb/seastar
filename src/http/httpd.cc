@@ -236,11 +236,29 @@ future<> connection::read_one() {
             generate_error_reply_and_close(std::move(req), reply::status_type::payload_too_large, std::move(msg));
             return make_ready_future<>();
         }
-        return read_request_body(_read_buf, std::move(req)).then([this] (std::unique_ptr<httpd::request> req) {
-            return _replies.not_full().then([req = std::move(req), this] () mutable {
-                return generate_reply(std::move(req));
-            }).then([this](bool done) {
-                _done = done;
+
+        auto maybe_reply_continue = [this, req = std::move(req)] () mutable {
+            if (req->_version == "1.1" && req->get_header("Expect") == "100-continue") {
+                auto continue_reply = std::make_unique<reply>();
+                set_headers(*continue_reply);
+                continue_reply->set_version(req->_version);
+                continue_reply->set_status(reply::status_type::continue_).done();
+                return _replies.not_full().then([continue_reply = std::move(continue_reply), req = std::move(req), this] () mutable {
+                    this->_replies.push(std::move(continue_reply));
+                    return make_ready_future<std::unique_ptr<httpd::request>>(std::move(req));
+                });
+            } else {
+                return make_ready_future<std::unique_ptr<httpd::request>>(std::move(req));
+            }
+        };
+
+        return maybe_reply_continue().then([this] (std::unique_ptr<httpd::request> req) {
+            return read_request_body(_read_buf, std::move(req)).then([this] (std::unique_ptr<httpd::request> req) {
+                return _replies.not_full().then([req = std::move(req), this] () mutable {
+                    return generate_reply(std::move(req));
+                }).then([this](bool done) {
+                    _done = done;
+                });
             });
         });
     });
