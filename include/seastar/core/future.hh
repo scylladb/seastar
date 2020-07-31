@@ -644,7 +644,11 @@ struct continuation final : continuation_base_with_promise<Promise, T...> {
         , _func(std::move(func))
         , _wrapper(std::move(wrapper)) {}
     virtual void run_and_dispose() noexcept override {
+        try {
         _wrapper(this->_pr, _func, std::move(this->_state));
+        } catch (...) {
+            this->_pr.set_to_current_exception();
+        }
         delete this;
     }
     Func _func;
@@ -1543,13 +1547,9 @@ private:
                 if (state.failed()) {
                     pr.set_exception(static_cast<future_state_base&&>(std::move(state)));
                 } else {
-                    try {
                         futurator::satisfy_with_result_of(std::move(pr), [&func, &state] {
                             return std::apply(func, std::move(state).get_value());
                         });
-                    } catch (...) {
-                        pr.set_to_current_exception();
-                    }
                 }
             });
         } ();
@@ -1636,13 +1636,9 @@ private:
             using pr_type = decltype(fut.get_promise());
             memory::disable_failure_guard dfg;
             schedule(fut.get_promise(), std::move(func), [](pr_type& pr, Func& func, future_state<T...>&& state) mutable {
-                try {
                     futurator::satisfy_with_result_of(std::move(pr), [&func, &state] {
                         return func(future(std::move(state)));
                     });
-                } catch (...) {
-                    pr.set_to_current_exception();
-                }
             });
         } ();
         return fut;
