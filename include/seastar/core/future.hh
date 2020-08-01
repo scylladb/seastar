@@ -603,7 +603,6 @@ protected:
     using promise_type = promise<T...>;
 public:
     continuation_base() noexcept = default;
-    explicit continuation_base(future_state<T...>&& state) noexcept : _state(std::move(state)) {}
     void set_state(future_state<T...>&& state) noexcept {
         _state = std::move(state);
     }
@@ -621,10 +620,6 @@ template <typename Promise, typename... T>
 class continuation_base_with_promise : public continuation_base<T...> {
     friend class internal::promise_base_with_type<T...>;
 protected:
-    continuation_base_with_promise(Promise&& pr, future_state<T...>&& state) noexcept
-        : continuation_base<T...>(std::move(state)), _pr(std::move(pr)) {
-        task::make_backtrace();
-    }
     continuation_base_with_promise(Promise&& pr) noexcept : _pr(std::move(pr)) {
         task::make_backtrace();
     }
@@ -638,10 +633,6 @@ struct continuation final : continuation_base_with_promise<Promise, T...> {
     // Wrapper is a helper function that implements the specific logic
     // needed by then/then_wrapped. We call the wrapper passing it the
     // original function, promise and state.
-    continuation(Promise&& pr, Func&& func, Wrapper&& wrapper, future_state<T...>&& state)
-        : continuation_base_with_promise<Promise, T...>(std::move(pr), std::move(state))
-        , _func(std::move(func))
-        , _wrapper(std::move(wrapper)) {}
     continuation(Promise&& pr, Func&& func, Wrapper&& wrapper)
         : continuation_base_with_promise<Promise, T...>(std::move(pr))
         , _func(std::move(func))
@@ -1331,13 +1322,18 @@ private:
     }
     template <typename Pr, typename Func, typename Wrapper>
     void schedule(Pr&& pr, Func&& func, Wrapper&& wrapper) noexcept {
+        auto tws = new continuation<Pr, Func, Wrapper, T...>(std::move(pr), std::move(func), std::move(wrapper));
+        // In a debug build we schedule ready futures, but not in
+        // other build modes.
+#ifdef SEASTAR_DEBUG
         if (_state.available()) {
-            ::seastar::schedule(new continuation<Pr, Func, Wrapper, T...>(std::move(pr), std::move(func), std::move(wrapper), std::move(_state)));
-        } else {
-            auto tws = new continuation<Pr, Func, Wrapper, T...>(std::move(pr), std::move(func), std::move(wrapper));
-            schedule(tws);
-            _state._u.st = future_state_base::state::invalid;
+            tws->set_state(std::move(_state));
+            ::seastar::schedule(tws);
+            return;
         }
+#endif
+        schedule(tws);
+        _state._u.st = future_state_base::state::invalid;
     }
 
     [[gnu::always_inline]]
