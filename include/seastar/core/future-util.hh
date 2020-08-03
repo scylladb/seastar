@@ -163,6 +163,7 @@ parallel_for_each(Iterator begin, Iterator end, Func&& func) noexcept {
         auto f = futurize_invoke(std::forward<Func>(func), *begin++);
         if (!f.available() || f.failed()) {
             if (!s) {
+                memory::disable_failure_guard dfg;
                 using itraits = std::iterator_traits<Iterator>;
                 auto n = (internal::iterator_range_estimate_vector_capacity(begin, end, typename itraits::iterator_category()) + 1);
                 s = new parallel_for_each_state(n);
