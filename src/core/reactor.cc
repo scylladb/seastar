@@ -3636,7 +3636,7 @@ public:
         _mountpoints.emplace(0, d);
     }
 
-    struct io_group::config generate_group_config(dev_t devid) const noexcept {
+    struct io_group::config generate_group_config(dev_t devid, unsigned nr_groups) const noexcept {
         seastar_logger.debug("generate_group_config dev_id: {}", devid);
         struct io_group::config cfg;
         return cfg;
@@ -3889,17 +3889,28 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
         auto io_info = ioq_topology.at(id);
         auto cid = io_info.shard_to_coordinator[shard];
         auto vec_idx = io_info.coordinator_to_idx[cid];
+        auto group_idx = io_info.shard_to_group[shard];
         assert(io_info.coordinator_to_idx_valid[cid]);
         resource::device_io_topology& topology = devices_topology[id];
+        std::shared_ptr<io_group> group;
+
+        {
+            std::lock_guard _(topology.lock);
+            resource::device_io_topology::group& iog = topology.groups[group_idx];
+            if (iog.attached == 0) {
+                struct io_group::config gcfg = disk_config.generate_group_config(id, topology.groups.size());
+                iog.g = std::make_shared<io_group>(std::move(gcfg));
+            }
+            iog.attached++;
+            group = iog.g;
+        }
+
         if (shard == cid) {
             assert(vec_idx < topology.queues.size());
             assert(!topology.queues[vec_idx]);
 
-            struct io_group::config gcfg = disk_config.generate_group_config(id);
             struct io_queue::config cfg = disk_config.generate_config(id);
             cfg.coordinator = cid;
-            // temporarily each queue is having its own group
-            io_group_ptr group = std::make_shared<io_group>(std::move(gcfg));
             topology.queues[vec_idx] = new io_queue(std::move(group), std::move(cfg));
         }
     };

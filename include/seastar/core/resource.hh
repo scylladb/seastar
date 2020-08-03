@@ -25,6 +25,7 @@
 #include <cstdlib>
 #include <string>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/spinlock.hh>
 #include <vector>
 #include <set>
 #include <sched.h>
@@ -35,6 +36,7 @@ namespace seastar {
 
 cpu_set_t cpuid_to_cpuset(unsigned cpuid);
 class io_queue;
+class io_group;
 
 namespace resource {
 
@@ -65,6 +67,8 @@ struct io_queue_topology {
     std::vector<unsigned> coordinator_to_idx;
     std::vector<bool> coordinator_to_idx_valid; // for validity asserts
     unsigned nr_coordinators;
+    std::vector<unsigned> shard_to_group;
+    unsigned nr_groups;
 };
 
 struct cpu {
@@ -79,9 +83,15 @@ struct resources {
 
 struct device_io_topology {
     std::vector<io_queue*> queues;
+    struct group {
+        std::shared_ptr<io_group> g;
+        unsigned attached = 0;
+    };
+    util::spinlock lock;
+    std::vector<group> groups;
 
     device_io_topology() noexcept = default;
-    device_io_topology(const io_queue_topology& iot) noexcept : queues(iot.nr_coordinators) {}
+    device_io_topology(const io_queue_topology& iot) noexcept : queues(iot.nr_coordinators), groups(iot.nr_groups) {}
 };
 
 resources allocate(configuration c);

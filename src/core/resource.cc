@@ -378,6 +378,7 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unord
     ret.shard_to_coordinator.resize(cpus.size());
     ret.coordinator_to_idx.resize(cpus.size());
     ret.coordinator_to_idx_valid.resize(cpus.size());
+    ret.shard_to_group.resize(cpus.size());
 
     // User may be playing with --smp option, but num_io_queues was independently
     // determined by iotune, so adjust for any conflicts.
@@ -399,6 +400,7 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unord
 
     auto cpu_sets = distribute_objects(topology, num_io_queues);
     ret.nr_coordinators = 0;
+    ret.nr_groups = 1;
 
     // First step: distribute the IO queues given the information returned in cpu_sets.
     // If there is one IO queue per processor, only this loop will be executed.
@@ -411,6 +413,7 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unord
         ret.coordinator_to_idx_valid[io_coordinator] = true;
         // If a processor is a coordinator, it is also obviously a coordinator of itself
         ret.shard_to_coordinator[io_coordinator] = io_coordinator;
+        ret.shard_to_group[io_coordinator] = 0;
 
         auto node_id = node_of_shard(io_coordinator);
         if (node_coordinators.count(node_id) == 0) {
@@ -437,6 +440,7 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unord
             auto idx = cid_idx++ % node_coordinators.at(my_node).size();
             auto io_coordinator = node_coordinators.at(my_node)[idx];
             ret.shard_to_coordinator[remaining_shard] = io_coordinator;
+            ret.shard_to_group[remaining_shard] = ret.shard_to_group[io_coordinator];
         }
     }
 
@@ -635,11 +639,14 @@ allocate_io_queues(configuration c, std::vector<cpu> cpus) {
     ret.coordinator_to_idx.resize(nr_cpus);
     ret.coordinator_to_idx_valid.resize(nr_cpus);
     ret.nr_coordinators = nr_cpus;
+    ret.shard_to_group.resize(nr_cpus);
+    ret.nr_groups = 1;
 
     for (unsigned shard = 0; shard < nr_cpus; ++shard) {
         ret.shard_to_coordinator[shard] = shard;
         ret.coordinator_to_idx[shard] = shard;
         ret.coordinator_to_idx_valid[shard] = true;
+        ret.shard_to_group[shard] = 0;
     }
     return ret;
 }
