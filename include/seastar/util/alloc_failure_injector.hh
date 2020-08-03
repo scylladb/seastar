@@ -126,5 +126,12 @@ void on_alloc_point() {
 #endif
 }
 
+/// Repeatedly run func with allocation failures
+///
+/// Initially, allocations start to fail immediately. In each
+/// subsequent run the failures start one allocation later. This
+/// returns when func is run and no allocation failures are detected.
+void with_allocation_failures(noncopyable_function<void()> func);
+
 }
 }
