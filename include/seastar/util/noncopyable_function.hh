@@ -71,6 +71,21 @@ private:
     friend class seastar::noncopyable_function;
 };
 
+template<typename FirstArg = void, typename... RemainingArgs>
+struct is_nothrow_if_object {
+    static constexpr bool value = is_nothrow_if_object<FirstArg>::value && is_nothrow_if_object<RemainingArgs...>::value;
+};
+
+template<typename Arg>
+struct is_nothrow_if_object<Arg> {
+    static constexpr bool value = !std::is_object<Arg>::value || std::is_nothrow_move_constructible<Arg>::value;
+};
+
+template<>
+struct is_nothrow_if_object<> {
+    static constexpr bool value = true;
+};
+
 }
 
 /// A clone of \c std::function, but only invokes the move constructor
@@ -182,6 +197,7 @@ public:
     }
 
     Ret operator()(Args... args) const noexcept(Noexcept) {
+        static_assert(!Noexcept || internal::is_nothrow_if_object<Args...>::value);
         return _vtable->call(this, std::forward<Args>(args)...);
     }
 
