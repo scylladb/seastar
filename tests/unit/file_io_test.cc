@@ -80,18 +80,11 @@ SEASTAR_TEST_CASE(handle_bad_alloc_test) {
         sstring filename = (t.get_path() / "testfile.tmp").native();
         auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get0();
         f.close().get();
-        auto& injector = memory::local_failure_injector();
-        uint64_t i = 0;
-        do {
-            try {
-                injector.fail_after(i++);
-                auto exists = file_exists(filename).get0();
-                injector.cancel();
-                BOOST_REQUIRE(exists);
-            } catch (const std::bad_alloc&) {
-                // expected
-            }
-        } while (injector.failed());
+        bool exists = false;
+        memory::with_allocation_failures([&] {
+            exists = file_exists(filename).get0();
+        });
+        BOOST_REQUIRE(exists);
     });
 }
 
