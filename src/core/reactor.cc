@@ -1569,98 +1569,111 @@ size_t sanitize_iovecs(std::vector<iovec>& iov, size_t disk_alignment) noexcept 
 }
 
 future<file>
-reactor::open_file_dma(sstring name, open_flags flags, file_open_options options) noexcept {
-  return do_with(static_cast<int>(flags), std::move(name), std::move(options), [this] (auto& open_flags, sstring& name, file_open_options& options) {
-    return _thread_pool->submit<syscall_result<int>>([&name, &open_flags, &options, strict_o_direct = _strict_o_direct, bypass_fsync = _bypass_fsync] () mutable {
-        // We want O_DIRECT, except in two cases:
-        //   - tmpfs (which doesn't support it, but works fine anyway)
-        //   - strict_o_direct == false (where we forgive it being not supported)
-        // Because open() with O_DIRECT will fail, we open it without O_DIRECT, try
-        // to update it to O_DIRECT with fcntl(), and if that fails, see if we
-        // can forgive it.
-        auto is_tmpfs = [] (int fd) {
-            struct ::statfs buf;
-            auto r = ::fstatfs(fd, &buf);
-            if (r == -1) {
-                return false;
+reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_options options) noexcept {
+    return do_with(static_cast<int>(flags), std::move(options), [this, nameref] (auto& open_flags, file_open_options& options) {
+        sstring name(nameref);
+        return _thread_pool->submit<syscall_result<int>>([name, &open_flags, &options, strict_o_direct = _strict_o_direct, bypass_fsync = _bypass_fsync] () mutable {
+            // We want O_DIRECT, except in two cases:
+            //   - tmpfs (which doesn't support it, but works fine anyway)
+            //   - strict_o_direct == false (where we forgive it being not supported)
+            // Because open() with O_DIRECT will fail, we open it without O_DIRECT, try
+            // to update it to O_DIRECT with fcntl(), and if that fails, see if we
+            // can forgive it.
+            auto is_tmpfs = [] (int fd) {
+                struct ::statfs buf;
+                auto r = ::fstatfs(fd, &buf);
+                if (r == -1) {
+                    return false;
+                }
+                return buf.f_type == 0x01021994; // TMPFS_MAGIC
+            };
+            open_flags |= O_CLOEXEC;
+            if (bypass_fsync) {
+                open_flags &= ~O_DSYNC;
             }
-            return buf.f_type == 0x01021994; // TMPFS_MAGIC
-        };
-        open_flags |= O_CLOEXEC;
-        if (bypass_fsync) {
-            open_flags &= ~O_DSYNC;
-        }
-        auto mode = static_cast<mode_t>(options.create_permissions);
-        int fd = ::open(name.c_str(), open_flags, mode);
-        if (fd == -1) {
+            auto mode = static_cast<mode_t>(options.create_permissions);
+            int fd = ::open(name.c_str(), open_flags, mode);
+            if (fd == -1) {
+                return wrap_syscall<int>(fd);
+            }
+            int r = ::fcntl(fd, F_SETFL, open_flags | O_DIRECT);
+            auto maybe_ret = wrap_syscall<int>(r);  // capture errno (should be EINVAL)
+            if (r == -1  && strict_o_direct && !is_tmpfs(fd)) {
+                ::close(fd);
+                return maybe_ret;
+            }
+            if (fd != -1) {
+                fsxattr attr = {};
+                if (options.extent_allocation_size_hint) {
+                    attr.fsx_xflags |= XFS_XFLAG_EXTSIZE;
+                    attr.fsx_extsize = options.extent_allocation_size_hint;
+                }
+                // Ignore error; may be !xfs, and just a hint anyway
+                ::ioctl(fd, XFS_IOC_FSSETXATTR, &attr);
+            }
             return wrap_syscall<int>(fd);
-        }
-        int r = ::fcntl(fd, F_SETFL, open_flags | O_DIRECT);
-        auto maybe_ret = wrap_syscall<int>(r);  // capture errno (should be EINVAL)
-        if (r == -1  && strict_o_direct && !is_tmpfs(fd)) {
-            ::close(fd);
-            return maybe_ret;
-        }
-        if (fd != -1) {
-            fsxattr attr = {};
-            if (options.extent_allocation_size_hint) {
-                attr.fsx_xflags |= XFS_XFLAG_EXTSIZE;
-                attr.fsx_extsize = options.extent_allocation_size_hint;
-            }
-            // Ignore error; may be !xfs, and just a hint anyway
-            ::ioctl(fd, XFS_IOC_FSSETXATTR, &attr);
-        }
-        return wrap_syscall<int>(fd);
-    }).then([&options, &name, &open_flags] (syscall_result<int> sr) {
-        sr.throw_fs_exception_if_error("open failed", name);
-        return make_file_impl(sr.result, options, open_flags);
-    }).then([] (shared_ptr<file_impl> impl) {
-        return make_ready_future<file>(std::move(impl));
-    });
-  });
-}
-
-future<>
-reactor::remove_file(sstring pathname) noexcept {
-    return engine()._thread_pool->submit<syscall_result<int>>([pathname] {
-        return wrap_syscall<int>(::remove(pathname.c_str()));
-    }).then([pathname] (syscall_result<int> sr) {
-        sr.throw_fs_exception_if_error("remove failed", pathname);
-        return make_ready_future<>();
+        }).then([&options, name = std::move(name), &open_flags] (syscall_result<int> sr) {
+            sr.throw_fs_exception_if_error("open failed", name);
+            return make_file_impl(sr.result, options, open_flags);
+        }).then([] (shared_ptr<file_impl> impl) {
+            return make_ready_future<file>(std::move(impl));
+        });
     });
 }
 
 future<>
-reactor::rename_file(sstring old_pathname, sstring new_pathname) noexcept {
-    return engine()._thread_pool->submit<syscall_result<int>>([old_pathname, new_pathname] {
-        return wrap_syscall<int>(::rename(old_pathname.c_str(), new_pathname.c_str()));
-    }).then([old_pathname, new_pathname] (syscall_result<int> sr) {
-        sr.throw_fs_exception_if_error("rename failed",  old_pathname, new_pathname);
-        return make_ready_future<>();
+reactor::remove_file(std::string_view pathname) noexcept {
+    // Allocating memory for a sstring can throw, hence the futurize_invoke
+    return futurize_invoke([pathname] {
+        return engine()._thread_pool->submit<syscall_result<int>>([pathname = sstring(pathname)] {
+            return wrap_syscall<int>(::remove(pathname.c_str()));
+        }).then([pathname = sstring(pathname)] (syscall_result<int> sr) {
+            sr.throw_fs_exception_if_error("remove failed", pathname);
+            return make_ready_future<>();
+        });
     });
 }
 
 future<>
-reactor::link_file(sstring oldpath, sstring newpath) noexcept {
-    return engine()._thread_pool->submit<syscall_result<int>>([oldpath, newpath] {
-        return wrap_syscall<int>(::link(oldpath.c_str(), newpath.c_str()));
-    }).then([oldpath, newpath] (syscall_result<int> sr) {
-        sr.throw_fs_exception_if_error("link failed", oldpath, newpath);
-        return make_ready_future<>();
+reactor::rename_file(std::string_view old_pathname, std::string_view new_pathname) noexcept {
+    // Allocating memory for a sstring can throw, hence the futurize_invoke
+    return futurize_invoke([old_pathname, new_pathname] {
+        return engine()._thread_pool->submit<syscall_result<int>>([old_pathname = sstring(old_pathname), new_pathname = sstring(new_pathname)] {
+            return wrap_syscall<int>(::rename(old_pathname.c_str(), new_pathname.c_str()));
+        }).then([old_pathname = sstring(old_pathname), new_pathname = sstring(new_pathname)] (syscall_result<int> sr) {
+            sr.throw_fs_exception_if_error("rename failed",  old_pathname, new_pathname);
+            return make_ready_future<>();
+        });
     });
 }
 
 future<>
-reactor::chmod(sstring name, file_permissions permissions) noexcept {
+reactor::link_file(std::string_view oldpath, std::string_view newpath) noexcept {
+    // Allocating memory for a sstring can throw, hence the futurize_invoke
+    return futurize_invoke([oldpath, newpath] {
+        return engine()._thread_pool->submit<syscall_result<int>>([oldpath = sstring(oldpath), newpath = sstring(newpath)] {
+            return wrap_syscall<int>(::link(oldpath.c_str(), newpath.c_str()));
+        }).then([oldpath = sstring(oldpath), newpath = sstring(newpath)] (syscall_result<int> sr) {
+            sr.throw_fs_exception_if_error("link failed", oldpath, newpath);
+            return make_ready_future<>();
+        });
+    });
+}
+
+future<>
+reactor::chmod(std::string_view name, file_permissions permissions) noexcept {
     auto mode = static_cast<mode_t>(permissions);
-    return _thread_pool->submit<syscall_result<int>>([name, mode] {
-        return wrap_syscall<int>(::chmod(name.c_str(), mode));
-    }).then([name, mode] (syscall_result<int> sr) {
-        if (sr.result == -1) {
-            auto reason = format("chmod(0{:o}) failed", mode);
-            sr.throw_fs_exception(reason, fs::path(name));
-        }
-        return make_ready_future<>();
+    // Allocating memory for a sstring can throw, hence the futurize_invoke
+    return futurize_invoke([name, mode, this] {
+        return _thread_pool->submit<syscall_result<int>>([name = sstring(name), mode] {
+            return wrap_syscall<int>(::chmod(name.c_str(), mode));
+        }).then([name = sstring(name), mode] (syscall_result<int> sr) {
+            if (sr.result == -1) {
+                auto reason = format("chmod(0{:o}) failed", mode);
+                sr.throw_fs_exception(reason, fs::path(name));
+            }
+            return make_ready_future<>();
+        });
     });
 }
 
@@ -1690,28 +1703,31 @@ directory_entry_type stat_to_entry_type(__mode_t type) {
 }
 
 future<std::optional<directory_entry_type>>
-reactor::file_type(sstring name, follow_symlink follow) noexcept {
-    return _thread_pool->submit<syscall_result_extra<struct stat>>([name, follow] {
-        struct stat st;
-        auto stat_syscall = follow ? stat : lstat;
-        auto ret = stat_syscall(name.c_str(), &st);
-        return wrap_syscall(ret, st);
-    }).then([name] (syscall_result_extra<struct stat> sr) {
-        if (long(sr.result) == -1) {
-            if (sr.error != ENOENT && sr.error != ENOTDIR) {
-                sr.throw_fs_exception_if_error("stat failed", name);
+reactor::file_type(std::string_view name, follow_symlink follow) noexcept {
+    // Allocating memory for a sstring can throw, hence the futurize_invoke
+    return futurize_invoke([name, follow, this] {
+        return _thread_pool->submit<syscall_result_extra<struct stat>>([name = sstring(name), follow] {
+            struct stat st;
+            auto stat_syscall = follow ? stat : lstat;
+            auto ret = stat_syscall(name.c_str(), &st);
+            return wrap_syscall(ret, st);
+        }).then([name = sstring(name)] (syscall_result_extra<struct stat> sr) {
+            if (long(sr.result) == -1) {
+                if (sr.error != ENOENT && sr.error != ENOTDIR) {
+                    sr.throw_fs_exception_if_error("stat failed", name);
+                }
+                return make_ready_future<std::optional<directory_entry_type> >
+                    (std::optional<directory_entry_type>() );
             }
             return make_ready_future<std::optional<directory_entry_type> >
-                (std::optional<directory_entry_type>() );
-        }
-        return make_ready_future<std::optional<directory_entry_type> >
-            (std::optional<directory_entry_type>(stat_to_entry_type(sr.extra.st_mode)) );
+                (std::optional<directory_entry_type>(stat_to_entry_type(sr.extra.st_mode)) );
+        });
     });
 }
 
 future<std::optional<directory_entry_type>>
-file_type(sstring name, follow_symlink follow) noexcept {
-    return engine().file_type(std::move(name), follow);
+file_type(std::string_view name, follow_symlink follow) noexcept {
+    return engine().file_type(name, follow);
 }
 
 static std::chrono::system_clock::time_point
@@ -1734,94 +1750,106 @@ reactor::fstat(int fd) noexcept {
 }
 
 future<int>
-reactor::inotify_add_watch(int fd, const sstring& path, uint32_t flags) {
-    return _thread_pool->submit<syscall_result<int>>([fd, path, flags] {
-        auto ret = ::inotify_add_watch(fd, path.c_str(), flags);
-        return wrap_syscall(ret);
-    }).then([] (syscall_result<int> ret) {
-        ret.throw_if_error();
-        return make_ready_future<int>(ret.result);
+reactor::inotify_add_watch(int fd, std::string_view path, uint32_t flags) {
+    // Allocating memory for a sstring can throw, hence the futurize_invoke
+    return futurize_invoke([path, fd, flags, this] {
+        return _thread_pool->submit<syscall_result<int>>([fd, path = sstring(path), flags] {
+            auto ret = ::inotify_add_watch(fd, path.c_str(), flags);
+            return wrap_syscall(ret);
+        }).then([] (syscall_result<int> ret) {
+            ret.throw_if_error();
+            return make_ready_future<int>(ret.result);
+        });
     });
 }
 
 future<stat_data>
-reactor::file_stat(sstring pathname, follow_symlink follow) noexcept {
-    return _thread_pool->submit<syscall_result_extra<struct stat>>([pathname, follow] {
-        struct stat st;
-        auto stat_syscall = follow ? stat : lstat;
-        auto ret = stat_syscall(pathname.c_str(), &st);
-        return wrap_syscall(ret, st);
-    }).then([pathname = std::move(pathname)] (syscall_result_extra<struct stat> sr) {
-        sr.throw_fs_exception_if_error("stat failed", pathname);
-        struct stat& st = sr.extra;
-        stat_data sd;
-        sd.device_id = st.st_dev;
-        sd.inode_number = st.st_ino;
-        sd.mode = st.st_mode;
-        sd.type = stat_to_entry_type(st.st_mode);
-        sd.number_of_links = st.st_nlink;
-        sd.uid = st.st_uid;
-        sd.gid = st.st_gid;
-        sd.rdev = st.st_rdev;
-        sd.size = st.st_size;
-        sd.block_size = st.st_blksize;
-        sd.allocated_size = st.st_blocks * 512UL;
-        sd.time_accessed = timespec_to_time_point(st.st_atim);
-        sd.time_modified = timespec_to_time_point(st.st_mtim);
-        sd.time_changed = timespec_to_time_point(st.st_ctim);
-        return make_ready_future<stat_data>(std::move(sd));
+reactor::file_stat(std::string_view pathname, follow_symlink follow) noexcept {
+    // Allocating memory for a sstring can throw, hence the futurize_invoke
+    return futurize_invoke([pathname, follow, this] {
+        return _thread_pool->submit<syscall_result_extra<struct stat>>([pathname = sstring(pathname), follow] {
+            struct stat st;
+            auto stat_syscall = follow ? stat : lstat;
+            auto ret = stat_syscall(pathname.c_str(), &st);
+            return wrap_syscall(ret, st);
+        }).then([pathname = sstring(pathname)] (syscall_result_extra<struct stat> sr) {
+            sr.throw_fs_exception_if_error("stat failed", pathname);
+            struct stat& st = sr.extra;
+            stat_data sd;
+            sd.device_id = st.st_dev;
+            sd.inode_number = st.st_ino;
+            sd.mode = st.st_mode;
+            sd.type = stat_to_entry_type(st.st_mode);
+            sd.number_of_links = st.st_nlink;
+            sd.uid = st.st_uid;
+            sd.gid = st.st_gid;
+            sd.rdev = st.st_rdev;
+            sd.size = st.st_size;
+            sd.block_size = st.st_blksize;
+            sd.allocated_size = st.st_blocks * 512UL;
+            sd.time_accessed = timespec_to_time_point(st.st_atim);
+            sd.time_modified = timespec_to_time_point(st.st_mtim);
+            sd.time_changed = timespec_to_time_point(st.st_ctim);
+            return make_ready_future<stat_data>(std::move(sd));
+        });
     });
 }
 
 future<uint64_t>
-reactor::file_size(sstring pathname) noexcept {
+reactor::file_size(std::string_view pathname) noexcept {
     return file_stat(pathname, follow_symlink::yes).then([] (stat_data sd) {
         return make_ready_future<uint64_t>(sd.size);
     });
 }
 
 future<bool>
-reactor::file_accessible(sstring pathname, access_flags flags) noexcept {
-    return _thread_pool->submit<syscall_result<int>>([pathname, flags] {
-        auto aflags = std::underlying_type_t<access_flags>(flags);
-        auto ret = ::access(pathname.c_str(), aflags);
-        return wrap_syscall(ret);
-    }).then([pathname, flags] (syscall_result<int> sr) {
-        if (sr.result < 0) {
-            if ((sr.error == ENOENT && flags == access_flags::exists) ||
-                (sr.error == EACCES && flags != access_flags::exists)) {
-                return make_ready_future<bool>(false);
+reactor::file_accessible(std::string_view pathname, access_flags flags) noexcept {
+    // Allocating memory for a sstring can throw, hence the futurize_invoke
+    return futurize_invoke([pathname, flags, this] {
+        return _thread_pool->submit<syscall_result<int>>([pathname = sstring(pathname), flags] {
+            auto aflags = std::underlying_type_t<access_flags>(flags);
+            auto ret = ::access(pathname.c_str(), aflags);
+            return wrap_syscall(ret);
+        }).then([pathname = sstring(pathname), flags] (syscall_result<int> sr) {
+            if (sr.result < 0) {
+                if ((sr.error == ENOENT && flags == access_flags::exists) ||
+                    (sr.error == EACCES && flags != access_flags::exists)) {
+                    return make_ready_future<bool>(false);
+                }
+                sr.throw_fs_exception("access failed", fs::path(pathname));
             }
-            sr.throw_fs_exception("access failed", fs::path(pathname));
-        }
 
-        return make_ready_future<bool>(true);
+            return make_ready_future<bool>(true);
+        });
     });
 }
 
 future<fs_type>
-reactor::file_system_at(sstring pathname) noexcept {
-    return _thread_pool->submit<syscall_result_extra<struct statfs>>([pathname] {
-        struct statfs st;
-        auto ret = statfs(pathname.c_str(), &st);
-        return wrap_syscall(ret, st);
-    }).then([pathname] (syscall_result_extra<struct statfs> sr) {
-        static std::unordered_map<long int, fs_type> type_mapper = {
-            { 0x58465342, fs_type::xfs },
-            { EXT2_SUPER_MAGIC, fs_type::ext2 },
-            { EXT3_SUPER_MAGIC, fs_type::ext3 },
-            { EXT4_SUPER_MAGIC, fs_type::ext4 },
-            { BTRFS_SUPER_MAGIC, fs_type::btrfs },
-            { 0x4244, fs_type::hfs },
-            { TMPFS_MAGIC, fs_type::tmpfs },
-        };
-        sr.throw_fs_exception_if_error("statfs failed", pathname);
+reactor::file_system_at(std::string_view pathname) noexcept {
+    // Allocating memory for a sstring can throw, hence the futurize_invoke
+    return futurize_invoke([pathname, this] {
+        return _thread_pool->submit<syscall_result_extra<struct statfs>>([pathname = sstring(pathname)] {
+            struct statfs st;
+            auto ret = statfs(pathname.c_str(), &st);
+            return wrap_syscall(ret, st);
+        }).then([pathname = sstring(pathname)] (syscall_result_extra<struct statfs> sr) {
+            static std::unordered_map<long int, fs_type> type_mapper = {
+                { 0x58465342, fs_type::xfs },
+                { EXT2_SUPER_MAGIC, fs_type::ext2 },
+                { EXT3_SUPER_MAGIC, fs_type::ext3 },
+                { EXT4_SUPER_MAGIC, fs_type::ext4 },
+                { BTRFS_SUPER_MAGIC, fs_type::btrfs },
+                { 0x4244, fs_type::hfs },
+                { TMPFS_MAGIC, fs_type::tmpfs },
+            };
+            sr.throw_fs_exception_if_error("statfs failed", pathname);
 
-        fs_type ret = fs_type::other;
-        if (type_mapper.count(sr.extra.f_type) != 0) {
-            ret = type_mapper.at(sr.extra.f_type);
-        }
-        return make_ready_future<fs_type>(ret);
+            fs_type ret = fs_type::other;
+            if (type_mapper.count(sr.extra.f_type) != 0) {
+                ret = type_mapper.at(sr.extra.f_type);
+            }
+            return make_ready_future<fs_type>(ret);
+        });
     });
 }
 
@@ -1839,51 +1867,63 @@ reactor::fstatfs(int fd) noexcept {
 }
 
 future<struct statvfs>
-reactor::statvfs(sstring pathname) noexcept {
-    return _thread_pool->submit<syscall_result_extra<struct statvfs>>([pathname] {
-        struct statvfs st;
-        auto ret = ::statvfs(pathname.c_str(), &st);
-        return wrap_syscall(ret, st);
-    }).then([pathname] (syscall_result_extra<struct statvfs> sr) {
-        sr.throw_fs_exception_if_error("statvfs failed", pathname);
-        struct statvfs st = sr.extra;
-        return make_ready_future<struct statvfs>(std::move(st));
+reactor::statvfs(std::string_view pathname) noexcept {
+    // Allocating memory for a sstring can throw, hence the futurize_invoke
+    return futurize_invoke([pathname, this] {
+        return _thread_pool->submit<syscall_result_extra<struct statvfs>>([pathname = sstring(pathname)] {
+            struct statvfs st;
+            auto ret = ::statvfs(pathname.c_str(), &st);
+            return wrap_syscall(ret, st);
+        }).then([pathname = sstring(pathname)] (syscall_result_extra<struct statvfs> sr) {
+            sr.throw_fs_exception_if_error("statvfs failed", pathname);
+            struct statvfs st = sr.extra;
+            return make_ready_future<struct statvfs>(std::move(st));
+        });
     });
 }
 
 future<file>
-reactor::open_directory(sstring name) noexcept {
-    auto oflags = O_DIRECTORY | O_CLOEXEC | O_RDONLY;
-    return _thread_pool->submit<syscall_result<int>>([name, oflags] {
-        return wrap_syscall<int>(::open(name.c_str(), oflags));
-    }).then([name, oflags] (syscall_result<int> sr) {
-        sr.throw_fs_exception_if_error("open failed", name);
-        return make_file_impl(sr.result, file_open_options(), oflags);
-    }).then([] (shared_ptr<file_impl> file_impl) {
-        return make_ready_future<file>(std::move(file_impl));
+reactor::open_directory(std::string_view name) noexcept {
+    // Allocating memory for a sstring can throw, hence the futurize_invoke
+    return futurize_invoke([name, this] {
+        auto oflags = O_DIRECTORY | O_CLOEXEC | O_RDONLY;
+        return _thread_pool->submit<syscall_result<int>>([name = sstring(name), oflags] {
+            return wrap_syscall<int>(::open(name.c_str(), oflags));
+        }).then([name = sstring(name), oflags] (syscall_result<int> sr) {
+            sr.throw_fs_exception_if_error("open failed", name);
+            return make_file_impl(sr.result, file_open_options(), oflags);
+        }).then([] (shared_ptr<file_impl> file_impl) {
+            return make_ready_future<file>(std::move(file_impl));
+        });
     });
 }
 
 future<>
-reactor::make_directory(sstring name, file_permissions permissions) noexcept {
-    return _thread_pool->submit<syscall_result<int>>([=] {
-        auto mode = static_cast<mode_t>(permissions);
-        return wrap_syscall<int>(::mkdir(name.c_str(), mode));
-    }).then([name] (syscall_result<int> sr) {
-        sr.throw_fs_exception_if_error("mkdir failed", name);
+reactor::make_directory(std::string_view name, file_permissions permissions) noexcept {
+    // Allocating memory for a sstring can throw, hence the futurize_invoke
+    return futurize_invoke([name, permissions, this] {
+        return _thread_pool->submit<syscall_result<int>>([name = sstring(name), permissions] {
+            auto mode = static_cast<mode_t>(permissions);
+            return wrap_syscall<int>(::mkdir(name.c_str(), mode));
+        }).then([name = sstring(name)] (syscall_result<int> sr) {
+            sr.throw_fs_exception_if_error("mkdir failed", name);
+        });
     });
 }
 
 future<>
-reactor::touch_directory(sstring name, file_permissions permissions) noexcept {
-    return engine()._thread_pool->submit<syscall_result<int>>([=] {
-        auto mode = static_cast<mode_t>(permissions);
-        return wrap_syscall<int>(::mkdir(name.c_str(), mode));
-    }).then([name] (syscall_result<int> sr) {
-        if (sr.result == -1 && sr.error != EEXIST) {
-            sr.throw_fs_exception("mkdir failed", fs::path(name));
-        }
-        return make_ready_future<>();
+reactor::touch_directory(std::string_view name, file_permissions permissions) noexcept {
+    // Allocating memory for a sstring can throw, hence the futurize_invoke
+    return futurize_invoke([name, permissions, this] {
+        return engine()._thread_pool->submit<syscall_result<int>>([name = sstring(name), permissions] {
+            auto mode = static_cast<mode_t>(permissions);
+            return wrap_syscall<int>(::mkdir(name.c_str(), mode));
+        }).then([name = sstring(name)] (syscall_result<int> sr) {
+            if (sr.result == -1 && sr.error != EEXIST) {
+                sr.throw_fs_exception("mkdir failed", fs::path(name));
+            }
+            return make_ready_future<>();
+        });
     });
 }
 
@@ -3986,7 +4026,7 @@ void report_exception(std::string_view message, std::exception_ptr eptr) noexcep
     seastar_logger.error("{}: {}", message, eptr);
 }
 
-future<> check_direct_io_support(sstring path) {
+future<> check_direct_io_support(std::string_view path) noexcept {
     struct w {
         sstring path;
         open_flags flags;
@@ -4008,20 +4048,23 @@ future<> check_direct_io_support(sstring path) {
         };
     };
 
-    return engine().file_type(path).then([path] (auto type) {
-        auto w = w::parse(path, type);
-        return open_file_dma(w.path, w.flags).then_wrapped([path = w.path, cleanup = std::move(w.cleanup)] (future<file> f) {
-            try {
-                auto fd = f.get0();
-                return cleanup().finally([fd = std::move(fd)] () mutable {
-                    return fd.close();
-                });
-            } catch (std::system_error& e) {
-                if (e.code() == std::error_code(EINVAL, std::system_category())) {
-                    report_exception(format("Could not open file at {}. Does your filesystem support O_DIRECT?", path), std::current_exception());
+    // Allocating memory for a sstring can throw, hence the futurize_invoke
+    return futurize_invoke([path] {
+        return engine().file_type(path).then([path = sstring(path)] (auto type) {
+            auto w = w::parse(path, type);
+            return open_file_dma(w.path, w.flags).then_wrapped([path = w.path, cleanup = std::move(w.cleanup)] (future<file> f) {
+                try {
+                    auto fd = f.get0();
+                    return cleanup().finally([fd = std::move(fd)] () mutable {
+                        return fd.close();
+                    });
+                } catch (std::system_error& e) {
+                    if (e.code() == std::error_code(EINVAL, std::system_category())) {
+                        report_exception(format("Could not open file at {}. Does your filesystem support O_DIRECT?", path), std::current_exception());
+                    }
+                    throw;
                 }
-                throw;
-            }
+            });
         });
     });
 }

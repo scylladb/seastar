@@ -994,16 +994,16 @@ file_impl::dup() {
     throw std::runtime_error("this file type cannot be duplicated");
 }
 
-future<file> open_file_dma(sstring name, open_flags flags) noexcept {
-    return engine().open_file_dma(std::move(name), flags, file_open_options());
+future<file> open_file_dma(std::string_view name, open_flags flags) noexcept {
+    return engine().open_file_dma(name, flags, file_open_options());
 }
 
-future<file> open_file_dma(sstring name, open_flags flags, file_open_options options) noexcept {
-    return engine().open_file_dma(std::move(name), flags, std::move(options));
+future<file> open_file_dma(std::string_view name, open_flags flags, file_open_options options) noexcept {
+    return engine().open_file_dma(name, flags, std::move(options));
 }
 
-future<file> open_directory(sstring name) noexcept {
-    return engine().open_directory(std::move(name));
+future<file> open_directory(std::string_view name) noexcept {
+    return engine().open_directory(name);
 }
 
 }
