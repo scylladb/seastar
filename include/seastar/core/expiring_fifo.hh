@@ -27,8 +27,8 @@
 #include <exception>
 #include <memory>
 #include <seastar/core/timer.hh>
-#include <seastar/core/future-util.hh>
 #include <seastar/core/lowres_clock.hh>
+#include <seastar/core/timed_out_error.hh>
 
 namespace seastar {
 

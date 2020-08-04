@@ -37,6 +37,7 @@
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/tuple_utils.hh>
 #include <seastar/util/noncopyable_function.hh>
+#include <seastar/core/timed_out_error.hh>
 
 namespace seastar {
 
@@ -1190,19 +1191,6 @@ future<> now() {
 
 // Returns a future which is not ready but is scheduled to resolve soon.
 future<> later() noexcept;
-
-class timed_out_error : public std::exception {
-public:
-    virtual const char* what() const noexcept {
-        return "timedout";
-    }
-};
-
-struct default_timeout_exception_factory {
-    static auto timeout() {
-        return timed_out_error();
-    }
-};
 
 /// \brief Wait for either a future, or a timeout, whichever comes first
 ///

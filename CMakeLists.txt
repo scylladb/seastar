@@ -492,6 +492,7 @@ add_library (seastar STATIC
   include/seastar/core/thread.hh
   include/seastar/core/thread_cputime_clock.hh
   include/seastar/core/thread_impl.hh
+  include/seastar/core/timed_out_error.hh
   include/seastar/core/timer-set.hh
   include/seastar/core/timer.hh
   include/seastar/core/transfer.hh
