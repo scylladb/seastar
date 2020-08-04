@@ -33,6 +33,7 @@
 // transfer_pass1() simply moves the objects and destroys the source, and
 // transfer_pass2() does nothing.
 
+#include <memory>
 #include <type_traits>
 #include <utility>
 
