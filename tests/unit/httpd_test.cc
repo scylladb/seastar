@@ -750,6 +750,75 @@ SEASTAR_TEST_CASE(content_length_limit) {
     });
 }
 
+SEASTAR_TEST_CASE(test_100_continue) {
+    return seastar::async([] {
+        loopback_connection_factory lcf;
+        http_server server("test");
+        server.set_content_length_limit(11);
+        loopback_socket_impl lsi(lcf);
+        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+        future<> client = seastar::async([&lsi, &server] {
+            connected_socket c_socket = std::get<connected_socket>(lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get());
+            input_stream<char> input(c_socket.input());
+            output_stream<char> output(c_socket.output());
+
+            for (auto version : {sstring("1.0"), sstring("1.1")}) {
+                for (auto content : {sstring(""), sstring("xxxxxxxxxxx")}) {
+                    for (auto expect : {sstring(""), sstring("Expect: 100-continue\r\n")}) {
+                        auto content_len = content.empty() ? sstring("") : (sstring("Content-Length: ") + to_sstring(content.length()) + sstring("\r\n"));
+                        sstring req = sstring("GET /test HTTP/") + version + sstring("\r\nHost: test\r\nConnection: Keep-Alive\r\n") + content_len + expect + sstring("\r\n");
+                        output.write(req).get();
+                        output.flush().get();
+                        bool already_ok = false;
+                        if (version == "1.1" && expect.length()) {
+                            auto resp = input.read().get0();
+                            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("100 Continue"), std::string::npos);
+                            already_ok = content.empty() && std::string(resp.get(), resp.size()).find("200 OK") != std::string::npos;
+                        }
+                        if (!already_ok) {
+                            //If the body is empty, the final response might have already been read
+                            output.write(content).get();
+                            output.flush().get();
+                            auto resp = input.read().get0();
+                            BOOST_REQUIRE_EQUAL(std::string(resp.get(), resp.size()).find("100 Continue"), std::string::npos);
+                            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("200 OK"), std::string::npos);
+                        }
+                    }
+                }
+            }
+            output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\nContent-Length: 17\r\nExpect: 100-continue\r\n\r\n")).get();
+            output.flush().get();
+            auto resp = input.read().get0();
+            BOOST_REQUIRE_EQUAL(std::string(resp.get(), resp.size()).find("100 Continue"), std::string::npos);
+            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("413 Payload Too Large"), std::string::npos);
+
+            input.close().get();
+            output.close().get();
+        });
+
+        future<> writer = seastar::async([&server] {
+            class test_handler : public handler_base {
+                std::function<future<>(output_stream<char> &&)> _write_func;
+            public:
+                test_handler(http_server& server, std::function<future<>(output_stream<char> &&)>&& write_func) : _write_func(write_func) {
+                }
+                future<std::unique_ptr<reply>> handle(const sstring& path,
+                        std::unique_ptr<request> req, std::unique_ptr<reply> rep) override {
+                    rep->write_body("json", _write_func);
+                    return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
+                }
+            };
+            auto handler = new test_handler(server, json::stream_object("hello"));
+            server._routes.put(GET, "/test", handler);
+            server.do_accepts(0).get();
+        });
+
+        client.get();
+        writer.get();
+        server.stop().get();
+    });
+}
+
 SEASTAR_TEST_CASE(case_insensitive_header) {
     std::unique_ptr<seastar::httpd::request> req = std::make_unique<seastar::httpd::request>();
     req->_headers["conTEnt-LengtH"] = "17";
