@@ -49,8 +49,7 @@ public:
 /// Callbacks can be registered with the \c abort_source, which are called
 /// atomically with a call to request_abort().
 class abort_source {
-    //FIXME: Add noexcept in function type when we move to C++17
-    using subscription_callback_type = noncopyable_function<void()>;
+    using subscription_callback_type = noncopyable_function<void() noexcept>;
 
 public:
     /// Represents a handle to the callback registered by a given fiber. Ending the

@@ -31,7 +31,7 @@ using namespace std::chrono_literals;
 SEASTAR_TEST_CASE(test_abort_source_notifies_subscriber) {
     bool signalled = false;
     auto as = abort_source();
-    auto st_opt = as.subscribe([&signalled] {
+    auto st_opt = as.subscribe([&signalled] () noexcept {
         signalled = true;
     });
     BOOST_REQUIRE_EQUAL(true, bool(st_opt));
@@ -43,7 +43,7 @@ SEASTAR_TEST_CASE(test_abort_source_notifies_subscriber) {
 SEASTAR_TEST_CASE(test_abort_source_subscription_unregister) {
     bool signalled = false;
     auto as = abort_source();
-    auto st_opt = as.subscribe([&signalled] {
+    auto st_opt = as.subscribe([&signalled] () noexcept {
         signalled = true;
     });
     BOOST_REQUIRE_EQUAL(true, bool(st_opt));
@@ -56,7 +56,7 @@ SEASTAR_TEST_CASE(test_abort_source_subscription_unregister) {
 SEASTAR_TEST_CASE(test_abort_source_rejects_subscription) {
     auto as = abort_source();
     as.request_abort();
-    auto st_opt = as.subscribe([] { });
+    auto st_opt = as.subscribe([] () noexcept { });
     BOOST_REQUIRE_EQUAL(false, bool(st_opt));
     return make_ready_future<>();
 }
