@@ -498,7 +498,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
                   "Types must be no-throw destructible");
     future_state() noexcept = default;
     void move_it(future_state&& x) noexcept {
-        if (has_trivial_move_and_destroy) {
+        if constexpr (has_trivial_move_and_destroy) {
             memmove(reinterpret_cast<char*>(&this->uninitialized_get()),
                    &x.uninitialized_get(),
                    internal::used_size<std::tuple<T...>>::value);
@@ -1646,8 +1646,7 @@ private:
 #ifndef SEASTAR_DEBUG
         using futurator = futurize<FuncResult>;
         if (available()) {
-            // TODO: after dropping C++14 support use `if constexpr ()` instead.
-            if (AsSelf) {
+            if constexpr (AsSelf) {
                 if (_promise) {
                     detach_promise();
                 }
