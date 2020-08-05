@@ -97,7 +97,7 @@ private:
     template <typename... Args>
     void do_log(log_level level, const char* fmt, Args&&... args);
     void really_do_log(log_level level, const char* fmt, const stringer* stringers, size_t n);
-    void failed_to_log(std::exception_ptr ex);
+    void failed_to_log(std::exception_ptr ex) noexcept;
 public:
     explicit logger(sstring name);
     logger(logger&& x);
@@ -119,7 +119,7 @@ public:
     /// \param args - args to print string
     ///
     template <typename... Args>
-    void log(log_level level, const char* fmt, const Args&... args) {
+    void log(log_level level, const char* fmt, const Args&... args) noexcept {
         if (is_enabled(level)) {
             try {
                 do_log(level, fmt, args...);
@@ -136,7 +136,7 @@ public:
     /// \param args - args to print string
     ///
     template <typename... Args>
-    void error(const char* fmt, Args&&... args) {
+    void error(const char* fmt, Args&&... args) noexcept {
         log(log_level::error, fmt, std::forward<Args>(args)...);
     }
     /// Log with warning tag:
@@ -146,7 +146,7 @@ public:
     /// \param args - args to print string
     ///
     template <typename... Args>
-    void warn(const char* fmt, Args&&... args) {
+    void warn(const char* fmt, Args&&... args) noexcept {
         log(log_level::warn, fmt, std::forward<Args>(args)...);
     }
     /// Log with info tag:
@@ -156,7 +156,7 @@ public:
     /// \param args - args to print string
     ///
     template <typename... Args>
-    void info(const char* fmt, Args&&... args) {
+    void info(const char* fmt, Args&&... args) noexcept {
         log(log_level::info, fmt, std::forward<Args>(args)...);
     }
     /// Log with info tag on shard zero only:
@@ -166,7 +166,7 @@ public:
     /// \param args - args to print string
     ///
     template <typename... Args>
-    void info0(const char* fmt, Args&&... args) {
+    void info0(const char* fmt, Args&&... args) noexcept {
         if (is_shard_zero()) {
             log(log_level::info, fmt, std::forward<Args>(args)...);
         }
@@ -178,7 +178,7 @@ public:
     /// \param args - args to print string
     ///
     template <typename... Args>
-    void debug(const char* fmt, Args&&... args) {
+    void debug(const char* fmt, Args&&... args) noexcept {
         log(log_level::debug, fmt, std::forward<Args>(args)...);
     }
     /// Log with trace tag:
@@ -188,7 +188,7 @@ public:
     /// \param args - args to print string
     ///
     template <typename... Args>
-    void trace(const char* fmt, Args&&... args) {
+    void trace(const char* fmt, Args&&... args) noexcept {
         log(log_level::trace, fmt, std::forward<Args>(args)...);
     }
 

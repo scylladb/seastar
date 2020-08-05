@@ -262,7 +262,7 @@ logger::really_do_log(log_level level, const char* fmt, const stringer* stringer
     }
 }
 
-void logger::failed_to_log(std::exception_ptr ex)
+void logger::failed_to_log(std::exception_ptr ex) noexcept
 {
     try {
         do_log(log_level::error, "failed to log message: {}", ex);
