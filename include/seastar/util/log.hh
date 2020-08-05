@@ -103,13 +103,13 @@ public:
     logger(logger&& x);
     ~logger();
 
-    bool is_shard_zero();
+    bool is_shard_zero() noexcept;
 
     /// Test if desired log level is enabled
     ///
     /// \param level - enum level value (info|error...)
     /// \return true if the log level has been enabled.
-    bool is_enabled(log_level level) const {
+    bool is_enabled(log_level level) const noexcept {
         return __builtin_expect(level <= _level.load(std::memory_order_relaxed), false);
     }
 
@@ -194,38 +194,38 @@ public:
 
     /// \return name of the logger. Usually one logger per module
     ///
-    const sstring& name() const {
+    const sstring& name() const noexcept {
         return _name;
     }
 
     /// \return current log level for this logger
     ///
-    log_level level() const {
+    log_level level() const noexcept {
         return _level.load(std::memory_order_relaxed);
     }
 
     /// \param level - set the log level
     ///
-    void set_level(log_level level) {
+    void set_level(log_level level) noexcept {
         _level.store(level, std::memory_order_relaxed);
     }
 
     /// Set output stream, default is std::cerr
-    static void set_ostream(std::ostream& out);
+    static void set_ostream(std::ostream& out) noexcept;
 
     /// Also output to ostream. default is true
-    static void set_ostream_enabled(bool enabled);
+    static void set_ostream_enabled(bool enabled) noexcept;
 
     /// Also output to stdout. default is true
     [[deprecated("Use set_ostream_enabled instead")]]
-    static void set_stdout_enabled(bool enabled);
+    static void set_stdout_enabled(bool enabled) noexcept;
 
     /// Also output to syslog. default is false
     ///
     /// NOTE: syslog() can block, which will stall the reactor thread.
     ///       this should be rare (will have to fill the pipe buffer
     ///       before syslogd can clear it) but can happen.
-    static void set_syslog_enabled(bool enabled);
+    static void set_syslog_enabled(bool enabled) noexcept;
 };
 
 /// \brief used to keep a static registry of loggers

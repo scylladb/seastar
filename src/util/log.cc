@@ -272,26 +272,26 @@ void logger::failed_to_log(std::exception_ptr ex)
 }
 
 void
-logger::set_ostream(std::ostream& out) {
+logger::set_ostream(std::ostream& out) noexcept {
     _out = &out;
 }
 
 void
-logger::set_ostream_enabled(bool enabled) {
+logger::set_ostream_enabled(bool enabled) noexcept {
     _ostream.store(enabled, std::memory_order_relaxed);
 }
 
 void
-logger::set_stdout_enabled(bool enabled) {
+logger::set_stdout_enabled(bool enabled) noexcept {
     _ostream.store(enabled, std::memory_order_relaxed);
 }
 
 void
-logger::set_syslog_enabled(bool enabled) {
+logger::set_syslog_enabled(bool enabled) noexcept {
     _syslog.store(enabled, std::memory_order_relaxed);
 }
 
-bool logger::is_shard_zero() {
+bool logger::is_shard_zero() noexcept {
     return this_shard_id() == 0;
 }
 
