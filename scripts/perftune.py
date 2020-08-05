@@ -1151,7 +1151,7 @@ class DiskPerfTuner(PerfTunerBase):
         # ...with one or more schedulers where currently selected scheduler is the one in brackets.
         #
         # Return the scheduler with the highest priority among those that are supported for the current device.
-        supported_schedulers = frozenset([scheduler.lstrip("[").rstrip("]") for scheduler in lines[0].split(" ")])
+        supported_schedulers = frozenset([scheduler.rstrip('\n').lstrip("[").rstrip("]") for scheduler in lines[0].split(" ")])
         return next((scheduler for scheduler in self.__io_schedulers if scheduler in supported_schedulers), None)
 
     def __tune_disk(self, device):
