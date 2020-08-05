@@ -206,17 +206,17 @@ public:
     // overlapping ranges. Those would be very challenging to cache.
 
     /// Alignment requirement for file offsets (for reads)
-    uint64_t disk_read_dma_alignment() const {
+    uint64_t disk_read_dma_alignment() const noexcept {
         return _file_impl->_disk_read_dma_alignment;
     }
 
     /// Alignment requirement for file offsets (for writes)
-    uint64_t disk_write_dma_alignment() const {
+    uint64_t disk_write_dma_alignment() const noexcept {
         return _file_impl->_disk_write_dma_alignment;
     }
 
     /// Alignment requirement for data buffers
-    uint64_t memory_dma_alignment() const {
+    uint64_t memory_dma_alignment() const noexcept {
         return _file_impl->_memory_dma_alignment;
     }
 
