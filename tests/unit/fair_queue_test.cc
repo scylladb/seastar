@@ -249,7 +249,7 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_different_shares_hi_capacity) {
 
 // Classes equally powerful. But Class1 issues twice as expensive requests. Expected Class2 to have 2 x more requests.
 SEASTAR_THREAD_TEST_CASE(test_fair_queue_different_weights) {
-    test_env env(1);
+    test_env env(2);
 
     auto a = env.register_priority_class(10);
     auto b = env.register_priority_class(10);
