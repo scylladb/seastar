@@ -836,7 +836,7 @@ public:
         return make_shared<rpc::server::connection>(server, std::move(fd), std::move(addr), _logger, &_serializer, id);
     }
 
-    bool has_handler(uint64_t msg_id);
+    bool has_handler(MsgType msg_id);
 
 private:
     rpc_handler* get_handler(uint64_t msg_id) override;

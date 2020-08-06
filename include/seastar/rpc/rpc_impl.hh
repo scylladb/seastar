@@ -686,8 +686,8 @@ future<> protocol<Serializer, MsgType>::unregister_handler(MsgType t) {
 }
 
 template<typename Serializer, typename MsgType>
-bool protocol<Serializer, MsgType>::has_handler(uint64_t msg_id) {
-    auto it = _handlers.find(MsgType(msg_id));
+bool protocol<Serializer, MsgType>::has_handler(MsgType msg_id) {
+    auto it = _handlers.find(msg_id);
     if (it == _handlers.end()) {
         return false;
     }
