@@ -23,7 +23,6 @@
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive_ptr.hpp>
 #include <boost/lexical_cast.hpp>
-#include <boost/optional.hpp>
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -68,7 +67,7 @@ static __thread slab_allocator<item>* slab;
 static thread_local std::unique_ptr<slab_allocator<item>> slab_holder;
 
 template<typename T>
-using optional = boost::optional<T>;
+using optional = std::optional<T>;
 
 using clock_type = lowres_clock;
 

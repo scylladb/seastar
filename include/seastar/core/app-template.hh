@@ -21,7 +21,6 @@
 #pragma once
 
 #include <boost/program_options.hpp>
-#include <boost/optional.hpp>
 #include <functional>
 #include <seastar/core/future.hh>
 #include <seastar/core/sstring.hh>
@@ -64,7 +63,7 @@ private:
     boost::program_options::options_description _opts;
     boost::program_options::options_description _opts_conf_file;
     boost::program_options::positional_options_description _pos_opts;
-    boost::optional<boost::program_options::variables_map> _configuration;
+    std::optional<boost::program_options::variables_map> _configuration;
     configuration_reader _conf_reader;
 
     configuration_reader get_default_configuration_reader();
