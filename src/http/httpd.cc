@@ -238,12 +238,12 @@ future<> connection::read_one() {
         }
 
         auto maybe_reply_continue = [this, req = std::move(req)] () mutable {
-            if (req->_version == "1.1" && req->get_header("Expect") == "100-continue") {
-                auto continue_reply = std::make_unique<reply>();
-                set_headers(*continue_reply);
-                continue_reply->set_version(req->_version);
-                continue_reply->set_status(reply::status_type::continue_).done();
-                return _replies.not_full().then([continue_reply = std::move(continue_reply), req = std::move(req), this] () mutable {
+            if (req->_version == "1.1" && request::case_insensitive_cmp()(req->get_header("Expect"), "100-continue")){
+                return _replies.not_full().then([req = std::move(req), this] () mutable {
+                    auto continue_reply = std::make_unique<reply>();
+                    set_headers(*continue_reply);
+                    continue_reply->set_version(req->_version);
+                    continue_reply->set_status(reply::status_type::continue_).done();
                     this->_replies.push(std::move(continue_reply));
                     return make_ready_future<std::unique_ptr<httpd::request>>(std::move(req));
                 });

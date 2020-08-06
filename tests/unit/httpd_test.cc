@@ -789,7 +789,7 @@ SEASTAR_TEST_CASE(test_100_continue) {
 
             for (auto version : {sstring("1.0"), sstring("1.1")}) {
                 for (auto content : {sstring(""), sstring("xxxxxxxxxxx")}) {
-                    for (auto expect : {sstring(""), sstring("Expect: 100-continue\r\n")}) {
+                    for (auto expect : {sstring(""), sstring("Expect: 100-continue\r\n"), sstring("Expect: 100-cOnTInUE\r\n")}) {
                         auto content_len = content.empty() ? sstring("") : (sstring("Content-Length: ") + to_sstring(content.length()) + sstring("\r\n"));
                         sstring req = sstring("GET /test HTTP/") + version + sstring("\r\nHost: test\r\nConnection: Keep-Alive\r\n") + content_len + expect + sstring("\r\n");
                         output.write(req).get();
