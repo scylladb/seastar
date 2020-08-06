@@ -53,6 +53,7 @@ struct reply {
      * The status of the reply.
      */
     enum class status_type {
+        continue_ = 100, //!< continue
         ok = 200, //!< ok
         created = 201, //!< created
         accepted = 202, //!< accepted
