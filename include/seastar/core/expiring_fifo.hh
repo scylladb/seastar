@@ -103,9 +103,17 @@ public:
     expiring_fifo(OnExpiry on_expiry) : _on_expiry(std::move(on_expiry)) {}
 
     expiring_fifo(expiring_fifo&& o) noexcept
-            : expiring_fifo() {
+            : expiring_fifo(std::move(o._on_expiry)) {
         // entry objects hold a reference to this so non-empty containers cannot be moved.
         assert(o._size == 0);
+    }
+
+    expiring_fifo& operator=(expiring_fifo&& o) noexcept {
+        if (this != &o) {
+            this->~expiring_fifo();
+            new (this) expiring_fifo(std::move(o));
+        }
+        return *this;
     }
 
     /// Checks if container contains any elements
