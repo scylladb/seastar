@@ -238,8 +238,8 @@ class repeater final : public continuation_base<stop_iteration> {
     promise<> _promise;
     AsyncAction _action;
 public:
-    explicit repeater(AsyncAction action) : _action(std::move(action)) {}
-    repeater(stop_iteration si, AsyncAction action) : repeater(std::move(action)) {
+    explicit repeater(AsyncAction&& action) : _action(std::move(action)) {}
+    repeater(stop_iteration si, AsyncAction&& action) : repeater(std::move(action)) {
         _state.set(std::make_tuple(si));
     }
     future<> get_future() { return _promise.get_future(); }
