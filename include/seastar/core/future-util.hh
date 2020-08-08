@@ -240,7 +240,7 @@ class repeater final : public continuation_base<stop_iteration> {
 public:
     explicit repeater(AsyncAction&& action) : _action(std::move(action)) {}
     repeater(stop_iteration si, AsyncAction&& action) : repeater(std::move(action)) {
-        _state.set(std::make_tuple(si));
+        _state.set(si);
     }
     future<> get_future() { return _promise.get_future(); }
     task* waiting_task() noexcept override { return _promise.waiting_task(); }
