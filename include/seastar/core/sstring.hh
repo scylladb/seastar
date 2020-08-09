@@ -80,10 +80,10 @@ class basic_sstring {
     bool is_external() const noexcept {
         return !is_internal();
     }
-    const char_type* str() const {
+    const char_type* str() const noexcept {
         return is_internal() ? u.internal.str : u.external.str;
     }
-    char_type* str() {
+    char_type* str() noexcept {
         return is_internal() ? u.internal.str : u.external.str;
     }
 
@@ -512,28 +512,28 @@ public:
         x.u = u;
         u = tmp;
     }
-    char_type* data() {
+    char_type* data() noexcept {
         return str();
     }
-    const char_type* data() const {
+    const char_type* data() const noexcept {
         return str();
     }
-    const char_type* c_str() const {
+    const char_type* c_str() const noexcept {
         return str();
     }
-    const char_type* begin() const { return str(); }
-    const char_type* end() const { return str() + size(); }
-    const char_type* cbegin() const { return str(); }
-    const char_type* cend() const { return str() + size(); }
-    char_type* begin() { return str(); }
-    char_type* end() { return str() + size(); }
-    bool operator==(const basic_sstring& x) const {
+    const char_type* begin() const noexcept { return str(); }
+    const char_type* end() const noexcept { return str() + size(); }
+    const char_type* cbegin() const noexcept { return str(); }
+    const char_type* cend() const noexcept { return str() + size(); }
+    char_type* begin() noexcept { return str(); }
+    char_type* end() noexcept { return str() + size(); }
+    bool operator==(const basic_sstring& x) const noexcept {
         return size() == x.size() && std::equal(begin(), end(), x.begin());
     }
-    bool operator!=(const basic_sstring& x) const {
+    bool operator!=(const basic_sstring& x) const noexcept {
         return !operator==(x);
     }
-    bool operator<(const basic_sstring& x) const {
+    bool operator<(const basic_sstring& x) const noexcept {
         return compare(x) < 0;
     }
     basic_sstring operator+(const basic_sstring& x) const {
@@ -545,14 +545,23 @@ public:
     basic_sstring& operator+=(const basic_sstring& x) {
         return *this = *this + x;
     }
-    char_type& operator[](size_type pos) {
+    char_type& operator[](size_type pos) noexcept {
         return str()[pos];
     }
-    const char_type& operator[](size_type pos) const {
+    const char_type& operator[](size_type pos) const noexcept {
         return str()[pos];
     }
 
-    operator std::basic_string_view<char_type>() const {
+    operator std::basic_string_view<char_type>() const noexcept {
+        // we assume that std::basic_string_view<char_type>(str(), size())
+        // won't throw, although it is not specified as noexcept in
+        // https://en.cppreference.com/w/cpp/string/basic_string_view/basic_string_view
+        // at this time (C++20).
+        //
+        // This is similar to std::string operator std::basic_string_view:
+        // https://en.cppreference.com/w/cpp/string/basic_string/operator_basic_string_view
+        // that is specified as noexcept too.
+        static_assert(noexcept(std::basic_string_view<char_type>(str(), size())));
         return std::basic_string_view<char_type>(str(), size());
     }
 };
