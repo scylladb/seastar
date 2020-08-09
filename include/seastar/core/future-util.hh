@@ -284,6 +284,13 @@ public:
 
 /// \endcond
 
+// Delete these overloads so that the actual implementation can use a
+// universal reference but still reject lvalue references.
+template<typename AsyncAction>
+future<> repeat(const AsyncAction& action) noexcept = delete;
+template<typename AsyncAction>
+future<> repeat(AsyncAction& action) noexcept = delete;
+
 /// Invokes given action until it fails or the function requests iteration to stop by returning
 /// \c stop_iteration::yes.
 ///
@@ -296,7 +303,7 @@ public:
 template<typename AsyncAction>
 SEASTAR_CONCEPT( requires seastar::InvokeReturns<AsyncAction, stop_iteration> || seastar::InvokeReturns<AsyncAction, future<stop_iteration>> )
 inline
-future<> repeat(AsyncAction action) noexcept {
+future<> repeat(AsyncAction&& action) noexcept {
     using futurator = futurize<std::result_of_t<AsyncAction()>>;
     static_assert(std::is_same<future<stop_iteration>, typename futurator::type>::value, "bad AsyncAction signature");
     try {
