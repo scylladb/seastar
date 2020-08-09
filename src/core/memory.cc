@@ -1301,6 +1301,10 @@ void free_aligned(void* obj, size_t align, size_t size) {
     if (size <= sizeof(free_object)) {
         size = sizeof(free_object);
     }
+    if (size <= max_small_allocation && align <= page_size) {
+        // Same adjustment as allocate_aligned()
+        size = 1 << log2ceil(object_size_with_alloc_site(size));
+    }
     free(obj, size);
 }
 
