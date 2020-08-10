@@ -400,14 +400,14 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unord
 
     auto cpu_sets = distribute_objects(topology, num_io_queues);
     ret.nr_queues = cpus.size();
-    ret.nr_groups = 1;
+    ret.nr_groups = 0;
 
     // First step: distribute the IO queues given the information returned in cpu_sets.
     // If there is one IO queue per processor, only this loop will be executed.
     std::unordered_map<unsigned, std::vector<unsigned>> node_coordinators;
     for (auto&& cs : cpu_sets()) {
         auto io_coordinator = find_shard(hwloc_bitmap_first(cs));
-        ret.shard_to_group[io_coordinator] = 0;
+        ret.shard_to_group[io_coordinator] = ret.nr_groups++;
 
         auto node_id = node_of_shard(io_coordinator);
         if (node_coordinators.count(node_id) == 0) {
