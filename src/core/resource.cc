@@ -593,10 +593,8 @@ resources allocate(configuration c) {
     }
 
     unsigned last_node_idx = 0;
-    for (auto d : c.num_io_queues) {
-        auto devid = d.first;
-        auto num_io_queues = d.second;
-        ret.ioq_topology.emplace(devid, allocate_io_queues(topology, ret.cpus, cpu_to_node, num_io_queues, last_node_idx));
+    for (auto devid : c.devices) {
+        ret.ioq_topology.emplace(devid, allocate_io_queues(topology, ret.cpus, cpu_to_node, c.num_io_queues, last_node_idx));
     }
     return ret;
 }

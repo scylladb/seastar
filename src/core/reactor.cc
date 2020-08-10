@@ -145,7 +145,6 @@ struct mountpoint_params {
     uint64_t write_bytes_rate = std::numeric_limits<uint64_t>::max();
     uint64_t read_req_rate = std::numeric_limits<uint64_t>::max();
     uint64_t write_req_rate = std::numeric_limits<uint64_t>::max();
-    uint64_t num_io_queues = 0; // calculated
 };
 
 }
@@ -3572,10 +3571,7 @@ public:
         return std::max(qty / nr_groups, 1ul);
     }
 
-    unsigned num_io_queues(dev_t devid) const {
-        const mountpoint_params& p = _mountpoints.at(devid);
-        return p.num_io_queues;
-    }
+    unsigned num_io_queues() const noexcept { return _num_io_queues; }
 
     std::chrono::duration<double> latency_goal() const {
         return _latency_goal;
@@ -3632,7 +3628,6 @@ public:
                         throw std::runtime_error(fmt::format("R/W bytes and req rates must not be zero"));
                     }
 
-                    d.num_io_queues = _num_io_queues;
                     seastar_logger.debug("dev_id: {} mountpoint: {}", buf.st_dev, d.mountpoint);
                     _mountpoints.emplace(buf.st_dev, d);
                 }
@@ -3641,8 +3636,6 @@ public:
 
         // Placeholder for unconfigured disks.
         mountpoint_params d = {};
-        d.num_io_queues = _num_io_queues;
-        seastar_logger.debug("num_io_queues: {}", d.num_io_queues);
         _mountpoints.emplace(0, d);
     }
 
@@ -3854,8 +3847,9 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     disk_config_params disk_config;
     disk_config.parse_config(configuration);
     for (auto& id : disk_config.device_ids()) {
-        rc.num_io_queues.emplace(id, disk_config.num_io_queues(id));
+        rc.devices.push_back(id);
     }
+    rc.num_io_queues = disk_config.num_io_queues();
 
 #ifdef SEASTAR_HAVE_HWLOC
     if (configuration["allow-cpus-in-remote-numa-nodes"].as<bool>()) {
