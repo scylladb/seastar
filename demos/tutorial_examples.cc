@@ -97,7 +97,10 @@ seastar::future<> service_loop_3() {
                 // Note we ignore, not return, the future returned by
                 // handle_connection(), so we do not wait for one
                 // connection to be handled before accepting the next one.
-                return handle_connection_3(std::move(res.connection), std::move(res.remote_address));
+                (void)handle_connection_3(std::move(res.connection), std::move(res.remote_address)).handle_exception(
+                        [] (std::exception_ptr ep) {
+                    fmt::print(stderr, "Could not handle connection: {}\n", ep);
+                });
             });
         });
     });
