@@ -63,9 +63,6 @@ struct memory {
 // This will allow us to easily find who is the IO coordinator for a given
 // node without a trip to a remote CPU.
 struct io_queue_topology {
-    std::vector<unsigned> shard_to_coordinator;
-    std::vector<unsigned> coordinator_to_idx;
-    std::vector<bool> coordinator_to_idx_valid; // for validity asserts
     unsigned nr_queues;
     std::vector<unsigned> shard_to_group;
     unsigned nr_groups;
