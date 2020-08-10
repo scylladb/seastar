@@ -915,7 +915,9 @@ public:
                     std::move(name)) {
     }
 
-    ~session() {}
+    ~session() {
+        assert(_output_pending.available());
+    }
 
     typedef temporary_buffer<char> buf_type;
 
