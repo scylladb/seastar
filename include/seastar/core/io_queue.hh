@@ -130,7 +130,6 @@ public:
 
     struct config {
         dev_t devid;
-        shard_id coordinator;
         unsigned capacity = std::numeric_limits<unsigned>::max();
         unsigned disk_req_write_to_read_multiplier = read_request_base_count;
         unsigned disk_bytes_write_to_read_multiplier = read_request_base_count;
@@ -173,10 +172,6 @@ public:
 
     sstring mountpoint() const {
         return _config.mountpoint;
-    }
-
-    shard_id coordinator() const {
-        return _config.coordinator;
     }
 
     dev_t dev_id() const noexcept {

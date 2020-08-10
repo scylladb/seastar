@@ -66,7 +66,7 @@ struct io_queue_topology {
     std::vector<unsigned> shard_to_coordinator;
     std::vector<unsigned> coordinator_to_idx;
     std::vector<bool> coordinator_to_idx_valid; // for validity asserts
-    unsigned nr_coordinators;
+    unsigned nr_queues;
     std::vector<unsigned> shard_to_group;
     unsigned nr_groups;
 };
@@ -91,7 +91,7 @@ struct device_io_topology {
     std::vector<group> groups;
 
     device_io_topology() noexcept = default;
-    device_io_topology(const io_queue_topology& iot) noexcept : queues(iot.nr_coordinators), groups(iot.nr_groups) {}
+    device_io_topology(const io_queue_topology& iot) noexcept : queues(iot.nr_queues), groups(iot.nr_groups) {}
 };
 
 resources allocate(configuration c);

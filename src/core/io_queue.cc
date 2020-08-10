@@ -284,7 +284,7 @@ fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, s
 future<size_t>
 io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_request req) noexcept {
     auto start = std::chrono::steady_clock::now();
-    return smp::submit_to(coordinator(), [start, &pc, len, req = std::move(req), owner = this_shard_id(), this] () mutable {
+    return futurize_invoke([start, &pc, len, req = std::move(req), owner = this_shard_id(), this] () mutable {
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc, owner);
@@ -310,7 +310,7 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
 
 future<>
 io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares) {
-    return smp::submit_to(coordinator(), [this, pc, owner = this_shard_id(), new_shares] {
+    return futurize_invoke([this, pc, owner = this_shard_id(), new_shares] {
         auto& pclass = find_or_create_class(pc, owner);
         pclass.ptr->update_shares(new_shares);
     });
