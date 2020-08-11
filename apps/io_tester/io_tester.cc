@@ -135,6 +135,7 @@ protected:
 
     std::chrono::steady_clock::time_point _start = {};
     accumulator_type _latencies;
+    uint64_t _requests = 0;
     std::uniform_int_distribution<uint32_t> _pos_distribution;
     file _file;
 
@@ -262,6 +263,10 @@ protected:
         return quantile(_latencies, quantile_probability = q);
     }
 
+    uint64_t requests() const noexcept {
+        return _requests;
+    }
+
     bool is_sequential() const {
         return (req_type() == request_type::seqread) || (req_type() == request_type::seqwrite);
     }
@@ -286,6 +291,7 @@ protected:
     void add_result(size_t data, std::chrono::microseconds latency) {
         _data += data;
         _latencies(latency.count());
+        _requests++;
     }
 
 public:
@@ -336,8 +342,10 @@ public:
 
     virtual sstring describe_results() override {
         auto throughput_kbs = (total_data() >> 10) / total_duration().count();
+        auto iops = requests() / total_duration().count();
         sstring result;
         result += fmt::format("  Throughput         : {:>8} KB/s\n", throughput_kbs);
+        result += fmt::format("  IOPS               : {:>8}\n", iops);
         result += fmt::format("  Lat average        : {:>8} usec\n", average_latency());
         for (auto& q: quantiles) {
             result += fmt::format("  Lat quantile={:>5} : {:>8} usec\n", q, quantile_latency(q));
