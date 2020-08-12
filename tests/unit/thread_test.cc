@@ -27,7 +27,7 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/do_with.hh>
-#include <seastar/core/future-util.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/core/sleep.hh>
 #include <sys/mman.h>
 #include <sys/signal.h>

@@ -30,7 +30,6 @@
 #include <seastar/core/distributed.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/core/gate.hh>
-#include <seastar/core/future-util.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/util/std-compat.hh>
 #include <iostream>

@@ -31,6 +31,7 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/distributed.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/log.hh>
 

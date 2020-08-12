@@ -23,7 +23,7 @@
 #include <seastar/core/function_traits.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/core/future-util.hh>
+#include <seastar/core/when_all.hh>
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/core/simple-stream.hh>
 #include <boost/range/numeric.hpp>

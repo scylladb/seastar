@@ -24,7 +24,6 @@
 #include <seastar/http/request.hh>
 #include <seastar/http/common.hh>
 #include <seastar/http/reply.hh>
-#include <seastar/core/future-util.hh>
 
 #include <unordered_map>
 

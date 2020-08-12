@@ -25,7 +25,7 @@
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/net/packet-data-source.hh>
 #include "ascii.hh"
-#include <seastar/core/future-util.hh>
+#include <seastar/core/loop.hh>
 
 using namespace seastar;
 using namespace net;

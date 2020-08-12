@@ -37,6 +37,7 @@ int main(int argc, char** argv) {
 #include <seastar/core/fstream.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/seastar.hh>
+#include <seastar/core/loop.hh>
 
 int main(int argc, char** argv) {
     seastar::app_template app;

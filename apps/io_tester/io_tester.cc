@@ -29,6 +29,8 @@
 #include <seastar/core/timer.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/print.hh>
+#include <seastar/core/loop.hh>
+#include <seastar/core/with_scheduling_group.hh>
 #include <chrono>
 #include <vector>
 #include <boost/range/irange.hpp>

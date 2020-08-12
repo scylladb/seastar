@@ -25,7 +25,6 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/do_with.hh>
-#include <seastar/core/future-util.hh>
 #include <seastar/json/formatter.hh>
 
 using namespace seastar;

@@ -23,6 +23,8 @@
 #include <seastar/core/seastar.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/app-template.hh>
+#include <seastar/core/do_with.hh>
+#include <seastar/core/loop.hh>
 #include <fmt/printf.h>
 
 using namespace seastar;

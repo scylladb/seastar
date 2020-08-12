@@ -21,8 +21,8 @@
 
 #pragma once
 
-#include <seastar/core/future-util.hh>
 #include <seastar/core/semaphore.hh>
+#include <seastar/core/loop.hh>
 
 namespace seastar {
 

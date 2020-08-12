@@ -29,7 +29,6 @@
 #include <unordered_map>
 
 #include <seastar/core/seastar.hh>
-#include <seastar/core/future-util.hh>
 #include <seastar/core/scollectd_api.hh>
 #include <seastar/core/metrics_api.hh>
 #include <seastar/core/byteorder.hh>

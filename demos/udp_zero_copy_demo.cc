@@ -21,11 +21,11 @@
 
 #include <seastar/core/seastar.hh>
 #include <seastar/core/app-template.hh>
-#include <seastar/core/future-util.hh>
 #include <seastar/core/scattered_message.hh>
 #include <seastar/core/vector-data-sink.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/units.hh>
+#include <seastar/core/timer.hh>
 #include <seastar/net/api.hh>
 #include <random>
 #include <iomanip>

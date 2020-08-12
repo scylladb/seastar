@@ -20,7 +20,7 @@
  */
 
 #include <seastar/core/smp.hh>
-#include <seastar/core/future-util.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/print.hh>
 #include <boost/range/algorithm/find_if.hpp>

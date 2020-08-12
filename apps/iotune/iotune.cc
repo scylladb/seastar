@@ -47,6 +47,7 @@
 #include <seastar/core/app-template.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/fsqual.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/std-compat.hh>

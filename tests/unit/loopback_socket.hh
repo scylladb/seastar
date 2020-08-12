@@ -26,7 +26,7 @@
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/queue.hh>
-#include <seastar/core/future-util.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/core/sharded.hh>

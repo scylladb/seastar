@@ -24,7 +24,9 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/scheduling.hh>
 #include <seastar/core/thread.hh>
-#include <seastar/core/future-util.hh>
+#include <seastar/core/loop.hh>
+#include <seastar/core/when_all.hh>
+#include <seastar/core/with_scheduling_group.hh>
 #include <seastar/core/condition-variable.hh>
 #include <seastar/util/defer.hh>
 #include <fmt/printf.h>

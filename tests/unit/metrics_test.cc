@@ -29,6 +29,7 @@
 #include <seastar/core/sharded.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/io_queue.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/testing/test_runner.hh>
