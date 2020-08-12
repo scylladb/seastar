@@ -452,6 +452,7 @@ add_library (seastar STATIC
   include/seastar/core/loop.hh
   include/seastar/core/lowres_clock.hh
   include/seastar/core/manual_clock.hh
+  include/seastar/core/map_reduce.hh
   include/seastar/core/memory.hh
   include/seastar/core/metrics.hh
   include/seastar/core/metrics_api.hh
