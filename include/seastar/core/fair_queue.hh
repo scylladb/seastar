@@ -30,6 +30,8 @@
 
 namespace seastar {
 
+class fair_group_rover;
+
 /// \brief describes a request that passes through the \ref fair_queue.
 ///
 /// A ticket is specified by a \c weight and a \c size. For example, one can specify a request of \c weight
@@ -40,6 +42,7 @@ namespace seastar {
 class fair_queue_ticket {
     uint32_t _weight = 0; ///< the total weight of these requests for capacity purposes (IOPS).
     uint32_t _size = 0;        ///< the total effective size of these requests
+    friend class fair_group_rover;
 public:
     /// Constructs a fair_queue_ticket with a given \c weight and a given \c size
     ///
@@ -89,6 +92,23 @@ public:
     /// It is however not legal for the axis to have any quantity set to zero.
     /// \param axis another \ref fair_queue_ticket to be used as a a base vector against which to normalize this fair_queue_ticket.
     float normalize(fair_queue_ticket axis) const noexcept;
+};
+
+class fair_group_rover {
+    uint32_t _weight = 0;
+    uint32_t _size = 0;
+
+public:
+    fair_group_rover(uint32_t weight, uint32_t size) noexcept;
+
+    /*
+     * For both dimentions checks if the current rover is ahead of the
+     * other and returns the difference. If this is behind returns zero.
+     */
+    fair_queue_ticket maybe_ahead_of(const fair_group_rover& other) const noexcept;
+    fair_group_rover operator+(fair_queue_ticket t) const noexcept;
+
+    friend std::ostream& operator<<(std::ostream& os, fair_group_rover r);
 };
 
 /// \addtogroup io-module
