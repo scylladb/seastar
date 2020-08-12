@@ -42,11 +42,6 @@
 namespace seastar {
 
 /// \cond internal
-extern __thread size_t task_quota;
-/// \endcond
-
-
-/// \cond internal
 namespace internal {
 
 template <typename Func>
