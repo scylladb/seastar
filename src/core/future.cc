@@ -245,7 +245,7 @@ void internal::future_base::do_wait() noexcept {
 #ifdef SEASTAR_COROUTINES_ENABLED
 void internal::future_base::set_coroutine(task& coroutine) noexcept {
     assert(_promise);
-    _promise->schedule(&coroutine);
+    _promise->_task = &coroutine;
 }
 #endif
 
