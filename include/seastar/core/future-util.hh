@@ -26,15 +26,14 @@
 
 #include <seastar/core/future.hh>
 #include <seastar/core/do_with.hh>
-#include <seastar/core/timer.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/noncopyable_function.hh>
-#include <seastar/core/timed_out_error.hh>
 
 #include <seastar/core/with_scheduling_group.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/map_reduce.hh>
+#include <seastar/core/with_timeout.hh>
 
 namespace seastar {
 
@@ -45,40 +44,6 @@ future<> now() {
 
 // Returns a future which is not ready but is scheduled to resolve soon.
 future<> later() noexcept;
-
-/// \brief Wait for either a future, or a timeout, whichever comes first
-///
-/// When timeout is reached the returned future resolves with an exception
-/// produced by ExceptionFactory::timeout(). By default it is \ref timed_out_error exception.
-///
-/// Note that timing out doesn't cancel any tasks associated with the original future.
-/// It also doesn't cancel the callback registerred on it.
-///
-/// \param f future to wait for
-/// \param timeout time point after which the returned future should be failed
-///
-/// \return a future which will be either resolved with f or a timeout exception
-template<typename ExceptionFactory = default_timeout_exception_factory, typename Clock, typename Duration, typename... T>
-future<T...> with_timeout(std::chrono::time_point<Clock, Duration> timeout, future<T...> f) {
-    if (f.available()) {
-        return f;
-    }
-    auto pr = std::make_unique<promise<T...>>();
-    auto result = pr->get_future();
-    timer<Clock> timer([&pr = *pr] {
-        pr.set_exception(std::make_exception_ptr(ExceptionFactory::timeout()));
-    });
-    timer.arm(timeout);
-    // Future is returned indirectly.
-    (void)f.then_wrapped([pr = std::move(pr), timer = std::move(timer)] (auto&& f) mutable {
-        if (timer.cancel()) {
-            f.forward_to(std::move(*pr));
-        } else {
-            f.ignore_ready_future();
-        }
-    });
-    return result;
-}
 
 /// @}
 

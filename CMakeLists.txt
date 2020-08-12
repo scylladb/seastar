@@ -504,6 +504,7 @@ add_library (seastar STATIC
   include/seastar/core/weak_ptr.hh
   include/seastar/core/when_all.hh
   include/seastar/core/with_scheduling_group.hh
+  include/seastar/core/with_timeout.hh
   include/seastar/http/api_docs.hh
   include/seastar/http/common.hh
   include/seastar/http/exception.hh
