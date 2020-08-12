@@ -19,16 +19,10 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-
-/** @file */
-
 #pragma once
 
 #include <seastar/core/future.hh>
 #include <seastar/core/do_with.hh>
-#include <seastar/util/std-compat.hh>
-#include <seastar/util/noncopyable_function.hh>
-
 #include <seastar/core/with_scheduling_group.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/when_all.hh>
