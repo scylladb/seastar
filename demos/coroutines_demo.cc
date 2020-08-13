@@ -21,6 +21,8 @@
 
 #include <iostream>
 
+#include <seastar/util/std-compat.hh>
+
 #ifndef SEASTAR_COROUTINES_ENABLED
 
 int main(int argc, char** argv) {
