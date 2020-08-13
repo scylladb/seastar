@@ -83,7 +83,7 @@ io_queue::notify_requests_finished(fair_queue_ticket& desc) noexcept {
 fair_queue::config io_queue::make_fair_queue_config(config iocfg) {
     fair_queue::config cfg;
     cfg.max_req_count = iocfg.max_req_count;
-    cfg.max_bytes_count = iocfg.max_bytes_count;
+    cfg.max_bytes_count = iocfg.max_bytes_count >> request_ticket_size_shift;
     return cfg;
 }
 
@@ -266,7 +266,7 @@ fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, s
         throw std::runtime_error(fmt::format("Unrecognized request passing through I/O queue {}", req.opname()));
     }
 
-    return fair_queue_ticket(weight, size);
+    return fair_queue_ticket(weight, size >> request_ticket_size_shift);
 }
 
 future<size_t>

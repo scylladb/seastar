@@ -107,6 +107,7 @@ public:
     // It is also technically possible for reads to be the expensive ones, in which case
     // writes will have an integer value lower than read_request_base_count.
     static constexpr unsigned read_request_base_count = 128;
+    static constexpr unsigned request_ticket_size_shift = 9;
 
     struct config {
         dev_t devid;
