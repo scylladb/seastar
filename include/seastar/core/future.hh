@@ -1556,12 +1556,10 @@ private:
     then_impl(Func&& func) noexcept {
 #ifndef SEASTAR_DEBUG
         using futurator = futurize<std::result_of_t<Func(T&&...)>>;
-        if (available()) {
-            if (failed()) {
-                return futurator::make_exception_future(static_cast<future_state_base&&>(get_available_state_ref()));
-            } else {
-                return futurator::apply(std::forward<Func>(func), get_available_state_ref().take_value());
-            }
+        if (failed()) {
+            return futurator::make_exception_future(static_cast<future_state_base&&>(get_available_state_ref()));
+        } else if (available()) {
+            return futurator::apply(std::forward<Func>(func), get_available_state_ref().take_value());
         }
 #endif
         return then_impl_nrvo<Func, Result>(std::forward<Func>(func));
