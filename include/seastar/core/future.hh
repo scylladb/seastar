@@ -367,7 +367,8 @@ struct future_state_base {
         any(std::exception_ptr&& e) noexcept {
             set_exception(std::move(e));
         }
-        bool valid() const noexcept { return st != state::invalid; }
+        // From a users' perspective, a result_unavailable is not valid
+        bool valid() const noexcept { return st != state::invalid && st != state::result_unavailable; }
         bool available() const noexcept { return st == state::result || st >= state::exception_min; }
         bool failed() const noexcept { return __builtin_expect(st >= state::exception_min, false); }
         void check_failure() noexcept {
