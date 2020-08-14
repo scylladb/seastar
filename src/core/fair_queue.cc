@@ -24,6 +24,7 @@
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/util/noncopyable_function.hh>
+#include <seastar/core/reactor.hh>
 #include <queue>
 #include <chrono>
 #include <unordered_set>
@@ -31,6 +32,7 @@
 
 #include "fmt/format.h"
 #include "fmt/ostream.h"
+#include "fmt/chrono.h"
 
 namespace seastar {
 
@@ -100,17 +102,32 @@ std::ostream& operator<<(std::ostream& os, fair_group_rover r) {
 }
 
 fair_group::fair_group(config cfg) noexcept
-{}
+        : _capacity_tail(fair_group_rover(0, 0))
+        , _capacity_head(fair_group_rover(cfg.max_req_count, cfg.max_bytes_count))
+        , _maximum_capacity(cfg.max_req_count, cfg.max_bytes_count)
+{
+    assert(!_capacity_tail.load(std::memory_order_relaxed)
+                .maybe_ahead_of(_capacity_head.load(std::memory_order_relaxed)));
+}
+
+std::pair<fair_queue_ticket, fair_group_rover> fair_group::grab_capacity(fair_queue_ticket cap) noexcept {
+    fair_group_rover cur = _capacity_tail.load(std::memory_order_relaxed);
+    while (!_capacity_tail.compare_exchange_weak(cur, cur + cap)) ;
+    fair_group_rover head = _capacity_head.load(std::memory_order_relaxed);
+    fair_group_rover want_head = cur + cap;
+    return std::make_pair(want_head.maybe_ahead_of(head), want_head);
+}
+
+void fair_group::release_capacity(fair_queue_ticket cap) noexcept {
+    fair_group_rover cur = _capacity_head.load(std::memory_order_relaxed);
+    while (!_capacity_head.compare_exchange_weak(cur, cur + cap)) ;
+}
 
 fair_queue::fair_queue(fair_group& group, config cfg)
     : _config(std::move(cfg))
     , _group(group)
-    , _maximum_capacity(_config.max_req_count, _config.max_bytes_count)
-    , _current_capacity(_config.max_req_count, _config.max_bytes_count)
     , _base(std::chrono::steady_clock::now())
-{
-    (void)_group; // to make clang happy, will be removed soon
-}
+{ }
 
 void fair_queue::push_priority_class(priority_class_ptr pc) {
     if (!pc->_queued) {
@@ -143,8 +160,54 @@ void fair_queue::normalize_stats() {
     }
 }
 
+std::chrono::microseconds fair_queue_ticket::duration_at_pace(float weight_pace, float size_pace) const noexcept {
+    unsigned long dur = ((_weight * weight_pace) + (_size * size_pace));
+    return std::chrono::microseconds(dur);
+}
+
+bool fair_queue::grab_pending_capacity(fair_queue_ticket cap) noexcept {
+    if (cap == _pending->cap) {
+        if (_pending->head.maybe_ahead_of(_group.head())) {
+            return false;
+        }
+    } else {
+        /*
+         * A new request with different capacity preempted
+         * the previous. The simplest solution here is to
+         * forget about the previous one and start the new
+         * pending wait, but this is sub-optimal wrt latency.
+         *
+         * The better solution should check if the new cap
+         * is bigger or smaller than the preious value and
+         * (de)account the difference into group rovers, thus
+         * effectively consuming the fraction of the capacity
+         * that might had been released by that time.
+         */
+        _group.release_capacity(_pending->cap);
+
+        auto over = _group.grab_capacity(cap);
+        if (over.first) {
+            _pending.emplace(over.second, cap);
+            return false;
+        }
+    }
+
+    _pending.reset();
+    return true;
+}
+
 bool fair_queue::grab_capacity(fair_queue_ticket cap) noexcept {
-    return _resources_executing.strictly_less(_current_capacity);
+    if (_pending) {
+        return grab_pending_capacity(cap);
+    }
+
+    auto over = _group.grab_capacity(cap);
+    if (over.first) {
+        _pending.emplace(over.second, cap);
+        return false;
+    }
+
+    return true;
 }
 
 priority_class_ptr fair_queue::register_priority_class(uint32_t shares) {
@@ -187,6 +250,7 @@ void fair_queue::queue(priority_class_ptr pc, fair_queue_ticket desc, noncopyabl
 void fair_queue::notify_requests_finished(fair_queue_ticket desc, unsigned nr) noexcept {
     _resources_executing -= desc;
     _requests_executing -= nr;
+    _group.release_capacity(desc);
 }
 
 void fair_queue::dispatch_requests() {
@@ -216,7 +280,7 @@ void fair_queue::dispatch_requests() {
         _requests_queued--;
 
         auto delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
-        auto req_cost  = cap.normalize(_maximum_capacity) / h->_shares;
+        auto req_cost  = cap.normalize(_group.maximum_capacity()) / h->_shares;
         auto cost  = expf(1.0f/_config.tau.count() * delta.count()) * req_cost;
         float next_accumulated = h->_accumulated + cost;
         while (std::isinf(next_accumulated)) {

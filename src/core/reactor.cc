@@ -3568,9 +3568,8 @@ private:
     std::chrono::duration<double> _latency_goal;
 
 public:
-    uint64_t per_io_queue(uint64_t qty, dev_t devid) const {
-        const mountpoint_params& p = _mountpoints.at(devid);
-        return std::max(qty / p.num_io_queues, 1ul);
+    uint64_t per_io_group(uint64_t qty, unsigned nr_groups) const noexcept {
+        return std::max(qty / nr_groups, 1ul);
     }
 
     unsigned num_io_queues(dev_t devid) const {
@@ -3675,7 +3674,24 @@ public:
 
     struct io_group::config generate_group_config(dev_t devid, unsigned nr_groups) const noexcept {
         seastar_logger.debug("generate_group_config dev_id: {}", devid);
+        const mountpoint_params& p = _mountpoints.at(devid);
         struct io_group::config cfg;
+        uint64_t max_bandwidth = std::max(p.read_bytes_rate, p.write_bytes_rate);
+        uint64_t max_iops = std::max(p.read_req_rate, p.write_req_rate);
+
+        if (!_capacity) {
+            if (max_bandwidth != std::numeric_limits<uint64_t>::max()) {
+                cfg.max_bytes_count = io_queue::read_request_base_count * per_io_group(max_bandwidth * latency_goal().count(), nr_groups);
+            }
+            if (max_iops != std::numeric_limits<uint64_t>::max()) {
+                cfg.max_req_count = io_queue::read_request_base_count * per_io_group(max_iops * latency_goal().count(), nr_groups);
+            }
+        } else {
+            // Legacy configuration when only concurrency is specified.
+            cfg.max_req_count = io_queue::read_request_base_count * std::min(*_capacity, reactor::max_aio_per_queue);
+            // specify size in terms of 16kB IOPS.
+            cfg.max_bytes_count = io_queue::read_request_base_count * (cfg.max_req_count << 14);
+        }
         return cfg;
     }
 
@@ -3693,20 +3709,16 @@ public:
         if (!_capacity) {
             if (max_bandwidth != std::numeric_limits<uint64_t>::max()) {
                 cfg.disk_bytes_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
-                cfg.max_bytes_count = io_queue::read_request_base_count * per_io_queue(max_bandwidth * latency_goal().count(), devid);
+                cfg.disk_us_per_byte = 1000000. / max_bandwidth;
             }
             if (max_iops != std::numeric_limits<uint64_t>::max()) {
-                cfg.max_req_count = io_queue::read_request_base_count * per_io_queue(max_iops * latency_goal().count(), devid);
                 cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
+                cfg.disk_us_per_request = 1000000. / max_iops;
             }
             cfg.mountpoint = p.mountpoint;
         } else {
             // For backwards compatibility
             cfg.capacity = *_capacity;
-            // Legacy configuration when only concurrency is specified.
-            cfg.max_req_count = io_queue::read_request_base_count * std::min(*_capacity, reactor::max_aio_per_queue);
-            // specify size in terms of 16kB IOPS.
-            cfg.max_bytes_count = io_queue::read_request_base_count * (cfg.max_req_count << 14);
         }
         return cfg;
     }

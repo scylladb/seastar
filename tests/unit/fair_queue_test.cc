@@ -60,8 +60,8 @@ class test_env {
     }
 public:
     test_env(unsigned capacity)
-        : _fg(fair_group::config())
-        , _fq(_fg, fair_queue::config(capacity, std::numeric_limits<unsigned>::max()))
+        : _fg(fair_group::config(capacity, std::numeric_limits<int>::max()))
+        , _fq(_fg, fair_queue::config())
     {}
 
     // As long as there is a request sitting in the queue, tick() will process

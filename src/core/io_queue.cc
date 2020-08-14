@@ -82,8 +82,8 @@ io_queue::notify_requests_finished(fair_queue_ticket& desc) noexcept {
 
 fair_queue::config io_queue::make_fair_queue_config(config iocfg) {
     fair_queue::config cfg;
-    cfg.max_req_count = iocfg.max_req_count;
-    cfg.max_bytes_count = iocfg.max_bytes_count >> request_ticket_size_shift;
+    cfg.ticket_weight_pace = iocfg.disk_us_per_request / read_request_base_count;
+    cfg.ticket_size_pace = (iocfg.disk_us_per_byte * (1 << request_ticket_size_shift)) / read_request_base_count;
     return cfg;
 }
 
@@ -96,6 +96,8 @@ io_queue::io_queue(io_group_ptr group, io_queue::config cfg)
 
 fair_group::config io_group::make_fair_group_config(config iocfg) noexcept {
     fair_group::config cfg;
+    cfg.max_req_count = iocfg.max_req_count;
+    cfg.max_bytes_count = iocfg.max_bytes_count >> io_queue::request_ticket_size_shift;
     return cfg;
 }
 

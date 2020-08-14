@@ -39,9 +39,9 @@ struct local_fq_and_class {
     seastar::fair_queue& queue(bool local) noexcept { return local ? fq : sfq; }
 
     local_fq_and_class(seastar::fair_group& sfg)
-        : fg(seastar::fair_group::config{})
-        , fq(fg, seastar::fair_queue::config(1, 1))
-        , sfq(sfg, seastar::fair_queue::config(1, 1))
+        : fg(seastar::fair_group::config(1, 1))
+        , fq(fg, seastar::fair_queue::config())
+        , sfq(sfg, seastar::fair_queue::config())
         , pclass(fq.register_priority_class(1))
     {}
 
@@ -59,7 +59,7 @@ struct perf_fair_queue {
     seastar::fair_group shared_fg;
 
     perf_fair_queue()
-        : shared_fg(seastar::fair_group::config{})
+        : shared_fg(seastar::fair_group::config(smp::count, smp::count))
     {
         local_fq.start(std::ref(shared_fg)).get();
     }
