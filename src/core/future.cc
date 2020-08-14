@@ -140,8 +140,8 @@ void future_state_base::ignore() noexcept {
     switch (_u.st) {
     case state::invalid:
     case state::future:
-        assert(0 && "invalid state for ignore");
     case state::result_unavailable:
+        assert(0 && "invalid state for ignore");
     case state::result:
         _u.st = state::result_unavailable;
         break;
