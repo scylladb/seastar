@@ -1351,6 +1351,11 @@ private:
     }
     template <typename Pr, typename Func, typename Wrapper>
     void schedule(Pr&& pr, Func&& func, Wrapper&& wrapper) noexcept {
+        // If this new throws a std::bad_alloc there is nothing that
+        // can be done about it. The corresponding future is not ready
+        // and we cannot break the chain. Since this function is
+        // noexcept, it will call std::terminate if new throws.
+        memory::disable_failure_guard dfg;
         auto tws = new continuation<Pr, Func, Wrapper, T...>(std::move(pr), std::move(func), std::move(wrapper));
         // In a debug build we schedule ready futures, but not in
         // other build modes.
@@ -1537,22 +1542,16 @@ private:
     Result then_impl_nrvo(Func&& func) noexcept {
         using futurator = futurize<std::result_of_t<Func(T&&...)>>;
         typename futurator::type fut(future_for_get_promise_marker{});
-        // If there is a std::bad_alloc in schedule() there is nothing that can be done about it, we cannot break future
-        // chain by returning ready future while 'this' future is not ready. The noexcept will call std::terminate if
-        // that happens.
-        [&] () noexcept {
-            using pr_type = decltype(fut.get_promise());
-            memory::disable_failure_guard dfg;
-            schedule(fut.get_promise(), std::move(func), [](pr_type& pr, Func& func, future_state<T...>&& state) mutable {
-                if (state.failed()) {
-                    pr.set_exception(static_cast<future_state_base&&>(std::move(state)));
-                } else {
-                    futurator::satisfy_with_result_of(std::move(pr), [&func, &state] {
-                        return std::apply(func, std::move(state).get_value());
-                    });
-                }
-            });
-        } ();
+        using pr_type = decltype(fut.get_promise());
+        schedule(fut.get_promise(), std::move(func), [](pr_type& pr, Func& func, future_state<T...>&& state) mutable {
+            if (state.failed()) {
+                pr.set_exception(static_cast<future_state_base&&>(std::move(state)));
+            } else {
+                futurator::satisfy_with_result_of(std::move(pr), [&func, &state] {
+                    return std::apply(func, std::move(state).get_value());
+                });
+            }
+        });
         return fut;
     }
 
@@ -1627,18 +1626,12 @@ private:
     then_wrapped_nrvo(Func&& func) noexcept {
         using futurator = futurize<FuncResult>;
         typename futurator::type fut(future_for_get_promise_marker{});
-        // If there is a std::bad_alloc in schedule() there is nothing that can be done about it, we cannot break future
-        // chain by returning ready future while 'this' future is not ready. The noexcept will call std::terminate if
-        // that happens.
-        [&] () noexcept {
-            using pr_type = decltype(fut.get_promise());
-            memory::disable_failure_guard dfg;
-            schedule(fut.get_promise(), std::move(func), [](pr_type& pr, Func& func, future_state<T...>&& state) mutable {
-                futurator::satisfy_with_result_of(std::move(pr), [&func, &state] {
-                    return func(future(std::move(state)));
-                });
+        using pr_type = decltype(fut.get_promise());
+        schedule(fut.get_promise(), std::move(func), [](pr_type& pr, Func& func, future_state<T...>&& state) mutable {
+            futurator::satisfy_with_result_of(std::move(pr), [&func, &state] {
+                return func(future(std::move(state)));
             });
-        } ();
+        });
         return fut;
     }
 
