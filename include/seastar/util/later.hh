@@ -15,17 +15,30 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
 /*
- * Copyright (C) 2014 Cloudius Systems, Ltd.
+ * Copyright (C) 2020 ScyllaDB.
  */
+
 
 #pragma once
 
 #include <seastar/core/future.hh>
-#include <seastar/core/do_with.hh>
-#include <seastar/core/with_scheduling_group.hh>
-#include <seastar/core/loop.hh>
-#include <seastar/core/when_all.hh>
-#include <seastar/core/map_reduce.hh>
-#include <seastar/core/with_timeout.hh>
-#include <seastar/util/later.hh>
+
+namespace seastar {
+
+/// \addtogroup future-util
+/// @{
+
+/// \brief Returns a ready future.
+inline
+future<> now() {
+    return make_ready_future<>();
+}
+
+/// \brief Returns a future which is not ready but is scheduled to resolve soon.
+future<> later() noexcept;
+
+/// @}
+
+} // namespace seastar

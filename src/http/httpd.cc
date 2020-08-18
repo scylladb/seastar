@@ -24,7 +24,7 @@
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/distributed.hh>
 #include <seastar/core/queue.hh>
-#include <seastar/core/future-util.hh>
+#include <seastar/core/when_all.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/print.hh>
 #include <iostream>

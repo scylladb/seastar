@@ -23,6 +23,7 @@
 #include <gnutls/x509.h>
 #include <system_error>
 
+#include <seastar/core/loop.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/file.hh>
@@ -31,6 +32,7 @@
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/timer.hh>
 #include <seastar/core/print.hh>
+#include <seastar/core/with_timeout.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/util/std-compat.hh>

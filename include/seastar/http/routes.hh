@@ -28,7 +28,6 @@
 
 #include <boost/program_options/variables_map.hpp>
 #include <unordered_map>
-#include <seastar/core/future-util.hh>
 
 namespace seastar {
 

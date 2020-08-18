@@ -19,6 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 
+#include <seastar/core/loop.hh>
 #include <seastar/core/print.hh>
 #include <seastar/json/json_elements.hh>
 #include <string.h>

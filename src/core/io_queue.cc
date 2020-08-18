@@ -20,7 +20,6 @@
  */
 
 
-#include <seastar/core/future-util.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/fair_queue.hh>
 #include <seastar/core/io_queue.hh>

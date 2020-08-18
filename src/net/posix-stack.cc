@@ -26,6 +26,7 @@
 #include <linux/rtnetlink.h>
 #include <net/route.h>
 
+#include <seastar/core/loop.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/net/posix-stack.hh>
 #include <seastar/net/net.hh>

@@ -25,7 +25,6 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/align.hh>
-#include <seastar/core/future-util.hh>
 #include <seastar/core/fair_queue.hh>
 #include <seastar/core/file-types.hh>
 #include <seastar/util/std-compat.hh>

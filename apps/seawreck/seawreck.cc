@@ -24,10 +24,8 @@
 #include <seastar/core/seastar.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/app-template.hh>
-#include <seastar/core/future-util.hh>
 #include <seastar/core/distributed.hh>
 #include <seastar/core/semaphore.hh>
-#include <seastar/core/future-util.hh>
 #include <chrono>
 
 using namespace seastar;

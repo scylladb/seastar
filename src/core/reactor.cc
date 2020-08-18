@@ -40,7 +40,8 @@
 #include <seastar/core/print.hh>
 #include "core/scollectd-impl.hh"
 #include <seastar/util/conversions.hh>
-#include <seastar/core/future-util.hh>
+#include <seastar/core/loop.hh>
+#include <seastar/core/with_scheduling_group.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/make_task.hh>
 #include <seastar/core/systemwide_memory_barrier.hh>

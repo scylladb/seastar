@@ -29,7 +29,7 @@
 #include <seastar/core/app-template.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/seastar.hh>
-#include <seastar/core/future-util.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/core/timer-set.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/stream.hh>

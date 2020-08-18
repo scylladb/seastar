@@ -29,6 +29,7 @@
 #include <seastar/core/file.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/print.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/util/tmp_file.hh>
 #include <seastar/util/file.hh>
 

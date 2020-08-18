@@ -35,6 +35,7 @@
 #include <seastar/core/file.hh>
 #include <seastar/core/report_exception.hh>
 #include <seastar/core/linux-aio.hh>
+#include <seastar/util/later.hh>
 #include "core/file-impl.hh"
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"

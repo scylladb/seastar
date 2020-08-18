@@ -24,6 +24,7 @@
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/when_all.hh>
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 #include <malloc.h>

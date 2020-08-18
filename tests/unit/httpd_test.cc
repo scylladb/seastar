@@ -10,7 +10,9 @@
 #include <seastar/http/routes.hh>
 #include <seastar/http/exception.hh>
 #include <seastar/http/transformers.hh>
-#include <seastar/core/future-util.hh>
+#include <seastar/core/do_with.hh>
+#include <seastar/core/loop.hh>
+#include <seastar/core/when_all.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include "loopback_socket.hh"

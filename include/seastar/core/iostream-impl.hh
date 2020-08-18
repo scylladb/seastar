@@ -23,9 +23,9 @@
 
 #pragma once
 
-#include <seastar/core/future-util.hh>
+#include <seastar/core/do_with.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/net/packet.hh>
-#include <seastar/core/future-util.hh>
 #include <seastar/util/variant_utils.hh>
 
 namespace seastar {

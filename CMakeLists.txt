@@ -447,10 +447,13 @@ add_library (seastar STATIC
   include/seastar/core/gate.hh
   include/seastar/core/iostream-impl.hh
   include/seastar/core/iostream.hh
+  include/seastar/util/later.hh
   include/seastar/core/layered_file.hh
   include/seastar/core/linux-aio.hh
+  include/seastar/core/loop.hh
   include/seastar/core/lowres_clock.hh
   include/seastar/core/manual_clock.hh
+  include/seastar/core/map_reduce.hh
   include/seastar/core/memory.hh
   include/seastar/core/metrics.hh
   include/seastar/core/metrics_api.hh
@@ -500,6 +503,9 @@ add_library (seastar STATIC
   include/seastar/core/units.hh
   include/seastar/core/vector-data-sink.hh
   include/seastar/core/weak_ptr.hh
+  include/seastar/core/when_all.hh
+  include/seastar/core/with_scheduling_group.hh
+  include/seastar/core/with_timeout.hh
   include/seastar/http/api_docs.hh
   include/seastar/http/common.hh
   include/seastar/http/exception.hh

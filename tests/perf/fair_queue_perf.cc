@@ -25,6 +25,8 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/fair_queue.hh>
 #include <seastar/core/semaphore.hh>
+#include <seastar/core/loop.hh>
+#include <seastar/core/when_all.hh>
 #include <boost/range/irange.hpp>
 
 struct local_fq_and_class {

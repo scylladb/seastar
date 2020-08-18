@@ -19,6 +19,8 @@
  * Copyright 2015 Cloudius Systems
  */
 
+#include <seastar/core/do_with.hh>
+#include <seastar/core/loop.hh>
 #include <boost/algorithm/string/replace.hpp>
 #include <seastar/http/transformers.hh>
 #include <list>

@@ -22,7 +22,6 @@
 
 #include <seastar/net/ip.hh>
 #include <seastar/core/print.hh>
-#include <seastar/core/future-util.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/net/toeplitz.hh>
 #include <seastar/core/metrics.hh>
