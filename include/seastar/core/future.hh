@@ -371,11 +371,7 @@ struct future_state_base {
         bool valid() const noexcept { return st != state::invalid && st != state::result_unavailable; }
         bool available() const noexcept { return st == state::result || st >= state::exception_min; }
         bool failed() const noexcept { return __builtin_expect(st >= state::exception_min, false); }
-        void check_failure() noexcept {
-            if (failed()) {
-                report_failed_future(take_exception());
-            }
-        }
+        void check_failure() noexcept;
         ~any() noexcept {
             check_failure();
         }
@@ -482,6 +478,14 @@ public:
     template <typename... U>
     friend class future;
 };
+
+void report_failed_future(future_state_base::any&& state) noexcept;
+
+inline void future_state_base::any::check_failure() noexcept {
+    if (failed()) {
+        report_failed_future(std::move(*this));
+    }
+}
 
 struct ready_future_marker {};
 struct exception_future_marker {};

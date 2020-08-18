@@ -208,6 +208,10 @@ void report_failed_future(const future_state_base& state) noexcept {
     report_failed_future(state._u.ex);
 }
 
+void report_failed_future(future_state_base::any&& state) noexcept {
+    report_failed_future(std::move(state).take_exception());
+}
+
 void with_allow_abandoned_failed_futures(unsigned count, noncopyable_function<void ()> func) {
     auto before = engine()._abandoned_failed_futures;
     func();
