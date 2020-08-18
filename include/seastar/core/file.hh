@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <seastar/core/do_with.hh>
 #include <seastar/core/stream.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
