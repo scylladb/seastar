@@ -166,8 +166,11 @@ SEASTAR_TEST_CASE(test_thread_custom_stack_size) {
     });
 }
 
-// The test case uses x86_64 specific signal handler info
-#if defined(SEASTAR_THREAD_STACK_GUARDS) && defined(__x86_64__)
+// The test case uses x86_64 specific signal handler info. The test
+// fails with detect_stack_use_after_return=1. We could put it behind
+// a command line option and fork/exec to run it after removing
+// detect_stack_use_after_return=1 from the environment.
+#if defined(SEASTAR_THREAD_STACK_GUARDS) && defined(__x86_64__) && !defined(SEASTAR_ASAN_ENABLED)
 struct test_thread_custom_stack_size_failure : public seastar::testing::seastar_test {
     const char* get_test_file() override { return __FILE__; }
     const char* get_name() override { return "test_thread_custom_stack_size_failure"; }

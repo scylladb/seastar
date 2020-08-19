@@ -252,7 +252,7 @@ set (Seastar_TEST_TIMEOUT
   "Maximum allowed time for a test to run, in seconds.")
 
 # We set the following environment variables
-# * ASAN_OPTIONS=disable_coredump=0:abort_on_error=1
+# * ASAN_OPTIONS=disable_coredump=0:abort_on_error=1:detect_stack_use_after_return=1
 #   By default asan disables core dumps because they used to be
 #   huge. This is no longer the case since the shadow memory is
 #   excluded, so it is safe to enable them.
@@ -263,8 +263,17 @@ set (Seastar_TEST_TIMEOUT
 # * BOOST_TEST_CATCH_SYSTEM_ERRORS=no
 #   Normally the boost test library handles SIGABRT and prevents core
 #   dumps from being produced.
+
+# This works great with clang and gcc 10.2, but unfortunately not any
+# previous gcc.
+set (Seastar_USE_AFTER_RETURN "")
+if ((NOT (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")) OR
+    (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 10.2))
+  set (Seastar_USE_AFTER_RETURN ":detect_stack_use_after_return=1")
+endif ()
+
 set (Seastar_TEST_ENVIRONMENT
-  "ASAN_OPTIONS=disable_coredump=0:abort_on_error=1;UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1;BOOST_TEST_CATCH_SYSTEM_ERRORS=no"
+  "ASAN_OPTIONS=disable_coredump=0:abort_on_error=1${Seastar_USE_AFTER_RETURN};UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1;BOOST_TEST_CATCH_SYSTEM_ERRORS=no"
   CACHE
   STRING
   "Environment variables for running tests")
