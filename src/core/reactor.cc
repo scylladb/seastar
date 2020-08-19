@@ -1535,6 +1535,19 @@ reactor::flush_pending_aio() {
     return false;
 }
 
+steady_clock_type::time_point reactor::next_pending_aio() const noexcept {
+    steady_clock_type::time_point next = steady_clock_type::time_point::max();
+
+    for (auto& ioq : my_io_queues) {
+        steady_clock_type::time_point n = ioq->next_pending_aio();
+        if (n < next) {
+            next = std::move(n);
+        }
+    }
+
+    return next;
+}
+
 bool
 reactor::reap_kernel_completions() {
     return _backend->reap_kernel_completions();
@@ -2363,12 +2376,36 @@ public:
     }
 };
 
-class reactor::io_queue_submission_pollfn final : public simple_pollfn<true> {
+class reactor::io_queue_submission_pollfn final : public reactor::pollfn {
     reactor& _r;
+    // Wake-up the reactor with highres timer when the io-queue
+    // decides to delay dispatching until some time point in
+    // the future
+    timer<> _nearest_wakeup { [this] { _armed = false; } };
+    bool _armed = false;
 public:
     io_queue_submission_pollfn(reactor& r) : _r(r) {}
     virtual bool poll() final override {
         return _r.flush_pending_aio();
+    }
+    virtual bool pure_poll() override final {
+        return poll();
+    }
+    virtual bool try_enter_interrupt_mode() override {
+        auto next = _r.next_pending_aio();
+        auto now = steady_clock_type::now();
+        if (next <= now) {
+            return false;
+        }
+        _nearest_wakeup.arm(next);
+        _armed = true;
+        return true;
+    }
+    virtual void exit_interrupt_mode() override final {
+        if (_armed) {
+            _nearest_wakeup.cancel();
+            _armed = false;
+        }
     }
 };
 

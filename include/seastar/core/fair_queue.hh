@@ -265,6 +265,10 @@ public:
 
     /// Try to execute new requests if there is capacity left in the queue.
     void dispatch_requests();
+
+    clock_type next_pending_aio() const noexcept {
+        return std::chrono::steady_clock::time_point::max();
+    }
 };
 /// @}
 

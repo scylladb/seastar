@@ -165,6 +165,10 @@ public:
         _fq.dispatch_requests();
     }
 
+    std::chrono::steady_clock::time_point next_pending_aio() const noexcept {
+        return _fq.next_pending_aio();
+    }
+
     sstring mountpoint() const {
         return _config.mountpoint;
     }
