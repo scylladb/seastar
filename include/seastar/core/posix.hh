@@ -192,6 +192,11 @@ public:
         throw_system_error_on(r == -1, "setsockopt");
         return r;
     }
+    int setsockopt(int level, int optname, const void* data, socklen_t len) {
+        int r = ::setsockopt(_fd, level, optname, data, len);
+        throw_system_error_on(r == -1, "setsockopt");
+        return r;
+    }
     template <typename Data>
     Data getsockopt(int level, int optname) {
         Data data;
