@@ -996,7 +996,7 @@ SEASTAR_TEST_CASE(test_rpc_nonvariadic_client_variadic_server) {
     return rpc_test_env<>::do_with_thread(rpc_test_config(), [] (rpc_test_env<>& env, test_rpc_proto::client& c1) {
         // Server is variadic
         env.register_handler(1, [] () {
-            return make_ready_future<int, long>(1, 0x7'0000'0000L);
+            return make_ready_future<rpc::tuple<int, long>>(rpc::tuple(1, 0x7'0000'0000L));
         }).get();
         // Client is non-variadic
         auto f1 = env.proto().make_client<future<rpc::tuple<int, long>> ()>(1);
@@ -1013,8 +1013,8 @@ SEASTAR_TEST_CASE(test_rpc_variadic_client_nonvariadic_server) {
             return make_ready_future<rpc::tuple<int, long>>(rpc::tuple<int, long>(1, 0x7'0000'0000L));
         }).get();
         // Client is variadic
-        auto f1 = env.proto().make_client<future<int, long> ()>(1);
-        auto result = f1(c1).get();
+        auto f1 = env.proto().make_client<future<rpc::tuple<int, long>> ()>(1);
+        auto result = f1(c1).get0();
         BOOST_REQUIRE_EQUAL(std::get<0>(result), 1);
         BOOST_REQUIRE_EQUAL(std::get<1>(result), 0x7'0000'0000L);
     });
