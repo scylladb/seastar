@@ -112,24 +112,24 @@ inline
 future<> repeat(AsyncAction&& action) noexcept {
     using futurator = futurize<std::result_of_t<AsyncAction()>>;
     static_assert(std::is_same<future<stop_iteration>, typename futurator::type>::value, "bad AsyncAction signature");
-        for (;;) {
-            // Do not type-erase here in case this is a short repeat()
-            auto f = futurator::invoke(action);
+    for (;;) {
+        // Do not type-erase here in case this is a short repeat()
+        auto f = futurator::invoke(action);
 
-            if (!f.available() || f.failed() || need_preempt()) {
-              return [&] () noexcept {
+        if (!f.available() || f.failed() || need_preempt()) {
+            return [&] () noexcept {
                 memory::disable_failure_guard dfg;
                 auto repeater = new internal::repeater<AsyncAction>(std::move(action));
                 auto ret = repeater->get_future();
                 internal::set_callback(f, repeater);
                 return ret;
-              }();
-            }
-
-            if (f.get0() == stop_iteration::yes) {
-                return make_ready_future<>();
-            }
+            }();
         }
+
+        if (f.get0() == stop_iteration::yes) {
+            return make_ready_future<>();
+        }
+    }
 }
 
 /// \cond internal
