@@ -137,7 +137,7 @@ int main(int ac, char** av) {
             auto test9_2 = myrpc.make_client<long (long a, long b, int c, long d)>(9); // send more data than handler expects
             auto test10 = myrpc.make_client<long ()>(10); // receive less then replied
             auto test10_1 = myrpc.make_client<future<rpc::tuple<long, int>> ()>(10); // receive all
-            auto test11 = myrpc.make_client<future<long, rpc::optional<int>> ()>(11); // receive more then replied
+            auto test11 = myrpc.make_client<future<rpc::tuple<long, rpc::optional<int>>> ()>(11); // receive more then replied
             auto test12 = myrpc.make_client<void (int sleep_ms, sstring payload)>(12); // large payload vs. server limits
             auto test_nohandler = myrpc.make_client<void ()>(100000000); // non existing verb
             auto test_nohandler_nowait = myrpc.make_client<rpc::no_wait_type ()>(100000000); // non existing verb, no_wait call
@@ -177,7 +177,7 @@ int main(int ac, char** av) {
                 (void)test9_2(*client, 1, 2, 3, 4).then([] (long r) { fmt::print("test9.2 got {:d}\n", r); });
                 (void)test10(*client).then([] (long r) { fmt::print("test10 got {:d}\n", r); });
                 (void)test10_1(*client).then([] (rpc::tuple<long, int> r) { fmt::print("test10_1 got {:d} and {:d}\n", std::get<0>(r), std::get<1>(r)); });
-                (void)test11(*client).then([] (long r, rpc::optional<int> rr) { fmt::print("test11 got {:d} and {:d}\n", r, bool(rr)); });
+                (void)test11(*client).then([] (rpc::tuple<long, rpc::optional<int> > r) { fmt::print("test11 got {:d} and {:d}\n", std::get<0>(r), bool(std::get<1>(r))); });
                 (void)test_nohandler(*client).then_wrapped([](future<> f) {
                     try {
                         f.get();
