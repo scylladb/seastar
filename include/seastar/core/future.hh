@@ -372,9 +372,7 @@ struct future_state_base {
         bool available() const noexcept { return st == state::result || st >= state::exception_min; }
         bool failed() const noexcept { return __builtin_expect(st >= state::exception_min, false); }
         void check_failure() noexcept;
-        ~any() noexcept {
-            check_failure();
-        }
+        ~any() noexcept { }
         std::exception_ptr take_exception() noexcept {
             std::exception_ptr ret(std::move(ex));
             // Unfortunately in libstdc++ ~exception_ptr is defined out of line. We know that it does nothing for
@@ -521,6 +519,8 @@ struct future_state :  public future_state_base, private internal::uninitialized
     void clear() noexcept {
         if (_u.has_result()) {
             this->uninitialized_get().~tuple();
+        } else {
+            _u.check_failure();
         }
     }
     __attribute__((always_inline))
