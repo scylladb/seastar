@@ -1304,6 +1304,8 @@ class SEASTAR_NODISCARD future : private internal::future_base {
     future_state<T...> _state;
     static constexpr bool copy_noexcept = future_state<T...>::copy_noexcept;
     using call_then_impl = internal::call_then_impl<future>;
+
+    static_assert(sizeof...(T) <= 1, "variadic futures are not supported");
 private:
     // This constructor creates a future that is not ready but has no
     // associated promise yet. The use case is to have a less flexible
