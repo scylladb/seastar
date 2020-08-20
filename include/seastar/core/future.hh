@@ -1177,20 +1177,6 @@ protected:
     friend class promise_base;
 };
 
-template <bool IsVariadic>
-struct warn_variadic_future {
-    // Non-varidic case, do nothing
-    void check_deprecation() {}
-};
-
-
-// Note: placing the deprecated attribute on the class specialization has no effect.
-template <>
-struct warn_variadic_future<true> {
-    // Variadic case, has deprecation attribute
-    [[deprecated("Variadic future<> with more than one template parmeter is deprecated, replace with future<std::tuple<...>>")]]
-    void check_deprecation() {}
-};
 
 // This is a customization point for future::then()'s implementation.
 // It behaves differently when the future value type is a when_all_succeed_tuple
@@ -1314,7 +1300,7 @@ task* continuation_base_with_promise<Promise, T...>::waiting_task() noexcept {
 ///           A list with two or more types is deprecated; use
 ///           \c future<std::tuple<T...>> instead.
 template <typename... T>
-class SEASTAR_NODISCARD future : private internal::future_base, internal::warn_variadic_future<(sizeof...(T) > 1)> {
+class SEASTAR_NODISCARD future : private internal::future_base {
     future_state<T...> _state;
     static constexpr bool copy_noexcept = future_state<T...>::copy_noexcept;
     using call_then_impl = internal::call_then_impl<future>;
@@ -1397,9 +1383,6 @@ public:
     [[gnu::always_inline]]
     future(future&& x) noexcept : future_base(std::move(x), &_state), _state(std::move(x._state)) { }
     future(const future&) = delete;
-    ~future() {
-        this->check_deprecation();
-    }
     future& operator=(future&& x) noexcept {
         clear();
         move_it(std::move(x), &_state);
