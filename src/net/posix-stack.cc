@@ -82,6 +82,12 @@ public:
     virtual bool get_keepalive(file_desc& _fd) const = 0;
     virtual void set_keepalive_parameters(file_desc& _fd, const keepalive_params& params) const = 0;
     virtual keepalive_params get_keepalive_parameters(file_desc& _fd) const = 0;
+    virtual void set_sockopt(file_desc& _fd, int level, int optname, const void* data, size_t len) const {
+        _fd.setsockopt(level, optname, data, socklen_t(len));
+    }
+    virtual int get_sockopt(file_desc& _fd, int level, int optname, void* data, size_t len) const {
+        return _fd.getsockopt(level, optname, reinterpret_cast<char*>(data), socklen_t(len));
+    }
 };
 
 thread_local posix_ap_server_socket_impl::sockets_map_t posix_ap_server_socket_impl::sockets{};
@@ -234,6 +240,12 @@ public:
     }
     keepalive_params get_keepalive_parameters() const override {
         return _ops->get_keepalive_parameters(_fd.get_file_desc());
+    }
+    void set_sockopt(int level, int optname, const void* data, size_t len) override {
+        return _ops->set_sockopt(_fd.get_file_desc(), level, optname, data, len);
+    }
+    int get_sockopt(int level, int optname, void* data, size_t len) const override {
+        return _ops->get_sockopt(_fd.get_file_desc(), level, optname, data, len);
     }
     friend class posix_server_socket_impl;
     friend class posix_ap_server_socket_impl;

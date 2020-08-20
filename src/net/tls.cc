@@ -1397,6 +1397,12 @@ public:
     net::keepalive_params get_keepalive_parameters() const override {
         return _session->socket().get_keepalive_parameters();
     }
+    void set_sockopt(int level, int optname, const void* data, size_t len) override {
+        _session->socket().set_sockopt(level, optname, data, len);
+    }
+    int get_sockopt(int level, int optname, void* data, size_t len) const override {
+        return _session->socket().get_sockopt(level, optname, data, len);
+    }
 };
 
 

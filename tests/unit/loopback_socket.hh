@@ -178,6 +178,12 @@ public:
     net::keepalive_params get_keepalive_parameters() const override {
         return net::tcp_keepalive_params {std::chrono::seconds(0), std::chrono::seconds(0), 0};
     }
+    void set_sockopt(int level, int optname, const void* data, size_t len) {
+        throw std::runtime_error("Setting custom socket options is not supported for loopback");
+    }
+    int get_sockopt(int level, int optname, void* data, size_t len) const {
+        throw std::runtime_error("Getting custom socket options is not supported for loopback");
+    }
 };
 
 class loopback_server_socket_impl : public net::server_socket_impl {

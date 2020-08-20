@@ -120,6 +120,12 @@ void connected_socket::set_keepalive_parameters(const net::keepalive_params& p) 
 net::keepalive_params connected_socket::get_keepalive_parameters() const {
     return _csi->get_keepalive_parameters();
 }
+void connected_socket::set_sockopt(int level, int optname, const void* data, size_t len) {
+    _csi->set_sockopt(level, optname, data, len);
+}
+int connected_socket::get_sockopt(int level, int optname, void* data, size_t len) const {
+    return _csi->get_sockopt(level, optname, data, len);
+}
 
 void connected_socket::shutdown_output() {
     _csi->shutdown_output();
