@@ -50,9 +50,6 @@ class repeater final : public continuation_base<stop_iteration> {
     AsyncAction _action;
 public:
     explicit repeater(AsyncAction&& action) : _action(std::move(action)) {}
-    repeater(stop_iteration si, AsyncAction&& action) : repeater(std::move(action)) {
-        _state.set(si);
-    }
     future<> get_future() { return _promise.get_future(); }
     task* waiting_task() noexcept override { return _promise.waiting_task(); }
     virtual void run_and_dispose() noexcept override {
@@ -116,11 +113,11 @@ future<> repeat(AsyncAction&& action) noexcept {
     using futurator = futurize<std::result_of_t<AsyncAction()>>;
     static_assert(std::is_same<future<stop_iteration>, typename futurator::type>::value, "bad AsyncAction signature");
     try {
-        do {
+        for (;;) {
             // Do not type-erase here in case this is a short repeat()
             auto f = futurator::invoke(action);
 
-            if (!f.available()) {
+            if (!f.available() || f.failed() || need_preempt()) {
               return [&] () noexcept {
                 memory::disable_failure_guard dfg;
                 auto repeater = new internal::repeater<AsyncAction>(std::move(action));
@@ -133,12 +130,7 @@ future<> repeat(AsyncAction&& action) noexcept {
             if (f.get0() == stop_iteration::yes) {
                 return make_ready_future<>();
             }
-        } while (!need_preempt());
-
-        auto repeater = new internal::repeater<AsyncAction>(stop_iteration::no, std::move(action));
-        auto ret = repeater->get_future();
-        schedule(repeater);
-        return ret;
+        }
     } catch (...) {
         return make_exception_future(std::current_exception());
     }
