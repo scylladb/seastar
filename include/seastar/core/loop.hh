@@ -164,7 +164,7 @@ class repeat_until_value_state final : public continuation_base<std::optional<T>
 public:
     explicit repeat_until_value_state(AsyncAction action) : _action(std::move(action)) {}
     repeat_until_value_state(std::optional<T> st, AsyncAction action) : repeat_until_value_state(std::move(action)) {
-        this->_state.set(std::make_tuple(std::move(st)));
+        this->_state.set(std::move(st));
     }
     future<T> get_future() { return _promise.get_future(); }
     task* waiting_task() noexcept override { return _promise.waiting_task(); }
@@ -191,7 +191,7 @@ public:
                 }
                 auto ret = f.get0();
                 if (ret) {
-                    _promise.set_value(std::make_tuple(std::move(*ret)));
+                    _promise.set_value(std::move(*ret));
                     delete this;
                     return;
                 }
