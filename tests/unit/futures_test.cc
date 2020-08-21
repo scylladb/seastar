@@ -121,6 +121,15 @@ SEASTAR_TEST_CASE(test_stream_drop_sub) {
     });
 }
 
+SEASTAR_TEST_CASE(test_reference) {
+    int a = 42;
+    future<int&> fut = make_ready_future<int&>(a);
+    int& r = fut.get0();
+    r = 43;
+    BOOST_REQUIRE_EQUAL(a, 43);
+    return make_ready_future<>();
+}
+
 SEASTAR_TEST_CASE(test_set_future_state_with_tuple) {
     future_state<int> s1;
     promise<int> p1;
