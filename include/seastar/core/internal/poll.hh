@@ -37,8 +37,8 @@ struct pollfn {
     // to return to normal polling.
     //
     // If it returns false, the sleeping idle loop may not be entered.
-    virtual bool try_enter_interrupt_mode() { return false; }
-    virtual void exit_interrupt_mode() {}
+    virtual bool try_enter_interrupt_mode() = 0;
+    virtual void exit_interrupt_mode() = 0;
 };
 
 }

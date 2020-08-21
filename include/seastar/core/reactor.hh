@@ -716,6 +716,11 @@ internal::make_pollfn(Func&& func) {
         virtual bool pure_poll() override final {
             return poll(); // dubious, but compatible
         }
+        virtual bool try_enter_interrupt_mode() override final {
+            return false;
+        }
+        virtual void exit_interrupt_mode() override final {
+        }
     };
     return std::make_unique<the_pollfn>(std::forward<Func>(func));
 }
