@@ -616,6 +616,18 @@ public:
     friend class future<T...>;
 };
 
+// Given a future type, find the corresponding continuation_base.
+template <typename Future>
+struct continuation_base_from_future;
+
+template <typename... T>
+struct continuation_base_from_future<future<T...>> {
+    using type = continuation_base<T...>;
+};
+
+template <typename Future>
+using continuation_base_from_future_t = typename continuation_base_from_future<Future>::type;
+
 template <typename Promise, typename... T>
 class continuation_base_with_promise : public continuation_base<T...> {
     friend class internal::promise_base_with_type<T...>;

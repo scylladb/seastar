@@ -55,18 +55,6 @@ struct identity_futures_tuple {
     }
 };
 
-// Given a future type, find the continuation_base corresponding to that future
-template <typename Future>
-struct continuation_base_for_future;
-
-template <typename... T>
-struct continuation_base_for_future<future<T...>> {
-    using type = continuation_base<T...>;
-};
-
-template <typename Future>
-using continuation_base_for_future_t = typename continuation_base_for_future<Future>::type;
-
 class when_all_state_base;
 
 // If the future is ready, return true
@@ -114,7 +102,7 @@ public:
 };
 
 template <typename Future>
-class when_all_state_component final : public continuation_base_for_future_t<Future> {
+class when_all_state_component final : public continuation_base_from_future_t<Future> {
     when_all_state_base* _base;
     Future* _final_resting_place;
 public:

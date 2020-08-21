@@ -33,16 +33,6 @@ namespace seastar {
 
 namespace internal {
 
-
-// Given a future type, find the corresponding continuation_base.
-template <typename Future>
-struct continuation_base_from_future;
-
-template <typename... T>
-struct continuation_base_from_future<future<T...>> {
-    using type = continuation_base<T...>;
-};
-
 template <typename HeldState, typename Future>
 class do_with_state final : public continuation_base_from_future<Future>::type {
     HeldState _held;
