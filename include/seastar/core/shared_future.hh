@@ -104,7 +104,6 @@ public:
     using promise_type = typename future_option_traits<T...>::template parametrize<promise>::type;
     using value_tuple_type = typename future_option_traits<T...>::template parametrize<std::tuple>::type;
 private:
-    using future_state_type = typename future_option_traits<T...>::template parametrize<future_state>::type;
     using promise_expiry = typename future_option_traits<T...>::template parametrize<promise_expiry>::type;
 
     /// \cond internal
@@ -236,11 +235,10 @@ public:
     using clock = typename shared_future_type::clock;
     using time_point = typename shared_future_type::time_point;
     using value_tuple_type = typename shared_future_type::value_tuple_type;
-    using future_state_type = typename shared_future_type::future_state_type;
 private:
     promise_type _promise;
     shared_future_type _shared_future;
-    static constexpr bool copy_noexcept = future_state_type::copy_noexcept;
+    static constexpr bool copy_noexcept = future_type::copy_noexcept;
 public:
     shared_promise(const shared_promise&) = delete;
     shared_promise(shared_promise&&) = default;
