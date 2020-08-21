@@ -838,6 +838,14 @@ public:
 
     bool has_handler(MsgType msg_id);
 
+    /// Checks if any there are handlers registered.
+    /// Debugging helper, should only be used for debugging and not relied on.
+    ///
+    /// \returns true if there are, false if there are no registered handlers.
+    bool has_handlers() const noexcept {
+        return !_handlers.empty();
+    }
+
 private:
     rpc_handler* get_handler(uint64_t msg_id) override;
     void put_handler(rpc_handler*) override;

@@ -1026,6 +1026,9 @@ SEASTAR_TEST_CASE(test_handler_registration) {
     return rpc_test_env<>::do_with_thread(cfg, [] (rpc_test_env<>& env) {
         auto& proto = env.proto();
 
+        // new proto must be empty
+        BOOST_REQUIRE(!proto.has_handlers());
+
         // non-existing handler should not be found
         BOOST_REQUIRE(!proto.has_handler(1));
 
@@ -1049,6 +1052,9 @@ SEASTAR_TEST_CASE(test_handler_registration) {
         // re-registering a handler should succeed
         proto.register_handler(1, handler);
         BOOST_REQUIRE(proto.has_handler(1));
+
+        // proto with handlers must not be empty
+        BOOST_REQUIRE(proto.has_handlers());
     });
 }
 
