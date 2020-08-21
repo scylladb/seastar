@@ -1243,6 +1243,10 @@ static inline cpu_pages& get_cpu_mem()
     return *cpu_mem_ptr;
 }
 
+#ifdef SEASTAR_DEBUG_ALLOCATIONS
+static constexpr int debug_allocation_pattern = 0xab;
+#endif
+
 void* allocate(size_t size) {
     if (size <= sizeof(free_object)) {
         size = sizeof(free_object);
@@ -1256,6 +1260,10 @@ void* allocate(size_t size) {
     }
     if (!ptr) {
         on_allocation_failure(size);
+    } else {
+#ifdef SEASTAR_DEBUG_ALLOCATIONS
+        std::memset(ptr, debug_allocation_pattern, size);
+#endif
     }
     ++g_allocs;
     return ptr;
@@ -1276,6 +1284,10 @@ void* allocate_aligned(size_t align, size_t size) {
     }
     if (!ptr) {
         on_allocation_failure(size);
+    } else {
+#ifdef SEASTAR_DEBUG_ALLOCATIONS
+        std::memset(ptr, debug_allocation_pattern, size);
+#endif
     }
     ++g_allocs;
     return ptr;

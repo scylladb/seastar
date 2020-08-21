@@ -54,6 +54,10 @@ option (Seastar_TASK_BACKTRACE
   "Collect backtrace at deferring points."
   OFF)
 
+option (Seastar_DEBUG_ALLOCATIONS
+  "For now just writes 0xab to newly allocated memory"
+  OFF)
+
 option (Seastar_SSTRING
   "Use seastar's own string implementation"
   ON)
@@ -800,6 +804,11 @@ endif ()
 if (Seastar_TASK_BACKTRACE)
   target_compile_definitions (seastar
     PUBLIC SEASTAR_TASK_BACKTRACE)
+endif ()
+
+if (Seastar_DEBUG_ALLOCATIONS)
+  target_compile_definitions (seastar
+    PRIVATE SEASTAR_DEBUG_ALLOCATIONS)
 endif ()
 
 if (Sanitizers_FIBER_SUPPORT)
