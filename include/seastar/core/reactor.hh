@@ -707,19 +707,11 @@ template <typename Func> // signature: bool ()
 inline
 std::unique_ptr<seastar::pollfn>
 internal::make_pollfn(Func&& func) {
-    struct the_pollfn : pollfn {
+    struct the_pollfn : simple_pollfn<false> {
         the_pollfn(Func&& func) : func(std::forward<Func>(func)) {}
         Func func;
         virtual bool poll() override final {
             return func();
-        }
-        virtual bool pure_poll() override final {
-            return poll(); // dubious, but compatible
-        }
-        virtual bool try_enter_interrupt_mode() override final {
-            return false;
-        }
-        virtual void exit_interrupt_mode() override final {
         }
     };
     return std::make_unique<the_pollfn>(std::forward<Func>(func));

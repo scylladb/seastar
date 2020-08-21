@@ -2282,21 +2282,12 @@ reactor::do_check_lowres_timers() const {
 
 #ifndef HAVE_OSV
 
-class reactor::kernel_submit_work_pollfn final : public reactor::pollfn {
+class reactor::kernel_submit_work_pollfn final : public simple_pollfn<true> {
     reactor& _r;
 public:
     kernel_submit_work_pollfn(reactor& r) : _r(r) {}
     virtual bool poll() override final {
         return _r._backend->kernel_submit_work();
-    }
-    virtual bool pure_poll() override final {
-        return poll(); // actually performs work, but triggers no user continuations, so okay
-    }
-    virtual bool try_enter_interrupt_mode() override {
-        return true;
-    }
-    virtual void exit_interrupt_mode() override {
-        // nothing to do
     }
 };
 
@@ -2331,22 +2322,12 @@ public:
     }
 };
 
-class reactor::batch_flush_pollfn final : public reactor::pollfn {
+class reactor::batch_flush_pollfn final : public simple_pollfn<true> {
     reactor& _r;
 public:
     batch_flush_pollfn(reactor& r) : _r(r) {}
     virtual bool poll() final override {
         return _r.flush_tcp_batches();
-    }
-    virtual bool pure_poll() override final {
-        return poll(); // actually performs work, but triggers no user continuations, so okay
-    }
-    virtual bool try_enter_interrupt_mode() override {
-        // This is a passive poller, so if a previous poll
-        // returned false (idle), there's no more work to do.
-        return true;
-    }
-    virtual void exit_interrupt_mode() override final {
     }
 };
 
@@ -2367,42 +2348,24 @@ public:
     }
 };
 
-class reactor::io_queue_submission_pollfn final : public reactor::pollfn {
+class reactor::io_queue_submission_pollfn final : public simple_pollfn<true> {
     reactor& _r;
 public:
     io_queue_submission_pollfn(reactor& r) : _r(r) {}
     virtual bool poll() final override {
         return _r.flush_pending_aio();
     }
-    virtual bool pure_poll() override final {
-        return poll(); // actually performs work, but triggers no user continuations, so okay
-    }
-    virtual bool try_enter_interrupt_mode() override {
-        // This is a passive poller, so if a previous poll
-        // returned false (idle), there's no more work to do.
-        return true;
-    }
-    virtual void exit_interrupt_mode() override final {
-    }
 };
 
-class reactor::drain_cross_cpu_freelist_pollfn final : public reactor::pollfn {
+// Other cpus can queue items for us to free; and they won't notify
+// us about them.  But it's okay to ignore those items, freeing them
+// doesn't have any side effects.
+//
+// We'll take care of those items when we wake up for another reason.
+class reactor::drain_cross_cpu_freelist_pollfn final : public simple_pollfn<true> {
 public:
     virtual bool poll() final override {
         return memory::drain_cross_cpu_freelist();
-    }
-    virtual bool pure_poll() override final {
-        return poll(); // actually performs work, but triggers no user continuations, so okay
-    }
-    virtual bool try_enter_interrupt_mode() override {
-        // Other cpus can queue items for us to free; and they won't notify
-        // us about them.  But it's okay to ignore those items, freeing them
-        // doesn't have any side effects.
-        //
-        // We'll take care of those items when we wake up for another reason.
-        return true;
-    }
-    virtual void exit_interrupt_mode() override final {
     }
 };
 
