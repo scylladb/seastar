@@ -102,7 +102,8 @@ static future<file_result> read_fully(const sstring& name, const sstring& what) 
             return f.stat().then([&f, name = std::move(name)](struct stat s) mutable {
                 return f.dma_read_bulk<char>(0, s.st_size).then([s, name = std::move(name)](temporary_buffer<char> buf) mutable {
                     return file_result{ std::move(buf), file_info{ 
-                        std::move(name), std::chrono::system_clock::from_time_t(s.st_mtim.tv_sec) + std::chrono::nanoseconds(s.st_mtim.tv_nsec)
+                        std::move(name), std::chrono::system_clock::from_time_t(s.st_mtim.tv_sec) +
+                            std::chrono::duration_cast<std::chrono::system_clock::duration>(std::chrono::nanoseconds(s.st_mtim.tv_nsec))
                     } };
                 });
             }).finally([&f]() {
