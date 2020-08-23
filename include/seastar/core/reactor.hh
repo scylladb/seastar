@@ -203,18 +203,7 @@ private:
     class io_queue_submission_pollfn;
     class syscall_pollfn;
     class execution_stage_pollfn;
-    friend signal_pollfn;
-    friend batch_flush_pollfn;
-    friend smp_pollfn;
-    friend drain_cross_cpu_freelist_pollfn;
-    friend lowres_timer_pollfn;
     friend class manual_clock;
-    friend class epoll_pollfn;
-    friend class reap_kernel_completions_pollfn;
-    friend class kernel_submit_work_pollfn;
-    friend class io_queue_submission_pollfn;
-    friend class syscall_pollfn;
-    friend class execution_stage_pollfn;
     friend class file_data_source_impl; // for fstream statistics
     friend class internal::reactor_stall_sampler;
     friend class preempt_io_context;
@@ -718,14 +707,11 @@ template <typename Func> // signature: bool ()
 inline
 std::unique_ptr<seastar::pollfn>
 internal::make_pollfn(Func&& func) {
-    struct the_pollfn : pollfn {
+    struct the_pollfn : simple_pollfn<false> {
         the_pollfn(Func&& func) : func(std::forward<Func>(func)) {}
         Func func;
         virtual bool poll() override final {
             return func();
-        }
-        virtual bool pure_poll() override final {
-            return poll(); // dubious, but compatible
         }
     };
     return std::make_unique<the_pollfn>(std::forward<Func>(func));
