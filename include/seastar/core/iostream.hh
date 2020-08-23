@@ -217,6 +217,16 @@ public:
     explicit input_stream(data_source fd) noexcept : _fd(std::move(fd)), _buf() {}
     input_stream(input_stream&&) = default;
     input_stream& operator=(input_stream&&) = default;
+    /// Reads n bytes from the stream, or fewer if reached the end of stream.
+    ///
+    /// \returns a future that waits until n bytes are available in the
+    /// stream and returns them. If the end of stream is reached before n
+    /// bytes were read, fewer than n bytes will be returned - so despite
+    /// the method's name, the caller must not assume the returned buffer
+    /// will always contain exactly n bytes.
+    ///
+    /// \throws if an I/O error occurs during the read. As explained above,
+    /// prematurely reaching the end of stream is *not* an I/O error.
     future<temporary_buffer<CharType>> read_exactly(size_t n);
     template <typename Consumer>
     SEASTAR_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
