@@ -495,6 +495,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
     static constexpr bool copy_noexcept = std::is_nothrow_copy_constructible<std::tuple<T...>>::value;
     static constexpr bool has_trivial_move_and_destroy =
         internal::all_true<internal::is_trivially_move_constructible_and_destructible<T>::value...>::value;
+    static_assert(sizeof...(T) <= 1, "variadic futures are not supported");
     static_assert(std::is_nothrow_move_constructible<std::tuple<T...>>::value,
                   "Types must be no-throw move constructible");
     static_assert(std::is_nothrow_destructible<std::tuple<T...>>::value,
