@@ -47,7 +47,7 @@ struct identity_futures_tuple {
     }
 
     static future_type make_ready_future(std::tuple<Futures...> futures) noexcept {
-        return futurize<future_type>::from_tuple(std::move(futures));
+        return seastar::make_ready_future<std::tuple<Futures...>>(std::move(futures));
     }
 
     static future_type current_exception_as_future() noexcept {
