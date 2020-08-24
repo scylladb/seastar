@@ -137,12 +137,6 @@ SEASTAR_TEST_CASE(test_set_future_state_with_tuple) {
     s1.set(v1);
     p1.set_value(v1);
 
-    future_state<int, int> s2;
-    promise<int, int> p2;
-    const std::tuple<int, int> v2(41, 42);
-    s2.set(v2);
-    p2.set_value(v2);
-
     return make_ready_future<>();
 }
 
