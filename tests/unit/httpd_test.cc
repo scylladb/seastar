@@ -476,7 +476,7 @@ public:
                 httpd::http_server_tester::listeners(*server).emplace_back(lcf.get_server_socket());
 
                 auto client = seastar::async([&lsi, reader] {
-                    connected_socket c_socket = std::get<connected_socket>(lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get());
+                    connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
                     input_stream<char> input(c_socket.input());
                     output_stream<char> output(c_socket.output());
                     bool more = true;
@@ -539,7 +539,7 @@ public:
                 httpd::http_server_tester::listeners(*server).emplace_back(lcf.get_server_socket());
 
                 auto client = seastar::async([&lsi, tests] {
-                    connected_socket c_socket = std::get<connected_socket>(lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get());
+                    connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
                     input_stream<char> input(c_socket.input());
                     output_stream<char> output(c_socket.output());
                     bool more = true;
@@ -730,7 +730,7 @@ SEASTAR_TEST_CASE(content_length_limit) {
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
 
         future<> client = seastar::async([&lsi] {
-            connected_socket c_socket = std::get<connected_socket>(lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get());
+            connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
             input_stream<char> input(c_socket.input());
             output_stream<char> output(c_socket.output());
 
@@ -785,7 +785,7 @@ SEASTAR_TEST_CASE(test_100_continue) {
         loopback_socket_impl lsi(lcf);
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
         future<> client = seastar::async([&lsi, &server] {
-            connected_socket c_socket = std::get<connected_socket>(lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get());
+            connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
             input_stream<char> input(c_socket.input());
             output_stream<char> output(c_socket.output());
 
