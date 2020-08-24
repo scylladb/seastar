@@ -171,7 +171,7 @@ public:
             log(log_level::info, fmt, std::forward<Args>(args)...);
         }
     }
-    /// Log with info tag:
+    /// Log with debug tag:
     /// DEBUG  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
     ///
     /// \param fmt - printf style format
