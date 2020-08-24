@@ -508,7 +508,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
                    internal::used_size<std::tuple<T...>>::value);
         } else if (_u.has_result()) {
             this->uninitialized_set(std::move(x.uninitialized_get()));
-            x.uninitialized_get().~tuple();
+            std::destroy_at(&x.uninitialized_get());
         }
     }
 
@@ -519,7 +519,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
 
     void clear() noexcept {
         if (_u.has_result()) {
-            this->uninitialized_get().~tuple();
+            std::destroy_at(&this->uninitialized_get());
         } else {
             _u.check_failure();
         }
