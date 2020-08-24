@@ -202,13 +202,13 @@ public:
     void set_keepalive_parameters(const net::keepalive_params& p);
     /// Get TCP keepalive parameters
     net::keepalive_params get_keepalive_parameters() const;
-    // Sets custom socket options. Based on setsockopt function.
-    // Linux users should refer to protocol-specific manuals
-    // to see available options, e.g. tcp(7), ip(7), etc.
+    /// Sets custom socket options. Based on setsockopt function.
+    /// Linux users should refer to protocol-specific manuals
+    /// to see available options, e.g. tcp(7), ip(7), etc.
     void set_sockopt(int level, int optname, const void* data, size_t len);
-    // Gets custom socket options. Based on getsockopt function.
-    // Linux users should refer to protocol-specific manuals
-    // to see available options, e.g. tcp(7), ip(7), etc.
+    /// Gets custom socket options. Based on getsockopt function.
+    /// Linux users should refer to protocol-specific manuals
+    /// to see available options, e.g. tcp(7), ip(7), etc.
     int get_sockopt(int level, int optname, void* data, size_t len) const;
 
     /// Disables output to the socket.
