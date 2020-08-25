@@ -82,22 +82,6 @@ class logger {
     static std::atomic<bool> _ostream;
     static std::atomic<bool> _syslog;
 private:
-    struct stringer {
-        void (*append)(std::ostream& os, const void* object);
-        const void* object;
-    };
-    template <typename Arg>
-    stringer stringer_for(const Arg& arg) {
-        return stringer{
-            [] (std::ostream& os, const void* object) {
-                os << *static_cast<const std::remove_reference_t<Arg>*>(object);
-            },
-            &arg
-        };
-    };
-    template <typename... Args>
-    void do_log(log_level level, const char* fmt, Args&&... args);
-    void really_do_log(log_level level, const char* fmt, const stringer* stringers, size_t n);
 
     void do_log(log_level level, const char* fmt, fmt::format_args args);
     void failed_to_log(std::exception_ptr ex) noexcept;
@@ -322,15 +306,6 @@ class logger_for : public logger {
 public:
     logger_for() : logger(pretty_type_name(typeid(T))) {}
 };
-
-template <typename... Args>
-void
-logger::do_log(log_level level, const char* fmt, Args&&... args) {
-    [&](auto... stringers) {
-        stringer s[sizeof...(stringers)] = {stringers...};
-        this->really_do_log(level, fmt, s, sizeof...(stringers));
-    } (stringer_for<Args>(std::forward<Args>(args))...);
-}
 
 /// \endcond
 } // end seastar namespace

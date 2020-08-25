@@ -194,10 +194,6 @@ logger::~logger() {
 }
 
 void
-logger::really_do_log(log_level level, const char* fmt, const stringer* stringers, size_t stringers_size) {
-}
-
-void
 logger::do_log(log_level level, const char* fmt, fmt::format_args args) {
     bool is_ostream_enabled = _ostream.load(std::memory_order_relaxed);
     bool is_syslog_enabled = _syslog.load(std::memory_order_relaxed);
