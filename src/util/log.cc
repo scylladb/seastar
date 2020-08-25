@@ -195,6 +195,10 @@ logger::~logger() {
 
 void
 logger::really_do_log(log_level level, const char* fmt, const stringer* stringers, size_t stringers_size) {
+}
+
+void
+logger::do_log(log_level level, const char* fmt, fmt::format_args args) {
     bool is_ostream_enabled = _ostream.load(std::memory_order_relaxed);
     bool is_syslog_enabled = _syslog.load(std::memory_order_relaxed);
     if(!is_ostream_enabled && !is_syslog_enabled) {
@@ -210,37 +214,15 @@ logger::really_do_log(log_level level, const char* fmt, const stringer* stringer
     };
     auto print_once = [&] (std::ostream& out) {
       if (local_engine) {
-        out << " [shard " << this_shard_id() << "] " << _name << " - ";
-      } else {
-        out << " " << _name << " - ";
+          fmt::print(out, " [shard {}]", this_shard_id());
       }
-      const char* p = fmt;
-      size_t n = stringers_size;
-      const stringer* s = stringers;
-      while (*p != '\0') {
-        if (*p == '{' && *(p+1) == '}') {
-            p += 2;
-            if (n > 0) {
-                try {
-                    s->append(out, s->object);
-                } catch (...) {
-                    out << '<' << std::current_exception() << '>';
-                }
-                ++s;
-                --n;
-            } else {
-                out << "???";
-            }
-        } else {
-            out << *p++;
-        }
-      }
-      out << "\n";
+      fmt::print(out, " {} - {}\n", _name, fmt::vformat(fmt, args));
     };
+
     if (is_ostream_enabled) {
-        out << level_map[int(level)] << space_and_current_timestamp();
+        fmt::print(out, "{}{}", level_map[int(level)], space_and_current_timestamp());
         print_once(out);
-        *_out << out.str();
+        fmt::print(*_out, "{}", out.str());
     }
     if (is_syslog_enabled) {
         print_once(log);
@@ -265,7 +247,7 @@ logger::really_do_log(log_level level, const char* fmt, const stringer* stringer
 void logger::failed_to_log(std::exception_ptr ex) noexcept
 {
     try {
-        do_log(log_level::error, "failed to log message: {}", ex);
+        do_log(log_level::error, "failed to log message: {}", fmt::make_format_args(ex));
     } catch (...) {
         ++logging_failures;
     }

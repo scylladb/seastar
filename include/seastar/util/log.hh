@@ -27,6 +27,7 @@
 #include <atomic>
 #include <mutex>
 #include <boost/lexical_cast.hpp>
+#include <fmt/format.h>
 
 
 /// \addtogroup logging
@@ -97,6 +98,8 @@ private:
     template <typename... Args>
     void do_log(log_level level, const char* fmt, Args&&... args);
     void really_do_log(log_level level, const char* fmt, const stringer* stringers, size_t n);
+
+    void do_log(log_level level, const char* fmt, fmt::format_args args);
     void failed_to_log(std::exception_ptr ex) noexcept;
 public:
     explicit logger(sstring name);
@@ -119,10 +122,10 @@ public:
     /// \param args - args to print string
     ///
     template <typename... Args>
-    void log(log_level level, const char* fmt, const Args&... args) noexcept {
+    void log(log_level level, const char* fmt, Args&&... args) noexcept {
         if (is_enabled(level)) {
             try {
-                do_log(level, fmt, args...);
+                do_log(level, fmt, fmt::make_format_args(std::forward<Args>(args)...));
             } catch (...) {
                 failed_to_log(std::current_exception());
             }
