@@ -605,12 +605,13 @@ struct future_state :  public future_state_base, private internal::uninitialized
 template <typename... T>
 class continuation_base : public task {
 protected:
-    future_state<T...> _state;
+    using future_state = seastar::future_state<T...>;
+    future_state _state;
     using future_type = future<T...>;
     using promise_type = promise<T...>;
 public:
     continuation_base() noexcept = default;
-    void set_state(future_state<T...>&& state) noexcept {
+    void set_state(future_state&& state) noexcept {
         _state = std::move(state);
     }
     // This override of waiting_task() is needed here because there are cases
@@ -792,10 +793,11 @@ public:
 template <typename... T>
 class promise_base_with_type : protected internal::promise_base {
 protected:
-    future_state<T...>* get_state() noexcept {
-        return static_cast<future_state<T...>*>(_state);
+    using future_state = seastar::future_state<T...>;
+    future_state* get_state() noexcept {
+        return static_cast<future_state*>(_state);
     }
-    static constexpr bool copy_noexcept = future_state<T...>::copy_noexcept;
+    static constexpr bool copy_noexcept = future_state::copy_noexcept;
 public:
     promise_base_with_type(future_state_base* state) noexcept : promise_base(state) { }
     promise_base_with_type(future<T...>* future) noexcept : promise_base(future, &future->_state) { }
@@ -804,7 +806,7 @@ public:
     promise_base_with_type& operator=(promise_base_with_type&& x) noexcept = default;
     void operator=(const promise_base_with_type&) = delete;
 
-    void set_urgent_state(future_state<T...>&& state) noexcept {
+    void set_urgent_state(future_state&& state) noexcept {
         auto* ptr = get_state();
         // The state can be null if the corresponding future has been
         // destroyed without producing a continuation.
@@ -813,7 +815,7 @@ public:
             // good candidate for being disabled in release builds if
             // we had such an assert.
             assert(ptr->_u.st == future_state_base::state::future);
-            new (ptr) future_state<T...>(std::move(state));
+            new (ptr) future_state(std::move(state));
             make_ready<urgent::yes>();
         }
     }
@@ -842,7 +844,7 @@ private:
     template <typename... U>
     friend class seastar::future;
 
-    friend struct seastar::future_state<T...>;
+    friend future_state;
 };
 }
 /// \endcond
@@ -854,7 +856,8 @@ private:
 ///           \c promise<std::tuple<T...>> instead.
 template <typename... T>
 class promise : private internal::promise_base_with_type<T...> {
-    future_state<T...> _local_state;
+    using future_state = typename internal::promise_base_with_type<T...>::future_state;
+    future_state _local_state;
 
 public:
     /// \brief Constructs an empty \c promise.
@@ -1320,8 +1323,9 @@ task* continuation_base_with_promise<Promise, T...>::waiting_task() noexcept {
 ///           \c future<std::tuple<T...>> instead.
 template <typename... T>
 class SEASTAR_NODISCARD future : private internal::future_base {
-    future_state<T...> _state;
-    static constexpr bool copy_noexcept = future_state<T...>::copy_noexcept;
+    using future_state = seastar::future_state<T...>;
+    future_state _state;
+    static constexpr bool copy_noexcept = future_state::copy_noexcept;
     using call_then_impl = internal::call_then_impl<future>;
 
     static_assert(sizeof...(T) <= 1, "variadic futures are not supported");
@@ -1343,7 +1347,7 @@ private:
     future(exception_future_marker m, std::exception_ptr&& ex) noexcept : _state(m, std::move(ex)) { }
     future(exception_future_marker m, future_state_base&& state) noexcept : _state(m, std::move(state)) { }
     [[gnu::always_inline]]
-    explicit future(future_state<T...>&& state) noexcept
+    explicit future(future_state&& state) noexcept
             : _state(std::move(state)) {
     }
     internal::promise_base_with_type<T...> get_promise() noexcept {
@@ -1378,7 +1382,7 @@ private:
     }
 
     [[gnu::always_inline]]
-    future_state<T...>&& get_available_state_ref() noexcept {
+    future_state&& get_available_state_ref() noexcept {
         if (_promise) {
             detach_promise();
         }
@@ -1439,8 +1443,8 @@ public:
     /// one type parameter.
     ///
     /// Equivalent to: \c std::get<0>(f.get()).
-    typename future_state<T...>::get0_return_type get0() {
-        return future_state<T...>::get0(get());
+    typename future_state::get0_return_type get0() {
+        return future_state::get0(get());
     }
 
     /// Wait for the future to be available (in a seastar::thread)
@@ -1547,7 +1551,7 @@ private:
         using futurator = futurize<std::result_of_t<Func(T&&...)>>;
         typename futurator::type fut(future_for_get_promise_marker{});
         using pr_type = decltype(fut.get_promise());
-        schedule(fut.get_promise(), std::move(func), [](pr_type& pr, Func& func, future_state<T...>&& state) mutable {
+        schedule(fut.get_promise(), std::move(func), [](pr_type& pr, Func& func, future_state&& state) mutable {
             if (state.failed()) {
                 pr.set_exception(static_cast<future_state_base&&>(std::move(state)));
             } else {
@@ -1631,7 +1635,7 @@ private:
         using futurator = futurize<FuncResult>;
         typename futurator::type fut(future_for_get_promise_marker{});
         using pr_type = decltype(fut.get_promise());
-        schedule(fut.get_promise(), std::move(func), [](pr_type& pr, Func& func, future_state<T...>&& state) mutable {
+        schedule(fut.get_promise(), std::move(func), [](pr_type& pr, Func& func, future_state&& state) mutable {
             futurator::satisfy_with_result_of(std::move(pr), [&func, &state] {
                 return func(future(std::move(state)));
             });
@@ -1899,7 +1903,7 @@ inline
 void promise<T...>::move_it(promise&& x) noexcept {
     if (this->_state == &x._local_state) {
         this->_state = &_local_state;
-        new (&_local_state) future_state<T...>(std::move(x._local_state));
+        new (&_local_state) future_state(std::move(x._local_state));
     }
 }
 
