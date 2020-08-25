@@ -653,7 +653,7 @@ sharded<Service>::stop() {
             }
             return internal::stop_sharded_instance(*inst);
         });
-    }).then([this] {
+    }).then_wrapped([this] (future<> fut) {
         return internal::sharded_parallel_for_each(_instances.size(), [this] (unsigned c) {
             return smp::submit_to(c, [this] {
                 if (_instances[this_shard_id()].service == nullptr) {
@@ -662,10 +662,11 @@ sharded<Service>::stop() {
                 _instances[this_shard_id()].service = nullptr;
                 return _instances[this_shard_id()].freed.get_future();
             });
+        }).finally([this, fut = std::move(fut)] () mutable {
+            _instances.clear();
+            _instances = std::vector<sharded<Service>::entry>();
+            return std::move(fut);
         });
-    }).then([this] {
-        _instances.clear();
-        _instances = std::vector<sharded<Service>::entry>();
     });
 }
 
