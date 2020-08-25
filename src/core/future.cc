@@ -34,6 +34,8 @@ static_assert(std::is_nothrow_move_constructible<future_state<int>>::value,
 
 static_assert(sizeof(future_state<>) <= 8, "future_state<> is too large");
 static_assert(sizeof(future_state<long>) <= 16, "future_state<long> is too large");
+static_assert(future_state<>::has_trivial_move_and_destroy, "future_state<> not trivial");
+static_assert(future_state<long>::has_trivial_move_and_destroy, "future_state<long> not trivial");
 
 // We need to be able to move and copy std::exception_ptr in and out
 // of future/promise/continuations without that producing a new
