@@ -115,7 +115,7 @@ public:
 
     /// logs to desired level if enabled, otherwise we ignore the log line
     ///
-    /// \param fmt - printf style format
+    /// \param fmt - {fmt} style format
     /// \param args - args to print string
     ///
     template <typename... Args>
@@ -132,7 +132,7 @@ public:
     /// Log with error tag:
     /// ERROR  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
     ///
-    /// \param fmt - printf style format
+    /// \param fmt - {fmt} style format
     /// \param args - args to print string
     ///
     template <typename... Args>
@@ -142,7 +142,7 @@ public:
     /// Log with warning tag:
     /// WARN  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
     ///
-    /// \param fmt - printf style format
+    /// \param fmt - {fmt} style format
     /// \param args - args to print string
     ///
     template <typename... Args>
@@ -152,7 +152,7 @@ public:
     /// Log with info tag:
     /// INFO  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
     ///
-    /// \param fmt - printf style format
+    /// \param fmt - {fmt} style format
     /// \param args - args to print string
     ///
     template <typename... Args>
@@ -162,7 +162,7 @@ public:
     /// Log with info tag on shard zero only:
     /// INFO  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
     ///
-    /// \param fmt - printf style format
+    /// \param fmt - {fmt} style format
     /// \param args - args to print string
     ///
     template <typename... Args>
@@ -174,7 +174,7 @@ public:
     /// Log with debug tag:
     /// DEBUG  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
     ///
-    /// \param fmt - printf style format
+    /// \param fmt - {fmt} style format
     /// \param args - args to print string
     ///
     template <typename... Args>
@@ -184,7 +184,7 @@ public:
     /// Log with trace tag:
     /// TRACE  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
     ///
-    /// \param fmt - printf style format
+    /// \param fmt - {fmt} style format
     /// \param args - args to print string
     ///
     template <typename... Args>
