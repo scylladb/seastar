@@ -60,11 +60,11 @@ public:
 #pragma clang diagnostic ignored "-Wself-move"
 #endif
 SEASTAR_TEST_CASE(test_self_move) {
-    future_state<std::unique_ptr<int>> s1;
+    future_state<std::tuple<std::unique_ptr<int>>> s1;
     s1.set(std::make_unique<int>(42));
     s1 = std::move(s1); // no crash, but the value of s1 is not defined.
 
-    future_state<std::unique_ptr<int>> s2;
+    future_state<std::tuple<std::unique_ptr<int>>> s2;
     s2.set(std::make_unique<int>(42));
     std::swap(s2, s2);
     BOOST_REQUIRE_EQUAL(*std::get<0>(std::move(s2).get()), 42);
@@ -131,7 +131,7 @@ SEASTAR_TEST_CASE(test_reference) {
 }
 
 SEASTAR_TEST_CASE(test_set_future_state_with_tuple) {
-    future_state<int> s1;
+    future_state<std::tuple<int>> s1;
     promise<int> p1;
     const std::tuple<int> v1(42);
     s1.set(v1);

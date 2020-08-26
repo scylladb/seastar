@@ -29,11 +29,13 @@ namespace seastar {
 
 // We can't test future_state_base directly because its private
 // destructor is protected.
-static_assert(std::is_nothrow_move_constructible<future_state<int>>::value,
+static_assert(std::is_nothrow_move_constructible<future_state<std::tuple<int>>>::value,
               "future_state's move constructor must not throw");
 
-static_assert(sizeof(future_state<>) <= 8, "future_state<> is too large");
-static_assert(sizeof(future_state<long>) <= 16, "future_state<long> is too large");
+static_assert(sizeof(future_state<std::tuple<>>) <= 8, "future_state<std::tuple<>> is too large");
+static_assert(sizeof(future_state<std::tuple<long>>) <= 16, "future_state<std::tuple<long>> is too large");
+static_assert(future_state<std::tuple<>>::has_trivial_move_and_destroy, "future_state<std::tuple<>> not trivial");
+static_assert(future_state<std::tuple<long>>::has_trivial_move_and_destroy, "future_state<std::tuple<long>> not trivial");
 
 // We need to be able to move and copy std::exception_ptr in and out
 // of future/promise/continuations without that producing a new
