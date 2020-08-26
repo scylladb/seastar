@@ -1018,120 +1018,6 @@ concept ApplyReturnsAnyFuture = InvokeReturnsAnyFuture<Func, T...>;
 
 )
 
-template <typename T>
-struct futurize {
-    /// If \c T is a future, \c T; otherwise \c future<T>
-    using type = future<T>;
-    /// The promise type associated with \c type.
-    using promise_type = promise<T>;
-    /// The value tuple type associated with \c type
-    using value_type = std::tuple<T>;
-
-    /// Apply a function to an argument list (expressed as a tuple)
-    /// and return the result, as a future (if it wasn't already).
-    template<typename Func, typename... FuncArgs>
-    static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept;
-
-    /// Invoke a function to an argument list
-    /// and return the result, as a future (if it wasn't already).
-    template<typename Func, typename... FuncArgs>
-    static inline type invoke(Func&& func, FuncArgs&&... args) noexcept;
-
-    /// Deprecated alias of invoke
-    template<typename Func, typename... FuncArgs>
-    [[deprecated("Use invoke for varargs")]]
-    static inline type apply(Func&& func, FuncArgs&&... args) noexcept;
-
-    /// Convert a value or a future to a future
-    static inline type convert(T&& value) { return make_ready_future<T>(std::move(value)); }
-    static inline type convert(type&& value) { return std::move(value); }
-
-    /// Convert the tuple representation into a future
-    static type from_tuple(value_type&& value);
-    /// Convert the tuple representation into a future
-    static type from_tuple(const value_type& value);
-
-    /// Makes an exceptional future of type \ref type.
-    template <typename Arg>
-    static type make_exception_future(Arg&& arg) noexcept;
-
-private:
-    /// Forwards the result of, or exception thrown by, func() to the
-    /// promise. This avoids creating a future if func() doesn't
-    /// return one.
-    template<typename Func>
-    SEASTAR_CONCEPT( requires std::invocable<Func> )
-    static void satisfy_with_result_of(internal::promise_base_with_type<T>&&, Func&& func);
-
-    template <typename... U>
-    friend class future;
-};
-
-/// \cond internal
-template <>
-struct futurize<void> {
-    using type = future<>;
-    using promise_type = promise<>;
-    using value_type = std::tuple<>;
-
-    template<typename Func, typename... FuncArgs>
-    static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept;
-
-    template<typename Func, typename... FuncArgs>
-    static inline type invoke(Func&& func, FuncArgs&&... args) noexcept;
-
-    template<typename Func, typename... FuncArgs>
-    [[deprecated("Use invoke for varargs")]]
-    static inline type apply(Func&& func, FuncArgs&&... args) noexcept;
-
-    static inline type from_tuple(value_type&& value);
-    static inline type from_tuple(const value_type& value);
-
-    template <typename Arg>
-    static type make_exception_future(Arg&& arg) noexcept;
-
-private:
-    template<typename Func>
-    SEASTAR_CONCEPT( requires std::invocable<Func> )
-    static void satisfy_with_result_of(internal::promise_base_with_type<>&&, Func&& func);
-
-    template <typename... U>
-    friend class future;
-};
-
-template <typename... Args>
-struct futurize<future<Args...>> {
-    using type = future<Args...>;
-    using promise_type = promise<Args...>;
-    using value_type = std::tuple<Args...>;
-
-    template<typename Func, typename... FuncArgs>
-    static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept;
-
-    template<typename Func, typename... FuncArgs>
-    static inline type invoke(Func&& func, FuncArgs&&... args) noexcept;
-
-    template<typename Func, typename... FuncArgs>
-    [[deprecated("Use invoke for varargs")]]
-    static inline type apply(Func&& func, FuncArgs&&... args) noexcept;
-
-    static inline type from_tuple(value_type&& value);
-    static inline type from_tuple(const value_type& value);
-
-    static inline type convert(Args&&... values) { return make_ready_future<Args...>(std::move(values)...); }
-    static inline type convert(type&& value) { return std::move(value); }
-
-    template <typename Arg>
-    static type make_exception_future(Arg&& arg) noexcept;
-
-private:
-    template<typename Func>
-    SEASTAR_CONCEPT( requires std::invocable<Func> )
-    static void satisfy_with_result_of(internal::promise_base_with_type<Args...>&&, Func&& func);
-
-    template <typename... U>
-    friend class future;
-};
 /// \endcond
 
 // Converts a type to a future type, if it isn't already.
@@ -1886,6 +1772,122 @@ private:
     template <typename Future>
     friend struct internal::call_then_impl;
     /// \endcond
+};
+
+
+template <typename T>
+struct futurize {
+    /// If \c T is a future, \c T; otherwise \c future<T>
+    using type = future<T>;
+    /// The promise type associated with \c type.
+    using promise_type = promise<T>;
+    /// The value tuple type associated with \c type
+    using value_type = std::tuple<T>;
+
+    /// Apply a function to an argument list (expressed as a tuple)
+    /// and return the result, as a future (if it wasn't already).
+    template<typename Func, typename... FuncArgs>
+    static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept;
+
+    /// Invoke a function to an argument list
+    /// and return the result, as a future (if it wasn't already).
+    template<typename Func, typename... FuncArgs>
+    static inline type invoke(Func&& func, FuncArgs&&... args) noexcept;
+
+    /// Deprecated alias of invoke
+    template<typename Func, typename... FuncArgs>
+    [[deprecated("Use invoke for varargs")]]
+    static inline type apply(Func&& func, FuncArgs&&... args) noexcept;
+
+    /// Convert a value or a future to a future
+    static inline type convert(T&& value) { return make_ready_future<T>(std::move(value)); }
+    static inline type convert(type&& value) { return std::move(value); }
+
+    /// Convert the tuple representation into a future
+    static type from_tuple(value_type&& value);
+    /// Convert the tuple representation into a future
+    static type from_tuple(const value_type& value);
+
+    /// Makes an exceptional future of type \ref type.
+    template <typename Arg>
+    static type make_exception_future(Arg&& arg) noexcept;
+
+private:
+    /// Forwards the result of, or exception thrown by, func() to the
+    /// promise. This avoids creating a future if func() doesn't
+    /// return one.
+    template<typename Func>
+    SEASTAR_CONCEPT( requires std::invocable<Func> )
+    static void satisfy_with_result_of(internal::promise_base_with_type<T>&&, Func&& func);
+
+    template <typename... U>
+    friend class future;
+};
+
+/// \cond internal
+template <>
+struct futurize<void> {
+    using type = future<>;
+    using promise_type = promise<>;
+    using value_type = std::tuple<>;
+
+    template<typename Func, typename... FuncArgs>
+    static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept;
+
+    template<typename Func, typename... FuncArgs>
+    static inline type invoke(Func&& func, FuncArgs&&... args) noexcept;
+
+    template<typename Func, typename... FuncArgs>
+    [[deprecated("Use invoke for varargs")]]
+    static inline type apply(Func&& func, FuncArgs&&... args) noexcept;
+
+    static inline type from_tuple(value_type&& value);
+    static inline type from_tuple(const value_type& value);
+
+    template <typename Arg>
+    static type make_exception_future(Arg&& arg) noexcept;
+
+private:
+    template<typename Func>
+    SEASTAR_CONCEPT( requires std::invocable<Func> )
+    static void satisfy_with_result_of(internal::promise_base_with_type<>&&, Func&& func);
+
+    template <typename... U>
+    friend class future;
+};
+
+template <typename... Args>
+struct futurize<future<Args...>> {
+    using type = future<Args...>;
+    using promise_type = promise<Args...>;
+    using value_type = std::tuple<Args...>;
+
+    template<typename Func, typename... FuncArgs>
+    static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept;
+
+    template<typename Func, typename... FuncArgs>
+    static inline type invoke(Func&& func, FuncArgs&&... args) noexcept;
+
+    template<typename Func, typename... FuncArgs>
+    [[deprecated("Use invoke for varargs")]]
+    static inline type apply(Func&& func, FuncArgs&&... args) noexcept;
+
+    static inline type from_tuple(value_type&& value);
+    static inline type from_tuple(const value_type& value);
+
+    static inline type convert(Args&&... values) { return make_ready_future<Args...>(std::move(values)...); }
+    static inline type convert(type&& value) { return std::move(value); }
+
+    template <typename Arg>
+    static type make_exception_future(Arg&& arg) noexcept;
+
+private:
+    template<typename Func>
+    SEASTAR_CONCEPT( requires std::invocable<Func> )
+    static void satisfy_with_result_of(internal::promise_base_with_type<Args...>&&, Func&& func);
+
+    template <typename... U>
+    friend class future;
 };
 
 inline internal::promise_base::promise_base(future_base* future, future_state_base* state) noexcept
