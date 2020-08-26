@@ -111,17 +111,15 @@ std::ostream& operator<<(std::ostream& os, logger_ostream_type lot) {
     return os;
 }
 
-struct timestamp_tag {};
-
 static void print_no_timestamp(std::ostream& os) {
 }
 
-static void print_space_and_boot_timestamp(std::ostream& os) {
+static void print_boot_timestamp(std::ostream& os) {
     auto n = std::chrono::steady_clock::now().time_since_epoch() / 1us;
-    fmt::print(os, " {:10d}.{:06d}", n / 1000000, n % 1000000);
+    fmt::print(os, "{:10d}.{:06d}", n / 1000000, n % 1000000);
 }
 
-static void print_space_and_real_timestamp(std::ostream& os) {
+static void print_real_timestamp(std::ostream& os) {
     struct a_second {
         time_t t;
         std::string s;
@@ -135,19 +133,10 @@ static void print_space_and_real_timestamp(std::ostream& os) {
         this_second.t = t;
     }
     auto ms = (n - clock::from_time_t(t)) / 1ms;
-    fmt::print(os, " {},{:03d}", this_second.s, ms);
+    fmt::print(os, "{},{:03d}", this_second.s, ms);
 }
 
 static void (*print_timestamp)(std::ostream&) = print_no_timestamp;
-
-static inline timestamp_tag space_and_current_timestamp() {
-    return timestamp_tag{};
-}
-
-std::ostream& operator<<(std::ostream& os, timestamp_tag) {
-    print_timestamp(os);
-    return os;
-}
 
 const std::map<log_level, sstring> log_level_names = {
         { log_level::trace, "trace" },
@@ -194,7 +183,7 @@ logger::~logger() {
 }
 
 void
-logger::really_do_log(log_level level, const char* fmt, const stringer* stringers, size_t stringers_size) {
+logger::do_log(log_level level, const char* fmt, fmt::format_args args) {
     bool is_ostream_enabled = _ostream.load(std::memory_order_relaxed);
     bool is_syslog_enabled = _syslog.load(std::memory_order_relaxed);
     if(!is_ostream_enabled && !is_syslog_enabled) {
@@ -210,37 +199,16 @@ logger::really_do_log(log_level level, const char* fmt, const stringer* stringer
     };
     auto print_once = [&] (std::ostream& out) {
       if (local_engine) {
-        out << " [shard " << this_shard_id() << "] " << _name << " - ";
-      } else {
-        out << " " << _name << " - ";
+          fmt::print(out, " [shard {}]", this_shard_id());
       }
-      const char* p = fmt;
-      size_t n = stringers_size;
-      const stringer* s = stringers;
-      while (*p != '\0') {
-        if (*p == '{' && *(p+1) == '}') {
-            p += 2;
-            if (n > 0) {
-                try {
-                    s->append(out, s->object);
-                } catch (...) {
-                    out << '<' << std::current_exception() << '>';
-                }
-                ++s;
-                --n;
-            } else {
-                out << "???";
-            }
-        } else {
-            out << *p++;
-        }
-      }
-      out << "\n";
+      fmt::print(out, " {} - {}\n", _name, fmt::vformat(fmt, args));
     };
+
     if (is_ostream_enabled) {
-        out << level_map[int(level)] << space_and_current_timestamp();
+        fmt::print(out, "{} ", level_map[int(level)]);
+        print_timestamp(out);
         print_once(out);
-        *_out << out.str();
+        fmt::print(*_out, "{}", out.str());
     }
     if (is_syslog_enabled) {
         print_once(log);
@@ -265,7 +233,7 @@ logger::really_do_log(log_level level, const char* fmt, const stringer* stringer
 void logger::failed_to_log(std::exception_ptr ex) noexcept
 {
     try {
-        do_log(log_level::error, "failed to log message: {}", ex);
+        do_log(log_level::error, "failed to log message: {}", fmt::make_format_args(ex));
     } catch (...) {
         ++logging_failures;
     }
@@ -377,10 +345,10 @@ void apply_logging_settings(const logging_settings& s) {
         print_timestamp = print_no_timestamp;
         break;
     case logger_timestamp_style::boot:
-        print_timestamp = print_space_and_boot_timestamp;
+        print_timestamp = print_boot_timestamp;
         break;
     case logger_timestamp_style::real:
-        print_timestamp = print_space_and_real_timestamp;
+        print_timestamp = print_real_timestamp;
         break;
     default:
         break;

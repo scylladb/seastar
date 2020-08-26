@@ -27,6 +27,7 @@
 #include <atomic>
 #include <mutex>
 #include <boost/lexical_cast.hpp>
+#include <fmt/format.h>
 
 
 /// \addtogroup logging
@@ -81,22 +82,8 @@ class logger {
     static std::atomic<bool> _ostream;
     static std::atomic<bool> _syslog;
 private:
-    struct stringer {
-        void (*append)(std::ostream& os, const void* object);
-        const void* object;
-    };
-    template <typename Arg>
-    stringer stringer_for(const Arg& arg) {
-        return stringer{
-            [] (std::ostream& os, const void* object) {
-                os << *static_cast<const std::remove_reference_t<Arg>*>(object);
-            },
-            &arg
-        };
-    };
-    template <typename... Args>
-    void do_log(log_level level, const char* fmt, Args&&... args);
-    void really_do_log(log_level level, const char* fmt, const stringer* stringers, size_t n);
+
+    void do_log(log_level level, const char* fmt, fmt::format_args args);
     void failed_to_log(std::exception_ptr ex) noexcept;
 public:
     explicit logger(sstring name);
@@ -115,14 +102,14 @@ public:
 
     /// logs to desired level if enabled, otherwise we ignore the log line
     ///
-    /// \param fmt - printf style format
+    /// \param fmt - {fmt} style format
     /// \param args - args to print string
     ///
     template <typename... Args>
-    void log(log_level level, const char* fmt, const Args&... args) noexcept {
+    void log(log_level level, const char* fmt, Args&&... args) noexcept {
         if (is_enabled(level)) {
             try {
-                do_log(level, fmt, args...);
+                do_log(level, fmt, fmt::make_format_args(std::forward<Args>(args)...));
             } catch (...) {
                 failed_to_log(std::current_exception());
             }
@@ -132,7 +119,7 @@ public:
     /// Log with error tag:
     /// ERROR  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
     ///
-    /// \param fmt - printf style format
+    /// \param fmt - {fmt} style format
     /// \param args - args to print string
     ///
     template <typename... Args>
@@ -142,7 +129,7 @@ public:
     /// Log with warning tag:
     /// WARN  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
     ///
-    /// \param fmt - printf style format
+    /// \param fmt - {fmt} style format
     /// \param args - args to print string
     ///
     template <typename... Args>
@@ -152,7 +139,7 @@ public:
     /// Log with info tag:
     /// INFO  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
     ///
-    /// \param fmt - printf style format
+    /// \param fmt - {fmt} style format
     /// \param args - args to print string
     ///
     template <typename... Args>
@@ -162,7 +149,7 @@ public:
     /// Log with info tag on shard zero only:
     /// INFO  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
     ///
-    /// \param fmt - printf style format
+    /// \param fmt - {fmt} style format
     /// \param args - args to print string
     ///
     template <typename... Args>
@@ -174,7 +161,7 @@ public:
     /// Log with debug tag:
     /// DEBUG  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
     ///
-    /// \param fmt - printf style format
+    /// \param fmt - {fmt} style format
     /// \param args - args to print string
     ///
     template <typename... Args>
@@ -184,7 +171,7 @@ public:
     /// Log with trace tag:
     /// TRACE  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
     ///
-    /// \param fmt - printf style format
+    /// \param fmt - {fmt} style format
     /// \param args - args to print string
     ///
     template <typename... Args>
@@ -319,15 +306,6 @@ class logger_for : public logger {
 public:
     logger_for() : logger(pretty_type_name(typeid(T))) {}
 };
-
-template <typename... Args>
-void
-logger::do_log(log_level level, const char* fmt, Args&&... args) {
-    [&](auto... stringers) {
-        stringer s[sizeof...(stringers)] = {stringers...};
-        this->really_do_log(level, fmt, s, sizeof...(stringers));
-    } (stringer_for<Args>(std::forward<Args>(args))...);
-}
 
 /// \endcond
 } // end seastar namespace
