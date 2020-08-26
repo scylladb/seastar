@@ -372,7 +372,7 @@ struct rcv_reply_base  {
     template<typename... V>
     void set_value(V&&... v) {
         done = true;
-        p.set_value(std::forward<V>(v)...);
+        p.set_value(internal::untuple(std::forward<V>(v))...);
     }
     ~rcv_reply_base() {
         if (!done) {
@@ -500,8 +500,12 @@ inline future<> reply(wait_type, future<RetTypes...>&& ret, int64_t msg_id, shar
     if (!client->error()) {
         snd_buf data;
         try {
-            data = std::apply(marshall<Serializer, const RetTypes&...>,
-                    std::tuple_cat(std::make_tuple(std::ref(client->template serializer<Serializer>()), 12), std::move(ret.get())));
+            if constexpr (sizeof...(RetTypes) == 0) {
+                ret.get();
+                data = std::invoke(marshall<Serializer>, std::ref(client->template serializer<Serializer>()), 12);
+            } else {
+                data = std::invoke(marshall<Serializer, const RetTypes&...>, std::ref(client->template serializer<Serializer>()), 12, std::move(ret.get0()));
+            }
         } catch (std::exception& ex) {
             uint32_t len = std::strlen(ex.what());
             data = snd_buf(20 + len);
