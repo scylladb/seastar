@@ -1782,7 +1782,7 @@ struct futurize {
     /// The promise type associated with \c type.
     using promise_type = promise<T>;
     /// The value tuple type associated with \c type
-    using value_type = std::tuple<T>;
+    using value_type = typename type::value_type;
 
     /// Apply a function to an argument list (expressed as a tuple)
     /// and return the result, as a future (if it wasn't already).
@@ -1829,7 +1829,7 @@ template <>
 struct futurize<void> {
     using type = future<>;
     using promise_type = promise<>;
-    using value_type = std::tuple<>;
+    using value_type = typename type::value_type;
 
     template<typename Func, typename... FuncArgs>
     static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept;
@@ -1860,7 +1860,7 @@ template <typename... Args>
 struct futurize<future<Args...>> {
     using type = future<Args...>;
     using promise_type = promise<Args...>;
-    using value_type = std::tuple<Args...>;
+    using value_type = typename type::value_type;
 
     template<typename Func, typename... FuncArgs>
     static inline type apply(Func&& func, std::tuple<FuncArgs...>&& args) noexcept;
@@ -2089,40 +2089,40 @@ futurize<void>::make_exception_future(Arg&& arg) noexcept {
 template <typename T>
 inline
 future<T>
-futurize<T>::from_tuple(std::tuple<T>&& value) {
+futurize<T>::from_tuple(value_type&& value) {
     return make_ready_future<T>(std::move(value));
 }
 
 template <typename T>
 inline
 future<T>
-futurize<T>::from_tuple(const std::tuple<T>& value) {
+futurize<T>::from_tuple(const value_type& value) {
     return make_ready_future<T>(value);
 }
 
 inline
 future<>
-futurize<void>::from_tuple(std::tuple<>&& value) {
+futurize<void>::from_tuple(value_type&& value) {
     return make_ready_future<>();
 }
 
 inline
 future<>
-futurize<void>::from_tuple(const std::tuple<>& value) {
+futurize<void>::from_tuple(const value_type& value) {
     return make_ready_future<>();
 }
 
 template <typename... Args>
 inline
 future<Args...>
-futurize<future<Args...>>::from_tuple(std::tuple<Args...>&& value) {
+futurize<future<Args...>>::from_tuple(value_type&& value) {
     return make_ready_future<Args...>(std::move(value));
 }
 
 template <typename... Args>
 inline
 future<Args...>
-futurize<future<Args...>>::from_tuple(const std::tuple<Args...>& value) {
+futurize<future<Args...>>::from_tuple(const value_type& value) {
     return make_ready_future<Args...>(value);
 }
 
