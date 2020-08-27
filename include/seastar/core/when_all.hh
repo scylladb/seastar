@@ -463,7 +463,7 @@ struct extract_values_from_futures_vector {
                 if (f.failed()) {
                     excp = f.get_exception();
                 } else {
-                    values.emplace_back(untuple(f.get()));
+                    values.emplace_back(f.get0());
                 }
             } else {
                 f.ignore_ready_future();
