@@ -735,7 +735,7 @@ struct continuation final : continuation_base_with_promise<Promise, T...> {
         , _wrapper(std::move(wrapper)) {}
     virtual void run_and_dispose() noexcept override {
         try {
-            _wrapper(this->_pr, _func, std::move(this->_state));
+            _wrapper(std::move(this->_pr), _func, std::move(this->_state));
         } catch (...) {
             this->_pr.set_to_current_exception();
         }
@@ -1513,7 +1513,7 @@ private:
         using futurator = futurize<std::result_of_t<Func(T&&...)>>;
         typename futurator::type fut(future_for_get_promise_marker{});
         using pr_type = decltype(fut.get_promise());
-        schedule(fut.get_promise(), std::move(func), [](pr_type& pr, Func& func, future_state&& state) mutable {
+        schedule(fut.get_promise(), std::move(func), [](pr_type&& pr, Func& func, future_state&& state) {
             if (state.failed()) {
                 pr.set_exception(static_cast<future_state_base&&>(std::move(state)));
             } else {
@@ -1605,7 +1605,7 @@ private:
         using futurator = futurize<FuncResult>;
         typename futurator::type fut(future_for_get_promise_marker{});
         using pr_type = decltype(fut.get_promise());
-        schedule(fut.get_promise(), std::move(func), [](pr_type& pr, Func& func, future_state&& state) mutable {
+        schedule(fut.get_promise(), std::move(func), [](pr_type&& pr, Func& func, future_state&& state) {
             futurator::satisfy_with_result_of(std::move(pr), [&func, &state] {
                 return func(future(std::move(state)));
             });
