@@ -402,7 +402,7 @@ class extract_values_from_futures_tuple {
         auto prepare_result = [] (auto futures) noexcept {
             auto fs = tuple_filter_by_type<internal::future_has_value>(std::move(futures));
             return tuple_map(std::move(fs), [] (auto&& e) {
-                return internal::untuple(e.get());
+                return e.get0();
             });
         };
 
