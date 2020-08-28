@@ -354,6 +354,9 @@ seastar_add_test (program_options
 seastar_add_test (queue
   SOURCES queue_test.cc)
 
+seastar_add_test (request_parser
+  SOURCES request_parser_test.cc)
+
 seastar_add_test (rpc
   SOURCES
     loopback_socket.hh

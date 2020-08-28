@@ -60,11 +60,38 @@ action store_value {
     _value = str();
 }
 
+action no_mark_store_value {
+    _value = get_str();
+    g.mark_start(nullptr);
+}
+
+action checkpoint {
+    // Needs a start to be marked beforehand.
+    // Used to mark the candidate end of value string. Can be moved furhter by repetitive use
+    // of this action.
+    // To store the string that ends on the last checkpoint (instead of the last processed character)
+    // use %no_mark_store_value instead of %store_value
+    g.mark_end(p);
+    g.mark_start(p);
+}
+
 action assign_field {
-    _req->_headers[_field_name] = std::move(_value);
+    if (_req->_headers.count(_field_name)) {
+        // RFC 7230, section 3.2.2.  Field Parsing:
+        // A recipient MAY combine multiple header fields with the same field name into one
+        // "field-name: field-value" pair, without changing the semantics of the message,
+        // by appending each subsequent field value to the combined field value in order, separated by a comma.
+        _req->_headers[_field_name] += sstring(",") + std::move(_value);
+    } else {
+        _req->_headers[_field_name] = std::move(_value);
+    }
 }
 
 action extend_field  {
+    // RFC 7230, section 3.2.4.  Field Order:
+    // A server that receives an obs-fold in a request message that is not
+    // within a message/http container MUST either reject the message [...]
+    // or replace each received obs-fold with one or more SP octets [...]
     _req->_headers[_field_name] += sstring(" ") + std::move(_value);
 }
 
@@ -88,13 +115,17 @@ operation = op_char+ >mark %store_method;
 uri = (any - sp)+ >mark %store_uri;
 http_version = 'HTTP/' (digit '.' digit) >mark %store_version;
 
+obs_text = 0x80..0xFF; # defined in RFC 7230, Section 3.2.6.
+field_vchars = (graph | obs_text)+ %checkpoint;
+field_content = (field_vchars sp_ht*)*;
+
 field = tchar+ >mark %store_field_name;
-value = any* >mark %store_value;
+value = field_content >mark %no_mark_store_value;
 start_line = ((operation sp uri sp http_version) -- crlf) crlf;
-header_1st = (field sp_ht* ':' sp_ht* value :> crlf) %assign_field;
-header_cont = (sp_ht+ value sp_ht* crlf) %extend_field;
+header_1st = (field ':' sp_ht* value crlf) %assign_field;
+header_cont = (sp_ht+ value crlf) %extend_field;
 header = header_1st header_cont*;
-main := start_line header* :> (crlf @done);
+main := start_line header* (crlf @done);
 
 }%%
 
@@ -133,7 +164,13 @@ public:
 #pragma clang diagnostic pop
 #endif
         if (!done) {
-            p = nullptr;
+            if (p == eof) {
+                _state = state::eof;
+            } else if (p != pe) {
+                _state = state::error;
+            } else {
+                p = nullptr;
+            }
         } else {
             _state = state::done;
         }
@@ -144,6 +181,9 @@ public:
     }
     bool eof() const {
         return _state == state::eof;
+    }
+    bool failed() const {
+        return _state == state::error;
     }
 };
 
