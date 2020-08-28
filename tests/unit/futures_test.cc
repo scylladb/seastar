@@ -67,7 +67,7 @@ SEASTAR_TEST_CASE(test_self_move) {
     future_state<std::tuple<std::unique_ptr<int>>> s2;
     s2.set(std::make_unique<int>(42));
     std::swap(s2, s2);
-    BOOST_REQUIRE_EQUAL(*std::get<0>(std::move(s2).get()), 42);
+    BOOST_REQUIRE_EQUAL(*std::move(s2).get0(), 42);
 
     promise<std::unique_ptr<int>> p1;
     p1.set_value(std::make_unique<int>(42));

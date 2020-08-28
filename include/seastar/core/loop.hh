@@ -58,7 +58,7 @@ public:
             delete this;
             return;
         } else {
-            if (std::get<0>(_state.get()) == stop_iteration::yes) {
+            if (_state.get0() == stop_iteration::yes) {
                 _promise.set_value();
                 delete this;
                 return;
@@ -174,7 +174,7 @@ public:
             delete this;
             return;
         } else {
-            auto v = std::get<0>(std::move(this->_state).get());
+            auto v = std::move(this->_state).get0();
             if (v) {
                 _promise.set_value(std::move(*v));
                 delete this;

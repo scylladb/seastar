@@ -603,6 +603,10 @@ struct future_state :  public future_state_base, private internal::uninitialized
     static get0_return_type get0(T&& x) {
         return internal::get0_return_type<T>::get0(std::move(x));
     }
+
+    get0_return_type get0() {
+        return get0(std::move(*this).get());
+    }
 };
 
 template <typename... T>
