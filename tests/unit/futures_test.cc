@@ -924,8 +924,10 @@ SEASTAR_TEST_CASE(test_ignored_future_warning) {
 SEASTAR_TEST_CASE(test_futurize_from_tuple) {
     std::tuple<int> v1 = std::make_tuple(3);
     std::tuple<> v2 = {};
-    BOOST_REQUIRE(futurize<int>::from_tuple(v1).get() == v1);
-    BOOST_REQUIRE(futurize<void>::from_tuple(v2).get() == v2);
+    future<int> fut1 = futurize<int>::from_tuple(v1);
+    future<> fut2 = futurize<void>::from_tuple(v2);
+    BOOST_REQUIRE(fut1.get0() == std::get<0>(v1));
+    BOOST_REQUIRE(fut2.get() == v2);
     return make_ready_future<>();
 }
 

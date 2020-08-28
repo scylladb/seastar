@@ -130,7 +130,7 @@ void run_on(unsigned shard, Func func) {
 
 namespace internal {
 template<typename Func>
-using return_tuple_t = typename futurize_t<std::result_of_t<Func()>>::value_type;
+using return_tuple_t = typename futurize<std::result_of_t<Func()>>::tuple_type;
 
 template<typename Func,
          bool = std::is_empty<return_tuple_t<Func>>::value>

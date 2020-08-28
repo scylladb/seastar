@@ -444,7 +444,7 @@ public:
 
 template<typename Future>
 struct extract_values_from_futures_vector {
-    using value_type = decltype(untuple(std::declval<typename Future::value_type>()));
+    using value_type = decltype(untuple(std::declval<typename Future::tuple_type>()));
 
     using future_type = future<std::vector<value_type>>;
 
