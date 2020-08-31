@@ -501,7 +501,7 @@ public:
                     }
                 });
 
-                auto writer = seastar::async([&server, &write_func] {
+                auto server_setup = seastar::async([&server, &write_func] {
                     class test_handler : public handler_base {
                         size_t count = 0;
                         http_server& _server;
@@ -525,7 +525,7 @@ public:
                     server->_routes.put(GET, "/test", handler);
                     when_all(server->do_accepts(0), handler->wait_for_message()).get();
                 });
-                return when_all(std::move(client), std::move(writer));
+                return when_all(std::move(client), std::move(server_setup));
             }).discard_result().then_wrapped([&server] (auto f) {
                 f.ignore_ready_future();
                 return server->stop();
@@ -569,7 +569,7 @@ public:
                     }
                 });
 
-                auto writer = seastar::async([&server, tests] {
+                auto server_setup = seastar::async([&server, tests] {
                     class test_handler : public handler_base {
                         size_t count = 0;
                         http_server& _server;
@@ -595,7 +595,7 @@ public:
                     server->_routes.put(GET, "/test", handler);
                     when_all(server->do_accepts(0), handler->wait_for_message()).get();
                 });
-                return when_all(std::move(client), std::move(writer));
+                return when_all(std::move(client), std::move(server_setup));
             }).discard_result().then_wrapped([&server] (auto f) {
                 f.ignore_ready_future();
                 return server->stop();
@@ -721,6 +721,18 @@ SEASTAR_TEST_CASE(json_stream) {
     });
 }
 
+class json_test_handler : public handler_base {
+    std::function<future<>(output_stream<char> &&)> _write_func;
+public:
+    json_test_handler(std::function<future<>(output_stream<char> &&)>&& write_func) : _write_func(write_func) {
+    }
+    future<std::unique_ptr<reply>> handle(const sstring& path,
+            std::unique_ptr<request> req, std::unique_ptr<reply> rep) override {
+        rep->write_body("json", _write_func);
+        return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
+    }
+};
+
 SEASTAR_TEST_CASE(content_length_limit) {
     return seastar::async([] {
         loopback_connection_factory lcf;
@@ -754,25 +766,11 @@ SEASTAR_TEST_CASE(content_length_limit) {
             output.close().get();
         });
 
-        future<> writer = seastar::async([&server] {
-            class test_handler : public handler_base {
-                std::function<future<>(output_stream<char> &&)> _write_func;
-            public:
-                test_handler(http_server& server, std::function<future<>(output_stream<char> &&)>&& write_func) : _write_func(write_func) {
-                }
-                future<std::unique_ptr<reply>> handle(const sstring& path,
-                        std::unique_ptr<request> req, std::unique_ptr<reply> rep) override {
-                    rep->write_body("json", _write_func);
-                    return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
-                }
-            };
-            auto handler = new test_handler(server, json::stream_object("hello"));
-            server._routes.put(GET, "/test", handler);
-            server.do_accepts(0).get();
-        });
+        auto handler = new json_test_handler(json::stream_object("hello"));
+        server._routes.put(GET, "/test", handler);
+        server.do_accepts(0).get();
 
         client.get();
-        writer.get();
         server.stop().get();
     });
 }
@@ -823,25 +821,11 @@ SEASTAR_TEST_CASE(test_100_continue) {
             output.close().get();
         });
 
-        future<> writer = seastar::async([&server] {
-            class test_handler : public handler_base {
-                std::function<future<>(output_stream<char> &&)> _write_func;
-            public:
-                test_handler(http_server& server, std::function<future<>(output_stream<char> &&)>&& write_func) : _write_func(write_func) {
-                }
-                future<std::unique_ptr<reply>> handle(const sstring& path,
-                        std::unique_ptr<request> req, std::unique_ptr<reply> rep) override {
-                    rep->write_body("json", _write_func);
-                    return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
-                }
-            };
-            auto handler = new test_handler(server, json::stream_object("hello"));
-            server._routes.put(GET, "/test", handler);
-            server.do_accepts(0).get();
-        });
+        auto handler = new json_test_handler(json::stream_object("hello"));
+        server._routes.put(GET, "/test", handler);
+        server.do_accepts(0).get();
 
         client.get();
-        writer.get();
         server.stop().get();
     });
 }
