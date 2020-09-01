@@ -73,6 +73,10 @@ fair_queue_ticket::operator bool() const noexcept {
     return (_weight > 0) || (_size > 0);
 }
 
+bool fair_queue_ticket::operator==(const fair_queue_ticket& o) const noexcept {
+    return _weight == o._weight && _size == o._size;
+}
+
 std::ostream& operator<<(std::ostream& os, fair_queue_ticket t) {
     return os << t._weight << ":" << t._size;
 }

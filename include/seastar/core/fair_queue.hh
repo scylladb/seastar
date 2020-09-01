@@ -55,6 +55,9 @@ public:
     /// Decreases the quantity represented in this ticket by the amount represented by \c desc
     /// \param desc another \ref fair_queue_ticket whose \c weight \c and size will be decremented from this one
     fair_queue_ticket& operator-=(fair_queue_ticket desc) noexcept;
+    /// Checks if the tickets fully equals to another one
+    /// \param desc another \ref fair_queue_ticket to compare with
+    bool operator==(const fair_queue_ticket& desc) const noexcept;
 
     /// \returns true if this fair_queue_ticket is strictly less than \c rhs.
     ///
