@@ -109,6 +109,7 @@ public:
     static constexpr unsigned read_request_base_count = 128;
 
     struct config {
+        dev_t devid;
         shard_id coordinator;
         unsigned capacity = std::numeric_limits<unsigned>::max();
         unsigned max_req_count = std::numeric_limits<unsigned>::max();
@@ -152,6 +153,10 @@ public:
 
     shard_id coordinator() const {
         return _config.coordinator;
+    }
+
+    dev_t dev_id() const noexcept {
+        return _config.devid;
     }
 
     future<> update_shares_for_class(io_priority_class pc, size_t new_shares);
