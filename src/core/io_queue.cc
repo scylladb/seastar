@@ -27,6 +27,7 @@
 #include <seastar/core/metrics.hh>
 #include <seastar/core/linux-aio.hh>
 #include <seastar/core/internal/io_desc.hh>
+#include <seastar/util/log.hh>
 #include <chrono>
 #include <mutex>
 #include <array>
@@ -34,6 +35,8 @@
 #include <fmt/ostream.h>
 
 namespace seastar {
+
+logger io_log("io");
 
 using namespace std::chrono_literals;
 using namespace internal::linux_abi;
@@ -53,12 +56,14 @@ public:
     {}
 
     virtual void set_exception(std::exception_ptr eptr) noexcept override {
+        io_log.trace("dev {} : req {} error", _ioq_ptr->dev_id(), fmt::ptr(this));
         notify_requests_finished();
         _pr.set_exception(eptr);
         delete this;
     }
 
     virtual void complete(size_t res) noexcept override {
+        io_log.trace("dev {} : req {} complete", _ioq_ptr->dev_id(), fmt::ptr(this));
         notify_requests_finished();
         _pr.set_value(res);
         delete this;
@@ -274,6 +279,7 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
         fair_queue_ticket fq_ticket = request_fq_ticket(req, len);
         auto desc = std::make_unique<io_desc_read_write>(this, fq_ticket);
         auto fut = desc->get_future();
+        io_log.trace("dev {} : req {} queue  len {} ticket {}", _config.devid, fmt::ptr(&*desc), len, fq_ticket);
         _fq.queue(pclass.ptr, std::move(fq_ticket), [&pclass, start, req = std::move(req), d = std::move(desc), len, this] () mutable noexcept {
             _queued_requests--;
             _requests_executing++;
@@ -281,6 +287,7 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
             pclass.ops++;
             pclass.bytes += len;
             pclass.queue_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start);
+            io_log.trace("dev {} : req {} submit", _config.devid, fmt::ptr(&*d));
             engine().submit_io(d.release(), std::move(req));
         });
         pclass.nr_queued++;
