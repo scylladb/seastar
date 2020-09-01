@@ -3388,6 +3388,7 @@ smp::get_options_description()
         ("thread-affinity", bpo::value<bool>()->default_value(true), "pin threads to their cpus (disable for overprovisioning)")
 #ifdef SEASTAR_HAVE_HWLOC
         ("num-io-queues", bpo::value<unsigned>(), "Number of IO queues. Each IO unit will be responsible for a fraction of the IO requests. Defaults to the number of threads")
+        ("num-io-groups", bpo::value<unsigned>(), "Number of IO groups. Each IO group will be responsible for a fraction of the IO requests. Defaults to the number of NUMA nodes")
         ("max-io-requests", bpo::value<unsigned>(), "Maximum amount of concurrent requests to be sent to the disk. Defaults to 128 times the number of IO queues")
 #else
         ("max-io-requests", bpo::value<unsigned>(), "Maximum amount of concurrent requests to be sent to the disk. Defaults to 128 times the number of processors")
@@ -3561,7 +3562,7 @@ void smp::qs_deleter::operator()(smp_message_queue** qs) const {
 
 class disk_config_params {
 private:
-    unsigned _num_io_queues = 0;
+    unsigned _num_io_groups = 0;
     std::optional<unsigned> _capacity;
     std::unordered_map<dev_t, mountpoint_params> _mountpoints;
     std::chrono::duration<double> _latency_goal;
@@ -3571,7 +3572,7 @@ public:
         return std::max(qty / nr_groups, 1ul);
     }
 
-    unsigned num_io_queues() const noexcept { return _num_io_queues; }
+    unsigned num_io_groups() const noexcept { return _num_io_groups; }
 
     std::chrono::duration<double> latency_goal() const {
         return _latency_goal;
@@ -3586,9 +3587,15 @@ public:
             _capacity = configuration["max-io-requests"].as<unsigned>();
         }
 
-        if (configuration.count("num-io-queues")) {
-            _num_io_queues = configuration["num-io-queues"].as<unsigned>();
-            if (!_num_io_queues) {
+        if (configuration.count("num-io-groups")) {
+            _num_io_groups = configuration["num-io-groups"].as<unsigned>();
+            if (!_num_io_groups) {
+                throw std::runtime_error("num-io-groups must be greater than zero");
+            }
+        } else if (configuration.count("num-io-queues")) {
+            seastar_logger.warn("the --num-io-queues option is deprecated, switch to --num-io-groups instead");
+            _num_io_groups = configuration["num-io-queues"].as<unsigned>();
+            if (!_num_io_groups) {
                 throw std::runtime_error("num-io-queues must be greater than zero");
             }
         }
@@ -3849,7 +3856,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     for (auto& id : disk_config.device_ids()) {
         rc.devices.push_back(id);
     }
-    rc.num_io_queues = disk_config.num_io_queues();
+    rc.num_io_groups = disk_config.num_io_groups();
 
 #ifdef SEASTAR_HAVE_HWLOC
     if (configuration["allow-cpus-in-remote-numa-nodes"].as<bool>()) {

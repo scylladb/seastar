@@ -348,7 +348,7 @@ struct distribute_objects {
 
 static io_queue_topology
 allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unordered_map<unsigned, hwloc_obj_t>& cpu_to_node,
-        unsigned num_io_queues, unsigned& last_node_idx) {
+        unsigned num_io_groups, unsigned& last_node_idx) {
     auto node_of_shard = [&cpus, &cpu_to_node] (unsigned shard) {
         auto node = cpu_to_node.at(cpus[shard].cpu_id);
         return hwloc_bitmap_first(node->nodeset);
@@ -377,15 +377,15 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unord
     io_queue_topology ret;
     ret.shard_to_group.resize(cpus.size());
 
-    if (num_io_queues == 0) {
-        num_io_queues = numa_nodes.size();
-        assert(num_io_queues != 0);
-        seastar_logger.debug("Auto-configure {} IO groups", num_io_queues);
-    } else if (num_io_queues > cpus.size()) {
-        // User may be playing with --smp option, but num_io_queues was independently
+    if (num_io_groups == 0) {
+        num_io_groups = numa_nodes.size();
+        assert(num_io_groups != 0);
+        seastar_logger.debug("Auto-configure {} IO groups", num_io_groups);
+    } else if (num_io_groups > cpus.size()) {
+        // User may be playing with --smp option, but num_io_groups was independently
         // determined by iotune, so adjust for any conflicts.
-        fmt::print("Warning: number of IO queues ({:d}) greater than logical cores ({:d}). Adjusting downwards.\n", num_io_queues, cpus.size());
-        num_io_queues = cpus.size();
+        fmt::print("Warning: number of IO queues ({:d}) greater than logical cores ({:d}). Adjusting downwards.\n", num_io_groups, cpus.size());
+        num_io_groups = cpus.size();
     }
 
     auto find_shard = [&cpus] (unsigned cpu_id) {
@@ -399,7 +399,7 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unord
         assert(0);
     };
 
-    auto cpu_sets = distribute_objects(topology, num_io_queues);
+    auto cpu_sets = distribute_objects(topology, num_io_groups);
     ret.nr_queues = cpus.size();
     ret.nr_groups = 0;
 
@@ -595,7 +595,7 @@ resources allocate(configuration c) {
 
     unsigned last_node_idx = 0;
     for (auto devid : c.devices) {
-        ret.ioq_topology.emplace(devid, allocate_io_queues(topology, ret.cpus, cpu_to_node, c.num_io_queues, last_node_idx));
+        ret.ioq_topology.emplace(devid, allocate_io_queues(topology, ret.cpus, cpu_to_node, c.num_io_groups, last_node_idx));
     }
     return ret;
 }

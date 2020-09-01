@@ -51,7 +51,7 @@ struct configuration {
     optional<cpuset> cpu_set;
     bool assign_orphan_cpus = false;
     std::vector<dev_t> devices;
-    unsigned num_io_queues;
+    unsigned num_io_groups;
 };
 
 struct memory {
