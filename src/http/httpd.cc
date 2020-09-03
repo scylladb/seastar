@@ -226,6 +226,14 @@ future<> connection::read_one() {
         if (_server._credentials) {
             req->protocol_name = "https";
         }
+        if (_parser.failed()) {
+            if (req->_version.empty()) {
+                // we might have failed to parse even the version
+                req->_version = "1.1";
+            }
+            generate_error_reply_and_close(std::move(req), reply::status_type::bad_request, "Can't parse the request");
+            return make_ready_future<>();
+        }
 
         size_t content_length_limit = _server.get_content_length_limit();
         sstring length_header = req->get_header("Content-Length");
