@@ -200,34 +200,50 @@ SEASTAR_TEST_CASE(test_get_on_promise) {
     return make_ready_future();
 }
 
-static void check_finally_exception(const nested_exception& ex) {
-    BOOST_REQUIRE_EQUAL(ex.what(), "seastar::nested_exception");
+// An exception class with a controlled what() overload
+class test_exception : public std::exception {
+    sstring _what;
+public:
+    explicit test_exception(sstring what) : _what(std::move(what)) {}
+    virtual const char* what() const noexcept override {
+        return _what.c_str();
+    }
+};
+
+static void check_finally_exception(std::exception_ptr ex) {
+  BOOST_REQUIRE_EQUAL(fmt::format("{}", ex),
+        "seastar::nested_exception: test_exception (bar) (while cleaning up after test_exception (foo))");
+  try {
+      // convert to the concrete type nested_exception
+      std::rethrow_exception(ex);
+  } catch (seastar::nested_exception& ex) {
     try {
         std::rethrow_exception(ex.inner);
-    } catch (std::runtime_error& inner) {
+    } catch (test_exception& inner) {
         BOOST_REQUIRE_EQUAL(inner.what(), "bar");
     }
     try {
         ex.rethrow_nested();
-    } catch (std::runtime_error& outer) {
+    } catch (test_exception& outer) {
         BOOST_REQUIRE_EQUAL(outer.what(), "foo");
     }
+  }
 }
 
 SEASTAR_TEST_CASE(test_finally_exception) {
     return make_ready_future<>().then([] {
-        throw std::runtime_error("foo");
+        throw test_exception("foo");
     }).finally([] {
-        throw std::runtime_error("bar");
-    }).handle_exception_type(check_finally_exception);
+        throw test_exception("bar");
+    }).handle_exception(check_finally_exception);
 }
 
 SEASTAR_TEST_CASE(test_finally_exceptional_future) {
     return make_ready_future<>().then([] {
-        throw std::runtime_error("foo");
+        throw test_exception("foo");
     }).finally([] {
-       return make_exception_future<>(std::runtime_error("bar"));
-    }).handle_exception_type(check_finally_exception);
+       return make_exception_future<>(test_exception("bar"));
+    }).handle_exception(check_finally_exception);
 }
 
 SEASTAR_TEST_CASE(test_finally_waits_for_inner) {

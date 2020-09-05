@@ -32,6 +32,7 @@
 
 #include <seastar/core/array_map.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/future.hh>
 #include <seastar/core/print.hh>
 
 #include <boost/any.hpp>
@@ -471,6 +472,8 @@ std::ostream& operator<<(std::ostream& out, const std::exception_ptr& eptr) {
         // Print more information on some familiar exception types
         try {
             throw;
+        } catch (const seastar::nested_exception& ne) {
+            out << fmt::format(": {} (while cleaning up after {})", ne.inner, ne.outer);
         } catch(const std::system_error &e) {
             out << " (error " << e.code() << ", " << e.what() << ")";
         } catch(const std::exception& e) {
