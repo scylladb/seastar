@@ -26,6 +26,10 @@ namespace seastar {
 
 namespace rpc {
 
+sstring lz4_compressor::name() const {
+    return factory{}.supported();
+}
+
 const sstring& lz4_compressor::factory::supported() const {
     const static sstring name = "LZ4";
     return name;

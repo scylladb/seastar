@@ -37,6 +37,7 @@ public:
 public:
     virtual snd_buf compress(size_t head_space, snd_buf data) override;
     virtual rcv_buf decompress(rcv_buf data) override;
+    sstring name() const override;
 };
 
 }

@@ -530,6 +530,9 @@ namespace rpc {
               if (_options.compressor_factory) {
                   _compressor = _options.compressor_factory->negotiate(e.second, false);
               }
+              if (!_compressor) {
+                  throw std::runtime_error(format("RPC server responded with compression {} - unsupported", e.second));
+              }
               break;
           case protocol_features::TIMEOUT:
               _timeout_negotiated = true;
@@ -763,7 +766,9 @@ namespace rpc {
           case protocol_features::COMPRESS: {
               if (_server._options.compressor_factory) {
                   _compressor = _server._options.compressor_factory->negotiate(e.second, true);
-                  ret[protocol_features::COMPRESS] = _server._options.compressor_factory->supported();
+                  if (_compressor) {
+                       ret[protocol_features::COMPRESS] = _compressor->name();
+                  }
               }
           }
           break;

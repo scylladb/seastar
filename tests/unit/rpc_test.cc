@@ -275,10 +275,18 @@ struct cfactory : rpc::compressor::factory {
     const sstring& supported() const override {
         return name;
     }
+    class mylz4 : public rpc::lz4_compressor {
+        sstring _name;
+    public:
+        mylz4(const sstring& n) : _name(n) {}
+        sstring name() const override {
+            return _name;
+        }
+    };
     std::unique_ptr<rpc::compressor> negotiate(sstring feature, bool is_server) const override {
         if (feature == name) {
             use_compression++;
-            return std::make_unique<rpc::lz4_compressor>();
+            return std::make_unique<mylz4>(name);
         } else {
             return nullptr;
         }

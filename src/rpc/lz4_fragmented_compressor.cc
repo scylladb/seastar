@@ -27,6 +27,10 @@
 namespace seastar {
 namespace rpc {
 
+sstring lz4_fragmented_compressor::name() const {
+    return factory{}.supported();
+}
+
 const sstring& lz4_fragmented_compressor::factory::supported() const {
     const static sstring name = "LZ4_FRAGMENTED";
     return name;

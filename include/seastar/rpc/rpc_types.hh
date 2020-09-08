@@ -223,7 +223,8 @@ public:
     virtual snd_buf compress(size_t head_space, snd_buf data) = 0;
     // decompress data
     virtual rcv_buf decompress(rcv_buf data) = 0;
-
+    virtual sstring name() const = 0;
+    
     // factory to create compressor for a connection
     class factory {
     public:
