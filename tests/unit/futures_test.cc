@@ -1502,3 +1502,83 @@ SEASTAR_THREAD_TEST_CASE(test_with_gate) {
     BOOST_REQUIRE(gate_closed_errors);
     BOOST_REQUIRE(!other_errors);
 }
+
+SEASTAR_THREAD_TEST_CASE(test_max_concurrent_for_each) {
+    BOOST_TEST_MESSAGE("empty range");
+    max_concurrent_for_each(std::vector<int>(), 3, [] (int) {
+        BOOST_FAIL("should not reach");
+        return make_exception_future<>(std::bad_function_call());
+    }).get();
+
+    auto range = boost::copy_range<std::vector<int>>(boost::irange(1, 8));
+
+    BOOST_TEST_MESSAGE("iterator");
+    auto sum = 0;
+    max_concurrent_for_each(range.begin(), range.end(), 3,  [&sum] (int v) {
+        sum += v;
+        return make_ready_future<>();
+    }).get();
+    BOOST_REQUIRE_EQUAL(sum, 28);
+
+    BOOST_TEST_MESSAGE("const iterator");
+    sum = 0;
+    max_concurrent_for_each(range.cbegin(), range.cend(), 3,  [&sum] (int v) {
+        sum += v;
+        return make_ready_future<>();
+    }).get();
+    BOOST_REQUIRE_EQUAL(sum, 28);
+
+    BOOST_TEST_MESSAGE("reverse iterator");
+    sum = 0;
+    max_concurrent_for_each(range.rbegin(), range.rend(), 3,  [&sum] (int v) {
+        sum += v;
+        return make_ready_future<>();
+    }).get();
+    BOOST_REQUIRE_EQUAL(sum, 28);
+
+    BOOST_TEST_MESSAGE("immediate result");
+    sum = 0;
+    max_concurrent_for_each(range, 3,  [&sum] (int v) {
+        sum += v;
+        return make_ready_future<>();
+    }).get();
+    BOOST_REQUIRE_EQUAL(sum, 28);
+
+    BOOST_TEST_MESSAGE("suspend");
+    sum = 0;
+    max_concurrent_for_each(range, 3, [&sum] (int v) {
+        return later().then([&sum, v] {
+            sum += v;
+        });
+    }).get();
+    BOOST_REQUIRE_EQUAL(sum, 28);
+
+    BOOST_TEST_MESSAGE("throw immediately");
+    sum = 0;
+    BOOST_CHECK_EXCEPTION(max_concurrent_for_each(range, 3, [&sum] (int v) {
+        sum += v;
+        if (v == 1) {
+            throw 5;
+        }
+    }).get(), int, [] (int v) { return v == 5; });
+    BOOST_REQUIRE_EQUAL(sum, 28);
+
+    BOOST_TEST_MESSAGE("throw after suspension");
+    sum = 0;
+    BOOST_CHECK_EXCEPTION(max_concurrent_for_each(range, 3, [&sum] (int v) {
+        return later().then([&sum, v] {
+            sum += v;
+            if (v == 2) {
+                throw 5;
+            }
+        });
+    }).get(), int, [] (int v) { return v == 5; });
+
+    BOOST_TEST_MESSAGE("concurrency higher than vector length");
+    sum = 0;
+    max_concurrent_for_each(range, range.size() + 3,  [&sum] (int v) {
+        sum += v;
+        return make_ready_future<>();
+    }).get();
+    BOOST_REQUIRE_EQUAL(sum, 28);
+}

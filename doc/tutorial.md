@@ -839,10 +839,9 @@ seastar::future<> do_for_all(std::vector<int> numbers) {
     });
 }
 
-```
-
 ## parallel_for_each
 Parallel for each is a high concurrency variant of `do_for_each`. When using `parallel_for_each`, all iterations are queued simultaneously - which means that there's no guarantee in which order they finish their operations.
+
 ```cpp
 seastar::future<> flush_all_files(seastar::lw_shared_ptr<std::vector<seastar::file>> files) {
     return seastar::parallel_for_each(files, [] (seastar::file f) {
@@ -852,11 +851,31 @@ seastar::future<> flush_all_files(seastar::lw_shared_ptr<std::vector<seastar::fi
 }
 ```
 `parallel_for_each` is a powerful tool, as it allows spawning many tasks in parallel. It can be a great performance gain, but there are also caveats. First of all, too high concurrency may be troublesome - the details can be found in chapter **Limiting parallelism of loops**.
+
+To restrict the concurrency of `parallel_for_each` by an integer number, use `max_concurrent_for_each` that is described below.
+More details about dealing with parallelism can be found in chapter **Limiting parallelism of loops**.
+
 Secondly, take note that the order in which iterations will be executed within a `parallel_for_each` loop is arbitrary - if a strict ordering is needed, consider using `do_for_each` instead.
 
 TODO: map_reduce, as a shortcut (?) for parallel_for_each which needs to produce some results (e.g., logical_or of boolean results), so we don't need to create a lw_shared_ptr explicitly (or do_with).
 
 TODO: See seastar commit "input_stream: Fix possible infinite recursion in consume()" for an example on why recursion is a possible, but bad, replacement for repeat(). See also my comment on https://groups.google.com/d/msg/seastar-dev/CUkLVBwva3Y/3DKGw-9aAQAJ on why Seastar's iteration primitives should be used over tail call optimization.
+
+## max_concurrent_for_each
+Max concurrent for each is a variant of `parallel_for_each` with restricted parallelism.
+It accepts an additional parameter - `max_concurrent` - with which, up to `max_concurrent` iterations are queued simultaneously, with no guarantee in which order they finish their operations.
+
+```cpp
+seastar::future<> flush_all_files(seastar::lw_shared_ptr<std::vector<seastar::file>> files, size_t max_concurrent) {
+    return seastar::max_concurrent_for_each(files, max_concurrent, [] (seastar::file f) {
+        return f.flush();
+    });
+}
+```
+
+Determining the maximum concurrency limit is out of the scope of this document.
+It should typically be derived from the actual capabilities of the system the software is running on, like the number of parallel execution units or I/O channels, so to optimize utilization of resources without overwhelming the system.
+
 # when_all: Waiting for multiple futures
 Above we've seen `parallel_for_each()`, which starts a number of asynchronous operations, and then waits for all to complete. Seastar has another idiom, `when_all()`, for waiting for several already-existing futures to complete.
 

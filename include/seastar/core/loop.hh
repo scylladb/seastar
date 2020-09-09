@@ -29,6 +29,7 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/task.hh>
 #include <seastar/util/bool_class.hh>
+#include <seastar/core/semaphore.hh>
 
 namespace seastar {
 
@@ -602,6 +603,111 @@ future<>
 parallel_for_each(Range&& range, Func&& func) noexcept {
     auto impl = internal::parallel_for_each_impl<Range, Func>;
     return futurize_invoke(impl, std::forward<Range>(range), std::forward<Func>(func));
+}
+
+/// Run a maximum of \c max_concurrent tasks in parallel (iterator version).
+///
+/// Given a range [\c begin, \c end) of objects, run \c func on each \c *i in
+/// the range, and return a future<> that resolves when all the functions
+/// complete.  \c func should return a future<> that indicates when it is
+/// complete.  Up to \c max_concurrent invocations are performed in parallel.
+/// This does not allow the range to refer to stack objects. The caller
+/// must ensure that the range outlives the call to max_concurrent_for_each
+/// so it can be iterated in the background.
+///
+/// \param begin an \c InputIterator designating the beginning of the range
+/// \param end an \c InputIterator designating the end of the range
+/// \param max_concurrent maximum number of concurrent invocations of \c func, must be greater than zero.
+/// \param func Function to invoke with each element in the range (returning
+///             a \c future<>)
+/// \return a \c future<> that resolves when all the function invocations
+///         complete.  If one or more return an exception, the return value
+///         contains one of the exceptions.
+template <typename Iterator, typename Func>
+SEASTAR_CONCEPT( requires requires (Func f, Iterator i) { { f(*i++) } -> std::same_as<future<>>; } )
+inline
+future<>
+max_concurrent_for_each(Iterator begin, Iterator end, size_t max_concurrent, Func&& func) noexcept {
+    struct state {
+        Iterator begin;
+        Iterator end;
+        Func func;
+        size_t max_concurrent;
+        semaphore sem;
+        std::exception_ptr err;
+
+        state(Iterator begin_, Iterator end_, size_t max_concurrent_, Func func_)
+            : begin(std::move(begin_))
+            , end(std::move(end_))
+            , func(std::move(func_))
+            , max_concurrent(max_concurrent_)
+            , sem(max_concurrent_)
+            , err()
+        { }
+    };
+
+    assert(max_concurrent > 0);
+
+    try {
+        return do_with(state(std::move(begin), std::move(end), max_concurrent, std::forward<Func>(func)), [] (state& s) {
+            return do_until([&s] { return s.begin == s.end; }, [&s] {
+                return s.sem.wait().then([&s] () mutable noexcept {
+                    // Possibly run in background and signal _sem when the task is done.
+                    // The background tasks are waited on using _sem.
+                    (void)futurize_invoke(s.func, *s.begin++).then_wrapped([&s] (future<> fut) {
+                        if (fut.failed()) {
+                            auto e = fut.get_exception();;
+                            if (!s.err) {
+                                s.err = std::move(e);
+                            }
+                        }
+                        s.sem.signal();
+                    });
+                });
+            }).then([&s] {
+                // Wait for any background task to finish
+                // and signal and semaphore
+                return s.sem.wait(s.max_concurrent);
+            }).then([&s] {
+                if (!s.err) {
+                    return make_ready_future<>();
+                }
+                return seastar::make_exception_future<>(std::move(s.err));
+            });
+        });
+    } catch (...) {
+        return current_exception_as_future();
+    }
+}
+
+/// Run a maximum of \c max_concurrent tasks in parallel (range version).
+///
+/// Given a range [\c begin, \c end) of objects, run \c func on each \c *i in
+/// the range, and return a future<> that resolves when all the functions
+/// complete.  \c func should return a future<> that indicates when it is
+/// complete.  Up to \c max_concurrent invocations are performed in parallel.
+/// This does not allow the range to refer to stack objects. The caller
+/// must ensure that the range outlives the call to max_concurrent_for_each
+/// so it can be iterated in the background.
+///
+/// \param begin an \c InputIterator designating the beginning of the range
+/// \param end an \c InputIterator designating the end of the range
+/// \param max_concurrent maximum number of concurrent invocations of \c func, must be greater than zero.
+/// \param func Function to invoke with each element in the range (returning
+///             a \c future<>)
+/// \return a \c future<> that resolves when all the function invocations
+///         complete.  If one or more return an exception, the return value
+///         contains one of the exceptions.
+template <typename Range, typename Func>
+SEASTAR_CONCEPT( requires std::ranges::range<Range> && requires (Func f, Range r) { { f(*r.begin()) } -> std::same_as<future<>>; } )
+inline
+future<>
+max_concurrent_for_each(Range&& range, size_t max_concurrent, Func&& func) noexcept {
+    try {
+        return max_concurrent_for_each(std::begin(range), std::end(range), max_concurrent, std::forward<Func>(func));
+    } catch (...) {
+        return current_exception_as_future();
+    }
 }
 
 /// @}
