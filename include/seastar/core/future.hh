@@ -1168,7 +1168,7 @@ struct call_then_impl;
 template <typename... T>
 struct call_then_impl<future<T...>> {
     template <typename Func>
-    using result_type = futurize_t<std::result_of_t<Func (T&&...)>>;
+    using result_type = futurize_t<std::invoke_result_t<Func, T&&...>>;
 
     template <typename Func>
     using func_type = result_type<Func> (T&&...);
@@ -1185,7 +1185,7 @@ struct call_then_impl<future<T...>> {
 template <typename... T>
 struct call_then_impl<future<when_all_succeed_tuple<T...>>> {
     template <typename Func>
-    using result_type = futurize_t<std::result_of_t<Func (T&&...)>>;
+    using result_type = futurize_t<std::invoke_result_t<Func,  T&&...>>;
 
     template <typename Func>
     using func_type = result_type<Func> (T&&...);
@@ -1510,7 +1510,7 @@ private:
     // Keep this simple so that Named Return Value Optimization is used.
     template <typename Func, typename Result>
     Result then_impl_nrvo(Func&& func) noexcept {
-        using futurator = futurize<std::result_of_t<Func(T&&...)>>;
+        using futurator = futurize<std::invoke_result_t<Func, T&&...>>;
         typename futurator::type fut(future_for_get_promise_marker{});
         using pr_type = decltype(fut.get_promise());
         schedule(fut.get_promise(), std::move(func), [](pr_type&& pr, Func& func, future_state&& state) {
@@ -1529,11 +1529,11 @@ private:
         return fut;
     }
 
-    template <typename Func, typename Result = futurize_t<std::result_of_t<Func(T&&...)>>>
+    template <typename Func, typename Result = futurize_t<std::invoke_result_t<Func, T&&...>>>
     Result
     then_impl(Func&& func) noexcept {
 #ifndef SEASTAR_DEBUG
-        using futurator = futurize<std::result_of_t<Func(T&&...)>>;
+        using futurator = futurize<std::invoke_result_t<Func, T&&...>>;
         if (failed()) {
             return futurator::make_exception_future(static_cast<future_state_base&&>(get_available_state_ref()));
         } else if (available()) {
@@ -1563,14 +1563,14 @@ public:
     /// \param func - function to be called when the future becomes available,
     /// \return a \c future representing the return value of \c func, applied
     ///         to the eventual value of this future.
-    template <typename Func, typename FuncResult = std::result_of_t<Func(future)>>
+    template <typename Func, typename FuncResult = std::invoke_result_t<Func, future>>
     SEASTAR_CONCEPT( requires std::invocable<Func, future> )
     futurize_t<FuncResult>
     then_wrapped(Func&& func) & noexcept {
         return then_wrapped_maybe_erase<false, FuncResult>(std::forward<Func>(func));
     }
 
-    template <typename Func, typename FuncResult = std::result_of_t<Func(future&&)>>
+    template <typename Func, typename FuncResult = std::invoke_result_t<Func, future&&>>
     SEASTAR_CONCEPT( requires std::invocable<Func, future&&> )
     futurize_t<FuncResult>
     then_wrapped(Func&& func) && noexcept {
@@ -1684,7 +1684,7 @@ public:
     template <typename Func>
     SEASTAR_CONCEPT( requires std::invocable<Func> )
     future<T...> finally(Func&& func) noexcept {
-        return then_wrapped(finally_body<Func, is_future<std::result_of_t<Func()>>::value>(std::forward<Func>(func)));
+        return then_wrapped(finally_body<Func, is_future<std::invoke_result_t<Func>>::value>(std::forward<Func>(func)));
     }
 
 
@@ -2104,7 +2104,7 @@ internal::futurize_base<void>::make_exception_future(Arg&& arg) noexcept {
 
 template<typename Func, typename... Args>
 auto futurize_invoke(Func&& func, Args&&... args) noexcept {
-    using futurator = futurize<std::result_of_t<Func(Args&&...)>>;
+    using futurator = futurize<std::invoke_result_t<Func, Args&&...>>;
     return futurator::invoke(std::forward<Func>(func), std::forward<Args>(args)...);
 }
 
@@ -2116,7 +2116,7 @@ auto futurize_apply(Func&& func, Args&&... args) noexcept {
 
 template<typename Func, typename... Args>
 auto futurize_apply(Func&& func, std::tuple<Args...>&& args) noexcept {
-    using futurator = futurize<std::result_of_t<Func(Args&&...)>>;
+    using futurator = futurize<std::invoke_result_t<Func, Args&&...>>;
     return futurator::apply(std::forward<Func>(func), std::move(args));
 }
 
