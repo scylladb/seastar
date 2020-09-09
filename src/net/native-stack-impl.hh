@@ -90,6 +90,7 @@ class native_connected_socket_impl : public connected_socket_impl {
 public:
     explicit native_connected_socket_impl(lw_shared_ptr<typename Protocol::connection> conn)
         : _conn(std::move(conn)) {}
+    using connected_socket_impl::source;
     virtual data_source source() override;
     virtual data_sink sink() override;
     virtual void shutdown_input() override;
