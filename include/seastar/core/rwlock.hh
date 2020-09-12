@@ -31,7 +31,8 @@ template<typename Clock>
 class basic_rwlock;
 
 template<typename Clock = typename timer<>::clock>
-struct rwlock_for_read {
+class rwlock_for_read {
+public:
     future<> lock() {
         return static_cast<basic_rwlock<Clock>*>(this)->read_lock();
     }
@@ -42,7 +43,8 @@ struct rwlock_for_read {
 };
 
 template<typename Clock = typename timer<>::clock>
-struct rwlock_for_write {
+class rwlock_for_write {
+public:
     future<> lock() {
         return static_cast<basic_rwlock<Clock>*>(this)->write_lock();
     }
