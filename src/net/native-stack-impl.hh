@@ -101,8 +101,8 @@ public:
     bool get_keepalive() const override;
     void set_keepalive_parameters(const keepalive_params&) override;
     keepalive_params get_keepalive_parameters() const override;
-    int get_sockopt(int level, int optname, void* data, size_t len) const;
-    void set_sockopt(int level, int optname, const void* data, size_t len);
+    int get_sockopt(int level, int optname, void* data, size_t len) const override;
+    void set_sockopt(int level, int optname, const void* data, size_t len) override;
 };
 
 template <typename Protocol>
