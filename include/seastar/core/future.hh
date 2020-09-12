@@ -373,11 +373,17 @@ template <bool... v>
 struct all_true<true, v...> : public all_true<v...> {};
 
 template<typename T>
-static constexpr bool is_tuple_effectively_trivially_move_constructible_and_destructible;
+struct is_tuple_effectively_trivially_move_constructible_and_destructible_helper;
 
 template <typename... T>
-static constexpr bool is_tuple_effectively_trivially_move_constructible_and_destructible<std::tuple<T...>> =
-    all_true<is_trivially_move_constructible_and_destructible<T>::value...>::value;
+struct is_tuple_effectively_trivially_move_constructible_and_destructible_helper<std::tuple<T...>> {
+    static constexpr bool value = all_true<is_trivially_move_constructible_and_destructible<T>::value...>::value;
+};
+
+template <typename T>
+static constexpr bool is_tuple_effectively_trivially_move_constructible_and_destructible =
+    is_tuple_effectively_trivially_move_constructible_and_destructible_helper<T>::value;
+
 }
 
 //
