@@ -1918,7 +1918,7 @@ reactor::make_directory(std::string_view name, file_permissions permissions) noe
 future<>
 reactor::touch_directory(std::string_view name, file_permissions permissions) noexcept {
     // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([name, permissions, this] {
+    return futurize_invoke([name, permissions] {
         return engine()._thread_pool->submit<syscall_result<int>>([name = sstring(name), permissions] {
             auto mode = static_cast<mode_t>(permissions);
             return wrap_syscall<int>(::mkdir(name.c_str(), mode));

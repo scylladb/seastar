@@ -476,7 +476,7 @@ future<> http_server::do_accepts(int which) {
 }
 
 future<> http_server::do_accept_one(int which) {
-    return _listeners[which].accept().then([this, which] (accept_result ar) mutable {
+    return _listeners[which].accept().then([this] (accept_result ar) mutable {
         auto conn = std::make_unique<connection>(*this, std::move(ar.connection), std::move(ar.remote_address));
         (void)try_with_gate(_task_gate, [conn = std::move(conn)]() mutable {
             return conn->process().handle_exception([conn = std::move(conn)] (std::exception_ptr ex) {

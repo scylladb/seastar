@@ -782,7 +782,7 @@ SEASTAR_TEST_CASE(test_100_continue) {
         server.set_content_length_limit(11);
         loopback_socket_impl lsi(lcf);
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
-        future<> client = seastar::async([&lsi, &server] {
+        future<> client = seastar::async([&lsi] {
             connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
             input_stream<char> input(c_socket.input());
             output_stream<char> output(c_socket.output());
@@ -838,7 +838,7 @@ SEASTAR_TEST_CASE(test_unparsable_request) {
         http_server server("test");
         loopback_socket_impl lsi(lcf);
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
-        future<> client = seastar::async([&lsi, &server] {
+        future<> client = seastar::async([&lsi] {
             connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
             input_stream<char> input(c_socket.input());
             output_stream<char> output(c_socket.output());
