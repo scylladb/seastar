@@ -547,6 +547,8 @@ public:
     friend future<U...> current_exception_as_future() noexcept;
     template <typename... U>
     friend class future;
+    template <typename T>
+    friend struct futurize;
 };
 
 void report_failed_future(future_state_base::any&& state) noexcept;
