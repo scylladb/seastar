@@ -1529,6 +1529,9 @@ private:
 #if SEASTAR_API_LEVEL < 5
                     return std::apply(func, std::move(state).get_value());
 #else
+                    // clang thinks that "state" is not used, below, for future<>.
+                    // Make it think it is used to avoid an unused-lambda-capture warning.
+                    (void)state;
                     return std::invoke(func, static_cast<T&&>(std::move(state).get_value())...);
 #endif
                 });
