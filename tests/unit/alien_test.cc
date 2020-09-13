@@ -64,6 +64,10 @@ int main(int argc, char** argv)
                 return seastar::make_ready_future<int>(i);
             }));
         }
+        // std::future<void>
+        alien::submit_to(0, [] {
+            return seastar::make_ready_future<>();
+        }).wait();
         int total = 0;
         for (auto& count : counts) {
             total += count.get();
