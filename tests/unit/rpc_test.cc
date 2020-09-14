@@ -752,59 +752,85 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
     *snd.front().get_write() = 'a';
     inputs.emplace_back("one byte, 128k of headroom", 128 * 1024, std::move(snd));
 
-    auto buf = temporary_buffer<char>(16 * 1024);
-    std::fill_n(buf.get_write(), 16 * 1024, 'a');
+    auto gen_fill = [&](size_t s, sstring msg, std::optional<size_t> split = {}) {
+        auto buf = temporary_buffer<char>(s);
+        std::fill_n(buf.get_write(), s, 'a');
 
-    snd = snd_buf();
-    snd.size = 16 * 1024;
-    snd.bufs = buf.clone();
-    inputs.emplace_back("single 16 kB buffer of \'a\'", 0, std::move(snd));
+        auto snd = snd_buf();
+        snd.size = s;
+        if (split) {
+            snd.bufs = split_buffer(buf.clone(), *split);
+        } else {
+            snd.bufs = buf.clone();
+        }
+        inputs.emplace_back(msg, 0, std::move(snd));
+    };
 
-    buf = temporary_buffer<char>(16 * 1024);
-    std::generate_n(buf.get_write(), 16 * 1024, [&] { return dist(eng); });
+    gen_fill(16 * 1024, "single 16 kB buffer of \'a\'");
 
-    snd = snd_buf();
-    snd.size = 16 * 1024;
-    snd.bufs = buf.clone();
-    inputs.emplace_back("single 16 kB buffer of random", 0, std::move(snd));
+    auto gen_rand = [&](size_t s, sstring msg, std::optional<size_t> split = {}) {
+        auto buf = temporary_buffer<char>(s);
+        std::generate_n(buf.get_write(), s, [&] { return dist(eng); });
 
-    buf = temporary_buffer<char>(1 * 1024 * 1024);
-    std::fill_n(buf.get_write(), 1 * 1024 * 1024, 'a');
+        auto snd = snd_buf();
+        snd.size = s;
+        if (split) {
+            snd.bufs = split_buffer(buf.clone(), *split);
+        } else {
+            snd.bufs = buf.clone();
+        }
+        inputs.emplace_back(msg, 0, std::move(snd));
+    };
 
-    snd = snd_buf();
-    snd.size = 1 * 1024 * 1024;
-    snd.bufs = split_buffer(buf.clone(), 128 * 1024 - 128);
-    inputs.emplace_back("1 MB buffer of \'a\' split into 128 kB - 128", 0, std::move(snd));
+    gen_rand(16 * 1024, "single 16 kB buffer of random");
 
-    snd = snd_buf();
-    snd.size = 1 * 1024 * 1024;
-    snd.bufs = split_buffer(buf.clone(), 128 * 1024);
-    inputs.emplace_back("1 MB buffer of \'a\' split into 128 kB", 0, std::move(snd));
+    auto gen_text = [&](size_t s, sstring msg, std::optional<size_t> split = {}) {
+        static const std::string_view text = "The quick brown fox wants bananas for his long term health but sneaks bacon behind his wife's back. ";
 
-    buf = temporary_buffer<char>(1 * 1024 * 1024);
-    std::generate_n(buf.get_write(), 1 * 1024 * 1024, [&] { return dist(eng); });
+        auto buf = temporary_buffer<char>(s);
+        size_t n = 0;
+        while (n < s) {
+            auto rem = std::min(s - n, text.size());
+            std::copy(text.data(), text.data() + rem, buf.get_write() + n);
+            n += rem;
+        }
 
-    snd = snd_buf();
-    snd.size = 1 * 1024 * 1024;
-    snd.bufs = split_buffer(buf.clone(), 128 * 1024);
-    inputs.emplace_back("1 MB buffer of random split into 128 kB", 0, std::move(snd));
+        auto snd = snd_buf();
+        snd.size = s;
+        if (split) {
+            snd.bufs = split_buffer(buf.clone(), *split);
+        } else {
+            snd.bufs = buf.clone();
+        }
+        inputs.emplace_back(msg, 0, std::move(snd));
+    };
 
-    buf = temporary_buffer<char>(1 * 1024 * 1024 + 1);
-    std::fill_n(buf.get_write(), 1 * 1024 * 1024 + 1, 'a');
 
-    snd = snd_buf();
-    snd.size = 1 * 1024 * 1024 + 1;
-    snd.bufs = split_buffer(buf.clone(), 128 * 1024);
-    inputs.emplace_back("1 MB + 1B buffer of \'a\' split into 128 kB", 0, std::move(snd));
+    for (auto s : { 1, 4, 8 }) {
+        for (auto ss : { 32, 64, 128, 48, 56, 246, 511 }) {
+            gen_fill(s * 1024 * 1024, format("{} MB buffer of \'a\' split into {} kB - {}", s, ss, ss), ss * 1024 - ss);
+            gen_fill(s * 1024 * 1024, format("{} MB buffer of \'a\' split into {} kB", s, ss), ss * 1024);
+            gen_rand(s * 1024 * 1024, format("{} MB buffer of random split into {} kB", s, ss), ss * 1024);
 
-    buf = temporary_buffer<char>(1 * 1024 * 1024 + 1);
-    std::generate_n(buf.get_write(), 1 * 1024 * 1024 + 1, [&] { return dist(eng); });
+            gen_fill(s * 1024 * 1024 + 1, format("{} MB + 1B buffer of \'a\' split into {} kB", s, ss), ss * 1024);
+            gen_rand(s * 1024 * 1024 + 1, format("{} MB + 1B buffer of random split into {} kB", s, ss), ss * 1024);
+        }
 
-    snd = snd_buf();
-    snd.size = 1 * 1024 * 1024 + 1;
-    snd.bufs = split_buffer(buf.clone(), 128 * 1024);
-    inputs.emplace_back("16 MB + 1 B buffer of random split into 128 kB", 0, std::move(snd));
+        for (auto ss : { 128, 246, 511, 3567, 2*1024, 8*1024 }) {
+            gen_fill(s * 1024 * 1024, format("{} MB buffer of \'a\' split into {} B", s, ss), ss);
+            gen_rand(s * 1024 * 1024, format("{} MB buffer of random split into {} B", s, ss), ss);
+            gen_text(s * 1024 * 1024, format("{} MB buffer of text split into {} B", s, ss), ss);
+            gen_fill(s * 1024 * 1024 - ss, format("{} MB - {}B buffer of \'a\' split into {} B", s, ss, ss), ss);
+            gen_rand(s * 1024 * 1024 - ss, format("{} MB - {}B buffer of random split into {} B", s, ss, ss), ss);
+            gen_text(s * 1024 * 1024 - ss, format("{} MB - {}B buffer of random split into {} B", s, ss, ss), ss);
+        }
+    }
 
+    for (auto s : { 64*1024 + 5670, 16*1024 + 3421, 32*1024 - 321 }) {
+        gen_fill(s, format("{} bytes buffer of \'a\'", s));
+        gen_rand(s, format("{} bytes buffer of random", s));
+        gen_text(s, format("{} bytes buffer of text", s));
+    }
 
     std::vector<std::tuple<sstring, std::function<rcv_buf(snd_buf)>>> transforms {
         { "identity", [] (snd_buf snd) {
