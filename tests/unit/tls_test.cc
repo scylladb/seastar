@@ -389,7 +389,8 @@ static future<> run_echo_test(sstring message,
                 sstring client_crt = {},
                 sstring client_key = {},
                 bool do_read = true,
-                bool use_dh_params = true
+                bool use_dh_params = true,
+                tls::dn_callback distinguished_name_callback = {}
 )
 {
     static const auto port = 4711;
@@ -405,6 +406,9 @@ static future<> run_echo_test(sstring message,
 
     if (!client_crt.empty() && !client_key.empty()) {
         f = certs->set_x509_key_file(client_crt, client_key, tls::x509_crt_format::PEM);
+        if (distinguished_name_callback) {
+            certs->set_dn_verification_callback(std::move(distinguished_name_callback));
+        }
     }
 
     return f.then([=] {
@@ -551,6 +555,28 @@ SEASTAR_TEST_CASE(test_simple_x509_client_server_client_auth) {
     // server name
     // Server will require certificate auth. We supply one, so should succeed with connection
     return run_echo_test(message, 20, "tests/unit/catest.pem", "test.scylladb.org", "tests/unit/test.crt", "tests/unit/test.key", tls::client_auth::REQUIRE, "tests/unit/test.crt", "tests/unit/test.key");
+}
+
+SEASTAR_TEST_CASE(test_simple_x509_client_server_client_auth_with_dn_callback) {
+    // In addition to the above test, the certificate's subject and issuer
+    // Distinguished Names (DNs) will be checked for the occurrence of a specific
+    // substring (in this case, the test.scylladb.org url)
+    return run_echo_test(message, 20, "tests/unit/catest.pem", "test.scylladb.org", "tests/unit/test.crt", "tests/unit/test.key", tls::client_auth::REQUIRE, "tests/unit/test.crt", "tests/unit/test.key", true, true, [](tls::session_type t, sstring subject, sstring issuer) {
+        BOOST_REQUIRE(t == tls::session_type::CLIENT);
+        BOOST_REQUIRE(subject.find("test.scylladb.org") != sstring::npos);
+        BOOST_REQUIRE(issuer.find("test.scylladb.org") != sstring::npos);
+    });
+}
+
+SEASTAR_TEST_CASE(test_simple_x509_client_server_client_auth_dn_callback_fails) {
+    // Test throwing an exception from within the Distinguished Names callback
+    return run_echo_test(message, 20, "tests/unit/catest.pem", "test.scylladb.org", "tests/unit/test.crt", "tests/unit/test.key", tls::client_auth::REQUIRE, "tests/unit/test.crt", "tests/unit/test.key", true, true, [](tls::session_type, sstring, sstring) {
+        throw tls::verification_error("to test throwing from within the callback");
+    }).then([] {
+        BOOST_FAIL("Should have gotten a verification_error exception");
+    }).handle_exception([](auto) {
+        // ok.
+    });
 }
 
 SEASTAR_TEST_CASE(test_many_large_message_x509_client_server) {

@@ -144,6 +144,31 @@ static void gtls_chk(int res) {
     }
 }
 
+namespace {
+
+// helper for gnutls-functions for receiving a string
+// arguments
+//  func - the gnutls function that is returning a string (e.g. gnutls_x509_crt_get_issuer_dn)
+//  args - the arguments to func that come before the char array's ptr and size args
+// returns
+//  pair<int, string> - [gnutls error code, extracted string],
+//                      in case of no errors, the error code is zero
+static auto get_gtls_string = [](auto func, auto... args) noexcept {
+    size_t size = 0;
+    int ret = func(args..., nullptr, &size);
+
+    // by construction, we expect the SHORT_MEMORY_BUFFER error code here
+    if (ret != GNUTLS_E_SHORT_MEMORY_BUFFER) {
+        return std::make_pair(ret, sstring{});
+    }
+    assert(size != 0);
+    sstring res(sstring::initialized_later{}, size - 1);
+    ret = func(args..., res.data(), &size);
+    return std::make_pair(ret, res);
+};
+
+}
+
 class tls::dh_params::impl : gnutlsobj {
     static gnutls_sec_param_t to_gnutls_level(level l) {
         switch (l) {
@@ -363,6 +388,10 @@ public:
     gnutls_priority_t get_priority() const {
         return _priority.get();
     }
+
+    void set_dn_verification_callback(dn_callback cb) {
+        _dn_callback = std::move(cb);
+    }
 private:
     friend class credentials_builder;
     friend class session;
@@ -385,6 +414,7 @@ private:
     client_auth _client_auth = client_auth::NONE;
     bool _load_system_trust = false;
     semaphore _system_trust_sem {1};
+    dn_callback _dn_callback;
 };
 
 tls::certificate_credentials::certificate_credentials()
@@ -456,6 +486,10 @@ future<> tls::certificate_credentials::set_system_trust() {
 
 void tls::certificate_credentials::set_priority_string(const sstring& prio) {
     _impl->set_priority_string(prio);
+}
+
+void tls::certificate_credentials::set_dn_verification_callback(dn_callback cb) {
+    _impl->set_dn_verification_callback(std::move(cb));
 }
 
 tls::server_credentials::server_credentials()
@@ -1057,6 +1091,42 @@ public:
             throw verification_error(
                     cert_status_to_string(gnutls_certificate_type_get(*this),
                             status));
+        }
+        if (_creds->_dn_callback) {
+            // if the user registered a DN (Distinguished Name) callback
+            // then extract subject and issuer from the (leaf) peer certificate and invoke the callback
+
+            unsigned int list_size;
+            const gnutls_datum_t* client_cert_list = gnutls_certificate_get_peers(*this, &list_size);
+            assert(list_size > 0); // otherwise we couldn't have gotten here
+
+            gnutls_x509_crt_t peer_leaf_cert;
+            gtls_chk(gnutls_x509_crt_init(&peer_leaf_cert));
+            gtls_chk(gnutls_x509_crt_import(peer_leaf_cert, &(client_cert_list[0]), GNUTLS_X509_FMT_DER));
+
+            // we need get_string to be noexcept because we need to manually de-init peer_leaf_cert afterwards
+            auto [ec, subject] = get_gtls_string(gnutls_x509_crt_get_dn, peer_leaf_cert);
+            auto [ec2, issuer] = get_gtls_string(gnutls_x509_crt_get_issuer_dn, peer_leaf_cert);
+
+            gnutls_x509_crt_deinit(peer_leaf_cert);
+
+            if (ec || ec2) {
+                throw std::runtime_error("error while extracting certificate DN strings");
+            }
+
+            // a switch here might look overelaborate, however,
+            // the compiler will warn us if someone alters the definition of type
+            session_type t;
+            switch (_type) {
+            case type::CLIENT:
+                t = session_type::CLIENT;
+                break;
+            case type::SERVER:
+                t = session_type::SERVER;
+                break;
+            }
+
+            _creds->_dn_callback(t, std::move(subject), std::move(issuer));
         }
     }
 

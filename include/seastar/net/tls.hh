@@ -129,6 +129,24 @@ namespace tls {
     class reloadable_credentials;
 
     /**
+     * Enum like tls::session::type but independent of gnutls headers
+     *
+     * \warning Uses a different internal encoding than tls::session::type
+     */
+    enum class session_type {
+        CLIENT, SERVER,
+    };
+
+    /**
+     * Callback prototype for receiving Distinguished Name (DN) information
+     *
+     * \param type Our own role in the TLS handshake (client vs. server)
+     * \param subject The subject DN string
+     * \param issuer The issuer DN string
+     */
+    using dn_callback = noncopyable_function<void(session_type type, sstring subject, sstring issuer)>;
+
+    /**
      * Holds certificates and keys.
      *
      * Typically, credentials are shared for multiple client/server
@@ -168,6 +186,30 @@ namespace tls {
          * Allows specifying order and allowance for handshake alg.
          */
         void set_priority_string(const sstring&);
+
+        /**
+         * Register a callback for receiving Distinguished Name (DN) information
+         * during the TLS handshake, extracted from the certificate as sent by the peer.
+         *
+         * The callback is not invoked in case the peer did not send a certificate.
+         * (This could e.g. happen when we are the server, and a client connects while
+         * client_auth is not set to REQUIRE.)
+         *
+         * If, based upon the extracted DN information, you want to abort the handshake,
+         * then simply throw an exception (e.g., from the callback) like verification_error.
+         *
+         * Registering this callback does not bypass the 'standard' certificate verification
+         * procedure; instead it merely extracts the DN information from the peer certificate
+         * (i.e., the 'leaf' certificate from the chain of certificates sent by the peer)
+         * and allows for extra checks.
+         *
+         * To keep the API simple, you can unregister the callback by means of registering
+         * an empty callback, i.e. dn_callback{}
+         *
+         * The callback prototype is documented in the dn_callback typedef.
+         */
+        void set_dn_verification_callback(dn_callback);
+
     private:
         class impl;
         friend class session;
