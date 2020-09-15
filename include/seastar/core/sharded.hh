@@ -71,6 +71,7 @@ template<typename T>
 class async_sharded_service : public enable_shared_from_this<T> {
 protected:
     std::function<void()> _delete_cb;
+    async_sharded_service() noexcept = default;
     virtual ~async_sharded_service() {
         if (_delete_cb) {
             _delete_cb();
@@ -90,14 +91,14 @@ class peering_sharded_service {
     sharded<Service>* _container = nullptr;
 private:
     template <typename T> friend class sharded;
-    void set_container(sharded<Service>* container) { _container = container; }
+    void set_container(sharded<Service>* container) noexcept { _container = container; }
 public:
-    peering_sharded_service() = default;
-    peering_sharded_service(peering_sharded_service<Service>&&) = default;
+    peering_sharded_service() noexcept = default;
+    peering_sharded_service(peering_sharded_service<Service>&&) noexcept = default;
     peering_sharded_service(const peering_sharded_service<Service>&) = delete;
     peering_sharded_service& operator=(const peering_sharded_service<Service>&) = delete;
-    sharded<Service>& container() { return *_container; }
-    const sharded<Service>& container() const { return *_container; }
+    sharded<Service>& container() noexcept { return *_container; }
+    const sharded<Service>& container() const noexcept { return *_container; }
 };
 
 
@@ -128,7 +129,7 @@ class sharded {
 private:
     using invoke_on_all_func_type = std::function<future<> (Service&)>;
 private:
-    void service_deleted() {
+    void service_deleted() noexcept {
         _instances[this_shard_id()].freed.set_value();
     }
     template <typename U, bool async>
@@ -136,23 +137,23 @@ private:
 
     template <typename T>
     std::enable_if_t<std::is_base_of<peering_sharded_service<T>, T>::value>
-    set_container(T& service) {
+    set_container(T& service) noexcept {
         service.set_container(this);
     }
 
     template <typename T>
     std::enable_if_t<!std::is_base_of<peering_sharded_service<T>, T>::value>
-    set_container(T& service) {
+    set_container(T& service) noexcept {
     }
 public:
     /// Constructs an empty \c sharded object.  No instances of the service are
     /// created.
-    sharded() {}
+    sharded() noexcept {}
     sharded(const sharded& other) = delete;
     sharded& operator=(const sharded& other) = delete;
     /// Sharded object with T that inherits from peering_sharded_service
     /// cannot be moved safely, so disable move operations.
-    sharded(sharded&& other) noexcept = delete;
+    sharded(sharded&& other) = delete;
     sharded& operator=(sharded&& other) = delete;
     /// Destroyes a \c sharded object.  Must not be in a started state.
     ~sharded();
@@ -401,19 +402,19 @@ public:
     }
 
     /// Gets a reference to the local instance.
-    const Service& local() const;
+    const Service& local() const noexcept;
 
     /// Gets a reference to the local instance.
-    Service& local();
+    Service& local() noexcept;
 
     /// Gets a shared pointer to the local instance.
-    shared_ptr<Service> local_shared();
+    shared_ptr<Service> local_shared() noexcept;
 
     /// Checks whether the local instance has been initialized.
-    bool local_is_initialized() const;
+    bool local_is_initialized() const noexcept;
 
 private:
-    void track_deletion(shared_ptr<Service>& s, std::false_type) {
+    void track_deletion(shared_ptr<Service>& s, std::false_type) noexcept {
         // do not wait for instance to be deleted since it is not going to notify us
         service_deleted();
     }
@@ -707,25 +708,25 @@ sharded<Service>::invoke_on_others(smp_submit_to_options options, Func func, Arg
 }
 
 template <typename Service>
-const Service& sharded<Service>::local() const {
+const Service& sharded<Service>::local() const noexcept {
     assert(local_is_initialized());
     return *_instances[this_shard_id()].service;
 }
 
 template <typename Service>
-Service& sharded<Service>::local() {
+Service& sharded<Service>::local() noexcept {
     assert(local_is_initialized());
     return *_instances[this_shard_id()].service;
 }
 
 template <typename Service>
-shared_ptr<Service> sharded<Service>::local_shared() {
+shared_ptr<Service> sharded<Service>::local_shared() noexcept {
     assert(local_is_initialized());
     return _instances[this_shard_id()].service;
 }
 
 template <typename Service>
-inline bool sharded<Service>::local_is_initialized() const {
+inline bool sharded<Service>::local_is_initialized() const noexcept {
     return _instances.size() > this_shard_id() &&
            _instances[this_shard_id()].service;
 }
