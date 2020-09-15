@@ -149,6 +149,11 @@ private:
     std::enable_if_t<!std::is_base_of<peering_sharded_service<T>, T>::value>
     set_container(T& service) noexcept {
     }
+
+    future<>
+    sharded_parallel_for_each(internal::on_each_shard_func func) {
+        return internal::sharded_parallel_for_each(_instances.size(), std::move(func));
+    }
 public:
     /// Constructs an empty \c sharded object.  No instances of the service are
     /// created.
@@ -547,7 +552,7 @@ template <typename... Args>
 future<>
 sharded<Service>::start(Args&&... args) {
     _instances.resize(smp::count);
-    return internal::sharded_parallel_for_each(_instances.size(),
+    return sharded_parallel_for_each(
         [this, args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) mutable {
             return smp::submit_to(c, [this, args] () mutable {
                 _instances[this_shard_id()].service = std::apply([this] (Args... args) {
@@ -642,7 +647,7 @@ stop_sharded_instance(Service& instance) {
 template <typename Service>
 future<>
 sharded<Service>::stop() {
-    return internal::sharded_parallel_for_each(_instances.size(), [this] (unsigned c) mutable {
+    return sharded_parallel_for_each([this] (unsigned c) mutable {
         return smp::submit_to(c, [this] () mutable {
             auto inst = _instances[this_shard_id()].service;
             if (!inst) {
@@ -651,7 +656,7 @@ sharded<Service>::stop() {
             return internal::stop_sharded_instance(*inst);
         });
     }).then_wrapped([this] (future<> fut) {
-        return internal::sharded_parallel_for_each(_instances.size(), [this] (unsigned c) {
+        return sharded_parallel_for_each([this] (unsigned c) {
             return smp::submit_to(c, [this] {
                 if (_instances[this_shard_id()].service == nullptr) {
                     return make_ready_future<>();
@@ -670,7 +675,7 @@ sharded<Service>::stop() {
 template <typename Service>
 future<>
 sharded<Service>::invoke_on_all(smp_submit_to_options options, std::function<future<> (Service&)> func) {
-    return internal::sharded_parallel_for_each(_instances.size(), [this, options, func = std::move(func)] (unsigned c) {
+    return sharded_parallel_for_each([this, options, func = std::move(func)] (unsigned c) {
         return smp::submit_to(c, options, [this, func] {
             return func(*get_local_service());
         });
