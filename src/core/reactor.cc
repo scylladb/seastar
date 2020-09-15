@@ -3614,6 +3614,7 @@ public:
         uint64_t max_bandwidth = std::max(p.read_bytes_rate, p.write_bytes_rate);
         uint64_t max_iops = std::max(p.read_req_rate, p.write_req_rate);
 
+        cfg.devid = devid;
         cfg.disk_bytes_write_to_read_multiplier = io_queue::read_request_base_count;
         cfg.disk_req_write_to_read_multiplier = io_queue::read_request_base_count;
 
