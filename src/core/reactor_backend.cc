@@ -216,11 +216,9 @@ bool aio_storage_context::reap_completions()
         n = 0;
     }
     assert(n >= 0);
-    unsigned nr_retry = 0;
     for (size_t i = 0; i < size_t(n); ++i) {
         auto iocb = get_iocb(_ev_buffer[i]);
         if (_ev_buffer[i].res == -EAGAIN) {
-            ++nr_retry;
             set_nowait(*iocb, false);
             _pending_aio_retry.push_back(iocb);
             continue;
