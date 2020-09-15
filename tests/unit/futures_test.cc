@@ -1560,6 +1560,7 @@ SEASTAR_THREAD_TEST_CASE(test_max_concurrent_for_each) {
         if (v == 1) {
             throw 5;
         }
+        return make_ready_future<>();
     }).get(), int, [] (int v) { return v == 5; });
     BOOST_REQUIRE_EQUAL(sum, 28);
 
