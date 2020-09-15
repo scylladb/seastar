@@ -180,11 +180,11 @@ public:
     shared_future(future_type f)
         : _state(make_lw_shared<shared_state>(std::move(f))) { }
 
-    shared_future() = default;
-    shared_future(const shared_future&) = default;
-    shared_future& operator=(const shared_future&) = default;
-    shared_future(shared_future&&) = default;
-    shared_future& operator=(shared_future&&) = default;
+    shared_future() = default; // noexcept, based on the respective lw_shared_ptr constructor
+    shared_future(const shared_future&) = default; // noexcept, based on the respective lw_shared_ptr constructor
+    shared_future& operator=(const shared_future&) = default; // noexcept, based on respective constructor
+    shared_future(shared_future&&) = default; // noexcept, based on the respective lw_shared_ptr constructor
+    shared_future& operator=(shared_future&&) = default; // noexcept, based on the respective constructor
 
     /// \brief Creates a new \c future which will resolve with the result of this shared_future
     ///
@@ -241,8 +241,8 @@ private:
     static constexpr bool copy_noexcept = future_type::copy_noexcept;
 public:
     shared_promise(const shared_promise&) = delete;
-    shared_promise(shared_promise&&) = default;
-    shared_promise& operator=(shared_promise&&) = default;
+    shared_promise(shared_promise&&) = default; // noexcept, based on the respective promise and shared_future constructors
+    shared_promise& operator=(shared_promise&&) = default; // noexcept, based on the respective promise and shared_future constructors
     shared_promise() : _promise(), _shared_future(_promise.get_future()) {
     }
 
