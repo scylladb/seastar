@@ -90,7 +90,7 @@ private:
     size_t _size = 0;
 
     // Ensures that front() is not expired by dropping expired elements from the front.
-    void drop_expired_front() {
+    void drop_expired_front() noexcept {
         while (!_list.empty() && !_list.front().payload) {
             _list.pop_front();
         }
@@ -99,8 +99,8 @@ private:
         }
     }
 public:
-    expiring_fifo() = default;
-    expiring_fifo(OnExpiry on_expiry) : _on_expiry(std::move(on_expiry)) {}
+    expiring_fifo() noexcept = default;
+    expiring_fifo(OnExpiry on_expiry) noexcept(std::is_nothrow_move_constructible_v<OnExpiry>) : _on_expiry(std::move(on_expiry)) {}
 
     expiring_fifo(expiring_fifo&& o) noexcept
             : expiring_fifo(std::move(o._on_expiry)) {
@@ -121,18 +121,18 @@ public:
     /// \note Inside OnExpiry callback, the expired element is still contained.
     ///
     /// \return true if and only if there are any elements contained.
-    bool empty() const {
+    bool empty() const noexcept {
         return _size == 0;
     }
 
     /// Equivalent to !empty()
-    explicit operator bool() const {
+    explicit operator bool() const noexcept {
         return !empty();
     }
 
     /// Returns a reference to the element in the front.
     /// Valid only when !empty().
-    T& front() {
+    T& front() noexcept {
         if (_front) {
             return *_front->payload;
         }
@@ -141,7 +141,7 @@ public:
 
     /// Returns a reference to the element in the front.
     /// Valid only when !empty().
-    const T& front() const {
+    const T& front() const noexcept {
         if (_front) {
             return *_front->payload;
         }
@@ -151,7 +151,7 @@ public:
     /// Returns the number of elements contained.
     ///
     /// \note Expired elements are not contained. Expiring element is still contained when OnExpiry is called.
-    size_t size() const {
+    size_t size() const noexcept {
         return _size;
     }
 
@@ -203,7 +203,7 @@ public:
 
     /// Removes the element at the front.
     /// Can be called only if !empty().
-    void pop_front() {
+    void pop_front() noexcept {
         if (_front) {
             _front.reset();
         } else {
