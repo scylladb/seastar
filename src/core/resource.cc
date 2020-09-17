@@ -464,7 +464,9 @@ resources allocate(configuration c) {
     if (procs > available_procs) {
         throw std::runtime_error("insufficient processing units");
     }
-    auto mem_per_proc = align_down<size_t>(mem / procs, 2 << 20);
+    // limit memory address to fit in 36-bit, see core/memory.cc:Memory map
+    constexpr size_t max_mem_per_proc = 1UL << 36;
+    auto mem_per_proc = std::min(align_down<size_t>(mem / procs, 2 << 20), max_mem_per_proc);
 
     resources ret;
     std::unordered_map<hwloc_obj_t, size_t> topo_used_mem;
