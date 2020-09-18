@@ -23,6 +23,11 @@
 #include <seastar/core/byteorder.hh>
 
 #include <lz4.h>
+// LZ4_DECODER_RING_BUFFER_SIZE macro is introduced since v1.8.2
+// To work with previous lz4 release, copied the definition in lz4 here
+#ifndef LZ4_DECODER_RING_BUFFER_SIZE
+#define LZ4_DECODER_RING_BUFFER_SIZE(maxBlockSize) (65536 + 14 + (maxBlockSize))
+#endif
 
 namespace seastar {
 namespace rpc {
