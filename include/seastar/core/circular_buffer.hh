@@ -62,8 +62,16 @@ class circular_buffer {
         size_t begin = 0;
         size_t end = 0;
         size_t capacity = 0;
+
+        impl(Alloc a) noexcept : Alloc(std::move(a)) { }
+        void reset() {
+            storage = {};
+            begin = 0;
+            end = 0;
+            capacity = 0;
+        }
     };
-    static_assert(std::is_nothrow_default_constructible_v<impl>);
+    static_assert(std::is_nothrow_move_constructible_v<Alloc>);
     impl _impl;
 public:
     using value_type = T;
@@ -73,7 +81,7 @@ public:
     using const_reference = const T&;
     using const_pointer = const T*;
 public:
-    circular_buffer() noexcept = default;
+    circular_buffer(Alloc alloc = {}) noexcept;
     circular_buffer(circular_buffer&& X) noexcept;
     circular_buffer(const circular_buffer& X) = delete;
     ~circular_buffer();
@@ -254,9 +262,15 @@ circular_buffer<T, Alloc>::clear() {
 
 template <typename T, typename Alloc>
 inline
+circular_buffer<T, Alloc>::circular_buffer(Alloc alloc) noexcept
+    : _impl(std::move(alloc)) {
+}
+
+template <typename T, typename Alloc>
+inline
 circular_buffer<T, Alloc>::circular_buffer(circular_buffer&& x) noexcept
     : _impl(std::move(x._impl)) {
-    x._impl = {};
+    x._impl.reset();
 }
 
 template <typename T, typename Alloc>
