@@ -54,6 +54,10 @@ namespace internal {
 template <typename Func, typename... Param>
 auto unwrap_sharded_arg(sharded_parameter<Func, Param...> sp);
 
+using on_each_shard_func = std::function<future<> (unsigned shard)>;
+
+future<> sharded_parallel_for_each(unsigned nr_shards, on_each_shard_func on_each_shard);
+
 }
 
 /// \addtogroup smp-module
@@ -536,14 +540,6 @@ sharded_parameter<Func, Param...>::evaluate() const {
         return std::invoke(_func, internal::unwrap_sharded_arg(params)...);
     };
     return std::apply(unwrap_params_and_invoke, _params);
-}
-
-namespace internal {
-
-using on_each_shard_func = std::function<future<> (unsigned shard)>;
-
-future<> sharded_parallel_for_each(unsigned nr_shards, on_each_shard_func on_each_shard);
-
 }
 
 template <typename Service>
