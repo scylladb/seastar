@@ -56,7 +56,7 @@ auto unwrap_sharded_arg(sharded_parameter<Func, Param...> sp);
 
 using on_each_shard_func = std::function<future<> (unsigned shard)>;
 
-future<> sharded_parallel_for_each(unsigned nr_shards, on_each_shard_func on_each_shard);
+future<> sharded_parallel_for_each(unsigned nr_shards, on_each_shard_func on_each_shard) noexcept(std::is_nothrow_move_constructible_v<on_each_shard_func>);
 
 }
 
@@ -151,7 +151,7 @@ private:
     }
 
     future<>
-    sharded_parallel_for_each(internal::on_each_shard_func func) {
+    sharded_parallel_for_each(internal::on_each_shard_func func) noexcept(std::is_nothrow_move_constructible_v<internal::on_each_shard_func>) {
         return internal::sharded_parallel_for_each(_instances.size(), std::move(func));
     }
 public:
