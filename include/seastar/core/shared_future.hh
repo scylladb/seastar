@@ -142,7 +142,14 @@ private:
             }
         }
 
-        future_type get_future(time_point timeout = time_point::max()) {
+        future_type get_future(time_point timeout = time_point::max()) noexcept {
+            // Note that some functions called below may throw,
+            // like pushing to _peers or copying _original_future's ready value.
+            // We'd rather terminate than propagate these errors similar to
+            // .then()'s failure to allocate a continuation as the caller cannot
+            // distinguish between an error returned by the original future to
+            // failing to perform `get_future` itself.
+            memory::disable_failure_guard dfg;
             if (!_original_future.available()) {
                 promise_type p;
                 auto f = p.get_future();
@@ -157,11 +164,7 @@ private:
             } else if (_original_future.failed()) {
                 return future_type(exception_future_marker(), std::exception_ptr(_original_future._state.get_exception()));
             } else {
-                try {
                     return future_type(ready_future_marker(), _original_future._state.get_value());
-                } catch (...) {
-                    return future_type(exception_future_marker(), std::current_exception());
-                }
             }
         }
 
