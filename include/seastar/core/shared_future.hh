@@ -120,7 +120,7 @@ private:
                 _original_future.ignore_ready_future();
             }
         }
-        explicit shared_state(future_type f) : _original_future(std::move(f)) { }
+        explicit shared_state(future_type f) noexcept : _original_future(std::move(f)) { }
         void resolve(future_type&& f) noexcept {
             _original_future = std::move(f);
             auto& state = _original_future._state;
