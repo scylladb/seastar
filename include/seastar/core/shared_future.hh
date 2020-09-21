@@ -164,7 +164,7 @@ private:
             } else if (_original_future.failed()) {
                 return future_type(exception_future_marker(), std::exception_ptr(_original_future._state.get_exception()));
             } else {
-                    return future_type(ready_future_marker(), _original_future._state.get_value());
+                return future_type(ready_future_marker(), _original_future._state.get_value());
             }
         }
 
