@@ -195,7 +195,7 @@ public:
     /// if this shared_future doesn't resolve before timeout is reached.
     ///
     /// This object must be in a valid state.
-    future_type get_future(time_point timeout = time_point::max()) const {
+    future_type get_future(time_point timeout = time_point::max()) const noexcept {
         return _state->get_future(timeout);
     }
 
@@ -214,7 +214,7 @@ public:
     }
 
     /// \brief Equivalent to \ref get_future()
-    operator future_type() const {
+    operator future_type() const noexcept {
         return get_future();
     }
 
@@ -252,7 +252,7 @@ public:
     /// \brief Gets new future associated with this promise.
     /// If the promise is not resolved before timeout the returned future will resolve with \ref timed_out_error.
     /// This instance doesn't have to be kept alive until the returned future resolves.
-    future_type get_shared_future(time_point timeout = time_point::max()) const {
+    future_type get_shared_future(time_point timeout = time_point::max()) const noexcept {
         return _shared_future.get_future(timeout);
     }
 
