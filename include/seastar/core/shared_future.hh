@@ -216,7 +216,7 @@ public:
     }
 
     /// \brief Returns true if the instance is in valid state
-    bool valid() const {
+    bool valid() const noexcept {
         return bool(_state);
     }
 };
