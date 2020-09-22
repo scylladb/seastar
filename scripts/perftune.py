@@ -471,26 +471,30 @@ class NetPerfTuner(PerfTunerBase):
     def __init__(self, args):
         super().__init__(args)
 
+        self.nics=args.nics
+
         self.__nic_is_bond_iface = self.__check_dev_is_bond_iface()
         self.__slaves = self.__learn_slaves()
 
-        # check that self.nic is either a HW device or a bonding interface
-        self.__check_nic()
+        # check that self.nics contain a HW device or a bonding interface
+        self.__check_nics()
 
         self.__irqs2procline = get_irqs2procline_map()
         self.__nic2irqs = self.__learn_irqs()
+
 
 #### Public methods ############################
     def tune(self):
         """
         Tune the networking server configuration.
         """
-        if self.nic_is_hw_iface:
-            perftune_print("Setting a physical interface {}...".format(self.nic))
-            self.__setup_one_hw_iface(self.nic)
-        else:
-            perftune_print("Setting {} bonding interface...".format(self.nic))
-            self.__setup_bonding_iface()
+        for nic in self.nics:
+            if self.nic_is_hw_iface(nic):
+                perftune_print("Setting a physical interface {}...".format(nic))
+                self.__setup_one_hw_iface(nic)
+            else:
+                perftune_print("Setting {} bonding interface...".format(nic))
+                self.__setup_bonding_iface()
 
         # Increase the socket listen() backlog
         fwriteln_and_log('/proc/sys/net/core/somaxconn', '4096')
@@ -500,40 +504,39 @@ class NetPerfTuner(PerfTunerBase):
         fwriteln_and_log('/proc/sys/net/ipv4/tcp_max_syn_backlog', '4096')
 
     @property
-    def nic_is_bond_iface(self):
-        return self.__nic_is_bond_iface
+    def nic_is_bond_iface(self, nic):
+        return self.__nic_is_bond_iface[nic]
 
     @property
-    def nic(self):
-        return self.args.nic
+    def nic_exists(self, nic):
+        return self.__iface_exists(nic)
 
     @property
-    def nic_exists(self):
-        return self.__iface_exists(self.nic)
+    def nic_is_hw_iface(self, nic):
+        return self.__dev_is_hw_iface(nic)
 
     @property
-    def nic_is_hw_iface(self):
-        return self.__dev_is_hw_iface(self.nic)
-
-    @property
-    def slaves(self):
+    def slaves(self, nic):
         """
-        Returns an iterator for all slaves of the args.nic.
+        Returns an iterator for all slaves of the nic.
         If agrs.nic is not a bonding interface an attempt to use the returned iterator
         will immediately raise a StopIteration exception - use __dev_is_bond_iface() check to avoid this.
         """
-        return iter(self.__slaves)
+        return iter(self.__slaves[nic])
 
 #### Protected methods ##########################
     def _get_def_mode(self):
-        if self.nic_is_bond_iface:
-            return min(map(self.__get_hw_iface_def_mode, filter(self.__dev_is_hw_iface, self.slaves)))
-        else:
-            return self.__get_hw_iface_def_mode(self.nic)
+        mode=PerfTunerBase.SupportedModes.no_irq_restrictions
+        for nic in self.nics:
+            if self.nic_is_bond_iface(nic):
+                mode = min(mode, min(map(self.__get_hw_iface_def_mode(nic), filter(self.__dev_is_hw_iface(nic), self.slaves))))
+            else:
+                mode = min(mode, self.__get_hw_iface_def_mode(nic))
+        return mode
 
     def _get_irqs(self):
         """
-        Returns the iterator for all IRQs that are going to be configured (according to args.nic parameter).
+        Returns the iterator for all IRQs that are going to be configured (according to args.nics parameter).
         For instance, for a bonding interface that's going to include IRQs of all its slaves.
         """
         return itertools.chain.from_iterable(self.__nic2irqs.values())
@@ -543,14 +546,15 @@ class NetPerfTuner(PerfTunerBase):
     def __rfs_table_size(self):
         return 32768
 
-    def __check_nic(self):
+    def __check_nics(self):
         """
-        Checks that self.nic is a supported interface
+        Checks that self.nics are supported interfaces
         """
-        if not self.nic_exists:
-            raise Exception("Device {} does not exist".format(self.nic))
-        if not self.nic_is_hw_iface and not self.nic_is_bond_iface:
-            raise Exception("Not supported virtual device {}".format(self.nic))
+        for nic in self.nics:
+            if not self.nic_exists(nic):
+                raise Exception("Device {} does not exist".format(nic))
+            if not self.nic_is_hw_iface(nic) and not self.nic_is_bond_iface(nic):
+                raise Exception("Not supported virtual device {}".format(nic))
 
     def __get_irqs_one(self, iface):
         """
@@ -612,16 +616,23 @@ class NetPerfTuner(PerfTunerBase):
         return os.path.exists("/sys/class/net/{}/device".format(iface))
 
     def __check_dev_is_bond_iface(self):
+        bond_dict = {}
         if not os.path.exists('/sys/class/net/bonding_masters'):
-            return False
-
-        return any([re.search(self.nic, line) for line in open('/sys/class/net/bonding_masters', 'r').readlines()])
+            for nic in self.nics:
+                bond_dict[nic] = False
+            #return False for every nic
+            return bond_dict
+        for nic in self.nics:
+            bond_dict[nic] = any([re.search(nic, line) for line in open('/sys/class/net/bonding_masters', 'r').readlines()])
+        return bond_dict
 
     def __learn_slaves(self):
-        if self.nic_is_bond_iface:
-            return list(itertools.chain.from_iterable([ line.split() for line in open("/sys/class/net/{}/bonding/slaves".format(self.nic), 'r').readlines() ]))
+        slaves_list_per_nic = {}
+        for nic in self.nics:
+            if self.nic_is_bond_iface(nic):
+                slaves_list_per_nic[nic] = list(itertools.chain.from_iterable([line.split() for line in open("/sys/class/net/{}/bonding/slaves".format(nic), 'r').readlines()]))
 
-        return []
+        return slaves_list_per_nic
 
     def __intel_irq_to_queue_idx(self, irq):
         """
@@ -738,10 +749,14 @@ class NetPerfTuner(PerfTunerBase):
         This is a slow method that is going to read from the system files. Never
         use it outside the initialization code.
         """
-        if self.nic_is_bond_iface:
-            return { slave : self.__learn_irqs_one(slave) for slave in filter(self.__dev_is_hw_iface, self.slaves) }
-        else:
-            return { self.nic : self.__learn_irqs_one(self.nic) }
+        nic_irq_dict={}
+        for nic in self.nics:
+            if self.nic_is_bond_iface(nic):
+                for slave in filter(self.__dev_is_hw_iface, self.slaves(nic)):
+                    nic_irq_dict[slave] = self.__learn_irqs_one(slave)
+            else:
+                nic_irq_dict[nic] = self.__learn_irqs_one(nic)
+        return nic_irq_dict
 
     def __get_rps_cpus(self, iface):
         """
@@ -1266,12 +1281,12 @@ Modes description:
 
 Default values:
 
- --nic NIC       - default: eth0
+ --nic NIC       - default: eth0 (you can specify multiple nics)
  --cpu-mask MASK - default: all available cores mask
  --tune-clock    - default: false
 ''')
 argp.add_argument('--mode', choices=PerfTunerBase.SupportedModes.names(), help='configuration mode')
-argp.add_argument('--nic', help='network interface name, by default uses \'eth0\'')
+argp.add_argument('--nic', action='append', help='network interface name(s), by default uses \'eth0\'', dest='nics', default=[])
 argp.add_argument('--tune-clock', action='store_true', help='Force tuning of the system clocksource')
 argp.add_argument('--get-cpu-mask', action='store_true', help="print the CPU mask to be used for compute")
 argp.add_argument('--get-cpu-mask-quiet', action='store_true', help="print the CPU mask to be used for compute, print the zero CPU set if that's what it turns out to be")
@@ -1310,6 +1325,9 @@ def parse_options_file(prog_args):
     if 'nic' in y and not prog_args.nic:
         prog_args.nic = y['nic']
 
+    if 'nics' in y and not prog_args.nics:
+        prog_args.nics.extend(y['nics'])
+
     if 'tune_clock' in y and not prog_args.tune_clock:
         prog_args.tune_clock= y['tune_clock']
 
@@ -1338,7 +1356,7 @@ def dump_config(prog_args):
         prog_options['mode'] = prog_args.mode
 
     if prog_args.nic:
-        prog_options['nic'] = prog_args.nic
+        prog_options['nic'] = prog_args.nics
 
     if prog_args.tune_clock:
         prog_options['tune_clock'] = prog_args.tune_clock
@@ -1374,8 +1392,8 @@ if args.mode and args.irq_cpu_mask:
     sys.exit("ERROR: Provide either tune mode or IRQs CPU mask - not both.")
 
 # set default values #####################
-if not args.nic:
-    args.nic = 'eth0'
+if not args.nics:
+    args.nics = ['eth0']
 
 if not args.cpu_mask:
     args.cpu_mask = run_hwloc_calc(['all'])
