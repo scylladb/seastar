@@ -361,7 +361,6 @@ private:
     bool do_expire_lowres_timers();
     bool do_check_lowres_timers() const;
     void expire_manual_timers();
-    void abort_on_error(int ret);
     void start_aio_eventfd_loop();
     void stop_aio_eventfd_loop();
     template <typename T, typename E, typename EnableFunc>
