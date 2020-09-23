@@ -1223,18 +1223,18 @@ concept CanInvokeWhenAllSucceed = requires {
 };
 )
 
-template <typename Func>
+template <typename Func, typename... T>
 struct result_of_apply {
     // no "type" member if not a function call signature or not a tuple
 };
 
 template <typename Func, typename... T>
-struct result_of_apply<Func (std::tuple<T...>)> : std::result_of<Func (T...)> {
-    // Let std::result_of determine the result if the input is a tuple
+struct result_of_apply<Func, std::tuple<T...>> : std::invoke_result<Func, T...> {
+    // Let std::invoke_result_t determine the result if the input is a tuple
 };
 
-template <typename Func>
-using result_of_apply_t = typename result_of_apply<Func>::type;
+template <typename Func, typename... T>
+using result_of_apply_t = typename result_of_apply<Func, T...>::type;
 
 }
 
@@ -1503,7 +1503,7 @@ public:
     ///               unless it has failed.
     /// \return a \c future representing the return value of \c func, applied
     ///         to the eventual value of this future.
-    template <typename Func, typename Result = futurize_t<internal::result_of_apply_t<Func (T...)>>>
+    template <typename Func, typename Result = futurize_t<internal::result_of_apply_t<Func, T...>>>
     SEASTAR_CONCEPT( requires (sizeof...(T) == 1) && ::seastar::CanApplyTuple<Func, T...>)
     Result
     then_unpack(Func&& func) noexcept {
