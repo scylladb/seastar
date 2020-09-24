@@ -1806,8 +1806,11 @@ In the current implementation, both `make_exception_future_with_backtrace` and `
 
 
 ## Debugging with gdb
+
+```
 handle SIGUSR1 pass noprint
 handle SIGALRM pass noprint
+```
 
 # Promise objects
 
