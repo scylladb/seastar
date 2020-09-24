@@ -46,4 +46,11 @@ void set_abort_on_internal_error(bool do_abort);
 /// caller wishes to have one attached they have to do it themselves.
 [[noreturn]] void on_internal_error(logger& logger, std::exception_ptr ex);
 
+/// Report an internal error in a noexcept context
+///
+/// The error will be logged to \logger and if set_abort_on_internal_error,
+/// was set to true, the program will be aborted. This overload can be used
+/// in noexcept contexts like destructors or noexcept functions.
+void on_internal_error_noexcept(logger& logger, std::string_view reason) noexcept;
+
 }

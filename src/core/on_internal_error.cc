@@ -50,3 +50,10 @@ void seastar::on_internal_error(logger& logger, std::exception_ptr ex) {
         std::rethrow_exception(std::move(ex));
     }
 }
+
+void seastar::on_internal_error_noexcept(logger& logger, std::string_view msg) noexcept {
+    logger.error("{}, at: {}", msg, current_backtrace());
+    if (abort_on_internal_error.load()) {
+        abort();
+    }
+}
