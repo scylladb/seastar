@@ -348,7 +348,7 @@ public:
     /// Releases ownership of the units. The semaphore will not be signalled.
     ///
     /// \return the number of units held
-    size_t release() {
+    size_t release() noexcept {
         return std::exchange(_n, 0);
     }
     /// Splits this instance into a \ref semaphore_units object holding the specified amount of units.
