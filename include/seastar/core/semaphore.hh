@@ -341,8 +341,28 @@ public:
     }
     semaphore_units(const semaphore_units&) = delete;
     ~semaphore_units() noexcept {
+        return_all();
+    }
+    /// Return ownership of some units to the semaphore. The semaphore will be signaled by the number of units returned.
+    ///
+    /// \param units number of units to subtract.
+    ///
+    /// \note throws exception if \c units is more than those protected by the semaphore
+    ///
+    /// \return the number of remaining units
+    size_t return_units(size_t units) {
+        if (units > _n) {
+            throw std::invalid_argument("Cannot take more units than those protected by the semaphore");
+        }
+        _n -= units;
+        _sem->signal(units);
+        return _n;
+    }
+    /// Return ownership of all units. The semaphore will be signaled by the number of units returned.
+    void return_all() noexcept {
         if (_n) {
             _sem->signal(_n);
+            _n = 0;
         }
     }
     /// Releases ownership of the units. The semaphore will not be signalled.
