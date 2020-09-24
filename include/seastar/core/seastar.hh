@@ -27,7 +27,7 @@
 /// Seastar is a high performance C++ application framework for high
 /// concurrency server applications.
 ///
-/// A good place to start is the [Tutorial](tutorial.html).
+/// A good place to start is the [Tutorial](../tutorial.html).
 ///
 /// Please see:
 ///   - \ref future-module Documentation on futures and promises, which are
