@@ -33,11 +33,11 @@ namespace seastar {
 
 namespace internal {
 
-template <typename... T>
+template <typename T = void>
 class coroutine_traits_base {
 public:
     class promise_type final : public seastar::task {
-        seastar::promise<T...> _promise;
+        seastar::promise<T> _promise;
     public:
         promise_type() = default;
         promise_type(promise_type&&) = delete;
@@ -48,7 +48,7 @@ public:
             _promise.set_value(std::forward<U>(value)...);
         }
 
-        void return_value(future<T...>&& fut) noexcept {
+        void return_value(future<T>&& fut) noexcept {
             fut.forward_to(std::move(_promise));
         }
 
@@ -56,7 +56,7 @@ public:
             _promise.set_exception(std::current_exception());
         }
 
-        seastar::future<T...> get_return_object() noexcept {
+        seastar::future<T> get_return_object() noexcept {
             return _promise.get_future();
         }
 

@@ -32,7 +32,13 @@ namespace seastar {
 
 constexpr unsigned max_scheduling_groups() { return 16; }
 
-template <typename... T>
+#if SEASTAR_API_LEVEL < 6
+#define SEASTAR_ELLIPSIS ...
+template <typename SEASTAR_ELLIPSIS T>
+#else
+#define SEASTAR_ELLIPSIS
+template <typename T = void>
+#endif
 class future;
 
 class reactor;

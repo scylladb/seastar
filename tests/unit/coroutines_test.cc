@@ -51,7 +51,7 @@ future<int> ready_coroutine() {
     co_return 64;
 }
 
-future<int, double> tuple_coroutine() {
+future<std::tuple<int, double>> tuple_coroutine() {
     co_return std::tuple(1, 2.);
 }
 

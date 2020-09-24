@@ -71,6 +71,7 @@ versions of the API. For example.
    - Seastar_API_LEVEL=2 selects a new version of the
      server_socket::accept() API that returns a non-variadic
      future
+   - Seastar_API_LEVEL=6 makes futures non-variadic
 
 Applications can use an old API_LEVEL during a transition
 period, fix their code, and move to the new API_LEVEL.
