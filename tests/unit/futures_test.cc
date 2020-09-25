@@ -127,7 +127,8 @@ SEASTAR_TEST_CASE(test_stream_drop_sub) {
 
 SEASTAR_TEST_CASE(test_reference) {
     int a = 42;
-    future<int&> fut = make_ready_future<int&>(a);
+    future<int&> orig = make_ready_future<int&>(a);
+    future<int&> fut = std::move(orig);
     int& r = fut.get0();
     r = 43;
     BOOST_REQUIRE_EQUAL(a, 43);

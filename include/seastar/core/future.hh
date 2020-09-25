@@ -277,6 +277,9 @@ struct get0_return_type<std::tuple<T0, T...>> {
     static type get0(std::tuple<T0, T...> v) { return std::get<0>(std::move(v)); }
 };
 
+template<typename T>
+using maybe_wrap_ref = std::conditional_t<std::is_reference_v<T>, std::reference_wrapper<std::remove_reference_t<T>>, T>;
+
 /// \brief Wrapper for keeping uninitialized values of non default constructible types.
 ///
 /// This is similar to a std::optional<T>, but it doesn't know if it is holding a value or not, so the user is
@@ -294,9 +297,7 @@ struct uninitialized_wrapper_base<T, false> {
         any() noexcept {}
         ~any() {}
         // T can be a reference, so wrap it.
-        struct wrap {
-            T value;
-        } w;
+        maybe_wrap_ref<T> value;
     } _v;
 
 public:
@@ -304,7 +305,7 @@ public:
     template<typename... U>
     std::enable_if_t<!std::is_same_v<std::tuple<std::remove_cv_t<U>...>, std::tuple<tuple_type>>, void>
     uninitialized_set(U&&... vs) {
-        new (&_v.w) typename any::wrap{T(std::forward<U>(vs)...)};
+        new (&_v.value) maybe_wrap_ref<T>{T(std::forward<U>(vs)...)};
     }
     void uninitialized_set(tuple_type&& v) {
         uninitialized_set(std::move(std::get<0>(v)));
@@ -312,11 +313,11 @@ public:
     void uninitialized_set(const tuple_type& v) {
         uninitialized_set(std::get<0>(v));
     }
-    T& uninitialized_get() {
-        return _v.w.value;
+    maybe_wrap_ref<T>& uninitialized_get() {
+        return _v.value;
     }
-    const T& uninitialized_get() const {
-        return _v.w.value;
+    const maybe_wrap_ref<T>& uninitialized_get() const {
+        return _v.value;
     }
 };
 
@@ -589,7 +590,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
         if constexpr (has_trivial_move_and_destroy) {
             memmove(reinterpret_cast<char*>(&this->uninitialized_get()),
                    &x.uninitialized_get(),
-                   internal::used_size<T>::value);
+                   internal::used_size<internal::maybe_wrap_ref<T>>::value);
         } else if (_u.has_result()) {
             this->uninitialized_set(std::move(x.uninitialized_get()));
             std::destroy_at(&x.uninitialized_get());
