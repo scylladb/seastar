@@ -2065,11 +2065,15 @@ Counters: 2'273'783'385, 4'549'995'716
 ```
 ## Latency
 TODO: Task quota, preempt, loops with built-in preemption check, etc.
+
 ## Disk I/O scheduler
 TODO
+
 ## Network scheduler
 TODO: Say that not yet available. Give example of potential problem - e.g., sharing a slow WAN link.
+
 ## Controllers
 TODO: Talk about how to dynamically change the number of shares, and why.
+
 ## Multi-tenancy
 TODO
