@@ -198,7 +198,7 @@ class page_list_link {
     uint32_t _prev;
     uint32_t _next;
     friend class page_list;
-    friend void do_dump_memory_diagnostics();
+    friend internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_buf::inserter_iterator);
 };
 
 static char* mem_base() {
@@ -287,7 +287,7 @@ public:
         }
         _front = ary[_front].link._next;
     }
-    friend void do_dump_memory_diagnostics();
+    friend internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_buf::inserter_iterator);
 };
 
 class small_pool {
@@ -317,7 +317,7 @@ public:
 private:
     void add_more_objects();
     void trim_free_list();
-    friend void do_dump_memory_diagnostics();
+    friend internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_buf::inserter_iterator);
 };
 
 // index 0b0001'1100 -> size (1 << 4) + 0b11 << (4 - 2)
@@ -1447,12 +1447,15 @@ void enable_abort_on_allocation_failure() {
     abort_on_allocation_failure.store(true, std::memory_order_seq_cst);
 }
 
-void do_dump_memory_diagnostics() {
+internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_buf::inserter_iterator it) {
     auto free_mem = cpu_mem.nr_free_pages * page_size;
     auto total_mem = cpu_mem.nr_pages * page_size;
-    seastar_memory_logger.debug("Used memory: {} Free memory: {} Total memory: {}", total_mem - free_mem, free_mem, total_mem);
-    seastar_memory_logger.debug("Small pools:");
-    seastar_memory_logger.debug("objsz spansz usedobj   memory       wst%");
+    it = fmt::format_to(it, "Dumping seastar memory diagnostics\n");
+
+    it = fmt::format_to(it, "Used memory: {} Free memory: {} Total memory: {}\n", total_mem - free_mem, free_mem, total_mem);
+
+    it = fmt::format_to(it, "Small pools:\n");
+    it = fmt::format_to(it, "objsz spansz usedobj   memory       wst%\n");
     for (unsigned i = 0; i < cpu_mem.small_pools.nr_small_pools; i++) {
         auto& sp = cpu_mem.small_pools[i];
         // We don't use pools too small to fit a free_object, so skip these, they
@@ -1463,10 +1466,16 @@ void do_dump_memory_diagnostics() {
         auto use_count = sp._pages_in_use * page_size / sp.object_size() - sp._free_count;
         auto memory = sp._pages_in_use * page_size;
         auto wasted_percent = memory ? sp._free_count * sp.object_size() * 100.0 / memory : 0;
-        seastar_memory_logger.debug("{} {} {} {} {}", sp.object_size(), sp._span_sizes.preferred * page_size, use_count, memory, wasted_percent);
+        it = fmt::format_to(it,
+                "{} {} {} {}\n",
+                sp.object_size(),
+                sp._span_sizes.preferred * page_size,
+                use_count,
+                memory,
+                wasted_percent);
     }
-    seastar_memory_logger.debug("Page spans:");
-    seastar_memory_logger.debug("index size [B]     free [B]");
+    it = fmt::format_to(it, "Page spans:\n");
+    it = fmt::format_to(it, "index size [B]     free [B]\n");
     for (unsigned i = 0; i< cpu_mem.nr_span_lists; i++) {
         auto& span_list = cpu_mem.free_spans[i];
         auto front = span_list._front;
@@ -1476,8 +1485,14 @@ void do_dump_memory_diagnostics() {
             total += span.span_size;
             front = span.link._next;
         }
-        seastar_memory_logger.debug("{} {} {}", i, (uint64_t(1)<<i) * page_size, total * page_size);
+        it = fmt::format_to(it,
+                "{} {} {}\n",
+                i,
+                (uint64_t(1) << i) * page_size,
+                total * page_size);
     }
+
+    return it;
 }
 
 void on_allocation_failure(size_t size) {
@@ -1487,7 +1502,10 @@ void on_allocation_failure(size_t size) {
                     (seastar_memory_logger.is_enabled(seastar::log_level::debug) && !abort_on_alloc_failure_suppressed))) {
         disable_report_on_alloc_failure_temporarily guard;
         seastar_memory_logger.debug("Failed to allocate {} bytes at {}", size, current_backtrace());
-        do_dump_memory_diagnostics();
+        logger::lambda_log_writer writer([size] (internal::log_buf::inserter_iterator it) {
+            return do_dump_memory_diagnostics(it);
+        });
+        seastar_memory_logger.log(log_level::debug, writer);
     }
 
     if (!abort_on_alloc_failure_suppressed
