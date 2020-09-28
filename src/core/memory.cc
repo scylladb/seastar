@@ -198,7 +198,7 @@ class page_list_link {
     uint32_t _prev;
     uint32_t _next;
     friend class page_list;
-    friend void on_allocation_failure(size_t);
+    friend void do_dump_memory_diagnostics();
 };
 
 static char* mem_base() {
@@ -287,7 +287,7 @@ public:
         }
         _front = ary[_front].link._next;
     }
-    friend void on_allocation_failure(size_t);
+    friend void do_dump_memory_diagnostics();
 };
 
 class small_pool {
@@ -317,7 +317,7 @@ public:
 private:
     void add_more_objects();
     void trim_free_list();
-    friend void on_allocation_failure(size_t);
+    friend void do_dump_memory_diagnostics();
 };
 
 // index 0b0001'1100 -> size (1 << 4) + 0b11 << (4 - 2)
@@ -1447,6 +1447,34 @@ void enable_abort_on_allocation_failure() {
     abort_on_allocation_failure.store(true, std::memory_order_seq_cst);
 }
 
+void do_dump_memory_diagnostics() {
+    auto free_mem = cpu_mem.nr_free_pages * page_size;
+    auto total_mem = cpu_mem.nr_pages * page_size;
+    seastar_memory_logger.debug("Used memory: {} Free memory: {} Total memory: {}", total_mem - free_mem, free_mem, total_mem);
+    seastar_memory_logger.debug("Small pools:");
+    seastar_memory_logger.debug("objsz spansz usedobj   memory       wst%");
+    for (unsigned i = 0; i < cpu_mem.small_pools.nr_small_pools; i++) {
+        auto& sp = cpu_mem.small_pools[i];
+        auto use_count = sp._pages_in_use * page_size / sp.object_size() - sp._free_count;
+        auto memory = sp._pages_in_use * page_size;
+        auto wasted_percent = memory ? sp._free_count * sp.object_size() * 100.0 / memory : 0;
+        seastar_memory_logger.debug("{} {} {} {} {}", sp.object_size(), sp._span_sizes.preferred * page_size, use_count, memory, wasted_percent);
+    }
+    seastar_memory_logger.debug("Page spans:");
+    seastar_memory_logger.debug("index size [B]     free [B]");
+    for (unsigned i = 0; i< cpu_mem.nr_span_lists; i++) {
+        auto& span_list = cpu_mem.free_spans[i];
+        auto front = span_list._front;
+        uint32_t total = 0;
+        while(front) {
+            auto& span = cpu_mem.pages[front];
+            total += span.span_size;
+            front = span.link._next;
+        }
+        seastar_memory_logger.debug("{} {} {}", i, (uint64_t(1)<<i) * page_size, total * page_size);
+    }
+}
+
 void on_allocation_failure(size_t size) {
     if (!report_on_alloc_failure_suppressed &&
             // report even suppressed failures if trace level is enabled
@@ -1454,31 +1482,7 @@ void on_allocation_failure(size_t size) {
                     (seastar_memory_logger.is_enabled(seastar::log_level::debug) && !abort_on_alloc_failure_suppressed))) {
         disable_report_on_alloc_failure_temporarily guard;
         seastar_memory_logger.debug("Failed to allocate {} bytes at {}", size, current_backtrace());
-        auto free_mem = cpu_mem.nr_free_pages * page_size;
-        auto total_mem = cpu_mem.nr_pages * page_size;
-        seastar_memory_logger.debug("Used memory: {} Free memory: {} Total memory: {}", total_mem - free_mem, free_mem, total_mem);
-        seastar_memory_logger.debug("Small pools:");
-        seastar_memory_logger.debug("objsz spansz usedobj   memory       wst%");
-        for (unsigned i = 0; i < cpu_mem.small_pools.nr_small_pools; i++) {
-            auto& sp = cpu_mem.small_pools[i];
-            auto use_count = sp._pages_in_use * page_size / sp.object_size() - sp._free_count;
-            auto memory = sp._pages_in_use * page_size;
-            auto wasted_percent = memory ? sp._free_count * sp.object_size() * 100.0 / memory : 0;
-            seastar_memory_logger.debug("{} {} {} {} {}", sp.object_size(), sp._span_sizes.preferred * page_size, use_count, memory, wasted_percent);
-        }
-        seastar_memory_logger.debug("Page spans:");
-        seastar_memory_logger.debug("index size [B]     free [B]");
-        for (unsigned i = 0; i< cpu_mem.nr_span_lists; i++) {
-            auto& span_list = cpu_mem.free_spans[i];
-            auto front = span_list._front;
-            uint32_t total = 0;
-            while(front) {
-                auto& span = cpu_mem.pages[front];
-                total += span.span_size;
-                front = span.link._next;
-            }
-            seastar_memory_logger.debug("{} {} {}", i, (uint64_t(1)<<i) * page_size, total * page_size);
-        }
+        do_dump_memory_diagnostics();
     }
 
     if (!abort_on_alloc_failure_suppressed
