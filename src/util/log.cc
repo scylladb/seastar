@@ -200,16 +200,16 @@ logger::do_log(log_level level, const char* fmt, fmt::format_args args) {
     };
     auto print_once = [&] (std::ostream& out) {
       if (local_engine) {
-          fmt::print(out, " [shard {}]", this_shard_id());
+          out << " [shard " << this_shard_id() << "]";
       }
-      fmt::print(out, " {} - {}\n", _name, fmt::vformat(fmt, args));
+      out << " " << _name << " - " << fmt::vformat(fmt, args) << "\n";
     };
 
     if (is_ostream_enabled) {
-        fmt::print(out, "{} ", level_map[int(level)]);
+        out << level_map[int(level)] << " ";
         print_timestamp(out);
         print_once(out);
-        fmt::print(*_out, "{}", out.str());
+        *_out << out.str();
     }
     if (is_syslog_enabled) {
         print_once(log);
