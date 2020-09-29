@@ -493,7 +493,7 @@ public:
     void set_rss_table();
 
     virtual uint16_t hw_queues_count() override { return _num_queues; }
-    virtual future<> link_ready() { return _link_ready_promise.get_future(); }
+    virtual future<> link_ready() override { return _link_ready_promise.get_future(); }
     virtual std::unique_ptr<qp> init_local_queue(boost::program_options::variables_map opts, uint16_t qid) override;
     virtual unsigned hash2qid(uint32_t hash) override {
         assert(_redir_table.size());
