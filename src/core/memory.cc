@@ -1447,6 +1447,50 @@ void enable_abort_on_allocation_failure() {
     abort_on_allocation_failure.store(true, std::memory_order_seq_cst);
 }
 
+struct human_readable_value {
+    uint16_t value;  // [0, 1024)
+    char suffix; // 0 -> no suffix
+};
+
+std::ostream& operator<<(std::ostream& os, const human_readable_value& val) {
+    os << val.value;
+    if (val.suffix) {
+        os << val.suffix;
+    }
+    return os;
+}
+
+static human_readable_value to_human_readable_value(uint64_t value, uint64_t step, uint64_t precision, const std::array<char, 5>& suffixes) {
+    if (!value) {
+        return {0, suffixes[0]};
+    }
+
+    uint64_t result = value;
+    uint64_t remainder = 0;
+    unsigned i = 0;
+    // If there is no remainder we go below precision because we don't loose any.
+    while (((!remainder && result >= step) || result >= precision)) {
+        remainder = result % step;
+        result /= step;
+        if (i == suffixes.size()) {
+            break;
+        } else {
+            ++i;
+        }
+    }
+    return {uint16_t(remainder < (step / 2) ? result : result + 1), suffixes[i]};
+}
+
+static human_readable_value to_hr_size(uint64_t size) {
+    const std::array<char, 5> suffixes = {'B', 'K', 'M', 'G', 'T'};
+    return to_human_readable_value(size, 1024, 8192, suffixes);
+}
+
+static human_readable_value to_hr_number(uint64_t number) {
+    const std::array<char, 5> suffixes = {'\0', 'k', 'm', 'b', 't'};
+    return to_human_readable_value(number, 1000, 10000, suffixes);
+}
+
 internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_buf::inserter_iterator it) {
     auto free_mem = cpu_mem.nr_free_pages * page_size;
     auto total_mem = cpu_mem.nr_pages * page_size;
@@ -1467,15 +1511,15 @@ internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_bu
         auto memory = sp._pages_in_use * page_size;
         auto wasted_percent = memory ? sp._free_count * sp.object_size() * 100.0 / memory : 0;
         it = fmt::format_to(it,
-                "{}\t{}\t{}\t{}\n",
+                "{}\t{}\t{}\t{}\t{}\n",
                 sp.object_size(),
-                sp._span_sizes.preferred * page_size,
-                use_count,
-                memory,
-                wasted_percent);
+                to_hr_size(sp._span_sizes.preferred * page_size),
+                to_hr_number(use_count),
+                to_hr_size(memory),
+                unsigned(wasted_percent));
     }
     it = fmt::format_to(it, "Page spans:\n");
-    it = fmt::format_to(it, "index\tsize [B]\tfree [B]\n");
+    it = fmt::format_to(it, "index\tsize\tfree\n");
     for (unsigned i = 0; i< cpu_mem.nr_span_lists; i++) {
         auto& span_list = cpu_mem.free_spans[i];
         auto front = span_list._front;
@@ -1488,8 +1532,8 @@ internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_bu
         it = fmt::format_to(it,
                 "{}\t{}\t{}\n",
                 i,
-                (uint64_t(1) << i) * page_size,
-                total * page_size);
+                to_hr_size((uint64_t(1) << i) * page_size),
+                to_hr_size(total * page_size));
     }
 
     return it;
