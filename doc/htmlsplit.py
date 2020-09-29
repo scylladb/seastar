@@ -27,7 +27,9 @@
 # under the License.
 
 from xml.etree import ElementTree
+import argparse
 import copy
+import os
 
 # chapter number to chapter title
 titles = {}
@@ -109,7 +111,12 @@ def get_chap_num(element):
         return int(data_num)
     assert data_num, "section number not found"
 
-tree = ElementTree.parse('tutorial.html')
+parser = argparse.ArgumentParser()
+parser.add_argument('--input')
+parser.add_argument('--output-dir')
+args = parser.parse_args()
+
+tree = ElementTree.parse(args.input)
 for e in tree.iter():
     remove_ns_prefix(e)
 template = copy.deepcopy(tree.getroot())
@@ -134,12 +141,14 @@ for e in next(tree.iterfind('./body')):
         toc_tree = ElementTree.ElementTree(copy.deepcopy(template))
         body = next(toc_tree.iterfind('./body'))
         body.append(e)
-        toc_tree.write('split/index.html', method='html')
+        toc_tree.write(os.path.join(args.output_dir, 'index.html'),
+                       method='html')
     elif e.tag == 'h1':
         assert titles
         assert sections
         if chap_num > 0:
-            chap_tree.write(f'split/{chap_num}.html', method='html')
+            chap_tree.write(os.path.join(args.output_dir, f'{chap_num}.html'),
+                            method='html')
         chap_num = get_chap_num(e)
         chap_tree = ElementTree.ElementTree(copy.deepcopy(template))
         body = next(chap_tree.iterfind('./body'))
@@ -151,4 +160,5 @@ for e in next(tree.iterfind('./body')):
         body = next(chap_tree.iterfind('./body'))
         body.append(e)
 
-chap_tree.write(f'split/{chap_num}.html', method='html')
+chap_tree.write(os.path.join(args.output_dir, f'{chap_num}.html'),
+                method='html')

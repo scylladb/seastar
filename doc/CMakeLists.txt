@@ -37,7 +37,9 @@ add_custom_command (
     doc_tutorial_html
     ${CMAKE_CURRENT_BINARY_DIR}/htmlsplit.py
   COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/split
-  COMMAND ${CMAKE_CURRENT_BINARY_DIR}/htmlsplit.py)
+  COMMAND ${CMAKE_CURRENT_BINARY_DIR}/htmlsplit.py
+    --input ${CMAKE_CURRENT_BINARY_DIR}/html/tutorial.html
+    --output-dir ${CMAKE_CURRENT_BINARY_DIR}/split)
 
 add_custom_target (doc_tutorial_html_split
   DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/split)
