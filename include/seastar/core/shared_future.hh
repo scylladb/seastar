@@ -120,7 +120,7 @@ private:
                 _original_future.ignore_ready_future();
             }
         }
-        explicit shared_state(future_type f) : _original_future(std::move(f)) { }
+        explicit shared_state(future_type f) noexcept : _original_future(std::move(f)) { }
         void resolve(future_type&& f) noexcept {
             _original_future = std::move(f);
             auto& state = _original_future._state;
@@ -142,7 +142,14 @@ private:
             }
         }
 
-        future_type get_future(time_point timeout = time_point::max()) {
+        future_type get_future(time_point timeout = time_point::max()) noexcept {
+            // Note that some functions called below may throw,
+            // like pushing to _peers or copying _original_future's ready value.
+            // We'd rather terminate than propagate these errors similar to
+            // .then()'s failure to allocate a continuation as the caller cannot
+            // distinguish between an error returned by the original future to
+            // failing to perform `get_future` itself.
+            memory::disable_failure_guard dfg;
             if (!_original_future.available()) {
                 promise_type p;
                 auto f = p.get_future();
@@ -157,11 +164,7 @@ private:
             } else if (_original_future.failed()) {
                 return future_type(exception_future_marker(), std::exception_ptr(_original_future._state.get_exception()));
             } else {
-                try {
-                    return future_type(ready_future_marker(), _original_future._state.get_value());
-                } catch (...) {
-                    return future_type(exception_future_marker(), std::current_exception());
-                }
+                return future_type(ready_future_marker(), _original_future._state.get_value());
             }
         }
 
@@ -180,11 +183,11 @@ public:
     shared_future(future_type f)
         : _state(make_lw_shared<shared_state>(std::move(f))) { }
 
-    shared_future() = default;
-    shared_future(const shared_future&) = default;
-    shared_future& operator=(const shared_future&) = default;
-    shared_future(shared_future&&) = default;
-    shared_future& operator=(shared_future&&) = default;
+    shared_future() = default; // noexcept, based on the respective lw_shared_ptr constructor
+    shared_future(const shared_future&) = default; // noexcept, based on the respective lw_shared_ptr constructor
+    shared_future& operator=(const shared_future&) = default; // noexcept, based on respective constructor
+    shared_future(shared_future&&) = default; // noexcept, based on the respective lw_shared_ptr constructor
+    shared_future& operator=(shared_future&&) = default; // noexcept, based on the respective constructor
 
     /// \brief Creates a new \c future which will resolve with the result of this shared_future
     ///
@@ -192,7 +195,7 @@ public:
     /// if this shared_future doesn't resolve before timeout is reached.
     ///
     /// This object must be in a valid state.
-    future_type get_future(time_point timeout = time_point::max()) const {
+    future_type get_future(time_point timeout = time_point::max()) const noexcept {
         return _state->get_future(timeout);
     }
 
@@ -211,12 +214,12 @@ public:
     }
 
     /// \brief Equivalent to \ref get_future()
-    operator future_type() const {
+    operator future_type() const noexcept {
         return get_future();
     }
 
     /// \brief Returns true if the instance is in valid state
-    bool valid() const {
+    bool valid() const noexcept {
         return bool(_state);
     }
 };
@@ -241,15 +244,15 @@ private:
     static constexpr bool copy_noexcept = future_type::copy_noexcept;
 public:
     shared_promise(const shared_promise&) = delete;
-    shared_promise(shared_promise&&) = default;
-    shared_promise& operator=(shared_promise&&) = default;
+    shared_promise(shared_promise&&) = default; // noexcept, based on the respective promise and shared_future constructors
+    shared_promise& operator=(shared_promise&&) = default; // noexcept, based on the respective promise and shared_future constructors
     shared_promise() : _promise(), _shared_future(_promise.get_future()) {
     }
 
     /// \brief Gets new future associated with this promise.
     /// If the promise is not resolved before timeout the returned future will resolve with \ref timed_out_error.
     /// This instance doesn't have to be kept alive until the returned future resolves.
-    future_type get_shared_future(time_point timeout = time_point::max()) const {
+    future_type get_shared_future(time_point timeout = time_point::max()) const noexcept {
         return _shared_future.get_future(timeout);
     }
 
