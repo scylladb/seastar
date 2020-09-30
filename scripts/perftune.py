@@ -649,6 +649,29 @@ class NetPerfTuner(PerfTunerBase):
         else:
             return sys.maxsize
 
+    def __mlx_irq_to_queue_idx(self, irq):
+        """
+        Return the HW queue index for a given IRQ for Mellanox NICs in order to sort the IRQs' list by this index.
+
+        Mellanox NICs have the IRQ which name looks like
+        this:
+        mlx5_comp23
+             mlx5_comp<index>
+        or this:
+        mlx4-6
+             mlx4-<index>
+
+        :param irq: IRQ number
+        :return: HW queue index for Mellanox NICs and 0 for all other NICs
+        """
+        mlx_fp_irq_re = re.compile("mlx5_comp(\d+)|mlx4\-(\d+)")
+
+        m = mlx_fp_irq_re.search(self.__irqs2procline[irq])
+        if m:
+            return int(m.group(1))
+        else:
+            return sys.maxsize
+
     def __get_driver_name(self, iface):
         """
         :param iface: Interface to check
@@ -679,7 +702,10 @@ class NetPerfTuner(PerfTunerBase):
           - Intel:    <bla-bla>-TxRx-<bla-bla>
           - Broadcom: <bla-bla>-fp-<bla-bla>
           - ena:      <bla-bla>-Tx-Rx-<bla-bla>
-          - Mellanox: mlx<device model index>-<queue idx>@<bla-bla>
+          - Mellanox: for mlx4
+                      mlx4-<queue idx>@<bla-bla>
+                      or for mlx5
+                      mlx5_comp<queue idx>@<bla-bla>
 
         So, we will try to filter the etries in /proc/interrupts for IRQs we've got from get_all_irqs_one()
         according to the patterns above.
@@ -694,10 +720,15 @@ class NetPerfTuner(PerfTunerBase):
         """
         # filter 'all_irqs' to only reference valid keys from 'irqs2procline' and avoid an IndexError on the 'irqs' search below
         all_irqs = set(learn_all_irqs_one("/sys/class/net/{}/device".format(iface), self.__irqs2procline, iface)).intersection(self.__irqs2procline.keys())
-        fp_irqs_re = re.compile("\-TxRx\-|\-fp\-|\-Tx\-Rx\-|mlx\d+\-\d+@")
+        fp_irqs_re = re.compile("\-TxRx\-|\-fp\-|\-Tx\-Rx\-|mlx4-\d+@|mlx5_comp\d+@")
         irqs = list(filter(lambda irq : fp_irqs_re.search(self.__irqs2procline[irq]), all_irqs))
         if irqs:
-            irqs.sort(key=self.__intel_irq_to_queue_idx)
+            driver_name = self.__get_driver_name(iface)
+            perftune_print("Driver {} has been detected.".format(driver_name))
+            if (driver_name.startswith("mlx")):
+                irqs.sort(key=self.__mlx_irq_to_queue_idx)
+            else:
+                irqs.sort(key=self.__intel_irq_to_queue_idx)
             return irqs
         else:
             return list(all_irqs)
