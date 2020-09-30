@@ -1661,7 +1661,7 @@ internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_bu
     return it;
 }
 
-void on_allocation_failure(size_t size) {
+void maybe_dump_memory_diagnostics(size_t size) {
     if (!report_on_alloc_failure_suppressed &&
             // report even suppressed failures if trace level is enabled
             (seastar_memory_logger.is_enabled(seastar::log_level::trace) ||
@@ -1673,6 +1673,10 @@ void on_allocation_failure(size_t size) {
         });
         seastar_memory_logger.log(log_level::debug, writer);
     }
+}
+
+void on_allocation_failure(size_t size) {
+    maybe_dump_memory_diagnostics(size);
 
     if (!abort_on_alloc_failure_suppressed
             && abort_on_allocation_failure.load(std::memory_order_relaxed)) {
