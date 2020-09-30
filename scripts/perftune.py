@@ -57,6 +57,12 @@ def run_hwloc_calc(prog_args):
     """
     return run_read_only_command(['hwloc-calc'] + prog_args).rstrip()
 
+def run_ethtool(prog_args):
+    """
+    Returns a list of strings - each representing a single line of ethtool output.
+    """
+    return run_read_only_command(['ethtool'] + prog_args).splitlines()
+
 def fwriteln(fname, line, log_message, log_errors=True):
     try:
         if dry_run_mode:
@@ -643,6 +649,25 @@ class NetPerfTuner(PerfTunerBase):
         else:
             return sys.maxsize
 
+    def __get_driver_name(self, iface):
+        """
+        :param iface: Interface to check
+        :return: driver name from ethtool
+        """
+
+        driver_name = ''
+        ethtool_i_lines = run_ethtool(['-i', iface])
+        driver_re = re.compile("driver:")
+        driver_lines = list(filter(lambda one_line: driver_re.search(one_line), ethtool_i_lines))
+
+        if driver_lines:
+            if len(driver_lines) > 1:
+                raise Exception("More than one 'driver:' entries in the 'ethtool -i {}' output. Unable to continue.".format(iface))
+
+            driver_name = driver_lines[0].split()[1].strip()
+
+        return driver_name
+
     def __learn_irqs_one(self, iface):
         """
         This is a slow method that is going to read from the system files. Never
@@ -742,17 +767,7 @@ class NetPerfTuner(PerfTunerBase):
         """
         driver_to_max_rss = {'ixgbe': 16, 'ixgbevf': 4, 'i40e': 64, 'i40evf': 16}
 
-        driver_name = ''
-        ethtool_i_lines = run_read_only_command(['ethtool', '-i', iface]).splitlines()
-        driver_re = re.compile("driver:")
-        driver_lines = list(filter(lambda one_line: driver_re.search(one_line), ethtool_i_lines))
-
-        if driver_lines:
-            if len(driver_lines) > 1:
-                raise Exception("More than one 'driver:' entries in the 'ethtool -i {}' output. Unable to continue.".format(iface))
-
-            driver_name = driver_lines[0].split()[1].strip()
-
+        driver_name = self.__get_driver_name(iface)
         return driver_to_max_rss.get(driver_name, sys.maxsize)
 
     def __get_rx_queue_count(self, iface):
