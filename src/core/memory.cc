@@ -1662,17 +1662,20 @@ internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_bu
 }
 
 void maybe_dump_memory_diagnostics(size_t size) {
-    if (!report_on_alloc_failure_suppressed &&
-            // report even suppressed failures if trace level is enabled
-            (seastar_memory_logger.is_enabled(seastar::log_level::trace) ||
-                    (seastar_memory_logger.is_enabled(seastar::log_level::debug) && !abort_on_alloc_failure_suppressed))) {
-        disable_report_on_alloc_failure_temporarily guard;
-        seastar_memory_logger.debug("Failed to allocate {} bytes at {}", size, current_backtrace());
-        logger::lambda_log_writer writer([] (internal::log_buf::inserter_iterator it) {
-            return do_dump_memory_diagnostics(it);
-        });
-        seastar_memory_logger.log(log_level::debug, writer);
+    if (report_on_alloc_failure_suppressed) {
+        return;
     }
+
+    if (!seastar_memory_logger.is_enabled(seastar::log_level::debug)) {
+        return;
+    }
+
+    disable_report_on_alloc_failure_temporarily guard;
+    seastar_memory_logger.debug("Failed to allocate {} bytes at {}", size, current_backtrace());
+    logger::lambda_log_writer writer([] (internal::log_buf::inserter_iterator it) {
+        return do_dump_memory_diagnostics(it);
+    });
+    seastar_memory_logger.log(log_level::debug, writer);
 }
 
 void on_allocation_failure(size_t size) {
