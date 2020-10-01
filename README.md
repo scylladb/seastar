@@ -35,7 +35,7 @@ then compile:
 $ ninja -C build/release
 ```
 
-If you're missing a dependency of Seastar, then it is possible to have the configuration process fetch a version of the dependency locally for development.
+If you're missing the dependency of Seastar, then it is possible to have the configuration process fetch a version of the dependency locally for development.
 
 For example, to fetch `fmt` locally, configure Seastar like this:
 
@@ -50,7 +50,7 @@ Build modes
 ----------------------------------------------------------------------------
 
 The configure.py script is a wrapper around cmake. The --mode argument
-maps to CMAKE_BUILD_TYPE, and supports the following modes
+maps to CMAKE_BUILD_TYPE and supports the following modes
 
 |          | CMake mode          | Debug info | Optimi&shy;zations | Sanitizers   | Allocator | Checks   | Use for                                |
 | -------- | ------------------- | ---------- | ------------------ |------------- | --------- | -------- | -------------------------------------- |
@@ -61,7 +61,7 @@ maps to CMAKE_BUILD_TYPE, and supports the following modes
 
 Note that seastar is more sensitive to allocators and optimizations than
 usual. A quick rule of the thumb of the relative performances is that
-release is 2 times faster than dev, 150 times faster than sanitize and
+release is 2 times faster than dev, 150 times faster than sanitizing and,
 300 times faster than debug.
 
 Using Seastar from its build directory (without installation)
@@ -142,11 +142,11 @@ Use of the [DPDK](http://dpdk.org) is [optional](doc/building-dpdk.md).
 
 #### Seastar's C++ dialect: C++17 or C++20
 
-Seastar supports both C++17, and C++20. It can be selected with the
+Seastar supports both C++17 and C++20. It can be selected with the
 `--c++-dialect=gnu++17` configure option or, if using CMake directly,
 by setting on the `Seastar_CXX_DIALECT` CMake variable.
 
-See the [compatibity statement](doc/compatibility.md) for more information.
+See the [compatibility statement](doc/compatibility.md) for more information.
 
 Getting started
 ---------------
@@ -177,12 +177,12 @@ Recommended hardware configuration for SeaStar
 * CPUs - As much as you need. SeaStar is highly friendly for multi-core and NUMA
 * NICs - As fast as possible, we recommend 10G or 40G cards. It's possible to use
        1G too but you may be limited by their capacity.
-       In addition, the more hardware queue per cpu the better for SeaStar.
-       Otherwise we have to emulate that in software.
-* Disks - Fast SSDs with high number of IOPS.
+       Also, the more hardware queue per cpu the better for SeaStar.
+       Otherwise, we have to emulate that in software.
+* Disks - Fast SSDs with a high number of IOPS.
 * Client machines - Usually a single client machine can't load our servers.
-       Both memaslap (memcached) and WRK (httpd) cannot over load their matching
-       server counter parts. We recommend running the client on different machine
+       Both memaslap (memcached) and WRK (httpd) cannot overload their matching
+       server counter parts. We recommend running the client on a different machine
        than the servers and use several of them.
 
 Projects using Seastar
@@ -190,6 +190,6 @@ Projects using Seastar
 
 * [cpv-cql-driver](https://github.com/cpv-project/cpv-cql-driver): C++ driver for Cassandra/Scylla based on seastar framework
 * [cpv-framework](https://github.com/cpv-project/cpv-framework): A web framework written in c++ based on seastar framework
-* [redpanda](https://vectorized.io/): A Kafka replacement for mission critical systems
+* [redpanda](https://vectorized.io/): A Kafka replacement for mission-critical systems
 * [Scylla](https://github.com/scylladb/scylla): A fast and reliable NoSQL data store compatible with Cassandra and DynamoDB
 * [smf](https://github.com/smfrpc/smf): The fastest RPC in the West
