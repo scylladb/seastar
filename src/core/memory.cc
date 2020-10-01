@@ -1455,6 +1455,11 @@ void do_dump_memory_diagnostics() {
     seastar_memory_logger.debug("objsz spansz usedobj   memory       wst%");
     for (unsigned i = 0; i < cpu_mem.small_pools.nr_small_pools; i++) {
         auto& sp = cpu_mem.small_pools[i];
+        // We don't use pools too small to fit a free_object, so skip these, they
+        // are always empty.
+        if (sp.object_size() < sizeof(free_object)) {
+            continue;
+        }
         auto use_count = sp._pages_in_use * page_size / sp.object_size() - sp._free_count;
         auto memory = sp._pages_in_use * page_size;
         auto wasted_percent = memory ? sp._free_count * sp.object_size() * 100.0 / memory : 0;
