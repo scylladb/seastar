@@ -1477,7 +1477,7 @@ void on_allocation_failure(size_t size) {
                 total += span.span_size;
                 front = span.link._next;
             }
-            seastar_memory_logger.debug("{} {} {}", i, (1<<i) * page_size, total * page_size);
+            seastar_memory_logger.debug("{} {} {}", i, (uint64_t(1)<<i) * page_size, total * page_size);
         }
     }
 
