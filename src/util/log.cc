@@ -156,15 +156,16 @@ std::ostream& operator<<(std::ostream& os, logger_ostream_type lot) {
     return os;
 }
 
-static void print_no_timestamp(std::ostream& os) {
+static internal::log_buf::inserter_iterator print_no_timestamp(internal::log_buf::inserter_iterator it) {
+    return it;
 }
 
-static void print_boot_timestamp(std::ostream& os) {
+static internal::log_buf::inserter_iterator print_boot_timestamp(internal::log_buf::inserter_iterator it) {
     auto n = std::chrono::steady_clock::now().time_since_epoch() / 1us;
-    fmt::print(os, "{:10d}.{:06d}", n / 1000000, n % 1000000);
+    return fmt::format_to(it, "{:10d}.{:06d}", n / 1000000, n % 1000000);
 }
 
-static void print_real_timestamp(std::ostream& os) {
+static internal::log_buf::inserter_iterator print_real_timestamp(internal::log_buf::inserter_iterator it) {
     struct a_second {
         time_t t;
         std::string s;
@@ -178,10 +179,10 @@ static void print_real_timestamp(std::ostream& os) {
         this_second.t = t;
     }
     auto ms = (n - clock::from_time_t(t)) / 1ms;
-    fmt::print(os, "{},{:03d}", this_second.s, ms);
+    return fmt::format_to(it, "{},{:03d}", this_second.s, ms);
 }
 
-static void (*print_timestamp)(std::ostream&) = print_no_timestamp;
+static internal::log_buf::inserter_iterator (*print_timestamp)(internal::log_buf::inserter_iterator) = print_no_timestamp;
 
 const std::map<log_level, sstring> log_level_names = {
         { log_level::trace, "trace" },
@@ -227,14 +228,15 @@ logger::~logger() {
     global_logger_registry().unregister_logger(this);
 }
 
+static thread_local std::array<char, 8192> static_log_buf;
+
 void
-logger::do_log(log_level level, const char* fmt, fmt::format_args args) {
+logger::do_log(log_level level, log_writer& writer) {
     bool is_ostream_enabled = _ostream.load(std::memory_order_relaxed);
     bool is_syslog_enabled = _syslog.load(std::memory_order_relaxed);
     if(!is_ostream_enabled && !is_syslog_enabled) {
       return;
     }
-    std::ostringstream out, log;
     static array_map<sstring, 20> level_map = {
             { int(log_level::debug), "DEBUG" },
             { int(log_level::info),  "INFO "  },
@@ -242,21 +244,29 @@ logger::do_log(log_level level, const char* fmt, fmt::format_args args) {
             { int(log_level::warn),  "WARN "  },
             { int(log_level::error), "ERROR" },
     };
-    auto print_once = [&] (std::ostream& out) {
+    auto print_once = [&] (internal::log_buf::inserter_iterator it) {
       if (local_engine) {
-          out << " [shard " << this_shard_id() << "]";
+          it = fmt::format_to(it, " [shard {}]", this_shard_id());
       }
-      out << " " << _name << " - " << fmt::vformat(fmt, args) << "\n";
+      it = fmt::format_to(it, " {} - ", _name);
+      it = writer(it);
+      *it = '\n';
+      return ++it;
     };
 
     if (is_ostream_enabled) {
-        out << level_map[int(level)] << " ";
-        print_timestamp(out);
-        print_once(out);
-        *_out << out.str();
+        internal::log_buf buf(static_log_buf.data(), static_log_buf.size());
+        auto it = buf.back_insert_begin();
+        it = fmt::format_to(it, "{} ", level_map[int(level)]);
+        it = print_timestamp(it);
+        it = print_once(it);
+        *_out << buf.view();
     }
     if (is_syslog_enabled) {
-        print_once(log);
+        internal::log_buf buf(static_log_buf.data(), static_log_buf.size());
+        auto it = buf.back_insert_begin();
+        it = print_once(it);
+        *it = '\0';
         static array_map<int, 20> level_map = {
                 { int(log_level::debug), LOG_DEBUG },
                 { int(log_level::info), LOG_INFO },
@@ -270,15 +280,17 @@ logger::do_log(log_level level, const char* fmt, fmt::format_args args) {
         //       we'll have to implement some internal buffering (which
         //       still means the problem can happen, just less frequently).
         // syslog() interprets % characters, so send msg as a parameter
-        auto msg = log.str();
-        syslog(level_map[int(level)], "%s", msg.c_str());
+        syslog(level_map[int(level)], "%s", buf.data());
     }
 }
 
 void logger::failed_to_log(std::exception_ptr ex) noexcept
 {
     try {
-        do_log(log_level::error, "failed to log message: {}", fmt::make_format_args(ex));
+        lambda_log_writer writer([ex = std::move(ex)] (internal::log_buf::inserter_iterator it) {
+            return fmt::format_to(it, "failed to log message: {}", ex);
+        });
+        do_log(log_level::error, writer);
     } catch (...) {
         ++logging_failures;
     }
