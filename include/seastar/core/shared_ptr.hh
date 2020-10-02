@@ -144,6 +144,7 @@ protected:
 public:
     lw_shared_ptr<T> shared_from_this();
     lw_shared_ptr<const T> shared_from_this() const;
+    long use_count() const noexcept { return _count; }
 
     template <typename X>
     friend class lw_shared_ptr;
@@ -471,6 +472,7 @@ class enable_shared_from_this : private shared_ptr_count_base {
 public:
     shared_ptr<T> shared_from_this();
     shared_ptr<const T> shared_from_this() const;
+    long use_count() const noexcept { return count; }
 
     template <typename U>
     friend class shared_ptr;
