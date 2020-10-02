@@ -21,6 +21,7 @@
 #pragma once
 
 #include <seastar/core/sstring.hh>
+#include <seastar/util/log-impl.hh>
 #include <unordered_map>
 #include <exception>
 #include <iosfwd>

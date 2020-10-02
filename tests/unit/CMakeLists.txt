@@ -462,3 +462,6 @@ seastar_add_test (unwind
 seastar_add_test (weak_ptr
   KIND BOOST
   SOURCES weak_ptr_test.cc)
+
+seastar_add_test (log_buf
+  SOURCES log_buf_test.cc)

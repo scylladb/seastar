@@ -52,6 +52,50 @@ using namespace std::chrono_literals;
 
 namespace seastar {
 
+namespace internal {
+
+void log_buf::free_buffer() noexcept {
+    if (_own_buf) {
+        delete[] _begin;
+    }
+}
+
+void log_buf::realloc_buffer() {
+    const auto old_size = size();
+    const auto new_size = old_size * 2;
+
+    auto new_buf = new char[new_size];
+    std::memcpy(new_buf, _begin, old_size);
+    free_buffer();
+
+    _begin = new_buf;
+    _current = _begin + old_size;
+    _end = _begin + new_size;
+    _own_buf = true;
+}
+
+log_buf::log_buf()
+    : _begin(new char[512])
+    , _end(_begin + 512)
+    , _current(_begin)
+    , _own_buf(true)
+{
+}
+
+log_buf::log_buf(char* external_buf, size_t size) noexcept
+    : _begin(external_buf)
+    , _end(_begin + size)
+    , _current(_begin)
+    , _own_buf(false)
+{
+}
+
+log_buf::~log_buf() {
+    free_buffer();
+}
+
+} // namespace internal
+
 thread_local uint64_t logging_failures = 0;
 
 void validate(boost::any& v,
