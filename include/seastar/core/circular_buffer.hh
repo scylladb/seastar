@@ -23,6 +23,7 @@
 
 #include <seastar/core/transfer.hh>
 #include <seastar/core/bitops.hh>
+#include <seastar/util/concepts.hh>
 #include <memory>
 #include <algorithm>
 
@@ -71,6 +72,8 @@ class circular_buffer {
             capacity = 0;
         }
     };
+    static_assert(!std::is_default_constructible_v<Alloc>
+                  || std::is_nothrow_default_constructible_v<Alloc>);
     static_assert(std::is_nothrow_move_constructible_v<Alloc>);
     impl _impl;
 public:
@@ -81,7 +84,8 @@ public:
     using const_reference = const T&;
     using const_pointer = const T*;
 public:
-    circular_buffer(Alloc alloc = {}) noexcept;
+    circular_buffer() noexcept SEASTAR_CONCEPT(requires std::default_initializable<Alloc>) : circular_buffer(Alloc()) {}
+    circular_buffer(Alloc alloc) noexcept;
     circular_buffer(circular_buffer&& X) noexcept;
     circular_buffer(const circular_buffer& X) = delete;
     ~circular_buffer();
