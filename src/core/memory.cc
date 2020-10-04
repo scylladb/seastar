@@ -324,9 +324,19 @@ private:
 
 constexpr unsigned
 small_pool::idx_to_size(unsigned idx) {
-    return (((1 << idx_frac_bits) | (idx & ((1 << idx_frac_bits) - 1)))
+    size_t s = (((1 << idx_frac_bits) | (idx & ((1 << idx_frac_bits) - 1)))
               << (idx >> idx_frac_bits))
                   >> idx_frac_bits;
+    // If size is larger than max_align_t, force it to be a multiple of
+    // max_align_t. Clang relies in this property to use aligned mov
+    // instructions (e.g. movaps)
+    //
+    // Note this function is used at initialization time only, so it doesn't
+    // need to be especially fast.
+    if (s > alignof(std::max_align_t)) {
+	s = align_up(s, alignof(std::max_align_t));
+    }
+    return s;
 }
 
 constexpr unsigned
