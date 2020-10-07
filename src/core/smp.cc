@@ -39,8 +39,13 @@ struct smp_service_group_impl {
 static smp_service_group_semaphore smp_service_group_management_sem{1, named_semaphore_exception_factory{"smp_service_group_management_sem"}};
 static thread_local std::vector<smp_service_group_impl> smp_service_groups;
 
-static named_semaphore_exception_factory make_service_group_semaphore_exception_factory(unsigned id, shard_id client_cpu, shard_id this_cpu) {
-    return named_semaphore_exception_factory{format("smp_service_group#{} {}->{} semaphore", id, client_cpu, this_cpu)};
+static named_semaphore_exception_factory make_service_group_semaphore_exception_factory(unsigned id, shard_id client_cpu, shard_id this_cpu, std::optional<sstring> smp_group_name) {
+    if (smp_group_name) {
+        return named_semaphore_exception_factory{format("smp_service_group:'{}' (#{}) {}->{} semaphore", *smp_group_name, id, client_cpu, this_cpu)};
+    } else {
+        return named_semaphore_exception_factory{format("smp_service_group#{} {}->{} semaphore", id, client_cpu, this_cpu)};
+    }
+
 }
 
 static_assert(std::is_nothrow_copy_constructible_v<smp_service_group>);
@@ -64,7 +69,7 @@ future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc
                 smp_service_groups[id].clients.reserve(smp::count); // may throw
                 auto per_client = smp::count > 1 ? ssgc.max_nonlocal_requests / (smp::count - 1) : 0u;
                 for (unsigned i = 0; i != smp::count; ++i) {
-                    smp_service_groups[id].clients.emplace_back(per_client, make_service_group_semaphore_exception_factory(id, i, cpu));
+                    smp_service_groups[id].clients.emplace_back(per_client, make_service_group_semaphore_exception_factory(id, i, cpu, ssgc.group_name));
                 }
               });
             }).handle_exception([id] (std::exception_ptr e) {
@@ -99,7 +104,7 @@ void init_default_smp_service_group(shard_id cpu) {
     auto& ssg0 = smp_service_groups.back();
     ssg0.clients.reserve(smp::count);
     for (unsigned i = 0; i != smp::count; ++i) {
-        ssg0.clients.emplace_back(smp_service_group_semaphore::max_counter(), make_service_group_semaphore_exception_factory(0, i, cpu));
+        ssg0.clients.emplace_back(smp_service_group_semaphore::max_counter(), make_service_group_semaphore_exception_factory(0, i, cpu, {"default"}));
     }
 }
 

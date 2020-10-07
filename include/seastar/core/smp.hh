@@ -67,6 +67,11 @@ struct smp_service_group_config {
     ///
     /// Will be adjusted upwards to allow at least one request per non-local shard.
     unsigned max_nonlocal_requests = 0;
+    /// An optional name for this smp group
+    ///
+    /// If this optional is engaged, timeout exception messages of the group's
+    /// semaphores will indicate the group's name.
+    std::optional<sstring> group_name;
 };
 
 /// A resource controller for cross-shard calls.
