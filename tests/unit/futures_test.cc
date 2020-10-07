@@ -495,6 +495,31 @@ SEASTAR_TEST_CASE(test_map_reduce) {
     });
 }
 
+SEASTAR_TEST_CASE(test_map_reduce_simple) {
+    return do_with(0L, [] (auto& res) {
+        long n = 10;
+        return map_reduce(boost::make_counting_iterator<long>(0), boost::make_counting_iterator<long>(n),
+                [] (long x) { return x; },
+                [&res] (long x) { res += x; }).then([n, &res] {
+            long expected = (n * (n - 1)) / 2;
+            BOOST_REQUIRE_EQUAL(res, expected);
+        });
+    });
+}
+
+SEASTAR_TEST_CASE(test_map_reduce_tuple) {
+    return do_with(0L, 0L, [] (auto& res0, auto& res1) {
+        long n = 10;
+        return map_reduce(boost::make_counting_iterator<long>(0), boost::make_counting_iterator<long>(n),
+                [] (long x) { return std::tuple<long, long>(x, -x); },
+                [&res0, &res1] (std::tuple<long, long> t) { res0 += std::get<0>(t); res1 += std::get<1>(t); }).then([n, &res0, &res1] {
+            long expected = (n * (n - 1)) / 2;
+            BOOST_REQUIRE_EQUAL(res0, expected);
+            BOOST_REQUIRE_EQUAL(res1, -expected);
+        });
+    });
+}
+
 // This test doesn't actually test anything - it just waits for the future
 // returned by sleep to complete. However, a bug we had in sleep() caused
 // this test to fail the sanitizer in the debug build, so this is a useful
