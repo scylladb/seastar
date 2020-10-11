@@ -105,11 +105,7 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
                     f.ignore_ready_future();
                     return std::move(rf);
                 } else {
-#if SEASTAR_API_LEVEL < 5
-                    return futurize_apply(*r_ptr, std::move(f.get()));
-#else
-                    return futurize_invoke(*r_ptr, std::move(f.get()));
-#endif
+                    return futurize_invoke(*r_ptr, std::move(f.get0()));
                 }
             });
         });
