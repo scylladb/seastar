@@ -676,3 +676,38 @@ SEASTAR_TEST_CASE(test_nowait_flag_correctness) {
         }
     });
 }
+
+SEASTAR_TEST_CASE(test_destruct_just_constructed_append_challenged_file) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        sstring filename = (t.get_path() / "testfile.tmp").native();
+        auto oflags = open_flags::rw | open_flags::create;
+        auto f = open_file_dma(filename, oflags).get0();
+    });
+}
+
+SEASTAR_TEST_CASE(test_destruct_append_challenged_file_after_write) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        sstring filename = (t.get_path() / "testfile.tmp").native();
+        auto buf = allocate_aligned_buffer<unsigned char>(4096, 4096);
+        std::fill(buf.get(), buf.get() + 4096, 0);
+
+        auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get0();
+        f.dma_write(0, buf.get(), 4096).get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_destruct_append_challenged_file_after_read) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        sstring filename = (t.get_path() / "testfile.tmp").native();
+        auto buf = allocate_aligned_buffer<unsigned char>(4096, 4096);
+        std::fill(buf.get(), buf.get() + 4096, 0);
+
+        auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get0();
+        f.dma_write(0, buf.get(), 4096).get();
+        f.flush().get0();
+        f.close().get();
+
+        f = open_file_dma(filename, open_flags::rw).get0();
+        f.dma_read(0, buf.get(), 4096).get();
+    });
+}
