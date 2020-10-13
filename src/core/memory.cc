@@ -198,7 +198,7 @@ class page_list_link {
     uint32_t _prev;
     uint32_t _next;
     friend class page_list;
-    friend void on_allocation_failure(size_t);
+    friend internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_buf::inserter_iterator);
 };
 
 static char* mem_base() {
@@ -287,7 +287,7 @@ public:
         }
         _front = ary[_front].link._next;
     }
-    friend void on_allocation_failure(size_t);
+    friend internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_buf::inserter_iterator);
 };
 
 class small_pool {
@@ -317,7 +317,7 @@ public:
 private:
     void add_more_objects();
     void trim_free_list();
-    friend void on_allocation_failure(size_t);
+    friend internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_buf::inserter_iterator);
 };
 
 // index 0b0001'1100 -> size (1 << 4) + 0b11 << (4 - 2)
@@ -1447,6 +1447,118 @@ void enable_abort_on_allocation_failure() {
     abort_on_allocation_failure.store(true, std::memory_order_seq_cst);
 }
 
+struct human_readable_value {
+    uint16_t value;  // [0, 1024)
+    char suffix; // 0 -> no suffix
+};
+
+std::ostream& operator<<(std::ostream& os, const human_readable_value& val) {
+    os << val.value;
+    if (val.suffix) {
+        os << val.suffix;
+    }
+    return os;
+}
+
+static human_readable_value to_human_readable_value(uint64_t value, uint64_t step, uint64_t precision, const std::array<char, 5>& suffixes) {
+    if (!value) {
+        return {0, suffixes[0]};
+    }
+
+    uint64_t result = value;
+    uint64_t remainder = 0;
+    unsigned i = 0;
+    // If there is no remainder we go below precision because we don't loose any.
+    while (((!remainder && result >= step) || result >= precision)) {
+        remainder = result % step;
+        result /= step;
+        if (i == suffixes.size()) {
+            break;
+        } else {
+            ++i;
+        }
+    }
+    return {uint16_t(remainder < (step / 2) ? result : result + 1), suffixes[i]};
+}
+
+static human_readable_value to_hr_size(uint64_t size) {
+    const std::array<char, 5> suffixes = {'B', 'K', 'M', 'G', 'T'};
+    return to_human_readable_value(size, 1024, 8192, suffixes);
+}
+
+static human_readable_value to_hr_number(uint64_t number) {
+    const std::array<char, 5> suffixes = {'\0', 'k', 'm', 'b', 't'};
+    return to_human_readable_value(number, 1000, 10000, suffixes);
+}
+
+internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_buf::inserter_iterator it) {
+    auto free_mem = cpu_mem.nr_free_pages * page_size;
+    auto total_mem = cpu_mem.nr_pages * page_size;
+    it = fmt::format_to(it, "Dumping seastar memory diagnostics\n");
+
+    it = fmt::format_to(it, "Used memory: {} Free memory: {} Total memory: {}\n", total_mem - free_mem, free_mem, total_mem);
+
+    it = fmt::format_to(it, "Small pools:\n");
+    it = fmt::format_to(it, "objsz\tspansz\tusedobj\tmemory\tunused\twst%\n");
+    for (unsigned i = 0; i < cpu_mem.small_pools.nr_small_pools; i++) {
+        auto& sp = cpu_mem.small_pools[i];
+        // We don't use pools too small to fit a free_object, so skip these, they
+        // are always empty.
+        if (sp.object_size() < sizeof(free_object)) {
+            continue;
+        }
+        auto use_count = sp._pages_in_use * page_size / sp.object_size() - sp._free_count;
+        auto memory = sp._pages_in_use * page_size;
+        const auto unused = sp._free_count * sp.object_size();
+        const auto wasted_percent = memory ? unused * 100 / memory : 0;
+        it = fmt::format_to(it,
+                "{}\t{}\t{}\t{}\t{}\t{}\n",
+                sp.object_size(),
+                to_hr_size(sp._span_sizes.preferred * page_size),
+                to_hr_number(use_count),
+                to_hr_size(memory),
+                to_hr_size(unused),
+                unsigned(wasted_percent));
+    }
+    it = fmt::format_to(it, "Page spans:\n");
+    it = fmt::format_to(it, "index\tsize\tfree\tused\tspans\n");
+
+    std::array<uint32_t, cpu_pages::nr_span_lists> span_size_histogram;
+    span_size_histogram.fill(0);
+
+    for (unsigned i = 0; i < cpu_mem.nr_pages;) {
+        const auto span_size = cpu_mem.pages[i].span_size;
+        if (!span_size) {
+            ++i;
+            continue;
+        }
+        ++span_size_histogram[log2ceil(span_size)];
+        i += span_size;
+    }
+
+    for (unsigned i = 0; i< cpu_mem.nr_span_lists; i++) {
+        auto& span_list = cpu_mem.free_spans[i];
+        auto front = span_list._front;
+        uint32_t free_pages = 0;
+        while(front) {
+            auto& span = cpu_mem.pages[front];
+            free_pages += span.span_size;
+            front = span.link._next;
+        }
+        const auto total_spans = span_size_histogram[i];
+        const auto total_pages = total_spans * (1 << i);
+        it = fmt::format_to(it,
+                "{}\t{}\t{}\t{}\t{}\n",
+                i,
+                to_hr_size((uint64_t(1) << i) * page_size),
+                to_hr_size(total_pages * page_size),
+                to_hr_size((total_pages - free_pages) * page_size),
+                to_hr_number(total_spans));
+    }
+
+    return it;
+}
+
 void on_allocation_failure(size_t size) {
     if (!report_on_alloc_failure_suppressed &&
             // report even suppressed failures if trace level is enabled
@@ -1454,31 +1566,10 @@ void on_allocation_failure(size_t size) {
                     (seastar_memory_logger.is_enabled(seastar::log_level::debug) && !abort_on_alloc_failure_suppressed))) {
         disable_report_on_alloc_failure_temporarily guard;
         seastar_memory_logger.debug("Failed to allocate {} bytes at {}", size, current_backtrace());
-        auto free_mem = cpu_mem.nr_free_pages * page_size;
-        auto total_mem = cpu_mem.nr_pages * page_size;
-        seastar_memory_logger.debug("Used memory: {} Free memory: {} Total memory: {}", total_mem - free_mem, free_mem, total_mem);
-        seastar_memory_logger.debug("Small pools:");
-        seastar_memory_logger.debug("objsz spansz usedobj   memory       wst%");
-        for (unsigned i = 0; i < cpu_mem.small_pools.nr_small_pools; i++) {
-            auto& sp = cpu_mem.small_pools[i];
-            auto use_count = sp._pages_in_use * page_size / sp.object_size() - sp._free_count;
-            auto memory = sp._pages_in_use * page_size;
-            auto wasted_percent = memory ? sp._free_count * sp.object_size() * 100.0 / memory : 0;
-            seastar_memory_logger.debug("{} {} {} {} {}", sp.object_size(), sp._span_sizes.preferred * page_size, use_count, memory, wasted_percent);
-        }
-        seastar_memory_logger.debug("Page spans:");
-        seastar_memory_logger.debug("index size [B]     free [B]");
-        for (unsigned i = 0; i< cpu_mem.nr_span_lists; i++) {
-            auto& span_list = cpu_mem.free_spans[i];
-            auto front = span_list._front;
-            uint32_t total = 0;
-            while(front) {
-                auto& span = cpu_mem.pages[front];
-                total += span.span_size;
-                front = span.link._next;
-            }
-            seastar_memory_logger.debug("{} {} {}", i, (1<<i) * page_size, total * page_size);
-        }
+        logger::lambda_log_writer writer([size] (internal::log_buf::inserter_iterator it) {
+            return do_dump_memory_diagnostics(it);
+        });
+        seastar_memory_logger.log(log_level::debug, writer);
     }
 
     if (!abort_on_alloc_failure_suppressed

@@ -584,6 +584,7 @@ add_library (seastar STATIC
   include/seastar/util/is_smart_ptr.hh
   include/seastar/util/lazy.hh
   include/seastar/util/log-cli.hh
+  include/seastar/util/log-impl.hh
   include/seastar/util/log.hh
   include/seastar/util/noncopyable_function.hh
   include/seastar/util/optimized_optional.hh
