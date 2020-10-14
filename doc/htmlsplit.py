@@ -154,6 +154,7 @@ for e in next(tree.iterfind('./body')):
         assert titles
         assert sections
         if chap_num > 0:
+            add_nav_to_body(chap_tree, chap_num)
             chap_tree.write(os.path.join(args.output_dir, f'{chap_num}.html'),
                             method='html')
         chap_num = get_chap_num(e)
@@ -165,5 +166,6 @@ for e in next(tree.iterfind('./body')):
         fix_links(e)
         add_elem_to_body(chap_tree, e)
 
+add_nav_to_body(chap_tree, chap_num)
 chap_tree.write(os.path.join(args.output_dir, f'{chap_num}.html'),
                 method='html')
