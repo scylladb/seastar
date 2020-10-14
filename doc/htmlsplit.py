@@ -37,9 +37,16 @@ titles = {}
 sections = {}
 
 
-def add_prologue(chap_num, body):
-    p = ElementTree.SubElement(body, 'p')
-    e = ElementTree.SubElement(p, 'a',
+def add_elem_to_body(tree, e):
+    body = next(tree.iterfind('./body'))
+    body.append(e)
+
+
+def add_nav_to_body(tree, chap_num):
+    body = next(tree.iterfind('./body'))
+
+    nav = ElementTree.SubElement(body, 'div')
+    e = ElementTree.SubElement(nav, 'a',
                                href='index.html')
     e.text = 'Back to table of contents'
     e.tail = '.'
@@ -47,7 +54,7 @@ def add_prologue(chap_num, body):
     if prev_index > 0:
         e.tail += " Previous: "
         prev_title = titles[prev_index]
-        e = ElementTree.SubElement(p, 'a',
+        e = ElementTree.SubElement(nav, 'a',
                                    href=f'{prev_index}.html')
         e.text = f'{prev_index} {prev_title}'
         e.tail = '.'
@@ -55,7 +62,7 @@ def add_prologue(chap_num, body):
     if next_index < len(titles) - 1:
         e.tail += " Next: "
         next_title = titles[next_index]
-        e = ElementTree.SubElement(p, 'a',
+        e = ElementTree.SubElement(nav, 'a',
                                    href=f'{next_index}.html')
         e.text = f'{next_index} {next_title}'
         e.tail = '.'
@@ -111,6 +118,7 @@ def get_chap_num(element):
         return int(data_num)
     assert data_num, "section number not found"
 
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--input')
 parser.add_argument('--output-dir')
@@ -139,8 +147,7 @@ for e in next(tree.iterfind('./body')):
         handle_toc(e)
         fix_links(e)
         toc_tree = ElementTree.ElementTree(copy.deepcopy(template))
-        body = next(toc_tree.iterfind('./body'))
-        body.append(e)
+        add_elem_to_body(toc_tree, e)
         toc_tree.write(os.path.join(args.output_dir, 'index.html'),
                        method='html')
     elif e.tag == 'h1':
@@ -151,14 +158,12 @@ for e in next(tree.iterfind('./body')):
                             method='html')
         chap_num = get_chap_num(e)
         chap_tree = ElementTree.ElementTree(copy.deepcopy(template))
-        body = next(chap_tree.iterfind('./body'))
-        add_prologue(chap_num, body)
-        body.append(e)
+        add_nav_to_body(chap_tree, chap_num)
+        add_elem_to_body(chap_tree, e)
     else:
         assert chap_tree is not None
         fix_links(e)
-        body = next(chap_tree.iterfind('./body'))
-        body.append(e)
+        add_elem_to_body(chap_tree, e)
 
 chap_tree.write(os.path.join(args.output_dir, f'{chap_num}.html'),
                 method='html')
