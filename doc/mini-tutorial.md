@@ -179,7 +179,7 @@ This is shown below:
 
 ```C++
 
-future<my_type> my_future();
+future<my_type> receive();
 
 void f() {
     receive().then_wrapped([] (future<my_type> f) {
