@@ -129,7 +129,7 @@ private:
     struct entry {
         promise<> pr;
         size_t nr;
-        entry(promise<>&& pr_, size_t nr_) : pr(std::move(pr_)), nr(nr_) {}
+        entry(promise<>&& pr_, size_t nr_) noexcept : pr(std::move(pr_)), nr(nr_) {}
     };
     struct expiry_handler : public exception_factory {
         expiry_handler() = default;
@@ -227,7 +227,7 @@ public:
     /// the amount requested.
     ///
     /// \param nr Number of units to deposit (default 1).
-    void signal(size_t nr = 1) {
+    void signal(size_t nr = 1) noexcept {
         if (_ex) {
             return;
         }
