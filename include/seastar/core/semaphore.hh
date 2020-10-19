@@ -38,9 +38,7 @@ namespace seastar {
 class broken_semaphore : public std::exception {
 public:
     /// Reports the exception reason.
-    virtual const char* what() const noexcept {
-        return "Semaphore broken";
-    }
+    virtual const char* what() const noexcept;
 };
 
 /// Exception thrown when a semaphore wait operation
@@ -50,9 +48,7 @@ public:
 class semaphore_timed_out : public std::exception {
 public:
     /// Reports the exception reason.
-    virtual const char* what() const noexcept {
-        return "Semaphore timedout";
-    }
+    virtual const char* what() const noexcept;
 };
 
 /// Exception Factory for standard semaphore
@@ -60,42 +56,30 @@ public:
 /// constructs standard semaphore exceptions
 /// \see semaphore_timed_out and broken_semaphore
 struct semaphore_default_exception_factory {
-    static semaphore_timed_out timeout() {
-        return semaphore_timed_out();
-    }
-    static broken_semaphore broken() {
-        return broken_semaphore();
-    }
+    static semaphore_timed_out timeout();
+    static broken_semaphore broken();
 };
 
 class named_semaphore_timed_out : public semaphore_timed_out {
     sstring _msg;
 public:
     named_semaphore_timed_out(std::string_view msg);
-    virtual const char* what() const noexcept {
-        return _msg.c_str();
-    }
+    virtual const char* what() const noexcept;
 };
 
 class broken_named_semaphore : public broken_semaphore {
     sstring _msg;
 public:
     broken_named_semaphore(std::string_view msg);
-    virtual const char* what() const noexcept {
-        return _msg.c_str();
-    }
+    virtual const char* what() const noexcept;
 };
 
 // A factory of semaphore exceptions that contain additional context: the semaphore name
 // auto sem = named_semaphore(0, named_semaphore_exception_factory{"file_opening_limit_semaphore"});
 struct named_semaphore_exception_factory {
     sstring name;
-    named_semaphore_timed_out timeout() {
-        return named_semaphore_timed_out(name);
-    }
-    broken_named_semaphore broken() {
-        return broken_named_semaphore(name);
-    }
+    named_semaphore_timed_out timeout();
+    broken_named_semaphore broken();
 };
 
 /// \brief Counted resource guard.

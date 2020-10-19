@@ -125,10 +125,4 @@ future<> sleep_abortable(typename Clock::duration dur, abort_source& as) {
 template future<> sleep_abortable<steady_clock_type>(typename steady_clock_type::duration, abort_source&);
 template future<> sleep_abortable<lowres_clock>(typename lowres_clock::duration, abort_source&);
 
-named_semaphore_timed_out::named_semaphore_timed_out(std::string_view msg) : _msg(format("Semaphore timed out: {}", msg)) {
-}
-
-broken_named_semaphore::broken_named_semaphore(std::string_view msg) : _msg(format("Semaphore broken: {}", msg)) {
-}
-
 }
