@@ -2263,12 +2263,12 @@ reactor::expire_manual_timers() noexcept {
 }
 
 void
-manual_clock::expire_timers() {
+manual_clock::expire_timers() noexcept {
     local_engine->expire_manual_timers();
 }
 
 void
-manual_clock::advance(manual_clock::duration d) {
+manual_clock::advance(manual_clock::duration d) noexcept {
     _now.fetch_add(d.count());
     if (local_engine) {
         schedule_urgent(make_task(default_scheduling_group(), &manual_clock::expire_timers));
