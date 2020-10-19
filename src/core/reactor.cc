@@ -2239,13 +2239,13 @@ reactor::flush_tcp_batches() {
 }
 
 bool
-reactor::do_expire_lowres_timers() {
+reactor::do_expire_lowres_timers() noexcept {
     if (_lowres_next_timeout == lowres_clock::time_point()) {
         return false;
     }
     auto now = lowres_clock::now();
     if (now >= _lowres_next_timeout) {
-        complete_timers(_lowres_timers, _expired_lowres_timers, [this] {
+        complete_timers(_lowres_timers, _expired_lowres_timers, [this] () noexcept {
             if (!_lowres_timers.empty()) {
                 _lowres_next_timeout = _lowres_timers.get_next_timeout();
             } else {
@@ -2258,8 +2258,8 @@ reactor::do_expire_lowres_timers() {
 }
 
 void
-reactor::expire_manual_timers() {
-    complete_timers(_manual_timers, _expired_manual_timers, [] {});
+reactor::expire_manual_timers() noexcept {
+    complete_timers(_manual_timers, _expired_manual_timers, [] () noexcept {});
 }
 
 void
@@ -2278,7 +2278,7 @@ manual_clock::advance(manual_clock::duration d) {
 }
 
 bool
-reactor::do_check_lowres_timers() const {
+reactor::do_check_lowres_timers() const noexcept {
     if (_lowres_next_timeout == lowres_clock::time_point()) {
         return false;
     }
@@ -2612,8 +2612,8 @@ reactor::activate(task_queue& tq) {
     _activating_task_queues.push_back(&tq);
 }
 
-void reactor::service_highres_timer() {
-    complete_timers(_timers, _expired_timers, [this] {
+void reactor::service_highres_timer() noexcept {
+    complete_timers(_timers, _expired_timers, [this] () noexcept {
         if (!_timers.empty()) {
             enable_timer(_timers.get_next_timeout());
         }

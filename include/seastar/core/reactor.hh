@@ -358,9 +358,9 @@ private:
     bool flush_pending_aio();
     bool reap_kernel_completions();
     bool flush_tcp_batches();
-    bool do_expire_lowres_timers();
-    bool do_check_lowres_timers() const;
-    void expire_manual_timers();
+    bool do_expire_lowres_timers() noexcept;
+    bool do_check_lowres_timers() const noexcept;
+    void expire_manual_timers() noexcept;
     void start_aio_eventfd_loop();
     void stop_aio_eventfd_loop();
     template <typename T, typename E, typename EnableFunc>
@@ -427,7 +427,7 @@ private:
     void request_preemption();
     void start_handling_signal();
     void reset_preemption_monitor();
-    void service_highres_timer();
+    void service_highres_timer() noexcept;
 
     future<std::tuple<pollable_fd, socket_address>>
     do_accept(pollable_fd_state& listen_fd);
