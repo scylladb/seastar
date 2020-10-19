@@ -183,6 +183,17 @@ public:
     void arm_periodic(duration delta) noexcept {
         arm(Clock::now() + delta, {delta});
     }
+    /// Sets the timer expiration time, with automatic rearming.
+    /// If the timer was already armed, it is canceled first.
+    ///
+    /// \param delta the time when the timer expires, relative to now. The timer
+    ///        will also rearm automatically using the same delta time.
+    void rearm_periodic(duration delta) noexcept {
+        if (_armed) {
+            cancel();
+        }
+        arm_periodic(delta);
+    }
     /// Returns whether the timer is armed
     ///
     /// \return `true` if the timer is armed and has not expired yet.
