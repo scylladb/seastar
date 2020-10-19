@@ -1668,7 +1668,7 @@ void on_allocation_failure(size_t size) {
                     (seastar_memory_logger.is_enabled(seastar::log_level::debug) && !abort_on_alloc_failure_suppressed))) {
         disable_report_on_alloc_failure_temporarily guard;
         seastar_memory_logger.debug("Failed to allocate {} bytes at {}", size, current_backtrace());
-        logger::lambda_log_writer writer([size] (internal::log_buf::inserter_iterator it) {
+        logger::lambda_log_writer writer([] (internal::log_buf::inserter_iterator it) {
             return do_dump_memory_diagnostics(it);
         });
         seastar_memory_logger.log(log_level::debug, writer);
