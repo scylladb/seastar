@@ -139,15 +139,15 @@ private:
         }
     };
     expiring_fifo<entry, expiry_handler, clock> _wait_list;
-    bool has_available_units(size_t nr) const {
+    bool has_available_units(size_t nr) const noexcept {
         return _count >= 0 && (static_cast<size_t>(_count) >= nr);
     }
-    bool may_proceed(size_t nr) const {
+    bool may_proceed(size_t nr) const noexcept {
         return has_available_units(nr) && _wait_list.empty();
     }
 public:
     /// Returns the maximum number of units the semaphore counter can hold
-    static constexpr size_t max_counter() {
+    static constexpr size_t max_counter() noexcept {
         return std::numeric_limits<decltype(_count)>::max();
     }
 
@@ -264,7 +264,7 @@ public:
     ///
     /// \param nr number of units to reduce the counter by (default 1).
     /// \return `true` if the counter had sufficient units, and was decremented.
-    bool try_wait(size_t nr = 1) {
+    bool try_wait(size_t nr = 1) noexcept {
         if (may_proceed(nr)) {
             _count -= nr;
             return true;
@@ -275,16 +275,16 @@ public:
     /// Returns the number of units available in the counter.
     ///
     /// Does not take into account any waiters.
-    size_t current() const { return std::max(_count, ssize_t(0)); }
+    size_t current() const noexcept { return std::max(_count, ssize_t(0)); }
 
     /// Returns the number of available units.
     ///
     /// Takes into account units consumed using \ref consume() and therefore
     /// may return a negative value.
-    ssize_t available_units() const { return _count; }
+    ssize_t available_units() const noexcept { return _count; }
 
     /// Returns the current number of waiters
-    size_t waiters() const { return _wait_list.size(); }
+    size_t waiters() const noexcept { return _wait_list.size(); }
 
     /// Signal to waiters that an error occurred.  \ref wait() will see
     /// an exceptional future<> containing a \ref broken_semaphore exception.
