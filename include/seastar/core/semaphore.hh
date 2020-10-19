@@ -63,14 +63,14 @@ struct semaphore_default_exception_factory {
 class named_semaphore_timed_out : public semaphore_timed_out {
     sstring _msg;
 public:
-    named_semaphore_timed_out(std::string_view msg);
+    named_semaphore_timed_out(std::string_view msg) noexcept;
     virtual const char* what() const noexcept;
 };
 
 class broken_named_semaphore : public broken_semaphore {
     sstring _msg;
 public:
-    broken_named_semaphore(std::string_view msg);
+    broken_named_semaphore(std::string_view msg) noexcept;
     virtual const char* what() const noexcept;
 };
 
@@ -78,8 +78,8 @@ public:
 // auto sem = named_semaphore(0, named_semaphore_exception_factory{"file_opening_limit_semaphore"});
 struct named_semaphore_exception_factory {
     sstring name;
-    named_semaphore_timed_out timeout();
-    broken_named_semaphore broken();
+    named_semaphore_timed_out timeout() const noexcept;
+    broken_named_semaphore broken() const noexcept;
 };
 
 /// \brief Counted resource guard.

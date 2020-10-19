@@ -53,25 +53,42 @@ broken_semaphore semaphore_default_exception_factory::broken() noexcept {
 // A factory of semaphore exceptions that contain additional context: the semaphore name
 // auto sem = named_semaphore(0, named_semaphore_exception_factory{"file_opening_limit_semaphore"});
 
-named_semaphore_timed_out::named_semaphore_timed_out(std::string_view msg) : _msg(format("Semaphore timed out: {}", msg)) {
+static_assert(std::is_nothrow_default_constructible_v<named_semaphore_exception_factory>);
+static_assert(std::is_nothrow_move_constructible_v<named_semaphore_exception_factory>);
+
+named_semaphore_timed_out::named_semaphore_timed_out(std::string_view msg) noexcept : _msg() {
+    try {
+        memory::disable_failure_guard dfg;
+        _msg = format("Semaphore timed out: {}", msg);
+    } catch (...) {
+        // ignore, empty _msg will generate a static message in what().
+    }
 }
 
-broken_named_semaphore::broken_named_semaphore(std::string_view msg) : _msg(format("Semaphore broken: {}", msg)) {
+broken_named_semaphore::broken_named_semaphore(std::string_view msg) noexcept : _msg() {
+    try {
+        memory::disable_failure_guard dfg;
+        _msg = format("Semaphore broken: {}", msg);
+    } catch (...) {
+        // ignore, empty _msg will generate a static message in what().
+    }
 }
 
 const char* named_semaphore_timed_out::what() const noexcept {
-    return _msg.c_str();
+    // return a static message if generating the dynamic message failed.
+    return _msg.empty() ? "Named semaphore timed out" : _msg.c_str();
 }
 
 const char* broken_named_semaphore::what() const noexcept {
-    return _msg.c_str();
+    // return a static message if generating the dynamic message failed.
+    return _msg.empty() ? "Broken named semaphore" : _msg.c_str();
 }
 
-named_semaphore_timed_out named_semaphore_exception_factory::timeout() {
+named_semaphore_timed_out named_semaphore_exception_factory::timeout() const noexcept {
     return named_semaphore_timed_out(name);
 }
 
-broken_named_semaphore named_semaphore_exception_factory::broken() {
+broken_named_semaphore named_semaphore_exception_factory::broken() const noexcept {
     return broken_named_semaphore(name);
 }
 
