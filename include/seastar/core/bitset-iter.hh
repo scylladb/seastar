@@ -83,6 +83,20 @@ size_t count_trailing_zeros<long>(long value) noexcept
     return __builtin_ctzl((unsigned long)value);
 }
 
+template<>
+inline
+size_t count_trailing_zeros<unsigned long long>(unsigned long long value) noexcept
+{
+    return __builtin_ctzll(value);
+}
+
+template<>
+inline
+size_t count_trailing_zeros<long long>(long long value) noexcept
+{
+    return __builtin_ctzll((unsigned long long)value);
+}
+
 /**
  * Returns the index of the first set bit.
  * Result is undefined if bitset.any() == false.
