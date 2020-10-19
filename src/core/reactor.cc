@@ -1995,7 +1995,7 @@ void reactor::add_timer(timer<steady_clock_type>* tmr) {
     }
 }
 
-bool reactor::queue_timer(timer<steady_clock_type>* tmr) {
+bool reactor::queue_timer(timer<steady_clock_type>* tmr) noexcept {
     return _timers.insert(*tmr);
 }
 
@@ -2014,7 +2014,7 @@ void reactor::add_timer(timer<lowres_clock>* tmr) {
     }
 }
 
-bool reactor::queue_timer(timer<lowres_clock>* tmr) {
+bool reactor::queue_timer(timer<lowres_clock>* tmr) noexcept {
     return _lowres_timers.insert(*tmr);
 }
 
@@ -2031,7 +2031,7 @@ void reactor::add_timer(timer<manual_clock>* tmr) {
     queue_timer(tmr);
 }
 
-bool reactor::queue_timer(timer<manual_clock>* tmr) {
+bool reactor::queue_timer(timer<manual_clock>* tmr) noexcept {
     return _manual_timers.insert(*tmr);
 }
 
