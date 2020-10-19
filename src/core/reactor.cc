@@ -1202,7 +1202,7 @@ cpu_stall_detector::generate_trace() {
 }
 
 template <typename T, typename E, typename EnableFunc>
-void reactor::complete_timers(T& timers, E& expired_timers, EnableFunc&& enable_fn) {
+void reactor::complete_timers(T& timers, E& expired_timers, EnableFunc&& enable_fn) noexcept(noexcept(enable_fn())) {
     expired_timers = timers.expire(timers.now());
     for (auto& t : expired_timers) {
         t._expired = true;
