@@ -683,7 +683,7 @@ public:
     future<> readable_or_writeable(pollable_fd_state& fd);
     void abort_reader(pollable_fd_state& fd);
     void abort_writer(pollable_fd_state& fd);
-    void enable_timer(steady_clock_type::time_point when);
+    void enable_timer(steady_clock_type::time_point when) noexcept;
     /// Sets the "Strict DMA" flag.
     ///
     /// When true (default), file I/O operations must use DMA.  This is

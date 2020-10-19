@@ -1973,7 +1973,9 @@ reactor::fdatasync(int fd) noexcept {
     });
 }
 
-void reactor::enable_timer(steady_clock_type::time_point when)
+// Note: terminate if arm_highres_timer throws
+// `when` should always be valid
+void reactor::enable_timer(steady_clock_type::time_point when) noexcept
 {
 #ifndef HAVE_OSV
     itimerspec its;
