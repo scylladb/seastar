@@ -56,8 +56,8 @@ public:
 /// constructs standard semaphore exceptions
 /// \see semaphore_timed_out and broken_semaphore
 struct semaphore_default_exception_factory {
-    static semaphore_timed_out timeout();
-    static broken_semaphore broken();
+    static semaphore_timed_out timeout() noexcept;
+    static broken_semaphore broken() noexcept;
 };
 
 class named_semaphore_timed_out : public semaphore_timed_out {

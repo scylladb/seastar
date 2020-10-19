@@ -36,7 +36,6 @@
 using namespace seastar;
 using namespace std::chrono_literals;
 
-
 SEASTAR_TEST_CASE(test_semaphore_consume) {
     semaphore sem(0);
     sem.consume(1);

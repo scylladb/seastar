@@ -29,6 +29,9 @@ namespace seastar {
 // constructs standard semaphore exceptions
 // \see semaphore_timed_out and broken_semaphore
 
+static_assert(std::is_nothrow_default_constructible_v<semaphore_default_exception_factory>);
+static_assert(std::is_nothrow_move_constructible_v<semaphore_default_exception_factory>);
+
 const char* broken_semaphore::what() const noexcept {
     return "Semaphore broken";
 }
@@ -37,11 +40,13 @@ const char* semaphore_timed_out::what() const noexcept {
     return "Semaphore timedout";
 }
 
-semaphore_timed_out semaphore_default_exception_factory::timeout() {
+semaphore_timed_out semaphore_default_exception_factory::timeout() noexcept {
+    static_assert(std::is_nothrow_default_constructible_v<semaphore_timed_out>);
     return semaphore_timed_out();
 }
 
-broken_semaphore semaphore_default_exception_factory::broken() {
+broken_semaphore semaphore_default_exception_factory::broken() noexcept {
+    static_assert(std::is_nothrow_default_constructible_v<broken_semaphore>);
     return broken_semaphore();
 }
 
