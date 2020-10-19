@@ -286,20 +286,28 @@ public:
     /// Signal to waiters that an error occurred.  \ref wait() will see
     /// an exceptional future<> containing a \ref broken_semaphore exception.
     /// The future is made available immediately.
-    void broken() { broken(std::make_exception_ptr(exception_factory::broken())); }
+    void broken() noexcept {
+        std::exception_ptr ep;
+        try {
+            ep = std::make_exception_ptr(exception_factory::broken());
+        } catch (...) {
+            ep = std::make_exception_ptr(broken_semaphore());
+        }
+        broken(std::move(ep));
+    }
 
     /// Signal to waiters that an error occurred.  \ref wait() will see
     /// an exceptional future<> containing the provided exception parameter.
     /// The future is made available immediately.
     template <typename Exception>
-    void broken(const Exception& ex) {
+    void broken(const Exception& ex) noexcept {
         broken(std::make_exception_ptr(ex));
     }
 
     /// Signal to waiters that an error occurred.  \ref wait() will see
     /// an exceptional future<> containing the provided exception parameter.
     /// The future is made available immediately.
-    void broken(std::exception_ptr ex);
+    void broken(std::exception_ptr ex) noexcept;
 
     /// Reserve memory for waiters so that wait() will not throw.
     void ensure_space_for_waiters(size_t n) {
@@ -310,7 +318,8 @@ public:
 template<typename ExceptionFactory, typename Clock>
 inline
 void
-basic_semaphore<ExceptionFactory, Clock>::broken(std::exception_ptr xp) {
+basic_semaphore<ExceptionFactory, Clock>::broken(std::exception_ptr xp) noexcept {
+    static_assert(std::is_nothrow_copy_constructible_v<std::exception_ptr>);
     _ex = xp;
     _count = 0;
     while (!_wait_list.empty()) {
