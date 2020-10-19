@@ -54,12 +54,12 @@ private:
 
     std::bitset<n_buckets> _non_empty_buckets;
 private:
-    static timestamp_t get_timestamp(time_point _time_point)
+    static timestamp_t get_timestamp(time_point _time_point) noexcept
     {
         return _time_point.time_since_epoch().count();
     }
 
-    static timestamp_t get_timestamp(Timer& timer)
+    static timestamp_t get_timestamp(Timer& timer) noexcept
     {
         return get_timestamp(timer.get_timeout());
     }
@@ -214,7 +214,7 @@ public:
      *
      * Returned values are monotonically increasing.
      */
-    time_point get_next_timeout() const
+    time_point get_next_timeout() const noexcept
     {
         return time_point(duration(std::max(_last, _next)));
     }
@@ -246,7 +246,7 @@ public:
         return _non_empty_buckets.none();
     }
 
-    time_point now() {
+    time_point now() noexcept {
         return Timer::clock::now();
     }
 };
