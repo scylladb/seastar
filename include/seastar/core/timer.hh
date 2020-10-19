@@ -90,7 +90,7 @@ private:
     bool _armed = false;
     bool _queued = false;
     bool _expired = false;
-    void readd_periodic();
+    void readd_periodic() noexcept;
     void arm_state(time_point until, std::optional<duration> period) noexcept {
         assert(!_armed);
         _period = period;
@@ -151,7 +151,7 @@ public:
     /// \param period optional automatic rearm duration; if given the timer
     ///        will automatically rearm itself when it expires, using the period
     ///        to calculate the next expiration time.
-    void arm(time_point until, std::optional<duration> period = {});
+    void arm(time_point until, std::optional<duration> period = {}) noexcept;
     /// Sets the timer expiration time. If the timer was already armed, it is
     /// canceled first.
     ///
@@ -159,7 +159,7 @@ public:
     /// \param period optional automatic rearm duration; if given the timer
     ///        will automatically rearm itself when it expires, using the period
     ///        to calculate the next expiration time.
-    void rearm(time_point until, std::optional<duration> period = {}) {
+    void rearm(time_point until, std::optional<duration> period = {}) noexcept {
         if (_armed) {
             cancel();
         }
@@ -173,14 +173,14 @@ public:
     /// rearm().
     ///
     /// \param delta the time when the timer expires, relative to now
-    void arm(duration delta) {
+    void arm(duration delta) noexcept {
         return arm(Clock::now() + delta);
     }
     /// Sets the timer expiration time, with automatic rearming
     ///
     /// \param delta the time when the timer expires, relative to now. The timer
     ///        will also rearm automatically using the same delta time.
-    void arm_periodic(duration delta) {
+    void arm_periodic(duration delta) noexcept {
         arm(Clock::now() + delta, {delta});
     }
     /// Returns whether the timer is armed

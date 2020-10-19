@@ -587,14 +587,14 @@ timer<Clock>::~timer() {
 
 template <typename Clock>
 inline
-void timer<Clock>::arm(time_point until, std::optional<duration> period) {
+void timer<Clock>::arm(time_point until, std::optional<duration> period) noexcept {
     arm_state(until, period);
     engine().add_timer(this);
 }
 
 template <typename Clock>
 inline
-void timer<Clock>::readd_periodic() {
+void timer<Clock>::readd_periodic() noexcept {
     arm_state(Clock::now() + _period.value(), {_period.value()});
     engine().queue_timer(this);
 }
