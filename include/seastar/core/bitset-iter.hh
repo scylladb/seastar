@@ -58,6 +58,12 @@ inline size_t count_leading_zeros<long>(long value) noexcept
 }
 
 template<>
+inline size_t count_leading_zeros<unsigned long long>(unsigned long long value) noexcept
+{
+    return __builtin_clzll(value);
+}
+
+template<>
 inline size_t count_leading_zeros<long long>(long long value) noexcept
 {
     return __builtin_clzll((unsigned long long)value) - 1;
