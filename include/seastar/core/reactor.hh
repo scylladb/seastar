@@ -623,13 +623,13 @@ private:
 
     future<> fdatasync(int fd) noexcept;
 
-    void add_timer(timer<steady_clock_type>*);
+    void add_timer(timer<steady_clock_type>*) noexcept;
     bool queue_timer(timer<steady_clock_type>*) noexcept;
     void del_timer(timer<steady_clock_type>*) noexcept;
-    void add_timer(timer<lowres_clock>*);
+    void add_timer(timer<lowres_clock>*) noexcept;
     bool queue_timer(timer<lowres_clock>*) noexcept;
     void del_timer(timer<lowres_clock>*) noexcept;
-    void add_timer(timer<manual_clock>*);
+    void add_timer(timer<manual_clock>*) noexcept;
     bool queue_timer(timer<manual_clock>*) noexcept;
     void del_timer(timer<manual_clock>*) noexcept;
 

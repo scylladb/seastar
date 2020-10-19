@@ -1991,7 +1991,7 @@ void reactor::enable_timer(steady_clock_type::time_point when) noexcept
 #endif
 }
 
-void reactor::add_timer(timer<steady_clock_type>* tmr) {
+void reactor::add_timer(timer<steady_clock_type>* tmr) noexcept {
     if (queue_timer(tmr)) {
         enable_timer(_timers.get_next_timeout());
     }
@@ -2010,7 +2010,7 @@ void reactor::del_timer(timer<steady_clock_type>* tmr) noexcept {
     }
 }
 
-void reactor::add_timer(timer<lowres_clock>* tmr) {
+void reactor::add_timer(timer<lowres_clock>* tmr) noexcept {
     if (queue_timer(tmr)) {
         _lowres_next_timeout = _lowres_timers.get_next_timeout();
     }
@@ -2029,7 +2029,7 @@ void reactor::del_timer(timer<lowres_clock>* tmr) noexcept {
     }
 }
 
-void reactor::add_timer(timer<manual_clock>* tmr) {
+void reactor::add_timer(timer<manual_clock>* tmr) noexcept {
     queue_timer(tmr);
 }
 
