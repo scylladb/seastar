@@ -34,9 +34,7 @@ namespace seastar {
 class broken_condition_variable : public std::exception {
 public:
     /// Reports the exception reason.
-    virtual const char* what() const noexcept {
-        return "Condition variable is broken";
-    }
+    virtual const char* what() const noexcept;
 };
 
 /// Exception thrown when wait() operation times out
@@ -44,9 +42,7 @@ public:
 class condition_variable_timed_out : public std::exception {
 public:
     /// Reports the exception reason.
-    virtual const char* what() const noexcept {
-        return "Condition variable timed out";
-    }
+    virtual const char* what() const noexcept;
 };
 
 /// \brief Conditional variable.
@@ -67,12 +63,8 @@ class condition_variable {
     using clock = semaphore::clock;
     using time_point = semaphore::time_point;
     struct condition_variable_exception_factory {
-        static condition_variable_timed_out timeout() {
-            return condition_variable_timed_out();
-        }
-        static broken_condition_variable broken() {
-            return broken_condition_variable();
-        }
+        static condition_variable_timed_out timeout() noexcept;
+        static broken_condition_variable broken() noexcept;
     };
     basic_semaphore<condition_variable_exception_factory> _sem;
 public:
