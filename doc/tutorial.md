@@ -765,6 +765,7 @@ We present `seastar::thread`, `seastar::async()` and `seastar::future::get()` in
 # Advanced futures
 ## Futures and interruption
 TODO: A future, e.g., sleep(10s) cannot be interrupted. So if we need to, the promise needs to have a mechanism to interrupt it. Mention pipe's close feature, semaphore stop feature, etc.
+
 ## Futures are single use
 TODO: Talk about if we have a `future<int>` variable, as soon as we `get()` or `then()` it, it becomes invalid - we need to store the value somewhere else. Think if there's an alternative we can suggest
 
@@ -777,6 +778,7 @@ TODO: Mention fiber-related sections like loops, semaphores, gates, pipes, etc.
 
 # Loops
 A majority of time-consuming computations involve using loops. Seastar provides several primitives for expressing them in a way that composes nicely with the future/promise model. A very important aspect of Seastar loop primitives is that each iteration is followed by a preemption point, thus allowing other tasks to run inbetween iterations.
+
 ## repeat
 A loop created with `repeat` executes its body until it receives a `stop_iteration` object, which informs if the iteration should continue (`stop_iteration::no`) or stop (`stop_iteration::yes`). Next iteration will be launched only after the first one has finished. The loop body passed to `repeat` is expected to have a `future<stop_iteration>` return type.
 ```cpp
@@ -838,6 +840,7 @@ seastar::future<> do_for_all(std::vector<int> numbers) {
         });
     });
 }
+```
 
 ## parallel_for_each
 Parallel for each is a high concurrency variant of `do_for_each`. When using `parallel_for_each`, all iterations are queued simultaneously - which means that there's no guarantee in which order they finish their operations.
@@ -1115,6 +1118,7 @@ seastar::future<> f() {
 ```
 
 Note how this code differs from the code we saw above for limiting the number of parallel invocations of a function `g()`:
+
 1. Here we cannot use a single `thread_local` semaphore. Each call to `f()` has its loop with parallelism of 100, so needs its own semaphore "`limit`", kept alive during the loop with `do_with()`.
 2. Here we do not wait for `slow()` to complete before continuing the loop, i.e., we do not `return` the future chain starting at `futurize_invoke(slow)`. The loop continues to the next iteration when a semaphore unit becomes available, while (in our example) 99 other operations might be ongoing in the background and we do not wait for them.
 
@@ -1281,6 +1285,7 @@ Now, just one second after gate is closed (after the "starting 5" message is pri
 # Introducing shared-nothing programming
 
 TODO: Explain in more detail Seastar's shared-nothing approach where the entire memory is divided up-front to cores, malloc/free and pointers only work on one core.
+
 TODO: Introduce our shared_ptr (and lw_shared_ptr) and sstring and say the standard ones use locked instructions which are unnecessary when we assume these objects (like all others) are for a single thread. Our futures and continuations do the same.
 
 
@@ -1332,6 +1337,7 @@ seastar::future<> service_loop() {
 ```
 
 This code works as follows:
+
 1. The ```listen()``` call creates a ```server_socket``` object, ```listener```, which listens on TCP port 1234 (on any network interface).
 2. We use ```do_with()``` to ensure that the listener socket lives throughout the loop.
 3. To handle one connection, we call ```listener```'s  ```accept()``` method. This method returns a ```future<accept_result>```, i.e., is eventually resolved with an incoming TCP connection from a client (```accept_result.connection```) and the client's IP address and port (```accept_result.remote_address```).
@@ -1556,6 +1562,7 @@ All Seastar applications accept a standard set of command-line arguments, such a
 TODO: list and explain more of these options.
 
 Every Seastar application also accepts the `-h` (or `--help`) option, which lists and explains all the available options --- the standard Seastar ones, and the user-defined ones as explained below.
+
 ## User-defined command-line options
 Seastar parses the command line options (`argv[]`) when it is passed to `app_template::run()`, looking for its own standard options. Therefore, it is not recommended that the application tries to parse `argv[]` on its own because the application might not understand some of the standard Seastar options and not be able to correctly skip them.
 
@@ -1853,6 +1860,7 @@ So `seastar::foreign_ptr<>` not only has functional benefits (namely, to run the
 Above, we discussed the case of transferring ownership of an object to a another shard, via `seastar::foreign_ptr<std::unique_ptr<T>>`. However, sometimes the sender does not want to relinquish ownership of the object. Sometimes, it wants the remote thread to operate on its object and return with the object intact. Sometimes, it wants to send the same object to multiple shards. In such cases, `seastar::foreign_ptr<seastar::lw_shared_ptr<T>> is useful. The user needs to watch out, of course, not to operate on the same object from multiple threads concurrently. If this cannot be ensured by program logic alone, some methods of serialization must be used - such as running the operations on the home shard with `submit_to()` as described above.
 
 Normally, a `seastar::foreign_ptr` cannot not be copied - only moved. However, when it holds a smart pointer that can be copied (namely, a `shared_ptr`), one may want to make an additional copy of that pointer and create a second `foreign_ptr`. Doing this is inefficient and asynchronous (it requires communicating with the original owner of the object to create the copies), so a method `future<foreign_ptr> copy()` needs to be explicitly used instead of the normal copy constructor.
+
 # Seastar::thread
 Seastar's programming model, using futures and continuations, is very powerful and efficient.  However, as we've already seen in examples above, it is also relatively verbose: Every time that we need to wait before proceeding with a computation, we need to write another continuation. We also need to worry about passing the data between the different continuations (using techniques like those described in the [Lifetime management] section). Simple flow-control constructs such as loops also become more involved using continuations. For example, consider this simple classical synchronous code:
 ```cpp
