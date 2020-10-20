@@ -51,7 +51,7 @@ def add_nav_to_body(tree, chap_num):
     e.text = 'Back to table of contents'
     e.tail = '.'
     prev_index = chap_num - 1
-    if prev_index > 0:
+    if prev_index in titles:
         e.tail += " Previous: "
         prev_title = titles[prev_index]
         e = ElementTree.SubElement(nav, 'a',
@@ -59,7 +59,7 @@ def add_nav_to_body(tree, chap_num):
         e.text = f'{prev_index} {prev_title}'
         e.tail = '.'
     next_index = chap_num + 1
-    if next_index < len(titles) - 1:
+    if next_index in titles:
         e.tail += " Next: "
         next_title = titles[next_index]
         e = ElementTree.SubElement(nav, 'a',
