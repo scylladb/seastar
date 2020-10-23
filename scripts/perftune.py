@@ -366,6 +366,14 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         self.__irq_cpu_mask = PerfTunerBase.irqs_cpu_mask_for_mode(self.__mode, self.__args.cpu_mask)
 
     @property
+    def cpu_mask(self):
+        """
+        Return the CPU mask we operate on (the total CPU set)
+        """
+
+        return self.__args.cpu_mask
+
+    @property
     def compute_cpu_mask(self):
         """
         Return the CPU mask to use for seastar application binding.
@@ -715,7 +723,7 @@ class NetPerfTuner(PerfTunerBase):
             perftune_print("Distributing all IRQs")
             distribute_irqs(all_irqs, self.irqs_cpu_mask)
 
-        self.__setup_rps(iface, self.compute_cpu_mask)
+        self.__setup_rps(iface, self.cpu_mask)
         self.__setup_xps(iface)
 
     def __setup_bonding_iface(self):
