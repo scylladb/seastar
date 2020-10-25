@@ -32,6 +32,11 @@ namespace seastar {
 static_assert(std::is_nothrow_default_constructible_v<semaphore_default_exception_factory>);
 static_assert(std::is_nothrow_move_constructible_v<semaphore_default_exception_factory>);
 
+static_assert(std::is_nothrow_constructible_v<semaphore, size_t>);
+static_assert(std::is_nothrow_constructible_v<semaphore, size_t, semaphore_default_exception_factory&&>);
+static_assert(std::is_nothrow_move_constructible_v<semaphore>);
+
+
 const char* broken_semaphore::what() const noexcept {
     return "Semaphore broken";
 }
@@ -55,6 +60,10 @@ broken_semaphore semaphore_default_exception_factory::broken() noexcept {
 
 static_assert(std::is_nothrow_default_constructible_v<named_semaphore_exception_factory>);
 static_assert(std::is_nothrow_move_constructible_v<named_semaphore_exception_factory>);
+
+static_assert(std::is_nothrow_constructible_v<named_semaphore, size_t>);
+static_assert(std::is_nothrow_constructible_v<named_semaphore, size_t, named_semaphore_exception_factory&&>);
+static_assert(std::is_nothrow_move_constructible_v<named_semaphore>);
 
 named_semaphore_timed_out::named_semaphore_timed_out(std::string_view msg) noexcept : _msg() {
     try {

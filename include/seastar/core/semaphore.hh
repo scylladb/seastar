@@ -115,14 +115,17 @@ private:
         size_t nr;
         entry(promise<>&& pr_, size_t nr_) noexcept : pr(std::move(pr_)), nr(nr_) {}
     };
-    struct expiry_handler : public exception_factory {
-        expiry_handler() = default;
-        expiry_handler(exception_factory&& f) : exception_factory(std::move(f)) { }
-        void operator()(entry& e) noexcept {
-            e.pr.set_exception(exception_factory::timeout());
-        }
-    };
+    using expiry_handler = std::function<void (entry&)>;
     expiring_fifo<entry, expiry_handler, clock> _wait_list;
+    expiry_handler make_expiry_handler() noexcept {
+        return [this] (entry& e) noexcept {
+            try {
+                e.pr.set_exception(exception_factory::timeout());
+            } catch (...) {
+                e.pr.set_exception(semaphore_timed_out());
+            }
+        };
+    }
     bool has_available_units(size_t nr) const noexcept {
         return _count >= 0 && (static_cast<size_t>(_count) >= nr);
     }
@@ -140,8 +143,18 @@ public:
     /// an unlocked mutex.
     ///
     /// \param count number of initial units present in the counter.
-    basic_semaphore(size_t count) : _count(count) {}
-    basic_semaphore(size_t count, exception_factory&& factory) : exception_factory(factory), _count(count), _wait_list(expiry_handler(std::move(factory))) {}
+    basic_semaphore(size_t count) noexcept(std::is_nothrow_default_constructible_v<exception_factory>)
+        : exception_factory()
+        , _count(count),
+        _wait_list(make_expiry_handler())
+    {}
+    basic_semaphore(size_t count, exception_factory&& factory) noexcept(std::is_nothrow_move_constructible_v<exception_factory>)
+        : exception_factory(std::move(factory))
+        , _count(count)
+        , _wait_list(make_expiry_handler())
+    {
+        static_assert(std::is_nothrow_move_constructible_v<expiry_handler>);
+    }
     /// Waits until at least a specific number of units are available in the
     /// counter, and reduces the counter by that amount of units.
     ///
