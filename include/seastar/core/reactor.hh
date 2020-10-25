@@ -358,13 +358,13 @@ private:
     bool flush_pending_aio();
     bool reap_kernel_completions();
     bool flush_tcp_batches();
-    bool do_expire_lowres_timers();
-    bool do_check_lowres_timers() const;
-    void expire_manual_timers();
+    bool do_expire_lowres_timers() noexcept;
+    bool do_check_lowres_timers() const noexcept;
+    void expire_manual_timers() noexcept;
     void start_aio_eventfd_loop();
     void stop_aio_eventfd_loop();
     template <typename T, typename E, typename EnableFunc>
-    void complete_timers(T&, E&, EnableFunc&& enable_fn);
+    void complete_timers(T&, E&, EnableFunc&& enable_fn) noexcept(noexcept(enable_fn()));
 
     /**
      * Returns TRUE if all pollers allow blocking.
@@ -427,7 +427,7 @@ private:
     void request_preemption();
     void start_handling_signal();
     void reset_preemption_monitor();
-    void service_highres_timer();
+    void service_highres_timer() noexcept;
 
     future<std::tuple<pollable_fd, socket_address>>
     do_accept(pollable_fd_state& listen_fd);
@@ -623,14 +623,14 @@ private:
 
     future<> fdatasync(int fd) noexcept;
 
-    void add_timer(timer<steady_clock_type>*);
-    bool queue_timer(timer<steady_clock_type>*);
+    void add_timer(timer<steady_clock_type>*) noexcept;
+    bool queue_timer(timer<steady_clock_type>*) noexcept;
     void del_timer(timer<steady_clock_type>*) noexcept;
-    void add_timer(timer<lowres_clock>*);
-    bool queue_timer(timer<lowres_clock>*);
+    void add_timer(timer<lowres_clock>*) noexcept;
+    bool queue_timer(timer<lowres_clock>*) noexcept;
     void del_timer(timer<lowres_clock>*) noexcept;
-    void add_timer(timer<manual_clock>*);
-    bool queue_timer(timer<manual_clock>*);
+    void add_timer(timer<manual_clock>*) noexcept;
+    bool queue_timer(timer<manual_clock>*) noexcept;
     void del_timer(timer<manual_clock>*) noexcept;
 
     future<> run_exit_tasks();
@@ -683,7 +683,7 @@ public:
     future<> readable_or_writeable(pollable_fd_state& fd);
     void abort_reader(pollable_fd_state& fd);
     void abort_writer(pollable_fd_state& fd);
-    void enable_timer(steady_clock_type::time_point when);
+    void enable_timer(steady_clock_type::time_point when) noexcept;
     /// Sets the "Strict DMA" flag.
     ///
     /// When true (default), file I/O operations must use DMA.  This is

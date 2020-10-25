@@ -32,7 +32,7 @@ static constexpr int ulong_bits = std::numeric_limits<unsigned long>::digits;
  * which is returned when value == 1.
  */
 template<typename T>
-inline size_t count_leading_zeros(T value);
+inline size_t count_leading_zeros(T value) noexcept;
 
 /**
  * Returns the number of trailing zeros in value's binary representation.
@@ -43,38 +43,58 @@ inline size_t count_leading_zeros(T value);
  * The highest value that can be returned is std::numeric_limits<T>::digits - 1.
  */
 template<typename T>
-static inline size_t count_trailing_zeros(T value);
+static inline size_t count_trailing_zeros(T value) noexcept;
 
 template<>
-inline size_t count_leading_zeros<unsigned long>(unsigned long value)
+inline size_t count_leading_zeros<unsigned long>(unsigned long value) noexcept
 {
     return __builtin_clzl(value);
 }
 
 template<>
-inline size_t count_leading_zeros<long>(long value)
+inline size_t count_leading_zeros<long>(long value) noexcept
 {
     return __builtin_clzl((unsigned long)value) - 1;
 }
 
 template<>
-inline size_t count_leading_zeros<long long>(long long value)
+inline size_t count_leading_zeros<unsigned long long>(unsigned long long value) noexcept
+{
+    return __builtin_clzll(value);
+}
+
+template<>
+inline size_t count_leading_zeros<long long>(long long value) noexcept
 {
     return __builtin_clzll((unsigned long long)value) - 1;
 }
 
 template<>
 inline
-size_t count_trailing_zeros<unsigned long>(unsigned long value)
+size_t count_trailing_zeros<unsigned long>(unsigned long value) noexcept
 {
     return __builtin_ctzl(value);
 }
 
 template<>
 inline
-size_t count_trailing_zeros<long>(long value)
+size_t count_trailing_zeros<long>(long value) noexcept
 {
     return __builtin_ctzl((unsigned long)value);
+}
+
+template<>
+inline
+size_t count_trailing_zeros<unsigned long long>(unsigned long long value) noexcept
+{
+    return __builtin_ctzll(value);
+}
+
+template<>
+inline
+size_t count_trailing_zeros<long long>(long long value) noexcept
+{
+    return __builtin_ctzll((unsigned long long)value);
 }
 
 /**
@@ -82,7 +102,7 @@ size_t count_trailing_zeros<long>(long value)
  * Result is undefined if bitset.any() == false.
  */
 template<size_t N>
-static inline size_t get_first_set(const std::bitset<N>& bitset)
+static inline size_t get_first_set(const std::bitset<N>& bitset) noexcept
 {
     static_assert(N <= ulong_bits, "bitset too large");
     return count_trailing_zeros(bitset.to_ulong());
@@ -93,7 +113,7 @@ static inline size_t get_first_set(const std::bitset<N>& bitset)
  * Result is undefined if bitset.any() == false.
  */
 template<size_t N>
-static inline size_t get_last_set(const std::bitset<N>& bitset)
+static inline size_t get_last_set(const std::bitset<N>& bitset) noexcept
 {
     static_assert(N <= ulong_bits, "bitset too large");
     return ulong_bits - 1 - count_leading_zeros(bitset.to_ulong());
@@ -103,7 +123,7 @@ template<size_t N>
 class set_iterator : public std::iterator<std::input_iterator_tag, int>
 {
 private:
-    void advance()
+    void advance() noexcept
     {
         if (_bitset.none()) {
             _index = -1;
@@ -114,7 +134,7 @@ private:
         }
     }
 public:
-    set_iterator(std::bitset<N> bitset, int offset = 0)
+    set_iterator(std::bitset<N> bitset, int offset = 0) noexcept
         : _bitset(bitset)
         , _index(offset - 1)
     {
@@ -123,22 +143,22 @@ public:
         advance();
     }
 
-    void operator++()
+    void operator++() noexcept
     {
         advance();
     }
 
-    int operator*() const
+    int operator*() const noexcept
     {
         return _index;
     }
 
-    bool operator==(const set_iterator& other) const
+    bool operator==(const set_iterator& other) const noexcept
     {
         return _index == other._index;
     }
 
-    bool operator!=(const set_iterator& other) const
+    bool operator!=(const set_iterator& other) const noexcept
     {
         return !(*this == other);
     }
@@ -154,21 +174,21 @@ public:
     using iterator = set_iterator<N>;
     using value_type = int;
 
-    set_range(std::bitset<N> bitset, int offset = 0)
+    set_range(std::bitset<N> bitset, int offset = 0) noexcept
         : _bitset(bitset)
         , _offset(offset)
     {
     }
 
-    iterator begin() const { return iterator(_bitset, _offset); }
-    iterator end() const { return iterator(0); }
+    iterator begin() const noexcept { return iterator(_bitset, _offset); }
+    iterator end() const noexcept { return iterator(0); }
 private:
     std::bitset<N> _bitset;
     int _offset;
 };
 
 template<size_t N>
-static inline set_range<N> for_each_set(std::bitset<N> bitset, int offset = 0)
+static inline set_range<N> for_each_set(std::bitset<N> bitset, int offset = 0) noexcept
 {
     return set_range<N>(bitset, offset);
 }

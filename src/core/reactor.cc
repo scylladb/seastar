@@ -587,14 +587,14 @@ timer<Clock>::~timer() {
 
 template <typename Clock>
 inline
-void timer<Clock>::arm(time_point until, std::optional<duration> period) {
+void timer<Clock>::arm(time_point until, std::optional<duration> period) noexcept {
     arm_state(until, period);
     engine().add_timer(this);
 }
 
 template <typename Clock>
 inline
-void timer<Clock>::readd_periodic() {
+void timer<Clock>::readd_periodic() noexcept {
     arm_state(Clock::now() + _period.value(), {_period.value()});
     engine().queue_timer(this);
 }
@@ -1202,7 +1202,7 @@ cpu_stall_detector::generate_trace() {
 }
 
 template <typename T, typename E, typename EnableFunc>
-void reactor::complete_timers(T& timers, E& expired_timers, EnableFunc&& enable_fn) {
+void reactor::complete_timers(T& timers, E& expired_timers, EnableFunc&& enable_fn) noexcept(noexcept(enable_fn())) {
     expired_timers = timers.expire(timers.now());
     for (auto& t : expired_timers) {
         t._expired = true;
@@ -1973,7 +1973,9 @@ reactor::fdatasync(int fd) noexcept {
     });
 }
 
-void reactor::enable_timer(steady_clock_type::time_point when)
+// Note: terminate if arm_highres_timer throws
+// `when` should always be valid
+void reactor::enable_timer(steady_clock_type::time_point when) noexcept
 {
 #ifndef HAVE_OSV
     itimerspec its;
@@ -1989,13 +1991,13 @@ void reactor::enable_timer(steady_clock_type::time_point when)
 #endif
 }
 
-void reactor::add_timer(timer<steady_clock_type>* tmr) {
+void reactor::add_timer(timer<steady_clock_type>* tmr) noexcept {
     if (queue_timer(tmr)) {
         enable_timer(_timers.get_next_timeout());
     }
 }
 
-bool reactor::queue_timer(timer<steady_clock_type>* tmr) {
+bool reactor::queue_timer(timer<steady_clock_type>* tmr) noexcept {
     return _timers.insert(*tmr);
 }
 
@@ -2008,13 +2010,13 @@ void reactor::del_timer(timer<steady_clock_type>* tmr) noexcept {
     }
 }
 
-void reactor::add_timer(timer<lowres_clock>* tmr) {
+void reactor::add_timer(timer<lowres_clock>* tmr) noexcept {
     if (queue_timer(tmr)) {
         _lowres_next_timeout = _lowres_timers.get_next_timeout();
     }
 }
 
-bool reactor::queue_timer(timer<lowres_clock>* tmr) {
+bool reactor::queue_timer(timer<lowres_clock>* tmr) noexcept {
     return _lowres_timers.insert(*tmr);
 }
 
@@ -2027,11 +2029,11 @@ void reactor::del_timer(timer<lowres_clock>* tmr) noexcept {
     }
 }
 
-void reactor::add_timer(timer<manual_clock>* tmr) {
+void reactor::add_timer(timer<manual_clock>* tmr) noexcept {
     queue_timer(tmr);
 }
 
-bool reactor::queue_timer(timer<manual_clock>* tmr) {
+bool reactor::queue_timer(timer<manual_clock>* tmr) noexcept {
     return _manual_timers.insert(*tmr);
 }
 
@@ -2237,13 +2239,13 @@ reactor::flush_tcp_batches() {
 }
 
 bool
-reactor::do_expire_lowres_timers() {
+reactor::do_expire_lowres_timers() noexcept {
     if (_lowres_next_timeout == lowres_clock::time_point()) {
         return false;
     }
     auto now = lowres_clock::now();
     if (now >= _lowres_next_timeout) {
-        complete_timers(_lowres_timers, _expired_lowres_timers, [this] {
+        complete_timers(_lowres_timers, _expired_lowres_timers, [this] () noexcept {
             if (!_lowres_timers.empty()) {
                 _lowres_next_timeout = _lowres_timers.get_next_timeout();
             } else {
@@ -2256,17 +2258,17 @@ reactor::do_expire_lowres_timers() {
 }
 
 void
-reactor::expire_manual_timers() {
-    complete_timers(_manual_timers, _expired_manual_timers, [] {});
+reactor::expire_manual_timers() noexcept {
+    complete_timers(_manual_timers, _expired_manual_timers, [] () noexcept {});
 }
 
 void
-manual_clock::expire_timers() {
+manual_clock::expire_timers() noexcept {
     local_engine->expire_manual_timers();
 }
 
 void
-manual_clock::advance(manual_clock::duration d) {
+manual_clock::advance(manual_clock::duration d) noexcept {
     _now.fetch_add(d.count());
     if (local_engine) {
         schedule_urgent(make_task(default_scheduling_group(), &manual_clock::expire_timers));
@@ -2276,7 +2278,7 @@ manual_clock::advance(manual_clock::duration d) {
 }
 
 bool
-reactor::do_check_lowres_timers() const {
+reactor::do_check_lowres_timers() const noexcept {
     if (_lowres_next_timeout == lowres_clock::time_point()) {
         return false;
     }
@@ -2610,8 +2612,8 @@ reactor::activate(task_queue& tq) {
     _activating_task_queues.push_back(&tq);
 }
 
-void reactor::service_highres_timer() {
-    complete_timers(_timers, _expired_timers, [this] {
+void reactor::service_highres_timer() noexcept {
+    complete_timers(_timers, _expired_timers, [this] () noexcept {
         if (!_timers.empty()) {
             enable_timer(_timers.get_next_timeout());
         }
