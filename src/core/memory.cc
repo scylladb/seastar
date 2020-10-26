@@ -61,6 +61,9 @@
 #include <seastar/core/aligned_buffer.hh>
 #include <unordered_set>
 #include <iostream>
+#include <thread>
+
+#include <dlfcn.h>
 
 namespace seastar {
 
@@ -168,6 +171,7 @@ static void on_allocation_failure(size_t size);
 
 static constexpr unsigned cpu_id_shift = 36; // FIXME: make dynamic
 static constexpr unsigned max_cpus = 256;
+static constexpr uintptr_t cpu_id_and_mem_base_mask = ~((uintptr_t(1) << cpu_id_shift) - 1);
 
 using pageidx = uint32_t;
 
@@ -176,18 +180,74 @@ class page_list;
 
 static std::atomic<bool> live_cpus[max_cpus];
 
-static thread_local uint64_t g_allocs;
-static thread_local uint64_t g_frees;
-static thread_local uint64_t g_cross_cpu_frees;
-static thread_local uint64_t g_reclaims;
-static thread_local uint64_t g_large_allocs;
-
 using std::optional;
+
+// is_reactor_thread gets set to true when memory::configure() gets called
+// it is used to identify seastar threads and hence use system memory allocator
+// for those threads
+static thread_local bool is_reactor_thread = false;
+
+
+namespace alloc_stats {
+
+enum class types { allocs, frees, cross_cpu_frees, reclaims, large_allocs, foreign_mallocs, foreign_frees, foreign_cross_frees, enum_size };
+
+using stats_array = std::array<uint64_t, static_cast<std::size_t>(types::enum_size)>;
+using stats_atomic_array = std::array<std::atomic_uint64_t, static_cast<std::size_t>(types::enum_size)>;
+
+thread_local stats_array stats;
+std::array<stats_atomic_array, max_cpus> alien_stats{};
+
+static uint64_t increment(types stat_type, uint64_t size=1)
+{
+    auto i = static_cast<std::size_t>(stat_type);
+    // fast path, reactor threads takes thread local statistics
+    if (is_reactor_thread) {
+        auto tmp = stats[i];
+        stats[i]+=size;
+        return tmp;
+    } else {
+        auto hash = std::hash<std::thread::id>()(std::this_thread::get_id());
+        return alien_stats[hash % alien_stats.size()][i].fetch_add(size);
+    }
+}
+
+static uint64_t get(types stat_type)
+{
+    auto i = static_cast<std::size_t>(stat_type);
+    // fast path, reactor threads takes thread local statistics
+    if (is_reactor_thread) {
+        return stats[i];
+    } else {
+        auto hash = std::hash<std::thread::id>()(std::this_thread::get_id());
+        return alien_stats[hash % alien_stats.size()][i].load();
+    }
+}
+
+}
+
+// original memory allocator support
+// note: allocations before calling the constructor would use seastar allocator
+using malloc_func_type = void * (*)(size_t);
+using free_func_type = void * (*)(void *);
+using realloc_func_type = void * (*)(void *, size_t);
+using aligned_alloc_type = void * (*)(size_t alignment, size_t size);
+using malloc_trim_type = int (*)(size_t);
+using malloc_usable_size_type = size_t (*)(void *);
+
+malloc_func_type original_malloc_func = reinterpret_cast<malloc_func_type>(dlsym(RTLD_NEXT, "malloc"));
+free_func_type original_free_func = reinterpret_cast<free_func_type>(dlsym(RTLD_NEXT, "free"));
+realloc_func_type original_realloc_func = reinterpret_cast<realloc_func_type>(dlsym(RTLD_NEXT, "realloc"));
+aligned_alloc_type original_aligned_alloc_func = reinterpret_cast<aligned_alloc_type>(dlsym(RTLD_NEXT, "aligned_alloc"));
+malloc_trim_type original_malloc_trim_func = reinterpret_cast<malloc_trim_type>(dlsym(RTLD_NEXT, "malloc_trim"));
+malloc_usable_size_type original_malloc_usable_size_func = reinterpret_cast<malloc_usable_size_type>(dlsym(RTLD_NEXT, "malloc_usable_size"));
 
 using allocate_system_memory_fn
         = std::function<mmap_area (void* where, size_t how_much)>;
 
 namespace bi = boost::intrusive;
+
+static thread_local uintptr_t local_expected_cpu_id = std::numeric_limits<uintptr_t>::max();
 
 inline
 unsigned object_cpu_id(const void* ptr) {
@@ -201,25 +261,33 @@ class page_list_link {
     friend internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_buf::inserter_iterator);
 };
 
+constexpr size_t mem_base_alloc = size_t(1) << 44;
+
 static char* mem_base() {
     static char* known;
     static std::once_flag flag;
     std::call_once(flag, [] {
-        size_t alloc = size_t(1) << 44;
-        auto r = ::mmap(NULL, 2 * alloc,
+        auto r = ::mmap(NULL, 2 * mem_base_alloc,
                     PROT_NONE,
                     MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE,
                     -1, 0);
         if (r == MAP_FAILED) {
             abort();
         }
-        ::madvise(r, 2 * alloc, MADV_DONTDUMP);
+        ::madvise(r, 2 * mem_base_alloc, MADV_DONTDUMP);
         auto cr = reinterpret_cast<char*>(r);
-        known = align_up(cr, alloc);
+        known = align_up(cr, mem_base_alloc);
         ::munmap(cr, known - cr);
-        ::munmap(known + alloc, cr + 2 * alloc - (known + alloc));
+        ::munmap(known + mem_base_alloc, cr + 2 * mem_base_alloc - (known + mem_base_alloc));
     });
     return known;
+}
+
+bool is_seastar_memory(void * ptr)
+{
+    auto begin = mem_base();
+    auto end = begin + mem_base_alloc;
+    return ptr >= begin && ptr < end;
 }
 
 constexpr bool is_page_aligned(size_t size) {
@@ -445,9 +513,9 @@ struct cpu_pages {
     void* allocate_small(unsigned size);
     void free(void* ptr);
     void free(void* ptr, size_t size);
-    bool try_cross_cpu_free(void* ptr);
+    static bool try_foreign_free(void* ptr);
     void shrink(void* ptr, size_t new_size);
-    void free_cross_cpu(unsigned cpu_id, void* ptr);
+    static void free_cross_cpu(unsigned cpu_id, void* ptr);
     bool drain_cross_cpu_freelist();
     size_t object_size(void* ptr);
     page* to_page(void* p) {
@@ -669,7 +737,7 @@ cpu_pages::allocate_large_and_trim(unsigned n_pages) {
 
 void
 cpu_pages::warn_large_allocation(size_t size) {
-    ++g_large_allocs;
+    alloc_stats::increment(alloc_stats::types::large_allocs);
     seastar_memory_logger.warn("oversized allocation: {} bytes. This is non-fatal, but could lead to latency and/or fragmentation issues. Please report: at {}", size, current_backtrace());
     large_allocation_warning_threshold *= 1.618; // prevent spam
 }
@@ -801,7 +869,7 @@ void cpu_pages::free_cross_cpu(unsigned cpu_id, void* ptr) {
     do {
         p->next = old;
     } while (!list.compare_exchange_weak(old, p, std::memory_order_release, std::memory_order_relaxed));
-    ++g_cross_cpu_frees;
+    alloc_stats::increment(alloc_stats::types::cross_cpu_frees);
 }
 
 bool cpu_pages::drain_cross_cpu_freelist() {
@@ -811,7 +879,7 @@ bool cpu_pages::drain_cross_cpu_freelist() {
     auto p = xcpu_freelist.exchange(nullptr, std::memory_order_acquire);
     while (p) {
         auto n = p->next;
-        ++g_frees;
+        alloc_stats::increment(alloc_stats::types::frees);
         free(p);
         p = n;
     }
@@ -857,13 +925,22 @@ void cpu_pages::free(void* ptr, size_t size) {
 }
 
 bool
-cpu_pages::try_cross_cpu_free(void* ptr) {
-    auto obj_cpu = object_cpu_id(ptr);
-    if (obj_cpu != cpu_id) {
-        free_cross_cpu(obj_cpu, ptr);
+cpu_pages::try_foreign_free(void* ptr) {
+    // fast path for local free
+    if (__builtin_expect((reinterpret_cast<uintptr_t>(ptr) & cpu_id_and_mem_base_mask) == local_expected_cpu_id, true)) {
+        return false;
+    }
+    if (!is_seastar_memory(ptr)) {
+        if (is_reactor_thread) {
+            alloc_stats::increment(alloc_stats::types::foreign_cross_frees);
+        } else {
+            alloc_stats::increment(alloc_stats::types::foreign_frees);
+        }
+        original_free_func(ptr);
         return true;
     }
-    return false;
+    free_cross_cpu(object_cpu_id(ptr), ptr);
+    return true;
 }
 
 void cpu_pages::shrink(void* ptr, size_t new_size) {
@@ -896,7 +973,9 @@ void cpu_pages::shrink(void* ptr, size_t new_size) {
 }
 
 cpu_pages::~cpu_pages() {
-    live_cpus[cpu_id].store(false, std::memory_order_relaxed);
+    if (is_initialized()) {
+        live_cpus[cpu_id].store(false, std::memory_order_relaxed);
+    }
 }
 
 bool cpu_pages::is_initialized() const {
@@ -908,6 +987,8 @@ bool cpu_pages::initialize() {
         return false;
     }
     cpu_id = cpu_id_gen.fetch_add(1, std::memory_order_relaxed);
+    local_expected_cpu_id = (static_cast<uint64_t>(cpu_id) << cpu_id_shift)
+	| reinterpret_cast<uintptr_t>(mem_base());
     assert(cpu_id < max_cpus);
     all_cpus[cpu_id] = this;
     auto base = mem_base() + (size_t(cpu_id) << cpu_id_shift);
@@ -1025,7 +1106,7 @@ reclaiming_result cpu_pages::run_reclaimers(reclaimer_scope scope, size_t n_page
     reclaiming_result result = reclaiming_result::reclaimed_nothing;
     while (nr_free_pages < target) {
         bool made_progress = false;
-        ++g_reclaims;
+        alloc_stats::increment(alloc_stats::types::reclaims);
         for (auto&& r : reclaimers) {
             if (r->scope() >= scope) {
                 made_progress |= r->do_reclaim((target - nr_free_pages) * page_size) == reclaiming_result::reclaimed_something;
@@ -1258,6 +1339,12 @@ static constexpr int debug_allocation_pattern = 0xab;
 #endif
 
 void* allocate(size_t size) {
+    // original_malloc_func might be null for allocations before main
+    // in constructors before original_malloc_func ctor is called
+    if (!is_reactor_thread && original_malloc_func) {
+        alloc_stats::increment(alloc_stats::types::foreign_mallocs);
+        return original_malloc_func(size);
+    }
     if (size <= sizeof(free_object)) {
         size = sizeof(free_object);
     }
@@ -1275,11 +1362,17 @@ void* allocate(size_t size) {
         std::memset(ptr, debug_allocation_pattern, size);
 #endif
     }
-    ++g_allocs;
+    alloc_stats::increment(alloc_stats::types::allocs);
     return ptr;
 }
 
 void* allocate_aligned(size_t align, size_t size) {
+    // original_realloc_func might be null for allocations before main
+    // in constructors before original_realloc_func ctor is called
+    if (!is_reactor_thread && original_aligned_alloc_func) {
+        alloc_stats::increment(alloc_stats::types::foreign_mallocs);
+        return original_aligned_alloc_func(align, size);
+    }
     if (size <= sizeof(free_object)) {
         size = std::max(sizeof(free_object), align);
     }
@@ -1299,23 +1392,23 @@ void* allocate_aligned(size_t align, size_t size) {
         std::memset(ptr, debug_allocation_pattern, size);
 #endif
     }
-    ++g_allocs;
+    alloc_stats::increment(alloc_stats::types::allocs);
     return ptr;
 }
 
 void free(void* obj) {
-    if (get_cpu_mem().try_cross_cpu_free(obj)) {
+    if (cpu_pages::try_foreign_free(obj)) {
         return;
     }
-    ++g_frees;
+    alloc_stats::increment(alloc_stats::types::frees);
     get_cpu_mem().free(obj);
 }
 
 void free(void* obj, size_t size) {
-    if (get_cpu_mem().try_cross_cpu_free(obj)) {
+    if (cpu_pages::try_foreign_free(obj)) {
         return;
     }
-    ++g_frees;
+    alloc_stats::increment(alloc_stats::types::frees);
     get_cpu_mem().free(obj, size);
 }
 
@@ -1331,8 +1424,8 @@ void free_aligned(void* obj, size_t align, size_t size) {
 }
 
 void shrink(void* obj, size_t new_size) {
-    ++g_frees;
-    ++g_allocs; // keep them balanced
+    alloc_stats::increment(alloc_stats::types::frees);
+    alloc_stats::increment(alloc_stats::types::allocs); // keep them balanced
     cpu_mem.shrink(obj, new_size);
 }
 
@@ -1371,6 +1464,14 @@ void disable_large_allocation_warning() {
 
 void configure(std::vector<resource::memory> m, bool mbind,
         optional<std::string> hugetlbfs_path) {
+    // we need to make sure cpu_mem is initialize since configure calls cpu_mem.resize
+    // and we might reach configure without ever allocating, hence without ever calling
+    // cpu_pages::initialize.
+    // The correct solution is to add a condition inside cpu_mem.resize, but since all
+    // other paths to cpu_pages::resize are already verifying initialize was called, we
+    // verify that here.
+    cpu_mem.initialize();
+    is_reactor_thread = true;
     size_t total = 0;
     for (auto&& x : m) {
         total += x.bytes;
@@ -1409,8 +1510,9 @@ void configure(std::vector<resource::memory> m, bool mbind,
 }
 
 statistics stats() {
-    return statistics{g_allocs, g_frees, g_cross_cpu_frees,
-        cpu_mem.nr_pages * page_size, cpu_mem.nr_free_pages * page_size, g_reclaims, g_large_allocs};
+    return statistics{alloc_stats::get(alloc_stats::types::allocs), alloc_stats::get(alloc_stats::types::frees), alloc_stats::get(alloc_stats::types::cross_cpu_frees),
+        cpu_mem.nr_pages * page_size, cpu_mem.nr_free_pages * page_size, alloc_stats::get(alloc_stats::types::reclaims), alloc_stats::get(alloc_stats::types::large_allocs),
+        alloc_stats::get(alloc_stats::types::foreign_mallocs), alloc_stats::get(alloc_stats::types::foreign_frees), alloc_stats::get(alloc_stats::types::foreign_cross_frees)};
 }
 
 bool drain_cross_cpu_freelist() {
@@ -1667,6 +1769,19 @@ void* realloc(void* ptr, size_t size) {
     if (try_trigger_error_injector()) {
         return nullptr;
     }
+    if (ptr != nullptr && !is_seastar_memory(ptr)) {
+        // we can't realloc foreign memory on a shard
+        if (is_reactor_thread) {
+            abort();
+        }
+        // original_realloc_func might be null when previous ctor allocates
+        if (original_realloc_func) {
+            return original_realloc_func(ptr, size);
+        }
+    }
+    // if we're here, it's either ptr is a seastar memory ptr
+    // or a nullptr, or, original functions aren't available
+    // at any rate, using the seastar allocator is OK now.
     auto old_size = ptr ? object_size(ptr) : 0;
     if (size == old_size) {
         return ptr;
@@ -1772,12 +1887,18 @@ void __libc_cfree(void* obj) throw ();
 extern "C"
 [[gnu::visibility("default")]]
 size_t malloc_usable_size(void* obj) {
+    if (!is_reactor_thread) {
+        return original_malloc_usable_size_func(obj);
+    }
     return object_size(obj);
 }
 
 extern "C"
 [[gnu::visibility("default")]]
 int malloc_trim(size_t pad) {
+    if (!is_reactor_thread) {
+        return original_malloc_trim_func(pad);
+    }
     return 0;
 }
 
@@ -2005,7 +2126,7 @@ void configure(std::vector<resource::memory> m, bool mbind, std::optional<std::s
 }
 
 statistics stats() {
-    return statistics{0, 0, 0, 1 << 30, 1 << 30, 0, 0};
+    return statistics{0, 0, 0, 1 << 30, 1 << 30, 0, 0, 0, 0, 0};
 }
 
 bool drain_cross_cpu_freelist() {
