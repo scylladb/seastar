@@ -35,6 +35,18 @@ operation_type str2type(const sstring& type) {
     if (type == "PUT") {
         return PUT;
     }
+    if (type == "HEAD") {
+        return HEAD;
+    }
+    if (type == "OPTIONS") {
+        return OPTIONS;
+    }
+    if (type == "TRACE") {
+        return TRACE;
+    }
+    if (type == "CONNECT") {
+        return CONNECT;
+    }
     return GET;
 }
 
