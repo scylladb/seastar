@@ -68,6 +68,9 @@ public:
      */
     handler_base* get(const sstring& url, parameters& params) {
         size_t ind = 0;
+        if (_match_list.empty()) {
+            return _handler;
+        }
         for (unsigned int i = 0; i < _match_list.size(); i++) {
             ind = _match_list.at(i)->match(url, ind, params);
             if (ind == sstring::npos) {
