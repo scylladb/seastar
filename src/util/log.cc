@@ -230,6 +230,20 @@ logger::~logger() {
 
 static thread_local std::array<char, 8192> static_log_buf;
 
+bool logger::rate_limit::check() {
+    const auto now = clock::now();
+    if (now < _next) {
+        ++_dropped_messages;
+        return false;
+    }
+    _next = now + _interval;
+    return true;
+}
+
+logger::rate_limit::rate_limit(std::chrono::milliseconds interval)
+    : _interval(interval), _next(clock::now())
+{ }
+
 void
 logger::do_log(log_level level, log_writer& writer) {
     bool is_ostream_enabled = _ostream.load(std::memory_order_relaxed);
