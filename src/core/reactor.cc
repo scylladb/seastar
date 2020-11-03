@@ -129,6 +129,7 @@
 #include <seastar/core/execution_stage.hh>
 #include <seastar/core/exception_hacks.hh>
 #include "stall_detector.hh"
+#include <seastar/util/memory_diagnostics.hh>
 
 #include <yaml-cpp/yaml.h>
 
@@ -3296,6 +3297,10 @@ reactor::get_options_description(reactor_config cfg) {
         ("force-aio-syscalls", bpo::value<bool>()->default_value(false),
                 "Force io_getevents(2) to issue a system call, instead of bypassing the kernel when possible."
                 " This makes strace output more useful, but slows down the application")
+        ("dump-memory-diagnostics-on-alloc-failure-kind", bpo::value<std::string>()->default_value("critical"), "Dump diagnostics of the seastar allocator state on allocation failure."
+                 " Accepted values: never, critical (default), always. When set to critical, only allocations marked as critical will trigger diagnostics dump."
+                 " The diagnostics will be written to the seastar_memory logger, with error level."
+                 " Note that if the seastar_memory logger is set to debug or trace level, the diagnostics will be logged irrespective of this setting.")
         ("reactor-backend", bpo::value<reactor_backend_selector>()->default_value(reactor_backend_selector::default_backend()),
                 format("Internal reactor implementation ({})", reactor_backend_selector::available()).c_str())
         ("aio-fsync", bpo::value<bool>()->default_value(kernel_supports_aio_fsync()),
@@ -3819,6 +3824,10 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
 
     if (configuration.count("abort-on-seastar-bad-alloc")) {
         memory::enable_abort_on_allocation_failure();
+    }
+
+    if (configuration.count("dump-memory-diagnostics-on-alloc-failure-kind")) {
+        memory::set_dump_memory_diagnostics_on_alloc_failure_kind(configuration["dump-memory-diagnostics-on-alloc-failure-kind"].as<std::string>());
     }
 
     bool heapprof_enabled = configuration.count("heapprof");
