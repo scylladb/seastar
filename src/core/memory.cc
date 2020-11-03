@@ -56,6 +56,7 @@
 #include <seastar/core/memory.hh>
 #include <seastar/core/print.hh>
 #include <seastar/util/alloc_failure_injector.hh>
+#include <seastar/util/memory_diagnostics.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/log.hh>
 #include <seastar/core/aligned_buffer.hh>
@@ -1554,9 +1555,26 @@ public:
 };
 
 static std::atomic<bool> abort_on_allocation_failure{false};
+static std::atomic<alloc_failure_kind> dump_diagnostics_on_alloc_failure_kind{alloc_failure_kind::critical};
 
 void enable_abort_on_allocation_failure() {
     abort_on_allocation_failure.store(true, std::memory_order_seq_cst);
+}
+
+void set_dump_memory_diagnostics_on_alloc_failure_kind(alloc_failure_kind kind) {
+    dump_diagnostics_on_alloc_failure_kind.store(kind, std::memory_order_seq_cst);
+}
+
+void set_dump_memory_diagnostics_on_alloc_failure_kind(std::string_view str) {
+    if (str == "none") {
+        set_dump_memory_diagnostics_on_alloc_failure_kind(alloc_failure_kind::none);
+    } else if (str == "critical") {
+        set_dump_memory_diagnostics_on_alloc_failure_kind(alloc_failure_kind::critical);
+    } else if (str == "all") {
+        set_dump_memory_diagnostics_on_alloc_failure_kind(alloc_failure_kind::all);
+    } else {
+        seastar_logger.error("Ignoring invalid option '{}' for the allocation failure kind to dump seastar memory diagnostics for, valid options are: none, critical and all", str);
+    }
 }
 
 struct human_readable_value {
@@ -1676,16 +1694,30 @@ void maybe_dump_memory_diagnostics(size_t size) {
         return;
     }
 
-    if (!seastar_memory_logger.is_enabled(seastar::log_level::debug)) {
+    disable_report_on_alloc_failure_temporarily guard;
+    seastar_memory_logger.debug("Failed to allocate {} bytes at {}", size, current_backtrace());
+
+    auto lvl = log_level::debug;
+    switch (dump_diagnostics_on_alloc_failure_kind.load(std::memory_order_relaxed)) {
+        case alloc_failure_kind::none:
+            lvl = log_level::debug;
+            break;
+        case alloc_failure_kind::critical:
+            lvl = is_critical_alloc_section() ? log_level::error : log_level::debug;
+            break;
+        case alloc_failure_kind::all:
+            lvl = log_level::error;
+            break;
+    }
+
+    if (!seastar_memory_logger.is_enabled(lvl)) {
         return;
     }
 
-    disable_report_on_alloc_failure_temporarily guard;
-    seastar_memory_logger.debug("Failed to allocate {} bytes at {}", size, current_backtrace());
     logger::lambda_log_writer writer([] (seastar::internal::log_buf::inserter_iterator it) {
         return do_dump_memory_diagnostics(it);
     });
-    seastar_memory_logger.log(log_level::debug, writer);
+    seastar_memory_logger.log(lvl, writer);
 }
 
 void on_allocation_failure(size_t size) {
@@ -2172,6 +2204,15 @@ size_t get_large_allocation_warning_threshold() {
 }
 
 void disable_large_allocation_warning() {
+    // Ignore, not supported for default allocator.
+}
+
+
+void set_dump_memory_diagnostics_on_alloc_failure_kind(alloc_failure_kind) {
+    // Ignore, not supported for default allocator.
+}
+
+void set_dump_memory_diagnostics_on_alloc_failure_kind(std::string_view) {
     // Ignore, not supported for default allocator.
 }
 

@@ -101,6 +101,9 @@ namespace seastar {
 /// Dump a diagnostic report of the state of the seastar allocator upon allocation
 /// failure. The report is dumped with the `seastar_memory` logger, with debug
 /// level.
+/// You can configure a report to be dumped with error level on certain allocation
+/// kinds, see:
+/// * set_dump_memory_diagnostics_on_alloc_failure_kind()
 namespace memory {
 
 /// \cond internal

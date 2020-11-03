@@ -48,6 +48,10 @@ extern __thread int critical_alloc_section;
 /// don't live in a perfect world.
 /// This information is used by other parts of the memory subsystem:
 /// * \ref alloc_failure_injector will not inject errors into these scopes.
+/// * A memory diagnostics report will be dumped if an allocation fails in these
+///   scopes when the memory diagnostics subsystem is configured to dump reports
+///   for \ref alloc_failure_kind \ref alloc_failure_kind::critical or above.
+///   See \ref set_dump_memory_diagnostics_on_alloc_failure_kind().
 class scoped_critical_alloc_section {
 public:
     scoped_critical_alloc_section() { ++internal::critical_alloc_section; }
