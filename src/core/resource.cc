@@ -299,6 +299,31 @@ static hwloc_obj_t get_numa_node_for_pu(hwloc_topology_t& topology, hwloc_obj_t 
     return nullptr;
 }
 
+static hwloc_obj_t hwloc_get_ancestor(hwloc_obj_type_t type, hwloc_topology_t& topology, unsigned cpu_id) {
+    auto cur = hwloc_get_pu_obj_by_os_index(topology, cpu_id);
+
+    while (cur != nullptr) {
+        if (cur->type == type) {
+            break;
+        }
+        cur = cur->parent;
+    }
+
+    return cur;
+}
+
+static std::unordered_map<hwloc_obj_t, std::vector<unsigned>> break_cpus_into_groups(hwloc_topology_t& topology,
+        std::vector<unsigned> cpus, hwloc_obj_type_t type) {
+    std::unordered_map<hwloc_obj_t, std::vector<unsigned>> groups;
+
+    for (auto&& cpu_id : cpus) {
+        hwloc_obj_t anc = hwloc_get_ancestor(type, topology, cpu_id);
+        groups[anc].push_back(cpu_id);
+    }
+
+    return groups;
+}
+
 struct distribute_objects {
     std::vector<hwloc_cpuset_t> cpu_sets;
     hwloc_obj_t root;
@@ -489,7 +514,41 @@ resources allocate(configuration c) {
     }
 
     if (!orphan_pus.empty()) {
-        assert(false && "PU not inside any NUMA node");
+        // Get the list of NUMA nodes available
+        std::vector<hwloc_obj_t> nodes;
+
+        hwloc_obj_t tmp = NULL;
+        auto depth = hwloc_get_type_or_above_depth(topology, HWLOC_OBJ_NUMANODE);
+        while ((tmp = hwloc_get_next_obj_by_depth(topology, depth, tmp)) != NULL) {
+            nodes.push_back(tmp);
+        }
+
+        // Group orphan CPUs by ... some sane enough feature
+        std::unordered_map<hwloc_obj_t, std::vector<unsigned>> grouped;
+        hwloc_obj_type_t group_by[] = {
+            HWLOC_OBJ_L3CACHE,
+            HWLOC_OBJ_L2CACHE,
+            HWLOC_OBJ_L1CACHE,
+            HWLOC_OBJ_PU,
+        };
+
+        for (auto&& gb : group_by) {
+            grouped = break_cpus_into_groups(topology, orphan_pus, gb);
+            if (grouped.size() >= nodes.size()) {
+                break;
+            }
+            // Try to scatter orphans into as much NUMA nodes as possible
+            // by grouping them with more specific selection
+        }
+
+        // Distribute PUs among the nodes by groups
+        unsigned nid = 0;
+        for (auto&& grp : grouped) {
+            for (auto&& cpu_id : grp.second) {
+                cpu_to_node[cpu_id] = nodes[nid];
+            }
+            nid = (nid + 1) % nodes.size();
+        }
     }
 
     // Divide local memory to cpus
