@@ -323,10 +323,10 @@ struct distribute_objects {
 };
 
 static io_queue_topology
-allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, unsigned num_io_queues, unsigned& last_node_idx) {
-    auto node_of_shard = [&topology, &cpus] (unsigned shard) {
-        auto pu = hwloc_get_pu_obj_by_os_index(topology, cpus[shard].cpu_id);
-        auto node = get_numa_node_for_pu(topology, pu);
+allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unordered_map<unsigned, hwloc_obj_t>& cpu_to_node,
+        unsigned num_io_queues, unsigned& last_node_idx) {
+    auto node_of_shard = [&cpus, &cpu_to_node] (unsigned shard) {
+        auto node = cpu_to_node.at(cpus[shard].cpu_id);
         return hwloc_bitmap_first(node->nodeset);
     };
 
@@ -469,18 +469,26 @@ resources allocate(configuration c) {
     auto mem_per_proc = std::min(align_down<size_t>(mem / procs, 2 << 20), max_mem_per_proc);
 
     resources ret;
+    std::unordered_map<unsigned, hwloc_obj_t> cpu_to_node;
     std::unordered_map<hwloc_obj_t, size_t> topo_used_mem;
     std::vector<std::pair<cpu, size_t>> remains;
     size_t remain;
 
     auto cpu_sets = distribute_objects(topology, procs);
 
-    // Divide local memory to cpus
     for (auto&& cs : cpu_sets()) {
         auto cpu_id = hwloc_bitmap_first(cs);
         assert(cpu_id != -1);
         auto pu = hwloc_get_pu_obj_by_os_index(topology, cpu_id);
         auto node = get_numa_node_for_pu(topology, pu);
+        cpu_to_node[cpu_id] = node;
+    }
+
+    // Divide local memory to cpus
+    for (auto&& cs : cpu_sets()) {
+        auto cpu_id = hwloc_bitmap_first(cs);
+        assert(cpu_id != -1);
+        auto node = cpu_to_node.at(cpu_id);
         cpu this_cpu;
         this_cpu.cpu_id = cpu_id;
         remain = mem_per_proc - alloc_from_node(this_cpu, node, topo_used_mem, mem_per_proc);
@@ -494,8 +502,7 @@ resources allocate(configuration c) {
         cpu this_cpu;
         size_t remain;
         std::tie(this_cpu, remain) = r;
-        auto pu = hwloc_get_pu_obj_by_os_index(topology, this_cpu.cpu_id);
-        auto node = get_numa_node_for_pu(topology, pu);
+        auto node = cpu_to_node.at(this_cpu.cpu_id);
         auto obj = node;
 
         while (remain) {
@@ -514,7 +521,7 @@ resources allocate(configuration c) {
     for (auto d : c.num_io_queues) {
         auto devid = d.first;
         auto num_io_queues = d.second;
-        ret.ioq_topology.emplace(devid, allocate_io_queues(topology, ret.cpus, num_io_queues, last_node_idx));
+        ret.ioq_topology.emplace(devid, allocate_io_queues(topology, ret.cpus, cpu_to_node, num_io_queues, last_node_idx));
     }
     return ret;
 }
