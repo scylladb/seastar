@@ -510,6 +510,7 @@ resources allocate(configuration c) {
             orphan_pus.push_back(cpu_id);
         } else {
             cpu_to_node[cpu_id] = node;
+            seastar_logger.debug("Assign CPU{} to NUMA{}", cpu_id, node->os_index);
         }
     }
 
@@ -535,6 +536,7 @@ resources allocate(configuration c) {
         for (auto&& gb : group_by) {
             grouped = break_cpus_into_groups(topology, orphan_pus, gb);
             if (grouped.size() >= nodes.size()) {
+                seastar_logger.debug("Grouped orphan CPUs by {}", hwloc_obj_type_string(gb));
                 break;
             }
             // Try to scatter orphans into as much NUMA nodes as possible
@@ -546,6 +548,7 @@ resources allocate(configuration c) {
         for (auto&& grp : grouped) {
             for (auto&& cpu_id : grp.second) {
                 cpu_to_node[cpu_id] = nodes[nid];
+                seastar_logger.debug("Assign orphan CPU{} to NUMA{}", cpu_id, nodes[nid]->os_index);
             }
             nid = (nid + 1) % nodes.size();
         }
