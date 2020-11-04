@@ -296,8 +296,7 @@ static hwloc_obj_t get_numa_node_for_pu(hwloc_topology_t& topology, hwloc_obj_t 
             return tmp;
         }
     }
-    assert(false && "PU not inside any NUMA node");
-    abort();
+    return nullptr;
 }
 
 struct distribute_objects {
@@ -470,6 +469,7 @@ resources allocate(configuration c) {
 
     resources ret;
     std::unordered_map<unsigned, hwloc_obj_t> cpu_to_node;
+    std::vector<unsigned> orphan_pus;
     std::unordered_map<hwloc_obj_t, size_t> topo_used_mem;
     std::vector<std::pair<cpu, size_t>> remains;
     size_t remain;
@@ -481,7 +481,15 @@ resources allocate(configuration c) {
         assert(cpu_id != -1);
         auto pu = hwloc_get_pu_obj_by_os_index(topology, cpu_id);
         auto node = get_numa_node_for_pu(topology, pu);
-        cpu_to_node[cpu_id] = node;
+        if (node == nullptr) {
+            orphan_pus.push_back(cpu_id);
+        } else {
+            cpu_to_node[cpu_id] = node;
+        }
+    }
+
+    if (!orphan_pus.empty()) {
+        assert(false && "PU not inside any NUMA node");
     }
 
     // Divide local memory to cpus
