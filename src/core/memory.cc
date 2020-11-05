@@ -1887,7 +1887,7 @@ void __libc_cfree(void* obj) throw ();
 extern "C"
 [[gnu::visibility("default")]]
 size_t malloc_usable_size(void* obj) {
-    if (!is_reactor_thread) {
+    if (!is_seastar_memory(obj)) {
         return original_malloc_usable_size_func(obj);
     }
     return object_size(obj);
