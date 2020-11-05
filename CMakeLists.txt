@@ -630,6 +630,8 @@ add_library (seastar STATIC
   src/core/uname.cc
   src/core/vla.hh
   src/core/io_queue.cc
+  src/core/semaphore.cc
+  src/core/condition-variable.cc
   src/http/api_docs.cc
   src/http/common.cc
   src/http/file_handler.cc
