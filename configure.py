@@ -101,6 +101,11 @@ add_tristate(
     name = 'unused-result-error',
     dest = "unused_result_error",
     help = 'Make [[nodiscard]] violations an error')
+add_tristate(
+    arg_parser,
+    name = 'debug-shared-ptr',
+    dest = "debug_shared_ptr",
+    help = 'Debug shared_ptr')
 arg_parser.add_argument('--allocator-page-size', dest='alloc_page_size', type=int, help='override allocator page size')
 arg_parser.add_argument('--without-tests', dest='exclude_tests', action='store_true', help='Do not build tests by default')
 arg_parser.add_argument('--without-apps', dest='exclude_apps', action='store_true', help='Do not build applications by default')
@@ -192,6 +197,7 @@ def configure_mode(mode):
         tr(args.split_dwarf, 'SPLIT_DWARF'),
         tr(args.heap_profiling, 'HEAP_PROFILING'),
         tr(args.unused_result_error, 'UNUSED_RESULT_ERROR'),
+        tr(args.debug_shared_ptr, 'DEBUG_SHARED_PTR', value_when_none='default'),
     ]
 
     ingredients_to_cook = set(args.cook)
