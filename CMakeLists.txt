@@ -43,6 +43,7 @@ project (Seastar
 # generic boolean values passed as string, potentially from configure.py
 set (True_STRING_VALUES "ON" "yes" "Yes" "YES" "true" "True" "TRUE")
 set (False_STRING_VALUES "OFF" "no" "No" "NO" "false" "False" "FALSE")
+set (Default_STRING_VALUES "DEFAULT" "default" "Default")
 
 set (Seastar_ALLOC_FAILURE_INJECTION
   "DEFAULT"
@@ -297,6 +298,12 @@ set (Seastar_SANITIZE
   CACHE
   STRING
   "Enable ASAN and UBSAN. Can be ON, OFF or DEFAULT (which enables it for Debug and Sanitize)")
+
+set (Seastar_DEBUG_SHARED_PTR
+  "DEFAULT"
+  CACHE
+  STRING
+  "Enable shared_ptr debugging. Can be ON, OFF or DEFAULT (which enables it for Debug and Sanitize)")
 
 # When Seastar is embedded with `add_subdirectory`, disable the non-library targets.
 if (NOT (CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR))
@@ -933,8 +940,16 @@ if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (CMAKE_BUILD_TYPE STREQUAL "Sanitize"
     PUBLIC
       SEASTAR_DEBUG
       SEASTAR_DEFAULT_ALLOCATOR
-      SEASTAR_DEBUG_SHARED_PTR
       SEASTAR_SHUFFLE_TASK_QUEUE)
+endif ()
+
+set (Seastar_DEBUG_SHARED_PTR_MODES "Debug" "Sanitize")
+if (Seastar_DEBUG_SHARED_PTR IN_LIST True_STRING_VALUES OR
+    ((Seastar_DEBUG_SHARED_PTR IN_LIST Default_STRING_VALUES) AND
+     (CMAKE_BUILD_TYPE IN_LIST Seastar_DEBUG_SHARED_PTR_MODES)))
+  target_compile_definitions (seastar
+    PUBLIC
+      SEASTAR_DEBUG_SHARED_PTR)
 endif ()
 
 set (Seastar_STACK_GUARD_MODES "Debug" "Sanitize" "Dev")
