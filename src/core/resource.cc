@@ -515,6 +515,14 @@ resources allocate(configuration c) {
     }
 
     if (!orphan_pus.empty()) {
+        if (!c.assign_orphan_cpus) {
+            seastar_logger.error("CPUs without local NUMA nodes are disabled by the "
+                        "--allow-cpus-in-remote-numa-nodes=false option.\n");
+            throw std::runtime_error("no NUMA node for CPU");
+        }
+
+        seastar_logger.warn("Assigning some CPUs to remote NUMA nodes");
+
         // Get the list of NUMA nodes available
         std::vector<hwloc_obj_t> nodes;
 
