@@ -789,17 +789,26 @@ class ClocksourceManager:
 
     def __init__(self, args):
         self.__args = args
-        self._preferred = {"x86_64": "tsc"}
-        self._arch = platform.machine()
+        self._preferred = {"x86_64": "tsc", "kvm": "kvm-clock"}
+        self._arch = self._get_arch()
         self._available_clocksources_file = "/sys/devices/system/clocksource/clocksource0/available_clocksource"
         self._current_clocksource_file = "/sys/devices/system/clocksource/clocksource0/current_clocksource"
-        self._recommendation_if_unavailable = { "x86_64": "The tsc clocksource is not available. Consider using a hardware platform where the tsc clocksource is available, or try forcing it withe the tsc=reliable boot option" }
+        self._recommendation_if_unavailable = { "x86_64": "The tsc clocksource is not available. Consider using a hardware platform where the tsc clocksource is available, or try forcing it withe the tsc=reliable boot option", "kvm": "kvm-clock is not available" }
 
     def _available_clocksources(self):
         return open(self._available_clocksources_file).readline().split()
 
     def _current_clocksource(self):
         return open(self._current_clocksource_file).readline().strip()
+
+    def _get_arch(self):
+        try:
+            virt = run_read_only_command(['systemd-detect-virt']).strip()
+            if virt == "kvm":
+                return virt
+        except:
+            pass
+        return platform.machine()
 
     def enforce_preferred_clocksource(self):
         fwriteln(self._current_clocksource_file, self._preferred[self._arch], "Setting clocksource to {}".format(self._preferred[self._arch]))
