@@ -296,8 +296,32 @@ static hwloc_obj_t get_numa_node_for_pu(hwloc_topology_t& topology, hwloc_obj_t 
             return tmp;
         }
     }
-    assert(false && "PU not inside any NUMA node");
-    abort();
+    return nullptr;
+}
+
+static hwloc_obj_t hwloc_get_ancestor(hwloc_obj_type_t type, hwloc_topology_t& topology, unsigned cpu_id) {
+    auto cur = hwloc_get_pu_obj_by_os_index(topology, cpu_id);
+
+    while (cur != nullptr) {
+        if (cur->type == type) {
+            break;
+        }
+        cur = cur->parent;
+    }
+
+    return cur;
+}
+
+static std::unordered_map<hwloc_obj_t, std::vector<unsigned>> break_cpus_into_groups(hwloc_topology_t& topology,
+        std::vector<unsigned> cpus, hwloc_obj_type_t type) {
+    std::unordered_map<hwloc_obj_t, std::vector<unsigned>> groups;
+
+    for (auto&& cpu_id : cpus) {
+        hwloc_obj_t anc = hwloc_get_ancestor(type, topology, cpu_id);
+        groups[anc].push_back(cpu_id);
+    }
+
+    return groups;
 }
 
 struct distribute_objects {
@@ -323,10 +347,10 @@ struct distribute_objects {
 };
 
 static io_queue_topology
-allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, unsigned num_io_queues, unsigned& last_node_idx) {
-    auto node_of_shard = [&topology, &cpus] (unsigned shard) {
-        auto pu = hwloc_get_pu_obj_by_os_index(topology, cpus[shard].cpu_id);
-        auto node = get_numa_node_for_pu(topology, pu);
+allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unordered_map<unsigned, hwloc_obj_t>& cpu_to_node,
+        unsigned num_io_queues, unsigned& last_node_idx) {
+    auto node_of_shard = [&cpus, &cpu_to_node] (unsigned shard) {
+        auto node = cpu_to_node.at(cpus[shard].cpu_id);
         return hwloc_bitmap_first(node->nodeset);
     };
 
@@ -469,18 +493,80 @@ resources allocate(configuration c) {
     auto mem_per_proc = std::min(align_down<size_t>(mem / procs, 2 << 20), max_mem_per_proc);
 
     resources ret;
+    std::unordered_map<unsigned, hwloc_obj_t> cpu_to_node;
+    std::vector<unsigned> orphan_pus;
     std::unordered_map<hwloc_obj_t, size_t> topo_used_mem;
     std::vector<std::pair<cpu, size_t>> remains;
     size_t remain;
 
     auto cpu_sets = distribute_objects(topology, procs);
 
-    // Divide local memory to cpus
     for (auto&& cs : cpu_sets()) {
         auto cpu_id = hwloc_bitmap_first(cs);
         assert(cpu_id != -1);
         auto pu = hwloc_get_pu_obj_by_os_index(topology, cpu_id);
         auto node = get_numa_node_for_pu(topology, pu);
+        if (node == nullptr) {
+            orphan_pus.push_back(cpu_id);
+        } else {
+            cpu_to_node[cpu_id] = node;
+            seastar_logger.debug("Assign CPU{} to NUMA{}", cpu_id, node->os_index);
+        }
+    }
+
+    if (!orphan_pus.empty()) {
+        if (!c.assign_orphan_cpus) {
+            seastar_logger.error("CPUs without local NUMA nodes are disabled by the "
+                        "--allow-cpus-in-remote-numa-nodes=false option.\n");
+            throw std::runtime_error("no NUMA node for CPU");
+        }
+
+        seastar_logger.warn("Assigning some CPUs to remote NUMA nodes");
+
+        // Get the list of NUMA nodes available
+        std::vector<hwloc_obj_t> nodes;
+
+        hwloc_obj_t tmp = NULL;
+        auto depth = hwloc_get_type_or_above_depth(topology, HWLOC_OBJ_NUMANODE);
+        while ((tmp = hwloc_get_next_obj_by_depth(topology, depth, tmp)) != NULL) {
+            nodes.push_back(tmp);
+        }
+
+        // Group orphan CPUs by ... some sane enough feature
+        std::unordered_map<hwloc_obj_t, std::vector<unsigned>> grouped;
+        hwloc_obj_type_t group_by[] = {
+            HWLOC_OBJ_L3CACHE,
+            HWLOC_OBJ_L2CACHE,
+            HWLOC_OBJ_L1CACHE,
+            HWLOC_OBJ_PU,
+        };
+
+        for (auto&& gb : group_by) {
+            grouped = break_cpus_into_groups(topology, orphan_pus, gb);
+            if (grouped.size() >= nodes.size()) {
+                seastar_logger.debug("Grouped orphan CPUs by {}", hwloc_obj_type_string(gb));
+                break;
+            }
+            // Try to scatter orphans into as much NUMA nodes as possible
+            // by grouping them with more specific selection
+        }
+
+        // Distribute PUs among the nodes by groups
+        unsigned nid = 0;
+        for (auto&& grp : grouped) {
+            for (auto&& cpu_id : grp.second) {
+                cpu_to_node[cpu_id] = nodes[nid];
+                seastar_logger.debug("Assign orphan CPU{} to NUMA{}", cpu_id, nodes[nid]->os_index);
+            }
+            nid = (nid + 1) % nodes.size();
+        }
+    }
+
+    // Divide local memory to cpus
+    for (auto&& cs : cpu_sets()) {
+        auto cpu_id = hwloc_bitmap_first(cs);
+        assert(cpu_id != -1);
+        auto node = cpu_to_node.at(cpu_id);
         cpu this_cpu;
         this_cpu.cpu_id = cpu_id;
         remain = mem_per_proc - alloc_from_node(this_cpu, node, topo_used_mem, mem_per_proc);
@@ -494,8 +580,7 @@ resources allocate(configuration c) {
         cpu this_cpu;
         size_t remain;
         std::tie(this_cpu, remain) = r;
-        auto pu = hwloc_get_pu_obj_by_os_index(topology, this_cpu.cpu_id);
-        auto node = get_numa_node_for_pu(topology, pu);
+        auto node = cpu_to_node.at(this_cpu.cpu_id);
         auto obj = node;
 
         while (remain) {
@@ -514,7 +599,7 @@ resources allocate(configuration c) {
     for (auto d : c.num_io_queues) {
         auto devid = d.first;
         auto num_io_queues = d.second;
-        ret.ioq_topology.emplace(devid, allocate_io_queues(topology, ret.cpus, num_io_queues, last_node_idx));
+        ret.ioq_topology.emplace(devid, allocate_io_queues(topology, ret.cpus, cpu_to_node, num_io_queues, last_node_idx));
     }
     return ret;
 }

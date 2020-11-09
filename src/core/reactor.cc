@@ -3338,6 +3338,9 @@ smp::get_options_description()
 #ifndef SEASTAR_NO_EXCEPTION_HACK
         ("enable-glibc-exception-scaling-workaround", bpo::value<bool>()->default_value(true), "enable workaround for glibc/gcc c++ exception scalablity problem")
 #endif
+#ifdef SEASTAR_HAVE_HWLOC
+        ("allow-cpus-in-remote-numa-nodes", bpo::value<bool>()->default_value(true), "if some CPUs are found not to have any local NUMA nodes, allow assigning them to remote ones")
+#endif
         ;
     return opts;
 }
@@ -3800,6 +3803,12 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     for (auto& id : disk_config.device_ids()) {
         rc.num_io_queues.emplace(id, disk_config.num_io_queues(id));
     }
+
+#ifdef SEASTAR_HAVE_HWLOC
+    if (configuration["allow-cpus-in-remote-numa-nodes"].as<bool>()) {
+        rc.assign_orphan_cpus = true;
+    }
+#endif
 
     auto resources = resource::allocate(rc);
     std::vector<resource::cpu> allocations = std::move(resources.cpus);

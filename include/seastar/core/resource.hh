@@ -46,6 +46,7 @@ struct configuration {
     optional<size_t> cpus;
     optional<cpuset> cpu_set;
     std::unordered_map<dev_t, unsigned> num_io_queues;
+    bool assign_orphan_cpus = false;
 };
 
 struct memory {
