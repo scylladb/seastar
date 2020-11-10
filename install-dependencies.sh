@@ -56,6 +56,7 @@ debian_packages=(
     diffutils
     valgrind
     doxygen
+    openssl
 )
 
 # seastar doesn't directly depend on these packages. They are
@@ -88,6 +89,7 @@ redhat_packages=(
     stow
     diffutils
     doxygen
+    openssl
     "${transitive[@]}"
 )
 
@@ -162,6 +164,7 @@ arch_packages=(
     glibc
     filesystem
     valgrind
+    openssl
 )
 
 opensuse_packages=(
@@ -196,6 +199,7 @@ opensuse_packages=(
     yaml-cpp-devel
     libtool
     stow
+    openssl
 )
 
 case "$ID" in
