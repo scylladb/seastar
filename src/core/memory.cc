@@ -1626,7 +1626,9 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
     auto total_mem = cpu_mem.nr_pages * page_size;
     it = fmt::format_to(it, "Dumping seastar memory diagnostics\n");
 
-    it = fmt::format_to(it, "Used memory: {} Free memory: {} Total memory: {}\n", total_mem - free_mem, free_mem, total_mem);
+    it = fmt::format_to(it, "Used memory:  {}\n", to_hr_size(total_mem - free_mem));
+    it = fmt::format_to(it, "Free memory:  {}\n", to_hr_size(free_mem));
+    it = fmt::format_to(it, "Total memory: {}\n\n", to_hr_size(total_mem));
 
     it = fmt::format_to(it, "Small pools:\n");
     it = fmt::format_to(it, "objsz\tspansz\tusedobj\tmemory\tunused\twst%\n");
