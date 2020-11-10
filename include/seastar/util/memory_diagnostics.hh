@@ -74,5 +74,12 @@ using memory_diagnostics_writer = noncopyable_function<void(std::string_view)>;
 ///     the output.
 void set_additional_diagnostics_producer(noncopyable_function<void(memory_diagnostics_writer)> producer);
 
+/// Manually generate a diagnostics report
+///
+/// Note that contrary to the automated report generation (triggered by
+/// allocation failure), this method does allocate memory and can fail in
+/// low-memory conditions.
+sstring generate_memory_diagnostics_report();
+
 } // namespace memory
 } // namespace seastar

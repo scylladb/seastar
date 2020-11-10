@@ -105,6 +105,7 @@ namespace seastar {
 /// kinds, see:
 /// * set_dump_memory_diagnostics_on_alloc_failure_kind()
 /// * set_additional_diagnostics_producer()
+/// * generate_memory_diagnostics_report()
 ///
 /// The diagnostics report dump can be configured with the command
 /// line/configuration file via the \p dump-memory-diagnostics-on-alloc-failure-kind
