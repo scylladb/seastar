@@ -104,6 +104,7 @@ namespace seastar {
 /// You can configure a report to be dumped with error level on certain allocation
 /// kinds, see:
 /// * set_dump_memory_diagnostics_on_alloc_failure_kind()
+/// * set_additional_diagnostics_producer()
 ///
 /// The diagnostics report dump can be configured with the command
 /// line/configuration file via the \p dump-memory-diagnostics-on-alloc-failure-kind

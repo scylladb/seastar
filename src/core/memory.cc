@@ -1577,6 +1577,12 @@ void set_dump_memory_diagnostics_on_alloc_failure_kind(std::string_view str) {
     }
 }
 
+static thread_local noncopyable_function<void(memory_diagnostics_writer)> additional_diagnostics_producer;
+
+void set_additional_diagnostics_producer(noncopyable_function<void(memory_diagnostics_writer)> producer) {
+    additional_diagnostics_producer = std::move(producer);
+}
+
 struct human_readable_value {
     uint16_t value;  // [0, 1024)
     char suffix; // 0 -> no suffix
@@ -1629,6 +1635,12 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
     it = fmt::format_to(it, "Used memory:  {}\n", to_hr_size(total_mem - free_mem));
     it = fmt::format_to(it, "Free memory:  {}\n", to_hr_size(free_mem));
     it = fmt::format_to(it, "Total memory: {}\n\n", to_hr_size(total_mem));
+
+    if (additional_diagnostics_producer) {
+        additional_diagnostics_producer([&it] (std::string_view v) mutable {
+            it = fmt::format_to(it, v);
+        });
+    }
 
     it = fmt::format_to(it, "Small pools:\n");
     it = fmt::format_to(it, "objsz\tspansz\tusedobj\tmemory\tunused\twst%\n");
@@ -2215,6 +2227,10 @@ void set_dump_memory_diagnostics_on_alloc_failure_kind(alloc_failure_kind) {
 }
 
 void set_dump_memory_diagnostics_on_alloc_failure_kind(std::string_view) {
+    // Ignore, not supported for default allocator.
+}
+
+void set_additional_diagnostics_producer(noncopyable_function<void(memory_diagnostics_writer)>) {
     // Ignore, not supported for default allocator.
 }
 
