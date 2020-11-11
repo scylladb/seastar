@@ -120,7 +120,7 @@ private:
     expiry_handler make_expiry_handler() noexcept {
         return [this] (entry& e) noexcept {
             try {
-                e.pr.set_exception(exception_factory::timeout());
+                e.pr.set_exception(this->timeout());
             } catch (...) {
                 e.pr.set_exception(semaphore_timed_out());
             }
