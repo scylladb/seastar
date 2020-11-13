@@ -34,19 +34,17 @@ namespace memory {
 ///
 /// To exhaustively inject failure at every allocation point:
 ///
-///    uint64_t i = 0;
-///    while (true) {
-///        try {
-///            local_failure_injector().fail_after(i++);
-///            code_under_test();
-///            local_failure_injector().cancel();
-///            break;
-///        } catch (const std::bad_alloc&) {
-///            // expected
-///        }
-///    }
-///
-
+///     uint64_t i = 0;
+///     while (true) {
+///         try {
+///             local_failure_injector().fail_after(i++);
+///             code_under_test();
+///             local_failure_injector().cancel();
+///             break;
+///         } catch (const std::bad_alloc&) {
+///             // expected
+///         }
+///     }
 class alloc_failure_injector {
     uint64_t _alloc_count;
     uint64_t _fail_at = std::numeric_limits<uint64_t>::max();
@@ -57,6 +55,7 @@ class alloc_failure_injector {
 private:
     void fail();
 public:
+    /// \brief Marks a point in code which should be considered for failure injection.
     void on_alloc_point() {
         if (_suppressed) {
             return;
@@ -67,33 +66,36 @@ public:
         ++_alloc_count;
     }
 
-    // Counts encountered allocation points which didn't fail and didn't have failure suppressed
+    /// Counts encountered allocation points which didn't fail and didn't have failure suppressed.
     uint64_t alloc_count() const {
         return _alloc_count;
     }
 
-    // Will cause count-th allocation point from now to fail, counting from 0
+    /// Will cause count-th allocation point from now to fail, counting from 0.
     void fail_after(uint64_t count) {
         _fail_at = _alloc_count + count;
         _failed = false;
     }
 
-    // Cancels the failure scheduled by fail_after()
+    /// Cancels the failure scheduled by fail_after().
     void cancel() {
         _fail_at = std::numeric_limits<uint64_t>::max();
     }
 
-    // Returns true iff allocation was failed since last fail_after()
+    /// Returns true iff allocation was failed since last fail_after().
     bool failed() const {
         return _failed;
     }
 
-    // Runs given function with a custom failure action instead of the default std::bad_alloc throw.
+    /// Runs given function with a custom failure action instead of the default std::bad_alloc throw.
     void run_with_callback(noncopyable_function<void()> callback, noncopyable_function<void()> to_run);
 };
 
+/// \cond internal
 extern thread_local alloc_failure_injector the_alloc_failure_injector;
+/// \endcond
 
+/// \brief Return the shard-local \ref alloc_failure_injector instance.
 inline
 alloc_failure_injector& local_failure_injector() {
     return the_alloc_failure_injector;
@@ -118,7 +120,7 @@ struct disable_failure_guard {
 
 #endif
 
-// Marks a point in code which should be considered for failure injection
+/// \brief Marks a point in code which should be considered for failure injection.
 inline
 void on_alloc_point() {
 #ifdef SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION
