@@ -38,6 +38,7 @@
 #include <vector>
 #include <boost/range/irange.hpp>
 #include <boost/range/adaptor/transformed.hpp>
+#include <boost/container/static_vector.hpp>
 
 namespace seastar {
 
@@ -299,6 +300,15 @@ public:
     }
 };
 
+/// \brief Base class for execution stages with support for automatic \ref scheduling_group inheritance
+class inheriting_execution_stage {
+public:
+    struct per_scheduling_group_stats {
+        scheduling_group sg;
+        execution_stage::stats stats;
+    };
+    using stats = boost::container::static_vector<per_scheduling_group_stats, max_scheduling_groups()>;
+};
 
 /// \brief Concrete execution stage class, with support for automatic \ref scheduling_group inheritance
 ///
@@ -310,7 +320,7 @@ public:
 ///                   to have move constructor that doesn't throw
 template<typename ReturnType, typename... Args>
 SEASTAR_CONCEPT(requires std::is_nothrow_move_constructible<std::tuple<Args...>>::value)
-class inheriting_concrete_execution_stage final {
+class inheriting_concrete_execution_stage final : public inheriting_execution_stage {
     using return_type = futurize_t<ReturnType>;
     using args_tuple = std::tuple<Args...>;
     using per_group_stage_type = concrete_execution_stage<ReturnType, Args...>;
@@ -370,6 +380,24 @@ public:
             slot.emplace(make_stage_for_group(sg));
         }
         return (*slot)(std::move(args)...);
+    }
+
+    /// Returns summary of individual execution stage usage statistics
+    ///
+    /// \returns a vector of the stats of the individual per-scheduling group
+    ///     executation stages. Each element in the vector is a pair composed of
+    ///     the scheduling group and the stats for the respective execution
+    ///     stage. Scheduling groups that have had no respective calls enqueued
+    ///     yet are omitted.
+    inheriting_execution_stage::stats get_stats() const noexcept {
+        inheriting_execution_stage::stats summary;
+        for (unsigned sg_id = 0; sg_id != _stage_for_group.size(); ++sg_id) {
+            auto sg = internal::scheduling_group_from_index(sg_id);
+            if (_stage_for_group[sg_id]) {
+                summary.push_back({sg, _stage_for_group[sg_id]->get_stats()});
+            }
+        }
+        return summary;
     }
 };
 
