@@ -4105,7 +4105,7 @@ reactor::calculate_poll_time() {
 }
 
 future<> later() noexcept {
-    memory::disable_failure_guard dfg;
+    memory::scoped_critical_alloc_section _;
     engine().force_poll();
     auto tsk = make_task(default_scheduling_group(), [] {});
     schedule(tsk);

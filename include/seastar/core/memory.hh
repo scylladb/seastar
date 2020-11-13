@@ -53,6 +53,12 @@ namespace seastar {
 /// You can obtain the memory layout of the current shard with
 /// \ref get_memory_layout().
 ///
+/// ## Critical allocation scopes
+///
+/// Seastar supports marking scopes as critical allocation scopes for the purpose
+/// of special treatment from various memory related utilities.
+/// See \ref scoped_critical_alloc_section.
+///
 /// ## Diagnostics and debugging features
 ///
 /// ### Allocation failure injector

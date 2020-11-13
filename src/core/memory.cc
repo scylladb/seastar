@@ -97,6 +97,16 @@ disable_abort_on_alloc_failure_temporarily::~disable_abort_on_alloc_failure_temp
 static std::pmr::polymorphic_allocator<char> static_malloc_allocator{std::pmr::get_default_resource()};;
 std::pmr::polymorphic_allocator<char>* malloc_allocator{&static_malloc_allocator};
 
+namespace internal {
+
+#ifdef __cpp_constinit
+thread_local constinit int critical_alloc_section = 0;
+#else
+__thread int critical_alloc_section = 0;
+#endif
+
+} // namespace internal
+
 }
 
 }
@@ -258,7 +268,7 @@ class page_list_link {
     uint32_t _prev;
     uint32_t _next;
     friend class page_list;
-    friend internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_buf::inserter_iterator);
+    friend seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar::internal::log_buf::inserter_iterator);
 };
 
 constexpr size_t mem_base_alloc = size_t(1) << 44;
@@ -355,7 +365,7 @@ public:
         }
         _front = ary[_front].link._next;
     }
-    friend internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_buf::inserter_iterator);
+    friend seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar::internal::log_buf::inserter_iterator);
 };
 
 class small_pool {
@@ -385,7 +395,7 @@ public:
 private:
     void add_more_objects();
     void trim_free_list();
-    friend internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_buf::inserter_iterator);
+    friend seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar::internal::log_buf::inserter_iterator);
 };
 
 // index 0b0001'1100 -> size (1 << 4) + 0b11 << (4 - 2)
@@ -1593,7 +1603,7 @@ static human_readable_value to_hr_number(uint64_t number) {
     return to_human_readable_value(number, 1000, 10000, suffixes);
 }
 
-internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_buf::inserter_iterator it) {
+seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar::internal::log_buf::inserter_iterator it) {
     auto free_mem = cpu_mem.nr_free_pages * page_size;
     auto total_mem = cpu_mem.nr_pages * page_size;
     it = fmt::format_to(it, "Dumping seastar memory diagnostics\n");
@@ -1672,7 +1682,7 @@ void maybe_dump_memory_diagnostics(size_t size) {
 
     disable_report_on_alloc_failure_temporarily guard;
     seastar_memory_logger.debug("Failed to allocate {} bytes at {}", size, current_backtrace());
-    logger::lambda_log_writer writer([] (internal::log_buf::inserter_iterator it) {
+    logger::lambda_log_writer writer([] (seastar::internal::log_buf::inserter_iterator it) {
         return do_dump_memory_diagnostics(it);
     });
     seastar_memory_logger.log(log_level::debug, writer);

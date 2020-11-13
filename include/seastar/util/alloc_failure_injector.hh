@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <functional>
 #include <seastar/util/noncopyable_function.hh>
+#include <seastar/util/critical_alloc_section.hh>
 
 namespace seastar {
 namespace memory {
@@ -50,14 +51,12 @@ class alloc_failure_injector {
     uint64_t _fail_at = std::numeric_limits<uint64_t>::max();
     noncopyable_function<void()> _on_alloc_failure = [] { throw std::bad_alloc(); };
     bool _failed;
-    uint64_t _suppressed = 0;
-    friend struct disable_failure_guard;
 private:
     void fail();
 public:
     /// \brief Marks a point in code which should be considered for failure injection.
     void on_alloc_point() {
-        if (_suppressed) {
+        if (is_critical_alloc_section()) {
             return;
         }
         if (_alloc_count >= _fail_at) {
@@ -107,18 +106,12 @@ alloc_failure_injector& local_failure_injector() {
 #error SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION is not supported when using SEASTAR_DEFAULT_ALLOCATOR
 #endif
 
-struct disable_failure_guard {
-    disable_failure_guard() { ++local_failure_injector()._suppressed; }
-    ~disable_failure_guard() { --local_failure_injector()._suppressed; }
-};
-
-#else
-
-struct disable_failure_guard {
-    ~disable_failure_guard() {}
-};
-
 #endif
+
+
+struct [[deprecated("Use scoped_critical_section instead")]] disable_failure_guard {
+    scoped_critical_alloc_section cs;
+};
 
 /// \brief Marks a point in code which should be considered for failure injection.
 inline

@@ -31,6 +31,7 @@
 #include <seastar/core/stall_sampler.hh>
 #include <seastar/core/aligned_buffer.hh>
 #include <seastar/util/tmp_file.hh>
+#include <seastar/util/alloc_failure_injector.hh>
 
 #include <boost/range/adaptor/transformed.hpp>
 #include <iostream>
