@@ -56,6 +56,7 @@
 #include <seastar/core/memory.hh>
 #include <seastar/core/print.hh>
 #include <seastar/util/alloc_failure_injector.hh>
+#include <seastar/util/memory_diagnostics.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/log.hh>
 #include <seastar/core/aligned_buffer.hh>
@@ -96,6 +97,16 @@ disable_abort_on_alloc_failure_temporarily::~disable_abort_on_alloc_failure_temp
 
 static std::pmr::polymorphic_allocator<char> static_malloc_allocator{std::pmr::get_default_resource()};;
 std::pmr::polymorphic_allocator<char>* malloc_allocator{&static_malloc_allocator};
+
+namespace internal {
+
+#ifdef __cpp_constinit
+thread_local constinit int critical_alloc_section = 0;
+#else
+__thread int critical_alloc_section = 0;
+#endif
+
+} // namespace internal
 
 }
 
@@ -258,7 +269,7 @@ class page_list_link {
     uint32_t _prev;
     uint32_t _next;
     friend class page_list;
-    friend internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_buf::inserter_iterator);
+    friend seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar::internal::log_buf::inserter_iterator);
 };
 
 constexpr size_t mem_base_alloc = size_t(1) << 44;
@@ -355,7 +366,7 @@ public:
         }
         _front = ary[_front].link._next;
     }
-    friend internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_buf::inserter_iterator);
+    friend seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar::internal::log_buf::inserter_iterator);
 };
 
 class small_pool {
@@ -385,7 +396,7 @@ public:
 private:
     void add_more_objects();
     void trim_free_list();
-    friend internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_buf::inserter_iterator);
+    friend seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar::internal::log_buf::inserter_iterator);
 };
 
 // index 0b0001'1100 -> size (1 << 4) + 0b11 << (4 - 2)
@@ -1544,9 +1555,32 @@ public:
 };
 
 static std::atomic<bool> abort_on_allocation_failure{false};
+static std::atomic<alloc_failure_kind> dump_diagnostics_on_alloc_failure_kind{alloc_failure_kind::critical};
 
 void enable_abort_on_allocation_failure() {
     abort_on_allocation_failure.store(true, std::memory_order_seq_cst);
+}
+
+void set_dump_memory_diagnostics_on_alloc_failure_kind(alloc_failure_kind kind) {
+    dump_diagnostics_on_alloc_failure_kind.store(kind, std::memory_order_seq_cst);
+}
+
+void set_dump_memory_diagnostics_on_alloc_failure_kind(std::string_view str) {
+    if (str == "none") {
+        set_dump_memory_diagnostics_on_alloc_failure_kind(alloc_failure_kind::none);
+    } else if (str == "critical") {
+        set_dump_memory_diagnostics_on_alloc_failure_kind(alloc_failure_kind::critical);
+    } else if (str == "all") {
+        set_dump_memory_diagnostics_on_alloc_failure_kind(alloc_failure_kind::all);
+    } else {
+        seastar_logger.error("Ignoring invalid option '{}' for the allocation failure kind to dump seastar memory diagnostics for, valid options are: none, critical and all", str);
+    }
+}
+
+static thread_local noncopyable_function<void(memory_diagnostics_writer)> additional_diagnostics_producer;
+
+void set_additional_diagnostics_producer(noncopyable_function<void(memory_diagnostics_writer)> producer) {
+    additional_diagnostics_producer = std::move(producer);
 }
 
 struct human_readable_value {
@@ -1593,12 +1627,20 @@ static human_readable_value to_hr_number(uint64_t number) {
     return to_human_readable_value(number, 1000, 10000, suffixes);
 }
 
-internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_buf::inserter_iterator it) {
+seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar::internal::log_buf::inserter_iterator it) {
     auto free_mem = cpu_mem.nr_free_pages * page_size;
     auto total_mem = cpu_mem.nr_pages * page_size;
     it = fmt::format_to(it, "Dumping seastar memory diagnostics\n");
 
-    it = fmt::format_to(it, "Used memory: {} Free memory: {} Total memory: {}\n", total_mem - free_mem, free_mem, total_mem);
+    it = fmt::format_to(it, "Used memory:  {}\n", to_hr_size(total_mem - free_mem));
+    it = fmt::format_to(it, "Free memory:  {}\n", to_hr_size(free_mem));
+    it = fmt::format_to(it, "Total memory: {}\n\n", to_hr_size(total_mem));
+
+    if (additional_diagnostics_producer) {
+        additional_diagnostics_producer([&it] (std::string_view v) mutable {
+            it = fmt::format_to(it, v);
+        });
+    }
 
     it = fmt::format_to(it, "Small pools:\n");
     it = fmt::format_to(it, "objsz\tspansz\tusedobj\tmemory\tunused\twst%\n");
@@ -1661,24 +1703,52 @@ internal::log_buf::inserter_iterator do_dump_memory_diagnostics(internal::log_bu
     return it;
 }
 
-void on_allocation_failure(size_t size) {
-    if (!report_on_alloc_failure_suppressed &&
-            // report even suppressed failures if trace level is enabled
-            (seastar_memory_logger.is_enabled(seastar::log_level::trace) ||
-                    (seastar_memory_logger.is_enabled(seastar::log_level::debug) && !abort_on_alloc_failure_suppressed))) {
-        disable_report_on_alloc_failure_temporarily guard;
-        seastar_memory_logger.debug("Failed to allocate {} bytes at {}", size, current_backtrace());
-        logger::lambda_log_writer writer([] (internal::log_buf::inserter_iterator it) {
-            return do_dump_memory_diagnostics(it);
-        });
-        seastar_memory_logger.log(log_level::debug, writer);
+void maybe_dump_memory_diagnostics(size_t size) {
+    if (report_on_alloc_failure_suppressed) {
+        return;
     }
+
+    disable_report_on_alloc_failure_temporarily guard;
+    seastar_memory_logger.debug("Failed to allocate {} bytes at {}", size, current_backtrace());
+
+    auto lvl = log_level::debug;
+    switch (dump_diagnostics_on_alloc_failure_kind.load(std::memory_order_relaxed)) {
+        case alloc_failure_kind::none:
+            lvl = log_level::debug;
+            break;
+        case alloc_failure_kind::critical:
+            lvl = is_critical_alloc_section() ? log_level::error : log_level::debug;
+            break;
+        case alloc_failure_kind::all:
+            lvl = log_level::error;
+            break;
+    }
+
+    if (!seastar_memory_logger.is_enabled(lvl)) {
+        return;
+    }
+
+    logger::lambda_log_writer writer([] (seastar::internal::log_buf::inserter_iterator it) {
+        return do_dump_memory_diagnostics(it);
+    });
+    seastar_memory_logger.log(lvl, writer);
+}
+
+void on_allocation_failure(size_t size) {
+    maybe_dump_memory_diagnostics(size);
 
     if (!abort_on_alloc_failure_suppressed
             && abort_on_allocation_failure.load(std::memory_order_relaxed)) {
         seastar_logger.error("Failed to allocate {} bytes", size);
         abort();
     }
+}
+
+sstring generate_memory_diagnostics_report() {
+    seastar::internal::log_buf buf;
+    auto it = buf.back_insert_begin();
+    do_dump_memory_diagnostics(it);
+    return sstring(buf.data(), buf.size());
 }
 
 static void trigger_error_injector() {
@@ -2156,6 +2226,24 @@ size_t get_large_allocation_warning_threshold() {
 
 void disable_large_allocation_warning() {
     // Ignore, not supported for default allocator.
+}
+
+
+void set_dump_memory_diagnostics_on_alloc_failure_kind(alloc_failure_kind) {
+    // Ignore, not supported for default allocator.
+}
+
+void set_dump_memory_diagnostics_on_alloc_failure_kind(std::string_view) {
+    // Ignore, not supported for default allocator.
+}
+
+void set_additional_diagnostics_producer(noncopyable_function<void(memory_diagnostics_writer)>) {
+    // Ignore, not supported for default allocator.
+}
+
+sstring generate_memory_diagnostics_report() {
+    // Ignore, not supported for default allocator.
+    return {};
 }
 
 }

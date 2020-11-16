@@ -67,7 +67,6 @@ static_assert(std::is_nothrow_move_constructible_v<named_semaphore>);
 
 named_semaphore_timed_out::named_semaphore_timed_out(std::string_view msg) noexcept : _msg() {
     try {
-        memory::disable_failure_guard dfg;
         _msg = format("Semaphore timed out: {}", msg);
     } catch (...) {
         // ignore, empty _msg will generate a static message in what().
@@ -76,7 +75,6 @@ named_semaphore_timed_out::named_semaphore_timed_out(std::string_view msg) noexc
 
 broken_named_semaphore::broken_named_semaphore(std::string_view msg) noexcept : _msg() {
     try {
-        memory::disable_failure_guard dfg;
         _msg = format("Semaphore broken: {}", msg);
     } catch (...) {
         // ignore, empty _msg will generate a static message in what().

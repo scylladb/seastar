@@ -562,6 +562,7 @@ public:
         }
     }
     void add_urgent_task(task* t) noexcept {
+        memory::scoped_critical_alloc_section _;
         auto sg = t->group();
         auto* q = _task_queues[sg._id].get();
         bool was_empty = q->_q.empty();

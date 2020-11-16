@@ -149,7 +149,7 @@ private:
             // .then()'s failure to allocate a continuation as the caller cannot
             // distinguish between an error returned by the original future to
             // failing to perform `get_future` itself.
-            memory::disable_failure_guard dfg;
+            memory::scoped_critical_alloc_section _;
             if (!_original_future.available()) {
                 promise_type p;
                 auto f = p.get_future();

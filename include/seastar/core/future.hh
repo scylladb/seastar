@@ -30,7 +30,7 @@
 #include <assert.h>
 #include <cstdlib>
 #include <seastar/core/function_traits.hh>
-#include <seastar/util/alloc_failure_injector.hh>
+#include <seastar/util/critical_alloc_section.hh>
 #include <seastar/util/attribute-compat.hh>
 #include <seastar/util/concepts.hh>
 #include <seastar/util/noncopyable_function.hh>
@@ -1377,7 +1377,7 @@ private:
         // can be done about it. The corresponding future is not ready
         // and we cannot break the chain. Since this function is
         // noexcept, it will call std::terminate if new throws.
-        memory::disable_failure_guard dfg;
+        memory::scoped_critical_alloc_section _;
         auto tws = new continuation<Pr, Func, Wrapper, T SEASTAR_ELLIPSIS>(std::move(pr), std::move(func), std::move(wrapper));
         // In a debug build we schedule ready futures, but not in
         // other build modes.
@@ -1522,7 +1522,7 @@ public:
         using func_type = typename call_then_impl::template func_type<Func>;
         noncopyable_function<func_type> ncf;
         {
-            memory::disable_failure_guard dfg;
+            memory::scoped_critical_alloc_section _;
             ncf = noncopyable_function<func_type>([func = std::forward<Func>(func)](auto&&... args) mutable {
                 return futurize_invoke(func, std::forward<decltype(args)>(args)...);
             });
@@ -1647,7 +1647,7 @@ private:
         using WrapFuncResult = typename futurator::type;
         noncopyable_function<WrapFuncResult (future&&)> ncf;
         {
-            memory::disable_failure_guard dfg;
+            memory::scoped_critical_alloc_section _;
             ncf = noncopyable_function<WrapFuncResult(future &&)>([func = std::forward<Func>(func)](future&& f) mutable {
                 return futurator::invoke(func, std::move(f));
             });

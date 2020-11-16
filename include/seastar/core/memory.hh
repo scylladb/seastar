@@ -50,6 +50,66 @@ namespace seastar {
 /// on the same lcore; failing to do so carries a severe performance
 /// penalty.  It is possible to share memory with another core, but this
 /// should be limited to avoid cache coherency traffic.
+/// You can obtain the memory layout of the current shard with
+/// \ref get_memory_layout().
+///
+/// ## Critical allocation scopes
+///
+/// Seastar supports marking scopes as critical allocation scopes for the purpose
+/// of special treatment from various memory related utilities.
+/// See \ref scoped_critical_alloc_section.
+///
+/// ## Diagnostics and debugging features
+///
+/// ### Allocation failure injector
+///
+/// Allows injecting allocation failures for testing resiliency against
+/// allocation failures, or exceptions in general. See:
+/// * \ref alloc_failure_injector
+/// * \ref with_allocation_failures()
+///
+/// ### Large allocation warning
+///
+/// Large allocations put great pressure on the allocator which might be unable
+/// to serve them even if there is enough memory available, due to memory
+/// fragmentation. This is especially relevant for long-running applications,
+/// the kind of applications that are typically built with seastar. This feature
+/// allows finding these large by logging a warning on large allocations, with
+/// the stacktrace of the. See:
+/// * \ref set_large_allocation_warning_threshold()
+/// * \ref get_large_allocation_warning_threshold()
+/// * \ref scoped_large_allocation_warning_threshold
+/// * \ref scoped_large_allocation_warning_disable
+///
+/// ### Heap profiling
+///
+/// Heap profiling allows finding out how memory is used by your application, by
+/// recording the stacktrace of all allocations. See:
+/// * \ref set_heap_profiling_enabled()
+/// * \ref scoped_heap_profiling
+///
+/// ### Abort on allocation failure
+///
+/// Often, the best way to debug an allocation failure is a coredump. This
+/// feature allows dumping core on allocation failures, containing the stack of
+/// the failed allocation, by means of aborting. To enable set the
+/// `abort_on_seastar_bad_alloc` configuration option or the respective command
+/// line flag.
+///
+/// ### Dump diagnostics report
+///
+/// Dump a diagnostic report of the state of the seastar allocator upon allocation
+/// failure. The report is dumped with the `seastar_memory` logger, with debug
+/// level.
+/// You can configure a report to be dumped with error level on certain allocation
+/// kinds, see:
+/// * set_dump_memory_diagnostics_on_alloc_failure_kind()
+/// * set_additional_diagnostics_producer()
+/// * generate_memory_diagnostics_report()
+///
+/// The diagnostics report dump can be configured with the command
+/// line/configuration file via the \p dump-memory-diagnostics-on-alloc-failure-kind
+/// command-line flag/configuration item.
 namespace memory {
 
 /// \cond internal

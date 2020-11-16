@@ -28,7 +28,7 @@
 
 #include <seastar/core/future.hh>
 #include <seastar/util/tuple_utils.hh>
-#include <seastar/util/alloc_failure_injector.hh>
+#include <seastar/util/critical_alloc_section.hh>
 
 namespace seastar {
 
@@ -170,7 +170,7 @@ public:
             return ResolvedTupleTransform::make_ready_future(std::make_tuple(std::move(futures)...));
         }
         auto state = [&] () noexcept {
-            memory::disable_failure_guard dfg;
+            memory::scoped_critical_alloc_section _;
             return new when_all_state(std::move(futures)...);
         }();
         auto ret = state->p.get_future();
@@ -287,7 +287,7 @@ inline auto
 do_when_all(FutureIterator begin, FutureIterator end) noexcept {
     using itraits = std::iterator_traits<FutureIterator>;
     auto make_values_vector = [] (size_t size) noexcept {
-        memory::disable_failure_guard dfg;
+        memory::scoped_critical_alloc_section _;
         std::vector<typename itraits::value_type> ret;
         ret.reserve(size);
         return ret;
@@ -450,7 +450,7 @@ struct extract_values_from_futures_vector {
 
     static future_type run(std::vector<Future> futures) noexcept {
         auto make_values_vector = [] (size_t size) noexcept {
-            memory::disable_failure_guard dfg;
+            memory::scoped_critical_alloc_section _;
             std::vector<value_type> values;
             values.reserve(size);
             return values;
