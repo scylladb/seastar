@@ -234,6 +234,30 @@ public:
             }
         }
     }
+    /// logs to desired level if enabled, otherwise we ignore the log line
+    ///
+    /// \param writer a function which writes directly to the underlying log buffer
+    ///
+    /// This is a low level method for use cases where it is very important to
+    /// avoid any allocations. The \arg writer will be passed a
+    /// internal::log_buf::inserter_iterator that allows it to write into the log
+    /// buffer directly, avoiding the use of any intermediary buffers.
+    /// This is rate-limited version, see \ref rate_limit.
+    void log(log_level level, rate_limit& rl, log_writer& writer) noexcept {
+        if (is_enabled(level) && rl.check()) {
+            try {
+                lambda_log_writer writer_wrapper([&] (internal::log_buf::inserter_iterator it) {
+                    if (rl.has_dropped_messages()) {
+                        it = fmt::format_to(it, "(rate limiting dropped {} similar messages) ", rl.get_and_reset_dropped_messages());
+                    }
+                    return writer(it);
+                });
+                do_log(level, writer_wrapper);
+            } catch (...) {
+                failed_to_log(std::current_exception());
+            }
+        }
+    }
     /// \endcond
 
     /// Log with error tag:
