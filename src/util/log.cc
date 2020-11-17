@@ -263,9 +263,7 @@ logger::do_log(log_level level, log_writer& writer) {
           it = fmt::format_to(it, " [shard {}]", this_shard_id());
       }
       it = fmt::format_to(it, " {} - ", _name);
-      it = writer(it);
-      *it = '\n';
-      return ++it;
+      return writer(it);
     };
 
     if (is_ostream_enabled) {
@@ -274,7 +272,7 @@ logger::do_log(log_level level, log_writer& writer) {
         it = fmt::format_to(it, "{} ", level_map[int(level)]);
         it = print_timestamp(it);
         it = print_once(it);
-        *_out << buf.view();
+        *_out << buf.view() << std::endl;
     }
     if (is_syslog_enabled) {
         internal::log_buf buf(static_log_buf.data(), static_log_buf.size());
