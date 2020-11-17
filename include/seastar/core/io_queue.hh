@@ -26,6 +26,8 @@
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/internal/io_request.hh>
+#include <seastar/core/timer.hh>
+#include <seastar/core/condition-variable.hh>
 #include <mutex>
 #include <array>
 
@@ -59,6 +61,8 @@ using shard_id = unsigned;
 
 class io_priority_class;
 
+class token_bucket;
+
 class io_queue {
 private:
     struct priority_class_data {
@@ -68,8 +72,10 @@ private:
         uint32_t nr_queued;
         std::chrono::duration<double> queue_time;
         metrics::metric_groups _metric_groups;
-        priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr, shard_id owner);
+        std::unique_ptr<token_bucket> _token_bucket;
+        priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr, shard_id owner, size_t rate, size_t burst);
         void rename(sstring new_name, sstring mountpoint, shard_id owner);
+        void set_limiter(size_t rate, size_t burst);
     private:
         void register_stats(sstring name, sstring mountpoint, shard_id owner);
     };
@@ -160,6 +166,7 @@ public:
     }
 
     future<> update_shares_for_class(io_priority_class pc, size_t new_shares);
+    future<> update_limiter_for_class(io_priority_class pc, size_t rate, size_t burst);
     void rename_priority_class(io_priority_class pc, sstring new_name);
 
 private:

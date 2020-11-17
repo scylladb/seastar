@@ -41,6 +41,81 @@ logger io_log("io");
 using namespace std::chrono_literals;
 using namespace internal::linux_abi;
 
+class token_bucket {
+private:
+    size_t _fill_rate;
+    size_t _max_tokens;
+    size_t _current_tokens;
+    seastar::condition_variable _cond;
+    seastar::timer<std::chrono::steady_clock> _fill_timer;
+    std::chrono::milliseconds _fill_interval{10};
+    size_t _max_oversized_request = 0;
+private:
+    void fill() {
+        auto tokens = _fill_rate * _fill_interval.count() / std::chrono::milliseconds(1000).count();
+        _current_tokens = std::min(_max_tokens, _current_tokens + tokens);
+        _cond.broadcast();
+    }
+    bool enabled() {
+        return _fill_rate != 0;
+    }
+public:
+    token_bucket(size_t fill_rate, size_t max_tokens)
+        : _fill_rate(fill_rate)
+        , _max_tokens(max_tokens)
+        , _current_tokens(max_tokens) {
+        _fill_timer.set_callback([this] { fill(); });
+        set_limiter(fill_rate, max_tokens);
+    }
+    future<> consume(size_t tokens) {
+        if (!enabled()) {
+            return make_ready_future<>();
+        }
+        if (tokens > _max_tokens) {
+            if (tokens > _max_oversized_request) {
+                _max_oversized_request = tokens;
+                io_log.warn("bandwidth_limiter: Number of bytes={} requested are bigger than max allowed number of bytes per request={}", tokens, _max_tokens);
+            }
+            tokens = _max_tokens;
+        }
+        return _cond.wait([this, tokens] {
+            bool wake_up = tokens <= _current_tokens || !enabled();
+            if (wake_up) {
+                if (enabled()) {
+                    _current_tokens -= tokens;
+                } else {
+                    _current_tokens = _max_tokens;
+                }
+            }
+            return wake_up;
+        });
+    }
+    size_t get_rate() {
+        return _fill_rate;
+    }
+    size_t get_max_tokens() {
+        return _max_tokens;
+    }
+    void set_limiter(size_t fill_rate, size_t max_tokens) {
+        _fill_rate = fill_rate;
+        if (max_tokens == 0) {
+            _max_tokens = 10 * _fill_rate;
+        } else {
+            _max_tokens = max_tokens;
+        }
+        if (enabled()) {
+            io_log.info0("bandwidth_limiter: Set rate={} bytes/second, max_bytes_per_request={} bytes/request, status=enabled", _fill_rate, _max_tokens);
+            if (!_fill_timer.armed()) {
+                _fill_timer.arm_periodic(_fill_interval);
+            }
+        } else {
+            io_log.info0("bandwidth_limiter: Set rate={} bytes/second, max_bytes_per_request={} bytes/request, status=disabled", _fill_rate, _max_tokens);
+            _fill_timer.cancel();
+        }
+        _cond.broadcast();
+    }
+};
+
 class io_desc_read_write final : public io_completion {
     io_queue* _ioq_ptr;
     fair_queue_ticket _fq_ticket;
@@ -157,14 +232,20 @@ bool io_queue::rename_one_priority_class(io_priority_class pc, sstring new_name)
 
 seastar::metrics::label io_queue_shard("ioshard");
 
-io_queue::priority_class_data::priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr, shard_id owner)
+io_queue::priority_class_data::priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr, shard_id owner, size_t rate, size_t burst)
     : ptr(ptr)
     , bytes(0)
     , ops(0)
     , nr_queued(0)
     , queue_time(1s)
+    , _token_bucket(std::make_unique<token_bucket>(rate, burst))
 {
     register_stats(name, mountpoint, owner);
+}
+
+void
+io_queue::priority_class_data::set_limiter(size_t rate, size_t burst) {
+    _token_bucket->set_limiter(rate, burst);
 }
 
 void
@@ -246,7 +327,7 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
         // This conveys all the information we need and allows one to easily group all classes from
         // the same I/O queue (by filtering by shard)
         auto pc_ptr = _fq.register_priority_class(shares);
-        auto pc_data = std::make_unique<priority_class_data>(name, mountpoint(), pc_ptr, owner);
+        auto pc_data = std::make_unique<priority_class_data>(name, mountpoint(), pc_ptr, owner, 0, 0);
 
         _priority_classes[owner][id] = std::move(pc_data);
     }
@@ -276,6 +357,7 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc, owner);
+      return pclass._token_bucket->consume(len).then([&pc, &pclass, start, len, req = std::move(req), owner = this_shard_id(), this] () mutable {
         fair_queue_ticket fq_ticket = request_fq_ticket(req, len);
         auto desc = std::make_unique<io_desc_read_write>(this, fq_ticket);
         auto fut = desc->get_future();
@@ -293,7 +375,8 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
         pclass.nr_queued++;
         _queued_requests++;
         return fut;
-    });
+     });
+   });
 }
 
 future<>
@@ -301,6 +384,14 @@ io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares)
     return smp::submit_to(coordinator(), [this, pc, owner = this_shard_id(), new_shares] {
         auto& pclass = find_or_create_class(pc, owner);
         pclass.ptr->update_shares(new_shares);
+    });
+}
+
+future<>
+io_queue::update_limiter_for_class(io_priority_class pc, size_t rate, size_t burst) {
+    return smp::submit_to(coordinator(), [this, pc, owner = this_shard_id(), rate, burst] {
+        auto& pclass = find_or_create_class(pc, owner);
+        pclass.set_limiter(rate, burst);
     });
 }
 

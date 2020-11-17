@@ -188,6 +188,13 @@ reactor::update_shares_for_class(io_priority_class pc, uint32_t shares) {
 }
 
 future<>
+reactor::update_limiter_for_class(io_priority_class pc, size_t rate, size_t burst) {
+    return parallel_for_each(_io_queues, [pc, rate, burst] (auto& queue) {
+        return queue.second->update_limiter_for_class(pc, rate, burst);
+    });
+}
+
+future<>
 reactor::rename_priority_class(io_priority_class pc, sstring new_name) noexcept {
 
     return futurize_invoke([pc, new_name = std::move(new_name)] () mutable {
