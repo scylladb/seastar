@@ -78,6 +78,7 @@ class logger_registry;
 /// The output format is: (depending on level)
 /// DEBUG  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
 ///
+/// It is possible to rate-limit log messages, see \ref logger::rate_limit.
 class logger {
     sstring _name;
     std::atomic<log_level> _level = { log_level::info };
