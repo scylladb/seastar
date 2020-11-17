@@ -1711,6 +1711,8 @@ void maybe_dump_memory_diagnostics(size_t size) {
     disable_report_on_alloc_failure_temporarily guard;
     seastar_memory_logger.debug("Failed to allocate {} bytes at {}", size, current_backtrace());
 
+    static thread_local logger::rate_limit rate_limit(std::chrono::seconds(10));
+
     auto lvl = log_level::debug;
     switch (dump_diagnostics_on_alloc_failure_kind.load(std::memory_order_relaxed)) {
         case alloc_failure_kind::none:
@@ -1724,14 +1726,10 @@ void maybe_dump_memory_diagnostics(size_t size) {
             break;
     }
 
-    if (!seastar_memory_logger.is_enabled(lvl)) {
-        return;
-    }
-
     logger::lambda_log_writer writer([] (seastar::internal::log_buf::inserter_iterator it) {
         return do_dump_memory_diagnostics(it);
     });
-    seastar_memory_logger.log(lvl, writer);
+    seastar_memory_logger.log(lvl, rate_limit, writer);
 }
 
 void on_allocation_failure(size_t size) {
