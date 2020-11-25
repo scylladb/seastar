@@ -191,8 +191,8 @@ cooking_ingredient (hwloc
     numactl
     libpciaccess
   EXTERNAL_PROJECT_ARGS
-    URL https://download.open-mpi.org/release/hwloc/v1.11/hwloc-1.11.5.tar.gz
-    URL_MD5 8f5fe6a9be2eb478409ad5e640b2d3ba
+    URL https://download.open-mpi.org/release/hwloc/v2.2/hwloc-2.2.0.tar.gz
+    URL_MD5 762c93cdca3249eed4627c4a160192bd
     CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --srcdir=<SOURCE_DIR>
     BUILD_COMMAND <DISABLE>
     INSTALL_COMMAND ${make_command} install)
