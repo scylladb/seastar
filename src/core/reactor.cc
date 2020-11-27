@@ -808,6 +808,10 @@ reactor::task_queue::register_stats() {
             return std::chrono::duration_cast<std::chrono::milliseconds>(_waittime).count();
         }, sm::description("Accumulated waittime of this task queue; an increment rate of 1000ms per second indicates queue is waiting for something (e.g. IO)"),
             {group_label}),
+        sm::make_counter("starvetime_ms", [this] {
+            return std::chrono::duration_cast<std::chrono::milliseconds>(_starvetime).count();
+        }, sm::description("Accumulated starvation time of this task queue; an increment rate of 1000ms per second indicates the scheduler feels really bad"),
+            {group_label}),
         sm::make_counter("tasks_processed", _tasks_processed,
                 sm::description("Count of tasks executing on this queue; indicates together with runtime_ms indicates length of tasks"),
                 {group_label}),
@@ -2555,6 +2559,7 @@ void reactor::insert_active_task_queue(task_queue* tq) {
 reactor::task_queue* reactor::pop_active_task_queue(sched_clock::time_point now) {
     task_queue* tq = _active_task_queues.front();
     _active_task_queues.pop_front();
+    tq->_starvetime += now - tq->_ts;
     return tq;
 }
 
@@ -2592,10 +2597,10 @@ reactor::run_some_tasks() {
         account_runtime(*tq, delta);
         sched_print("run complete ({} {}); time consumed {} usec; final vruntime {} empty {}",
                 (void*)tq, tq->_name, delta / 1us, tq->_vruntime, tq->_q.empty());
+        tq->_ts = t_run_completed;
         if (!tq->_q.empty()) {
             insert_active_task_queue(tq);
         } else {
-            tq->_ts = t_run_completed;
             tq->_active = false;
         }
     } while (have_more_tasks() && !need_preempt());
@@ -2623,6 +2628,7 @@ reactor::activate(task_queue& tq) {
     tq._vruntime = std::max(_last_vruntime, tq._vruntime);
     auto now = std::chrono::steady_clock::now();
     tq._waittime += now - tq._ts;
+    tq._ts = now;
     _activating_task_queues.push_back(&tq);
 }
 
