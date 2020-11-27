@@ -788,6 +788,7 @@ reactor::task_queue::task_queue(unsigned id, sstring name, float shares)
         : _shares(std::max(shares, 1.0f))
         , _reciprocal_shares_times_2_power_32((uint64_t(1) << 32) / _shares)
         , _id(id)
+        , _ts(std::chrono::steady_clock::now())
         , _name(name) {
     register_stats();
 }
@@ -802,6 +803,10 @@ reactor::task_queue::register_stats() {
         sm::make_counter("runtime_ms", [this] {
             return std::chrono::duration_cast<std::chrono::milliseconds>(_runtime).count();
         }, sm::description("Accumulated runtime of this task queue; an increment rate of 1000ms per second indicates full utilization"),
+            {group_label}),
+        sm::make_counter("waittime_ms", [this] {
+            return std::chrono::duration_cast<std::chrono::milliseconds>(_waittime).count();
+        }, sm::description("Accumulated waittime of this task queue; an increment rate of 1000ms per second indicates queue is waiting for something (e.g. IO)"),
             {group_label}),
         sm::make_counter("tasks_processed", _tasks_processed,
                 sm::description("Count of tasks executing on this queue; indicates together with runtime_ms indicates length of tasks"),
@@ -2590,6 +2595,7 @@ reactor::run_some_tasks() {
         if (!tq->_q.empty()) {
             insert_active_task_queue(tq);
         } else {
+            tq->_ts = t_run_completed;
             tq->_active = false;
         }
     } while (have_more_tasks() && !need_preempt());
@@ -2615,6 +2621,8 @@ reactor::activate(task_queue& tq) {
         sched_print("tq {} {} losing vruntime {} due to sleep", (void*)&tq, tq._name, _last_vruntime - tq._vruntime);
     }
     tq._vruntime = std::max(_last_vruntime, tq._vruntime);
+    auto now = std::chrono::steady_clock::now();
+    tq._waittime += now - tq._ts;
     _activating_task_queues.push_back(&tq);
 }
 

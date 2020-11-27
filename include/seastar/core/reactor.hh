@@ -297,7 +297,9 @@ private:
         bool _current = false;
         bool _active = false;
         uint8_t _id;
+        sched_clock::time_point _ts; // to help calculating waittime
         sched_clock::duration _runtime = {};
+        sched_clock::duration _waittime = {};
         uint64_t _tasks_processed = 0;
         circular_buffer<task*> _q;
         sstring _name;
