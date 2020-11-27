@@ -2547,6 +2547,12 @@ void reactor::insert_active_task_queue(task_queue* tq) {
     }
 }
 
+reactor::task_queue* reactor::pop_active_task_queue(sched_clock::time_point now) {
+    task_queue* tq = _active_task_queues.front();
+    _active_task_queues.pop_front();
+    return tq;
+}
+
 void
 reactor::insert_activating_task_queues() {
     // Quadratic, but since we expect the common cases in insert_active_task_queue() to dominate, faster
@@ -2570,8 +2576,7 @@ reactor::run_some_tasks() {
     do {
         auto t_run_started = t_run_completed;
         insert_activating_task_queues();
-        auto tq = _active_task_queues.front();
-        _active_task_queues.pop_front();
+        task_queue* tq = pop_active_task_queue(t_run_started);
         sched_print("running tq {} {}", (void*)tq, tq->_name);
         tq->_current = true;
         _last_vruntime = std::max(tq->_vruntime, _last_vruntime);
