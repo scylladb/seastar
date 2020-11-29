@@ -121,6 +121,14 @@ public:
     routes& add(operation_type type, const url& url, handler_base* handler);
 
     /**
+     * Add a default handler - handles any HTTP Method and Path (/\*) combination:
+     * Example  routes.add_default_handler(handler);
+     * @param handler
+     * @return
+     */
+    routes& add_default_handler(handler_base* handler);
+
+    /**
      * the main entry point.
      * the general handler calls this method with the request
      * the method takes the headers from the request and find the
@@ -168,6 +176,8 @@ public:
 private:
     rule_cookie _rover = 0;
     std::map<rule_cookie, match_rule*> _rules[NUM_OPERATION];
+    //default Handler -- for any HTTP Method and Path (/*)
+    handler_base* _default_handler = nullptr;
 public:
     using exception_handler_fun = std::function<std::unique_ptr<reply>(std::exception_ptr eptr)>;
     using exception_handler_id = size_t;
