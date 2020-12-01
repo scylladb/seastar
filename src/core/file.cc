@@ -640,10 +640,10 @@ append_challenged_posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov
     }
     size_t len = 0;
     auto i = iov.begin();
-    while (i != iov.end() && pos + len + i->iov_len <= _logical_size) {
+    auto aligned_logical_size = align_up<uint64_t>(_logical_size, _disk_read_dma_alignment);
+    while (i != iov.end() && pos + len + i->iov_len <= aligned_logical_size) {
         len += i++->iov_len;
     }
-    auto aligned_logical_size = align_up<uint64_t>(_logical_size, _disk_read_dma_alignment);
     if (i != iov.end()) {
         auto last_len = pos + len + i->iov_len - aligned_logical_size;
         if (last_len) {

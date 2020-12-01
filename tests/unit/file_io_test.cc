@@ -21,6 +21,7 @@
 
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include <seastar/testing/test_runner.hh>
 
 #include <seastar/core/seastar.hh>
 #include <seastar/core/semaphore.hh>
@@ -710,5 +711,46 @@ SEASTAR_TEST_CASE(test_destruct_append_challenged_file_after_read) {
 
         f = open_file_dma(filename, open_flags::rw).get0();
         f.dma_read(0, buf.get(), 4096).get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_dma_iovec) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        static constexpr size_t alignment = 4096;
+        auto wbuf = allocate_aligned_buffer<char>(alignment, alignment);
+        size_t size = 1234;
+        std::fill_n(wbuf.get(), alignment, char(0));
+        std::fill_n(wbuf.get(), size, char(42));
+        std::vector<iovec> iovecs;
+
+        auto filename = (t.get_path() / "testfile.tmp").native();
+        auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get0();
+        iovecs.push_back(iovec{ wbuf.get(), alignment });
+        auto count = f.dma_write(0, iovecs).get0();
+        BOOST_REQUIRE_EQUAL(count, alignment);
+        f.truncate(size).get();
+        f.close().get();
+
+        auto rbuf = allocate_aligned_buffer<char>(alignment, alignment);
+
+        // this tests the posix_file_impl
+        f = open_file_dma(filename, open_flags::ro).get0();
+        std::fill_n(rbuf.get(), alignment, char(0));
+        iovecs.clear();
+        iovecs.push_back(iovec{ rbuf.get(), alignment });
+        count = f.dma_read(0, iovecs).get0();
+        BOOST_REQUIRE_EQUAL(count, size);
+
+        BOOST_REQUIRE(std::equal(wbuf.get(), wbuf.get() + alignment, rbuf.get(), rbuf.get() + alignment));
+
+        // this tests the append_challenged_posix_file_impl
+        f = open_file_dma(filename, open_flags::rw).get0();
+        std::fill_n(rbuf.get(), alignment, char(0));
+        iovecs.clear();
+        iovecs.push_back(iovec{ rbuf.get(), alignment });
+        count = f.dma_read(0, iovecs).get0();
+        BOOST_REQUIRE_EQUAL(count, size);
+
+        BOOST_REQUIRE(std::equal(wbuf.get(), wbuf.get() + alignment, rbuf.get(), rbuf.get() + alignment));
     });
 }
