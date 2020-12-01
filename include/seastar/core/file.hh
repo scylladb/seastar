@@ -491,4 +491,12 @@ public:
 
 /// @}
 
+/// An exception Cancelled IOs resolve their future into (see \ref io_intent "io_intent")
+class cancelled_error : public std::exception {
+public:
+    virtual const char* what() const noexcept {
+        return "cancelled";
+    }
+};
+
 }

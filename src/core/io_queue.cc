@@ -43,6 +43,12 @@ logger io_log("io");
 using namespace std::chrono_literals;
 using namespace internal::linux_abi;
 
+struct default_io_exception_factory {
+    static auto cancelled() {
+        return cancelled_error();
+    }
+};
+
 class io_desc_read_write final : public io_completion {
     io_queue& _ioq;
     fair_queue_ticket _fq_ticket;
