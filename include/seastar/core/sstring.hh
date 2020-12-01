@@ -65,6 +65,7 @@ class basic_sstring {
         struct external_type {
             char_type* str;
             Size size;
+            bool is_ref;//all non-managed non-copy string references should set this flag to true
             int8_t pad;
         } external;
         struct internal_type {
@@ -106,6 +107,7 @@ public:
     struct initialized_later {};
 
     basic_sstring() noexcept {
+        u.external.is_ref = false;
         u.internal.size = 0;
         if (NulTerminate) {
             u.internal.str[0] = '\0';
@@ -115,13 +117,19 @@ public:
         if (x.is_internal()) {
             u.internal = x.u.internal;
         } else {
+            u.external.is_ref = x.u.external.is_ref;
             u.internal.size = -1;
-            u.external.str = reinterpret_cast<char_type*>(std::malloc(x.u.external.size + padding()));
-            if (!u.external.str) {
-                internal::throw_bad_alloc();
+            if(x.u.external.is_ref) {
+                u.external.str = x.u.external.str;
+                u.external.size = x.u.external.size;
+            } else {
+                u.external.str = reinterpret_cast<char_type*>(std::malloc(x.u.external.size + padding()));
+                if (!u.external.str) {
+                    internal::throw_bad_alloc();
+                }
+                std::copy(x.u.external.str, x.u.external.str + x.u.external.size + padding(), u.external.str);
+                u.external.size = x.u.external.size;
             }
-            std::copy(x.u.external.str, x.u.external.str + x.u.external.size + padding(), u.external.str);
-            u.external.size = x.u.external.size;
         }
     }
     basic_sstring(basic_sstring&& x) noexcept {
@@ -145,6 +153,7 @@ public:
             }
             u.internal.size = size;
         } else {
+            u.external.is_ref = false;
             u.internal.size = -1;
             u.external.str = reinterpret_cast<char_type*>(std::malloc(size + padding()));
             if (!u.external.str) {
@@ -156,7 +165,14 @@ public:
             }
         }
     }
-    basic_sstring(const char_type* x, size_t size) {
+    basic_sstring(const char_type* x, size_t size, bool is_ref = false) {
+        u.external.is_ref = is_ref;
+        if(is_ref) {
+            u.internal.size = -1;
+            u.external.str = (char*)x;
+            u.external.size = size;
+            return;
+        }
         if (size_type(size) != size) {
             internal::throw_sstring_overflow();
         }
@@ -181,6 +197,7 @@ public:
     }
 
     basic_sstring(size_t size, char_type x) : basic_sstring(initialized_later(), size) {
+        u.external.is_ref = false;
         memset(begin(), x, size);
     }
 
@@ -199,11 +216,18 @@ public:
             : basic_sstring(v.data(), v.size()) {
     }
     ~basic_sstring() noexcept {
-        if (is_external()) {
+        if (is_external() && !u.external.is_ref) {
             std::free(u.external.str);
         }
     }
     basic_sstring& operator=(const basic_sstring& x) {
+        if (x.is_external() && x.u.external.is_ref) {
+            u.external.is_ref = x.u.external.is_ref;
+            u.internal.size = -1;
+            u.external.str = x.u.external.str;
+            u.external.size = x.u.external.size;
+            return *this;
+        }
         basic_sstring tmp(x);
         swap(tmp);
         return *this;
@@ -303,6 +327,7 @@ public:
      *  @param c  if n greater than current size character to fill newly allocated space with.
      */
     void resize(size_t n, const char_type c  = '\0') {
+        if(u.external.is_ref) return;
         if (n > size()) {
             *this += basic_sstring(n - size(), c);
         } else if (n < size()) {
@@ -448,7 +473,7 @@ public:
     // Deprecated March 2020.
     [[deprecated("Use = {}")]]
     void reset() noexcept {
-        if (is_external()) {
+        if (is_external() && !u.external.is_ref) {
             std::free(u.external.str);
         }
         u.internal.size = 0;
@@ -462,6 +487,9 @@ public:
             auto size = u.external.size;
             u.external.str = nullptr;
             u.external.size = 0;
+            if(u.external.is_ref) {
+                return temporary_buffer<char_type>(size);
+            }
             return temporary_buffer<char_type>(ptr, size, make_free_deleter(ptr));
         } else {
             auto buf = temporary_buffer<char_type>(u.internal.size);
