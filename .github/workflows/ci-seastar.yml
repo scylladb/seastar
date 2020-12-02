@@ -1,0 +1,21 @@
+name: Build seastar in ubuntu
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    if: "!contains(github.event.head_commit.message, '[skip_build]')"
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build seastar
+      run: |
+        export DEBIAN_FRONTEND=noninteractive && sudo echo 'debconf debconf/frontend select Noninteractive' | sudo debconf-set-selections && \
+        sudo apt update -y && sudo apt install -y git liblzma-dev pkg-config
+        chmod +x *.sh && sudo apt update -y && sudo ./install-dependencies.sh && ./configure.py --mode=release --prefix=/usr/local && \
+        sudo ninja -C build/release install && rm -rf ${IROOT}/seastar
+

@@ -57,6 +57,7 @@ debian_packages=(
     valgrind
     doxygen
     openssl
+    pkg-config
 )
 
 # seastar doesn't directly depend on these packages. They are
