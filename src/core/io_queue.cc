@@ -88,10 +88,11 @@ fair_queue::config io_queue::make_fair_queue_config(config iocfg) {
     return cfg;
 }
 
-io_queue::io_queue(io_group_ptr group, io_queue::config cfg)
+io_queue::io_queue(io_group_ptr group, internal::io_sink& sink, io_queue::config cfg)
     : _priority_classes()
     , _group(std::move(group))
     , _fq(_group->_fg, make_fair_queue_config(cfg))
+    , _sink(sink)
     , _config(std::move(cfg)) {
     seastar_logger.debug("Created io queue, multipliers {}:{}",
             cfg.disk_req_write_to_read_multiplier,
@@ -326,7 +327,7 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
             pclass.bytes += len;
             pclass.queue_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start);
             io_log.trace("dev {} : req {} submit", _config.devid, fmt::ptr(&*d));
-            engine()._io_sink.submit(d.release(), std::move(req));
+            _sink.submit(d.release(), std::move(req));
         });
         pclass.nr_queued++;
         _queued_requests++;

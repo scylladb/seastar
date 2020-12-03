@@ -47,6 +47,7 @@ future<>
 rename_priority_class(io_priority_class pc, sstring new_name);
 
 namespace internal {
+class io_sink;
 namespace linux_abi {
 
 struct io_event;
@@ -96,6 +97,7 @@ private:
     std::vector<std::vector<std::unique_ptr<priority_class_data>>> _priority_classes;
     io_group_ptr _group;
     fair_queue _fq;
+    internal::io_sink& _sink;
 
     static constexpr unsigned _max_classes = 2048;
     static std::mutex _register_lock;
@@ -140,7 +142,7 @@ public:
         sstring mountpoint = "undefined";
     };
 
-    io_queue(io_group_ptr group, config cfg);
+    io_queue(io_group_ptr group, internal::io_sink& sink, config cfg);
     ~io_queue();
 
     future<size_t>

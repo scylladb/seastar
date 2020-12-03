@@ -261,11 +261,8 @@ private:
     // some reactors will talk to foreign io_queues. If this reactor holds a valid IO queue, it will
     // be stored here.
     std::unordered_map<dev_t, std::unique_ptr<io_queue>> _io_queues;
-
-public:
     internal::io_sink _io_sink;
 
-private:
     std::vector<noncopyable_function<future<> ()>> _exit_funcs;
     unsigned _id = 0;
     bool _stopping = false;
