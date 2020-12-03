@@ -81,6 +81,7 @@
 #include <seastar/core/scheduling_specific.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/core/internal/io_request.hh>
+#include <seastar/core/internal/io_sink.hh>
 #include <seastar/core/make_task.hh>
 #include "internal/pollable_fd.hh"
 #include "internal/poll.hh"
@@ -261,6 +262,10 @@ private:
     // be stored here.
     std::unordered_map<dev_t, std::unique_ptr<io_queue>> _io_queues;
 
+public:
+    internal::io_sink _io_sink;
+
+private:
     std::vector<noncopyable_function<future<> ()>> _exit_funcs;
     unsigned _id = 0;
     bool _stopping = false;
@@ -313,7 +318,6 @@ private:
         void register_stats();
     };
 
-    circular_buffer<internal::io_request> _pending_io;
     boost::container::static_vector<std::unique_ptr<task_queue>, max_scheduling_groups()> _task_queues;
     internal::scheduling_group_specific_thread_local_data _scheduling_group_specific_data;
     int64_t _last_vruntime = 0;
@@ -521,7 +525,6 @@ public:
     // In the following three methods, prepare_io is not guaranteed to execute in the same processor
     // in which it was generated. Therefore, care must be taken to avoid the use of objects that could
     // be destroyed within or at exit of prepare_io.
-    void submit_io(io_completion* desc, internal::io_request req) noexcept;
     future<size_t> submit_io_read(io_queue* ioq,
             const io_priority_class& priority_class,
             size_t len,

@@ -27,6 +27,7 @@
 #include <seastar/core/metrics.hh>
 #include <seastar/core/linux-aio.hh>
 #include <seastar/core/internal/io_desc.hh>
+#include <seastar/core/internal/io_sink.hh>
 #include <seastar/util/log.hh>
 #include <chrono>
 #include <mutex>
@@ -325,7 +326,7 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
             pclass.bytes += len;
             pclass.queue_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start);
             io_log.trace("dev {} : req {} submit", _config.devid, fmt::ptr(&*d));
-            engine().submit_io(d.release(), std::move(req));
+            engine()._io_sink.submit(d.release(), std::move(req));
         });
         pclass.nr_queued++;
         _queued_requests++;
@@ -348,6 +349,15 @@ io_queue::rename_priority_class(io_priority_class pc, sstring new_name) {
                 _priority_classes[owner][pc.id()]) {
             _priority_classes[owner][pc.id()]->rename(new_name, _config.mountpoint, owner);
         }
+    }
+}
+
+void internal::io_sink::submit(io_completion* desc, internal::io_request req) noexcept {
+    req.attach_kernel_completion(desc);
+    try {
+        _pending_io.push_back(std::move(req));
+    } catch (...) {
+        desc->set_exception(std::current_exception());
     }
 }
 

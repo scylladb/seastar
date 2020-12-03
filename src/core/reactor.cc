@@ -1516,16 +1516,6 @@ void io_completion::complete_with(ssize_t res) {
     }
 }
 
-void
-reactor::submit_io(io_completion* desc, io_request req) noexcept {
-    req.attach_kernel_completion(desc);
-    try {
-        _pending_io.push_back(std::move(req));
-    } catch (...) {
-        desc->set_exception(std::current_exception());
-    }
-}
-
 bool
 reactor::flush_pending_aio() {
     for (auto& ioq : _io_queues) {
@@ -1983,7 +1973,7 @@ reactor::fdatasync(int fd) noexcept {
             auto desc = new fsync_io_desc;
             auto fut = desc->get_future();
             auto req = io_request::make_fdatasync(fd);
-            submit_io(desc, std::move(req));
+            _io_sink.submit(desc, std::move(req));
             return fut;
         });
     }

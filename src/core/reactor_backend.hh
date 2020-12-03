@@ -78,9 +78,6 @@ class aio_storage_context {
     pending_aio_retry_t _pending_aio_retry;
     internal::linux_abi::io_event _ev_buffer[max_aio];
 
-    template <typename Fn>
-    size_t drain_pending_queue(Fn&& fn);
-
 public:
     explicit aio_storage_context(reactor* r);
     ~aio_storage_context();
