@@ -147,15 +147,33 @@ aio_storage_context::handle_aio_error(linux_abi::iocb* iocb, int ec) {
 
 extern bool aio_nowait_supported;
 
+template <typename Fn>
+size_t aio_storage_context::drain_pending_queue(Fn&& consume) {
+    size_t pending = _r->_pending_io.size();
+    size_t drained = 0;
+
+    while ((pending > drained)) {
+        auto& req = _r->_pending_io[drained];
+        if (!consume(req)) {
+            break;
+        }
+        drained++;
+    }
+
+    _r->_pending_io.erase(_r->_pending_io.begin(), _r->_pending_io.begin() + drained);
+    return drained;
+}
+
 bool
 aio_storage_context::submit_work() {
-    size_t pending = _r->_pending_io.size();
-    size_t to_submit = 0;
     bool did_work = false;
 
     _submission_queue.resize(0);
-    while ((pending > to_submit) && _iocb_pool.has_capacity()) {
-        auto& req = _r->_pending_io[to_submit++];
+    size_t to_submit = drain_pending_queue([this] (internal::io_request& req) -> bool {
+        if (!_iocb_pool.has_capacity()) {
+            return false;
+        }
+
         auto& io = _iocb_pool.get_one();
         prepare_iocb(req, io);
 
@@ -163,8 +181,8 @@ aio_storage_context::submit_work() {
             set_eventfd_notification(io, _r->_aio_eventfd->get_fd());
         }
         _submission_queue.push_back(&io);
-    }
-    _r->_pending_io.erase(_r->_pending_io.begin(), _r->_pending_io.begin() + to_submit);
+        return true;
+    });
 
     size_t submitted = 0;
     while (to_submit > submitted) {
