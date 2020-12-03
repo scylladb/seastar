@@ -164,6 +164,7 @@ aio_storage_context::submit_work() {
         }
         _submission_queue.push_back(&io);
     }
+    _r->_pending_io.erase(_r->_pending_io.begin(), _r->_pending_io.begin() + to_submit);
 
     size_t submitted = 0;
     while (to_submit > submitted) {
@@ -179,7 +180,6 @@ aio_storage_context::submit_work() {
         did_work = true;
         submitted += nr_consumed;
     }
-    _r->_pending_io.erase(_r->_pending_io.begin(), _r->_pending_io.begin() + submitted);
 
     if (!_pending_aio_retry.empty()) {
         schedule_retry();
