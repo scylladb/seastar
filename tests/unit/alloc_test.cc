@@ -23,6 +23,8 @@
 #include <seastar/core/memory.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/core/temporary_buffer.hh>
+#include <seastar/util/memory_diagnostics.hh>
+
 #include <vector>
 #include <future>
 #include <iostream>
@@ -96,6 +98,20 @@ SEASTAR_TEST_CASE(test_temporary_buffer_aligned) {
             ::memset(p, 0, size);
         }
     }
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_memory_diagnostics) {
+    auto report = memory::generate_memory_diagnostics_report();
+#ifdef SEASTAR_DEFAULT_ALLOCATOR
+    BOOST_REQUIRE(report.length() == 0); // empty report with default allocator
+#else
+    // since the output format is unstructured text, not much
+    // to do except test that we get a non-empty string
+    BOOST_REQUIRE(report.length() > 0);
+    // useful while debugging diagnostics
+    // fmt::print("--------------------\n{}--------------------", report);
+#endif
     return make_ready_future<>();
 }
 

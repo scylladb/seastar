@@ -1684,7 +1684,7 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
         auto& span_list = cpu_mem.free_spans[i];
         auto front = span_list._front;
         uint32_t free_pages = 0;
-        while(front) {
+        while (front) {
             auto& span = cpu_mem.pages[front];
             free_pages += span.span_size;
             front = span.link._next;
@@ -1695,7 +1695,7 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
                 "{}\t{}\t{}\t{}\t{}\n",
                 i,
                 to_hr_size((uint64_t(1) << i) * page_size),
-                to_hr_size(total_pages * page_size),
+                to_hr_size(free_pages * page_size),
                 to_hr_size((total_pages - free_pages) * page_size),
                 to_hr_number(total_spans));
     }
