@@ -70,7 +70,7 @@ public:
     function_handler(const handle_function & f_handle, const sstring& type)
             : _f_handle(
                     [f_handle](std::unique_ptr<request> req, std::unique_ptr<reply> rep) {
-                        rep->_content += f_handle(*req.get(), *rep.get());
+                        rep->_content.append(f_handle(*req.get(), *rep.get()));
                         return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
                     }), _type(type) {
     }
@@ -82,7 +82,7 @@ public:
     function_handler(const request_function & _handle, const sstring& type)
             : _f_handle(
                     [_handle](std::unique_ptr<request> req, std::unique_ptr<reply> rep) {
-                        rep->_content += _handle(*req.get());
+                        rep->_content.append(_handle(*req.get()));
                         return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
                     }), _type(type) {
     }
@@ -91,7 +91,7 @@ public:
             : _f_handle(
                     [_handle](std::unique_ptr<request> req, std::unique_ptr<reply> rep) {
                         json::json_return_type res = _handle(*req.get());
-                        rep->_content += res._res;
+                        rep->_content.append(res._res);
                         return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
                     }), _type("json") {
     }
@@ -103,7 +103,7 @@ public:
                                 if (res._body_writer) {
                                     rep->write_body("json", std::move(res._body_writer));
                                 } else {
-                                    rep->_content += res._res;
+                                    rep->_content.append(res._res);
 
                                 }
                                 return make_ready_future<std::unique_ptr<reply>>(std::move(rep));

@@ -44,6 +44,42 @@ namespace httpd {
 class connection;
 class routes;
 
+struct reply_content {
+    friend class reply;
+private:
+    bool is_unmanaged;
+    sstring _content;
+    std::string_view _content_um;
+
+public:
+    reply_content() {
+    }
+    reply_content(sstring _content) : is_unmanaged(false), _content(_content) {
+    }
+    reply_content(std::string_view _content) : is_unmanaged(true), _content_um(_content) {
+    }
+
+    const char* data() {
+        if(is_unmanaged) {
+            return _content_um.data();
+        }
+        return _content.data();
+    }
+
+    size_t size() const noexcept {
+        if(is_unmanaged) {
+             return _content_um.size();
+        }
+        return _content.size();
+    }
+
+    void append(const sstring& cont) {
+        if(!is_unmanaged) {
+            _content += cont;
+        }
+    }
+};
+
 /**
  * A reply to be sent to a client.
  */
@@ -82,7 +118,7 @@ struct reply {
     /**
      * The content to be sent in the reply.
      */
-    sstring _content;
+    reply_content _content;
 
     sstring _response_line;
     reply()
@@ -101,8 +137,9 @@ struct reply {
 
     reply& set_status(status_type status, const sstring& content = "") {
         _status = status;
-        if (content != "") {
-            _content = content;
+        if (content.size()>0) {
+            _content.is_unmanaged = false;
+            _content._content = content;
         }
         return *this;
     }
@@ -167,6 +204,17 @@ struct reply {
      * with any additional information that is needed to send the message.
      */
     void write_body(const sstring& content_type, const sstring& content);
+
+    /*!
+     * \brief Write a string_view as the reply (un-managed string)
+     *
+     * \param content_type - is used to choose the content type of the body. Use the file extension
+     *  you would have used for such a content, (i.e. "txt", "html", "json", etc')
+     * \param content - the message content.
+     * This would set the the content and content type of the message along
+     * with any additional information that is needed to send the message.
+     */
+    void write_body(const sstring& content_type, const std::string_view& content);
 
 private:
     future<> write_reply_to_connection(connection& con);
