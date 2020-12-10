@@ -58,6 +58,24 @@ struct iocb;
 using shard_id = unsigned;
 
 class io_priority_class;
+class io_queue;
+
+class io_group {
+public:
+    struct config {
+        unsigned max_req_count = std::numeric_limits<int>::max();
+        unsigned max_bytes_count = std::numeric_limits<int>::max();
+    };
+    explicit io_group(config cfg) noexcept;
+
+private:
+    friend class io_queue;
+    fair_group _fg;
+
+    static fair_group::config make_fair_group_config(config cfg) noexcept;
+};
+
+using io_group_ptr = std::shared_ptr<io_group>;
 
 class io_queue {
 private:
@@ -75,6 +93,7 @@ private:
     };
 
     std::vector<std::vector<std::unique_ptr<priority_class_data>>> _priority_classes;
+    io_group_ptr _group;
     fair_queue _fq;
 
     static constexpr unsigned _max_classes = 2048;
@@ -107,19 +126,19 @@ public:
     // It is also technically possible for reads to be the expensive ones, in which case
     // writes will have an integer value lower than read_request_base_count.
     static constexpr unsigned read_request_base_count = 128;
+    static constexpr unsigned request_ticket_size_shift = 9;
 
     struct config {
         dev_t devid;
-        shard_id coordinator;
         unsigned capacity = std::numeric_limits<unsigned>::max();
-        unsigned max_req_count = std::numeric_limits<unsigned>::max();
-        unsigned max_bytes_count = std::numeric_limits<unsigned>::max();
         unsigned disk_req_write_to_read_multiplier = read_request_base_count;
         unsigned disk_bytes_write_to_read_multiplier = read_request_base_count;
+        float disk_us_per_request = 0;
+        float disk_us_per_byte = 0;
         sstring mountpoint = "undefined";
     };
 
-    io_queue(config cfg);
+    io_queue(io_group_ptr group, config cfg);
     ~io_queue();
 
     future<size_t>
@@ -147,12 +166,12 @@ public:
         _fq.dispatch_requests();
     }
 
-    sstring mountpoint() const {
-        return _config.mountpoint;
+    std::chrono::steady_clock::time_point next_pending_aio() const noexcept {
+        return _fq.next_pending_aio();
     }
 
-    shard_id coordinator() const {
-        return _config.coordinator;
+    sstring mountpoint() const {
+        return _config.mountpoint;
     }
 
     dev_t dev_id() const noexcept {

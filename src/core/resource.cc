@@ -348,7 +348,7 @@ struct distribute_objects {
 
 static io_queue_topology
 allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unordered_map<unsigned, hwloc_obj_t>& cpu_to_node,
-        unsigned num_io_queues, unsigned& last_node_idx) {
+        unsigned num_io_groups, unsigned& last_node_idx) {
     auto node_of_shard = [&cpus, &cpu_to_node] (unsigned shard) {
         auto node = cpu_to_node.at(cpus[shard].cpu_id);
         return hwloc_bitmap_first(node->nodeset);
@@ -375,15 +375,17 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unord
     }
 
     io_queue_topology ret;
-    ret.shard_to_coordinator.resize(cpus.size());
-    ret.coordinator_to_idx.resize(cpus.size());
-    ret.coordinator_to_idx_valid.resize(cpus.size());
+    ret.shard_to_group.resize(cpus.size());
 
-    // User may be playing with --smp option, but num_io_queues was independently
-    // determined by iotune, so adjust for any conflicts.
-    if (num_io_queues > cpus.size()) {
-        fmt::print("Warning: number of IO queues ({:d}) greater than logical cores ({:d}). Adjusting downwards.\n", num_io_queues, cpus.size());
-        num_io_queues = cpus.size();
+    if (num_io_groups == 0) {
+        num_io_groups = numa_nodes.size();
+        assert(num_io_groups != 0);
+        seastar_logger.debug("Auto-configure {} IO groups", num_io_groups);
+    } else if (num_io_groups > cpus.size()) {
+        // User may be playing with --smp option, but num_io_groups was independently
+        // determined by iotune, so adjust for any conflicts.
+        fmt::print("Warning: number of IO queues ({:d}) greater than logical cores ({:d}). Adjusting downwards.\n", num_io_groups, cpus.size());
+        num_io_groups = cpus.size();
     }
 
     auto find_shard = [&cpus] (unsigned cpu_id) {
@@ -397,20 +399,16 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unord
         assert(0);
     };
 
-    auto cpu_sets = distribute_objects(topology, num_io_queues);
-    ret.nr_coordinators = 0;
+    auto cpu_sets = distribute_objects(topology, num_io_groups);
+    ret.nr_queues = cpus.size();
+    ret.nr_groups = 0;
 
     // First step: distribute the IO queues given the information returned in cpu_sets.
     // If there is one IO queue per processor, only this loop will be executed.
     std::unordered_map<unsigned, std::vector<unsigned>> node_coordinators;
     for (auto&& cs : cpu_sets()) {
         auto io_coordinator = find_shard(hwloc_bitmap_first(cs));
-
-        ret.coordinator_to_idx[io_coordinator] = ret.nr_coordinators++;
-        assert(!ret.coordinator_to_idx_valid[io_coordinator]);
-        ret.coordinator_to_idx_valid[io_coordinator] = true;
-        // If a processor is a coordinator, it is also obviously a coordinator of itself
-        ret.shard_to_coordinator[io_coordinator] = io_coordinator;
+        ret.shard_to_group[io_coordinator] = ret.nr_groups++;
 
         auto node_id = node_of_shard(io_coordinator);
         if (node_coordinators.count(node_id) == 0) {
@@ -436,7 +434,7 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unord
             }
             auto idx = cid_idx++ % node_coordinators.at(my_node).size();
             auto io_coordinator = node_coordinators.at(my_node)[idx];
-            ret.shard_to_coordinator[remaining_shard] = io_coordinator;
+            ret.shard_to_group[remaining_shard] = ret.shard_to_group[io_coordinator];
         }
     }
 
@@ -596,10 +594,8 @@ resources allocate(configuration c) {
     }
 
     unsigned last_node_idx = 0;
-    for (auto d : c.num_io_queues) {
-        auto devid = d.first;
-        auto num_io_queues = d.second;
-        ret.ioq_topology.emplace(devid, allocate_io_queues(topology, ret.cpus, cpu_to_node, num_io_queues, last_node_idx));
+    for (auto devid : c.devices) {
+        ret.ioq_topology.emplace(devid, allocate_io_queues(topology, ret.cpus, cpu_to_node, c.num_io_groups, last_node_idx));
     }
     return ret;
 }
@@ -631,15 +627,12 @@ allocate_io_queues(configuration c, std::vector<cpu> cpus) {
     io_queue_topology ret;
 
     unsigned nr_cpus = unsigned(cpus.size());
-    ret.shard_to_coordinator.resize(nr_cpus);
-    ret.coordinator_to_idx.resize(nr_cpus);
-    ret.coordinator_to_idx_valid.resize(nr_cpus);
-    ret.nr_coordinators = nr_cpus;
+    ret.nr_queues = nr_cpus;
+    ret.shard_to_group.resize(nr_cpus);
+    ret.nr_groups = 1;
 
     for (unsigned shard = 0; shard < nr_cpus; ++shard) {
-        ret.shard_to_coordinator[shard] = shard;
-        ret.coordinator_to_idx[shard] = shard;
-        ret.coordinator_to_idx_valid[shard] = true;
+        ret.shard_to_group[shard] = 0;
     }
     return ret;
 }

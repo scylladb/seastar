@@ -30,12 +30,18 @@
 #include <boost/range/irange.hpp>
 
 struct local_fq_and_class {
+    seastar::fair_group fg;
     seastar::fair_queue fq;
+    seastar::fair_queue sfq;
     seastar::priority_class_ptr pclass;
     unsigned executed = 0;
 
-    local_fq_and_class(seastar::fair_queue::config cfg)
-        : fq(std::move(cfg))
+    seastar::fair_queue& queue(bool local) noexcept { return local ? fq : sfq; }
+
+    local_fq_and_class(seastar::fair_group& sfg)
+        : fg(seastar::fair_group::config(1, 1))
+        , fq(fg, seastar::fair_queue::config())
+        , sfq(sfg, seastar::fair_queue::config())
         , pclass(fq.register_priority_class(1))
     {}
 
@@ -48,46 +54,36 @@ struct perf_fair_queue {
 
     static constexpr unsigned requests_to_dispatch = 1000;
 
-    seastar::fair_queue::config cfg;
     seastar::sharded<local_fq_and_class> local_fq;
 
-    seastar::fair_queue shared_fq;
-    std::vector<priority_class_ptr> shared_pclass;
-
-    uint64_t shared_executed = 0;
-    uint64_t shared_acked = 0;
+    seastar::fair_group shared_fg;
 
     perf_fair_queue()
-        : cfg({ std::chrono::milliseconds(100), 1, 1 })
-        , shared_fq(cfg)
+        : shared_fg(seastar::fair_group::config(smp::count, smp::count))
     {
-        local_fq.start(cfg).get();
-        for (unsigned i = 0; i < smp::count; ++i) {
-            shared_pclass.push_back(shared_fq.register_priority_class(1));
-        }
+        local_fq.start(std::ref(shared_fg)).get();
     }
 
     ~perf_fair_queue() {
         local_fq.stop().get();
-        for (auto& pc : shared_pclass) {
-            shared_fq.unregister_priority_class(pc);
-        }
     }
+
+    future<> test(bool local);
 };
 
-PERF_TEST_F(perf_fair_queue, contended_local)
-{
-    auto invokers = local_fq.invoke_on_all([] (local_fq_and_class& local) {
-        return parallel_for_each(boost::irange(0u, requests_to_dispatch), [&local] (unsigned dummy) {
-            local.fq.queue(local.pclass, seastar::fair_queue_ticket{1, 1}, [&local] {
+future<> perf_fair_queue::test(bool loc) {
+
+    auto invokers = local_fq.invoke_on_all([loc] (local_fq_and_class& local) {
+        return parallel_for_each(boost::irange(0u, requests_to_dispatch), [&local, loc] (unsigned dummy) {
+            local.queue(loc).queue(local.pclass, seastar::fair_queue_ticket{1, 1}, [&local, loc] {
                 local.executed++;
-                local.fq.notify_requests_finished(seastar::fair_queue_ticket{1, 1});
+                local.queue(loc).notify_requests_finished(seastar::fair_queue_ticket{1, 1});
             });
             return make_ready_future<>();
         });
     });
 
-    auto collectors = local_fq.invoke_on_all([] (local_fq_and_class& local) {
+    auto collectors = local_fq.invoke_on_all([loc] (local_fq_and_class& local) {
         // Zeroing this counter must be here, otherwise should the collectors win the
         // execution order in when_all_succeed(), the do_until()'s stopping callback
         // would return true immediately and the queue would not be dispatched.
@@ -97,8 +93,8 @@ PERF_TEST_F(perf_fair_queue, contended_local)
         // opposite problem if zeroing it here.
         local.executed = 0;
 
-        return do_until([&local] { return local.executed == requests_to_dispatch; }, [&local] {
-            local.fq.dispatch_requests();
+        return do_until([&local] { return local.executed == requests_to_dispatch; }, [&local, loc] {
+            local.queue(loc).dispatch_requests();
             return make_ready_future<>();
         });
     });
@@ -106,51 +102,11 @@ PERF_TEST_F(perf_fair_queue, contended_local)
     return when_all_succeed(std::move(invokers), std::move(collectors)).discard_result();
 }
 
+PERF_TEST_F(perf_fair_queue, contended_local)
+{
+    return test(true);
+}
 PERF_TEST_F(perf_fair_queue, contended_shared)
 {
-    shared_acked = 0;
-    shared_executed = 0;
-    auto invokers = local_fq.invoke_on_all([this, coordinator = this_shard_id()] (local_fq_and_class& dummy) {
-        return parallel_for_each(boost::irange(0u, requests_to_dispatch), [this, coordinator] (unsigned dummy) {
-            return smp::submit_to(coordinator, [this] {
-                shared_fq.queue(shared_pclass[this_shard_id()], seastar::fair_queue_ticket{1, 1}, [this] {
-                    shared_executed++;
-                });
-                return make_ready_future<>();
-            });
-        });
-    });
-
-    auto collectors = do_until([this] { return shared_acked == requests_to_dispatch * smp::count; }, [this] {
-        shared_fq.dispatch_requests();
-        uint32_t pending_ack = shared_executed - shared_acked;
-        shared_acked = shared_executed;
-        shared_fq.notify_requests_finished(seastar::fair_queue_ticket{pending_ack, pending_ack}, pending_ack);
-        return make_ready_future<>();
-    });
-    return when_all_succeed(std::move(invokers), std::move(collectors)).discard_result();
-}
-PERF_TEST_F(perf_fair_queue, contended_shared_amortized)
-{
-    shared_acked = 0;
-    shared_executed = 0;
-    auto invokers = local_fq.invoke_on_all([this, coordinator = this_shard_id()] (local_fq_and_class& dummy) {
-        return smp::submit_to(coordinator, [this] {
-            return parallel_for_each(boost::irange(0u, requests_to_dispatch), [this] (unsigned dummy) {
-                shared_fq.queue(shared_pclass[this_shard_id()], seastar::fair_queue_ticket{1, 1}, [this] {
-                    shared_executed++;
-                });
-                return make_ready_future<>();
-            });
-        });
-    });
-
-    auto collectors = do_until([this] { return shared_acked == requests_to_dispatch * smp::count; }, [this] {
-        shared_fq.dispatch_requests();
-        uint32_t pending_ack = shared_executed - shared_acked;
-        shared_acked = shared_executed;
-        shared_fq.notify_requests_finished(seastar::fair_queue_ticket{pending_ack, pending_ack}, pending_ack);
-        return make_ready_future<>();
-    });
-    return when_all_succeed(std::move(invokers), std::move(collectors)).discard_result();
+    return test(false);
 }

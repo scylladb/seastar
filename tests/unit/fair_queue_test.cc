@@ -48,6 +48,7 @@ struct request {
 
 
 class test_env {
+    fair_group _fg;
     fair_queue _fq;
     std::vector<int> _results;
     std::vector<std::vector<std::exception_ptr>> _exceptions;
@@ -58,7 +59,9 @@ class test_env {
         do {} while (tick() != 0);
     }
 public:
-    test_env(unsigned capacity) : _fq(capacity)
+    test_env(unsigned capacity)
+        : _fg(fair_group::config(capacity, std::numeric_limits<int>::max()))
+        , _fq(_fg, fair_queue::config())
     {}
 
     // As long as there is a request sitting in the queue, tick() will process

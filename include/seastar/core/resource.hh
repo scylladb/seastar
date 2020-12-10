@@ -21,9 +21,11 @@
 
 #pragma once
 
+#include <cassert>
 #include <cstdlib>
 #include <string>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/spinlock.hh>
 #include <vector>
 #include <set>
 #include <sched.h>
@@ -33,6 +35,8 @@
 namespace seastar {
 
 cpu_set_t cpuid_to_cpuset(unsigned cpuid);
+class io_queue;
+class io_group;
 
 namespace resource {
 
@@ -45,8 +49,9 @@ struct configuration {
     optional<size_t> reserve_memory;  // if total_memory not specified
     optional<size_t> cpus;
     optional<cpuset> cpu_set;
-    std::unordered_map<dev_t, unsigned> num_io_queues;
     bool assign_orphan_cpus = false;
+    std::vector<dev_t> devices;
+    unsigned num_io_groups;
 };
 
 struct memory {
@@ -59,10 +64,9 @@ struct memory {
 // This will allow us to easily find who is the IO coordinator for a given
 // node without a trip to a remote CPU.
 struct io_queue_topology {
-    std::vector<unsigned> shard_to_coordinator;
-    std::vector<unsigned> coordinator_to_idx;
-    std::vector<bool> coordinator_to_idx_valid; // for validity asserts
-    unsigned nr_coordinators;
+    unsigned nr_queues;
+    std::vector<unsigned> shard_to_group;
+    unsigned nr_groups;
 };
 
 struct cpu {
@@ -73,6 +77,19 @@ struct cpu {
 struct resources {
     std::vector<cpu> cpus;
     std::unordered_map<dev_t, io_queue_topology> ioq_topology;
+};
+
+struct device_io_topology {
+    std::vector<io_queue*> queues;
+    struct group {
+        std::shared_ptr<io_group> g;
+        unsigned attached = 0;
+    };
+    util::spinlock lock;
+    std::vector<group> groups;
+
+    device_io_topology() noexcept = default;
+    device_io_topology(const io_queue_topology& iot) noexcept : queues(iot.nr_queues), groups(iot.nr_groups) {}
 };
 
 resources allocate(configuration c);

@@ -259,8 +259,7 @@ private:
     // Not all reactors have IO queues. If the number of IO queues is less than the number of shards,
     // some reactors will talk to foreign io_queues. If this reactor holds a valid IO queue, it will
     // be stored here.
-    std::vector<std::unique_ptr<io_queue>> my_io_queues;
-    std::unordered_map<dev_t, io_queue*> _io_queues;
+    std::unordered_map<dev_t, std::unique_ptr<io_queue>> _io_queues;
 
     std::vector<noncopyable_function<future<> ()>> _exit_funcs;
     unsigned _id = 0;
@@ -359,6 +358,7 @@ private:
     void wakeup();
     size_t handle_aio_error(internal::linux_abi::iocb* iocb, int ec);
     bool flush_pending_aio();
+    steady_clock_type::time_point next_pending_aio() const noexcept;
     bool reap_kernel_completions();
     bool flush_tcp_batches();
     bool do_expire_lowres_timers() noexcept;
@@ -462,7 +462,7 @@ public:
     io_queue& get_io_queue(dev_t devid = 0) {
         auto queue = _io_queues.find(devid);
         if (queue == _io_queues.end()) {
-            return *_io_queues[0];
+            return *_io_queues.at(0);
         } else {
             return *(queue->second);
         }

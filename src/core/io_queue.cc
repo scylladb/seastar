@@ -82,15 +82,31 @@ io_queue::notify_requests_finished(fair_queue_ticket& desc) noexcept {
 
 fair_queue::config io_queue::make_fair_queue_config(config iocfg) {
     fair_queue::config cfg;
-    cfg.max_req_count = iocfg.max_req_count;
-    cfg.max_bytes_count = iocfg.max_bytes_count;
+    cfg.ticket_weight_pace = iocfg.disk_us_per_request / read_request_base_count;
+    cfg.ticket_size_pace = (iocfg.disk_us_per_byte * (1 << request_ticket_size_shift)) / read_request_base_count;
     return cfg;
 }
 
-io_queue::io_queue(io_queue::config cfg)
+io_queue::io_queue(io_group_ptr group, io_queue::config cfg)
     : _priority_classes()
-    , _fq(make_fair_queue_config(cfg))
+    , _group(std::move(group))
+    , _fq(_group->_fg, make_fair_queue_config(cfg))
     , _config(std::move(cfg)) {
+    seastar_logger.debug("Created io queue, multipliers {}:{}",
+            cfg.disk_req_write_to_read_multiplier,
+            cfg.disk_bytes_write_to_read_multiplier);
+}
+
+fair_group::config io_group::make_fair_group_config(config iocfg) noexcept {
+    fair_group::config cfg;
+    cfg.max_req_count = iocfg.max_req_count;
+    cfg.max_bytes_count = iocfg.max_bytes_count >> io_queue::request_ticket_size_shift;
+    return cfg;
+}
+
+io_group::io_group(config cfg) noexcept
+    : _fg(make_fair_group_config(cfg)) {
+    seastar_logger.debug("Created io group, limits {}:{}", cfg.max_req_count, cfg.max_bytes_count);
 }
 
 io_queue::~io_queue() {
@@ -266,13 +282,13 @@ fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, s
         throw std::runtime_error(fmt::format("Unrecognized request passing through I/O queue {}", req.opname()));
     }
 
-    return fair_queue_ticket(weight, size);
+    return fair_queue_ticket(weight, size >> request_ticket_size_shift);
 }
 
 future<size_t>
 io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_request req) noexcept {
     auto start = std::chrono::steady_clock::now();
-    return smp::submit_to(coordinator(), [start, &pc, len, req = std::move(req), owner = this_shard_id(), this] () mutable {
+    return futurize_invoke([start, &pc, len, req = std::move(req), owner = this_shard_id(), this] () mutable {
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc, owner);
@@ -298,7 +314,7 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
 
 future<>
 io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares) {
-    return smp::submit_to(coordinator(), [this, pc, owner = this_shard_id(), new_shares] {
+    return futurize_invoke([this, pc, owner = this_shard_id(), new_shares] {
         auto& pclass = find_or_create_class(pc, owner);
         pclass.ptr->update_shares(new_shares);
     });

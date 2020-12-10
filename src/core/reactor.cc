@@ -145,7 +145,6 @@ struct mountpoint_params {
     uint64_t write_bytes_rate = std::numeric_limits<uint64_t>::max();
     uint64_t read_req_rate = std::numeric_limits<uint64_t>::max();
     uint64_t write_req_rate = std::numeric_limits<uint64_t>::max();
-    uint64_t num_io_queues = 0; // calculated
 };
 
 }
@@ -1529,10 +1528,23 @@ reactor::submit_io(io_completion* desc, io_request req) noexcept {
 
 bool
 reactor::flush_pending_aio() {
-    for (auto& ioq : my_io_queues) {
-        ioq->poll_io_queue();
+    for (auto& ioq : _io_queues) {
+        ioq.second->poll_io_queue();
     }
     return false;
+}
+
+steady_clock_type::time_point reactor::next_pending_aio() const noexcept {
+    steady_clock_type::time_point next = steady_clock_type::time_point::max();
+
+    for (auto& ioq : _io_queues) {
+        steady_clock_type::time_point n = ioq.second->next_pending_aio();
+        if (n < next) {
+            next = std::move(n);
+        }
+    }
+
+    return next;
 }
 
 bool
@@ -2363,12 +2375,36 @@ public:
     }
 };
 
-class reactor::io_queue_submission_pollfn final : public simple_pollfn<true> {
+class reactor::io_queue_submission_pollfn final : public reactor::pollfn {
     reactor& _r;
+    // Wake-up the reactor with highres timer when the io-queue
+    // decides to delay dispatching until some time point in
+    // the future
+    timer<> _nearest_wakeup { [this] { _armed = false; } };
+    bool _armed = false;
 public:
     io_queue_submission_pollfn(reactor& r) : _r(r) {}
     virtual bool poll() final override {
         return _r.flush_pending_aio();
+    }
+    virtual bool pure_poll() override final {
+        return poll();
+    }
+    virtual bool try_enter_interrupt_mode() override {
+        auto next = _r.next_pending_aio();
+        auto now = steady_clock_type::now();
+        if (next <= now) {
+            return false;
+        }
+        _nearest_wakeup.arm(next);
+        _armed = true;
+        return true;
+    }
+    virtual void exit_interrupt_mode() override final {
+        if (_armed) {
+            _nearest_wakeup.cancel();
+            _armed = false;
+        }
     }
 };
 
@@ -2818,7 +2854,7 @@ int reactor::run() {
     // This is needed because the reactor is destroyed from the thread_local destructors. If
     // the I/O queue happens to use any other infrastructure that is also kept this way (for
     // instance, collectd), we will not have any way to guarantee who is destroyed first.
-    my_io_queues.clear();
+    _io_queues.clear();
     return _return;
 }
 
@@ -3352,6 +3388,7 @@ smp::get_options_description()
         ("thread-affinity", bpo::value<bool>()->default_value(true), "pin threads to their cpus (disable for overprovisioning)")
 #ifdef SEASTAR_HAVE_HWLOC
         ("num-io-queues", bpo::value<unsigned>(), "Number of IO queues. Each IO unit will be responsible for a fraction of the IO requests. Defaults to the number of threads")
+        ("num-io-groups", bpo::value<unsigned>(), "Number of IO groups. Each IO group will be responsible for a fraction of the IO requests. Defaults to the number of NUMA nodes")
         ("max-io-requests", bpo::value<unsigned>(), "Maximum amount of concurrent requests to be sent to the disk. Defaults to 128 times the number of IO queues")
 #else
         ("max-io-requests", bpo::value<unsigned>(), "Maximum amount of concurrent requests to be sent to the disk. Defaults to 128 times the number of processors")
@@ -3525,21 +3562,17 @@ void smp::qs_deleter::operator()(smp_message_queue** qs) const {
 
 class disk_config_params {
 private:
-    unsigned _num_io_queues = 0;
+    unsigned _num_io_groups = 0;
     std::optional<unsigned> _capacity;
     std::unordered_map<dev_t, mountpoint_params> _mountpoints;
     std::chrono::duration<double> _latency_goal;
 
 public:
-    uint64_t per_io_queue(uint64_t qty, dev_t devid) const {
-        const mountpoint_params& p = _mountpoints.at(devid);
-        return std::max(qty / p.num_io_queues, 1ul);
+    uint64_t per_io_group(uint64_t qty, unsigned nr_groups) const noexcept {
+        return std::max(qty / nr_groups, 1ul);
     }
 
-    unsigned num_io_queues(dev_t devid) const {
-        const mountpoint_params& p = _mountpoints.at(devid);
-        return p.num_io_queues;
-    }
+    unsigned num_io_groups() const noexcept { return _num_io_groups; }
 
     std::chrono::duration<double> latency_goal() const {
         return _latency_goal;
@@ -3554,9 +3587,15 @@ public:
             _capacity = configuration["max-io-requests"].as<unsigned>();
         }
 
-        if (configuration.count("num-io-queues")) {
-            _num_io_queues = configuration["num-io-queues"].as<unsigned>();
-            if (!_num_io_queues) {
+        if (configuration.count("num-io-groups")) {
+            _num_io_groups = configuration["num-io-groups"].as<unsigned>();
+            if (!_num_io_groups) {
+                throw std::runtime_error("num-io-groups must be greater than zero");
+            }
+        } else if (configuration.count("num-io-queues")) {
+            seastar_logger.warn("the --num-io-queues option is deprecated, switch to --num-io-groups instead");
+            _num_io_groups = configuration["num-io-queues"].as<unsigned>();
+            if (!_num_io_groups) {
                 throw std::runtime_error("num-io-queues must be greater than zero");
             }
         }
@@ -3572,9 +3611,6 @@ public:
         }
 
         if (doc) {
-            static constexpr unsigned task_quotas_in_default_latency_goal = 3;
-            unsigned auto_num_io_queues = smp::count;
-
             for (auto&& section : *doc) {
                 auto sec_name = section.first.as<std::string>();
                 if (sec_name != "disks") {
@@ -3599,41 +3635,38 @@ public:
                         throw std::runtime_error(fmt::format("R/W bytes and req rates must not be zero"));
                     }
 
-                    // Ideally we wouldn't have I/O Queues and would dispatch from every shard (https://github.com/scylladb/seastar/issues/485)
-                    // While we don't do that, we'll just be conservative and try to recommend values of I/O Queues that are close to what we
-                    // suggested before the I/O Scheduler rework. The I/O Scheduler has traditionally tried to make sure that each queue would have
-                    // at least 4 requests in depth, and all its requests were 4kB in size. Therefore, try to arrange the I/O Queues so that we would
-                    // end up in the same situation here (that's where the 4 comes from).
-                    //
-                    // For the bandwidth limit, we want that to be 4 * 4096, so each I/O Queue has the same bandwidth as before.
-                    if (!_num_io_queues) {
-                        unsigned dev_io_queues = smp::count;
-                        dev_io_queues = std::min(dev_io_queues, unsigned((task_quotas_in_default_latency_goal * d.write_req_rate * latency_goal().count()) / 4));
-                        dev_io_queues = std::min(dev_io_queues, unsigned((task_quotas_in_default_latency_goal * d.write_bytes_rate * latency_goal().count()) / (4 * 4096)));
-                        dev_io_queues = std::max(dev_io_queues, 1u);
-                        seastar_logger.debug("dev_io_queues: {}", dev_io_queues);
-                        d.num_io_queues = dev_io_queues;
-                        auto_num_io_queues = std::min(auto_num_io_queues, dev_io_queues);
-                    } else {
-                        d.num_io_queues = _num_io_queues;
-                    }
-
                     seastar_logger.debug("dev_id: {} mountpoint: {}", buf.st_dev, d.mountpoint);
                     _mountpoints.emplace(buf.st_dev, d);
                 }
             }
-            if (!_num_io_queues) {
-                _num_io_queues = auto_num_io_queues;
-            }
-        } else if (!_num_io_queues) {
-            _num_io_queues = smp::count;
         }
 
         // Placeholder for unconfigured disks.
         mountpoint_params d = {};
-        d.num_io_queues = _num_io_queues;
-        seastar_logger.debug("num_io_queues: {}", d.num_io_queues);
         _mountpoints.emplace(0, d);
+    }
+
+    struct io_group::config generate_group_config(dev_t devid, unsigned nr_groups) const noexcept {
+        seastar_logger.debug("generate_group_config dev_id: {}", devid);
+        const mountpoint_params& p = _mountpoints.at(devid);
+        struct io_group::config cfg;
+        uint64_t max_bandwidth = std::max(p.read_bytes_rate, p.write_bytes_rate);
+        uint64_t max_iops = std::max(p.read_req_rate, p.write_req_rate);
+
+        if (!_capacity) {
+            if (max_bandwidth != std::numeric_limits<uint64_t>::max()) {
+                cfg.max_bytes_count = io_queue::read_request_base_count * per_io_group(max_bandwidth * latency_goal().count(), nr_groups);
+            }
+            if (max_iops != std::numeric_limits<uint64_t>::max()) {
+                cfg.max_req_count = io_queue::read_request_base_count * per_io_group(max_iops * latency_goal().count(), nr_groups);
+            }
+        } else {
+            // Legacy configuration when only concurrency is specified.
+            cfg.max_req_count = io_queue::read_request_base_count * std::min(*_capacity, reactor::max_aio_per_queue);
+            // specify size in terms of 16kB IOPS.
+            cfg.max_bytes_count = io_queue::read_request_base_count * (cfg.max_req_count << 14);
+        }
+        return cfg;
     }
 
     struct io_queue::config generate_config(dev_t devid) const {
@@ -3650,20 +3683,16 @@ public:
         if (!_capacity) {
             if (max_bandwidth != std::numeric_limits<uint64_t>::max()) {
                 cfg.disk_bytes_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
-                cfg.max_bytes_count = io_queue::read_request_base_count * per_io_queue(max_bandwidth * latency_goal().count(), devid);
+                cfg.disk_us_per_byte = 1000000. / max_bandwidth;
             }
             if (max_iops != std::numeric_limits<uint64_t>::max()) {
-                cfg.max_req_count = io_queue::read_request_base_count * per_io_queue(max_iops * latency_goal().count(), devid);
                 cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
+                cfg.disk_us_per_request = 1000000. / max_iops;
             }
             cfg.mountpoint = p.mountpoint;
         } else {
             // For backwards compatibility
             cfg.capacity = *_capacity;
-            // Legacy configuration when only concurrency is specified.
-            cfg.max_req_count = io_queue::read_request_base_count * std::min(*_capacity, reactor::max_aio_per_queue);
-            // specify size in terms of 16kB IOPS.
-            cfg.max_bytes_count = io_queue::read_request_base_count * (cfg.max_req_count << 14);
         }
         return cfg;
     }
@@ -3825,8 +3854,9 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     disk_config_params disk_config;
     disk_config.parse_config(configuration);
     for (auto& id : disk_config.device_ids()) {
-        rc.num_io_queues.emplace(id, disk_config.num_io_queues(id));
+        rc.devices.push_back(id);
     }
+    rc.num_io_groups = disk_config.num_io_groups();
 
 #ifdef SEASTAR_HAVE_HWLOC
     if (configuration["allow-cpus-in-remote-numa-nodes"].as<bool>()) {
@@ -3872,35 +3902,39 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
 
     auto ioq_topology = std::move(resources.ioq_topology);
 
-    std::unordered_map<dev_t, std::vector<io_queue*>> all_io_queues;
+    std::unordered_map<dev_t, resource::device_io_topology> devices_topology;
 
     for (auto& id : disk_config.device_ids()) {
         auto io_info = ioq_topology.at(id);
-        all_io_queues.emplace(id, io_info.nr_coordinators);
+        devices_topology.emplace(id, io_info);
     }
 
-    auto alloc_io_queue = [&ioq_topology, &all_io_queues, &disk_config] (unsigned shard, dev_t id) {
+    auto alloc_io_queue = [&ioq_topology, &devices_topology, &disk_config] (unsigned shard, dev_t id) {
         auto io_info = ioq_topology.at(id);
-        auto cid = io_info.shard_to_coordinator[shard];
-        auto vec_idx = io_info.coordinator_to_idx[cid];
-        assert(io_info.coordinator_to_idx_valid[cid]);
-        if (shard == cid) {
-            struct io_queue::config cfg = disk_config.generate_config(id);
-            cfg.coordinator = cid;
-            assert(vec_idx < all_io_queues[id].size());
-            assert(!all_io_queues[id][vec_idx]);
-            all_io_queues[id][vec_idx] = new io_queue(std::move(cfg));
+        auto group_idx = io_info.shard_to_group[shard];
+        resource::device_io_topology& topology = devices_topology[id];
+        std::shared_ptr<io_group> group;
+
+        {
+            std::lock_guard _(topology.lock);
+            resource::device_io_topology::group& iog = topology.groups[group_idx];
+            if (iog.attached == 0) {
+                struct io_group::config gcfg = disk_config.generate_group_config(id, topology.groups.size());
+                iog.g = std::make_shared<io_group>(std::move(gcfg));
+                seastar_logger.debug("allocate {} IO group", group_idx);
+            }
+            iog.attached++;
+            group = iog.g;
         }
+
+        struct io_queue::config cfg = disk_config.generate_config(id);
+        topology.queues[shard] = new io_queue(std::move(group), std::move(cfg));
+        seastar_logger.debug("attached {} queue to {} IO group", shard, group_idx);
     };
 
-    auto assign_io_queue = [&ioq_topology, &all_io_queues] (shard_id shard_id, dev_t dev_id) {
-        auto io_info = ioq_topology.at(dev_id);
-        auto cid = io_info.shard_to_coordinator[shard_id];
-        auto queue_idx = io_info.coordinator_to_idx[cid];
-        if (all_io_queues[dev_id][queue_idx]->coordinator() == shard_id) {
-            engine().my_io_queues.emplace_back(all_io_queues[dev_id][queue_idx]);
-        }
-        engine()._io_queues.emplace(dev_id, all_io_queues[dev_id][queue_idx]);
+    auto assign_io_queue = [&devices_topology] (shard_id shard_id, dev_t dev_id) {
+        io_queue* queue = devices_topology[dev_id].queues[shard_id];
+        engine()._io_queues.emplace(dev_id, queue);
     };
 
     _all_event_loops_done.emplace(smp::count);
