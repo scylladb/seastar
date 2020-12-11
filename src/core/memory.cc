@@ -1651,9 +1651,24 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
         if (sp.object_size() < sizeof(free_object)) {
             continue;
         }
-        auto use_count = sp._pages_in_use * page_size / sp.object_size() - sp._free_count;
+
+        // For the small pools, there are two types of free objects:
+        // Pool freelist objects are poitned to by sp._free and their count is sp._free_count
+        // Span freelist objects are those removed from the pool freelist when that list
+        // becomes too large: they are instead attached to the spans allocated to this
+        // pool. To count this second category, we iterate over the spans below.
+        uint32_t span_freelist_objs = 0;
+        auto front = sp._span_list._front;
+        while (front) {
+            auto& span = cpu_mem.pages[front];
+            auto capacity_in_objects = span.span_size * page_size / sp.object_size();
+            span_freelist_objs += capacity_in_objects - span.nr_small_alloc;
+            front = span.link._next;
+        }
+        const auto free_objs = sp._free_count + span_freelist_objs; // pool + span free objects
+        const auto use_count = sp._pages_in_use * page_size / sp.object_size() - free_objs;
         auto memory = sp._pages_in_use * page_size;
-        const auto unused = sp._free_count * sp.object_size();
+        const auto unused = free_objs * sp.object_size();
         const auto wasted_percent = memory ? unused * 100 / memory : 0;
         it = fmt::format_to(it,
                 "{}\t{}\t{}\t{}\t{}\t{}\n",
