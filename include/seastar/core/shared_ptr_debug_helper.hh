@@ -35,7 +35,7 @@ class debug_shared_ptr_counter_type {
     long _counter = 0;
     std::thread::id _cpu = std::this_thread::get_id();
 public:
-    debug_shared_ptr_counter_type(long x) : _counter(x) {}
+    debug_shared_ptr_counter_type(long x) noexcept : _counter(x) {}
     operator long() const {
         check();
         return _counter;
