@@ -55,10 +55,18 @@ private:
 
     template <size_t N>
     static void trivial_direct_move(noncopyable_function_base* from, noncopyable_function_base* to) {
+        // We use bytewise copy here since we lost the type. This means that
+        // we will copy any holes/padding not initialized by the move
+        // constructor in direct_vtable_for::initialize().  This is okay,
+        // since we won't use those holes/padding, but gcc doesn't know
+        // that, and complains. Silence it.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wuninitialized"
         // Avoid including <algorithm> just for this
         for (unsigned i = 0; i != N; ++i) {
             to->_storage.direct[i] = from->_storage.direct[i];
         }
+#pragma GCC diagnostic pop
     }
 
     static void trivial_direct_destroy(noncopyable_function_base* func) {
