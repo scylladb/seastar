@@ -149,6 +149,10 @@ public:
         _desc.release()->cancel();
     }
 
+    void set_intent(internal::cancellable_queue* cq) noexcept {
+        _intent.enqueue(cq);
+    }
+
     future<size_t> get_future() noexcept { return _desc->get_future(); }
     fair_queue_entry& queue_entry() noexcept { return _fq_entry; }
 
@@ -463,15 +467,21 @@ fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, s
 }
 
 future<size_t>
-io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_request req) noexcept {
+io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_request req, io_intent* intent) noexcept {
     auto start = std::chrono::steady_clock::now();
-    return futurize_invoke([start, &pc, len, req = std::move(req), owner = this_shard_id(), this] () mutable {
+    return futurize_invoke([start, &pc, len, req = std::move(req), owner = this_shard_id(), this, intent] () mutable {
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc, owner);
         auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, pclass, len, start);
         auto fut = queued_req->get_future();
+        internal::cancellable_queue* cq = nullptr;
+        if (intent != nullptr) {
+            cq = &intent->find_or_create_cancellable_queue(dev_id(), pc.id());
+        }
+
         _fq.queue(pclass.ptr, queued_req->queue_entry());
+        queued_req->set_intent(cq);
         queued_req.release();
         pclass.nr_queued++;
         _queued_requests++;

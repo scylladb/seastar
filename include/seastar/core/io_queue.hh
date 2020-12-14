@@ -46,6 +46,8 @@ class io_priority_class;
 future<>
 rename_priority_class(io_priority_class pc, sstring new_name);
 
+class io_intent;
+
 namespace internal {
 class io_sink;
 namespace linux_abi {
@@ -136,7 +138,7 @@ public:
     fair_queue_ticket request_fq_ticket(const internal::io_request& req, size_t len) const;
 
     future<size_t>
-    queue_request(const io_priority_class& pc, size_t len, internal::io_request req) noexcept;
+    queue_request(const io_priority_class& pc, size_t len, internal::io_request req, io_intent* intent = nullptr) noexcept;
     void submit_request(io_desc_read_write* desc, internal::io_request req, priority_class_data& pclass) noexcept;
     void cancel_request(queued_io_request& req, priority_class_data& pclass) noexcept;
     void complete_cancelled_request(queued_io_request& req) noexcept;
