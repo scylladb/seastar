@@ -123,12 +123,16 @@ public:
     awaiter(awaiter&&) = delete;
 
     bool await_ready() const noexcept {
-        return _future.available();
+        return _future.available() && !need_preempt();
     }
 
     template<typename U>
     void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<U> hndl) noexcept {
-        _future.set_coroutine(hndl.promise());
+        if (!_future.available()) {
+            _future.set_coroutine(hndl.promise());
+        } else {
+            schedule(&hndl.promise());
+        }
     }
 
     std::tuple<T...> await_resume() { return _future.get(); }
@@ -144,12 +148,16 @@ public:
     awaiter(awaiter&&) = delete;
 
     bool await_ready() const noexcept {
-        return _future.available();
+        return _future.available() && !need_preempt();
     }
 
     template<typename U>
     void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<U> hndl) noexcept {
-        _future.set_coroutine(hndl.promise());
+        if (!_future.available()) {
+            _future.set_coroutine(hndl.promise());
+        } else {
+            schedule(&hndl.promise());
+        }
     }
 
     T await_resume() { return _future.get0(); }
@@ -165,12 +173,16 @@ public:
     awaiter(awaiter&&) = delete;
 
     bool await_ready() const noexcept {
-        return _future.available();
+        return _future.available() && !need_preempt();
     }
 
     template<typename U>
     void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<U> hndl) noexcept {
-        _future.set_coroutine(hndl.promise());
+        if (!_future.available()) {
+            _future.set_coroutine(hndl.promise());
+        } else {
+            schedule(&hndl.promise());
+        }
     }
 
     void await_resume() { _future.get(); }

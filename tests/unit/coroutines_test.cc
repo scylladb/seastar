@@ -150,4 +150,24 @@ SEASTAR_TEST_CASE(test_scheduling_group) {
     BOOST_REQUIRE(current_scheduling_group() == default_scheduling_group());
 }
 
+SEASTAR_TEST_CASE(test_preemption) {
+    bool x = false;
+    unsigned preempted = 0;
+    auto f = later().then([&x] {
+            x = true;
+        });
+
+    // try to preempt 1000 times. 1 should be enough if not for
+    // task queue shaffling in debug mode which may cause co-routine
+    // continuation to run first.
+    while(preempted < 1000 && !x) {
+        preempted += need_preempt(); 
+        co_await make_ready_future<>();
+    }
+    auto save_x = x;
+    // wait for later() to complete
+    co_await std::move(f);
+    BOOST_REQUIRE(save_x);
+    co_return;
+}
 #endif
