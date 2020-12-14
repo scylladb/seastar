@@ -26,11 +26,12 @@
 #include <seastar/testing/test_runner.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/smp.hh>
+#include <seastar/core/when_all.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/io_queue.hh>
+#include <seastar/core/io_intent.hh>
 #include <seastar/core/internal/io_request.hh>
 #include <seastar/core/internal/io_sink.hh>
-#include <seastar/core/io_intent.hh>
 
 using namespace seastar;
 
@@ -124,4 +125,93 @@ SEASTAR_THREAD_TEST_CASE(test_intent_safe_ref) {
     internal::intent_reference ref_empty_2(&intent_x);
     ref_empty_2 = std::move(ref_empty);
     BOOST_REQUIRE(ref_empty_2.retrieve() == nullptr);
+}
+
+static constexpr int nr_requests = 24;
+
+SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
+    fake_file<nr_requests> file;
+
+    io_queue_for_tests tio;
+    io_priority_class pc0 = tio.queue.register_one_priority_class("a", 100);
+    io_priority_class pc1 = tio.queue.register_one_priority_class("b", 100);
+
+    size_t idx = 0;
+    int val = 100;
+
+    io_intent live, dead;
+
+    std::vector<future<>> finished;
+    std::vector<future<>> cancelled;
+
+    auto queue_legacy_request = [&] (io_queue_for_tests& q, io_priority_class& pc) {
+        auto f = q.queue.queue_request(pc, 0, file.make_write_req(idx, val))
+            .then([&file, idx, val] (size_t len) {
+                BOOST_REQUIRE(file.data[idx] == val);
+                return make_ready_future<>();
+            });
+        finished.push_back(std::move(f));
+        idx++;
+        val++;
+    };
+
+    auto queue_live_request = [&] (io_queue_for_tests& q, io_priority_class& pc) {
+        auto f = q.queue.queue_request(pc, 0, file.make_write_req(idx, val), &live)
+            .then([&file, idx, val] (size_t len) {
+                BOOST_REQUIRE(file.data[idx] == val);
+                return make_ready_future<>();
+            });
+        finished.push_back(std::move(f));
+        idx++;
+        val++;
+    };
+
+    auto queue_dead_request = [&] (io_queue_for_tests& q, io_priority_class& pc) {
+        auto f = q.queue.queue_request(pc, 0, file.make_write_req(idx, val), &dead)
+            .then_wrapped([] (auto&& f) {
+                try {
+                    f.get();
+                    BOOST_REQUIRE(false);
+                } catch(...) {}
+                return make_ready_future<>();
+            })
+            .then([&file, idx] () {
+                BOOST_REQUIRE(file.data[idx] == 0);
+            });
+        cancelled.push_back(std::move(f));
+        idx++;
+        val++;
+    };
+
+    auto seed = std::random_device{}();
+    std::default_random_engine reng(seed);
+    std::uniform_int_distribution<> dice(0, 5);
+
+    for (int i = 0; i < nr_requests; i++) {
+        int pc = dice(reng) % 2;
+        if (dice(reng) < 3) {
+            fmt::print("queue live req to pc {}\n", pc);
+            queue_live_request(tio, pc == 0 ? pc0 : pc1);
+        } else if (dice(reng) < 5) {
+            fmt::print("queue dead req to pc {}\n", pc);
+            queue_dead_request(tio, pc == 0 ? pc0 : pc1);
+        } else {
+            fmt::print("queue legacy req to pc {}\n", pc);
+            queue_legacy_request(tio, pc == 0 ? pc0 : pc1);
+        }
+    }
+
+    dead.cancel();
+
+    // cancelled requests must resolve right at once
+
+    when_all_succeed(cancelled.begin(), cancelled.end()).get();
+
+    tio.queue.poll_io_queue();
+    tio.sink.drain([&file] (internal::io_request& rq, io_completion* desc) -> bool {
+        file.execute_write_req(rq, desc);
+        return true;
+    });
+
+    when_all_succeed(finished.begin(), finished.end()).get();
 }
