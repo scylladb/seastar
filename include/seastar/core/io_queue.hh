@@ -78,22 +78,10 @@ private:
 };
 
 using io_group_ptr = std::shared_ptr<io_group>;
+struct priority_class_data;
 
 class io_queue {
 private:
-    struct priority_class_data {
-        priority_class_ptr ptr;
-        size_t bytes;
-        uint64_t ops;
-        uint32_t nr_queued;
-        std::chrono::duration<double> queue_time;
-        metrics::metric_groups _metric_groups;
-        priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr, shard_id owner);
-        void rename(sstring new_name, sstring mountpoint, shard_id owner);
-    private:
-        void register_stats(sstring name, sstring mountpoint, shard_id owner);
-    };
-
     std::vector<std::vector<std::unique_ptr<priority_class_data>>> _priority_classes;
     io_group_ptr _group;
     fair_queue _fq;

@@ -75,6 +75,19 @@ public:
     }
 };
 
+struct priority_class_data {
+    friend class io_queue;
+    priority_class_ptr ptr;
+    size_t bytes;
+    uint64_t ops;
+    uint32_t nr_queued;
+    std::chrono::duration<double> queue_time;
+    metrics::metric_groups _metric_groups;
+    priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr, shard_id owner);
+    void rename(sstring new_name, sstring mountpoint, shard_id owner);
+    void register_stats(sstring name, sstring mountpoint, shard_id owner);
+};
+
 void
 io_queue::notify_requests_finished(fair_queue_ticket& desc) noexcept {
     _requests_executing--;
@@ -186,7 +199,7 @@ bool io_queue::rename_one_priority_class(io_priority_class pc, sstring new_name)
 
 seastar::metrics::label io_queue_shard("ioshard");
 
-io_queue::priority_class_data::priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr, shard_id owner)
+priority_class_data::priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr, shard_id owner)
     : ptr(ptr)
     , bytes(0)
     , ops(0)
@@ -197,7 +210,7 @@ io_queue::priority_class_data::priority_class_data(sstring name, sstring mountpo
 }
 
 void
-io_queue::priority_class_data::rename(sstring new_name, sstring mountpoint, shard_id owner) {
+priority_class_data::rename(sstring new_name, sstring mountpoint, shard_id owner) {
     try {
         register_stats(new_name, mountpoint, owner);
     } catch (metrics::double_registration &e) {
@@ -210,7 +223,7 @@ io_queue::priority_class_data::rename(sstring new_name, sstring mountpoint, shar
 }
 
 void
-io_queue::priority_class_data::register_stats(sstring name, sstring mountpoint, shard_id owner) {
+priority_class_data::register_stats(sstring name, sstring mountpoint, shard_id owner) {
     seastar::metrics::metric_groups new_metrics;
     namespace sm = seastar::metrics;
     auto shard = sm::impl::shard();
@@ -243,7 +256,7 @@ io_queue::priority_class_data::register_stats(sstring name, sstring mountpoint, 
     _metric_groups = std::exchange(new_metrics, {});
 }
 
-io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc, shard_id owner) {
+priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc, shard_id owner) {
     auto id = pc.id();
     bool do_insert = false;
     if ((do_insert = (owner >= _priority_classes.size()))) {
