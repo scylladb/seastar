@@ -60,6 +60,7 @@ using shard_id = unsigned;
 
 class io_priority_class;
 class io_queue;
+class io_desc_read_write;
 
 class io_group {
 public:
@@ -99,8 +100,6 @@ public:
 private:
     priority_class_data& find_or_create_class(const io_priority_class& pc, shard_id owner);
 
-    fair_queue_ticket request_fq_ticket(const internal::io_request& req, size_t len) const;
-
     // The fields below are going away, they are just here so we can implement deprecated
     // functions that used to be provided by the fair_queue and are going away (from both
     // the fair_queue and the io_queue). Double-accounting for now will allow for easier
@@ -133,8 +132,11 @@ public:
     io_queue(io_group_ptr group, internal::io_sink& sink, config cfg);
     ~io_queue();
 
+    fair_queue_ticket request_fq_ticket(const internal::io_request& req, size_t len) const;
+
     future<size_t>
     queue_request(const io_priority_class& pc, size_t len, internal::io_request req) noexcept;
+    void submit_request(io_desc_read_write* desc, internal::io_request req, priority_class_data& pclass) noexcept;
 
     [[deprecated("modern I/O queues should use a property file")]] size_t capacity() const {
         return _config.capacity;

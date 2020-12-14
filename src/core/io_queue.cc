@@ -86,6 +86,42 @@ struct priority_class_data {
     priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr, shard_id owner);
     void rename(sstring new_name, sstring mountpoint, shard_id owner);
     void register_stats(sstring name, sstring mountpoint, shard_id owner);
+public:
+    void account_for(size_t len, std::chrono::duration<double> lat) noexcept;
+};
+
+class queued_io_request : private internal::io_request {
+    io_queue& _ioq;
+    priority_class_data& _pclass;
+    size_t _len;
+    std::chrono::steady_clock::time_point _started;
+    fair_queue_ticket _ticket;
+    std::unique_ptr<io_desc_read_write> _desc;
+
+public:
+    queued_io_request(internal::io_request req, io_queue& q, priority_class_data& pc,
+            size_t l, std::chrono::steady_clock::time_point started)
+        : io_request(std::move(req))
+        , _ioq(q)
+        , _pclass(pc)
+        , _len(l)
+        , _started(started)
+        , _ticket(_ioq.request_fq_ticket(*this, _len))
+        , _desc(std::make_unique<io_desc_read_write>(_ioq, _ticket))
+    {
+        io_log.trace("dev {} : req {} queue  len {} ticket {}", _ioq.dev_id(), fmt::ptr(&*_desc), _len, _ticket);
+    }
+
+    queued_io_request(queued_io_request&&) = default;
+
+    void operator()() {
+        io_log.trace("dev {} : req {} submit", _ioq.dev_id(), fmt::ptr(&*_desc));
+        _pclass.account_for(_len, std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - _started));
+        _ioq.submit_request(_desc.release(), std::move(*this), _pclass);
+    }
+
+    fair_queue_ticket ticket() const noexcept { return _ticket; }
+    future<size_t> get_future() noexcept { return _desc->get_future(); }
 };
 
 void
@@ -256,6 +292,12 @@ priority_class_data::register_stats(sstring name, sstring mountpoint, shard_id o
     _metric_groups = std::exchange(new_metrics, {});
 }
 
+void priority_class_data::account_for(size_t len, std::chrono::duration<double> lat) noexcept {
+    ops++;
+    bytes += len;
+    queue_time = lat;
+}
+
 priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc, shard_id owner) {
     auto id = pc.id();
     bool do_insert = false;
@@ -328,24 +370,21 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc, owner);
-        fair_queue_ticket fq_ticket = request_fq_ticket(req, len);
-        auto desc = std::make_unique<io_desc_read_write>(*this, fq_ticket);
-        auto fut = desc->get_future();
-        io_log.trace("dev {} : req {} queue  len {} ticket {}", _config.devid, fmt::ptr(&*desc), len, fq_ticket);
-        _fq.queue(pclass.ptr, std::move(fq_ticket), [&pclass, start, req = std::move(req), d = std::move(desc), len, this] () mutable noexcept {
-            _queued_requests--;
-            _requests_executing++;
-            pclass.nr_queued--;
-            pclass.ops++;
-            pclass.bytes += len;
-            pclass.queue_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start);
-            io_log.trace("dev {} : req {} submit", _config.devid, fmt::ptr(&*d));
-            _sink.submit(d.release(), std::move(req));
-        });
+        queued_io_request queued_req(std::move(req), *this, pclass, len, start);
+        auto fut = queued_req.get_future();
+        auto ticket = queued_req.ticket();
+        _fq.queue(pclass.ptr, std::move(ticket), std::move(queued_req));
         pclass.nr_queued++;
         _queued_requests++;
         return fut;
     });
+}
+
+void io_queue::submit_request(io_desc_read_write* desc, internal::io_request req, priority_class_data& pclass) noexcept {
+    _queued_requests--;
+    _requests_executing++;
+    pclass.nr_queued--;
+    _sink.submit(desc, std::move(req));
 }
 
 future<>
