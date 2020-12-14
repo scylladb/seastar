@@ -21,13 +21,15 @@
  */
 #pragma once
 
+#include <boost/intrusive/slist.hpp>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/circular_buffer.hh>
-#include <seastar/util/noncopyable_function.hh>
 #include <atomic>
 #include <queue>
 #include <chrono>
 #include <unordered_set>
+
+namespace bi = boost::intrusive;
 
 namespace seastar {
 
@@ -117,16 +119,31 @@ public:
 /// \addtogroup io-module
 /// @{
 
+class fair_queue_entry {
+    friend class fair_queue;
+    using callback_t = void(*)(fair_queue_entry&);
+
+    fair_queue_ticket _ticket;
+    callback_t _cb;
+    bi::slist_member_hook<> _hook;
+
+public:
+    fair_queue_entry(fair_queue_ticket t, callback_t cb) noexcept
+        : _ticket(std::move(t)), _cb(std::move(cb)) {}
+    using container_list_t = bi::slist<fair_queue_entry,
+            bi::constant_time_size<false>,
+            bi::cache_last<true>,
+            bi::member_hook<fair_queue_entry, bi::slist_member_hook<>, &fair_queue_entry::_hook>>;
+
+    fair_queue_ticket ticket() const noexcept { return _ticket; }
+};
+
 /// \cond internal
 class priority_class {
-    struct request {
-        noncopyable_function<void()> func;
-        fair_queue_ticket desc;
-    };
     friend class fair_queue;
     uint32_t _shares = 0;
     float _accumulated = 0;
-    circular_buffer<request> _queue;
+    fair_queue_entry::container_list_t _queue;
     bool _queued = false;
 
     friend struct shared_ptr_no_esft<priority_class>;
@@ -311,14 +328,11 @@ public:
     /// \return the amount of resources (weight, size) currently executing
     fair_queue_ticket resources_currently_executing() const;
 
-    /// Queue the function \c func through this class' \ref fair_queue, with weight \c weight
-    ///
-    /// It is expected that \c func doesn't throw. If it does throw, it will be just removed from
-    /// the queue and discarded.
+    /// Queue the entry \c ent through this class' \ref fair_queue
     ///
     /// The user of this interface is supposed to call \ref notify_requests_finished when the
     /// request finishes executing - regardless of success or failure.
-    void queue(priority_class_ptr pc, fair_queue_ticket desc, noncopyable_function<void()> func);
+    void queue(priority_class_ptr pc, fair_queue_entry& ent);
 
     /// Notifies that ont request finished
     /// \param desc an instance of \c fair_queue_ticket structure describing the request that just finished.

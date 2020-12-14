@@ -20,6 +20,7 @@
  */
 
 
+#include <boost/intrusive/parent_from_member.hpp>
 #include <seastar/core/file.hh>
 #include <seastar/core/fair_queue.hh>
 #include <seastar/core/io_queue.hh>
@@ -95,7 +96,7 @@ class queued_io_request : private internal::io_request {
     priority_class_data& _pclass;
     size_t _len;
     std::chrono::steady_clock::time_point _started;
-    fair_queue_ticket _ticket;
+    fair_queue_entry _fq_entry;
     std::unique_ptr<io_desc_read_write> _desc;
 
 public:
@@ -106,22 +107,29 @@ public:
         , _pclass(pc)
         , _len(l)
         , _started(started)
-        , _ticket(_ioq.request_fq_ticket(*this, _len))
-        , _desc(std::make_unique<io_desc_read_write>(_ioq, _ticket))
+        , _fq_entry(_ioq.request_fq_ticket(*this, _len), [] (fair_queue_entry& ent) noexcept {
+            queued_io_request::from_fq_entry(ent).dispatch();
+        })
+        , _desc(std::make_unique<io_desc_read_write>(_ioq, _fq_entry.ticket()))
     {
-        io_log.trace("dev {} : req {} queue  len {} ticket {}", _ioq.dev_id(), fmt::ptr(&*_desc), _len, _ticket);
+        io_log.trace("dev {} : req {} queue  len {} ticket {}", _ioq.dev_id(), fmt::ptr(&*_desc), _len, _fq_entry.ticket());
     }
 
-    queued_io_request(queued_io_request&&) = default;
+    queued_io_request(queued_io_request&&) = delete;
 
-    void operator()() {
+    void dispatch() noexcept {
         io_log.trace("dev {} : req {} submit", _ioq.dev_id(), fmt::ptr(&*_desc));
         _pclass.account_for(_len, std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - _started));
         _ioq.submit_request(_desc.release(), std::move(*this), _pclass);
+        delete this;
     }
 
-    fair_queue_ticket ticket() const noexcept { return _ticket; }
     future<size_t> get_future() noexcept { return _desc->get_future(); }
+    fair_queue_entry& queue_entry() noexcept { return _fq_entry; }
+
+    static queued_io_request& from_fq_entry(fair_queue_entry& ent) noexcept {
+        return *boost::intrusive::get_parent_from_member(&ent, &queued_io_request::_fq_entry);
+    }
 };
 
 void
@@ -370,10 +378,10 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc, owner);
-        queued_io_request queued_req(std::move(req), *this, pclass, len, start);
-        auto fut = queued_req.get_future();
-        auto ticket = queued_req.ticket();
-        _fq.queue(pclass.ptr, std::move(ticket), std::move(queued_req));
+        auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, pclass, len, start);
+        auto fut = queued_req->get_future();
+        _fq.queue(pclass.ptr, queued_req->queue_entry());
+        queued_req.release();
         pclass.nr_queued++;
         _queued_requests++;
         return fut;

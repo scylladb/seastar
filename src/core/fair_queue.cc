@@ -19,6 +19,7 @@
  * Copyright 2019 ScyllaDB
  */
 
+#include <boost/intrusive/parent_from_member.hpp>
 #include <seastar/core/fair_queue.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/shared_ptr.hh>
@@ -36,6 +37,8 @@
 namespace seastar {
 
 static_assert(sizeof(fair_queue_ticket) == sizeof(uint64_t), "unexpected fair_queue_ticket size");
+static_assert(sizeof(fair_queue_entry) <= 3 * sizeof(void*), "unexpected fair_queue_entry::_hook size");
+static_assert(sizeof(fair_queue_entry::container_list_t) == 2 * sizeof(void*), "unexpected priority_class::_queue size");
 
 fair_queue_ticket::fair_queue_ticket(uint32_t weight, uint32_t size) noexcept
     : _weight(weight)
@@ -227,13 +230,13 @@ fair_queue_ticket fair_queue::resources_currently_executing() const {
     return _resources_executing;
 }
 
-void fair_queue::queue(priority_class_ptr pc, fair_queue_ticket desc, noncopyable_function<void()> func) {
+void fair_queue::queue(priority_class_ptr pc, fair_queue_entry& ent) {
     // We need to return a future in this function on which the caller can wait.
     // Since we don't know which queue we will use to execute the next request - if ours or
     // someone else's, we need a separate promise at this point.
     push_priority_class(pc);
-    pc->_queue.push_back(priority_class::request{std::move(func), std::move(desc)});
-    _resources_queued += desc;
+    pc->_queue.push_back(ent);
+    _resources_queued += ent._ticket;
     _requests_queued++;
 }
 
@@ -255,22 +258,21 @@ void fair_queue::dispatch_requests() {
             pop_priority_class(h);
         }
 
-        fair_queue_ticket cap = h->_queue.front().desc;
-        if (!grab_capacity(cap)) {
+        auto& req = h->_queue.front();
+        if (!grab_capacity(req._ticket)) {
             break;
         }
 
         pop_priority_class(h);
-        auto req_func = std::move(h->_queue.front().func);
         h->_queue.pop_front();
 
-        _resources_executing += cap;
-        _resources_queued -= cap;
+        _resources_executing += req._ticket;
+        _resources_queued -= req._ticket;
         _requests_executing++;
         _requests_queued--;
 
         auto delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
-        auto req_cost  = cap.normalize(_group.maximum_capacity()) / h->_shares;
+        auto req_cost  = req._ticket.normalize(_group.maximum_capacity()) / h->_shares;
         auto cost  = expf(1.0f/_config.tau.count() * delta.count()) * req_cost;
         float next_accumulated = h->_accumulated + cost;
         while (std::isinf(next_accumulated)) {
@@ -285,7 +287,8 @@ void fair_queue::dispatch_requests() {
         if (!h->_queue.empty()) {
             push_priority_class(h);
         }
-        req_func();
+
+        req._cb(req);
     }
 }
 
