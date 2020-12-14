@@ -335,6 +335,7 @@ public:
     /// Notifies that ont request finished
     /// \param desc an instance of \c fair_queue_ticket structure describing the request that just finished.
     void notify_requests_finished(fair_queue_ticket desc, unsigned nr = 1) noexcept;
+    void notify_request_cancelled(fair_queue_entry& ent) noexcept;
 
     /// Try to execute new requests if there is capacity left in the queue.
     void dispatch_requests(std::function<void(fair_queue_entry&)> cb);

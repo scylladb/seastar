@@ -246,6 +246,11 @@ void fair_queue::notify_requests_finished(fair_queue_ticket desc, unsigned nr) n
     _group.release_capacity(desc);
 }
 
+void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
+    _resources_queued -= ent._ticket;
+    ent._ticket = fair_queue_ticket();
+}
+
 void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
     while (_requests_queued) {
         priority_class_ptr h;

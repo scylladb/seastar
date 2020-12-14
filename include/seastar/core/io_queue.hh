@@ -61,6 +61,7 @@ using shard_id = unsigned;
 class io_priority_class;
 class io_queue;
 class io_desc_read_write;
+class queued_io_request;
 
 class io_group {
 public:
@@ -137,6 +138,8 @@ public:
     future<size_t>
     queue_request(const io_priority_class& pc, size_t len, internal::io_request req) noexcept;
     void submit_request(io_desc_read_write* desc, internal::io_request req, priority_class_data& pclass) noexcept;
+    void cancel_request(queued_io_request& req, priority_class_data& pclass) noexcept;
+    void complete_cancelled_request(queued_io_request& req) noexcept;
 
     [[deprecated("modern I/O queues should use a property file")]] size_t capacity() const {
         return _config.capacity;

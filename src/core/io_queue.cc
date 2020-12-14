@@ -29,6 +29,7 @@
 #include <seastar/core/linux-aio.hh>
 #include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/internal/io_sink.hh>
+#include <seastar/core/internal/io_intent.hh>
 #include <seastar/util/log.hh>
 #include <chrono>
 #include <mutex>
@@ -77,6 +78,11 @@ public:
         delete this;
     }
 
+    void cancel() noexcept {
+        _pr.set_exception(std::make_exception_ptr(default_io_exception_factory::cancelled()));
+        delete this;
+    }
+
     future<size_t> get_future() {
         return _pr.get_future();
     }
@@ -103,7 +109,10 @@ class queued_io_request : private internal::io_request {
     size_t _len;
     std::chrono::steady_clock::time_point _started;
     fair_queue_entry _fq_entry;
+    internal::cancellable_queue::link _intent;
     std::unique_ptr<io_desc_read_write> _desc;
+
+    bool is_cancelled() const noexcept { return !_desc; }
 
 public:
     queued_io_request(internal::io_request req, io_queue& q, priority_class_data& pc,
@@ -122,10 +131,22 @@ public:
     queued_io_request(queued_io_request&&) = delete;
 
     void dispatch() noexcept {
+        if (is_cancelled()) {
+            _ioq.complete_cancelled_request(*this);
+            delete this;
+            return;
+        }
+
         io_log.trace("dev {} : req {} submit", _ioq.dev_id(), fmt::ptr(&*_desc));
         _pclass.account_for(_len, std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - _started));
+        _intent.maybe_dequeue();
         _ioq.submit_request(_desc.release(), std::move(*this), _pclass);
         delete this;
+    }
+
+    void cancel() noexcept {
+        _ioq.cancel_request(*this, _pclass);
+        _desc.release()->cancel();
     }
 
     future<size_t> get_future() noexcept { return _desc->get_future(); }
@@ -134,7 +155,59 @@ public:
     static queued_io_request& from_fq_entry(fair_queue_entry& ent) noexcept {
         return *boost::intrusive::get_parent_from_member(&ent, &queued_io_request::_fq_entry);
     }
+
+    static queued_io_request& from_cq_link(internal::cancellable_queue::link& link) noexcept {
+        return *boost::intrusive::get_parent_from_member(&link, &queued_io_request::_intent);
+    }
 };
+
+internal::cancellable_queue::cancellable_queue(cancellable_queue&& o) noexcept
+        : _first(std::exchange(o._first, nullptr))
+        , _rest(std::move(o._rest)) {
+    if (_first != nullptr) {
+        _first->_ref = this;
+    }
+}
+
+internal::cancellable_queue& internal::cancellable_queue::operator=(cancellable_queue&& o) noexcept {
+    if (this != &o) {
+        _first = std::exchange(o._first, nullptr);
+        _rest = std::move(o._rest);
+        if (_first != nullptr) {
+            _first->_ref = this;
+        }
+    }
+    return *this;
+}
+
+internal::cancellable_queue::~cancellable_queue() {
+    while (_first != nullptr) {
+        queued_io_request::from_cq_link(*_first).cancel();
+        pop_front();
+    }
+}
+
+void internal::cancellable_queue::push_back(link& il) noexcept {
+    if (_first == nullptr) {
+        _first = &il;
+        il._ref = this;
+    } else {
+        new (&il._hook) bi::slist_member_hook<>();
+        _rest.push_back(il);
+    }
+}
+
+void internal::cancellable_queue::pop_front() noexcept {
+    _first->_ref = nullptr;
+    if (_rest.empty()) {
+        _first = nullptr;
+    } else {
+        _first = &_rest.front();
+        _rest.pop_front();
+        _first->_hook.~slist_member_hook<>();
+        _first->_ref = this;
+    }
+}
 
 void
 io_queue::notify_requests_finished(fair_queue_ticket& desc) noexcept {
@@ -403,6 +476,16 @@ void io_queue::submit_request(io_desc_read_write* desc, internal::io_request req
     _requests_executing++;
     pclass.nr_queued--;
     _sink.submit(desc, std::move(req));
+}
+
+void io_queue::cancel_request(queued_io_request& req, priority_class_data& pclass) noexcept {
+    _queued_requests--;
+    pclass.nr_queued--;
+    _fq.notify_request_cancelled(req.queue_entry());
+}
+
+void io_queue::complete_cancelled_request(queued_io_request& req) noexcept {
+    _fq.notify_requests_finished(req.queue_entry().ticket());
 }
 
 future<>
