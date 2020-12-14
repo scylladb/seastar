@@ -228,8 +228,6 @@ public:
         float ticket_weight_pace;
     };
 private:
-    friend priority_class;
-
     struct class_compare {
         bool operator() (const priority_class_ptr& lhs, const priority_class_ptr& rhs) const {
             return lhs->_accumulated > rhs->_accumulated;
