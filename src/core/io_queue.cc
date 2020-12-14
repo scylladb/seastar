@@ -42,28 +42,28 @@ using namespace std::chrono_literals;
 using namespace internal::linux_abi;
 
 class io_desc_read_write final : public io_completion {
-    io_queue* _ioq_ptr;
+    io_queue& _ioq;
     fair_queue_ticket _fq_ticket;
     promise<size_t> _pr;
 private:
     void notify_requests_finished() noexcept {
-        _ioq_ptr->notify_requests_finished(_fq_ticket);
+        _ioq.notify_requests_finished(_fq_ticket);
     }
 public:
-    io_desc_read_write(io_queue* ioq, fair_queue_ticket ticket)
-        : _ioq_ptr(ioq)
+    io_desc_read_write(io_queue& ioq, fair_queue_ticket ticket)
+        : _ioq(ioq)
         , _fq_ticket(ticket)
     {}
 
     virtual void set_exception(std::exception_ptr eptr) noexcept override {
-        io_log.trace("dev {} : req {} error", _ioq_ptr->dev_id(), fmt::ptr(this));
+        io_log.trace("dev {} : req {} error", _ioq.dev_id(), fmt::ptr(this));
         notify_requests_finished();
         _pr.set_exception(eptr);
         delete this;
     }
 
     virtual void complete(size_t res) noexcept override {
-        io_log.trace("dev {} : req {} complete", _ioq_ptr->dev_id(), fmt::ptr(this));
+        io_log.trace("dev {} : req {} complete", _ioq.dev_id(), fmt::ptr(this));
         notify_requests_finished();
         _pr.set_value(res);
         delete this;
@@ -314,7 +314,7 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc, owner);
         fair_queue_ticket fq_ticket = request_fq_ticket(req, len);
-        auto desc = std::make_unique<io_desc_read_write>(this, fq_ticket);
+        auto desc = std::make_unique<io_desc_read_write>(*this, fq_ticket);
         auto fut = desc->get_future();
         io_log.trace("dev {} : req {} queue  len {} ticket {}", _config.devid, fmt::ptr(&*desc), len, fq_ticket);
         _fq.queue(pclass.ptr, std::move(fq_ticket), [&pclass, start, req = std::move(req), d = std::move(desc), len, this] () mutable noexcept {
