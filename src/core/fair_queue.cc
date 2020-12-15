@@ -247,7 +247,7 @@ void fair_queue::notify_requests_finished(fair_queue_ticket desc, unsigned nr) n
 }
 
 void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
-    while (_resources_queued) {
+    while (_requests_queued) {
         priority_class_ptr h;
 
         while (true) {
