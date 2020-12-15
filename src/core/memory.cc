@@ -1176,13 +1176,26 @@ small_pool::small_pool(unsigned object_size) noexcept
         ++span_size;
     }
     _span_sizes.fallback = span_size;
-    span_size = 1;
-    while (_object_size > span_bytes()
-            || (span_size < 32 && waste() > 0.05)
-            || (span_bytes() / object_size < 4)) {
-        ++span_size;
+
+    // Choose a preferred span size which keeps waste (internal fragmentation) below
+    // 5% and fits at least 4 objects. If there is no span size (up to 32 pages) that
+    // satisfies this, just go with the minimum waste out of the checked span sizes.
+    float min_waste = std::numeric_limits<float>::max();
+    unsigned min_waste_span_size = 0;
+    for (span_size = 1; span_size <= 32; span_size *= 2) {
+        if (span_bytes() / object_size >= 4) {
+            auto w = waste();
+            if (w < min_waste) {
+                min_waste = w;
+                min_waste_span_size = span_size;
+                if (w < 0.05) {
+                    break;
+                }
+            }
+        }
     }
-    _span_sizes.preferred = span_size;
+    _span_sizes.preferred = min_waste_span_size ? min_waste_span_size : _span_sizes.fallback;
+
     _max_free = std::max<unsigned>(100, span_bytes() * 2 / _object_size);
     _min_free = _max_free / 2;
 }
