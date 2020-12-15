@@ -272,7 +272,9 @@ logger::do_log(log_level level, log_writer& writer) {
         it = fmt::format_to(it, "{} ", level_map[int(level)]);
         it = print_timestamp(it);
         it = print_once(it);
-        *_out << buf.view() << std::endl;
+        *it++ = '\n';
+        *_out << buf.view();
+        _out->flush();
     }
     if (is_syslog_enabled) {
         internal::log_buf buf(static_log_buf.data(), static_log_buf.size());
