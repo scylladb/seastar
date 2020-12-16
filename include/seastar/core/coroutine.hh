@@ -48,6 +48,7 @@ public:
             _promise.set_value(std::forward<U>(value)...);
         }
 
+        [[deprecated("Forwarding coroutine returns are deprecated as too dangerous. Use 'co_return co_await ...' until explicit syntax is available.")]]
         void return_value(future<T>&& fut) noexcept {
             fut.forward_to(std::move(_promise));
         }
@@ -86,8 +87,9 @@ public:
             _promise.set_value();
         }
 
-// Clang complains if both return_value and return_void are defined
-#if !defined(__clang__)
+// Only accepted in gcc 10; the standard says it is illegal
+#if !defined(__clang__) && __GNUC__  < 11
+        [[deprecated("forwarding a future<> is not possible in standard C++. 'Use co_return co_wait ...' instead.")]]
         void return_value(future<>&& fut) noexcept {
             fut.forward_to(std::move(_promise));
         }
