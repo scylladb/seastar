@@ -54,6 +54,12 @@ public:
     /// Popping from an empty queue will result in undefined behavior.
     T pop();
 
+    /// \brief access the front element in the queue
+    ///
+    /// Accessing the front of an empty queue will result in undefined
+    /// behaviour.
+    T& front();
+
     /// Consumes items from the queue, passing them to \c func, until \c func
     /// returns false or the queue it empty
     ///
@@ -167,6 +173,12 @@ bool queue<T>::push(T&& data) {
     } else {
         return false;
     }
+}
+
+template <typename T>
+inline
+T& queue<T>::front() {
+    return _q.front();
 }
 
 template <typename T>
