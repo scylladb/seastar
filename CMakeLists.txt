@@ -175,6 +175,12 @@ set (Seastar_CXX_DIALECT
   CACHE
   STRING
   "Compile Seastar according to the named C++ standard.")
+if (Seastar_CXX_DIALECT)
+  # extract CXX standard (14/17/...) from Seastar_CXX_DIALECT
+  string(SUBSTRING ${Seastar_CXX_DIALECT} 5 2 STANDARD)
+  set(CMAKE_CXX_STANDARD ${STANDARD})
+  set(CMAKE_CXX_STANDARD_REQUIRED ON)
+endif ()
 
 set (Seastar_CXX_FLAGS
   ""
