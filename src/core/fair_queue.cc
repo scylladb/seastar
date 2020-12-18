@@ -32,7 +32,6 @@
 
 #include "fmt/format.h"
 #include "fmt/ostream.h"
-#include "fmt/chrono.h"
 
 namespace seastar {
 
