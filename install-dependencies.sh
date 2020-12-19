@@ -222,7 +222,7 @@ case "$ID" in
     opensuse-leap)
         zypper install -y "${opensuse_packages[@]}"
     ;;
-    arch)
+    arch|manjaro)
         if [ "$EUID" -eq "0" ]; then
             pacman -Sy --needed --noconfirm "${arch_packages[@]}"
         else
