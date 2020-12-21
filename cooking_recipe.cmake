@@ -202,6 +202,8 @@ cooking_ingredient (ragel
   EXTERNAL_PROJECT_ARGS
     URL http://www.colm.net/files/ragel/ragel-6.10.tar.gz
     URL_MD5 748cae8b50cffe9efcaa5acebc6abf0d
+    PATCH_COMMAND
+      sed -i "s/ CHAR_M/ SCHAR_M/g" ragel/common.cpp
     # This is upsetting.
     BUILD_IN_SOURCE YES
     CONFIGURE_COMMAND
