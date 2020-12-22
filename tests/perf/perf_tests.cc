@@ -32,8 +32,10 @@
 
 #include <seastar/core/app-template.hh>
 #include <seastar/core/thread.hh>
+#include <seastar/core/sharded.hh>
 #include <seastar/json/formatter.hh>
 #include <seastar/util/later.hh>
+#include <seastar/testing/random.hh>
 
 #include <signal.h>
 
@@ -121,6 +123,7 @@ struct config {
     std::chrono::nanoseconds single_run_duration;
     unsigned number_of_runs;
     std::vector<std::unique_ptr<result_printer>> printers;
+    unsigned random_seed = 0;
 };
 
 struct result {
@@ -164,10 +167,12 @@ static constexpr auto format_string = "{:<40} {:>11} {:>11} {:>11} {:>11} {:>11}
 
 struct stdout_printer final : result_printer {
   virtual void print_configuration(const config& c) override {
-    fmt::print("{:<25} {}\n{:<25} {}\n{:<25} {}\n\n",
+    fmt::print("{:<25} {}\n{:<25} {}\n{:<25} {}\n{:<25} {}\n{:<25} {}\n\n",
                "single run iterations:", c.single_run_iterations,
                "single run duration:", duration { double(c.single_run_duration.count()) },
-               "number of runs:", c.number_of_runs);
+               "number of runs:", c.number_of_runs,
+               "number of cores:", smp::count,
+               "random seed:", c.random_seed);
     fmt::print(format_string, "test", "iterations", "median", "mad", "min", "max");
   }
 
@@ -321,6 +326,8 @@ int main(int ac, char** av)
             "duration of a single run in seconds")
         ("runs,r", bpo::value<size_t>()->default_value(5), "number of runs")
         ("test,t", bpo::value<std::vector<std::string>>(), "tests to execute")
+        ("random-seed,S", bpo::value<unsigned>()->default_value(0),
+            "random number generator seed")
         ("no-stdout", "do not print to stdout")
         ("json-output", bpo::value<std::string>(), "output json file")
         ("list", "list available tests")
@@ -335,6 +342,7 @@ int main(int ac, char** av)
             auto dur = std::chrono::duration<double>(app.configuration()["duration"].as<double>());
             conf.single_run_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(dur);
             conf.number_of_runs = app.configuration()["runs"].as<size_t>();
+            conf.random_seed = app.configuration()["random-seed"].as<unsigned>();
 
             std::vector<std::string> tests_to_run;
             if (app.configuration().count("test")) {
@@ -358,6 +366,14 @@ int main(int ac, char** av)
                     app.configuration()["json-output"].as<std::string>()
                 ));
             }
+
+            if (!conf.random_seed) {
+                conf.random_seed = std::random_device()();
+            }
+            smp::invoke_on_all([seed = conf.random_seed] {
+                auto local_seed = seed + this_shard_id();
+                testing::local_random_engine.seed(local_seed);
+            }).get();
 
             run_all(tests_to_run, conf);
         });
