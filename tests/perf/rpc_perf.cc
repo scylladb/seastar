@@ -25,6 +25,7 @@
 #include <seastar/rpc/lz4_fragmented_compressor.hh>
 
 #include <seastar/testing/perf_tests.hh>
+#include <seastar/testing/random.hh>
 
 template<typename Compressor>
 struct compression {
@@ -78,7 +79,7 @@ public:
         : _small_buffer_random(seastar::temporary_buffer<char>(small_buffer_size))
         , _small_buffer_zeroes(seastar::temporary_buffer<char>(small_buffer_size))
     {
-        auto eng = std::default_random_engine{std::random_device{}()};
+        auto& eng = testing::local_random_engine;
         auto dist = std::uniform_int_distribution<char>();
 
         std::generate_n(_small_buffer_random.get_write(), small_buffer_size, [&] { return dist(eng); });
