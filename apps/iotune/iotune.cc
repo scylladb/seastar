@@ -629,6 +629,8 @@ int main(int ac, char** av) {
                 // Directory is the same object for all tests.
                 ::evaluation_directory test_directory(eval_dir);
                 test_directory.discover_directory().get();
+                iotune_logger.info("Disk parameters: max_iodepth={} disks_per_array={} minimum_io_size={}",
+                        test_directory.max_iodepth(), test_directory.disks_per_array(), test_directory.minimum_io_size());
 
                 ::iotune_multi_shard_context iotune_tests(test_directory);
                 iotune_tests.start().get();
