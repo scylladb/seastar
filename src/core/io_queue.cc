@@ -96,9 +96,9 @@ struct priority_class_data {
     uint32_t nr_queued;
     std::chrono::duration<double> queue_time;
     metrics::metric_groups _metric_groups;
-    priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr, shard_id owner);
-    void rename(sstring new_name, sstring mountpoint, shard_id owner);
-    void register_stats(sstring name, sstring mountpoint, shard_id owner);
+    priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr);
+    void rename(sstring new_name, sstring mountpoint);
+    void register_stats(sstring name, sstring mountpoint);
 public:
     void account_for(size_t len, std::chrono::duration<double> lat) noexcept;
 };
@@ -338,20 +338,20 @@ bool io_queue::rename_one_priority_class(io_priority_class pc, sstring new_name)
 
 seastar::metrics::label io_queue_shard("ioshard");
 
-priority_class_data::priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr, shard_id owner)
+priority_class_data::priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr)
     : ptr(ptr)
     , bytes(0)
     , ops(0)
     , nr_queued(0)
     , queue_time(1s)
 {
-    register_stats(name, mountpoint, owner);
+    register_stats(name, mountpoint);
 }
 
 void
-priority_class_data::rename(sstring new_name, sstring mountpoint, shard_id owner) {
+priority_class_data::rename(sstring new_name, sstring mountpoint) {
     try {
-        register_stats(new_name, mountpoint, owner);
+        register_stats(new_name, mountpoint);
     } catch (metrics::double_registration &e) {
         // we need to ignore this exception, since it can happen that
         // a class that was already created with the new name will be
@@ -362,7 +362,8 @@ priority_class_data::rename(sstring new_name, sstring mountpoint, shard_id owner
 }
 
 void
-priority_class_data::register_stats(sstring name, sstring mountpoint, shard_id owner) {
+priority_class_data::register_stats(sstring name, sstring mountpoint) {
+    shard_id owner = this_shard_id();
     seastar::metrics::metric_groups new_metrics;
     namespace sm = seastar::metrics;
     auto shard = sm::impl::shard();
@@ -401,7 +402,8 @@ void priority_class_data::account_for(size_t len, std::chrono::duration<double> 
     queue_time = lat;
 }
 
-priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc, shard_id owner) {
+priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc) {
+    unsigned owner = this_shard_id();
     auto id = pc.id();
     bool do_insert = false;
     if ((do_insert = (owner >= _priority_classes.size()))) {
@@ -433,7 +435,7 @@ priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc,
         // This conveys all the information we need and allows one to easily group all classes from
         // the same I/O queue (by filtering by shard)
         auto pc_ptr = _fq.register_priority_class(shares);
-        auto pc_data = std::make_unique<priority_class_data>(name, mountpoint(), pc_ptr, owner);
+        auto pc_data = std::make_unique<priority_class_data>(name, mountpoint(), pc_ptr);
 
         _priority_classes[owner][id] = std::move(pc_data);
     }
@@ -469,10 +471,10 @@ fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, s
 future<size_t>
 io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_request req, io_intent* intent) noexcept {
     auto start = std::chrono::steady_clock::now();
-    return futurize_invoke([start, &pc, len, req = std::move(req), owner = this_shard_id(), this, intent] () mutable {
+    return futurize_invoke([start, &pc, len, req = std::move(req), this, intent] () mutable {
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
-        auto& pclass = find_or_create_class(pc, owner);
+        auto& pclass = find_or_create_class(pc);
         auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, pclass, len, start);
         auto fut = queued_req->get_future();
         internal::cancellable_queue* cq = nullptr;
@@ -514,19 +516,18 @@ void io_queue::complete_cancelled_request(queued_io_request& req) noexcept {
 
 future<>
 io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares) {
-    return futurize_invoke([this, pc, owner = this_shard_id(), new_shares] {
-        auto& pclass = find_or_create_class(pc, owner);
+    return futurize_invoke([this, pc, new_shares] {
+        auto& pclass = find_or_create_class(pc);
         pclass.ptr->update_shares(new_shares);
     });
 }
 
 void
 io_queue::rename_priority_class(io_priority_class pc, sstring new_name) {
-    for (unsigned owner = 0; owner < _priority_classes.size(); owner++) {
-        if (_priority_classes[owner].size() > pc.id() &&
-                _priority_classes[owner][pc.id()]) {
-            _priority_classes[owner][pc.id()]->rename(new_name, _config.mountpoint, owner);
-        }
+    unsigned owner = this_shard_id();
+    if (_priority_classes[owner].size() > pc.id() &&
+            _priority_classes[owner][pc.id()]) {
+        _priority_classes[owner][pc.id()]->rename(new_name, _config.mountpoint);
     }
 }
 

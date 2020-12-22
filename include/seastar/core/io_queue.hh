@@ -101,7 +101,7 @@ public:
     static bool rename_one_priority_class(io_priority_class pc, sstring name);
 
 private:
-    priority_class_data& find_or_create_class(const io_priority_class& pc, shard_id owner);
+    priority_class_data& find_or_create_class(const io_priority_class& pc);
 
     // The fields below are going away, they are just here so we can implement deprecated
     // functions that used to be provided by the fair_queue and are going away (from both
