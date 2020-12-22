@@ -86,7 +86,7 @@ struct priority_class_data;
 
 class io_queue {
 private:
-    std::vector<std::vector<std::unique_ptr<priority_class_data>>> _priority_classes;
+    std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     io_group_ptr _group;
     fair_queue _fq;
     internal::io_sink& _sink;

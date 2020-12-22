@@ -281,11 +281,9 @@ io_queue::~io_queue() {
     //
     // And that will happen only when there are no more fibers to run. If we ever change
     // that, then this has to change.
-    for (auto&& pc_vec : _priority_classes) {
-        for (auto&& pc_data : pc_vec) {
-            if (pc_data) {
-                _fq.unregister_priority_class(pc_data->ptr);
-            }
+    for (auto&& pc_data : _priority_classes) {
+        if (pc_data) {
+            _fq.unregister_priority_class(pc_data->ptr);
         }
     }
 }
@@ -403,16 +401,12 @@ void priority_class_data::account_for(size_t len, std::chrono::duration<double> 
 }
 
 priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc) {
-    unsigned owner = this_shard_id();
     auto id = pc.id();
     bool do_insert = false;
-    if ((do_insert = (owner >= _priority_classes.size()))) {
-        _priority_classes.resize(owner + 1);
-        _priority_classes[owner].resize(id + 1);
-    } else if ((do_insert = (id >= _priority_classes[owner].size()))) {
-        _priority_classes[owner].resize(id + 1);
+    if ((do_insert = (id >= _priority_classes.size()))) {
+        _priority_classes.resize(id + 1);
     }
-    if (do_insert || !_priority_classes[owner][id]) {
+    if (do_insert || !_priority_classes[id]) {
         auto shares = _registered_shares.at(id);
         sstring name;
         {
@@ -437,9 +431,9 @@ priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc)
         auto pc_ptr = _fq.register_priority_class(shares);
         auto pc_data = std::make_unique<priority_class_data>(name, mountpoint(), pc_ptr);
 
-        _priority_classes[owner][id] = std::move(pc_data);
+        _priority_classes[id] = std::move(pc_data);
     }
-    return *_priority_classes[owner][id];
+    return *_priority_classes[id];
 }
 
 fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, size_t len) const {
@@ -524,10 +518,9 @@ io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares)
 
 void
 io_queue::rename_priority_class(io_priority_class pc, sstring new_name) {
-    unsigned owner = this_shard_id();
-    if (_priority_classes[owner].size() > pc.id() &&
-            _priority_classes[owner][pc.id()]) {
-        _priority_classes[owner][pc.id()]->rename(new_name, _config.mountpoint);
+    if (_priority_classes.size() > pc.id() &&
+            _priority_classes[pc.id()]) {
+        _priority_classes[pc.id()]->rename(new_name, _config.mountpoint);
     }
 }
 
