@@ -1029,6 +1029,7 @@ if (Seastar_INSTALL OR Seastar_TESTING)
       seastar)
 
   add_library(seastar_perf_testing
+    src/testing/random.cc
     include/seastar/testing/perf_tests.hh
     tests/perf/perf_tests.cc)
   add_library (Seastar::seastar_perf_testing ALIAS seastar_perf_testing)
