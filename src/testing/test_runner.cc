@@ -30,8 +30,6 @@ namespace seastar {
 
 namespace testing {
 
-thread_local std::default_random_engine local_random_engine;
-
 static test_runner instance;
 
 struct stop_execution : public std::exception {};

@@ -1004,11 +1004,13 @@ if (Seastar_INSTALL OR Seastar_TESTING)
   add_library (seastar_testing
     include/seastar/testing/entry_point.hh
     include/seastar/testing/exchanger.hh
+    include/seastar/testing/random.hh
     include/seastar/testing/seastar_test.hh
     include/seastar/testing/test_case.hh
     include/seastar/testing/test_runner.hh
     include/seastar/testing/thread_test_case.hh
     src/testing/entry_point.cc
+    src/testing/random.cc
     src/testing/seastar_test.cc
     src/testing/test_runner.cc)
 
