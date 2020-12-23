@@ -359,6 +359,67 @@ seastar::future<> f() {
 }
 ```
 
+# Coroutines
+
+Note: coroutines require C++20 and a supporting compiler. Clang 10 and above is known to work.
+
+The simplest way to write efficient asynchronous code with Seastar is to use coroutines. Coroutines don't share most of the pitfalls of traditional continuations (below), and so are the preferred way to write new code.
+
+A coroutine is a function that returns a `seastar::future<T>` and uses the `co_await` or `co_return` keywords. Coroutines are invisible to their callers and callees; they integrate with traditional Seastar code in either role. If you are not familiar with C++ coroutines, you may want to consult [A more general introduction to C++ coroutines](https://medium.com/pranayaggarwal25/coroutines-in-cpp-15afdf88e17e); this section focuses on how corooutines integrate with Seastar.
+
+Here's an example of a simple Seastar coroutine:
+
+```cpp
+#include <seastar/core/coroutine.hh>
+
+seastar::future<int> read();
+seastar::future<> write(int n);
+
+seastar::future<int> slow_fetch_and_increment() {
+    auto n = co_await read();     // #1
+    co_await seastar::sleep(1s);  // #2
+    auto new_n = n + 1;           // #3
+    co_await write(new_n);        // #4
+    co_return n;                  // #5
+}
+```
+
+In #1, we call the `read()` function, which returns a future. The `co_await` keyword instructs Seastar to inspect the returned future. If the future is ready, then the value (an `int`) is extracted from the future and assigned to `n`. If the future is not ready, the coroutine arranges for itself to be called when the future becomes ready, and control is returned to Seastar. Once the future becomes ready, the coroutine is awakened and the value is extracted from the future and assigned to `n`.
+
+In #2, we call `seastar::sleep()` and wait for the returned future to become ready, which it will in a second. This demonstrates that `n` is preserved across `co_await` calls, and the author of the coroutine need not arrange for storage for coroutine local variables.
+
+Line #3 demonstrates the addition operation, with which the reader is assumed to be familiar.
+
+In #4, we call a function that returns a `seastar::future<>`. In this case, the future carries no value, and so no value is extracted and assigned.
+
+Line #5 demonstrates returning a value. The integer value is used to satisfy the `future<int>` that our caller got when calling the coroutine.
+
+# Exceptions in coroutines
+
+Coroutines automatically translate exceptions to futures and back.
+
+Calling `co_await foo()`, when `foo()` returns an exceptional future, will throw the exception carried by the future.
+
+Similarly throwing within a coroutine will cause the coroutine to return an exceptional future.
+
+Example:
+
+```cpp
+#include <seastar/core/coroutine.hh>
+
+seastar::future<> function_returning_an_exceptional_future();
+
+seastar::future<> exception_handling() {
+    try {
+        co_await function_returning_an_exceptional_future();
+    } catch (...) {
+        // exception will be handled here
+    }
+    throw 3; // will be captured by coroutine and returned as
+             // an exceptional future
+}
+```
+
 # Continuations
 ## Capturing state in continuations
 
