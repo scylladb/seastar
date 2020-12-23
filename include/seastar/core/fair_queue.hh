@@ -174,10 +174,8 @@ class fair_group {
 
 public:
     struct config {
-        unsigned max_req_count = std::numeric_limits<int>::max();
-        unsigned max_bytes_count = std::numeric_limits<int>::max();
-
-        config() noexcept = default;
+        unsigned max_req_count;
+        unsigned max_bytes_count;
 
         /// Constructs a config with the given \c capacity, expressed in maximum
         /// values for requests and bytes.
