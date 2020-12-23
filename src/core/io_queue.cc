@@ -98,10 +98,9 @@ io_queue::io_queue(io_group_ptr group, io_queue::config cfg)
 }
 
 fair_group::config io_group::make_fair_group_config(config iocfg) noexcept {
-    fair_group::config cfg;
-    cfg.max_req_count = iocfg.max_req_count;
-    cfg.max_bytes_count = iocfg.max_bytes_count >> io_queue::request_ticket_size_shift;
-    return cfg;
+    return fair_group::config(
+        iocfg.max_req_count,
+        iocfg.max_bytes_count >> io_queue::request_ticket_size_shift);
 }
 
 io_group::io_group(config cfg) noexcept
