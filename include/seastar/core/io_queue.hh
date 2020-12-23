@@ -127,6 +127,7 @@ public:
     // writes will have an integer value lower than read_request_base_count.
     static constexpr unsigned read_request_base_count = 128;
     static constexpr unsigned request_ticket_size_shift = 9;
+    static constexpr unsigned minimal_request_size = 512;
 
     struct config {
         dev_t devid;

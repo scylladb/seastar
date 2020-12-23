@@ -98,8 +98,19 @@ io_queue::io_queue(io_group_ptr group, io_queue::config cfg)
 }
 
 fair_group::config io_group::make_fair_group_config(config iocfg) noexcept {
+    /*
+     * It doesn't make sense to configure requests limit higher than
+     * it can be if the queue is full of minimal requests. At the same
+     * time setting too large value increases the chances to overflow
+     * the group rovers and lock-up the queue.
+     *
+     * The same is technically true for bytes limit, but the group
+     * rovers are configured in blocks (ticket size shift), and this
+     * already makes a good protection.
+     */
+    const unsigned max_req_count_ceil = iocfg.max_bytes_count / io_queue::minimal_request_size;
     return fair_group::config(
-        iocfg.max_req_count,
+        std::min(iocfg.max_req_count, max_req_count_ceil),
         iocfg.max_bytes_count >> io_queue::request_ticket_size_shift);
 }
 
