@@ -408,17 +408,17 @@ void reactor_backend_aio::signal_received(int signo, siginfo_t* siginfo, void* i
     engine()._signals.action(signo, siginfo, ignore);
 }
 
-reactor_backend_aio::reactor_backend_aio(reactor* r)
+reactor_backend_aio::reactor_backend_aio(reactor& r)
     : _r(r)
     , _hrtimer_timerfd(make_timerfd())
-    , _storage_context(_r)
-    , _preempting_io(_r, _r->_task_quota_timer, _hrtimer_timerfd)
-    , _hrtimer_poll_completion(_r, _hrtimer_timerfd)
-    , _smp_wakeup_aio_completion(_r->_notify_eventfd)
+    , _storage_context(&_r)
+    , _preempting_io(&_r, _r._task_quota_timer, _hrtimer_timerfd)
+    , _hrtimer_poll_completion(&_r, _hrtimer_timerfd)
+    , _smp_wakeup_aio_completion(_r._notify_eventfd)
 {
     // Protect against spurious wakeups - if we get notified that the timer has
     // expired when it really hasn't, we don't want to block in read(tfd, ...).
-    auto tfd = _r->_task_quota_timer.get();
+    auto tfd = _r._task_quota_timer.get();
     ::fcntl(tfd, F_SETFL, ::fcntl(tfd, F_GETFL) | O_NONBLOCK);
 
     sigset_t mask = make_sigset_mask(hrtimer_signal());
@@ -592,14 +592,14 @@ reactor_backend_aio::make_pollable_fd_state(file_desc fd, pollable_fd::speculati
     return pollable_fd_state_ptr(new aio_pollable_fd_state(std::move(fd), std::move(speculate)));
 }
 
-reactor_backend_epoll::reactor_backend_epoll(reactor* r)
+reactor_backend_epoll::reactor_backend_epoll(reactor& r)
         : _r(r)
         , _epollfd(file_desc::epoll_create(EPOLL_CLOEXEC))
-        , _storage_context(_r) {
+        , _storage_context(&_r) {
     ::epoll_event event;
     event.events = EPOLLIN;
     event.data.ptr = nullptr;
-    auto ret = ::epoll_ctl(_epollfd.get(), EPOLL_CTL_ADD, _r->_notify_eventfd.get(), &event);
+    auto ret = ::epoll_ctl(_epollfd.get(), EPOLL_CTL_ADD, _r._notify_eventfd.get(), &event);
     throw_system_error_on(ret == -1);
 
     struct sigevent sev{};
@@ -609,8 +609,8 @@ reactor_backend_epoll::reactor_backend_epoll(reactor* r)
     ret = timer_create(CLOCK_MONOTONIC, &sev, &_steady_clock_timer);
     assert(ret >= 0);
 
-    _r->_signals.handle_signal(hrtimer_signal(), [r = _r] {
-        r->service_highres_timer();
+    _r._signals.handle_signal(hrtimer_signal(), [&r = _r] {
+        r.service_highres_timer();
     });
 }
 
@@ -619,19 +619,19 @@ reactor_backend_epoll::~reactor_backend_epoll() {
 }
 
 void reactor_backend_epoll::start_tick() {
-    _task_quota_timer_thread = std::thread(&reactor::task_quota_timer_thread_fn, _r);
+    _task_quota_timer_thread = std::thread(&reactor::task_quota_timer_thread_fn, &_r);
 
     ::sched_param sp;
     sp.sched_priority = 1;
     auto sched_ok = pthread_setschedparam(_task_quota_timer_thread.native_handle(), SCHED_FIFO, &sp);
-    if (sched_ok != 0 && _r->_id == 0) {
+    if (sched_ok != 0 && _r._id == 0) {
         seastar_logger.warn("Unable to set SCHED_FIFO scheduling policy for timer thread; latency impact possible. Try adding CAP_SYS_NICE");
     }
 }
 
 void reactor_backend_epoll::stop_tick() {
-    _r->_dying.store(true, std::memory_order_relaxed);
-    _r->_task_quota_timer.timerfd_settime(0, seastar::posix::to_relative_itimerspec(1ns, 1ms)); // Make the timer fire soon
+    _r._dying.store(true, std::memory_order_relaxed);
+    _r._task_quota_timer.timerfd_settime(0, seastar::posix::to_relative_itimerspec(1ns, 1ms)); // Make the timer fire soon
     _task_quota_timer_thread.join();
 }
 
@@ -653,7 +653,7 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
         auto pfd = reinterpret_cast<pollable_fd_state*>(evt.data.ptr);
         if (!pfd) {
             char dummy[8];
-            _r->_notify_eventfd.read(dummy, 8);
+            _r._notify_eventfd.read(dummy, 8);
             continue;
         }
         if (evt.events & (EPOLLHUP | EPOLLERR)) {
@@ -838,7 +838,7 @@ reactor_backend_epoll::write_some(pollable_fd_state& fd, net::packet& p) {
 
 void
 reactor_backend_epoll::request_preemption() {
-    _r->_preemption_monitor.head.store(1, std::memory_order_relaxed);
+    _r._preemption_monitor.head.store(1, std::memory_order_relaxed);
 }
 
 void reactor_backend_epoll::start_handling_signal() {
@@ -853,7 +853,7 @@ reactor_backend_epoll::make_pollable_fd_state(file_desc fd, pollable_fd::specula
 }
 
 void reactor_backend_epoll::reset_preemption_monitor() {
-    _r->_preemption_monitor.head.store(0, std::memory_order_relaxed);
+    _r._preemption_monitor.head.store(0, std::memory_order_relaxed);
 }
 
 #ifdef HAVE_OSV
@@ -987,7 +987,7 @@ bool reactor_backend_selector::has_enough_aio_nr() {
     return true;
 }
 
-std::unique_ptr<reactor_backend> reactor_backend_selector::create(reactor* r) {
+std::unique_ptr<reactor_backend> reactor_backend_selector::create(reactor& r) {
     if (_name == "linux-aio") {
         return std::make_unique<reactor_backend_aio>(r);
     } else if (_name == "epoll") {

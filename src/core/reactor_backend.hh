@@ -206,7 +206,7 @@ public:
 // (such as timers, signals, inter-thread notifications) into file descriptors
 // using mechanisms like timerfd, signalfd and eventfd respectively.
 class reactor_backend_epoll : public reactor_backend {
-    reactor* _r;
+    reactor& _r;
     std::thread _task_quota_timer_thread;
     timer_t _steady_clock_timer = {};
 private:
@@ -217,7 +217,7 @@ private:
     bool wait_and_process(int timeout, const sigset_t* active_sigmask);
     bool _need_epoll_events = false;
 public:
-    explicit reactor_backend_epoll(reactor* r);
+    explicit reactor_backend_epoll(reactor& r);
     virtual ~reactor_backend_epoll() override;
 
     virtual bool reap_kernel_completions() override;
@@ -253,7 +253,7 @@ public:
 
 class reactor_backend_aio : public reactor_backend {
     static constexpr size_t max_polls = 10000;
-    reactor* _r;
+    reactor& _r;
     file_desc _hrtimer_timerfd;
     aio_storage_context _storage_context;
     // We use two aio contexts, one for preempting events (the timer tick and
@@ -265,7 +265,7 @@ class reactor_backend_aio : public reactor_backend {
     static file_desc make_timerfd();
     bool await_events(int timeout, const sigset_t* active_sigmask);
 public:
-    explicit reactor_backend_aio(reactor* r);
+    explicit reactor_backend_aio(reactor& r);
 
     virtual bool reap_kernel_completions() override;
     virtual bool kernel_submit_work() override;
@@ -343,7 +343,7 @@ private:
     static bool has_enough_aio_nr();
     explicit reactor_backend_selector(std::string name) : _name(std::move(name)) {}
 public:
-    std::unique_ptr<reactor_backend> create(reactor* r);
+    std::unique_ptr<reactor_backend> create(reactor& r);
     static reactor_backend_selector default_backend();
     static std::vector<reactor_backend_selector> available();
     friend std::ostream& operator<<(std::ostream& os, const reactor_backend_selector& rbs) {
