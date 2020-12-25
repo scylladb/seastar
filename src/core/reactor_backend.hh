@@ -69,7 +69,7 @@ class aio_storage_context {
         bool has_capacity() const;
     };
 
-    reactor* _r;
+    reactor& _r;
     internal::linux_abi::aio_context_t _io_context;
     boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _submission_queue;
     iocb_pool _iocb_pool;
@@ -79,7 +79,7 @@ class aio_storage_context {
     internal::linux_abi::io_event _ev_buffer[max_aio];
 
 public:
-    explicit aio_storage_context(reactor* r);
+    explicit aio_storage_context(reactor& r);
     ~aio_storage_context();
 
     bool reap_completions();
