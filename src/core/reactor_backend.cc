@@ -276,15 +276,16 @@ void completion_with_iocb::maybe_queue(aio_general_context& context) {
 }
 
 hrtimer_aio_completion::hrtimer_aio_completion(reactor* r, file_desc& fd)
-    : fd_kernel_completion(r, fd)
+    : fd_kernel_completion(fd)
+    , completion_with_iocb(fd.get(), POLLIN, this)
+    , _r(r) {}
+
+task_quota_aio_completion::task_quota_aio_completion(file_desc& fd)
+    : fd_kernel_completion(fd)
     , completion_with_iocb(fd.get(), POLLIN, this) {}
 
-task_quota_aio_completion::task_quota_aio_completion(reactor* r, file_desc& fd)
-    : fd_kernel_completion(r, fd)
-    , completion_with_iocb(fd.get(), POLLIN, this) {}
-
-smp_wakeup_aio_completion::smp_wakeup_aio_completion(reactor* r, file_desc& fd)
-        : fd_kernel_completion(r, fd)
+smp_wakeup_aio_completion::smp_wakeup_aio_completion(file_desc& fd)
+        : fd_kernel_completion(fd)
         , completion_with_iocb(fd.get(), POLLIN, this) {}
 
 void
@@ -313,7 +314,7 @@ smp_wakeup_aio_completion::complete_with(ssize_t ret) {
 
 preempt_io_context::preempt_io_context(reactor* r, file_desc& task_quota, file_desc& hrtimer)
     : _r(r)
-    , _task_quota_aio_completion(r, task_quota)
+    , _task_quota_aio_completion(task_quota)
     , _hrtimer_aio_completion(r, hrtimer)
 {}
 
@@ -413,7 +414,7 @@ reactor_backend_aio::reactor_backend_aio(reactor* r)
     , _storage_context(_r)
     , _preempting_io(_r, _r->_task_quota_timer, _hrtimer_timerfd)
     , _hrtimer_poll_completion(_r, _hrtimer_timerfd)
-    , _smp_wakeup_aio_completion(_r, _r->_notify_eventfd)
+    , _smp_wakeup_aio_completion(_r->_notify_eventfd)
 {
     // Protect against spurious wakeups - if we get notified that the timer has
     // expired when it really hasn't, we don't want to block in read(tfd, ...).

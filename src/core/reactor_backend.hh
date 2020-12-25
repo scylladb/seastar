@@ -102,9 +102,8 @@ public:
 
 class fd_kernel_completion : public kernel_completion {
 protected:
-    reactor* _r;
     file_desc& _fd;
-    fd_kernel_completion(reactor* r, file_desc& fd) : _r(r), _fd(fd) {}
+    fd_kernel_completion(file_desc& fd) : _fd(fd) {}
 public:
     file_desc& fd() {
         return _fd;
@@ -113,19 +112,22 @@ public:
 
 struct hrtimer_aio_completion : public fd_kernel_completion,
                                 public completion_with_iocb {
+private:
+    reactor* _r;
+public:
     hrtimer_aio_completion(reactor* r, file_desc& fd);
     virtual void complete_with(ssize_t value) override;
 };
 
 struct task_quota_aio_completion : public fd_kernel_completion,
                                    public completion_with_iocb {
-    task_quota_aio_completion(reactor* r, file_desc& fd);
+    task_quota_aio_completion(file_desc& fd);
     virtual void complete_with(ssize_t value) override;
 };
 
 struct smp_wakeup_aio_completion : public fd_kernel_completion,
                                    public completion_with_iocb {
-    smp_wakeup_aio_completion(reactor* r, file_desc& fd);
+    smp_wakeup_aio_completion(file_desc& fd);
     virtual void complete_with(ssize_t value) override;
 };
 
