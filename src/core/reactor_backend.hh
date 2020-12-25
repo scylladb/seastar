@@ -133,13 +133,13 @@ struct smp_wakeup_aio_completion : public fd_kernel_completion,
 
 // Common aio-based Implementation of the task quota and hrtimer.
 class preempt_io_context {
-    reactor* _r;
+    reactor& _r;
     aio_general_context _context{2};
 
     task_quota_aio_completion _task_quota_aio_completion;
     hrtimer_aio_completion _hrtimer_aio_completion;
 public:
-    preempt_io_context(reactor* r, file_desc& task_quota, file_desc& hrtimer);
+    preempt_io_context(reactor& r, file_desc& task_quota, file_desc& hrtimer);
     bool service_preempting_io();
 
     size_t flush() {

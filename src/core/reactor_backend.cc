@@ -312,10 +312,10 @@ smp_wakeup_aio_completion::complete_with(ssize_t ret) {
     completion_with_iocb::completed();
 }
 
-preempt_io_context::preempt_io_context(reactor* r, file_desc& task_quota, file_desc& hrtimer)
+preempt_io_context::preempt_io_context(reactor& r, file_desc& task_quota, file_desc& hrtimer)
     : _r(r)
     , _task_quota_aio_completion(task_quota)
-    , _hrtimer_aio_completion(r, hrtimer)
+    , _hrtimer_aio_completion(&r, hrtimer)
 {}
 
 void preempt_io_context::start_tick() {
@@ -326,7 +326,7 @@ void preempt_io_context::start_tick() {
 }
 
 void preempt_io_context::stop_tick() {
-    g_need_preempt = &_r->_preemption_monitor;
+    g_need_preempt = &_r._preemption_monitor;
 }
 
 void preempt_io_context::request_preemption() {
@@ -412,7 +412,7 @@ reactor_backend_aio::reactor_backend_aio(reactor& r)
     : _r(r)
     , _hrtimer_timerfd(make_timerfd())
     , _storage_context(_r)
-    , _preempting_io(&_r, _r._task_quota_timer, _hrtimer_timerfd)
+    , _preempting_io(_r, _r._task_quota_timer, _hrtimer_timerfd)
     , _hrtimer_poll_completion(&_r, _hrtimer_timerfd)
     , _smp_wakeup_aio_completion(_r._notify_eventfd)
 {
