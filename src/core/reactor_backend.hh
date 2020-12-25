@@ -113,9 +113,9 @@ public:
 struct hrtimer_aio_completion : public fd_kernel_completion,
                                 public completion_with_iocb {
 private:
-    reactor* _r;
+    reactor& _r;
 public:
-    hrtimer_aio_completion(reactor* r, file_desc& fd);
+    hrtimer_aio_completion(reactor& r, file_desc& fd);
     virtual void complete_with(ssize_t value) override;
 };
 
