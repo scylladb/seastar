@@ -687,6 +687,16 @@ SEASTAR_TEST_CASE(test_destruct_just_constructed_append_challenged_file) {
     });
 }
 
+SEASTAR_TEST_CASE(test_destruct_just_constructed_append_challenged_file_with_sloppy_size) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        sstring filename = (t.get_path() / "testfile.tmp").native();
+        auto oflags = open_flags::rw | open_flags::create;
+        file_open_options opt;
+        opt.sloppy_size = true;
+        auto f = open_file_dma(filename, oflags, opt).get0();
+    });
+}
+
 SEASTAR_TEST_CASE(test_destruct_append_challenged_file_after_write) {
     return tmp_dir::do_with_thread([] (tmp_dir& t) {
         sstring filename = (t.get_path() / "testfile.tmp").native();

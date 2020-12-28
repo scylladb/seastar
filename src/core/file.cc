@@ -485,14 +485,7 @@ append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, ope
     throw_system_error_on(r == -1);
     _committed_size = _logical_size = r;
     _sloppy_size = options.sloppy_size;
-    auto hint = align_up<uint64_t>(options.sloppy_size_hint, _disk_write_dma_alignment);
-    if (_sloppy_size && _committed_size < hint) {
-        auto r = ::ftruncate(_fd, hint);
-        // We can ignore errors, since it's just a hint.
-        if (r != -1) {
-            _committed_size = hint;
-        }
-    }
+    _sloppy_size_hint = options.sloppy_size_hint;
 }
 
 append_challenged_posix_file_impl::~append_challenged_posix_file_impl() {
@@ -562,8 +555,12 @@ append_challenged_posix_file_impl::optimize_queue() noexcept {
     }
     if (n_appending_writes > _max_size_changing_ops
             || (n_appending_writes && _sloppy_size)) {
-        if (_sloppy_size && speculative_size < 2 * _committed_size) {
+        if (_sloppy_size) {
+          if (!_committed_size) {
+            speculative_size = align_up<uint64_t>(_sloppy_size_hint, _disk_write_dma_alignment);
+          } else if (speculative_size < 2 * _committed_size) {
             speculative_size = align_up<uint64_t>(2 * _committed_size, _disk_write_dma_alignment);
+          }
         }
         // We're all alone, so issuing the ftruncate() in the reactor
         // thread won't block us.

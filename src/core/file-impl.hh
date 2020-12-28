@@ -150,6 +150,7 @@ class append_challenged_posix_file_impl : public posix_file_impl, public enable_
     state _closing_state = state::open;
 
     bool _sloppy_size = false;
+    uint64_t _sloppy_size_hint;
     // Fulfiled when _done and I/O is complete
     promise<> _completed;
 private:
