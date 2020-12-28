@@ -459,6 +459,19 @@ SEASTAR_TEST_CASE(test_exception_can_be_thrown_from_do_until_body) {
     });
 }
 
+SEASTAR_TEST_CASE(test_exception_can_be_thrown_from_do_until_condition) {
+    return do_until([] { throw expected_exception(); return false; }, [] {
+        return now();
+    }).then_wrapped([] (auto&& f) {
+       try {
+           f.get();
+           BOOST_FAIL("should have failed");
+       } catch (const expected_exception& e) {
+           // expected
+       }
+    });
+}
+
 SEASTAR_TEST_CASE(test_bare_value_can_be_returned_from_callback) {
     return now().then([] {
         return 3;

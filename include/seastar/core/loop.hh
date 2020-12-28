@@ -314,25 +314,30 @@ public:
 
 } // namespace internal
 
-/// Invokes given action until it fails or given condition evaluates to true.
+/// Invokes given action until it fails or given condition evaluates to true or fails.
 ///
 /// \param stop_cond a callable taking no arguments, returning a boolean that
 ///                  evalutes to true when you don't want to call \c action
-///                  any longer
+///                  any longer. If \c stop_cond fails, the exception is propagated
+//                   in the returned future.
 /// \param action a callable taking no arguments, returning a future<>.  Will
 ///               be called again as soon as the future resolves, unless the
-///               future fails, or \c stop_cond returns \c true.
+///               future fails, or \c stop_cond returns \c true or fails.
 /// \return a ready future if we stopped successfully, or a failed future if
-///         a call to to \c action failed.
+///         a call to to \c action or a call to \c stop_cond failed.
 template<typename AsyncAction, typename StopCondition>
 SEASTAR_CONCEPT( requires seastar::InvokeReturns<StopCondition, bool> && seastar::InvokeReturns<AsyncAction, future<>> )
 inline
 future<> do_until(StopCondition stop_cond, AsyncAction action) noexcept {
     using namespace internal;
     for (;;) {
+      try {
         if (stop_cond()) {
             return make_ready_future<>();
         }
+      } catch (...) {
+        return current_exception_as_future();
+      }
         auto f = futurize_invoke(action);
         if (f.failed()) {
             return f;
