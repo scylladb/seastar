@@ -418,9 +418,8 @@ io_queue::rename_priority_class(io_priority_class pc, sstring new_name) {
 }
 
 void internal::io_sink::submit(io_completion* desc, internal::io_request req) noexcept {
-    req.attach_kernel_completion(desc);
     try {
-        _pending_io.push_back(std::move(req));
+        _pending_io.emplace_back(std::move(req), desc);
     } catch (...) {
         desc->set_exception(std::current_exception());
     }

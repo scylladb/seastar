@@ -59,7 +59,6 @@ private:
         socklen_t* socklen_ptr;
         socklen_t socklen;
     } _size;
-    kernel_completion* _kernel_completion;
 
     explicit io_request(operation op, int fd, int flags, ::msghdr* msg)
         : _op(op)
@@ -197,14 +196,6 @@ public:
 
     socklen_t* socklen_ptr() const {
         return _size.socklen_ptr;
-    }
-
-    void attach_kernel_completion(kernel_completion* kc) {
-        _kernel_completion = kc;
-    }
-
-    kernel_completion* get_kernel_completion() const {
-        return _kernel_completion;
     }
 
     static io_request make_read(int fd, uint64_t pos, void* address, size_t size) {

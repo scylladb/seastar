@@ -24,6 +24,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/testing/test_runner.hh>
+#include <seastar/core/reactor.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/io_queue.hh>
@@ -41,9 +42,9 @@ struct fake_file {
         return internal::io_request::make_write(0, idx, buf, 1);
     }
 
-    void execute_write_req(internal::io_request& rq) {
+    void execute_write_req(internal::io_request& rq, io_completion* desc) {
         data[rq.pos()] = *(reinterpret_cast<int*>(rq.address()));
-        rq.get_kernel_completion()->complete_with(rq.size());
+        desc->complete_with(rq.size());
     }
 };
 
@@ -69,8 +70,8 @@ SEASTAR_THREAD_TEST_CASE(test_basic_flow) {
     });
 
     tio.queue.poll_io_queue();
-    tio.sink.drain([&file] (internal::io_request& rq) -> bool {
-        file.execute_write_req(rq);
+    tio.sink.drain([&file] (internal::io_request& rq, io_completion* desc) -> bool {
+        file.execute_write_req(rq, desc);
         return true;
     });
 

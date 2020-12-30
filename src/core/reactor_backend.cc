@@ -52,7 +52,7 @@ public:
     }
 };
 
-void prepare_iocb(io_request& req, iocb& iocb) {
+void prepare_iocb(io_request& req, io_completion* desc, iocb& iocb) {
     switch (req.opcode()) {
     case io_request::operation::fdatasync:
         iocb = make_fdsync_iocb(req.fd());
@@ -77,7 +77,7 @@ void prepare_iocb(io_request& req, iocb& iocb) {
         seastar_logger.error("Invalid operation for iocb: {}", req.opname());
         std::abort();
     }
-    set_user_data(iocb, req.get_kernel_completion());
+    set_user_data(iocb, desc);
 }
 
 aio_storage_context::iocb_pool::iocb_pool() {
@@ -152,13 +152,13 @@ aio_storage_context::submit_work() {
     bool did_work = false;
 
     _submission_queue.resize(0);
-    size_t to_submit = _r->_io_sink.drain([this] (internal::io_request& req) -> bool {
+    size_t to_submit = _r->_io_sink.drain([this] (internal::io_request& req, io_completion* desc) -> bool {
         if (!_iocb_pool.has_capacity()) {
             return false;
         }
 
         auto& io = _iocb_pool.get_one();
-        prepare_iocb(req, io);
+        prepare_iocb(req, desc, io);
 
         if (_r->_aio_eventfd) {
             set_eventfd_notification(io, _r->_aio_eventfd->get_fd());
