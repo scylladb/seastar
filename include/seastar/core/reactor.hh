@@ -175,6 +175,7 @@ public:
 
 class kernel_completion;
 class io_queue;
+class io_intent;
 class disk_config_params;
 
 class io_completion : public kernel_completion {
@@ -525,11 +526,13 @@ public:
     future<size_t> submit_io_read(io_queue* ioq,
             const io_priority_class& priority_class,
             size_t len,
-            internal::io_request req) noexcept;
+            internal::io_request req,
+            io_intent* intent) noexcept;
     future<size_t> submit_io_write(io_queue* ioq,
             const io_priority_class& priority_class,
             size_t len,
-            internal::io_request req) noexcept;
+            internal::io_request req,
+            io_intent* intent) noexcept;
 
     int run();
     void exit(int ret);

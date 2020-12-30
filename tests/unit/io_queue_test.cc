@@ -66,7 +66,7 @@ SEASTAR_THREAD_TEST_CASE(test_basic_flow) {
     io_queue_for_tests tio;
     fake_file<1> file;
 
-    auto f = tio.queue.queue_request(default_priority_class(), 0, file.make_write_req(0, 42))
+    auto f = tio.queue.queue_request(default_priority_class(), 0, file.make_write_req(0, 42), nullptr)
     .then([&file] (size_t len) {
         BOOST_REQUIRE(file.data[0] == 42);
     });
@@ -145,7 +145,7 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
     std::vector<future<>> cancelled;
 
     auto queue_legacy_request = [&] (io_queue_for_tests& q, io_priority_class& pc) {
-        auto f = q.queue.queue_request(pc, 0, file.make_write_req(idx, val))
+        auto f = q.queue.queue_request(pc, 0, file.make_write_req(idx, val), nullptr)
             .then([&file, idx, val] (size_t len) {
                 BOOST_REQUIRE(file.data[idx] == val);
                 return make_ready_future<>();

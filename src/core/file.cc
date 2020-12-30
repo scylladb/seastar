@@ -333,27 +333,27 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
 future<size_t>
 posix_file_impl::do_write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& io_priority_class) noexcept {
     auto req = internal::io_request::make_write(_fd, pos, buffer, len);
-    return engine().submit_io_write(_io_queue, io_priority_class, len, std::move(req));
+    return engine().submit_io_write(_io_queue, io_priority_class, len, std::move(req), nullptr);
 }
 
 future<size_t>
 posix_file_impl::do_write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class) noexcept {
     auto len = internal::sanitize_iovecs(iov, _disk_write_dma_alignment);
     auto req = internal::io_request::make_writev(_fd, pos, iov);
-    return engine().submit_io_write(_io_queue, io_priority_class, len, std::move(req)).finally([iov = std::move(iov)] () {});
+    return engine().submit_io_write(_io_queue, io_priority_class, len, std::move(req), nullptr).finally([iov = std::move(iov)] () {});
 }
 
 future<size_t>
 posix_file_impl::do_read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& io_priority_class) noexcept {
     auto req = internal::io_request::make_read(_fd, pos, buffer, len);
-    return engine().submit_io_read(_io_queue, io_priority_class, len, std::move(req));
+    return engine().submit_io_read(_io_queue, io_priority_class, len, std::move(req), nullptr);
 }
 
 future<size_t>
 posix_file_impl::do_read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class) noexcept {
     auto len = internal::sanitize_iovecs(iov, _disk_read_dma_alignment);
     auto req = internal::io_request::make_readv(_fd, pos, iov);
-    return engine().submit_io_read(_io_queue, io_priority_class, len, std::move(req)).finally([iov = std::move(iov)] () {});
+    return engine().submit_io_read(_io_queue, io_priority_class, len, std::move(req), nullptr).finally([iov = std::move(iov)] () {});
 }
 
 future<size_t>
