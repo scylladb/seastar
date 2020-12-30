@@ -115,7 +115,8 @@ fair_group::config io_group::make_fair_group_config(config iocfg) noexcept {
 }
 
 io_group::io_group(config cfg) noexcept
-    : _fg(make_fair_group_config(cfg)) {
+    : _fg(make_fair_group_config(cfg))
+    , _maximum_request_size(cfg.max_bytes_count / 2) {
     seastar_logger.debug("Created io group, limits {}:{}", cfg.max_req_count, cfg.max_bytes_count);
 }
 
@@ -290,6 +291,16 @@ fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, s
         size = io_queue::read_request_base_count * len;
     } else {
         throw std::runtime_error(fmt::format("Unrecognized request passing through I/O queue {}", req.opname()));
+    }
+
+    static thread_local logger::rate_limit rate_limit(std::chrono::seconds(30));
+
+    if (size >= _group->_maximum_request_size) {
+        io_log.log(log_level::warn, rate_limit, "oversized request (length {}) submitted. "
+                "dazed and confuzed, trimming its weight from {} down to {}", len,
+                size >> request_ticket_size_shift,
+                _group->_maximum_request_size >> request_ticket_size_shift);
+        size = _group->_maximum_request_size;
     }
 
     return fair_queue_ticket(weight, size >> request_ticket_size_shift);
