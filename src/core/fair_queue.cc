@@ -246,7 +246,7 @@ void fair_queue::notify_requests_finished(fair_queue_ticket desc, unsigned nr) n
     _group.release_capacity(desc);
 }
 
-void fair_queue::dispatch_requests() {
+void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
     while (_resources_queued) {
         priority_class_ptr h;
 
@@ -288,7 +288,7 @@ void fair_queue::dispatch_requests() {
             push_priority_class(h);
         }
 
-        req._cb(req);
+        cb(req);
     }
 }
 

@@ -43,9 +43,7 @@ struct request {
 
     template <typename Func>
     request(unsigned weight, unsigned index, Func&& h)
-        : fqent(fair_queue_ticket(weight, 0), [] (fair_queue_entry& ent) {
-            boost::intrusive::get_parent_from_member(&ent, &request::fqent)->submit();
-        })
+        : fqent(fair_queue_ticket(weight, 0))
         , handle(std::move(h))
         , index(index)
     {}
@@ -82,7 +80,9 @@ public:
     // before the queue is destroyed.
     unsigned tick(unsigned n = 1) {
         unsigned processed = 0;
-        _fq.dispatch_requests();
+        _fq.dispatch_requests([] (fair_queue_entry& ent) {
+            boost::intrusive::get_parent_from_member(&ent, &request::fqent)->submit();
+        });
 
         for (unsigned i = 0; i < n; ++i) {
             std::vector<request> curr;
@@ -94,7 +94,9 @@ public:
                 _fq.notify_requests_finished(req.fqent.ticket());
             }
 
-            _fq.dispatch_requests();
+            _fq.dispatch_requests([] (fair_queue_entry& ent) {
+                boost::intrusive::get_parent_from_member(&ent, &request::fqent)->submit();
+            });
         }
         return processed;
     }

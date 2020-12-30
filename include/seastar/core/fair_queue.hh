@@ -121,15 +121,13 @@ public:
 
 class fair_queue_entry {
     friend class fair_queue;
-    using callback_t = void(*)(fair_queue_entry&);
 
     fair_queue_ticket _ticket;
-    callback_t _cb;
     bi::slist_member_hook<> _hook;
 
 public:
-    fair_queue_entry(fair_queue_ticket t, callback_t cb) noexcept
-        : _ticket(std::move(t)), _cb(std::move(cb)) {}
+    fair_queue_entry(fair_queue_ticket t) noexcept
+        : _ticket(std::move(t)) {}
     using container_list_t = bi::slist<fair_queue_entry,
             bi::constant_time_size<false>,
             bi::cache_last<true>,
@@ -339,7 +337,7 @@ public:
     void notify_requests_finished(fair_queue_ticket desc, unsigned nr = 1) noexcept;
 
     /// Try to execute new requests if there is capacity left in the queue.
-    void dispatch_requests();
+    void dispatch_requests(std::function<void(fair_queue_entry&)> cb);
 
     clock_type next_pending_aio() const noexcept {
         if (_pending) {

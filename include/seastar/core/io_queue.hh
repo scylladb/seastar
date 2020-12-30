@@ -156,9 +156,7 @@ public:
     void notify_requests_finished(fair_queue_ticket& desc) noexcept;
 
     // Dispatch requests that are pending in the I/O queue
-    void poll_io_queue() {
-        _fq.dispatch_requests();
-    }
+    void poll_io_queue();
 
     std::chrono::steady_clock::time_point next_pending_aio() const noexcept {
         return _fq.next_pending_aio();

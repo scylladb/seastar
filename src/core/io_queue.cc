@@ -107,9 +107,7 @@ public:
         , _pclass(pc)
         , _len(l)
         , _started(started)
-        , _fq_entry(_ioq.request_fq_ticket(*this, _len), [] (fair_queue_entry& ent) noexcept {
-            queued_io_request::from_fq_entry(ent).dispatch();
-        })
+        , _fq_entry(_ioq.request_fq_ticket(*this, _len))
         , _desc(std::make_unique<io_desc_read_write>(_ioq, _fq_entry.ticket()))
     {
         io_log.trace("dev {} : req {} queue  len {} ticket {}", _ioq.dev_id(), fmt::ptr(&*_desc), _len, _fq_entry.ticket());
@@ -385,6 +383,12 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
         pclass.nr_queued++;
         _queued_requests++;
         return fut;
+    });
+}
+
+void io_queue::poll_io_queue() {
+    _fq.dispatch_requests([] (fair_queue_entry& fqe) {
+        queued_io_request::from_fq_entry(fqe).dispatch();
     });
 }
 
