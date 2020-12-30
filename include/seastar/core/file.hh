@@ -26,6 +26,7 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/align.hh>
+#include <seastar/core/io_priority_class.hh>
 #include <seastar/core/fair_queue.hh>
 #include <seastar/core/file-types.hh>
 #include <seastar/util/std-compat.hh>
@@ -79,26 +80,6 @@ struct file_open_options {
     uint64_t sloppy_size_hint = 1 << 20; ///< Hint as to what the eventual file size will be
     file_permissions create_permissions = file_permissions::default_file_permissions; ///< File permissions to use when creating a file
 };
-
-/// \cond internal
-class io_queue;
-using io_priority_class_id = unsigned;
-class io_priority_class {
-    io_priority_class_id _id;
-    friend io_queue;
-
-    io_priority_class() = delete;
-    explicit io_priority_class(io_priority_class_id id) noexcept
-        : _id(id)
-    { }
-
-public:
-    io_priority_class_id id() const {
-        return _id;
-    }
-};
-
-const io_priority_class& default_priority_class();
 
 class file;
 class file_impl;
