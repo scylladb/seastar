@@ -55,9 +55,6 @@ using namespace boost::accumulators;
 
 static auto random_seed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 static std::default_random_engine random_generator(random_seed);
-// size of each individual file. Every class will have its file, so in a normal system with many shards, we'll naturally have many files and
-// that will push the data out of the disk's cache. And static sizes per file are simpler.
-static constexpr uint64_t file_data_size = 1ull << 30;
 
 class context;
 enum class request_type { seqread, seqwrite, randread, randwrite, append, cpu };
@@ -114,6 +111,10 @@ struct job_config {
     shard_config shard_placement;
     ::shard_info shard_info;
     ::options options;
+    // size of each individual file. Every class and every shard have its file, so in a normal
+    // system with many shards we'll naturally have many files and that will push the data out
+    // of the disk's cache
+    uint64_t file_size;
     std::unique_ptr<class_data> gen_class_data();
 };
 
@@ -149,7 +150,7 @@ public:
         , _iop(engine().register_one_priority_class(format("test-class-{:d}", idgen()), _config.shard_info.shares))
         , _sg(cfg.shard_info.scheduling_group)
         , _latencies(extended_p_square_probabilities = quantiles)
-        , _pos_distribution(0,  file_data_size / _config.shard_info.request_size)
+        , _pos_distribution(0,  _config.file_size / _config.shard_info.request_size)
     {}
 
     virtual ~class_data() = default;
@@ -247,6 +248,10 @@ protected:
         return _total_duration;
     }
 
+    uint64_t file_size_mb() const {
+        return _config.file_size >> 20;
+    }
+
     uint64_t total_data() const {
         return _data;
     }
@@ -280,7 +285,7 @@ protected:
             pos = _pos_distribution(random_generator) * req_size();
         } else {
             pos = _last_pos + req_size();
-            if (is_sequential() && (pos >= file_data_size)) {
+            if (is_sequential() && (pos >= _config.file_size)) {
                 pos = 0;
             }
         }
@@ -315,7 +320,7 @@ public:
         }).then([this, fname] {
             return do_with(seastar::semaphore(64), [this] (auto& write_parallelism) mutable {
                 auto bufsize = 256ul << 10;
-                auto pos = boost::irange(0ul, (file_data_size / bufsize) + 1);
+                auto pos = boost::irange(0ul, (_config.file_size / bufsize) + 1);
                 return parallel_for_each(pos.begin(), pos.end(), [this, bufsize, &write_parallelism] (auto pos) mutable {
                     return get_units(write_parallelism, 1).then([this, bufsize, pos] (auto perm) mutable {
                         auto bufptr = allocate_aligned_buffer<char>(bufsize, 4096);
@@ -337,7 +342,7 @@ public:
     }
 
     virtual sstring describe_class() override {
-        return fmt::format("{}: {} shares, {}-byte {}, {} concurrent requests, {}", name(), shares(), req_size(), type_str(), parallelism(), think_time());
+        return fmt::format("{}: {} shares, {}-byte {}, {}Mb file, {} concurrent requests, {}", name(), shares(), req_size(), type_str(), file_size_mb(), parallelism(), think_time());
     }
 
     virtual sstring describe_results() override {
@@ -534,6 +539,14 @@ struct convert<job_config> {
         cl.name = node["name"].as<std::string>();
         cl.type = node["type"].as<request_type>();
         cl.shard_placement = node["shards"].as<shard_config>();
+        // The data_size is used to divide the available (and effectively
+        // constant) disk space between workloads. Each shard inside the
+        // workload thus uses its portion of the assigned space.
+        if (node["data_size"]) {
+            cl.file_size = node["data_size"].as<byte_size>().size / smp::count;
+        } else {
+            cl.file_size = 1ull << 30; // 1G by default
+        }
         if (node["shard_info"]) {
             cl.shard_info = node["shard_info"].as<shard_info>();
         }
