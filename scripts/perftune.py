@@ -503,19 +503,15 @@ class NetPerfTuner(PerfTunerBase):
         # did not receive an acknowledgment from connecting client.
         fwriteln_and_log('/proc/sys/net/ipv4/tcp_max_syn_backlog', '4096')
 
-    @property
     def nic_is_bond_iface(self, nic):
         return self.__nic_is_bond_iface[nic]
 
-    @property
     def nic_exists(self, nic):
         return self.__iface_exists(nic)
 
-    @property
     def nic_is_hw_iface(self, nic):
         return self.__dev_is_hw_iface(nic)
 
-    @property
     def slaves(self, nic):
         """
         Returns an iterator for all slaves of the nic.
