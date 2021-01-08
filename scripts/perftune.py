@@ -1277,12 +1277,12 @@ Modes description:
 
 Default values:
 
- --nic NIC       - default: eth0 (you can specify multiple nics)
+ --nic NIC       - default: eth0
  --cpu-mask MASK - default: all available cores mask
  --tune-clock    - default: false
 ''')
 argp.add_argument('--mode', choices=PerfTunerBase.SupportedModes.names(), help='configuration mode')
-argp.add_argument('--nic', action='append', help='network interface name(s), by default uses \'eth0\'', dest='nics', default=[])
+argp.add_argument('--nic', action='append', help='network interface name(s), by default uses \'eth0\' (may appear more than once)', dest='nics', default=[])
 argp.add_argument('--tune-clock', action='store_true', help='Force tuning of the system clocksource')
 argp.add_argument('--get-cpu-mask', action='store_true', help="print the CPU mask to be used for compute")
 argp.add_argument('--get-cpu-mask-quiet', action='store_true', help="print the CPU mask to be used for compute, print the zero CPU set if that's what it turns out to be")
@@ -1318,11 +1318,8 @@ def parse_options_file(prog_args):
             raise Exception("Bad 'mode' value in {}: {}".format(prog_args.options_file, y['mode']))
         prog_args.mode = y['mode']
 
-    if 'nic' in y and not prog_args.nic:
-        prog_args.nic = y['nic']
-
-    if 'nics' in y and not prog_args.nics:
-        prog_args.nics.extend(y['nics'])
+    if 'nic' in y:
+        prog_args.nics.extend(y['nic'])
 
     if 'tune_clock' in y and not prog_args.tune_clock:
         prog_args.tune_clock= y['tune_clock']
@@ -1351,7 +1348,7 @@ def dump_config(prog_args):
     if prog_args.mode:
         prog_options['mode'] = prog_args.mode
 
-    if prog_args.nic:
+    if prog_args.nics:
         prog_options['nic'] = prog_args.nics
 
     if prog_args.tune_clock:
