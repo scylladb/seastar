@@ -1304,6 +1304,13 @@ def parse_cpu_mask_from_yaml(y, field_name, fname):
     else:
         raise Exception("Bad '{}' value in {}: {}".format(field_name, fname, str(y[field_name])))
 
+def extend_and_unique(orig_list, iterable):
+    """
+    Extend items to a list, and make the list items unique
+    """
+    orig_list = orig_list.extend(iterable)
+    return list(set(orig_list))
+
 def parse_options_file(prog_args):
     if not prog_args.options_file:
         return
@@ -1318,14 +1325,14 @@ def parse_options_file(prog_args):
         prog_args.mode = y['mode']
 
     if 'nic' in y:
-        prog_args.nics.extend(y['nic'])
+        prog_args.nics = extend_and_unique(prog_args.nics, y['nic'])
 
     if 'tune_clock' in y and not prog_args.tune_clock:
         prog_args.tune_clock= y['tune_clock']
 
     if 'tune' in y:
         if set(y['tune']) <= set(TuneModes.names()):
-            prog_args.tune.extend(y['tune'])
+            prog_args.tune = extend_and_unique(prog_args.tune, y['tune'])
         else:
             raise Exception("Bad 'tune' value in {}: {}".format(prog_args.options_file, y['tune']))
 
@@ -1336,10 +1343,10 @@ def parse_options_file(prog_args):
         prog_args.irq_cpu_mask = parse_cpu_mask_from_yaml(y, 'irq_cpu_mask', prog_args.options_file)
 
     if 'dir' in y:
-        prog_args.dirs.extend(y['dir'])
+        prog_args.dirs = extend_and_unique(prog_args.dirs, y['dir'])
 
     if 'dev' in y:
-        prog_args.devs.extend(y['dev'])
+        prog_args.devs = extend_and_unique(prog_args.devs, y['dev'])
 
 def dump_config(prog_args):
     prog_options = {}
