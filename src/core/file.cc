@@ -24,6 +24,7 @@
 #include <sys/syscall.h>
 #include <dirent.h>
 #include <linux/types.h> // for xfs, below
+#include <linux/fs.h> // BLKBSZGET
 #include <sys/ioctl.h>
 #include <xfs/linux.h>
 #define min min    /* prevent xfs.h from defining min() as a macro */
@@ -73,13 +74,13 @@ file_handle::to_file() && {
     return file(std::move(*_impl).to_file());
 }
 
-posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id)
+posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, uint32_t block_size)
         : _device_id(device_id)
         , _io_queue(&(engine().get_io_queue(_device_id)))
         , _open_flags(f)
         , _fd(fd)
 {
-    query_dma_alignment();
+    query_dma_alignment(block_size);
 }
 
 posix_file_impl::~posix_file_impl() {
@@ -94,7 +95,7 @@ posix_file_impl::~posix_file_impl() {
 }
 
 void
-posix_file_impl::query_dma_alignment() {
+posix_file_impl::query_dma_alignment(uint32_t block_size) {
     dioattr da;
     auto r = ioctl(_fd, XFS_IOC_DIOINFO, &da);
     if (r == 0) {
@@ -102,7 +103,7 @@ posix_file_impl::query_dma_alignment() {
         _disk_read_dma_alignment = da.d_miniosz;
         // xfs wants at least the block size for writes
         // FIXME: really read the block size
-        _disk_write_dma_alignment = std::max<unsigned>(da.d_miniosz, 4096);
+        _disk_write_dma_alignment = std::max<unsigned>(da.d_miniosz, block_size);
     }
 }
 
@@ -111,17 +112,24 @@ posix_file_impl::dup() {
     if (!_refcount) {
         _refcount = new std::atomic<unsigned>(1u);
     }
-    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _device_id);
+    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _device_id,
+            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment);
     _refcount->fetch_add(1, std::memory_order_relaxed);
     return ret;
 }
 
-posix_file_impl::posix_file_impl(int fd, open_flags f, std::atomic<unsigned>* refcount, dev_t device_id)
+posix_file_impl::posix_file_impl(int fd, open_flags f, std::atomic<unsigned>* refcount, dev_t device_id,
+        uint32_t memory_dma_alignment,
+        uint32_t disk_read_dma_alignment,
+        uint32_t disk_write_dma_alignment)
         : _refcount(refcount)
         , _device_id(device_id)
         , _io_queue(&(engine().get_io_queue(_device_id)))
         , _open_flags(f)
         , _fd(fd) {
+    _memory_dma_alignment = memory_dma_alignment;
+    _disk_read_dma_alignment = disk_read_dma_alignment;
+    _disk_write_dma_alignment = disk_write_dma_alignment;
 }
 
 future<>
@@ -450,8 +458,8 @@ posix_file_impl::read_maybe_eof(uint64_t pos, size_t len, const io_priority_clas
     });
 }
 
-blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id)
-        : posix_file_impl(fd, f, options, device_id) {
+blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, size_t block_size)
+        : posix_file_impl(fd, f, options, device_id, block_size) {
 }
 
 future<>
@@ -477,8 +485,8 @@ blockdev_file_impl::allocate(uint64_t position, uint64_t length) noexcept {
 }
 
 append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, open_flags f, file_open_options options,
-        unsigned max_size_changing_ops, bool fsync_is_exclusive, dev_t device_id)
-        : posix_file_impl(fd, f, options, device_id)
+        unsigned max_size_changing_ops, bool fsync_is_exclusive, dev_t device_id, size_t block_size)
+        : posix_file_impl(fd, f, options, device_id, block_size)
         , _max_size_changing_ops(max_size_changing_ops)
         , _fsync_is_exclusive(fsync_is_exclusive) {
     auto r = ::lseek(fd, 0, SEEK_END);
@@ -767,7 +775,8 @@ posix_file_handle_impl::~posix_file_handle_impl() {
 
 std::unique_ptr<seastar::file_handle_impl>
 posix_file_handle_impl::clone() const {
-    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _device_id);
+    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _device_id,
+            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment);
     if (_refcount) {
         _refcount->fetch_add(1, std::memory_order_relaxed);
     }
@@ -776,7 +785,8 @@ posix_file_handle_impl::clone() const {
 
 shared_ptr<file_impl>
 posix_file_handle_impl::to_file() && {
-    auto ret = ::seastar::make_shared<posix_file_impl>(_fd, _open_flags, _refcount, _device_id);
+    auto ret = ::seastar::make_shared<posix_file_impl>(_fd, _open_flags, _refcount, _device_id,
+            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment);
     _fd = -1;
     _refcount = nullptr;
     return ret;
@@ -803,19 +813,32 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
         auto st_dev = st.st_dev;
 
         if (S_ISBLK(st.st_mode)) {
-            return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, st_dev));
+            size_t block_size;
+            auto ret = ::ioctl(fd, BLKBSZGET, &block_size);
+            if (ret == -1) {
+                return make_exception_future<shared_ptr<file_impl>>(
+                        std::system_error(errno, std::system_category(), "ioctl(BLKBSZGET) failed"));
+            }
+            return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, st_dev, block_size));
         } else {
             if ((flags & O_ACCMODE) == O_RDONLY || S_ISDIR(st.st_mode)) {
-                return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_impl>(fd, open_flags(flags), options, st_dev));
+                // Directories don't care about block size, so we need not
+                // query it here. Just provide something reasonable.
+                return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_impl>(fd, open_flags(flags), options, st_dev, /* blocksize */ 4096));
             }
             struct append_support {
                 bool append_challenged;
                 unsigned append_concurrency;
                 bool fsync_is_exclusive;
             };
-            static thread_local std::unordered_map<decltype(st_dev), append_support> s_fstype;
-            future<> get_append_support = s_fstype.count(st_dev) ? make_ready_future<>() :
+            struct fs_info {
+                append_support append_support_;
+                uint32_t block_size;
+            };
+            static thread_local std::unordered_map<decltype(st_dev), fs_info> s_fstype;
+            future<> get_fs_info = s_fstype.count(st_dev) ? make_ready_future<>() :
                 engine().fstatfs(fd).then([st_dev] (struct statfs sfs) {
+                    uint32_t block_size = sfs.f_bsize;
                     append_support as;
                     switch (sfs.f_type) {
                     case 0x58465342: /* XFS */
@@ -839,14 +862,14 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
                         as.append_concurrency = 0;
                         as.fsync_is_exclusive = true;
                     }
-                    s_fstype[st_dev] = as;
+                    s_fstype[st_dev] = fs_info{as, block_size};
                 });
-            return get_append_support.then([st_dev, fd, flags, options = std::move(options)] () mutable {
-                auto as = s_fstype[st_dev];
+            return get_fs_info.then([st_dev, fd, flags, options = std::move(options)] () mutable {
+                auto [as, block_size] = s_fstype[st_dev];
                 if (!as.append_challenged) {
-                    return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_impl>(fd, open_flags(flags), std::move(options), st_dev));
+                    return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_impl>(fd, open_flags(flags), std::move(options), st_dev, block_size));
                 }
-                return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), as.append_concurrency, as.fsync_is_exclusive, st_dev));
+                return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), as.append_concurrency, as.fsync_is_exclusive, st_dev, block_size));
             });
         }
     });
