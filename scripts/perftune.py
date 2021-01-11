@@ -731,7 +731,6 @@ class NetPerfTuner(PerfTunerBase):
         irqs = list(filter(lambda irq : fp_irqs_re.search(self.__irqs2procline[irq]), all_irqs))
         if irqs:
             driver_name = self.__get_driver_name(iface)
-            perftune_print("Driver {} has been detected.".format(driver_name))
             if (driver_name.startswith("mlx")):
                 irqs.sort(key=self.__mlx_irq_to_queue_idx)
             else:
