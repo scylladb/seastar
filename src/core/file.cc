@@ -24,6 +24,7 @@
 #include <sys/syscall.h>
 #include <dirent.h>
 #include <linux/types.h> // for xfs, below
+#include <linux/fs.h> // BLKBSZGET
 #include <sys/ioctl.h>
 #include <xfs/linux.h>
 #define min min    /* prevent xfs.h from defining min() as a macro */
@@ -457,8 +458,8 @@ posix_file_impl::read_maybe_eof(uint64_t pos, size_t len, const io_priority_clas
     });
 }
 
-blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id)
-        : posix_file_impl(fd, f, options, device_id, 4096) {
+blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, size_t block_size)
+        : posix_file_impl(fd, f, options, device_id, block_size) {
 }
 
 future<>
@@ -812,7 +813,13 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
         auto st_dev = st.st_dev;
 
         if (S_ISBLK(st.st_mode)) {
-            return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, st_dev));
+            size_t block_size;
+            auto ret = ::ioctl(fd, BLKBSZGET, &block_size);
+            if (ret == -1) {
+                return make_exception_future<shared_ptr<file_impl>>(
+                        std::system_error(errno, std::system_category(), "ioctl(BLKBSZGET) failed"));
+            }
+            return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, st_dev, block_size));
         } else {
             if ((flags & O_ACCMODE) == O_RDONLY || S_ISDIR(st.st_mode)) {
                 // Directories don't care about block size, so we need not
