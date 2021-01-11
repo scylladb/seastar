@@ -111,17 +111,24 @@ posix_file_impl::dup() {
     if (!_refcount) {
         _refcount = new std::atomic<unsigned>(1u);
     }
-    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _device_id);
+    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _device_id,
+            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment);
     _refcount->fetch_add(1, std::memory_order_relaxed);
     return ret;
 }
 
-posix_file_impl::posix_file_impl(int fd, open_flags f, std::atomic<unsigned>* refcount, dev_t device_id)
+posix_file_impl::posix_file_impl(int fd, open_flags f, std::atomic<unsigned>* refcount, dev_t device_id,
+        uint32_t memory_dma_alignment,
+        uint32_t disk_read_dma_alignment,
+        uint32_t disk_write_dma_alignment)
         : _refcount(refcount)
         , _device_id(device_id)
         , _io_queue(&(engine().get_io_queue(_device_id)))
         , _open_flags(f)
         , _fd(fd) {
+    _memory_dma_alignment = memory_dma_alignment;
+    _disk_read_dma_alignment = disk_read_dma_alignment;
+    _disk_write_dma_alignment = disk_write_dma_alignment;
 }
 
 future<>
@@ -767,7 +774,8 @@ posix_file_handle_impl::~posix_file_handle_impl() {
 
 std::unique_ptr<seastar::file_handle_impl>
 posix_file_handle_impl::clone() const {
-    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _device_id);
+    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _device_id,
+            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment);
     if (_refcount) {
         _refcount->fetch_add(1, std::memory_order_relaxed);
     }
@@ -776,7 +784,8 @@ posix_file_handle_impl::clone() const {
 
 shared_ptr<file_impl>
 posix_file_handle_impl::to_file() && {
-    auto ret = ::seastar::make_shared<posix_file_impl>(_fd, _open_flags, _refcount, _device_id);
+    auto ret = ::seastar::make_shared<posix_file_impl>(_fd, _open_flags, _refcount, _device_id,
+            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment);
     _fd = -1;
     _refcount = nullptr;
     return ret;
