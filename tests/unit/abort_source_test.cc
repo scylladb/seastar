@@ -37,6 +37,7 @@ SEASTAR_TEST_CASE(test_abort_source_notifies_subscriber) {
     BOOST_REQUIRE_EQUAL(true, bool(st_opt));
     as.request_abort();
     BOOST_REQUIRE_EQUAL(true, signalled);
+    BOOST_REQUIRE_EQUAL(false, bool(st_opt));
     return make_ready_future<>();
 }
 

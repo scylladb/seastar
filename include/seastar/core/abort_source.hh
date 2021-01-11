@@ -58,12 +58,10 @@ public:
     class subscription : public bi::list_base_hook<bi::link_mode<bi::auto_unlink>> {
         friend class abort_source;
 
-        abort_source* _as = nullptr;
         subscription_callback_type _target;
 
         explicit subscription(abort_source& as, subscription_callback_type target)
-                : _as(&as)
-                , _target(std::move(target)) {
+                : _target(std::move(target)) {
             as._subscriptions->push_back(*this);
         }
 
@@ -75,15 +73,13 @@ public:
         subscription() = default;
 
         subscription(subscription&& other) noexcept(std::is_nothrow_move_constructible<subscription_callback_type>::value)
-                : _as(other._as)
-                , _target(std::move(other._target)) {
+                : _target(std::move(other._target)) {
             subscription_list_type::node_algorithms::swap_nodes(other.this_ptr(), this_ptr());
         }
 
         subscription& operator=(subscription&& other) noexcept(std::is_nothrow_move_assignable<subscription_callback_type>::value) {
             if (this != &other) {
                 _target = std::move(other._target);
-                _as = other._as;
                 if (is_linked()) {
                     subscription_list_type::node_algorithms::unlink(this_ptr());
                 }
@@ -93,7 +89,7 @@ public:
         }
 
         explicit operator bool() const noexcept {
-            return _as != nullptr;
+            return is_linked();
         }
     };
 
