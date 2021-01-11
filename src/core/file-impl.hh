@@ -72,7 +72,8 @@ class posix_file_impl : public file_impl {
     open_flags _open_flags;
 public:
     int _fd;
-    posix_file_impl(int fd, open_flags, file_open_options options, dev_t device_id);
+    posix_file_impl(int fd, open_flags, file_open_options options, dev_t device_id,
+            uint32_t block_size);
     posix_file_impl(int fd, open_flags, std::atomic<unsigned>* refcount, dev_t device_id,
             uint32_t memory_dma_alignment,
             uint32_t disk_read_dma_alignment,
@@ -97,7 +98,7 @@ public:
         return _open_flags;
     }
 private:
-    void query_dma_alignment();
+    void query_dma_alignment(uint32_t block_size);
 
     /**
      * Try to read from the given position where the previous short read has
@@ -192,7 +193,7 @@ private:
         }
     }
 public:
-    append_challenged_posix_file_impl(int fd, open_flags, file_open_options options, unsigned max_size_changing_ops, bool fsync_is_exclusive, dev_t device_id);
+    append_challenged_posix_file_impl(int fd, open_flags, file_open_options options, unsigned max_size_changing_ops, bool fsync_is_exclusive, dev_t device_id, size_t block_size);
     ~append_challenged_posix_file_impl() override;
     future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc) noexcept override;
     future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) noexcept override;
