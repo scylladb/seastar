@@ -21,11 +21,14 @@
 
 #pragma once
 
+#include <boost/intrusive/list.hpp>
 #include <boost/intrusive/slist.hpp>
 
 namespace bi = boost::intrusive;
 
 namespace seastar {
+
+class io_intent;
 
 namespace internal {
 
@@ -85,6 +88,41 @@ public:
     cancellable_queue(cancellable_queue&& o) noexcept;
     cancellable_queue& operator=(cancellable_queue&& o) noexcept;
     ~cancellable_queue();
+};
+
+/*
+ * A "safe" reference on a intent. Safe here means that the original
+ * intent can be destroyed at any time and this reference will be
+ * updated not to point at it any longer.
+ * The retrieve() method brings the original intent back or throws
+ * and exception if the intent was cancelled.
+ */
+class intent_reference : public bi::list_base_hook<bi::link_mode<bi::auto_unlink>> {
+    friend class seastar::io_intent;
+    using container_type = bi::list<intent_reference, bi::constant_time_size<false>>;
+    static constexpr uintptr_t _cancelled_intent = 1;
+    io_intent* _intent;
+
+    void on_cancel() noexcept { _intent = reinterpret_cast<io_intent*>(_cancelled_intent); }
+    bool is_cancelled() const noexcept { return _intent == reinterpret_cast<io_intent*>(_cancelled_intent); }
+
+public:
+    intent_reference(io_intent* intent) noexcept;
+
+    intent_reference(intent_reference&& o) noexcept : _intent(std::exchange(o._intent, nullptr)) {
+        container_type::node_algorithms::swap_nodes(o.this_ptr(), this_ptr());
+    }
+
+    intent_reference& operator=(intent_reference&& o) noexcept {
+        if (this != &o) {
+            _intent = std::exchange(o._intent, nullptr);
+            unlink();
+            container_type::node_algorithms::swap_nodes(o.this_ptr(), this_ptr());
+        }
+        return *this;
+    }
+
+    io_intent* retrieve() const;
 };
 
 } // namespace internal

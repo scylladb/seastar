@@ -24,12 +24,12 @@
 #include <seastar/core/file.hh>
 #include <seastar/core/fair_queue.hh>
 #include <seastar/core/io_queue.hh>
+#include <seastar/core/io_intent.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/linux-aio.hh>
 #include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/internal/io_sink.hh>
-#include <seastar/core/internal/io_intent.hh>
 #include <seastar/util/log.hh>
 #include <chrono>
 #include <mutex>
@@ -207,6 +207,20 @@ void internal::cancellable_queue::pop_front() noexcept {
         _first->_hook.~slist_member_hook<>();
         _first->_ref = this;
     }
+}
+
+internal::intent_reference::intent_reference(io_intent* intent) noexcept : _intent(intent) {
+    if (_intent != nullptr) {
+        intent->_refs.bind(*this);
+    }
+}
+
+io_intent* internal::intent_reference::retrieve() const {
+    if (is_cancelled()) {
+        throw default_io_exception_factory::cancelled();
+    }
+
+    return _intent;
 }
 
 void

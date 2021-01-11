@@ -21,10 +21,11 @@
 
 #pragma once
 
+#include <boost/intrusive/list.hpp>
 #include <boost/intrusive/slist.hpp>
 #include <boost/container/small_vector.hpp>
-#include <seastar/core/internal/cancellable_queue.hh>
-#include <seastar/core/io_priority_classes.hh>
+#include <seastar/core/internal/io_intent.hh>
+#include <seastar/core/io_priority_class.hh>
 
 namespace bi = boost::intrusive;
 
@@ -52,18 +53,45 @@ class io_intent {
         intents_for_queue& operator=(intents_for_queue&&) noexcept = default;
     };
 
+    struct references {
+        internal::intent_reference::container_type list;
+
+        references(references&&) noexcept = default;
+
+        references() noexcept = default;
+        ~references() { clear(); }
+
+        void clear() {
+            list.clear_and_dispose([] (internal::intent_reference* r) { r->on_cancel(); });
+        }
+
+        void bind(internal::intent_reference& iref) noexcept {
+            list.push_back(iref);
+        }
+    };
+
     boost::container::small_vector<intents_for_queue, 1> _intents;
+    references _refs;
+    friend internal::intent_reference::intent_reference(io_intent*) noexcept;
 
 public:
     io_intent() = default;
     ~io_intent() = default;
+
     io_intent(const io_intent&) = delete;
-    io_intent(io_intent&&) noexcept = default;
+    io_intent& operator=(const io_intent&) = delete;
+    io_intent& operator=(io_intent&&) = delete;
+    io_intent(io_intent&& o) noexcept : _intents(std::move(o._intents)), _refs(std::move(o._refs)) {
+        for (auto&& r : _refs.list) {
+            r._intent = this;
+        }
+    }
 
     /// Explicitly cancels all the requests attached to this intent
     /// so far. The respective futures are resolved into the \ref
     /// cancelled_error "cancelled_error"
     void cancel() noexcept {
+        _refs.clear();
         _intents.clear();
     }
 
