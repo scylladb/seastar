@@ -30,6 +30,7 @@
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/internal/io_request.hh>
 #include <seastar/core/internal/io_sink.hh>
+#include <seastar/core/io_intent.hh>
 
 using namespace seastar;
 
@@ -76,4 +77,51 @@ SEASTAR_THREAD_TEST_CASE(test_basic_flow) {
     });
 
     f.get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_intent_safe_ref) {
+    auto get_cancelled = [] (internal::intent_reference& iref) -> bool {
+        try {
+            iref.retrieve();
+            return false;
+        } catch(seastar::cancelled_error& err) {
+            return true;
+        }
+    };
+
+    io_intent intent, intent_x;
+
+    internal::intent_reference ref_orig(&intent);
+    BOOST_REQUIRE(ref_orig.retrieve() == &intent);
+
+    // Test move armed
+    internal::intent_reference ref_armed(std::move(ref_orig));
+    BOOST_REQUIRE(ref_orig.retrieve() == nullptr);
+    BOOST_REQUIRE(ref_armed.retrieve() == &intent);
+
+    internal::intent_reference ref_armed_2(&intent_x);
+    ref_armed_2 = std::move(ref_armed);
+    BOOST_REQUIRE(ref_armed.retrieve() == nullptr);
+    BOOST_REQUIRE(ref_armed_2.retrieve() == &intent);
+
+    intent.cancel();
+    BOOST_REQUIRE(get_cancelled(ref_armed_2));
+
+    // Test move cancelled
+    internal::intent_reference ref_cancelled(std::move(ref_armed_2));
+    BOOST_REQUIRE(ref_armed_2.retrieve() == nullptr);
+    BOOST_REQUIRE(get_cancelled(ref_cancelled));
+
+    internal::intent_reference ref_cancelled_2(&intent_x);
+    ref_cancelled_2 = std::move(ref_cancelled);
+    BOOST_REQUIRE(ref_cancelled.retrieve() == nullptr);
+    BOOST_REQUIRE(get_cancelled(ref_cancelled_2));
+
+    // Test move empty
+    internal::intent_reference ref_empty(std::move(ref_orig));
+    BOOST_REQUIRE(ref_empty.retrieve() == nullptr);
+
+    internal::intent_reference ref_empty_2(&intent_x);
+    ref_empty_2 = std::move(ref_empty);
+    BOOST_REQUIRE(ref_empty_2.retrieve() == nullptr);
 }
