@@ -226,6 +226,7 @@ public:
      * @param aligned_buffer output buffer (should be aligned)
      * @param aligned_len number of bytes to read (should be aligned)
      * @param pc the IO priority class under which to queue this operation
+     * @param intent the IO intention confirmation (\ref seastar::io_intent)
      *
      * Alignment is HW dependent but use 4KB alignment to be on the safe side as
      * explained above.
@@ -235,8 +236,8 @@ public:
      */
     template <typename CharType>
     future<size_t>
-    dma_read(uint64_t aligned_pos, CharType* aligned_buffer, size_t aligned_len, const io_priority_class& pc = default_priority_class()) noexcept {
-        return dma_read_impl(aligned_pos, reinterpret_cast<uint8_t*>(aligned_buffer), aligned_len, pc);
+    dma_read(uint64_t aligned_pos, CharType* aligned_buffer, size_t aligned_len, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept {
+        return dma_read_impl(aligned_pos, reinterpret_cast<uint8_t*>(aligned_buffer), aligned_len, pc, intent);
     }
 
     /**
@@ -245,6 +246,7 @@ public:
      * @param pos offset to begin reading from
      * @param len number of bytes to read
      * @param pc the IO priority class under which to queue this operation
+     * @param intent the IO intention confirmation (\ref seastar::io_intent)
      *
      * @return temporary buffer containing the requested data.
      *         or exceptional future in case of I/O error
@@ -255,8 +257,8 @@ public:
      *       reached or in case of I/O error.
      */
     template <typename CharType>
-    future<temporary_buffer<CharType>> dma_read(uint64_t pos, size_t len, const io_priority_class& pc = default_priority_class()) noexcept {
-        return dma_read_impl(pos, len, pc).then([] (temporary_buffer<uint8_t> t) {
+    future<temporary_buffer<CharType>> dma_read(uint64_t pos, size_t len, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept {
+        return dma_read_impl(pos, len, pc, intent).then([] (temporary_buffer<uint8_t> t) {
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
@@ -271,6 +273,7 @@ public:
      * @param pos offset in a file to begin reading from
      * @param len number of bytes to read
      * @param pc the IO priority class under which to queue this operation
+     * @param intent the IO intention confirmation (\ref seastar::io_intent)
      *
      * @return temporary buffer containing the read data
      *        or exceptional future in case an error, holding:
@@ -279,8 +282,8 @@ public:
      */
     template <typename CharType>
     future<temporary_buffer<CharType>>
-    dma_read_exactly(uint64_t pos, size_t len, const io_priority_class& pc = default_priority_class()) noexcept {
-        return dma_read_exactly_impl(pos, len, pc).then([] (temporary_buffer<uint8_t> t) {
+    dma_read_exactly(uint64_t pos, size_t len, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept {
+        return dma_read_exactly_impl(pos, len, pc, intent).then([] (temporary_buffer<uint8_t> t) {
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
@@ -291,10 +294,11 @@ public:
     /// \param iov vector of address/size pairs to read into.  Addresses must be
     ///            aligned.
     /// \param pc the IO priority class under which to queue this operation
+    /// \param intent the IO intention confirmation (\ref seastar::io_intent)
     ///
     /// \return a future representing the number of bytes actually read.  A short
     ///         read may happen due to end-of-file or an I/O error.
-    future<size_t> dma_read(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class()) noexcept;
+    future<size_t> dma_read(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept;
 
     /// Performs a DMA write from the specified buffer.
     ///
@@ -303,12 +307,13 @@ public:
     ///               until the future is made ready.
     /// \param len number of bytes to write.  Must be aligned.
     /// \param pc the IO priority class under which to queue this operation
+    /// \param intent the IO intention confirmation (\ref seastar::io_intent)
     ///
     /// \return a future representing the number of bytes actually written.  A short
     ///         write may happen due to an I/O error.
     template <typename CharType>
-    future<size_t> dma_write(uint64_t pos, const CharType* buffer, size_t len, const io_priority_class& pc = default_priority_class()) noexcept {
-        return dma_write_impl(pos, reinterpret_cast<const uint8_t*>(buffer), len, pc);
+    future<size_t> dma_write(uint64_t pos, const CharType* buffer, size_t len, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept {
+        return dma_write_impl(pos, reinterpret_cast<const uint8_t*>(buffer), len, pc, intent);
     }
 
     /// Performs a DMA write to the specified iovec.
@@ -317,10 +322,11 @@ public:
     /// \param iov vector of address/size pairs to write from.  Addresses must be
     ///            aligned.
     /// \param pc the IO priority class under which to queue this operation
+    /// \param intent the IO intention confirmation (\ref seastar::io_intent)
     ///
     /// \return a future representing the number of bytes actually written.  A short
     ///         write may happen due to an I/O error.
-    future<size_t> dma_write(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class()) noexcept;
+    future<size_t> dma_write(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept;
 
     /// Causes any previously written data to be made stable on persistent storage.
     ///
@@ -378,6 +384,7 @@ public:
      * @param offset starting address of the range the read bulk should contain
      * @param range_size size of the addresses range
      * @param pc the IO priority class under which to queue this operation
+     * @param intent the IO intention confirmation (\ref seastar::io_intent)
      *
      * @return temporary buffer containing the read data bulk.
      *        or exceptional future holding:
@@ -386,8 +393,8 @@ public:
      */
     template <typename CharType>
     future<temporary_buffer<CharType>>
-    dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc = default_priority_class()) noexcept {
-        return dma_read_bulk_impl(offset, range_size, pc).then([] (temporary_buffer<uint8_t> t) {
+    dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept {
+        return dma_read_bulk_impl(offset, range_size, pc, intent).then([] (temporary_buffer<uint8_t> t) {
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
@@ -403,19 +410,19 @@ public:
     file_handle dup();
 private:
     future<temporary_buffer<uint8_t>>
-    dma_read_bulk_impl(uint64_t offset, size_t range_size, const io_priority_class& pc) noexcept;
+    dma_read_bulk_impl(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept;
 
     future<size_t>
-    dma_write_impl(uint64_t pos, const uint8_t* buffer, size_t len, const io_priority_class& pc) noexcept;
+    dma_write_impl(uint64_t pos, const uint8_t* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
 
     future<temporary_buffer<uint8_t>>
-    dma_read_impl(uint64_t pos, size_t len, const io_priority_class& pc) noexcept;
+    dma_read_impl(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
 
     future<size_t>
-    dma_read_impl(uint64_t aligned_pos, uint8_t* aligned_buffer, size_t aligned_len, const io_priority_class& pc) noexcept;
+    dma_read_impl(uint64_t aligned_pos, uint8_t* aligned_buffer, size_t aligned_len, const io_priority_class& pc, io_intent* intent) noexcept;
 
     future<temporary_buffer<uint8_t>>
-    dma_read_exactly_impl(uint64_t pos, size_t len, const io_priority_class& pc) noexcept;
+    dma_read_exactly_impl(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
 
     friend class reactor;
     friend class file_impl;
