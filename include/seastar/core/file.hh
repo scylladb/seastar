@@ -384,9 +384,6 @@ public:
     /// \note Use on read-only files.
     ///
     file_handle dup();
-
-    template <typename CharType>
-    struct read_state;
 private:
     future<temporary_buffer<uint8_t>>
     dma_read_bulk_impl(uint64_t offset, size_t range_size, const io_priority_class& pc) noexcept;
@@ -491,76 +488,6 @@ public:
 
     friend class file;
 };
-
-/// \cond internal
-
-template <typename CharType>
-struct file::read_state {
-    typedef temporary_buffer<CharType> tmp_buf_type;
-
-    read_state(uint64_t offset, uint64_t front, size_t to_read,
-            size_t memory_alignment, size_t disk_alignment)
-    : buf(tmp_buf_type::aligned(memory_alignment,
-                                align_up(to_read, disk_alignment)))
-    , _offset(offset)
-    , _to_read(to_read)
-    , _front(front) {}
-
-    bool done() const {
-        return eof || pos >= _to_read;
-    }
-
-    /**
-     * Trim the buffer to the actual number of read bytes and cut the
-     * bytes from offset 0 till "_front".
-     *
-     * @note this function has to be called only if we read bytes beyond
-     *       "_front".
-     */
-    void trim_buf_before_ret() {
-        if (have_good_bytes()) {
-            buf.trim(pos);
-            buf.trim_front(_front);
-        } else {
-            buf.trim(0);
-        }
-    }
-
-    uint64_t cur_offset() const {
-        return _offset + pos;
-    }
-
-    size_t left_space() const {
-        return buf.size() - pos;
-    }
-
-    size_t left_to_read() const {
-        // positive as long as (done() == false)
-        return _to_read - pos;
-    }
-
-    void append_new_data(tmp_buf_type& new_data) {
-        auto to_copy = std::min(left_space(), new_data.size());
-
-        std::memcpy(buf.get_write() + pos, new_data.get(), to_copy);
-        pos += to_copy;
-    }
-
-    bool have_good_bytes() const {
-        return pos > _front;
-    }
-
-public:
-    bool         eof      = false;
-    tmp_buf_type buf;
-    size_t       pos      = 0;
-private:
-    uint64_t     _offset;
-    size_t       _to_read;
-    uint64_t     _front;
-};
-
-/// \endcond
 
 /// @}
 

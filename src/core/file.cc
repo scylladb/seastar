@@ -41,6 +41,7 @@
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"
 #include "core/uname.hh"
+#include "seastar/core/internal/read_state.hh"
 
 namespace seastar {
 
@@ -357,14 +358,14 @@ posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priorit
 
 future<temporary_buffer<uint8_t>>
 posix_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc) noexcept {
-    using tmp_buf_type = typename file::read_state<uint8_t>::tmp_buf_type;
+    using tmp_buf_type = typename internal::file_read_state<uint8_t>::tmp_buf_type;
 
   try {
     auto front = offset & (_disk_read_dma_alignment - 1);
     offset -= front;
     range_size += front;
 
-    auto rstate = make_lw_shared<file::read_state<uint8_t>>(offset, front,
+    auto rstate = make_lw_shared<internal::file_read_state<uint8_t>>(offset, front,
                                                        range_size,
                                                        _memory_dma_alignment,
                                                        _disk_read_dma_alignment);
