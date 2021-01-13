@@ -331,33 +331,58 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
 }
 
 future<size_t>
-posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& io_priority_class) noexcept {
+posix_file_impl::do_write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& io_priority_class) noexcept {
     auto req = internal::io_request::make_write(_fd, pos, buffer, len);
     return engine().submit_io_write(_io_queue, io_priority_class, len, std::move(req));
 }
 
 future<size_t>
-posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class) noexcept {
+posix_file_impl::do_write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class) noexcept {
     auto len = internal::sanitize_iovecs(iov, _disk_write_dma_alignment);
     auto req = internal::io_request::make_writev(_fd, pos, iov);
     return engine().submit_io_write(_io_queue, io_priority_class, len, std::move(req)).finally([iov = std::move(iov)] () {});
 }
 
 future<size_t>
-posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& io_priority_class) noexcept {
+posix_file_impl::do_read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& io_priority_class) noexcept {
     auto req = internal::io_request::make_read(_fd, pos, buffer, len);
     return engine().submit_io_read(_io_queue, io_priority_class, len, std::move(req));
 }
 
 future<size_t>
-posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class) noexcept {
+posix_file_impl::do_read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class) noexcept {
     auto len = internal::sanitize_iovecs(iov, _disk_read_dma_alignment);
     auto req = internal::io_request::make_readv(_fd, pos, iov);
     return engine().submit_io_read(_io_queue, io_priority_class, len, std::move(req)).finally([iov = std::move(iov)] () {});
 }
 
+future<size_t>
+posix_file_real_impl::write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc) noexcept {
+    return posix_file_impl::do_write_dma(pos, buffer, len, pc);
+}
+
+future<size_t>
+posix_file_real_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) noexcept {
+    return posix_file_impl::do_write_dma(pos, std::move(iov), pc);
+}
+
+future<size_t>
+posix_file_real_impl::read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc) noexcept {
+    return posix_file_impl::do_read_dma(pos, buffer, len, pc);
+}
+
+future<size_t>
+posix_file_real_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) noexcept {
+    return posix_file_impl::do_read_dma(pos, std::move(iov), pc);
+}
+
 future<temporary_buffer<uint8_t>>
-posix_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc) noexcept {
+posix_file_real_impl::dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc) noexcept {
+    return posix_file_impl::do_dma_read_bulk(offset, range_size, pc);
+}
+
+future<temporary_buffer<uint8_t>>
+posix_file_impl::do_dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc) noexcept {
     using tmp_buf_type = typename internal::file_read_state<uint8_t>::tmp_buf_type;
 
   try {
@@ -483,6 +508,31 @@ future<>
 blockdev_file_impl::allocate(uint64_t position, uint64_t length) noexcept {
     // nothing to do for block device
     return make_ready_future<>();
+}
+
+future<size_t>
+blockdev_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc) noexcept {
+    return posix_file_impl::do_write_dma(pos, buffer, len, pc);
+}
+
+future<size_t>
+blockdev_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) noexcept {
+    return posix_file_impl::do_write_dma(pos, std::move(iov), pc);
+}
+
+future<size_t>
+blockdev_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc) noexcept {
+    return posix_file_impl::do_read_dma(pos, buffer, len, pc);
+}
+
+future<size_t>
+blockdev_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) noexcept {
+    return posix_file_impl::do_read_dma(pos, std::move(iov), pc);
+}
+
+future<temporary_buffer<uint8_t>>
+blockdev_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc) noexcept {
+    return posix_file_impl::do_dma_read_bulk(offset, range_size, pc);
 }
 
 append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, open_flags f, file_open_options options,
@@ -631,7 +681,7 @@ append_challenged_posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t l
         pos,
         len,
         [this, pos, buffer, len, &pc] () mutable {
-            return posix_file_impl::read_dma(pos, buffer, len, pc);
+            return posix_file_impl::do_read_dma(pos, buffer, len, pc);
         }
     );
 }
@@ -662,7 +712,7 @@ append_challenged_posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov
         pos,
         len,
         [this, pos, iov = std::move(iov), &pc] () mutable {
-            return posix_file_impl::read_dma(pos, std::move(iov), pc);
+            return posix_file_impl::do_read_dma(pos, std::move(iov), pc);
         }
     );
 }
@@ -674,7 +724,7 @@ append_challenged_posix_file_impl::write_dma(uint64_t pos, const void* buffer, s
         pos,
         len,
         [this, pos, buffer, len, &pc] {
-            return posix_file_impl::write_dma(pos, buffer, len, pc).then([this, pos] (size_t ret) {
+            return posix_file_impl::do_write_dma(pos, buffer, len, pc).then([this, pos] (size_t ret) {
                 commit_size(pos + ret);
                 return make_ready_future<size_t>(ret);
             });
@@ -690,12 +740,17 @@ append_challenged_posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> io
         pos,
         len,
         [this, pos, iov = std::move(iov), &pc] () mutable {
-            return posix_file_impl::write_dma(pos, std::move(iov), pc).then([this, pos] (size_t ret) {
+            return posix_file_impl::do_write_dma(pos, std::move(iov), pc).then([this, pos] (size_t ret) {
                 commit_size(pos + ret);
                 return make_ready_future<size_t>(ret);
             });
         }
     );
+}
+
+future<temporary_buffer<uint8_t>>
+append_challenged_posix_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc) noexcept {
+    return posix_file_impl::do_dma_read_bulk(offset, range_size, pc);
 }
 
 future<>
@@ -786,7 +841,7 @@ posix_file_handle_impl::clone() const {
 
 shared_ptr<file_impl>
 posix_file_handle_impl::to_file() && {
-    auto ret = ::seastar::make_shared<posix_file_impl>(_fd, _open_flags, _refcount, _device_id,
+    auto ret = ::seastar::make_shared<posix_file_real_impl>(_fd, _open_flags, _refcount, _device_id,
             _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment);
     _fd = -1;
     _refcount = nullptr;
@@ -825,7 +880,7 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
             if ((flags & O_ACCMODE) == O_RDONLY || S_ISDIR(st.st_mode)) {
                 // Directories don't care about block size, so we need not
                 // query it here. Just provide something reasonable.
-                return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_impl>(fd, open_flags(flags), options, st_dev, /* blocksize */ 4096));
+                return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), options, st_dev, /* blocksize */ 4096));
             }
             struct append_support {
                 bool append_challenged;
@@ -868,7 +923,7 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
             return get_fs_info.then([st_dev, fd, flags, options = std::move(options)] () mutable {
                 auto [as, block_size] = s_fstype[st_dev];
                 if (!as.append_challenged) {
-                    return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_impl>(fd, open_flags(flags), std::move(options), st_dev, block_size));
+                    return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), st_dev, block_size));
                 }
                 return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), as.append_concurrency, as.fsync_is_exclusive, st_dev, block_size));
             });
