@@ -116,14 +116,14 @@ private:
      * @throw appropriate exception in case of I/O error.
      */
     future<temporary_buffer<uint8_t>>
-    read_maybe_eof(uint64_t pos, size_t len, const io_priority_class& pc);
+    read_maybe_eof(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent);
 
 protected:
-    future<size_t> do_write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc) noexcept;
-    future<size_t> do_write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) noexcept;
-    future<size_t> do_read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc) noexcept;
-    future<size_t> do_read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) noexcept;
-    future<temporary_buffer<uint8_t>> do_dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc) noexcept;
+    future<size_t> do_write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
+    future<size_t> do_write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept;
+    future<size_t> do_read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
+    future<size_t> do_read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept;
+    future<temporary_buffer<uint8_t>> do_dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept;
 };
 
 class posix_file_real_impl final : public posix_file_impl {
