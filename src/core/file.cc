@@ -381,6 +381,31 @@ posix_file_real_impl::dma_read_bulk(uint64_t offset, size_t range_size, const io
     return posix_file_impl::do_dma_read_bulk(offset, range_size, pc, nullptr);
 }
 
+future<size_t>
+posix_file_real_impl::write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept {
+    return posix_file_impl::do_write_dma(pos, buffer, len, pc, intent);
+}
+
+future<size_t>
+posix_file_real_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept {
+    return posix_file_impl::do_write_dma(pos, std::move(iov), pc, intent);
+}
+
+future<size_t>
+posix_file_real_impl::read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept {
+    return posix_file_impl::do_read_dma(pos, buffer, len, pc, intent);
+}
+
+future<size_t>
+posix_file_real_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept {
+    return posix_file_impl::do_read_dma(pos, std::move(iov), pc, intent);
+}
+
+future<temporary_buffer<uint8_t>>
+posix_file_real_impl::dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept {
+    return posix_file_impl::do_dma_read_bulk(offset, range_size, pc, intent);
+}
+
 future<temporary_buffer<uint8_t>>
 posix_file_impl::do_dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept {
     using tmp_buf_type = typename internal::file_read_state<uint8_t>::tmp_buf_type;
