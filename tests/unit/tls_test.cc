@@ -834,12 +834,79 @@ SEASTAR_THREAD_TEST_CASE(test_reload_broken_certificates) {
     fs::remove(cert);
     fs::remove(key);
 
+    std::ofstream(cert.c_str()) << "lala land" << std::endl;
+    std::ofstream(key.c_str()) << "lala land" << std::endl;
+
     // should get one or two exceptions
     q.pop_eventually().get();
+
+    fs::remove(cert);
+    fs::remove(key);
 
     fs::copy_file(certfile("test.crt"), cert);
     fs::copy_file(certfile("test.key"), key);
 
     // now it should reload
     p.get_future().get();
+}
+
+using namespace std::chrono_literals;
+
+// the same as previous test, but we set a big tolerance for 
+// reload errors, and verify that either our scheduling/fs is 
+// super slow, or we got through the changes without failures.
+SEASTAR_THREAD_TEST_CASE(test_reload_tolerance) {
+    tmpdir tmp;
+
+    namespace fs = std::filesystem;
+
+    fs::copy_file(certfile("test.crt"), tmp.path() / "test.crt");
+    fs::copy_file(certfile("test.key"), tmp.path() / "test.key");
+
+    auto cert = (tmp.path() / "test.crt").native();
+    auto key = (tmp.path() / "test.key").native();
+    std::unordered_set<sstring> changed;
+    promise<> p;
+
+    tls::credentials_builder b;
+    b.set_x509_key_file(cert, key, tls::x509_crt_format::PEM).get();
+    b.set_dh_level();
+
+    int nfails = 0;
+
+    // use 5s tolerance - this should ensure we don't generate any errors.
+    auto certs = b.build_reloadable_server_credentials([&](const std::unordered_set<sstring>& files, std::exception_ptr ep) {
+        if (ep) {
+            ++nfails;
+            return;
+        }
+        changed.insert(files.begin(), files.end());
+        if (changed.count(cert) && changed.count(key)) {
+            p.set_value();
+        }
+    }, std::chrono::milliseconds(5000)).get0();
+
+    // very intentionally use blocking calls. We want all our modifications to happen
+    // before any other continuation is allowed to process.
+
+    auto start = std::chrono::system_clock::now();
+
+    fs::remove(cert);
+    fs::remove(key);
+
+    std::ofstream(cert.c_str()) << "lala land" << std::endl;
+    std::ofstream(key.c_str()) << "lala land" << std::endl;
+
+    fs::remove(cert);
+    fs::remove(key);
+
+    fs::copy_file(certfile("test.crt"), cert);
+    fs::copy_file(certfile("test.key"), key);
+
+    // now it should reload
+    p.get_future().get();
+
+    auto end = std::chrono::system_clock::now();
+
+    BOOST_ASSERT(nfails == 0 || (end - start) > 4s);
 }

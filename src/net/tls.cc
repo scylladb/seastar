@@ -39,6 +39,7 @@
 #include <seastar/util/variant_utils.hh>
 
 #include <boost/range/iterator_range.hpp>
+#include <boost/range/adaptor/map.hpp>
 
 #include "../core/fsnotify.hh"
 
@@ -702,21 +703,20 @@ public:
             , _creds(creds)
         {}
         future<> init() {
-            std::unordered_set<sstring> files;
             std::vector<future<>> futures;
             visit_blobs(_blobs, make_visitor(
                 [&](const sstring&, const x509_simple& info) {
-                    files.emplace(info.file.filename);
+                    _all_files.emplace(info.file.filename);
                 },
                 [&](const sstring&, const x509_key& info) {
-                    files.emplace(info.cert_file.filename);
-                    files.emplace(info.key_file.filename);
+                    _all_files.emplace(info.cert_file.filename);
+                    _all_files.emplace(info.key_file.filename);
                 },
                 [&](const sstring&, const pkcs12_simple& info) {
-                    files.emplace(info.file.filename);
+                    _all_files.emplace(info.file.filename);
                 }
             ));
-            return parallel_for_each(files, [this](auto& f) {
+            return parallel_for_each(_all_files, [this](auto& f) {
                 if (!f.empty()) {
                     return add_watch(f).discard_result();
                 }
@@ -736,9 +736,7 @@ public:
                     }
                     rebuild(events);
                 } catch (...) {
-                    if (_cb) {
-                        _cb(_files, std::current_exception());
-                    }
+                    do_callback(std::current_exception());
                 }
             }
         }
@@ -756,10 +754,19 @@ public:
                 // about one...
                 auto i = _watches.find(e.id);
                 if (i != _watches.end()) {
-                    _files.emplace(i->second.second);
+                    auto& filename = i->second.second;
+                    // only add actual file watches to 
+                    // query set. If this was a directory
+                    // watch, the file should already be 
+                    // in there.
+                    if (_all_files.count(filename)) {
+                        _files[filename] = e.mask;
+                    }
                     _watches.erase(i);
                 }
             }
+            auto num_changed = 0;
+
             auto maybe_reload = [&](const sstring& filename, buffer_type& dst) {
                 if (filename.empty() || !_files.count(filename)) {
                     return;
@@ -774,27 +781,19 @@ public:
                 // that have not been successfully replaced (and maybe more),
                 // repeating the process. At some point, we hopefully
                 // get new, current data.
-                std::optional<fsnotifier::watch_token> dw;
-                auto dir = std::filesystem::path(filename).parent_path();
-                while (!dw) {
-                    try {
-                        dw = add_watch(dir.native(), fsnotifier::flags::create_child | fsnotifier::flags::move).get0();
-                        break;
-                    } catch (...) {
-                        if (!dir.has_parent_path()) {
-                            throw;
-                        }
-                        dir = dir.parent_path();
-                        continue;
-                    }
-                }
+                add_dir_watch(filename);
                 // #756 add watch _first_. File could change while we are
                 // reading this.
-                add_watch(filename).get();
+                try {
+                    add_watch(filename).get();
+                } catch (...) {
+                    // let's just assume if this happens, it's because the file or folder was deleted.
+                    // just ignore for now, and hope the dir watch will tell us when it is back...
+                    return;
+                }
                 temporary_buffer<char> buf = read_fully(filename, "reloading").get0();
                 dst = to_buffer(buf);
-                // file was added ok. we can drop the dir watch.
-                _watches.erase(*dw);
+                ++num_changed;
             };
             visit_blobs(_blobs, make_visitor(
                 [&](const sstring&, x509_simple& info) {
@@ -808,20 +807,73 @@ public:
                     maybe_reload(info.file.filename, info.data);
                 }
             ));
-            if (_creds) {
-                _creds->rebuild(*this);
+            // only try this if anything was in fact successfully loaded.
+            // if files were missing, or pairs incomplete, we can just skip.
+            if (num_changed == 0) {
+                return;
+            }
+            try {
+                if (_creds) {
+                    _creds->rebuild(*this);
+                }
+            } catch (...) {
+                if (std::any_of(_files.begin(), _files.end(), [](auto& p) { return p.second == fsnotifier::flags::ignored; })) {
+                    // if any file in the reload set was deleted - i.e. we have not seen a "closed" yet - assume
+                    // this is a spurious reload and we'd better wait for next event - hopefully a "closed" - 
+                    // and try again
+                    return;
+                }
+                throw;
             }
             // if we got here, all files loaded, all watches were created,
             // and gnutls was ok with the content. success.
-            if (_cb) {
-                _cb(_files, {});
-            }
-            _files.clear();
+            do_callback();
+            on_success();
         }
-        future<fsnotifier::watch_token> add_watch(const sstring& filename, fsnotifier::flags flags = fsnotifier::flags::modify) {
+        void on_success() {
+            _files.clear();
+            // remove all directory watches, since we've successfully 
+            // reloaded -> the file watches themselves should suffice now
+            auto i = _watches.begin();
+            auto e = _watches.end();
+            while (i != e) {
+                if (!_all_files.count(i->second.second)) {
+                    i = _watches.erase(i);
+                    continue;
+                }
+                ++i;
+            }
+        }
+        void do_callback(std::exception_ptr ep = {}) {
+            if (_cb) {
+                _cb(boost::copy_range<std::unordered_set<sstring>>(_files | boost::adaptors::map_keys), std::move(ep));
+            }
+        }
+        // called from seastar::thread
+        fsnotifier::watch_token add_dir_watch(const sstring& filename) {
+            auto dir = std::filesystem::path(filename).parent_path();
+            for (;;) {
+                try {
+                    return add_watch(dir.native(), fsnotifier::flags::create_child | fsnotifier::flags::move).get0();
+                } catch (...) {
+                    if (!dir.has_parent_path()) {
+                        throw;
+                    }
+                    dir = dir.parent_path();
+                    continue;
+                }
+            }
+        }
+        future<fsnotifier::watch_token> add_watch(const sstring& filename, fsnotifier::flags flags = fsnotifier::flags::close) {
             return _fsn.create_watch(filename, flags).then([this, filename = filename](fsnotifier::watch w) {
                 auto t = w.token();
-                _watches.emplace(t, std::make_pair(std::move(w), filename));
+                // we might create multiple watches for same token in case of dirs, avoid deleting previously 
+                // created one
+                if (_watches.count(t)) {
+                    w.release();
+                } else {
+                    _watches.emplace(t, std::make_pair(std::move(w), filename));
+                }
                 return t;
             });
         }
@@ -830,7 +882,8 @@ public:
         reloadable_credentials_base* _creds;
         fsnotifier _fsn;
         std::unordered_map<fsnotifier::watch_token, std::pair<fsnotifier::watch, sstring>> _watches;
-        std::unordered_set<sstring> _files;
+        std::unordered_map<sstring, fsnotifier::flags> _files;
+        std::unordered_set<sstring> _all_files;
     };
     reloadable_credentials_base(credentials_builder builder, reload_callback cb)
         : _builder(seastar::make_shared<reloading_builder>(std::move(builder), std::move(cb), this))
