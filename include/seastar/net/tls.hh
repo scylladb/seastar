@@ -289,8 +289,8 @@ namespace tls {
 
         // same as above, but any files used for certs/keys etc will be watched
         // for modification and reloaded if changed
-        future<shared_ptr<certificate_credentials>> build_reloadable_certificate_credentials(reload_callback = {}) const;
-        future<shared_ptr<server_credentials>> build_reloadable_server_credentials(reload_callback = {}) const;
+        future<shared_ptr<certificate_credentials>> build_reloadable_certificate_credentials(reload_callback = {}, std::optional<std::chrono::milliseconds> tolerance = {}) const;
+        future<shared_ptr<server_credentials>> build_reloadable_server_credentials(reload_callback = {}, std::optional<std::chrono::milliseconds> tolerance = {}) const;
     private:
         friend class reloadable_credentials_base;
 
