@@ -32,6 +32,7 @@
 #include <seastar/core/gate.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/iostream.hh>
+#include <seastar/core/with_timeout.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/net/dns.hh>
@@ -909,4 +910,82 @@ SEASTAR_THREAD_TEST_CASE(test_reload_tolerance) {
     auto end = std::chrono::system_clock::now();
 
     BOOST_ASSERT(nfails == 0 || (end - start) > 4s);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_reload_by_move) {
+    tmpdir tmp;
+    tmpdir tmp2;
+
+    namespace fs = std::filesystem;
+
+    fs::copy_file(certfile("test.crt"), tmp.path() / "test.crt");
+    fs::copy_file(certfile("test.key"), tmp.path() / "test.key");
+    fs::copy_file(certfile("test.crt"), tmp2.path() / "test.crt");
+    fs::copy_file(certfile("test.key"), tmp2.path() / "test.key");
+
+    auto cert = (tmp.path() / "test.crt").native();
+    auto key = (tmp.path() / "test.key").native();
+    auto cert2 = (tmp2.path() / "test.crt").native();
+    auto key2 = (tmp2.path() / "test.key").native();
+
+    std::unordered_set<sstring> changed;
+    promise<> p;
+
+    tls::credentials_builder b;
+    b.set_x509_key_file(cert, key, tls::x509_crt_format::PEM).get();
+    b.set_dh_level();
+
+    int nfails = 0;
+
+    // use 5s tolerance - this should ensure we don't generate any errors.
+    auto certs = b.build_reloadable_server_credentials([&](const std::unordered_set<sstring>& files, std::exception_ptr ep) {
+        if (ep) {
+            ++nfails;
+            return;
+        }
+        changed.insert(files.begin(), files.end());
+        if (changed.count(cert) && changed.count(key)) {
+            p.set_value();
+        }
+    }, std::chrono::milliseconds(5000)).get0();
+
+    // very intentionally use blocking calls. We want all our modifications to happen
+    // before any other continuation is allowed to process.
+
+    fs::remove(cert);
+    fs::remove(key);
+
+    // deletes should _not_ cause errors/reloads
+    try {
+        with_timeout(std::chrono::steady_clock::now() + 3s, p.get_future()).get();
+        BOOST_FAIL("should not reach");
+    } catch (timed_out_error&) {
+        // ok
+    }
+
+    BOOST_REQUIRE_EQUAL(changed.size(), 0);
+
+    p = promise();
+
+    fs::rename(cert2, cert);
+    fs::rename(key2, key);
+
+    // now it should reload
+    p.get_future().get();
+
+    BOOST_REQUIRE_EQUAL(changed.size(), 2);
+    changed.clear();
+
+    // again, without delete
+
+    fs::copy_file(certfile("test.crt"), tmp2.path() / "test.crt");
+    fs::copy_file(certfile("test.key"), tmp2.path() / "test.key");
+
+    p = promise();
+
+    fs::rename(cert2, cert);
+    fs::rename(key2, key);
+
+    // it should reload here as well.
+    p.get_future().get();
 }
