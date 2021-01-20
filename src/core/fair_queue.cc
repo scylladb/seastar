@@ -110,12 +110,10 @@ fair_group::fair_group(config cfg) noexcept
     seastar_logger.debug("Created fair group, capacity {}:{}", cfg.max_req_count, cfg.max_bytes_count);
 }
 
-std::pair<fair_queue_ticket, fair_group_rover> fair_group::grab_capacity(fair_queue_ticket cap) noexcept {
+fair_group_rover fair_group::grab_capacity(fair_queue_ticket cap) noexcept {
     fair_group_rover cur = _capacity_tail.load(std::memory_order_relaxed);
     while (!_capacity_tail.compare_exchange_weak(cur, cur + cap)) ;
-    fair_group_rover head = _capacity_head.load(std::memory_order_relaxed);
-    fair_group_rover want_head = cur + cap;
-    return std::make_pair(want_head.maybe_ahead_of(head), want_head);
+    return cur;
 }
 
 void fair_group::release_capacity(fair_queue_ticket cap) noexcept {
@@ -168,33 +166,23 @@ std::chrono::microseconds fair_queue_ticket::duration_at_pace(float weight_pace,
 }
 
 bool fair_queue::grab_pending_capacity(fair_queue_ticket cap) noexcept {
-    if (cap == _pending->cap) {
-        if (_pending->head.maybe_ahead_of(_group.head())) {
-            return false;
-        }
-    } else {
-        /*
-         * A new request with different capacity preempted
-         * the previous. The simplest solution here is to
-         * forget about the previous one and start the new
-         * pending wait, but this is sub-optimal wrt latency.
-         *
-         * The better solution should check if the new cap
-         * is bigger or smaller than the preious value and
-         * (de)account the difference into group rovers, thus
-         * effectively consuming the fraction of the capacity
-         * that might had been released by that time.
-         */
-        _group.release_capacity(_pending->cap);
-
-        auto over = _group.grab_capacity(cap);
-        if (over.first) {
-            _pending.emplace(over.second, cap);
-            return false;
-        }
+    fair_group_rover pending_head = _pending->orig_tail + cap;
+    if (pending_head.maybe_ahead_of(_group.head())) {
+        return false;
     }
 
-    _pending.reset();
+    if (cap == _pending->cap) {
+        _pending.reset();
+    } else {
+        /*
+         * This branch is called when the fair queue decides to
+         * submit not the same request that entered it into the
+         * pending state and this new request crawls through the
+         * expected head value.
+         */
+        _pending->orig_tail = _group.grab_capacity(cap);
+    }
+
     return true;
 }
 
@@ -203,9 +191,9 @@ bool fair_queue::grab_capacity(fair_queue_ticket cap) noexcept {
         return grab_pending_capacity(cap);
     }
 
-    auto over = _group.grab_capacity(cap);
-    if (over.first) {
-        _pending.emplace(over.second, cap);
+    fair_group_rover orig_tail = _group.grab_capacity(cap);
+    if ((orig_tail + cap).maybe_ahead_of(_group.head())) {
+        _pending.emplace(orig_tail, cap);
         return false;
     }
 

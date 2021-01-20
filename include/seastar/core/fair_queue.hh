@@ -188,7 +188,7 @@ public:
     explicit fair_group(config cfg) noexcept;
 
     fair_queue_ticket maximum_capacity() const noexcept { return _maximum_capacity; }
-    std::pair<fair_queue_ticket, fair_group_rover> grab_capacity(fair_queue_ticket cap) noexcept;
+    fair_group_rover grab_capacity(fair_queue_ticket cap) noexcept;
     void release_capacity(fair_queue_ticket cap) noexcept;
 
     fair_group_rover head() const noexcept {
@@ -252,18 +252,18 @@ private:
      * When the shared capacity os over the local queue delays
      * further dispatching untill better times
      *
-     * \head  -- the value group head rover should pass by
-     * \cap   -- the capacity that's waited for
+     * \orig_tail  -- the value group tail rover had when it happened
+     * \cap   -- the capacity that's accounted on the group
      *
      * The last field is needed to "rearm" the wait in case
      * queue decides that it wants to dispatch another capacity
      * in the middle of the waiting
      */
     struct pending {
-        fair_group_rover head;
+        fair_group_rover orig_tail;
         fair_queue_ticket cap;
 
-        pending(fair_group_rover h, fair_queue_ticket c) noexcept : head(h), cap(c) {}
+        pending(fair_group_rover t, fair_queue_ticket c) noexcept : orig_tail(t), cap(c) {}
     };
 
     std::optional<pending> _pending;
@@ -341,7 +341,8 @@ public:
              * which's sub-optimal. The expectation is that we think disk
              * works faster, than it really does.
              */
-            fair_queue_ticket over = _pending->head.maybe_ahead_of(_group.head());
+            fair_group_rover pending_head = _pending->orig_tail + _pending->cap;
+            fair_queue_ticket over = pending_head.maybe_ahead_of(_group.head());
             return std::chrono::steady_clock::now() + duration(over);
         }
 
