@@ -691,6 +691,23 @@ void reactor::handle_signal(int signo, noncopyable_function<void ()>&& handler) 
     _signals.handle_signal(signo, std::move(handler));
 }
 
+// Fills a buffer with a hexadecimal representation of an integer
+// and returns a pointer to the first character.
+// For example, convert_hex_safe(buf, 4, uint16_t(12)) fills the buffer with "   c".
+template<typename Integral>
+SEASTAR_CONCEPT( requires std::is_integral_v<Integral> )
+char* convert_hex_safe(char *buf, size_t bufsz, Integral n) noexcept {
+    const char *digits = "0123456789abcdef";
+    memset(buf, ' ', bufsz);
+    auto* p = buf + bufsz;
+    do {
+        assert(p > buf);
+        *--p = digits[n & 0xf];
+        n >>= 4;
+    } while (n);
+    return p;
+}
+
 // Accumulates an in-memory backtrace and flush to stderr eventually.
 // Async-signal safe.
 class backtrace_buffer {
@@ -723,8 +740,8 @@ public:
     template <typename Integral>
     void append_hex(Integral ptr) noexcept {
         char buf[sizeof(ptr) * 2];
-        convert_zero_padded_hex_safe(buf, sizeof(buf), ptr);
-        append(buf, sizeof(buf));
+        auto p = convert_hex_safe(buf, sizeof(buf), ptr);
+        append(p, (buf + sizeof(buf)) - p);
     }
 
     void append_backtrace() noexcept {
