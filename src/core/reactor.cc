@@ -720,10 +720,15 @@ public:
         _pos = 0;
     }
 
-    void append(const char* str, size_t len) noexcept {
+    void reserve(size_t len) noexcept {
+        assert(len < _max_size);
         if (_pos + len >= _max_size) {
             flush();
         }
+    }
+
+    void append(const char* str, size_t len) noexcept {
+        reserve(len);
         memcpy(_buf + _pos, str, len);
         _pos += len;
     }
@@ -760,6 +765,7 @@ public:
 
     void append_backtrace_oneline() noexcept {
         backtrace([this] (frame f) noexcept {
+            reserve(3 + sizeof(f.addr) * 2);
             append(" 0x");
             append_hex(f.addr);
         });
