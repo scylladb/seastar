@@ -40,6 +40,7 @@ struct cpu_stall_detector_config {
     std::chrono::duration<double> threshold = std::chrono::seconds(2);
     unsigned stall_detector_reports_per_minute = 1;
     float slack = 0.3;  // fraction of threshold that we're allowed to overshoot
+    bool oneline = true; // print a simplified backtrace on a single line
     std::function<void ()> report;  // alternative reporting function for tests
 };
 
