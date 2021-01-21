@@ -70,12 +70,15 @@ public:
 private:
     vector_type _frames;
     size_t _hash;
+    char _delimeter;
 private:
     size_t calculate_hash() const noexcept;
 public:
-    simple_backtrace() = default;
-    simple_backtrace(vector_type f) noexcept : _frames(std::move(f)) {}
+    simple_backtrace(char delimeter = ' ') noexcept : _delimeter(delimeter) {}
+    simple_backtrace(vector_type f, char delimeter = ' ') noexcept : _frames(std::move(f)), _delimeter(delimeter) {}
+
     size_t hash() const noexcept { return _hash; }
+    char delimeter() const noexcept { return _delimeter; }
 
     friend std::ostream& operator<<(std::ostream& out, const simple_backtrace&);
 
@@ -128,6 +131,7 @@ public:
     ~tasktrace();
 
     size_t hash() const noexcept { return _hash; }
+    char delimeter() const noexcept { return _main.delimeter(); }
 
     friend std::ostream& operator<<(std::ostream& out, const tasktrace&);
 

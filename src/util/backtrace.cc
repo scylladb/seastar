@@ -108,8 +108,10 @@ std::ostream& operator<<(std::ostream& out, const frame& f) {
 }
 
 std::ostream& operator<<(std::ostream& out, const simple_backtrace& b) {
+    char delim[2] = {'\0', '\0'};
     for (auto f : b._frames) {
-        out << "   " << f << "\n";
+        out << delim << f;
+        delim[0] = b.delimeter();
     }
     return out;
 }
@@ -117,11 +119,11 @@ std::ostream& operator<<(std::ostream& out, const simple_backtrace& b) {
 std::ostream& operator<<(std::ostream& out, const tasktrace& b) {
     out << b._main;
     for (auto&& e : b._prev) {
-        out << "   --------\n";
+        out << "\n   --------";
         std::visit(make_visitor([&] (const shared_backtrace& sb) {
-            out << sb;
+            out << '\n' << sb;
         }, [&] (const task_entry& f) {
-            out << "   " << f << "\n";
+            out << "\n   " << f;
         }), e);
     }
     return out;
