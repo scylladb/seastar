@@ -31,6 +31,7 @@ namespace bi = boost::intrusive;
 
 namespace seastar {
 
+/// \example file_demo.cc
 /// A handle confirming the caller's intent to do the IO
 ///
 /// When a pointer to an intent is passed to the \ref io_queue

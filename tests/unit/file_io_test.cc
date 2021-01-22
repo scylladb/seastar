@@ -31,6 +31,7 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/stall_sampler.hh>
 #include <seastar/core/aligned_buffer.hh>
+#include <seastar/core/io_intent.hh>
 #include <seastar/util/tmp_file.hh>
 #include <seastar/util/alloc_failure_injector.hh>
 
@@ -762,5 +763,40 @@ SEASTAR_TEST_CASE(test_dma_iovec) {
         BOOST_REQUIRE_EQUAL(count, size);
 
         BOOST_REQUIRE(std::equal(wbuf.get(), wbuf.get() + alignment, rbuf.get(), rbuf.get() + alignment));
+    });
+}
+
+SEASTAR_TEST_CASE(test_intent) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        sstring filename = (t.get_path() / "testfile.tmp").native();
+        auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get0();
+        auto buf = allocate_aligned_buffer<unsigned char>(1024, 1024);
+        std::fill(buf.get(), buf.get() + 1024, 'a');
+        f.dma_write(0, buf.get(), 1024).get();
+        std::fill(buf.get(), buf.get() + 1024, 'b');
+        io_intent intent;
+        auto f1 = f.dma_write(0, buf.get(), 512);
+        auto f2 = f.dma_write(512, buf.get(), 512, default_priority_class(), &intent);
+        intent.cancel();
+
+        bool cancelled = false;
+        f1.get();
+        try {
+            f2.get();
+        } catch (cancelled_error& ex) {
+            cancelled = true;
+        }
+        auto rbuf = allocate_aligned_buffer<unsigned char>(1024, 1024);
+        f.dma_read(0, rbuf.get(), 1024).get();
+        BOOST_REQUIRE(rbuf.get()[0] == 'b');
+        if (cancelled) {
+            BOOST_REQUIRE(rbuf.get()[512] == 'a');
+        } else {
+            // The file::dma_write doesn't preemt, but if it
+            // suddenly will, the 2nd write will pass before
+            // the intent would be cancelled
+            BOOST_TEST_WARN(0, "Write won the race with cancellation");
+            BOOST_REQUIRE(rbuf.get()[512] == 'b');
+        }
     });
 }
