@@ -50,6 +50,16 @@ struct local_fq_and_class {
     }
 };
 
+struct local_fq_entry {
+    seastar::fair_queue_entry ent;
+    std::function<void()> submit;
+
+    template <typename Func>
+    local_fq_entry(unsigned weight, unsigned index, Func&& f)
+        : ent(seastar::fair_queue_ticket(weight, index))
+        , submit(std::move(f)) {}
+};
+
 struct perf_fair_queue {
 
     static constexpr unsigned requests_to_dispatch = 1000;
@@ -75,10 +85,12 @@ future<> perf_fair_queue::test(bool loc) {
 
     auto invokers = local_fq.invoke_on_all([loc] (local_fq_and_class& local) {
         return parallel_for_each(boost::irange(0u, requests_to_dispatch), [&local, loc] (unsigned dummy) {
-            local.queue(loc).queue(local.pclass, seastar::fair_queue_ticket{1, 1}, [&local, loc] {
+            auto req = std::make_unique<local_fq_entry>(1, 1, [&local, loc] {
                 local.executed++;
                 local.queue(loc).notify_requests_finished(seastar::fair_queue_ticket{1, 1});
             });
+            local.queue(loc).queue(local.pclass, req->ent);
+            req.release();
             return make_ready_future<>();
         });
     });
@@ -94,7 +106,11 @@ future<> perf_fair_queue::test(bool loc) {
         local.executed = 0;
 
         return do_until([&local] { return local.executed == requests_to_dispatch; }, [&local, loc] {
-            local.queue(loc).dispatch_requests();
+            local.queue(loc).dispatch_requests([] (fair_queue_entry& ent) {
+                local_fq_entry* le = boost::intrusive::get_parent_from_member(&ent, &local_fq_entry::ent);
+                le->submit();
+                delete le;
+            });
             return make_ready_future<>();
         });
     });

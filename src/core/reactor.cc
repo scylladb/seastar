@@ -1516,16 +1516,6 @@ void io_completion::complete_with(ssize_t res) {
     }
 }
 
-void
-reactor::submit_io(io_completion* desc, io_request req) noexcept {
-    req.attach_kernel_completion(desc);
-    try {
-        _pending_io.push_back(std::move(req));
-    } catch (...) {
-        desc->set_exception(std::current_exception());
-    }
-}
-
 bool
 reactor::flush_pending_aio() {
     for (auto& ioq : _io_queues) {
@@ -1560,17 +1550,17 @@ const io_priority_class& default_priority_class() {
 }
 
 future<size_t>
-reactor::submit_io_read(io_queue* ioq, const io_priority_class& pc, size_t len, io_request req) noexcept {
+reactor::submit_io_read(io_queue* ioq, const io_priority_class& pc, size_t len, io_request req, io_intent* intent) noexcept {
     ++_io_stats.aio_reads;
     _io_stats.aio_read_bytes += len;
-    return ioq->queue_request(pc, len, std::move(req));
+    return ioq->queue_request(pc, len, std::move(req), intent);
 }
 
 future<size_t>
-reactor::submit_io_write(io_queue* ioq, const io_priority_class& pc, size_t len, io_request req) noexcept {
+reactor::submit_io_write(io_queue* ioq, const io_priority_class& pc, size_t len, io_request req, io_intent* intent) noexcept {
     ++_io_stats.aio_writes;
     _io_stats.aio_write_bytes += len;
-    return ioq->queue_request(pc, len, std::move(req));
+    return ioq->queue_request(pc, len, std::move(req), intent);
 }
 
 namespace internal {
@@ -1983,7 +1973,7 @@ reactor::fdatasync(int fd) noexcept {
             auto desc = new fsync_io_desc;
             auto fut = desc->get_future();
             auto req = io_request::make_fdatasync(fd);
-            submit_io(desc, std::move(req));
+            _io_sink.submit(desc, std::move(req));
             return fut;
         });
     }
@@ -3928,7 +3918,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
         }
 
         struct io_queue::config cfg = disk_config.generate_config(id);
-        topology.queues[shard] = new io_queue(std::move(group), std::move(cfg));
+        topology.queues[shard] = new io_queue(std::move(group), engine()._io_sink, std::move(cfg));
         seastar_logger.debug("attached {} queue to {} IO group", shard, group_idx);
     };
 

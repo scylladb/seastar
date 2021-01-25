@@ -77,6 +77,7 @@ class aio_storage_context {
     using pending_aio_retry_t = boost::container::static_vector<internal::linux_abi::iocb*, max_aio>;
     pending_aio_retry_t _pending_aio_retry;
     internal::linux_abi::io_event _ev_buffer[max_aio];
+
 public:
     explicit aio_storage_context(reactor* r);
     ~aio_storage_context();

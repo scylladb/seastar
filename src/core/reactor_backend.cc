@@ -52,7 +52,7 @@ public:
     }
 };
 
-void prepare_iocb(io_request& req, iocb& iocb) {
+void prepare_iocb(io_request& req, io_completion* desc, iocb& iocb) {
     switch (req.opcode()) {
     case io_request::operation::fdatasync:
         iocb = make_fdsync_iocb(req.fd());
@@ -77,7 +77,7 @@ void prepare_iocb(io_request& req, iocb& iocb) {
         seastar_logger.error("Invalid operation for iocb: {}", req.opname());
         std::abort();
     }
-    set_user_data(iocb, req.get_kernel_completion());
+    set_user_data(iocb, desc);
 }
 
 aio_storage_context::iocb_pool::iocb_pool() {
@@ -149,21 +149,23 @@ extern bool aio_nowait_supported;
 
 bool
 aio_storage_context::submit_work() {
-    size_t pending = _r->_pending_io.size();
-    size_t to_submit = 0;
     bool did_work = false;
 
     _submission_queue.resize(0);
-    while ((pending > to_submit) && _iocb_pool.has_capacity()) {
-        auto& req = _r->_pending_io[to_submit++];
+    size_t to_submit = _r->_io_sink.drain([this] (internal::io_request& req, io_completion* desc) -> bool {
+        if (!_iocb_pool.has_capacity()) {
+            return false;
+        }
+
         auto& io = _iocb_pool.get_one();
-        prepare_iocb(req, io);
+        prepare_iocb(req, desc, io);
 
         if (_r->_aio_eventfd) {
             set_eventfd_notification(io, _r->_aio_eventfd->get_fd());
         }
         _submission_queue.push_back(&io);
-    }
+        return true;
+    });
 
     size_t submitted = 0;
     while (to_submit > submitted) {
@@ -179,7 +181,6 @@ aio_storage_context::submit_work() {
         did_work = true;
         submitted += nr_consumed;
     }
-    _r->_pending_io.erase(_r->_pending_io.begin(), _r->_pending_io.begin() + submitted);
 
     if (!_pending_aio_retry.empty()) {
         schedule_retry();

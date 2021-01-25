@@ -35,6 +35,7 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/loop.hh>
+#include <seastar/core/io_intent.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/tmp_file.hh>
 
@@ -165,11 +166,72 @@ future<> demo_with_file_close_on_failure() {
     });
 }
 
+static constexpr size_t half_aligned_size = aligned_size / 2;
+
+future<> demo_with_io_intent() {
+    fmt::print("\nDemonstrating demo_with_io_intent():\n");
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        sstring filename = (t.get_path() / "testfile.tmp").native();
+        auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get0();
+
+        auto rnd = std::mt19937(std::random_device()());
+        auto dist = std::uniform_int_distribution<char>(0, std::numeric_limits<char>::max());
+
+        auto wbuf = temporary_buffer<char>::aligned(aligned_size, aligned_size);
+        fmt::print("  writing random data into {}\n", filename);
+        std::generate(wbuf.get_write(), wbuf.get_write() + aligned_size, [&dist, &rnd] { return dist(rnd); });
+
+        f.dma_write(0, wbuf.get(), aligned_size).get();
+
+        auto wbuf_n = temporary_buffer<char>::aligned(aligned_size, aligned_size);
+        fmt::print("  starting to overwrite {} with other random data in two steps\n", filename);
+        std::generate(wbuf_n.get_write(), wbuf_n.get_write() + aligned_size, [&dist, &rnd] { return dist(rnd); });
+
+        io_intent intent;
+        auto f1 = f.dma_write(0, wbuf_n.get(), half_aligned_size);
+        auto f2 = f.dma_write(half_aligned_size, wbuf_n.get() + half_aligned_size, half_aligned_size, default_priority_class(), &intent);
+
+        fmt::print("  cancel the 2nd overwriting\n");
+        intent.cancel();
+
+        fmt::print("  wait for overwriting IOs to complete\n");
+        f1.get();
+
+        bool cancelled = false;
+        try {
+            f2.get();
+            // The file::dma_write doesn't preemt, but if it
+            // suddenly will, the 2nd write will pass before
+            // the intent would be cancelled
+            fmt::print("    2nd write won the race with cancellation\n");
+        } catch (cancelled_error& ex) {
+            cancelled = true;
+        }
+
+        fmt::print("  verifying data...\n");
+        auto rbuf = allocate_aligned_buffer<unsigned char>(aligned_size, aligned_size);
+        f.dma_read(0, rbuf.get(), aligned_size).get();
+
+        // First part of the buffer must coincide with the overwritten data
+        assert(!memcmp(rbuf.get(), wbuf_n.get(), half_aligned_size));
+
+        if (cancelled) {
+            // Second part -- with the old data ...
+            assert(!memcmp(rbuf.get() + half_aligned_size, wbuf.get() + half_aligned_size, half_aligned_size));
+        } else {
+            // ... or with new if the cancellation didn't happen
+            assert(!memcmp(rbuf.get() + half_aligned_size, wbuf.get() + half_aligned_size, half_aligned_size));
+        }
+    });
+}
+
 int main(int ac, char** av) {
     app_template app;
     return app.run(ac, av, [] {
         return demo_with_file().then([] {
-            return demo_with_file_close_on_failure();
+            return demo_with_file_close_on_failure().then([] {
+                return demo_with_io_intent();
+            });
         });
     });
 }
