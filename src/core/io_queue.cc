@@ -402,11 +402,10 @@ void priority_class_data::account_for(size_t len, std::chrono::duration<double> 
 
 priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc) {
     auto id = pc.id();
-    bool do_insert = false;
-    if ((do_insert = (id >= _priority_classes.size()))) {
+    if (id >= _priority_classes.size()) {
         _priority_classes.resize(id + 1);
     }
-    if (do_insert || !_priority_classes[id]) {
+    if (!_priority_classes[id]) {
         auto shares = _registered_shares.at(id);
         sstring name;
         {
