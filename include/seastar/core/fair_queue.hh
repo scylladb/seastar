@@ -112,6 +112,7 @@ public:
      */
     fair_queue_ticket maybe_ahead_of(const fair_group_rover& other) const noexcept;
     fair_group_rover operator+(fair_queue_ticket t) const noexcept;
+    fair_group_rover& operator+=(fair_queue_ticket t) noexcept;
 
     friend std::ostream& operator<<(std::ostream& os, fair_group_rover r);
 };

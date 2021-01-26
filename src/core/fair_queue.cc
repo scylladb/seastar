@@ -99,6 +99,12 @@ fair_group_rover fair_group_rover::operator+(fair_queue_ticket t) const noexcept
     return fair_group_rover(_weight + t._weight, _size + t._size);
 }
 
+fair_group_rover& fair_group_rover::operator+=(fair_queue_ticket t) noexcept {
+    _weight += t._weight;
+    _size += t._size;
+    return *this;
+}
+
 std::ostream& operator<<(std::ostream& os, fair_group_rover r) {
     return os << r._weight << ":" << r._size;
 }
@@ -183,7 +189,8 @@ bool fair_queue::grab_pending_capacity(fair_queue_ticket cap) noexcept {
          * pending state and this new request crawls through the
          * expected head value.
          */
-        _pending->orig_tail = _group.grab_capacity(cap);
+        _group.grab_capacity(cap);
+        _pending->orig_tail += cap;
     }
 
     return true;
