@@ -397,6 +397,9 @@ seastar_add_test (sstring
 seastar_add_test (stall_detector
   SOURCES stall_detector_test.cc)
 
+seastar_add_test (stream_reader
+  SOURCES stream_reader_test.cc)
+
 seastar_add_test (thread
   SOURCES thread_test.cc)
 
