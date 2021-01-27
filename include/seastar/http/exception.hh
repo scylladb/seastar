@@ -104,6 +104,14 @@ public:
     }
 };
 
+class bad_chunk_exception : public bad_request_exception {
+public:
+    bad_chunk_exception(const std::string& msg)
+            : bad_request_exception(
+                    std::string("Can't read body chunk in a 'chunked' request '") + msg + "'") {
+    }
+};
+
 class server_error_exception : public base_exception {
 public:
     server_error_exception(const std::string& msg)

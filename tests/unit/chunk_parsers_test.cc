@@ -22,8 +22,10 @@
 
 #include <seastar/core/ragel.hh>
 #include <seastar/core/sstring.hh>
+#include <seastar/core/thread.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/http/chunk_parsers.hh>
+#include <seastar/http/internal/content_source.hh>
 #include <seastar/testing/test_case.hh>
 #include <tuple>
 #include <utility>
@@ -116,6 +118,3 @@ SEASTAR_TEST_CASE(test_trailer_headers_parsing) {
     }
     return make_ready_future<>();
 }
-
-
-
