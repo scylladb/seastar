@@ -142,6 +142,7 @@ class http_server {
     sstring _date = http_date();
     timer<> _date_format_timer { [this] {_date = http_date();} };
     size_t _content_length_limit = std::numeric_limits<size_t>::max();
+    bool _content_streaming = false;
     gate _task_gate;
 public:
     routes _routes;
@@ -180,6 +181,10 @@ public:
     size_t get_content_length_limit() const;
 
     void set_content_length_limit(size_t limit);
+
+    bool get_content_streaming() const;
+
+    void set_content_streaming(bool b);
 
     future<> listen(socket_address addr, listen_options lo);
     future<> listen(socket_address addr);

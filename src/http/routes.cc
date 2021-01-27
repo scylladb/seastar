@@ -21,6 +21,7 @@
 
 #include <seastar/http/routes.hh>
 #include <seastar/http/reply.hh>
+#include <seastar/http/request.hh>
 #include <seastar/http/exception.hh>
 #include <seastar/http/json_path.hh>
 

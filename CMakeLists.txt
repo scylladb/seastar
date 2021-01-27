@@ -546,6 +546,7 @@ add_library (seastar STATIC
   include/seastar/http/reply.hh
   include/seastar/http/request.hh
   include/seastar/http/routes.hh
+  include/seastar/http/short_streams.hh
   include/seastar/http/transformers.hh
   include/seastar/json/formatter.hh
   include/seastar/json/json_elements.hh
@@ -654,6 +655,7 @@ add_library (seastar STATIC
   src/http/mime_types.cc
   src/http/reply.cc
   src/http/routes.cc
+  src/http/short_streams.cc
   src/http/transformers.cc
   src/json/formatter.cc
   src/json/json_elements.cc

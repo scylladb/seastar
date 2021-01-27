@@ -30,6 +30,7 @@
 //
 #pragma once
 
+#include <seastar/core/iostream.hh>
 #include <seastar/core/sstring.hh>
 #include <string>
 #include <vector>
@@ -76,7 +77,13 @@ struct request {
     std::unordered_map<sstring, sstring> query_parameters;
     connection* connection_ptr;
     parameters param;
-    sstring content;
+    sstring content; // deprecated: use content_stream instead
+    /*
+     * The handler should read the contents of this stream till reaching eof (i.e., the end of this request's content). Failing to do so
+     * will force the server to close this connection, and the client will not be able to reuse this connection for the next request.
+     * The stream should not be closed by the handler, the server will close it for the handler.
+     * */
+    input_stream<char>* content_stream;
     sstring protocol_name = "http";
 
     /**
@@ -129,55 +136,6 @@ struct request {
     }
 
 };
-
-/**
- * Helper class for reading entire streams, for example streams containing content of a HTTP request
- */
-class short_stream_reader {
-public:
-    /// Returns all bytes from the stream until eof, accessible in chunks
-    static future<std::vector<temporary_buffer<char>>> read_entire_stream(input_stream<char>& inp) {
-        using tmp_buf = temporary_buffer<char>;
-        using consumption_result_type = consumption_result<char>;
-        return do_with(std::vector<tmp_buf>(), [&inp] (std::vector<tmp_buf>& bufs) {
-            return inp.consume([&bufs] (tmp_buf buf) {
-                if (buf.empty()) {
-                    return make_ready_future<consumption_result_type>(stop_consuming(std::move(buf)));
-                }
-                bufs.push_back(std::move(buf));
-                return make_ready_future<consumption_result_type>(continue_consuming());
-            }).then([&bufs] {
-                return std::move(bufs);
-            });
-        });
-    }
-
-    /// Returns all bytes from the stream until eof as a single buffer, use only on short streams
-    static future<sstring> read_entire_stream_contiguous(input_stream<char>& inp) {
-        return read_entire_stream(inp).then([&inp] (std::vector<temporary_buffer<char>> bufs) {
-            size_t total_size = 0;
-            for (auto&& buf : bufs) {
-                total_size += buf.size();
-            }
-            sstring ret(sstring::initialized_later(), total_size);
-            size_t pos = 0;
-            for (auto&& buf : bufs) {
-                std::copy(buf.begin(), buf.end(), ret.data() + pos);
-                pos += buf.size();
-            }
-            return ret;
-        });
-    };
-
-    /// Ignores all bytes until eof
-    static future<> skip_entire_stream(input_stream<char>& inp) {
-        return inp.consume([] (temporary_buffer<char> tmp) {
-            return tmp.empty() ? make_ready_future<consumption_result<char>>(stop_consuming(temporary_buffer<char>()))
-                            : make_ready_future<consumption_result<char>>(continue_consuming());
-        });
-    }
-};
-
 
 } // namespace httpd
 

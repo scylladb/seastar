@@ -26,6 +26,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/http/request.hh>
+#include <seastar/http/short_streams.hh>
 #include <string>
 
 using namespace seastar;
@@ -63,7 +64,7 @@ public:
 SEASTAR_TEST_CASE(test_read_all) {
     return async([] {
         auto check_read_all = [] (input_stream<char>& strm, const char* test) {
-            auto all = short_stream_reader::read_entire_stream(strm).get0();
+            auto all = read_entire_stream(strm).get0();
             sstring s;
             for (auto&& buf: all) {
                 s += seastar::to_sstring(std::move(buf));
@@ -81,13 +82,13 @@ SEASTAR_TEST_CASE(test_read_all) {
         BOOST_REQUIRE(empty_inp.eof());
 
         input_stream<char> inp_cont(data_source(std::make_unique<test_source_impl>(5, 15)));
-        BOOST_REQUIRE_EQUAL(to_sstring(short_stream_reader::read_entire_stream_contiguous(inp_cont).get0()), "abcdefghijklmno");
+        BOOST_REQUIRE_EQUAL(to_sstring(read_entire_stream_contiguous(inp_cont).get0()), "abcdefghijklmno");
         BOOST_REQUIRE(inp_cont.eof());
         input_stream<char> inp_cont2(data_source(std::make_unique<test_source_impl>(5, 16)));
-        BOOST_REQUIRE_EQUAL(to_sstring(short_stream_reader::read_entire_stream_contiguous(inp_cont2).get0()), "abcdefghijklmnop");
+        BOOST_REQUIRE_EQUAL(to_sstring(read_entire_stream_contiguous(inp_cont2).get0()), "abcdefghijklmnop");
         BOOST_REQUIRE(inp_cont2.eof());
         input_stream<char> empty_inp_cont(data_source(std::make_unique<test_source_impl>(5, 0)));
-        BOOST_REQUIRE_EQUAL(to_sstring(short_stream_reader::read_entire_stream_contiguous(empty_inp_cont).get0()), "");
+        BOOST_REQUIRE_EQUAL(to_sstring(read_entire_stream_contiguous(empty_inp_cont).get0()), "");
         BOOST_REQUIRE(empty_inp_cont.eof());
     });
 }
@@ -95,15 +96,15 @@ SEASTAR_TEST_CASE(test_read_all) {
 SEASTAR_TEST_CASE(test_skip_all) {
     return async([] {
         input_stream<char> inp(data_source(std::make_unique<test_source_impl>(5, 15)));
-        short_stream_reader::skip_entire_stream(inp).get();
+        skip_entire_stream(inp).get();
         BOOST_REQUIRE(inp.eof());
         BOOST_REQUIRE(to_sstring(inp.read().get0()).empty());
         input_stream<char> inp2(data_source(std::make_unique<test_source_impl>(5, 16)));
-        short_stream_reader::skip_entire_stream(inp2).get();
+        skip_entire_stream(inp2).get();
         BOOST_REQUIRE(inp2.eof());
         BOOST_REQUIRE(to_sstring(inp2.read().get0()).empty());
         input_stream<char> empty_inp(data_source(std::make_unique<test_source_impl>(5, 0)));
-        short_stream_reader::skip_entire_stream(empty_inp).get();
+        skip_entire_stream(empty_inp).get();
         BOOST_REQUIRE(empty_inp.eof());
         BOOST_REQUIRE(to_sstring(empty_inp.read().get0()).empty());
     });
