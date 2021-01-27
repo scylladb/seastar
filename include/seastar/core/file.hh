@@ -27,7 +27,6 @@
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/align.hh>
 #include <seastar/core/io_priority_class.hh>
-#include <seastar/core/fair_queue.hh>
 #include <seastar/core/file-types.hh>
 #include <seastar/util/std-compat.hh>
 #include <system_error>
