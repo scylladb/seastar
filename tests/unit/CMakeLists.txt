@@ -250,6 +250,9 @@ seastar_add_test (checked_ptr
 seastar_add_test (chunked_fifo
   SOURCES chunked_fifo_test.cc)
 
+seastar_add_test (chunk_parsers
+  SOURCES chunk_parsers_test.cc)
+
 seastar_add_test (circular_buffer
   SOURCES circular_buffer_test.cc)
 

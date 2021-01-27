@@ -413,6 +413,12 @@ endfunction ()
 #
 
 seastar_generate_ragel (
+  TARGET seastar_http_chunk_parsers
+  VAR http_chunk_parsers_file
+  IN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/src/http/chunk_parsers.rl
+  OUT_FILE ${Seastar_GEN_BINARY_DIR}/include/seastar/http/chunk_parsers.hh)
+
+seastar_generate_ragel (
   TARGET seastar_http_request_parser
   VAR http_request_parser_file
   IN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/src/http/request_parser.rl
@@ -435,6 +441,7 @@ if (Seastar_DPDK)
 endif ()
 
 add_library (seastar STATIC
+  ${http_chunk_parsers_file}
   ${http_request_parser_file}
   ${proto_metrics2_files}
   ${seastar_dpdk_obj}
@@ -697,6 +704,7 @@ add_library (seastar STATIC
 add_library (Seastar::seastar ALIAS seastar)
 
 add_dependencies (seastar
+  seastar_http_chunk_parsers
   seastar_http_request_parser
   seastar_http_response_parser
   seastar_proto_metrics2)
