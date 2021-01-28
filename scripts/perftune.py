@@ -1325,6 +1325,12 @@ def parse_options_file(prog_args):
         prog_args.mode = y['mode']
 
     if 'nic' in y:
+        # Multiple nics was supported by commit a2fc9d72c31b97840bc75ae49dbd6f4b6d394e25
+        # `nic' option dumped to config file will be list after this change, but the `nic'
+        # option in old config file is still string, which was generated before this change.
+        # So here convert the string option to list.
+        if not isinstance(y['nic'], list):
+            y['nic'] = [y['nic']]
         prog_args.nics = extend_and_unique(prog_args.nics, y['nic'])
 
     if 'tune_clock' in y and not prog_args.tune_clock:
