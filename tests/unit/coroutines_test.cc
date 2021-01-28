@@ -60,6 +60,15 @@ future<int> failing_coroutine() {
     throw 42;
 }
 
+[[gnu::noinline]] int throw_exception(int x) {
+    throw x;
+}
+
+future<int> failing_coroutine2() noexcept {
+    co_await later();
+    co_return throw_exception(17);
+}
+
 }
 
 SEASTAR_TEST_CASE(test_simple_coroutines) {
@@ -68,6 +77,23 @@ SEASTAR_TEST_CASE(test_simple_coroutines) {
     BOOST_REQUIRE_EQUAL(ready_coroutine().get0(), 64);
     BOOST_REQUIRE(co_await tuple_coroutine() == std::tuple(1, 2.));
     BOOST_REQUIRE_EXCEPTION((void)co_await failing_coroutine(), int, [] (auto v) { return v == 42; });
+    BOOST_CHECK_EQUAL(co_await failing_coroutine().then_wrapped([] (future<int> f) -> future<int> {
+        BOOST_REQUIRE(f.failed());
+        try {
+            std::rethrow_exception(f.get_exception());
+        } catch (int v) {
+           co_return v;
+        }
+    }), 42);
+    BOOST_REQUIRE_EXCEPTION((void)co_await failing_coroutine2(), int, [] (auto v) { return v == 17; });
+    BOOST_CHECK_EQUAL(co_await failing_coroutine2().then_wrapped([] (future<int> f) -> future<int> {
+        BOOST_REQUIRE(f.failed());
+        try {
+            std::rethrow_exception(f.get_exception());
+        } catch (int v) {
+           co_return v;
+        }
+    }), 17);
 }
 
 SEASTAR_TEST_CASE(test_abandond_coroutine) {
