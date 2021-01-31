@@ -869,10 +869,11 @@ public:
                 try {
                     return add_watch(dir.native(), fsnotifier::flags::create_child | fsnotifier::flags::move).get0();
                 } catch (...) {
-                    if (!dir.has_parent_path()) {
+                    auto parent = dir.parent_path();
+                    if (parent.empty() || dir == parent) {
                         throw;
                     }
-                    dir = dir.parent_path();
+                    dir = std::move(parent);
                     continue;
                 }
             }
