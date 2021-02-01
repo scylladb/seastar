@@ -1308,7 +1308,9 @@ def extend_and_unique(orig_list, iterable):
     """
     Extend items to a list, and make the list items unique
     """
-    orig_list = orig_list.extend(iterable)
+    assert(isinstance(orig_list, list))
+    assert(isinstance(iterable, list))
+    orig_list.extend(iterable)
     return list(set(orig_list))
 
 def parse_options_file(prog_args):
