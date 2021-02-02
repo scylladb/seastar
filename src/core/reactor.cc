@@ -691,6 +691,23 @@ void reactor::handle_signal(int signo, noncopyable_function<void ()>&& handler) 
     _signals.handle_signal(signo, std::move(handler));
 }
 
+// Fills a buffer with a hexadecimal representation of an integer
+// and returns a pointer to the first character.
+// For example, convert_hex_safe(buf, 4, uint16_t(12)) fills the buffer with "   c".
+template<typename Integral>
+SEASTAR_CONCEPT( requires std::is_integral_v<Integral> )
+char* convert_hex_safe(char *buf, size_t bufsz, Integral n) noexcept {
+    const char *digits = "0123456789abcdef";
+    memset(buf, ' ', bufsz);
+    auto* p = buf + bufsz;
+    do {
+        assert(p > buf);
+        *--p = digits[n & 0xf];
+        n >>= 4;
+    } while (n);
+    return p;
+}
+
 // Accumulates an in-memory backtrace and flush to stderr eventually.
 // Async-signal safe.
 class backtrace_buffer {
@@ -703,10 +720,15 @@ public:
         _pos = 0;
     }
 
-    void append(const char* str, size_t len) noexcept {
+    void reserve(size_t len) noexcept {
+        assert(len < _max_size);
         if (_pos + len >= _max_size) {
             flush();
         }
+    }
+
+    void append(const char* str, size_t len) noexcept {
+        reserve(len);
         memcpy(_buf + _pos, str, len);
         _pos += len;
     }
@@ -723,8 +745,8 @@ public:
     template <typename Integral>
     void append_hex(Integral ptr) noexcept {
         char buf[sizeof(ptr) * 2];
-        convert_zero_padded_hex_safe(buf, sizeof(buf), ptr);
-        append(buf, sizeof(buf));
+        auto p = convert_hex_safe(buf, sizeof(buf), ptr);
+        append(p, (buf + sizeof(buf)) - p);
     }
 
     void append_backtrace() noexcept {
@@ -740,23 +762,37 @@ public:
             append("\n");
         });
     }
+
+    void append_backtrace_oneline() noexcept {
+        backtrace([this] (frame f) noexcept {
+            reserve(3 + sizeof(f.addr) * 2);
+            append(" 0x");
+            append_hex(f.addr);
+        });
+    }
 };
 
-static void print_with_backtrace(backtrace_buffer& buf) noexcept {
+static void print_with_backtrace(backtrace_buffer& buf, bool oneline) noexcept {
     if (local_engine) {
         buf.append(" on shard ");
         buf.append_decimal(this_shard_id());
     }
 
+  if (!oneline) {
     buf.append(".\nBacktrace:\n");
     buf.append_backtrace();
+  } else {
+    buf.append(". Backtrace:");
+    buf.append_backtrace_oneline();
+    buf.append("\n");
+  }
     buf.flush();
 }
 
-static void print_with_backtrace(const char* cause) noexcept {
+static void print_with_backtrace(const char* cause, bool oneline = false) noexcept {
     backtrace_buffer buf;
     buf.append(cause);
-    print_with_backtrace(buf);
+    print_with_backtrace(buf, oneline);
 }
 
 // Installs signal handler stack for current thread.
@@ -1207,7 +1243,7 @@ cpu_stall_detector::generate_trace() {
     buf.append("Reactor stalled for ");
     buf.append_decimal(uint64_t(delta / 1ms));
     buf.append(" ms");
-    print_with_backtrace(buf);
+    print_with_backtrace(buf, _config.oneline);
 }
 
 template <typename T, typename E, typename EnableFunc>
@@ -1316,6 +1352,7 @@ void reactor::configure(boost::program_options::variables_map vm) {
     cpu_stall_detector_config csdc;
     csdc.threshold = blocked_time;
     csdc.stall_detector_reports_per_minute = vm["blocked-reactor-reports-per-minute"].as<unsigned>();
+    csdc.oneline = vm["blocked-reactor-report-format-oneline"].as<bool>();
     _cpu_stall_detector->update_config(csdc);
 
     _max_task_backlog = vm["max-task-backlog"].as<unsigned>();
@@ -3332,6 +3369,7 @@ reactor::get_options_description(reactor_config cfg) {
         ("max-task-backlog", bpo::value<unsigned>()->default_value(1000), "Maximum number of task backlog to allow; above this we ignore I/O")
         ("blocked-reactor-notify-ms", bpo::value<unsigned>()->default_value(200), "threshold in miliseconds over which the reactor is considered blocked if no progress is made")
         ("blocked-reactor-reports-per-minute", bpo::value<unsigned>()->default_value(5), "Maximum number of backtraces reported by stall detector per minute")
+        ("blocked-reactor-report-format-oneline", bpo::value<bool>()->default_value(true), "Print a simplified backtrace on a single line")
         ("relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
         ("linux-aio-nowait",
                 bpo::value<bool>()->default_value(aio_nowait_supported),

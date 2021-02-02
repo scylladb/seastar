@@ -68,7 +68,7 @@ class Addr2Line:
         return self._read_resolved_address()
 
 class BacktraceResolver(object):
-    object_address_re = re.compile('^(.*?)\W(((/[^/]+)+)\+)?(0x[0-9a-f]+)\W*$')
+    object_address_re = re.compile('^(?:(\w*)\W+)?(((/[^/]+)+)\+)?(0x[0-9a-f]+)\W*$', flags=re.IGNORECASE)
     separator_re = re.compile('^\W*-+\W*$')
 
     def __init__(self, executable, before_lines, context_re, verbose):

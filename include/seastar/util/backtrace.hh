@@ -44,12 +44,12 @@ struct frame {
     uintptr_t addr;
 };
 
-bool operator==(const frame& a, const frame& b);
+bool operator==(const frame& a, const frame& b) noexcept;
 
 
 // If addr doesn't seem to belong to any of the provided shared objects, it
 // will be considered as part of the executable.
-frame decorate(uintptr_t addr);
+frame decorate(uintptr_t addr) noexcept;
 
 // Invokes func for each frame passing it as argument.
 template<typename Func>
@@ -70,20 +70,23 @@ public:
 private:
     vector_type _frames;
     size_t _hash;
+    char _delimeter;
 private:
-    size_t calculate_hash() const;
+    size_t calculate_hash() const noexcept;
 public:
-    simple_backtrace() = default;
-    simple_backtrace(vector_type f) : _frames(std::move(f)) {}
-    size_t hash() const { return _hash; }
+    simple_backtrace(char delimeter = ' ') noexcept : _delimeter(delimeter) {}
+    simple_backtrace(vector_type f, char delimeter = ' ') noexcept : _frames(std::move(f)), _delimeter(delimeter) {}
+
+    size_t hash() const noexcept { return _hash; }
+    char delimeter() const noexcept { return _delimeter; }
 
     friend std::ostream& operator<<(std::ostream& out, const simple_backtrace&);
 
-    bool operator==(const simple_backtrace& o) const {
+    bool operator==(const simple_backtrace& o) const noexcept {
         return _hash == o._hash && _frames == o._frames;
     }
 
-    bool operator!=(const simple_backtrace& o) const {
+    bool operator!=(const simple_backtrace& o) const noexcept {
         return !(*this == o);
     }
 };
@@ -94,21 +97,21 @@ using shared_backtrace = seastar::lw_shared_ptr<simple_backtrace>;
 class task_entry {
     const std::type_info* _task_type;
 public:
-    task_entry(const std::type_info& ti)
+    task_entry(const std::type_info& ti) noexcept
         : _task_type(&ti)
     { }
 
     friend std::ostream& operator<<(std::ostream& out, const task_entry&);
 
-    bool operator==(const task_entry& o) const {
+    bool operator==(const task_entry& o) const noexcept {
         return *_task_type == *o._task_type;
     }
 
-    bool operator!=(const task_entry& o) const {
+    bool operator!=(const task_entry& o) const noexcept {
         return !(*this == o);
     }
 
-    size_t hash() const { return _task_type->hash_code(); }
+    size_t hash() const noexcept { return _task_type->hash_code(); }
 };
 
 // Extended backtrace which consists of a backtrace of the currently running task
@@ -124,16 +127,17 @@ private:
     size_t _hash;
 public:
     tasktrace() = default;
-    tasktrace(simple_backtrace main, vector_type prev, size_t prev_hash, scheduling_group sg);
+    tasktrace(simple_backtrace main, vector_type prev, size_t prev_hash, scheduling_group sg) noexcept;
     ~tasktrace();
 
-    size_t hash() const { return _hash; }
+    size_t hash() const noexcept { return _hash; }
+    char delimeter() const noexcept { return _main.delimeter(); }
 
     friend std::ostream& operator<<(std::ostream& out, const tasktrace&);
 
-    bool operator==(const tasktrace& o) const;
+    bool operator==(const tasktrace& o) const noexcept;
 
-    bool operator!=(const tasktrace& o) const {
+    bool operator!=(const tasktrace& o) const noexcept {
         return !(*this == o);
     }
 };

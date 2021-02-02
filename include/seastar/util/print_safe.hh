@@ -60,11 +60,13 @@ void print_safe(const char *str) noexcept {
 // Fills a buffer with a zero-padded hexadecimal representation of an integer.
 // For example, convert_zero_padded_hex_safe(buf, 4, uint16_t(12)) fills the buffer with "000c".
 template<typename Integral>
+SEASTAR_CONCEPT( requires std::is_integral_v<Integral> )
 void convert_zero_padded_hex_safe(char *buf, size_t bufsz, Integral n) noexcept {
     const char *digits = "0123456789abcdef";
     memset(buf, '0', bufsz);
     unsigned i = bufsz;
     while (n) {
+        assert(i > 0);
         buf[--i] = digits[n & 0xf];
         n >>= 4;
     }
@@ -86,12 +88,14 @@ void print_zero_padded_hex_safe(Integral n) noexcept {
 // The argument bufsz is the maximum size of the buffer.
 // For example, print_decimal_safe(buf, 16, 12) prints "12".
 template<typename Integral>
+SEASTAR_CONCEPT( requires std::is_integral_v<Integral> )
 size_t convert_decimal_safe(char *buf, size_t bufsz, Integral n) noexcept {
     static_assert(std::is_integral<Integral>::value && !std::is_signed<Integral>::value, "Requires unsigned integrals");
 
     char tmp[sizeof(n) * 3];
     unsigned i = bufsz;
     do {
+        assert(i > 0);
         tmp[--i] = '0' + n % 10;
         n /= 10;
     } while (n);
