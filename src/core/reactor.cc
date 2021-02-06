@@ -997,6 +997,16 @@ reactor::~reactor() {
     }
 }
 
+reactor::sched_stats
+reactor::get_sched_stats() const {
+    sched_stats ret;
+    ret.tasks_processed = boost::accumulate(
+            _task_queues
+                    | boost::adaptors::transformed(std::mem_fn(&task_queue::_tasks_processed)),
+            uint64_t(0));
+    return ret;
+}
+
 future<> reactor::readable(pollable_fd_state& fd) {
     return _backend->readable(fd);
 }

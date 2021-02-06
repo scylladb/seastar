@@ -234,6 +234,13 @@ public:
         uint64_t fstream_read_aheads_discarded = 0;
         uint64_t fstream_read_ahead_discarded_bytes = 0;
     };
+    /// Scheduling statistics.
+    struct sched_stats {
+        /// Total number of tasks processed by this shard's reactor until this point.
+        /// Note that tasks can be tiny, running for a few nanoseconds, or can take an
+        /// entire task quota.
+        uint64_t tasks_processed = 0;
+    };
     friend void io_completion::complete_with(ssize_t);
 
 private:
@@ -609,6 +616,12 @@ public:
     std::chrono::nanoseconds total_steal_time();
 
     const io_stats& get_io_stats() const { return _io_stats; }
+    /// Returns statistics related to scheduling. The statistics are
+    /// local to this shard.
+    ///
+    /// See \ref sched_stats for a description of individual statistics.
+    /// \return An object containing a snapshot of the statistics at this point in time.
+    sched_stats get_sched_stats() const;
     uint64_t abandoned_failed_futures() const { return _abandoned_failed_futures; }
 #ifdef HAVE_OSV
     void timer_thread_func();
