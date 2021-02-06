@@ -476,6 +476,10 @@ future<size_t> pollable_fd_state::sendto(socket_address addr, const void* buf, s
 
 namespace internal {
 
+void set_need_preempt_var(const preemption_monitor* np) {
+    get_need_preempt_var() = np;
+}
+
 #ifdef SEASTAR_TASK_HISTOGRAM
 
 class task_histogram {
@@ -935,7 +939,7 @@ reactor::reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg)
     _task_queues.push_back(std::make_unique<task_queue>(0, "main", 1000));
     _task_queues.push_back(std::make_unique<task_queue>(1, "atexit", 1000));
     _at_destroy_tasks = _task_queues.back().get();
-    g_need_preempt = &_preemption_monitor;
+    set_need_preempt_var(&_preemption_monitor);
     seastar::thread_impl::init();
     _backend->start_tick();
 
@@ -4085,9 +4089,6 @@ bool smp::pure_poll_queues() {
     }
     return false;
 }
-
-internal::preemption_monitor bootstrap_preemption_monitor{};
-__thread const internal::preemption_monitor* g_need_preempt = &bootstrap_preemption_monitor;
 
 __thread reactor* local_engine;
 

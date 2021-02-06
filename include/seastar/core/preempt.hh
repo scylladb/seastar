@@ -34,15 +34,21 @@ struct preemption_monitor {
     std::atomic<uint32_t> tail;
 };
 
+inline const preemption_monitor*& get_need_preempt_var() {
+    static preemption_monitor bootstrap_preemption_monitor;
+    static thread_local const preemption_monitor* g_need_preempt = &bootstrap_preemption_monitor;
+    return g_need_preempt;
 }
 
-extern __thread const internal::preemption_monitor* g_need_preempt;
+void set_need_preempt_var(const preemption_monitor* pm);
+
+}
 
 inline bool need_preempt() noexcept {
 #ifndef SEASTAR_DEBUG
     // prevent compiler from eliminating loads in a loop
     std::atomic_signal_fence(std::memory_order_seq_cst);
-    auto np = g_need_preempt;
+    auto np = internal::get_need_preempt_var();
     // We aren't reading anything from the ring, so we don't need
     // any barriers.
     auto head = np->head.load(std::memory_order_relaxed);

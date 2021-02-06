@@ -321,12 +321,12 @@ preempt_io_context::preempt_io_context(reactor& r, file_desc& task_quota, file_d
 void preempt_io_context::start_tick() {
     // Preempt whenever an event (timer tick or signal) is available on the
     // _preempting_io ring
-    g_need_preempt = reinterpret_cast<const preemption_monitor*>(_context.io_context + 8);
+    set_need_preempt_var(reinterpret_cast<const preemption_monitor*>(_context.io_context + 8));
     // preempt_io_context::request_preemption() will write to reactor::_preemption_monitor, which is now ignored
 }
 
 void preempt_io_context::stop_tick() {
-    g_need_preempt = &_r._preemption_monitor;
+    set_need_preempt_var(&_r._preemption_monitor);
 }
 
 void preempt_io_context::request_preemption() {
