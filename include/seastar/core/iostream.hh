@@ -321,15 +321,15 @@ class output_stream final {
     bool _flushing = false;
     std::exception_ptr _ex;
 private:
-    size_t available() const { return _end - _begin; }
-    size_t possibly_available() const { return _size - _begin; }
-    future<> split_and_put(temporary_buffer<CharType> buf);
-    future<> put(temporary_buffer<CharType> buf);
-    void poll_flush();
-    future<> zero_copy_put(net::packet p);
-    future<> zero_copy_split_and_put(net::packet p);
+    size_t available() const noexcept { return _end - _begin; }
+    size_t possibly_available() const noexcept { return _size - _begin; }
+    future<> split_and_put(temporary_buffer<CharType> buf) noexcept;
+    future<> put(temporary_buffer<CharType> buf) noexcept;
+    void poll_flush() noexcept;
+    future<> zero_copy_put(net::packet p) noexcept;
+    future<> zero_copy_split_and_put(net::packet p) noexcept;
     [[gnu::noinline]]
-    future<> slow_write(const CharType* buf, size_t n);
+    future<> slow_write(const CharType* buf, size_t n) noexcept;
 public:
     using char_type = CharType;
     output_stream() noexcept = default;
@@ -338,22 +338,22 @@ public:
     output_stream(output_stream&&) noexcept = default;
     output_stream& operator=(output_stream&&) noexcept = default;
     ~output_stream() { assert(!_in_batch && "Was this stream properly closed?"); }
-    future<> write(const char_type* buf, size_t n);
-    future<> write(const char_type* buf);
+    future<> write(const char_type* buf, size_t n) noexcept;
+    future<> write(const char_type* buf) noexcept;
 
     template <typename StringChar, typename SizeType, SizeType MaxSize, bool NulTerminate>
-    future<> write(const basic_sstring<StringChar, SizeType, MaxSize, NulTerminate>& s);
-    future<> write(const std::basic_string<char_type>& s);
+    future<> write(const basic_sstring<StringChar, SizeType, MaxSize, NulTerminate>& s) noexcept;
+    future<> write(const std::basic_string<char_type>& s) noexcept;
 
-    future<> write(net::packet p);
-    future<> write(scattered_message<char_type> msg);
-    future<> write(temporary_buffer<char_type>);
-    future<> flush();
+    future<> write(net::packet p) noexcept;
+    future<> write(scattered_message<char_type> msg) noexcept;
+    future<> write(temporary_buffer<char_type>) noexcept;
+    future<> flush() noexcept;
 
     /// Flushes the stream before closing it (and the underlying data sink) to
     /// any further writes.  The resulting future must be waited on before
     /// destroying this object.
-    future<> close();
+    future<> close() noexcept;
 
     /// Detaches the underlying \c data_sink from the \c output_stream.
     ///
