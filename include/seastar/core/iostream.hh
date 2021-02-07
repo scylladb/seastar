@@ -100,19 +100,41 @@ public:
     temporary_buffer<char> allocate_buffer(size_t size) {
         return _dsi->allocate_buffer(size);
     }
-    future<> put(std::vector<temporary_buffer<char>> data) {
+    future<> put(std::vector<temporary_buffer<char>> data) noexcept {
+      try {
         return _dsi->put(std::move(data));
+      } catch (...) {
+        return current_exception_as_future();
+      }
     }
-    future<> put(temporary_buffer<char> data) {
+    future<> put(temporary_buffer<char> data) noexcept {
+      try {
         return _dsi->put(std::move(data));
+      } catch (...) {
+        return current_exception_as_future();
+      }
     }
-    future<> put(net::packet p) {
+    future<> put(net::packet p) noexcept {
+      try {
         return _dsi->put(std::move(p));
+      } catch (...) {
+        return current_exception_as_future();
+      }
     }
-    future<> flush() {
+    future<> flush() noexcept {
+      try {
         return _dsi->flush();
+      } catch (...) {
+        return current_exception_as_future();
+      }
     }
-    future<> close() { return _dsi->close(); }
+    future<> close() noexcept {
+        try {
+            return _dsi->close();
+        } catch (...) {
+            return current_exception_as_future();
+        }
+    }
 };
 
 struct continue_consuming {};
