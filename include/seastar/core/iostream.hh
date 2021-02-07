@@ -57,13 +57,34 @@ class data_source {
 protected:
     data_source_impl* impl() const { return _dsi.get(); }
 public:
+    using tmp_buf = temporary_buffer<char>;
+
     data_source() noexcept = default;
     explicit data_source(std::unique_ptr<data_source_impl> dsi) noexcept : _dsi(std::move(dsi)) {}
     data_source(data_source&& x) noexcept = default;
     data_source& operator=(data_source&& x) noexcept = default;
-    future<temporary_buffer<char>> get() { return _dsi->get(); }
-    future<temporary_buffer<char>> skip(uint64_t n) { return _dsi->skip(n); }
-    future<> close() { return _dsi->close(); }
+
+    future<tmp_buf> get() noexcept {
+        try {
+            return _dsi->get();
+        } catch (...) {
+            return current_exception_as_future<tmp_buf>();
+        }
+    }
+    future<tmp_buf> skip(uint64_t n) noexcept {
+        try {
+            return _dsi->skip(n);
+        } catch (...) {
+            return current_exception_as_future<tmp_buf>();
+        }
+    }
+    future<> close() noexcept {
+        try {
+            return _dsi->close();
+        } catch (...) {
+            return current_exception_as_future<>();
+        }
+    }
 };
 
 class data_sink_impl {
