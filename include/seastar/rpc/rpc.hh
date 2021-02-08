@@ -711,7 +711,7 @@ protected:
 /// \tparam Serializer the serializer for the protocol.
 /// \tparam MsgType the type to be used as the message id or verb id.
 template<typename Serializer, typename MsgType = uint32_t>
-class protocol : public protocol_base {
+class protocol final : public protocol_base {
 public:
     /// Represents the listening port and all accepted connections.
     class server : public rpc::server {
