@@ -69,7 +69,7 @@ class aio_storage_context {
         bool has_capacity() const;
     };
 
-    reactor* _r;
+    reactor& _r;
     internal::linux_abi::aio_context_t _io_context;
     boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _submission_queue;
     iocb_pool _iocb_pool;
@@ -79,7 +79,7 @@ class aio_storage_context {
     internal::linux_abi::io_event _ev_buffer[max_aio];
 
 public:
-    explicit aio_storage_context(reactor* r);
+    explicit aio_storage_context(reactor& r);
     ~aio_storage_context();
 
     bool reap_completions();
@@ -102,9 +102,8 @@ public:
 
 class fd_kernel_completion : public kernel_completion {
 protected:
-    reactor* _r;
     file_desc& _fd;
-    fd_kernel_completion(reactor* r, file_desc& fd) : _r(r), _fd(fd) {}
+    fd_kernel_completion(file_desc& fd) : _fd(fd) {}
 public:
     file_desc& fd() {
         return _fd;
@@ -113,31 +112,34 @@ public:
 
 struct hrtimer_aio_completion : public fd_kernel_completion,
                                 public completion_with_iocb {
-    hrtimer_aio_completion(reactor* r, file_desc& fd);
+private:
+    reactor& _r;
+public:
+    hrtimer_aio_completion(reactor& r, file_desc& fd);
     virtual void complete_with(ssize_t value) override;
 };
 
 struct task_quota_aio_completion : public fd_kernel_completion,
                                    public completion_with_iocb {
-    task_quota_aio_completion(reactor* r, file_desc& fd);
+    task_quota_aio_completion(file_desc& fd);
     virtual void complete_with(ssize_t value) override;
 };
 
 struct smp_wakeup_aio_completion : public fd_kernel_completion,
                                    public completion_with_iocb {
-    smp_wakeup_aio_completion(reactor* r, file_desc& fd);
+    smp_wakeup_aio_completion(file_desc& fd);
     virtual void complete_with(ssize_t value) override;
 };
 
 // Common aio-based Implementation of the task quota and hrtimer.
 class preempt_io_context {
-    reactor* _r;
+    reactor& _r;
     aio_general_context _context{2};
 
     task_quota_aio_completion _task_quota_aio_completion;
     hrtimer_aio_completion _hrtimer_aio_completion;
 public:
-    preempt_io_context(reactor* r, file_desc& task_quota, file_desc& hrtimer);
+    preempt_io_context(reactor& r, file_desc& task_quota, file_desc& hrtimer);
     bool service_preempting_io();
 
     size_t flush() {
@@ -204,7 +206,7 @@ public:
 // (such as timers, signals, inter-thread notifications) into file descriptors
 // using mechanisms like timerfd, signalfd and eventfd respectively.
 class reactor_backend_epoll : public reactor_backend {
-    reactor* _r;
+    reactor& _r;
     std::thread _task_quota_timer_thread;
     timer_t _steady_clock_timer = {};
 private:
@@ -215,7 +217,7 @@ private:
     bool wait_and_process(int timeout, const sigset_t* active_sigmask);
     bool _need_epoll_events = false;
 public:
-    explicit reactor_backend_epoll(reactor* r);
+    explicit reactor_backend_epoll(reactor& r);
     virtual ~reactor_backend_epoll() override;
 
     virtual bool reap_kernel_completions() override;
@@ -251,7 +253,7 @@ public:
 
 class reactor_backend_aio : public reactor_backend {
     static constexpr size_t max_polls = 10000;
-    reactor* _r;
+    reactor& _r;
     file_desc _hrtimer_timerfd;
     aio_storage_context _storage_context;
     // We use two aio contexts, one for preempting events (the timer tick and
@@ -263,7 +265,7 @@ class reactor_backend_aio : public reactor_backend {
     static file_desc make_timerfd();
     bool await_events(int timeout, const sigset_t* active_sigmask);
 public:
-    explicit reactor_backend_aio(reactor* r);
+    explicit reactor_backend_aio(reactor& r);
 
     virtual bool reap_kernel_completions() override;
     virtual bool kernel_submit_work() override;
@@ -341,7 +343,7 @@ private:
     static bool has_enough_aio_nr();
     explicit reactor_backend_selector(std::string name) : _name(std::move(name)) {}
 public:
-    std::unique_ptr<reactor_backend> create(reactor* r);
+    std::unique_ptr<reactor_backend> create(reactor& r);
     static reactor_backend_selector default_backend();
     static std::vector<reactor_backend_selector> available();
     friend std::ostream& operator<<(std::ostream& os, const reactor_backend_selector& rbs) {

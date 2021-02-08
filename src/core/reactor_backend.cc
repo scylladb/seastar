@@ -86,7 +86,7 @@ aio_storage_context::iocb_pool::iocb_pool() {
     }
 }
 
-aio_storage_context::aio_storage_context(reactor* r)
+aio_storage_context::aio_storage_context(reactor& r)
     : _r(r)
     , _io_context(0) {
     static_assert(max_aio >= reactor::max_queues * reactor::max_queues,
@@ -139,7 +139,7 @@ aio_storage_context::handle_aio_error(linux_abi::iocb* iocb, int ec) {
             return 1;
         }
         default:
-            ++_r->_io_stats.aio_errors;
+            ++_r._io_stats.aio_errors;
             throw_system_error_on(true, "io_submit");
             abort();
     }
@@ -152,7 +152,7 @@ aio_storage_context::submit_work() {
     bool did_work = false;
 
     _submission_queue.resize(0);
-    size_t to_submit = _r->_io_sink.drain([this] (internal::io_request& req, io_completion* desc) -> bool {
+    size_t to_submit = _r._io_sink.drain([this] (internal::io_request& req, io_completion* desc) -> bool {
         if (!_iocb_pool.has_capacity()) {
             return false;
         }
@@ -160,8 +160,8 @@ aio_storage_context::submit_work() {
         auto& io = _iocb_pool.get_one();
         prepare_iocb(req, desc, io);
 
-        if (_r->_aio_eventfd) {
-            set_eventfd_notification(io, _r->_aio_eventfd->get_fd());
+        if (_r._aio_eventfd) {
+            set_eventfd_notification(io, _r._aio_eventfd->get_fd());
         }
         _submission_queue.push_back(&io);
         return true;
@@ -193,7 +193,7 @@ aio_storage_context::submit_work() {
 void aio_storage_context::schedule_retry() {
     // FIXME: future is discarded
     (void)do_with(std::exchange(_pending_aio_retry, {}), [this](pending_aio_retry_t& retries){
-        return _r->_thread_pool->submit<syscall_result<int>>([this, &retries] () mutable {
+        return _r._thread_pool->submit<syscall_result<int>>([this, &retries] () mutable {
             auto r = io_submit(_io_context, retries.size(), retries.data());
             return wrap_syscall<int>(r);
         }).then([this, &retries] (syscall_result<int> result) {
@@ -212,7 +212,7 @@ void aio_storage_context::schedule_retry() {
 bool aio_storage_context::reap_completions()
 {
     struct timespec timeout = {0, 0};
-    auto n = io_getevents(_io_context, 1, max_aio, _ev_buffer, &timeout, _r->_force_io_getevents_syscall);
+    auto n = io_getevents(_io_context, 1, max_aio, _ev_buffer, &timeout, _r._force_io_getevents_syscall);
     if (n == -1 && errno == EINTR) {
         n = 0;
     }
@@ -237,7 +237,7 @@ bool aio_storage_context::can_sleep() const {
     //
     // Alternatively, if we enabled _aio_eventfd, we can always enter
     unsigned executing = _iocb_pool.outstanding();
-    return executing == 0 || _r->_aio_eventfd;
+    return executing == 0 || _r._aio_eventfd;
 }
 
 aio_general_context::aio_general_context(size_t nr) : iocbs(new iocb*[nr]) {
@@ -275,16 +275,17 @@ void completion_with_iocb::maybe_queue(aio_general_context& context) {
     }
 }
 
-hrtimer_aio_completion::hrtimer_aio_completion(reactor* r, file_desc& fd)
-    : fd_kernel_completion(r, fd)
+hrtimer_aio_completion::hrtimer_aio_completion(reactor& r, file_desc& fd)
+    : fd_kernel_completion(fd)
+    , completion_with_iocb(fd.get(), POLLIN, this)
+    , _r(r) {}
+
+task_quota_aio_completion::task_quota_aio_completion(file_desc& fd)
+    : fd_kernel_completion(fd)
     , completion_with_iocb(fd.get(), POLLIN, this) {}
 
-task_quota_aio_completion::task_quota_aio_completion(reactor* r, file_desc& fd)
-    : fd_kernel_completion(r, fd)
-    , completion_with_iocb(fd.get(), POLLIN, this) {}
-
-smp_wakeup_aio_completion::smp_wakeup_aio_completion(reactor* r, file_desc& fd)
-        : fd_kernel_completion(r, fd)
+smp_wakeup_aio_completion::smp_wakeup_aio_completion(file_desc& fd)
+        : fd_kernel_completion(fd)
         , completion_with_iocb(fd.get(), POLLIN, this) {}
 
 void
@@ -292,7 +293,7 @@ hrtimer_aio_completion::complete_with(ssize_t ret) {
     uint64_t expirations = 0;
     (void)_fd.read(&expirations, 8);
     if (expirations) {
-        _r->service_highres_timer();
+        _r.service_highres_timer();
     }
     completion_with_iocb::completed();
 }
@@ -311,9 +312,9 @@ smp_wakeup_aio_completion::complete_with(ssize_t ret) {
     completion_with_iocb::completed();
 }
 
-preempt_io_context::preempt_io_context(reactor* r, file_desc& task_quota, file_desc& hrtimer)
+preempt_io_context::preempt_io_context(reactor& r, file_desc& task_quota, file_desc& hrtimer)
     : _r(r)
-    , _task_quota_aio_completion(r, task_quota)
+    , _task_quota_aio_completion(task_quota)
     , _hrtimer_aio_completion(r, hrtimer)
 {}
 
@@ -325,7 +326,7 @@ void preempt_io_context::start_tick() {
 }
 
 void preempt_io_context::stop_tick() {
-    g_need_preempt = &_r->_preemption_monitor;
+    g_need_preempt = &_r._preemption_monitor;
 }
 
 void preempt_io_context::request_preemption() {
@@ -407,17 +408,17 @@ void reactor_backend_aio::signal_received(int signo, siginfo_t* siginfo, void* i
     engine()._signals.action(signo, siginfo, ignore);
 }
 
-reactor_backend_aio::reactor_backend_aio(reactor* r)
+reactor_backend_aio::reactor_backend_aio(reactor& r)
     : _r(r)
     , _hrtimer_timerfd(make_timerfd())
     , _storage_context(_r)
-    , _preempting_io(_r, _r->_task_quota_timer, _hrtimer_timerfd)
+    , _preempting_io(_r, _r._task_quota_timer, _hrtimer_timerfd)
     , _hrtimer_poll_completion(_r, _hrtimer_timerfd)
-    , _smp_wakeup_aio_completion(_r, _r->_notify_eventfd)
+    , _smp_wakeup_aio_completion(_r._notify_eventfd)
 {
     // Protect against spurious wakeups - if we get notified that the timer has
     // expired when it really hasn't, we don't want to block in read(tfd, ...).
-    auto tfd = _r->_task_quota_timer.get();
+    auto tfd = _r._task_quota_timer.get();
     ::fcntl(tfd, F_SETFL, ::fcntl(tfd, F_GETFL) | O_NONBLOCK);
 
     sigset_t mask = make_sigset_mask(hrtimer_signal());
@@ -591,14 +592,14 @@ reactor_backend_aio::make_pollable_fd_state(file_desc fd, pollable_fd::speculati
     return pollable_fd_state_ptr(new aio_pollable_fd_state(std::move(fd), std::move(speculate)));
 }
 
-reactor_backend_epoll::reactor_backend_epoll(reactor* r)
+reactor_backend_epoll::reactor_backend_epoll(reactor& r)
         : _r(r)
         , _epollfd(file_desc::epoll_create(EPOLL_CLOEXEC))
         , _storage_context(_r) {
     ::epoll_event event;
     event.events = EPOLLIN;
     event.data.ptr = nullptr;
-    auto ret = ::epoll_ctl(_epollfd.get(), EPOLL_CTL_ADD, _r->_notify_eventfd.get(), &event);
+    auto ret = ::epoll_ctl(_epollfd.get(), EPOLL_CTL_ADD, _r._notify_eventfd.get(), &event);
     throw_system_error_on(ret == -1);
 
     struct sigevent sev{};
@@ -608,8 +609,8 @@ reactor_backend_epoll::reactor_backend_epoll(reactor* r)
     ret = timer_create(CLOCK_MONOTONIC, &sev, &_steady_clock_timer);
     assert(ret >= 0);
 
-    _r->_signals.handle_signal(hrtimer_signal(), [r = _r] {
-        r->service_highres_timer();
+    _r._signals.handle_signal(hrtimer_signal(), [&r = _r] {
+        r.service_highres_timer();
     });
 }
 
@@ -618,19 +619,19 @@ reactor_backend_epoll::~reactor_backend_epoll() {
 }
 
 void reactor_backend_epoll::start_tick() {
-    _task_quota_timer_thread = std::thread(&reactor::task_quota_timer_thread_fn, _r);
+    _task_quota_timer_thread = std::thread(&reactor::task_quota_timer_thread_fn, &_r);
 
     ::sched_param sp;
     sp.sched_priority = 1;
     auto sched_ok = pthread_setschedparam(_task_quota_timer_thread.native_handle(), SCHED_FIFO, &sp);
-    if (sched_ok != 0 && _r->_id == 0) {
+    if (sched_ok != 0 && _r._id == 0) {
         seastar_logger.warn("Unable to set SCHED_FIFO scheduling policy for timer thread; latency impact possible. Try adding CAP_SYS_NICE");
     }
 }
 
 void reactor_backend_epoll::stop_tick() {
-    _r->_dying.store(true, std::memory_order_relaxed);
-    _r->_task_quota_timer.timerfd_settime(0, seastar::posix::to_relative_itimerspec(1ns, 1ms)); // Make the timer fire soon
+    _r._dying.store(true, std::memory_order_relaxed);
+    _r._task_quota_timer.timerfd_settime(0, seastar::posix::to_relative_itimerspec(1ns, 1ms)); // Make the timer fire soon
     _task_quota_timer_thread.join();
 }
 
@@ -652,7 +653,7 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
         auto pfd = reinterpret_cast<pollable_fd_state*>(evt.data.ptr);
         if (!pfd) {
             char dummy[8];
-            _r->_notify_eventfd.read(dummy, 8);
+            _r._notify_eventfd.read(dummy, 8);
             continue;
         }
         if (evt.events & (EPOLLHUP | EPOLLERR)) {
@@ -837,7 +838,7 @@ reactor_backend_epoll::write_some(pollable_fd_state& fd, net::packet& p) {
 
 void
 reactor_backend_epoll::request_preemption() {
-    _r->_preemption_monitor.head.store(1, std::memory_order_relaxed);
+    _r._preemption_monitor.head.store(1, std::memory_order_relaxed);
 }
 
 void reactor_backend_epoll::start_handling_signal() {
@@ -852,7 +853,7 @@ reactor_backend_epoll::make_pollable_fd_state(file_desc fd, pollable_fd::specula
 }
 
 void reactor_backend_epoll::reset_preemption_monitor() {
-    _r->_preemption_monitor.head.store(0, std::memory_order_relaxed);
+    _r._preemption_monitor.head.store(0, std::memory_order_relaxed);
 }
 
 #ifdef HAVE_OSV
@@ -986,7 +987,7 @@ bool reactor_backend_selector::has_enough_aio_nr() {
     return true;
 }
 
-std::unique_ptr<reactor_backend> reactor_backend_selector::create(reactor* r) {
+std::unique_ptr<reactor_backend> reactor_backend_selector::create(reactor& r) {
     if (_name == "linux-aio") {
         return std::make_unique<reactor_backend_aio>(r);
     } else if (_name == "epoll") {
