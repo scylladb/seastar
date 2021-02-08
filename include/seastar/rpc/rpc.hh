@@ -138,11 +138,18 @@ public:
 /// \addtogroup rpc
 /// @{
 
+class server;
+
 struct server_options {
     compressor::factory* compressor_factory = nullptr;
     bool tcp_nodelay = true;
     std::optional<streaming_domain_type> streaming_domain;
     server_socket::load_balancing_algorithm load_balancing_algorithm = server_socket::load_balancing_algorithm::default_;
+    // optional filter function. If set, will be called with remote 
+    // (connecting) address.    
+    // Returning false will refuse the incoming connection. 
+    // Returning true will allow the mechanism to proceed.
+    std::function<bool(const socket_address&)> filter_connection = {};
 };
 
 /// @}

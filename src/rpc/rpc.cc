@@ -1024,6 +1024,9 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
       // The caller has to call server::stop() to synchronize.
       (void)keep_doing([this] () mutable {
           return _ss.accept().then([this] (accept_result ar) mutable {
+              if (_options.filter_connection && !_options.filter_connection(ar.remote_address)) {
+                  return;
+              }
               auto fd = std::move(ar.connection);
               auto addr = std::move(ar.remote_address);
               fd.set_nodelay(_options.tcp_nodelay);
