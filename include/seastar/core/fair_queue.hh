@@ -28,6 +28,7 @@
 #include <queue>
 #include <chrono>
 #include <unordered_set>
+#include <optional>
 
 namespace bi = boost::intrusive;
 
