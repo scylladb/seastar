@@ -988,4 +988,16 @@ SEASTAR_THREAD_TEST_CASE(test_reload_by_move) {
 
     // it should reload here as well.
     p.get_future().get();
+
+    // could get two notifications. but not more. 
+    for (int i = 0;; ++i) {
+        p = promise();
+        try {
+            with_timeout(std::chrono::steady_clock::now() + 3s, p.get_future()).get();
+            BOOST_ASSERT(i == 0);
+        } catch (timed_out_error&) {
+            // ok
+            break;
+        }
+    }
 }
