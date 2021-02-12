@@ -3636,10 +3636,6 @@ public:
             }
         } else if (configuration.count("num-io-queues")) {
             seastar_logger.warn("the --num-io-queues option is deprecated, switch to --num-io-groups instead");
-            _num_io_groups = configuration["num-io-queues"].as<unsigned>();
-            if (!_num_io_groups) {
-                throw std::runtime_error("num-io-queues must be greater than zero");
-            }
         }
         if (configuration.count("io-properties-file") && configuration.count("io-properties")) {
             throw std::runtime_error("Both io-properties and io-properties-file specified. Don't know which to trust!");
