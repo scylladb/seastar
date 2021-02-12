@@ -95,6 +95,7 @@ struct priority_class_data {
     uint64_t ops;
     uint32_t nr_queued;
     std::chrono::duration<double> queue_time;
+    std::chrono::duration<double> total_queue_time;
     metrics::metric_groups _metric_groups;
     priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr);
     void rename(sstring new_name, sstring mountpoint);
@@ -341,6 +342,7 @@ priority_class_data::priority_class_data(sstring name, sstring mountpoint, prior
     , ops(0)
     , nr_queued(0)
     , queue_time(0)
+    , total_queue_time(0)
 {
     register_stats(name, mountpoint);
 }
@@ -373,6 +375,9 @@ priority_class_data::register_stats(sstring name, sstring mountpoint) {
     new_metrics.add_group("io_queue", {
             sm::make_derive("total_bytes", bytes, sm::description("Total bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
             sm::make_derive("total_operations", ops, sm::description("Total bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+            sm::make_derive("total_delay_sec", [this] {
+                    return total_queue_time.count();
+                }, sm::description("Total time spent in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
             // Note: The counter below is not the same as reactor's queued-io-requests
             // queued-io-requests shows us how many requests in total exist in this I/O Queue.
             //
@@ -397,6 +402,7 @@ void priority_class_data::account_for(size_t len, std::chrono::duration<double> 
     ops++;
     bytes += len;
     queue_time = lat;
+    total_queue_time += lat;
 }
 
 priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc) {
