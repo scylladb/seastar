@@ -25,6 +25,7 @@
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/when_all.hh>
+#include <seastar/core/io_intent.hh>
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 #include <malloc.h>
@@ -69,6 +70,7 @@ class file_data_source_impl : public data_source_impl {
     std::optional<promise<>> _done;
     size_t _current_buffer_size;
     bool _in_slow_start = false;
+    io_intent _intent;
     using unused_ratio_target = std::ratio<25, 100>;
 private:
     size_t minimal_buffer_size() const {
@@ -240,6 +242,7 @@ public:
         if (!_reads_in_progress) {
             _done->set_value();
         }
+        _intent.cancel();
         return _done->get_future().then([this] {
             uint64_t dropped = 0;
             for (auto&& c : _read_buffers) {
@@ -276,7 +279,7 @@ private:
             auto len = end - start;
             auto actual_size = std::min(end - _pos, _remain);
             _read_buffers.emplace_back(_pos, actual_size, futurize_invoke([&] {
-                    return _file.dma_read_bulk<char>(start, len, _options.io_priority_class);
+                    return _file.dma_read_bulk<char>(start, len, _options.io_priority_class, &_intent);
             }).then_wrapped(
                     [this, start, pos = _pos, remain = _remain] (future<temporary_buffer<char>> ret) {
                 --_reads_in_progress;
