@@ -115,13 +115,12 @@ class queued_io_request : private internal::io_request {
     bool is_cancelled() const noexcept { return !_desc; }
 
 public:
-    queued_io_request(internal::io_request req, io_queue& q, priority_class_data& pc,
-            size_t l, std::chrono::steady_clock::time_point started)
+    queued_io_request(internal::io_request req, io_queue& q, priority_class_data& pc, size_t l)
         : io_request(std::move(req))
         , _ioq(q)
         , _pclass(pc)
         , _len(l)
-        , _started(started)
+        , _started(std::chrono::steady_clock::now())
         , _fq_entry(_ioq.request_fq_ticket(*this, _len))
         , _desc(std::make_unique<io_desc_read_write>(_ioq, _fq_entry.ticket()))
     {
@@ -463,12 +462,11 @@ fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, s
 
 future<size_t>
 io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_request req, io_intent* intent) noexcept {
-    auto start = std::chrono::steady_clock::now();
-    return futurize_invoke([start, &pc, len, req = std::move(req), this, intent] () mutable {
+    return futurize_invoke([&pc, len, req = std::move(req), this, intent] () mutable {
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc);
-        auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, pclass, len, start);
+        auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, pclass, len);
         auto fut = queued_req->get_future();
         internal::cancellable_queue* cq = nullptr;
         if (intent != nullptr) {
