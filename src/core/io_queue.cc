@@ -340,7 +340,7 @@ priority_class_data::priority_class_data(sstring name, sstring mountpoint, prior
     , bytes(0)
     , ops(0)
     , nr_queued(0)
-    , queue_time(1s)
+    , queue_time(0)
 {
     register_stats(name, mountpoint);
 }
@@ -385,7 +385,7 @@ priority_class_data::register_stats(sstring name, sstring mountpoint) {
             sm::make_queue_length("queue_length", nr_queued, sm::description("Number of requests in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
             sm::make_gauge("delay", [this] {
                 return queue_time.count();
-            }, sm::description("total delay time in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+            }, sm::description("random delay time in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
             sm::make_gauge("shares", [this] {
                 return this->ptr->shares();
             }, sm::description("current amount of shares"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label})
