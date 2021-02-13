@@ -26,6 +26,7 @@ struct mapping {
         { "js", "text/javascript" },
         { "html", "text/html" },
         { "jpg", "image/jpeg" },
+        { "svg", "image/svg+xml" },
         { "png", "image/png" },
         { "txt", "text/plain" },
         { "ico", "image/x-icon" },
