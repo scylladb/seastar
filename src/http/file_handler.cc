@@ -70,6 +70,8 @@ sstring file_interaction_handler::get_extension(const sstring& file) {
     if (last_dot_pos != sstring::npos && last_dot_pos > last_slash_pos) {
         extension = file.substr(last_dot_pos + 1);
     }
+    // normalize file extension for mime type
+    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
     return extension;
 }
 
