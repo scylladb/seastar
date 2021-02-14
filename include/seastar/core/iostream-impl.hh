@@ -48,31 +48,31 @@ inline future<temporary_buffer<char>> data_source_impl::skip(uint64_t n)
 
 template<typename CharType>
 inline
-future<> output_stream<CharType>::write(const char_type* buf) {
+future<> output_stream<CharType>::write(const char_type* buf) noexcept {
     return write(buf, strlen(buf));
 }
 
 template<typename CharType>
 template<typename StringChar, typename SizeType, SizeType MaxSize, bool NulTerminate>
 inline
-future<> output_stream<CharType>::write(const basic_sstring<StringChar, SizeType, MaxSize, NulTerminate>& s) {
+future<> output_stream<CharType>::write(const basic_sstring<StringChar, SizeType, MaxSize, NulTerminate>& s) noexcept {
     return write(reinterpret_cast<const CharType *>(s.c_str()), s.size());
 }
 
 template<typename CharType>
 inline
-future<> output_stream<CharType>::write(const std::basic_string<CharType>& s) {
+future<> output_stream<CharType>::write(const std::basic_string<CharType>& s) noexcept {
     return write(s.c_str(), s.size());
 }
 
 template<typename CharType>
-future<> output_stream<CharType>::write(scattered_message<CharType> msg) {
+future<> output_stream<CharType>::write(scattered_message<CharType> msg) noexcept {
     return write(std::move(msg).release());
 }
 
 template<typename CharType>
 future<>
-output_stream<CharType>::zero_copy_put(net::packet p) {
+output_stream<CharType>::zero_copy_put(net::packet p) noexcept {
     // if flush is scheduled, disable it, so it will not try to write in parallel
     _flush = false;
     if (_flushing) {
@@ -88,7 +88,7 @@ output_stream<CharType>::zero_copy_put(net::packet p) {
 // Writes @p in chunks of _size length. The last chunk is buffered if smaller.
 template <typename CharType>
 future<>
-output_stream<CharType>::zero_copy_split_and_put(net::packet p) {
+output_stream<CharType>::zero_copy_split_and_put(net::packet p) noexcept {
     return repeat([this, p = std::move(p)] () mutable {
         if (p.len() < _size) {
             if (p.len()) {
@@ -107,9 +107,9 @@ output_stream<CharType>::zero_copy_split_and_put(net::packet p) {
 }
 
 template<typename CharType>
-future<> output_stream<CharType>::write(net::packet p) {
+future<> output_stream<CharType>::write(net::packet p) noexcept {
     static_assert(std::is_same<CharType, char>::value, "packet works on char");
-
+  try {
     if (p.len() != 0) {
         assert(!_end && "Mixing buffered writes and zero-copy writes not supported yet");
 
@@ -128,16 +128,22 @@ future<> output_stream<CharType>::write(net::packet p) {
         }
     }
     return make_ready_future<>();
+  } catch (...) {
+    return current_exception_as_future();
+  }
 }
 
 template<typename CharType>
-future<> output_stream<CharType>::write(temporary_buffer<CharType> p) {
+future<> output_stream<CharType>::write(temporary_buffer<CharType> p) noexcept {
+  try {
     if (p.empty()) {
         return make_ready_future<>();
     }
     assert(!_end && "Mixing buffered writes and zero-copy writes not supported yet");
-
     return write(net::packet(std::move(p)));
+  } catch (...) {
+    return current_exception_as_future();
+  }
 }
 
 template <typename CharType>
@@ -313,7 +319,7 @@ input_stream<CharType>::detach() && {
 // Writes @buf in chunks of _size length. The last chunk is buffered if smaller.
 template <typename CharType>
 future<>
-output_stream<CharType>::split_and_put(temporary_buffer<CharType> buf) {
+output_stream<CharType>::split_and_put(temporary_buffer<CharType> buf) noexcept {
     assert(_end == 0);
 
     return repeat([this, buf = std::move(buf)] () mutable {
@@ -335,7 +341,7 @@ output_stream<CharType>::split_and_put(temporary_buffer<CharType> buf) {
 
 template <typename CharType>
 future<>
-output_stream<CharType>::write(const char_type* buf, size_t n) {
+output_stream<CharType>::write(const char_type* buf, size_t n) noexcept {
     if (__builtin_expect(!_buf || n > _size - _end, false)) {
         return slow_write(buf, n);
     }
@@ -346,7 +352,8 @@ output_stream<CharType>::write(const char_type* buf, size_t n) {
 
 template <typename CharType>
 future<>
-output_stream<CharType>::slow_write(const char_type* buf, size_t n) {
+output_stream<CharType>::slow_write(const char_type* buf, size_t n) noexcept {
+  try {
     assert(!_zc_bufs && "Mixing buffered writes and zero-copy writes not supported yet");
     auto bulk_threshold = _end ? (2 * _size - _end) : _size;
     if (n >= bulk_threshold) {
@@ -392,11 +399,14 @@ output_stream<CharType>::slow_write(const char_type* buf, size_t n) {
         std::swap(next, _buf);
         return put(std::move(next));
     }
+  } catch (...) {
+    return current_exception_as_future();
+  }
 }
 
 template <typename CharType>
 future<>
-output_stream<CharType>::flush() {
+output_stream<CharType>::flush() noexcept {
     if (!_batch_flushes) {
         if (_end) {
             _buf.trim(_end);
@@ -428,7 +438,7 @@ void add_to_flush_poller(output_stream<char>* x);
 
 template <typename CharType>
 future<>
-output_stream<CharType>::put(temporary_buffer<CharType> buf) {
+output_stream<CharType>::put(temporary_buffer<CharType> buf) noexcept {
     // if flush is scheduled, disable it, so it will not try to write in parallel
     _flush = false;
     if (_flushing) {
@@ -443,7 +453,7 @@ output_stream<CharType>::put(temporary_buffer<CharType> buf) {
 
 template <typename CharType>
 void
-output_stream<CharType>::poll_flush() {
+output_stream<CharType>::poll_flush() noexcept {
     if (!_flush) {
         // flush was canceled, do nothing
         _flushing = false;
@@ -481,7 +491,7 @@ output_stream<CharType>::poll_flush() {
 
 template <typename CharType>
 future<>
-output_stream<CharType>::close() {
+output_stream<CharType>::close() noexcept {
     return flush().finally([this] {
         if (_in_batch) {
             return _in_batch.value().get_future();

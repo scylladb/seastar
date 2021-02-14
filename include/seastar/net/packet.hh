@@ -84,11 +84,11 @@ class packet final {
     struct pseudo_vector {
         fragment* _start;
         fragment* _finish;
-        pseudo_vector(fragment* start, size_t nr)
+        pseudo_vector(fragment* start, size_t nr) noexcept
             : _start(start), _finish(_start + nr) {}
-        fragment* begin() { return _start; }
-        fragment* end() { return _finish; }
-        fragment& operator[](size_t idx) { return _start[idx]; }
+        fragment* begin() noexcept { return _start; }
+        fragment* end() noexcept { return _finish; }
+        fragment& operator[](size_t idx) noexcept { return _start[idx]; }
     };
 
     struct impl {
@@ -109,7 +109,7 @@ class packet final {
         impl(const impl&) = delete;
         impl(fragment frag, size_t nr_frags = default_nr_frags);
 
-        pseudo_vector fragments() { return { _frags, _nr_frags }; }
+        pseudo_vector fragments() noexcept { return { _frags, _nr_frags }; }
 
         static std::unique_ptr<impl> allocate(size_t nr_frags) {
             nr_frags = std::max(nr_frags, default_nr_frags);
@@ -152,7 +152,7 @@ class packet final {
             return ::operator delete(ptr);
         }
 
-        bool using_internal_data() const {
+        bool using_internal_data() const noexcept {
             return _nr_frags
                     && _frags[0].base >= _data
                     && _frags[0].base < _data + internal_data_size;
@@ -173,7 +173,7 @@ class packet final {
             _deleter = std::move(d);
             _headroom = internal_data_size;
         }
-        void copy_internal_fragment_to(impl* to) {
+        void copy_internal_fragment_to(impl* to) noexcept {
             if (!using_internal_data()) {
                 return;
             }
@@ -229,15 +229,15 @@ public:
         return *this;
     }
 
-    unsigned len() const { return _impl->_len; }
-    unsigned memory() const { return len() +  sizeof(packet::impl); }
+    unsigned len() const noexcept { return _impl->_len; }
+    unsigned memory() const noexcept { return len() +  sizeof(packet::impl); }
 
-    fragment frag(unsigned idx) const { return _impl->_frags[idx]; }
-    fragment& frag(unsigned idx) { return _impl->_frags[idx]; }
+    fragment frag(unsigned idx) const noexcept { return _impl->_frags[idx]; }
+    fragment& frag(unsigned idx) noexcept { return _impl->_frags[idx]; }
 
-    unsigned nr_frags() const { return _impl->_nr_frags; }
-    pseudo_vector fragments() const { return { _impl->_frags, _impl->_nr_frags }; }
-    fragment* fragment_array() const { return _impl->_frags; }
+    unsigned nr_frags() const noexcept { return _impl->_nr_frags; }
+    pseudo_vector fragments() const noexcept { return { _impl->_frags, _impl->_nr_frags }; }
+    fragment* fragment_array() const noexcept { return _impl->_frags; }
 
     // share packet data (reference counted, non COW)
     packet share();
@@ -245,8 +245,8 @@ public:
 
     void append(packet&& p);
 
-    void trim_front(size_t how_much);
-    void trim_back(size_t how_much);
+    void trim_front(size_t how_much) noexcept;
+    void trim_back(size_t how_much) noexcept;
 
     // get a header pointer, linearizing if necessary
     template <typename Header>
@@ -266,7 +266,7 @@ public:
 
     void linearize() { return linearize(0, len()); }
 
-    void reset() { _impl.reset(); }
+    void reset() noexcept { _impl.reset(); }
 
     void reserve(int n_frags) {
         if (n_frags > _impl->_nr_frags) {
@@ -274,10 +274,10 @@ public:
             _impl = impl::allocate_if_needed(std::move(_impl), extra);
         }
     }
-    std::optional<uint32_t> rss_hash() {
+    std::optional<uint32_t> rss_hash() const noexcept {
         return _impl->_rss_hash;
     }
-    std::optional<uint32_t> set_rss_hash(uint32_t hash) {
+    std::optional<uint32_t> set_rss_hash(uint32_t hash) noexcept {
         return _impl->_rss_hash = hash;
     }
     // Call `func` for each fragment, avoiding data copies when possible
@@ -302,7 +302,7 @@ public:
         });
         return ret;
     }
-    explicit operator bool() {
+    explicit operator bool() noexcept {
         return bool(_impl);
     }
     static packet make_null_packet() noexcept {
@@ -312,9 +312,9 @@ private:
     void linearize(size_t at_frag, size_t desired_size);
     bool allocate_headroom(size_t size);
 public:
-    struct offload_info offload_info() const { return _impl->_offload_info; }
-    struct offload_info& offload_info_ref() { return _impl->_offload_info; }
-    void set_offload_info(struct offload_info oi) { _impl->_offload_info = oi; }
+    struct offload_info offload_info() const noexcept { return _impl->_offload_info; }
+    struct offload_info& offload_info_ref() noexcept { return _impl->_offload_info; }
+    void set_offload_info(struct offload_info oi) noexcept { _impl->_offload_info = oi; }
 };
 
 std::ostream& operator<<(std::ostream& os, const packet& p);
@@ -522,7 +522,7 @@ Header* packet::get_header(size_t offset) {
 }
 
 inline
-void packet::trim_front(size_t how_much) {
+void packet::trim_front(size_t how_much) noexcept {
     assert(how_much <= _impl->_len);
     _impl->_len -= how_much;
     size_t i = 0;
@@ -544,7 +544,7 @@ void packet::trim_front(size_t how_much) {
 }
 
 inline
-void packet::trim_back(size_t how_much) {
+void packet::trim_back(size_t how_much) noexcept {
     assert(how_much <= _impl->_len);
     _impl->_len -= how_much;
     size_t i = _impl->_nr_frags - 1;
