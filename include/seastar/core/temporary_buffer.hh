@@ -95,7 +95,7 @@ public:
     /// \param size size of the buffer
     /// \param d deleter controlling destruction of the  buffer.  The deleter
     ///          will be destroyed when there are no longer any users for the buffer.
-    temporary_buffer(CharType* buf, size_t size, deleter d)
+    temporary_buffer(CharType* buf, size_t size, deleter d) noexcept
         : _buffer(buf), _size(size), _deleter(std::move(d)) {}
     /// Creates a `temporary_buffer` containing a copy of the provided data
     ///
@@ -117,22 +117,22 @@ public:
         return *this;
     }
     /// Gets a pointer to the beginning of the buffer.
-    const CharType* get() const { return _buffer; }
+    const CharType* get() const noexcept { return _buffer; }
     /// Gets a writable pointer to the beginning of the buffer.  Use only
     /// when you are certain no user expects the buffer data not to change.
-    CharType* get_write() { return _buffer; }
+    CharType* get_write() noexcept { return _buffer; }
     /// Gets the buffer size.
-    size_t size() const { return _size; }
+    size_t size() const noexcept { return _size; }
     /// Gets a pointer to the beginning of the buffer.
-    const CharType* begin() const { return _buffer; }
+    const CharType* begin() const noexcept { return _buffer; }
     /// Gets a pointer to the end of the buffer.
-    const CharType* end() const { return _buffer + _size; }
+    const CharType* end() const noexcept { return _buffer + _size; }
     /// Returns the buffer, but with a reduced size.  The original
     /// buffer is consumed by this call and can no longer be used.
     ///
     /// \param size New size; must be smaller than current size.
     /// \return the same buffer, with a prefix removed.
-    temporary_buffer prefix(size_t size) && {
+    temporary_buffer prefix(size_t size) && noexcept {
         auto ret = std::move(*this);
         ret._size = size;
         return ret;
@@ -140,13 +140,13 @@ public:
     /// Reads a character from a specific position in the buffer.
     ///
     /// \param pos position to read character from; must be less than size.
-    CharType operator[](size_t pos) const {
+    CharType operator[](size_t pos) const noexcept {
         return _buffer[pos];
     }
     /// Checks whether the buffer is empty.
-    bool empty() const { return !size(); }
+    bool empty() const noexcept { return !size(); }
     /// Checks whether the buffer is not empty.
-    explicit operator bool() const { return size(); }
+    explicit operator bool() const noexcept { return size(); }
     /// Create a new \c temporary_buffer object referring to the same
     /// underlying data.  The underlying \ref deleter will not be destroyed
     /// until both the original and the clone have been destroyed.
@@ -178,7 +178,7 @@ public:
     /// is not modified.
     ///
     /// \param pos Position of first character to retain.
-    void trim_front(size_t pos) {
+    void trim_front(size_t pos) noexcept {
         _buffer += pos;
         _size -= pos;
     }
@@ -186,7 +186,7 @@ public:
     /// is not modified.
     ///
     /// \param pos Position of first character to drop.
-    void trim(size_t pos) {
+    void trim(size_t pos) noexcept {
         _size = pos;
     }
     /// Stops automatic memory management.  When the \c temporary_buffer
@@ -195,7 +195,7 @@ public:
     /// when the data is no longer needed.
     ///
     /// \return \ref deleter object managing the data's lifetime.
-    deleter release() {
+    deleter release() noexcept {
         return std::move(_deleter);
     }
     /// Creates a \c temporary_buffer object with a specified size, with
@@ -228,7 +228,7 @@ public:
     ///
     /// \param o buffer to compare with
     /// \return true if and only if contents are the same
-    bool operator==(const temporary_buffer& o) const {
+    bool operator==(const temporary_buffer& o) const noexcept {
         return size() == o.size() && std::equal(begin(), end(), o.begin());
     }
 
@@ -236,7 +236,7 @@ public:
     ///
     /// \param o buffer to compare with
     /// \return true if and only if contents are not the same
-    bool operator!=(const temporary_buffer& o) const {
+    bool operator!=(const temporary_buffer& o) const noexcept {
         return !(*this == o);
     }
 };

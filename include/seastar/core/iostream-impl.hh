@@ -142,7 +142,7 @@ future<> output_stream<CharType>::write(temporary_buffer<CharType> p) {
 
 template <typename CharType>
 future<temporary_buffer<CharType>>
-input_stream<CharType>::read_exactly_part(size_t n, tmp_buf out, size_t completed) {
+input_stream<CharType>::read_exactly_part(size_t n, tmp_buf out, size_t completed) noexcept {
     if (available()) {
         auto now = std::min(n - completed, available());
         std::copy(_buf.get(), _buf.get() + now, out.get_write() + completed);
@@ -166,7 +166,7 @@ input_stream<CharType>::read_exactly_part(size_t n, tmp_buf out, size_t complete
 
 template <typename CharType>
 future<temporary_buffer<CharType>>
-input_stream<CharType>::read_exactly(size_t n) {
+input_stream<CharType>::read_exactly(size_t n) noexcept {
     if (_buf.size() == n) {
         // easy case: steal buffer, return to caller
         return make_ready_future<tmp_buf>(std::move(_buf));
@@ -186,9 +186,13 @@ input_stream<CharType>::read_exactly(size_t n) {
             return this->read_exactly(n);
         });
     } else {
+      try {
         // buffer too small: start copy/read loop
         tmp_buf b(n);
         return read_exactly_part(n, std::move(b), 0);
+      } catch (...) {
+        return current_exception_as_future<tmp_buf>();
+      }
     }
 }
 
@@ -196,7 +200,7 @@ template <typename CharType>
 template <typename Consumer>
 SEASTAR_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
 future<>
-input_stream<CharType>::consume(Consumer&& consumer) {
+input_stream<CharType>::consume(Consumer&& consumer) noexcept(std::is_nothrow_move_constructible_v<Consumer>) {
     return repeat([consumer = std::move(consumer), this] () mutable {
         if (_buf.empty() && !_eof) {
             return _fd.get().then([this] (tmp_buf buf) {
@@ -232,13 +236,13 @@ template <typename CharType>
 template <typename Consumer>
 SEASTAR_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
 future<>
-input_stream<CharType>::consume(Consumer& consumer) {
+input_stream<CharType>::consume(Consumer& consumer) noexcept(std::is_nothrow_move_constructible_v<Consumer>) {
     return consume(std::ref(consumer));
 }
 
 template <typename CharType>
 future<temporary_buffer<CharType>>
-input_stream<CharType>::read_up_to(size_t n) {
+input_stream<CharType>::read_up_to(size_t n) noexcept {
     using tmp_buf = temporary_buffer<CharType>;
     if (_buf.empty()) {
         if (_eof) {
@@ -254,16 +258,20 @@ input_stream<CharType>::read_up_to(size_t n) {
         // easy case: steal buffer, return to caller
         return make_ready_future<tmp_buf>(std::move(_buf));
     } else {
+      try {
         // buffer is larger than n, so share its head with a caller
         auto front = _buf.share(0, n);
         _buf.trim_front(n);
         return make_ready_future<tmp_buf>(std::move(front));
+      } catch (...) {
+        return current_exception_as_future<tmp_buf>();
+      }
     }
 }
 
 template <typename CharType>
 future<temporary_buffer<CharType>>
-input_stream<CharType>::read() {
+input_stream<CharType>::read() noexcept {
     using tmp_buf = temporary_buffer<CharType>;
     if (_eof) {
         return make_ready_future<tmp_buf>();
@@ -280,7 +288,7 @@ input_stream<CharType>::read() {
 
 template <typename CharType>
 future<>
-input_stream<CharType>::skip(uint64_t n) {
+input_stream<CharType>::skip(uint64_t n) noexcept {
     auto skip_buf = std::min(n, _buf.size());
     _buf.trim_front(skip_buf);
     n -= skip_buf;

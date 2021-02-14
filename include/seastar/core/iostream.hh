@@ -57,13 +57,34 @@ class data_source {
 protected:
     data_source_impl* impl() const { return _dsi.get(); }
 public:
+    using tmp_buf = temporary_buffer<char>;
+
     data_source() noexcept = default;
     explicit data_source(std::unique_ptr<data_source_impl> dsi) noexcept : _dsi(std::move(dsi)) {}
     data_source(data_source&& x) noexcept = default;
     data_source& operator=(data_source&& x) noexcept = default;
-    future<temporary_buffer<char>> get() { return _dsi->get(); }
-    future<temporary_buffer<char>> skip(uint64_t n) { return _dsi->skip(n); }
-    future<> close() { return _dsi->close(); }
+
+    future<tmp_buf> get() noexcept {
+        try {
+            return _dsi->get();
+        } catch (...) {
+            return current_exception_as_future<tmp_buf>();
+        }
+    }
+    future<tmp_buf> skip(uint64_t n) noexcept {
+        try {
+            return _dsi->skip(n);
+        } catch (...) {
+            return current_exception_as_future<tmp_buf>();
+        }
+    }
+    future<> close() noexcept {
+        try {
+            return _dsi->close();
+        } catch (...) {
+            return current_exception_as_future<>();
+        }
+    }
 };
 
 class data_sink_impl {
@@ -204,10 +225,10 @@ class input_stream final {
     bool _eof = false;
 private:
     using tmp_buf = temporary_buffer<CharType>;
-    size_t available() const { return _buf.size(); }
+    size_t available() const noexcept { return _buf.size(); }
 protected:
-    void reset() { _buf = {}; }
-    data_source* fd() { return &_fd; }
+    void reset() noexcept { _buf = {}; }
+    data_source* fd() noexcept { return &_fd; }
 public:
     using consumption_result_type = consumption_result<CharType>;
     // unconsumed_remainder is mapped for compatibility only; new code should use consumption_result_type
@@ -227,20 +248,20 @@ public:
     ///
     /// \throws if an I/O error occurs during the read. As explained above,
     /// prematurely reaching the end of stream is *not* an I/O error.
-    future<temporary_buffer<CharType>> read_exactly(size_t n);
+    future<temporary_buffer<CharType>> read_exactly(size_t n) noexcept;
     template <typename Consumer>
     SEASTAR_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
-    future<> consume(Consumer&& c);
+    future<> consume(Consumer&& c) noexcept(std::is_nothrow_move_constructible_v<Consumer>);
     template <typename Consumer>
     SEASTAR_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
-    future<> consume(Consumer& c);
-    bool eof() const { return _eof; }
+    future<> consume(Consumer& c) noexcept(std::is_nothrow_move_constructible_v<Consumer>);
+    bool eof() const noexcept { return _eof; }
     /// Returns some data from the stream, or an empty buffer on end of
     /// stream.
-    future<tmp_buf> read();
+    future<tmp_buf> read() noexcept;
     /// Returns up to n bytes from the stream, or an empty buffer on end of
     /// stream.
-    future<tmp_buf> read_up_to(size_t n);
+    future<tmp_buf> read_up_to(size_t n) noexcept;
     /// Detaches the \c input_stream from the underlying data source.
     ///
     /// Waits for any background operations (for example, read-ahead) to
@@ -250,11 +271,11 @@ public:
     ///
     /// \return a future that becomes ready when this stream no longer
     ///         needs the data source.
-    future<> close() {
+    future<> close() noexcept {
         return _fd.close();
     }
     /// Ignores n next bytes from the stream.
-    future<> skip(uint64_t n);
+    future<> skip(uint64_t n) noexcept;
 
     /// Detaches the underlying \c data_source from the \c input_stream.
     ///
@@ -269,7 +290,7 @@ public:
     /// \returns the data_source
     data_source detach() &&;
 private:
-    future<temporary_buffer<CharType>> read_exactly_part(size_t n, tmp_buf buf, size_t completed);
+    future<temporary_buffer<CharType>> read_exactly_part(size_t n, tmp_buf buf, size_t completed) noexcept;
 };
 
 /// Facilitates data buffering before it's handed over to data_sink.
