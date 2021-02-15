@@ -275,7 +275,7 @@ future<> connection::read_one() {
         return maybe_reply_continue().then([this] (std::unique_ptr<httpd::request> req) {
             return do_with(make_content_stream(req.get(), _read_buf), sstring(req->_version), std::move(req), [this] (input_stream<char>& content_stream, sstring& version, std::unique_ptr<httpd::request>& req) {
                 return set_request_content(std::move(req), &content_stream, _server.get_content_streaming()).then([this, &content_stream] (std::unique_ptr<httpd::request> req) {
-                    return _replies.not_full().then([this, req = std::move(req), &content_stream] () mutable {
+                    return _replies.not_full().then([this, req = std::move(req)] () mutable {
                         return generate_reply(std::move(req));
                     }).then([this, &content_stream](bool done) {
                         _done = done;

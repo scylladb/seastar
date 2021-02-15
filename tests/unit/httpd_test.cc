@@ -869,9 +869,9 @@ struct echo_stream_handler : public handler_base {
     echo_stream_handler() = default;
     future<std::unique_ptr<reply>> handle(const sstring& path,
             std::unique_ptr<request> req, std::unique_ptr<reply> rep) override {
-        return do_with(std::move(req), std::move(rep), sstring(), [this] (std::unique_ptr<request>& req, std::unique_ptr<reply>& rep, sstring& rep_content) {
-            return do_until([this, &req] { return req->content_stream->eof(); }, [this, &req, &rep, &rep_content] {
-                return req->content_stream->read().then([this, &rep, &rep_content] (temporary_buffer<char> tmp) {
+        return do_with(std::move(req), std::move(rep), sstring(), [] (std::unique_ptr<request>& req, std::unique_ptr<reply>& rep, sstring& rep_content) {
+            return do_until([&req] { return req->content_stream->eof(); }, [&req, &rep_content] {
+                return req->content_stream->read().then([&rep_content] (temporary_buffer<char> tmp) {
                     rep_content += to_sstring(std::move(tmp));
                 });
             }).then([&req, &rep, &rep_content] {
@@ -929,7 +929,7 @@ future<> check_http_reply (std::vector<sstring>&& req_parts, std::vector<std::st
         server.set_content_streaming(stream);
         loopback_socket_impl lsi(lcf);
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
-        future<> client = seastar::async([req_parts = std::move(req_parts), resp_parts = std::move(resp_parts), &lsi, &server] {
+        future<> client = seastar::async([req_parts = std::move(req_parts), resp_parts = std::move(resp_parts), &lsi] {
             connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
             input_stream<char> input(c_socket.input());
             output_stream<char> output(c_socket.output());
@@ -962,7 +962,7 @@ SEASTAR_TEST_CASE(test_streamed_content) {
         server.set_content_streaming(true);
         loopback_socket_impl lsi(lcf);
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
-        future<> client = seastar::async([&lsi, &server] {
+        future<> client = seastar::async([&lsi] {
             connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
             input_stream<char> input(c_socket.input());
             output_stream<char> output(c_socket.output());
@@ -1045,7 +1045,7 @@ SEASTAR_TEST_CASE(test_string_content) {
         http_server server("test");
         loopback_socket_impl lsi(lcf);
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
-        future<> client = seastar::async([&lsi, &server] {
+        future<> client = seastar::async([&lsi] {
             connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
             input_stream<char> input(c_socket.input());
             output_stream<char> output(c_socket.output());

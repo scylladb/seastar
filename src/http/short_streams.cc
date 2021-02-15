@@ -44,7 +44,7 @@ future<std::vector<temporary_buffer<char>>> read_entire_stream(input_stream<char
 }
 
 future<sstring> read_entire_stream_contiguous(input_stream<char>& inp) {
-    return read_entire_stream(inp).then([&inp] (std::vector<temporary_buffer<char>> bufs) {
+    return read_entire_stream(inp).then([] (std::vector<temporary_buffer<char>> bufs) {
         size_t total_size = 0;
         for (auto&& buf : bufs) {
             total_size += buf.size();

@@ -59,7 +59,7 @@ public:
     virtual future<temporary_buffer<char>> skip(uint64_t n) override {
         uint64_t skip_bytes = std::min(n, _remaining_bytes);
         _remaining_bytes -= skip_bytes;
-        return _inp.skip(skip_bytes).then([this] {
+        return _inp.skip(skip_bytes).then([] {
             return temporary_buffer<char>();
         });
     }
@@ -191,7 +191,7 @@ class chunked_source_impl : public data_source_impl {
                             return make_exception_future<consumption_result_type>(bad_request_exception("Can't parse chunked request trailer"));
                         }
                         // save trailing headers
-                        _trailing_headers = std::move(_trailer_parser.get_parsed_headers());
+                        _trailing_headers = _trailer_parser.get_parsed_headers();
                         _end_of_request = true;
                         return make_ready_future<consumption_result_type>(stop_consuming(std::move(*res)));
                     } else {
@@ -212,7 +212,7 @@ public:
 
     virtual future<temporary_buffer<char>> get() override {
         return _inp.consume(_chunk).then([this] () mutable {
-            return std::move(_chunk.buf());
+            return _chunk.buf();
         });
     }
 
