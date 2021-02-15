@@ -360,9 +360,17 @@ public:
     friend class source_impl;
 };
 
+struct deferred_snd_buf {
+    promise<> pr;
+    snd_buf data;
+};
+
 // send data Out...
 template<typename Serializer, typename... Out>
 class sink_impl : public sink<Out...>::impl {
+    uint64_t _next_seq_num = 1;
+    uint64_t _last_seq_num = 0;
+    std::map<uint64_t, deferred_snd_buf> _out_of_order_bufs;
 public:
     sink_impl(xshard_connection_ptr con) : sink<Out...>::impl(std::move(con)) { this->_con->get()->_sink_closed = false; }
     future<> operator()(const Out&... args) override;

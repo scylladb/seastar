@@ -735,13 +735,14 @@ future<> sink_impl<Serializer, Out...>::operator()(const Out&... args) {
     // we do not want to dead lock on huge packets, so let them in
     // but only one at a time
     auto size = std::min(size_t(data.size), max_stream_buffers_memory);
-    return get_units(this->_sem, size).then([this, data = make_foreign(std::make_unique<snd_buf>(std::move(data)))] (semaphore_units<> su) mutable {
+    const auto seq_num = _next_seq_num++;
+    return get_units(this->_sem, size).then([this, data = make_foreign(std::make_unique<snd_buf>(std::move(data))), seq_num] (semaphore_units<> su) mutable {
         if (this->_ex) {
             return make_exception_future(this->_ex);
         }
         // It is OK to discard this future. The user is required to
         // wait for it when closing.
-        (void)smp::submit_to(this->_con->get_owner_shard(), [this, data = std::move(data)] () mutable {
+        (void)smp::submit_to(this->_con->get_owner_shard(), [this, data = std::move(data), seq_num] () mutable {
             connection* con = this->_con->get();
             if (con->error()) {
                 return make_exception_future(closed_error());
@@ -749,7 +750,24 @@ future<> sink_impl<Serializer, Out...>::operator()(const Out&... args) {
             if(con->sink_closed()) {
                 return make_exception_future(stream_closed());
             }
-            return con->send(make_shard_local_buffer_copy(std::move(data)), {}, nullptr);
+
+            auto local_data = make_shard_local_buffer_copy(std::move(data));
+            const auto seq_num_diff = seq_num - _last_seq_num;
+            if (seq_num_diff > 1) {
+                auto [it, _] = _out_of_order_bufs.emplace(seq_num, deferred_snd_buf{promise<>{}, std::move(local_data)});
+                return it->second.pr.get_future();
+            }
+
+            _last_seq_num = seq_num;
+            auto ret_fut = con->send(std::move(local_data), {}, nullptr);
+            while (!_out_of_order_bufs.empty() && _out_of_order_bufs.begin()->first == (_last_seq_num + 1)) {
+                auto it = _out_of_order_bufs.begin();
+                _last_seq_num = it->first;
+                auto fut = con->send(std::move(it->second.data), {}, nullptr);
+                fut.forward_to(std::move(it->second.pr));
+                _out_of_order_bufs.erase(it);
+            }
+            return ret_fut;
         }).then_wrapped([su = std::move(su), this] (future<> f) {
             if (f.failed() && !this->_ex) { // first error is the interesting one
                 this->_ex = f.get_exception();
