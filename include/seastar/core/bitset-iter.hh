@@ -143,9 +143,17 @@ public:
         advance();
     }
 
-    void operator++() noexcept
+    set_iterator& operator++() noexcept
     {
         advance();
+        return *this;
+    }
+
+    set_iterator operator++(int) noexcept
+    {
+        auto ret = *this;
+        advance();
+        return ret;
     }
 
     int operator*() const noexcept

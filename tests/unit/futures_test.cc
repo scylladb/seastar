@@ -1628,3 +1628,16 @@ SEASTAR_THREAD_TEST_CASE(test_max_concurrent_for_each) {
     }).get();
     BOOST_REQUIRE_EQUAL(sum, 28);
 }
+
+SEASTAR_THREAD_TEST_CASE(test_for_each_set) {
+    std::bitset<32> s;
+    s.set(4);
+    s.set(0);
+
+    auto range = bitsets::for_each_set(s);
+    unsigned res = 0;
+    do_for_each(range, [&res] (auto i) {
+        res |= 1 << i;
+    }).get();
+    BOOST_REQUIRE_EQUAL(res, 17);
+}
