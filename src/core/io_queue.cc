@@ -269,7 +269,7 @@ fair_group::config io_group::make_fair_group_config(config iocfg) noexcept {
 
 io_group::io_group(config cfg) noexcept
     : _fg(make_fair_group_config(cfg))
-    , _maximum_request_size(cfg.max_bytes_count / 2) {
+    , _maximum_request_size(cfg.max_bytes_count) {
     seastar_logger.debug("Created io group, limits {}:{}", cfg.max_req_count, cfg.max_bytes_count);
 }
 
