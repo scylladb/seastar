@@ -69,10 +69,6 @@ fair_queue_ticket& fair_queue_ticket::operator-=(fair_queue_ticket desc) noexcep
     return *this;
 }
 
-bool fair_queue_ticket::strictly_less(fair_queue_ticket rhs) const noexcept {
-    return (_weight < rhs._weight) && (_size < rhs._size);
-}
-
 fair_queue_ticket::operator bool() const noexcept {
     return (_weight > 0) || (_size > 0);
 }

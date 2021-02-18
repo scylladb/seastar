@@ -66,14 +66,6 @@ public:
     /// \param desc another \ref fair_queue_ticket to compare with
     bool operator==(const fair_queue_ticket& desc) const noexcept;
 
-    /// \returns true if this fair_queue_ticket is strictly less than \c rhs.
-    ///
-    /// For a fair_queue_ticket to be considered strictly less than another, both its quantities need to be
-    /// less than the other. Note that there is no total ordering between two fair_queue_tickets
-    //
-    /// \param rhs another \ref fair_queue_ticket to be compared to this one.
-    bool strictly_less(fair_queue_ticket rhs) const noexcept;
-
     std::chrono::microseconds duration_at_pace(float weight_pace, float size_pace) const noexcept;
 
     /// \returns true if the fair_queue_ticket represents a non-zero quantity.
