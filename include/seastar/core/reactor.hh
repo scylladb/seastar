@@ -265,10 +265,9 @@ private:
     static constexpr unsigned max_aio = max_aio_per_queue * max_queues;
     friend disk_config_params;
 
-    // Not all reactors have IO queues. If the number of IO queues is less than the number of shards,
-    // some reactors will talk to foreign io_queues. If this reactor holds a valid IO queue, it will
-    // be stored here.
+    // Each mountpouint is controlled by its own io_queue, but ...
     std::unordered_map<dev_t, std::unique_ptr<io_queue>> _io_queues;
+    // ... when dispatched all requests get into this single sink
     internal::io_sink _io_sink;
 
     std::vector<noncopyable_function<future<> ()>> _exit_funcs;
