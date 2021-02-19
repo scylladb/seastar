@@ -35,8 +35,6 @@ SEASTAR_TEST_CASE(log_buf_realloc) {
 
     auto it = b.back_insert_begin();
 
-    BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(&*it), external_buf_ptr);
-
     for (auto i = 0; i < 128; ++i) {
         *it++ = 'a';
     }
@@ -44,12 +42,49 @@ SEASTAR_TEST_CASE(log_buf_realloc) {
     *it = 'a'; // should trigger realloc
 
     BOOST_REQUIRE_NE(reinterpret_cast<uintptr_t>(b.data()), reinterpret_cast<uintptr_t>(external_buf.data()));
-    BOOST_REQUIRE_NE(reinterpret_cast<uintptr_t>(&*it), reinterpret_cast<uintptr_t>(external_buf.data() + 128));
 
     const char* p = b.data();
     for (auto i = 0; i < 129; ++i) {
         BOOST_REQUIRE_EQUAL(p[i], 'a');
     }
 
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(log_buf_insert_iterator_format_to) {
+    constexpr size_t size = 128;
+    auto external_buf = std::make_unique<char[]>(size);
+    auto external_buf_ptr = external_buf.get();
+    char str[size + 1];
+
+    internal::log_buf b(external_buf_ptr, size);
+
+    BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(b.data()), reinterpret_cast<uintptr_t>(external_buf_ptr));
+
+    auto it = b.back_insert_begin();
+
+    memset(str, 'a', size);
+    str[size] = '\0';
+
+    it = fmt::format_to(it, str, size);
+    BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(b.data()), reinterpret_cast<uintptr_t>(external_buf_ptr));
+
+    *it++ = '\n';
+    BOOST_REQUIRE_NE(reinterpret_cast<uintptr_t>(b.data()), reinterpret_cast<uintptr_t>(external_buf_ptr));
+
+    memset(str, 'b', size);
+    it = fmt::format_to(it, str, size);
+    *it++ = '\n';
+
+    const char* p = b.data();
+    size_t pos = 0;
+    for (size_t i = 0; i < size; i++) {
+        BOOST_REQUIRE_EQUAL(p[pos++], 'a');
+    }
+    BOOST_REQUIRE_EQUAL(p[pos++], '\n');
+    for (size_t i = 0; i < size; i++) {
+        BOOST_REQUIRE_EQUAL(p[pos++], 'b');
+    }
+    BOOST_REQUIRE_EQUAL(p[pos++], '\n');
     return make_ready_future<>();
 }

@@ -50,40 +50,43 @@ private:
     void realloc_buffer();
 
 public:
+    // inserter_iterator is designed like std::back_insert_iterator:
+    // operator*, operator++ and operator++(int) are no-ops,
+    // and all the work happens in operator=, which pushes a character
+    // to the buffer.
+    // The iterator stores no state of its own.
+    //
+    // inserter_iterator is supposed to be used as an output_iterator.
+    // That is, assignment is expected to alternate with incrementing.
     class inserter_iterator {
     public:
         using iterator_category = std::output_iterator_tag;
         using difference_type = std::ptrdiff_t;
-        using value_type = char;
-        using pointer = char*;
-        using reference = char&;
+        using value_type = void;
+        using pointer = void;
+        using reference = void;
 
     private:
         log_buf* _buf;
-        char* _current;
 
     public:
-        explicit inserter_iterator(log_buf& buf) noexcept : _buf(&buf), _current(_buf->_current) { }
-        inserter_iterator(const inserter_iterator& o) noexcept : _buf(o._buf), _current(o._current) { }
+        explicit inserter_iterator(log_buf& buf) noexcept : _buf(&buf) { }
 
-        reference operator*() {
-            if (__builtin_expect(_current == _buf->_end, false)) {
+        inserter_iterator& operator=(char c) {
+            if (__builtin_expect(_buf->_current == _buf->_end, false)) {
                 _buf->realloc_buffer();
-                _current = _buf->_current;
             }
-            return *_current;
+            *_buf->_current++ = c;
+            return *this;
+        }
+        inserter_iterator& operator*() {
+            return *this;
         }
         inserter_iterator& operator++() noexcept {
-            if (__builtin_expect(_current == _buf->_current, true)) {
-                ++_buf->_current;
-            }
-            ++_current;
             return *this;
         }
         inserter_iterator operator++(int) noexcept {
-            inserter_iterator o(*this);
-            ++(*this);
-            return o;
+            return *this;
         }
     };
 
