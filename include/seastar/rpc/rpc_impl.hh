@@ -751,21 +751,24 @@ future<> sink_impl<Serializer, Out...>::operator()(const Out&... args) {
                 return make_exception_future(stream_closed());
             }
 
+            auto& last_seq_num = _remote_state.last_seq_num;
+            auto& out_of_order_bufs = _remote_state.out_of_order_bufs;
+
             auto local_data = make_shard_local_buffer_copy(std::move(data));
-            const auto seq_num_diff = seq_num - _last_seq_num;
+            const auto seq_num_diff = seq_num - last_seq_num;
             if (seq_num_diff > 1) {
-                auto [it, _] = _out_of_order_bufs.emplace(seq_num, deferred_snd_buf{promise<>{}, std::move(local_data)});
+                auto [it, _] = out_of_order_bufs.emplace(seq_num, deferred_snd_buf{promise<>{}, std::move(local_data)});
                 return it->second.pr.get_future();
             }
 
-            _last_seq_num = seq_num;
+            last_seq_num = seq_num;
             auto ret_fut = con->send(std::move(local_data), {}, nullptr);
-            while (!_out_of_order_bufs.empty() && _out_of_order_bufs.begin()->first == (_last_seq_num + 1)) {
-                auto it = _out_of_order_bufs.begin();
-                _last_seq_num = it->first;
+            while (!out_of_order_bufs.empty() && out_of_order_bufs.begin()->first == (last_seq_num + 1)) {
+                auto it = out_of_order_bufs.begin();
+                last_seq_num = it->first;
                 auto fut = con->send(std::move(it->second.data), {}, nullptr);
                 fut.forward_to(std::move(it->second.pr));
-                _out_of_order_bufs.erase(it);
+                out_of_order_bufs.erase(it);
             }
             return ret_fut;
         }).then_wrapped([su = std::move(su), this] (future<> f) {
