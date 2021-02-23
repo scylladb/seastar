@@ -101,6 +101,7 @@ public:
     unsigned _memory_dma_alignment = 4096;
     unsigned _disk_read_dma_alignment = 4096;
     unsigned _disk_write_dma_alignment = 4096;
+    unsigned _disk_overwrite_dma_alignment = 4096;
 public:
     virtual ~file_impl() {}
 
@@ -210,6 +211,16 @@ public:
     /// Alignment requirement for file offsets (for writes)
     uint64_t disk_write_dma_alignment() const noexcept {
         return _file_impl->_disk_write_dma_alignment;
+    }
+
+    /// Alignment requirement for file offsets (for overwrites).
+    ///
+    /// Specifies the minimum alignment for disk offsets for
+    /// overwrites (writes to a location that was previously written).
+    /// This can be smaller than \ref disk_write_dma_alignment(), allowing
+    /// a reduction in disk bandwidth used.
+    uint64_t disk_overwrite_dma_alignment() const noexcept {
+        return _file_impl->_disk_overwrite_dma_alignment;
     }
 
     /// Alignment requirement for data buffers

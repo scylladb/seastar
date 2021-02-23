@@ -47,6 +47,7 @@ public:
         _memory_dma_alignment = _underlying_file.memory_dma_alignment();
         _disk_read_dma_alignment = _underlying_file.disk_read_dma_alignment();
         _disk_write_dma_alignment = _underlying_file.disk_write_dma_alignment();
+        _disk_overwrite_dma_alignment = _underlying_file.disk_overwrite_dma_alignment();
     }
 
     /// The underlying file which can be used to back I/O methods.

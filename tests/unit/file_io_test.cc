@@ -800,3 +800,38 @@ SEASTAR_TEST_CASE(test_intent) {
         }
     });
 }
+
+SEASTAR_TEST_CASE(parallel_overwrite) {
+    // Avoid /tmp for tmp_dir, since it can be tmpfs
+    return tmp_dir::do_with("XXXXXXXX.tmp", [] (tmp_dir& t) {
+        return async([&] {
+            // Check that overwrites at disk_overwrite_dma_alignment() do not cause stalls. First,
+            // create a file.
+            auto fname = (t.get_path() / "testfile.tmp").native();
+            auto sz = uint64_t(1*1024*1024);
+            auto buffer_size = 128*1024;
+
+            file f = open_file_dma(fname, open_flags::rw | open_flags::create | open_flags::truncate).get0();
+            // Avoid filesystem problems with size-extending operations
+            f.truncate(sz).get();
+            auto buf = allocate_aligned_buffer<unsigned char>(buffer_size, f.memory_dma_alignment());
+            for (uint64_t offset = 0; offset < sz; offset += buffer_size) {
+                f.dma_write(offset, buf.get(), buffer_size).get();
+            }
+
+            auto random_engine = std::default_random_engine();
+            auto dist = std::uniform_int_distribution(uint64_t(0), sz-1);
+            auto offsets  = std::vector<uint64_t>();
+            std::generate_n(std::back_insert_iterator(offsets), 5000, [&] { return align_down(dist(random_engine), f.disk_overwrite_dma_alignment()); });
+            auto stall_report = internal::report_reactor_stalls([&] {
+                return max_concurrent_for_each(offsets, 10, [&] (uint64_t offset) {
+                    return f.dma_write(offset, buf.get(), f.disk_overwrite_dma_alignment()).discard_result();
+                });
+            }).get0();
+            std::cout << "parallel_overwrite: " << stall_report << " (overwrite dma alignment " << f.disk_overwrite_dma_alignment() << ")\n";
+
+            f.close().get();
+            remove_file(fname).get();
+        });
+    });
+}

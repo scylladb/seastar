@@ -105,6 +105,8 @@ posix_file_impl::query_dma_alignment(uint32_t block_size) {
         // xfs wants at least the block size for writes
         // FIXME: really read the block size
         _disk_write_dma_alignment = std::max<unsigned>(da.d_miniosz, block_size);
+        static bool xfs_with_relaxed_overwrite_alignment = kernel_uname().whitelisted({"5.12"});
+        _disk_overwrite_dma_alignment = xfs_with_relaxed_overwrite_alignment ? da.d_miniosz : _disk_write_dma_alignment;
     }
 }
 
@@ -114,7 +116,7 @@ posix_file_impl::dup() {
         _refcount = new std::atomic<unsigned>(1u);
     }
     auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _device_id,
-            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment);
+            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment, _disk_overwrite_dma_alignment);
     _refcount->fetch_add(1, std::memory_order_relaxed);
     return ret;
 }
@@ -122,7 +124,8 @@ posix_file_impl::dup() {
 posix_file_impl::posix_file_impl(int fd, open_flags f, std::atomic<unsigned>* refcount, dev_t device_id,
         uint32_t memory_dma_alignment,
         uint32_t disk_read_dma_alignment,
-        uint32_t disk_write_dma_alignment)
+        uint32_t disk_write_dma_alignment,
+        uint32_t disk_overwrite_dma_alignment)
         : _refcount(refcount)
         , _device_id(device_id)
         , _io_queue(&(engine().get_io_queue(_device_id)))
@@ -131,6 +134,7 @@ posix_file_impl::posix_file_impl(int fd, open_flags f, std::atomic<unsigned>* re
     _memory_dma_alignment = memory_dma_alignment;
     _disk_read_dma_alignment = disk_read_dma_alignment;
     _disk_write_dma_alignment = disk_write_dma_alignment;
+    _disk_overwrite_dma_alignment = disk_overwrite_dma_alignment;
 }
 
 future<>
@@ -837,7 +841,7 @@ posix_file_handle_impl::~posix_file_handle_impl() {
 std::unique_ptr<seastar::file_handle_impl>
 posix_file_handle_impl::clone() const {
     auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _device_id,
-            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment);
+            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment, _disk_overwrite_dma_alignment);
     if (_refcount) {
         _refcount->fetch_add(1, std::memory_order_relaxed);
     }
@@ -847,7 +851,7 @@ posix_file_handle_impl::clone() const {
 shared_ptr<file_impl>
 posix_file_handle_impl::to_file() && {
     auto ret = ::seastar::make_shared<posix_file_real_impl>(_fd, _open_flags, _refcount, _device_id,
-            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment);
+            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment, _disk_overwrite_dma_alignment);
     _fd = -1;
     _refcount = nullptr;
     return ret;

@@ -48,15 +48,18 @@ class posix_file_handle_impl : public seastar::file_handle_impl {
     uint32_t _memory_dma_alignment;
     uint32_t _disk_read_dma_alignment;
     uint32_t _disk_write_dma_alignment;
+    uint32_t _disk_overwrite_dma_alignment;
 public:
     posix_file_handle_impl(int fd, open_flags f, std::atomic<unsigned>* refcount, dev_t device_id,
             uint32_t memory_dma_alignment,
             uint32_t disk_read_dma_alignment,
-            uint32_t disk_write_dma_alignment)
+            uint32_t disk_write_dma_alignment,
+            uint32_t disk_overwrite_dma_alignment)
             : _fd(fd), _refcount(refcount), _device_id(device_id), _open_flags(f)
             , _memory_dma_alignment(memory_dma_alignment)
             , _disk_read_dma_alignment(disk_read_dma_alignment)
-            , _disk_write_dma_alignment(disk_write_dma_alignment) {
+            , _disk_write_dma_alignment(disk_write_dma_alignment)
+            , _disk_overwrite_dma_alignment(disk_overwrite_dma_alignment) {
     }
     virtual ~posix_file_handle_impl();
     posix_file_handle_impl(const posix_file_handle_impl&) = delete;
@@ -77,7 +80,8 @@ public:
     posix_file_impl(int fd, open_flags, std::atomic<unsigned>* refcount, dev_t device_id,
             uint32_t memory_dma_alignment,
             uint32_t disk_read_dma_alignment,
-            uint32_t disk_write_dma_alignment);
+            uint32_t disk_write_dma_alignment,
+            uint32_t disk_overwrite_dma_alignment);
     virtual ~posix_file_impl() override;
     future<> flush(void) noexcept override;
     future<struct stat> stat(void) noexcept override;
@@ -153,8 +157,8 @@ public:
     posix_file_real_impl(int fd, open_flags of, file_open_options options, dev_t device_id, uint32_t block_size)
         : posix_file_impl(fd, of, std::move(options), device_id, block_size) {}
     posix_file_real_impl(int fd, open_flags of, std::atomic<unsigned>* refcount, dev_t device_id,
-            uint32_t memory_dma_alignment, uint32_t disk_read_dma_alignment, uint32_t disk_write_dma_alignment)
-        : posix_file_impl(fd, of, refcount, device_id, memory_dma_alignment, disk_read_dma_alignment, disk_write_dma_alignment) {}
+            uint32_t memory_dma_alignment, uint32_t disk_read_dma_alignment, uint32_t disk_write_dma_alignment, uint32_t disk_overwrite_dma_alignment)
+        : posix_file_impl(fd, of, refcount, device_id, memory_dma_alignment, disk_read_dma_alignment, disk_write_dma_alignment, disk_overwrite_dma_alignment) {}
     virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept override;
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept override;
