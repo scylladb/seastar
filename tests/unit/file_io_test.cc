@@ -819,7 +819,7 @@ SEASTAR_TEST_CASE(parallel_overwrite) {
                 f.dma_write(offset, buf.get(), buffer_size).get();
             }
 
-            auto random_engine = std::default_random_engine();
+            auto random_engine = testing::local_random_engine;
             auto dist = std::uniform_int_distribution(uint64_t(0), sz-1);
             auto offsets  = std::vector<uint64_t>();
             std::generate_n(std::back_insert_iterator(offsets), 5000, [&] { return align_down(dist(random_engine), f.disk_overwrite_dma_alignment()); });
