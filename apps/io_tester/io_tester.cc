@@ -302,7 +302,7 @@ protected:
 
 public:
     virtual sstring describe_class() = 0;
-    virtual sstring describe_results() = 0;
+    virtual void emit_results(YAML::Emitter& out) = 0;
 };
 
 class io_class_data : public class_data {
@@ -346,18 +346,19 @@ public:
         return fmt::format("{}: {} shares, {}-byte {}, {}Mb file, {} concurrent requests, {}", name(), shares(), req_size(), type_str(), file_size_mb(), parallelism(), think_time());
     }
 
-    virtual sstring describe_results() override {
+    virtual void emit_results(YAML::Emitter& out) override {
         auto throughput_kbs = (total_data() >> 10) / total_duration().count();
         auto iops = requests() / total_duration().count();
-        sstring result;
-        result += fmt::format("  Throughput         : {:>8} KB/s\n", throughput_kbs);
-        result += fmt::format("  IOPS               : {:>8}\n", iops);
-        result += fmt::format("  Lat average        : {:>8} usec\n", average_latency());
+        out << YAML::Key << "throughput" << YAML::Value << throughput_kbs << YAML::Comment("kB/s");
+        out << YAML::Key << "IOPS" << YAML::Value << iops;
+        out << YAML::Key << "latencies" << YAML::Comment("usec");
+        out << YAML::BeginMap;
+        out << YAML::Key << "average" << YAML::Value << average_latency();
         for (auto& q: quantiles) {
-            result += fmt::format("  Lat quantile={:>5} : {:>8} usec\n", q, quantile_latency(q));
+            out << YAML::Key << fmt::format("p{}", q) << YAML::Value << quantile_latency(q);
         }
-        result += fmt::format("  Lat max            : {:>8} usec\n", max_latency());
-        return result;
+        out << YAML::Key << "max" << YAML::Value << max_latency();
+        out << YAML::EndMap;
     }
 };
 
@@ -402,9 +403,9 @@ public:
         return fmt::format("{}: {} shares, {} us CPU execution time, {} concurrent requests, {}", name(), shares(), exec.count(), parallelism(), think_time());
     }
 
-    virtual sstring describe_results() override {
+    virtual void emit_results(YAML::Emitter& out) override {
         auto throughput = total_data() / total_duration().count();
-        return fmt::format("  Throughput         : {:>8} continuations/s\n", throughput);
+        out << YAML::Key << "throughput" << YAML::Value << throughput;
     }
 };
 
@@ -599,13 +600,13 @@ public:
         });
     }
 
-    future<> print_stats() {
-        return _finished.wait(_cl.size()).then([this] {
-            fmt::print("Shard {:>2}\n", this_shard_id());
-            auto idx = 0;
+    future<> emit_results(YAML::Emitter& out) {
+        return _finished.wait(_cl.size()).then([this, &out] {
             for (auto& cl: _cl) {
-                fmt::print("Class {:>2} ({})\n", idx++, cl->describe_class());
-                fmt::print("{}\n", cl->describe_results());
+                out << YAML::Key << cl->name();
+                out << YAML::BeginMap;
+                cl->emit_results(out);
+                out << YAML::EndMap;
             }
             return make_ready_future<>();
         });
@@ -618,11 +619,20 @@ int class_data::idgen() {
 }
 
 static void show_results(distributed<context>& ctx) {
+    YAML::Emitter out;
+    out << YAML::BeginDoc;
+    out << YAML::BeginSeq;
     for (unsigned i = 0; i < smp::count; ++i) {
-        ctx.invoke_on(i, [] (auto& c) {
-            return c.print_stats();
+        out << YAML::BeginMap;
+        out << YAML::Key << "shard" << YAML::Value << i;
+        ctx.invoke_on(i, [&out] (auto& c) {
+            return c.emit_results(out);
         }).get();
+        out << YAML::EndMap;
     }
+    out << YAML::EndSeq;
+    out << YAML::EndDoc;
+    std::cout << out.c_str();
 }
 
 int main(int ac, char** av) {
