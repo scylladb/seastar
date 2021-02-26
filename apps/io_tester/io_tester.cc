@@ -616,6 +616,14 @@ int class_data::idgen() {
     return id++;
 }
 
+static void show_results(distributed<context>& ctx) {
+    for (unsigned i = 0; i < smp::count; ++i) {
+        ctx.invoke_on(i, [] (auto& c) {
+            return c.print_stats();
+        }).get();
+    }
+}
+
 int main(int ac, char** av) {
     namespace bpo = boost::program_options;
 
@@ -661,11 +669,7 @@ int main(int ac, char** av) {
             ctx.invoke_on_all([] (auto& c) {
                 return c.issue_requests();
             }).get();
-            for (unsigned i = 0; i < smp::count; ++i) {
-                ctx.invoke_on(i, [] (auto& c) {
-                    return c.print_stats();
-                }).get();
-            }
+            show_results(ctx);
             ctx.stop().get0();
         }).or_terminate();
     });
