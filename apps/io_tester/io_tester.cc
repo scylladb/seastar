@@ -204,6 +204,11 @@ public:
         }
         return make_ready_future<>();
     }
+
+    const sstring name() const {
+        return _config.name;
+    }
+
 protected:
     sstring type_str() const {
         return std::unordered_map<request_type, sstring>{
@@ -214,10 +219,6 @@ protected:
             { request_type::append , "APPEND" },
             { request_type::cpu , "CPU" },
         }[_config.type];;
-    }
-
-   const sstring name() const {
-        return _config.name;
     }
 
     request_type req_type() const {
