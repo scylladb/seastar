@@ -301,7 +301,6 @@ protected:
     }
 
 public:
-    virtual sstring describe_class() = 0;
     virtual void emit_results(YAML::Emitter& out) = 0;
 };
 
@@ -340,10 +339,6 @@ public:
         }).then([this] {
             return _file.flush();
         });
-    }
-
-    virtual sstring describe_class() override {
-        return fmt::format("{}: {} shares, {}-byte {}, {}Mb file, {} concurrent requests, {}", name(), shares(), req_size(), type_str(), file_size_mb(), parallelism(), think_time());
     }
 
     virtual void emit_results(YAML::Emitter& out) override {
@@ -396,11 +391,6 @@ public:
         do {
         } while ((std::chrono::steady_clock::now() - start) < _config.shard_info.execution_time);
         return make_ready_future<size_t>(1);
-    }
-
-    virtual sstring describe_class() override {
-        auto exec = std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.execution_time);
-        return fmt::format("{}: {} shares, {} us CPU execution time, {} concurrent requests, {}", name(), shares(), exec.count(), parallelism(), think_time());
     }
 
     virtual void emit_results(YAML::Emitter& out) override {
