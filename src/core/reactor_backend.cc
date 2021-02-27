@@ -607,6 +607,8 @@ reactor_backend_aio::make_pollable_fd_state(file_desc fd, pollable_fd::speculati
 
 reactor_backend_epoll::reactor_backend_epoll(reactor& r)
         : _r(r)
+        , _steady_clock_timer_reactor_thread(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK|TFD_CLOEXEC))
+        , _steady_clock_timer_timer_thread(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK|TFD_CLOEXEC))
         , _epollfd(file_desc::epoll_create(EPOLL_CLOEXEC))
         , _storage_context(_r) {
     ::epoll_event event;
@@ -614,17 +616,10 @@ reactor_backend_epoll::reactor_backend_epoll(reactor& r)
     event.data.ptr = nullptr;
     auto ret = ::epoll_ctl(_epollfd.get(), EPOLL_CTL_ADD, _r._notify_eventfd.get(), &event);
     throw_system_error_on(ret == -1);
-
-    struct sigevent sev{};
-    sev.sigev_notify = SIGEV_THREAD_ID;
-    sev._sigev_un._tid = syscall(SYS_gettid);
-    sev.sigev_signo = hrtimer_signal();
-    ret = timer_create(CLOCK_MONOTONIC, &sev, &_steady_clock_timer);
-    assert(ret >= 0);
-
-    _r._signals.handle_signal(hrtimer_signal(), [&r = _r] {
-        r.service_highres_timer();
-    });
+    event.events = EPOLLIN;
+    event.data.ptr = &_steady_clock_timer_reactor_thread;
+    ret = ::epoll_ctl(_epollfd.get(), EPOLL_CTL_ADD, _steady_clock_timer_reactor_thread.get(), &event);
+    throw_system_error_on(ret == -1);
 }
 
 void
@@ -653,8 +648,24 @@ reactor_backend_epoll::task_quota_timer_thread_fn() {
     }
 
     while (!_r._dying.load(std::memory_order_relaxed)) {
+        // Wait for either the task quota timer, or the high resolution timer, or both,
+        // to expire.
+        struct pollfd pfds[2] = {};
+        pfds[0].fd = _r._task_quota_timer.get();
+        pfds[0].events = POLL_IN;
+        pfds[1].fd = _steady_clock_timer_timer_thread.get();
+        pfds[1].events = POLL_IN;
+        int r = poll(pfds, 2, -1);
+        assert(r != -1);
+
         uint64_t events;
-        _r._task_quota_timer.read(&events, 8);
+        if (pfds[0].revents & POLL_IN) {
+            _r._task_quota_timer.read(&events, 8);
+        }
+        if (pfds[1].revents & POLL_IN) {
+            _steady_clock_timer_timer_thread.read(&events, 8);
+            _highres_timer_pending.store(true, std::memory_order_relaxed);
+        }
         _r.request_preemption();
 
         // We're in a different thread, but guaranteed to be on the same core, so even
@@ -663,9 +674,7 @@ reactor_backend_epoll::task_quota_timer_thread_fn() {
     }
 }
 
-reactor_backend_epoll::~reactor_backend_epoll() {
-    timer_delete(_steady_clock_timer);
-}
+reactor_backend_epoll::~reactor_backend_epoll() = default;
 
 void reactor_backend_epoll::start_tick() {
     _task_quota_timer_thread = std::thread(&reactor_backend_epoll::task_quota_timer_thread_fn, this);
@@ -685,12 +694,36 @@ void reactor_backend_epoll::stop_tick() {
 }
 
 void reactor_backend_epoll::arm_highres_timer(const ::itimerspec& its) {
-    auto ret = timer_settime(_steady_clock_timer, TIMER_ABSTIME, &its, NULL);
-    throw_system_error_on(ret == -1);
+    _steady_clock_timer_deadline = its;
+    _steady_clock_timer_timer_thread.timerfd_settime(TFD_TIMER_ABSTIME, its);
+}
+
+void
+reactor_backend_epoll::switch_steady_clock_timers(file_desc& from, file_desc& to) {
+    auto& deadline = _steady_clock_timer_deadline;
+    if (deadline.it_value.tv_sec == 0 && deadline.it_value.tv_nsec == 0) {
+        return;
+    }
+    // Enable-then-disable, so the hardware timer doesn't have to be reprogrammed. Probably pointless.
+    to.timerfd_settime(TFD_TIMER_ABSTIME, _steady_clock_timer_deadline);
+    from.timerfd_settime(TFD_TIMER_ABSTIME, {});
+}
+
+void reactor_backend_epoll::maybe_switch_steady_clock_timers(int timeout, file_desc& from, file_desc& to) {
+    if (timeout != 0) {
+        switch_steady_clock_timers(from, to);
+    }
 }
 
 bool
 reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigmask) {
+    // If we plan to sleep, disable the timer thread steady clock timer (since it won't
+    // wake us up from sleep, and timer thread wakeup will just waste CPU time) and enable
+    // reactor thread steady clock timer.
+    maybe_switch_steady_clock_timers(timeout, _steady_clock_timer_timer_thread, _steady_clock_timer_reactor_thread);
+    auto undo_timer_switch = defer([&] {
+        maybe_switch_steady_clock_timers(timeout, _steady_clock_timer_reactor_thread, _steady_clock_timer_timer_thread);
+    });
     std::array<epoll_event, 128> eevt;
     int nr = ::epoll_pwait(_epollfd.get(), eevt.data(), eevt.size(), timeout, active_sigmask);
     if (nr == -1 && errno == EINTR) {
@@ -703,6 +736,13 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
         if (!pfd) {
             char dummy[8];
             _r._notify_eventfd.read(dummy, 8);
+            continue;
+        }
+        if (evt.data.ptr == &_steady_clock_timer_reactor_thread) {
+            char dummy[8];
+            _steady_clock_timer_reactor_thread.read(dummy, 8);
+            _highres_timer_pending.store(true, std::memory_order_relaxed);
+            _steady_clock_timer_deadline = {};
             continue;
         }
         if (evt.events & (EPOLLHUP | EPOLLERR)) {
@@ -773,9 +813,24 @@ bool reactor_backend_epoll::reap_kernel_completions() {
 }
 
 bool reactor_backend_epoll::kernel_submit_work() {
+    bool result = false;
     _storage_context.submit_work();
     if (_need_epoll_events) {
-        return wait_and_process(0, nullptr);
+        result |= wait_and_process(0, nullptr);
+    }
+
+    result |= complete_hrtimer();
+
+    return result;
+}
+
+bool reactor_backend_epoll::complete_hrtimer() {
+    // This can be set from either the task quota timer thread, or
+    // wait_and_process(), above.
+    if (_highres_timer_pending.load(std::memory_order_relaxed)) {
+        _highres_timer_pending.store(false, std::memory_order_relaxed);
+        _r.service_highres_timer();
+        return true;
     }
     return false;
 }
@@ -786,6 +841,7 @@ bool reactor_backend_epoll::kernel_events_can_sleep() const {
 
 void reactor_backend_epoll::wait_and_process_events(const sigset_t* active_sigmask) {
     wait_and_process(-1 , active_sigmask);
+    complete_hrtimer();
 }
 
 void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd, int events, int event) {
