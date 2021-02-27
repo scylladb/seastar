@@ -211,6 +211,7 @@ class reactor_backend_epoll : public reactor_backend {
     timer_t _steady_clock_timer = {};
 private:
     file_desc _epollfd;
+    void task_quota_timer_thread_fn();
     future<> get_epoll_future(pollable_fd_state& fd, int event);
     void complete_epoll_event(pollable_fd_state& fd, int events, int event);
     aio_storage_context _storage_context;

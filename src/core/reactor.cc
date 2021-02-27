@@ -1174,41 +1174,6 @@ void cpu_stall_detector::end_sleep() {
 }
 
 void
-reactor::task_quota_timer_thread_fn() {
-    auto thread_name = seastar::format("timer-{}", _id);
-    pthread_setname_np(pthread_self(), thread_name.c_str());
-
-    sigset_t mask;
-    sigfillset(&mask);
-    for (auto sig : { SIGSEGV }) {
-        sigdelset(&mask, sig);
-    }
-    auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
-    if (r) {
-        seastar_logger.error("Thread {}: failed to block signals. Aborting.", thread_name.c_str());
-        abort();
-    }
-
-    // We need to wait until task quota is set before we can calculate how many ticks are to
-    // a minute. Technically task_quota is used from many threads, but since it is read-only here
-    // and only used during initialization we will avoid complicating the code.
-    {
-        uint64_t events;
-        _task_quota_timer.read(&events, 8);
-        request_preemption();
-    }
-
-    while (!_dying.load(std::memory_order_relaxed)) {
-        uint64_t events;
-        _task_quota_timer.read(&events, 8);
-        request_preemption();
-
-        // We're in a different thread, but guaranteed to be on the same core, so even
-        // a signal fence is overdoing it
-        std::atomic_signal_fence(std::memory_order_seq_cst);
-    }
-}
-void
 reactor::update_blocked_reactor_notify_ms(std::chrono::milliseconds ms) {
     auto cfg = _cpu_stall_detector->get_config();
     if (ms != cfg.threshold) {

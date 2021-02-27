@@ -627,12 +627,48 @@ reactor_backend_epoll::reactor_backend_epoll(reactor& r)
     });
 }
 
+void
+reactor_backend_epoll::task_quota_timer_thread_fn() {
+    auto thread_name = seastar::format("timer-{}", _r._id);
+    pthread_setname_np(pthread_self(), thread_name.c_str());
+
+    sigset_t mask;
+    sigfillset(&mask);
+    for (auto sig : { SIGSEGV }) {
+        sigdelset(&mask, sig);
+    }
+    auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
+    if (r) {
+        seastar_logger.error("Thread {}: failed to block signals. Aborting.", thread_name.c_str());
+        abort();
+    }
+
+    // We need to wait until task quota is set before we can calculate how many ticks are to
+    // a minute. Technically task_quota is used from many threads, but since it is read-only here
+    // and only used during initialization we will avoid complicating the code.
+    {
+        uint64_t events;
+        _r._task_quota_timer.read(&events, 8);
+        _r.request_preemption();
+    }
+
+    while (!_r._dying.load(std::memory_order_relaxed)) {
+        uint64_t events;
+        _r._task_quota_timer.read(&events, 8);
+        _r.request_preemption();
+
+        // We're in a different thread, but guaranteed to be on the same core, so even
+        // a signal fence is overdoing it
+        std::atomic_signal_fence(std::memory_order_seq_cst);
+    }
+}
+
 reactor_backend_epoll::~reactor_backend_epoll() {
     timer_delete(_steady_clock_timer);
 }
 
 void reactor_backend_epoll::start_tick() {
-    _task_quota_timer_thread = std::thread(&reactor::task_quota_timer_thread_fn, &_r);
+    _task_quota_timer_thread = std::thread(&reactor_backend_epoll::task_quota_timer_thread_fn, this);
 
     ::sched_param sp;
     sp.sched_priority = 1;
