@@ -182,7 +182,7 @@ public:
     using iterator = set_iterator<N>;
     using value_type = int;
 
-    set_range(std::bitset<N> bitset, int offset = 0) noexcept
+    constexpr set_range(std::bitset<N> bitset, int offset = 0) noexcept
         : _bitset(bitset)
         , _offset(offset)
     {
