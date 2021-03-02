@@ -290,6 +290,6 @@ else:
 with BacktraceResolver(args.executable, args.before, args.match, args.verbose) as resolve:
     p = re.compile(r'\W+')
     for line in lines:
-        tokens = re.split(p, line)
+        tokens = re.split(p, line.strip())
         for t in tokens:
             resolve(t)
