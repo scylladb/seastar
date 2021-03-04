@@ -146,11 +146,18 @@ class BacktraceResolver(object):
     def __exit__(self, type, value, tb):
         self._print_current_backtrace()
 
-    def _print_resolved_address(self, module, address):
+    def resolve_address(self, address, module=None, verbose=None):
+        if module is None:
+            module = self._executable
+        if verbose is None:
+            verbose = self._verbose
         resolved_address = self._get_resolver_for_module(module)(address)
-        if self._verbose:
+        if verbose:
             resolved_address = '{{{}}} {}: {}'.format(module, address, resolved_address)
-        sys.stdout.write(resolved_address)
+        return resolved_address
+
+    def _print_resolved_address(self, module, address):
+        sys.stdout.write(self.resolve_address(address, module))
 
     def _backtrace_context_matches(self):
         if self._context_re is None:
