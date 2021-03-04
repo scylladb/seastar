@@ -205,7 +205,7 @@ else:
     else:
         lines = sys.stdin
 
-with BacktraceResolver(args.executable, args.before, args.match, args.verbose) as resolve:
+with BacktraceResolver(executable=args.executable, before_lines=args.before, context_re=args.match, verbose=args.verbose) as resolve:
     p = re.compile(r'\W+')
     for line in lines:
         resolve(line)
