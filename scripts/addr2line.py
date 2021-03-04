@@ -119,7 +119,7 @@ class BacktraceResolver(object):
             #print(f">>> '{line}': None")
             return None
 
-    def __init__(self, executable, before_lines, context_re, verbose):
+    def __init__(self, executable, before_lines=1, context_re='', verbose=False):
         self._executable = executable
         self._current_backtrace = []
         self._prefix = None
