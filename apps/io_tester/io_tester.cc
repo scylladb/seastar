@@ -631,7 +631,7 @@ int main(int ac, char** av) {
     app_template app;
     auto opt_add = app.add_options();
     opt_add
-        ("directory", bpo::value<sstring>()->default_value("."), "directory where to execute the test")
+        ("storage", bpo::value<sstring>()->default_value("."), "directory where to execute the test")
         ("duration", bpo::value<unsigned>()->default_value(10), "for how long (in seconds) to run the test")
         ("conf", bpo::value<sstring>()->default_value("./conf.yaml"), "YAML file containing benchmark specification")
     ;
@@ -640,11 +640,11 @@ int main(int ac, char** av) {
     return app.run(ac, av, [&] {
         return seastar::async([&] {
             auto& opts = app.configuration();
-            auto& directory = opts["directory"].as<sstring>();
+            auto& storage = opts["storage"].as<sstring>();
 
-            auto fs = file_system_at(directory).get0();
+            auto fs = file_system_at(storage).get0();
             if (fs != fs_type::xfs) {
-                throw std::runtime_error(format("This is a performance test. {} is not on XFS", directory));
+                throw std::runtime_error(format("This is a performance test. {} is not on XFS", storage));
             }
 
             auto& duration = opts["duration"].as<unsigned>();
@@ -658,7 +658,7 @@ int main(int ac, char** av) {
                 });
             }).get();
 
-            ctx.start(directory, reqs, duration).get0();
+            ctx.start(storage, reqs, duration).get0();
             engine().at_exit([&ctx] {
                 return ctx.stop();
             });
