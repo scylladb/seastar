@@ -115,6 +115,7 @@ struct job_config {
     // system with many shards we'll naturally have many files and that will push the data out
     // of the disk's cache
     uint64_t file_size;
+    uint64_t offset_in_bdev;
     std::unique_ptr<class_data> gen_class_data();
 };
 
@@ -127,6 +128,7 @@ protected:
     job_config _config;
     uint64_t _alignment;
     uint64_t _last_pos = 0;
+    uint64_t _offset = 0;
 
     io_priority_class _iop;
     seastar::scheduling_group _sg;
@@ -291,7 +293,7 @@ protected:
             }
         }
         _last_pos = pos;
-        return pos;
+        return pos + _offset;
     }
 
     void add_result(size_t data, std::chrono::microseconds latency) {
@@ -313,7 +315,11 @@ public:
             return do_start_on_directory(path);
         }
 
-        throw std::runtime_error(format("Unsupported storage. {} should be directory", path));
+        if (type == directory_entry_type::block_device) {
+            return do_start_on_bdev(path);
+        }
+
+        throw std::runtime_error(format("Unsupported storage. {} should be directory or block device", path));
     }
 
 private:
@@ -347,6 +353,25 @@ private:
             });
         }).then([this] {
             return _file.flush();
+        });
+    }
+
+    future<> do_start_on_bdev(sstring name) {
+        auto flags = open_flags::rw;
+        if (_config.options.dsync) {
+            flags |= open_flags::dsync;
+        }
+
+        return open_file_dma(name, flags).then([this] (auto f) {
+            _file = std::move(f);
+            return _file.size().then([this] (uint64_t size) {
+                auto shard_area_size = align_down<uint64_t>(size / smp::count, 1 << 20);
+                if (_config.offset_in_bdev + _config.file_size > shard_area_size) {
+                    throw std::runtime_error("Data doesn't fit the blockdevice");
+                }
+                _offset = shard_area_size * this_shard_id() + _config.offset_in_bdev;
+                return make_ready_future<>();
+            });
         });
     }
 
@@ -643,7 +668,7 @@ int main(int ac, char** av) {
     app_template app;
     auto opt_add = app.add_options();
     opt_add
-        ("storage", bpo::value<sstring>()->default_value("."), "directory where to execute the test")
+        ("storage", bpo::value<sstring>()->default_value("."), "directory or block device where to execute the test")
         ("duration", bpo::value<unsigned>()->default_value(10), "for how long (in seconds) to run the test")
         ("conf", bpo::value<sstring>()->default_value("./conf.yaml"), "YAML file containing benchmark specification")
     ;
@@ -677,6 +702,14 @@ int main(int ac, char** av) {
                     r.shard_info.scheduling_group = sg;
                 });
             }).get();
+
+            if (*st_type == directory_entry_type::block_device) {
+                uint64_t off = 0;
+                for (job_config& r : reqs) {
+                    r.offset_in_bdev = off;
+                    off += r.file_size;
+                }
+            }
 
             ctx.start(storage, *st_type, reqs, duration).get0();
             engine().at_exit([&ctx] {
