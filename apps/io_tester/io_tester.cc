@@ -140,7 +140,7 @@ protected:
     std::uniform_int_distribution<uint32_t> _pos_distribution;
     file _file;
 
-    virtual future<> do_start(sstring dir) = 0;
+    virtual future<> do_start(sstring dir, directory_entry_type type) = 0;
     virtual future<size_t> issue_request(char *buf) = 0;
 public:
     static int idgen();
@@ -194,8 +194,8 @@ public:
     // random writes     : will overwrite the file at a random position, between 0 and EOF
     // append            : will write to the file from pos = EOF onwards, always appending to the end.
     // cpu               : CPU-only load, file is not created.
-    future<> start(sstring dir) {
-        return do_start(dir);
+    future<> start(sstring dir, directory_entry_type type) {
+        return do_start(dir, type);
     }
 
     future<> stop() {
@@ -308,7 +308,16 @@ class io_class_data : public class_data {
 public:
     io_class_data(job_config cfg) : class_data(std::move(cfg)) {}
 
-    future<> do_start(sstring dir) override {
+    future<> do_start(sstring path, directory_entry_type type) override {
+        if (type == directory_entry_type::directory) {
+            return do_start_on_directory(path);
+        }
+
+        throw std::runtime_error(format("Unsupported storage. {} should be directory", path));
+    }
+
+private:
+    future<> do_start_on_directory(sstring dir) {
         auto fname = format("{}/test-{}-{:d}", dir, name(), this_shard_id());
         auto flags = open_flags::rw | open_flags::create | open_flags::truncate;
         if (_config.options.dsync) {
@@ -341,6 +350,7 @@ public:
         });
     }
 
+public:
     virtual void emit_results(YAML::Emitter& out) override {
         auto throughput_kbs = (total_data() >> 10) / total_duration().count();
         auto iops = requests() / total_duration().count();
@@ -379,7 +389,7 @@ class cpu_class_data : public class_data {
 public:
     cpu_class_data(job_config cfg) : class_data(std::move(cfg)) {}
 
-    future<> do_start(sstring dir) override {
+    future<> do_start(sstring dir, directory_entry_type type) override {
         return make_ready_future<>();
     }
 
@@ -556,16 +566,18 @@ class context {
     std::vector<std::unique_ptr<class_data>> _cl;
 
     sstring _dir;
+    directory_entry_type _type;
     std::chrono::seconds _duration;
 
     semaphore _finished;
 public:
-    context(sstring dir, std::vector<job_config> req_config, unsigned duration)
+    context(sstring dir, directory_entry_type dtype, std::vector<job_config> req_config, unsigned duration)
             : _cl(boost::copy_range<std::vector<std::unique_ptr<class_data>>>(req_config
                 | boost::adaptors::filtered([] (auto& cfg) { return cfg.shard_placement.is_set(this_shard_id()); })
                 | boost::adaptors::transformed([] (auto& cfg) { return cfg.gen_class_data(); })
             ))
             , _dir(dir)
+            , _type(dtype)
             , _duration(duration)
             , _finished(0)
     {}
@@ -578,7 +590,7 @@ public:
 
     future<> start() {
         return parallel_for_each(_cl, [this] (std::unique_ptr<class_data>& cl) {
-            return cl->start(_dir);
+            return cl->start(_dir, _type);
         });
     }
 
@@ -642,9 +654,17 @@ int main(int ac, char** av) {
             auto& opts = app.configuration();
             auto& storage = opts["storage"].as<sstring>();
 
-            auto fs = file_system_at(storage).get0();
-            if (fs != fs_type::xfs) {
-                throw std::runtime_error(format("This is a performance test. {} is not on XFS", storage));
+            auto st_type = engine().file_type(storage).get0();
+
+            if (!st_type) {
+                throw std::runtime_error(format("Unknown storage {}", storage));
+            }
+
+            if (*st_type == directory_entry_type::directory) {
+                auto fs = file_system_at(storage).get0();
+                if (fs != fs_type::xfs) {
+                    throw std::runtime_error(format("This is a performance test. {} is not on XFS", storage));
+                }
             }
 
             auto& duration = opts["duration"].as<unsigned>();
@@ -658,7 +678,7 @@ int main(int ac, char** av) {
                 });
             }).get();
 
-            ctx.start(storage, reqs, duration).get0();
+            ctx.start(storage, *st_type, reqs, duration).get0();
             engine().at_exit([&ctx] {
                 return ctx.stop();
             });
