@@ -146,7 +146,7 @@ public:
     /// return an exceptional future) when it failed to obtain the lock -
     /// e.g., on allocation failure.
     future<holder> hold_read_lock(typename semaphore_type::time_point timeout = semaphore_type::time_point::max()) {
-        return get_units(_sem, 1);
+        return get_units(_sem, 1, timeout);
     }
 
     /// hold_write_lock() waits for a write lock and returns an object which,
@@ -161,7 +161,7 @@ public:
     /// return an exceptional future) when it failed to obtain the lock -
     /// e.g., on allocation failure.
     future<holder> hold_write_lock(typename semaphore_type::time_point timeout = semaphore_type::time_point::max()) {
-        return get_units(_sem, max_ops);
+        return get_units(_sem, max_ops, timeout);
     }
 
     /// Checks if any read or write locks are currently held.
