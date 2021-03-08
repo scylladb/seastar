@@ -20,7 +20,8 @@
  */
 #pragma once
 
-#if defined(__cpp_concepts) && __cpp_concepts >= 201907
+#if defined(__cpp_concepts) && __cpp_concepts >= 201907 && \
+    defined(__cpp_lib_concepts) && __cpp_lib_concepts >= 201907
 
 #define SEASTAR_CONCEPT(x...) x
 #define SEASTAR_NO_CONCEPT(x...)
