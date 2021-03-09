@@ -12,18 +12,19 @@ parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpForm
 stall-analyser helps analyze a series of reactor-stall backtraces using a graph.
 Each node in the graph includes:
   `addr` - a program address
+Each link in the graph includes:
   `total` - the total sum of stalls, in milliseconds
-            of all reactor stalls that mention the address.
-  `count` - number of backtraces going through the address
+            of all reactor stalls that pass via this caller/callee link.
+  `count` - number of backtraces going through the link.
 
 When printed, the graph is traversed in descending `total` order
-so that we print stall backtraces that are frequent and long.
+to emphasize stall backtraces that are frequent and long.
 
 Each node in the printed output is preceded with [level#index pct%],
 where `level` is the level of that node in the graph (0 are root nodes),
-`index` is the index in the parent node's list of callers, and
-`pct` is the percantage of this link's `total` time out of the parent's
-`total` stall time.
+`index` is the index in the parent node's list of callers/callees, and
+`pct` is the percantage of this link's `total` time relative to
+its siblings.
 
 When given an executable, addresses are decoding using `addr2line`
 """)
@@ -41,38 +42,33 @@ args = parser.parse_args()
 resolver = addr2line.BacktraceResolver(executable=args.executable) if args.executable else None
 
 class Node:
-    def __init__(self, addr:str, total:int=0, count:int=0):
+    def __init__(self, addr:str):
         self.addr = addr
-        self.total = total
-        self.count = count if count else 1 if total else 0
         self.callers = {}
         self.callees = {}
         self.printed = False
 
     def __repr__(self):
-        return f"Node({self.addr}: total={self.total}, count={self.count}, avg={round(self.total/self.count) if self.count else 0})"
+        return f"Node({self.addr})"
 
     class Link:
         def __init__(self, node, t:int):
             self.node = node
             self.total = t
+            self.count = 1
 
         def __eq__(self, other):
-            return self.total == other.total
+            return self.total == other.total and self.count == other.count
 
         def __ne__(self, other):
             return not (self == other)
 
         def __lt__(self, other):
-            return self.total < other.total
+            return self.total < other.total or self.total == other.total and self.count < other.count
 
         def add(self, t:int):
             self.total += t
-
-    def add(self, t:int):
-        self.total += t
-        self.count += 1
-        return self
+            self.count += 1
 
     def link_caller(self, t:int, n):
         if n.addr in self.callers:
@@ -105,9 +101,8 @@ class Graph:
     def add(self, prev:Node, t:int, addr:str):
         if addr in self.nodes:
             n = self.nodes[addr]
-            n.add(t)
         else:
-            n = Node(addr, t)
+            n = Node(addr)
             self.nodes[addr] = n
         if prev:
             prev.link_caller(t, n)
@@ -137,12 +132,12 @@ class Graph:
             _print(l, width)
 
     def print_graph(self):
-        def _recursive_print_graph(n:Node, level:int=-1, idx:int=0, rel:float=1.0):
+        def _recursive_print_graph(n:Node, total:int=0, count:int=0, level:int=-1, idx:int=0, rel:float=1.0):
             if level >= 0:
-                avg = round(n.total / n.count) if n.count else 0
+                avg = round(total / count) if count else 0
                 l = f"{'|'*level}[{level}#{idx} {round(100*rel)}%] "
                 cont_indent = len(l) - level - 1
-                l += f"addr={n.addr} total={n.total} count={n.count} avg={avg}"
+                l += f"addr={n.addr} total={total} count={count} avg={avg}"
                 if resolver:
                     l += ': '
                     l += re.sub('\n +', f"\n{'|'*(level+1)}{' '*cont_indent}", resolver.resolve_address(n.addr))
@@ -155,7 +150,7 @@ class Graph:
             total = sum(link.total for link in next)
             i = 0
             for link in next:
-                _recursive_print_graph(link.node, level + 1, i, link.total / total)
+                _recursive_print_graph(link.node, link.total, link.count, level + 1, i, link.total / total)
                 i += 1
 
         _recursive_print_graph(self.tail)
