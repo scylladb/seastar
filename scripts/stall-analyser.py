@@ -74,7 +74,7 @@ class Node:
         self.count += 1
         return self
 
-    def link_node(self, t:int, n):
+    def link_caller(self, t:int, n):
         if n.addr in self.callers:
             link = self.callers[n.addr]
             link.add(t)
@@ -83,6 +83,10 @@ class Node:
             self.callers[n.addr] = self.Link(n, t)
             n.callees[self.addr] = self.Link(self, t)
         return n
+
+    def unlink_caller(self, addr:str):
+        link = self.callers.pop(addr)
+        link.node.callees.pop(self.addr)
 
     def sorted_callers(self, descending=True):
         return sorted(list(self.callers.values()), reverse=descending)
@@ -96,7 +100,7 @@ class Graph:
         self.count = 0
         self.total = 0
         self.nodes = {}
-        self.tails = {}
+        self.tail = Node('')
 
     def add(self, prev:Node, t:int, addr:str):
         if addr in self.nodes:
@@ -106,11 +110,11 @@ class Graph:
             n = Node(addr, t)
             self.nodes[addr] = n
         if prev:
-            prev.link_node(t, n)
-            if addr in self.tails:
-                self.tails.pop(addr)
-        elif not n.callees and not addr in self.tails:
-            self.tails[addr] = n
+            prev.link_caller(t, n)
+            if addr in self.tail.callers:
+                self.tail.unlink_caller(addr)
+        elif not n.callees or addr in self.tail.callers:
+            self.tail.link_caller(t, n)
         return n
     
     def smart_print(self, lines:str, width:int):
@@ -133,27 +137,28 @@ class Graph:
             _print(l, width)
 
     def print_graph(self):
-        def _recursive_print_graph(n:Node, level:int=0, idx:int=0, rel:float=1.0):
-            avg = round(n.total / n.count)
-            l = f"{'|'*level}[{level}#{idx} {round(100*rel)}%] "
-            cont_indent = len(l) - level - 1
-            l += f"addr={n.addr} total={n.total} count={n.count} avg={avg}"
-            if resolver:
-                l += ': '
-                l += re.sub('\n +', f"\n{'|'*(level+1)}{' '*cont_indent}", resolver.resolve_address(n.addr))
-            self.smart_print(l, args.width)
-            if n.printed:
-                print(f"{'|'*level}(see above)")
-                return
-            n.printed = True
+        def _recursive_print_graph(n:Node, level:int=-1, idx:int=0, rel:float=1.0):
+            if level >= 0:
+                avg = round(n.total / n.count) if n.count else 0
+                l = f"{'|'*level}[{level}#{idx} {round(100*rel)}%] "
+                cont_indent = len(l) - level - 1
+                l += f"addr={n.addr} total={n.total} count={n.count} avg={avg}"
+                if resolver:
+                    l += ': '
+                    l += re.sub('\n +', f"\n{'|'*(level+1)}{' '*cont_indent}", resolver.resolve_address(n.addr))
+                self.smart_print(l, args.width)
+                if n.printed:
+                    print(f"{'|'*level}(see above)")
+                    return
+                n.printed = True
+            next = n.sorted_callers()
+            total = sum(link.total for link in next)
             i = 0
-            for link in n.sorted_callers():
-                _recursive_print_graph(link.node, level + 1, i, link.total / n.total)
+            for link in next:
+                _recursive_print_graph(link.node, level + 1, i, link.total / total)
                 i += 1
 
-        for r in self.tails.values():
-            print('')
-            _recursive_print_graph(r)
+        _recursive_print_graph(self.tail)
 
 graph = Graph()
 
