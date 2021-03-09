@@ -32,16 +32,20 @@ parser.add_argument('--address-threshold', default='0x100000000',
                     help='Skip common backtrace prefix terminated by one or more addresses greater or equal to the threshold (0=disabled)')
 parser.add_argument('-e', '--executable',
                     help='Decode addresses to lines using given executable')
+parser.add_argument('-f', '--full-addr2line', action='store_const', const=True, default=False,
+                    help='Decode full addr2line information, otherwise print concised report')
 parser.add_argument('-w', '--width', type=int, default=0,
                     help='Smart trim of long lines to width characters (0=disabled)')
 parser.add_argument('-d', '--direction', choices=['top-down', 'bottom-up'], default='top-down',
                     help='Print graph top-down (default, callers first) or bottom-up (callees first)')
+parser.add_argument('-m', '--minimum', type=int, default=0,
+                    help='Process only stalls lasting the given time, in milliseconds, or longer')
 parser.add_argument('file', nargs='?',
                     help='File containing reactor stall backtraces. Read from stdin if missing.')
 
 args = parser.parse_args()
 
-resolver = addr2line.BacktraceResolver(executable=args.executable) if args.executable else None
+resolver = addr2line.BacktraceResolver(executable=args.executable, concise=not args.full_addr2line) if args.executable else None
 
 class Node:
     def __init__(self, addr:str):
@@ -239,6 +243,7 @@ def print_stats(tally:dict):
     data = []
     total_time = 0
     total_count = 0
+    processed_count = 0
     min_time = 1000000
     max_time = 0
     median = None
@@ -254,6 +259,8 @@ def print_stats(tally:dict):
         if t > max_time:
             max_time = t
         total_count += count
+        if t >= args.minimum:
+            processed_count += count
     running_count = 0
     for (t, count) in data:
         running_count += count
@@ -266,6 +273,8 @@ def print_stats(tally:dict):
         elif p999 is None and running_count >= (total_count * 999) / 1000:
             p999 = t
     print(f"Processed {total_count} stalls lasting a total of {total_time} milliseconds.")
+    if args.minimum:
+        print(f"Of which, {processed_count} lasted {args.minimum} milliseconds or longer.")
     avg_time = total_time / total_count if total_count else 0
     print(f"min={min_time} avg={avg_time:.1f} median={median} p95={p95} p99={p99} p999={p999} max={max_time}")
 
@@ -303,7 +312,8 @@ for s in input:
                     i += 1
                 trace = trace[i:]
                 break
-    process_graph(t, trace)
+    if t >= args.minimum:
+        process_graph(t, trace)
 
 try:
     print_stats(tally)

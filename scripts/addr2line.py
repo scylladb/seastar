@@ -26,7 +26,7 @@ import subprocess
 from enum import Enum
 
 class Addr2Line:
-    def __init__(self, binary):
+    def __init__(self, binary, concise=False):
         self._binary = binary
 
         # Print warning if binary has no debug info according to `file`.
@@ -37,26 +37,31 @@ class Addr2Line:
         if s.find('ELF') >= 0 and s.find('debug_info', len(self._binary)) < 0:
             print('{}'.format(s))
 
-        self._addr2line = subprocess.Popen(["addr2line", "-Cfpia", "-e", self._binary], stdin=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
+        options = f"-{'C' if not concise else ''}fpia"
+        self._input = subprocess.Popen(["addr2line", options, "-e", self._binary], stdin=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
+        if concise:
+            self._output = subprocess.Popen(["c++filt", "-p"], stdin=self._input.stdout, stdout=subprocess.PIPE, universal_newlines=True)
+        else:
+            self._output = self._input
 
         # If a library doesn't exist in a particular path, addr2line
         # will just exit.  We need to be robust against that.  We
         # can't just wait on self._addr2line since there is no
         # guarantee on what timeout is sufficient.
-        self._addr2line.stdin.write('\n')
-        self._addr2line.stdin.flush()
-        res = self._addr2line.stdout.readline()
+        self._input.stdin.write('\n')
+        self._input.stdin.flush()
+        res = self._output.stdout.readline()
         self._missing = res == ''
 
     def _read_resolved_address(self):
-        res = self._addr2line.stdout.readline()
+        res = self._output.stdout.readline()
         # remove the address
         res = res.split(': ', 1)[1]
         dummy = '0x0000000000000000: ?? ??:0\n'
         line = ''
         while line != dummy:
             res += line
-            line = self._addr2line.stdout.readline()
+            line = self._output.stdout.readline()
         return res
 
     def __call__(self, address):
@@ -64,8 +69,8 @@ class Addr2Line:
             return " ".join([self._binary, address, '\n'])
         # print two lines to force addr2line to output a dummy
         # line which we can look for in _read_address
-        self._addr2line.stdin.write(address + '\n\n')
-        self._addr2line.stdin.flush()
+        self._input.stdin.write(address + '\n\n')
+        self._input.stdin.flush()
         return self._read_resolved_address()
 
 class BacktraceResolver(object):
@@ -119,7 +124,7 @@ class BacktraceResolver(object):
             #print(f">>> '{line}': None")
             return None
 
-    def __init__(self, executable, before_lines=1, context_re='', verbose=False):
+    def __init__(self, executable, before_lines=1, context_re='', verbose=False, concise=False):
         self._executable = executable
         self._current_backtrace = []
         self._prefix = None
@@ -132,12 +137,13 @@ class BacktraceResolver(object):
         else:
             self._context_re = None
         self._verbose = verbose
-        self._known_modules = {self._executable: Addr2Line(self._executable)}
+        self._concise = concise
+        self._known_modules = {self._executable: Addr2Line(self._executable, concise)}
         self.parser = self.BacktraceParser()
 
     def _get_resolver_for_module(self, module):
         if not module in self._known_modules:
-            self._known_modules[module] = Addr2Line(module)
+            self._known_modules[module] = Addr2Line(module, self._concise)
         return self._known_modules[module]
 
     def __enter__(self):
