@@ -96,7 +96,7 @@ class Graph:
         self.count = 0
         self.total = 0
         self.nodes = {}
-        self.roots = {}
+        self.tails = {}
 
     def add(self, prev:Node, t:int, addr:str):
         if addr in self.nodes:
@@ -107,10 +107,10 @@ class Graph:
             self.nodes[addr] = n
         if prev:
             prev.link_node(t, n)
-            if addr in self.roots:
-                self.roots.pop(addr)
-        elif not n.callees and not addr in self.roots:
-            self.roots[addr] = n
+            if addr in self.tails:
+                self.tails.pop(addr)
+        elif not n.callees and not addr in self.tails:
+            self.tails[addr] = n
         return n
     
     def smart_print(self, lines:str, width:int):
@@ -151,7 +151,7 @@ class Graph:
                 _recursive_print_graph(link.node, level + 1, i, link.total / n.total)
                 i += 1
 
-        for r in self.roots.values():
+        for r in self.tails.values():
             print('')
             _recursive_print_graph(r)
 
