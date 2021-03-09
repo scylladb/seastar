@@ -154,7 +154,8 @@ class Graph:
                 pfx = ""
             print(f"{pfx}...{sfx}")
         for l in lines.splitlines():
-            _print(l, width)
+            if l:
+                _print(l, width)
 
     def print_graph(self, direction:str):
         top_down = (direction == 'top-down')
@@ -179,14 +180,24 @@ This graph is printed in {direction} order, where {'callers' if top_down else 'c
                     p += '+'
                 else:
                     p = ""
-                l = f"[{level}#{idx}/{out_of} {round(100*rel)}%] "
-                cont_indent = len(l)
-                l = f"{prefix}{p}{l}"
-                l += f"addr={n.addr} total={total} count={count} avg={avg}"
+                l = f"[{level}#{idx}/{out_of} {round(100*rel)}%]"
+                cont_indent = len(l) + 1
+                l = f"{prefix}{p}{l} addr={n.addr} total={total} count={count} avg={avg}"
                 p = "| " if level > 0 else ""
                 if resolver:
-                    l += ': '
-                    l += re.sub('\n +', f"\n{prefix}{p}{' '*cont_indent}", resolver.resolve_address(n.addr))
+                    lines = resolver.resolve_address(n.addr).splitlines()
+                    if len(lines) == 1:
+                        li = lines[0]
+                        if li.startswith("??"):
+                            l += f": {lines[0]}"
+                        else:
+                            l += f":\n{prefix}{p}{' '*cont_indent}{li.strip()}"
+                    else:
+                        l += ":\n"
+                        if top_down:
+                            lines.reverse()
+                        for li in lines:
+                            l += f"{prefix}{p}{' '*cont_indent}{li.strip()}\n"
                 self.smart_print(l, args.width)
                 if n.printed:
                     print(f"{prefix}{p}(see above)")
