@@ -98,11 +98,14 @@ class Node:
         link = self.callees.pop(addr)
         link.node.callers.pop(self.addr)
 
+    def sorted_links(self, links:list, descending=True):
+        return sorted([l for l in links if l.node.addr], reverse=descending)
+
     def sorted_callers(self, descending=True):
-        return sorted(list(self.callers.values()), reverse=descending)
+        return self.sorted_links(self.callers.values(), descending)
 
     def sorted_callees(self, descending=True):
-        return sorted(list(self.callees.values()), reverse=descending)
+        return self.sorted_links(self.callees.values(), descending)
 
 class Graph:
     def __init__(self):
