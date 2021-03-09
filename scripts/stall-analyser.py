@@ -161,31 +161,44 @@ class Graph:
         print(f"""
 This graph is printed in {direction} order, where {'callers' if top_down else 'callees'} are printed first.
 
-[level#index pct%] below denotes:
-  level - nesting level in the graph
-  index - index of node among to its siblings
-  pct   - percentage of total stall time of this call relative to its siblings
+[level#index/out_of pct%] below denotes:
+  level  - nesting level in the graph
+  index  - index of node among to its siblings
+  out_of - number of siblings
+  pct    - percentage of total stall time of this call relative to its siblings
 """)
-        def _recursive_print_graph(n:Node, total:int=0, count:int=0, level:int=-1, idx:int=0, rel:float=1.0):
+        def _recursive_print_graph(n:Node, total:int=0, count:int=0, level:int=-1, idx:int=0, out_of:int=0, rel:float=1.0, prefix_list=[]):
             nonlocal top_down
             if level >= 0:
                 avg = round(total / count) if count else 0
-                l = f"{'|'*level}[{level}#{idx} {round(100*rel)}%] "
-                cont_indent = len(l) - level - 1
+                prefix = ''
+                for p in prefix_list:
+                    prefix += p
+                if level > 0:
+                    p = '+' if idx == 1 or idx == out_of else '|'
+                    p += '+'
+                else:
+                    p = ""
+                l = f"[{level}#{idx}/{out_of} {round(100*rel)}%] "
+                cont_indent = len(l)
+                l = f"{prefix}{p}{l}"
                 l += f"addr={n.addr} total={total} count={count} avg={avg}"
+                p = "| " if level > 0 else ""
                 if resolver:
                     l += ': '
-                    l += re.sub('\n +', f"\n{'|'*(level+1)}{' '*cont_indent}", resolver.resolve_address(n.addr))
+                    l += re.sub('\n +', f"\n{prefix}{p}{' '*cont_indent}", resolver.resolve_address(n.addr))
                 self.smart_print(l, args.width)
                 if n.printed:
-                    print(f"{'|'*level}(see above)")
+                    print(f"{prefix}{p}(see above)")
                     return
                 n.printed = True
+            next_prefix_list = prefix_list + ["| " if idx < out_of else "  "] if level > 0 else []
             next = n.sorted_callees() if top_down else n.sorted_callers()
             total = sum(link.total for link in next)
-            i = 0
+            i = 1
+            last_idx = len(next)
             for link in next:
-                _recursive_print_graph(link.node, link.total, link.count, level + 1, i, link.total / total)
+                _recursive_print_graph(link.node, link.total, link.count, level + 1, i, last_idx, link.total / total, next_prefix_list)
                 i += 1
 
         r = self.head if top_down else self.tail
