@@ -158,6 +158,14 @@ class Graph:
 
     def print_graph(self, direction:str):
         top_down = (direction == 'top-down')
+        print(f"""
+This graph is printed in {direction} order, where {'callers' if top_down else 'callees'} are printed first.
+
+[level#index pct%] below denotes:
+  level - nesting level in the graph
+  index - index of node among to its siblings
+  pct   - percentage of total stall time of this call relative to its siblings
+""")
         def _recursive_print_graph(n:Node, total:int=0, count:int=0, level:int=-1, idx:int=0, rel:float=1.0):
             nonlocal top_down
             if level >= 0:
