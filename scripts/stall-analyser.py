@@ -209,6 +209,41 @@ def process_graph(t: int, trace: list[str]):
     graph.add_head(t, n)
 
 address_threshold = int(args.address_threshold, 0)
+tally = {}
+
+def print_stats(tally:dict):
+    data = []
+    total_time = 0
+    total_count = 0
+    min_time = 1000000
+    max_time = 0
+    median = None
+    p95 = None
+    p99 = None
+    p999 = None
+    for t in sorted(tally.keys()):
+        count = tally[t]
+        data.append((t, count))
+        total_time += t * count
+        if t < min_time:
+            min_time = t
+        if t > max_time:
+            max_time = t
+        total_count += count
+    running_count = 0
+    for (t, count) in data:
+        running_count += count
+        if median is None and running_count >= total_count / 2:
+            median = t
+        elif p95 is None and running_count >= (total_count * 95) / 100:
+            p95 = t
+        elif p99 is None and running_count >= (total_count * 99) / 100:
+            p99 = t
+        elif p999 is None and running_count >= (total_count * 999) / 1000:
+            p999 = t
+    print(f"Processed {total_count} stalls lasting a total of {total_time} milliseconds.")
+    avg_time = total_time / total_count if total_count else 0
+    print(f"min={min_time} avg={avg_time:.1f} median={median} p95={p95} p99={p99} p999={p999} max={max_time}")
 
 input = open(args.file) if args.file else sys.stdin
 count = 0
@@ -223,6 +258,7 @@ for s in input:
             i += 3
             break
     t = int(trace[i])
+    tally[t] = tally.pop(t, 0) + 1
     trace = trace[i + 6:]
     # The address_threshold typically indicates a library call
     # and the backtrace up-to and including it are usually of
@@ -246,6 +282,7 @@ for s in input:
     process_graph(t, trace)
 
 try:
+    print_stats(tally)
     graph.print_graph(args.direction)
 except BrokenPipeError:
     pass
