@@ -84,6 +84,20 @@ class Node:
         link = self.callers.pop(addr)
         link.node.callees.pop(self.addr)
 
+    def link_callee(self, t:int, n):
+        if n.addr in self.callees:
+            link = self.callees[n.addr]
+            link.add(t)
+            n.callers[self.addr].add(t)
+        else:
+            self.callees[n.addr] = self.Link(n, t)
+            n.callers[self.addr] = self.Link(self, t)
+        return n
+
+    def unlink_callee(self, addr:str):
+        link = self.callees.pop(addr)
+        link.node.callers.pop(self.addr)
+
     def sorted_callers(self, descending=True):
         return sorted(list(self.callers.values()), reverse=descending)
 
@@ -97,6 +111,7 @@ class Graph:
         self.total = 0
         self.nodes = {}
         self.tail = Node('')
+        self.head = Node('')
 
     def add(self, prev:Node, t:int, addr:str):
         if addr in self.nodes:
@@ -105,13 +120,18 @@ class Graph:
             n = Node(addr)
             self.nodes[addr] = n
         if prev:
+            if prev.addr in self.head.callees:
+                self.head.unlink_callee(prev.addr)
             prev.link_caller(t, n)
             if addr in self.tail.callers:
                 self.tail.unlink_caller(addr)
         elif not n.callees or addr in self.tail.callers:
             self.tail.link_caller(t, n)
         return n
-    
+
+    def add_head(self, t:int, n:Node):
+        self.head.link_callee(t, n)
+
     def smart_print(self, lines:str, width:int):
         def _print(l:str, width:int):
             if not width or len(l) <= width:
@@ -170,6 +190,7 @@ def process_graph(t: int, trace: list[str]):
     n = None
     for addr in trace:
         n = graph.add(n, t, addr)
+    graph.add_head(t, n)
 
 address_threshold = int(args.address_threshold, 0)
 
