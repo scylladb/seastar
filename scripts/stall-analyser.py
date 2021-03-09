@@ -40,6 +40,8 @@ parser.add_argument('-d', '--direction', choices=['top-down', 'bottom-up'], defa
                     help='Print graph top-down (default, callers first) or bottom-up (callees first)')
 parser.add_argument('-m', '--minimum', type=int, default=0,
                     help='Process only stalls lasting the given time, in milliseconds, or longer')
+parser.add_argument('-b', '--branch-threshold', type=float, default=0.05,
+                    help='Drop branches responsible for less than this threshold relative to the previous level, not global. (default 5%%)')
 parser.add_argument('file', nargs='?',
                     help='File containing reactor stall backtraces. Read from stdin if missing.')
 
@@ -210,6 +212,7 @@ This graph is printed in {direction} order, where {'callers' if top_down else 'c
             next_prefix_list = prefix_list + ["| " if idx < out_of else "  "] if level > 0 else []
             next = n.sorted_callees() if top_down else n.sorted_callers()
             total = sum(link.total for link in next)
+            next = [link for link in next if link.total / total >= args.branch_threshold]
             i = 1
             last_idx = len(next)
             for link in next:
