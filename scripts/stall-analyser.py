@@ -34,6 +34,8 @@ parser.add_argument('-e', '--executable',
                     help='Decode addresses to lines using given executable')
 parser.add_argument('-w', '--width', type=int, default=0,
                     help='Smart trim of long lines to width characters (0=disabled)')
+parser.add_argument('-d', '--direction', choices=['top-down', 'bottom-up'], default='top-down',
+                    help='Print graph top-down (default, callers first) or bottom-up (callees first)')
 parser.add_argument('file', nargs='?',
                     help='File containing reactor stall backtraces. Read from stdin if missing.')
 
@@ -154,8 +156,10 @@ class Graph:
         for l in lines.splitlines():
             _print(l, width)
 
-    def print_graph(self):
+    def print_graph(self, direction:str):
+        top_down = (direction == 'top-down')
         def _recursive_print_graph(n:Node, total:int=0, count:int=0, level:int=-1, idx:int=0, rel:float=1.0):
+            nonlocal top_down
             if level >= 0:
                 avg = round(total / count) if count else 0
                 l = f"{'|'*level}[{level}#{idx} {round(100*rel)}%] "
@@ -169,14 +173,15 @@ class Graph:
                     print(f"{'|'*level}(see above)")
                     return
                 n.printed = True
-            next = n.sorted_callers()
+            next = n.sorted_callees() if top_down else n.sorted_callers()
             total = sum(link.total for link in next)
             i = 0
             for link in next:
                 _recursive_print_graph(link.node, link.total, link.count, level + 1, i, link.total / total)
                 i += 1
 
-        _recursive_print_graph(self.tail)
+        r = self.head if top_down else self.tail
+        _recursive_print_graph(r)
 
 graph = Graph()
 
@@ -233,6 +238,6 @@ for s in input:
     process_graph(t, trace)
 
 try:
-    graph.print_graph()
+    graph.print_graph(args.direction)
 except BrokenPipeError:
     pass
