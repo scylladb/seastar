@@ -181,15 +181,12 @@ This graph is printed in {direction} order, where {'callers' if top_down else 'c
                 prefix = ''
                 for p in prefix_list:
                     prefix += p
-                if level > 0:
-                    p = '+' if idx == 1 or idx == out_of else '|'
-                    p += '+'
-                else:
-                    p = ""
+                p = '+' if idx == 1 or idx == out_of else '|'
+                p += '+'
                 l = f"[{level}#{idx}/{out_of} {round(100*rel)}%]"
                 cont_indent = len(l) + 1
                 l = f"{prefix}{p}{l} addr={n.addr} total={total} count={count} avg={avg}"
-                p = "| " if level > 0 else ""
+                p = "| "
                 if resolver:
                     lines = resolver.resolve_address(n.addr).splitlines()
                     if len(lines) == 1:
@@ -209,7 +206,7 @@ This graph is printed in {direction} order, where {'callers' if top_down else 'c
                     print(f"{prefix}{p}(see above)")
                     return
                 n.printed = True
-            next_prefix_list = prefix_list + ["| " if idx < out_of else "  "] if level > 0 else []
+            next_prefix_list = prefix_list + ["| " if idx < out_of else "  "] if level >= 0 else []
             next = n.sorted_callees() if top_down else n.sorted_callers()
             total = sum(link.total for link in next)
             next = [link for link in next if link.total / total >= args.branch_threshold]
