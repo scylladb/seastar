@@ -187,13 +187,17 @@ This graph is printed in {direction} order, where {'callers' if top_down else 'c
                 clopts += f" --{opt}"
         print(f"Command line options:{clopts}\n")
 
+        def _prefix(prefix_list:list):
+            prefix = ''
+            for p in prefix_list:
+                prefix += p
+            return prefix
+
         def _recursive_print_graph(n:Node, total:int=0, count:int=0, level:int=-1, idx:int=0, out_of:int=0, rel:float=1.0, prefix_list=[]):
             nonlocal top_down
             if level >= 0:
                 avg = round(total / count) if count else 0
-                prefix = ''
-                for p in prefix_list:
-                    prefix += p
+                prefix = _prefix(prefix_list)
                 p = '+' if idx == 1 or idx == out_of else '|'
                 p += '+'
                 l = f"[{level}#{idx}/{out_of} {round(100*rel)}%]"
@@ -223,12 +227,28 @@ This graph is printed in {direction} order, where {'callers' if top_down else 'c
             next_prefix_list = prefix_list + ["| " if idx < out_of else "  "] if level >= 0 else []
             next = n.sorted_callees() if top_down else n.sorted_callers()
             total = sum(link.total for link in next)
-            next = [link for link in next if link.total / total >= args.branch_threshold]
             i = 1
             last_idx = len(next)
+            omitted_idx = 0
+            omitted_total = 0
+            omitted_count = 0
             for link in next:
-                _recursive_print_graph(link.node, link.total, link.count, level + 1, i, last_idx, link.total / total, next_prefix_list)
+                rel = link.total / total
+                if rel < args.branch_threshold:
+                    if not omitted_idx:
+                        omitted_idx = i
+                    omitted_total += link.total
+                    omitted_count += link.count
+                else:
+                    _recursive_print_graph(link.node, link.total, link.count, level + 1, i, last_idx, rel, next_prefix_list)
                 i += 1
+            if omitted_idx:
+                prefix = _prefix(next_prefix_list)
+                p = '++'
+                rel = omitted_total / total
+                avg = round(omitted_total / omitted_count) if count else 0
+                l = f"[{level+1}#{omitted_idx}/{last_idx} {round(100*rel)}%]"
+                print(f"{prefix}{p}{l} {last_idx - omitted_idx} more branches total={omitted_total} count={omitted_count} avg={avg}")
 
         r = self.head if top_down else self.tail
         _recursive_print_graph(r)
