@@ -34,11 +34,11 @@ parser.add_argument('-e', '--executable',
                     help='Decode addresses to lines using given executable')
 parser.add_argument('-f', '--full-addr2line', action='store_const', const=True, default=False,
                     help='Decode full addr2line information, otherwise print concised report')
-parser.add_argument('-w', '--width', type=int, default=0,
+parser.add_argument('-w', '--width', type=int, default=None,
                     help='Smart trim of long lines to width characters (0=disabled)')
 parser.add_argument('-d', '--direction', choices=['top-down', 'bottom-up'], default='top-down',
                     help='Print graph top-down (default, callers first) or bottom-up (callees first)')
-parser.add_argument('-m', '--minimum', type=int, default=0,
+parser.add_argument('-m', '--minimum', type=int, default=None,
                     help='Process only stalls lasting the given time, in milliseconds, or longer')
 parser.add_argument('-b', '--branch-threshold', type=float, default=0.05,
                     help='Drop branches responsible for less than this threshold relative to the previous level, not global. (default 5%%)')
@@ -174,6 +174,19 @@ This graph is printed in {direction} order, where {'callers' if top_down else 'c
   out_of - number of siblings
   pct    - percentage of total stall time of this call relative to its siblings
 """)
+        varargs = vars(args)
+        clopts = ""
+        for k in varargs.keys():
+            val = varargs[k]
+            opt = re.sub('_', '-', k)
+            if val is None:
+                continue
+            elif not isinstance(val, bool):
+                clopts += f" --{opt}={val}"
+            elif val:
+                clopts += f" --{opt}"
+        print(f"Command line options:{clopts}\n")
+
         def _recursive_print_graph(n:Node, total:int=0, count:int=0, level:int=-1, idx:int=0, out_of:int=0, rel:float=1.0, prefix_list=[]):
             nonlocal top_down
             if level >= 0:
@@ -201,7 +214,8 @@ This graph is printed in {direction} order, where {'callers' if top_down else 'c
                             lines.reverse()
                         for li in lines:
                             l += f"{prefix}{p}{' '*cont_indent}{li.strip()}\n"
-                self.smart_print(l, args.width)
+                width = args.width or 0
+                self.smart_print(l, width)
                 if n.printed:
                     print(f"{prefix}{p}(see above)")
                     return
@@ -239,7 +253,7 @@ def process_graph(t: int, trace: list[str]):
 address_threshold = int(args.address_threshold, 0)
 tally = {}
 
-def print_stats(tally:dict):
+def print_stats(tally:dict, tmin):
     data = []
     total_time = 0
     total_count = 0
@@ -259,7 +273,7 @@ def print_stats(tally:dict):
         if t > max_time:
             max_time = t
         total_count += count
-        if t >= args.minimum:
+        if t >= tmin:
             processed_count += count
     running_count = 0
     for (t, count) in data:
@@ -273,8 +287,8 @@ def print_stats(tally:dict):
         elif p999 is None and running_count >= (total_count * 999) / 1000:
             p999 = t
     print(f"Processed {total_count} stalls lasting a total of {total_time} milliseconds.")
-    if args.minimum:
-        print(f"Of which, {processed_count} lasted {args.minimum} milliseconds or longer.")
+    if tmin:
+        print(f"Of which, {processed_count} lasted {tmin} milliseconds or longer.")
     avg_time = total_time / total_count if total_count else 0
     print(f"min={min_time} avg={avg_time:.1f} median={median} p95={p95} p99={p99} p999={p999} max={max_time}")
 
@@ -312,11 +326,12 @@ for s in input:
                     i += 1
                 trace = trace[i:]
                 break
-    if t >= args.minimum:
+    tmin = args.minimum or 0
+    if t >= tmin:
         process_graph(t, trace)
 
 try:
-    print_stats(tally)
+    print_stats(tally, tmin)
     graph.print_graph(args.direction)
 except BrokenPipeError:
     pass
