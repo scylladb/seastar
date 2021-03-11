@@ -57,9 +57,8 @@ class io_intent {
     struct references {
         internal::intent_reference::container_type list;
 
-        references(references&&) noexcept = default;
-
-        references() noexcept = default;
+        references(references&& o) noexcept : list(std::move(o.list)) {}
+        references() noexcept : list() {}
         ~references() { clear(); }
 
         void clear() {
