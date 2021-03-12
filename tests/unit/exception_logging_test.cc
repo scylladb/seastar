@@ -74,8 +74,8 @@ std::string exception_generator_str(uint32_t test_instance,int nesting_level) {
     std::ostringstream ret;
     const std::string runtime_err_str = "std::runtime_error";
     const std::string exception_level_fmt_str = "Exception Level {}";
-    const std::string unknown_obj_str = "unknown_obj (no extra info)";
-    const std::string nested_exception_with_unknown_obj_str = "std::_Nested_exception<unknown_obj>: unknown nested type";
+    const std::string unknown_obj_str = "unknown_obj";
+    const std::string nested_exception_with_unknown_obj_str = "std::_Nested_exception<unknown_obj>";
     const std::string nested_exception_with_runtime_err_str = "std::_Nested_exception<std::runtime_error>";
 
     for(; nesting_level > 0; nesting_level--) {
@@ -126,7 +126,7 @@ BOOST_AUTO_TEST_CASE(nested_exception_logging2) {
         log_msg << std::current_exception();
     }
 
-    BOOST_REQUIRE_EQUAL(log_msg.str(), std::string("std::nested_exception: unknown nested type: <no exception>"));
+    BOOST_REQUIRE_EQUAL(log_msg.str(), std::string("std::nested_exception: <no exception>"));
 }
 
 BOOST_AUTO_TEST_CASE(unknown_object_thrown_test) {
@@ -137,6 +137,6 @@ BOOST_AUTO_TEST_CASE(unknown_object_thrown_test) {
         log_msg << std::current_exception();
     }
 
-    BOOST_REQUIRE_EQUAL(log_msg.str(), std::string("unknown_obj (no extra info)"));
+    BOOST_REQUIRE_EQUAL(log_msg.str(), std::string("unknown_obj"));
 
 }
