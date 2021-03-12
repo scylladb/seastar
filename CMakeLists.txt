@@ -951,6 +951,12 @@ if (ErrorUnused_FOUND)
   endif ()
 endif ()
 
+seastar_supports_flag ("-Wno-error=#warnings" ErrorWarnings_FOUND)
+if (ErrorWarnings_FOUND)
+  target_compile_options (seastar
+      PUBLIC "-Wno-error=#warnings")
+endif ()
+
 if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (CMAKE_BUILD_TYPE STREQUAL "Sanitize"))
   target_compile_definitions (seastar
     PUBLIC
