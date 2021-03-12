@@ -792,7 +792,7 @@ target_compile_definitions(seastar
   SEASTAR_API_LEVEL=${Seastar_API_LEVEL})
 
 function (seastar_supports_flag flag var)
-  set (CMAKE_REQUIRED_FLAGS ${flag})
+  set (CMAKE_REQUIRED_FLAGS "${flag}")
   check_cxx_source_compiles ("int main() { return 0; }" tmp_${var})
   set (${var} ${tmp_${var}} PARENT_SCOPE)
 endfunction ()
