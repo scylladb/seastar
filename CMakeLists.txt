@@ -793,8 +793,8 @@ target_compile_definitions(seastar
 
 function (seastar_supports_flag flag var)
   set (CMAKE_REQUIRED_FLAGS ${flag})
-  check_cxx_source_compiles ("int main() { return 0; }" result)
-  set (${var} ${result} PARENT_SCOPE)
+  check_cxx_source_compiles ("int main() { return 0; }" tmp_${var})
+  set (${var} ${tmp_${var}} PARENT_SCOPE)
 endfunction ()
 
 seastar_supports_flag ("-Wno-maybe-uninitialized -Werror" MaybeUninitialized_FOUND)
