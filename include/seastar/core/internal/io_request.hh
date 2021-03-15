@@ -60,6 +60,8 @@ private:
         socklen_t socklen;
     } _size;
 
+    bool _nowait_works;
+
     explicit io_request(operation op, int fd, int flags, ::msghdr* msg)
         : _op(op)
         , _fd(fd)
@@ -93,9 +95,20 @@ private:
         _size.len = size;
     }
 
-    explicit io_request(operation op, int fd, uint64_t pos, iovec* ptr, size_t size)
+    explicit io_request(operation op, int fd, uint64_t pos, char* ptr, size_t size, bool nowait_works)
         : _op(op)
         , _fd(fd)
+        , _nowait_works(nowait_works)
+    {
+        _attr.pos = pos;
+        _ptr.addr = ptr;
+        _size.len = size;
+    }
+
+    explicit io_request(operation op, int fd, uint64_t pos, iovec* ptr, size_t size, bool nowait_works)
+        : _op(op)
+        , _fd(fd)
+        , _nowait_works(nowait_works)
     {
         _attr.pos = pos;
         _ptr.iovec = ptr;
@@ -198,12 +211,16 @@ public:
         return _size.socklen_ptr;
     }
 
-    static io_request make_read(int fd, uint64_t pos, void* address, size_t size) {
-        return io_request(operation::read, fd, pos, reinterpret_cast<char*>(address), size);
+    bool nowait_works() const {
+        return _nowait_works;
     }
 
-    static io_request make_readv(int fd, uint64_t pos, std::vector<iovec>& iov) {
-        return io_request(operation::readv, fd, pos, iov.data(), iov.size());
+    static io_request make_read(int fd, uint64_t pos, void* address, size_t size, bool nowait_works) {
+        return io_request(operation::read, fd, pos, reinterpret_cast<char*>(address), size, nowait_works);
+    }
+
+    static io_request make_readv(int fd, uint64_t pos, std::vector<iovec>& iov, bool nowait_works) {
+        return io_request(operation::readv, fd, pos, iov.data(), iov.size(), nowait_works);
     }
 
     static io_request make_recv(int fd, void* address, size_t size, int flags) {
@@ -222,12 +239,12 @@ public:
         return io_request(operation::sendmsg, fd, flags, msg);
     }
 
-    static io_request make_write(int fd, uint64_t pos, const void* address, size_t size) {
-        return io_request(operation::write, fd, pos, const_cast<char*>(reinterpret_cast<const char*>(address)), size);
+    static io_request make_write(int fd, uint64_t pos, const void* address, size_t size, bool nowait_works) {
+        return io_request(operation::write, fd, pos, const_cast<char*>(reinterpret_cast<const char*>(address)), size, nowait_works);
     }
 
-    static io_request make_writev(int fd, uint64_t pos, std::vector<iovec>& iov) {
-        return io_request(operation::writev, fd, pos, iov.data(), iov.size());
+    static io_request make_writev(int fd, uint64_t pos, std::vector<iovec>& iov, bool nowait_works) {
+        return io_request(operation::writev, fd, pos, iov.data(), iov.size(), nowait_works);
     }
 
     static io_request make_fdatasync(int fd) {

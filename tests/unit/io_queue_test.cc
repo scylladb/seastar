@@ -41,7 +41,7 @@ struct fake_file {
 
     static internal::io_request make_write_req(size_t idx, int val) {
         int* buf = new int(val);
-        return internal::io_request::make_write(0, idx, buf, 1);
+        return internal::io_request::make_write(0, idx, buf, 1, false);
     }
 
     void execute_write_req(internal::io_request& rq, io_completion* desc) {

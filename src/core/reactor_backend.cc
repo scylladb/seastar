@@ -59,19 +59,19 @@ void prepare_iocb(io_request& req, io_completion* desc, iocb& iocb) {
         break;
     case io_request::operation::write:
         iocb = make_write_iocb(req.fd(), req.pos(), req.address(), req.size());
-        set_nowait(iocb, true);
+        set_nowait(iocb, req.nowait_works());
         break;
     case io_request::operation::writev:
         iocb = make_writev_iocb(req.fd(), req.pos(), req.iov(), req.size());
-        set_nowait(iocb, true);
+        set_nowait(iocb, req.nowait_works());
         break;
     case io_request::operation::read:
         iocb = make_read_iocb(req.fd(), req.pos(), req.address(), req.size());
-        set_nowait(iocb, true);
+        set_nowait(iocb, req.nowait_works());
         break;
     case io_request::operation::readv:
         iocb = make_readv_iocb(req.fd(), req.pos(), req.iov(), req.size());
-        set_nowait(iocb, true);
+        set_nowait(iocb, req.nowait_works());
         break;
     default:
         seastar_logger.error("Invalid operation for iocb: {}", req.opname());

@@ -75,8 +75,9 @@ file_handle::to_file() && {
     return file(std::move(*_impl).to_file());
 }
 
-posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, uint32_t block_size)
+posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, uint32_t block_size, bool nowait_works)
         : _device_id(device_id)
+        , _nowait_works(nowait_works)
         , _io_queue(&(engine().get_io_queue(_device_id)))
         , _open_flags(f)
         , _fd(fd)
@@ -116,7 +117,8 @@ posix_file_impl::dup() {
         _refcount = new std::atomic<unsigned>(1u);
     }
     auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _device_id,
-            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment, _disk_overwrite_dma_alignment);
+            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment, _disk_overwrite_dma_alignment,
+            _nowait_works);
     _refcount->fetch_add(1, std::memory_order_relaxed);
     return ret;
 }
@@ -125,9 +127,11 @@ posix_file_impl::posix_file_impl(int fd, open_flags f, std::atomic<unsigned>* re
         uint32_t memory_dma_alignment,
         uint32_t disk_read_dma_alignment,
         uint32_t disk_write_dma_alignment,
-        uint32_t disk_overwrite_dma_alignment)
+        uint32_t disk_overwrite_dma_alignment,
+        bool nowait_works)
         : _refcount(refcount)
         , _device_id(device_id)
+        , _nowait_works(nowait_works)
         , _io_queue(&(engine().get_io_queue(_device_id)))
         , _open_flags(f)
         , _fd(fd) {
@@ -336,27 +340,27 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
 
 future<size_t>
 posix_file_impl::do_write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& io_priority_class, io_intent* intent) noexcept {
-    auto req = internal::io_request::make_write(_fd, pos, buffer, len);
+    auto req = internal::io_request::make_write(_fd, pos, buffer, len, _nowait_works);
     return engine().submit_io_write(_io_queue, io_priority_class, len, std::move(req), intent);
 }
 
 future<size_t>
 posix_file_impl::do_write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class, io_intent* intent) noexcept {
     auto len = internal::sanitize_iovecs(iov, _disk_write_dma_alignment);
-    auto req = internal::io_request::make_writev(_fd, pos, iov);
+    auto req = internal::io_request::make_writev(_fd, pos, iov, _nowait_works);
     return engine().submit_io_write(_io_queue, io_priority_class, len, std::move(req), intent).finally([iov = std::move(iov)] () {});
 }
 
 future<size_t>
 posix_file_impl::do_read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& io_priority_class, io_intent* intent) noexcept {
-    auto req = internal::io_request::make_read(_fd, pos, buffer, len);
+    auto req = internal::io_request::make_read(_fd, pos, buffer, len, _nowait_works);
     return engine().submit_io_read(_io_queue, io_priority_class, len, std::move(req), intent);
 }
 
 future<size_t>
 posix_file_impl::do_read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class, io_intent* intent) noexcept {
     auto len = internal::sanitize_iovecs(iov, _disk_read_dma_alignment);
-    auto req = internal::io_request::make_readv(_fd, pos, iov);
+    auto req = internal::io_request::make_readv(_fd, pos, iov, _nowait_works);
     return engine().submit_io_read(_io_queue, io_priority_class, len, std::move(req), intent).finally([iov = std::move(iov)] () {});
 }
 
@@ -489,8 +493,10 @@ posix_file_impl::read_maybe_eof(uint64_t pos, size_t len, const io_priority_clas
     });
 }
 
+static bool blockdev_nowait_works = kernel_uname().whitelisted({"4.13"});
+
 blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, size_t block_size)
-        : posix_file_impl(fd, f, options, device_id, block_size) {
+        : posix_file_impl(fd, f, options, device_id, block_size, blockdev_nowait_works) {
 }
 
 future<>
@@ -541,8 +547,8 @@ blockdev_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, const io_p
 }
 
 append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, open_flags f, file_open_options options,
-        unsigned max_size_changing_ops, bool fsync_is_exclusive, dev_t device_id, size_t block_size)
-        : posix_file_impl(fd, f, options, device_id, block_size)
+        unsigned max_size_changing_ops, bool fsync_is_exclusive, dev_t device_id, size_t block_size, bool nowait_works)
+        : posix_file_impl(fd, f, options, device_id, block_size, nowait_works)
         , _max_size_changing_ops(max_size_changing_ops)
         , _fsync_is_exclusive(fsync_is_exclusive) {
     auto r = ::lseek(fd, 0, SEEK_END);
@@ -841,7 +847,7 @@ posix_file_handle_impl::~posix_file_handle_impl() {
 std::unique_ptr<seastar::file_handle_impl>
 posix_file_handle_impl::clone() const {
     auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _device_id,
-            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment, _disk_overwrite_dma_alignment);
+            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment, _disk_overwrite_dma_alignment, _nowait_works);
     if (_refcount) {
         _refcount->fetch_add(1, std::memory_order_relaxed);
     }
@@ -851,7 +857,7 @@ posix_file_handle_impl::clone() const {
 shared_ptr<file_impl>
 posix_file_handle_impl::to_file() && {
     auto ret = ::seastar::make_shared<posix_file_real_impl>(_fd, _open_flags, _refcount, _device_id,
-            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment, _disk_overwrite_dma_alignment);
+            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment, _disk_overwrite_dma_alignment, _nowait_works);
     _fd = -1;
     _refcount = nullptr;
     return ret;
@@ -889,12 +895,13 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
             if ((flags & O_ACCMODE) == O_RDONLY || S_ISDIR(st.st_mode)) {
                 // Directories don't care about block size, so we need not
                 // query it here. Just provide something reasonable.
-                return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), options, st_dev, /* blocksize */ 4096));
+                return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), options, st_dev, /* blocksize */ 4096, false));
             }
             struct append_support {
                 bool append_challenged;
                 unsigned append_concurrency;
                 bool fsync_is_exclusive;
+                bool nowait_works;
             };
             struct fs_info {
                 append_support append_support_;
@@ -911,30 +918,47 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
                         static auto xc = xfs_concurrency_from_kernel_version();
                         as.append_concurrency = xc;
                         as.fsync_is_exclusive = true;
+                        as.nowait_works = kernel_uname().whitelisted({"4.13"});
                         break;
                     case 0x6969: /* NFS */
                         as.append_challenged = false;
                         as.append_concurrency = 0;
                         as.fsync_is_exclusive = false;
+                        as.nowait_works = kernel_uname().whitelisted({"4.13"});
                         break;
                     case 0xEF53: /* EXT4 */
                         as.append_challenged = true;
                         as.append_concurrency = 0;
                         as.fsync_is_exclusive = false;
+                        as.nowait_works = kernel_uname().whitelisted({"5.5"});
+                        break;
+                    case 0x9123683E: /* BTRFS */
+                        as.append_challenged = true;
+                        as.append_concurrency = 0;
+                        as.fsync_is_exclusive = true;
+                        as.nowait_works = kernel_uname().whitelisted({"5.9"});
+                        break;
+                    case 0x01021994: /* TMPFS */
+                    case 0x65735546: /* FUSE */
+                        as.append_challenged = false;
+                        as.append_concurrency = 999;
+                        as.fsync_is_exclusive = false;
+                        as.nowait_works = false;
                         break;
                     default:
                         as.append_challenged = true;
                         as.append_concurrency = 0;
                         as.fsync_is_exclusive = true;
+                        as.nowait_works = kernel_uname().whitelisted({"4.13"});
                     }
                     s_fstype[st_dev] = fs_info{as, block_size};
                 });
             return get_fs_info.then([st_dev, fd, flags, options = std::move(options)] () mutable {
                 auto [as, block_size] = s_fstype[st_dev];
                 if (!as.append_challenged) {
-                    return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), st_dev, block_size));
+                    return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), st_dev, block_size, as.nowait_works));
                 }
-                return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), as.append_concurrency, as.fsync_is_exclusive, st_dev, block_size));
+                return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), as.append_concurrency, as.fsync_is_exclusive, st_dev, block_size, as.nowait_works));
             });
         }
     });

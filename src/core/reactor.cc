@@ -533,8 +533,9 @@ constexpr std::chrono::milliseconds lowres_clock_impl::_granularity;
 constexpr unsigned reactor::max_queues;
 constexpr unsigned reactor::max_aio_per_queue;
 
-// Broken (returns spurious EIO). Cause/fix unknown.
-bool aio_nowait_supported = false;
+// Base version where this works; some filesystems were only fixed later, so
+// this value is mixed in with filesystem-provided values later.
+bool aio_nowait_supported = kernel_uname().whitelisted({"4.13"});
 
 static bool sched_debug() {
     return false;
