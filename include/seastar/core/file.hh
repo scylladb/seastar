@@ -78,6 +78,9 @@ struct file_open_options {
     bool sloppy_size = false; ///< Allow the file size not to track the amount of data written until a flush
     uint64_t sloppy_size_hint = 1 << 20; ///< Hint as to what the eventual file size will be
     file_permissions create_permissions = file_permissions::default_file_permissions; ///< File permissions to use when creating a file
+
+    // The fsxattr.fsx_extsize is 32-bit
+    static constexpr uint64_t max_extent_allocation_size_hint = 1 << 31;
 };
 
 class file;

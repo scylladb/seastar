@@ -1670,7 +1670,8 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
                 fsxattr attr = {};
                 if (options.extent_allocation_size_hint) {
                     attr.fsx_xflags |= XFS_XFLAG_EXTSIZE;
-                    attr.fsx_extsize = options.extent_allocation_size_hint;
+                    attr.fsx_extsize = std::min(options.extent_allocation_size_hint,
+                                        file_open_options::max_extent_allocation_size_hint);
                 }
                 // Ignore error; may be !xfs, and just a hint anyway
                 ::ioctl(fd, XFS_IOC_FSSETXATTR, &attr);
