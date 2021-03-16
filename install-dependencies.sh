@@ -91,6 +91,9 @@ redhat_packages=(
     diffutils
     doxygen
     openssl
+    fmt-devel
+    boost-devel
+    valgrind-devel
     "${transitive[@]}"
 )
 
