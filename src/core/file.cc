@@ -575,9 +575,14 @@ append_challenged_posix_file_impl::must_run_alone(const op& candidate) const noe
 }
 
 bool
+append_challenged_posix_file_impl::appending_write(const op& candidate) const noexcept {
+    return (candidate.type == opcode::write) &&
+            (candidate.pos + candidate.len > _committed_size);
+}
+
+bool
 append_challenged_posix_file_impl::size_changing(const op& candidate) const noexcept {
-    return (candidate.type == opcode::write && candidate.pos + candidate.len > _committed_size)
-            || must_run_alone(candidate);
+    return appending_write(candidate) || must_run_alone(candidate);
 }
 
 bool
@@ -618,7 +623,8 @@ append_challenged_posix_file_impl::optimize_queue() noexcept {
         if (must_run_alone(op)) {
             break;
         }
-        if (op.type == opcode::write && op.pos + op.len > _committed_size) {
+
+        if (appending_write(op)) {
             speculative_size = std::max(speculative_size, op.pos + op.len);
             ++n_appending_writes;
         }
