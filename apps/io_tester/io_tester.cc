@@ -115,6 +115,7 @@ struct job_config {
     // system with many shards we'll naturally have many files and that will push the data out
     // of the disk's cache
     uint64_t file_size;
+    uint64_t offset_in_bdev;
     std::unique_ptr<class_data> gen_class_data();
 };
 
@@ -127,6 +128,7 @@ protected:
     job_config _config;
     uint64_t _alignment;
     uint64_t _last_pos = 0;
+    uint64_t _offset = 0;
 
     io_priority_class _iop;
     seastar::scheduling_group _sg;
@@ -140,7 +142,7 @@ protected:
     std::uniform_int_distribution<uint32_t> _pos_distribution;
     file _file;
 
-    virtual future<> do_start(sstring dir) = 0;
+    virtual future<> do_start(sstring dir, directory_entry_type type) = 0;
     virtual future<size_t> issue_request(char *buf) = 0;
 public:
     static int idgen();
@@ -194,8 +196,8 @@ public:
     // random writes     : will overwrite the file at a random position, between 0 and EOF
     // append            : will write to the file from pos = EOF onwards, always appending to the end.
     // cpu               : CPU-only load, file is not created.
-    future<> start(sstring dir) {
-        return do_start(dir);
+    future<> start(sstring dir, directory_entry_type type) {
+        return do_start(dir, type);
     }
 
     future<> stop() {
@@ -291,7 +293,7 @@ protected:
             }
         }
         _last_pos = pos;
-        return pos;
+        return pos + _offset;
     }
 
     void add_result(size_t data, std::chrono::microseconds latency) {
@@ -308,7 +310,20 @@ class io_class_data : public class_data {
 public:
     io_class_data(job_config cfg) : class_data(std::move(cfg)) {}
 
-    future<> do_start(sstring dir) override {
+    future<> do_start(sstring path, directory_entry_type type) override {
+        if (type == directory_entry_type::directory) {
+            return do_start_on_directory(path);
+        }
+
+        if (type == directory_entry_type::block_device) {
+            return do_start_on_bdev(path);
+        }
+
+        throw std::runtime_error(format("Unsupported storage. {} should be directory or block device", path));
+    }
+
+private:
+    future<> do_start_on_directory(sstring dir) {
         auto fname = format("{}/test-{}-{:d}", dir, name(), this_shard_id());
         auto flags = open_flags::rw | open_flags::create | open_flags::truncate;
         if (_config.options.dsync) {
@@ -341,6 +356,26 @@ public:
         });
     }
 
+    future<> do_start_on_bdev(sstring name) {
+        auto flags = open_flags::rw;
+        if (_config.options.dsync) {
+            flags |= open_flags::dsync;
+        }
+
+        return open_file_dma(name, flags).then([this] (auto f) {
+            _file = std::move(f);
+            return _file.size().then([this] (uint64_t size) {
+                auto shard_area_size = align_down<uint64_t>(size / smp::count, 1 << 20);
+                if (_config.offset_in_bdev + _config.file_size > shard_area_size) {
+                    throw std::runtime_error("Data doesn't fit the blockdevice");
+                }
+                _offset = shard_area_size * this_shard_id() + _config.offset_in_bdev;
+                return make_ready_future<>();
+            });
+        });
+    }
+
+public:
     virtual void emit_results(YAML::Emitter& out) override {
         auto throughput_kbs = (total_data() >> 10) / total_duration().count();
         auto iops = requests() / total_duration().count();
@@ -379,7 +414,7 @@ class cpu_class_data : public class_data {
 public:
     cpu_class_data(job_config cfg) : class_data(std::move(cfg)) {}
 
-    future<> do_start(sstring dir) override {
+    future<> do_start(sstring dir, directory_entry_type type) override {
         return make_ready_future<>();
     }
 
@@ -556,16 +591,18 @@ class context {
     std::vector<std::unique_ptr<class_data>> _cl;
 
     sstring _dir;
+    directory_entry_type _type;
     std::chrono::seconds _duration;
 
     semaphore _finished;
 public:
-    context(sstring dir, std::vector<job_config> req_config, unsigned duration)
+    context(sstring dir, directory_entry_type dtype, std::vector<job_config> req_config, unsigned duration)
             : _cl(boost::copy_range<std::vector<std::unique_ptr<class_data>>>(req_config
                 | boost::adaptors::filtered([] (auto& cfg) { return cfg.shard_placement.is_set(this_shard_id()); })
                 | boost::adaptors::transformed([] (auto& cfg) { return cfg.gen_class_data(); })
             ))
             , _dir(dir)
+            , _type(dtype)
             , _duration(duration)
             , _finished(0)
     {}
@@ -578,7 +615,7 @@ public:
 
     future<> start() {
         return parallel_for_each(_cl, [this] (std::unique_ptr<class_data>& cl) {
-            return cl->start(_dir);
+            return cl->start(_dir, _type);
         });
     }
 
@@ -631,7 +668,7 @@ int main(int ac, char** av) {
     app_template app;
     auto opt_add = app.add_options();
     opt_add
-        ("directory", bpo::value<sstring>()->default_value("."), "directory where to execute the test")
+        ("storage", bpo::value<sstring>()->default_value("."), "directory or block device where to execute the test")
         ("duration", bpo::value<unsigned>()->default_value(10), "for how long (in seconds) to run the test")
         ("conf", bpo::value<sstring>()->default_value("./conf.yaml"), "YAML file containing benchmark specification")
     ;
@@ -640,11 +677,19 @@ int main(int ac, char** av) {
     return app.run(ac, av, [&] {
         return seastar::async([&] {
             auto& opts = app.configuration();
-            auto& directory = opts["directory"].as<sstring>();
+            auto& storage = opts["storage"].as<sstring>();
 
-            auto fs = file_system_at(directory).get0();
-            if (fs != fs_type::xfs) {
-                throw std::runtime_error(format("This is a performance test. {} is not on XFS", directory));
+            auto st_type = engine().file_type(storage).get0();
+
+            if (!st_type) {
+                throw std::runtime_error(format("Unknown storage {}", storage));
+            }
+
+            if (*st_type == directory_entry_type::directory) {
+                auto fs = file_system_at(storage).get0();
+                if (fs != fs_type::xfs) {
+                    throw std::runtime_error(format("This is a performance test. {} is not on XFS", storage));
+                }
             }
 
             auto& duration = opts["duration"].as<unsigned>();
@@ -658,7 +703,15 @@ int main(int ac, char** av) {
                 });
             }).get();
 
-            ctx.start(directory, reqs, duration).get0();
+            if (*st_type == directory_entry_type::block_device) {
+                uint64_t off = 0;
+                for (job_config& r : reqs) {
+                    r.offset_in_bdev = off;
+                    off += r.file_size;
+                }
+            }
+
+            ctx.start(storage, *st_type, reqs, duration).get0();
             engine().at_exit([&ctx] {
                 return ctx.stop();
             });
