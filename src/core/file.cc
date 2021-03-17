@@ -897,17 +897,10 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
                 // query it here. Just provide something reasonable.
                 return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), options, st_dev, /* blocksize */ 4096, false));
             }
-            struct fs_info {
-                uint32_t block_size;
-                bool append_challenged;
-                unsigned append_concurrency;
-                bool fsync_is_exclusive;
-                bool nowait_works;
-            };
             static thread_local std::unordered_map<decltype(st_dev), fs_info> s_fstype;
             future<> get_fs_info = s_fstype.count(st_dev) ? make_ready_future<>() :
                 engine().fstatfs(fd).then([st_dev] (struct statfs sfs) {
-                    fs_info fsi;
+                    internal::fs_info fsi;
                     fsi.block_size = sfs.f_bsize;
                     switch (sfs.f_type) {
                     case 0x58465342: /* XFS */
