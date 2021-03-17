@@ -81,10 +81,10 @@ public:
 
 class posix_file_impl : public file_impl {
     std::atomic<unsigned>* _refcount = nullptr;
-    dev_t _device_id;
-    bool _nowait_works;
+    const dev_t _device_id;
+    const bool _nowait_works;
     io_queue* _io_queue;
-    open_flags _open_flags;
+    const open_flags _open_flags;
 public:
     int _fd;
     posix_file_impl(int fd, open_flags, file_open_options options, dev_t device_id,
@@ -208,17 +208,17 @@ class append_challenged_posix_file_impl final : public posix_file_impl, public e
     // Queue of pending operations; processed from front to end to avoid
     // starvation, but can issue concurrent operations.
     std::deque<op> _q;
-    unsigned _max_size_changing_ops = 0;
+    const unsigned _max_size_changing_ops = 0;
     unsigned _current_non_size_changing_ops = 0;
     unsigned _current_size_changing_ops = 0;
-    bool _fsync_is_exclusive = true;
+    const bool _fsync_is_exclusive = true;
 
     // Set when the user is closing the file
     enum class state { open, draining, closing, closed };
     state _closing_state = state::open;
 
-    bool _sloppy_size = false;
-    uint64_t _sloppy_size_hint;
+    const bool _sloppy_size = false;
+    const uint64_t _sloppy_size_hint;
     // Fulfiled when _done and I/O is complete
     promise<> _completed;
 private:
