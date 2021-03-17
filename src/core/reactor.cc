@@ -1383,6 +1383,7 @@ void reactor::configure(boost::program_options::variables_map vm) {
         _aio_eventfd = pollable_fd(file_desc::eventfd(0, 0));
     }
     set_bypass_fsync(vm["unsafe-bypass-fsync"].as<bool>());
+    _kernel_page_cache = vm["kernel-page-cache"].as<bool>();
     _force_io_getevents_syscall = vm["force-aio-syscalls"].as<bool>();
     aio_nowait_supported = vm["linux-aio-nowait"].as<bool>();
     _have_aio_fsync = vm["aio-fsync"].as<bool>();
@@ -1637,10 +1638,11 @@ future<file>
 reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_options options) noexcept {
     return do_with(static_cast<int>(flags), std::move(options), [this, nameref] (auto& open_flags, file_open_options& options) {
         sstring name(nameref);
-        return _thread_pool->submit<syscall_result<int>>([name, &open_flags, &options, strict_o_direct = _strict_o_direct, bypass_fsync = _bypass_fsync] () mutable {
-            // We want O_DIRECT, except in two cases:
+        return _thread_pool->submit<syscall_result<int>>([this, name, &open_flags, &options, strict_o_direct = _strict_o_direct, bypass_fsync = _bypass_fsync] () mutable {
+            // We want O_DIRECT, except in three cases:
             //   - tmpfs (which doesn't support it, but works fine anyway)
             //   - strict_o_direct == false (where we forgive it being not supported)
+            //   - _kernel_page_cache == true (where we disable it for short-lived test processes)
             // Because open() with O_DIRECT will fail, we open it without O_DIRECT, try
             // to update it to O_DIRECT with fcntl(), and if that fails, see if we
             // can forgive it.
@@ -1661,7 +1663,8 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
             if (fd == -1) {
                 return wrap_syscall<int>(fd);
             }
-            int r = ::fcntl(fd, F_SETFL, open_flags | O_DIRECT);
+            int o_direct_flag = _kernel_page_cache ? 0 : O_DIRECT;
+            int r = ::fcntl(fd, F_SETFL, open_flags | o_direct_flag);
             auto maybe_ret = wrap_syscall<int>(r);  // capture errno (should be EINVAL)
             if (r == -1  && strict_o_direct && !is_tmpfs(fd)) {
                 ::close(fd);
@@ -3388,6 +3391,9 @@ reactor::get_options_description(reactor_config cfg) {
                 bpo::value<bool>()->default_value(aio_nowait_supported),
                 "use the Linux NOWAIT AIO feature, which reduces reactor stalls due to aio (autodetected)")
         ("unsafe-bypass-fsync", bpo::value<bool>()->default_value(false), "Bypass fsync(), may result in data loss. Use for testing on consumer drives")
+        ("kernel-page-cache", bpo::value<bool>()->default_value(false),
+                "Use the kernel page cache. This disables DMA (O_DIRECT)."
+                " Useful for short-lived functional tests with a small data set.")
         ("overprovisioned", "run in an overprovisioned environment (such as docker or a laptop); equivalent to --idle-poll-time-us 0 --thread-affinity 0 --poll-aio 0")
         ("abort-on-seastar-bad-alloc", "abort when seastar allocator cannot allocate memory")
         ("force-aio-syscalls", bpo::value<bool>()->default_value(false),

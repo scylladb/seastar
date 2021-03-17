@@ -167,6 +167,19 @@ aio_storage_context::submit_work() {
         return true;
     });
 
+    if (__builtin_expect(_r._kernel_page_cache, false)) {
+        // linux-aio is not asynchrous when the page cache is used,
+        // so we don't want to call io_submit() from the reactor thread.
+        //
+        // Pretend that all aio failed with EAGAIN and submit them
+        // via schedule_retry(), below.
+        for (auto& iocbp : _submission_queue) {
+            set_nowait(*iocbp, false);
+            _pending_aio_retry.push_back(iocbp);
+        }
+        to_submit = 0;
+    }
+
     size_t submitted = 0;
     while (to_submit > submitted) {
         auto nr = to_submit - submitted;
