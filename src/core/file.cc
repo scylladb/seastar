@@ -897,68 +897,65 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
                 // query it here. Just provide something reasonable.
                 return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), options, st_dev, /* blocksize */ 4096, false));
             }
-            struct append_support {
+            struct fs_info {
+                uint32_t block_size;
                 bool append_challenged;
                 unsigned append_concurrency;
                 bool fsync_is_exclusive;
                 bool nowait_works;
             };
-            struct fs_info {
-                append_support append_support_;
-                uint32_t block_size;
-            };
             static thread_local std::unordered_map<decltype(st_dev), fs_info> s_fstype;
             future<> get_fs_info = s_fstype.count(st_dev) ? make_ready_future<>() :
                 engine().fstatfs(fd).then([st_dev] (struct statfs sfs) {
-                    uint32_t block_size = sfs.f_bsize;
-                    append_support as;
+                    fs_info fsi;
+                    fsi.block_size = sfs.f_bsize;
                     switch (sfs.f_type) {
                     case 0x58465342: /* XFS */
-                        as.append_challenged = true;
+                        fsi.append_challenged = true;
                         static auto xc = xfs_concurrency_from_kernel_version();
-                        as.append_concurrency = xc;
-                        as.fsync_is_exclusive = true;
-                        as.nowait_works = kernel_uname().whitelisted({"4.13"});
+                        fsi.append_concurrency = xc;
+                        fsi.fsync_is_exclusive = true;
+                        fsi.nowait_works = kernel_uname().whitelisted({"4.13"});
                         break;
                     case 0x6969: /* NFS */
-                        as.append_challenged = false;
-                        as.append_concurrency = 0;
-                        as.fsync_is_exclusive = false;
-                        as.nowait_works = kernel_uname().whitelisted({"4.13"});
+                        fsi.append_challenged = false;
+                        fsi.append_concurrency = 0;
+                        fsi.fsync_is_exclusive = false;
+                        fsi.nowait_works = kernel_uname().whitelisted({"4.13"});
                         break;
                     case 0xEF53: /* EXT4 */
-                        as.append_challenged = true;
-                        as.append_concurrency = 0;
-                        as.fsync_is_exclusive = false;
-                        as.nowait_works = kernel_uname().whitelisted({"5.5"});
+                        fsi.append_challenged = true;
+                        fsi.append_concurrency = 0;
+                        fsi.fsync_is_exclusive = false;
+                        fsi.nowait_works = kernel_uname().whitelisted({"5.5"});
                         break;
                     case 0x9123683E: /* BTRFS */
-                        as.append_challenged = true;
-                        as.append_concurrency = 0;
-                        as.fsync_is_exclusive = true;
-                        as.nowait_works = kernel_uname().whitelisted({"5.9"});
+                        fsi.append_challenged = true;
+                        fsi.append_concurrency = 0;
+                        fsi.fsync_is_exclusive = true;
+                        fsi.nowait_works = kernel_uname().whitelisted({"5.9"});
                         break;
                     case 0x01021994: /* TMPFS */
                     case 0x65735546: /* FUSE */
-                        as.append_challenged = false;
-                        as.append_concurrency = 999;
-                        as.fsync_is_exclusive = false;
-                        as.nowait_works = false;
+                        fsi.append_challenged = false;
+                        fsi.append_concurrency = 999;
+                        fsi.fsync_is_exclusive = false;
+                        fsi.nowait_works = false;
                         break;
                     default:
-                        as.append_challenged = true;
-                        as.append_concurrency = 0;
-                        as.fsync_is_exclusive = true;
-                        as.nowait_works = kernel_uname().whitelisted({"4.13"});
+                        fsi.append_challenged = true;
+                        fsi.append_concurrency = 0;
+                        fsi.fsync_is_exclusive = true;
+                        fsi.nowait_works = kernel_uname().whitelisted({"4.13"});
                     }
-                    s_fstype[st_dev] = fs_info{as, block_size};
+                    s_fstype[st_dev] = std::move(fsi);
                 });
             return get_fs_info.then([st_dev, fd, flags, options = std::move(options)] () mutable {
-                auto [as, block_size] = s_fstype[st_dev];
-                if (!as.append_challenged) {
-                    return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), st_dev, block_size, as.nowait_works));
+                const fs_info& fsi = s_fstype[st_dev];
+                if (!fsi.append_challenged) {
+                    return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), st_dev, fsi.block_size, fsi.nowait_works));
                 }
-                return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), as.append_concurrency, as.fsync_is_exclusive, st_dev, block_size, as.nowait_works));
+                return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), fsi.append_concurrency, fsi.fsync_is_exclusive, st_dev, fsi.block_size, fsi.nowait_works));
             });
         }
     });
