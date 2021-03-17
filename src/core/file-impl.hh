@@ -85,8 +85,9 @@ class posix_file_impl : public file_impl {
     const bool _nowait_works;
     io_queue* _io_queue;
     const open_flags _open_flags;
-public:
+protected:
     int _fd;
+
     posix_file_impl(int fd, open_flags, file_open_options options, dev_t device_id,
             uint32_t block_size, bool nowait_works);
     posix_file_impl(int fd, open_flags, std::atomic<unsigned>* refcount, dev_t device_id,
@@ -95,6 +96,7 @@ public:
             uint32_t disk_write_dma_alignment,
             uint32_t disk_overwrite_dma_alignment,
             bool nowait_works);
+public:
     virtual ~posix_file_impl() override;
     future<> flush(void) noexcept override;
     future<struct stat> stat(void) noexcept override;
