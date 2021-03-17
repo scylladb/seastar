@@ -546,11 +546,10 @@ blockdev_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, const io_p
     return posix_file_impl::do_dma_read_bulk(offset, range_size, pc, intent);
 }
 
-append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, open_flags f, file_open_options options,
-        unsigned max_size_changing_ops, bool fsync_is_exclusive, dev_t device_id, size_t block_size, bool nowait_works)
-        : posix_file_impl(fd, f, options, device_id, block_size, nowait_works)
-        , _max_size_changing_ops(max_size_changing_ops)
-        , _fsync_is_exclusive(fsync_is_exclusive) {
+append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, open_flags f, file_open_options options, const fs_info& fsi, dev_t device_id)
+        : posix_file_impl(fd, f, options, device_id, fsi.block_size, fsi.nowait_works)
+        , _max_size_changing_ops(fsi.append_concurrency)
+        , _fsync_is_exclusive(fsi.fsync_is_exclusive) {
     auto r = ::lseek(fd, 0, SEEK_END);
     throw_system_error_on(r == -1);
     _committed_size = _logical_size = r;
@@ -895,7 +894,10 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
             if ((flags & O_ACCMODE) == O_RDONLY || S_ISDIR(st.st_mode)) {
                 // Directories don't care about block size, so we need not
                 // query it here. Just provide something reasonable.
-                return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), options, st_dev, /* blocksize */ 4096, false));
+                internal::fs_info fsi;
+                fsi.block_size = 4096;
+                fsi.nowait_works = false;
+                return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), options, fsi, st_dev));
             }
             static thread_local std::unordered_map<decltype(st_dev), fs_info> s_fstype;
             future<> get_fs_info = s_fstype.count(st_dev) ? make_ready_future<>() :
@@ -946,9 +948,9 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
             return get_fs_info.then([st_dev, fd, flags, options = std::move(options)] () mutable {
                 const fs_info& fsi = s_fstype[st_dev];
                 if (!fsi.append_challenged) {
-                    return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), st_dev, fsi.block_size, fsi.nowait_works));
+                    return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
                 }
-                return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), fsi.append_concurrency, fsi.fsync_is_exclusive, st_dev, fsi.block_size, fsi.nowait_works));
+                return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
             });
         }
     });
