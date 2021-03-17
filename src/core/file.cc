@@ -546,16 +546,16 @@ blockdev_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, const io_p
     return posix_file_impl::do_dma_read_bulk(offset, range_size, pc, intent);
 }
 
-append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, open_flags f, file_open_options options,
-        unsigned max_size_changing_ops, bool fsync_is_exclusive, dev_t device_id, size_t block_size, bool nowait_works)
-        : posix_file_impl(fd, f, options, device_id, block_size, nowait_works)
-        , _max_size_changing_ops(max_size_changing_ops)
-        , _fsync_is_exclusive(fsync_is_exclusive) {
+append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, open_flags f, file_open_options options, const fs_info& fsi, dev_t device_id)
+        : posix_file_impl(fd, f, options, device_id, fsi.block_size, fsi.nowait_works)
+        , _max_size_changing_ops(fsi.append_concurrency)
+        , _fsync_is_exclusive(fsi.fsync_is_exclusive)
+        , _sloppy_size(options.sloppy_size)
+        , _sloppy_size_hint(align_up<uint64_t>(options.sloppy_size_hint, _disk_write_dma_alignment))
+{
     auto r = ::lseek(fd, 0, SEEK_END);
     throw_system_error_on(r == -1);
     _committed_size = _logical_size = r;
-    _sloppy_size = options.sloppy_size;
-    _sloppy_size_hint = align_up<uint64_t>(options.sloppy_size_hint, _disk_write_dma_alignment);
 }
 
 append_challenged_posix_file_impl::~append_challenged_posix_file_impl() {
@@ -575,9 +575,14 @@ append_challenged_posix_file_impl::must_run_alone(const op& candidate) const noe
 }
 
 bool
+append_challenged_posix_file_impl::appending_write(const op& candidate) const noexcept {
+    return (candidate.type == opcode::write) &&
+            (candidate.pos + candidate.len > _committed_size);
+}
+
+bool
 append_challenged_posix_file_impl::size_changing(const op& candidate) const noexcept {
-    return (candidate.type == opcode::write && candidate.pos + candidate.len > _committed_size)
-            || must_run_alone(candidate);
+    return appending_write(candidate) || must_run_alone(candidate);
 }
 
 bool
@@ -601,6 +606,14 @@ append_challenged_posix_file_impl::dispatch(op& candidate) noexcept {
     });
 }
 
+int append_challenged_posix_file_impl::truncate_sync(uint64_t length) noexcept {
+    int r = ::ftruncate(_fd, length);
+    if (r != -1) {
+        _committed_size = length;
+    }
+    return r;
+}
+
 // If we have a bunch of size-extending writes in the queue,
 // issue an ftruncate() extending the file size, so they can
 // be issued concurrently.
@@ -618,7 +631,8 @@ append_challenged_posix_file_impl::optimize_queue() noexcept {
         if (must_run_alone(op)) {
             break;
         }
-        if (op.type == opcode::write && op.pos + op.len > _committed_size) {
+
+        if (appending_write(op)) {
             speculative_size = std::max(speculative_size, op.pos + op.len);
             ++n_appending_writes;
         }
@@ -638,11 +652,9 @@ append_challenged_posix_file_impl::optimize_queue() noexcept {
         // Issuing it in the syscall thread is too slow; this can happen
         // every several ops, and the syscall thread latency can be very
         // high.
-        auto r = ::ftruncate(_fd, speculative_size);
-        if (r != -1) {
-            _committed_size = speculative_size;
-            // If we failed, the next write will pick it up.
-        }
+
+        truncate_sync(speculative_size);
+        // If we failed, the next write will pick it up.
     }
 }
 
@@ -781,11 +793,10 @@ append_challenged_posix_file_impl::flush() noexcept {
             [this] () {
                 if (_logical_size != _committed_size) {
                     // We're all alone, so can truncate in reactor thread
-                    auto r = ::ftruncate(_fd, _logical_size);
+                    auto r = truncate_sync(_logical_size);
                     if (r == -1) {
                         return make_exception_future<>(std::system_error(errno, std::system_category(), "flush"));
                     }
-                    _committed_size = _logical_size;
                 }
                 return posix_file_impl::flush();
             }
@@ -828,10 +839,7 @@ append_challenged_posix_file_impl::close() noexcept {
     process_queue();
     return _completed.get_future().then([this] {
         if (_logical_size != _committed_size) {
-            auto r = ::ftruncate(_fd, _logical_size);
-            if (r != -1) {
-                _committed_size = _logical_size;
-            }
+            truncate_sync(_logical_size);
         }
         return posix_file_impl::close().finally([this] { _closing_state = state::closed; });
     });
@@ -895,70 +903,63 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
             if ((flags & O_ACCMODE) == O_RDONLY || S_ISDIR(st.st_mode)) {
                 // Directories don't care about block size, so we need not
                 // query it here. Just provide something reasonable.
-                return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), options, st_dev, /* blocksize */ 4096, false));
+                internal::fs_info fsi;
+                fsi.block_size = 4096;
+                fsi.nowait_works = false;
+                return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), options, fsi, st_dev));
             }
-            struct append_support {
-                bool append_challenged;
-                unsigned append_concurrency;
-                bool fsync_is_exclusive;
-                bool nowait_works;
-            };
-            struct fs_info {
-                append_support append_support_;
-                uint32_t block_size;
-            };
             static thread_local std::unordered_map<decltype(st_dev), fs_info> s_fstype;
             future<> get_fs_info = s_fstype.count(st_dev) ? make_ready_future<>() :
                 engine().fstatfs(fd).then([st_dev] (struct statfs sfs) {
-                    uint32_t block_size = sfs.f_bsize;
-                    append_support as;
+                    internal::fs_info fsi;
+                    fsi.block_size = sfs.f_bsize;
                     switch (sfs.f_type) {
                     case 0x58465342: /* XFS */
-                        as.append_challenged = true;
+                        fsi.append_challenged = true;
                         static auto xc = xfs_concurrency_from_kernel_version();
-                        as.append_concurrency = xc;
-                        as.fsync_is_exclusive = true;
-                        as.nowait_works = kernel_uname().whitelisted({"4.13"});
+                        fsi.append_concurrency = xc;
+                        fsi.fsync_is_exclusive = true;
+                        fsi.nowait_works = kernel_uname().whitelisted({"4.13"});
                         break;
                     case 0x6969: /* NFS */
-                        as.append_challenged = false;
-                        as.append_concurrency = 0;
-                        as.fsync_is_exclusive = false;
-                        as.nowait_works = kernel_uname().whitelisted({"4.13"});
+                        fsi.append_challenged = false;
+                        fsi.append_concurrency = 0;
+                        fsi.fsync_is_exclusive = false;
+                        fsi.nowait_works = kernel_uname().whitelisted({"4.13"});
                         break;
                     case 0xEF53: /* EXT4 */
-                        as.append_challenged = true;
-                        as.append_concurrency = 0;
-                        as.fsync_is_exclusive = false;
-                        as.nowait_works = kernel_uname().whitelisted({"5.5"});
+                        fsi.append_challenged = true;
+                        fsi.append_concurrency = 0;
+                        fsi.fsync_is_exclusive = false;
+                        fsi.nowait_works = kernel_uname().whitelisted({"5.5"});
                         break;
                     case 0x9123683E: /* BTRFS */
-                        as.append_challenged = true;
-                        as.append_concurrency = 0;
-                        as.fsync_is_exclusive = true;
-                        as.nowait_works = kernel_uname().whitelisted({"5.9"});
+                        fsi.append_challenged = true;
+                        fsi.append_concurrency = 0;
+                        fsi.fsync_is_exclusive = true;
+                        fsi.nowait_works = kernel_uname().whitelisted({"5.9"});
                         break;
                     case 0x01021994: /* TMPFS */
                     case 0x65735546: /* FUSE */
-                        as.append_challenged = false;
-                        as.append_concurrency = 999;
-                        as.fsync_is_exclusive = false;
-                        as.nowait_works = false;
+                        fsi.append_challenged = false;
+                        fsi.append_concurrency = 999;
+                        fsi.fsync_is_exclusive = false;
+                        fsi.nowait_works = false;
                         break;
                     default:
-                        as.append_challenged = true;
-                        as.append_concurrency = 0;
-                        as.fsync_is_exclusive = true;
-                        as.nowait_works = kernel_uname().whitelisted({"4.13"});
+                        fsi.append_challenged = true;
+                        fsi.append_concurrency = 0;
+                        fsi.fsync_is_exclusive = true;
+                        fsi.nowait_works = kernel_uname().whitelisted({"4.13"});
                     }
-                    s_fstype[st_dev] = fs_info{as, block_size};
+                    s_fstype[st_dev] = std::move(fsi);
                 });
             return get_fs_info.then([st_dev, fd, flags, options = std::move(options)] () mutable {
-                auto [as, block_size] = s_fstype[st_dev];
-                if (!as.append_challenged) {
-                    return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), st_dev, block_size, as.nowait_works));
+                const fs_info& fsi = s_fstype[st_dev];
+                if (!fsi.append_challenged) {
+                    return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
                 }
-                return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), as.append_concurrency, as.fsync_is_exclusive, st_dev, block_size, as.nowait_works));
+                return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
             });
         }
     });

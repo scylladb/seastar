@@ -32,6 +32,14 @@ class io_queue;
 
 namespace internal {
 
+struct fs_info {
+    uint32_t block_size;
+    bool append_challenged;
+    unsigned append_concurrency;
+    bool fsync_is_exclusive;
+    bool nowait_works;
+};
+
 // Given a properly aligned vector of iovecs, ensures that it respects the
 // IOV_MAX limit, by trimming if necessary. The modified vector still satisfied
 // the alignment requirements.
@@ -73,12 +81,13 @@ public:
 
 class posix_file_impl : public file_impl {
     std::atomic<unsigned>* _refcount = nullptr;
-    dev_t _device_id;
-    bool _nowait_works;
+    const dev_t _device_id;
+    const bool _nowait_works;
     io_queue* _io_queue;
-    open_flags _open_flags;
-public:
+    const open_flags _open_flags;
+protected:
     int _fd;
+
     posix_file_impl(int fd, open_flags, file_open_options options, dev_t device_id,
             uint32_t block_size, bool nowait_works);
     posix_file_impl(int fd, open_flags, std::atomic<unsigned>* refcount, dev_t device_id,
@@ -87,6 +96,7 @@ public:
             uint32_t disk_write_dma_alignment,
             uint32_t disk_overwrite_dma_alignment,
             bool nowait_works);
+public:
     virtual ~posix_file_impl() override;
     future<> flush(void) noexcept override;
     future<struct stat> stat(void) noexcept override;
@@ -159,8 +169,8 @@ protected:
 
 class posix_file_real_impl final : public posix_file_impl {
 public:
-    posix_file_real_impl(int fd, open_flags of, file_open_options options, dev_t device_id, uint32_t block_size, bool nowait_works)
-        : posix_file_impl(fd, of, std::move(options), device_id, block_size, nowait_works) {}
+    posix_file_real_impl(int fd, open_flags of, file_open_options options, const internal::fs_info& fsi, dev_t device_id)
+        : posix_file_impl(fd, of, std::move(options), device_id, fsi.block_size, fsi.nowait_works) {}
     posix_file_real_impl(int fd, open_flags of, std::atomic<unsigned>* refcount, dev_t device_id,
             uint32_t memory_dma_alignment, uint32_t disk_read_dma_alignment, uint32_t disk_write_dma_alignment, uint32_t disk_overwrite_dma_alignment, bool nowait_works)
         : posix_file_impl(fd, of, refcount, device_id, memory_dma_alignment, disk_read_dma_alignment, disk_write_dma_alignment, disk_overwrite_dma_alignment, nowait_works) {}
@@ -200,22 +210,23 @@ class append_challenged_posix_file_impl final : public posix_file_impl, public e
     // Queue of pending operations; processed from front to end to avoid
     // starvation, but can issue concurrent operations.
     std::deque<op> _q;
-    unsigned _max_size_changing_ops = 0;
+    const unsigned _max_size_changing_ops = 0;
     unsigned _current_non_size_changing_ops = 0;
     unsigned _current_size_changing_ops = 0;
-    bool _fsync_is_exclusive = true;
+    const bool _fsync_is_exclusive = true;
 
     // Set when the user is closing the file
     enum class state { open, draining, closing, closed };
     state _closing_state = state::open;
 
-    bool _sloppy_size = false;
-    uint64_t _sloppy_size_hint;
+    const bool _sloppy_size = false;
+    const uint64_t _sloppy_size_hint;
     // Fulfiled when _done and I/O is complete
     promise<> _completed;
 private:
     void commit_size(uint64_t size) noexcept;
     bool must_run_alone(const op& candidate) const noexcept;
+    bool appending_write(const op& candidate) const noexcept;
     bool size_changing(const op& candidate) const noexcept;
     bool may_dispatch(const op& candidate) const noexcept;
     void dispatch(op& candidate) noexcept;
@@ -223,6 +234,7 @@ private:
     void process_queue() noexcept;
     bool may_quit() const noexcept;
     void enqueue_op(op&& op);
+    int truncate_sync(uint64_t len) noexcept;
     template <typename... T, typename Func>
     future<T...> enqueue(opcode type, uint64_t pos, size_t len, Func&& func) noexcept {
         try {
@@ -240,7 +252,7 @@ private:
         }
     }
 public:
-    append_challenged_posix_file_impl(int fd, open_flags, file_open_options options, unsigned max_size_changing_ops, bool fsync_is_exclusive, dev_t device_id, size_t block_size, bool nowait_works);
+    append_challenged_posix_file_impl(int fd, open_flags, file_open_options options, const internal::fs_info& fsi, dev_t device_id);
     ~append_challenged_posix_file_impl() override;
     virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept override;
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept override;
