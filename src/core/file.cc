@@ -549,12 +549,13 @@ blockdev_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, const io_p
 append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, open_flags f, file_open_options options, const fs_info& fsi, dev_t device_id)
         : posix_file_impl(fd, f, options, device_id, fsi.block_size, fsi.nowait_works)
         , _max_size_changing_ops(fsi.append_concurrency)
-        , _fsync_is_exclusive(fsi.fsync_is_exclusive) {
+        , _fsync_is_exclusive(fsi.fsync_is_exclusive)
+        , _sloppy_size(options.sloppy_size)
+        , _sloppy_size_hint(align_up<uint64_t>(options.sloppy_size_hint, _disk_write_dma_alignment))
+{
     auto r = ::lseek(fd, 0, SEEK_END);
     throw_system_error_on(r == -1);
     _committed_size = _logical_size = r;
-    _sloppy_size = options.sloppy_size;
-    _sloppy_size_hint = align_up<uint64_t>(options.sloppy_size_hint, _disk_write_dma_alignment);
 }
 
 append_challenged_posix_file_impl::~append_challenged_posix_file_impl() {
