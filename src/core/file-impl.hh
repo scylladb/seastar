@@ -234,6 +234,7 @@ private:
     void process_queue() noexcept;
     bool may_quit() const noexcept;
     void enqueue_op(op&& op);
+    int truncate_sync(uint64_t len) noexcept;
     template <typename... T, typename Func>
     future<T...> enqueue(opcode type, uint64_t pos, size_t len, Func&& func) noexcept {
         try {

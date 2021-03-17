@@ -606,6 +606,14 @@ append_challenged_posix_file_impl::dispatch(op& candidate) noexcept {
     });
 }
 
+int append_challenged_posix_file_impl::truncate_sync(uint64_t length) noexcept {
+    int r = ::ftruncate(_fd, length);
+    if (r != -1) {
+        _committed_size = length;
+    }
+    return r;
+}
+
 // If we have a bunch of size-extending writes in the queue,
 // issue an ftruncate() extending the file size, so they can
 // be issued concurrently.
@@ -644,11 +652,9 @@ append_challenged_posix_file_impl::optimize_queue() noexcept {
         // Issuing it in the syscall thread is too slow; this can happen
         // every several ops, and the syscall thread latency can be very
         // high.
-        auto r = ::ftruncate(_fd, speculative_size);
-        if (r != -1) {
-            _committed_size = speculative_size;
-            // If we failed, the next write will pick it up.
-        }
+
+        truncate_sync(speculative_size);
+        // If we failed, the next write will pick it up.
     }
 }
 
@@ -787,11 +793,10 @@ append_challenged_posix_file_impl::flush() noexcept {
             [this] () {
                 if (_logical_size != _committed_size) {
                     // We're all alone, so can truncate in reactor thread
-                    auto r = ::ftruncate(_fd, _logical_size);
+                    auto r = truncate_sync(_logical_size);
                     if (r == -1) {
                         return make_exception_future<>(std::system_error(errno, std::system_category(), "flush"));
                     }
-                    _committed_size = _logical_size;
                 }
                 return posix_file_impl::flush();
             }
@@ -834,10 +839,7 @@ append_challenged_posix_file_impl::close() noexcept {
     process_queue();
     return _completed.get_future().then([this] {
         if (_logical_size != _committed_size) {
-            auto r = ::ftruncate(_fd, _logical_size);
-            if (r != -1) {
-                _committed_size = _logical_size;
-            }
+            truncate_sync(_logical_size);
         }
         return posix_file_impl::close().finally([this] { _closing_state = state::closed; });
     });
