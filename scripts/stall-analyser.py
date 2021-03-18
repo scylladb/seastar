@@ -167,6 +167,7 @@ class Graph:
         top_down = (direction == 'top-down')
         print(f"""
 This graph is printed in {direction} order, where {'callers' if top_down else 'callees'} are printed first.
+Use --direction={'bottom-up' if top_down else 'top-down'} to print {'callees' if top_down else 'callers'} first.
 
 [level#index/out_of pct%] below denotes:
   level  - nesting level in the graph
