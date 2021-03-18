@@ -956,7 +956,7 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
                 });
             return get_fs_info.then([st_dev, fd, flags, options = std::move(options)] () mutable {
                 const fs_info& fsi = s_fstype[st_dev];
-                if (!fsi.append_challenged) {
+                if (!fsi.append_challenged || options.append_is_unlikely) {
                     return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
                 }
                 return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
