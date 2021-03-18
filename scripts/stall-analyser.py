@@ -32,8 +32,8 @@ parser.add_argument('--address-threshold', default='0x100000000',
                     help='Skip common backtrace prefix terminated by one or more addresses greater or equal to the threshold (0=disabled)')
 parser.add_argument('-e', '--executable',
                     help='Decode addresses to lines using given executable')
-parser.add_argument('-f', '--full-addr2line', action='store_const', const=True, default=False,
-                    help='Decode full addr2line information, otherwise print concised report')
+parser.add_argument('-f', '--full-function-names', action='store_const', const=True, default=False,
+                    help="When demangling C++ function names, display all information, including the type of the function's parameters. Otherwise, they are omitted (see `c++filt(1) -p`).")
 parser.add_argument('-w', '--width', type=int, default=None,
                     help='Smart trim of long lines to width characters (0=disabled)')
 parser.add_argument('-d', '--direction', choices=['top-down', 'bottom-up'], default='top-down',
@@ -47,7 +47,7 @@ parser.add_argument('file', nargs='?',
 
 args = parser.parse_args()
 
-resolver = addr2line.BacktraceResolver(executable=args.executable, concise=not args.full_addr2line) if args.executable else None
+resolver = addr2line.BacktraceResolver(executable=args.executable, concise=not args.full_function_names) if args.executable else None
 
 class Node:
     def __init__(self, addr:str):
