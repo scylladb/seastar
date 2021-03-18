@@ -544,26 +544,20 @@ std::ostream& operator<<(std::ostream& out, const std::exception_ptr& eptr) {
             throw;
         } catch (const seastar::nested_exception& ne) {
             out << fmt::format(": {} (while cleaning up after {})", ne.inner, ne.outer);
-        } catch(const std::system_error &e) {
+        } catch (const std::system_error& e) {
             out << " (error " << e.code() << ", " << e.what() << ")";
-        } catch(const std::exception& e) {
+        } catch (const std::exception& e) {
             out << " (" << e.what() << ")";
-            try {
-                std::rethrow_if_nested(e);
-            } catch (...) {
-                out << ": " << std::current_exception();
-            }
+        } catch (...) {
+            // no extra info
+        }
+
+        try {
+            throw;
         } catch (const std::nested_exception& ne) {
-            // if we got here, it means that the nested_exception is not mixed in
-            // with an object of type std::exception. It can happen in one of two
-            // cases:
-            // 1. The std::nested_exception was built and thrown using a normal
-            //    throw and not in the context of another catch with std::throw_with_nested
-            // 2. Somewhere in the code there is a throw of a type which doesn't derive from
-            //    std::exception and then it is rethrown using std::throw_with_nested.
-            out << ": " << "unknown nested type: " << ne.nested_ptr();
-        } catch(...) {
-            out << " (" << "no extra info" << ")";
+            out << ": " << ne.nested_ptr();
+        } catch (...) {
+            // do nothing
         }
     }
     return out;

@@ -74,8 +74,8 @@ std::string exception_generator_str(uint32_t test_instance,int nesting_level) {
     std::ostringstream ret;
     const std::string runtime_err_str = "std::runtime_error";
     const std::string exception_level_fmt_str = "Exception Level {}";
-    const std::string unknown_obj_str = "unknown_obj (no extra info)";
-    const std::string nested_exception_with_unknown_obj_str = "std::_Nested_exception<unknown_obj>: unknown nested type";
+    const std::string unknown_obj_str = "unknown_obj";
+    const std::string nested_exception_with_unknown_obj_str = "std::_Nested_exception<unknown_obj>";
     const std::string nested_exception_with_runtime_err_str = "std::_Nested_exception<std::runtime_error>";
 
     for(; nesting_level > 0; nesting_level--) {
@@ -126,7 +126,40 @@ BOOST_AUTO_TEST_CASE(nested_exception_logging2) {
         log_msg << std::current_exception();
     }
 
-    BOOST_REQUIRE_EQUAL(log_msg.str(), std::string("std::nested_exception: unknown nested type: <no exception>"));
+    BOOST_REQUIRE_EQUAL(log_msg.str(), std::string("std::nested_exception: <no exception>"));
+}
+
+class very_important_exception : public std::exception {
+    const char* my_name = "very important information";
+
+public:
+    const char* what() const noexcept {
+        return my_name;
+    }
+};
+
+// Test logging of nested exception that have std::system_error mixed with other exceptions
+// so that std::system_error is in the middle of the exception chain.
+BOOST_AUTO_TEST_CASE(nested_exception_logging3) {
+    std::ostringstream log_msg;
+
+    try {
+        throw very_important_exception();
+        } catch (...) {
+        try {
+            std::throw_with_nested(std::system_error(1, std::generic_category(), "my error"));
+        } catch (...) {
+            try {
+                std::throw_with_nested(unknown_obj("This is an unknown object"));
+            } catch (...) {
+                log_msg << std::current_exception();
+            }
+        }
+    }
+
+    std::string expected_string("std::_Nested_exception<unknown_obj>: std::_Nested_exception<std::system_error> (error generic:1, my error: Operation not permitted): very_important_exception (very important information)");
+
+    BOOST_REQUIRE_EQUAL(log_msg.str(), expected_string);
 }
 
 BOOST_AUTO_TEST_CASE(unknown_object_thrown_test) {
@@ -137,6 +170,6 @@ BOOST_AUTO_TEST_CASE(unknown_object_thrown_test) {
         log_msg << std::current_exception();
     }
 
-    BOOST_REQUIRE_EQUAL(log_msg.str(), std::string("unknown_obj (no extra info)"));
+    BOOST_REQUIRE_EQUAL(log_msg.str(), std::string("unknown_obj"));
 
 }
