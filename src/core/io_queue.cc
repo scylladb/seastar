@@ -466,6 +466,13 @@ fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, s
     return fair_queue_ticket(weight, size >> request_ticket_size_shift);
 }
 
+io_queue::request_limits io_queue::get_request_limits() const noexcept {
+    request_limits l;
+    l.max_read = align_down<size_t>(_group->_maximum_request_size / read_request_base_count, minimal_request_size);
+    l.max_write = align_down<size_t>(_group->_maximum_request_size / _config.disk_bytes_write_to_read_multiplier, minimal_request_size);
+    return l;
+}
+
 future<size_t>
 io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_request req, io_intent* intent) noexcept {
     return futurize_invoke([&pc, len, req = std::move(req), this, intent] () mutable {
