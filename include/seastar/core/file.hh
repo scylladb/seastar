@@ -99,9 +99,9 @@ public:
 };
 
 class file_impl {
+    friend class file;
 protected:
     static file_impl* get_file_impl(file& f);
-public:
     unsigned _memory_dma_alignment = 4096;
     unsigned _disk_read_dma_alignment = 4096;
     unsigned _disk_write_dma_alignment = 4096;
