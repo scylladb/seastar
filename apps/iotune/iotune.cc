@@ -88,6 +88,13 @@ void check_device_properties(fs::path dev_sys_file) {
         iotune_logger.warn("nomerges for {} set to {}. It is recommend to set it to 2 before evaluation so that merges are disabled. Results can be skewed otherwise.",
                 nomerges_file.string(), nomerges);
     }
+
+    auto write_cache_file = dev_sys_file / "queue" / "write_cache";
+    auto write_cache = read_first_line_as<std::string>(write_cache_file);
+    if (write_cache == "write back") {
+        iotune_logger.warn("write_cache for {} is set to write back. Some disks have poor implementation of this mode, pay attention to the measurements accuracy.",
+                write_cache_file.string());
+    }
 }
 
 struct evaluation_directory {
