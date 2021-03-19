@@ -106,6 +106,8 @@ protected:
     unsigned _disk_read_dma_alignment = 4096;
     unsigned _disk_write_dma_alignment = 4096;
     unsigned _disk_overwrite_dma_alignment = 4096;
+    unsigned _read_max_length = 1u << 30;
+    unsigned _write_max_length = 1u << 30;
 public:
     virtual ~file_impl() {}
 
@@ -232,6 +234,21 @@ public:
         return _file_impl->_memory_dma_alignment;
     }
 
+    /// Recommended limit for read request size.
+    /// Submitting a larger request will not cause any error,
+    /// but may result in poor latencies for this and any other
+    /// concurrent requests
+    size_t disk_read_max_length() const noexcept {
+        return _file_impl->_read_max_length;
+    }
+
+    /// Recommended limit for write request size.
+    /// Submitting a larger request will not cause any error,
+    /// but may result in poor latencies for this and any other
+    /// concurrent requests
+    size_t disk_write_max_length() const noexcept {
+        return _file_impl->_write_max_length;
+    }
 
     /**
      * Perform a single DMA read operation.

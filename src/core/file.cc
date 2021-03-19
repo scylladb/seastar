@@ -37,6 +37,7 @@
 #include <seastar/core/report_exception.hh>
 #include <seastar/core/linux-aio.hh>
 #include <seastar/util/later.hh>
+#include <seastar/core/io_queue.hh>
 #include "core/file-impl.hh"
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"
@@ -83,6 +84,7 @@ posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options
         , _fd(fd)
 {
     query_dma_alignment(block_size);
+    configure_io_lengths();
 }
 
 posix_file_impl::~posix_file_impl() {
@@ -109,6 +111,12 @@ posix_file_impl::query_dma_alignment(uint32_t block_size) {
         static bool xfs_with_relaxed_overwrite_alignment = kernel_uname().whitelisted({"5.12"});
         _disk_overwrite_dma_alignment = xfs_with_relaxed_overwrite_alignment ? da.d_miniosz : _disk_write_dma_alignment;
     }
+}
+
+void posix_file_impl::configure_io_lengths() noexcept {
+    auto limits = _io_queue->get_request_limits();
+    _read_max_length = std::min<size_t>(_read_max_length, limits.max_read);
+    _write_max_length = std::min<size_t>(_write_max_length, limits.max_write);
 }
 
 std::unique_ptr<seastar::file_handle_impl>
@@ -139,6 +147,7 @@ posix_file_impl::posix_file_impl(int fd, open_flags f, std::atomic<unsigned>* re
     _disk_read_dma_alignment = disk_read_dma_alignment;
     _disk_write_dma_alignment = disk_write_dma_alignment;
     _disk_overwrite_dma_alignment = disk_overwrite_dma_alignment;
+    configure_io_lengths();
 }
 
 future<>
