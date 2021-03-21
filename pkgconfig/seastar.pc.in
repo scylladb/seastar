@@ -32,7 +32,7 @@ numactl_cflags=-I$<JOIN:@numactl_INCLUDE_DIRS@, -I>
 numactl_libs=$<JOIN:@numactl_LIBRARIES@, >
 
 # Us.
-seastar_cflags=${seastar_include_flags} $<JOIN:$<TARGET_PROPERTY:seastar,INTERFACE_COMPILE_OPTIONS>, > -D$<JOIN:$<TARGET_PROPERTY:seastar,INTERFACE_COMPILE_DEFINITIONS>, -D>
+seastar_cflags=${seastar_include_flags} $<JOIN:$<FILTER:$<TARGET_PROPERTY:seastar,INTERFACE_COMPILE_OPTIONS>,EXCLUDE,-Wno-error=#warnings>, > -D$<JOIN:$<TARGET_PROPERTY:seastar,INTERFACE_COMPILE_DEFINITIONS>, -D>
 seastar_libs=${libdir}/$<TARGET_FILE_NAME:seastar> @Seastar_SPLIT_DWARF_FLAG@ $<JOIN:@Seastar_Sanitizers_OPTIONS@, >
 
 Requires: liblz4 >= 1.7.3
