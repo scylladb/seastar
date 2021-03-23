@@ -28,6 +28,7 @@
 #include <seastar/util/tuple_utils.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/util/concepts.hh>
+#include <seastar/util/log.hh>
 #include <boost/iterator/counting_iterator.hpp>
 #include <functional>
 #if __has_include(<concepts>)
@@ -108,9 +109,13 @@ public:
 
 /// Exception thrown when a \ref sharded object does not exist
 class no_sharded_instance_exception : public std::exception {
+    sstring _msg;
 public:
+    no_sharded_instance_exception() : _msg("sharded instance does not exist") {}
+    explicit no_sharded_instance_exception(sstring type_info)
+        : _msg("sharded instance does not exist: " + type_info) {}
     virtual const char* what() const noexcept override {
-        return "sharded instance does not exist";
+        return _msg.c_str();
     }
 };
 
@@ -301,7 +306,7 @@ public:
                         if (inst) {
                             return ((*inst).*func)(std::forward<Args>(args)...);
                         } else {
-                            throw no_sharded_instance_exception();
+                            throw no_sharded_instance_exception(pretty_type_name(typeid(Service)));
                         }
                     }, std::move(args));
                 });
@@ -455,7 +460,7 @@ private:
     shared_ptr<Service> get_local_service() {
         auto inst = _instances[this_shard_id()].service;
         if (!inst) {
-            throw no_sharded_instance_exception();
+            throw no_sharded_instance_exception(pretty_type_name(typeid(Service)));
         }
         return inst;
     }
