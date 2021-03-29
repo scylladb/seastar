@@ -946,6 +946,12 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
                         fsi.fsync_is_exclusive = false;
                         fsi.nowait_works = false;
                         break;
+                    case 0x61756673: /* AuFS (old docker?) */
+                        fsi.append_challenged = true;
+                        fsi.append_concurrency = 0;
+                        fsi.fsync_is_exclusive = true;
+                        fsi.nowait_works = false;
+                        break;
                     default:
                         fsi.append_challenged = true;
                         fsi.append_concurrency = 0;
