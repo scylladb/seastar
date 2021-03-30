@@ -979,7 +979,9 @@ set (Seastar_STACK_GUARD_MODES "Debug" "Sanitize" "Dev")
 if ((Seastar_STACK_GUARDS STREQUAL "ON") OR
     ((Seastar_STACK_GUARDS STREQUAL "DEFAULT") AND
      (CMAKE_BUILD_TYPE IN_LIST Seastar_STACK_GUARD_MODES)))
-  seastar_supports_flag ("-fstack-clash-protection" StackClashProtection_FOUND)
+  # check for -fstack-clash-protection together with -Werror, because
+  # otherwise clang can soft-fail (return 0 but emit a warning) instead.
+  seastar_supports_flag ("-fstack-clash-protection -Werror" StackClashProtection_FOUND)
   if (StackClashProtection_FOUND)
     target_compile_options (seastar
       PUBLIC
