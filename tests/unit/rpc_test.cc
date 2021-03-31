@@ -34,6 +34,7 @@
 #include <seastar/core/loop.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/log.hh>
+#include <seastar/util/closeable.hh>
 
 using namespace seastar;
 
@@ -211,7 +212,7 @@ public:
         return do_with(std::move(cfg), [func, co = std::move(co)] (rpc_test_env<MsgType>& env) {
             return seastar::async([&env, func, co = std::move(co)] {
                 test_rpc_proto::client cl(env.proto(), co, env.make_socket(), ipv4_addr());
-                auto stop = defer([&] { cl.stop().get(); });
+                auto stop = deferred_stop(cl);
                 func(env, cl);
             });
         });

@@ -29,6 +29,7 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/print.hh>
 #include <seastar/util/defer.hh>
+#include <seastar/util/closeable.hh>
 #include <mutex>
 
 using namespace seastar;
@@ -302,7 +303,7 @@ SEASTAR_THREAD_TEST_CASE(test_sharded_parameter) {
     };
     sharded<dependency> s_dep;
     s_dep.start().get();
-    auto undo1 = defer([&] { s_dep.stop().get(); });
+    auto undo1 = deferred_stop(s_dep);
 
     sharded<some_service> s_service;
     s_service.start(
@@ -311,7 +312,7 @@ SEASTAR_THREAD_TEST_CASE(test_sharded_parameter) {
             std::ref(s_dep),
             sharded_parameter([] (dependency& d) { return -d.val; }, std::ref(s_dep))
             ).get();
-    auto undo2 = defer([&] { s_service.stop().get(); });
+    auto undo2 = deferred_stop(s_service);
 
     auto all_ok = s_service.map_reduce0(std::mem_fn(&some_service::ok), true, std::multiplies<>()).get0();
     BOOST_REQUIRE(all_ok);

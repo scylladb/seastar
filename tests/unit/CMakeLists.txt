@@ -574,3 +574,6 @@ seastar_add_test (log_buf
 seastar_add_test (exception_logging
   KIND BOOST
   SOURCES exception_logging_test.cc)
+
+seastar_add_test (closeable
+  SOURCES closeable_test.cc)

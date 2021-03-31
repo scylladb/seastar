@@ -34,6 +34,7 @@
 #include <seastar/core/io_intent.hh>
 #include <seastar/util/tmp_file.hh>
 #include <seastar/util/alloc_failure_injector.hh>
+#include <seastar/util/closeable.hh>
 
 #include <boost/range/adaptor/transformed.hpp>
 #include <iostream>
@@ -161,6 +162,7 @@ SEASTAR_TEST_CASE(parallel_write_fsync) {
             auto fsynced_at = uint64_t(0);
 
             file f = open_file_dma(fname, open_flags::rw | open_flags::create | open_flags::truncate).get0();
+            auto close_f = deferred_close(f);
             // Avoid filesystem problems with size-extending operations
             f.truncate(sz).get();
 
@@ -197,7 +199,7 @@ SEASTAR_TEST_CASE(parallel_write_fsync) {
             write_semaphore.wait(write_concurrency).get();
 
             fsync_thread.join().get();
-            f.close().get();
+            close_f.close_now();
             remove_file(fname).get();
         });
     }).then([] (internal::stall_report sr) {
@@ -220,6 +222,7 @@ SEASTAR_TEST_CASE(test_iov_max) {
 
     auto filename = (t.get_path() / "testfile.tmp").native();
     auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get0();
+    auto close_f = deferred_close(f);
     size_t left = buffer_size * buffer_count;
     size_t position = 0;
     while (left) {
@@ -253,8 +256,6 @@ SEASTAR_TEST_CASE(test_iov_max) {
         BOOST_CHECK(std::equal(original_buffers[i].get(), original_buffers[i].get() + original_buffers[i].size(),
                                read_buffers[i].get(), read_buffers[i].get() + read_buffers[i].size()));
     }
-
-    f.close().get();
   });
 }
 
@@ -488,8 +489,8 @@ SEASTAR_TEST_CASE(test_file_stat_method) {
     auto orig_umask = umask(0);
 
     auto f = open_file_dma(filename, oflags).get0();
+    auto close_f = deferred_close(f);
     auto st = f.stat().get0();
-    f.close().get();
     BOOST_CHECK_EQUAL(st.st_mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
 
     umask(orig_umask);
@@ -549,11 +550,11 @@ SEASTAR_TEST_CASE(test_underlying_file) {
         auto oflags = open_flags::rw | open_flags::create;
         sstring filename = (t.get_path() / "testfile.tmp").native();
         auto f = open_file_dma(filename, oflags).get0();
+        auto close_f = deferred_close(f);
         auto lf = file(make_shared<test_layered_file>(f));
         BOOST_CHECK_EQUAL(f.memory_dma_alignment(), lf.memory_dma_alignment());
         BOOST_CHECK_EQUAL(f.disk_read_dma_alignment(), lf.disk_read_dma_alignment());
         BOOST_CHECK_EQUAL(f.disk_write_dma_alignment(), lf.disk_write_dma_alignment());
-        f.close().get();
     });
 }
 

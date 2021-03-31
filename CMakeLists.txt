@@ -618,6 +618,7 @@ add_library (seastar STATIC
   include/seastar/util/transform_iterator.hh
   include/seastar/util/tuple_utils.hh
   include/seastar/util/variant_utils.hh
+  include/seastar/util/closeable.hh
   src/core/alien.cc
   src/core/file.cc
   src/core/fair_queue.cc
