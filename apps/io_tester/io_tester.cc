@@ -120,6 +120,7 @@ struct job_config {
 };
 
 std::array<double, 4> quantiles = { 0.5, 0.95, 0.99, 0.999};
+static bool keep_files = false;
 
 class class_data {
 protected:
@@ -325,7 +326,7 @@ public:
 private:
     future<> do_start_on_directory(sstring dir) {
         auto fname = format("{}/test-{}-{:d}", dir, name(), this_shard_id());
-        auto flags = open_flags::rw | open_flags::create | open_flags::truncate;
+        auto flags = open_flags::rw | open_flags::create;
         if (_config.options.dsync) {
             flags |= open_flags::dsync;
         }
@@ -334,8 +335,16 @@ private:
         options.append_is_unlikely = true;
         return open_file_dma(fname, flags, options).then([this, fname] (auto f) {
             _file = f;
-            return remove_file(fname).then([this] {
-                    return _file.truncate(_config.file_size).then([this] {
+            auto maybe_remove_file = [] (sstring fname) {
+                return keep_files ? make_ready_future<>() : remove_file(fname);
+            };
+            return maybe_remove_file(fname).then([this] {
+                return _file.size().then([this] (uint64_t size) {
+                    return _file.truncate(_config.file_size).then([this, size] {
+                        if (size >= _config.file_size) {
+                            return make_ready_future<>();
+                        }
+
                         auto bufsize = 256ul << 10;
                         return do_with(boost::irange(0ul, (_config.file_size / bufsize) + 1), [this, bufsize] (auto& pos) mutable {
                             return max_concurrent_for_each(pos.begin(), pos.end(), 64, [this, bufsize] (auto pos) mutable {
@@ -354,6 +363,7 @@ private:
                             return _file.flush();
                         });
                     });
+                });
             });
         });
     }
@@ -673,6 +683,7 @@ int main(int ac, char** av) {
         ("storage", bpo::value<sstring>()->default_value("."), "directory or block device where to execute the test")
         ("duration", bpo::value<unsigned>()->default_value(10), "for how long (in seconds) to run the test")
         ("conf", bpo::value<sstring>()->default_value("./conf.yaml"), "YAML file containing benchmark specification")
+        ("keep-files", bpo::value<bool>()->default_value(false), "keep test files, next run may re-use them")
     ;
 
     distributed<context> ctx;
@@ -694,6 +705,7 @@ int main(int ac, char** av) {
                 }
             }
 
+            keep_files = opts["keep-files"].as<bool>();
             auto& duration = opts["duration"].as<unsigned>();
             auto& yaml = opts["conf"].as<sstring>();
             YAML::Node doc = YAML::LoadFile(yaml);
