@@ -338,22 +338,19 @@ private:
                 return _file.truncate(_config.file_size);
             });
         }).then([this, fname] {
-            return do_with(seastar::semaphore(64), [this] (auto& write_parallelism) mutable {
-                auto bufsize = 256ul << 10;
-                auto pos = boost::irange(0ul, (_config.file_size / bufsize) + 1);
-                return parallel_for_each(pos.begin(), pos.end(), [this, bufsize, &write_parallelism] (auto pos) mutable {
-                    return get_units(write_parallelism, 1).then([this, bufsize, pos] (auto perm) mutable {
+            auto bufsize = 256ul << 10;
+            return do_with(boost::irange(0ul, (_config.file_size / bufsize) + 1), [this, bufsize] (auto& pos) mutable {
+                return max_concurrent_for_each(pos.begin(), pos.end(), 64, [this, bufsize] (auto pos) mutable {
                         auto bufptr = allocate_aligned_buffer<char>(bufsize, 4096);
                         auto buf = bufptr.get();
                         std::uniform_int_distribution<char> fill('@', '~');
                         memset(buf, fill(random_generator), bufsize);
                         pos = pos * bufsize;
-                        return _file.dma_write(pos, buf, bufsize).finally([this, bufptr = std::move(bufptr), perm = std::move(perm), pos] {
+                        return _file.dma_write(pos, buf, bufsize).finally([this, bufptr = std::move(bufptr), pos] {
                             if ((this->req_type() == request_type::append) && (pos > _last_pos)) {
                                 _last_pos = pos;
                             }
                         }).discard_result();
-                    });
                 });
             });
         }).then([this] {
