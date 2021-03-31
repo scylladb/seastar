@@ -341,16 +341,16 @@ private:
             auto bufsize = 256ul << 10;
             return do_with(boost::irange(0ul, (_config.file_size / bufsize) + 1), [this, bufsize] (auto& pos) mutable {
                 return max_concurrent_for_each(pos.begin(), pos.end(), 64, [this, bufsize] (auto pos) mutable {
-                        auto bufptr = allocate_aligned_buffer<char>(bufsize, 4096);
-                        auto buf = bufptr.get();
-                        std::uniform_int_distribution<char> fill('@', '~');
-                        memset(buf, fill(random_generator), bufsize);
-                        pos = pos * bufsize;
-                        return _file.dma_write(pos, buf, bufsize).finally([this, bufptr = std::move(bufptr), pos] {
-                            if ((this->req_type() == request_type::append) && (pos > _last_pos)) {
-                                _last_pos = pos;
-                            }
-                        }).discard_result();
+                    auto bufptr = allocate_aligned_buffer<char>(bufsize, 4096);
+                    auto buf = bufptr.get();
+                    std::uniform_int_distribution<char> fill('@', '~');
+                    memset(buf, fill(random_generator), bufsize);
+                    pos = pos * bufsize;
+                    return _file.dma_write(pos, buf, bufsize).finally([this, bufptr = std::move(bufptr), pos] {
+                        if ((this->req_type() == request_type::append) && (pos > _last_pos)) {
+                            _last_pos = pos;
+                        }
+                    }).discard_result();
                 });
             });
         }).then([this] {
