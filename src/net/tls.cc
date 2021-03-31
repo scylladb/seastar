@@ -1115,13 +1115,13 @@ public:
             _eof |= buf.empty();
            _input = std::move(buf);
         }).handle_exception([this](auto ep) {
-           _error = true;
+           _error = ep;
            return make_exception_future(ep);
         });
     }
     future<> wait_for_output() {
         return std::exchange(_output_pending, make_ready_future()).handle_exception([this](auto ep) {
-           _error = true;
+           _error = ep;
            return make_exception_future(ep);
         });
     }
@@ -1201,7 +1201,7 @@ public:
 
     future<temporary_buffer<char>> get() {
         if (_error) {
-            return make_exception_future<temporary_buffer<char>>(std::system_error(EINVAL, std::system_category()));
+            return make_exception_future<temporary_buffer<char>>(_error);
         }
         if (_shutdown || eof()) {
             return make_ready_future<temporary_buffer<char>>();
@@ -1248,8 +1248,8 @@ public:
                     _connected = false;
                     return make_ready_future<temporary_buffer<char>>();
                 default:
-                    _error = true;
-                    return make_exception_future<temporary_buffer<char>>(std::system_error(n, glts_errorc));
+                    _error = std::make_exception_ptr(std::system_error(n, glts_errorc));
+                    return make_exception_future<temporary_buffer<char>>(_error);
                 }
             }
             buf.trim(n);
@@ -1292,8 +1292,11 @@ public:
         });
     }
     future<> put(net::packet p) {
-        if (_error || _shutdown) {
-            return make_exception_future<>(std::system_error(EINVAL, std::system_category()));
+        if (_error) {
+            return make_exception_future<>(_error);
+        }
+        if (_shutdown) {
+            return make_exception_future<>(std::system_error(ENOTCONN, std::system_category()));
         }
         if (!_connected) {
             return handshake().then([this, p = std::move(p)]() mutable {
@@ -1346,12 +1349,12 @@ public:
 
     future<>
     handle_error(int res) {
-        _error = true;
-        return make_exception_future(std::system_error(res, glts_errorc));
+        _error = std::make_exception_ptr(std::system_error(res, glts_errorc));
+        return make_exception_future(_error);
     }
     future<>
     handle_output_error(int res) {
-        _error = true;
+        _error = std::make_exception_ptr(std::system_error(res, glts_errorc));
         // #453
         // defensively wait for output before generating the error.
         // if we have both error code and an exception in output
@@ -1360,7 +1363,7 @@ public:
             try {
                 f.get();
                 // output was ok/done, just generate error code exception
-                return handle_error(res);
+                return make_exception_future(_error);
             } catch (...) {
                 std::throw_with_nested(std::system_error(res, glts_errorc));
             }
@@ -1472,7 +1475,7 @@ private:
     bool _eof = false;
     bool _shutdown = false;
     bool _connected = false;
-    bool _error = false;
+    std::exception_ptr _error;
 
     future<> _output_pending;
     buf_type _input;

@@ -1001,3 +1001,105 @@ SEASTAR_THREAD_TEST_CASE(test_reload_by_move) {
         }
     }
 }
+
+SEASTAR_THREAD_TEST_CASE(test_closed_write) {
+    tls::credentials_builder b;
+
+    b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+    b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+    b.set_dh_level();
+    b.set_system_trust().get();
+
+    auto creds = b.build_certificate_credentials();
+    auto serv = b.build_server_credentials();
+
+    ::listen_options opts;
+    opts.reuse_address = true;
+    opts.set_fixed_cpu(this_shard_id());
+
+    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto server = tls::listen(serv, addr, opts);
+
+    auto check_same_message_two_writes = [](output_stream<char>& out) {
+        std::exception_ptr ep1, ep2;
+
+        try {
+            out.write("apa").get();
+            out.flush().get();
+            BOOST_FAIL("should not reach");
+        } catch (...) {
+            // ok
+            ep1 = std::current_exception();
+        }
+
+        try {
+            out.write("apa").get();
+            out.flush().get();
+            BOOST_FAIL("should not reach");
+        } catch (...) {
+            // ok
+            ep2 = std::current_exception();
+        }
+
+        try {
+            std::rethrow_exception(ep1);
+        } catch (std::exception& e1) {
+            try {
+                std::rethrow_exception(ep2);
+            } catch (std::exception& e2) {
+                BOOST_REQUIRE_EQUAL(std::string(e1.what()), std::string(e2.what()));
+                return;
+            }
+        }
+
+        BOOST_FAIL("should not reach");
+    };
+
+
+    {
+        auto sa = server.accept();
+        auto c = tls::connect(creds, addr).get0();
+        auto s = sa.get0();
+        auto in = s.connection.input();
+
+        output_stream<char> out(c.output().detach(), 4096);
+        // close on client end before writing
+        out.close().get();
+
+        check_same_message_two_writes(out);
+    }
+
+    {
+        auto sa = server.accept();
+        auto c = tls::connect(creds, addr).get0();
+        auto s = sa.get0();
+        auto in = s.connection.input();
+
+        output_stream<char> out(c.output().detach(), 4096);
+
+        out.write("apa").get();
+        auto f = out.flush();
+        in.read().get();
+        f.get();
+
+        // close on server end before writing
+        in.close().get();
+        s.connection.shutdown_input();
+        s.connection.shutdown_output();
+
+        // we won't get broken pipe until
+        // after a while (tm)
+        for (;;) {
+            try {
+                out.write("apa").get();
+                out.flush().get();
+            } catch (...) {
+                break;
+            }
+        }
+
+        // now check we get the same message.
+        check_same_message_two_writes(out);
+    }
+
+}
