@@ -65,8 +65,11 @@ struct reply {
         unauthorized = 401, //!< unauthorized
         forbidden = 403, //!< forbidden
         not_found = 404, //!< not_found
+        not_acceptable = 406, //!< not_acceptable
         length_required = 411, //!< length_required
         payload_too_large = 413, //!< payload_too_large
+        unsupported_media_type = 415, //!< unsupported_media_type
+        unprocessable_entity = 422, //!< unprocessable_entity
         internal_server_error = 500, //!< internal_server_error
         not_implemented = 501, //!< not_implemented
         bad_gateway = 502, //!< bad_gateway
