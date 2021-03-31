@@ -331,9 +331,12 @@ private:
         }
         file_open_options options;
         options.extent_allocation_size_hint = _config.file_size;
+        options.append_is_unlikely = true;
         return open_file_dma(fname, flags, options).then([this, fname] (auto f) {
             _file = f;
-            return remove_file(fname);
+            return remove_file(fname).then([this] {
+                return _file.truncate(_config.file_size);
+            });
         }).then([this, fname] {
             return do_with(seastar::semaphore(64), [this] (auto& write_parallelism) mutable {
                 auto bufsize = 256ul << 10;
