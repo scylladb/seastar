@@ -329,7 +329,9 @@ private:
         if (_config.options.dsync) {
             flags |= open_flags::dsync;
         }
-        return open_file_dma(fname, flags).then([this, fname] (auto f) {
+        file_open_options options;
+        options.extent_allocation_size_hint = _config.file_size;
+        return open_file_dma(fname, flags, options).then([this, fname] (auto f) {
             _file = f;
             return remove_file(fname);
         }).then([this, fname] {
