@@ -87,14 +87,6 @@ public:
             _promise.set_value();
         }
 
-// Only accepted in gcc 10; the standard says it is illegal
-#if !defined(__clang__) && __GNUC__  < 11
-        [[deprecated("forwarding a future<> is not possible in standard C++. 'Use co_return co_wait ...' instead.")]]
-        void return_value(future<>&& fut) noexcept {
-            fut.forward_to(std::move(_promise));
-        }
-#endif
-
         void unhandled_exception() noexcept {
             _promise.set_exception(std::current_exception());
         }
