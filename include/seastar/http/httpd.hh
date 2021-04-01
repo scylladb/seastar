@@ -249,7 +249,9 @@ public:
     future<> stop();
     future<> set_routes(std::function<void(routes& r)> fun);
     future<> listen(socket_address addr);
+    future<> listen(socket_address addr, shared_ptr<seastar::tls::server_credentials> credentials);
     future<> listen(socket_address addr, listen_options lo);
+    future<> listen(socket_address addr, listen_options lo, shared_ptr<seastar::tls::server_credentials> credentials);
     distributed<http_server>& server();
 };
 SEASTAR_MODULE_EXPORT_END

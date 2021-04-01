@@ -519,8 +519,16 @@ future<> http_server_control::listen(socket_address addr) {
     return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address)>(&http_server::listen, addr);
 }
 
+future<> http_server_control::listen(socket_address addr, shared_ptr<seastar::tls::server_credentials> credentials) {
+    return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address, shared_ptr<seastar::tls::server_credentials>)>(&http_server::listen, addr, credentials);
+}
+
 future<> http_server_control::listen(socket_address addr, listen_options lo) {
     return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address, listen_options)>(&http_server::listen, addr, lo);
+}
+
+future<> http_server_control::listen(socket_address addr, listen_options lo, shared_ptr<seastar::tls::server_credentials> credentials) {
+    return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address, listen_options, shared_ptr<seastar::tls::server_credentials>)>(&http_server::listen, addr, lo, credentials);
 }
 
 distributed<http_server>& http_server_control::server() {
