@@ -86,6 +86,7 @@ public:
 
 class io_desc_read_write final : public io_completion {
     io_queue& _ioq;
+    priority_class_data& _pclass;
     fair_queue_ticket _fq_ticket;
     promise<size_t> _pr;
 private:
@@ -93,8 +94,9 @@ private:
         _ioq.notify_requests_finished(_fq_ticket);
     }
 public:
-    io_desc_read_write(io_queue& ioq, fair_queue_ticket ticket)
+    io_desc_read_write(io_queue& ioq, priority_class_data& pc, fair_queue_ticket ticket)
         : _ioq(ioq)
+        , _pclass(pc)
         , _fq_ticket(ticket)
     {}
 
@@ -141,7 +143,7 @@ public:
         , _len(l)
         , _started(std::chrono::steady_clock::now())
         , _fq_entry(_ioq.request_fq_ticket(*this, _len))
-        , _desc(std::make_unique<io_desc_read_write>(_ioq, _fq_entry.ticket()))
+        , _desc(std::make_unique<io_desc_read_write>(_ioq, _pclass, _fq_entry.ticket()))
     {
         io_log.trace("dev {} : req {} queue  len {} ticket {}", _ioq.dev_id(), fmt::ptr(&*_desc), _len, _fq_entry.ticket());
     }
