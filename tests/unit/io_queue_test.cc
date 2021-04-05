@@ -39,8 +39,7 @@ template <size_t Len>
 struct fake_file {
     int data[Len] = {};
 
-    static internal::io_request make_write_req(size_t idx, int val) {
-        int* buf = new int(val);
+    static internal::io_request make_write_req(size_t idx, int* buf) {
         return internal::io_request::make_write(0, idx, buf, 1, false);
     }
 
@@ -66,7 +65,8 @@ SEASTAR_THREAD_TEST_CASE(test_basic_flow) {
     io_queue_for_tests tio;
     fake_file<1> file;
 
-    auto f = tio.queue.queue_request(default_priority_class(), 0, file.make_write_req(0, 42), nullptr)
+    auto val = std::make_unique<int>(42);
+    auto f = tio.queue.queue_request(default_priority_class(), 0, file.make_write_req(0, val.get()), nullptr)
     .then([&file] (size_t len) {
         BOOST_REQUIRE(file.data[0] == 42);
     });
@@ -145,8 +145,9 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
     std::vector<future<>> cancelled;
 
     auto queue_legacy_request = [&] (io_queue_for_tests& q, io_priority_class& pc) {
-        auto f = q.queue.queue_request(pc, 0, file.make_write_req(idx, val), nullptr)
-            .then([&file, idx, val] (size_t len) {
+        auto buf = std::make_unique<int>(val);
+        auto f = q.queue.queue_request(pc, 0, file.make_write_req(idx, buf.get()), nullptr)
+            .then([&file, idx, val, buf = std::move(buf)] (size_t len) {
                 BOOST_REQUIRE(file.data[idx] == val);
                 return make_ready_future<>();
             });
@@ -156,8 +157,9 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
     };
 
     auto queue_live_request = [&] (io_queue_for_tests& q, io_priority_class& pc) {
-        auto f = q.queue.queue_request(pc, 0, file.make_write_req(idx, val), &live)
-            .then([&file, idx, val] (size_t len) {
+        auto buf = std::make_unique<int>(val);
+        auto f = q.queue.queue_request(pc, 0, file.make_write_req(idx, buf.get()), &live)
+            .then([&file, idx, val, buf = std::move(buf)] (size_t len) {
                 BOOST_REQUIRE(file.data[idx] == val);
                 return make_ready_future<>();
             });
@@ -167,8 +169,9 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
     };
 
     auto queue_dead_request = [&] (io_queue_for_tests& q, io_priority_class& pc) {
-        auto f = q.queue.queue_request(pc, 0, file.make_write_req(idx, val), &dead)
-            .then_wrapped([] (auto&& f) {
+        auto buf = std::make_unique<int>(val);
+        auto f = q.queue.queue_request(pc, 0, file.make_write_req(idx, buf.get()), &dead)
+            .then_wrapped([buf = std::move(buf)] (auto&& f) {
                 try {
                     f.get();
                     BOOST_REQUIRE(false);
