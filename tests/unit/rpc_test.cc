@@ -35,6 +35,7 @@
 #include <seastar/util/defer.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/closeable.hh>
+#include <seastar/util/noncopyable_function.hh>
 
 using namespace seastar;
 
@@ -740,18 +741,22 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
 
     auto compressor = compressor_factory();
 
-    std::vector<std::tuple<sstring, size_t, snd_buf>> inputs;
+    std::vector<noncopyable_function<std::tuple<sstring, size_t, snd_buf> ()>> inputs;
+
+    auto add_input = [&] (auto func_returning_tuple) {
+        inputs.emplace_back(std::move(func_returning_tuple));
+    };
 
     auto& eng = testing::local_random_engine;
     auto dist = std::uniform_int_distribution<char>();
 
     auto snd = snd_buf(1);
     *snd.front().get_write() = 'a';
-    inputs.emplace_back("one byte, no headroom", 0, std::move(snd));
+    add_input([snd = std::move(snd)] () mutable { return std::tuple(sstring("one byte, no headroom"), size_t(0), std::move(snd)); });
 
     snd = snd_buf(1);
     *snd.front().get_write() = 'a';
-    inputs.emplace_back("one byte, 128k of headroom", 128 * 1024, std::move(snd));
+    add_input([snd = std::move(snd)] () mutable { return std::tuple(sstring("one byte, 128k of headroom"), size_t(128 * 1024), std::move(snd)); });
 
     auto gen_fill = [&](size_t s, sstring msg, std::optional<size_t> split = {}) {
         auto buf = temporary_buffer<char>(s);
@@ -764,10 +769,11 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
         } else {
             snd.bufs = buf.clone();
         }
-        inputs.emplace_back(msg, 0, std::move(snd));
+        return std::tuple(msg, size_t(0), std::move(snd));
     };
 
-    gen_fill(16 * 1024, "single 16 kB buffer of \'a\'");
+
+    add_input(std::bind(gen_fill, 16 * 1024, "single 16 kB buffer of \'a\'"));
 
     auto gen_rand = [&](size_t s, sstring msg, std::optional<size_t> split = {}) {
         auto buf = temporary_buffer<char>(s);
@@ -780,10 +786,10 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
         } else {
             snd.bufs = buf.clone();
         }
-        inputs.emplace_back(msg, 0, std::move(snd));
+        return std::tuple(msg, size_t(0), std::move(snd));
     };
 
-    gen_rand(16 * 1024, "single 16 kB buffer of random");
+    add_input(std::bind(gen_rand, 16 * 1024, "single 16 kB buffer of random"));
 
     auto gen_text = [&](size_t s, sstring msg, std::optional<size_t> split = {}) {
         static const std::string_view text = "The quick brown fox wants bananas for his long term health but sneaks bacon behind his wife's back. ";
@@ -803,34 +809,34 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
         } else {
             snd.bufs = buf.clone();
         }
-        inputs.emplace_back(msg, 0, std::move(snd));
+        return std::tuple(msg, size_t(0), std::move(snd));
     };
 
 
-    for (auto s : { 1, 4, 8 }) {
+    for (auto s : { 1, 4 }) {
         for (auto ss : { 32, 64, 128, 48, 56, 246, 511 }) {
-            gen_fill(s * 1024 * 1024, format("{} MB buffer of \'a\' split into {} kB - {}", s, ss, ss), ss * 1024 - ss);
-            gen_fill(s * 1024 * 1024, format("{} MB buffer of \'a\' split into {} kB", s, ss), ss * 1024);
-            gen_rand(s * 1024 * 1024, format("{} MB buffer of random split into {} kB", s, ss), ss * 1024);
+            add_input(std::bind(gen_fill, s * 1024 * 1024, format("{} MB buffer of \'a\' split into {} kB - {}", s, ss, ss), ss * 1024 - ss));
+            add_input(std::bind(gen_fill, s * 1024 * 1024, format("{} MB buffer of \'a\' split into {} kB", s, ss), ss * 1024));
+            add_input(std::bind(gen_rand, s * 1024 * 1024, format("{} MB buffer of random split into {} kB", s, ss), ss * 1024));
 
-            gen_fill(s * 1024 * 1024 + 1, format("{} MB + 1B buffer of \'a\' split into {} kB", s, ss), ss * 1024);
-            gen_rand(s * 1024 * 1024 + 1, format("{} MB + 1B buffer of random split into {} kB", s, ss), ss * 1024);
+            add_input(std::bind(gen_fill, s * 1024 * 1024 + 1, format("{} MB + 1B buffer of \'a\' split into {} kB", s, ss), ss * 1024));
+            add_input(std::bind(gen_rand, s * 1024 * 1024 + 1, format("{} MB + 1B buffer of random split into {} kB", s, ss), ss * 1024));
         }
 
         for (auto ss : { 128, 246, 511, 3567, 2*1024, 8*1024 }) {
-            gen_fill(s * 1024 * 1024, format("{} MB buffer of \'a\' split into {} B", s, ss), ss);
-            gen_rand(s * 1024 * 1024, format("{} MB buffer of random split into {} B", s, ss), ss);
-            gen_text(s * 1024 * 1024, format("{} MB buffer of text split into {} B", s, ss), ss);
-            gen_fill(s * 1024 * 1024 - ss, format("{} MB - {}B buffer of \'a\' split into {} B", s, ss, ss), ss);
-            gen_rand(s * 1024 * 1024 - ss, format("{} MB - {}B buffer of random split into {} B", s, ss, ss), ss);
-            gen_text(s * 1024 * 1024 - ss, format("{} MB - {}B buffer of random split into {} B", s, ss, ss), ss);
+            add_input(std::bind(gen_fill, s * 1024 * 1024, format("{} MB buffer of \'a\' split into {} B", s, ss), ss));
+            add_input(std::bind(gen_rand, s * 1024 * 1024, format("{} MB buffer of random split into {} B", s, ss), ss));
+            add_input(std::bind(gen_text, s * 1024 * 1024, format("{} MB buffer of text split into {} B", s, ss), ss));
+            add_input(std::bind(gen_fill, s * 1024 * 1024 - ss, format("{} MB - {}B buffer of \'a\' split into {} B", s, ss, ss), ss));
+            add_input(std::bind(gen_rand, s * 1024 * 1024 - ss, format("{} MB - {}B buffer of random split into {} B", s, ss, ss), ss));
+            add_input(std::bind(gen_text, s * 1024 * 1024 - ss, format("{} MB - {}B buffer of random split into {} B", s, ss, ss), ss));
         }
     }
 
     for (auto s : { 64*1024 + 5670, 16*1024 + 3421, 32*1024 - 321 }) {
-        gen_fill(s, format("{} bytes buffer of \'a\'", s));
-        gen_rand(s, format("{} bytes buffer of random", s));
-        gen_text(s, format("{} bytes buffer of text", s));
+        add_input(std::bind(gen_fill, s, format("{} bytes buffer of \'a\'", s)));
+        add_input(std::bind(gen_rand, s, format("{} bytes buffer of random", s)));
+        add_input(std::bind(gen_text, s, format("{} bytes buffer of text", s)));
     }
 
     std::vector<std::tuple<sstring, std::function<rcv_buf(snd_buf)>>> transforms {
@@ -886,7 +892,8 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
         BOOST_CHECK_EQUAL(actual_size, buffer.size);
     };
 
-    for (auto& in : inputs) {
+    for (auto& in_func : inputs) {
+        auto in = in_func();
         BOOST_TEST_MESSAGE("Input: " << std::get<0>(in));
         auto headroom = std::get<1>(in);
         auto compressed = compressor->compress(headroom, clone(std::get<2>(in)));
