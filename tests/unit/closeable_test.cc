@@ -19,6 +19,7 @@
  * Copyright 2021 ScyllaDB
  */
 
+#include <exception>
 
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
@@ -27,6 +28,11 @@
 #include <seastar/util/closeable.hh>
 
 using namespace seastar;
+
+class expected_exception : public std::runtime_error {
+public:
+    expected_exception() : runtime_error("expected") {}
+};
 
 SEASTAR_TEST_CASE(deferred_close_test) {
   return do_with(gate(), 0, 42, [] (gate& g, int& count, int& expected) {
@@ -66,14 +72,71 @@ SEASTAR_TEST_CASE(close_now_test) {
   });
 }
 
+SEASTAR_TEST_CASE(with_closeable_test) {
+    return do_with(0, 42, [] (int& count, int& expected) {
+        return with_closeable(gate(), [&] (gate& g) {
+            for (auto i = 0; i < expected; i++) {
+                (void)with_gate(g, [&count] {
+                    ++count;
+                });
+            }
+            return 17;
+        }).then([&] (int res) {
+            // res should be returned by the function called
+            // by with_closeable.
+            BOOST_REQUIRE_EQUAL(res, 17);
+            // closing the gate should wait for
+            // all background continuations to complete
+            BOOST_REQUIRE_EQUAL(count, expected);
+        });
+    });
+}
+
+SEASTAR_TEST_CASE(with_closeable_exception_test) {
+    return do_with(0, 42, [] (int& count, int& expected) {
+        return with_closeable(gate(), [&] (gate& g) {
+            for (auto i = 0; i < expected; i++) {
+                (void)with_gate(g, [&count] {
+                    ++count;
+                });
+            }
+            throw expected_exception();
+        }).handle_exception_type([&] (const expected_exception&) {
+            // closing the gate should also happen when func throws,
+            // waiting for all background continuations to complete
+            BOOST_REQUIRE_EQUAL(count, expected);
+        });
+    });
+}
+
 namespace {
 
-struct count_stops {
-    int stopped = 0;
+class count_stops {
+    int _count = -1;
+    int* _ptr = nullptr;
+public:
+    count_stops(int* ptr = nullptr) noexcept
+        : _ptr(ptr ? ptr : &_count)
+    {
+        *_ptr = 0;
+    }
+
+    count_stops(count_stops&& o) noexcept {
+        std::exchange(_count, o._count);
+        if (o._ptr == &o._count) {
+            _ptr = &_count;
+        } else {
+            std::exchange(_ptr, o._ptr);
+        }
+    }
 
     future<> stop() {
-        ++stopped;
+        ++*_ptr;
         return make_ready_future<>();
+    }
+
+    int stopped() const noexcept {
+        return *_ptr;
     }
 };
 
@@ -85,7 +148,7 @@ SEASTAR_TEST_CASE(deferred_stop_test) {
         auto stop_counting = deferred_stop(cs);
     }).then([&] {
         // cs.stop() should be called when stop_counting is destroyed
-        BOOST_REQUIRE_EQUAL(cs.stopped, 1);
+        BOOST_REQUIRE_EQUAL(cs.stopped(), 1);
     });
   });
 }
@@ -98,10 +161,36 @@ SEASTAR_TEST_CASE(stop_now_test) {
         stop_counting.stop_now();
         // cs.stop() should not be called again
         // when stop_counting is destroyed
-        BOOST_REQUIRE_EQUAL(cs.stopped, 1);
+        BOOST_REQUIRE_EQUAL(cs.stopped(), 1);
     }).then([&] {
         // cs.stop() should be called exactly once
-        BOOST_REQUIRE_EQUAL(cs.stopped, 1);
+        BOOST_REQUIRE_EQUAL(cs.stopped(), 1);
     });
   });
+}
+
+SEASTAR_TEST_CASE(with_stoppable_test) {
+    return do_with(0, [] (int& stopped) {
+        return with_stoppable(count_stops(&stopped), [] (count_stops& cs) {
+            return 17;
+        }).then([&] (int res) {
+            // res should be returned by the function called
+            // by with_closeable.
+            BOOST_REQUIRE_EQUAL(res, 17);
+            // cs.stop() should be called before count_stops is destroyed
+            BOOST_REQUIRE_EQUAL(stopped, 1);
+        });
+    });
+}
+
+SEASTAR_TEST_CASE(with_stoppable_exception_test) {
+    return do_with(0, [] (int& stopped) {
+        return with_stoppable(count_stops(&stopped), [] (count_stops& cs) {
+            throw expected_exception();
+        }).handle_exception_type([&] (const expected_exception&) {
+            // cs.stop() should be called before count_stops is destroyed
+            // also when func throws
+            BOOST_REQUIRE_EQUAL(stopped, 1);
+        });
+    });
 }

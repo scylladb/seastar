@@ -71,6 +71,20 @@ public:
     }
 };
 
+template <typename Closeable, typename Func>
+SEASTAR_CONCEPT(
+requires closeable<Closeable> && std::invocable<Func, Closeable&> &&
+        std::is_nothrow_move_constructible_v<Closeable> && std::is_nothrow_move_constructible_v<Func>
+)
+inline futurize_t<std::invoke_result_t<Func, Closeable&>>
+with_closeable(Closeable&& obj, Func func) noexcept {
+    return do_with(std::move(obj), [func = std::move(func)] (Closeable& obj) mutable {
+        return futurize_invoke(func, obj).finally([&obj] {
+            return obj.close();
+        });
+    });
+}
+
 SEASTAR_CONCEPT(
 template <typename Object>
 concept stoppable = requires (Object o) {
@@ -111,5 +125,19 @@ public:
         do_stop();
     }
 };
+
+template <typename Stoppable, typename Func>
+SEASTAR_CONCEPT(
+requires stoppable<Stoppable> && std::invocable<Func, Stoppable&> &&
+        std::is_nothrow_move_constructible_v<Stoppable> && std::is_nothrow_move_constructible_v<Func>
+)
+inline futurize_t<std::invoke_result_t<Func, Stoppable&>>
+with_stoppable(Stoppable&& obj, Func func) noexcept {
+    return do_with(std::move(obj), [func = std::move(func)] (Stoppable& obj) mutable {
+        return futurize_invoke(func, obj).finally([&obj] {
+            return obj.stop();
+        });
+    });
+}
 
 } // namespace seastar
