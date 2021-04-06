@@ -29,10 +29,7 @@
 using namespace seastar;
 
 SEASTAR_TEST_CASE(deferred_close_test) {
-    int count = 0;
-    int expected = 42;
-    gate g;
-
+  return do_with(gate(), 0, 42, [] (gate& g, int& count, int& expected) {
     return async([&] {
         auto close_gate = deferred_close(g);
 
@@ -47,13 +44,11 @@ SEASTAR_TEST_CASE(deferred_close_test) {
         BOOST_REQUIRE(g.is_closed());
         BOOST_REQUIRE_EQUAL(count, expected);
     });
+  });
 }
 
 SEASTAR_TEST_CASE(close_now_test) {
-    int count = 0;
-    int expected = 42;
-    gate g;
-
+  return do_with(gate(), 0, 42, [] (gate& g, int& count, int& expected) {
     return async([&] {
         auto close_gate = deferred_close(g);
 
@@ -68,6 +63,7 @@ SEASTAR_TEST_CASE(close_now_test) {
         BOOST_REQUIRE_EQUAL(count, expected);
         // gate must not be double-closed.
     });
+  });
 }
 
 namespace {
@@ -84,19 +80,18 @@ struct count_stops {
 } // anonymous namespace
 
 SEASTAR_TEST_CASE(deferred_stop_test) {
-    count_stops cs;
-
+  return do_with(count_stops(), [] (count_stops& cs) {
     return async([&] {
         auto stop_counting = deferred_stop(cs);
     }).then([&] {
         // cs.stop() should be called when stop_counting is destroyed
         BOOST_REQUIRE_EQUAL(cs.stopped, 1);
     });
+  });
 }
 
 SEASTAR_TEST_CASE(stop_now_test) {
-    count_stops cs;
-
+  return do_with(count_stops(), [] (count_stops& cs) {
     return async([&] {
         auto stop_counting = deferred_stop(cs);
 
@@ -108,4 +103,5 @@ SEASTAR_TEST_CASE(stop_now_test) {
         // cs.stop() should be called exactly once
         BOOST_REQUIRE_EQUAL(cs.stopped, 1);
     });
+  });
 }
