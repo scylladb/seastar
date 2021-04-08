@@ -36,8 +36,8 @@ parser.add_argument('-f', '--full-function-names', action='store_const', const=T
                     help="When demangling C++ function names, display all information, including the type of the function's parameters. Otherwise, they are omitted (see `c++filt(1) -p`).")
 parser.add_argument('-w', '--width', type=int, default=None,
                     help='Smart trim of long lines to width characters (0=disabled)')
-parser.add_argument('-d', '--direction', choices=['top-down', 'bottom-up'], default='top-down',
-                    help='Print graph top-down (default, callers first) or bottom-up (callees first)')
+parser.add_argument('-d', '--direction', choices=['bottom-up', 'top-down'], default='bottom-up',
+                    help='Print graph bottom-up (default, callees first) or top-down (callers first)')
 parser.add_argument('-m', '--minimum', type=int, default=None,
                     help='Process only stalls lasting the given time, in milliseconds, or longer')
 parser.add_argument('-b', '--branch-threshold', type=float, default=0.05,
