@@ -260,7 +260,7 @@ Use --direction={'bottom-up' if top_down else 'top-down'} to print {'callees' if
                     rel = omitted_total / total
                     avg = round(omitted_total / omitted_count) if count else 0
                     l = f"[{level+1}#{omitted_idx}/{last_idx} {round(100*rel)}%]"
-                    print(f"{prefix}{p}{l} {last_idx - omitted_idx} more branches total={omitted_total} count={omitted_count} avg={avg}")
+                    print(f"{prefix}{p}{l} {last_idx - omitted_idx + 1} more branches total={omitted_total} count={omitted_count} avg={avg}")
 
         r = self.head if top_down else self.tail
         _recursive_print_graph(r)
