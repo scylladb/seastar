@@ -6,17 +6,19 @@ jobs:
         description: C++ dialect to build with
         default: gnu++20
         type: string
-    docker:
-      - image: docker.io/scylladb/seastar-toolchain
+    machine:
+      image:  ubuntu-2004:202101-01
+    resource_class: medium
     steps:
       - checkout
       - run: git submodule sync
       - run: git submodule update --init
+      - run: echo 'docker run --network host --user "$(id -u):$(id -g)" --rm -v $PWD:$PWD -w $PWD  docker.io/scylladb/seastar-toolchain "$@"' > run; chmod +x run
       - run:
           command: |
-            ./configure.py --c++-dialect << parameters.dialect >>
-            ninja -C build/release -j1
-            ./test.py --mode release
+            ./run ./configure.py --c++-dialect << parameters.dialect >>
+            ./run ninja -C build/release -j1
+            ./run ./test.py --mode release
 workflows:
   version: 2
   build_and_test:
