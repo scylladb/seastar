@@ -848,6 +848,7 @@ private:
                     // is close to the same guarantee a "normal" message send would have anyway.
                     // For tcp we also pretend we're done, to make sure we don't have to deal with
                     // matching sent data
+                    return bytes;
                 }
                 if (f.failed()) {
                     try {
@@ -859,7 +860,7 @@ private:
                     return -1;
                 }
 
-                return len;
+                return bytes;
             }
         } catch (...) {
         }
