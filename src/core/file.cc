@@ -947,6 +947,7 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
                         fsi.nowait_works = false;
                         break;
                     case 0x61756673: /* AuFS (old docker?) */
+                    case 0x794c7630: /* overlayfs */
                         fsi.append_challenged = true;
                         fsi.append_concurrency = 0;
                         fsi.fsync_is_exclusive = true;
