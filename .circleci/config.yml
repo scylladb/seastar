@@ -17,7 +17,7 @@ jobs:
       - run:
           command: |
             ./run ./configure.py --c++-dialect << parameters.dialect >>
-            ./run ninja -C build/release -j1
+            ./run ninja -C build/release
             ./run ./test.py --mode release
 workflows:
   version: 2
