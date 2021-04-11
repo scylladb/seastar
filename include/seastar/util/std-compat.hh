@@ -52,3 +52,15 @@ namespace std::pmr {
 #if __has_feature(address_sanitizer) || defined(__SANITIZE_ADDRESS__)
 #define SEASTAR_ASAN_ENABLED
 #endif
+
+#if __has_include(<source_location>)
+#include <source_location>
+namespace compat {
+using source_location = std::source_location;
+}
+#else
+#include <experimental/source_location>
+namespace compat {
+using source_location = std::experimental::source_location;
+}
+#endif

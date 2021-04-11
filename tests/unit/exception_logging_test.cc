@@ -173,3 +173,18 @@ BOOST_AUTO_TEST_CASE(unknown_object_thrown_test) {
     BOOST_REQUIRE_EQUAL(log_msg.str(), std::string("unknown_obj"));
 
 }
+
+BOOST_AUTO_TEST_CASE(format_error_test) {
+    static seastar::logger l("format_error_test");
+
+    std::ostringstream log_msg;
+    l.set_ostream(log_msg);
+
+    const char* fmt = "bad format string: {}";
+    l.error(fmt);
+
+    BOOST_TEST_MESSAGE(log_msg.str());
+    BOOST_REQUIRE_NE(log_msg.str().find(__builtin_FILE()), std::string::npos);
+    BOOST_REQUIRE_NE(log_msg.str().find(__builtin_FUNCTION()), std::string::npos);
+    BOOST_REQUIRE_NE(log_msg.str().find(fmt), std::string::npos);
+}
