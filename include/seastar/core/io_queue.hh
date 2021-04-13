@@ -178,6 +178,13 @@ public:
     future<> update_shares_for_class(io_priority_class pc, size_t new_shares);
     void rename_priority_class(io_priority_class pc, sstring new_name);
 
+    struct request_limits {
+        size_t max_read;
+        size_t max_write;
+    };
+
+    request_limits get_request_limits() const noexcept;
+
 private:
     config _config;
     static fair_queue::config make_fair_queue_config(config cfg);

@@ -135,6 +135,7 @@ public:
     }
 private:
     void query_dma_alignment(uint32_t block_size);
+    void configure_io_lengths() noexcept;
 
     /**
      * Try to read from the given position where the previous short read has

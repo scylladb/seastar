@@ -836,3 +836,27 @@ SEASTAR_TEST_CASE(parallel_overwrite) {
         });
     });
 }
+
+SEASTAR_TEST_CASE(test_oversized_io_works) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        sstring filename = (t.get_path() / "testfile.tmp").native();
+        auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get0();
+
+        size_t max_write = f.disk_write_max_length();
+        size_t max_read = f.disk_read_max_length();
+        size_t buf_size = std::max(max_write, max_read) + 4096;
+
+        auto buf = allocate_aligned_buffer<unsigned char>(buf_size, 4096);
+        std::fill(buf.get(), buf.get() + buf_size, 'a');
+
+        f.dma_write(0, buf.get(), buf_size).get();
+        f.flush().get0();
+        f.close().get();
+
+        std::fill(buf.get(), buf.get() + buf_size, 'b');
+        f = open_file_dma(filename, open_flags::rw).get0();
+        f.dma_read(0, buf.get(), buf_size).get();
+
+        BOOST_REQUIRE((size_t)std::count_if(buf.get(), buf.get() + buf_size, [](auto x) { return x == 'a'; }) == buf_size);
+    });
+}
