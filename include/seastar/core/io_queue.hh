@@ -70,6 +70,7 @@ public:
     struct config {
         unsigned max_req_count = std::numeric_limits<int>::max();
         unsigned max_bytes_count = std::numeric_limits<int>::max();
+        unsigned disk_req_write_to_read_multiplier;
     };
     explicit io_group(config cfg) noexcept;
 

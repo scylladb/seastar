@@ -264,6 +264,18 @@ fair_group::config io_group::make_fair_group_config(config iocfg) noexcept {
      */
     auto max_req_count = std::min(iocfg.max_req_count,
         iocfg.max_bytes_count / io_queue::minimal_request_size);
+    auto max_req_count_min = std::max(io_queue::read_request_base_count, iocfg.disk_req_write_to_read_multiplier);
+    /*
+     * Read requests weight read_request_base_count, writes weight
+     * disk_req_write_to_read_multiplier. The fair queue limit must
+     * be enough to pass the largest one through. The same is true
+     * for request sizes, but that check is done run-time, see the
+     * request_fq_ticket() method.
+     */
+    if (max_req_count < max_req_count_min) {
+        seastar_logger.warn("The disk request rate is too low, configuring it to {}, but you may experience latency problems", max_req_count_min);
+        max_req_count = max_req_count_min;
+    }
     return fair_group::config(max_req_count,
         iocfg.max_bytes_count >> io_queue::request_ticket_size_shift);
 }

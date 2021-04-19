@@ -3661,12 +3661,15 @@ public:
         uint64_t max_bandwidth = std::max(p.read_bytes_rate, p.write_bytes_rate);
         uint64_t max_iops = std::max(p.read_req_rate, p.write_req_rate);
 
+        cfg.disk_req_write_to_read_multiplier = io_queue::read_request_base_count;
+
         if (!_capacity) {
             if (max_bandwidth != std::numeric_limits<uint64_t>::max()) {
                 cfg.max_bytes_count = io_queue::read_request_base_count * per_io_group(max_bandwidth * latency_goal().count(), nr_groups);
             }
             if (max_iops != std::numeric_limits<uint64_t>::max()) {
                 cfg.max_req_count = io_queue::read_request_base_count * per_io_group(max_iops * latency_goal().count(), nr_groups);
+                cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
             }
         } else {
             // Legacy configuration when only concurrency is specified.
