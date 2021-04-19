@@ -465,13 +465,16 @@ fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, s
         throw std::runtime_error(fmt::format("Unrecognized request passing through I/O queue {}", req.opname()));
     }
 
-    static thread_local logger::rate_limit rate_limit(std::chrono::seconds(30));
+    static thread_local size_t oversize_warning_threshold = 0;
 
     if (size >= _group->_maximum_request_size) {
-        io_log.log(log_level::warn, rate_limit, "oversized request (length {}) submitted. "
+        if (size > oversize_warning_threshold) {
+            oversize_warning_threshold = size;
+            io_log.warn("oversized request (length {}) submitted. "
                 "dazed and confuzed, trimming its weight from {} down to {}", len,
                 size >> request_ticket_size_shift,
                 _group->_maximum_request_size >> request_ticket_size_shift);
+        }
         size = _group->_maximum_request_size;
     }
 
