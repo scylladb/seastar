@@ -3658,8 +3658,8 @@ public:
         seastar_logger.debug("generate_group_config dev_id: {}", devid);
         const mountpoint_params& p = _mountpoints.at(devid);
         struct io_group::config cfg;
-        uint64_t max_bandwidth = std::max(p.read_bytes_rate, p.write_bytes_rate);
-        uint64_t max_iops = std::max(p.read_req_rate, p.write_req_rate);
+        uint64_t max_bandwidth = p.read_bytes_rate;
+        uint64_t max_iops = p.read_req_rate;
 
         cfg.disk_req_write_to_read_multiplier = io_queue::read_request_base_count;
 
@@ -3684,8 +3684,8 @@ public:
         seastar_logger.debug("generate_config dev_id: {}", devid);
         const mountpoint_params& p = _mountpoints.at(devid);
         struct io_queue::config cfg;
-        uint64_t max_bandwidth = std::max(p.read_bytes_rate, p.write_bytes_rate);
-        uint64_t max_iops = std::max(p.read_req_rate, p.write_req_rate);
+        uint64_t max_bandwidth = p.read_bytes_rate;
+        uint64_t max_iops = p.read_req_rate;
 
         cfg.devid = devid;
         cfg.disk_bytes_write_to_read_multiplier = io_queue::read_request_base_count;
