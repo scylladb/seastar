@@ -3596,6 +3596,7 @@ public:
         seastar_logger.debug("latency_goal: {}", latency_goal().count());
 
         if (configuration.count("max-io-requests")) {
+            seastar_logger.warn("the --max-io-requests option is deprecated, switch to io properties file instead");
             _capacity = configuration["max-io-requests"].as<unsigned>();
         }
 
