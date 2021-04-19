@@ -262,9 +262,9 @@ fair_group::config io_group::make_fair_group_config(config iocfg) noexcept {
      * rovers are configured in blocks (ticket size shift), and this
      * already makes a good protection.
      */
-    const unsigned max_req_count_ceil = iocfg.max_bytes_count / io_queue::minimal_request_size;
-    return fair_group::config(
-        std::min(iocfg.max_req_count, max_req_count_ceil),
+    auto max_req_count = std::min(iocfg.max_req_count,
+        iocfg.max_bytes_count / io_queue::minimal_request_size);
+    return fair_group::config(max_req_count,
         iocfg.max_bytes_count >> io_queue::request_ticket_size_shift);
 }
 
