@@ -43,7 +43,7 @@ static sstring to_sstring(const packet& p) {
 }
 
 struct stream_maker {
-    bool _trim = false;
+    output_stream_options opts;
     size_t _size;
 
     stream_maker size(size_t size) && {
@@ -52,12 +52,12 @@ struct stream_maker {
     }
 
     stream_maker trim(bool do_trim) && {
-        _trim = do_trim;
+        opts.trim_to_size = do_trim;
         return std::move(*this);
     }
 
     lw_shared_ptr<output_stream<char>> operator()(data_sink sink) {
-        return make_lw_shared<output_stream<char>>(std::move(sink), _size, _trim);
+        return make_lw_shared<output_stream<char>>(std::move(sink), _size, opts);
     }
 };
 
