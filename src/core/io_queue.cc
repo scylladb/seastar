@@ -262,9 +262,21 @@ fair_group::config io_group::make_fair_group_config(config iocfg) noexcept {
      * rovers are configured in blocks (ticket size shift), and this
      * already makes a good protection.
      */
-    const unsigned max_req_count_ceil = iocfg.max_bytes_count / io_queue::minimal_request_size;
-    return fair_group::config(
-        std::min(iocfg.max_req_count, max_req_count_ceil),
+    auto max_req_count = std::min(iocfg.max_req_count,
+        iocfg.max_bytes_count / io_queue::minimal_request_size);
+    auto max_req_count_min = std::max(io_queue::read_request_base_count, iocfg.disk_req_write_to_read_multiplier);
+    /*
+     * Read requests weight read_request_base_count, writes weight
+     * disk_req_write_to_read_multiplier. The fair queue limit must
+     * be enough to pass the largest one through. The same is true
+     * for request sizes, but that check is done run-time, see the
+     * request_fq_ticket() method.
+     */
+    if (max_req_count < max_req_count_min) {
+        seastar_logger.warn("The disk request rate is too low, configuring it to {}, but you may experience latency problems", max_req_count_min);
+        max_req_count = max_req_count_min;
+    }
+    return fair_group::config(max_req_count,
         iocfg.max_bytes_count >> io_queue::request_ticket_size_shift);
 }
 
@@ -453,13 +465,16 @@ fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, s
         throw std::runtime_error(fmt::format("Unrecognized request passing through I/O queue {}", req.opname()));
     }
 
-    static thread_local logger::rate_limit rate_limit(std::chrono::seconds(30));
+    static thread_local size_t oversize_warning_threshold = 0;
 
     if (size >= _group->_maximum_request_size) {
-        io_log.log(log_level::warn, rate_limit, "oversized request (length {}) submitted. "
+        if (size > oversize_warning_threshold) {
+            oversize_warning_threshold = size;
+            io_log.warn("oversized request (length {}) submitted. "
                 "dazed and confuzed, trimming its weight from {} down to {}", len,
                 size >> request_ticket_size_shift,
                 _group->_maximum_request_size >> request_ticket_size_shift);
+        }
         size = _group->_maximum_request_size;
     }
 

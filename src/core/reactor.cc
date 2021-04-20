@@ -3596,6 +3596,7 @@ public:
         seastar_logger.debug("latency_goal: {}", latency_goal().count());
 
         if (configuration.count("max-io-requests")) {
+            seastar_logger.warn("the --max-io-requests option is deprecated, switch to io properties file instead");
             _capacity = configuration["max-io-requests"].as<unsigned>();
         }
 
@@ -3658,15 +3659,16 @@ public:
         seastar_logger.debug("generate_group_config dev_id: {}", devid);
         const mountpoint_params& p = _mountpoints.at(devid);
         struct io_group::config cfg;
-        uint64_t max_bandwidth = std::max(p.read_bytes_rate, p.write_bytes_rate);
-        uint64_t max_iops = std::max(p.read_req_rate, p.write_req_rate);
+
+        cfg.disk_req_write_to_read_multiplier = io_queue::read_request_base_count;
 
         if (!_capacity) {
-            if (max_bandwidth != std::numeric_limits<uint64_t>::max()) {
-                cfg.max_bytes_count = io_queue::read_request_base_count * per_io_group(max_bandwidth * latency_goal().count(), nr_groups);
+            if (p.read_bytes_rate != std::numeric_limits<uint64_t>::max()) {
+                cfg.max_bytes_count = io_queue::read_request_base_count * per_io_group(p.read_bytes_rate * latency_goal().count(), nr_groups);
             }
-            if (max_iops != std::numeric_limits<uint64_t>::max()) {
-                cfg.max_req_count = io_queue::read_request_base_count * per_io_group(max_iops * latency_goal().count(), nr_groups);
+            if (p.read_req_rate != std::numeric_limits<uint64_t>::max()) {
+                cfg.max_req_count = io_queue::read_request_base_count * per_io_group(p.read_req_rate * latency_goal().count(), nr_groups);
+                cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
             }
         } else {
             // Legacy configuration when only concurrency is specified.
@@ -3681,21 +3683,19 @@ public:
         seastar_logger.debug("generate_config dev_id: {}", devid);
         const mountpoint_params& p = _mountpoints.at(devid);
         struct io_queue::config cfg;
-        uint64_t max_bandwidth = std::max(p.read_bytes_rate, p.write_bytes_rate);
-        uint64_t max_iops = std::max(p.read_req_rate, p.write_req_rate);
 
         cfg.devid = devid;
         cfg.disk_bytes_write_to_read_multiplier = io_queue::read_request_base_count;
         cfg.disk_req_write_to_read_multiplier = io_queue::read_request_base_count;
 
         if (!_capacity) {
-            if (max_bandwidth != std::numeric_limits<uint64_t>::max()) {
+            if (p.read_bytes_rate != std::numeric_limits<uint64_t>::max()) {
                 cfg.disk_bytes_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
-                cfg.disk_us_per_byte = 1000000. / max_bandwidth;
+                cfg.disk_us_per_byte = 1000000. / p.read_bytes_rate;
             }
-            if (max_iops != std::numeric_limits<uint64_t>::max()) {
+            if (p.read_req_rate != std::numeric_limits<uint64_t>::max()) {
                 cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
-                cfg.disk_us_per_request = 1000000. / max_iops;
+                cfg.disk_us_per_request = 1000000. / p.read_req_rate;
             }
             cfg.mountpoint = p.mountpoint;
         } else {
