@@ -315,6 +315,12 @@ private:
     future<temporary_buffer<CharType>> read_exactly_part(size_t n, tmp_buf buf, size_t completed) noexcept;
 };
 
+struct output_stream_options {
+    bool trim_to_size = false; ///< Make sure that buffers put into sink haven't
+                               ///< grown larger than the configured size
+    bool batch_flushes = false; ///< Try to merge flushes with each other
+};
+
 /// Facilitates data buffering before it's handed over to data_sink.
 ///
 /// When trim_to_size is true it's guaranteed that data sink will not receive
@@ -354,7 +360,10 @@ private:
 public:
     using char_type = CharType;
     output_stream() noexcept = default;
-    output_stream(data_sink fd, size_t size, bool trim_to_size = false, bool batch_flushes = false) noexcept
+    output_stream(data_sink fd, size_t size, output_stream_options opts = {}) noexcept
+        : _fd(std::move(fd)), _size(size), _trim_to_size(opts.trim_to_size), _batch_flushes(opts.batch_flushes) {}
+    [[deprecated("use output_stream_options instead of booleans")]]
+    output_stream(data_sink fd, size_t size, bool trim_to_size, bool batch_flushes = false) noexcept
         : _fd(std::move(fd)), _size(size), _trim_to_size(trim_to_size), _batch_flushes(batch_flushes) {}
     output_stream(output_stream&&) noexcept = default;
     output_stream& operator=(output_stream&&) noexcept = default;
