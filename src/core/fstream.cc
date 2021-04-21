@@ -455,6 +455,7 @@ public:
             return _file.close();
         });
     }
+    virtual size_t buffer_size() const noexcept override { return _options.buffer_size; }
 };
 
 SEASTAR_INCLUDE_API_V2 namespace api_v2 {
@@ -477,7 +478,7 @@ output_stream<char> make_file_output_stream(file f, file_output_stream_options o
 // Don't generate a deprecation warning for the unsafe functions calling each other.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    return output_stream<char>(api_v2::make_file_data_sink(std::move(f), options), options.buffer_size, true);
+    return output_stream<char>(api_v2::make_file_data_sink(std::move(f), options));
 #pragma GCC diagnostic pop
 }
 
@@ -511,8 +512,8 @@ future<output_stream<char>> make_file_output_stream(file f, size_t buffer_size) 
 }
 
 future<output_stream<char>> make_file_output_stream(file f, file_output_stream_options options) noexcept {
-    return api_v3::and_newer::make_file_data_sink(std::move(f), options).then([buffer_size = options.buffer_size] (data_sink&& ds) {
-        return output_stream<char>(std::move(ds), buffer_size, true);
+    return api_v3::and_newer::make_file_data_sink(std::move(f), options).then([] (data_sink&& ds) {
+        return output_stream<char>(std::move(ds));
     });
 }
 
