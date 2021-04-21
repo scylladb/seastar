@@ -48,6 +48,17 @@ static_assert(std::is_nothrow_move_constructible_v<input_stream<char>>);
 static_assert(std::is_nothrow_constructible_v<output_stream<char>>);
 static_assert(std::is_nothrow_move_constructible_v<output_stream<char>>);
 
+// The buffers size must not be greater than the limit, but when capping
+// it we make it 2^n to better utilize the memory allocated for buffers
+template <typename T>
+static inline T select_buffer_size(T configured_value, T maximum_value) noexcept {
+    if (configured_value <= maximum_value) {
+        return configured_value;
+    } else {
+        return T(1) << log2floor(maximum_value);
+    }
+}
+
 class file_data_source_impl : public data_source_impl {
     struct issued_read {
         uint64_t _pos;
@@ -181,7 +192,9 @@ private:
 public:
     file_data_source_impl(file f, uint64_t offset, uint64_t len, file_input_stream_options options)
             : _file(std::move(f)), _options(options), _pos(offset), _remain(len), _current_read_ahead(get_initial_read_ahead())
-            , _current_buffer_size(_options.buffer_size) {
+    {
+        _options.buffer_size = select_buffer_size(_options.buffer_size, _file.disk_read_max_length());
+        _current_buffer_size = _options.buffer_size;
         // prevent wraparounds
         set_new_buffer_size(after_skip::no);
         _remain = std::min(std::numeric_limits<uint64_t>::max() - _pos, _remain);
@@ -345,6 +358,7 @@ class file_data_sink_impl : public data_sink_impl {
 public:
     file_data_sink_impl(file f, file_output_stream_options options)
             : _file(std::move(f)), _options(options) {
+        _options.buffer_size = select_buffer_size<unsigned>(_options.buffer_size, _file.disk_write_max_length());
         _write_behind_sem.ensure_space_for_waiters(1); // So that wait() doesn't throw
     }
     future<> put(net::packet data) override { abort(); }
