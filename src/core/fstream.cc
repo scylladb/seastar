@@ -391,7 +391,7 @@ public:
             return make_ready_future<>();
         });
     }
-public:
+private:
     future<> do_put(uint64_t pos, temporary_buffer<char> buf) noexcept {
       try {
         // put() must usually be of chunks multiple of file::dma_alignment.
