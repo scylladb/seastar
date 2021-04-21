@@ -109,6 +109,15 @@ public:
         return make_ready_future<>();
     }
     virtual future<> close() = 0;
+
+    // The method should return the maximum buffer size that's acceptable by
+    // the sink. It's used when the output stream is constructed without any
+    // specific buffer size. In this case the stream accepts this value as its
+    // buffer size and doesn't put larger buffers (see trim_to_size).
+    virtual size_t buffer_size() const noexcept {
+        assert(false && "Data sink must have the buffer_size() method overload");
+        return 0;
+    }
 };
 
 class data_sink {
@@ -156,6 +165,8 @@ public:
             return current_exception_as_future();
         }
     }
+
+    size_t buffer_size() const noexcept { return _dsi->buffer_size(); }
 };
 
 struct continue_consuming {};
@@ -365,6 +376,8 @@ public:
     [[deprecated("use output_stream_options instead of booleans")]]
     output_stream(data_sink fd, size_t size, bool trim_to_size, bool batch_flushes = false) noexcept
         : _fd(std::move(fd)), _size(size), _trim_to_size(trim_to_size), _batch_flushes(batch_flushes) {}
+    output_stream(data_sink fd) noexcept
+        : _fd(std::move(fd)), _size(_fd.buffer_size()), _trim_to_size(true) {}
     output_stream(output_stream&&) noexcept = default;
     output_stream& operator=(output_stream&&) noexcept = default;
     ~output_stream() { assert(!_in_batch && "Was this stream properly closed?"); }
