@@ -712,7 +712,7 @@ int main(int ac, char** av) {
 
                 iotune_logger.info("{} passed sanity checks", eval_dir);
                 if (fs_check) {
-                    return 0;
+                    continue;
                 }
 
                 // Directory is the same object for all tests.
@@ -777,6 +777,10 @@ int main(int ac, char** av) {
                 desc.write_iops = write_iops.iops;
                 desc.write_bw = write_bw.bytes_per_sec;
                 disk_descriptors.push_back(std::move(desc));
+            }
+
+            if (fs_check) {
+                return 0;
             }
 
             auto file = "properties file";
