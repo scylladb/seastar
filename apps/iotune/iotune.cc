@@ -574,6 +574,32 @@ public:
         }, io_rates(), std::plus<io_rates>());
     }
 
+private:
+    template <typename Fn>
+    future<uint64_t> saturate(float rate_threshold, size_t buffer_size, std::chrono::duration<double> duration, Fn&& workload) {
+        return _iotune_test_file.invoke_on(0, [=] (test_file& tf) {
+            return (tf.*workload)(buffer_size, test_file::pattern::sequential, 1, duration, serial_rates).then([=] (io_rates rates) {
+                serial_rates.clear();
+                if (rates.bytes_per_sec < rate_threshold) {
+                    // The throughput with the given buffer-size is already "small enough", so
+                    // return back its previous value
+                    return make_ready_future<uint64_t>(buffer_size * 2);
+                } else {
+                    return saturate(rate_threshold, buffer_size / 2, duration, workload);
+                }
+            });
+        });
+    }
+
+public:
+    future<uint64_t> saturate_write(float rate_threshold, size_t buffer_size, std::chrono::duration<double> duration) {
+        return saturate(rate_threshold, buffer_size, duration, &test_file::write_workload);
+    }
+
+    future<uint64_t> saturate_read(float rate_threshold, size_t buffer_size, std::chrono::duration<double> duration) {
+        return saturate(rate_threshold, buffer_size, duration, &test_file::read_workload);
+    }
+
     iotune_multi_shard_context(::evaluation_directory dir)
         : _test_directory(dir)
     {}
@@ -785,6 +811,7 @@ int main(int ac, char** av) {
                 if (write_saturation) {
                     fmt::print("Measuring write saturation length: ");
                     std::cout.flush();
+                    write_sat = iotune_tests.saturate_write(write_bw.bytes_per_sec * (1.0 - rates.stdev_percents()), sequential_buffer_size/2, duration * 0.70).get0();
                     fmt::print("{}\n", *write_sat);
                 }
 
@@ -799,6 +826,7 @@ int main(int ac, char** av) {
                 if (read_saturation) {
                     fmt::print("Measuring read saturation length: ");
                     std::cout.flush();
+                    read_sat = iotune_tests.saturate_read(read_bw.bytes_per_sec * (1.0 - rates.stdev_percents()), sequential_buffer_size/2, duration * 0.1).get0();
                     fmt::print("{}\n", *read_sat);
                 }
 
