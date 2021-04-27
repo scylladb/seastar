@@ -207,7 +207,7 @@ struct row_stats {
     double stdev;
 
     float stdev_percents() const {
-        return points > 0 ? stdev * 100.0 / average : 0.0;
+        return points > 0 ? stdev / average : 0.0;
     }
 };
 
@@ -734,7 +734,7 @@ int main(int ac, char** av) {
 
                 row_stats rates;
                 auto accuracy_msg = [accuracy, &rates] {
-                    auto stdev = rates.stdev_percents();
+                    auto stdev = rates.stdev_percents() * 100.0;
                     return (accuracy == 0 || stdev > accuracy) ? fmt::format(" (deviation {}%)", int(round(stdev))) : std::string("");
                 };
 
