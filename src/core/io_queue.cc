@@ -483,8 +483,8 @@ fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, s
 
 io_queue::request_limits io_queue::get_request_limits() const noexcept {
     request_limits l;
-    l.max_read = align_down<size_t>(_group->_max_bytes_count / read_request_base_count, minimal_request_size);
-    l.max_write = align_down<size_t>(_group->_max_bytes_count / _config.disk_bytes_write_to_read_multiplier, minimal_request_size);
+    l.max_read = align_down<size_t>(std::min<size_t>(_config.disk_read_saturation_length, _group->_max_bytes_count / read_request_base_count), minimal_request_size);
+    l.max_write = align_down<size_t>(std::min<size_t>(_config.disk_write_saturation_length, _group->_max_bytes_count / _config.disk_bytes_write_to_read_multiplier), minimal_request_size);
     return l;
 }
 
