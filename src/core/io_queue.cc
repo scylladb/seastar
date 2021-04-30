@@ -50,6 +50,22 @@ struct default_io_exception_factory {
     }
 };
 
+struct priority_class_data {
+    friend class io_queue;
+    priority_class_ptr ptr;
+    size_t bytes;
+    uint64_t ops;
+    uint32_t nr_queued;
+    std::chrono::duration<double> queue_time;
+    std::chrono::duration<double> total_queue_time;
+    metrics::metric_groups _metric_groups;
+    priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr);
+    void rename(sstring new_name, sstring mountpoint);
+    void register_stats(sstring name, sstring mountpoint);
+public:
+    void account_for(size_t len, std::chrono::duration<double> lat) noexcept;
+};
+
 class io_desc_read_write final : public io_completion {
     io_queue& _ioq;
     fair_queue_ticket _fq_ticket;
@@ -86,22 +102,6 @@ public:
     future<size_t> get_future() {
         return _pr.get_future();
     }
-};
-
-struct priority_class_data {
-    friend class io_queue;
-    priority_class_ptr ptr;
-    size_t bytes;
-    uint64_t ops;
-    uint32_t nr_queued;
-    std::chrono::duration<double> queue_time;
-    std::chrono::duration<double> total_queue_time;
-    metrics::metric_groups _metric_groups;
-    priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr);
-    void rename(sstring new_name, sstring mountpoint);
-    void register_stats(sstring name, sstring mountpoint);
-public:
-    void account_for(size_t len, std::chrono::duration<double> lat) noexcept;
 };
 
 class queued_io_request : private internal::io_request {
