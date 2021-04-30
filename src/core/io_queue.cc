@@ -114,10 +114,7 @@ class io_desc_read_write final : public io_completion {
     std::chrono::steady_clock::time_point _dispatched;
     fair_queue_ticket _fq_ticket;
     promise<size_t> _pr;
-private:
-    void notify_requests_finished() noexcept {
-        _ioq.notify_requests_finished(_fq_ticket);
-    }
+
 public:
     io_desc_read_write(io_queue& ioq, priority_class_data& pc, fair_queue_ticket ticket)
         : _ioq(ioq)
@@ -128,7 +125,7 @@ public:
     virtual void set_exception(std::exception_ptr eptr) noexcept override {
         io_log.trace("dev {} : req {} error", _ioq.dev_id(), fmt::ptr(this));
         _pclass.on_error();
-        notify_requests_finished();
+        _ioq.notify_requests_finished(_fq_ticket);
         _pr.set_exception(eptr);
         delete this;
     }
@@ -137,7 +134,7 @@ public:
         io_log.trace("dev {} : req {} complete", _ioq.dev_id(), fmt::ptr(this));
         auto now = std::chrono::steady_clock::now();
         _pclass.on_complete(std::chrono::duration_cast<std::chrono::duration<double>>(now - _dispatched));
-        notify_requests_finished();
+        _ioq.notify_requests_finished(_fq_ticket);
         _pr.set_value(res);
         delete this;
     }
