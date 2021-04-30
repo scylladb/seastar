@@ -57,6 +57,7 @@ class priority_class_data {
     size_t _bytes;
     uint64_t _ops;
     uint32_t _nr_queued;
+    uint32_t _nr_executing;
     std::chrono::duration<double> _queue_time;
     std::chrono::duration<double> _total_queue_time;
     std::chrono::duration<double> _total_execution_time;
@@ -71,6 +72,7 @@ public:
         , _bytes(0)
         , _ops(0)
         , _nr_queued(0)
+        , _nr_executing(0)
         , _queue_time(0)
         , _total_queue_time(0)
         , _total_execution_time(0)
@@ -84,6 +86,7 @@ public:
         _queue_time = lat;
         _total_queue_time += lat;
         _nr_queued--;
+        _nr_executing++;
     }
 
     void on_cancel() noexcept {
@@ -92,6 +95,11 @@ public:
 
     void on_complete(std::chrono::duration<double> lat) noexcept {
         _total_execution_time += lat;
+        _nr_executing--;
+    }
+
+    void on_error() noexcept {
+        _nr_executing--;
     }
 };
 
@@ -114,6 +122,7 @@ public:
 
     virtual void set_exception(std::exception_ptr eptr) noexcept override {
         io_log.trace("dev {} : req {} error", _ioq.dev_id(), fmt::ptr(this));
+        _pclass.on_error();
         notify_requests_finished();
         _pr.set_exception(eptr);
         delete this;
@@ -432,6 +441,7 @@ priority_class_data::register_stats(sstring name, sstring mountpoint) {
             // old counter tells you how busy the system is.
 
             sm::make_queue_length("queue_length", _nr_queued, sm::description("Number of requests in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+            sm::make_queue_length("disk_queue_length", _nr_executing, sm::description("Number of requests in the disk"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
             sm::make_gauge("delay", [this] {
                 return _queue_time.count();
             }, sm::description("random delay time in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
