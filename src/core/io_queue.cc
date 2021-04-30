@@ -51,8 +51,6 @@ struct default_io_exception_factory {
 };
 
 class priority_class_data {
-    friend class io_queue;
-
     priority_class_ptr _ptr;
     size_t _bytes;
     uint64_t _ops;
@@ -63,10 +61,11 @@ class priority_class_data {
     std::chrono::duration<double> _total_execution_time;
     metrics::metric_groups _metric_groups;
 
-    void rename(sstring new_name, sstring mountpoint);
     void register_stats(sstring name, sstring mountpoint);
 
 public:
+    void rename(sstring new_name, sstring mountpoint);
+
     priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr)
         : _ptr(ptr)
         , _bytes(0)
@@ -105,6 +104,8 @@ public:
     void on_error() noexcept {
         _nr_executing--;
     }
+
+    priority_class_ptr pclass() const noexcept { return _ptr; }
 };
 
 class io_desc_read_write final : public io_completion {
@@ -347,7 +348,7 @@ io_queue::~io_queue() {
     // that, then this has to change.
     for (auto&& pc_data : _priority_classes) {
         if (pc_data) {
-            _fq.unregister_priority_class(pc_data->_ptr);
+            _fq.unregister_priority_class(pc_data->pclass());
         }
     }
 }
@@ -540,7 +541,7 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
             cq = &intent->find_or_create_cancellable_queue(dev_id(), pc.id());
         }
 
-        _fq.queue(pclass._ptr, queued_req->queue_entry());
+        _fq.queue(pclass.pclass(), queued_req->queue_entry());
         queued_req->set_intent(cq);
         queued_req.release();
         pclass.on_queue();
@@ -574,7 +575,7 @@ future<>
 io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares) {
     return futurize_invoke([this, pc, new_shares] {
         auto& pclass = find_or_create_class(pc);
-        pclass._ptr->update_shares(new_shares);
+        pclass.pclass()->update_shares(new_shares);
     });
 }
 
