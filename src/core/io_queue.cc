@@ -76,7 +76,7 @@ public:
         register_stats(name, mountpoint);
     }
 
-    void account_for(size_t len, std::chrono::duration<double> lat) noexcept {
+    void on_dispatch(size_t len, std::chrono::duration<double> lat) noexcept {
         _ops++;
         _bytes += len;
         _queue_time = lat;
@@ -119,6 +119,11 @@ public:
         delete this;
     }
 
+    void dispatch(size_t len, std::chrono::steady_clock::time_point queued) noexcept {
+        auto now = std::chrono::steady_clock::now();
+        _pclass.on_dispatch(len, std::chrono::duration_cast<std::chrono::duration<double>>(now - queued));
+    }
+
     future<size_t> get_future() {
         return _pr.get_future();
     }
@@ -158,8 +163,8 @@ public:
         }
 
         io_log.trace("dev {} : req {} submit", _ioq.dev_id(), fmt::ptr(&*_desc));
-        _pclass.account_for(_len, std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - _started));
         _intent.maybe_dequeue();
+        _desc->dispatch(_len, _started);
         _ioq.submit_request(_desc.release(), std::move(*this), _pclass);
         delete this;
     }
