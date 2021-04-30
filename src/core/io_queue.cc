@@ -81,6 +81,11 @@ public:
         _bytes += len;
         _queue_time = lat;
         _total_queue_time += lat;
+        _nr_queued--;
+    }
+
+    void on_cancel() noexcept {
+        _nr_queued--;
     }
 };
 
@@ -115,6 +120,7 @@ public:
     }
 
     void cancel() noexcept {
+        _pclass.on_cancel();
         _pr.set_exception(std::make_exception_ptr(default_io_exception_factory::cancelled()));
         delete this;
     }
@@ -165,12 +171,12 @@ public:
         io_log.trace("dev {} : req {} submit", _ioq.dev_id(), fmt::ptr(&*_desc));
         _intent.maybe_dequeue();
         _desc->dispatch(_len, _started);
-        _ioq.submit_request(_desc.release(), std::move(*this), _pclass);
+        _ioq.submit_request(_desc.release(), std::move(*this));
         delete this;
     }
 
     void cancel() noexcept {
-        _ioq.cancel_request(*this, _pclass);
+        _ioq.cancel_request(*this);
         _desc.release()->cancel();
     }
 
@@ -523,16 +529,14 @@ void io_queue::poll_io_queue() {
     });
 }
 
-void io_queue::submit_request(io_desc_read_write* desc, internal::io_request req, priority_class_data& pclass) noexcept {
+void io_queue::submit_request(io_desc_read_write* desc, internal::io_request req) noexcept {
     _queued_requests--;
     _requests_executing++;
-    pclass._nr_queued--;
     _sink.submit(desc, std::move(req));
 }
 
-void io_queue::cancel_request(queued_io_request& req, priority_class_data& pclass) noexcept {
+void io_queue::cancel_request(queued_io_request& req) noexcept {
     _queued_requests--;
-    pclass._nr_queued--;
     _fq.notify_request_cancelled(req.queue_entry());
 }
 

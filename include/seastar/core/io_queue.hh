@@ -140,8 +140,8 @@ public:
 
     future<size_t>
     queue_request(const io_priority_class& pc, size_t len, internal::io_request req, io_intent* intent) noexcept;
-    void submit_request(io_desc_read_write* desc, internal::io_request req, priority_class_data& pclass) noexcept;
-    void cancel_request(queued_io_request& req, priority_class_data& pclass) noexcept;
+    void submit_request(io_desc_read_write* desc, internal::io_request req) noexcept;
+    void cancel_request(queued_io_request& req) noexcept;
     void complete_cancelled_request(queued_io_request& req) noexcept;
 
     [[deprecated("modern I/O queues should use a property file")]] size_t capacity() const {
