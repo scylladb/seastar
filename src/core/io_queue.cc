@@ -80,6 +80,10 @@ public:
         register_stats(name, mountpoint);
     }
 
+    void on_queue() noexcept {
+        _nr_queued++;
+    }
+
     void on_dispatch(size_t len, std::chrono::duration<double> lat) noexcept {
         _ops++;
         _bytes += len;
@@ -539,7 +543,7 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
         _fq.queue(pclass._ptr, queued_req->queue_entry());
         queued_req->set_intent(cq);
         queued_req.release();
-        pclass._nr_queued++;
+        pclass.on_queue();
         _queued_requests++;
         return fut;
     });
