@@ -59,6 +59,7 @@ class priority_class_data {
     uint32_t _nr_queued;
     std::chrono::duration<double> _queue_time;
     std::chrono::duration<double> _total_queue_time;
+    std::chrono::duration<double> _total_execution_time;
     metrics::metric_groups _metric_groups;
 
     void rename(sstring new_name, sstring mountpoint);
@@ -72,6 +73,7 @@ public:
         , _nr_queued(0)
         , _queue_time(0)
         , _total_queue_time(0)
+        , _total_execution_time(0)
     {
         register_stats(name, mountpoint);
     }
@@ -87,11 +89,16 @@ public:
     void on_cancel() noexcept {
         _nr_queued--;
     }
+
+    void on_complete(std::chrono::duration<double> lat) noexcept {
+        _total_execution_time += lat;
+    }
 };
 
 class io_desc_read_write final : public io_completion {
     io_queue& _ioq;
     priority_class_data& _pclass;
+    std::chrono::steady_clock::time_point _dispatched;
     fair_queue_ticket _fq_ticket;
     promise<size_t> _pr;
 private:
@@ -114,6 +121,8 @@ public:
 
     virtual void complete(size_t res) noexcept override {
         io_log.trace("dev {} : req {} complete", _ioq.dev_id(), fmt::ptr(this));
+        auto now = std::chrono::steady_clock::now();
+        _pclass.on_complete(std::chrono::duration_cast<std::chrono::duration<double>>(now - _dispatched));
         notify_requests_finished();
         _pr.set_value(res);
         delete this;
@@ -128,6 +137,7 @@ public:
     void dispatch(size_t len, std::chrono::steady_clock::time_point queued) noexcept {
         auto now = std::chrono::steady_clock::now();
         _pclass.on_dispatch(len, std::chrono::duration_cast<std::chrono::duration<double>>(now - queued));
+        _dispatched = now;
     }
 
     future<size_t> get_future() {
@@ -408,6 +418,10 @@ priority_class_data::register_stats(sstring name, sstring mountpoint) {
             sm::make_derive("total_delay_sec", [this] {
                     return _total_queue_time.count();
                 }, sm::description("Total time spent in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+            sm::make_derive("total_exec_sec", [this] {
+                    return _total_execution_time.count();
+                }, sm::description("Total time spent in disk"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+
             // Note: The counter below is not the same as reactor's queued-io-requests
             // queued-io-requests shows us how many requests in total exist in this I/O Queue.
             //
