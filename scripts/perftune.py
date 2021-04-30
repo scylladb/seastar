@@ -1125,10 +1125,14 @@ class DiskPerfTuner(PerfTunerBase):
     def __get_phys_devices(self, udev_obj):
         # if device is a virtual device - the underlying physical devices are going to be its slaves
         if re.search(r'virtual', udev_obj.sys_path):
-            return list(itertools.chain.from_iterable([ self.__get_phys_devices(pyudev.Devices.from_device_file(self.__pyudev_ctx, "/dev/{}".format(slave))) for slave in os.listdir(os.path.join(udev_obj.sys_path, 'slaves')) ]))
-        else:
-            # device node is something like /dev/sda1 - we need only the part without /dev/
-            return [ re.match(r'/dev/(\S+\d*)', udev_obj.device_node).group(1) ]
+            slaves = os.listdir(os.path.join(udev_obj.sys_path, 'slaves'))
+            # If the device is virtual but doesn't have slaves (e.g. as nvm-subsystem virtual devices) handle it
+            # as a regular device.
+            if slaves:
+                return list(itertools.chain.from_iterable([ self.__get_phys_devices(pyudev.Devices.from_device_file(self.__pyudev_ctx, "/dev/{}".format(slave))) for slave in slaves ]))
+
+        # device node is something like /dev/sda1 - we need only the part without /dev/
+        return [ re.match(r'/dev/(\S+\d*)', udev_obj.device_node).group(1) ]
 
     def __learn_irqs(self):
         disk2irqs = {}
@@ -1142,7 +1146,20 @@ class DiskPerfTuner(PerfTunerBase):
 
                 udev_obj = pyudev.Devices.from_device_file(self.__pyudev_ctx, "/dev/{}".format(device))
                 dev_sys_path = udev_obj.sys_path
-                split_sys_path = list(pathlib.PurePath(dev_sys_path).parts)
+
+                # If the device is a virtual NVMe device it's sys file name goes as follows:
+                # /sys/devices/virtual/nvme-subsystem/nvme-subsys0/nvme0n1
+                #
+                # and then there is this symlink:
+                # /sys/devices/virtual/nvme-subsystem/nvme-subsys0/nvme0n1/device/nvme0 -> ../../../pci0000:85/0000:85:01.0/0000:87:00.0/nvme/nvme0
+                #
+                # So, the "main device" is a "nvme\d+" prefix of the actual device name.
+                if re.search(r'virtual', udev_obj.sys_path):
+                    m = re.match(r'(nvme\d+)\S*', device)
+                    if m:
+                        dev_sys_path = "{}/device/{}".format(udev_obj.sys_path, m.group(1))
+
+                split_sys_path = list(pathlib.PurePath(pathlib.Path(dev_sys_path).resolve()).parts)
 
                 # first part is always /sys/devices/pciXXX ...
                 controller_path_parts = split_sys_path[0:4]
