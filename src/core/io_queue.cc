@@ -50,8 +50,9 @@ struct default_io_exception_factory {
     }
 };
 
-struct priority_class_data {
+class priority_class_data {
     friend class io_queue;
+
     priority_class_ptr _ptr;
     size_t _bytes;
     uint64_t _ops;
@@ -60,6 +61,10 @@ struct priority_class_data {
     std::chrono::duration<double> _total_queue_time;
     metrics::metric_groups _metric_groups;
 
+    void rename(sstring new_name, sstring mountpoint);
+    void register_stats(sstring name, sstring mountpoint);
+
+public:
     priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr)
         : _ptr(ptr)
         , _bytes(0)
@@ -71,9 +76,6 @@ struct priority_class_data {
         register_stats(name, mountpoint);
     }
 
-    void rename(sstring new_name, sstring mountpoint);
-    void register_stats(sstring name, sstring mountpoint);
-public:
     void account_for(size_t len, std::chrono::duration<double> lat) noexcept {
         _ops++;
         _bytes += len;
