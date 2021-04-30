@@ -495,7 +495,7 @@ class NetPerfTuner(PerfTunerBase):
                 self.__setup_one_hw_iface(nic)
             else:
                 perftune_print("Setting {} bonding interface...".format(nic))
-                self.__setup_bonding_iface()
+                self.__setup_bonding_iface(nic)
 
         # Increase the socket listen() backlog
         fwriteln_and_log('/proc/sys/net/core/somaxconn', '4096')
@@ -526,7 +526,7 @@ class NetPerfTuner(PerfTunerBase):
         mode=PerfTunerBase.SupportedModes.no_irq_restrictions
         for nic in self.nics:
             if self.nic_is_bond_iface(nic):
-                mode = min(mode, min(map(self.__get_hw_iface_def_mode(nic), filter(self.__dev_is_hw_iface(nic), self.slaves))))
+                mode = min(mode, min(map(self.__get_hw_iface_def_mode, filter(self.__dev_is_hw_iface, self.slaves(nic)))))
             else:
                 mode = min(mode, self.__get_hw_iface_def_mode(nic))
         return mode
@@ -785,8 +785,8 @@ class NetPerfTuner(PerfTunerBase):
         self.__setup_rps(iface, self.compute_cpu_mask)
         self.__setup_xps(iface)
 
-    def __setup_bonding_iface(self):
-        for slave in self.slaves:
+    def __setup_bonding_iface(self, nic):
+        for slave in self.slaves(nic):
             if self.__dev_is_hw_iface(slave):
                 perftune_print("Setting up {}...".format(slave))
                 self.__setup_one_hw_iface(slave)
