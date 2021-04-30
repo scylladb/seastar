@@ -137,7 +137,6 @@ public:
 
 class queued_io_request : private internal::io_request {
     io_queue& _ioq;
-    priority_class_data& _pclass;
     size_t _len;
     std::chrono::steady_clock::time_point _started;
     fair_queue_entry _fq_entry;
@@ -150,11 +149,10 @@ public:
     queued_io_request(internal::io_request req, io_queue& q, priority_class_data& pc, size_t l)
         : io_request(std::move(req))
         , _ioq(q)
-        , _pclass(pc)
         , _len(l)
         , _started(std::chrono::steady_clock::now())
         , _fq_entry(_ioq.request_fq_ticket(*this, _len))
-        , _desc(std::make_unique<io_desc_read_write>(_ioq, _pclass, _fq_entry.ticket()))
+        , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _fq_entry.ticket()))
     {
         io_log.trace("dev {} : req {} queue  len {} ticket {}", _ioq.dev_id(), fmt::ptr(&*_desc), _len, _fq_entry.ticket());
     }
