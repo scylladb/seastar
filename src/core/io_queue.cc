@@ -59,11 +59,27 @@ struct priority_class_data {
     std::chrono::duration<double> queue_time;
     std::chrono::duration<double> total_queue_time;
     metrics::metric_groups _metric_groups;
-    priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr);
+
+    priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr)
+        : ptr(ptr)
+        , bytes(0)
+        , ops(0)
+        , nr_queued(0)
+        , queue_time(0)
+        , total_queue_time(0)
+    {
+        register_stats(name, mountpoint);
+    }
+
     void rename(sstring new_name, sstring mountpoint);
     void register_stats(sstring name, sstring mountpoint);
 public:
-    void account_for(size_t len, std::chrono::duration<double> lat) noexcept;
+    void account_for(size_t len, std::chrono::duration<double> lat) noexcept {
+        ops++;
+        bytes += len;
+        queue_time = lat;
+        total_queue_time += lat;
+    }
 };
 
 class io_desc_read_write final : public io_completion {
@@ -348,17 +364,6 @@ bool io_queue::rename_one_priority_class(io_priority_class pc, sstring new_name)
 
 seastar::metrics::label io_queue_shard("ioshard");
 
-priority_class_data::priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr)
-    : ptr(ptr)
-    , bytes(0)
-    , ops(0)
-    , nr_queued(0)
-    , queue_time(0)
-    , total_queue_time(0)
-{
-    register_stats(name, mountpoint);
-}
-
 void
 priority_class_data::rename(sstring new_name, sstring mountpoint) {
     try {
@@ -408,13 +413,6 @@ priority_class_data::register_stats(sstring name, sstring mountpoint) {
             }, sm::description("current amount of shares"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label})
     });
     _metric_groups = std::exchange(new_metrics, {});
-}
-
-void priority_class_data::account_for(size_t len, std::chrono::duration<double> lat) noexcept {
-    ops++;
-    bytes += len;
-    queue_time = lat;
-    total_queue_time += lat;
 }
 
 priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc) {
