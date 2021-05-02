@@ -50,37 +50,105 @@ struct default_io_exception_factory {
     }
 };
 
+class priority_class_data {
+    priority_class_ptr _ptr;
+    size_t _bytes;
+    uint64_t _ops;
+    uint32_t _nr_queued;
+    uint32_t _nr_executing;
+    std::chrono::duration<double> _queue_time;
+    std::chrono::duration<double> _total_queue_time;
+    std::chrono::duration<double> _total_execution_time;
+    metrics::metric_groups _metric_groups;
+
+    void register_stats(sstring name, sstring mountpoint);
+
+public:
+    void rename(sstring new_name, sstring mountpoint);
+
+    priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr)
+        : _ptr(ptr)
+        , _bytes(0)
+        , _ops(0)
+        , _nr_queued(0)
+        , _nr_executing(0)
+        , _queue_time(0)
+        , _total_queue_time(0)
+        , _total_execution_time(0)
+    {
+        register_stats(name, mountpoint);
+    }
+
+    void on_queue() noexcept {
+        _nr_queued++;
+    }
+
+    void on_dispatch(size_t len, std::chrono::duration<double> lat) noexcept {
+        _ops++;
+        _bytes += len;
+        _queue_time = lat;
+        _total_queue_time += lat;
+        _nr_queued--;
+        _nr_executing++;
+    }
+
+    void on_cancel() noexcept {
+        _nr_queued--;
+    }
+
+    void on_complete(std::chrono::duration<double> lat) noexcept {
+        _total_execution_time += lat;
+        _nr_executing--;
+    }
+
+    void on_error() noexcept {
+        _nr_executing--;
+    }
+
+    priority_class_ptr pclass() const noexcept { return _ptr; }
+};
+
 class io_desc_read_write final : public io_completion {
     io_queue& _ioq;
+    priority_class_data& _pclass;
+    std::chrono::steady_clock::time_point _dispatched;
     fair_queue_ticket _fq_ticket;
     promise<size_t> _pr;
-private:
-    void notify_requests_finished() noexcept {
-        _ioq.notify_requests_finished(_fq_ticket);
-    }
+
 public:
-    io_desc_read_write(io_queue& ioq, fair_queue_ticket ticket)
+    io_desc_read_write(io_queue& ioq, priority_class_data& pc, fair_queue_ticket ticket)
         : _ioq(ioq)
+        , _pclass(pc)
         , _fq_ticket(ticket)
     {}
 
     virtual void set_exception(std::exception_ptr eptr) noexcept override {
         io_log.trace("dev {} : req {} error", _ioq.dev_id(), fmt::ptr(this));
-        notify_requests_finished();
+        _pclass.on_error();
+        _ioq.notify_requests_finished(_fq_ticket);
         _pr.set_exception(eptr);
         delete this;
     }
 
     virtual void complete(size_t res) noexcept override {
         io_log.trace("dev {} : req {} complete", _ioq.dev_id(), fmt::ptr(this));
-        notify_requests_finished();
+        auto now = std::chrono::steady_clock::now();
+        _pclass.on_complete(std::chrono::duration_cast<std::chrono::duration<double>>(now - _dispatched));
+        _ioq.notify_requests_finished(_fq_ticket);
         _pr.set_value(res);
         delete this;
     }
 
     void cancel() noexcept {
+        _pclass.on_cancel();
         _pr.set_exception(std::make_exception_ptr(default_io_exception_factory::cancelled()));
         delete this;
+    }
+
+    void dispatch(size_t len, std::chrono::steady_clock::time_point queued) noexcept {
+        auto now = std::chrono::steady_clock::now();
+        _pclass.on_dispatch(len, std::chrono::duration_cast<std::chrono::duration<double>>(now - queued));
+        _dispatched = now;
     }
 
     future<size_t> get_future() {
@@ -88,25 +156,8 @@ public:
     }
 };
 
-struct priority_class_data {
-    friend class io_queue;
-    priority_class_ptr ptr;
-    size_t bytes;
-    uint64_t ops;
-    uint32_t nr_queued;
-    std::chrono::duration<double> queue_time;
-    std::chrono::duration<double> total_queue_time;
-    metrics::metric_groups _metric_groups;
-    priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr);
-    void rename(sstring new_name, sstring mountpoint);
-    void register_stats(sstring name, sstring mountpoint);
-public:
-    void account_for(size_t len, std::chrono::duration<double> lat) noexcept;
-};
-
 class queued_io_request : private internal::io_request {
     io_queue& _ioq;
-    priority_class_data& _pclass;
     size_t _len;
     std::chrono::steady_clock::time_point _started;
     fair_queue_entry _fq_entry;
@@ -119,11 +170,10 @@ public:
     queued_io_request(internal::io_request req, io_queue& q, priority_class_data& pc, size_t l)
         : io_request(std::move(req))
         , _ioq(q)
-        , _pclass(pc)
         , _len(l)
         , _started(std::chrono::steady_clock::now())
         , _fq_entry(_ioq.request_fq_ticket(*this, _len))
-        , _desc(std::make_unique<io_desc_read_write>(_ioq, _fq_entry.ticket()))
+        , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _fq_entry.ticket()))
     {
         io_log.trace("dev {} : req {} queue  len {} ticket {}", _ioq.dev_id(), fmt::ptr(&*_desc), _len, _fq_entry.ticket());
     }
@@ -138,14 +188,14 @@ public:
         }
 
         io_log.trace("dev {} : req {} submit", _ioq.dev_id(), fmt::ptr(&*_desc));
-        _pclass.account_for(_len, std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - _started));
         _intent.maybe_dequeue();
-        _ioq.submit_request(_desc.release(), std::move(*this), _pclass);
+        _desc->dispatch(_len, _started);
+        _ioq.submit_request(_desc.release(), std::move(*this));
         delete this;
     }
 
     void cancel() noexcept {
-        _ioq.cancel_request(*this, _pclass);
+        _ioq.cancel_request(*this);
         _desc.release()->cancel();
     }
 
@@ -295,7 +345,7 @@ io_queue::~io_queue() {
     // that, then this has to change.
     for (auto&& pc_data : _priority_classes) {
         if (pc_data) {
-            _fq.unregister_priority_class(pc_data->ptr);
+            _fq.unregister_priority_class(pc_data->pclass());
         }
     }
 }
@@ -348,17 +398,6 @@ bool io_queue::rename_one_priority_class(io_priority_class pc, sstring new_name)
 
 seastar::metrics::label io_queue_shard("ioshard");
 
-priority_class_data::priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr)
-    : ptr(ptr)
-    , bytes(0)
-    , ops(0)
-    , nr_queued(0)
-    , queue_time(0)
-    , total_queue_time(0)
-{
-    register_stats(name, mountpoint);
-}
-
 void
 priority_class_data::rename(sstring new_name, sstring mountpoint) {
     try {
@@ -385,11 +424,15 @@ priority_class_data::register_stats(sstring name, sstring mountpoint) {
     auto class_label_type = sm::label("class");
     auto class_label = class_label_type(name);
     new_metrics.add_group("io_queue", {
-            sm::make_derive("total_bytes", bytes, sm::description("Total bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
-            sm::make_derive("total_operations", ops, sm::description("Total bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+            sm::make_derive("total_bytes", _bytes, sm::description("Total bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+            sm::make_derive("total_operations", _ops, sm::description("Total bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
             sm::make_derive("total_delay_sec", [this] {
-                    return total_queue_time.count();
+                    return _total_queue_time.count();
                 }, sm::description("Total time spent in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+            sm::make_derive("total_exec_sec", [this] {
+                    return _total_execution_time.count();
+                }, sm::description("Total time spent in disk"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+
             // Note: The counter below is not the same as reactor's queued-io-requests
             // queued-io-requests shows us how many requests in total exist in this I/O Queue.
             //
@@ -399,22 +442,16 @@ priority_class_data::register_stats(sstring name, sstring mountpoint) {
             // In other words: the new counter tells you how busy a class is, and the
             // old counter tells you how busy the system is.
 
-            sm::make_queue_length("queue_length", nr_queued, sm::description("Number of requests in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+            sm::make_queue_length("queue_length", _nr_queued, sm::description("Number of requests in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+            sm::make_queue_length("disk_queue_length", _nr_executing, sm::description("Number of requests in the disk"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
             sm::make_gauge("delay", [this] {
-                return queue_time.count();
+                return _queue_time.count();
             }, sm::description("random delay time in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
             sm::make_gauge("shares", [this] {
-                return this->ptr->shares();
+                return this->_ptr->shares();
             }, sm::description("current amount of shares"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label})
     });
     _metric_groups = std::exchange(new_metrics, {});
-}
-
-void priority_class_data::account_for(size_t len, std::chrono::duration<double> lat) noexcept {
-    ops++;
-    bytes += len;
-    queue_time = lat;
-    total_queue_time += lat;
 }
 
 priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc) {
@@ -501,10 +538,10 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
             cq = &intent->find_or_create_cancellable_queue(dev_id(), pc.id());
         }
 
-        _fq.queue(pclass.ptr, queued_req->queue_entry());
+        _fq.queue(pclass.pclass(), queued_req->queue_entry());
         queued_req->set_intent(cq);
         queued_req.release();
-        pclass.nr_queued++;
+        pclass.on_queue();
         _queued_requests++;
         return fut;
     });
@@ -516,16 +553,14 @@ void io_queue::poll_io_queue() {
     });
 }
 
-void io_queue::submit_request(io_desc_read_write* desc, internal::io_request req, priority_class_data& pclass) noexcept {
+void io_queue::submit_request(io_desc_read_write* desc, internal::io_request req) noexcept {
     _queued_requests--;
     _requests_executing++;
-    pclass.nr_queued--;
     _sink.submit(desc, std::move(req));
 }
 
-void io_queue::cancel_request(queued_io_request& req, priority_class_data& pclass) noexcept {
+void io_queue::cancel_request(queued_io_request& req) noexcept {
     _queued_requests--;
-    pclass.nr_queued--;
     _fq.notify_request_cancelled(req.queue_entry());
 }
 
@@ -537,7 +572,7 @@ future<>
 io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares) {
     return futurize_invoke([this, pc, new_shares] {
         auto& pclass = find_or_create_class(pc);
-        pclass.ptr->update_shares(new_shares);
+        pclass.pclass()->update_shares(new_shares);
     });
 }
 
