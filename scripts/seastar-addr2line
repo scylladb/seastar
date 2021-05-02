@@ -23,6 +23,7 @@ import collections
 import re
 import sys
 import subprocess
+from enum import Enum
 
 class Addr2Line:
     def __init__(self, binary):
@@ -68,8 +69,48 @@ class Addr2Line:
         return self._read_resolved_address()
 
 class BacktraceResolver(object):
-    object_address_re = re.compile('^(?:(\w*)\W+)?(((/[^/]+)+)\+)?(0x[0-9a-f]+)\W*$', flags=re.IGNORECASE)
-    separator_re = re.compile('^\W*-+\W*$')
+
+    class BacktraceParser(object):
+        class Type(Enum):
+            ADDRESS = 1
+            SEPARATOR = 2
+
+        def __init__(self):
+            addr = "0x[0-9a-f]+"
+            path = "\S+"
+            token = f"(?:{path}\+)?{addr}"
+            full_addr_match = f"(?:({path})\+)?({addr})"
+            self.oneline_re = re.compile(f"^((?:.*(?:(?:at|backtrace):?|:))?(?:\s+))?({token}(?:\s+{token})*)\s*$", flags=re.IGNORECASE)
+            self.address_re = re.compile(full_addr_match, flags=re.IGNORECASE)
+            self.asan_re = re.compile(f"^(?:.*\s+)\(({full_addr_match})\)\s*$", flags=re.IGNORECASE)
+            self.separator_re = re.compile('^\W*-+\W*$')
+
+        def __call__(self, line):
+            m = re.match(self.oneline_re, line)
+            if m:
+                #print(f">>> '{line}': oneline {m.groups()}")
+                ret = {'type': self.Type.ADDRESS}
+                ret['prefix'] = None if m.group(1) is None else m.group(1).strip()
+                addresses = []
+                for obj in m.group(2).split():
+                    m = re.match(self.address_re, obj)
+                    addresses.append({'path': m.group(1), 'addr': m.group(2)})
+                ret['addresses'] = addresses
+                return ret
+
+            m = re.match(self.asan_re, line)
+            if m:
+                #print(f">>> '{line}': asan {m}")
+                ret = {'type': self.Type.ADDRESS}
+                ret['prefix'] = None
+                ret['addresses'] = [{'path': m.group(2), 'addr': m.group(3)}]
+                return ret
+
+            match = re.match(self.separator_re, line)
+            if match:
+                return {'type': self.Type.SEPARATOR}
+
+            return None
 
     def __init__(self, executable, before_lines, context_re, verbose):
         self._executable = executable
@@ -85,6 +126,7 @@ class BacktraceResolver(object):
             self._context_re = None
         self._verbose = verbose
         self._known_modules = {self._executable: Addr2Line(self._executable)}
+        self.parser = self.BacktraceParser()
 
     def _get_resolver_for_module(self, module):
         if not module in self._known_modules:
@@ -150,21 +192,9 @@ class BacktraceResolver(object):
         self._i += 1
 
     def __call__(self, line):
-        match = re.match(self.object_address_re, line)
+        res = self.parser(line)
 
-        if match:
-            prefix, _, object_path, _, addr = match.groups()
-
-            if len(self._current_backtrace) == 0:
-                self._prefix = prefix;
-
-            if object_path:
-                self._current_backtrace.append((object_path, addr))
-            else:
-                self._current_backtrace.append((self._executable, addr))
-        elif re.match(self.separator_re, line):
-            pass # skip separators
-        else:
+        if not res:
             self._print_current_backtrace()
             if self._before_lines > 0:
                 self._before_lines_queue.append(line)
@@ -172,6 +202,24 @@ class BacktraceResolver(object):
                 sys.stdout.write(line) # line already has a trailing newline
             else:
                 pass # when == 0 no non-backtrace lines are printed
+        elif res['type'] == self.BacktraceParser.Type.SEPARATOR:
+            pass
+        elif res['type'] == self.BacktraceParser.Type.ADDRESS:
+            addresses = res['addresses']
+            if len(addresses) > 1:
+                self._print_current_backtrace()
+            if len(self._current_backtrace) == 0:
+                self._prefix = res['prefix']
+            for r in addresses:
+                if r['path']:
+                    self._current_backtrace.append((r['path'], r['addr']))
+                else:
+                    self._current_backtrace.append((self._executable, r['addr']))
+            if len(addresses) > 1:
+                self._print_current_backtrace()
+        else:
+            print(f"Unknown '{line}': {res}")
+            raise RuntimeError("Unknown result type {res}")
 
 
 class StdinBacktraceIterator(object):
@@ -264,6 +312,13 @@ cmdline_parser.add_argument(
         ' it originates from, as well as the address being resolved')
 
 cmdline_parser.add_argument(
+        '-t',
+        '--test',
+        action='store_true',
+        default=False,
+        help='Self-test')
+
+cmdline_parser.add_argument(
         'addresses',
         type=str,
         metavar='ADDRESS',
@@ -271,6 +326,51 @@ cmdline_parser.add_argument(
         help='Addresses to parse')
 
 args = cmdline_parser.parse_args()
+
+if args.test:
+    data = [
+        ('---', {'type': BacktraceResolver.BacktraceParser.Type.SEPARATOR}),
+
+        ('0x12f34', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': None, 'addr': '0x12f34'}]}),
+        ('0xa1234 0xb4567', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': None, 'addr': '0xa1234'},{'path': None, 'addr': '0xb4567'}]}),
+        ('	0xa1234 /my/path+0xb4567', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': '', 'addresses': [{'path': None, 'addr': '0xa1234'},{'path': '/my/path', 'addr': '0xb4567'}]}),
+        ('/my/path+0x12f34', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': '/my/path', 'addr': '0x12f34'}]}),
+        (' /my/path+0x12f34', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': '', 'addresses': [{'path': '/my/path', 'addr': '0x12f34'}]}),
+
+        ('Some prefix 0x12f34', None),
+        ('Some prefix /my/path+0x12f34', None),
+
+        ('Reactor stalled on shard 1. Backtrace: 0x12f34',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'Reactor stalled on shard 1. Backtrace:',
+                 'addresses': [{'path': None, 'addr': '0x12f34'}]}),
+        ('Reactor stalled on shard 1. Backtrace: 0xa1234 0xb5678',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'Reactor stalled on shard 1. Backtrace:',
+                 'addresses': [{'path': None, 'addr': '0xa1234'}, {'path': None, 'addr': '0xb5678'}]}),
+        ('Reactor stalled on shard 1. Backtrace: /my/path+0xabcd',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'Reactor stalled on shard 1. Backtrace:',
+                 'addresses': [{'path': '/my/path', 'addr': '0xabcd'}]}),
+
+        ('Expected partition_end(), but got end of stream, at 0xa1234 0xb5678 /my/path+0xabcd',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'Expected partition_end(), but got end of stream, at',
+                 'addresses': [{'path': None, 'addr': '0xa1234'}, {'path': None, 'addr': '0xb5678'}, {'path': '/my/path', 'addr': '0xabcd'}]}),
+
+        ('==16118==ERROR: AddressSanitizer: heap-use-after-free on address 0x60700019c710 at pc 0x000014d24643 bp 0x7ffc51f72220 sp 0x7ffc51f72218', None),
+        ('READ of size 8 at 0x60700019c710 thread T0', None),
+        ('#0 0x14d24642  (/jenkins/workspace/scylla-enterprise/dtest-debug/scylla/.ccm/scylla-repository/1a5173bd45d01697d98ba2a7645f5d86afb2d0be/scylla/libexec/scylla+0x14d24642)',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None,
+                 'addresses': [{'path': '/jenkins/workspace/scylla-enterprise/dtest-debug/scylla/.ccm/scylla-repository/1a5173bd45d01697d98ba2a7645f5d86afb2d0be/scylla/libexec/scylla', 'addr': '0x14d24642'}]}),
+
+        ('Apr 28 11:42:58 ip-172-31-2-154.ec2.internal scylla[10612]: Reactor stalled for 260 ms on shard 20.', None),
+        ('Apr 28 11:42:58 ip-172-31-2-154.ec2.internal scylla[10612]: Backtrace:', None),
+        ('Apr 28 11:42:58 ip-172-31-2-154.ec2.internal scylla[10612]: 0x0000000003163dc2',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'Apr 28 11:42:58 ip-172-31-2-154.ec2.internal scylla[10612]:',
+                 'addresses': [{'path': None, 'addr': '0x0000000003163dc2'}]}),
+    ]
+    parser = BacktraceResolver.BacktraceParser()
+    for line, expected in data:
+        res = parser(line)
+        assert res == expected, f"{line}:\nExpected {expected}\nBut got  {res}"
+    exit(0)
 
 if args.addresses and args.file:
     print("Cannot use both -f and ADDRESS")
@@ -290,6 +390,4 @@ else:
 with BacktraceResolver(args.executable, args.before, args.match, args.verbose) as resolve:
     p = re.compile(r'\W+')
     for line in lines:
-        tokens = re.split(p, line.strip())
-        for t in tokens:
-            resolve(t)
+        resolve(line)
