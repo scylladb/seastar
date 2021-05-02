@@ -83,7 +83,7 @@ private:
 };
 
 using io_group_ptr = std::shared_ptr<io_group>;
-struct priority_class_data;
+class priority_class_data;
 
 class io_queue {
 private:
