@@ -26,6 +26,9 @@ namespace seastar {
 /// \cond internal
 class io_queue;
 using io_priority_class_id = unsigned;
+// We could very well just add the name to the io_priority_class. However, because that
+// structure is passed along all the time - and sometimes we can't help but copy it, better keep
+// it lean. The name won't really be used for anything other than monitoring.
 class io_priority_class {
     io_priority_class_id _id;
 
@@ -66,10 +69,15 @@ public:
     sstring get_name() const;
 
 private:
+    struct class_info {
+        unsigned shares = 0;
+        sstring name;
+        bool registered() const noexcept { return shares != 0; }
+    };
+
     static constexpr unsigned _max_classes = 2048;
     static std::mutex _register_lock;
-    static std::array<uint32_t, _max_classes> _registered_shares;
-    static std::array<sstring, _max_classes> _registered_names;
+    static std::array<class_info, _max_classes> _infos;
 };
 
 const io_priority_class& default_priority_class();
