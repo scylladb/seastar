@@ -1250,12 +1250,18 @@ private:
         std::vector<packet> _out_bufs;
         ascii_protocol _proto;
 
+        static output_stream_options make_opts() noexcept {
+            output_stream_options opts;
+            opts.trim_to_size = true;
+            return opts;
+        }
+
         connection(ipv4_addr src, uint16_t request_id, input_stream<char>&& in, size_t out_size,
                 sharded_cache& c, distributed<system_stats>& system_stats)
             : _src(src)
             , _request_id(request_id)
             , _in(std::move(in))
-            , _out(output_stream<char>(data_sink(std::make_unique<vector_data_sink>(_out_bufs)), out_size, true))
+            , _out(output_stream<char>(data_sink(std::make_unique<vector_data_sink>(_out_bufs)), out_size, make_opts()))
             , _proto(c, system_stats)
         {}
 

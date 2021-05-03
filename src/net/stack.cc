@@ -97,8 +97,10 @@ input_stream<char> connected_socket::input(connected_socket_input_stream_config 
 }
 
 output_stream<char> connected_socket::output(size_t buffer_size) {
+    output_stream_options opts;
+    opts.batch_flushes = true;
     // TODO: allow user to determine buffer size etc
-    return output_stream<char>(_csi->sink(), buffer_size, false, true);
+    return output_stream<char>(_csi->sink(), buffer_size, opts);
 }
 
 void connected_socket::set_nodelay(bool nodelay) {

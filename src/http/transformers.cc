@@ -205,7 +205,9 @@ output_stream<char> content_replace::transform(std::unique_ptr<request> req,
         return std::move(s);
     }
     sstring protocol = req->get_protocol_name();
-    return output_stream<char>(content_replace_data_sink(std::move(s), {std::make_tuple("Protocol", protocol), std::make_tuple("Host", host)}), 32000, true);
+    output_stream_options opts;
+    opts.trim_to_size = true;
+    return output_stream<char>(content_replace_data_sink(std::move(s), {std::make_tuple("Protocol", protocol), std::make_tuple("Host", host)}), 32000, opts);
 
 }
 

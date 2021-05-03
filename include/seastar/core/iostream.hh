@@ -109,6 +109,15 @@ public:
         return make_ready_future<>();
     }
     virtual future<> close() = 0;
+
+    // The method should return the maximum buffer size that's acceptable by
+    // the sink. It's used when the output stream is constructed without any
+    // specific buffer size. In this case the stream accepts this value as its
+    // buffer size and doesn't put larger buffers (see trim_to_size).
+    virtual size_t buffer_size() const noexcept {
+        assert(false && "Data sink must have the buffer_size() method overload");
+        return 0;
+    }
 };
 
 class data_sink {
@@ -156,6 +165,8 @@ public:
             return current_exception_as_future();
         }
     }
+
+    size_t buffer_size() const noexcept { return _dsi->buffer_size(); }
 };
 
 struct continue_consuming {};
@@ -315,6 +326,12 @@ private:
     future<temporary_buffer<CharType>> read_exactly_part(size_t n, tmp_buf buf, size_t completed) noexcept;
 };
 
+struct output_stream_options {
+    bool trim_to_size = false; ///< Make sure that buffers put into sink haven't
+                               ///< grown larger than the configured size
+    bool batch_flushes = false; ///< Try to merge flushes with each other
+};
+
 /// Facilitates data buffering before it's handed over to data_sink.
 ///
 /// When trim_to_size is true it's guaranteed that data sink will not receive
@@ -354,8 +371,13 @@ private:
 public:
     using char_type = CharType;
     output_stream() noexcept = default;
-    output_stream(data_sink fd, size_t size, bool trim_to_size = false, bool batch_flushes = false) noexcept
+    output_stream(data_sink fd, size_t size, output_stream_options opts = {}) noexcept
+        : _fd(std::move(fd)), _size(size), _trim_to_size(opts.trim_to_size), _batch_flushes(opts.batch_flushes) {}
+    [[deprecated("use output_stream_options instead of booleans")]]
+    output_stream(data_sink fd, size_t size, bool trim_to_size, bool batch_flushes = false) noexcept
         : _fd(std::move(fd)), _size(size), _trim_to_size(trim_to_size), _batch_flushes(batch_flushes) {}
+    output_stream(data_sink fd) noexcept
+        : _fd(std::move(fd)), _size(_fd.buffer_size()), _trim_to_size(true) {}
     output_stream(output_stream&&) noexcept = default;
     output_stream& operator=(output_stream&&) noexcept = default;
     ~output_stream() { assert(!_in_batch && "Was this stream properly closed?"); }

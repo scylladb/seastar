@@ -48,6 +48,17 @@ static_assert(std::is_nothrow_move_constructible_v<input_stream<char>>);
 static_assert(std::is_nothrow_constructible_v<output_stream<char>>);
 static_assert(std::is_nothrow_move_constructible_v<output_stream<char>>);
 
+// The buffers size must not be greater than the limit, but when capping
+// it we make it 2^n to better utilize the memory allocated for buffers
+template <typename T>
+static inline T select_buffer_size(T configured_value, T maximum_value) noexcept {
+    if (configured_value <= maximum_value) {
+        return configured_value;
+    } else {
+        return T(1) << log2floor(maximum_value);
+    }
+}
+
 class file_data_source_impl : public data_source_impl {
     struct issued_read {
         uint64_t _pos;
@@ -181,7 +192,9 @@ private:
 public:
     file_data_source_impl(file f, uint64_t offset, uint64_t len, file_input_stream_options options)
             : _file(std::move(f)), _options(options), _pos(offset), _remain(len), _current_read_ahead(get_initial_read_ahead())
-            , _current_buffer_size(_options.buffer_size) {
+    {
+        _options.buffer_size = select_buffer_size(_options.buffer_size, _file.disk_read_max_length());
+        _current_buffer_size = _options.buffer_size;
         // prevent wraparounds
         set_new_buffer_size(after_skip::no);
         _remain = std::min(std::numeric_limits<uint64_t>::max() - _pos, _remain);
@@ -345,6 +358,7 @@ class file_data_sink_impl : public data_sink_impl {
 public:
     file_data_sink_impl(file f, file_output_stream_options options)
             : _file(std::move(f)), _options(options) {
+        _options.buffer_size = select_buffer_size<unsigned>(_options.buffer_size, _file.disk_write_max_length());
         _write_behind_sem.ensure_space_for_waiters(1); // So that wait() doesn't throw
     }
     future<> put(net::packet data) override { abort(); }
@@ -391,7 +405,7 @@ public:
             return make_ready_future<>();
         });
     }
-public:
+private:
     future<> do_put(uint64_t pos, temporary_buffer<char> buf) noexcept {
       try {
         // put() must usually be of chunks multiple of file::dma_alignment.
@@ -455,6 +469,7 @@ public:
             return _file.close();
         });
     }
+    virtual size_t buffer_size() const noexcept override { return _options.buffer_size; }
 };
 
 SEASTAR_INCLUDE_API_V2 namespace api_v2 {
@@ -477,7 +492,7 @@ output_stream<char> make_file_output_stream(file f, file_output_stream_options o
 // Don't generate a deprecation warning for the unsafe functions calling each other.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    return output_stream<char>(api_v2::make_file_data_sink(std::move(f), options), options.buffer_size, true);
+    return output_stream<char>(api_v2::make_file_data_sink(std::move(f), options));
 #pragma GCC diagnostic pop
 }
 
@@ -511,8 +526,8 @@ future<output_stream<char>> make_file_output_stream(file f, size_t buffer_size) 
 }
 
 future<output_stream<char>> make_file_output_stream(file f, file_output_stream_options options) noexcept {
-    return api_v3::and_newer::make_file_data_sink(std::move(f), options).then([buffer_size = options.buffer_size] (data_sink&& ds) {
-        return output_stream<char>(std::move(ds), buffer_size, true);
+    return api_v3::and_newer::make_file_data_sink(std::move(f), options).then([] (data_sink&& ds) {
+        return output_stream<char>(std::move(ds));
     });
 }
 
