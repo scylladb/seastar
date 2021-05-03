@@ -36,7 +36,7 @@ class io_priority_class {
     { }
 
 public:
-    io_priority_class_id id() const {
+    io_priority_class_id id() const noexcept {
         return _id;
     }
 };
