@@ -480,9 +480,6 @@ public:
 
     /// \brief Updates the current amount of shares for a given priority class
     ///
-    /// This can involve a cross-shard call if the I/O Queue that is responsible for
-    /// this class lives in a foreign shard.
-    ///
     /// \param pc the priority class handle
     /// \param shares the new shares value
     /// \return a future that is ready when the share update is applied
