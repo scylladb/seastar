@@ -62,6 +62,9 @@ public:
     /// \param new_name The new name for the io priority class
     /// \return a future that is ready when the io priority class have been renamed
     future<> rename(sstring new_name) noexcept;
+
+    unsigned get_shares() const;
+    sstring get_name() const;
 };
 
 const io_priority_class& default_priority_class();

@@ -358,6 +358,15 @@ std::array<uint32_t, io_queue::_max_classes> io_queue::_registered_shares;
 // it lean. The name won't really be used for anything other than monitoring.
 std::array<sstring, io_queue::_max_classes> io_queue::_registered_names;
 
+unsigned io_priority_class::get_shares() const {
+    return io_queue::_registered_shares.at(_id);
+}
+
+sstring io_priority_class::get_name() const {
+    std::lock_guard<std::mutex> lock(io_queue::_register_lock);
+    return io_queue::_registered_names.at(_id);
+}
+
 io_priority_class io_priority_class::register_one(sstring name, uint32_t shares) {
     std::lock_guard<std::mutex> lock(io_queue::_register_lock);
     for (unsigned i = 0; i < io_queue::_max_classes; ++i) {
@@ -488,12 +497,8 @@ priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc)
         _priority_classes.resize(id + 1);
     }
     if (!_priority_classes[id]) {
-        auto shares = _registered_shares.at(id);
-        sstring name;
-        {
-            std::lock_guard<std::mutex> lock(_register_lock);
-            name = _registered_names.at(id);
-        }
+        auto shares = pc.get_shares();
+        auto name = pc.get_name();
 
         // A note on naming:
         //
