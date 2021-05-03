@@ -28,7 +28,6 @@ class io_queue;
 using io_priority_class_id = unsigned;
 class io_priority_class {
     io_priority_class_id _id;
-    friend io_queue;
 
     io_priority_class() = delete;
     explicit io_priority_class(io_priority_class_id id) noexcept
@@ -65,6 +64,12 @@ public:
 
     unsigned get_shares() const;
     sstring get_name() const;
+
+private:
+    static constexpr unsigned _max_classes = 2048;
+    static std::mutex _register_lock;
+    static std::array<uint32_t, _max_classes> _registered_shares;
+    static std::array<sstring, _max_classes> _registered_names;
 };
 
 const io_priority_class& default_priority_class();

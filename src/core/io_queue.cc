@@ -351,36 +351,36 @@ io_queue::~io_queue() {
     }
 }
 
-std::mutex io_queue::_register_lock;
-std::array<uint32_t, io_queue::_max_classes> io_queue::_registered_shares;
+std::mutex io_priority_class::_register_lock;
+std::array<uint32_t, io_priority_class::_max_classes> io_priority_class::_registered_shares;
 // We could very well just add the name to the io_priority_class. However, because that
 // structure is passed along all the time - and sometimes we can't help but copy it, better keep
 // it lean. The name won't really be used for anything other than monitoring.
-std::array<sstring, io_queue::_max_classes> io_queue::_registered_names;
+std::array<sstring, io_priority_class::_max_classes> io_priority_class::_registered_names;
 
 unsigned io_priority_class::get_shares() const {
-    return io_queue::_registered_shares.at(_id);
+    return _registered_shares.at(_id);
 }
 
 sstring io_priority_class::get_name() const {
-    std::lock_guard<std::mutex> lock(io_queue::_register_lock);
-    return io_queue::_registered_names.at(_id);
+    std::lock_guard<std::mutex> lock(_register_lock);
+    return _registered_names.at(_id);
 }
 
 io_priority_class io_priority_class::register_one(sstring name, uint32_t shares) {
-    std::lock_guard<std::mutex> lock(io_queue::_register_lock);
-    for (unsigned i = 0; i < io_queue::_max_classes; ++i) {
-        if (!io_queue::_registered_shares[i]) {
-            io_queue::_registered_shares[i] = shares;
-            io_queue::_registered_names[i] = std::move(name);
-        } else if (io_queue::_registered_names[i] != name) {
+    std::lock_guard<std::mutex> lock(_register_lock);
+    for (unsigned i = 0; i < _max_classes; ++i) {
+        if (!_registered_shares[i]) {
+            _registered_shares[i] = shares;
+            _registered_names[i] = std::move(name);
+        } else if (_registered_names[i] != name) {
             continue;
         } else {
             // found an entry matching the name to be registered,
             // make sure it was registered with the same number shares
             // Note: those may change dynamically later on in the
             // fair queue priority_class_ptr
-            assert(io_queue::_registered_shares[i] == shares);
+            assert(_registered_shares[i] == shares);
         }
         return io_priority_class(i);
     }
@@ -394,12 +394,12 @@ future<> io_priority_class::update_shares(uint32_t shares) {
 }
 
 bool io_priority_class::rename_registered(sstring new_name) {
-    std::lock_guard<std::mutex> guard(io_queue::_register_lock);
-    for (unsigned i = 0; i < io_queue::_max_classes; ++i) {
-       if (!io_queue::_registered_shares[i]) {
+    std::lock_guard<std::mutex> guard(_register_lock);
+    for (unsigned i = 0; i < _max_classes; ++i) {
+       if (!_registered_shares[i]) {
            break;
        }
-       if (io_queue::_registered_names[i] == new_name) {
+       if (_registered_names[i] == new_name) {
            if (i == id()) {
                return false;
            } else {
@@ -409,7 +409,7 @@ bool io_priority_class::rename_registered(sstring new_name) {
            }
        }
     }
-    io_queue::_registered_names[id()] = new_name;
+    _registered_names[id()] = new_name;
     return true;
 }
 
