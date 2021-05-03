@@ -1398,11 +1398,7 @@ def parse_options_file(prog_args):
         prog_args.devs = extend_and_unique(prog_args.devs, y['dev'])
 
     if 'write_back_cache' in y:
-        # Sanity check
-        if not isinstance(y['write_back_cache'], bool):
-            raise ValueError("{}: write_back_cache has to be boolean but given: {}".format(prog_args.options_file, y['write_back_cache']))
-
-        prog_args.set_write_back = y['write_back_cache']
+        prog_args.set_write_back = distutils.util.strtobool("{}".format(y['write_back_cache']))
 
 def dump_config(prog_args):
     prog_options = {}
