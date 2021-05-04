@@ -24,7 +24,9 @@
 
 #include <boost/test/included/unit_test.hpp>
 #include <seastar/util/log.hh>
+#include <seastar/util/backtrace.hh>
 #include <ostream>
+#include <regex>
 
 
 using namespace seastar;
@@ -187,4 +189,17 @@ BOOST_AUTO_TEST_CASE(format_error_test) {
     BOOST_REQUIRE_NE(log_msg.str().find(__builtin_FILE()), std::string::npos);
     BOOST_REQUIRE_NE(log_msg.str().find(__builtin_FUNCTION()), std::string::npos);
     BOOST_REQUIRE_NE(log_msg.str().find(fmt), std::string::npos);
+}
+
+BOOST_AUTO_TEST_CASE(throw_with_backtrace_exception_logging) {
+    std::ostringstream log_msg;
+    try {
+        throw_with_backtrace<std::runtime_error>("throw_with_backtrace_exception_logging");
+    } catch(...) {
+        log_msg << std::current_exception();
+    }
+
+    auto regex_str = "backtraced<std::runtime_error> \\(throw_with_backtrace_exception_logging Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+\\)";
+    std::regex expected_msg_re(regex_str, std::regex_constants::ECMAScript | std::regex_constants::icase);
+    BOOST_REQUIRE(std::regex_search(log_msg.str(), expected_msg_re));
 }
