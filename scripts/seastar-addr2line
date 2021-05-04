@@ -80,7 +80,7 @@ class BacktraceResolver(object):
             path = "\S+"
             token = f"(?:{path}\+)?{addr}"
             full_addr_match = f"(?:({path})\+)?({addr})"
-            self.oneline_re = re.compile(f"^((?:.*(?:(?:at|backtrace):?|:))?(?:\s+))?({token}(?:\s+{token})*)\s*$", flags=re.IGNORECASE)
+            self.oneline_re = re.compile(f"^((?:.*(?:(?:at|backtrace):?|:))?(?:\s+))?({token}(?:\s+{token})*)[\s\)]*$", flags=re.IGNORECASE)
             self.address_re = re.compile(full_addr_match, flags=re.IGNORECASE)
             self.asan_re = re.compile(f"^(?:.*\s+)\(({full_addr_match})\)\s*$", flags=re.IGNORECASE)
             self.separator_re = re.compile('^\W*-+\W*$')
@@ -365,6 +365,10 @@ if args.test:
         ('Apr 28 11:42:58 ip-172-31-2-154.ec2.internal scylla[10612]: 0x0000000003163dc2',
                 {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'Apr 28 11:42:58 ip-172-31-2-154.ec2.internal scylla[10612]:',
                  'addresses': [{'path': None, 'addr': '0x0000000003163dc2'}]}),
+
+        ('seastar::internal::backtraced<std::runtime_error> (throw_with_backtrace_exception_logging Backtrace: 0x42bc95 /lib64/libc.so.6+0x281e1 0x412cfd)',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'seastar::internal::backtraced<std::runtime_error> (throw_with_backtrace_exception_logging Backtrace:',
+                 'addresses': [{'path': None, 'addr': '0x42bc95'}, {'path': '/lib64/libc.so.6', 'addr': '0x281e1'}, {'path': None, 'addr': '0x412cfd'}]}),
     ]
     parser = BacktraceResolver.BacktraceParser()
     for line, expected in data:
