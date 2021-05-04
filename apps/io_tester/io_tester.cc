@@ -146,11 +146,10 @@ protected:
     virtual future<> do_start(sstring dir, directory_entry_type type) = 0;
     virtual future<size_t> issue_request(char *buf) = 0;
 public:
-    static int idgen();
     class_data(job_config cfg)
         : _config(std::move(cfg))
         , _alignment(_config.shard_info.request_size >= 4096 ? 4096 : 512)
-        , _iop(engine().register_one_priority_class(format("test-class-{:d}", idgen()), _config.shard_info.shares))
+        , _iop(engine().register_one_priority_class(name(), _config.shard_info.shares))
         , _sg(cfg.shard_info.scheduling_group)
         , _latencies(extended_p_square_probabilities = quantiles)
         , _pos_distribution(0,  _config.file_size / _config.shard_info.request_size)
@@ -651,11 +650,6 @@ public:
         });
     }
 };
-
-int class_data::idgen() {
-    static thread_local int id = 0;
-    return id++;
-}
 
 static void show_results(distributed<context>& ctx) {
     YAML::Emitter out;
