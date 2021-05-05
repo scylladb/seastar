@@ -86,11 +86,16 @@ class BacktraceResolver(object):
             self.separator_re = re.compile('^\W*-+\W*$')
 
         def __call__(self, line):
+            def get_prefix(s):
+                if s is not None:
+                    s = s.strip()
+                return s or None
+
             m = re.match(self.oneline_re, line)
             if m:
                 #print(f">>> '{line}': oneline {m.groups()}")
                 ret = {'type': self.Type.ADDRESS}
-                ret['prefix'] = None if m.group(1) is None else m.group(1).strip()
+                ret['prefix'] = get_prefix(m.group(1))
                 addresses = []
                 for obj in m.group(2).split():
                     m = re.match(self.address_re, obj)
@@ -333,9 +338,9 @@ if args.test:
 
         ('0x12f34', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': None, 'addr': '0x12f34'}]}),
         ('0xa1234 0xb4567', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': None, 'addr': '0xa1234'},{'path': None, 'addr': '0xb4567'}]}),
-        ('	0xa1234 /my/path+0xb4567', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': '', 'addresses': [{'path': None, 'addr': '0xa1234'},{'path': '/my/path', 'addr': '0xb4567'}]}),
+        ('	0xa1234 /my/path+0xb4567', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': None, 'addr': '0xa1234'},{'path': '/my/path', 'addr': '0xb4567'}]}),
         ('/my/path+0x12f34', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': '/my/path', 'addr': '0x12f34'}]}),
-        (' /my/path+0x12f34', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': '', 'addresses': [{'path': '/my/path', 'addr': '0x12f34'}]}),
+        (' /my/path+0x12f34', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': '/my/path', 'addr': '0x12f34'}]}),
 
         ('Some prefix 0x12f34', None),
         ('Some prefix /my/path+0x12f34', None),
