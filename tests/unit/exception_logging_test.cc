@@ -20,6 +20,7 @@
  * Copyright 2016 ScyllaDB
  */
 
+#include <exception>
 #define BOOST_TEST_MODULE core
 
 #include <boost/test/included/unit_test.hpp>
@@ -200,6 +201,71 @@ BOOST_AUTO_TEST_CASE(throw_with_backtrace_exception_logging) {
     }
 
     auto regex_str = "backtraced<std::runtime_error> \\(throw_with_backtrace_exception_logging Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+\\)";
+    std::regex expected_msg_re(regex_str, std::regex_constants::ECMAScript | std::regex_constants::icase);
+    BOOST_REQUIRE(std::regex_search(log_msg.str(), expected_msg_re));
+}
+
+BOOST_AUTO_TEST_CASE(throw_with_backtrace_nested_exception_logging) {
+    std::ostringstream log_msg;
+    try {
+        throw_with_backtrace<std::runtime_error>("outer");
+    } catch(...) {
+        try {
+            std::throw_with_nested(unknown_obj("This is an unknown object"));
+        } catch (...) {
+            log_msg << std::current_exception();
+        }
+    }
+
+    auto regex_str = "std::_Nested_exception<unknown_obj>.*backtraced<std::runtime_error> \\(outer Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+\\)";
+    std::regex expected_msg_re(regex_str, std::regex_constants::ECMAScript | std::regex_constants::icase);
+    BOOST_REQUIRE(std::regex_search(log_msg.str(), expected_msg_re));
+}
+
+BOOST_AUTO_TEST_CASE(throw_with_backtrace_seastar_nested_exception_logging) {
+    std::ostringstream log_msg;
+    try {
+        throw unknown_obj("This is an unknown object");
+    } catch (...) {
+        auto outer = std::current_exception();
+        try {
+            throw_with_backtrace<std::runtime_error>("inner");
+        } catch (...) {
+            auto inner = std::current_exception();
+            try {
+                throw seastar::nested_exception(std::move(inner), std::move(outer));
+            } catch (...) {
+                log_msg << std::current_exception();
+            }
+        }
+    }
+
+    auto regex_str = "seastar::nested_exception:.*backtraced<std::runtime_error> \\(inner Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+\\)"
+            " \\(while cleaning up after unknown_obj\\)";
+    std::regex expected_msg_re(regex_str, std::regex_constants::ECMAScript | std::regex_constants::icase);
+    BOOST_REQUIRE(std::regex_search(log_msg.str(), expected_msg_re));
+}
+
+BOOST_AUTO_TEST_CASE(double_throw_with_backtrace_seastar_nested_exception_logging) {
+    std::ostringstream log_msg;
+    try {
+        throw_with_backtrace<std::runtime_error>("outer");
+    } catch (...) {
+        auto outer = std::current_exception();
+        try {
+            throw_with_backtrace<std::runtime_error>("inner");
+        } catch (...) {
+            auto inner = std::current_exception();
+            try {
+                throw seastar::nested_exception(std::move(inner), std::move(outer));
+            } catch (...) {
+                log_msg << std::current_exception();
+            }
+        }
+    }
+
+    auto regex_str = "seastar::nested_exception:.*backtraced<std::runtime_error> \\(inner Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+\\)"
+            " \\(while cleaning up after .*backtraced<std::runtime_error> \\(outer Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+\\)\\)";
     std::regex expected_msg_re(regex_str, std::regex_constants::ECMAScript | std::regex_constants::icase);
     BOOST_REQUIRE(std::regex_search(log_msg.str(), expected_msg_re));
 }
