@@ -99,13 +99,14 @@ class BacktraceResolver(object):
                 addresses = []
                 for obj in m.group(2).split():
                     m = re.match(self.address_re, obj)
+                    #print(f"  >>> '{obj}': address {m.groups()}")
                     addresses.append({'path': m.group(1), 'addr': m.group(2)})
                 ret['addresses'] = addresses
                 return ret
 
             m = re.match(self.asan_re, line)
             if m:
-                #print(f">>> '{line}': asan {m}")
+                #print(f">>> '{line}': asan {m.groups()}")
                 ret = {'type': self.Type.ADDRESS}
                 ret['prefix'] = None
                 ret['addresses'] = [{'path': m.group(2), 'addr': m.group(3)}]
@@ -115,6 +116,7 @@ class BacktraceResolver(object):
             if match:
                 return {'type': self.Type.SEPARATOR}
 
+            #print(f">>> '{line}': None")
             return None
 
     def __init__(self, executable, before_lines, context_re, verbose):
