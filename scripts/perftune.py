@@ -657,7 +657,7 @@ class NetPerfTuner(PerfTunerBase):
         else:
             return sys.maxsize
 
-    def __mlx_irq_to_queue_idx(self, irq):
+    def __mlx5_irq_to_queue_idx(self, irq):
         """
         Return the HW queue index for a given IRQ for Mellanox NICs in order to sort the IRQs' list by this index.
 
@@ -665,20 +665,38 @@ class NetPerfTuner(PerfTunerBase):
         this:
         mlx5_comp23
              mlx5_comp<index>
-        or this:
-        mlx4-6
-             mlx4-<index>
 
         :param irq: IRQ number
         :return: HW queue index for Mellanox NICs and 0 for all other NICs
         """
-        mlx_fp_irq_re = re.compile("mlx5_comp(\d+)|mlx4\-(\d+)")
+        mlx_fp_irq_re = re.compile("mlx5_comp(\d+)")
 
         m = mlx_fp_irq_re.search(self.__irqs2procline[irq])
         if m:
             return int(m.group(1))
         else:
             return sys.maxsize
+
+    def __mlx4_irq_to_queue_idx(self, irq):
+        """
+        Return the HW queue index for a given IRQ for Mellanox NICs in order to sort the IRQs' list by this index.
+
+        Mellanox NICs have the IRQ which name looks like
+        this:
+        mlx4-6
+             mlx4-<index>
+
+        :param irq: IRQ number
+        :return: HW queue index for Mellanox NICs and 0 for all other NICs
+        """
+        mlx_fp_irq_re = re.compile("mlx4\-(\d+)")
+
+        m = mlx_fp_irq_re.search(self.__irqs2procline[irq])
+        if m:
+            return int(m.group(1))
+        else:
+            return sys.maxsize
+
 
     def __get_driver_name(self, iface):
         """
@@ -732,8 +750,10 @@ class NetPerfTuner(PerfTunerBase):
         irqs = list(filter(lambda irq : fp_irqs_re.search(self.__irqs2procline[irq]), all_irqs))
         if irqs:
             driver_name = self.__get_driver_name(iface)
-            if (driver_name.startswith("mlx")):
-                irqs.sort(key=self.__mlx_irq_to_queue_idx)
+            if (driver_name.startswith("mlx5")):
+                irqs.sort(key=self.__mlx5_irq_to_queue_idx)
+            elif (driver_name.startswith("mlx4")):
+                irqs.sort(key=self.__mlx4_irq_to_queue_idx)
             else:
                 irqs.sort(key=self.__intel_irq_to_queue_idx)
             return irqs
