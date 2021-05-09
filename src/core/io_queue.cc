@@ -332,7 +332,7 @@ fair_group::config io_group::make_fair_group_config(config iocfg) noexcept {
 
 io_group::io_group(config cfg) noexcept
     : _fg(make_fair_group_config(cfg))
-    , _maximum_request_size(cfg.max_bytes_count) {
+    , _max_bytes_count(cfg.max_bytes_count) {
     seastar_logger.debug("Created io group, limits {}:{}", cfg.max_req_count, cfg.max_bytes_count);
 }
 
@@ -504,15 +504,15 @@ fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, s
 
     static thread_local size_t oversize_warning_threshold = 0;
 
-    if (size >= _group->_maximum_request_size) {
+    if (size >= _group->_max_bytes_count) {
         if (size > oversize_warning_threshold) {
             oversize_warning_threshold = size;
             io_log.warn("oversized request (length {}) submitted. "
                 "dazed and confuzed, trimming its weight from {} down to {}", len,
                 size >> request_ticket_size_shift,
-                _group->_maximum_request_size >> request_ticket_size_shift);
+                _group->_max_bytes_count >> request_ticket_size_shift);
         }
-        size = _group->_maximum_request_size;
+        size = _group->_max_bytes_count;
     }
 
     return fair_queue_ticket(weight, size >> request_ticket_size_shift);
@@ -520,8 +520,8 @@ fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, s
 
 io_queue::request_limits io_queue::get_request_limits() const noexcept {
     request_limits l;
-    l.max_read = align_down<size_t>(_group->_maximum_request_size / read_request_base_count, minimal_request_size);
-    l.max_write = align_down<size_t>(_group->_maximum_request_size / _config.disk_bytes_write_to_read_multiplier, minimal_request_size);
+    l.max_read = align_down<size_t>(std::min<size_t>(_config.disk_read_saturation_length, _group->_max_bytes_count / read_request_base_count), minimal_request_size);
+    l.max_write = align_down<size_t>(std::min<size_t>(_config.disk_write_saturation_length, _group->_max_bytes_count / _config.disk_bytes_write_to_read_multiplier), minimal_request_size);
     return l;
 }
 

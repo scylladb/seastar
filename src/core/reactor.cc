@@ -145,6 +145,8 @@ struct mountpoint_params {
     uint64_t write_bytes_rate = std::numeric_limits<uint64_t>::max();
     uint64_t read_req_rate = std::numeric_limits<uint64_t>::max();
     uint64_t write_req_rate = std::numeric_limits<uint64_t>::max();
+    uint64_t read_saturation_length = std::numeric_limits<uint64_t>::max();
+    uint64_t write_saturation_length = std::numeric_limits<uint64_t>::max();
 };
 
 }
@@ -159,6 +161,12 @@ struct convert<seastar::mountpoint_params> {
         mp.read_req_rate = parse_memory_size(node["read_iops"].as<std::string>());
         mp.write_bytes_rate = parse_memory_size(node["write_bandwidth"].as<std::string>());
         mp.write_req_rate = parse_memory_size(node["write_iops"].as<std::string>());
+        if (node["read_saturation_length"]) {
+            mp.read_saturation_length = parse_memory_size(node["read_saturation_length"].as<std::string>());
+        }
+        if (node["write_saturation_length"]) {
+            mp.write_saturation_length = parse_memory_size(node["write_saturation_length"].as<std::string>());
+        }
         return true;
     }
 };
@@ -3696,6 +3704,12 @@ public:
             if (p.read_req_rate != std::numeric_limits<uint64_t>::max()) {
                 cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
                 cfg.disk_us_per_request = 1000000. / p.read_req_rate;
+            }
+            if (p.read_saturation_length != std::numeric_limits<uint64_t>::max()) {
+                cfg.disk_read_saturation_length = p.read_saturation_length;
+            }
+            if (p.write_saturation_length != std::numeric_limits<uint64_t>::max()) {
+                cfg.disk_write_saturation_length = p.write_saturation_length;
             }
             cfg.mountpoint = p.mountpoint;
         } else {

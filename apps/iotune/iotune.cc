@@ -207,7 +207,7 @@ struct row_stats {
     double stdev;
 
     float stdev_percents() const {
-        return points > 0 ? stdev * 100.0 / average : 0.0;
+        return points > 0 ? stdev / average : 0.0;
     }
 };
 
@@ -574,6 +574,32 @@ public:
         }, io_rates(), std::plus<io_rates>());
     }
 
+private:
+    template <typename Fn>
+    future<uint64_t> saturate(float rate_threshold, size_t buffer_size, std::chrono::duration<double> duration, Fn&& workload) {
+        return _iotune_test_file.invoke_on(0, [=] (test_file& tf) {
+            return (tf.*workload)(buffer_size, test_file::pattern::sequential, 1, duration, serial_rates).then([=] (io_rates rates) {
+                serial_rates.clear();
+                if (rates.bytes_per_sec < rate_threshold) {
+                    // The throughput with the given buffer-size is already "small enough", so
+                    // return back its previous value
+                    return make_ready_future<uint64_t>(buffer_size * 2);
+                } else {
+                    return saturate(rate_threshold, buffer_size / 2, duration, workload);
+                }
+            });
+        });
+    }
+
+public:
+    future<uint64_t> saturate_write(float rate_threshold, size_t buffer_size, std::chrono::duration<double> duration) {
+        return saturate(rate_threshold, buffer_size, duration, &test_file::write_workload);
+    }
+
+    future<uint64_t> saturate_read(float rate_threshold, size_t buffer_size, std::chrono::duration<double> duration) {
+        return saturate(rate_threshold, buffer_size, duration, &test_file::read_workload);
+    }
+
     iotune_multi_shard_context(::evaluation_directory dir)
         : _test_directory(dir)
     {}
@@ -585,6 +611,8 @@ struct disk_descriptor {
     uint64_t read_bw;
     uint64_t write_iops;
     uint64_t write_bw;
+    std::optional<uint64_t> read_sat_len;
+    std::optional<uint64_t> write_sat_len;
 };
 
 void string_to_file(sstring conf_file, sstring buf) {
@@ -617,6 +645,12 @@ void write_property_file(sstring conf_file, std::vector<disk_descriptor> disk_de
         out << YAML::Key << "read_bandwidth" << YAML::Value << desc.read_bw;
         out << YAML::Key << "write_iops" << YAML::Value << desc.write_iops;
         out << YAML::Key << "write_bandwidth" << YAML::Value << desc.write_bw;
+        if (desc.read_sat_len) {
+            out << YAML::Key << "read_saturation_length" << YAML::Value << *desc.read_sat_len;
+        }
+        if (desc.write_sat_len) {
+            out << YAML::Key << "write_saturation_length" << YAML::Value << *desc.write_sat_len;
+        }
         out << YAML::EndMap;
     }
     out << YAML::EndSeq;
@@ -663,6 +697,7 @@ int main(int ac, char** av) {
         ("format", bpo::value<sstring>()->default_value("seastar"), "Configuration file format (seastar | envfile)")
         ("fs-check", bpo::bool_switch(&fs_check), "perform FS check only")
         ("accuracy", bpo::value<unsigned>()->default_value(3), "acceptable deviation of measurements (percents)")
+        ("saturation", bpo::value<sstring>()->default_value(""), "measure saturation lengths (read | write | both) (this is very slow!)")
     ;
 
     return app.run(ac, av, [&] {
@@ -672,6 +707,25 @@ int main(int ac, char** av) {
             auto format = configuration["format"].as<sstring>();
             auto duration = std::chrono::duration<double>(configuration["duration"].as<unsigned>() * 1s);
             auto accuracy = configuration["accuracy"].as<unsigned>();
+            auto saturation = configuration["saturation"].as<sstring>();
+
+            bool read_saturation, write_saturation;
+            if (saturation == "") {
+                read_saturation = false;
+                write_saturation = false;
+            } else if (saturation == "both") {
+                read_saturation = true;
+                write_saturation = true;
+            } else if (saturation == "read") {
+                read_saturation = true;
+                write_saturation = false;
+            } else if (saturation == "write") {
+                read_saturation = false;
+                write_saturation = true;
+            } else {
+                fmt::print("Bad --saturation value\n");
+                return 1;
+            }
 
             std::vector<disk_descriptor> disk_descriptors;
             std::unordered_map<sstring, sstring> mountpoint_map;
@@ -734,7 +788,7 @@ int main(int ac, char** av) {
 
                 row_stats rates;
                 auto accuracy_msg = [accuracy, &rates] {
-                    auto stdev = rates.stdev_percents();
+                    auto stdev = rates.stdev_percents() * 100.0;
                     return (accuracy == 0 || stdev > accuracy) ? fmt::format(" (deviation {}%)", int(round(stdev))) : std::string("");
                 };
 
@@ -752,11 +806,29 @@ int main(int ac, char** av) {
                 rates = iotune_tests.get_serial_rates().get0();
                 fmt::print("{} MB/s{}\n", uint64_t(write_bw.bytes_per_sec / (1024 * 1024)), accuracy_msg());
 
+                std::optional<uint64_t> write_sat;
+
+                if (write_saturation) {
+                    fmt::print("Measuring write saturation length: ");
+                    std::cout.flush();
+                    write_sat = iotune_tests.saturate_write(write_bw.bytes_per_sec * (1.0 - rates.stdev_percents()), sequential_buffer_size/2, duration * 0.70).get0();
+                    fmt::print("{}\n", *write_sat);
+                }
+
                 fmt::print("Measuring sequential read bandwidth: ");
                 std::cout.flush();
                 auto read_bw = iotune_tests.read_sequential_data(0, sequential_buffer_size, duration * 0.1).get0();
                 rates = iotune_tests.get_serial_rates().get0();
                 fmt::print("{} MB/s{}\n", uint64_t(read_bw.bytes_per_sec / (1024 * 1024)), accuracy_msg());
+
+                std::optional<uint64_t> read_sat;
+
+                if (read_saturation) {
+                    fmt::print("Measuring read saturation length: ");
+                    std::cout.flush();
+                    read_sat = iotune_tests.saturate_read(read_bw.bytes_per_sec * (1.0 - rates.stdev_percents()), sequential_buffer_size/2, duration * 0.1).get0();
+                    fmt::print("{}\n", *read_sat);
+                }
 
                 fmt::print("Measuring random write IOPS: ");
                 std::cout.flush();
@@ -774,8 +846,10 @@ int main(int ac, char** av) {
                 desc.mountpoint = mountpoint;
                 desc.read_iops = read_iops.iops;
                 desc.read_bw = read_bw.bytes_per_sec;
+                desc.read_sat_len = read_sat;
                 desc.write_iops = write_iops.iops;
                 desc.write_bw = write_bw.bytes_per_sec;
+                desc.write_sat_len = write_sat;
                 disk_descriptors.push_back(std::move(desc));
             }
 

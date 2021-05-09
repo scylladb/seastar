@@ -77,7 +77,7 @@ public:
 private:
     friend class io_queue;
     fair_group _fg;
-    const unsigned _maximum_request_size;
+    const unsigned _max_bytes_count;
 
     static fair_group::config make_fair_group_config(config cfg) noexcept;
 };
@@ -130,6 +130,8 @@ public:
         unsigned disk_bytes_write_to_read_multiplier = read_request_base_count;
         float disk_us_per_request = 0;
         float disk_us_per_byte = 0;
+        size_t disk_read_saturation_length = std::numeric_limits<size_t>::max();
+        size_t disk_write_saturation_length = std::numeric_limits<size_t>::max();
         sstring mountpoint = "undefined";
     };
 
