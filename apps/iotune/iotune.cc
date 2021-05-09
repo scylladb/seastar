@@ -577,8 +577,8 @@ public:
 private:
     template <typename Fn>
     future<uint64_t> saturate(float rate_threshold, size_t buffer_size, std::chrono::duration<double> duration, Fn&& workload) {
-        return _iotune_test_file.invoke_on(0, [=] (test_file& tf) {
-            return (tf.*workload)(buffer_size, test_file::pattern::sequential, 1, duration, serial_rates).then([=] (io_rates rates) {
+        return _iotune_test_file.invoke_on(0, [this, rate_threshold, buffer_size, duration, workload] (test_file& tf) {
+            return (tf.*workload)(buffer_size, test_file::pattern::sequential, 1, duration, serial_rates).then([this, rate_threshold, buffer_size, duration, workload] (io_rates rates) {
                 serial_rates.clear();
                 if (rates.bytes_per_sec < rate_threshold) {
                     // The throughput with the given buffer-size is already "small enough", so
