@@ -40,66 +40,111 @@ namespace httpd {
 namespace status_strings {
 
 const sstring continue_ = " 100 Continue\r\n";
+const sstring switching_protocols = " 101 Switching Protocols\r\n";
 const sstring ok = " 200 OK\r\n";
 const sstring created = " 201 Created\r\n";
 const sstring accepted = " 202 Accepted\r\n";
+const sstring nonauthoritative_information = " 203 Non-Authoritative Information\r\n";
 const sstring no_content = " 204 No Content\r\n";
+const sstring reset_content = " 205 Reset Content\r\n";
 const sstring multiple_choices = " 300 Multiple Choices\r\n";
 const sstring moved_permanently = " 301 Moved Permanently\r\n";
 const sstring moved_temporarily = " 302 Moved Temporarily\r\n";
+const sstring see_other = " 303 See Other\r\n";
 const sstring not_modified = " 304 Not Modified\r\n";
+const sstring use_proxy = " 305 Use Proxy\r\n";
+const sstring temporary_redirect = " 307 Temporary Redirect\r\n";
 const sstring bad_request = " 400 Bad Request\r\n";
 const sstring unauthorized = " 401 Unauthorized\r\n";
+const sstring payment_required = " 402 Payment Required\r\n";
 const sstring forbidden = " 403 Forbidden\r\n";
 const sstring not_found = " 404 Not Found\r\n";
+const sstring method_not_allowed = " 405 Method Not Allowed\r\n";
 const sstring not_acceptable = " 406 Not Acceptable\r\n";
+const sstring request_timeout = " 408 Request Timeout\r\n";
+const sstring conflict = " 409 Conflict\r\n";
+const sstring gone = " 410 Gone\r\n";
 const sstring length_required = " 411 Length Required\r\n";
 const sstring payload_too_large = " 413 Payload Too Large\r\n";
+const sstring uri_too_long = " 414 URI Too Long\r\n";
 const sstring unsupported_media_type = " 415 Unsupported Media Type\r\n";
+const sstring expectation_failed = " 417 Expectation Failed\r\n";
 const sstring unprocessable_entity = " 422 Unprocessable Entity\r\n";
+const sstring upgrade_required = " 426 Upgrade Required\r\n";
 const sstring internal_server_error = " 500 Internal Server Error\r\n";
 const sstring not_implemented = " 501 Not Implemented\r\n";
 const sstring bad_gateway = " 502 Bad Gateway\r\n";
 const sstring service_unavailable = " 503 Service Unavailable\r\n";
+const sstring gateway_timeout = " 504 Gateway Timeout\r\n";
+const sstring http_version_not_supported = " 505 HTTP Version Not Supported\r\n";
+const sstring insufficient_storage = " 507 Insufficient Storage\r\n";
 
 static const sstring& to_string(reply::status_type status) {
     switch (status) {
     case reply::status_type::continue_:
         return continue_;
+    case reply::status_type::switching_protocols:
+        return switching_protocols;
     case reply::status_type::ok:
         return ok;
     case reply::status_type::created:
         return created;
     case reply::status_type::accepted:
         return accepted;
+    case reply::status_type::nonauthoritative_information:
+        return nonauthoritative_information;
     case reply::status_type::no_content:
         return no_content;
+    case reply::status_type::reset_content:
+        return reset_content;
     case reply::status_type::multiple_choices:
         return multiple_choices;
     case reply::status_type::moved_permanently:
         return moved_permanently;
     case reply::status_type::moved_temporarily:
         return moved_temporarily;
+    case reply::status_type::see_other:
+        return see_other;
     case reply::status_type::not_modified:
         return not_modified;
+    case reply::status_type::use_proxy:
+        return use_proxy;
+    case reply::status_type::temporary_redirect:
+        return temporary_redirect;
     case reply::status_type::bad_request:
         return bad_request;
     case reply::status_type::unauthorized:
         return unauthorized;
+    case reply::status_type::payment_required:
+        return payment_required;
     case reply::status_type::forbidden:
         return forbidden;
     case reply::status_type::not_found:
         return not_found;
+    case reply::status_type::method_not_allowed:
+        return method_not_allowed;
     case reply::status_type::not_acceptable:
         return not_acceptable;
+    case reply::status_type::request_timeout:
+        return request_timeout;
+    case reply::status_type::conflict:
+        return conflict;
+    case reply::status_type::gone:
+        return gone;
     case reply::status_type::length_required:
         return length_required;
     case reply::status_type::payload_too_large:
         return payload_too_large;
+    case reply::status_type::uri_too_long:
+        return uri_too_long;
     case reply::status_type::unsupported_media_type:
         return unsupported_media_type;
+    case reply::status_type::expectation_failed:
+        return expectation_failed;
     case reply::status_type::unprocessable_entity:
         return unprocessable_entity;
+    case reply::status_type::upgrade_required:
+        return upgrade_required;
     case reply::status_type::internal_server_error:
         return internal_server_error;
     case reply::status_type::not_implemented:
@@ -108,6 +153,12 @@ static const sstring& to_string(reply::status_type status) {
         return bad_gateway;
     case reply::status_type::service_unavailable:
         return service_unavailable;
+    case reply::status_type::gateway_timeout:
+        return gateway_timeout;
+    case reply::status_type::http_version_not_supported:
+        return http_version_not_supported;
+    case reply::status_type::insufficient_storage:
+        return insufficient_storage;
     default:
         return internal_server_error;
     }

@@ -53,27 +53,44 @@ struct reply {
      */
     enum class status_type {
         continue_ = 100, //!< continue
+        switching_protocols = 101, //!< switching_protocols
         ok = 200, //!< ok
         created = 201, //!< created
         accepted = 202, //!< accepted
+        nonauthoritative_information = 203, //!< nonauthoritative_information
         no_content = 204, //!< no_content
+        reset_content = 205, //!< reset_content
         multiple_choices = 300, //!< multiple_choices
         moved_permanently = 301, //!< moved_permanently
         moved_temporarily = 302, //!< moved_temporarily
+        see_other = 303, //!< see_other
         not_modified = 304, //!< not_modified
+        use_proxy = 305, //!< use_proxy
+        temporary_redirect = 307, //!< temporary_redirect 
         bad_request = 400, //!< bad_request
         unauthorized = 401, //!< unauthorized
+        payment_required = 402, //!< payment_required
         forbidden = 403, //!< forbidden
         not_found = 404, //!< not_found
+        method_not_allowed = 405, //!< method_not_allowed 
         not_acceptable = 406, //!< not_acceptable
+        request_timeout = 408, //!< request_timeout
+        conflict = 409, //!< conflict
+        gone = 410, //!< gone
         length_required = 411, //!< length_required
         payload_too_large = 413, //!< payload_too_large
+        uri_too_long = 414, //!< uri_too_long
         unsupported_media_type = 415, //!< unsupported_media_type
+        expectation_failed = 417, //!< expectation_failed
         unprocessable_entity = 422, //!< unprocessable_entity
+        upgrade_required = 426, //!< upgrade_required
         internal_server_error = 500, //!< internal_server_error
         not_implemented = 501, //!< not_implemented
         bad_gateway = 502, //!< bad_gateway
-        service_unavailable = 503  //!< service_unavailable
+        service_unavailable = 503,  //!< service_unavailable
+        gateway_timeout = 504, //!< gateway_timeout
+        http_version_not_supported = 505, //!< http_version_not_supported 
+        insufficient_storage = 507 //!< insufficient_storage
     } _status;
 
     /**
