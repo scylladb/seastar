@@ -48,6 +48,12 @@ class gate {
     size_t _count = 0;
     std::optional<promise<>> _stopped;
 public:
+    gate() = default;
+    gate(const gate&) = delete;
+    gate(gate&&) = default;
+    ~gate() {
+        assert(!_count && "gate destroyed with outstanding requests");
+    }
     /// Tries to register an in-progress request.
     ///
     /// If the gate is not closed, the request is registered and the function returns `true`,
