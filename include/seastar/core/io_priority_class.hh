@@ -43,6 +43,8 @@ public:
     io_priority_class_id id() const noexcept {
         return _id;
     }
+
+    static io_priority_class register_one(sstring name, uint32_t shares);
 };
 
 const io_priority_class& default_priority_class();

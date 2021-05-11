@@ -184,7 +184,7 @@ shard_id reactor::cpu_id() const {
 
 io_priority_class
 reactor::register_one_priority_class(sstring name, uint32_t shares) {
-    return io_queue::register_one_priority_class(std::move(name), shares);
+    return io_priority_class::register_one(std::move(name), shares);
 }
 
 future<>
@@ -1546,7 +1546,7 @@ reactor::reap_kernel_completions() {
 
 const io_priority_class& default_priority_class() {
     static thread_local auto shard_default_class = [] {
-        return engine().register_one_priority_class("default", 1);
+        return io_priority_class::register_one("default", 1);
     }();
     return shard_default_class;
 }

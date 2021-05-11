@@ -476,6 +476,7 @@ public:
         }
     }
 
+    [[deprecated("Use io_priority_class::register_one")]]
     io_priority_class register_one_priority_class(sstring name, uint32_t shares);
 
     /// \brief Updates the current amount of shares for a given priority class

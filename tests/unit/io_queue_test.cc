@@ -133,8 +133,8 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
     fake_file<nr_requests> file;
 
     io_queue_for_tests tio;
-    io_priority_class pc0 = tio.queue.register_one_priority_class("a", 100);
-    io_priority_class pc1 = tio.queue.register_one_priority_class("b", 100);
+    io_priority_class pc0 = io_priority_class::register_one("a", 100);
+    io_priority_class pc1 = io_priority_class::register_one("b", 100);
 
     size_t idx = 0;
     int val = 100;

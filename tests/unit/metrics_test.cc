@@ -126,7 +126,7 @@ SEASTAR_THREAD_TEST_CASE(test_renaming_io_priority_classes) {
     using namespace seastar;
     static const char* name1 = "A";
     static const char* name2 = "B";
-    seastar::io_priority_class pc = engine().register_one_priority_class("hello",100);
+    seastar::io_priority_class pc = io_priority_class::register_one("hello",100);
     smp::invoke_on_all([pc] () {
         // this is a trick to get all of the queues actually register their
         // stats.

@@ -150,7 +150,7 @@ public:
     class_data(job_config cfg)
         : _config(std::move(cfg))
         , _alignment(_config.shard_info.request_size >= 4096 ? 4096 : 512)
-        , _iop(engine().register_one_priority_class(name(), _config.shard_info.shares))
+        , _iop(io_priority_class::register_one(name(), _config.shard_info.shares))
         , _sg(cfg.shard_info.scheduling_group)
         , _latencies(extended_p_square_probabilities = quantiles)
         , _pos_distribution(0,  _config.file_size / _config.shard_info.request_size)

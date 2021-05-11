@@ -30,6 +30,7 @@
 #include <seastar/core/linux-aio.hh>
 #include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/internal/io_sink.hh>
+#include <seastar/core/io_priority_class.hh>
 #include <seastar/util/log.hh>
 #include <chrono>
 #include <mutex>
@@ -357,20 +358,20 @@ std::array<uint32_t, io_queue::_max_classes> io_queue::_registered_shares;
 // it lean. The name won't really be used for anything other than monitoring.
 std::array<sstring, io_queue::_max_classes> io_queue::_registered_names;
 
-io_priority_class io_queue::register_one_priority_class(sstring name, uint32_t shares) {
-    std::lock_guard<std::mutex> lock(_register_lock);
-    for (unsigned i = 0; i < _max_classes; ++i) {
-        if (!_registered_shares[i]) {
-            _registered_shares[i] = shares;
-            _registered_names[i] = std::move(name);
-        } else if (_registered_names[i] != name) {
+io_priority_class io_priority_class::register_one(sstring name, uint32_t shares) {
+    std::lock_guard<std::mutex> lock(io_queue::_register_lock);
+    for (unsigned i = 0; i < io_queue::_max_classes; ++i) {
+        if (!io_queue::_registered_shares[i]) {
+            io_queue::_registered_shares[i] = shares;
+            io_queue::_registered_names[i] = std::move(name);
+        } else if (io_queue::_registered_names[i] != name) {
             continue;
         } else {
             // found an entry matching the name to be registered,
             // make sure it was registered with the same number shares
             // Note: those may change dynamically later on in the
             // fair queue priority_class_ptr
-            assert(_registered_shares[i] == shares);
+            assert(io_queue::_registered_shares[i] == shares);
         }
         return io_priority_class(i);
     }
