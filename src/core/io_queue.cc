@@ -291,12 +291,12 @@ fair_queue::config io_queue::make_fair_queue_config(config iocfg) {
     return cfg;
 }
 
-io_queue::io_queue(io_group_ptr group, internal::io_sink& sink, io_queue::config cfg)
+io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     : _priority_classes()
     , _group(std::move(group))
-    , _fq(_group->_fg, make_fair_queue_config(cfg))
+    , _fq(_group->_fg, make_fair_queue_config(_group->_config))
     , _sink(sink)
-    , __config(std::move(cfg)) {
+{
     seastar_logger.debug("Created io queue, multipliers {}:{}",
             get_config().disk_req_write_to_read_multiplier,
             get_config().disk_bytes_write_to_read_multiplier);

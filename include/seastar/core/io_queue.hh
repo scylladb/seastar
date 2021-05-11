@@ -99,7 +99,7 @@ public:
         sstring mountpoint = "undefined";
     };
 
-    io_queue(io_group_ptr group, internal::io_sink& sink, config cfg);
+    io_queue(io_group_ptr group, internal::io_sink& sink);
     ~io_queue();
 
     fair_queue_ticket request_fq_ticket(const internal::io_request& req, size_t len) const;
@@ -146,7 +146,6 @@ public:
     request_limits get_request_limits() const noexcept;
 
 private:
-    config __config;
     static fair_queue::config make_fair_queue_config(config cfg);
 
     const config& get_config() const noexcept;
@@ -171,7 +170,7 @@ private:
 };
 
 inline const io_queue::config& io_queue::get_config() const noexcept {
-    return __config;
+    return _group->_config;
 }
 
 inline size_t io_queue::capacity() const {

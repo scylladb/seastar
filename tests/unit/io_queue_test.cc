@@ -57,7 +57,7 @@ struct io_queue_for_tests {
     io_queue_for_tests()
         : group(std::make_shared<io_group>(io_group::config{}, io_queue::config{0}))
         , sink()
-        , queue(group, sink, io_queue::config{0})
+        , queue(group, sink)
     {}
 };
 
