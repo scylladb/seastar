@@ -331,9 +331,10 @@ fair_group::config io_group::make_fair_group_config(config iocfg) noexcept {
         iocfg.max_bytes_count >> io_queue::request_ticket_size_shift);
 }
 
-io_group::io_group(config cfg) noexcept
+io_group::io_group(config cfg, io_queue::config io_cfg) noexcept
     : _fg(make_fair_group_config(cfg))
-    , _max_bytes_count(cfg.max_bytes_count) {
+    , _max_bytes_count(cfg.max_bytes_count)
+    , _config(io_cfg) {
     seastar_logger.debug("Created io group, limits {}:{}", cfg.max_req_count, cfg.max_bytes_count);
 }
 

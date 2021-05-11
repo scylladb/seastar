@@ -159,12 +159,13 @@ public:
         unsigned max_bytes_count = std::numeric_limits<int>::max();
         unsigned disk_req_write_to_read_multiplier;
     };
-    explicit io_group(config cfg) noexcept;
+    explicit io_group(config cfg, io_queue::config io_cfg) noexcept;
 
 private:
     friend class io_queue;
     fair_group _fg;
     const unsigned _max_bytes_count;
+    const io_queue::config _config;
 
     static fair_group::config make_fair_group_config(config cfg) noexcept;
 };
