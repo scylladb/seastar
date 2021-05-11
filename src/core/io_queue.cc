@@ -302,7 +302,7 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
             get_config().disk_bytes_write_to_read_multiplier);
 }
 
-fair_group::config io_group::make_fair_group_config(config iocfg) noexcept {
+fair_group::config io_group::make_fair_group_config(config iocfg, io_queue::config qcfg) noexcept {
     /*
      * It doesn't make sense to configure requests limit higher than
      * it can be if the queue is full of minimal requests. At the same
@@ -315,7 +315,7 @@ fair_group::config io_group::make_fair_group_config(config iocfg) noexcept {
      */
     auto max_req_count = std::min(iocfg.max_req_count,
         iocfg.max_bytes_count / io_queue::minimal_request_size);
-    auto max_req_count_min = std::max(io_queue::read_request_base_count, iocfg.disk_req_write_to_read_multiplier);
+    auto max_req_count_min = std::max(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
     /*
      * Read requests weight read_request_base_count, writes weight
      * disk_req_write_to_read_multiplier. The fair queue limit must
@@ -332,7 +332,7 @@ fair_group::config io_group::make_fair_group_config(config iocfg) noexcept {
 }
 
 io_group::io_group(config cfg, io_queue::config io_cfg) noexcept
-    : _fg(make_fair_group_config(cfg))
+    : _fg(make_fair_group_config(cfg, io_cfg))
     , _max_bytes_count(cfg.max_bytes_count)
     , _config(io_cfg) {
     seastar_logger.debug("Created io group, limits {}:{}", cfg.max_req_count, cfg.max_bytes_count);
