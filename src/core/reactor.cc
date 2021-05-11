@@ -192,6 +192,11 @@ reactor::update_shares_for_class(io_priority_class pc, uint32_t shares) {
     return pc.update_shares(shares);
 }
 
+future<>
+reactor::rename_priority_class(io_priority_class pc, sstring new_name) noexcept {
+    return pc.rename(std::move(new_name));
+}
+
 future<> reactor::update_shares_for_queues(io_priority_class pc, uint32_t shares) {
     return parallel_for_each(_io_queues, [pc, shares] (auto& queue) {
         return queue.second->update_shares_for_class(pc, shares);
@@ -4356,7 +4361,7 @@ scheduling_group_key_create(scheduling_group_key_config cfg) noexcept {
 
 future<>
 rename_priority_class(io_priority_class pc, sstring new_name) {
-    return reactor::rename_priority_class(pc, new_name);
+    return pc.rename(std::move(new_name));
 }
 
 future<>

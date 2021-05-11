@@ -35,8 +35,6 @@ class io_priority_class {
         : _id(id)
     { }
 
-    friend reactor; // temporary
-
     bool rename_registered(sstring name);
 
 public:
@@ -52,6 +50,18 @@ public:
     /// \param shares the new shares value
     /// \return a future that is ready when the share update is applied
     future<> update_shares(uint32_t shares);
+
+    /// Renames an io priority class
+    ///
+    /// Renames an `io_priority_class` previously created with register_one_priority_class().
+    ///
+    /// The operation is global and affects all shards.
+    /// The operation affects the exported statistics labels.
+    ///
+    /// \param pc The io priority class to be renamed
+    /// \param new_name The new name for the io priority class
+    /// \return a future that is ready when the io priority class have been renamed
+    future<> rename(sstring new_name) noexcept;
 };
 
 const io_priority_class& default_priority_class();

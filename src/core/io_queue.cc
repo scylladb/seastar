@@ -403,9 +403,8 @@ bool io_priority_class::rename_registered(sstring new_name) {
     return true;
 }
 
-future<>
-reactor::rename_priority_class(io_priority_class pc, sstring new_name) noexcept {
-    return futurize_invoke([pc, new_name = std::move(new_name)] () mutable {
+future<> io_priority_class::rename(sstring new_name) noexcept {
+    return futurize_invoke([this, new_name = std::move(new_name)] () mutable {
         // Taking the lock here will prevent from newly registered classes
         // to register under the old name (and will prevent undefined
         // behavior since this array is shared cross shards. However, it
@@ -415,16 +414,16 @@ reactor::rename_priority_class(io_priority_class pc, sstring new_name) noexcept 
         // holding the lock until all cross shard activity is over.
 
         try {
-            if (!pc.rename_registered(new_name)) {
+            if (!rename_registered(new_name)) {
                 return make_ready_future<>();
             }
         } catch (...) {
             io_log.error("exception while trying to rename priority group with id {} to \"{}\" ({})",
-                    pc.id(), new_name, std::current_exception());
+                    id(), new_name, std::current_exception());
             std::rethrow_exception(std::current_exception());
         }
-        return smp::invoke_on_all([pc, new_name = std::move(new_name)] {
-            return engine().rename_queues(pc, new_name);
+        return smp::invoke_on_all([this, new_name = std::move(new_name)] {
+            return engine().rename_queues(*this, new_name);
         });
     });
 }

@@ -33,16 +33,7 @@ namespace seastar {
 
 class io_priority_class;
 
-/// Renames an io priority class
-///
-/// Renames an `io_priority_class` previously created with register_one_priority_class().
-///
-/// The operation is global and affects all shards.
-/// The operation affects the exported statistics labels.
-///
-/// \param pc The io priority class to be renamed
-/// \param new_name The new name for the io priority class
-/// \return a future that is ready when the io priority class have been renamed
+[[deprecated("Use io_priority_class.rename")]]
 future<>
 rename_priority_class(io_priority_class pc, sstring new_name);
 
