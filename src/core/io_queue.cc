@@ -313,8 +313,8 @@ fair_group::config io_group::make_fair_group_config(config iocfg, io_queue::conf
      * rovers are configured in blocks (ticket size shift), and this
      * already makes a good protection.
      */
-    auto max_req_count = std::min(iocfg.max_req_count,
-        iocfg.max_bytes_count / io_queue::minimal_request_size);
+    auto max_req_count = std::min(qcfg.max_req_count,
+        qcfg.max_bytes_count / io_queue::minimal_request_size);
     auto max_req_count_min = std::max(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
     /*
      * Read requests weight read_request_base_count, writes weight
@@ -328,14 +328,14 @@ fair_group::config io_group::make_fair_group_config(config iocfg, io_queue::conf
         max_req_count = max_req_count_min;
     }
     return fair_group::config(max_req_count,
-        iocfg.max_bytes_count >> io_queue::request_ticket_size_shift);
+        qcfg.max_bytes_count >> io_queue::request_ticket_size_shift);
 }
 
 io_group::io_group(config cfg, io_queue::config io_cfg) noexcept
     : _fg(make_fair_group_config(cfg, io_cfg))
-    , _max_bytes_count(cfg.max_bytes_count)
+    , _max_bytes_count(io_cfg.max_bytes_count)
     , _config(io_cfg) {
-    seastar_logger.debug("Created io group, limits {}:{}", cfg.max_req_count, cfg.max_bytes_count);
+    seastar_logger.debug("Created io group, limits {}:{}", io_cfg.max_req_count, io_cfg.max_bytes_count);
 }
 
 io_queue::~io_queue() {
