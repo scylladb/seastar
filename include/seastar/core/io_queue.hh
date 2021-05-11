@@ -160,7 +160,6 @@ public:
 private:
     friend class io_queue;
     fair_group _fg;
-    const unsigned _max_bytes_count;
     const io_queue::config _config;
 
     static fair_group::config make_fair_group_config(io_queue::config qcfg) noexcept;
