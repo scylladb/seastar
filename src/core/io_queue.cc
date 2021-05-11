@@ -302,7 +302,7 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
             get_config().disk_bytes_write_to_read_multiplier);
 }
 
-fair_group::config io_group::make_fair_group_config(config iocfg, io_queue::config qcfg) noexcept {
+fair_group::config io_group::make_fair_group_config(io_queue::config qcfg) noexcept {
     /*
      * It doesn't make sense to configure requests limit higher than
      * it can be if the queue is full of minimal requests. At the same
@@ -331,8 +331,8 @@ fair_group::config io_group::make_fair_group_config(config iocfg, io_queue::conf
         qcfg.max_bytes_count >> io_queue::request_ticket_size_shift);
 }
 
-io_group::io_group(config cfg, io_queue::config io_cfg) noexcept
-    : _fg(make_fair_group_config(cfg, io_cfg))
+io_group::io_group(io_queue::config io_cfg) noexcept
+    : _fg(make_fair_group_config(io_cfg))
     , _max_bytes_count(io_cfg.max_bytes_count)
     , _config(io_cfg) {
     seastar_logger.debug("Created io group, limits {}:{}", io_cfg.max_req_count, io_cfg.max_bytes_count);

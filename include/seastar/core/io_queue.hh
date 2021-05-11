@@ -155,9 +155,7 @@ private:
 
 class io_group {
 public:
-    struct config {
-    };
-    explicit io_group(config cfg, io_queue::config io_cfg) noexcept;
+    explicit io_group(io_queue::config io_cfg) noexcept;
 
 private:
     friend class io_queue;
@@ -165,7 +163,7 @@ private:
     const unsigned _max_bytes_count;
     const io_queue::config _config;
 
-    static fair_group::config make_fair_group_config(config cfg, io_queue::config qcfg) noexcept;
+    static fair_group::config make_fair_group_config(io_queue::config qcfg) noexcept;
 };
 
 inline const io_queue::config& io_queue::get_config() const noexcept {
