@@ -45,6 +45,13 @@ public:
     }
 
     static io_priority_class register_one(sstring name, uint32_t shares);
+
+    /// \brief Updates the current amount of shares for a given priority class
+    ///
+    /// \param pc the priority class handle
+    /// \param shares the new shares value
+    /// \return a future that is ready when the share update is applied
+    future<> update_shares(uint32_t shares);
 };
 
 const io_priority_class& default_priority_class();

@@ -479,12 +479,11 @@ public:
     [[deprecated("Use io_priority_class::register_one")]]
     io_priority_class register_one_priority_class(sstring name, uint32_t shares);
 
-    /// \brief Updates the current amount of shares for a given priority class
-    ///
-    /// \param pc the priority class handle
-    /// \param shares the new shares value
-    /// \return a future that is ready when the share update is applied
+    [[deprecated("Use io_priority_class.update_shares")]]
     future<> update_shares_for_class(io_priority_class pc, uint32_t shares);
+    /// @private
+    future<> update_shares_for_queues(io_priority_class pc, uint32_t shares);
+
     static future<> rename_priority_class(io_priority_class pc, sstring new_name) noexcept;
     /// @private
     future<> rename_queues(io_priority_class pc, sstring new_name) noexcept;

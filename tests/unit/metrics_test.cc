@@ -127,10 +127,10 @@ SEASTAR_THREAD_TEST_CASE(test_renaming_io_priority_classes) {
     static const char* name1 = "A";
     static const char* name2 = "B";
     seastar::io_priority_class pc = io_priority_class::register_one("hello",100);
-    smp::invoke_on_all([pc] () {
+    smp::invoke_on_all([&pc] () {
         // this is a trick to get all of the queues actually register their
         // stats.
-        return engine().update_shares_for_class(pc,101);
+        return pc.update_shares(101);
     }).get();
 
     boost::integer_range<int> rng(0, 1000);

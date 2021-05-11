@@ -189,6 +189,10 @@ reactor::register_one_priority_class(sstring name, uint32_t shares) {
 
 future<>
 reactor::update_shares_for_class(io_priority_class pc, uint32_t shares) {
+    return pc.update_shares(shares);
+}
+
+future<> reactor::update_shares_for_queues(io_priority_class pc, uint32_t shares) {
     return parallel_for_each(_io_queues, [pc, shares] (auto& queue) {
         return queue.second->update_shares_for_class(pc, shares);
     });

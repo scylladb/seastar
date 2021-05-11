@@ -378,6 +378,12 @@ io_priority_class io_priority_class::register_one(sstring name, uint32_t shares)
     throw std::runtime_error("No more room for new I/O priority classes");
 }
 
+future<> io_priority_class::update_shares(uint32_t shares) {
+    // Keep registered shares intact, just update the ones
+    // on reactor queues
+    return engine().update_shares_for_queues(*this, shares);
+}
+
 bool io_priority_class::rename_registered(sstring new_name) {
     std::lock_guard<std::mutex> guard(io_queue::_register_lock);
     for (unsigned i = 0; i < io_queue::_max_classes; ++i) {
