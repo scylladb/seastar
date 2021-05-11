@@ -3657,8 +3657,6 @@ public:
         struct io_queue::config cfg;
 
         cfg.devid = devid;
-        cfg.disk_bytes_write_to_read_multiplier = io_queue::read_request_base_count;
-        cfg.disk_req_write_to_read_multiplier = io_queue::read_request_base_count;
 
         if (!_capacity) {
             if (p.read_bytes_rate != std::numeric_limits<uint64_t>::max()) {
