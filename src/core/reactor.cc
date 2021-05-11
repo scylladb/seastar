@@ -194,6 +194,14 @@ reactor::update_shares_for_class(io_priority_class pc, uint32_t shares) {
     });
 }
 
+future<> reactor::rename_queues(io_priority_class pc, sstring new_name) noexcept {
+    return futurize_invoke([this, pc, new_name = std::move(new_name)] {
+        for (auto&& queue : _io_queues) {
+            queue.second->rename_priority_class(pc, new_name);
+        }
+    });
+}
+
 future<std::tuple<pollable_fd, socket_address>>
 reactor::do_accept(pollable_fd_state& listenfd) {
     return readable_or_writeable(listenfd).then([this, &listenfd] () mutable {

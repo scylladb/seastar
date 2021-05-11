@@ -417,9 +417,7 @@ reactor::rename_priority_class(io_priority_class pc, sstring new_name) noexcept 
             std::rethrow_exception(std::current_exception());
         }
         return smp::invoke_on_all([pc, new_name = std::move(new_name)] {
-            for (auto&& queue : engine()._io_queues) {
-                queue.second->rename_priority_class(pc, new_name);
-            }
+            return engine().rename_queues(pc, new_name);
         });
     });
 }
