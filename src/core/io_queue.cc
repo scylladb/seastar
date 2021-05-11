@@ -394,6 +394,7 @@ bool io_priority_class::rename_registered(sstring new_name) {
            if (i == id()) {
                return false;
            } else {
+               io_log.error("trying to rename priority class with id {} to \"{}\" but that name already exists", id(), new_name);
                throw std::runtime_error(format("rename priority class: an attempt was made to rename a priority class to an"
                        " already existing name ({})", new_name));
            }
@@ -413,15 +414,10 @@ future<> io_priority_class::rename(sstring new_name) noexcept {
         // renamed. This is not a real problem and it is a lot better than
         // holding the lock until all cross shard activity is over.
 
-        try {
-            if (!rename_registered(new_name)) {
-                return make_ready_future<>();
-            }
-        } catch (...) {
-            io_log.error("exception while trying to rename priority group with id {} to \"{}\" ({})",
-                    id(), new_name, std::current_exception());
-            std::rethrow_exception(std::current_exception());
+        if (!rename_registered(new_name)) {
+            return make_ready_future<>();
         }
+
         return smp::invoke_on_all([this, new_name = std::move(new_name)] {
             return engine().rename_queues(*this, new_name);
         });
