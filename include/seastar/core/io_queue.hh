@@ -97,9 +97,10 @@ private:
     static std::array<uint32_t, _max_classes> _registered_shares;
     static std::array<sstring, _max_classes> _registered_names;
 
+    friend io_priority_class; // temporary
+
 public:
     static io_priority_class register_one_priority_class(sstring name, uint32_t shares);
-    static bool rename_one_priority_class(io_priority_class pc, sstring name);
 
 private:
     priority_class_data& find_or_create_class(const io_priority_class& pc);

@@ -35,6 +35,10 @@ class io_priority_class {
         : _id(id)
     { }
 
+    friend reactor; // temporary
+
+    bool rename_registered(sstring name);
+
 public:
     io_priority_class_id id() const noexcept {
         return _id;
