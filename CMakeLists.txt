@@ -81,8 +81,14 @@ set_property (CACHE Seastar_API_LEVEL
 # fast build/test iteration.
 #
 
+if (CMAKE_CXX_COMPILER_ID MATCHES Clang)
+  set (CMAKE_CXX_FLAGS_DEV_OPT_LEVEL "-O2")
+else ()
+  set (CMAKE_CXX_FLAGS_DEV_OPT_LEVEL "-O1")
+endif ()
+
 set (CMAKE_CXX_FLAGS_DEV
-  "-O1"
+  "${CMAKE_CXX_FLAGS_DEV_OPT_LEVEL}"
   CACHE
   STRING
   "Flags used by the C++ compiler during dev builds."
