@@ -1190,6 +1190,10 @@ class DiskPerfTuner(PerfTunerBase):
         :param dev_node Device node file name, e.g. /dev/sda1
         :param path_creator A functor that creates a feature file name given a device system file name
         """
+        # Sanity check
+        if dev_node is None or path_creator is None:
+            return None, None
+
         udev = pyudev.Devices.from_device_file(pyudev.Context(), dev_node)
         feature_file = path_creator(udev.sys_path)
 
