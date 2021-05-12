@@ -115,7 +115,8 @@ static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value&
         mf.set_type(pm::MetricType::HISTOGRAM);
         break;
     }
-    default:
+    case scollectd::data_type::COUNTER:
+    case scollectd::data_type::ABSOLUTE:
         add_label(mf.add_metric(), id, ctx)->mutable_counter()->set_value(c.ui());
         mf.set_type(pm::MetricType::COUNTER);
         break;
