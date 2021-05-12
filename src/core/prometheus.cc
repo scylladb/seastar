@@ -603,7 +603,19 @@ future<> write_text_representation(output_stream<char>& out, const config& ctx, 
                     s << "\n";
                 } else {
                     add_name(s, name, value_info.id.labels(), ctx);
-                    s << to_str(value);
+                    std::string value_str;
+                    try {
+                        value_str = to_str(value);
+                    } catch (const std::range_error& e) {
+                        seastar_logger.debug("prometheus: write_text_representation: {}: {}", s.str(), e.what());
+                        value_str = "NaN";
+                    } catch (...) {
+                        auto ex = std::current_exception();
+                        // print this error as it's ignored later on by `connection::start_response`
+                        seastar_logger.error("prometheus: write_text_representation: {}: {}", s.str(), ex);
+                        std::rethrow_exception(std::move(ex));
+                    }
+                    s << value_str;
                     s << "\n";
                 }
                 out.write(s.str()).get();
