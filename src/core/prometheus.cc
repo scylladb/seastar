@@ -132,11 +132,10 @@ static std::string to_str(seastar::metrics::impl::data_type dt) {
     case seastar::metrics::impl::data_type::HISTOGRAM:
         return "histogram";
     case seastar::metrics::impl::data_type::DERIVE:
-        // Prometheus server does not respect derive parameters
+    case seastar::metrics::impl::data_type::ABSOLUTE:
+        // Prometheus server does not respect derive/absolute parameters
         // So we report them as counter
         return "counter";
-    default:
-        break;
     }
     return "untyped";
 }
