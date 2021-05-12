@@ -146,10 +146,11 @@ static std::string to_str(const seastar::metrics::impl::metric_value& v) {
     case seastar::metrics::impl::data_type::GAUGE:
         return std::to_string(v.d());
     case seastar::metrics::impl::data_type::COUNTER:
+    case seastar::metrics::impl::data_type::ABSOLUTE:
         return std::to_string(v.ui());
     case seastar::metrics::impl::data_type::DERIVE:
         return std::to_string(v.i());
-    default:
+    case seastar::metrics::impl::data_type::HISTOGRAM:
         break;
     }
     return ""; // we should never get here but it makes the compiler happy
