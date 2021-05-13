@@ -44,7 +44,7 @@ public:
 static_assert(!std::is_nothrow_default_constructible_v<may_throw_on_null_ptr<int>>);
 static_assert(!std::is_nothrow_default_constructible_v<checked_ptr<may_throw_on_null_ptr<int>>>);
 static_assert(std::is_nothrow_move_constructible_v<checked_ptr<may_throw_on_null_ptr<int>>>);
-static_assert(!std::is_nothrow_copy_constructible_v<checked_ptr<may_throw_on_null_ptr<int>>>);
+static_assert(std::is_nothrow_copy_constructible_v<checked_ptr<may_throw_on_null_ptr<int>>>);
 
 struct my_st : public weakly_referencable<my_st> {
         my_st(int a_) : a(a_) {}
