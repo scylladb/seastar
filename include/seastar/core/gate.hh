@@ -51,6 +51,7 @@ public:
     gate() = default;
     gate(const gate&) = delete;
     gate(gate&&) = default;
+    gate& operator=(gate&&) = default;
     ~gate() {
         assert(!_count && "gate destroyed with outstanding requests");
     }
