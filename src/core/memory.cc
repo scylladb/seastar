@@ -554,10 +554,12 @@ static thread_local cpu_pages cpu_mem;
 std::atomic<unsigned> cpu_pages::cpu_id_gen;
 cpu_pages* cpu_pages::all_cpus[max_cpus];
 
+static cpu_pages& get_cpu_mem();
+
 #ifdef SEASTAR_HEAPPROF
 
 void set_heap_profiling_enabled(bool enable) {
-    bool is_enabled = cpu_mem.collect_backtrace;
+    bool is_enabled = get_cpu_mem().collect_backtrace;
     if (enable) {
         if (!is_enabled) {
             seastar_logger.info("Enabling heap profiler");
@@ -567,7 +569,7 @@ void set_heap_profiling_enabled(bool enable) {
             seastar_logger.info("Disabling heap profiler");
         }
     }
-    cpu_mem.collect_backtrace = enable;
+    get_cpu_mem().collect_backtrace = enable;
 }
 
 static thread_local int64_t scoped_heap_profiling_embed_count = 0;
@@ -777,12 +779,12 @@ cpu_pages::allocate_large_aligned(unsigned align_pages, unsigned n_pages) {
 }
 
 disable_backtrace_temporarily::disable_backtrace_temporarily() {
-    _old = cpu_mem.collect_backtrace;
-    cpu_mem.collect_backtrace = false;
+    _old = get_cpu_mem().collect_backtrace;
+    get_cpu_mem().collect_backtrace = false;
 }
 
 disable_backtrace_temporarily::~disable_backtrace_temporarily() {
-    cpu_mem.collect_backtrace = _old;
+    get_cpu_mem().collect_backtrace = _old;
 }
 
 static
@@ -813,7 +815,7 @@ allocation_site_ptr get_allocation_site() {
 allocation_site_ptr&
 small_pool::alloc_site_holder(void* ptr) {
     if (objects_page_aligned()) {
-        return cpu_mem.to_page(ptr)->alloc_site;
+        return get_cpu_mem().to_page(ptr)->alloc_site;
     } else {
         return *reinterpret_cast<allocation_site_ptr*>(reinterpret_cast<char*>(ptr) + _object_size - sizeof(allocation_site_ptr));
     }
@@ -1239,8 +1241,8 @@ void
 small_pool::add_more_objects() {
     auto goal = (_min_free + _max_free) / 2;
     while (!_span_list.empty() && _free_count < goal) {
-        page& span = _span_list.front(cpu_mem.pages);
-        _span_list.pop_front(cpu_mem.pages);
+        page& span = _span_list.front(get_cpu_mem().pages);
+        _span_list.pop_front(get_cpu_mem().pages);
         while (span.freelist) {
             auto obj = span.freelist;
             span.freelist = span.freelist->next;
@@ -1253,15 +1255,15 @@ small_pool::add_more_objects() {
     while (_free_count < goal) {
         disable_backtrace_temporarily dbt;
         auto span_size = _span_sizes.preferred;
-        auto data = reinterpret_cast<char*>(cpu_mem.allocate_large(span_size));
+        auto data = reinterpret_cast<char*>(get_cpu_mem().allocate_large(span_size));
         if (!data) {
             span_size = _span_sizes.fallback;
-            data = reinterpret_cast<char*>(cpu_mem.allocate_large(span_size));
+            data = reinterpret_cast<char*>(get_cpu_mem().allocate_large(span_size));
             if (!data) {
                 return;
             }
         }
-        auto span = cpu_mem.to_page(data);
+        auto span = get_cpu_mem().to_page(data);
         span_size = span->span_size;
         _pages_in_use += span_size;
         for (unsigned i = 0; i < span_size; ++i) {
@@ -1287,18 +1289,18 @@ small_pool::trim_free_list() {
         auto obj = _free;
         _free = _free->next;
         --_free_count;
-        page* span = cpu_mem.to_page(obj);
+        page* span = get_cpu_mem().to_page(obj);
         span -= span->offset_in_span;
         if (!span->freelist) {
             new (&span->link) page_list_link();
-            _span_list.push_front(cpu_mem.pages, *span);
+            _span_list.push_front(get_cpu_mem().pages, *span);
         }
         obj->next = span->freelist;
         span->freelist = obj;
         if (--span->nr_small_alloc == 0) {
             _pages_in_use -= span->span_size;
-            _span_list.erase(cpu_mem.pages, *span);
-            cpu_mem.free_span(span - cpu_mem.pages, span->span_size);
+            _span_list.erase(get_cpu_mem().pages, *span);
+            get_cpu_mem().free_span(span - get_cpu_mem().pages, span->span_size);
         }
     }
 }
@@ -1317,7 +1319,7 @@ void* allocate_large(size_t size) {
     if ((size_t(size_in_pages) << page_bits) < size) {
         return nullptr; // (size + page_size - 1) caused an overflow
     }
-    return cpu_mem.allocate_large(size_in_pages);
+    return get_cpu_mem().allocate_large(size_in_pages);
 
 }
 
@@ -1325,11 +1327,11 @@ void* allocate_large_aligned(size_t align, size_t size) {
     abort_on_underflow(size);
     unsigned size_in_pages = (size + page_size - 1) >> page_bits;
     unsigned align_in_pages = std::max(align, page_size) >> page_bits;
-    return cpu_mem.allocate_large_aligned(align_in_pages, size_in_pages);
+    return get_cpu_mem().allocate_large_aligned(align_in_pages, size_in_pages);
 }
 
 void free_large(void* ptr) {
-    return cpu_mem.free_large(ptr);
+    return get_cpu_mem().free_large(ptr);
 }
 
 size_t object_size(void* ptr) {
@@ -1454,11 +1456,11 @@ void free_aligned(void* obj, size_t align, size_t size) {
 void shrink(void* obj, size_t new_size) {
     alloc_stats::increment_local(alloc_stats::types::frees);
     alloc_stats::increment_local(alloc_stats::types::allocs); // keep them balanced
-    cpu_mem.shrink(obj, new_size);
+    get_cpu_mem().shrink(obj, new_size);
 }
 
 void set_reclaim_hook(std::function<void (std::function<void ()>)> hook) {
-    cpu_mem.set_reclaim_hook(hook);
+    get_cpu_mem().set_reclaim_hook(hook);
 }
 
 reclaimer::reclaimer(std::function<reclaiming_result ()> reclaim, reclaimer_scope scope)
@@ -1470,24 +1472,24 @@ reclaimer::reclaimer(std::function<reclaiming_result ()> reclaim, reclaimer_scop
 reclaimer::reclaimer(std::function<reclaiming_result (request)> reclaim, reclaimer_scope scope)
     : _reclaim(std::move(reclaim))
     , _scope(scope) {
-    cpu_mem.reclaimers.push_back(this);
+    get_cpu_mem().reclaimers.push_back(this);
 }
 
 reclaimer::~reclaimer() {
-    auto& r = cpu_mem.reclaimers;
+    auto& r = get_cpu_mem().reclaimers;
     r.erase(std::find(r.begin(), r.end(), this));
 }
 
 void set_large_allocation_warning_threshold(size_t threshold) {
-    cpu_mem.large_allocation_warning_threshold = threshold;
+    get_cpu_mem().large_allocation_warning_threshold = threshold;
 }
 
 size_t get_large_allocation_warning_threshold() {
-    return cpu_mem.large_allocation_warning_threshold;
+    return get_cpu_mem().large_allocation_warning_threshold;
 }
 
 void disable_large_allocation_warning() {
-    cpu_mem.large_allocation_warning_threshold = std::numeric_limits<size_t>::max();
+    get_cpu_mem().large_allocation_warning_threshold = std::numeric_limits<size_t>::max();
 }
 
 void configure(std::vector<resource::memory> m, bool mbind,
@@ -1512,15 +1514,15 @@ void configure(std::vector<resource::memory> m, bool mbind,
         sys_alloc = [fdp] (void* where, size_t how_much) {
             return allocate_hugetlbfs_memory(*fdp, where, how_much);
         };
-        cpu_mem.replace_memory_backing(sys_alloc);
+        get_cpu_mem().replace_memory_backing(sys_alloc);
     }
-    cpu_mem.resize(total, sys_alloc);
+    get_cpu_mem().resize(total, sys_alloc);
     size_t pos = 0;
     for (auto&& x : m) {
 #ifdef SEASTAR_HAVE_NUMA
         unsigned long nodemask = 1UL << x.nodeid;
         if (mbind) {
-            auto r = ::mbind(cpu_mem.mem() + pos, x.bytes,
+            auto r = ::mbind(get_cpu_mem().mem() + pos, x.bytes,
                             MPOL_PREFERRED,
                             &nodemask, std::numeric_limits<unsigned long>::digits,
                             MPOL_MF_MOVE);
@@ -1544,19 +1546,19 @@ statistics stats() {
 }
 
 bool drain_cross_cpu_freelist() {
-    return cpu_mem.drain_cross_cpu_freelist();
+    return get_cpu_mem().drain_cross_cpu_freelist();
 }
 
 memory_layout get_memory_layout() {
-    return cpu_mem.memory_layout();
+    return get_cpu_mem().memory_layout();
 }
 
 size_t min_free_memory() {
-    return cpu_mem.min_free_pages * page_size;
+    return get_cpu_mem().min_free_pages * page_size;
 }
 
 void set_min_free_pages(size_t pages) {
-    cpu_mem.set_min_free_pages(pages);
+    get_cpu_mem().set_min_free_pages(pages);
 }
 
 static thread_local int report_on_alloc_failure_suppressed = 0;
@@ -1645,8 +1647,8 @@ static human_readable_value to_hr_number(uint64_t number) {
 }
 
 seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar::internal::log_buf::inserter_iterator it) {
-    auto free_mem = cpu_mem.nr_free_pages * page_size;
-    auto total_mem = cpu_mem.nr_pages * page_size;
+    auto free_mem = get_cpu_mem().nr_free_pages * page_size;
+    auto total_mem = get_cpu_mem().nr_pages * page_size;
     it = fmt::format_to(it, "Dumping seastar memory diagnostics\n");
 
     it = fmt::format_to(it, "Used memory:  {}\n", to_hr_size(total_mem - free_mem));
@@ -1661,8 +1663,8 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
 
     it = fmt::format_to(it, "Small pools:\n");
     it = fmt::format_to(it, "objsz\tspansz\tusedobj\tmemory\tunused\twst%\n");
-    for (unsigned i = 0; i < cpu_mem.small_pools.nr_small_pools; i++) {
-        auto& sp = cpu_mem.small_pools[i];
+    for (unsigned i = 0; i < get_cpu_mem().small_pools.nr_small_pools; i++) {
+        auto& sp = get_cpu_mem().small_pools[i];
         // We don't use pools too small to fit a free_object, so skip these, they
         // are always empty.
         if (sp.object_size() < sizeof(free_object)) {
@@ -1677,7 +1679,7 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
         uint32_t span_freelist_objs = 0;
         auto front = sp._span_list._front;
         while (front) {
-            auto& span = cpu_mem.pages[front];
+            auto& span = get_cpu_mem().pages[front];
             auto capacity_in_objects = span.span_size * page_size / sp.object_size();
             span_freelist_objs += capacity_in_objects - span.nr_small_alloc;
             front = span.link._next;
@@ -1702,8 +1704,8 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
     std::array<uint32_t, cpu_pages::nr_span_lists> span_size_histogram;
     span_size_histogram.fill(0);
 
-    for (unsigned i = 0; i < cpu_mem.nr_pages;) {
-        const auto span_size = cpu_mem.pages[i].span_size;
+    for (unsigned i = 0; i < get_cpu_mem().nr_pages;) {
+        const auto span_size = get_cpu_mem().pages[i].span_size;
         if (!span_size) {
             ++i;
             continue;
@@ -1712,12 +1714,12 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
         i += span_size;
     }
 
-    for (unsigned i = 0; i< cpu_mem.nr_span_lists; i++) {
-        auto& span_list = cpu_mem.free_spans[i];
+    for (unsigned i = 0; i< get_cpu_mem().nr_span_lists; i++) {
+        auto& span_list = get_cpu_mem().free_spans[i];
         auto front = span_list._front;
         uint32_t free_pages = 0;
         while (front) {
-            auto& span = cpu_mem.pages[front];
+            auto& span = get_cpu_mem().pages[front];
             free_pages += span.span_size;
             front = span.link._next;
         }
