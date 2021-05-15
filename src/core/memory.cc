@@ -217,7 +217,7 @@ static void increment(types stat_type, uint64_t size=1)
         stats[i] += size;
     } else {
         auto hash = std::hash<std::thread::id>()(std::this_thread::get_id());
-        alien_stats[hash % alien_stats.size()][i].fetch_add(size);
+        alien_stats[hash % alien_stats.size()][i].fetch_add(size, std::memory_order_relaxed);
     }
 }
 
