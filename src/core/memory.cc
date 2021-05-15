@@ -1334,27 +1334,23 @@ size_t object_size(void* ptr) {
     return cpu_pages::all_cpus[object_cpu_id(ptr)]->object_size(ptr);
 }
 
+static thread_local cpu_pages* cpu_mem_ptr = nullptr;
+
 // Mark as cold so that GCC8+ can move to .text.unlikely.
 [[gnu::cold]]
-static void init_cpu_mem_ptr(cpu_pages*& cpu_mem_ptr) {
+static void init_cpu_mem() {
     cpu_mem_ptr = &cpu_mem;
-};
+    cpu_mem.initialize();
+}
 
 [[gnu::always_inline]]
 static inline cpu_pages& get_cpu_mem()
 {
     // cpu_pages has a non-trivial constructor which means that the compiler
     // must make sure the instance local to the current thread has been
-    // constructed before each access.
-    // Unfortunately, this means that GCC will emit an unconditional call
-    // to __tls_init(), which may incurr a noticeable overhead in applications
-    // that are heavy on memory allocations.
-    // This can be solved by adding an easily predictable branch checking
-    // whether the object has already been constructed.
-    static thread_local cpu_pages* cpu_mem_ptr;
-    if (__builtin_expect(!bool(cpu_mem_ptr), false)) {
-        init_cpu_mem_ptr(cpu_mem_ptr);
-    }
+    // constructed before each access. So instead we access cpu_mem_ptr
+    // which has been initialized by calls to init_cpu_mem() before it is
+    // accessed.
     return *cpu_mem_ptr;
 }
 
@@ -1363,11 +1359,14 @@ static constexpr int debug_allocation_pattern = 0xab;
 #endif
 
 void* allocate(size_t size) {
-    // original_malloc_func might be null for allocations before main
-    // in constructors before original_malloc_func ctor is called
-    if (!is_reactor_thread && original_malloc_func) {
-        alloc_stats::increment(alloc_stats::types::foreign_mallocs);
-        return original_malloc_func(size);
+    if (!is_reactor_thread) {
+        if (original_malloc_func) {
+            alloc_stats::increment(alloc_stats::types::foreign_mallocs);
+            return original_malloc_func(size);
+        }
+        // original_malloc_func might be null for allocations before main
+        // in constructors before original_malloc_func ctor is called
+        init_cpu_mem();
     }
     if (size <= sizeof(free_object)) {
         size = sizeof(free_object);
@@ -1391,11 +1390,14 @@ void* allocate(size_t size) {
 }
 
 void* allocate_aligned(size_t align, size_t size) {
-    // original_realloc_func might be null for allocations before main
-    // in constructors before original_realloc_func ctor is called
-    if (!is_reactor_thread && original_aligned_alloc_func) {
-        alloc_stats::increment(alloc_stats::types::foreign_mallocs);
-        return original_aligned_alloc_func(align, size);
+    if (!is_reactor_thread) {
+        if (original_aligned_alloc_func) {
+            alloc_stats::increment(alloc_stats::types::foreign_mallocs);
+            return original_aligned_alloc_func(align, size);
+        }
+        // original_realloc_func might be null for allocations before main
+        // in constructors before original_realloc_func ctor is called
+        init_cpu_mem();
     }
     if (size <= sizeof(free_object)) {
         size = std::max(sizeof(free_object), align);
@@ -1494,7 +1496,7 @@ void configure(std::vector<resource::memory> m, bool mbind,
     // The correct solution is to add a condition inside cpu_mem.resize, but since all
     // other paths to cpu_pages::resize are already verifying initialize was called, we
     // verify that here.
-    cpu_mem.initialize();
+    init_cpu_mem();
     is_reactor_thread = true;
     size_t total = 0;
     for (auto&& x : m) {
