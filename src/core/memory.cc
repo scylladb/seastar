@@ -214,7 +214,7 @@ static void increment(types stat_type, uint64_t size=1)
     auto i = static_cast<std::size_t>(stat_type);
     // fast path, reactor threads takes thread local statistics
     if (is_reactor_thread) {
-        stats[i]+=size;
+        stats[i] += size;
     } else {
         auto hash = std::hash<std::thread::id>()(std::this_thread::get_id());
         alien_stats[hash % alien_stats.size()][i].fetch_add(size);
