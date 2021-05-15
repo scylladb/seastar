@@ -209,17 +209,15 @@ using stats_atomic_array = std::array<std::atomic_uint64_t, static_cast<std::siz
 thread_local stats_array stats;
 std::array<stats_atomic_array, max_cpus> alien_stats{};
 
-static uint64_t increment(types stat_type, uint64_t size=1)
+static void increment(types stat_type, uint64_t size=1)
 {
     auto i = static_cast<std::size_t>(stat_type);
     // fast path, reactor threads takes thread local statistics
     if (is_reactor_thread) {
-        auto tmp = stats[i];
         stats[i]+=size;
-        return tmp;
     } else {
         auto hash = std::hash<std::thread::id>()(std::this_thread::get_id());
-        return alien_stats[hash % alien_stats.size()][i].fetch_add(size);
+        alien_stats[hash % alien_stats.size()][i].fetch_add(size);
     }
 }
 
