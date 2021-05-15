@@ -209,14 +209,18 @@ using stats_atomic_array = std::array<std::atomic_uint64_t, static_cast<std::siz
 thread_local stats_array stats;
 std::array<stats_atomic_array, max_cpus> alien_stats{};
 
+static void increment_local(types stat_type, uint64_t size = 1) {
+    stats[static_cast<std::size_t>(stat_type)] += size;
+}
+
 static void increment(types stat_type, uint64_t size=1)
 {
-    auto i = static_cast<std::size_t>(stat_type);
     // fast path, reactor threads takes thread local statistics
     if (is_reactor_thread) {
-        stats[i] += size;
+        increment_local(stat_type, size);
     } else {
         auto hash = std::hash<std::thread::id>()(std::this_thread::get_id());
+        auto i = static_cast<std::size_t>(stat_type);
         alien_stats[hash % alien_stats.size()][i].fetch_add(size, std::memory_order_relaxed);
     }
 }
@@ -746,7 +750,7 @@ cpu_pages::allocate_large_and_trim(unsigned n_pages) {
 
 void
 cpu_pages::warn_large_allocation(size_t size) {
-    alloc_stats::increment(alloc_stats::types::large_allocs);
+    alloc_stats::increment_local(alloc_stats::types::large_allocs);
     seastar_memory_logger.warn("oversized allocation: {} bytes. This is non-fatal, but could lead to latency and/or fragmentation issues. Please report: at {}", size, current_backtrace());
     large_allocation_warning_threshold *= 1.618; // prevent spam
 }
@@ -888,7 +892,7 @@ bool cpu_pages::drain_cross_cpu_freelist() {
     auto p = xcpu_freelist.exchange(nullptr, std::memory_order_acquire);
     while (p) {
         auto n = p->next;
-        alloc_stats::increment(alloc_stats::types::frees);
+        alloc_stats::increment_local(alloc_stats::types::frees);
         free(p);
         p = n;
     }
@@ -941,7 +945,7 @@ cpu_pages::try_foreign_free(void* ptr) {
     }
     if (!is_seastar_memory(ptr)) {
         if (is_reactor_thread) {
-            alloc_stats::increment(alloc_stats::types::foreign_cross_frees);
+            alloc_stats::increment_local(alloc_stats::types::foreign_cross_frees);
         } else {
             alloc_stats::increment(alloc_stats::types::foreign_frees);
         }
@@ -1115,7 +1119,7 @@ reclaiming_result cpu_pages::run_reclaimers(reclaimer_scope scope, size_t n_page
     reclaiming_result result = reclaiming_result::reclaimed_nothing;
     while (nr_free_pages < target) {
         bool made_progress = false;
-        alloc_stats::increment(alloc_stats::types::reclaims);
+        alloc_stats::increment_local(alloc_stats::types::reclaims);
         for (auto&& r : reclaimers) {
             if (r->scope() >= scope) {
                 made_progress |= r->do_reclaim((target - nr_free_pages) * page_size) == reclaiming_result::reclaimed_something;
@@ -1383,7 +1387,7 @@ void* allocate(size_t size) {
         std::memset(ptr, debug_allocation_pattern, size);
 #endif
     }
-    alloc_stats::increment(alloc_stats::types::allocs);
+    alloc_stats::increment_local(alloc_stats::types::allocs);
     return ptr;
 }
 
@@ -1416,7 +1420,7 @@ void* allocate_aligned(size_t align, size_t size) {
         std::memset(ptr, debug_allocation_pattern, size);
 #endif
     }
-    alloc_stats::increment(alloc_stats::types::allocs);
+    alloc_stats::increment_local(alloc_stats::types::allocs);
     return ptr;
 }
 
@@ -1424,7 +1428,7 @@ void free(void* obj) {
     if (cpu_pages::try_foreign_free(obj)) {
         return;
     }
-    alloc_stats::increment(alloc_stats::types::frees);
+    alloc_stats::increment_local(alloc_stats::types::frees);
     get_cpu_mem().free(obj);
 }
 
@@ -1432,7 +1436,7 @@ void free(void* obj, size_t size) {
     if (cpu_pages::try_foreign_free(obj)) {
         return;
     }
-    alloc_stats::increment(alloc_stats::types::frees);
+    alloc_stats::increment_local(alloc_stats::types::frees);
     get_cpu_mem().free(obj, size);
 }
 
@@ -1448,8 +1452,8 @@ void free_aligned(void* obj, size_t align, size_t size) {
 }
 
 void shrink(void* obj, size_t new_size) {
-    alloc_stats::increment(alloc_stats::types::frees);
-    alloc_stats::increment(alloc_stats::types::allocs); // keep them balanced
+    alloc_stats::increment_local(alloc_stats::types::frees);
+    alloc_stats::increment_local(alloc_stats::types::allocs); // keep them balanced
     cpu_mem.shrink(obj, new_size);
 }
 
