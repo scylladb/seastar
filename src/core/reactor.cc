@@ -3444,7 +3444,6 @@ thread_local std::unique_ptr<reactor, reactor_deleter> reactor_holder;
 std::vector<posix_thread> smp::_threads;
 std::vector<std::function<void ()>> smp::_thread_loops;
 std::optional<boost::barrier> smp::_all_event_loops_done;
-std::vector<reactor*> smp::_reactors;
 std::unique_ptr<smp_message_queue*[], smp::qs_deleter> smp::_qs;
 std::thread::id smp::_tmain;
 unsigned smp::count = 1;
@@ -3816,7 +3815,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
         nr_cpus = cpu_set.size();
     }
     smp::count = nr_cpus;
-    _reactors.resize(nr_cpus);
+    std::vector<reactor*> reactors(nr_cpus);
     resource::configuration rc;
     if (configuration.count("memory")) {
         rc.total_memory = parse_memory_size(configuration["memory"].as<std::string>());
@@ -3966,7 +3965,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     unsigned i;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        create_thread([configuration, &disk_config, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity, heapprof_enabled, mbind, backend_selector, reactor_cfg] {
+        create_thread([configuration, &reactors, &disk_config, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity, heapprof_enabled, mbind, backend_selector, reactor_cfg] {
           try {
             auto thread_name = seastar::format("reactor-{}", i);
             pthread_setname_np(pthread_self(), thread_name.c_str());
@@ -3986,7 +3985,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
             throw_pthread_error(r);
             init_default_smp_service_group(i);
             allocate_reactor(i, backend_selector, reactor_cfg);
-            _reactors[i] = &engine();
+            reactors[i] = &engine();
             for (auto& dev_id : disk_config.device_ids()) {
                 alloc_io_queue(i, dev_id);
             }
@@ -4014,7 +4013,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
         _exit(1);
     }
 
-    _reactors[0] = &engine();
+    reactors[0] = &engine();
     for (auto& dev_id : disk_config.device_ids()) {
         alloc_io_queue(0, dev_id);
     }
@@ -4033,10 +4032,10 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     for(unsigned i = 0; i < smp::count; i++) {
         smp::_qs[i] = reinterpret_cast<smp_message_queue*>(operator new[] (sizeof(smp_message_queue) * smp::count));
         for (unsigned j = 0; j < smp::count; ++j) {
-            new (&smp::_qs[i][j]) smp_message_queue(_reactors[j], _reactors[i]);
+            new (&smp::_qs[i][j]) smp_message_queue(reactors[j], reactors[i]);
         }
     }
-    alien::smp::_qs = alien::smp::create_qs(_reactors);
+    alien::smp::_qs = alien::smp::create_qs(reactors);
     smp_queues_constructed.wait();
     start_all_queues();
     for (auto& dev_id : disk_config.device_ids()) {
