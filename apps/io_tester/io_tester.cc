@@ -31,6 +31,7 @@
 #include <seastar/core/print.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/with_scheduling_group.hh>
+#include <seastar/core/metrics_api.hh>
 #include <chrono>
 #include <vector>
 #include <boost/range/irange.hpp>
@@ -146,11 +147,10 @@ protected:
     virtual future<> do_start(sstring dir, directory_entry_type type) = 0;
     virtual future<size_t> issue_request(char *buf) = 0;
 public:
-    static int idgen();
     class_data(job_config cfg)
         : _config(std::move(cfg))
         , _alignment(_config.shard_info.request_size >= 4096 ? 4096 : 512)
-        , _iop(engine().register_one_priority_class(format("test-class-{:d}", idgen()), _config.shard_info.shares))
+        , _iop(engine().register_one_priority_class(name(), _config.shard_info.shares))
         , _sg(cfg.shard_info.scheduling_group)
         , _latencies(extended_p_square_probabilities = quantiles)
         , _pos_distribution(0,  _config.file_size / _config.shard_info.request_size)
@@ -387,6 +387,24 @@ private:
         });
     }
 
+    void emit_one_metrics(YAML::Emitter& out, sstring m_name) {
+        const auto& values = seastar::metrics::impl::get_value_map();
+        const auto& mf = values.find(m_name);
+        assert(mf != values.end());
+        for (auto&& mi : mf->second) {
+            auto&& cname = mi.first.find("class");
+            if (cname != mi.first.end() && cname->second == name()) {
+                out << YAML::Key << m_name << YAML::Value << mi.second->get_function()().d();
+            }
+        }
+    }
+
+    void emit_metrics(YAML::Emitter& out) {
+        emit_one_metrics(out, "io_queue_total_exec_sec");
+        emit_one_metrics(out, "io_queue_total_delay_sec");
+        emit_one_metrics(out, "io_queue_total_operations");
+    }
+
 public:
     virtual void emit_results(YAML::Emitter& out) override {
         auto throughput_kbs = (total_data() >> 10) / total_duration().count();
@@ -400,6 +418,10 @@ public:
             out << YAML::Key << fmt::format("p{}", q) << YAML::Value << quantile_latency(q);
         }
         out << YAML::Key << "max" << YAML::Value << max_latency();
+        out << YAML::EndMap;
+        out << YAML::Key << "stats" << YAML::BeginMap;
+        out << YAML::Key << "total_requests" << YAML::Value << requests();
+        emit_metrics(out);
         out << YAML::EndMap;
     }
 };
@@ -651,11 +673,6 @@ public:
         });
     }
 };
-
-int class_data::idgen() {
-    static thread_local int id = 0;
-    return id++;
-}
 
 static void show_results(distributed<context>& ctx) {
     YAML::Emitter out;
