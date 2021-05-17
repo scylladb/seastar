@@ -46,14 +46,15 @@ reactor_config_from_app_config(app_template::config cfg) {
 }
 
 app_template::app_template(app_template::config cfg)
-    : _cfg(std::move(cfg))
+    : _smp(std::make_shared<smp>())
+    , _cfg(std::move(cfg))
     , _opts(_cfg.name + " options")
     , _conf_reader(get_default_configuration_reader()) {
         _opts.add_options()
                 ("help,h", "show help message")
                 ;
 
-        smp::register_network_stacks();
+        _smp->register_network_stacks();
         _opts_conf_file.add(reactor::get_options_description(reactor_config_from_app_config(_cfg)));
         _opts_conf_file.add(seastar::metrics::get_options_description());
         _opts_conf_file.add(smp::get_options_description());
@@ -180,7 +181,7 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
 
     configuration.emplace("argv0", boost::program_options::variable_value(std::string(av[0]), false));
     try {
-        smp::configure(configuration, reactor_config_from_app_config(_cfg));
+        _smp->configure(configuration, reactor_config_from_app_config(_cfg));
     } catch (...) {
         std::cerr << "Could not initialize seastar: " << std::current_exception() << std::endl;
         return 1;
@@ -205,7 +206,7 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
         }
     });
     auto exit_code = engine().run();
-    smp::cleanup();
+    _smp->cleanup();
     return exit_code;
 }
 

@@ -283,16 +283,17 @@ private:
     friend class smp;
 };
 
-class smp {
-    static std::vector<posix_thread> _threads;
-    static std::vector<std::function<void ()>> _thread_loops; // for dpdk
-    static std::optional<boost::barrier> _all_event_loops_done;
+class smp : public std::enable_shared_from_this<smp> {
+    std::vector<posix_thread> _threads;
+    std::vector<std::function<void ()>> _thread_loops; // for dpdk
+    std::optional<boost::barrier> _all_event_loops_done;
     struct qs_deleter {
       void operator()(smp_message_queue** qs) const;
     };
-    static std::unique_ptr<smp_message_queue*[], qs_deleter> _qs;
-    static std::thread::id _tmain;
-    static bool _using_dpdk;
+    std::unique_ptr<smp_message_queue*[], qs_deleter> _qs_owner;
+    static thread_local smp_message_queue**_qs;
+    static thread_local std::thread::id _tmain;
+    bool _using_dpdk = false;
 
     template <typename Func>
     using returns_future = is_future<std::result_of_t<Func()>>;
@@ -300,12 +301,12 @@ class smp {
     using returns_void = std::is_same<std::result_of_t<Func()>, void>;
 public:
     static boost::program_options::options_description get_options_description();
-    static void register_network_stacks();
-    static void configure(boost::program_options::variables_map vm, reactor_config cfg = {});
-    static void cleanup();
-    static void cleanup_cpu();
-    static void arrive_at_event_loop_end();
-    static void join_all();
+    void register_network_stacks();
+    void configure(boost::program_options::variables_map vm, reactor_config cfg = {});
+    void cleanup();
+    void cleanup_cpu();
+    void arrive_at_event_loop_end();
+    void join_all();
     static bool main_thread() { return std::this_thread::get_id() == _tmain; }
 
     /// Runs a function on a remote core.
@@ -432,10 +433,10 @@ public:
         return invoke_on_others(cpu_id, smp_submit_to_options{}, std::move(func));
     }
 private:
-    static void start_all_queues();
-    static void pin(unsigned cpu_id);
-    static void allocate_reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg);
-    static void create_thread(std::function<void ()> thread_loop);
+    void start_all_queues();
+    void pin(unsigned cpu_id);
+    void allocate_reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg);
+    void create_thread(std::function<void ()> thread_loop);
 public:
     static unsigned count;
 };

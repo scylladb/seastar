@@ -244,6 +244,7 @@ public:
     friend void io_completion::complete_with(ssize_t);
 
 private:
+    std::shared_ptr<smp> _smp;
     reactor_config _cfg;
     file_desc _notify_eventfd;
     file_desc _task_quota_timer;
@@ -458,7 +459,7 @@ private:
     do_write_some(pollable_fd_state& fd, net::packet& p);
 public:
     static boost::program_options::options_description get_options_description(reactor_config cfg);
-    explicit reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg);
+    explicit reactor(std::shared_ptr<smp> smp, unsigned id, reactor_backend_selector rbs, reactor_config cfg);
     reactor(const reactor&) = delete;
     ~reactor();
     void operator=(const reactor&) = delete;

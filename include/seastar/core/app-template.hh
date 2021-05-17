@@ -23,6 +23,7 @@
 #include <boost/program_options.hpp>
 #include <functional>
 #include <seastar/core/future.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/core/sstring.hh>
 #include <chrono>
 
@@ -59,6 +60,9 @@ public:
 
     using configuration_reader = std::function<void (boost::program_options::variables_map&)>;
 private:
+    // reactor destruction is asynchronous, so we must let the last reactor
+    // destroy the smp instance
+    std::shared_ptr<smp> _smp;
     config _cfg;
     boost::program_options::options_description _opts;
     boost::program_options::options_description _opts_conf_file;

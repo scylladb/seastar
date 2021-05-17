@@ -912,8 +912,9 @@ struct reactor::task_queue::indirect_compare {
     }
 };
 
-reactor::reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg)
-    : _cfg(cfg)
+reactor::reactor(std::shared_ptr<smp> smp, unsigned id, reactor_backend_selector rbs, reactor_config cfg)
+    : _smp(std::move(smp))
+    , _cfg(cfg)
     , _notify_eventfd(file_desc::eventfd(0, EFD_CLOEXEC))
     , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
     , _id(id)
@@ -2092,7 +2093,7 @@ future<> reactor::run_exit_tasks() {
 
 void reactor::stop() {
     assert(_id == 0);
-    smp::cleanup_cpu();
+    _smp->cleanup_cpu();
     if (!_stopping) {
         // Run exit tasks locally and then stop all other engines
         // in the background and wait on semaphore for all to complete.
@@ -2101,7 +2102,7 @@ void reactor::stop() {
             return do_with(semaphore(0), [this] (semaphore& sem) {
                 // Stop other cpus asynchronously, signal when done.
                 (void)smp::invoke_on_others(0, [] {
-                    smp::cleanup_cpu();
+                    engine()._smp->cleanup_cpu();
                     return engine().run_exit_tasks().then([] {
                         engine()._stopped = true;
                     });
@@ -2804,9 +2805,9 @@ int reactor::run() {
                 run_tasks(*_at_destroy_tasks);
             }
             _finished_running_tasks = true;
-            smp::arrive_at_event_loop_end();
+            _smp->arrive_at_event_loop_end();
             if (_id == 0) {
-                smp::join_all();
+                _smp->join_all();
             }
             break;
         }
@@ -3433,13 +3434,9 @@ struct reactor_deleter {
 
 thread_local std::unique_ptr<reactor, reactor_deleter> reactor_holder;
 
-std::vector<posix_thread> smp::_threads;
-std::vector<std::function<void ()>> smp::_thread_loops;
-std::optional<boost::barrier> smp::_all_event_loops_done;
-std::unique_ptr<smp_message_queue*[], smp::qs_deleter> smp::_qs;
-std::thread::id smp::_tmain;
-unsigned smp::count = 1;
-bool smp::_using_dpdk;
+thread_local smp_message_queue** smp::_qs;
+thread_local std::thread::id smp::_tmain;
+unsigned smp::count = 0;
 
 void smp::start_all_queues()
 {
@@ -3498,7 +3495,7 @@ void smp::allocate_reactor(unsigned id, reactor_backend_selector rbs, reactor_co
     assert(r == 0);
     local_engine = reinterpret_cast<reactor*>(buf);
     *internal::this_shard_id_ptr() = id;
-    new (buf) reactor(id, std::move(rbs), cfg);
+    new (buf) reactor(this->shared_from_this(), id, std::move(rbs), cfg);
     reactor_holder.reset(local_engine);
 }
 
@@ -3898,7 +3895,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     }
 
 #ifdef SEASTAR_HAVE_DPDK
-    if (smp::_using_dpdk) {
+    if (_using_dpdk) {
         dpdk::eal::cpuset cpus;
         for (auto&& a : allocations) {
             cpus[a.cpu_id] = true;
@@ -3909,9 +3906,9 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
 
     // Better to put it into the smp class, but at smp construction time
     // correct smp::count is not known.
-    static boost::barrier reactors_registered(smp::count);
-    static boost::barrier smp_queues_constructed(smp::count);
-    static boost::barrier inited(smp::count);
+    boost::barrier reactors_registered(smp::count);
+    boost::barrier smp_queues_constructed(smp::count);
+    boost::barrier inited(smp::count);
 
     auto ioq_topology = std::move(resources.ioq_topology);
 
@@ -3955,10 +3952,13 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     auto backend_selector = configuration["reactor-backend"].as<reactor_backend_selector>();
 
     unsigned i;
+    auto smp_tmain = smp::_tmain;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        create_thread([configuration, &reactors, &disk_config, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity, heapprof_enabled, mbind, backend_selector, reactor_cfg] {
+        create_thread([this, smp_tmain, &inited, &reactors_registered, &smp_queues_constructed, configuration, &reactors, &disk_config, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity, heapprof_enabled, mbind, backend_selector, reactor_cfg] {
           try {
+            // initialize thread_locals that are equal across all reacto threads of this smp instance
+            smp::_tmain = smp_tmain;
             auto thread_name = seastar::format("reactor-{}", i);
             pthread_setname_np(pthread_self(), thread_name.c_str());
             if (thread_affinity) {
@@ -3983,6 +3983,8 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
             }
             reactors_registered.wait();
             smp_queues_constructed.wait();
+            // _qs_owner is only initialized here
+            _qs = _qs_owner.get();
             start_all_queues();
             for (auto& dev_id : disk_config.device_ids()) {
                 assign_io_queue(i, dev_id);
@@ -4020,11 +4022,12 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
 #endif
 
     reactors_registered.wait();
-    smp::_qs = decltype(smp::_qs){new smp_message_queue* [smp::count], qs_deleter{}};
+    _qs_owner = decltype(smp::_qs_owner){new smp_message_queue* [smp::count], qs_deleter{}};
+    _qs = _qs_owner.get();
     for(unsigned i = 0; i < smp::count; i++) {
-        smp::_qs[i] = reinterpret_cast<smp_message_queue*>(operator new[] (sizeof(smp_message_queue) * smp::count));
+        smp::_qs_owner[i] = reinterpret_cast<smp_message_queue*>(operator new[] (sizeof(smp_message_queue) * smp::count));
         for (unsigned j = 0; j < smp::count; ++j) {
-            new (&smp::_qs[i][j]) smp_message_queue(reactors[j], reactors[i]);
+            new (&smp::_qs_owner[i][j]) smp_message_queue(reactors[j], reactors[i]);
         }
     }
     alien::smp::_qs = alien::smp::create_qs(reactors);
