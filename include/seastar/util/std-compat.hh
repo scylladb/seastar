@@ -61,9 +61,14 @@ namespace std::pmr {
 namespace seastar::compat {
 using source_location = std::source_location;
 }
-#else
+#elif __has_include(<experimental/source_location>)
 #include <experimental/source_location>
 namespace seastar::compat {
 using source_location = std::experimental::source_location;
+}
+#else
+#include <seastar/util/source_location-compat.hh>
+namespace seastar::compat {
+using source_location = seastar::internal::source_location;
 }
 #endif

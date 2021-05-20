@@ -625,6 +625,7 @@ add_library (seastar STATIC
   include/seastar/util/tuple_utils.hh
   include/seastar/util/variant_utils.hh
   include/seastar/util/closeable.hh
+  include/seastar/util/source_location-compat.hh
   src/core/alien.cc
   src/core/file.cc
   src/core/fair_queue.cc
