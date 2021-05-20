@@ -58,12 +58,12 @@ namespace std::pmr {
 #endif
 
 #ifdef __cpp_lib_source_location
-namespace compat {
+namespace seastar::compat {
 using source_location = std::source_location;
 }
 #else
 #include <experimental/source_location>
-namespace compat {
+namespace seastar::compat {
 using source_location = std::experimental::source_location;
 }
 #endif
