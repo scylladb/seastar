@@ -672,13 +672,18 @@ class NetPerfTuner(PerfTunerBase):
         :param irq: IRQ number
         :return: HW queue index for Mellanox NICs and 0 for all other NICs
         """
-        mlx_fp_irq_re = re.compile("mlx5_comp(\d+)|mlx4\-(\d+)")
+        mlx5_fp_irq_re = re.compile("mlx5_comp(\d+)")
+        mlx4_fp_irq_re = re.compile("mlx4\-(\d+)")
 
-        m = mlx_fp_irq_re.search(self.__irqs2procline[irq])
-        if m:
-            return int(m.group(1))
+        m5 = mlx5_fp_irq_re.search(self.__irqs2procline[irq])
+        if m5:
+            return int(m5.group(1))
         else:
-            return sys.maxsize
+            m4 = mlx4_fp_irq_re.search(self.__irqs2procline[irq])
+            if m4:
+                return int(m4.group(1))
+
+        return sys.maxsize
 
     def __get_driver_name(self, iface):
         """
