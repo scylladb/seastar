@@ -279,12 +279,16 @@ future<> connection::read_one() {
                         return generate_reply(std::move(req));
                     }).then([this, &content_stream](bool done) {
                         _done = done;
-
-                        // If the handler did not read the entire request content, this connection cannot be
-                        // reused so we need to close it. "_done = true" does that.
-                        if (!content_stream.eof()) {
-                            _done = true;
-                        }
+                        // If the handler did not read the entire request
+                        // content, this connection cannot be reused so we
+                        // need to close it (via "_done = true"). But we can't
+                        // just check content_stream.eof(): It may only become
+                        // true after read(). Issue #907.
+                        return content_stream.read().then([this] (temporary_buffer<char> buf) {
+                            if (!buf.empty()) {
+                                _done = true;
+                            }
+                        });
                     });
                 }).handle_exception_type([this, &version] (const base_exception& e) mutable {
                     // If the request had a "Transfer-Encoding: chunked" header and content streaming wasn't enabled, we might have failed
