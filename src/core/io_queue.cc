@@ -30,6 +30,7 @@
 #include <seastar/core/linux-aio.hh>
 #include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/internal/io_sink.hh>
+#include <seastar/core/io_priority_class.hh>
 #include <seastar/util/log.hh>
 #include <chrono>
 #include <mutex>
@@ -350,50 +351,82 @@ io_queue::~io_queue() {
     }
 }
 
-std::mutex io_queue::_register_lock;
-std::array<uint32_t, io_queue::_max_classes> io_queue::_registered_shares;
-// We could very well just add the name to the io_priority_class. However, because that
-// structure is passed along all the time - and sometimes we can't help but copy it, better keep
-// it lean. The name won't really be used for anything other than monitoring.
-std::array<sstring, io_queue::_max_classes> io_queue::_registered_names;
+std::mutex io_priority_class::_register_lock;
+std::array<io_priority_class::class_info, io_priority_class::_max_classes> io_priority_class::_infos;
 
-io_priority_class io_queue::register_one_priority_class(sstring name, uint32_t shares) {
+unsigned io_priority_class::get_shares() const {
+    return _infos.at(_id).shares;
+}
+
+sstring io_priority_class::get_name() const {
+    std::lock_guard<std::mutex> lock(_register_lock);
+    return _infos.at(_id).name;
+}
+
+io_priority_class io_priority_class::register_one(sstring name, uint32_t shares) {
     std::lock_guard<std::mutex> lock(_register_lock);
     for (unsigned i = 0; i < _max_classes; ++i) {
-        if (!_registered_shares[i]) {
-            _registered_shares[i] = shares;
-            _registered_names[i] = std::move(name);
-        } else if (_registered_names[i] != name) {
+        if (!_infos[i].registered()) {
+            _infos[i].shares = shares;
+            _infos[i].name = std::move(name);
+        } else if (_infos[i].name != name) {
             continue;
         } else {
             // found an entry matching the name to be registered,
             // make sure it was registered with the same number shares
             // Note: those may change dynamically later on in the
             // fair queue priority_class_ptr
-            assert(_registered_shares[i] == shares);
+            assert(_infos[i].shares == shares);
         }
         return io_priority_class(i);
     }
     throw std::runtime_error("No more room for new I/O priority classes");
 }
 
-bool io_queue::rename_one_priority_class(io_priority_class pc, sstring new_name) {
+future<> io_priority_class::update_shares(uint32_t shares) {
+    // Keep registered shares intact, just update the ones
+    // on reactor queues
+    return engine().update_shares_for_queues(*this, shares);
+}
+
+bool io_priority_class::rename_registered(sstring new_name) {
     std::lock_guard<std::mutex> guard(_register_lock);
     for (unsigned i = 0; i < _max_classes; ++i) {
-       if (!_registered_shares[i]) {
+       if (!_infos[i].registered()) {
            break;
        }
-       if (_registered_names[i] == new_name) {
-           if (i == pc.id()) {
+       if (_infos[i].name == new_name) {
+           if (i == id()) {
                return false;
            } else {
+               io_log.error("trying to rename priority class with id {} to \"{}\" but that name already exists", id(), new_name);
                throw std::runtime_error(format("rename priority class: an attempt was made to rename a priority class to an"
                        " already existing name ({})", new_name));
            }
        }
     }
-    _registered_names[pc.id()] = new_name;
+    _infos[id()].name = new_name;
     return true;
+}
+
+future<> io_priority_class::rename(sstring new_name) noexcept {
+    return futurize_invoke([this, new_name = std::move(new_name)] () mutable {
+        // Taking the lock here will prevent from newly registered classes
+        // to register under the old name (and will prevent undefined
+        // behavior since this array is shared cross shards. However, it
+        // doesn't prevent the case where a newly registered class (that
+        // got registered right after the lock release) will be unnecessarily
+        // renamed. This is not a real problem and it is a lot better than
+        // holding the lock until all cross shard activity is over.
+
+        if (!rename_registered(new_name)) {
+            return make_ready_future<>();
+        }
+
+        return smp::invoke_on_all([this, new_name = std::move(new_name)] {
+            return engine().rename_queues(*this, new_name);
+        });
+    });
 }
 
 seastar::metrics::label io_queue_shard("ioshard");
@@ -460,12 +493,8 @@ priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc)
         _priority_classes.resize(id + 1);
     }
     if (!_priority_classes[id]) {
-        auto shares = _registered_shares.at(id);
-        sstring name;
-        {
-            std::lock_guard<std::mutex> lock(_register_lock);
-            name = _registered_names.at(id);
-        }
+        auto shares = pc.get_shares();
+        auto name = pc.get_name();
 
         // A note on naming:
         //

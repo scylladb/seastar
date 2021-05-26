@@ -33,16 +33,7 @@ namespace seastar {
 
 class io_priority_class;
 
-/// Renames an io priority class
-///
-/// Renames an `io_priority_class` previously created with register_one_priority_class().
-///
-/// The operation is global and affects all shards.
-/// The operation affects the exported statistics labels.
-///
-/// \param pc The io priority class to be renamed
-/// \param new_name The new name for the io priority class
-/// \return a future that is ready when the io priority class have been renamed
+[[deprecated("Use io_priority_class.rename")]]
 future<>
 rename_priority_class(io_priority_class pc, sstring new_name);
 
@@ -92,16 +83,6 @@ private:
     fair_queue _fq;
     internal::io_sink& _sink;
 
-    static constexpr unsigned _max_classes = 2048;
-    static std::mutex _register_lock;
-    static std::array<uint32_t, _max_classes> _registered_shares;
-    static std::array<sstring, _max_classes> _registered_names;
-
-public:
-    static io_priority_class register_one_priority_class(sstring name, uint32_t shares);
-    static bool rename_one_priority_class(io_priority_class pc, sstring name);
-
-private:
     priority_class_data& find_or_create_class(const io_priority_class& pc);
 
     // The fields below are going away, they are just here so we can implement deprecated

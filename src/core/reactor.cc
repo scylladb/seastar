@@ -184,42 +184,30 @@ shard_id reactor::cpu_id() const {
 
 io_priority_class
 reactor::register_one_priority_class(sstring name, uint32_t shares) {
-    return io_queue::register_one_priority_class(std::move(name), shares);
+    return io_priority_class::register_one(std::move(name), shares);
 }
 
 future<>
 reactor::update_shares_for_class(io_priority_class pc, uint32_t shares) {
+    return pc.update_shares(shares);
+}
+
+future<>
+reactor::rename_priority_class(io_priority_class pc, sstring new_name) noexcept {
+    return pc.rename(std::move(new_name));
+}
+
+future<> reactor::update_shares_for_queues(io_priority_class pc, uint32_t shares) {
     return parallel_for_each(_io_queues, [pc, shares] (auto& queue) {
         return queue.second->update_shares_for_class(pc, shares);
     });
 }
 
-future<>
-reactor::rename_priority_class(io_priority_class pc, sstring new_name) noexcept {
-
-    return futurize_invoke([pc, new_name = std::move(new_name)] () mutable {
-        // Taking the lock here will prevent from newly registered classes
-        // to register under the old name (and will prevent undefined
-        // behavior since this array is shared cross shards. However, it
-        // doesn't prevent the case where a newly registered class (that
-        // got registered right after the lock release) will be unnecessarily
-        // renamed. This is not a real problem and it is a lot better than
-        // holding the lock until all cross shard activity is over.
-
-        try {
-            if (!io_queue::rename_one_priority_class(pc, new_name)) {
-                return make_ready_future<>();
-            }
-        } catch (...) {
-            sched_logger.error("exception while trying to rename priority group with id {} to \"{}\" ({})",
-                    pc.id(), new_name, std::current_exception());
-            std::rethrow_exception(std::current_exception());
+future<> reactor::rename_queues(io_priority_class pc, sstring new_name) noexcept {
+    return futurize_invoke([this, pc, new_name = std::move(new_name)] {
+        for (auto&& queue : _io_queues) {
+            queue.second->rename_priority_class(pc, new_name);
         }
-        return smp::invoke_on_all([pc, new_name = std::move(new_name)] {
-            for (auto&& queue : engine()._io_queues) {
-                queue.second->rename_priority_class(pc, new_name);
-            }
-        });
     });
 }
 
@@ -1567,7 +1555,7 @@ reactor::reap_kernel_completions() {
 
 const io_priority_class& default_priority_class() {
     static thread_local auto shard_default_class = [] {
-        return engine().register_one_priority_class("default", 1);
+        return io_priority_class::register_one("default", 1);
     }();
     return shard_default_class;
 }
@@ -4373,7 +4361,7 @@ scheduling_group_key_create(scheduling_group_key_config cfg) noexcept {
 
 future<>
 rename_priority_class(io_priority_class pc, sstring new_name) {
-    return reactor::rename_priority_class(pc, new_name);
+    return pc.rename(std::move(new_name));
 }
 
 future<>

@@ -476,18 +476,18 @@ public:
         }
     }
 
+    [[deprecated("Use io_priority_class::register_one")]]
     io_priority_class register_one_priority_class(sstring name, uint32_t shares);
 
-    /// \brief Updates the current amount of shares for a given priority class
-    ///
-    /// This can involve a cross-shard call if the I/O Queue that is responsible for
-    /// this class lives in a foreign shard.
-    ///
-    /// \param pc the priority class handle
-    /// \param shares the new shares value
-    /// \return a future that is ready when the share update is applied
+    [[deprecated("Use io_priority_class.update_shares")]]
     future<> update_shares_for_class(io_priority_class pc, uint32_t shares);
+    /// @private
+    future<> update_shares_for_queues(io_priority_class pc, uint32_t shares);
+
+    [[deprecated("Use io_priority_class.rename")]]
     static future<> rename_priority_class(io_priority_class pc, sstring new_name) noexcept;
+    /// @private
+    future<> rename_queues(io_priority_class pc, sstring new_name) noexcept;
 
     void configure(boost::program_options::variables_map config);
 
