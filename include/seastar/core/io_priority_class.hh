@@ -51,7 +51,7 @@ public:
     /// \param pc the priority class handle
     /// \param shares the new shares value
     /// \return a future that is ready when the share update is applied
-    future<> update_shares(uint32_t shares);
+    future<> update_shares(uint32_t shares) const;
 
     /// Renames an io priority class
     ///
