@@ -456,7 +456,6 @@ add_library (seastar STATIC
   include/seastar/core/align.hh
   include/seastar/core/aligned_buffer.hh
   include/seastar/core/app-template.hh
-  include/seastar/core/apply.hh
   include/seastar/core/array_map.hh
   include/seastar/core/bitops.hh
   include/seastar/core/bitset-iter.hh
