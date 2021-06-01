@@ -110,9 +110,7 @@ public:
     void cancel_request(queued_io_request& req) noexcept;
     void complete_cancelled_request(queued_io_request& req) noexcept;
 
-    [[deprecated("modern I/O queues should use a property file")]] size_t capacity() const {
-        return get_config().capacity;
-    }
+    [[deprecated("modern I/O queues should use a property file")]] size_t capacity() const;
 
     [[deprecated("I/O queue users should not track individual requests, but resources (weight, size) passing through the queue")]]
     size_t queued_requests() const {
@@ -134,13 +132,8 @@ public:
         return _fq.next_pending_aio();
     }
 
-    sstring mountpoint() const {
-        return get_config().mountpoint;
-    }
-
-    dev_t dev_id() const noexcept {
-        return get_config().devid;
-    }
+    sstring mountpoint() const;
+    dev_t dev_id() const noexcept;
 
     future<> update_shares_for_class(io_priority_class pc, size_t new_shares);
     void rename_priority_class(io_priority_class pc, sstring new_name);
@@ -156,9 +149,7 @@ private:
     config __config;
     static fair_queue::config make_fair_queue_config(config cfg);
 
-    const config& get_config() const noexcept {
-        return __config;
-    }
+    const config& get_config() const noexcept;
 };
 
 class io_group {
@@ -177,5 +168,21 @@ private:
 
     static fair_group::config make_fair_group_config(config cfg) noexcept;
 };
+
+inline const io_queue::config& io_queue::get_config() const noexcept {
+    return __config;
+}
+
+inline size_t io_queue::capacity() const {
+    return get_config().capacity;
+}
+
+inline sstring io_queue::mountpoint() const {
+    return get_config().mountpoint;
+}
+
+inline dev_t io_queue::dev_id() const noexcept {
+    return get_config().devid;
+}
 
 }
