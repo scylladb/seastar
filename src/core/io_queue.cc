@@ -296,10 +296,10 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink, io_queue::config
     , _group(std::move(group))
     , _fq(_group->_fg, make_fair_queue_config(cfg))
     , _sink(sink)
-    , _config(std::move(cfg)) {
+    , __config(std::move(cfg)) {
     seastar_logger.debug("Created io queue, multipliers {}:{}",
-            cfg.disk_req_write_to_read_multiplier,
-            cfg.disk_bytes_write_to_read_multiplier);
+            get_config().disk_req_write_to_read_multiplier,
+            get_config().disk_bytes_write_to_read_multiplier);
 }
 
 fair_group::config io_group::make_fair_group_config(config iocfg) noexcept {
@@ -522,8 +522,8 @@ fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, s
     unsigned weight;
     size_t size;
     if (req.is_write()) {
-        weight = _config.disk_req_write_to_read_multiplier;
-        size = _config.disk_bytes_write_to_read_multiplier * len;
+        weight = get_config().disk_req_write_to_read_multiplier;
+        size = get_config().disk_bytes_write_to_read_multiplier * len;
     } else if (req.is_read()) {
         weight = io_queue::read_request_base_count;
         size = io_queue::read_request_base_count * len;
@@ -549,8 +549,8 @@ fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, s
 
 io_queue::request_limits io_queue::get_request_limits() const noexcept {
     request_limits l;
-    l.max_read = align_down<size_t>(std::min<size_t>(_config.disk_read_saturation_length, _group->_max_bytes_count / read_request_base_count), minimal_request_size);
-    l.max_write = align_down<size_t>(std::min<size_t>(_config.disk_write_saturation_length, _group->_max_bytes_count / _config.disk_bytes_write_to_read_multiplier), minimal_request_size);
+    l.max_read = align_down<size_t>(std::min<size_t>(get_config().disk_read_saturation_length, _group->_max_bytes_count / read_request_base_count), minimal_request_size);
+    l.max_write = align_down<size_t>(std::min<size_t>(get_config().disk_write_saturation_length, _group->_max_bytes_count / get_config().disk_bytes_write_to_read_multiplier), minimal_request_size);
     return l;
 }
 
@@ -609,7 +609,7 @@ void
 io_queue::rename_priority_class(io_priority_class pc, sstring new_name) {
     if (_priority_classes.size() > pc.id() &&
             _priority_classes[pc.id()]) {
-        _priority_classes[pc.id()]->rename(new_name, _config.mountpoint);
+        _priority_classes[pc.id()]->rename(new_name, get_config().mountpoint);
     }
 }
 

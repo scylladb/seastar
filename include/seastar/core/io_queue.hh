@@ -128,7 +128,7 @@ public:
     void complete_cancelled_request(queued_io_request& req) noexcept;
 
     [[deprecated("modern I/O queues should use a property file")]] size_t capacity() const {
-        return _config.capacity;
+        return get_config().capacity;
     }
 
     [[deprecated("I/O queue users should not track individual requests, but resources (weight, size) passing through the queue")]]
@@ -152,11 +152,11 @@ public:
     }
 
     sstring mountpoint() const {
-        return _config.mountpoint;
+        return get_config().mountpoint;
     }
 
     dev_t dev_id() const noexcept {
-        return _config.devid;
+        return get_config().devid;
     }
 
     future<> update_shares_for_class(io_priority_class pc, size_t new_shares);
@@ -170,8 +170,12 @@ public:
     request_limits get_request_limits() const noexcept;
 
 private:
-    config _config;
+    config __config;
     static fair_queue::config make_fair_queue_config(config cfg);
+
+    const config& get_config() const noexcept {
+        return __config;
+    }
 };
 
 }
