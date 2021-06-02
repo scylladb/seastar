@@ -115,7 +115,8 @@ static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value&
         mf.set_type(pm::MetricType::HISTOGRAM);
         break;
     }
-    default:
+    case scollectd::data_type::COUNTER:
+    case scollectd::data_type::ABSOLUTE:
         add_label(mf.add_metric(), id, ctx)->mutable_counter()->set_value(c.ui());
         mf.set_type(pm::MetricType::COUNTER);
         break;
@@ -131,11 +132,10 @@ static std::string to_str(seastar::metrics::impl::data_type dt) {
     case seastar::metrics::impl::data_type::HISTOGRAM:
         return "histogram";
     case seastar::metrics::impl::data_type::DERIVE:
-        // Prometheus server does not respect derive parameters
+    case seastar::metrics::impl::data_type::ABSOLUTE:
+        // Prometheus server does not respect derive/absolute parameters
         // So we report them as counter
         return "counter";
-    default:
-        break;
     }
     return "untyped";
 }
@@ -145,10 +145,11 @@ static std::string to_str(const seastar::metrics::impl::metric_value& v) {
     case seastar::metrics::impl::data_type::GAUGE:
         return std::to_string(v.d());
     case seastar::metrics::impl::data_type::COUNTER:
-        return std::to_string(v.i());
-    case seastar::metrics::impl::data_type::DERIVE:
+    case seastar::metrics::impl::data_type::ABSOLUTE:
         return std::to_string(v.ui());
-    default:
+    case seastar::metrics::impl::data_type::DERIVE:
+        return std::to_string(v.i());
+    case seastar::metrics::impl::data_type::HISTOGRAM:
         break;
     }
     return ""; // we should never get here but it makes the compiler happy
@@ -603,7 +604,19 @@ future<> write_text_representation(output_stream<char>& out, const config& ctx, 
                     s << "\n";
                 } else {
                     add_name(s, name, value_info.id.labels(), ctx);
-                    s << to_str(value);
+                    std::string value_str;
+                    try {
+                        value_str = to_str(value);
+                    } catch (const std::range_error& e) {
+                        seastar_logger.debug("prometheus: write_text_representation: {}: {}", s.str(), e.what());
+                        value_str = "NaN";
+                    } catch (...) {
+                        auto ex = std::current_exception();
+                        // print this error as it's ignored later on by `connection::start_response`
+                        seastar_logger.error("prometheus: write_text_representation: {}: {}", s.str(), ex);
+                        std::rethrow_exception(std::move(ex));
+                    }
+                    s << value_str;
                     s << "\n";
                 }
                 out.write(s.str()).get();
