@@ -101,6 +101,7 @@ using shard_id = unsigned;
 
 namespace alien {
 class message_queue;
+class instance;
 }
 class reactor;
 inline
@@ -245,6 +246,7 @@ public:
 
 private:
     std::shared_ptr<smp> _smp;
+    alien::instance& _alien;
     reactor_config _cfg;
     file_desc _notify_eventfd;
     file_desc _task_quota_timer;
@@ -459,7 +461,7 @@ private:
     do_write_some(pollable_fd_state& fd, net::packet& p);
 public:
     static boost::program_options::options_description get_options_description(reactor_config cfg);
-    explicit reactor(std::shared_ptr<smp> smp, unsigned id, reactor_backend_selector rbs, reactor_config cfg);
+    explicit reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, reactor_backend_selector rbs, reactor_config cfg);
     reactor(const reactor&) = delete;
     ~reactor();
     void operator=(const reactor&) = delete;

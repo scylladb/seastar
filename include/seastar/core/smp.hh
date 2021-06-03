@@ -43,6 +43,12 @@ using shard_id = unsigned;
 class smp_service_group;
 class reactor_backend_selector;
 
+namespace alien {
+
+class instance;
+
+}
+
 namespace internal {
 
 unsigned smp_service_group_id(smp_service_group ssg) noexcept;
@@ -284,6 +290,7 @@ private:
 };
 
 class smp : public std::enable_shared_from_this<smp> {
+    alien::instance& _alien;
     std::vector<posix_thread> _threads;
     std::vector<std::function<void ()>> _thread_loops; // for dpdk
     std::optional<boost::barrier> _all_event_loops_done;
@@ -300,6 +307,7 @@ class smp : public std::enable_shared_from_this<smp> {
     template <typename Func>
     using returns_void = std::is_same<std::result_of_t<Func()>, void>;
 public:
+    explicit smp(alien::instance& alien) : _alien(alien) {}
     static boost::program_options::options_description get_options_description();
     void register_network_stacks();
     void configure(boost::program_options::variables_map vm, reactor_config cfg = {});

@@ -43,10 +43,11 @@ int main(int argc, char** argv)
     // and on which, a seastar future can wait.
     int engine_ready_fd = eventfd(0, 0);
     auto alien_done = file_desc::eventfd(0, 0);
+    seastar::app_template app;
 
     // use the raw fd, because seastar engine want to take over the fds, if it
     // polls on them.
-    auto zim = std::async([engine_ready_fd,
+    auto zim = std::async([&app, engine_ready_fd,
                            alien_done=alien_done.get()] {
         eventfd_t result = 0;
         // wait until the seastar engine is ready
@@ -65,7 +66,7 @@ int main(int argc, char** argv)
             }));
         }
         // std::future<void>
-        alien::submit_to(0, [] {
+        alien::submit_to(app.alien(), 0, [] {
             return seastar::make_ready_future<>();
         }).wait();
         int total = 0;
@@ -77,7 +78,6 @@ int main(int argc, char** argv)
         return total;
     });
 
-    seastar::app_template app;
     eventfd_t result = 0;
     app.run(argc, argv, [&] {
         return seastar::now().then([engine_ready_fd] {

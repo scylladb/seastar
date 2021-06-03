@@ -912,8 +912,9 @@ struct reactor::task_queue::indirect_compare {
     }
 };
 
-reactor::reactor(std::shared_ptr<smp> smp, unsigned id, reactor_backend_selector rbs, reactor_config cfg)
+reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, reactor_backend_selector rbs, reactor_config cfg)
     : _smp(std::move(smp))
+    , _alien(alien)
     , _cfg(cfg)
     , _notify_eventfd(file_desc::eventfd(0, EFD_CLOEXEC))
     , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
@@ -2474,11 +2475,11 @@ public:
     smp_pollfn(reactor& r) : _r(r) {}
     virtual bool poll() final override {
         return (smp::poll_queues() |
-                alien::smp::poll_queues());
+                _r._alien.poll_queues());
     }
     virtual bool pure_poll() final override {
         return (smp::pure_poll_queues() ||
-                alien::smp::pure_poll_queues());
+                _r._alien.pure_poll_queues());
     }
     virtual bool try_enter_interrupt_mode() override {
         // systemwide_memory_barrier() is very slow if run concurrently,
@@ -3445,7 +3446,7 @@ void smp::start_all_queues()
             _qs[c][this_shard_id()].start(c);
         }
     }
-    alien::smp::_qs[this_shard_id()].start();
+    _alien._qs[this_shard_id()].start();
 }
 
 #ifdef SEASTAR_HAVE_DPDK
@@ -3495,7 +3496,7 @@ void smp::allocate_reactor(unsigned id, reactor_backend_selector rbs, reactor_co
     assert(r == 0);
     local_engine = reinterpret_cast<reactor*>(buf);
     *internal::this_shard_id_ptr() = id;
-    new (buf) reactor(this->shared_from_this(), id, std::move(rbs), cfg);
+    new (buf) reactor(this->shared_from_this(), _alien, id, std::move(rbs), cfg);
     reactor_holder.reset(local_engine);
 }
 
@@ -3512,8 +3513,8 @@ void smp::cleanup_cpu() {
             _qs[i][cpuid].stop();
         }
     }
-    if (alien::smp::_qs) {
-        alien::smp::_qs[cpuid].stop();
+    if (_alien._qs) {
+        _alien._qs[cpuid].stop();
     }
 }
 
@@ -4010,7 +4011,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
             new (&smp::_qs_owner[i][j]) smp_message_queue(reactors[j], reactors[i]);
         }
     }
-    alien::smp::_qs = alien::smp::create_qs(reactors);
+    _alien._qs = alien::instance::create_qs(reactors);
     smp_queues_constructed.wait();
     start_all_queues();
     for (auto& dev_id : disk_config.device_ids()) {

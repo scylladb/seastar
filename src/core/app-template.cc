@@ -21,6 +21,7 @@
 
 #include <seastar/core/app-template.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/alien.hh>
 #include <seastar/core/scollectd.hh>
 #include <seastar/core/metrics_api.hh>
 #include <boost/program_options.hpp>
@@ -46,10 +47,15 @@ reactor_config_from_app_config(app_template::config cfg) {
 }
 
 app_template::app_template(app_template::config cfg)
-    : _smp(std::make_shared<smp>())
+    : _alien(std::make_unique<alien::instance>())
+    , _smp(std::make_shared<smp>(*_alien))
     , _cfg(std::move(cfg))
     , _opts(_cfg.name + " options")
     , _conf_reader(get_default_configuration_reader()) {
+
+        if (!alien::internal::default_instance) {
+            alien::internal::default_instance = _alien.get();
+        }
         _opts.add_options()
                 ("help,h", "show help message")
                 ;
@@ -63,6 +69,8 @@ app_template::app_template(app_template::config cfg)
 
         _opts.add(_opts_conf_file);
 }
+
+app_template::~app_template() = default;
 
 app_template::configuration_reader app_template::get_default_configuration_reader() {
     return [this] (bpo::variables_map& configuration) {

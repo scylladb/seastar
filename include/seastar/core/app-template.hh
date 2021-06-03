@@ -29,6 +29,12 @@
 
 namespace seastar {
 
+namespace alien {
+
+class instance;
+
+}
+
 class app_template {
 public:
     struct config {
@@ -60,6 +66,8 @@ public:
 
     using configuration_reader = std::function<void (boost::program_options::variables_map&)>;
 private:
+    // unique_ptr to avoid pulling in alien.hh.
+    std::unique_ptr<alien::instance> _alien;
     // reactor destruction is asynchronous, so we must let the last reactor
     // destroy the smp instance
     std::shared_ptr<smp> _smp;
@@ -80,6 +88,7 @@ public:
     };
 public:
     explicit app_template(config cfg = config());
+    ~app_template();
 
     boost::program_options::options_description& get_options_description();
     boost::program_options::options_description& get_conf_file_options_description();
@@ -89,6 +98,10 @@ public:
     int run_deprecated(int ac, char ** av, std::function<void ()>&& func);
 
     void set_configuration_reader(configuration_reader conf_reader);
+
+    /// Obtains an alien::instance object that can be used to send messages
+    /// to Seastar shards from non-Seastar threads.
+    alien::instance& alien() { return *_alien; }
 
     // Runs given function and terminates the application when the future it
     // returns resolves. The value with which the future resolves will be
