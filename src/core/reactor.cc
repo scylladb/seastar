@@ -3888,7 +3888,8 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     // correct smp::count is not known.
     boost::barrier reactors_registered(smp::count);
     boost::barrier smp_queues_constructed(smp::count);
-    boost::barrier inited(smp::count);
+    // We use shared_ptr since this thread can exit while other threads are still unlocking
+    auto inited = std::make_shared<boost::barrier>(smp::count);
 
     auto ioq_topology = std::move(resources.ioq_topology);
 
@@ -3934,7 +3935,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     auto smp_tmain = smp::_tmain;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        create_thread([this, smp_tmain, &inited, &reactors_registered, &smp_queues_constructed, configuration, &reactors, &disk_config, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity, heapprof_enabled, mbind, backend_selector, reactor_cfg] {
+        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, configuration, &reactors, &disk_config, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity, heapprof_enabled, mbind, backend_selector, reactor_cfg] {
           try {
             // initialize thread_locals that are equal across all reacto threads of this smp instance
             smp::_tmain = smp_tmain;
@@ -3968,7 +3969,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
             for (auto& dev_id : disk_config.device_ids()) {
                 assign_io_queue(i, dev_id);
             }
-            inited.wait();
+            inited->wait();
             engine().configure(configuration);
             engine().run();
           } catch (const std::exception& e) {
@@ -4015,7 +4016,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     for (auto& dev_id : disk_config.device_ids()) {
         assign_io_queue(0, dev_id);
     }
-    inited.wait();
+    inited->wait();
 
     engine().configure(configuration);
     // The raw `new` is necessary because of the private constructor of `lowres_clock_impl`.
