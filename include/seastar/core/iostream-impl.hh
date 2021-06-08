@@ -35,6 +35,9 @@ inline future<temporary_buffer<char>> data_source_impl::skip(uint64_t n)
     return do_with(uint64_t(n), [this] (uint64_t& n) {
         return repeat_until_value([&] {
             return get().then([&] (temporary_buffer<char> buffer) -> std::optional<temporary_buffer<char>> {
+                if (buffer.empty()) {
+                    return buffer;
+                }
                 if (buffer.size() >= n) {
                     buffer.trim_front(n);
                     return buffer;
