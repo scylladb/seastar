@@ -25,6 +25,7 @@
 #include <seastar/core/print.hh>
 #include <seastar/core/memory.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/testing/test_case.hh>
 
 #include <seastar/net/posix-stack.hh>
 
@@ -70,13 +71,11 @@ public:
 my_malloc_allocator malloc_allocator;
 std::pmr::polymorphic_allocator<char> allocator{&malloc_allocator};
 
-int main(int ac, char** av) {
+SEASTAR_TEST_CASE(socket_allocation_test) {
     register_network_stack("posix", boost::program_options::options_description(),
         [](boost::program_options::variables_map ops) {
             return smp::main_thread() ? net::posix_network_stack::create(ops, &allocator)
                 : net::posix_ap_network_stack::create(ops);
         }, true);
-    return app_template().run_deprecated(ac, av, [] {
-       return echo_server_loop().finally([](){ engine().exit((malloc_allocator.allocs == malloc_allocator.frees) ? 0 : 1); });
-    });
+    return echo_server_loop().finally([](){ engine().exit((malloc_allocator.allocs == malloc_allocator.frees) ? 0 : 1); });
 }

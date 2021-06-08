@@ -393,7 +393,7 @@ seastar_add_test (simple_stream
 seastar_add_app_test (smp
   SOURCES smp_test.cc)
 
-seastar_add_app_test (socket
+seastar_add_test (socket
   SOURCES socket_test.cc)
 
 seastar_add_test (sstring
