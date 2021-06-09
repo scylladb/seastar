@@ -3909,9 +3909,9 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
 
         {
             std::lock_guard _(topology.lock);
-            resource::device_io_topology::group& iog = topology.groups[group_idx];
+            auto& iog = io_info.groups[group_idx];
             if (iog.attached == 0) {
-                struct io_queue::config qcfg = disk_config.generate_config(id, topology.groups.size());
+                struct io_queue::config qcfg = disk_config.generate_config(id, io_info.groups.size());
                 iog.g = std::make_shared<io_group>(std::move(qcfg));
                 seastar_logger.debug("allocate {} IO group", group_idx);
             }

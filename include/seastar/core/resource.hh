@@ -64,9 +64,14 @@ struct memory {
 // This will allow us to easily find who is the IO coordinator for a given
 // node without a trip to a remote CPU.
 struct io_queue_topology {
+    struct group {
+        std::shared_ptr<io_group> g;
+        unsigned attached = 0;
+    };
+
     std::vector<io_queue*> queues;
     std::vector<unsigned> shard_to_group;
-    unsigned nr_groups;
+    std::vector<group> groups;
 
     io_queue_topology();
     io_queue_topology(const io_queue_topology&) = delete;
@@ -85,15 +90,10 @@ struct resources {
 };
 
 struct device_io_topology {
-    struct group {
-        std::shared_ptr<io_group> g;
-        unsigned attached = 0;
-    };
     util::spinlock lock;
-    std::vector<group> groups;
 
     device_io_topology() noexcept = default;
-    device_io_topology(const io_queue_topology& iot) noexcept : groups(iot.nr_groups) {}
+    device_io_topology(const io_queue_topology& iot) noexcept {}
 };
 
 resources allocate(configuration c);

@@ -252,7 +252,7 @@ io_queue_topology::~io_queue_topology() {
 io_queue_topology::io_queue_topology(io_queue_topology&& o)
     : queues(std::move(o.queues))
     , shard_to_group(std::move(o.shard_to_group))
-    , nr_groups(std::exchange(o.nr_groups, 0))
+    , groups(std::move(o.groups))
 { }
 
 }
@@ -414,14 +414,14 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unord
 
     auto cpu_sets = distribute_objects(topology, num_io_groups);
     ret.queues.resize(cpus.size());
-    ret.nr_groups = 0;
+    unsigned nr_groups = 0;
 
     // First step: distribute the IO queues given the information returned in cpu_sets.
     // If there is one IO queue per processor, only this loop will be executed.
     std::unordered_map<unsigned, std::vector<unsigned>> node_coordinators;
     for (auto&& cs : cpu_sets()) {
         auto io_coordinator = find_shard(hwloc_bitmap_first(cs));
-        ret.shard_to_group[io_coordinator] = ret.nr_groups++;
+        ret.shard_to_group[io_coordinator] = nr_groups++;
 
         auto node_id = node_of_shard(io_coordinator);
         if (node_coordinators.count(node_id) == 0) {
@@ -431,6 +431,7 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unord
         numa_nodes[node_id].erase(io_coordinator);
     }
 
+    ret.groups.resize(nr_groups);
 
     auto available_nodes = boost::copy_range<std::vector<unsigned>>(node_coordinators | boost::adaptors::map_keys);
 
@@ -642,7 +643,7 @@ allocate_io_queues(configuration c, std::vector<cpu> cpus) {
     unsigned nr_cpus = unsigned(cpus.size());
     ret.queues.resize(nr_cpus);
     ret.shard_to_group.resize(nr_cpus);
-    ret.nr_groups = 1;
+    ret.groups.resize(1);
 
     for (unsigned shard = 0; shard < nr_cpus; ++shard) {
         ret.shard_to_group[shard] = 0;
