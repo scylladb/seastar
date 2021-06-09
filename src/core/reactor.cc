@@ -3897,12 +3897,12 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     std::unordered_map<dev_t, resource::device_io_topology> devices_topology;
 
     for (auto& id : disk_config.device_ids()) {
-        auto io_info = ioq_topology.at(id);
+        auto& io_info = ioq_topology.at(id);
         devices_topology.emplace(id, io_info);
     }
 
     auto alloc_io_queue = [&ioq_topology, &devices_topology, &disk_config] (unsigned shard, dev_t id) {
-        auto io_info = ioq_topology.at(id);
+        auto& io_info = ioq_topology.at(id);
         auto group_idx = io_info.shard_to_group[shard];
         resource::device_io_topology& topology = devices_topology[id];
         std::shared_ptr<io_group> group;

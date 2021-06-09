@@ -67,6 +67,11 @@ struct io_queue_topology {
     unsigned nr_queues;
     std::vector<unsigned> shard_to_group;
     unsigned nr_groups;
+
+    io_queue_topology();
+    io_queue_topology(const io_queue_topology&) = delete;
+    io_queue_topology(io_queue_topology&&);
+    ~io_queue_topology();
 };
 
 struct cpu {

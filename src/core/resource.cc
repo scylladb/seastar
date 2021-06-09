@@ -242,6 +242,18 @@ size_t calculate_memory(configuration c, size_t available_memory, float panic_fa
     return mem;
 }
 
+io_queue_topology::io_queue_topology() {
+}
+
+io_queue_topology::~io_queue_topology() {
+}
+
+io_queue_topology::io_queue_topology(io_queue_topology&& o)
+    : nr_queues(std::exchange(o.nr_queues, 0))
+    , shard_to_group(std::move(o.shard_to_group))
+    , nr_groups(std::exchange(o.nr_groups, 0))
+{ }
+
 }
 
 }
