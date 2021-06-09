@@ -1038,6 +1038,28 @@ public:
         gnutls_free(out.data);
         return s;
     }
+
+    future<> send_alert(gnutls_alert_level_t level, gnutls_alert_description_t desc) {
+        return repeat([this, level, desc]() {
+            auto res = gnutls_alert_send(*this, level, desc);
+            switch(res) {
+            case GNUTLS_E_SUCCESS:
+                return wait_for_output().then([] {
+                    return make_ready_future<stop_iteration>(stop_iteration::yes);
+                });
+            case GNUTLS_E_AGAIN:
+            case GNUTLS_E_INTERRUPTED:
+                return wait_for_output().then([] {
+                    return make_ready_future<stop_iteration>(stop_iteration::no);
+                });
+            default:
+                return handle_output_error(res).then([] {
+                    return make_ready_future<stop_iteration>(stop_iteration::yes);
+                });
+            }
+        });
+    }
+
     future<> do_handshake() {
         if (_connected) {
             return make_ready_future<>();
@@ -1072,7 +1094,17 @@ public:
                     verify(); // should throw. otherwise, fallthrough
 #endif
                 default:
-                    return make_exception_future<>(std::system_error(res, glts_errorc));
+                    // Send the handshake error returned by gnutls_handshake()
+                    // to the client, as an alert. For example, if the protocol
+                    // version requested by the client is not supported, the
+                    // "protocol_version" alert is sent.
+                    auto alert = gnutls_alert_description_t(gnutls_error_to_alert(res, NULL));
+                    return send_alert(GNUTLS_AL_FATAL, alert).then_wrapped([res] (future<> f) {
+                        // Return to the caller the original handshake error.
+                        // If send_alert() *also* failed, ignore that.
+                        f.ignore_ready_future();
+                        return make_exception_future<>(std::system_error(res, glts_errorc));
+                    });
                 }
             }
             if (_type == type::CLIENT || _creds->get_client_auth() != client_auth::NONE) {
