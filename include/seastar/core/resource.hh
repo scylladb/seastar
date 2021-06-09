@@ -91,11 +91,6 @@ struct resources {
     std::unordered_map<dev_t, io_queue_topology> ioq_topology;
 };
 
-struct device_io_topology {
-    device_io_topology() noexcept = default;
-    device_io_topology(const io_queue_topology& iot) noexcept {}
-};
-
 resources allocate(configuration c);
 unsigned nr_processing_units();
 }
