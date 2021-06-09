@@ -3903,13 +3903,12 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
             {
                 std::lock_guard _(io_info.lock);
                 auto& iog = io_info.groups[group_idx];
-                if (iog.attached == 0) {
+                if (!iog) {
                     struct io_queue::config qcfg = disk_config.generate_config(topo.first, io_info.groups.size());
-                    iog.g = std::make_shared<io_group>(std::move(qcfg));
+                    iog = std::make_shared<io_group>(std::move(qcfg));
                     seastar_logger.debug("allocate {} IO group", group_idx);
                 }
-                iog.attached++;
-                group = iog.g;
+                group = iog;
             }
 
             io_info.queues[shard] = std::make_unique<io_queue>(std::move(group), engine()._io_sink);

@@ -64,14 +64,9 @@ struct memory {
 // This will allow us to easily find who is the IO coordinator for a given
 // node without a trip to a remote CPU.
 struct io_queue_topology {
-    struct group {
-        std::shared_ptr<io_group> g;
-        unsigned attached = 0;
-    };
-
     std::vector<std::unique_ptr<io_queue>> queues;
     std::vector<unsigned> shard_to_group;
-    std::vector<group> groups;
+    std::vector<std::shared_ptr<io_group>> groups;
 
     util::spinlock lock;
 
