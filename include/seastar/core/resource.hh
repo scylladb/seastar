@@ -69,7 +69,7 @@ struct io_queue_topology {
         unsigned attached = 0;
     };
 
-    std::vector<io_queue*> queues;
+    std::vector<std::unique_ptr<io_queue>> queues;
     std::vector<unsigned> shard_to_group;
     std::vector<group> groups;
 
