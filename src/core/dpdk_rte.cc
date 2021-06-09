@@ -36,6 +36,7 @@ void eal::init(cpuset cpus, boost::program_options::variables_map opts)
         return;
     }
 
+    size_t cpu_count = cpus.count();
     std::stringstream mask;
     cpuset nibble = 0xF;
     while (cpus.any()) {
@@ -69,7 +70,7 @@ void eal::init(cpuset cpus, boost::program_options::variables_map opts)
         // assume there is going to be a queue per-CPU. Plus we'll give a DPDK
         // 64MB for "other stuff".
         //
-        size_t size_MB = mem_size(cpus.count()) >> 20;
+        size_t size_MB = mem_size(cpu_count) >> 20;
         std::stringstream size_MB_str;
         size_MB_str << size_MB;
 
