@@ -31,6 +31,7 @@
 #include <limits>
 #include "cgroup.hh"
 #include <seastar/util/log.hh>
+#include <seastar/core/io_queue.hh>
 
 #include <boost/range/adaptor/map.hpp>
 #include <boost/range/algorithm/copy.hpp>
@@ -249,7 +250,7 @@ io_queue_topology::~io_queue_topology() {
 }
 
 io_queue_topology::io_queue_topology(io_queue_topology&& o)
-    : nr_queues(std::exchange(o.nr_queues, 0))
+    : queues(std::move(o.queues))
     , shard_to_group(std::move(o.shard_to_group))
     , nr_groups(std::exchange(o.nr_groups, 0))
 { }
@@ -412,7 +413,7 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unord
     };
 
     auto cpu_sets = distribute_objects(topology, num_io_groups);
-    ret.nr_queues = cpus.size();
+    ret.queues.resize(cpus.size());
     ret.nr_groups = 0;
 
     // First step: distribute the IO queues given the information returned in cpu_sets.
@@ -639,7 +640,7 @@ allocate_io_queues(configuration c, std::vector<cpu> cpus) {
     io_queue_topology ret;
 
     unsigned nr_cpus = unsigned(cpus.size());
-    ret.nr_queues = nr_cpus;
+    ret.queues.resize(nr_cpus);
     ret.shard_to_group.resize(nr_cpus);
     ret.nr_groups = 1;
 

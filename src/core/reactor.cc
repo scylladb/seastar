@@ -3919,12 +3919,12 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
             group = iog.g;
         }
 
-        topology.queues[shard] = new io_queue(std::move(group), engine()._io_sink);
+        io_info.queues[shard] = new io_queue(std::move(group), engine()._io_sink);
         seastar_logger.debug("attached {} queue to {} IO group", shard, group_idx);
     };
 
-    auto assign_io_queue = [&devices_topology] (shard_id shard_id, dev_t dev_id) {
-        io_queue* queue = devices_topology[dev_id].queues[shard_id];
+    auto assign_io_queue = [&ioq_topology] (shard_id shard_id, dev_t dev_id) {
+        io_queue* queue = ioq_topology[dev_id].queues[shard_id];
         engine()._io_queues.emplace(dev_id, queue);
     };
 
