@@ -3901,14 +3901,13 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
         devices_topology.emplace(id, io_info);
     }
 
-    auto alloc_io_queue = [&ioq_topology, &devices_topology, &disk_config] (unsigned shard, dev_t id) {
+    auto alloc_io_queue = [&ioq_topology, &disk_config] (unsigned shard, dev_t id) {
         auto& io_info = ioq_topology.at(id);
         auto group_idx = io_info.shard_to_group[shard];
-        resource::device_io_topology& topology = devices_topology[id];
         std::shared_ptr<io_group> group;
 
         {
-            std::lock_guard _(topology.lock);
+            std::lock_guard _(io_info.lock);
             auto& iog = io_info.groups[group_idx];
             if (iog.attached == 0) {
                 struct io_queue::config qcfg = disk_config.generate_config(id, io_info.groups.size());

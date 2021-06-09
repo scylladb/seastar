@@ -253,6 +253,7 @@ io_queue_topology::io_queue_topology(io_queue_topology&& o)
     : queues(std::move(o.queues))
     , shard_to_group(std::move(o.shard_to_group))
     , groups(std::move(o.groups))
+    , lock() // unused until now, so just initialize
 { }
 
 }

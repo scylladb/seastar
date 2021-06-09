@@ -73,6 +73,8 @@ struct io_queue_topology {
     std::vector<unsigned> shard_to_group;
     std::vector<group> groups;
 
+    util::spinlock lock;
+
     io_queue_topology();
     io_queue_topology(const io_queue_topology&) = delete;
     io_queue_topology(io_queue_topology&&);
@@ -90,8 +92,6 @@ struct resources {
 };
 
 struct device_io_topology {
-    util::spinlock lock;
-
     device_io_topology() noexcept = default;
     device_io_topology(const io_queue_topology& iot) noexcept {}
 };
