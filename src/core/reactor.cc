@@ -3896,36 +3896,32 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
 
     auto alloc_io_queues = [&ioq_topology, &disk_config] (shard_id shard) {
         for (auto& topo : ioq_topology) {
+            auto& io_info = topo.second;
+            auto group_idx = io_info.shard_to_group[shard];
+            std::shared_ptr<io_group> group;
 
-        auto& io_info = topo.second;
-        auto group_idx = io_info.shard_to_group[shard];
-        std::shared_ptr<io_group> group;
-
-        {
-            std::lock_guard _(io_info.lock);
-            auto& iog = io_info.groups[group_idx];
-            if (iog.attached == 0) {
-                struct io_queue::config qcfg = disk_config.generate_config(topo.first, io_info.groups.size());
-                iog.g = std::make_shared<io_group>(std::move(qcfg));
-                seastar_logger.debug("allocate {} IO group", group_idx);
+            {
+                std::lock_guard _(io_info.lock);
+                auto& iog = io_info.groups[group_idx];
+                if (iog.attached == 0) {
+                    struct io_queue::config qcfg = disk_config.generate_config(topo.first, io_info.groups.size());
+                    iog.g = std::make_shared<io_group>(std::move(qcfg));
+                    seastar_logger.debug("allocate {} IO group", group_idx);
+                }
+                iog.attached++;
+                group = iog.g;
             }
-            iog.attached++;
-            group = iog.g;
-        }
 
-        io_info.queues[shard] = std::make_unique<io_queue>(std::move(group), engine()._io_sink);
-        seastar_logger.debug("attached {} queue to {} IO group", shard, group_idx);
-
+            io_info.queues[shard] = std::make_unique<io_queue>(std::move(group), engine()._io_sink);
+            seastar_logger.debug("attached {} queue to {} IO group", shard, group_idx);
         }
     };
 
     auto assign_io_queues = [&ioq_topology] (shard_id shard) {
         for (auto& topo : ioq_topology) {
-
-        auto queue = std::move(topo.second.queues[shard]);
-        assert(queue);
-        engine()._io_queues.emplace(topo.first, std::move(queue));
-
+            auto queue = std::move(topo.second.queues[shard]);
+            assert(queue);
+            engine()._io_queues.emplace(topo.first, std::move(queue));
         }
     };
 
