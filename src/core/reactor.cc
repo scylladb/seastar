@@ -3894,7 +3894,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
 
     auto ioq_topology = std::move(resources.ioq_topology);
 
-    auto alloc_io_queue = [&ioq_topology, &disk_config] (unsigned shard, dev_t id) {
+    auto alloc_io_queue = [&ioq_topology, &disk_config] (shard_id shard, dev_t id) {
         auto& io_info = ioq_topology.at(id);
         auto group_idx = io_info.shard_to_group[shard];
         std::shared_ptr<io_group> group;
@@ -3915,8 +3915,8 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
         seastar_logger.debug("attached {} queue to {} IO group", shard, group_idx);
     };
 
-    auto assign_io_queue = [&ioq_topology] (shard_id shard_id, dev_t dev_id) {
-        auto queue = std::move(ioq_topology[dev_id].queues[shard_id]);
+    auto assign_io_queue = [&ioq_topology] (shard_id shard, dev_t dev_id) {
+        auto queue = std::move(ioq_topology[dev_id].queues[shard]);
         assert(queue);
         engine()._io_queues.emplace(dev_id, std::move(queue));
     };
