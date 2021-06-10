@@ -52,26 +52,9 @@ struct iocb;
 using shard_id = unsigned;
 
 class io_priority_class;
-class io_queue;
 class io_desc_read_write;
 class queued_io_request;
-
-class io_group {
-public:
-    struct config {
-        unsigned max_req_count = std::numeric_limits<int>::max();
-        unsigned max_bytes_count = std::numeric_limits<int>::max();
-        unsigned disk_req_write_to_read_multiplier;
-    };
-    explicit io_group(config cfg) noexcept;
-
-private:
-    friend class io_queue;
-    fair_group _fg;
-    const unsigned _max_bytes_count;
-
-    static fair_group::config make_fair_group_config(config cfg) noexcept;
-};
+class io_group;
 
 using io_group_ptr = std::shared_ptr<io_group>;
 class priority_class_data;
@@ -107,6 +90,8 @@ public:
     struct config {
         dev_t devid;
         unsigned capacity = std::numeric_limits<unsigned>::max();
+        unsigned max_req_count = std::numeric_limits<int>::max();
+        unsigned max_bytes_count = std::numeric_limits<int>::max();
         unsigned disk_req_write_to_read_multiplier = read_request_base_count;
         unsigned disk_bytes_write_to_read_multiplier = read_request_base_count;
         float disk_us_per_request = 0;
@@ -116,7 +101,7 @@ public:
         sstring mountpoint = "undefined";
     };
 
-    io_queue(io_group_ptr group, internal::io_sink& sink, config cfg);
+    io_queue(io_group_ptr group, internal::io_sink& sink);
     ~io_queue();
 
     fair_queue_ticket request_fq_ticket(const internal::io_request& req, size_t len) const;
@@ -127,9 +112,7 @@ public:
     void cancel_request(queued_io_request& req) noexcept;
     void complete_cancelled_request(queued_io_request& req) noexcept;
 
-    [[deprecated("modern I/O queues should use a property file")]] size_t capacity() const {
-        return _config.capacity;
-    }
+    [[deprecated("modern I/O queues should use a property file")]] size_t capacity() const;
 
     [[deprecated("I/O queue users should not track individual requests, but resources (weight, size) passing through the queue")]]
     size_t queued_requests() const {
@@ -151,13 +134,8 @@ public:
         return _fq.next_pending_aio();
     }
 
-    sstring mountpoint() const {
-        return _config.mountpoint;
-    }
-
-    dev_t dev_id() const noexcept {
-        return _config.devid;
-    }
+    sstring mountpoint() const;
+    dev_t dev_id() const noexcept;
 
     future<> update_shares_for_class(io_priority_class pc, size_t new_shares);
     void rename_priority_class(io_priority_class pc, sstring new_name);
@@ -170,8 +148,37 @@ public:
     request_limits get_request_limits() const noexcept;
 
 private:
-    config _config;
     static fair_queue::config make_fair_queue_config(config cfg);
+
+    const config& get_config() const noexcept;
 };
+
+class io_group {
+public:
+    explicit io_group(io_queue::config io_cfg) noexcept;
+
+private:
+    friend class io_queue;
+    fair_group _fg;
+    const io_queue::config _config;
+
+    static fair_group::config make_fair_group_config(io_queue::config qcfg) noexcept;
+};
+
+inline const io_queue::config& io_queue::get_config() const noexcept {
+    return _group->_config;
+}
+
+inline size_t io_queue::capacity() const {
+    return get_config().capacity;
+}
+
+inline sstring io_queue::mountpoint() const {
+    return get_config().mountpoint;
+}
+
+inline dev_t io_queue::dev_id() const noexcept {
+    return get_config().devid;
+}
 
 }

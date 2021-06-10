@@ -3651,45 +3651,21 @@ public:
         _mountpoints.emplace(0, d);
     }
 
-    struct io_group::config generate_group_config(dev_t devid, unsigned nr_groups) const noexcept {
-        seastar_logger.debug("generate_group_config dev_id: {}", devid);
-        const mountpoint_params& p = _mountpoints.at(devid);
-        struct io_group::config cfg;
-
-        cfg.disk_req_write_to_read_multiplier = io_queue::read_request_base_count;
-
-        if (!_capacity) {
-            if (p.read_bytes_rate != std::numeric_limits<uint64_t>::max()) {
-                cfg.max_bytes_count = io_queue::read_request_base_count * per_io_group(p.read_bytes_rate * latency_goal().count(), nr_groups);
-            }
-            if (p.read_req_rate != std::numeric_limits<uint64_t>::max()) {
-                cfg.max_req_count = io_queue::read_request_base_count * per_io_group(p.read_req_rate * latency_goal().count(), nr_groups);
-                cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
-            }
-        } else {
-            // Legacy configuration when only concurrency is specified.
-            cfg.max_req_count = io_queue::read_request_base_count * std::min(*_capacity, reactor::max_aio_per_queue);
-            // specify size in terms of 16kB IOPS.
-            cfg.max_bytes_count = io_queue::read_request_base_count * (cfg.max_req_count << 14);
-        }
-        return cfg;
-    }
-
-    struct io_queue::config generate_config(dev_t devid) const {
+    struct io_queue::config generate_config(dev_t devid, unsigned nr_groups) const {
         seastar_logger.debug("generate_config dev_id: {}", devid);
         const mountpoint_params& p = _mountpoints.at(devid);
         struct io_queue::config cfg;
 
         cfg.devid = devid;
-        cfg.disk_bytes_write_to_read_multiplier = io_queue::read_request_base_count;
-        cfg.disk_req_write_to_read_multiplier = io_queue::read_request_base_count;
 
         if (!_capacity) {
             if (p.read_bytes_rate != std::numeric_limits<uint64_t>::max()) {
+                cfg.max_bytes_count = io_queue::read_request_base_count * per_io_group(p.read_bytes_rate * latency_goal().count(), nr_groups);
                 cfg.disk_bytes_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
                 cfg.disk_us_per_byte = 1000000. / p.read_bytes_rate;
             }
             if (p.read_req_rate != std::numeric_limits<uint64_t>::max()) {
+                cfg.max_req_count = io_queue::read_request_base_count * per_io_group(p.read_req_rate * latency_goal().count(), nr_groups);
                 cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
                 cfg.disk_us_per_request = 1000000. / p.read_req_rate;
             }
@@ -3703,6 +3679,10 @@ public:
         } else {
             // For backwards compatibility
             cfg.capacity = *_capacity;
+            // Legacy configuration when only concurrency is specified.
+            cfg.max_req_count = io_queue::read_request_base_count * std::min(*_capacity, reactor::max_aio_per_queue);
+            // specify size in terms of 16kB IOPS.
+            cfg.max_bytes_count = io_queue::read_request_base_count * (cfg.max_req_count << 14);
         }
         return cfg;
     }
@@ -3929,16 +3909,15 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
             std::lock_guard _(topology.lock);
             resource::device_io_topology::group& iog = topology.groups[group_idx];
             if (iog.attached == 0) {
-                struct io_group::config gcfg = disk_config.generate_group_config(id, topology.groups.size());
-                iog.g = std::make_shared<io_group>(std::move(gcfg));
+                struct io_queue::config qcfg = disk_config.generate_config(id, topology.groups.size());
+                iog.g = std::make_shared<io_group>(std::move(qcfg));
                 seastar_logger.debug("allocate {} IO group", group_idx);
             }
             iog.attached++;
             group = iog.g;
         }
 
-        struct io_queue::config cfg = disk_config.generate_config(id);
-        topology.queues[shard] = new io_queue(std::move(group), engine()._io_sink, std::move(cfg));
+        topology.queues[shard] = new io_queue(std::move(group), engine()._io_sink);
         seastar_logger.debug("attached {} queue to {} IO group", shard, group_idx);
     };
 

@@ -291,18 +291,18 @@ fair_queue::config io_queue::make_fair_queue_config(config iocfg) {
     return cfg;
 }
 
-io_queue::io_queue(io_group_ptr group, internal::io_sink& sink, io_queue::config cfg)
+io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     : _priority_classes()
     , _group(std::move(group))
-    , _fq(_group->_fg, make_fair_queue_config(cfg))
+    , _fq(_group->_fg, make_fair_queue_config(_group->_config))
     , _sink(sink)
-    , _config(std::move(cfg)) {
+{
     seastar_logger.debug("Created io queue, multipliers {}:{}",
-            cfg.disk_req_write_to_read_multiplier,
-            cfg.disk_bytes_write_to_read_multiplier);
+            get_config().disk_req_write_to_read_multiplier,
+            get_config().disk_bytes_write_to_read_multiplier);
 }
 
-fair_group::config io_group::make_fair_group_config(config iocfg) noexcept {
+fair_group::config io_group::make_fair_group_config(io_queue::config qcfg) noexcept {
     /*
      * It doesn't make sense to configure requests limit higher than
      * it can be if the queue is full of minimal requests. At the same
@@ -313,9 +313,9 @@ fair_group::config io_group::make_fair_group_config(config iocfg) noexcept {
      * rovers are configured in blocks (ticket size shift), and this
      * already makes a good protection.
      */
-    auto max_req_count = std::min(iocfg.max_req_count,
-        iocfg.max_bytes_count / io_queue::minimal_request_size);
-    auto max_req_count_min = std::max(io_queue::read_request_base_count, iocfg.disk_req_write_to_read_multiplier);
+    auto max_req_count = std::min(qcfg.max_req_count,
+        qcfg.max_bytes_count / io_queue::minimal_request_size);
+    auto max_req_count_min = std::max(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
     /*
      * Read requests weight read_request_base_count, writes weight
      * disk_req_write_to_read_multiplier. The fair queue limit must
@@ -328,13 +328,13 @@ fair_group::config io_group::make_fair_group_config(config iocfg) noexcept {
         max_req_count = max_req_count_min;
     }
     return fair_group::config(max_req_count,
-        iocfg.max_bytes_count >> io_queue::request_ticket_size_shift);
+        qcfg.max_bytes_count >> io_queue::request_ticket_size_shift);
 }
 
-io_group::io_group(config cfg) noexcept
-    : _fg(make_fair_group_config(cfg))
-    , _max_bytes_count(cfg.max_bytes_count) {
-    seastar_logger.debug("Created io group, limits {}:{}", cfg.max_req_count, cfg.max_bytes_count);
+io_group::io_group(io_queue::config io_cfg) noexcept
+    : _fg(make_fair_group_config(io_cfg))
+    , _config(io_cfg) {
+    seastar_logger.debug("Created io group, limits {}:{}", io_cfg.max_req_count, io_cfg.max_bytes_count);
 }
 
 io_queue::~io_queue() {
@@ -522,8 +522,8 @@ fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, s
     unsigned weight;
     size_t size;
     if (req.is_write()) {
-        weight = _config.disk_req_write_to_read_multiplier;
-        size = _config.disk_bytes_write_to_read_multiplier * len;
+        weight = get_config().disk_req_write_to_read_multiplier;
+        size = get_config().disk_bytes_write_to_read_multiplier * len;
     } else if (req.is_read()) {
         weight = io_queue::read_request_base_count;
         size = io_queue::read_request_base_count * len;
@@ -533,15 +533,15 @@ fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, s
 
     static thread_local size_t oversize_warning_threshold = 0;
 
-    if (size >= _group->_max_bytes_count) {
+    if (size >= get_config().max_bytes_count) {
         if (size > oversize_warning_threshold) {
             oversize_warning_threshold = size;
             io_log.warn("oversized request (length {}) submitted. "
                 "dazed and confuzed, trimming its weight from {} down to {}", len,
                 size >> request_ticket_size_shift,
-                _group->_max_bytes_count >> request_ticket_size_shift);
+                get_config().max_bytes_count >> request_ticket_size_shift);
         }
-        size = _group->_max_bytes_count;
+        size = get_config().max_bytes_count;
     }
 
     return fair_queue_ticket(weight, size >> request_ticket_size_shift);
@@ -549,8 +549,8 @@ fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, s
 
 io_queue::request_limits io_queue::get_request_limits() const noexcept {
     request_limits l;
-    l.max_read = align_down<size_t>(std::min<size_t>(_config.disk_read_saturation_length, _group->_max_bytes_count / read_request_base_count), minimal_request_size);
-    l.max_write = align_down<size_t>(std::min<size_t>(_config.disk_write_saturation_length, _group->_max_bytes_count / _config.disk_bytes_write_to_read_multiplier), minimal_request_size);
+    l.max_read = align_down<size_t>(std::min<size_t>(get_config().disk_read_saturation_length, get_config().max_bytes_count / read_request_base_count), minimal_request_size);
+    l.max_write = align_down<size_t>(std::min<size_t>(get_config().disk_write_saturation_length, get_config().max_bytes_count / get_config().disk_bytes_write_to_read_multiplier), minimal_request_size);
     return l;
 }
 
@@ -609,7 +609,7 @@ void
 io_queue::rename_priority_class(io_priority_class pc, sstring new_name) {
     if (_priority_classes.size() > pc.id() &&
             _priority_classes[pc.id()]) {
-        _priority_classes[pc.id()]->rename(new_name, _config.mountpoint);
+        _priority_classes[pc.id()]->rename(new_name, get_config().mountpoint);
     }
 }
 
