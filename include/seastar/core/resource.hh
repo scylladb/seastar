@@ -60,9 +60,6 @@ struct memory {
 
 };
 
-// Since this is static information, we will keep a copy at each CPU.
-// This will allow us to easily find who is the IO coordinator for a given
-// node without a trip to a remote CPU.
 struct io_queue_topology {
     std::vector<std::unique_ptr<io_queue>> queues;
     std::vector<unsigned> shard_to_group;

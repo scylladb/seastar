@@ -3894,6 +3894,17 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
 
     auto ioq_topology = std::move(resources.ioq_topology);
 
+    // ATTN: The ioq_topology value is referenced by below lambdas which are
+    // then copied to other shard's threads, so each shard has a copy of the
+    // ioq_topology on stack, but (!) still references and uses the value
+    // from shard-0. This access is race-free because
+    //  1. The .shard_to_group is not modified
+    //  2. The .queues is pre-resize()-d in advance, so the vector itself
+    //     doesn't change; existing slots are accessed by owning shards only
+    //     without interference
+    //  3. The .groups manipulations are guarded by the .lock lock (but it's
+    //     also pre-resize()-d in advance)
+
     auto alloc_io_queues = [&ioq_topology, &disk_config] (shard_id shard) {
         for (auto& topo : ioq_topology) {
             auto& io_info = topo.second;
