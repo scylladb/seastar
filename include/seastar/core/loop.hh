@@ -687,7 +687,7 @@ max_concurrent_for_each(Iterator begin, Iterator end, size_t max_concurrent, Fun
 
 /// Run a maximum of \c max_concurrent tasks in parallel (range version).
 ///
-/// Given a range [\c begin, \c end) of objects, run \c func on each \c *i in
+/// Given a range of objects, run \c func on each \c *i in
 /// the range, and return a future<> that resolves when all the functions
 /// complete.  \c func should return a future<> that indicates when it is
 /// complete.  Up to \c max_concurrent invocations are performed in parallel.
@@ -695,8 +695,7 @@ max_concurrent_for_each(Iterator begin, Iterator end, size_t max_concurrent, Fun
 /// must ensure that the range outlives the call to max_concurrent_for_each
 /// so it can be iterated in the background.
 ///
-/// \param begin an \c InputIterator designating the beginning of the range
-/// \param end an \c InputIterator designating the end of the range
+/// \param range a \c Range to be processed
 /// \param max_concurrent maximum number of concurrent invocations of \c func, must be greater than zero.
 /// \param func Function to invoke with each element in the range (returning
 ///             a \c future<>)
