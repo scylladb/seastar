@@ -254,6 +254,9 @@ public:
 
         auto af = family ? int(*family) : AF_UNSPEC;
 
+// The following pragma is needed to work around a false-positive warning
+// in Gcc 11 (see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=96003).
+#pragma GCC diagnostic ignored "-Wnonnull"
         ares_gethostbyname(_channel, p->name.c_str(), af, [](void* arg, int status, int timeouts, ::hostent* host) {
             // we do potentially allocating operations below, so wrap the pointer in a
             // unique here.
