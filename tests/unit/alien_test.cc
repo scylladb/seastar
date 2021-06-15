@@ -61,7 +61,7 @@ int main(int argc, char** argv)
         std::vector<std::future<int>> counts;
         for (auto i : boost::irange(0u, smp::count)) {
             // send messages from alien.
-            counts.push_back(alien::submit_to(i, [i] {
+            counts.push_back(alien::submit_to(app.alien(), i, [i] {
                 return seastar::make_ready_future<int>(i);
             }));
         }
