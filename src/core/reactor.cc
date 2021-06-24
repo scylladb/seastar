@@ -3894,38 +3894,45 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
 
     auto ioq_topology = std::move(resources.ioq_topology);
 
-    std::unordered_map<dev_t, resource::device_io_topology> devices_topology;
+    // ATTN: The ioq_topology value is referenced by below lambdas which are
+    // then copied to other shard's threads, so each shard has a copy of the
+    // ioq_topology on stack, but (!) still references and uses the value
+    // from shard-0. This access is race-free because
+    //  1. The .shard_to_group is not modified
+    //  2. The .queues is pre-resize()-d in advance, so the vector itself
+    //     doesn't change; existing slots are accessed by owning shards only
+    //     without interference
+    //  3. The .groups manipulations are guarded by the .lock lock (but it's
+    //     also pre-resize()-d in advance)
 
-    for (auto& id : disk_config.device_ids()) {
-        auto io_info = ioq_topology.at(id);
-        devices_topology.emplace(id, io_info);
-    }
+    auto alloc_io_queues = [&ioq_topology, &disk_config] (shard_id shard) {
+        for (auto& topo : ioq_topology) {
+            auto& io_info = topo.second;
+            auto group_idx = io_info.shard_to_group[shard];
+            std::shared_ptr<io_group> group;
 
-    auto alloc_io_queue = [&ioq_topology, &devices_topology, &disk_config] (unsigned shard, dev_t id) {
-        auto io_info = ioq_topology.at(id);
-        auto group_idx = io_info.shard_to_group[shard];
-        resource::device_io_topology& topology = devices_topology[id];
-        std::shared_ptr<io_group> group;
-
-        {
-            std::lock_guard _(topology.lock);
-            resource::device_io_topology::group& iog = topology.groups[group_idx];
-            if (iog.attached == 0) {
-                struct io_queue::config qcfg = disk_config.generate_config(id, topology.groups.size());
-                iog.g = std::make_shared<io_group>(std::move(qcfg));
-                seastar_logger.debug("allocate {} IO group", group_idx);
+            {
+                std::lock_guard _(io_info.lock);
+                auto& iog = io_info.groups[group_idx];
+                if (!iog) {
+                    struct io_queue::config qcfg = disk_config.generate_config(topo.first, io_info.groups.size());
+                    iog = std::make_shared<io_group>(std::move(qcfg));
+                    seastar_logger.debug("allocate {} IO group", group_idx);
+                }
+                group = iog;
             }
-            iog.attached++;
-            group = iog.g;
-        }
 
-        topology.queues[shard] = new io_queue(std::move(group), engine()._io_sink);
-        seastar_logger.debug("attached {} queue to {} IO group", shard, group_idx);
+            io_info.queues[shard] = std::make_unique<io_queue>(std::move(group), engine()._io_sink);
+            seastar_logger.debug("attached {} queue to {} IO group", shard, group_idx);
+        }
     };
 
-    auto assign_io_queue = [&devices_topology] (shard_id shard_id, dev_t dev_id) {
-        io_queue* queue = devices_topology[dev_id].queues[shard_id];
-        engine()._io_queues.emplace(dev_id, queue);
+    auto assign_io_queues = [&ioq_topology] (shard_id shard) {
+        for (auto& topo : ioq_topology) {
+            auto queue = std::move(topo.second.queues[shard]);
+            assert(queue);
+            engine()._io_queues.emplace(topo.first, std::move(queue));
+        }
     };
 
     _all_event_loops_done.emplace(smp::count);
@@ -3936,7 +3943,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     auto smp_tmain = smp::_tmain;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, configuration, &reactors, &disk_config, hugepages_path, i, allocation, assign_io_queue, alloc_io_queue, thread_affinity, heapprof_enabled, mbind, backend_selector, reactor_cfg] {
+        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, configuration, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_enabled, mbind, backend_selector, reactor_cfg] {
           try {
             // initialize thread_locals that are equal across all reacto threads of this smp instance
             smp::_tmain = smp_tmain;
@@ -3959,17 +3966,13 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
             init_default_smp_service_group(i);
             allocate_reactor(i, backend_selector, reactor_cfg);
             reactors[i] = &engine();
-            for (auto& dev_id : disk_config.device_ids()) {
-                alloc_io_queue(i, dev_id);
-            }
+            alloc_io_queues(i);
             reactors_registered.wait();
             smp_queues_constructed.wait();
             // _qs_owner is only initialized here
             _qs = _qs_owner.get();
             start_all_queues();
-            for (auto& dev_id : disk_config.device_ids()) {
-                assign_io_queue(i, dev_id);
-            }
+            assign_io_queues(i);
             inited->wait();
             engine().configure(configuration);
             engine().run();
@@ -3989,9 +3992,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     }
 
     reactors[0] = &engine();
-    for (auto& dev_id : disk_config.device_ids()) {
-        alloc_io_queue(0, dev_id);
-    }
+    alloc_io_queues(0);
 
 #ifdef SEASTAR_HAVE_DPDK
     if (_using_dpdk) {
@@ -4014,9 +4015,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     _alien._qs = alien::instance::create_qs(reactors);
     smp_queues_constructed.wait();
     start_all_queues();
-    for (auto& dev_id : disk_config.device_ids()) {
-        assign_io_queue(0, dev_id);
-    }
+    assign_io_queues(0);
     inited->wait();
 
     engine().configure(configuration);
