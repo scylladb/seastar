@@ -101,8 +101,10 @@ std::pmr::polymorphic_allocator<char>* malloc_allocator{&static_malloc_allocator
 namespace internal {
 
 #ifdef __cpp_constinit
+#define SEASTAR_CONSTINIT constinit
 thread_local constinit int critical_alloc_section = 0;
 #else
+#define SEASTAR_CONSTINIT
 __thread int critical_alloc_section = 0;
 #endif
 
@@ -206,7 +208,7 @@ enum class types { allocs, frees, cross_cpu_frees, reclaims, large_allocs, forei
 using stats_array = std::array<uint64_t, static_cast<std::size_t>(types::enum_size)>;
 using stats_atomic_array = std::array<std::atomic_uint64_t, static_cast<std::size_t>(types::enum_size)>;
 
-thread_local stats_array stats;
+static thread_local SEASTAR_CONSTINIT stats_array stats{};
 std::array<stats_atomic_array, max_cpus> alien_stats{};
 
 static void increment_local(types stat_type, uint64_t size = 1) {
