@@ -21,11 +21,14 @@
 
 #include <exception>
 
+#include <boost/range/irange.hpp>
+
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 
 #include <seastar/core/gate.hh>
 #include <seastar/util/closeable.hh>
+#include <seastar/core/loop.hh>
 
 using namespace seastar;
 
@@ -191,6 +194,100 @@ SEASTAR_TEST_CASE(with_stoppable_exception_test) {
             // cs.stop() should be called before count_stops is destroyed
             // also when func throws
             BOOST_REQUIRE_EQUAL(stopped, 1);
+        });
+    });
+}
+
+SEASTAR_THREAD_TEST_CASE(gate_holder_basic_test) {
+    gate g;
+    auto gh = g.hold();
+    auto fut = g.close();
+    BOOST_CHECK(!fut.available());
+    gh.release();
+    fut.get();
+}
+
+SEASTAR_THREAD_TEST_CASE(gate_holder_closed_test) {
+    gate g;
+    g.close().get();
+    BOOST_REQUIRE_THROW(g.hold(), gate_closed_exception);
+}
+
+SEASTAR_THREAD_TEST_CASE(gate_holder_move_test) {
+    gate g;
+    auto gh0 = g.hold();
+    auto fut = g.close();
+    BOOST_CHECK(!fut.available());
+    auto gh1 = std::move(gh0);
+    BOOST_CHECK(!fut.available());
+    gh1.release();
+    fut.get();
+}
+
+SEASTAR_THREAD_TEST_CASE(gate_holder_copy_test) {
+    gate g;
+    auto gh0 = g.hold();
+    auto gh1 = gh0;
+    auto fut = g.close();
+    BOOST_CHECK(!fut.available());
+    gh0.release();
+    BOOST_CHECK(!fut.available());
+    gh1.release();
+    fut.get();
+}
+
+SEASTAR_THREAD_TEST_CASE(gate_holder_copy_and_move_test) {
+    gate g0;
+    auto gh00 = g0.hold();
+    auto gh01 = gh00;
+    auto fut0 = g0.close();
+    BOOST_CHECK(!fut0.available());
+    gate g1;
+    auto gh1 = g1.hold();
+    auto fut1 = g1.close();
+    BOOST_CHECK(!fut1.available());
+    gh01.release();
+    BOOST_CHECK(!fut0.available());
+    BOOST_CHECK(!fut1.available());
+    gh00 = std::move(gh1);
+    fut0.get();
+    BOOST_CHECK(!fut1.available());
+    gh00.release();
+    fut1.get();
+}
+
+SEASTAR_THREAD_TEST_CASE(gate_holder_copy_after_close_test) {
+    gate g;
+    auto gh0 = g.hold();
+    auto fut = g.close();
+    BOOST_CHECK(g.is_closed());
+    gate::holder gh1 = gh0;
+    BOOST_CHECK(!fut.available());
+    gh0.release();
+    BOOST_CHECK(!fut.available());
+    gh1.release();
+    fut.get();
+}
+
+SEASTAR_TEST_CASE(gate_holder_parallel_copy_test) {
+    constexpr int expected = 42;
+    return do_with(0, [expected] (int& count) {
+        return with_closeable(gate(), [&] (gate& g) {
+            auto gh = g.hold();
+            // Copying the gate::holder in the lambda below should keep it open
+            // until all instances complete
+            (void)parallel_for_each(boost::irange(0, expected), [&count, gh = gh] (int) {
+                count++;
+                return make_ready_future<>();
+            });
+            return 17;
+        }).then([&, expected] (int res) {
+            // res should be returned by the function called
+            // by with_closeable.
+            BOOST_REQUIRE_EQUAL(res, 17);
+            // closing the gate should wait for
+            // all background continuations to complete
+            BOOST_REQUIRE_EQUAL(count, expected);
         });
     });
 }

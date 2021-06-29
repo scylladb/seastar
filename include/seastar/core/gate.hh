@@ -122,6 +122,94 @@ public:
     bool is_closed() const noexcept {
         return bool(_stopped);
     }
+
+    /// Facility to hold a gate opened using RAII.
+    ///
+    /// A \ref gate::holder is usually obtained using \ref gate::get_holder.
+    ///
+    /// The \c gate is entered when the \ref gate::holder is constructed,
+    /// And the \c gate is left when the \ref gate::holder is destroyed.
+    ///
+    /// Copying the \ref gate::holder reenters the \c gate to keep an extra reference on it.
+    /// Moving the \ref gate::holder is supported and has no effect on the \c gate itself.
+    class holder {
+        gate* _g;
+
+    public:
+        /// Construct a default \ref holder, referencing no \ref gate.
+        /// Never throws.
+        holder() noexcept : _g(nullptr) { }
+
+        /// Construct a \ref holder by entering the \c gate.
+        /// May throw \ref gate_closed_exception if the gate is already closed.
+        explicit holder(gate& g) : _g(&g) {
+            _g->enter();
+        }
+
+        /// Construct a \ref holder by copying another \c holder.
+        /// Copying a holder never throws: The original holder has already entered the gate,
+        /// so even if later the gate was \ref close "close()d", the copy of the holder is also allowed to enter too.
+        /// Note that the fiber waiting for the close(), which until now was waiting for the one holder to leave,
+        /// will now wait for both copies to leave.
+        holder(const holder& x) noexcept : _g(x._g) {
+            if (_g) {
+                _g->_count++;
+            }
+        }
+
+        /// Construct a \ref holder by moving another \c holder.
+        /// The referenced \ref gate is unaffected, and so the
+        /// move-constructor must never throw.
+        holder(holder&& x) noexcept : _g(std::exchange(x._g, nullptr)) { }
+
+        /// Destroy a \ref holder and leave the referenced \ref gate.
+        ~holder() {
+            release();
+        }
+
+        /// Copy-assign another \ref holder.
+        /// \ref leave "Leave()" the current \ref gate before assigning the other one, if they are different.
+        /// Copying a holder never throws: The original holder has already entered the gate,
+        /// so even if later the gate was \ref close "close()d", the copy of the holder is also allowed to enter too.
+        /// Note that the fiber waiting for the close(), which until now was waiting for the one holder to leave,
+        /// will now wait for both copies to leave.
+        holder& operator=(const holder& x) noexcept {
+            if (x._g != _g) {
+                release();
+                _g = x._g;
+                if (_g) {
+                    _g->_count++;
+                }
+            }
+            return *this;
+        }
+
+        /// Move-assign another \ref holder.
+        /// The other \ref gate is unaffected,
+        /// and so the move-assign operator must always succeed.
+        /// Leave the current \ref gate before assigning the other one.
+        holder& operator=(holder&& x) noexcept {
+            if (&x != this) {
+                release();
+                _g = std::exchange(x._g, nullptr);
+            }
+            return *this;
+        }
+
+        /// Leave the held \c gate
+        void release() noexcept {
+            if (_g) {
+                _g->leave();
+                _g = nullptr;
+            }
+        }
+    };
+
+    /// Get a RAII-based gate::holder object that \ref enter "enter()s"
+    /// the gate when constructed and \ref leave "leave()s" it when destroyed.
+    holder hold() {
+        return holder(*this);
+    }
 };
 
 namespace internal {
