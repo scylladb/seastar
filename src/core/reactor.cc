@@ -3681,9 +3681,11 @@ public:
             // For backwards compatibility
             cfg.capacity = *_capacity;
             // Legacy configuration when only concurrency is specified.
-            cfg.max_req_count = io_queue::read_request_base_count * std::min(*_capacity, reactor::max_aio_per_queue);
+            unsigned max_req_count = std::min(*_capacity, reactor::max_aio_per_queue);
+            cfg.max_req_count = io_queue::read_request_base_count * max_req_count;
             // specify size in terms of 16kB IOPS.
-            cfg.max_bytes_count = io_queue::read_request_base_count * (cfg.max_req_count << 14);
+            static_assert(reactor::max_aio_per_queue << 14 <= std::numeric_limits<decltype(cfg.max_bytes_count)>::max() / io_queue::read_request_base_count);
+            cfg.max_bytes_count = io_queue::read_request_base_count * (max_req_count << 14);
         }
         return cfg;
     }
