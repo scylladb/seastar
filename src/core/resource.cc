@@ -462,6 +462,10 @@ resources allocate(configuration c) {
     hwloc_topology_init(&topology);
     auto free_hwloc = defer([&] { hwloc_topology_destroy(topology); });
     hwloc_topology_load(topology);
+
+    // number of processing units before potentially restricting
+    // the topology with cpu_set
+    unsigned unrestricted_available_procs = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
     if (c.cpu_set) {
         auto bm = hwloc_bitmap_alloc();
         auto free_bm = defer([&] { hwloc_bitmap_free(bm); });
@@ -499,7 +503,10 @@ resources allocate(configuration c) {
     unsigned available_procs = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
     unsigned procs = c.cpus.value_or(available_procs);
     if (procs > available_procs) {
-        throw std::runtime_error("insufficient processing units");
+        if (c.cpu_set && unrestricted_available_procs > available_procs) {
+            seastar_logger.warn("cpuset configuration restricted the number of available processing units from {} to {}", unrestricted_available_procs, available_procs);
+        }
+        throw std::runtime_error(format("insufficient processing units: requested {} available {}", procs, available_procs));
     }
     // limit memory address to fit in 36-bit, see core/memory.cc:Memory map
     constexpr size_t max_mem_per_proc = 1UL << 36;
