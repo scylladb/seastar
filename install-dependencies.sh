@@ -42,8 +42,6 @@ debian_packages=(
     libsctp-dev
     gcc
     make
-    libprotobuf-dev
-    protobuf-compiler
     python3
     systemtap-sdt-dev
     libtool
@@ -79,8 +77,6 @@ redhat_packages=(
     lz4-devel
     gcc
     make
-    protobuf-devel
-    protobuf-compiler
     python3
     systemtap-sdt-devel
     libtool
@@ -156,7 +152,6 @@ arch_packages=(
     lksctp-tools
     lz4
     make
-    protobuf
     libtool
     cmake
     yaml-cpp
@@ -197,7 +192,7 @@ opensuse_packages=(
     liblz4-devel
     libnuma-devel
     lksctp-tools-devel
-    ninja protobuf-devel
+    ninja
     ragel
     xfsprogs-devel
     yaml-cpp-devel

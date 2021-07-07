@@ -177,15 +177,6 @@ cooking_ingredient (GnuTLS
     BUILD_COMMAND <DISABLE>
     INSTALL_COMMAND ${make_command} install)
 
-cooking_ingredient (Protobuf
-  REQUIRES zlib
-  EXTERNAL_PROJECT_ARGS
-    URL https://github.com/protocolbuffers/protobuf/releases/download/v3.3.0/protobuf-cpp-3.3.0.tar.gz
-    URL_MD5 73c28d3044e89782bdc8d9fdcfbb5792
-    CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --srcdir=<SOURCE_DIR>
-    BUILD_COMMAND <DISABLE>
-    INSTALL_COMMAND ${make_command} install)
-
 cooking_ingredient (hwloc
   REQUIRES
     numactl
