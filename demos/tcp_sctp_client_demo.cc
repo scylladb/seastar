@@ -47,8 +47,8 @@ private:
     unsigned _concurrent_connections;
     ipv4_addr _server_addr;
     std::string _test;
-    lowres_clock::time_point _earliest_started;
-    lowres_clock::time_point _latest_finished;
+    lowres_clock::time_point _earliest_started = lowres_clock::time_point::max();
+    lowres_clock::time_point _latest_finished = lowres_clock::time_point::min();
     size_t _processed_bytes;
     unsigned _num_reported;
 public:
