@@ -824,7 +824,7 @@ reactor::task_queue::task_queue(unsigned id, sstring name, float shares)
         : _shares(std::max(shares, 1.0f))
         , _reciprocal_shares_times_2_power_32((uint64_t(1) << 32) / _shares)
         , _id(id)
-        , _ts(sched_clock::now())
+        , _ts(now())
         , _name(name) {
     register_stats();
 }
@@ -1094,7 +1094,7 @@ void cpu_stall_detector::update_config(cpu_stall_detector_config cfg) {
     _slack = std::chrono::duration_cast<sched_clock::duration>(cfg.threshold * cfg.slack);
     _stall_detector_reports_per_minute = cfg.stall_detector_reports_per_minute;
     _max_reports_per_minute = cfg.stall_detector_reports_per_minute;
-    _rearm_timer_at = sched_clock::now();
+    _rearm_timer_at = reactor::now();
 }
 
 void cpu_stall_detector::maybe_report() {
@@ -1165,7 +1165,7 @@ void cpu_stall_detector::end_task_run(sched_clock::time_point now) {
 void cpu_stall_detector::start_sleep() {
     auto its = posix::to_relative_itimerspec(0s,  0s);
     timer_settime(_timer, 0, &its, nullptr);
-    _rearm_timer_at = sched_clock::now();
+    _rearm_timer_at = reactor::now();
 }
 
 void cpu_stall_detector::end_sleep() {
@@ -1206,7 +1206,7 @@ reactor::block_notifier(int) {
 
 void
 cpu_stall_detector::generate_trace() {
-    auto delta = sched_clock::now() - _run_started_at;
+    auto delta = reactor::now() - _run_started_at;
 
     _total_reported++;
     if (_config.report) {
@@ -2626,7 +2626,7 @@ reactor::run_some_tasks() {
     sched_print("run_some_tasks: start");
     reset_preemption_monitor();
 
-    sched_clock::time_point t_run_completed = sched_clock::now();
+    sched_clock::time_point t_run_completed = now();
     STAP_PROBE(seastar, reactor_run_tasks_start);
     _cpu_stall_detector->start_task_run(t_run_completed);
     do {
@@ -2638,7 +2638,7 @@ reactor::run_some_tasks() {
         _last_vruntime = std::max(tq->_vruntime, _last_vruntime);
         run_tasks(*tq);
         tq->_current = false;
-        t_run_completed = sched_clock::now();
+        t_run_completed = now();
         auto delta = t_run_completed - t_run_started;
         account_runtime(*tq, delta);
         sched_print("run complete ({} {}); time consumed {} usec; final vruntime {} empty {}",
@@ -2672,7 +2672,7 @@ reactor::activate(task_queue& tq) {
         sched_print("tq {} {} losing vruntime {} due to sleep", (void*)&tq, tq._name, _last_vruntime - tq._vruntime);
     }
     tq._vruntime = std::max(_last_vruntime, tq._vruntime);
-    auto now = sched_clock::now();
+    auto now = reactor::now();
     tq._waittime += now - tq._ts;
     tq._ts = now;
     _activating_task_queues.push_back(&tq);
@@ -2759,7 +2759,7 @@ int reactor::run() {
     using namespace std::chrono_literals;
     timer<lowres_clock> load_timer;
     auto last_idle = _total_idle;
-    auto idle_start = sched_clock::now(), idle_end = idle_start;
+    auto idle_start = now(), idle_end = idle_start;
     load_timer.set_callback([this, &last_idle, &idle_start, &idle_end] () mutable {
         _total_idle += idle_end - idle_start;
         auto load = double((_total_idle - last_idle).count()) / double(std::chrono::duration_cast<sched_clock::duration>(1s).count());
@@ -2823,7 +2823,7 @@ int reactor::run() {
                 idle = false;
             }
         } else {
-            idle_end = sched_clock::now();
+            idle_end = now();
             if (!idle) {
                 idle_start = idle_end;
                 idle = true;
@@ -2844,12 +2844,12 @@ int reactor::run() {
                     // Turn off the task quota timer to avoid spurious wakeups
                     struct itimerspec zero_itimerspec = {};
                     _task_quota_timer.timerfd_settime(0, zero_itimerspec);
-                    auto start_sleep = sched_clock::now();
+                    auto start_sleep = now();
                     _cpu_stall_detector->start_sleep();
                     sleep();
                     _cpu_stall_detector->end_sleep();
                     // We may have slept for a while, so freshen idle_end
-                    idle_end = sched_clock::now();
+                    idle_end = now();
                     _total_sleep += idle_end - start_sleep;
                     _task_quota_timer.timerfd_settime(0, task_quote_itimerspec);
                 }
@@ -4178,7 +4178,7 @@ steady_clock_type::duration reactor::total_idle_time() {
 }
 
 steady_clock_type::duration reactor::total_busy_time() {
-    return sched_clock::now() - _start_time - _total_idle;
+    return now() - _start_time - _total_idle;
 }
 
 std::chrono::nanoseconds reactor::total_steal_time() {
@@ -4195,7 +4195,7 @@ std::chrono::nanoseconds reactor::total_steal_time() {
     // steal time but we have no ways to account it.
     //
     // But what we have here should be good enough and at least has a well defined meaning.
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(sched_clock::now() - _start_time - _total_sleep) -
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(now() - _start_time - _total_sleep) -
            std::chrono::duration_cast<std::chrono::nanoseconds>(thread_cputime_clock::now().time_since_epoch());
 }
 
@@ -4398,14 +4398,14 @@ private:
         return timeval_to_duration(ru.ru_stime) + timeval_to_duration(ru.ru_utime);
     }
     void mark_run_start() {
-        _run_start = sched_clock::now();
+        _run_start = reactor::now();
         _run_start_rusage = get_rusage();
     }
     void mark_run_end() {
         auto start_nvcsw = _run_start_rusage.ru_nvcsw;
         auto start_cpu_time = cpu_time(_run_start_rusage);
         auto start_time = _run_start;
-        _run_start = sched_clock::now();
+        _run_start = reactor::now();
         _run_start_rusage = get_rusage();
         _kernel_stalls += _run_start_rusage.ru_nvcsw - start_nvcsw;
         _nonsleep_cpu_time += cpu_time(_run_start_rusage) - start_cpu_time;
