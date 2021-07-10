@@ -188,7 +188,6 @@ public:
 };
 
 class reactor {
-    using sched_clock = std::chrono::steady_clock;
 private:
     struct task_queue;
     using task_queue_list = circular_buffer_fixed_capacity<task_queue*, max_scheduling_groups()>;
