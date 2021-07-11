@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <typeindex>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/function_traits.hh>
@@ -45,6 +46,8 @@ class reactor;
 
 class scheduling_group;
 class scheduling_group_key;
+
+using sched_clock = std::chrono::steady_clock;
 
 namespace internal {
 

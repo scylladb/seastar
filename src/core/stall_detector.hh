@@ -28,6 +28,7 @@
 #include <functional>
 #include <seastar/core/posix.hh>
 #include <seastar/core/metrics_registration.hh>
+#include <seastar/core/scheduling.hh>
 
 namespace seastar {
 
@@ -56,26 +57,26 @@ class cpu_stall_detector {
     unsigned _shard_id;
     unsigned _thread_id;
     unsigned _report_at{};
-    std::chrono::steady_clock::time_point _minute_mark{};
-    std::chrono::steady_clock::time_point _rearm_timer_at{};
-    std::chrono::steady_clock::time_point _run_started_at{};
-    std::chrono::steady_clock::duration _threshold;
-    std::chrono::steady_clock::duration _slack;
+    sched_clock::time_point _minute_mark{};
+    sched_clock::time_point _rearm_timer_at{};
+    sched_clock::time_point _run_started_at{};
+    sched_clock::duration _threshold;
+    sched_clock::duration _slack;
     cpu_stall_detector_config _config;
     seastar::metrics::metric_groups _metrics;
     friend reactor;
 private:
     void maybe_report();
     void arm_timer();
-    void report_suppressions(std::chrono::steady_clock::time_point now);
+    void report_suppressions(sched_clock::time_point now);
 public:
     using clock_type = thread_cputime_clock;
 public:
     explicit cpu_stall_detector(cpu_stall_detector_config cfg = {});
     ~cpu_stall_detector();
     static int signal_number() { return SIGRTMIN + 1; }
-    void start_task_run(std::chrono::steady_clock::time_point now);
-    void end_task_run(std::chrono::steady_clock::time_point now);
+    void start_task_run(sched_clock::time_point now);
+    void end_task_run(sched_clock::time_point now);
     void generate_trace();
     void update_config(cpu_stall_detector_config cfg);
     cpu_stall_detector_config get_config() const;

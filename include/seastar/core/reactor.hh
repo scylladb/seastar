@@ -188,7 +188,6 @@ public:
 };
 
 class reactor {
-    using sched_clock = std::chrono::steady_clock;
 private:
     struct task_queue;
     using task_queue_list = circular_buffer_fixed_capacity<task_queue*, max_scheduling_groups()>;
@@ -353,7 +352,7 @@ private:
     double _load = 0;
     sched_clock::duration _total_idle{0};
     sched_clock::duration _total_sleep;
-    sched_clock::time_point _start_time = sched_clock::now();
+    sched_clock::time_point _start_time = now();
     std::chrono::nanoseconds _max_poll_time = calculate_poll_time();
     circular_buffer<output_stream<char>* > _flush_batching;
     std::atomic<bool> _sleeping alignas(seastar::cache_line_size){0};
@@ -466,8 +465,11 @@ public:
     ~reactor();
     void operator=(const reactor&) = delete;
 
+    static sched_clock::time_point now() noexcept {
+        return sched_clock::now();
+    }
     sched_clock::duration uptime() {
-        return sched_clock::now() - _start_time;
+        return now() - _start_time;
     }
 
     io_queue& get_io_queue(dev_t devid = 0) {

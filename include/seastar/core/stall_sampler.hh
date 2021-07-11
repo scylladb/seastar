@@ -37,8 +37,8 @@ namespace internal {
 
 struct stall_report {
     uint64_t kernel_stalls;
-    std::chrono::steady_clock::duration run_wall_time;  // excludes sleeps
-    std::chrono::steady_clock::duration stall_time;
+    sched_clock::duration run_wall_time;  // excludes sleeps
+    sched_clock::duration stall_time;
 };
 
 /// Run the unit-under-test (uut) function until completion, and report on any
