@@ -23,6 +23,7 @@
 
 #include <seastar/core/future.hh>
 #include <seastar/util/concepts.hh>
+#include <seastar/util/defer.hh>
 
 /// \file
 
@@ -33,7 +34,7 @@ namespace seastar {
 SEASTAR_CONCEPT(
 template <typename Object>
 concept closeable = requires (Object o) {
-    { o.close() } -> std::same_as<future<>>;
+    { o.close() } SEASTAR_DEFERRED_ACTION_NOEXCEPT -> std::same_as<future<>>;
 };
 )
 
@@ -88,7 +89,7 @@ with_closeable(Closeable&& obj, Func func) noexcept {
 SEASTAR_CONCEPT(
 template <typename Object>
 concept stoppable = requires (Object o) {
-    { o.stop() } -> std::same_as<future<>>;
+    { o.stop() } SEASTAR_DEFERRED_ACTION_NOEXCEPT -> std::same_as<future<>>;
 };
 )
 

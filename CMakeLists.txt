@@ -262,6 +262,10 @@ option (Seastar_HEAP_PROFILING
     "Enable heap profiling. No effect when Seastar is compiled with the default allocator."
     OFF)
 
+option (Seastar_DEFERRED_ACTION_REQUIRE_NOEXCEPT
+    "Enable noexcept requirement for deferred actions."
+    ON)
+
 set (Seastar_TEST_TIMEOUT
   "300"
   CACHE
@@ -842,6 +846,10 @@ if (Seastar_HEAP_PROFILING)
       SOURCE "src/core/memory.cc"
       PROPERTY
       COMPILE_DEFINITIONS SEASTAR_HEAPPROF)
+endif ()
+
+if (Seastar_DEFERRED_ACTION_REQUIRE_NOEXCEPT)
+  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_DEFERRED_ACTION_REQUIRE_NOEXCEPT)
 endif ()
 
 if (Seastar_DPDK)
