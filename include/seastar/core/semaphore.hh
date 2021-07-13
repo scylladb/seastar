@@ -27,6 +27,7 @@
 #include <exception>
 #include <seastar/core/timer.hh>
 #include <seastar/core/expiring_fifo.hh>
+#include <seastar/core/timed_out_error.hh>
 
 namespace seastar {
 
@@ -45,7 +46,7 @@ public:
 /// times out.
 ///
 /// \see semaphore::wait(typename timer<>::duration timeout, size_t nr)
-class semaphore_timed_out : public std::exception {
+class semaphore_timed_out : public timed_out_error {
 public:
     /// Reports the exception reason.
     virtual const char* what() const noexcept;
