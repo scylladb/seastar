@@ -513,7 +513,7 @@ To guarantee the desired evaluation order, the expression above may be broken in
     });
 ```
 
-This was changed in C++17. The expression that creates the object the function `then` is called on (the future) is evaluated before all the arguments to the function, so this style is not required in C++17 and above.
+[This was changed in C++17](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2016/p0145r3.pdf). The expression that creates the object the function `then` is called on (the future) is evaluated before all the arguments to the function, so this style is not required in C++17 and above.
 
 ## Chaining continuations
 TODO: We already saw chaining example in slow() above. talk about the return from then, and returning a future and chaining more thens.
