@@ -50,7 +50,8 @@ struct aio_general_context {
     ~aio_general_context();
     internal::linux_abi::aio_context_t io_context{};
     std::unique_ptr<internal::linux_abi::iocb*[]> iocbs;
-    internal::linux_abi::iocb** last = iocbs.get();
+    internal::linux_abi::iocb** last;
+    internal::linux_abi::iocb** const end;
     void queue(internal::linux_abi::iocb* iocb);
     size_t flush();
 };

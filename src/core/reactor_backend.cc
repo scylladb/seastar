@@ -253,7 +253,11 @@ bool aio_storage_context::can_sleep() const {
     return executing == 0 || _r._aio_eventfd;
 }
 
-aio_general_context::aio_general_context(size_t nr) : iocbs(new iocb*[nr]) {
+aio_general_context::aio_general_context(size_t nr)
+        : iocbs(new iocb*[nr])
+        , last(iocbs.get())
+        , end(iocbs.get() + nr)
+{
     setup_aio_context(nr, &io_context);
 }
 
@@ -262,6 +266,7 @@ aio_general_context::~aio_general_context() {
 }
 
 void aio_general_context::queue(linux_abi::iocb* iocb) {
+    assert(last < end);
     *last++ = iocb;
 }
 
