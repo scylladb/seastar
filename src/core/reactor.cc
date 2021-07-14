@@ -4444,7 +4444,10 @@ reactor::init_new_scheduling_group_key(scheduling_group_key key, scheduling_grou
 }
 
 future<>
-reactor::destroy_scheduling_group(scheduling_group sg) {
+reactor::destroy_scheduling_group(scheduling_group sg) noexcept {
+    if (sg._id >= max_scheduling_groups()) {
+        on_fatal_internal_error(seastar_logger, format("Invalid scheduling_group {}", sg._id));
+    }
     return with_scheduling_group(sg, [this, sg] () {
         auto& sg_data = _scheduling_group_specific_data;
         auto& this_sg = sg_data.per_scheduling_group_data[sg._id];
