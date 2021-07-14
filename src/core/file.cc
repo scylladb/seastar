@@ -955,18 +955,11 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
                         fsi.fsync_is_exclusive = false;
                         fsi.nowait_works = false;
                         break;
-                    case 0x61756673: /* AuFS (old docker?) */
-                    case 0x794c7630: /* overlayfs */
-                        fsi.append_challenged = true;
-                        fsi.append_concurrency = 0;
-                        fsi.fsync_is_exclusive = true;
-                        fsi.nowait_works = false;
-                        break;
                     default:
                         fsi.append_challenged = true;
                         fsi.append_concurrency = 0;
                         fsi.fsync_is_exclusive = true;
-                        fsi.nowait_works = kernel_uname().whitelisted({"4.13"});
+                        fsi.nowait_works = false;
                     }
                     s_fstype[st_dev] = std::move(fsi);
                 });
