@@ -431,7 +431,7 @@ private:
     void allocate_scheduling_group_specific_data(scheduling_group sg, scheduling_group_key key);
     future<> init_scheduling_group(scheduling_group sg, sstring name, float shares);
     future<> init_new_scheduling_group_key(scheduling_group_key key, scheduling_group_key_config cfg);
-    future<> destroy_scheduling_group(scheduling_group sg);
+    future<> destroy_scheduling_group(scheduling_group sg) noexcept;
     uint64_t tasks_processed() const;
     uint64_t min_vruntime() const;
     void request_preemption();
