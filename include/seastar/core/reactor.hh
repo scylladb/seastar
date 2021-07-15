@@ -458,6 +458,7 @@ private:
     do_write_some(pollable_fd_state& fd, const void* buffer, size_t size);
     future<size_t>
     do_write_some(pollable_fd_state& fd, net::packet& p);
+    int do_run();
 public:
     static boost::program_options::options_description get_options_description(reactor_config cfg);
     explicit reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, reactor_backend_selector rbs, reactor_config cfg);
@@ -545,7 +546,7 @@ public:
             internal::io_request req,
             io_intent* intent) noexcept;
 
-    int run();
+    int run() noexcept;
     void exit(int ret);
     future<> when_started() { return _start_promise.get_future(); }
     // The function waits for timeout period for reactor stop notification

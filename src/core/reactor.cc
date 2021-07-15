@@ -2686,7 +2686,17 @@ void reactor::service_highres_timer() noexcept {
     });
 }
 
-int reactor::run() {
+int reactor::run() noexcept {
+    try {
+        return do_run();
+    } catch (const std::exception& e) {
+        seastar_logger.error(e.what());
+        print_with_backtrace("exception running reactor main loop");
+        _exit(1);
+    }
+}
+
+int reactor::do_run() {
 #ifndef SEASTAR_ASAN_ENABLED
     // SIGSTKSZ is too small when using asan. We also don't need to
     // handle SIGSEGV ourselves when using asan, so just don't install
@@ -3977,7 +3987,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
             assign_io_queues(i);
             inited->wait();
             engine().configure(configuration);
-            engine().run();
+            engine().do_run();
           } catch (const std::exception& e) {
               seastar_logger.error(e.what());
               _exit(1);
