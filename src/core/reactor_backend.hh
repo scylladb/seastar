@@ -53,6 +53,7 @@ struct aio_general_context {
     internal::linux_abi::iocb** last;
     internal::linux_abi::iocb** const end;
     void queue(internal::linux_abi::iocb* iocb);
+    // submit all queued iocbs and return their count.
     size_t flush();
 };
 

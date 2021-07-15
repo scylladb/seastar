@@ -271,14 +271,25 @@ void aio_general_context::queue(linux_abi::iocb* iocb) {
 }
 
 size_t aio_general_context::flush() {
-    if (last != iocbs.get()) {
-        auto nr = last - iocbs.get();
-        last = iocbs.get();
-        auto r = io_submit(io_context, nr, iocbs.get());
-        assert(r >= 0);
-        return nr;
+    auto begin = iocbs.get();
+    auto retried = last;
+    while (begin != last) {
+        auto r = io_submit(io_context, last - begin, begin);
+        if (__builtin_expect(r > 0, true)) {
+            begin += r;
+            continue;
+        }
+        // errno == EAGAIN is expected here. We don't explicitly assert that
+        // since the assert below requires that some progress will be
+        // made, preventing an endless loop for any reason.
+        if (need_preempt()) {
+            assert(retried != begin);
+            retried = begin;
+        }
     }
-    return 0;
+    auto nr = last - iocbs.get();
+    last = iocbs.get();
+    return nr;
 }
 
 completion_with_iocb::completion_with_iocb(int fd, int events, void* user_data)
