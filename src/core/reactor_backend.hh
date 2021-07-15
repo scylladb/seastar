@@ -267,14 +267,14 @@ public:
 };
 
 class reactor_backend_aio : public reactor_backend {
-    static constexpr size_t max_polls = 10000;
     reactor& _r;
+    unsigned max_polls() const;
     file_desc _hrtimer_timerfd;
     aio_storage_context _storage_context;
     // We use two aio contexts, one for preempting events (the timer tick and
     // signals), the other for non-preempting events (fd poll).
     preempt_io_context _preempting_io; // Used for the timer tick and the high resolution timer
-    aio_general_context _polling_io{max_polls}; // FIXME: unify with disk aio_context
+    aio_general_context _polling_io{max_polls()}; // FIXME: unify with disk aio_context
     hrtimer_aio_completion _hrtimer_poll_completion;
     smp_wakeup_aio_completion _smp_wakeup_aio_completion;
     static file_desc make_timerfd();

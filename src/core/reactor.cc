@@ -3374,6 +3374,9 @@ reactor::get_options_description(reactor_config cfg) {
                 format("Internal reactor implementation ({})", reactor_backend_selector::available()).c_str())
         ("aio-fsync", bpo::value<bool>()->default_value(kernel_supports_aio_fsync()),
                 "Use Linux aio for fsync() calls. This reduces latency; requires Linux 4.18 or later.")
+        ("max-networking-io-control-blocks", bpo::value<unsigned>()->default_value(cfg.max_networking_aio_io_control_blocks,
+                "Maximum number of I/O control blocks (IOCBs) to allocate per shard. This translates to the number of sockets supported per shard."
+                " Requires tuning /proc/sys/fs/aio-max-nr. Only valid for the linux-aio reactor backend (see --reactor-backend)."));
 #ifdef SEASTAR_HEAPPROF
         ("heapprof", "enable seastar heap profiling")
 #endif
@@ -3871,6 +3874,8 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     if (configuration.count("dump-memory-diagnostics-on-alloc-failure-kind")) {
         memory::set_dump_memory_diagnostics_on_alloc_failure_kind(configuration["dump-memory-diagnostics-on-alloc-failure-kind"].as<std::string>());
     }
+
+    reactor_cfg.max_networking_aio_io_control_blocks = configuration["max-networking-io-control-blocks"].as<unsigned>();
 
     bool heapprof_enabled = configuration.count("heapprof");
     if (heapprof_enabled) {

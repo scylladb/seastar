@@ -42,6 +42,10 @@ struct reactor_config {
     /// You can adjust the behavior of SIGINT/SIGTERM by installing signal handlers
     /// via reactor::handle_signal().
     bool auto_handle_sigint_sigterm = true;  ///< automatically terminate on SIGINT/SIGTERM
+
+    /// Specifies the default value for linux-aio I/O control blocks. This translates
+    /// to the maximum number of sockets the shard can handle.
+    unsigned max_networking_aio_io_control_blocks = 10000;
 };
 
 }

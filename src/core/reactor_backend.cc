@@ -398,6 +398,11 @@ file_desc reactor_backend_aio::make_timerfd() {
     return file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC|TFD_NONBLOCK);
 }
 
+unsigned
+reactor_backend_aio::max_polls() const {
+    return _r._cfg.max_networking_aio_io_control_blocks;
+}
+
 bool reactor_backend_aio::await_events(int timeout, const sigset_t* active_sigmask) {
     ::timespec ts = {};
     ::timespec* tsp = [&] () -> ::timespec* {
