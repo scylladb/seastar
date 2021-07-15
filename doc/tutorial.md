@@ -163,40 +163,10 @@ When the machine is configured as in the example above - two cores with two hype
 We cannot start more threads than the number of hardware threads, as allowing this will be grossly inefficient. Trying it will result in an error:
 ```none
 $ ./a.out -c5
-terminate called after throwing an instance of 'std::runtime_error'
-  what():  insufficient processing units
-abort (core dumped)
+Could not initialize seastar: std::runtime_error (insufficient processing units)
 ```
 
-The error is an exception thrown from app.run, which we did not catch, leading to this ugly uncaught-exception crash. It is better to catch this sort of startup exceptions, and exit gracefully without a core dump:
-
-```cpp
-#include <seastar/core/app-template.hh>
-#include <seastar/core/reactor.hh>
-#include <iostream>
-#include <stdexcept>
-
-int main(int argc, char** argv) {
-    seastar::app_template app;
-    try {
-        app.run(argc, argv, [] {
-            std::cout << seastar::smp::count << "\n";
-            return seastar::make_ready_future<>();
-        });
-    } catch(...) {
-        std::cerr << "Failed to start application: "
-                  << std::current_exception() << "\n";
-        return 1;
-    }
-    return 0;
-}
-```
-```none
-$ ./a.out -c5
-Couldn't start application: std::runtime_error (insufficient processing units)
-```
-
-Note that catching the exceptions this way does **not** catch exceptions thrown in the application's actual asynchronous code. We will discuss these later in this tutorial.
+The error is an exception thrown from app.run, which was caught by seastar itself and turned into a non-zero exit code. Note that catching the exceptions this way does **not** catch exceptions thrown in the application's actual asynchronous code. We will discuss these later in this tutorial.
 
 ## Seastar memory
 As explained in the introduction, Seastar applications shard their memory. Each thread is preallocated with a large piece of memory (on the same NUMA node it is running on), and uses only that memory for its allocations (such as `malloc()` or `new`).
