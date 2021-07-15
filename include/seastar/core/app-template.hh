@@ -95,7 +95,7 @@ public:
     boost::program_options::options_description_easy_init add_options();
     void add_positional_options(std::initializer_list<positional_option> options);
     boost::program_options::variables_map& configuration();
-    int run_deprecated(int ac, char ** av, std::function<void ()>&& func);
+    int run_deprecated(int ac, char ** av, std::function<void ()>&& func) noexcept;
 
     void set_configuration_reader(configuration_reader conf_reader);
 
@@ -106,12 +106,12 @@ public:
     // Runs given function and terminates the application when the future it
     // returns resolves. The value with which the future resolves will be
     // returned by this function.
-    int run(int ac, char ** av, std::function<future<int> ()>&& func);
+    int run(int ac, char ** av, std::function<future<int> ()>&& func) noexcept;
 
     // Like run() which takes std::function<future<int>()>, but returns
     // with exit code 0 when the future returned by func resolves
     // successfully.
-    int run(int ac, char ** av, std::function<future<> ()>&& func);
+    int run(int ac, char ** av, std::function<future<> ()>&& func) noexcept;
 };
 
 }

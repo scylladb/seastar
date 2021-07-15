@@ -120,7 +120,7 @@ app_template::configuration() {
 }
 
 int
-app_template::run(int ac, char ** av, std::function<future<int> ()>&& func) {
+app_template::run(int ac, char ** av, std::function<future<int> ()>&& func) noexcept {
     return run_deprecated(ac, av, [func = std::move(func)] () mutable {
         auto func_done = make_lw_shared<promise<>>();
         engine().at_exit([func_done] { return func_done->get_future(); });
@@ -135,7 +135,7 @@ app_template::run(int ac, char ** av, std::function<future<int> ()>&& func) {
 }
 
 int
-app_template::run(int ac, char ** av, std::function<future<> ()>&& func) {
+app_template::run(int ac, char ** av, std::function<future<> ()>&& func) noexcept {
     return run(ac, av, [func = std::move(func)] {
         return func().then([] () {
             return 0;
@@ -144,7 +144,7 @@ app_template::run(int ac, char ** av, std::function<future<> ()>&& func) {
 }
 
 int
-app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) {
+app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) noexcept {
 #ifdef SEASTAR_DEBUG
     fmt::print("WARNING: debug mode. Not for benchmarking or production\n");
 #endif
