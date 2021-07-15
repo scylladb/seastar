@@ -3510,7 +3510,7 @@ void smp::allocate_reactor(unsigned id, reactor_backend_selector rbs, reactor_co
     reactor_holder.reset(local_engine);
 }
 
-void smp::cleanup() {
+void smp::cleanup() noexcept {
     smp::_threads = std::vector<posix_thread>();
     _thread_loops.clear();
 }
