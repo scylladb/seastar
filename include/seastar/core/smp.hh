@@ -311,7 +311,7 @@ public:
     static boost::program_options::options_description get_options_description();
     void register_network_stacks();
     void configure(boost::program_options::variables_map vm, reactor_config cfg = {});
-    void cleanup();
+    void cleanup() noexcept;
     void cleanup_cpu();
     void arrive_at_event_loop_end();
     void join_all();
