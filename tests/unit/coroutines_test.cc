@@ -21,8 +21,10 @@
 
 #include <seastar/core/future-util.hh>
 #include <seastar/testing/test_case.hh>
+#include <seastar/core/sleep.hh>
 
 using namespace seastar;
+using namespace std::chrono_literals;
 
 #ifndef SEASTAR_COROUTINES_ENABLED
 
@@ -33,6 +35,7 @@ SEASTAR_TEST_CASE(test_coroutines_not_compiled_in) {
 #else
 
 #include <seastar/core/coroutine.hh>
+#include <seastar/coroutine/all.hh>
 
 namespace {
 
@@ -170,4 +173,122 @@ SEASTAR_TEST_CASE(test_preemption) {
     BOOST_REQUIRE(save_x);
     co_return;
 }
+
+SEASTAR_TEST_CASE(test_all_simple) {
+    auto [a, b] = co_await coroutine::all(
+        [] { return make_ready_future<int>(1); },
+        [] { return make_ready_future<int>(2); }
+    );
+    BOOST_REQUIRE_EQUAL(a, 1);
+    BOOST_REQUIRE_EQUAL(b, 2);
+}
+
+SEASTAR_TEST_CASE(test_all_permutations) {
+    std::vector<std::chrono::milliseconds> delays = { 0ms, 0ms, 2ms, 2ms, 4ms, 6ms };
+    auto make_delayed_future_returning_nr = [&] (int nr) {
+        return [=] {
+            auto delay = delays[nr];
+            return delay == 0ms ? make_ready_future<int>(nr) : sleep(delay).then([nr] { return make_ready_future<int>(nr); });
+        };
+    };
+    do {
+        auto [a, b, c, d, e, f] = co_await coroutine::all(
+            make_delayed_future_returning_nr(0),
+            make_delayed_future_returning_nr(1),
+            make_delayed_future_returning_nr(2),
+            make_delayed_future_returning_nr(3),
+            make_delayed_future_returning_nr(4),
+            make_delayed_future_returning_nr(5)
+        );
+        BOOST_REQUIRE_EQUAL(a, 0);
+        BOOST_REQUIRE_EQUAL(b, 1);
+        BOOST_REQUIRE_EQUAL(c, 2);
+        BOOST_REQUIRE_EQUAL(d, 3);
+        BOOST_REQUIRE_EQUAL(e, 4);
+        BOOST_REQUIRE_EQUAL(f, 5);
+    } while (std::ranges::next_permutation(delays).found);
+}
+
+SEASTAR_TEST_CASE(test_all_ready_exceptions) {
+    try {
+        co_await coroutine::all(
+            [] () -> future<> { throw 1; },
+            [] () -> future<> { throw 2; }
+        );
+    } catch (int e) {
+        BOOST_REQUIRE(e == 1 || e == 2);
+    }
+}
+
+SEASTAR_TEST_CASE(test_all_nonready_exceptions) {
+    try {
+        co_await coroutine::all(
+            [] () -> future<> { 
+                co_await sleep(1ms);
+                throw 1;
+            },
+            [] () -> future<> { 
+                co_await sleep(1ms);
+                throw 2;
+            }
+        );
+    } catch (int e) {
+        BOOST_REQUIRE(e == 1 || e == 2);
+    }
+}
+
+SEASTAR_TEST_CASE(test_all_heterogeneous_types) {
+    auto [a, b] = co_await coroutine::all(
+        [] () -> future<int> { 
+            co_await sleep(1ms);
+            co_return 1;
+        },
+        [] () -> future<> { 
+            co_await sleep(1ms);
+        },
+        [] () -> future<long> { 
+            co_await sleep(1ms);
+            co_return 2L;
+        }
+    );
+    BOOST_REQUIRE_EQUAL(a, 1);
+    BOOST_REQUIRE_EQUAL(b, 2L);
+}
+
+SEASTAR_TEST_CASE(test_all_noncopyable_types) {
+    auto [a] = co_await coroutine::all(
+        [] () -> future<std::unique_ptr<int>> {
+            co_return std::make_unique<int>(6);
+        }
+    );
+    BOOST_REQUIRE_EQUAL(*a, 6);
+}
+
+SEASTAR_TEST_CASE(test_all_throw_in_input_func) {
+    int nr_completed = 0;
+    bool exception_seen = false;
+    try {
+        co_await coroutine::all(
+            [&] () -> future<int> {
+                co_await sleep(1ms);
+                ++nr_completed;
+                co_return 7;
+            },
+            [&] () -> future<int> {
+                throw 9;
+            },
+            [&] () -> future<int> {
+                co_await sleep(1ms);
+                ++nr_completed;
+                co_return 7;
+            }
+        );
+    } catch (int n) {
+        BOOST_REQUIRE_EQUAL(n, 9);
+        exception_seen = true;
+    }
+    BOOST_REQUIRE_EQUAL(nr_completed, 2);
+    BOOST_REQUIRE(exception_seen);
+}
+
 #endif
