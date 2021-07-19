@@ -36,7 +36,7 @@
 
 namespace std::experimental {
 
-template<typename Promise>
+template<typename Promise = void>
 class coroutine_handle {
     void* _pointer = nullptr;
 public:
@@ -70,6 +70,35 @@ public:
     void resume() const noexcept { __builtin_coro_resume(_pointer); }
     void destroy() const noexcept { __builtin_coro_destroy(_pointer); }
     bool done() const noexcept { return __builtin_coro_done(_pointer); }
+
+    operator coroutine_handle<>() const noexcept;
+};
+
+template<>
+class coroutine_handle<void> {
+    void* _pointer = nullptr;
+public:
+    coroutine_handle() = default;
+
+    coroutine_handle &operator=(nullptr_t) noexcept {
+        _pointer = nullptr;
+        return *this;
+    }
+
+    explicit operator bool() const noexcept { return _pointer; }
+
+    static coroutine_handle from_address(void* ptr) noexcept {
+        coroutine_handle hndl;
+        hndl._pointer = ptr;
+        return hndl;
+    }
+    void* address() const noexcept { return _pointer; }
+
+    void operator()() noexcept { resume(); }
+
+    void resume() const noexcept { __builtin_coro_resume(_pointer); }
+    void destroy() const noexcept { __builtin_coro_destroy(_pointer); }
+    bool done() const noexcept { return __builtin_coro_done(_pointer); }
 };
 
 struct suspend_never {
@@ -85,6 +114,11 @@ struct suspend_always {
     constexpr void await_suspend(coroutine_handle<T>) noexcept { }
     constexpr void await_resume() noexcept { }
 };
+
+template <typename Promise>
+coroutine_handle<Promise>::operator coroutine_handle<>() const noexcept {
+    return coroutine_handle<>::from_address(address());
+}
 
 template<typename T, typename... Args>
 class coroutine_traits { };
