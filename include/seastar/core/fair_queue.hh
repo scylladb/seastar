@@ -276,7 +276,6 @@ private:
 
     std::optional<pending> _pending;
 
-    priority_class_ptr peek_priority_class();
     void push_priority_class(priority_class_ptr pc);
     void pop_priority_class(priority_class_ptr pc);
 

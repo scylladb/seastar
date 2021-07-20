@@ -141,11 +141,6 @@ void fair_queue::push_priority_class(priority_class_ptr pc) {
     }
 }
 
-priority_class_ptr fair_queue::peek_priority_class() {
-    assert(!_handles.empty());
-    return _handles.top();
-}
-
 void fair_queue::pop_priority_class(priority_class_ptr pc) {
     assert(pc->_queued);
     pc->_queued = false;
@@ -249,15 +244,11 @@ void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
 }
 
 void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
-    while (_requests_queued) {
-        priority_class_ptr h;
-
-        while (true) {
-            h = peek_priority_class();
-            if (!h->_queue.empty()) {
-                break;
-            }
+    while (!_handles.empty()) {
+        priority_class_ptr h = _handles.top();
+        if (h->_queue.empty()) {
             pop_priority_class(h);
+            continue;
         }
 
         auto& req = h->_queue.front();
