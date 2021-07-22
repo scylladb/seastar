@@ -28,6 +28,7 @@
 #endif
 
 #include <seastar/core/std-coroutine.hh>
+#include <seastar/coroutine/exception.hh>
 
 namespace seastar {
 
@@ -46,6 +47,10 @@ public:
         template<typename... U>
         void return_value(U&&... value) {
             _promise.set_value(std::forward<U>(value)...);
+        }
+
+        void return_value(coroutine::exception ce) noexcept {
+            _promise.set_exception(ce.eptr);
         }
 
         [[deprecated("Forwarding coroutine returns are deprecated as too dangerous. Use 'co_return co_await ...' until explicit syntax is available.")]]
