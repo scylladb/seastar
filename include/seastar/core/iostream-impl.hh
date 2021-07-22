@@ -166,7 +166,8 @@ input_stream<CharType>::read_exactly_part(size_t n, tmp_buf out, size_t complete
     return _fd.get().then([this, n, out = std::move(out), completed] (auto buf) mutable {
         if (buf.size() == 0) {
             _eof = true;
-            return make_ready_future<tmp_buf>(std::move(buf));
+            out.trim(completed);
+            return make_ready_future<tmp_buf>(std::move(out));
         }
         _buf = std::move(buf);
         return this->read_exactly_part(n, std::move(out), completed);
