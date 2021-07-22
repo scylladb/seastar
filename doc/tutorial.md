@@ -390,6 +390,25 @@ seastar::future<> exception_handling() {
 }
 ```
 
+In certain cases, exceptions can also be propagated directly, without throwing or rethrowing them. It can be achieved by returning a `coroutine::exception` wrapper, but it unfortunately only works for coroutines which return `future<T>`, not `future<>`, due to the limitations in compilers. In particular, the example above won't compile if the return type is changed to `future<>`.
+
+Example:
+
+```cpp
+seastar::future<int> exception_propagating() {
+    std::exception_ptr eptr;
+    try {
+        co_await function_returning_an_exceptional_future();
+    } catch (...) {
+        eptr = std::current_exception();
+    }
+    if (eptr) {
+        co_return seastar::coroutine::exception(eptr); // Saved exception pointer can be propagated without rethrowing
+    }
+    co_return seastar::coroutine::exception(std::make_exception_ptr(3)); // Custom exceptions can be propagated without throwing
+}
+```
+
 ## Concurrency in coroutines
 
 The `co_await` operator allows for simple sequential execution. Multiple coroutines can execute in parallel, but each coroutine has only one outstanding computation at a time.
