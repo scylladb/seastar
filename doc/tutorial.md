@@ -364,7 +364,7 @@ In #4, we call a function that returns a `seastar::future<>`. In this case, the 
 
 Line #5 demonstrates returning a value. The integer value is used to satisfy the `future<int>` that our caller got when calling the coroutine.
 
-# Exceptions in coroutines
+## Exceptions in coroutines
 
 Coroutines automatically translate exceptions to futures and back.
 
