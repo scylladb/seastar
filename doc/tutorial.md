@@ -390,6 +390,37 @@ seastar::future<> exception_handling() {
 }
 ```
 
+## Concurrency in coroutines
+
+The `co_await` operator allows for simple sequential execution. Multiple coroutines can execute in parallel, but each coroutine has only one outstanding computation at a time.
+
+The `seastar::coroutine::all` class template allows a coroutine to fork into several concurrently executing sub-coroutines (or Seastar fibers, see below) and join again when they complete. Consider this example:
+
+
+```cpp
+#include <seastar/core/coroutines.hh>
+#include <seastar/coroutine/all.hh>
+
+seastar::future<int> read(int key);
+
+seastar::future<int> parallel_sum(int key1, int key2) {
+    int [a, b] = co_await seastar::coroutine::all(
+        [&] {
+            return read(key1);
+        },
+        [&] {
+            return read(key2);
+        }
+    );
+    co_return a + b;
+}
+```
+
+Here, two read() calls are launched concurrently. The coroutine is paused until both reads complete, and the values returned are assigned to `a` and `b`. If `read(key)` is an operation that involves I/O, then the concurrent execution will complete sooner than if we `co_await`ed each call separately, since I/O can be overlapped.
+
+
+Note that `all` waits for all of its sub-computations, even if some throw an exception. If an exception is thrown, it is propagated to the calling coroutine.
+
 # Continuations
 ## Capturing state in continuations
 
