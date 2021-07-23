@@ -50,7 +50,7 @@ public:
         }
 
         void return_value(coroutine::exception ce) noexcept {
-            _promise.set_exception(ce.eptr);
+            _promise.set_exception(std::move(ce.eptr));
         }
 
         [[deprecated("Forwarding coroutine returns are deprecated as too dangerous. Use 'co_return co_await ...' until explicit syntax is available.")]]

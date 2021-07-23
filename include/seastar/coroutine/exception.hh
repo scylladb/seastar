@@ -39,7 +39,7 @@ namespace seastar::coroutine {
 /// ```
 struct exception {
     std::exception_ptr eptr;
-    explicit exception(std::exception_ptr eptr) : eptr(eptr) {}
+    explicit exception(std::exception_ptr eptr) : eptr(std::move(eptr)) {}
 };
 
 }
