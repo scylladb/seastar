@@ -42,4 +42,16 @@ struct exception {
     explicit exception(std::exception_ptr eptr) : eptr(std::move(eptr)) {}
 };
 
+/// Helper for creating a coroutine::exception instance
+///
+/// Example usage:
+///
+/// ```
+/// co_return coroutine::make_exception(std::runtime_error("something failed miserably"));
+/// ```
+template<typename T>
+exception make_exception(T&& t) {
+    return exception(std::make_exception_ptr(std::forward<T>(t)));
+}
+
 }

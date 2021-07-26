@@ -300,6 +300,15 @@ SEASTAR_TEST_CASE(test_coroutine_exception) {
         BOOST_REQUIRE(f.failed());
         BOOST_REQUIRE_THROW(std::rethrow_exception(f.get_exception()), std::runtime_error);
     });
+
+    auto i_am_exceptional_as_well = [] () -> future<bool> {
+        co_return coroutine::make_exception(std::logic_error("threw"));
+    };
+    BOOST_REQUIRE_THROW(co_await i_am_exceptional_as_well(), std::logic_error);
+    co_await i_am_exceptional_as_well().then_wrapped([] (future<bool> f) {
+        BOOST_REQUIRE(f.failed());
+        BOOST_REQUIRE_THROW(std::rethrow_exception(f.get_exception()), std::logic_error);
+    });
 }
 
 #endif
