@@ -345,7 +345,6 @@ private:
     // _lowres_clock_impl will only be created on cpu 0
     std::unique_ptr<lowres_clock_impl> _lowres_clock_impl;
     lowres_clock::time_point _lowres_next_timeout;
-    std::optional<poller> _epoll_poller;
     std::optional<pollable_fd> _aio_eventfd;
     const bool _reuseport;
     circular_buffer<double> _loads;
