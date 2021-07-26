@@ -405,7 +405,7 @@ seastar::future<int> exception_propagating() {
     if (eptr) {
         co_return seastar::coroutine::exception(eptr); // Saved exception pointer can be propagated without rethrowing
     }
-    co_return seastar::coroutine::exception(std::make_exception_ptr(3)); // Custom exceptions can be propagated without throwing
+    co_return seastar::coroutine::make_exception(3); // Custom exceptions can be propagated without throwing
 }
 ```
 
