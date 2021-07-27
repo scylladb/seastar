@@ -102,6 +102,7 @@ public:
     /// \returns an engaged \ref optimized_optional containing a \ref subscription that can be used to control
     ///          the lifetime of the callback \c f, if \ref abort_requested() is \c false. Otherwise,
     ///          returns a disengaged \ref optimized_optional.
+    [[nodiscard]]
     optimized_optional<subscription> subscribe(subscription_callback_type f) noexcept(std::is_nothrow_move_constructible<subscription_callback_type>::value) {
         if (abort_requested()) {
             return { };
