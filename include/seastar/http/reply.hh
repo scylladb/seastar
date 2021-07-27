@@ -84,6 +84,7 @@ struct reply {
         expectation_failed = 417, //!< expectation_failed
         unprocessable_entity = 422, //!< unprocessable_entity
         upgrade_required = 426, //!< upgrade_required
+        too_many_requests = 429, //!< too_many_requests
         internal_server_error = 500, //!< internal_server_error
         not_implemented = 501, //!< not_implemented
         bad_gateway = 502, //!< bad_gateway
