@@ -31,6 +31,7 @@
 #include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/internal/io_sink.hh>
 #include <seastar/core/io_priority_class.hh>
+#include <seastar/core/on_internal_error.hh>
 #include <seastar/util/log.hh>
 #include <chrono>
 #include <mutex>
@@ -528,7 +529,7 @@ fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, s
         weight = io_queue::read_request_base_count;
         size = io_queue::read_request_base_count * len;
     } else {
-        throw std::runtime_error(fmt::format("Unrecognized request passing through I/O queue {}", req.opname()));
+        on_internal_error(io_log, fmt::format("Unrecognized request passing through I/O queue {}", req.opname()));
     }
 
     static thread_local size_t oversize_warning_threshold = 0;
