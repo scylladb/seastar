@@ -71,6 +71,7 @@ const sstring unsupported_media_type = " 415 Unsupported Media Type\r\n";
 const sstring expectation_failed = " 417 Expectation Failed\r\n";
 const sstring unprocessable_entity = " 422 Unprocessable Entity\r\n";
 const sstring upgrade_required = " 426 Upgrade Required\r\n";
+const sstring too_many_requests = " 429 Too Many Requests\r\n";
 const sstring internal_server_error = " 500 Internal Server Error\r\n";
 const sstring not_implemented = " 501 Not Implemented\r\n";
 const sstring bad_gateway = " 502 Bad Gateway\r\n";
@@ -145,6 +146,8 @@ static const sstring& to_string(reply::status_type status) {
         return unprocessable_entity;
     case reply::status_type::upgrade_required:
         return upgrade_required;
+    case reply::status_type::too_many_requests:
+        return too_many_requests;
     case reply::status_type::internal_server_error:
         return internal_server_error;
     case reply::status_type::not_implemented:
