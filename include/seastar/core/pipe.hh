@@ -135,7 +135,7 @@ class pipe_reader {
 private:
     internal::pipe_buffer<T> *_bufp;
     std::optional<T> _unread;
-    pipe_reader(internal::pipe_buffer<T> *bufp) : _bufp(bufp) { }
+    pipe_reader(internal::pipe_buffer<T> *bufp) noexcept : _bufp(bufp) { }
     friend class pipe<T>;
 public:
     /// \brief Read next item from the pipe
@@ -177,10 +177,10 @@ public:
         }
     }
     // Allow move, but not copy, of pipe_reader
-    pipe_reader(pipe_reader&& other) : _bufp(other._bufp) {
+    pipe_reader(pipe_reader&& other) noexcept : _bufp(other._bufp) {
         other._bufp = nullptr;
     }
-    pipe_reader& operator=(pipe_reader&& other) {
+    pipe_reader& operator=(pipe_reader&& other) noexcept {
         std::swap(_bufp, other._bufp);
     }
 };
@@ -194,7 +194,7 @@ template <typename T>
 class pipe_writer {
 private:
     internal::pipe_buffer<T> *_bufp;
-    pipe_writer(internal::pipe_buffer<T> *bufp) : _bufp(bufp) { }
+    pipe_writer(internal::pipe_buffer<T> *bufp) noexcept : _bufp(bufp) { }
     friend class pipe<T>;
 public:
     /// \brief Write an item to the pipe
@@ -216,10 +216,10 @@ public:
         }
     }
     // Allow move, but not copy, of pipe_writer
-    pipe_writer(pipe_writer&& other) : _bufp(other._bufp) {
+    pipe_writer(pipe_writer&& other) noexcept : _bufp(other._bufp) {
         other._bufp = nullptr;
     }
-    pipe_writer& operator=(pipe_writer&& other) {
+    pipe_writer& operator=(pipe_writer&& other) noexcept {
         std::swap(_bufp, other._bufp);
     }
 };
@@ -258,7 +258,7 @@ public:
     pipe_writer<T> writer;
     explicit pipe(size_t size) : pipe(new internal::pipe_buffer<T>(size)) { }
 private:
-    pipe(internal::pipe_buffer<T> *bufp) : reader(bufp), writer(bufp) { }
+    pipe(internal::pipe_buffer<T> *bufp) noexcept : reader(bufp), writer(bufp) { }
 };
 
 

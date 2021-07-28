@@ -30,6 +30,12 @@ using namespace seastar;
 static_assert(!std::is_default_constructible_v<seastar::pipe_reader<int>>);
 static_assert(!std::is_default_constructible_v<seastar::pipe_writer<int>>);
 
+static_assert(std::is_nothrow_move_constructible_v<seastar::pipe_reader<int>>);
+static_assert(std::is_nothrow_move_assignable_v<seastar::pipe_reader<int>>);
+
+static_assert(std::is_nothrow_move_constructible_v<seastar::pipe_writer<int>>);
+static_assert(std::is_nothrow_move_assignable_v<seastar::pipe_writer<int>>);
+
 SEASTAR_THREAD_TEST_CASE(simple_pipe_test) {
     seastar::pipe<int> p(1);
 
