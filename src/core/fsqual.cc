@@ -63,7 +63,7 @@ bool filesystem_has_good_aio_support(sstring directory, bool verbose) {
     aio_context_t ioctx = {};
     auto r = io_setup(1, &ioctx);
     throw_system_error_on(r == -1, "io_setup");
-    auto cleanup = defer([&] { io_destroy(ioctx); });
+    auto cleanup = defer([&] () noexcept { io_destroy(ioctx); });
     auto fname = directory + "/fsqual.tmp";
     auto fd = file_desc::open(fname, O_CREAT|O_EXCL|O_RDWR|O_DIRECT, 0600);
     unlink(fname.c_str());
