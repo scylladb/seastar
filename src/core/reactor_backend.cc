@@ -1079,7 +1079,7 @@ static bool detect_aio_poll() {
     auto fd = file_desc::eventfd(0, 0);
     aio_context_t ioc{};
     setup_aio_context(1, &ioc);
-    auto cleanup = defer([&] { io_destroy(ioc); });
+    auto cleanup = defer([&] () noexcept { io_destroy(ioc); });
     linux_abi::iocb iocb = internal::make_poll_iocb(fd.get(), POLLIN|POLLOUT);
     linux_abi::iocb* a[1] = { &iocb };
     auto r = io_submit(ioc, 1, a);
