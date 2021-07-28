@@ -495,7 +495,7 @@ resources allocate(configuration& c) {
     auto topology = c.topology.get();
     if (c.cpu_set) {
         auto bm = hwloc_bitmap_alloc();
-        auto free_bm = defer([&] { hwloc_bitmap_free(bm); });
+        auto free_bm = defer([&] () noexcept { hwloc_bitmap_free(bm); });
         for (auto idx : *c.cpu_set) {
             hwloc_bitmap_set(bm, idx);
         }
