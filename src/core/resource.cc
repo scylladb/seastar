@@ -264,7 +264,6 @@ io_queue_topology::io_queue_topology(io_queue_topology&& o)
 
 #include <seastar/util/defer.hh>
 #include <seastar/core/print.hh>
-#include <hwloc.h>
 #include <unordered_map>
 #include <boost/range/irange.hpp>
 
@@ -456,12 +455,45 @@ allocate_io_queues(hwloc_topology_t topology, std::vector<cpu> cpus, std::unorde
     return ret;
 }
 
+namespace hwloc::internal {
+
+topology_holder::topology_holder(topology_holder&& o) noexcept
+    : _topology(std::exchange(o._topology, nullptr))
+{ }
+
+topology_holder::~topology_holder() {
+    if (_topology) {
+        hwloc_topology_destroy(_topology);
+    }
+}
+
+topology_holder& topology_holder::operator=(topology_holder&& o) noexcept {
+    if (this != &o) {
+        std::swap(_topology, o._topology);
+    }
+    return *this;
+}
+
+void topology_holder::init_and_load() {
+    hwloc_topology_init(&_topology);
+    // hwloc_topology_destroy is required after hwloc_topology_init
+    // on success, _topology will not be null anymore
+
+    hwloc_topology_load(_topology);
+}
+
+hwloc_topology_t topology_holder::get() {
+    if (!_topology) {
+        init_and_load();
+    }
+    return _topology;
+}
+
+} // namespace hwloc::internal
 
 resources allocate(configuration c) {
-    hwloc_topology_t topology;
-    hwloc_topology_init(&topology);
-    auto free_hwloc = defer([&] { hwloc_topology_destroy(topology); });
-    hwloc_topology_load(topology);
+    hwloc::internal::topology_holder t;
+    auto topology = t.get();
     if (c.cpu_set) {
         auto bm = hwloc_bitmap_alloc();
         auto free_bm = defer([&] { hwloc_bitmap_free(bm); });
@@ -616,11 +648,8 @@ resources allocate(configuration c) {
 }
 
 unsigned nr_processing_units() {
-    hwloc_topology_t topology;
-    hwloc_topology_init(&topology);
-    auto free_hwloc = defer([&] { hwloc_topology_destroy(topology); });
-    hwloc_topology_load(topology);
-    return hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
+    hwloc::internal::topology_holder t;
+    return hwloc_get_nbobjs_by_type(t.get(), HWLOC_OBJ_PU);
 }
 
 }
