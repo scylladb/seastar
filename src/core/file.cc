@@ -187,6 +187,16 @@ posix_file_impl::ioctl(uint64_t cmd, void* argp) noexcept {
 }
 
 future<int>
+posix_file_impl::ioctl_short(uint64_t cmd, void* argp) noexcept {
+    int ret = ::ioctl(_fd, cmd, argp);
+    if (ret == -1) {
+        return make_exception_future<int>(
+                std::system_error(errno, std::system_category(), "ioctl failed"));
+    }
+    return make_ready_future<int>(ret);
+}
+
+future<int>
 posix_file_impl::fcntl(int op, uintptr_t arg) noexcept {
     return engine()._thread_pool->submit<syscall_result<int>>([this, op, arg] () mutable {
         return wrap_syscall<int>(::fcntl(_fd, op, arg));
@@ -195,6 +205,16 @@ posix_file_impl::fcntl(int op, uintptr_t arg) noexcept {
         // Some fcntls require to return a positive integer back.
         return make_ready_future<int>(sr.result);
     });
+}
+
+future<int>
+posix_file_impl::fcntl_short(int op, uintptr_t arg) noexcept {
+    int ret = ::fcntl(_fd, op, arg);
+    if (ret == -1) {
+        return make_exception_future<int>(
+                std::system_error(errno, std::system_category(), "fcntl failed"));
+    }
+    return make_ready_future<int>(ret);
 }
 
 future<>
@@ -1029,9 +1049,25 @@ future<int> file::ioctl(uint64_t cmd, void* argp) noexcept {
     }
 }
 
+future<int> file::ioctl_short(uint64_t cmd, void* argp) noexcept {
+    try {
+        return _file_impl->ioctl_short(cmd, argp);
+    } catch (...) {
+        return current_exception_as_future<int>();
+    }
+}
+
 future<int> file::fcntl(int op, uintptr_t arg) noexcept {
     try {
         return _file_impl->fcntl(op, arg);
+    } catch (...) {
+        return current_exception_as_future<int>();
+    }
+}
+
+future<int> file::fcntl_short(int op, uintptr_t arg) noexcept {
+    try {
+        return _file_impl->fcntl_short(op, arg);
     } catch (...) {
         return current_exception_as_future<int>();
     }
@@ -1160,8 +1196,16 @@ future<int> file_impl::ioctl(uint64_t cmd, void* argp) noexcept {
     return make_exception_future<int>(std::runtime_error("this file type does not support ioctl"));
 }
 
+future<int> file_impl::ioctl_short(uint64_t cmd, void* argp) noexcept {
+    return make_exception_future<int>(std::runtime_error("this file type does not support ioctl_short"));
+}
+
 future<int> file_impl::fcntl(int op, uintptr_t arg) noexcept {
     return make_exception_future<int>(std::runtime_error("this file type does not support fcntl"));
+}
+
+future<int> file_impl::fcntl_short(int op, uintptr_t arg) noexcept {
+    return make_exception_future<int>(std::runtime_error("this file type does not support fcntl_short"));
 }
 
 future<file> open_file_dma(std::string_view name, open_flags flags) noexcept {

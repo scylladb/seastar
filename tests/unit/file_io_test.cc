@@ -512,8 +512,13 @@ SEASTAR_TEST_CASE(test_file_fcntl) {
         auto o_lease = f.fcntl(F_GETLEASE).get0();
         BOOST_CHECK_EQUAL(lease, o_lease);
 
+        // Use _short version and test the same
+        o_lease = f.fcntl_short(F_GETLEASE).get0();
+        BOOST_CHECK_EQUAL(lease, o_lease);
+
         // Perform invalid ops
         BOOST_REQUIRE_THROW(f.fcntl(F_SETLEASE, (uintptr_t)~0ul).get(), std::system_error);
+        BOOST_REQUIRE_THROW(f.fcntl_short(F_SETLEASE, (uintptr_t)~0ul).get(), std::system_error);
 
         // Set and verify a life time hint value using fcntl
         uint64_t hint = RWH_WRITE_LIFE_SHORT;
@@ -522,9 +527,15 @@ SEASTAR_TEST_CASE(test_file_fcntl) {
         BOOST_REQUIRE(!f.fcntl(F_GET_FILE_RW_HINT, (uintptr_t)&o_hint1).get0());
         BOOST_CHECK_EQUAL(hint, o_hint1);
 
+        // Do the same with _short version of fcntl
+        uint64_t o_hint2 = RWF_WRITE_LIFE_NOT_SET;
+        BOOST_REQUIRE(!f.fcntl_short(F_GET_FILE_RW_HINT, (uintptr_t)&o_hint2).get0());
+        BOOST_CHECK_EQUAL(hint, o_hint2);
+
         // perform an invalid op
         hint = RWH_WRITE_LIFE_EXTREME + 1;
         BOOST_REQUIRE_THROW(f.fcntl(F_SET_FILE_RW_HINT, (uintptr_t)&hint).get(), std::system_error);
+        BOOST_REQUIRE_THROW(f.fcntl_short(F_SET_FILE_RW_HINT, (uintptr_t)&hint).get(), std::system_error);
     });
 }
 
@@ -542,6 +553,10 @@ SEASTAR_TEST_CASE(test_file_ioctl) {
         try {
             BOOST_REQUIRE(!f.ioctl(FIGETBSZ, &block_size).get0());
             BOOST_REQUIRE(block_size != 0);
+
+            // Use _short version and test the same
+            BOOST_REQUIRE(!f.ioctl_short(FIGETBSZ, &block_size).get0());
+            BOOST_REQUIRE(block_size != 0);
         } catch (std::system_error& e) {
             // anon_bdev filesystems do not support FIGETBSZ, and return EINVAL
             BOOST_REQUIRE_EQUAL(e.code().value(), EINVAL);
@@ -549,6 +564,7 @@ SEASTAR_TEST_CASE(test_file_ioctl) {
 
         // Perform invalid ops
         BOOST_REQUIRE_THROW(f.ioctl(FIGETBSZ, 0ul).get(), std::system_error);
+        BOOST_REQUIRE_THROW(f.ioctl_short(FIGETBSZ, 0ul).get(), std::system_error);
     });
 }
 

@@ -134,7 +134,9 @@ public:
     virtual future<> truncate(uint64_t length) = 0;
     virtual future<> discard(uint64_t offset, uint64_t length) = 0;
     virtual future<int> ioctl(uint64_t cmd, void* argp) noexcept;
+    virtual future<int> ioctl_short(uint64_t cmd, void* argp) noexcept;
     virtual future<int> fcntl(int op, uintptr_t arg) noexcept;
+    virtual future<int> fcntl_short(int op, uintptr_t arg) noexcept;
     virtual future<> allocate(uint64_t position, uint64_t length) = 0;
     virtual future<uint64_t> size(void) = 0;
     virtual future<> close() = 0;
@@ -407,6 +409,22 @@ public:
     ///         if the operation has failed.
     future<int> ioctl(uint64_t cmd, void* argp) noexcept;
 
+    /// Performs a short ioctl syscall on seastar::file
+    ///
+    /// This is similar to generic \c ioctl; the difference is, here user indicates
+    /// that this operation is a short one, and does not involve any i/o or locking.
+    /// The \c file module will process this differently from the normal \ref ioctl().
+    /// Use this method only if the user is sure that the operation does not involve any
+    /// blocking operation. If unsure, use the default \ref ioctl() method.
+    /// Refer ioctl(2) man page for more details on ioctl operation.
+    ///
+    /// \param cmd ioctl command to be executed
+    /// \param argp pointer to the buffer which holds the argument
+    ///
+    /// \return a future containing the return value if any, or an exceptional future
+    ///         if the operation has failed.
+    future<int> ioctl_short(uint64_t cmd, void* argp) noexcept;
+
     /// Generic fcntl syscall support for special file handling.
     ///
     /// fcntl performs the operation specified by 'op' field on the file.
@@ -419,6 +437,21 @@ public:
     /// \return a future containing the return value if any, or an exceptional future
     ///         if the operation has failed
     future<int> fcntl(int op, uintptr_t arg = 0UL) noexcept;
+
+    /// Performs a 'short' fcntl syscall on seastar::file
+    ///
+    /// This is similar to generic \c fcntl; the difference is, here user indicates
+    /// that this operation is a short one, and does not involve any i/o or locking.
+    /// The \c file module will process this differently from normal \ref fcntl().
+    /// Use this only if the user is sure that the operation does not involve any
+    /// blocking operation. If unsure, use the default \ref fcntl() method.
+    /// Refer fcntl(2) man page for more details on fcntl operation.
+    ///
+    /// \param op the operation to be executed
+    /// \param arg the optional argument
+    /// \return a future containing the return value if any, or an exceptional future
+    ///         if the operation has failed
+    future<int> fcntl_short(int op, uintptr_t arg = 0UL) noexcept;
 
     /// Gets the file size.
     future<uint64_t> size() const noexcept;
