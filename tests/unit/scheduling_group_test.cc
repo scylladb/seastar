@@ -34,6 +34,7 @@
 #include <seastar/core/smp.hh>
 #include <seastar/core/with_scheduling_group.hh>
 #include <seastar/util/later.hh>
+#include <seastar/util/defer.hh>
 
 using namespace std::chrono_literals;
 

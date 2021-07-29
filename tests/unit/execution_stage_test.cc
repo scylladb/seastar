@@ -29,6 +29,7 @@
 #include <seastar/testing/test_runner.hh>
 #include <seastar/core/execution_stage.hh>
 #include <seastar/core/sleep.hh>
+#include <seastar/util/defer.hh>
 
 using namespace std::chrono_literals;
 

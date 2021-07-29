@@ -26,7 +26,6 @@
 #include <seastar/core/file.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/util/std-compat.hh>
-#include <seastar/util/defer.hh>
 
 namespace seastar {
 
