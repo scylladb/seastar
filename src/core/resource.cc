@@ -301,7 +301,7 @@ static size_t alloc_from_node(cpu& this_cpu, hwloc_obj_t node, std::unordered_ma
 }
 
 // Find the numa node that contains a specific PU.
-static hwloc_obj_t get_numa_node_for_pu(hwloc_topology_t& topology, hwloc_obj_t pu) {
+static hwloc_obj_t get_numa_node_for_pu(hwloc_topology_t topology, hwloc_obj_t pu) {
     // Can't use ancestry because hwloc 2.0 NUMA nodes are not ancestors of PUs
     hwloc_obj_t tmp = NULL;
     auto depth = hwloc_get_type_or_above_depth(topology, HWLOC_OBJ_NUMANODE);
@@ -313,7 +313,7 @@ static hwloc_obj_t get_numa_node_for_pu(hwloc_topology_t& topology, hwloc_obj_t 
     return nullptr;
 }
 
-static hwloc_obj_t hwloc_get_ancestor(hwloc_obj_type_t type, hwloc_topology_t& topology, unsigned cpu_id) {
+static hwloc_obj_t hwloc_get_ancestor(hwloc_obj_type_t type, hwloc_topology_t topology, unsigned cpu_id) {
     auto cur = hwloc_get_pu_obj_by_os_index(topology, cpu_id);
 
     while (cur != nullptr) {
@@ -326,7 +326,7 @@ static hwloc_obj_t hwloc_get_ancestor(hwloc_obj_type_t type, hwloc_topology_t& t
     return cur;
 }
 
-static std::unordered_map<hwloc_obj_t, std::vector<unsigned>> break_cpus_into_groups(hwloc_topology_t& topology,
+static std::unordered_map<hwloc_obj_t, std::vector<unsigned>> break_cpus_into_groups(hwloc_topology_t topology,
         std::vector<unsigned> cpus, hwloc_obj_type_t type) {
     std::unordered_map<hwloc_obj_t, std::vector<unsigned>> groups;
 
@@ -342,7 +342,7 @@ struct distribute_objects {
     std::vector<hwloc_cpuset_t> cpu_sets;
     hwloc_obj_t root;
 
-    distribute_objects(hwloc_topology_t& topology, size_t nobjs) : cpu_sets(nobjs), root(hwloc_get_root_obj(topology)) {
+    distribute_objects(hwloc_topology_t topology, size_t nobjs) : cpu_sets(nobjs), root(hwloc_get_root_obj(topology)) {
 #if HWLOC_API_VERSION >= 0x00010900
         hwloc_distrib(topology, &root, 1, cpu_sets.data(), cpu_sets.size(), INT_MAX, 0);
 #else
@@ -361,7 +361,7 @@ struct distribute_objects {
 };
 
 static io_queue_topology
-allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unordered_map<unsigned, hwloc_obj_t>& cpu_to_node,
+allocate_io_queues(hwloc_topology_t topology, std::vector<cpu> cpus, std::unordered_map<unsigned, hwloc_obj_t>& cpu_to_node,
         unsigned num_io_groups, unsigned& last_node_idx) {
     auto node_of_shard = [&cpus, &cpu_to_node] (unsigned shard) {
         auto node = cpu_to_node.at(cpus[shard].cpu_id);
