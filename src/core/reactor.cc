@@ -809,7 +809,7 @@ static decltype(auto) install_signal_handler_stack() {
     stack.ss_size = size;
     auto r = sigaltstack(&stack, &prev_stack);
     throw_system_error_on(r == -1);
-    return defer([mem = std::move(mem), prev_stack] () mutable {
+    return defer([mem = std::move(mem), prev_stack] () mutable noexcept {
         try {
             auto r = sigaltstack(&prev_stack, NULL);
             throw_system_error_on(r == -1);
