@@ -25,7 +25,7 @@
 #include <seastar/core/sharded.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/thread.hh>
-#include <seastar/util/defer.hh>
+#include <seastar/util/closeable.hh>
 #include <cassert>
 
 // This is some service that we wish to run on all shards.
@@ -53,7 +53,7 @@ int main(int ac, char** av) {
             // Launch service_one
             seastar::sharded<service_one> s1;
             s1.start().get();
-            auto stop_s1 = seastar::defer([&] { s1.stop().get(); });
+            auto stop_s1 = seastar::deferred_stop(s1);
 
             auto calculate_half_capacity = [] (service_one& s1) {
                 return s1.get_capacity() / 2;
@@ -68,7 +68,7 @@ int main(int ac, char** av) {
                     // This calculation will be performed on each shard
                     seastar::sharded_parameter(calculate_half_capacity, std::ref(s1))
             ).get();
-            seastar::defer([&] { s2.stop().get(); });
+            auto stop_s2 = seastar::deferred_stop(s2);
 
             s2.invoke_on_all([] (service_two& s2) {
                 assert(s2.get_resource_allocation() == 3);
