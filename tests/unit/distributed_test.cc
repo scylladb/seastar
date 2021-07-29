@@ -244,7 +244,7 @@ SEASTAR_TEST_CASE(test_smp_timeout) {
         ssgc1.max_nonlocal_requests = 1;
         auto ssg1 = create_smp_service_group(ssgc1).get0();
 
-        auto _ = defer([ssg1] {
+        auto _ = defer([ssg1] () noexcept {
             destroy_smp_service_group(ssg1).get();
         });
 
@@ -270,7 +270,7 @@ SEASTAR_TEST_CASE(test_smp_timeout) {
         });
 
         {
-            auto notify = defer([lk = std::move(lk)] { });
+            auto notify = defer([lk = std::move(lk)] () noexcept { });
 
             try {
                 fut_timedout.get();
