@@ -88,6 +88,7 @@ struct configuration {
     bool assign_orphan_cpus = false;
     std::vector<dev_t> devices;
     unsigned num_io_groups;
+    hwloc::internal::topology_holder topology;
 };
 
 struct memory {
@@ -119,8 +120,8 @@ struct resources {
     std::unordered_map<dev_t, io_queue_topology> ioq_topology;
 };
 
-resources allocate(configuration c);
-unsigned nr_processing_units();
+resources allocate(configuration& c);
+unsigned nr_processing_units(configuration& c);
 }
 
 // We need a wrapper class, because boost::program_options wants validate()

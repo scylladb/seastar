@@ -226,7 +226,7 @@ optional<T> read_setting_V1V2_as(std::string cg1_path, std::string cg2_fname) {
 
 namespace resource {
 
-size_t calculate_memory(configuration c, size_t available_memory, float panic_factor = 1) {
+size_t calculate_memory(const configuration& c, size_t available_memory, float panic_factor = 1) {
     size_t default_reserve_memory = std::max<size_t>(1536 * 1024 * 1024, 0.07 * available_memory) * panic_factor;
     auto reserve = c.reserve_memory.value_or(default_reserve_memory);
     size_t min_memory = 500'000'000;
@@ -491,9 +491,8 @@ hwloc_topology_t topology_holder::get() {
 
 } // namespace hwloc::internal
 
-resources allocate(configuration c) {
-    hwloc::internal::topology_holder t;
-    auto topology = t.get();
+resources allocate(configuration& c) {
+    auto topology = c.topology.get();
     if (c.cpu_set) {
         auto bm = hwloc_bitmap_alloc();
         auto free_bm = defer([&] { hwloc_bitmap_free(bm); });
@@ -647,9 +646,8 @@ resources allocate(configuration c) {
     return ret;
 }
 
-unsigned nr_processing_units() {
-    hwloc::internal::topology_holder t;
-    return hwloc_get_nbobjs_by_type(t.get(), HWLOC_OBJ_PU);
+unsigned nr_processing_units(configuration& c) {
+    return hwloc_get_nbobjs_by_type(c.topology.get(), HWLOC_OBJ_PU);
 }
 
 }
@@ -682,7 +680,7 @@ allocate_io_queues(configuration c, std::vector<cpu> cpus) {
 }
 
 
-resources allocate(configuration c) {
+resources allocate(configuration& c) {
     resources ret;
 
     auto available_memory = ::sysconf(_SC_PAGESIZE) * size_t(::sysconf(_SC_PHYS_PAGES));
@@ -704,7 +702,7 @@ resources allocate(configuration c) {
     return ret;
 }
 
-unsigned nr_processing_units() {
+unsigned nr_processing_units(configuration&) {
     return ::sysconf(_SC_NPROCESSORS_ONLN);
 }
 
