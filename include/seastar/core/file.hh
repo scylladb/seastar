@@ -453,6 +453,58 @@ public:
     ///         if the operation has failed
     future<int> fcntl_short(int op, uintptr_t arg = 0UL) noexcept;
 
+    /// Set a lifetime hint for the open file descriptor corresponding to seastar::file
+    ///
+    /// Write lifetime  hints  can be used to inform the kernel about the relative
+    /// expected lifetime of writes on a given inode or via open file descriptor.
+    /// An application may use the different hint values to separate writes into different
+    /// write classes, so that multiple users or applications running on a single storage back-end
+    /// can aggregate their I/O  patterns in a consistent manner.
+    /// Refer fcntl(2) man page for more details on write lifetime hints.
+    ///
+    /// \param hint the hint value of the stream
+    /// \return future indicating success or failure
+    future<> set_file_lifetime_hint(uint64_t hint) noexcept;
+
+    /// Set a lifetime hint for the inode corresponding to seastar::file
+    ///
+    /// Write lifetime  hints  can be used to inform the kernel about the relative
+    /// expected lifetime of writes on a given inode or via open file descriptor.
+    /// An application may use the different hint values to separate writes into different
+    /// write classes, so that multiple users or applications running on a single storage back-end
+    /// can aggregate their I/O  patterns in a consistent manner.
+    /// Refer fcntl(2) man page for more details on write lifetime hints.
+    ///
+    /// \param hint the hint value of the stream
+    /// \return future indicating success or failure
+    future<> set_inode_lifetime_hint(uint64_t hint) noexcept;
+
+    /// Get the lifetime hint of the open file descriptor of seastar::file which was set by
+    /// \ref set_file_lifetime_hint()
+    ///
+    /// Write lifetime  hints  can be used to inform the kernel about the relative
+    /// expected lifetime of writes on a given inode or via open file descriptor.
+    /// An application may use the different hint values to separate writes into different
+    /// write classes, so that multiple users or applications running on a single storage back-end
+    /// can aggregate their I/O  patterns in a consistent manner.
+    /// Refer fcntl(2) man page for more details on write lifetime hints.
+    ///
+    /// \return the hint value of the open file descriptor
+    future<uint64_t> get_file_lifetime_hint() noexcept;
+
+    /// Get the lifetime hint of the inode of seastar::file which was set by
+    /// \ref set_inode_lifetime_hint()
+    ///
+    /// Write lifetime  hints  can be used to inform the kernel about the relative
+    /// expected lifetime of writes on a given inode or via open file descriptor.
+    /// An application may use the different hint values to separate writes into different
+    /// write classes, so that multiple users or applications running on a single storage back-end
+    /// can aggregate their I/O  patterns in a consistent manner.
+    /// Refer fcntl(2) man page for more details on write lifetime hints.
+    ///
+    /// \return the hint value of the inode
+    future<uint64_t> get_inode_lifetime_hint() noexcept;
+
     /// Gets the file size.
     future<uint64_t> size() const noexcept;
 
@@ -516,6 +568,9 @@ private:
 
     future<temporary_buffer<uint8_t>>
     dma_read_exactly_impl(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
+
+    future<uint64_t> get_lifetime_hint_impl(int op) noexcept;
+    future<> set_lifetime_hint_impl(int op, uint64_t hint) noexcept;
 
     friend class reactor;
     friend class file_impl;

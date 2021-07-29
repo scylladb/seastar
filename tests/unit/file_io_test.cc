@@ -498,6 +498,49 @@ SEASTAR_TEST_CASE(test_file_stat_method) {
   });
 }
 
+SEASTAR_TEST_CASE(test_file_write_lifetime_method) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        auto oflags = open_flags::rw | open_flags::create;
+        sstring filename = (t.get_path() / "testfile.tmp").native();
+
+        auto f1 = open_file_dma(filename, oflags).get0();
+        auto close_f1 = deferred_close(f1);
+        auto f2 = open_file_dma(filename, oflags).get0();
+        auto close_f2 = deferred_close(f2);
+
+        // Write life time hint values
+        std::vector<uint64_t> hint_set = {RWF_WRITE_LIFE_NOT_SET,
+                                                RWH_WRITE_LIFE_NONE,
+                                                RWH_WRITE_LIFE_SHORT,
+                                                RWH_WRITE_LIFE_MEDIUM,
+                                                RWH_WRITE_LIFE_LONG,
+                                                RWH_WRITE_LIFE_EXTREME};
+
+        for (auto i = 0ul; i < hint_set.size(); ++i) {
+            auto hint = hint_set[i];
+
+            // Set and verify the lifetime hint of the inode
+            f1.set_inode_lifetime_hint(hint).get();
+            auto o_hint1 = f1.get_inode_lifetime_hint().get0();
+            BOOST_CHECK_EQUAL(hint, o_hint1);
+
+            // Verfiy the lifetime_hint set previously on the inode using open fds
+            auto o_hint2 = f2.get_file_lifetime_hint().get0();
+            BOOST_CHECK_EQUAL(hint, o_hint2);
+
+            // Set and verify on the open fd (different from the inode method)
+            f1.set_file_lifetime_hint(hint).get();
+            o_hint1 = f1.get_file_lifetime_hint().get0();
+            BOOST_CHECK_EQUAL(hint, o_hint1);
+        }
+
+        // Perform invalid ops
+        uint64_t hint = RWH_WRITE_LIFE_EXTREME + 1;
+        BOOST_REQUIRE_THROW(f1.set_inode_lifetime_hint(hint).get(), std::system_error);
+        BOOST_REQUIRE_THROW(f1.set_file_lifetime_hint(hint).get(), std::system_error);
+    });
+}
+
 SEASTAR_TEST_CASE(test_file_fcntl) {
     return tmp_dir::do_with_thread([] (tmp_dir& t) {
         auto oflags = open_flags::rw | open_flags::create;
